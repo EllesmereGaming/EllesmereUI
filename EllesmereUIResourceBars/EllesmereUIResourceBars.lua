@@ -642,10 +642,10 @@ end
 local function BuildMainFrame()
     if mainFrame then return mainFrame end
 
-    local g = ERB.db.profile.general
+    local g = ERB.db.profile.general or DEFAULTS.profile.general
 
     mainFrame = CreateFrame("Frame", "EllesmereUIResourceBarsFrame", UIParent)
-    mainFrame:SetPoint("CENTER", UIParent, "CENTER", g.anchorX, g.anchorY)
+    mainFrame:SetPoint("CENTER", UIParent, "CENTER", g.anchorX or 0, g.anchorY or -100)
     mainFrame:SetSize(1, 1)  -- invisible anchor point
     mainFrame:SetFrameStrata("MEDIUM")
     mainFrame:SetFrameLevel(5)
@@ -816,7 +816,7 @@ local function RegisterUnlockElements()
         clearPosition = function()
             local sp = ERB.db.profile.secondary
             sp.unlockPos = nil
-            sp.offsetX = 0; sp.offsetY = -14
+            sp.offsetX = 0; sp.offsetY = -38
         end,
         isAnchored = function()
             local sp = ERB.db.profile.secondary
@@ -1017,16 +1017,17 @@ local function ApplyBarAnchor(frame, anchorKey, anchorPos, offsetX, offsetY, gro
     if not targetFrame or not targetFrame:IsShown() then return false end
 
     frame:ClearAllPoints()
+    local ok
     if anchorPos == "left" then
-        frame:SetPoint(GetFramePoint(), targetFrame, "LEFT", offsetX, offsetY)
+        ok = pcall(frame.SetPoint, frame, GetFramePoint(), targetFrame, "LEFT", offsetX, offsetY)
     elseif anchorPos == "right" then
-        frame:SetPoint(GetFramePoint(), targetFrame, "RIGHT", offsetX, offsetY)
+        ok = pcall(frame.SetPoint, frame, GetFramePoint(), targetFrame, "RIGHT", offsetX, offsetY)
     elseif anchorPos == "top" then
-        frame:SetPoint(GetFramePoint(), targetFrame, "TOP", offsetX, offsetY)
+        ok = pcall(frame.SetPoint, frame, GetFramePoint(), targetFrame, "TOP", offsetX, offsetY)
     elseif anchorPos == "bottom" then
-        frame:SetPoint(GetFramePoint(), targetFrame, "BOTTOM", offsetX, offsetY)
+        ok = pcall(frame.SetPoint, frame, GetFramePoint(), targetFrame, "BOTTOM", offsetX, offsetY)
     end
-    return true
+    return ok or false
 end
 
 -------------------------------------------------------------------------------
@@ -1035,7 +1036,15 @@ end
 
 local function BuildBars()
     local p = ERB.db.profile
-    local g = p.general
+
+    -- If the profile is missing critical sub-tables, reset to defaults
+    if type(p.primary) ~= "table" or type(p.secondary) ~= "table"
+    or type(p.general) ~= "table" then
+        ERB.db:ResetProfile()
+        p = ERB.db.profile
+    end
+
+    local g = p.general or DEFAULTS.profile.general
 
     if not mainFrame then BuildMainFrame() end
 
@@ -1049,8 +1058,11 @@ local function BuildBars()
         end
     end
 
+    -- Fallback defaults for nil-safe reads (protects against sparse SavedVariables from migration)
+    local FALLBACK = DEFAULTS.profile
+
     -- Health bar
-    local hp = p.health
+    local hp = p.health or FALLBACK.health
     if hp.enabled then
         local hpOri = hp.orientation or g.orientation or "HORIZONTAL"
         if not healthBar then
@@ -1074,22 +1086,22 @@ local function BuildBars()
             -- Clear any mouse-tracking OnUpdate from a previous anchor
             ApplyBarAnchor(healthBar, "none")
             local function ApplyHealthBarTransform()
-                local s = healthBar["_barAnim_scale"] or hp.scale
-                local ox = healthBar["_barAnim_ox"] or hp.offsetX
-                local oy = healthBar["_barAnim_oy"] or hp.offsetY
-                local w = healthBar["_barAnim_w"] or hp.width
-                local h2 = healthBar["_barAnim_h"] or hp.height
+                local s = healthBar["_barAnim_scale"] or hp.scale or 1
+                local ox = healthBar["_barAnim_ox"] or hp.offsetX or 0
+                local oy = healthBar["_barAnim_oy"] or hp.offsetY or -64
+                local w = healthBar["_barAnim_w"] or hp.width or 214
+                local h2 = healthBar["_barAnim_h"] or hp.height or 16
                 local ow, oh = OrientedSize(w, h2, hpOri)
                 healthBar:SetScale(s)
                 healthBar:SetSize(ow, oh)
                 healthBar:ClearAllPoints()
                 healthBar:SetPoint("CENTER", mainFrame, "CENTER", ox, oy)
             end
-            SmoothBarAnimate(healthBar, "scale", hp.scale, function() ApplyHealthBarTransform() end)
-            SmoothBarAnimate(healthBar, "ox", hp.offsetX, function() ApplyHealthBarTransform() end)
-            SmoothBarAnimate(healthBar, "oy", hp.offsetY, function() ApplyHealthBarTransform() end)
-            SmoothBarAnimate(healthBar, "w", hp.width, function() ApplyHealthBarTransform() end)
-            SmoothBarAnimate(healthBar, "h", hp.height, function() ApplyHealthBarTransform() end)
+            SmoothBarAnimate(healthBar, "scale", hp.scale or 1, function() ApplyHealthBarTransform() end)
+            SmoothBarAnimate(healthBar, "ox", hp.offsetX or 0, function() ApplyHealthBarTransform() end)
+            SmoothBarAnimate(healthBar, "oy", hp.offsetY or -64, function() ApplyHealthBarTransform() end)
+            SmoothBarAnimate(healthBar, "w", hp.width or 214, function() ApplyHealthBarTransform() end)
+            SmoothBarAnimate(healthBar, "h", hp.height or 16, function() ApplyHealthBarTransform() end)
         end
         healthBar:ApplyBorder(hp.borderSize, hp.borderR, hp.borderG, hp.borderB, hp.borderA)
 
@@ -1127,8 +1139,8 @@ local function BuildBars()
     end
 
     -- Power bar (primary resource)
-    local pp = p.primary
-    if pp.enabled then
+    local pp = p.primary or FALLBACK.primary
+    if pp.enabled ~= false then
         local ppOri = pp.orientation or g.orientation or "HORIZONTAL"
         if not primaryBar then
             primaryBar = CreateStatusBar(mainFrame, "ERB_PrimaryBar", pp.width, pp.height,
@@ -1151,22 +1163,22 @@ local function BuildBars()
             -- Clear any mouse-tracking OnUpdate from a previous anchor
             ApplyBarAnchor(primaryBar, "none")
             local function ApplyPowerBarTransform()
-                local s = primaryBar["_barAnim_scale"] or pp.scale
-                local ox = primaryBar["_barAnim_ox"] or pp.offsetX
-                local oy = primaryBar["_barAnim_oy"] or pp.offsetY
-                local w = primaryBar["_barAnim_w"] or pp.width
-                local h2 = primaryBar["_barAnim_h"] or pp.height
+                local s = primaryBar["_barAnim_scale"] or pp.scale or 1
+                local ox = primaryBar["_barAnim_ox"] or pp.offsetX or 0
+                local oy = primaryBar["_barAnim_oy"] or pp.offsetY or -52
+                local w = primaryBar["_barAnim_w"] or pp.width or 214
+                local h2 = primaryBar["_barAnim_h"] or pp.height or 4
                 local ow, oh = OrientedSize(w, h2, ppOri)
                 primaryBar:SetScale(s)
                 primaryBar:SetSize(ow, oh)
                 primaryBar:ClearAllPoints()
                 primaryBar:SetPoint("CENTER", mainFrame, "CENTER", ox, oy)
             end
-            SmoothBarAnimate(primaryBar, "scale", pp.scale, function() ApplyPowerBarTransform() end)
-            SmoothBarAnimate(primaryBar, "ox", pp.offsetX, function() ApplyPowerBarTransform() end)
-            SmoothBarAnimate(primaryBar, "oy", pp.offsetY, function() ApplyPowerBarTransform() end)
-            SmoothBarAnimate(primaryBar, "w", pp.width, function() ApplyPowerBarTransform() end)
-            SmoothBarAnimate(primaryBar, "h", pp.height, function() ApplyPowerBarTransform() end)
+            SmoothBarAnimate(primaryBar, "scale", pp.scale or 1, function() ApplyPowerBarTransform() end)
+            SmoothBarAnimate(primaryBar, "ox", pp.offsetX or 0, function() ApplyPowerBarTransform() end)
+            SmoothBarAnimate(primaryBar, "oy", pp.offsetY or -52, function() ApplyPowerBarTransform() end)
+            SmoothBarAnimate(primaryBar, "w", pp.width or 214, function() ApplyPowerBarTransform() end)
+            SmoothBarAnimate(primaryBar, "h", pp.height or 4, function() ApplyPowerBarTransform() end)
         end
         primaryBar:ApplyBorder(pp.borderSize, pp.borderR, pp.borderG, pp.borderB, pp.borderA)
 
@@ -1205,8 +1217,8 @@ local function BuildBars()
 
     -- Class resource (secondary: pips / runes)
     cachedSecondary = GetSecondaryResource()
-    local sp = p.secondary
-    if sp.enabled and cachedSecondary then
+    local sp = p.secondary or FALLBACK.secondary
+    if sp.enabled ~= false and cachedSecondary then
         if not secondaryFrame then
             secondaryFrame = CreateFrame("Frame", "ERB_SecondaryFrame", mainFrame)
         end
@@ -1228,9 +1240,9 @@ local function BuildBars()
                 if realMax and realMax > 0 then maxPts = realMax end
             end
         end
-        local pipW = sp.pipWidth
-        local pipH = sp.pipHeight
-        local pipSp = sp.pipSpacing
+        local pipW = sp.pipWidth or 42
+        local pipH = sp.pipHeight or 20
+        local pipSp = sp.pipSpacing or 1
         local totalW
 
         local isBarType = cachedSecondary.type == "bar"
@@ -1245,21 +1257,21 @@ local function BuildBars()
 
         if sp.unlockPos and sp.unlockPos.point then
             -- Position fully managed by unlock mode — always use CENTER for consistent centering
-            secondaryFrame:SetScale(sp.scale)
+            secondaryFrame:SetScale(sp.scale or 1)
             secondaryFrame:SetSize(totalW, pipH)
             secondaryFrame:ClearAllPoints()
             secondaryFrame:SetPoint("CENTER", UIParent, "CENTER", sp.unlockPos.x or 0, sp.unlockPos.y or 0)
         elseif sp.anchorTo and sp.anchorTo ~= "none" then
-            secondaryFrame:SetScale(sp.scale)
+            secondaryFrame:SetScale(sp.scale or 1)
             secondaryFrame:SetSize(totalW, pipH)
             ApplyBarAnchor(secondaryFrame, sp.anchorTo, sp.anchorPosition, sp.anchorOffsetX, sp.anchorOffsetY, sp.growthDirection, sp.growCentered)
         else
             -- Clear any mouse-tracking OnUpdate from a previous anchor
             ApplyBarAnchor(secondaryFrame, "none")
             local function ApplySecondaryBarTransform()
-                local s = secondaryFrame["_barAnim_scale"] or sp.scale
-                local ox = secondaryFrame["_barAnim_ox"] or sp.offsetX
-                local oy = secondaryFrame["_barAnim_oy"] or sp.offsetY
+                local s = secondaryFrame["_barAnim_scale"] or sp.scale or 1
+                local ox = secondaryFrame["_barAnim_ox"] or sp.offsetX or 0
+                local oy = secondaryFrame["_barAnim_oy"] or sp.offsetY or -38
                 local w = secondaryFrame["_barAnim_w"] or totalW
                 local h2 = secondaryFrame["_barAnim_h"] or pipH
                 secondaryFrame:SetScale(s)
@@ -1267,9 +1279,9 @@ local function BuildBars()
                 secondaryFrame:ClearAllPoints()
                 secondaryFrame:SetPoint("CENTER", mainFrame, "CENTER", ox, oy)
             end
-            SmoothBarAnimate(secondaryFrame, "scale", sp.scale, function() ApplySecondaryBarTransform() end)
-            SmoothBarAnimate(secondaryFrame, "ox", sp.offsetX, function() ApplySecondaryBarTransform() end)
-            SmoothBarAnimate(secondaryFrame, "oy", sp.offsetY, function() ApplySecondaryBarTransform() end)
+            SmoothBarAnimate(secondaryFrame, "scale", sp.scale or 1, function() ApplySecondaryBarTransform() end)
+            SmoothBarAnimate(secondaryFrame, "ox", sp.offsetX or 0, function() ApplySecondaryBarTransform() end)
+            SmoothBarAnimate(secondaryFrame, "oy", sp.offsetY or -38, function() ApplySecondaryBarTransform() end)
             SmoothBarAnimate(secondaryFrame, "w", totalW, function() ApplySecondaryBarTransform() end)
             SmoothBarAnimate(secondaryFrame, "h", pipH, function() ApplySecondaryBarTransform() end)
         end
@@ -1827,10 +1839,10 @@ local function UpdateVisibility()
     -- Health bar visibility
     if healthBar then
         local hp = ERB.db.profile.health
-        if hp.enabled and ShouldShowBar(hp) then
+        if hp and hp.enabled and ShouldShowBar(hp) then
             healthBar:Show()
             healthBar:SetAlpha(hp.barAlpha or 1)
-        elseif not hp.enabled or not ShouldShowBar(hp) then
+        else
             healthBar:Hide()
         end
     end
@@ -1838,10 +1850,10 @@ local function UpdateVisibility()
     -- Power bar visibility
     if primaryBar then
         local pp = ERB.db.profile.primary
-        if pp.enabled and ShouldShowBar(pp) then
+        if pp and pp.enabled ~= false and ShouldShowBar(pp) then
             primaryBar:Show()
             primaryBar:SetAlpha(pp.barAlpha or 1)
-        elseif not pp.enabled or not ShouldShowBar(pp) then
+        else
             primaryBar:Hide()
         end
     end
@@ -1849,10 +1861,10 @@ local function UpdateVisibility()
     -- Secondary resource visibility + ooc alpha
     if secondaryFrame then
         local sp = ERB.db.profile.secondary
-        if sp.enabled and cachedSecondary and ShouldShowSecondary() then
+        if sp and sp.enabled ~= false and cachedSecondary and ShouldShowSecondary() then
             secondaryFrame:Show()
             local base = sp.barAlpha or 1
-            local ooc = isInCombat and 1 or sp.oocAlpha
+            local ooc = isInCombat and 1 or (sp.oocAlpha or 1)
             secondaryFrame:SetAlpha(base * ooc)
         else
             secondaryFrame:Hide()
@@ -2817,6 +2829,16 @@ function ERB:OnInitialize()
     end
 
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIResourceBarsDB", DEFAULTS, true)
+
+    -- One-time migration from AceDB to Lite: reset the profile to ensure
+    -- all defaults are properly applied.  AceDB used metatables for defaults
+    -- which left the raw SavedVariables sparse; Lite writes defaults directly.
+    -- This flag persists in the SV root so it only fires once per character.
+    local sv = _G["EllesmereUIResourceBarsDB"]
+    if sv and not sv._liteMigrated then
+        self.db:ResetProfile()
+        sv._liteMigrated = true
+    end
 
     _G._ERB_AceDB = self.db
     _G._ERB_Apply = function() ERB:ApplyAll() end

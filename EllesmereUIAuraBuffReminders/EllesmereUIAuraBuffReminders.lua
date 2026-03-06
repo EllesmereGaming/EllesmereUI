@@ -227,6 +227,13 @@ local function SnapshotPlayerAuras()
     end
 end
 
+-- Pre-combat snapshot for "ownOnRaid" buffs (Source of Magic, Beacon, etc.)
+-- These are buffs the player casts on OTHER group members. sourceUnit is
+-- unreadable in combat, so we snapshot the result of the full group scan
+-- before entering combat.
+local _preCombatOwnOnRaidCache = {}  -- [spellID] = true/false
+local SnapshotOwnOnRaidBuffs  -- forward declaration; defined after _unitHasBuffFromPlayer
+
 local function PlayerHasAuraByID(spellIDs)
     if not spellIDs or not spellIDs[1] then return true end
     local inCombat = InCombat()
@@ -328,8 +335,11 @@ end
 -- lookup, no iteration).  Falls back to GetAuraDataByIndex iteration OOC.
 local function _unitHasBuffFromPlayer(u, spellIDs)
     local inCombat = InCombat()
-    for j = 1, #spellIDs do
-        local id = spellIDs[j]
+    local idLookup = {}
+    for j = 1, #spellIDs do idLookup[spellIDs[j]] = true end
+
+    -- Fast path: direct lookup for whitelisted IDs
+    for id in pairs(idLookup) do
         if NON_SECRET_SPELL_IDS[id] then
             -- Direct lookup â€” works on any unit, in or out of combat, for
             -- non-secret spell IDs.  Player uses GetPlayerAuraBySpellID
@@ -351,28 +361,51 @@ local function _unitHasBuffFromPlayer(u, spellIDs)
                 if src and not issecretvalue(src) and UnitIsUnit(src, "player") then
                     return true
                 end
+                -- Direct lookup found the aura but couldn't verify source.
+                -- Fall through to iteration below (OOC only) which often
+                -- populates sourceUnit when the direct API doesn't.
             end
         end
     end
-    -- Fallback: iterate auras OOC for non-whitelisted IDs
+    -- Iteration fallback (OOC): works for ALL spell IDs, including whitelisted
+    -- ones where the direct lookup couldn't confirm source ownership.
     if not inCombat then
         for i = 1, 40 do
             local aura = C_UnitAuras.GetAuraDataByIndex(u, i, "HELPFUL")
             if not aura then break end
             local sid = aura.spellId
-            if sid and not issecretvalue(sid) then
-                for j = 1, #spellIDs do
-                    if sid == spellIDs[j] then
-                        local src = aura.sourceUnit
-                        if src and not issecretvalue(src) and UnitIsUnit(src, "player") then
-                            return true
-                        end
-                    end
+            if sid and not issecretvalue(sid) and idLookup[sid] then
+                local src = aura.sourceUnit
+                if src and not issecretvalue(src) and UnitIsUnit(src, "player") then
+                    return true
                 end
             end
         end
     end
     return false
+end
+
+-- Assign the SnapshotOwnOnRaidBuffs function (forward-declared earlier,
+-- now that _unitHasBuffFromPlayer is defined).
+SnapshotOwnOnRaidBuffs = function()
+    wipe(_preCombatOwnOnRaidCache)
+    local ownOnRaidIDs = { 53563, 156910, 369459 }
+    for _, id in ipairs(ownOnRaidIDs) do
+        local found = false
+        if _unitHasBuffFromPlayer("player", {id}) then found = true end
+        if not found then
+            if IsInRaid() then
+                for i = 1, GetNumGroupMembers() do
+                    if _unitHasBuffFromPlayer("raid"..i, {id}) then found = true; break end
+                end
+            elseif IsInGroup() then
+                for i = 1, GetNumSubgroupMembers() do
+                    if _unitHasBuffFromPlayer("party"..i, {id}) then found = true; break end
+                end
+            end
+        end
+        _preCombatOwnOnRaidCache[id] = found
+    end
 end
 
 -- Like PlayerHasAuraByID but only returns true if the buff's source is the
@@ -1511,7 +1544,13 @@ local function Refresh()
                                 if not (IsInGroup() or IsInRaid()) then isMissing = false end
                             end
                         elseif aura.check == "ownOnRaid" then
-                            isMissing = not PlayerOwnBuffOnAnyGroupMember(aura.buffIDs)
+                            if inCombat then
+                                -- In combat, sourceUnit is unreliable; use pre-combat snapshot
+                                local cached = _preCombatOwnOnRaidCache[aura.buffIDs[1]]
+                                isMissing = (cached == false)
+                            else
+                                isMissing = not PlayerOwnBuffOnAnyGroupMember(aura.buffIDs)
+                            end
                             if not (IsInGroup() or IsInRaid()) then isMissing = false end
                         elseif aura.check == "playerSelfCast" then
                             -- Player must have the buff from their OWN cast
@@ -2165,6 +2204,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2)
     if e == "PLAYER_REGEN_DISABLED" then
         -- Entering combat: snapshot aura state, then refresh to switch to combat icons
         SnapshotPlayerAuras()
+        SnapshotOwnOnRaidBuffs()
         RequestRefresh()
         return
     end
@@ -2356,7 +2396,13 @@ SlashCmdList["EABRDEBUG"] = function()
                         if not (inGroup or inRaid) then isMissing = false; status = "not in group"; end
                     end
                 elseif aura.check == "ownOnRaid" then
-                    isMissing = not PlayerOwnBuffOnAnyGroupMember(aura.buffIDs)
+                    if inCombat then
+                        local cached = _preCombatOwnOnRaidCache[aura.buffIDs[1]]
+                        isMissing = (cached == false)
+                        status = "ownOnRaid (combat snapshot: " .. tostring(cached) .. ")"
+                    else
+                        isMissing = not PlayerOwnBuffOnAnyGroupMember(aura.buffIDs)
+                    end
                     if not (inGroup or inRaid) then isMissing = false; status = "not in group"; end
                 elseif aura.check == "playerSelfCast" then
                     isMissing = not PlayerHasSelfCastAuraByID(aura.buffIDs)

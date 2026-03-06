@@ -2156,14 +2156,20 @@ BuildCDMBar = function(barIndex)
             local centered = barData.growCentered ~= false
             local fp = CDMFrameAnchorPoint(anchorPos:upper(), grow, centered)
             frame._anchorSide = anchorPos:upper()
+            local ok
             if anchorPos == "left" then
-                frame:SetPoint(fp, erbFrame, "LEFT", -gap + oX, oY)
+                ok = pcall(frame.SetPoint, frame, fp, erbFrame, "LEFT", -gap + oX, oY)
             elseif anchorPos == "right" then
-                frame:SetPoint(fp, erbFrame, "RIGHT", gap + oX, oY)
+                ok = pcall(frame.SetPoint, frame, fp, erbFrame, "RIGHT", gap + oX, oY)
             elseif anchorPos == "top" then
-                frame:SetPoint(fp, erbFrame, "TOP", oX, gap + oY)
+                ok = pcall(frame.SetPoint, frame, fp, erbFrame, "TOP", oX, gap + oY)
             elseif anchorPos == "bottom" then
-                frame:SetPoint(fp, erbFrame, "BOTTOM", oX, -gap + oY)
+                ok = pcall(frame.SetPoint, frame, fp, erbFrame, "BOTTOM", oX, -gap + oY)
+            end
+            -- Circular anchor detected — fall back to center
+            if not ok then
+                frame:ClearAllPoints()
+                frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
             end
         else
             -- Resource Bars frame not available ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â fall back to saved position
@@ -2186,14 +2192,19 @@ BuildCDMBar = function(barIndex)
         local centered = barData.growCentered ~= false
         local fp = CDMFrameAnchorPoint(anchorPos:upper(), grow, centered)
         frame._anchorSide = anchorPos:upper()
+        local ok
         if anchorPos == "left" then
-            frame:SetPoint(fp, anchorFrame, "LEFT", -gap + oX, oY)
+            ok = pcall(frame.SetPoint, frame, fp, anchorFrame, "LEFT", -gap + oX, oY)
         elseif anchorPos == "right" then
-            frame:SetPoint(fp, anchorFrame, "RIGHT", gap + oX, oY)
+            ok = pcall(frame.SetPoint, frame, fp, anchorFrame, "RIGHT", gap + oX, oY)
         elseif anchorPos == "top" then
-            frame:SetPoint(fp, anchorFrame, "TOP", oX, gap + oY)
+            ok = pcall(frame.SetPoint, frame, fp, anchorFrame, "TOP", oX, gap + oY)
         elseif anchorPos == "bottom" then
-            frame:SetPoint(fp, anchorFrame, "BOTTOM", oX, -gap + oY)
+            ok = pcall(frame.SetPoint, frame, fp, anchorFrame, "BOTTOM", oX, -gap + oY)
+        end
+        if not ok then
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
         end
     else
         local pos = p.cdmBarPositions[key]

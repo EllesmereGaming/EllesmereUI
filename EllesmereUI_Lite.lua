@@ -158,26 +158,40 @@ local dbRegistry = {}  -- all db objects, for logout cleanup
 function EUILite.NewDB(svName, defaults)
     -- Get or create the global SV table
     local sv = _G[svName]
-    if not sv then
+    if type(sv) ~= "table" then
         sv = {}
         _G[svName] = sv
     end
 
     -- Determine profile key
     local charKey = UnitName("player") .. " - " .. GetRealmName()
-    if not sv.profileKeys then sv.profileKeys = {} end
+    if type(sv.profileKeys) ~= "table" then sv.profileKeys = {} end
     local profileName = sv.profileKeys[charKey] or "Default"
     sv.profileKeys[charKey] = profileName
 
     -- Get or create the profile table
-    if not sv.profiles then sv.profiles = {} end
-    if not sv.profiles[profileName] then sv.profiles[profileName] = {} end
+    if type(sv.profiles) ~= "table" then sv.profiles = {} end
+    if type(sv.profiles[profileName]) ~= "table" then sv.profiles[profileName] = {} end
     local profile = sv.profiles[profileName]
 
     -- Merge defaults into profile (fills missing keys only)
     local profileDefaults = defaults and defaults.profile
     if profileDefaults then
         DeepMergeDefaults(profile, profileDefaults)
+        -- Validate: if any top-level default sub-table is missing or wrong
+        -- type after merge, the profile is corrupt (e.g. AceDB migration
+        -- leftovers).  Wipe and re-merge from scratch.
+        local corrupt = false
+        for k, v in pairs(profileDefaults) do
+            if type(v) == "table" and type(profile[k]) ~= "table" then
+                corrupt = true
+                break
+            end
+        end
+        if corrupt then
+            wipe(profile)
+            DeepMergeDefaults(profile, profileDefaults)
+        end
     end
 
     -- Build the db object

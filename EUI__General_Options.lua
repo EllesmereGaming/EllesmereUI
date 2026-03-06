@@ -36,6 +36,11 @@ do
     local saved = EllesmereUIDB and EllesmereUIDB.fctFont
     if saved and type(saved) == "string" and saved ~= "" then
         _G.DAMAGE_TEXT_FONT = saved
+        -- The engine also reads from the CombatTextFont font object directly.
+        -- Setting the global alone is not enough in modern WoW.
+        if _G.CombatTextFont then
+            _G.CombatTextFont:SetFont(saved, 120, "")
+        end
     end
 end
 
@@ -44,6 +49,17 @@ local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
+
+    -- Re-apply combat text font at login (CombatTextFont may not exist at file scope)
+    do
+        local saved = EllesmereUIDB and EllesmereUIDB.fctFont
+        if saved and type(saved) == "string" and saved ~= "" then
+            _G.DAMAGE_TEXT_FONT = saved
+            if _G.CombatTextFont then
+                _G.CombatTextFont:SetFont(saved, 120, "")
+            end
+        end
+    end
 
     if not EllesmereUI or not EllesmereUI.RegisterModule then return end
     local PP = EllesmereUI.PanelPP
