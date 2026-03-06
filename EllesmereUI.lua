@@ -766,12 +766,41 @@ do
         end
     end
 
-    -- Listen for UI_SCALE_CHANGED to recalculate mult
+    -- Listen for UI_SCALE_CHANGED and DISPLAY_SIZE_CHANGED to recalculate mult
     local scaleWatcher = CreateFrame("Frame")
     scaleWatcher:RegisterEvent("UI_SCALE_CHANGED")
+    scaleWatcher:RegisterEvent("DISPLAY_SIZE_CHANGED")
     scaleWatcher:SetScript("OnEvent", function()
         PP.UpdateMult()
     end)
+
+    -- Return the size of 1 physical pixel in a specific frame's coordinate space.
+    -- Use this instead of PP.mult when the frame may have SetScale() applied.
+    function PP.MultFor(frame)
+        if not frame then return PP.mult end
+        local es = frame:GetEffectiveScale()
+        if not es or es == 0 then return PP.mult end
+        return PP.perfect / es
+    end
+
+    -- Snap a value to the nearest physical pixel in a specific frame's coordinate space.
+    function PP.ScaleFor(x, frame)
+        if x == 0 then return 0 end
+        local m = PP.MultFor(frame)
+        if m == 1 then return x end
+        local y = m > 1 and m or -m
+        return x - x % (x < 0 and y or -y)
+    end
+
+    -- Pixel-snapped SetHeight accounting for the frame's own scale
+    function PP.HeightFor(obj, h, frame)
+        obj:SetHeight(PP.ScaleFor(h, frame or obj:GetParent()))
+    end
+
+    -- Pixel-snapped SetWidth accounting for the frame's own scale
+    function PP.WidthFor(obj, w, frame)
+        obj:SetWidth(PP.ScaleFor(w, frame or obj:GetParent()))
+    end
 end
 
 -- File-level PP reference for code outside the do block

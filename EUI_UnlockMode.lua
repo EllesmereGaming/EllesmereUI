@@ -1134,16 +1134,27 @@ local function NudgeMover(dx, dy)
     if bar then
         local uiS = UIParent:GetEffectiveScale()
         local bS = bar:GetEffectiveScale()
-        local ratio = uiS / bS
+        -- newX/newY are in UIParent coordinate space (TOPLEFT offset from UIParent TOPLEFT).
+        -- SetPoint offsets relative to UIParent are in UIParent space — no conversion needed.
         pcall(function()
             bar:ClearAllPoints()
-            bar:SetPoint("TOPLEFT", UIParent, "TOPLEFT", newX * ratio, newY * ratio)
+            bar:SetPoint("TOPLEFT", UIParent, "TOPLEFT", newX, newY)
         end)
-        local _prevScale = type(pendingPositions[m._barKey]) == "table" and pendingPositions[m._barKey].scale or nil
-        pendingPositions[m._barKey] = {
-            point = "TOPLEFT", relPoint = "TOPLEFT",
-            x = newX * ratio, y = newY * ratio,
-        }
+        -- Read back the actual anchor WoW stored — correct at any scale
+        local pt, _, rpt, px, py = bar:GetPoint(1)
+        local prev = pendingPositions[m._barKey]
+        local _prevScale = type(prev) == "table" and prev.scale or nil
+        if pt then
+            pendingPositions[m._barKey] = {
+                point = pt, relPoint = rpt or pt,
+                x = px, y = py,
+            }
+        else
+            pendingPositions[m._barKey] = {
+                point = "TOPLEFT", relPoint = "TOPLEFT",
+                x = newX * ratio, y = newY * ratio,
+            }
+        end
         if _prevScale then pendingPositions[m._barKey].scale = _prevScale end
         hasChanges = true
     end
@@ -1473,16 +1484,16 @@ local function CreateMover(barKey)
                 -- Tiny anchor (1×1): center the mover on the anchor's center
                 local bR = b:GetRight() or bL
                 local bB = b:GetBottom() or bT
-                local cx = (bL + bR) * 0.5 * s / uiS
-                local cy = (bT + bB) * 0.5 * s / uiS - UIParent:GetHeight() + centerYOff
+                local cx = (bL + bR) * 0.5
+                local cy = (bT + bB) * 0.5 - UIParent:GetHeight() + centerYOff
                 self:ClearAllPoints()
                 self:SetPoint("CENTER", UIParent, "TOPLEFT", cx, cy)
             else
                 -- Center mover on the bar's visual center
                 local bR = b:GetRight() or bL
                 local bB = b:GetBottom() or bT
-                local cx = (bL + bR) * 0.5 * s / uiS
-                local cy = (bT + bB) * 0.5 * s / uiS - UIParent:GetHeight()
+                local cx = (bL + bR) * 0.5
+                local cy = (bT + bB) * 0.5 - UIParent:GetHeight()
                 self:ClearAllPoints()
                 self:SetPoint("CENTER", UIParent, "TOPLEFT", cx, cy)
             end
@@ -1575,14 +1586,14 @@ local function CreateMover(barKey)
             if bar and not InCombatLockdown() then
                 local uiS = UIParent:GetEffectiveScale()
                 local bS = bar:GetEffectiveScale()
-                local ratio = uiS / bS
-                -- bar:GetWidth/Height are in the bar's local (unscaled) space.
-                -- Convert snapCX/snapCY (UIParent screen coords) into the bar's
-                -- local space first, then subtract the unscaled half-size to get TOPLEFT.
-                local barHW = (bar:GetWidth() or 0) * 0.5
-                local barHH = (bar:GetHeight() or 0) * 0.5
-                local barX = snapCX * ratio - barHW
-                local barY = (snapCY - UIParent:GetHeight()) * ratio + barHH
+                -- snapCX/snapCY are in UIParent coordinate space.
+                -- SetPoint offsets relative to UIParent are also in UIParent space.
+                -- bar:GetWidth/Height are in bar-local space; convert to UIParent space
+                -- by multiplying by (bS / uiS).
+                local barHW = (bar:GetWidth() or 0) * 0.5 * bS / uiS
+                local barHH = (bar:GetHeight() or 0) * 0.5 * bS / uiS
+                local barX = snapCX - barHW
+                local barY = snapCY - UIParent:GetHeight() + barHH
                 pcall(function()
                     bar:ClearAllPoints()
                     bar:SetPoint("TOPLEFT", UIParent, "TOPLEFT", barX, barY)
@@ -1610,36 +1621,41 @@ local function CreateMover(barKey)
         if self._anchorToolbar then self._anchorToolbar() end
 
         -- Store position in pending table (NOT saved until user clicks Save & Exit)
-        local cx = (self:GetLeft() + self:GetRight()) / 2
-        local cy = (self:GetTop() + self:GetBottom()) / 2
-
         local bar = GetBarFrame(self._barKey)
         if not InCombatLockdown() then
-            local uiS = UIParent:GetEffectiveScale()
+            local prev = pendingPositions[self._barKey]
+            local _prevScale = type(prev) == "table" and prev.scale or nil
             if bar then
-                local bS = bar:GetEffectiveScale()
-                local ratio = uiS / bS
-                local barHW = (bar:GetWidth() or 0) * 0.5
-                local barHH = (bar:GetHeight() or 0) * 0.5
-                local barX = cx * ratio - barHW
-                local barY = (cy - UIParent:GetHeight()) * ratio + barHH
-                local _prevScale = type(pendingPositions[self._barKey]) == "table" and pendingPositions[self._barKey].scale or nil
-                pendingPositions[self._barKey] = {
-                    point = "TOPLEFT", relPoint = "TOPLEFT",
-                    x = barX, y = barY,
-                }
-                if _prevScale then pendingPositions[self._barKey].scale = _prevScale end
+                -- Read the actual anchor WoW set on the frame — correct at any scale
+                local pt, _, rpt, px, py = bar:GetPoint(1)
+                if pt then
+                    pendingPositions[self._barKey] = {
+                        point = pt, relPoint = rpt or pt,
+                        x = px, y = py,
+                    }
+                else
+                    -- Frame has no point yet; fall back to mover center in UIParent space
+                    local cx = (self:GetLeft() + self:GetRight()) / 2
+                    local cy = (self:GetTop() + self:GetBottom()) / 2
+                    local halfW = self:GetWidth() / 2
+                    local halfH = self:GetHeight() / 2
+                    pendingPositions[self._barKey] = {
+                        point = "TOPLEFT", relPoint = "TOPLEFT",
+                        x = cx - halfW, y = cy + halfH - UIParent:GetHeight(),
+                    }
+                end
             else
                 -- No live frame (e.g. unit frame not spawned) — store in UIParent coords
+                local cx = (self:GetLeft() + self:GetRight()) / 2
+                local cy = (self:GetTop() + self:GetBottom()) / 2
                 local halfW = self:GetWidth() / 2
                 local halfH = self:GetHeight() / 2
-                local _prevScale = type(pendingPositions[self._barKey]) == "table" and pendingPositions[self._barKey].scale or nil
                 pendingPositions[self._barKey] = {
                     point = "TOPLEFT", relPoint = "TOPLEFT",
                     x = cx - halfW, y = cy + halfH - UIParent:GetHeight(),
                 }
-                if _prevScale then pendingPositions[self._barKey].scale = _prevScale end
             end
+            if _prevScale then pendingPositions[self._barKey].scale = _prevScale end
             hasChanges = true
         end
     end)
@@ -2935,25 +2951,29 @@ local function CreateMover(barKey)
             mover:SetPoint("TOPLEFT", UIParent, "TOPLEFT", newX, newY)
             local b = GetBarFrame(bk)
             if b then
-                -- Use same formula as drag-stop: cx/cy = mover center
+                -- Center bar horizontally, keep vertical position
                 local cx = screenCX
                 local cy = (mT + mB) / 2
                 local uiS = UIParent:GetEffectiveScale()
                 local bS = b:GetEffectiveScale()
-                local ratio = uiS / bS
-                local barHW = (b:GetWidth() or 0) * 0.5
-                local barHH = (b:GetHeight() or 0) * 0.5
-                local barX = cx * ratio - barHW
-                local barY = (cy - UIParent:GetHeight()) * ratio + barHH
+                -- cx/cy are in UIParent space; bar half-sizes need converting to UIParent space
+                local barHW = (b:GetWidth() or 0) * 0.5 * bS / uiS
+                local barHH = (b:GetHeight() or 0) * 0.5 * bS / uiS
+                local barX = cx - barHW
+                local barY = cy - UIParent:GetHeight() + barHH
                 pcall(function()
                     b:ClearAllPoints()
                     b:SetPoint("TOPLEFT", UIParent, "TOPLEFT", barX, barY)
                 end)
-                local _prevScale = type(pendingPositions[bk]) == "table" and pendingPositions[bk].scale or nil
-                pendingPositions[bk] = {
-                    point = "TOPLEFT", relPoint = "TOPLEFT",
-                    x = barX, y = barY,
-                }
+                -- Read back actual anchor — correct at any scale
+                local pt, _, rpt, px, py = b:GetPoint(1)
+                local prev = pendingPositions[bk]
+                local _prevScale = type(prev) == "table" and prev.scale or nil
+                if pt then
+                    pendingPositions[bk] = { point = pt, relPoint = rpt or pt, x = px, y = py }
+                else
+                    pendingPositions[bk] = { point = "TOPLEFT", relPoint = "TOPLEFT", x = barX, y = barY }
+                end
                 if _prevScale then pendingPositions[bk].scale = _prevScale end
                 hasChanges = true
             end
@@ -3110,9 +3130,9 @@ local function CreateMover(barKey)
                 local isActionBar = eabKey and EAB and EAB.db and EAB.db.profile.bars[eabKey]
                 if isActionBar then
                     local uiS = UIParent:GetEffectiveScale()
-                    local oldS = b:GetEffectiveScale()
-                    local oldCX = (b:GetLeft() + b:GetRight()) * 0.5 * oldS / uiS
-                    local oldCY = (b:GetTop() + b:GetBottom()) * 0.5 * oldS / uiS
+                    -- GetLeft/GetRight/GetTop/GetBottom return UIParent-space coords
+                    local oldCX = (b:GetLeft() + b:GetRight()) * 0.5
+                    local oldCY = (b:GetTop() + b:GetBottom()) * 0.5
                     EAB.db.profile.bars[eabKey].barScale = sc
                     if not InCombatLockdown() then
                         EAB:ApplyScaleForBar(eabKey)
@@ -3120,23 +3140,25 @@ local function CreateMover(barKey)
                     local newS = b:GetEffectiveScale()
                     pcall(function()
                         b:ClearAllPoints()
-                        -- Re-anchor as TOPLEFT for consistency with drag/save
-                        local tlX = oldCX * uiS / newS - b:GetWidth() * 0.5
-                        local tlY = (oldCY - UIParent:GetHeight()) * uiS / newS + b:GetHeight() * 0.5
+                        -- SetPoint offsets are in UIParent space.
+                        -- bar:GetWidth/Height are in bar-local space; convert to UIParent space.
+                        local tlX = oldCX - b:GetWidth()  * 0.5 * newS / uiS
+                        local tlY = oldCY - UIParent:GetHeight() + b:GetHeight() * 0.5 * newS / uiS
                         b:SetPoint("TOPLEFT", UIParent, "TOPLEFT", tlX, tlY)
                     end)
                 elseif elem and b:GetLeft() and b:GetTop() then
                     local uiS = UIParent:GetEffectiveScale()
-                    local oldS = b:GetEffectiveScale()
-                    local oldCX = (b:GetLeft() + b:GetRight()) * 0.5 * oldS / uiS
-                    local oldCY = (b:GetTop() + b:GetBottom()) * 0.5 * oldS / uiS
+                    -- GetLeft/GetRight/GetTop/GetBottom return UIParent-space coords
+                    local oldCX = (b:GetLeft() + b:GetRight()) * 0.5
+                    local oldCY = (b:GetTop() + b:GetBottom()) * 0.5
                     pcall(function() b:SetScale(sc) end)
                     local newS = b:GetEffectiveScale()
                     pcall(function()
                         b:ClearAllPoints()
-                        -- Re-anchor as TOPLEFT for consistency with drag/save
-                        local tlX = oldCX * uiS / newS - b:GetWidth() * 0.5
-                        local tlY = (oldCY - UIParent:GetHeight()) * uiS / newS + b:GetHeight() * 0.5
+                        -- SetPoint offsets are in UIParent space.
+                        -- bar:GetWidth/Height are in bar-local space; convert to UIParent space.
+                        local tlX = oldCX - b:GetWidth()  * 0.5 * newS / uiS
+                        local tlY = oldCY - UIParent:GetHeight() + b:GetHeight() * 0.5 * newS / uiS
                         b:SetPoint("TOPLEFT", UIParent, "TOPLEFT", tlX, tlY)
                     end)
                 else
@@ -3968,12 +3990,27 @@ local function CommitPositions()
             local elem = registeredElements[barKey]
             local saveScale = elem and pos.scale or nil
             local pt, rpt, px, py = pos.point, pos.relPoint, pos.x, pos.y
-            -- If only scale changed (no drag), fill position from snapshot
-            -- (live frame may have a CENTER anchor from center-preserving scale)
+            -- If only scale changed (no drag), fill position from snapshot.
+            -- Recalculate coordinates so the element stays centered at the new scale.
             if elem and not pt then
                 local snap = snapshotPositions[barKey]
                 if snap then
                     pt, rpt, px, py = snap.point, snap.relPoint or snap.point, snap.x, snap.y
+                    -- If scale changed, adjust the saved position so the center is preserved.
+                    -- The snapshot coords were correct at the old scale; at the new scale the
+                    -- bar is smaller/larger, so the TOPLEFT offset shifts by half the size delta.
+                    if saveScale and snap.elemScale and saveScale ~= snap.elemScale then
+                        local b = registeredElements[barKey] and registeredElements[barKey].getFrame and registeredElements[barKey].getFrame(barKey)
+                        if b then
+                            local uiS = UIParent:GetEffectiveScale()
+                            local newS = b:GetEffectiveScale()
+                            -- Read the actual anchor WoW has on the frame right now
+                            local lpt, _, lrpt, lpx, lpy = b:GetPoint(1)
+                            if lpt then
+                                pt, rpt, px, py = lpt, lrpt or lpt, lpx, lpy
+                            end
+                        end
+                    end
                 else
                     -- Fallback: read from loadPosition
                     local lp = elem.loadPosition and elem.loadPosition(barKey)

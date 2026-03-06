@@ -446,20 +446,20 @@ local function MakePixelBorder(parent, r, g, b, a, size)
         return t
     end
     local eT = MkEdge()
-    PP.Height(eT, sz)
+    PP.HeightFor(eT, sz, parent)
     PP.Point(eT, "TOPLEFT",  bf, "TOPLEFT",  0, 0)
     PP.Point(eT, "TOPRIGHT", bf, "TOPRIGHT", 0, 0)
     local eB = MkEdge()
-    PP.Height(eB, sz)
+    PP.HeightFor(eB, sz, parent)
     PP.Point(eB, "BOTTOMLEFT",  bf, "BOTTOMLEFT",  0, 0)
     PP.Point(eB, "BOTTOMRIGHT", bf, "BOTTOMRIGHT", 0, 0)
     -- Vertical edges inset by size to avoid corner overlap
     local eL = MkEdge()
-    PP.Width(eL, sz)
+    PP.WidthFor(eL, sz, parent)
     PP.Point(eL, "TOPLEFT",    eT, "BOTTOMLEFT",  0, 0)
     PP.Point(eL, "BOTTOMLEFT", eB, "TOPLEFT",     0, 0)
     local eR = MkEdge()
-    PP.Width(eR, sz)
+    PP.WidthFor(eR, sz, parent)
     PP.Point(eR, "TOPRIGHT",    eT, "BOTTOMRIGHT",  0, 0)
     PP.Point(eR, "BOTTOMRIGHT", eB, "TOPRIGHT",     0, 0)
 
@@ -474,10 +474,10 @@ local function MakePixelBorder(parent, r, g, b, a, size)
             end
         end,
         SetSize = function(self, newSz)
-            PP.Height(eT, newSz)
-            PP.Height(eB, newSz)
-            PP.Width(eL, newSz)
-            PP.Width(eR, newSz)
+            PP.HeightFor(eT, newSz, parent)
+            PP.HeightFor(eB, newSz, parent)
+            PP.WidthFor(eL, newSz, parent)
+            PP.WidthFor(eR, newSz, parent)
         end,
         SetShown = function(self, shown)
             for _, e in ipairs(self.edges) do
@@ -684,7 +684,13 @@ local function RegisterUnlockElements()
             if healthBar then
                 healthBar:ClearAllPoints()
                 healthBar:SetPoint(point, UIParent, relPoint or point, x, y)
-                if scale then healthBar:SetScale(scale) end
+                if scale then
+                    healthBar:SetScale(scale)
+                    -- Re-snap border thickness for the new effective scale
+                    if healthBar._border then
+                        healthBar:ApplyBorder(hp.borderSize or 1, hp.borderR or 0, hp.borderG or 0, hp.borderB or 0, hp.borderA or 1)
+                    end
+                end
             end
         end,
         loadPosition = function()
@@ -735,7 +741,13 @@ local function RegisterUnlockElements()
             if primaryBar then
                 primaryBar:ClearAllPoints()
                 primaryBar:SetPoint(point, UIParent, relPoint or point, x, y)
-                if scale then primaryBar:SetScale(scale) end
+                if scale then
+                    primaryBar:SetScale(scale)
+                    -- Re-snap border thickness for the new effective scale
+                    if primaryBar._border then
+                        primaryBar:ApplyBorder(pp.borderSize or 1, pp.borderR or 0, pp.borderG or 0, pp.borderB or 0, pp.borderA or 1)
+                    end
+                end
             end
         end,
         loadPosition = function()
@@ -804,7 +816,20 @@ local function RegisterUnlockElements()
             if secondaryFrame then
                 secondaryFrame:ClearAllPoints()
                 secondaryFrame:SetPoint("CENTER", UIParent, "CENTER", x, y)
-                if scale then secondaryFrame:SetScale(scale) end
+                if scale then
+                    secondaryFrame:SetScale(scale)
+                    -- Re-snap pip border thicknesses for the new effective scale
+                    if pips then
+                        for _, pip in ipairs(pips) do
+                            if pip._border then
+                                pip:ApplyBorder(sp.borderSize or 1, sp.borderR or 0, sp.borderG or 0, sp.borderB or 0, sp.borderA or 1)
+                            end
+                        end
+                    end
+                    if secondaryFrame._barBorder then
+                        secondaryFrame._barBorder:SetSize(sp.borderSize or 1)
+                    end
+                end
             end
         end,
         loadPosition = function()
@@ -856,7 +881,15 @@ local function RegisterUnlockElements()
             if castBarFrame then
                 castBarFrame:ClearAllPoints()
                 castBarFrame:SetPoint(point, UIParent, relPoint or point, x, y)
-                if scale then castBarFrame:SetScale(scale) end
+                if scale then
+                    castBarFrame:SetScale(scale)
+                    -- Re-snap border thickness for the new effective scale
+                    local snappedBs = PP.ScaleFor(cb.borderSize or 1, castBarFrame)
+                    castBarFrame._bT:SetHeight(snappedBs)
+                    castBarFrame._bB:SetHeight(snappedBs)
+                    castBarFrame._bL:SetWidth(snappedBs)
+                    castBarFrame._bR:SetWidth(snappedBs)
+                end
             end
         end,
         loadPosition = function()
@@ -2236,29 +2269,31 @@ BuildCastBar = function()
     local br, bg2, bb, ba = cb.borderR, cb.borderG, cb.borderB, cb.borderA
     for _, edge in ipairs({ castBarFrame._bT, castBarFrame._bB, castBarFrame._bL, castBarFrame._bR }) do
         edge:SetColorTexture(br, bg2, bb, ba)
+        PP.DisablePixelSnap(edge)
     end
+    local snappedBs = PP.ScaleFor(bs, castBarFrame)
     castBarFrame._bT:ClearAllPoints()
     castBarFrame._bT:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", 0, 0)
     castBarFrame._bT:SetPoint("TOPRIGHT", castBarFrame, "TOPRIGHT", 0, 0)
-    castBarFrame._bT:SetHeight(bs)
+    castBarFrame._bT:SetHeight(snappedBs)
     castBarFrame._bB:ClearAllPoints()
     castBarFrame._bB:SetPoint("BOTTOMLEFT", castBarFrame, "BOTTOMLEFT", 0, 0)
     castBarFrame._bB:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", 0, 0)
-    castBarFrame._bB:SetHeight(bs)
+    castBarFrame._bB:SetHeight(snappedBs)
     castBarFrame._bL:ClearAllPoints()
     castBarFrame._bL:SetPoint("TOPLEFT", castBarFrame._bT, "BOTTOMLEFT", 0, 0)
     castBarFrame._bL:SetPoint("BOTTOMLEFT", castBarFrame._bB, "TOPLEFT", 0, 0)
-    castBarFrame._bL:SetWidth(bs)
+    castBarFrame._bL:SetWidth(snappedBs)
     castBarFrame._bR:ClearAllPoints()
     castBarFrame._bR:SetPoint("TOPRIGHT", castBarFrame._bT, "BOTTOMRIGHT", 0, 0)
     castBarFrame._bR:SetPoint("BOTTOMRIGHT", castBarFrame._bB, "TOPRIGHT", 0, 0)
-    castBarFrame._bR:SetWidth(bs)
+    castBarFrame._bR:SetWidth(snappedBs)
 
     -- Bar inset by border
     local bar = castBarFrame._bar
     bar:ClearAllPoints()
-    bar:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", bs, -bs)
-    bar:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", -bs, bs)
+    bar:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", snappedBs, -snappedBs)
+    bar:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", -snappedBs, snappedBs)
 
     -- Bar texture
     local texKey = cb.texture
