@@ -4,6 +4,7 @@
 --  Applies settings that the WoW engine caches at login time, before
 --  other addon files or PLAYER_LOGIN handlers have a chance to run.
 -------------------------------------------------------------------------------
+local ADDON_NAME = ...
 
 -- Apply the saved combat text font immediately at file scope.
 -- DAMAGE_TEXT_FONT must be set before the engine caches it at login.
@@ -31,13 +32,22 @@ do
     local f = CreateFrame("Frame")
     f:RegisterEvent("ADDON_LOADED")
     f:RegisterEvent("PLAYER_LOGIN")
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
     f:SetScript("OnEvent", function(self, event, addonName)
+        if event == "ADDON_LOADED" then
+            if addonName ~= ADDON_NAME and addonName ~= "Blizzard_CombatText" then
+                return
+            end
+        end
+
+        ApplyCombatTextFont()
+
         if event == "PLAYER_LOGIN" then
-            self:UnregisterEvent("ADDON_LOADED")
             self:UnregisterEvent("PLAYER_LOGIN")
-            ApplyCombatTextFont()
+        elseif event == "PLAYER_ENTERING_WORLD" then
+            self:UnregisterEvent("PLAYER_ENTERING_WORLD")
         elseif event == "ADDON_LOADED" and addonName == "Blizzard_CombatText" then
-            ApplyCombatTextFont()
+            self:UnregisterEvent("ADDON_LOADED")
         end
     end)
 end
