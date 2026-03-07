@@ -17,9 +17,28 @@
 local EllesmereUI = _G.EllesmereUI
 
 -------------------------------------------------------------------------------
---  LibDeflate reference (loaded before us via TOC)
+--  LibDeflate lookup
+--
+--  Release packages include `LibDeflate` via `.pkgmeta`, but depending on how
+--  the addon is installed the library can be exposed either as `_G.LibDeflate`
+--  or as a `LibStub` library. Resolve it lazily so export/import works in both
+--  cases.
 -------------------------------------------------------------------------------
-local LibDeflate = _G.LibDeflate
+local function GetLibDeflate()
+    if _G.LibDeflate then
+        return _G.LibDeflate
+    end
+
+    local libStub = _G.LibStub
+    if libStub and libStub.GetLibrary then
+        local ok, library = pcall(libStub.GetLibrary, libStub, "LibDeflate", true)
+        if ok and library then
+            return library
+        end
+    end
+
+    return nil
+end
 
 -------------------------------------------------------------------------------
 --  Addon registry: maps addon folder names to their DB accessor info.
@@ -850,20 +869,26 @@ end
 
 -------------------------------------------------------------------------------
 --  Export / Import
---  Format: `!EUI_<base64 encoded compressed serialized data>`.
---  The payload envelope is versioned separately from the profile schema so we
---  can reject incompatible strings cleanly while still migrating older data.
+--
+--  Preferred format: `!EUI_<base64 encoded compressed serialized data>`.
+--  Fallback format:  `!EUIRAW_<serialized data>`.
+--
+--  The raw fallback keeps local/dev installs usable even when the packaged
+--  `LibDeflate` external is missing, while the compressed format remains the
+--  normal shipping path for short shareable strings.
 -------------------------------------------------------------------------------
 local EXPORT_PREFIX = "!EUI_"
+local RAW_EXPORT_PREFIX = "!EUIRAW_"
 
 local function EncodePayload(payload)
-    if not LibDeflate then
-        return nil, "LibDeflate is not available.", "missing_libdeflate"
+    local serialized = Serializer.Serialize(payload)
+    local libDeflate = GetLibDeflate()
+    if not libDeflate then
+        return RAW_EXPORT_PREFIX .. serialized, nil, "raw_export_fallback"
     end
 
-    local serialized = Serializer.Serialize(payload)
-    local compressed = LibDeflate:CompressDeflate(serialized)
-    local encoded = LibDeflate:EncodeForPrint(compressed)
+    local compressed = libDeflate:CompressDeflate(serialized)
+    local encoded = libDeflate:EncodeForPrint(compressed)
     return EXPORT_PREFIX .. encoded, nil, nil
 end
 
@@ -985,29 +1010,42 @@ function EllesmereUI.DecodeImportString(importStr)
     if not importStr or #importStr < #EXPORT_PREFIX then
         return nil, "Invalid string.", "invalid_import_string"
     end
-    if importStr:sub(1, #EXPORT_PREFIX) ~= EXPORT_PREFIX then
+
+    local payload
+    if importStr:sub(1, #RAW_EXPORT_PREFIX) == RAW_EXPORT_PREFIX then
+        payload = Serializer.Deserialize(importStr:sub(#RAW_EXPORT_PREFIX + 1))
+        if not payload or type(payload) ~= "table" then
+            return nil,
+                "Failed to deserialize the raw profile data.",
+                "deserialize_failed"
+        end
+    elseif importStr:sub(1, #EXPORT_PREFIX) == EXPORT_PREFIX then
+        local libDeflate = GetLibDeflate()
+        if not libDeflate then
+            return nil,
+                "Compressed profile strings require LibDeflate, but the library is not loaded.",
+                "missing_libdeflate"
+        end
+
+        local encoded = importStr:sub(#EXPORT_PREFIX + 1)
+        local decoded = libDeflate:DecodeForPrint(encoded)
+        if not decoded then
+            return nil, "Failed to decode the profile string.", "decode_failed"
+        end
+
+        local decompressed = libDeflate:DecompressDeflate(decoded)
+        if not decompressed then
+            return nil, "Failed to decompress the profile data.", "decompress_failed"
+        end
+
+        payload = Serializer.Deserialize(decompressed)
+        if not payload or type(payload) ~= "table" then
+            return nil, "Failed to deserialize the profile data.", "deserialize_failed"
+        end
+    else
         return nil,
             "Not a valid EllesmereUI profile string.",
             "invalid_import_string"
-    end
-    if not LibDeflate then
-        return nil, "LibDeflate is not available.", "missing_libdeflate"
-    end
-
-    local encoded = importStr:sub(#EXPORT_PREFIX + 1)
-    local decoded = LibDeflate:DecodeForPrint(encoded)
-    if not decoded then
-        return nil, "Failed to decode the profile string.", "decode_failed"
-    end
-
-    local decompressed = LibDeflate:DecompressDeflate(decoded)
-    if not decompressed then
-        return nil, "Failed to decompress the profile data.", "decompress_failed"
-    end
-
-    local payload = Serializer.Deserialize(decompressed)
-    if not payload or type(payload) ~= "table" then
-        return nil, "Failed to deserialize the profile data.", "deserialize_failed"
     end
 
     local payloadVersion = tonumber(payload.version)
