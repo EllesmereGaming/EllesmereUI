@@ -175,16 +175,32 @@ EllesmereUI._DeepCopy = DeepCopy
 
 -------------------------------------------------------------------------------
 --  Profile DB helpers
---  Profiles are stored in EllesmereUIDB.profiles = { [name] = profileData }
---  profileData = {
---      addons = { [folderName] = <snapshot of that addon's profile table> },
---      fonts  = <snapshot of EllesmereUIDB.fonts>,
---      customColors = <snapshot of EllesmereUIDB.customColors>,
---  }
---  EllesmereUIDB.activeProfile = "Custom"  (name of active profile)
---  EllesmereUIDB.profileOrder  = { "Custom", ... }
---  EllesmereUIDB.specProfiles  = { [specID] = "profileName" }
+--  Profiles are stored in `EllesmereUIDB.profiles = { [name] = profileData }`.
+--
+--  This is a suite-snapshot system, not native per-addon AceDB switching.
+--  Every named profile therefore needs two safeguards before we write it back
+--  into live SavedVariables:
+--    1. migrate older snapshots forward to the current schema
+--    2. re-normalize each addon's data against today's defaults
+--
+--  That extra work is what keeps old exports usable after schema drift.
 -------------------------------------------------------------------------------
+local PROFILE_PAYLOAD_VERSION = 2
+local PROFILE_SCHEMA_VERSION = 2
+local RESERVED_PROFILE_NAME = "Custom"
+local PROFILE_NAME_MAX_LENGTH = 60
+
+local DEFAULT_FONT_SETTINGS = {
+    global = "Expressway",
+    outlineMode = "shadow",
+}
+
+local VALID_FONT_OUTLINE_MODES = {
+    none = true,
+    outline = true,
+    shadow = true,
+}
+
 local function GetProfilesDB()
     if not EllesmereUIDB then EllesmereUIDB = {} end
     if not EllesmereUIDB.profiles then EllesmereUIDB.profiles = {} end
@@ -193,143 +209,546 @@ local function GetProfilesDB()
     return EllesmereUIDB
 end
 
---- Check if an addon is loaded
+local function GetCurrentAddonVersion()
+    return EllesmereUI.VERSION or "unknown"
+end
+
+local function GetCurrentTimestamp()
+    if type(time) == "function" then
+        return time()
+    end
+    return 0
+end
+
+local function TrimString(text)
+    if type(text) ~= "string" then return nil end
+    return text:match("^%s*(.-)%s*$")
+end
+
+local function NormalizeProfileName(name)
+    local trimmed = TrimString(name)
+    if not trimmed or trimmed == "" then return nil end
+    return trimmed
+end
+
+local function IsReservedProfileName(name)
+    return name == RESERVED_PROFILE_NAME
+end
+
+EllesmereUI.NormalizeProfileName = NormalizeProfileName
+EllesmereUI.IsReservedProfileName = IsReservedProfileName
+EllesmereUI.PROFILE_NAME_MAX_LENGTH = PROFILE_NAME_MAX_LENGTH
+EllesmereUI.PROFILE_SCHEMA_VERSION = PROFILE_SCHEMA_VERSION
+EllesmereUI.PROFILE_PAYLOAD_VERSION = PROFILE_PAYLOAD_VERSION
+
+local function DeepMergeDefaults(dest, defaults)
+    for key, value in pairs(defaults) do
+        if type(value) == "table" then
+            if type(dest[key]) ~= "table" then
+                dest[key] = {}
+            end
+            DeepMergeDefaults(dest[key], value)
+        elseif dest[key] == nil then
+            dest[key] = DeepCopy(value)
+        end
+    end
+end
+
+local function IsColorTable(value)
+    return type(value) == "table"
+        and type(value.r) == "number"
+        and type(value.g) == "number"
+        and type(value.b) == "number"
+end
+
+local function CopyColorTable(value)
+    local copy = { r = value.r, g = value.g, b = value.b }
+    if type(value.a) == "number" then
+        copy.a = value.a
+    end
+    return copy
+end
+
+local function CopyNonInternalTable(src)
+    if type(src) ~= "table" then return nil end
+    local copy = {}
+    for key, value in pairs(src) do
+        if not (type(key) == "string" and key:match("^_")) then
+            copy[key] = DeepCopy(value)
+        end
+    end
+    return copy
+end
+
+local function CopyKnownFlatProfileTable(src, defaults)
+    if type(src) ~= "table" then return nil end
+    if type(defaults) ~= "table" then
+        return CopyNonInternalTable(src)
+    end
+
+    local copy = {}
+    for key, value in pairs(src) do
+        if defaults[key] ~= nil
+            and not (type(key) == "string" and key:match("^_")) then
+            copy[key] = DeepCopy(value)
+        end
+    end
+    return copy
+end
+
+local function IsKnownFontName(fontName)
+    if type(fontName) ~= "string" then return false end
+    return EllesmereUI.FONT_FILES[fontName] ~= nil
+        or EllesmereUI.FONT_BLIZZARD[fontName] ~= nil
+end
+
+local function NormalizeFontsData(fontsData, preserveMissing)
+    if fontsData == nil and preserveMissing then
+        return nil
+    end
+
+    local normalized = DeepCopy(DEFAULT_FONT_SETTINGS)
+    if type(fontsData) ~= "table" then
+        return normalized
+    end
+
+    if IsKnownFontName(fontsData.global) then
+        normalized.global = fontsData.global
+    end
+
+    if VALID_FONT_OUTLINE_MODES[fontsData.outlineMode] then
+        normalized.outlineMode = fontsData.outlineMode
+    end
+
+    return normalized
+end
+
+local function NormalizeCustomColorsData(colorsData, preserveMissing)
+    if colorsData == nil and preserveMissing then
+        return nil
+    end
+
+    local normalized = {}
+    if type(colorsData) ~= "table" then
+        return normalized
+    end
+
+    local validMaps = {
+        class = EllesmereUI.CLASS_COLOR_MAP or {},
+        power = EllesmereUI.DEFAULT_POWER_COLORS or {},
+        resource = EllesmereUI.DEFAULT_RESOURCE_COLORS or {},
+    }
+
+    for bucket, validKeys in pairs(validMaps) do
+        local srcBucket = colorsData[bucket]
+        if type(srcBucket) == "table" then
+            for key in pairs(validKeys) do
+                local color = srcBucket[key]
+                if IsColorTable(color) then
+                    normalized[bucket] = normalized[bucket] or {}
+                    normalized[bucket][key] = CopyColorTable(color)
+                end
+            end
+        end
+    end
+
+    return normalized
+end
+
+local function NormalizeProfileOrder(db)
+    local seen = {}
+    local ordered = {}
+
+    for _, name in ipairs(db.profileOrder) do
+        if type(name) == "string" and db.profiles[name] and not seen[name] then
+            ordered[#ordered + 1] = name
+            seen[name] = true
+        end
+    end
+
+    for name in pairs(db.profiles) do
+        if type(name) == "string" and not seen[name] then
+            ordered[#ordered + 1] = name
+            seen[name] = true
+        end
+    end
+
+    db.profileOrder = ordered
+end
+
+local function RemoveProfileFromOrder(db, name)
+    for i = #db.profileOrder, 1, -1 do
+        if db.profileOrder[i] == name then
+            table.remove(db.profileOrder, i)
+        end
+    end
+end
+
+local function EnsureProfileInOrder(db, name, moveToFront)
+    RemoveProfileFromOrder(db, name)
+    if moveToFront then
+        table.insert(db.profileOrder, 1, name)
+    else
+        table.insert(db.profileOrder, name)
+    end
+end
+
+local function RemoveSpecAssignmentsForProfile(db, name)
+    for specID, profileName in pairs(db.specProfiles) do
+        if profileName == name then
+            db.specProfiles[specID] = nil
+        end
+    end
+end
+
+local function ChooseFallbackProfileName(db, deletedName)
+    if deletedName ~= RESERVED_PROFILE_NAME and db.profiles[RESERVED_PROFILE_NAME] then
+        return RESERVED_PROFILE_NAME
+    end
+
+    for _, name in ipairs(db.profileOrder) do
+        if name ~= deletedName and db.profiles[name] then
+            return name
+        end
+    end
+
+    for name in pairs(db.profiles) do
+        if name ~= deletedName then
+            return name
+        end
+    end
+
+    return nil
+end
+
+local function ValidateProfileName(db, name, opts)
+    opts = opts or {}
+
+    local normalized = NormalizeProfileName(name)
+    if not normalized then
+        return nil, "Enter a profile name.", "invalid_profile_name"
+    end
+
+    if normalized:find("[%c]") then
+        return nil, "Profile names cannot contain control characters.", "invalid_profile_name"
+    end
+
+    if #normalized > PROFILE_NAME_MAX_LENGTH then
+        return nil, "Profile names must be " .. PROFILE_NAME_MAX_LENGTH .. " characters or fewer.", "profile_name_too_long"
+    end
+
+    if IsReservedProfileName(normalized)
+        and normalized ~= opts.currentName
+        and not opts.allowReserved then
+        return nil,
+            "\"" .. normalized .. "\" is reserved for the built-in fallback profile.",
+            "reserved_profile_name"
+    end
+
+    local exists = db.profiles[normalized] ~= nil
+    if exists and normalized ~= opts.currentName and not opts.allowOverwrite then
+        return nil,
+            "A profile named \"" .. normalized .. "\" already exists.",
+            "profile_exists"
+    end
+
+    return normalized, nil, nil
+end
+
+--- Check if an addon is loaded.
 local function IsAddonLoaded(name)
     if C_AddOns and C_AddOns.IsAddOnLoaded then return C_AddOns.IsAddOnLoaded(name) end
     if _G.IsAddOnLoaded then return _G.IsAddOnLoaded(name) end
     return false
 end
 
---- Get the live profile table for an addon
+--- Get the live profile table for an addon.
 local function GetAddonProfile(entry)
     if entry.isFlat then
-        -- Flat DB (Nameplates): the global IS the profile
+        -- Flat DB (Nameplates): the global table is the live settings table.
         return _G[entry.svName]
-    else
-        -- AceDB-style: profile lives under .profile
-        local aceDB = entry.globalName and _G[entry.globalName]
-        if aceDB and aceDB.profile then return aceDB.profile end
-        -- Fallback for Lite.NewDB addons: look up the current character's profile
-        local raw = _G[entry.svName]
-        if raw and raw.profiles then
-            -- Determine the profile name for this character
-            local profileName = "Default"
-            if raw.profileKeys then
-                local charKey = UnitName("player") .. " - " .. GetRealmName()
-                profileName = raw.profileKeys[charKey] or "Default"
-            end
-            if raw.profiles[profileName] then
-                return raw.profiles[profileName]
-            end
-        end
-        return nil
     end
-end
 
---- Snapshot the current state of all loaded addons into a profile data table
-function EllesmereUI.SnapshotAllAddons()
-    local data = { addons = {} }
-    for _, entry in ipairs(ADDON_DB_MAP) do
-        if IsAddonLoaded(entry.folder) then
-            local profile = GetAddonProfile(entry)
-            if profile then
-                data.addons[entry.folder] = DeepCopy(profile)
-            end
-        end
+    local aceDB = entry.globalName and _G[entry.globalName]
+    if aceDB and aceDB.profile then
+        return aceDB.profile
     end
-    -- Include global font and color settings
-    data.fonts = DeepCopy(EllesmereUI.GetFontsDB())
-    local cc = EllesmereUI.GetCustomColorsDB()
-    data.customColors = DeepCopy(cc)
-    return data
-end
 
---- Snapshot a single addon's profile
-function EllesmereUI.SnapshotAddon(folderName)
-    for _, entry in ipairs(ADDON_DB_MAP) do
-        if entry.folder == folderName and IsAddonLoaded(folderName) then
-            local profile = GetAddonProfile(entry)
-            if profile then return DeepCopy(profile) end
+    -- Lite.NewDB addons do not always export a global handle, so we fall back to
+    -- the active profile inside the raw SavedVariables table.
+    local raw = _G[entry.svName]
+    if raw and raw.profiles then
+        local profileName = "Default"
+        if raw.profileKeys then
+            local charKey = UnitName("player") .. " - " .. GetRealmName()
+            profileName = raw.profileKeys[charKey] or "Default"
+        end
+        if raw.profiles[profileName] then
+            return raw.profiles[profileName]
         end
     end
+
     return nil
 end
 
---- Snapshot multiple addons (for multi-addon export)
-function EllesmereUI.SnapshotAddons(folderList)
+local function GetAddonDefaults(entry)
+    if entry.isFlat then
+        local ns = _G.EllesmereNameplates_NS
+        return ns and ns.defaults or nil
+    end
+
+    local lite = EllesmereUI and EllesmereUI.Lite
+    if lite and lite.GetRegisteredDB then
+        local registeredDB = lite.GetRegisteredDB(entry.svName)
+        if registeredDB and registeredDB._profileDefaults then
+            return registeredDB._profileDefaults
+        end
+    end
+
+    local aceDB = entry.globalName and _G[entry.globalName]
+    if aceDB and aceDB._profileDefaults then
+        return aceDB._profileDefaults
+    end
+
+    return nil
+end
+
+local function NormalizeAddonSnapshot(entry, snapshot)
+    if type(snapshot) ~= "table" then return nil end
+
+    local defaults = GetAddonDefaults(entry)
+    local normalized = entry.isFlat
+        and CopyKnownFlatProfileTable(snapshot, defaults)
+        or DeepCopy(snapshot)
+    if defaults then
+        DeepMergeDefaults(normalized, defaults)
+    end
+
+    return normalized
+end
+
+local function MigrateProfileData(profileData)
+    if type(profileData) ~= "table" then
+        return nil, "Profile data is missing or corrupt.", "invalid_profile_data"
+    end
+
+    local migrated = DeepCopy(profileData)
+    local schemaVersion = tonumber(migrated.schemaVersion) or 1
+    schemaVersion = math.floor(schemaVersion)
+
+    if schemaVersion > PROFILE_SCHEMA_VERSION then
+        return nil,
+            "This profile was saved by a newer version of EllesmereUI and cannot be loaded here.",
+            "newer_schema_version"
+    end
+
+    while schemaVersion < PROFILE_SCHEMA_VERSION do
+        if schemaVersion == 1 then
+            -- Schema v1 was the original unversioned snapshot format. The data
+            -- layout stays the same here; later normalization fills in the new
+            -- metadata fields and re-merges current defaults.
+            schemaVersion = 2
+        else
+            return nil,
+                "Unsupported profile schema version.",
+                "unsupported_schema_version"
+        end
+    end
+
+    migrated.schemaVersion = schemaVersion
+    return migrated, nil, nil
+end
+
+local function NormalizeProfileData(profileData, opts)
+    opts = opts or {}
+
+    if type(profileData) ~= "table" then
+        return nil, "Profile data is missing or corrupt.", "invalid_profile_data"
+    end
+
+    local normalized = {
+        schemaVersion = profileData.schemaVersion,
+        createdFromAddonVersion = profileData.createdFromAddonVersion,
+        updatedFromAddonVersion = profileData.updatedFromAddonVersion,
+        createdAt = profileData.createdAt,
+        updatedAt = profileData.updatedAt,
+        addons = {},
+        fonts = NormalizeFontsData(profileData.fonts, opts.preserveMissingSharedData),
+        customColors = NormalizeCustomColorsData(profileData.customColors, opts.preserveMissingSharedData),
+    }
+
+    local addons = type(profileData.addons) == "table" and profileData.addons or {}
+    for _, entry in ipairs(ADDON_DB_MAP) do
+        local snapshot = addons[entry.folder]
+        if type(snapshot) == "table" then
+            normalized.addons[entry.folder] = NormalizeAddonSnapshot(entry, snapshot)
+        end
+    end
+
+    return normalized, nil, nil
+end
+
+local function CoerceStoredProfileRecord(profileData)
+    local migrated, err, code = MigrateProfileData(profileData)
+    if not migrated then return nil, err, code end
+
+    local normalized, normalizeErr, normalizeCode = NormalizeProfileData(migrated)
+    if not normalized then return nil, normalizeErr, normalizeCode end
+
+    local now = GetCurrentTimestamp()
+    local currentVersion = GetCurrentAddonVersion()
+    local previousSchemaVersion = tonumber(profileData and profileData.schemaVersion) or 1
+
+    normalized.schemaVersion = PROFILE_SCHEMA_VERSION
+    if type(normalized.createdFromAddonVersion) ~= "string"
+        or normalized.createdFromAddonVersion == "" then
+        normalized.createdFromAddonVersion = currentVersion
+    end
+    if type(normalized.createdAt) ~= "number" then
+        normalized.createdAt = now
+    end
+    if type(normalized.updatedFromAddonVersion) ~= "string"
+        or normalized.updatedFromAddonVersion == "" then
+        normalized.updatedFromAddonVersion = normalized.createdFromAddonVersion
+    end
+    if type(normalized.updatedAt) ~= "number" then
+        normalized.updatedAt = normalized.createdAt
+    end
+
+    if previousSchemaVersion < PROFILE_SCHEMA_VERSION then
+        normalized.updatedFromAddonVersion = currentVersion
+        normalized.updatedAt = now
+    end
+
+    return normalized, nil, nil
+end
+
+local function StampStoredProfileRecord(profileData, existingProfile)
+    local normalized, err, code = NormalizeProfileData(profileData)
+    if not normalized then return nil, err, code end
+
+    local now = GetCurrentTimestamp()
+    local currentVersion = GetCurrentAddonVersion()
+
+    normalized.schemaVersion = PROFILE_SCHEMA_VERSION
+    normalized.createdFromAddonVersion = existingProfile
+        and existingProfile.createdFromAddonVersion
+        or normalized.createdFromAddonVersion
+        or currentVersion
+    normalized.createdAt = existingProfile
+        and existingProfile.createdAt
+        or normalized.createdAt
+        or now
+    normalized.updatedFromAddonVersion = currentVersion
+    normalized.updatedAt = now
+
+    return normalized, nil, nil
+end
+
+local function SnapshotCurrentProfileData(folderFilterSet)
     local data = { addons = {} }
-    for _, folderName in ipairs(folderList) do
-        for _, entry in ipairs(ADDON_DB_MAP) do
-            if entry.folder == folderName and IsAddonLoaded(folderName) then
-                local profile = GetAddonProfile(entry)
-                if profile then
-                    data.addons[folderName] = DeepCopy(profile)
-                end
-                break
+
+    for _, entry in ipairs(ADDON_DB_MAP) do
+        if (not folderFilterSet or folderFilterSet[entry.folder])
+            and IsAddonLoaded(entry.folder) then
+            local profile = GetAddonProfile(entry)
+            if profile then
+                data.addons[entry.folder] = entry.isFlat
+                    and CopyKnownFlatProfileTable(profile, GetAddonDefaults(entry))
+                    or DeepCopy(profile)
             end
         end
     end
-    -- Always include fonts and colors
-    data.fonts = DeepCopy(EllesmereUI.GetFontsDB())
-    data.customColors = DeepCopy(EllesmereUI.GetCustomColorsDB())
+
+    data.fonts = NormalizeFontsData(EllesmereUI.GetFontsDB())
+    data.customColors = NormalizeCustomColorsData(EllesmereUI.GetCustomColorsDB())
     return data
 end
 
---- Apply a profile data table to all loaded addons
-function EllesmereUI.ApplyProfileData(profileData)
-    if not profileData or not profileData.addons then return end
+local function FinalizeLiveSnapshot(snapshotData)
+    local snapshot = StampStoredProfileRecord(snapshotData)
+    if snapshot then
+        return snapshot
+    end
+
+    -- Fall back to the raw snapshot shape rather than throwing a user-facing
+    -- Lua error while exporting or auto-saving. The raw snapshot still carries
+    -- the current scope; it just skips the metadata stamp.
+    local fallback = DeepCopy(snapshotData)
+    local now = GetCurrentTimestamp()
+    local version = GetCurrentAddonVersion()
+    fallback.schemaVersion = PROFILE_SCHEMA_VERSION
+    fallback.createdFromAddonVersion = version
+    fallback.updatedFromAddonVersion = version
+    fallback.createdAt = now
+    fallback.updatedAt = now
+    return fallback
+end
+
+local function CanApplyProfileData()
+    if type(InCombatLockdown) == "function" and InCombatLockdown() then
+        return false,
+            "Profiles can only be switched, imported, or re-applied out of combat because EllesmereUI needs to reload.",
+            "combat_lockdown"
+    end
+    return true, nil, nil
+end
+
+local function ApplyFullProfileData(profileData)
     for _, entry in ipairs(ADDON_DB_MAP) do
-        local snap = profileData.addons[entry.folder]
-        if snap and IsAddonLoaded(entry.folder) then
+        local snapshot = profileData.addons[entry.folder]
+        if snapshot and IsAddonLoaded(entry.folder) then
             local profile = GetAddonProfile(entry)
             if profile then
                 if entry.isFlat then
-                    -- Flat DB: wipe and copy
                     local db = _G[entry.svName]
                     if db then
-                        -- Preserve preset/spec keys that are internal
-                        for k in pairs(db) do
-                            if not k:match("^_") then
-                                db[k] = nil
+                        for key in pairs(db) do
+                            if not (type(key) == "string" and key:match("^_")) then
+                                db[key] = nil
                             end
                         end
-                        for k, v in pairs(snap) do
-                            if not k:match("^_") then
-                                db[k] = DeepCopy(v)
+                        for key, value in pairs(snapshot) do
+                            if not (type(key) == "string" and key:match("^_")) then
+                                db[key] = DeepCopy(value)
                             end
                         end
                     end
                 else
-                    -- AceDB: wipe profile and copy
-                    for k in pairs(profile) do profile[k] = nil end
-                    for k, v in pairs(snap) do
-                        profile[k] = DeepCopy(v)
+                    for key in pairs(profile) do
+                        profile[key] = nil
+                    end
+                    for key, value in pairs(snapshot) do
+                        profile[key] = DeepCopy(value)
                     end
                 end
             end
         end
     end
-    -- Apply fonts and colors
+
     if profileData.fonts then
         local fontsDB = EllesmereUI.GetFontsDB()
-        for k in pairs(fontsDB) do fontsDB[k] = nil end
-        for k, v in pairs(profileData.fonts) do
-            fontsDB[k] = DeepCopy(v)
+        for key in pairs(fontsDB) do
+            fontsDB[key] = nil
+        end
+        for key, value in pairs(profileData.fonts) do
+            fontsDB[key] = DeepCopy(value)
         end
     end
+
     if profileData.customColors then
         local colorsDB = EllesmereUI.GetCustomColorsDB()
-        for k in pairs(colorsDB) do colorsDB[k] = nil end
-        for k, v in pairs(profileData.customColors) do
-            colorsDB[k] = DeepCopy(v)
+        for key in pairs(colorsDB) do
+            colorsDB[key] = nil
+        end
+        for key, value in pairs(profileData.customColors) do
+            colorsDB[key] = DeepCopy(value)
         end
     end
 end
 
---- Apply a partial profile (specific addons only) by merging into active
-function EllesmereUI.ApplyPartialProfile(profileData)
-    if not profileData or not profileData.addons then return end
-    for folderName, snap in pairs(profileData.addons) do
+local function ApplyPartialProfileData(profileData)
+    for folderName, snapshot in pairs(profileData.addons or {}) do
         for _, entry in ipairs(ADDON_DB_MAP) do
             if entry.folder == folderName and IsAddonLoaded(folderName) then
                 local profile = GetAddonProfile(entry)
@@ -337,15 +756,15 @@ function EllesmereUI.ApplyPartialProfile(profileData)
                     if entry.isFlat then
                         local db = _G[entry.svName]
                         if db then
-                            for k, v in pairs(snap) do
-                                if not k:match("^_") then
-                                    db[k] = DeepCopy(v)
+                            for key, value in pairs(snapshot) do
+                                if not (type(key) == "string" and key:match("^_")) then
+                                    db[key] = DeepCopy(value)
                                 end
                             end
                         end
                     else
-                        for k, v in pairs(snap) do
-                            profile[k] = DeepCopy(v)
+                        for key, value in pairs(snapshot) do
+                            profile[key] = DeepCopy(value)
                         end
                     end
                 end
@@ -353,201 +772,540 @@ function EllesmereUI.ApplyPartialProfile(profileData)
             end
         end
     end
-    -- Always apply fonts and colors if present
+
     if profileData.fonts then
         local fontsDB = EllesmereUI.GetFontsDB()
-        for k, v in pairs(profileData.fonts) do
-            fontsDB[k] = DeepCopy(v)
+        for key, value in pairs(profileData.fonts) do
+            fontsDB[key] = DeepCopy(value)
         end
     end
+
     if profileData.customColors then
         local colorsDB = EllesmereUI.GetCustomColorsDB()
-        for k, v in pairs(profileData.customColors) do
-            colorsDB[k] = DeepCopy(v)
+        for key, value in pairs(profileData.customColors) do
+            colorsDB[key] = DeepCopy(value)
         end
     end
+end
+
+--- Snapshot the current state of all profiled addons into a versioned profile.
+function EllesmereUI.SnapshotAllAddons()
+    return FinalizeLiveSnapshot(SnapshotCurrentProfileData())
+end
+
+--- Snapshot a single addon's current profile table.
+function EllesmereUI.SnapshotAddon(folderName)
+    for _, entry in ipairs(ADDON_DB_MAP) do
+        if entry.folder == folderName and IsAddonLoaded(folderName) then
+            local profile = GetAddonProfile(entry)
+            if profile then
+                return entry.isFlat
+                    and CopyKnownFlatProfileTable(profile, GetAddonDefaults(entry))
+                    or DeepCopy(profile)
+            end
+        end
+    end
+    return nil
+end
+
+--- Snapshot multiple addons plus the shared font/color profile state.
+function EllesmereUI.SnapshotAddons(folderList)
+    local folderFilterSet = {}
+    for _, folderName in ipairs(folderList) do
+        folderFilterSet[folderName] = true
+    end
+
+    return FinalizeLiveSnapshot(SnapshotCurrentProfileData(folderFilterSet))
+end
+
+--- Apply a full profile to live SavedVariables.
+function EllesmereUI.ApplyProfileData(profileData)
+    local canApply, err, code = CanApplyProfileData()
+    if not canApply then return false, err, code end
+
+    local normalized, normalizeErr, normalizeCode = CoerceStoredProfileRecord(profileData)
+    if not normalized then return false, normalizeErr, normalizeCode end
+
+    ApplyFullProfileData(normalized)
+    return true, normalized, nil
+end
+
+--- Apply a partial profile by merging only the supplied addon buckets.
+function EllesmereUI.ApplyPartialProfile(profileData)
+    local canApply, err, code = CanApplyProfileData()
+    if not canApply then return false, err, code end
+
+    local migrated, migrateErr, migrateCode = MigrateProfileData(profileData)
+    if not migrated then return false, migrateErr, migrateCode end
+
+    local normalized, normalizeErr, normalizeCode = NormalizeProfileData(
+        migrated,
+        { preserveMissingSharedData = true }
+    )
+    if not normalized then return false, normalizeErr, normalizeCode end
+
+    ApplyPartialProfileData(normalized)
+    return true, normalized, nil
 end
 
 -------------------------------------------------------------------------------
 --  Export / Import
---  Format: !EUI_<base64 encoded compressed serialized data>
---  The data table contains:
---    { version = 1, type = "full"|"partial", data = profileData }
+--  Format: `!EUI_<base64 encoded compressed serialized data>`.
+--  The payload envelope is versioned separately from the profile schema so we
+--  can reject incompatible strings cleanly while still migrating older data.
 -------------------------------------------------------------------------------
 local EXPORT_PREFIX = "!EUI_"
 
-function EllesmereUI.ExportProfile(profileName)
-    local db = GetProfilesDB()
-    local profileData = db.profiles[profileName]
-    if not profileData then return nil end
-    local payload = { version = 1, type = "full", data = profileData }
+local function EncodePayload(payload)
+    if not LibDeflate then
+        return nil, "LibDeflate is not available.", "missing_libdeflate"
+    end
+
     local serialized = Serializer.Serialize(payload)
-    if not LibDeflate then return nil end
     local compressed = LibDeflate:CompressDeflate(serialized)
     local encoded = LibDeflate:EncodeForPrint(compressed)
-    return EXPORT_PREFIX .. encoded
+    return EXPORT_PREFIX .. encoded, nil, nil
+end
+
+local function BuildPayload(payloadType, profileData)
+    return {
+        version = PROFILE_PAYLOAD_VERSION,
+        type = payloadType,
+        data = profileData,
+    }
+end
+
+local function StoreProfileRecord(db, name, profileData, opts)
+    opts = opts or {}
+
+    local existingProfile = db.profiles[name]
+    local stored, err, code = StampStoredProfileRecord(profileData, existingProfile)
+    if not stored then return nil, err, code end
+
+    db.profiles[name] = stored
+
+    if existingProfile then
+        if opts.moveToFront then
+            EnsureProfileInOrder(db, name, true)
+        else
+            NormalizeProfileOrder(db)
+        end
+    else
+        EnsureProfileInOrder(db, name, opts.moveToFront ~= false)
+    end
+
+    NormalizeProfileOrder(db)
+
+    if opts.setActive ~= false then
+        db.activeProfile = name
+    end
+
+    return stored, nil, nil, existingProfile ~= nil
+end
+
+local function BuildImportedProfileRecord(payload, existingProfile)
+    if payload.type == "full" then
+        local imported, err, code = CoerceStoredProfileRecord(payload.data)
+        if not imported then return nil, err, code end
+        return StampStoredProfileRecord(imported, existingProfile)
+    end
+
+    if payload.type == "partial" then
+        local migrated, err, code = MigrateProfileData(payload.data)
+        if not migrated then return nil, err, code end
+
+        local importedPartial, normalizeErr, normalizeCode = NormalizeProfileData(
+            migrated,
+            { preserveMissingSharedData = true }
+        )
+        if not importedPartial then
+            return nil, normalizeErr, normalizeCode
+        end
+
+        local merged = SnapshotCurrentProfileData()
+        for folderName, snapshot in pairs(importedPartial.addons or {}) do
+            merged.addons[folderName] = snapshot
+        end
+        if importedPartial.fonts then
+            merged.fonts = importedPartial.fonts
+        end
+        if importedPartial.customColors then
+            merged.customColors = importedPartial.customColors
+        end
+
+        return StampStoredProfileRecord(merged, existingProfile)
+    end
+
+    return nil, "Unsupported profile type.", "unsupported_payload_type"
+end
+
+local function ActivateStoredProfile(db, name, profileData, opts)
+    opts = opts or {}
+
+    if opts.saveCurrent ~= false then
+        local currentName = db.activeProfile or RESERVED_PROFILE_NAME
+        if currentName ~= name and db.profiles[currentName] then
+            EllesmereUI.AutoSaveActiveProfile()
+        end
+    end
+
+    local ok, normalizedOrErr, code = EllesmereUI.ApplyProfileData(profileData)
+    if not ok then
+        return nil, normalizedOrErr, code
+    end
+
+    db.profiles[name] = normalizedOrErr
+    db.activeProfile = name
+    return normalizedOrErr, nil, nil
+end
+
+function EllesmereUI.ExportProfile(profileName)
+    local db = GetProfilesDB()
+    local normalizedName = NormalizeProfileName(profileName)
+    if not normalizedName or not db.profiles[normalizedName] then
+        return nil, "That profile does not exist.", "profile_missing"
+    end
+
+    local profileData, err, code = CoerceStoredProfileRecord(db.profiles[normalizedName])
+    if not profileData then return nil, err, code end
+
+    db.profiles[normalizedName] = profileData
+    return EncodePayload(BuildPayload("full", profileData))
 end
 
 function EllesmereUI.ExportAddons(folderList)
-    local profileData = EllesmereUI.SnapshotAddons(folderList)
-    local payload = { version = 1, type = "partial", data = profileData }
-    local serialized = Serializer.Serialize(payload)
-    if not LibDeflate then return nil end
-    local compressed = LibDeflate:CompressDeflate(serialized)
-    local encoded = LibDeflate:EncodeForPrint(compressed)
-    return EXPORT_PREFIX .. encoded
+    return EncodePayload(BuildPayload("partial", EllesmereUI.SnapshotAddons(folderList)))
 end
 
 function EllesmereUI.ExportCurrentProfile()
-    local profileData = EllesmereUI.SnapshotAllAddons()
-    local payload = { version = 1, type = "full", data = profileData }
-    local serialized = Serializer.Serialize(payload)
-    if not LibDeflate then return nil end
-    local compressed = LibDeflate:CompressDeflate(serialized)
-    local encoded = LibDeflate:EncodeForPrint(compressed)
-    return EXPORT_PREFIX .. encoded
+    return EncodePayload(BuildPayload("full", EllesmereUI.SnapshotAllAddons()))
 end
 
 function EllesmereUI.DecodeImportString(importStr)
-    if not importStr or #importStr < #EXPORT_PREFIX then return nil, "Invalid string" end
-    if importStr:sub(1, #EXPORT_PREFIX) ~= EXPORT_PREFIX then
-        return nil, "Not a valid EllesmereUI profile string"
+    if not importStr or #importStr < #EXPORT_PREFIX then
+        return nil, "Invalid string.", "invalid_import_string"
     end
-    if not LibDeflate then return nil, "LibDeflate not available" end
+    if importStr:sub(1, #EXPORT_PREFIX) ~= EXPORT_PREFIX then
+        return nil,
+            "Not a valid EllesmereUI profile string.",
+            "invalid_import_string"
+    end
+    if not LibDeflate then
+        return nil, "LibDeflate is not available.", "missing_libdeflate"
+    end
+
     local encoded = importStr:sub(#EXPORT_PREFIX + 1)
     local decoded = LibDeflate:DecodeForPrint(encoded)
-    if not decoded then return nil, "Failed to decode string" end
+    if not decoded then
+        return nil, "Failed to decode the profile string.", "decode_failed"
+    end
+
     local decompressed = LibDeflate:DecompressDeflate(decoded)
-    if not decompressed then return nil, "Failed to decompress data" end
+    if not decompressed then
+        return nil, "Failed to decompress the profile data.", "decompress_failed"
+    end
+
     local payload = Serializer.Deserialize(decompressed)
     if not payload or type(payload) ~= "table" then
-        return nil, "Failed to deserialize data"
+        return nil, "Failed to deserialize the profile data.", "deserialize_failed"
     end
-    if payload.version ~= 1 then
-        return nil, "Unsupported profile version"
+
+    local payloadVersion = tonumber(payload.version)
+    if not payloadVersion then
+        return nil,
+            "The profile string is missing a payload version.",
+            "unsupported_payload_version"
     end
-    return payload, nil
+    if payloadVersion > PROFILE_PAYLOAD_VERSION then
+        return nil,
+            "This profile string was exported by a newer version of EllesmereUI.",
+            "newer_payload_version"
+    end
+    if payloadVersion < 1 then
+        return nil,
+            "Unsupported profile payload version.",
+            "unsupported_payload_version"
+    end
+    if payload.type ~= "full" and payload.type ~= "partial" then
+        return nil, "Unsupported profile type.", "unsupported_payload_type"
+    end
+    if type(payload.data) ~= "table" then
+        return nil,
+            "The profile string does not contain any settings data.",
+            "invalid_payload_data"
+    end
+
+    return payload, nil, nil
 end
 
---- Import a profile string. Returns: success, errorMsg
---- The caller must provide a name for the new profile.
-function EllesmereUI.ImportProfile(importStr, profileName)
-    local payload, err = EllesmereUI.DecodeImportString(importStr)
-    if not payload then return false, err end
+--- Import a profile string. Returns `ok, resultOrError, errorCode`.
+function EllesmereUI.ImportProfile(importStr, profileName, opts)
+    opts = opts or {}
+
+    local payload, err, code = EllesmereUI.DecodeImportString(importStr)
+    if not payload then return false, err, code end
 
     local db = GetProfilesDB()
+    local normalizedName, nameErr, nameCode = ValidateProfileName(db, profileName, {
+        allowOverwrite = opts.allowOverwrite,
+    })
+    if not normalizedName then return false, nameErr, nameCode end
 
-    if payload.type == "full" then
-        -- Full profile: store as a new named profile
-        db.profiles[profileName] = DeepCopy(payload.data)
-        -- Add to order if not present
-        local found = false
-        for _, n in ipairs(db.profileOrder) do
-            if n == profileName then found = true; break end
+    local canApply, applyErr, applyCode = CanApplyProfileData()
+    if not canApply then return false, applyErr, applyCode end
+
+    local existingProfile = db.profiles[normalizedName]
+    local importedProfile, importErr, importCode = BuildImportedProfileRecord(
+        payload,
+        existingProfile
+    )
+    if not importedProfile then return false, importErr, importCode end
+
+    db.profiles[normalizedName] = importedProfile
+    if existingProfile then
+        if opts.moveToFront then
+            EnsureProfileInOrder(db, normalizedName, true)
+        else
+            NormalizeProfileOrder(db)
         end
-        if not found then
-            table.insert(db.profileOrder, 1, profileName)
-        end
-        -- Make it the active profile
-        db.activeProfile = profileName
-        EllesmereUI.ApplyProfileData(payload.data)
-        return true, nil
-    elseif payload.type == "partial" then
-        -- Partial: copy current profile, overwrite the imported addons
-        local currentSnap = EllesmereUI.SnapshotAllAddons()
-        -- Merge imported addon data over current
-        if payload.data and payload.data.addons then
-            for folder, snap in pairs(payload.data.addons) do
-                currentSnap.addons[folder] = DeepCopy(snap)
-            end
-        end
-        -- Merge fonts/colors if present
-        if payload.data.fonts then
-            currentSnap.fonts = DeepCopy(payload.data.fonts)
-        end
-        if payload.data.customColors then
-            currentSnap.customColors = DeepCopy(payload.data.customColors)
-        end
-        -- Store as new profile
-        db.profiles[profileName] = currentSnap
-        local found = false
-        for _, n in ipairs(db.profileOrder) do
-            if n == profileName then found = true; break end
-        end
-        if not found then
-            table.insert(db.profileOrder, 1, profileName)
-        end
-        db.activeProfile = profileName
-        EllesmereUI.ApplyProfileData(currentSnap)
-        return true, nil
+    else
+        EnsureProfileInOrder(db, normalizedName, true)
     end
+    NormalizeProfileOrder(db)
 
-    return false, "Unknown profile type"
+    local activatedProfile, activateErr, activateCode = ActivateStoredProfile(
+        db,
+        normalizedName,
+        importedProfile,
+        { saveCurrent = opts.saveCurrent }
+    )
+    if not activatedProfile then return false, activateErr, activateCode end
+
+    return true, {
+        profileName = normalizedName,
+        importType = payload.type,
+        overwritten = existingProfile ~= nil,
+        requiresReload = true,
+    }, nil
 end
 
 -------------------------------------------------------------------------------
 --  Profile management
 -------------------------------------------------------------------------------
-function EllesmereUI.SaveCurrentAsProfile(name)
+function EllesmereUI.SaveCurrentAsProfile(name, opts)
+    opts = opts or {}
+
     local db = GetProfilesDB()
-    db.profiles[name] = EllesmereUI.SnapshotAllAddons()
-    local found = false
-    for _, n in ipairs(db.profileOrder) do
-        if n == name then found = true; break end
-    end
-    if not found then
-        table.insert(db.profileOrder, 1, name)
-    end
-    db.activeProfile = name
+    local normalizedName, err, code = ValidateProfileName(db, name, {
+        currentName = opts.currentName,
+        allowOverwrite = opts.allowOverwrite,
+        allowReserved = opts.allowReserved,
+    })
+    if not normalizedName then return false, err, code end
+
+    local stored, storeErr, storeCode, overwritten = StoreProfileRecord(
+        db,
+        normalizedName,
+        SnapshotCurrentProfileData(),
+        {
+            moveToFront = opts.moveToFront,
+            setActive = opts.setActive,
+        }
+    )
+    if not stored then return false, storeErr, storeCode end
+
+    return true, {
+        profileName = normalizedName,
+        overwritten = overwritten,
+    }, nil
 end
 
 function EllesmereUI.DeleteProfile(name)
     local db = GetProfilesDB()
-    db.profiles[name] = nil
-    for i, n in ipairs(db.profileOrder) do
-        if n == name then table.remove(db.profileOrder, i); break end
+    local normalizedName = NormalizeProfileName(name)
+    if not normalizedName or not db.profiles[normalizedName] then
+        return false, "That profile does not exist.", "profile_missing"
     end
-    -- Clean up spec assignments
-    for specID, pName in pairs(db.specProfiles) do
-        if pName == name then db.specProfiles[specID] = nil end
+    if IsReservedProfileName(normalizedName) then
+        return false,
+            "The built-in Custom profile cannot be deleted.",
+            "reserved_profile_name"
     end
-    -- If deleted profile was active, fall back to Custom
-    if db.activeProfile == name then
-        db.activeProfile = "Custom"
+
+    local deletingActiveProfile = (db.activeProfile == normalizedName)
+    local fallbackName, fallbackProfile
+
+    if deletingActiveProfile then
+        local canApply, applyErr, applyCode = CanApplyProfileData()
+        if not canApply then return false, applyErr, applyCode end
+
+        fallbackName = ChooseFallbackProfileName(db, normalizedName)
+        if not fallbackName or not db.profiles[fallbackName] then
+            return false,
+                "No fallback profile is available.",
+                "missing_fallback_profile"
+        end
+
+        fallbackProfile = db.profiles[fallbackName]
     end
+
+    db.profiles[normalizedName] = nil
+    RemoveProfileFromOrder(db, normalizedName)
+    RemoveSpecAssignmentsForProfile(db, normalizedName)
+    NormalizeProfileOrder(db)
+
+    if deletingActiveProfile then
+        local activatedProfile, activateErr, activateCode = ActivateStoredProfile(
+            db,
+            fallbackName,
+            fallbackProfile,
+            { saveCurrent = false }
+        )
+        if not activatedProfile then return false, activateErr, activateCode end
+
+        return true, {
+            deletedProfile = normalizedName,
+            activeProfile = fallbackName,
+            fallbackProfile = fallbackName,
+            requiresReload = true,
+        }, nil
+    end
+
+    if db.activeProfile == normalizedName then
+        db.activeProfile = nil
+    end
+
+    return true, {
+        deletedProfile = normalizedName,
+        activeProfile = db.activeProfile,
+        requiresReload = false,
+    }, nil
 end
 
-function EllesmereUI.RenameProfile(oldName, newName)
+function EllesmereUI.RenameProfile(oldName, newName, opts)
+    opts = opts or {}
+
     local db = GetProfilesDB()
-    if not db.profiles[oldName] then return end
-    db.profiles[newName] = db.profiles[oldName]
-    db.profiles[oldName] = nil
-    for i, n in ipairs(db.profileOrder) do
-        if n == oldName then db.profileOrder[i] = newName; break end
+    local normalizedOldName = NormalizeProfileName(oldName)
+    if not normalizedOldName or not db.profiles[normalizedOldName] then
+        return false, "That profile does not exist.", "profile_missing"
     end
-    for specID, pName in pairs(db.specProfiles) do
-        if pName == oldName then db.specProfiles[specID] = newName end
+    if IsReservedProfileName(normalizedOldName) then
+        return false,
+            "The built-in Custom profile cannot be renamed.",
+            "reserved_profile_name"
     end
-    if db.activeProfile == oldName then
-        db.activeProfile = newName
+
+    local normalizedNewName, err, code = ValidateProfileName(db, newName, {
+        currentName = normalizedOldName,
+        allowOverwrite = opts.allowOverwrite,
+    })
+    if not normalizedNewName then return false, err, code end
+
+    if normalizedNewName == normalizedOldName then
+        return true, {
+            profileName = normalizedOldName,
+            overwritten = false,
+            noOp = true,
+        }, nil
     end
+
+    local overwritingProfile = db.profiles[normalizedNewName]
+    if overwritingProfile
+        and db.activeProfile == normalizedNewName
+        and db.activeProfile ~= normalizedOldName then
+        return false,
+            "Rename would overwrite the active profile. Switch away from it first.",
+            "profile_exists_active"
+    end
+
+    if overwritingProfile then
+        db.profiles[normalizedNewName] = nil
+        RemoveProfileFromOrder(db, normalizedNewName)
+        RemoveSpecAssignmentsForProfile(db, normalizedNewName)
+    end
+
+    db.profiles[normalizedNewName] = db.profiles[normalizedOldName]
+    db.profiles[normalizedOldName] = nil
+
+    local replacedInOrder = false
+    for i, orderedName in ipairs(db.profileOrder) do
+        if orderedName == normalizedOldName then
+            db.profileOrder[i] = normalizedNewName
+            replacedInOrder = true
+            break
+        end
+    end
+    if not replacedInOrder then
+        EnsureProfileInOrder(db, normalizedNewName, false)
+    end
+
+    for specID, profileName in pairs(db.specProfiles) do
+        if profileName == normalizedOldName then
+            db.specProfiles[specID] = normalizedNewName
+        end
+    end
+    if db.activeProfile == normalizedOldName then
+        db.activeProfile = normalizedNewName
+    end
+
+    NormalizeProfileOrder(db)
+
+    return true, {
+        profileName = normalizedNewName,
+        overwritten = overwritingProfile ~= nil,
+    }, nil
 end
 
-function EllesmereUI.SwitchProfile(name)
+function EllesmereUI.SwitchProfile(name, opts)
+    opts = opts or {}
+
     local db = GetProfilesDB()
-    local profileData = db.profiles[name]
-    if not profileData then return end
-    db.activeProfile = name
-    EllesmereUI.ApplyProfileData(profileData)
+    local normalizedName = NormalizeProfileName(name)
+    if not normalizedName or not db.profiles[normalizedName] then
+        return false, "That profile does not exist.", "profile_missing"
+    end
+
+    if db.activeProfile == normalizedName then
+        return true, {
+            profileName = normalizedName,
+            requiresReload = false,
+            noOp = true,
+        }, nil
+    end
+
+    local activatedProfile, err, code = ActivateStoredProfile(
+        db,
+        normalizedName,
+        db.profiles[normalizedName],
+        { saveCurrent = opts.saveCurrent }
+    )
+    if not activatedProfile then return false, err, code end
+
+    return true, {
+        profileName = normalizedName,
+        requiresReload = true,
+    }, nil
 end
 
 function EllesmereUI.GetActiveProfileName()
     local db = GetProfilesDB()
-    return db.activeProfile or "Custom"
+    if db.activeProfile and db.profiles[db.activeProfile] then
+        return db.activeProfile
+    end
+
+    NormalizeProfileOrder(db)
+    local fallbackName = db.profiles[RESERVED_PROFILE_NAME]
+        and RESERVED_PROFILE_NAME
+        or db.profileOrder[1]
+        or RESERVED_PROFILE_NAME
+    db.activeProfile = fallbackName
+    return fallbackName
 end
 
 function EllesmereUI.GetProfileList()
     local db = GetProfilesDB()
+    NormalizeProfileOrder(db)
     return db.profileOrder, db.profiles
 end
 
@@ -573,41 +1331,31 @@ end
 -------------------------------------------------------------------------------
 function EllesmereUI.AutoSaveActiveProfile()
     local db = GetProfilesDB()
-    local name = db.activeProfile or "Custom"
-    db.profiles[name] = EllesmereUI.SnapshotAllAddons()
+    local name = db.activeProfile or RESERVED_PROFILE_NAME
+
+    local ok, resultOrErr, code = EllesmereUI.SaveCurrentAsProfile(name, {
+        currentName = name,
+        allowOverwrite = true,
+        allowReserved = true,
+        setActive = false,
+        moveToFront = false,
+    })
+    if ok and not db.activeProfile then
+        db.activeProfile = name
+    end
+    return ok, resultOrErr, code
 end
 
 -------------------------------------------------------------------------------
 --  Spec auto-switch handler
 -------------------------------------------------------------------------------
-do
-    local specFrame = CreateFrame("Frame")
-    specFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-    specFrame:SetScript("OnEvent", function(_, event, unit)
-        if event ~= "PLAYER_SPECIALIZATION_CHANGED" then return end
-        if unit ~= "player" then return end
-        local specIdx = GetSpecialization and GetSpecialization() or 0
-        local specID = specIdx and specIdx > 0
-            and GetSpecializationInfo(specIdx) or nil
-        if not specID then return end
-        local db = GetProfilesDB()
-        local targetProfile = db.specProfiles[specID]
-        if targetProfile and db.profiles[targetProfile] then
-            local current = db.activeProfile or "Custom"
-            if current ~= targetProfile then
-                -- Auto-save current before switching
-                db.profiles[current] = EllesmereUI.SnapshotAllAddons()
-                EllesmereUI.SwitchProfile(targetProfile)
-                -- Refresh UI if panel is open
-                if EllesmereUI._mainFrame
-                    and EllesmereUI._mainFrame:IsShown() then
-                    EllesmereUI:InvalidatePageCache()
-                    EllesmereUI:RefreshPage(true)
-                end
-            end
-        end
-    end)
-end
+-- The initial shipping pass uses reload-based profile activation because the
+-- addon suite still has several combat-sensitive modules and deferred rebuild
+-- paths. Automatically reloading on every spec change would be more disruptive
+-- than helpful, so spec assignments remain stored but inactive for now.
+--
+-- TODO: Re-enable spec auto-switch once addons can respond to profile swaps via
+-- explicit `onProfileApplied` hooks instead of relying on `ReloadUI()`.
 
 -------------------------------------------------------------------------------
 --  Popular Presets & Weekly Spotlight
@@ -925,35 +1673,58 @@ do
             return
         end
 
-        -- After a default reset reload, snapshot the fresh defaults as active profile
+        -- After a default reset reload, snapshot the fresh defaults as the
+        -- active profile so the fallback record keeps a versioned baseline.
         if EllesmereUIDB and EllesmereUIDB._pendingDefaultSnapshot then
             EllesmereUIDB._pendingDefaultSnapshot = nil
             C_Timer.After(0.5, function()
                 local db = GetProfilesDB()
-                local name = db.activeProfile or "Custom"
-                db.profiles[name] = EllesmereUI.SnapshotAllAddons()
+                local name = db.activeProfile or RESERVED_PROFILE_NAME
+                EllesmereUI.SaveCurrentAsProfile(name, {
+                    currentName = name,
+                    allowOverwrite = true,
+                    allowReserved = true,
+                    setActive = false,
+                    moveToFront = false,
+                })
             end)
         end
 
         local db = GetProfilesDB()
-        -- On first install, create "Custom" from current (default) settings
-        if not db.activeProfile then
-            db.activeProfile = "Custom"
+
+        -- Migrate any stored snapshots we already know about into the current
+        -- schema. We do this at login so later UI actions can assume the named
+        -- profile list is working with normalized records.
+        for profileName, profileData in pairs(db.profiles) do
+            local normalizedProfile = CoerceStoredProfileRecord(profileData)
+            if normalizedProfile then
+                db.profiles[profileName] = normalizedProfile
+            end
         end
-        -- Ensure Custom profile exists with current settings
-        if not db.profiles["Custom"] then
-            -- Delay slightly to let all addons initialize their DBs
+
+        -- On first install, create the built-in fallback profile from the
+        -- current settings after the addons finish their DB initialization.
+        if not db.activeProfile then
+            db.activeProfile = RESERVED_PROFILE_NAME
+        end
+        if not db.profiles[RESERVED_PROFILE_NAME] then
             C_Timer.After(0.5, function()
-                db.profiles["Custom"] = EllesmereUI.SnapshotAllAddons()
+                EllesmereUI.SaveCurrentAsProfile(RESERVED_PROFILE_NAME, {
+                    currentName = RESERVED_PROFILE_NAME,
+                    allowOverwrite = true,
+                    allowReserved = true,
+                    setActive = false,
+                    moveToFront = false,
+                })
             end)
         end
-        -- Ensure Custom is in the order list
-        local hasCustom = false
-        for _, n in ipairs(db.profileOrder) do
-            if n == "Custom" then hasCustom = true; break end
-        end
-        if not hasCustom then
-            table.insert(db.profileOrder, "Custom")
+
+        NormalizeProfileOrder(db)
+        if not db.profiles[db.activeProfile] then
+            db.activeProfile = db.profiles[RESERVED_PROFILE_NAME]
+                and RESERVED_PROFILE_NAME
+                or db.profileOrder[1]
+                or RESERVED_PROFILE_NAME
         end
 
         -- Auto-save active profile when the settings panel closes
@@ -966,6 +1737,80 @@ do
             end
         end)
     end)
+end
+
+-------------------------------------------------------------------------------
+--  Shared profile-string text box
+--
+--  Export strings can be a single uninterrupted token, especially when we fall
+--  back to the raw serializer in local/dev installs. Wrapping the EditBox in a
+--  clipped container keeps that long string visually contained to the text area
+--  instead of painting across the rest of the popup.
+-------------------------------------------------------------------------------
+local function CreateProfileStringBox(parent, font, opts)
+    opts = opts or {}
+
+    local PP = EllesmereUI.PanelPP
+    local box = CreateFrame("Frame", nil, parent)
+    box:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, -70)
+    box:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -20, 60)
+    box:SetFrameLevel(parent:GetFrameLevel() + 1)
+    box:EnableMouse(true)
+    box:SetClipsChildren(true)
+
+    local boxBg = box:CreateTexture(nil, "BACKGROUND")
+    boxBg:SetAllPoints()
+    boxBg:SetColorTexture(0.03, 0.05, 0.07, 0.95)
+    EllesmereUI.MakeBorder(box, 1, 1, 1, 0.12, PP)
+
+    local editBox = CreateFrame("EditBox", nil, box)
+    editBox:SetMultiLine(true)
+    editBox:SetAutoFocus(false)
+    editBox:SetFont(font, 11, EllesmereUI.GetFontOutlineFlag())
+    editBox:SetTextColor(1, 1, 1, 0.75)
+    editBox:SetPoint("TOPLEFT", box, "TOPLEFT", 10, -8)
+    editBox:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -10, 8)
+    editBox:SetText(opts.initialText or "")
+
+    local function FocusBox(selectAll)
+        C_Timer.After(0, function()
+            editBox:SetFocus()
+            if selectAll then
+                editBox:HighlightText()
+            end
+        end)
+    end
+
+    if opts.readOnly then
+        editBox._readOnlyText = opts.initialText or ""
+        editBox:SetScript("OnChar", function(self)
+            if self._readOnlyText then
+                self:SetText(self._readOnlyText)
+                self:HighlightText()
+            end
+        end)
+        editBox:SetScript("OnTextChanged", function(self, userInput)
+            if userInput and self._readOnlyText then
+                self:SetText(self._readOnlyText)
+                self:HighlightText()
+            end
+        end)
+        editBox:SetScript("OnMouseUp", function()
+            FocusBox(true)
+        end)
+        box:SetScript("OnMouseUp", function()
+            FocusBox(true)
+        end)
+    else
+        editBox:SetScript("OnMouseUp", function()
+            FocusBox(false)
+        end)
+        box:SetScript("OnMouseUp", function()
+            FocusBox(false)
+        end)
+    end
+
+    return box, editBox
 end
 
 -------------------------------------------------------------------------------
@@ -1013,34 +1858,13 @@ function EllesmereUI:ShowExportPopup(exportStr)
     sub:SetPoint("TOP", title, "BOTTOM", 0, -6)
     sub:SetText("Copy the string below and share it")
 
-    -- EditBox
-    local editBox = CreateFrame("EditBox", nil, popup)
-    editBox:SetMultiLine(true)
-    editBox:SetAutoFocus(false)
-    editBox:SetFont(FONT, 11, EllesmereUI.GetFontOutlineFlag())
-    editBox:SetTextColor(1, 1, 1, 0.75)
-    editBox:SetPoint("TOPLEFT", popup, "TOPLEFT", 20, -70)
-    editBox:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -20, 60)
-    editBox:SetText(exportStr)
-    editBox._readOnlyText = exportStr
-    editBox:SetScript("OnChar", function(self)
-        if self._readOnlyText then
-            self:SetText(self._readOnlyText)
-            self:HighlightText()
-        end
-    end)
-    editBox:SetScript("OnTextChanged", function(self, userInput)
-        if userInput and self._readOnlyText then
-            self:SetText(self._readOnlyText)
-            self:HighlightText()
-        end
-    end)
-    editBox:SetScript("OnMouseUp", function(self)
-        C_Timer.After(0, function()
-            editBox:SetFocus()
-            editBox:HighlightText()
-        end)
-    end)
+    -- Long profile strings stay clipped to this dedicated text box so they do
+    -- not overflow the popup when compression is unavailable or the payload is
+    -- simply too large to fit on one visible line.
+    local _, editBox = CreateProfileStringBox(popup, FONT, {
+        initialText = exportStr,
+        readOnly = true,
+    })
 
     -- Close button
     local closeBtn = CreateFrame("Button", nil, popup)
@@ -1119,15 +1943,12 @@ function EllesmereUI:ShowImportPopup(onImport)
     sub:SetPoint("TOP", title, "BOTTOM", 0, -6)
     sub:SetText("Paste an EllesmereUI profile string below")
 
-    -- EditBox
-    local editBox = CreateFrame("EditBox", nil, popup)
-    editBox:SetMultiLine(true)
-    editBox:SetAutoFocus(false)
-    editBox:SetFont(FONT, 11, EllesmereUI.GetFontOutlineFlag())
-    editBox:SetTextColor(1, 1, 1, 0.75)
-    editBox:SetPoint("TOPLEFT", popup, "TOPLEFT", 20, -70)
-    editBox:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -20, 60)
-    editBox:SetText("")
+    -- Use the same clipped text box as export so very long profile strings stay
+    -- visually contained while pasting or reviewing imports.
+    local _, editBox = CreateProfileStringBox(popup, FONT, {
+        initialText = "",
+        readOnly = false,
+    })
 
     -- Import button
     local importBtn = CreateFrame("Button", nil, popup)
