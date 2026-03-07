@@ -149,7 +149,8 @@ local function StripDefaults(db, defaults)
     end
 end
 
-local dbRegistry = {}  -- all db objects, for logout cleanup
+local dbRegistry = {}      -- all db objects, for logout cleanup
+local dbRegistryBySV = {}  -- SavedVariables name -> db object
 
 --- Create or open a database. Replaces AceDB:New(svName, defaults, true).
 -- Returns a db object with .profile pointing to the active profile table.
@@ -198,6 +199,7 @@ function EUILite.NewDB(svName, defaults)
     local db = {
         sv = sv,
         profile = profile,
+        _svName = svName,
         _profileName = profileName,
         _defaults = defaults,
         _profileDefaults = profileDefaults,
@@ -211,10 +213,20 @@ function EUILite.NewDB(svName, defaults)
         end
     end
 
-    -- Register for logout cleanup
+    -- Register for logout cleanup and for cross-addon profile tooling.
+    -- The profile system uses the registry to look up the current defaults
+    -- for a SavedVariables table before applying imported snapshots.
     tinsert(dbRegistry, db)
+    dbRegistryBySV[svName] = db
 
     return db
+end
+
+--- Look up a registered db object by its SavedVariables name.
+--- This intentionally exposes the live defaults metadata so suite-level
+--- profile import/export code can re-merge current defaults after swaps.
+function EUILite.GetRegisteredDB(svName)
+    return dbRegistryBySV[svName]
 end
 
 --------------------------------------------------------------------------------
