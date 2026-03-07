@@ -8,6 +8,9 @@
 ## X-Curse-Project-ID: 1477613
 ## X-Wago-ID: ZKbxbRN1
 
+# Early startup hooks
+EllesmereUI_Startup.lua
+
 # Lightweight addon framework (replaces Ace3)
 EllesmereUI_Lite.lua
 
