@@ -3931,6 +3931,15 @@ function EAB:OnFirstLogin()
     self.db.profile._capturedOnce = true
     self._needsCapture = false
 
+    -- Stance bar visibility must always be "Always" — it manages its own
+    -- show/hide based on shapeshift form availability.
+    local sb = self.db.profile.bars["StanceBar"]
+    if sb then
+        sb.alwaysHidden       = false
+        sb.combatShowEnabled  = false
+        sb.combatHideEnabled  = false
+    end
+
     -- Now proceed with normal setup
     self:FinishSetup()
 end
@@ -4335,7 +4344,7 @@ function EAB:FinishSetup()
     -- Slot changed: update visibility when a spell is placed/removed from a slot
     -- This fires per-slot and ensures buttons update without /reload
     self:RegisterEvent("ACTIONBAR_SLOT_CHANGED", function()
-        -- During drag, skip ├óΓé¼ΓÇ¥ OnGridChange already shows everything,
+        -- During drag, skip — OnGridChange already shows everything,
         -- and HIDEGRID / CURSOR_CHANGED will restore afterwards
         if gridShown then return end
         C_Timer_After(0, function()
@@ -4345,6 +4354,24 @@ function EAB:FinishSetup()
             end
         end)
     end)
+
+    -- Pet bar: re-layout and refresh visibility when the pet's action bar
+    -- changes. PET_BAR_UPDATE covers ability changes; PET_UI_UPDATE covers
+    -- summoning/dismissal; UNIT_PET covers pet swaps. SPELLS_CHANGED and
+    -- PLAYER_ENTERING_WORLD already call ApplyAlwaysShowButtons on all bars,
+    -- so they are not duplicated here.
+    local function UpdatePetBar()
+        C_Timer_After(0, function()
+            if InCombatLockdown() then return end
+            LayoutBar("PetBar")
+            self:ApplyAlwaysShowButtons("PetBar")
+        end)
+    end
+    local _petEventFrame = CreateFrame("Frame")
+    _petEventFrame:RegisterEvent("PET_BAR_UPDATE")
+    _petEventFrame:RegisterEvent("PET_UI_UPDATE")
+    _petEventFrame:RegisterUnitEvent("UNIT_PET", "player")
+    _petEventFrame:SetScript("OnEvent", UpdatePetBar)
 
 
 

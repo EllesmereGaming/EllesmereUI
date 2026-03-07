@@ -1,4 +1,4 @@
--------------------------------------------------------------------------------
+﻿-------------------------------------------------------------------------------
 --  EllesmereUICooldownManager.lua
 --  CDM Look Customization and Cooldown Display
 --  Mirrors Blizzard CDM bars with custom styling, cooldown swipes,
@@ -105,26 +105,30 @@ local function CacheMultiChargeSpell(spellID)
         -- Out of combat (or non-secret): cache live and persist to DB
         local result = charges.maxCharges > 1
         _multiChargeSpells[spellID] = result or false
-        if result then _maxChargeCount[spellID] = charges.maxCharges end
-        local db = ECME.db
-        if db and db.global then
-            if not db.global.multiChargeSpells then
-                db.global.multiChargeSpells = {}
+        if result then
+            _maxChargeCount[spellID] = charges.maxCharges
+            -- Only persist confirmed charge spells — never persist false so
+            -- stale DB entries don't block re-detection on login or talent swap.
+            local db = ECME.db
+            if db and db.global then
+                if not db.global.multiChargeSpells then
+                    db.global.multiChargeSpells = {}
+                end
+                db.global.multiChargeSpells[spellID] = true
             end
-            db.global.multiChargeSpells[spellID] = result or false
         end
-    elseif _multiChargeSpells[spellID] == nil then
-        -- Secret (in combat): fall back to persisted DB value
+    else
+        -- Secret (in combat): fall back to persisted DB value if available.
+        -- Do NOT cache false here -- after a talent swap the DB may be empty,
+        -- and caching false permanently blocks charge detection for the new
+        -- spell until the next full cache wipe.
         local db = ECME.db
-        if db and db.global and db.global.multiChargeSpells then
-            _multiChargeSpells[spellID] = db.global.multiChargeSpells[spellID] or false
-        else
-            -- No DB data available ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â assume not a charge spell to avoid re-checking every tick
-            _multiChargeSpells[spellID] = false
+        if db and db.global and db.global.multiChargeSpells and db.global.multiChargeSpells[spellID] then
+            _multiChargeSpells[spellID] = true
         end
+        -- If no DB entry: leave nil so we retry next tick when OOC or after talents settle
     end
 end
-
 -- Expose charge cache to options file for preview rendering
 ns._multiChargeSpells    = _multiChargeSpells
 ns._maxChargeCount       = _maxChargeCount
@@ -174,6 +178,9 @@ end
 local _tickGCDCache   = {}  -- [spellID] = bool|nil (GCD check result)
 local _tickChargeCache = {} -- [spellID] = charges table or false
 local _tickAuraCache  = {}  -- [spellID] = aura table or false
+local _tickBlizzActiveCache = {}  -- [spellID] = true when Blizzard CDM marks spell as active (wasSetFromAura)
+local _tickBlizzOverrideCache = {} -- [baseSpellID] = overrideSpellID, built each tick from all CDM viewer children
+local _tickBlizzChildCache = {}    -- [overrideSpellID] = blizzChild, for direct charge/cooldown reads on activation overrides
 
 -- Keybind cache: built once out-of-combat, looked up per tick
 local _cdmKeybindCache       = {}   -- [spellID] -> formatted key string
@@ -477,6 +484,8 @@ local function HookBlizzChildApplications(blizzChild)
     hooksecurefunc(appsFrame, "Show", function()
         local ourIcon = blizzChild._ecmeIcon
         if not ourIcon or not ourIcon._stackText then return end
+        -- Guard against stale refs when the child is reused for a different icon
+        if ourIcon._blizzChild ~= blizzChild then return end
         local ok, txt = pcall(appsText.GetText, appsText)
         if ok and txt then
             ourIcon._stackText:SetText(txt)
@@ -486,7 +495,8 @@ local function HookBlizzChildApplications(blizzChild)
 
     hooksecurefunc(appsFrame, "Hide", function()
         local ourIcon = blizzChild._ecmeIcon
-        if ourIcon and ourIcon._stackText then
+        -- Only hide if this child is still mapped to this icon (guard against stale refs)
+        if ourIcon and ourIcon._stackText and ourIcon._blizzChild == blizzChild then
             ourIcon._stackText:Hide()
         end
     end)
@@ -654,7 +664,7 @@ local DEFAULTS = {
                 barBgAlpha  = 1.0,
                 barBgR = 0, barBgG = 0, barBgB = 0,
                 showCooldownText = true,
-                cooldownFontSize = 15,
+                cooldownFontSize = 12,
                 showCharges = true,
                 chargeFontSize = 11,
                 desaturateOnCD = true,
@@ -693,7 +703,7 @@ local DEFAULTS = {
                     iconZoom = 0.08, iconShape = "none", growDirection = "RIGHT",
                     verticalOrientation = false, barBgEnabled = false, barBgAlpha = 1.0,
                     barBgR = 0, barBgG = 0, barBgB = 0,
-                    showCooldownText = true, cooldownFontSize = 15,
+                    showCooldownText = true, cooldownFontSize = 12,
                     showCharges = true, chargeFontSize = 11,
                     desaturateOnCD = true, swipeAlpha = 0.7,
                     borderThickness = "thin", activeStateAnim = "blizzard",
@@ -718,7 +728,7 @@ local DEFAULTS = {
                     iconZoom = 0.08, iconShape = "none", growDirection = "RIGHT",
                     verticalOrientation = false, barBgEnabled = false, barBgAlpha = 1.0,
                     barBgR = 0, barBgG = 0, barBgB = 0,
-                    showCooldownText = true, cooldownFontSize = 15,
+                    showCooldownText = true, cooldownFontSize = 12,
                     showCharges = true, chargeFontSize = 11,
                     desaturateOnCD = true, swipeAlpha = 0.7,
                     borderThickness = "thin", activeStateAnim = "blizzard",
@@ -743,7 +753,7 @@ local DEFAULTS = {
                     iconZoom = 0.08, iconShape = "none", growDirection = "RIGHT",
                     verticalOrientation = false, barBgEnabled = false, barBgAlpha = 1.0,
                     barBgR = 0, barBgG = 0, barBgB = 0,
-                    showCooldownText = true, cooldownFontSize = 15,
+                    showCooldownText = true, cooldownFontSize = 12,
                     showCharges = true, chargeFontSize = 11,
                     desaturateOnCD = true, swipeAlpha = 0.7,
                     borderThickness = "thin", activeStateAnim = "blizzard",
@@ -875,9 +885,8 @@ local function SaveCurrentSpecProfile()
         if key then
             local entry = {}
             if MAIN_BAR_KEYS[key] then
-                -- Main bars: save trackedSpells + extraSpells
-                entry.trackedSpells = DeepCopy(barData.trackedSpells)
-                entry.extraSpells   = DeepCopy(barData.extraSpells)
+                -- trackedSpells are session-ephemeral Blizzard cooldownIDs — don't persist them.
+                entry.extraSpells = DeepCopy(barData.extraSpells)
             elseif barData.barType ~= "trinkets" then
                 -- Custom non-trinket bars: save customSpells
                 entry.customSpells = DeepCopy(barData.customSpells)
@@ -914,7 +923,10 @@ local function LoadSpecProfile(specKey)
                 local saved = prof.barSpells[barData.key]
                 if saved then
                     if MAIN_BAR_KEYS[barData.key] then
-                        barData.trackedSpells = DeepCopy(saved.trackedSpells)
+                        -- trackedSpells are Blizzard-internal cooldownIDs that are
+                        -- session-ephemeral — never restore them across reloads.
+                        -- Always re-snapshot from the live Blizzard CDM on login.
+                        barData.trackedSpells = nil
                         barData.extraSpells   = DeepCopy(saved.extraSpells)
                     elseif barData.barType ~= "trinkets" then
                         barData.customSpells = DeepCopy(saved.customSpells)
@@ -2454,7 +2466,7 @@ local function CreateCDMIcon(barKey, index)
     -- Cooldown text styling
     -- Defer cooldown text font styling (avoids closure per icon ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â uses icon._pendingFont)
     if barData.showCooldownText then
-        icon._pendingFontPath = GetCDMFont(); icon._pendingFontSize = barData.cooldownFontSize or 15
+        icon._pendingFontPath = GetCDMFont(); icon._pendingFontSize = barData.cooldownFontSize or 12
     end
 
     -- Text overlay frame: sits above the cooldown swipe so charge/stack text
@@ -2784,6 +2796,17 @@ local function UpdateCustomBarIcons(barKey)
 
     local icons = cdmBarIcons[barKey]
 
+    -- Active animation setup (same as tracked/mirrored bar paths)
+    local activeAnim = barData.activeStateAnim or "blizzard"
+    local animR, animG, animB = 1.0, 0.85, 0.0
+    if barData.activeAnimClassColor then
+        local _, ct = UnitClass("player")
+        if ct then local cc = RAID_CLASS_COLORS[ct]; if cc then animR, animG, animB = cc.r, cc.g, cc.b end end
+    elseif barData.activeAnimR then
+        animR = barData.activeAnimR; animG = barData.activeAnimG or 0.85; animB = barData.activeAnimB or 0.0
+    end
+    local swAlpha = barData.swipeAlpha or 0.7
+
     -- Ensure we have enough icon frames
     while #icons < #spells do
         local newIcon = CreateCDMIcon(barKey, #icons + 1)
@@ -2814,13 +2837,72 @@ local function UpdateCustomBarIcons(barKey)
                     ourIcon:Hide()
                 end
             else
+            -- Resolve talent override: if the user added Holy Prism but the player
+            -- now has Divine Toll selected, display and track Divine Toll instead.
+            local resolvedID = spellID
+            if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+                local overrideID = C_SpellBook.FindSpellOverrideByID(spellID)
+                if overrideID and overrideID ~= 0 then
+                    resolvedID = overrideID
+                end
+            end
+            -- Second-level runtime override: e.g. spell A (base) -> spell B (talent)
+            -- -> spell C (activation override, e.g. Avenging Crusader transforms Crusader Strike).
+            -- FindSpellOverrideByID only resolves one level; check the Blizzard CDM
+            -- children cache for a deeper override on the already-resolved ID.
+            local blizzOverride = _tickBlizzOverrideCache[resolvedID] or _tickBlizzOverrideCache[spellID]
+            if blizzOverride then
+                resolvedID = blizzOverride
+            end
+            -- Propagate charge cache from base to override so talent-swapped spells
+            -- show charges correctly even before the override ID has been seen OOC.
+            -- Always attempt direct detection on the final resolvedID first — it may
+            -- have charges even if the base spell doesn't (three-level chain).
+            if resolvedID ~= spellID then
+                -- Always try direct detection on the resolved ID (cheapest path)
+                CacheMultiChargeSpell(resolvedID)
+                -- If resolved ID still unknown (secret/combat), check if we have a
+                -- live Blizzard child for it and mark it as a charge spell so
+                -- ApplySpellCooldown uses the charge display path.
+                if _multiChargeSpells[resolvedID] == nil and _tickBlizzChildCache[resolvedID] then
+                    -- We have a live Blizzard child — treat as charge spell so the
+                    -- charge display path runs. ApplySpellCooldown will call
+                    -- GetSpellCharges which may still be secret, but the shadow
+                    -- cooldown frames will correctly reflect the charge state.
+                    _multiChargeSpells[resolvedID] = true
+                end
+                -- If still unknown, try propagating from intermediate (only if true)
+                if _multiChargeSpells[resolvedID] == nil then
+                    local intermediate = C_SpellBook and C_SpellBook.FindSpellOverrideByID
+                        and C_SpellBook.FindSpellOverrideByID(spellID)
+                    if intermediate and intermediate ~= 0 and intermediate ~= resolvedID then
+                        CacheMultiChargeSpell(intermediate)
+                        if _multiChargeSpells[intermediate] == true then
+                            _multiChargeSpells[resolvedID] = true
+                            if _maxChargeCount[intermediate] then
+                                _maxChargeCount[resolvedID] = _maxChargeCount[intermediate]
+                            end
+                        end
+                    end
+                end
+                -- If still unknown, propagate from base — but only if base is true
+                if _multiChargeSpells[resolvedID] == nil then
+                    CacheMultiChargeSpell(spellID)
+                    if _multiChargeSpells[spellID] == true then
+                        _multiChargeSpells[resolvedID] = true
+                        if _maxChargeCount[spellID] then
+                            _maxChargeCount[resolvedID] = _maxChargeCount[spellID]
+                        end
+                    end
+                end
+            end
             -- Cache spell icon texture to avoid C_Spell.GetSpellInfo per tick
-            local texID = _spellIconCache[spellID]
+            local texID = _spellIconCache[resolvedID]
             if not texID then
-                local spellInfo = C_Spell.GetSpellInfo(spellID)
+                local spellInfo = C_Spell.GetSpellInfo(resolvedID)
                 if spellInfo then
                     texID = spellInfo.iconID
-                    _spellIconCache[spellID] = texID
+                    _spellIconCache[resolvedID] = texID
                 end
             end
             if texID then
@@ -2830,13 +2912,21 @@ local function UpdateCustomBarIcons(barKey)
                 end
 
                 -- Cooldown, desaturation, and charge text (consolidated)
-                ourIcon._spellID = spellID
+                ourIcon._spellID = resolvedID
                 -- Apply cached keybind for this spell if not already set
                 if ourIcon._keybindText and barData.showKeybind then
-                    local cachedKey = _cdmKeybindCache[spellID]
+                    local cachedKey = _cdmKeybindCache[resolvedID]
                     if not cachedKey then
-                        local n = C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
+                        local n = C_Spell.GetSpellName and C_Spell.GetSpellName(resolvedID)
                         if n then cachedKey = _cdmKeybindCache[n] end
+                    end
+                    -- Also try the base spellID in case keybind was cached under it
+                    if not cachedKey and resolvedID ~= spellID then
+                        cachedKey = _cdmKeybindCache[spellID]
+                        if not cachedKey then
+                            local bn = C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
+                            if bn then cachedKey = _cdmKeybindCache[bn] end
+                        end
                     end
                     if cachedKey then
                         ourIcon._keybindText:SetText(cachedKey)
@@ -2845,11 +2935,45 @@ local function UpdateCustomBarIcons(barKey)
                         ourIcon._keybindText:Hide()
                     end
                 end
-                ApplySpellCooldown(ourIcon, spellID, barData.desaturateOnCD, barData.showCharges, barData.swipeAlpha or 0.7, false)
+                ApplySpellCooldown(ourIcon, resolvedID, barData.desaturateOnCD, barData.showCharges, swAlpha, false)
+
+                -- If this is a live Blizzard activation override, read the charge
+                -- count directly from the Blizzard child's Applications frame.
+                -- GetSpellCharges returns secret values in combat for these spells,
+                -- but the Applications frame text is always readable.
+                if barData.showCharges then
+                    local blizzChild = _tickBlizzChildCache[resolvedID]
+                    if blizzChild and blizzChild.Applications and blizzChild.Applications.Applications then
+                        local ok, txt = pcall(blizzChild.Applications.Applications.GetText, blizzChild.Applications.Applications)
+                        if ok and txt and txt ~= "" and txt ~= "0" then
+                            ourIcon._chargeText:SetText(txt)
+                            ourIcon._chargeText:Show()
+                        end
+                    end
+                end
 
                 if ourIcon._cooldown.SetUseAuraDisplayTime then
                     ourIcon._cooldown:SetUseAuraDisplayTime(false)
                 end
+
+                -- Detect active state: spell is marked active by Blizzard's CDM system
+                -- (wasSetFromAura on any CDM viewer child), built once per tick.
+                -- Falls back to player aura check for spells not in any CDM viewer.
+                local auraHandled = false
+                if activeAnim ~= "none" and activeAnim ~= "hideActive" then
+                    if _tickBlizzActiveCache[resolvedID] or _tickBlizzActiveCache[spellID] then
+                        auraHandled = true
+                    else
+                        local aura = _tickAuraCache[resolvedID]
+                        if aura == nil then
+                            local ok, res = pcall(C_UnitAuras.GetPlayerAuraBySpellID, resolvedID)
+                            aura = (ok and res) or false
+                            _tickAuraCache[resolvedID] = aura
+                        end
+                        if aura then auraHandled = true end
+                    end
+                end
+                ApplyActiveAnimation(ourIcon, auraHandled, barData, barKey, activeAnim, animR, animG, animB, swAlpha)
 
                 ourIcon:Show()
                 visibleCount = visibleCount + 1
@@ -3115,7 +3239,7 @@ local function RefreshCDMIconAppearance(barKey)
             icon._cooldown:SetHideCountdownNumbers(not barData.showCooldownText)
             -- Mark pending font update (applied in batch after frame renders)
             if barData.showCooldownText then
-                icon._pendingFontPath = GetCDMFont(); icon._pendingFontSize = barData.cooldownFontSize or 15
+                icon._pendingFontPath = GetCDMFont(); icon._pendingFontSize = barData.cooldownFontSize or 12
             end
         end
         -- Update border edges
@@ -3207,8 +3331,11 @@ local function SnapshotBlizzardCDM(barKey, barData)
         end
     end
 
+    -- Only commit if we got actual children — leave nil so the next tick
+    -- retries when Blizzard's CDM viewer hasn't populated yet.
+    if #tracked == 0 then return false end
     barData.trackedSpells = tracked
-    return #tracked > 0
+    return true
 end
 ns.SnapshotBlizzardCDM = SnapshotBlizzardCDM
 
@@ -3301,6 +3428,20 @@ local function UpdateTrackedBarIcons(barKey)
             frame._blizzCache = cache
             blizzChild = cache[cdID]
         end
+
+        -- If cdID still has no Blizzard child after cache rebuild, check if the
+        -- API also knows nothing about it — this means the cdID is stale (e.g.
+        -- talent swap changed Holy Prism → Divine Toll). Force a re-snapshot so
+        -- the next tick picks up the new cdIDs from Blizzard's live children.
+        if not blizzChild then
+            local staleCheck = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+                and C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+            if not staleCheck then
+                barData.trackedSpells = nil
+                return
+            end
+        end
+
         if blizzChild then
             ourIcon._hideGraceStart = nil
             ourIcon._blizzChild = blizzChild
@@ -3363,11 +3504,33 @@ local function UpdateTrackedBarIcons(barKey)
                         local n = C_Spell.GetSpellName and C_Spell.GetSpellName(resolvedSid)
                         if n then cachedKey = _cdmKeybindCache[n] end
                     end
+                    -- Fallback: try the base spellID and its name (handles talent overrides
+                    -- where the override ID differs from what was cached OOC)
+                    if not cachedKey and cdViewerInfo and cdViewerInfo.spellID and cdViewerInfo.spellID ~= resolvedSid then
+                        local baseSid = cdViewerInfo.spellID
+                        cachedKey = _cdmKeybindCache[baseSid]
+                        if not cachedKey then
+                            local bn = C_Spell.GetSpellName and C_Spell.GetSpellName(baseSid)
+                            if bn then cachedKey = _cdmKeybindCache[bn] end
+                        end
+                    end
                     if cachedKey then
                         ourIcon._keybindText:SetText(cachedKey)
                         ourIcon._keybindText:Show()
                     elseif ourIcon._keybindText:IsShown() then
                         ourIcon._keybindText:Hide()
+                    end
+                end
+                -- Propagate charge cache from base spellID to override spellID so that
+                -- talent-modified spells (e.g. Crusader Strike during Avenging Crusader)
+                -- correctly show charges even when the override ID was never seen OOC.
+                if cdViewerInfo and cdViewerInfo.spellID and cdViewerInfo.spellID ~= resolvedSid then
+                    local baseSid = cdViewerInfo.spellID
+                    if _multiChargeSpells[resolvedSid] == nil and _multiChargeSpells[baseSid] ~= nil then
+                        _multiChargeSpells[resolvedSid] = _multiChargeSpells[baseSid]
+                        if _maxChargeCount[baseSid] then
+                            _maxChargeCount[resolvedSid] = _maxChargeCount[baseSid]
+                        end
                     end
                 end
                 ApplySpellCooldown(ourIcon, resolvedSid, desatOnCD, showCharges, swAlpha, skipCDDisplay)
@@ -3510,6 +3673,46 @@ local function UpdateAllCDMBars(dt)
     wipe(_tickGCDCache)
     wipe(_tickChargeCache)
     wipe(_tickAuraCache)
+    -- Build per-tick Blizzard active state cache: scan all CDM viewers for
+    -- children marked wasSetFromAura, map their resolved spellID -> true.
+    -- Also build override cache: maps base spellID -> current overrideSpellID
+    -- so custom bars can resolve runtime activation overrides (e.g. Crusader
+    -- Strike -> Hammer of Wrath during Avenging Crusader).
+    wipe(_tickBlizzActiveCache)
+    wipe(_tickBlizzOverrideCache)
+    wipe(_tickBlizzChildCache)
+    do
+        local viewers = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer" }
+        for _, vName in ipairs(viewers) do
+            local vf = _G[vName]
+            if vf then
+                for ci = 1, vf:GetNumChildren() do
+                    local ch = select(ci, vf:GetChildren())
+                    if ch then
+                        local cdID = ch.cooldownID or (ch.cooldownInfo and ch.cooldownInfo.cooldownID)
+                        if cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+                            local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+                            if info then
+                                -- Override cache: base -> override (always, not just when active)
+                                if info.spellID and info.overrideSpellID and info.overrideSpellID ~= info.spellID then
+                                    _tickBlizzOverrideCache[info.spellID] = info.overrideSpellID
+                                    -- Child cache: overrideSpellID -> blizzChild for direct charge reads
+                                    _tickBlizzChildCache[info.overrideSpellID] = ch
+                                end
+                                -- Active cache: resolved spellID -> true when aura-active
+                                if ch.wasSetFromAura == true or ch.auraInstanceID ~= nil then
+                                    local sid = info.overrideSpellID or info.spellID
+                                    if sid and sid > 0 then
+                                        _tickBlizzActiveCache[sid] = true
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
 
     local p = ECME.db.profile
     if not p.cdmBars.enabled then return end
@@ -4728,6 +4931,18 @@ function ECME:OnEnable()
         -- ValidateSpec will fix it when SPELLS_CHANGED or PEW fires
         _specValidated = false
     end
+
+    -- Always clear trackedSpells for default bars on every load.
+    -- These are session-ephemeral Blizzard cooldownIDs that must be
+    -- re-snapshotted from the live CDM viewer each session so talent
+    -- changes (e.g. Holy Prism → Divine Toll) are picked up correctly.
+    if p.cdmBars and p.cdmBars.bars then
+        for _, barData in ipairs(p.cdmBars.bars) do
+            if MAIN_BAR_KEYS[barData.key] then
+                barData.trackedSpells = nil
+            end
+        end
+    end
     EnsureMappings(GetStore())
 
     -- Initialize extracted modules
@@ -4769,6 +4984,23 @@ end
 function ECME:CDMFinishSetup()
     BuildAllCDMBars()
     ns.BuildTrackedBuffBars()
+
+    -- Re-snapshot default bars after a delay to ensure Blizzard's CDM viewer
+    -- has fully populated with the correct children for the current talents.
+    -- Always re-snapshots (clears trackedSpells) so stale cdIDs from a fast
+    -- initial snapshot don't persist if Blizzard updates children after us.
+    local function ForceResnapshotMainBars()
+        local p = ECME.db.profile
+        if not p or not p.cdmBars then return end
+        for _, barData in ipairs(p.cdmBars.bars) do
+            if barData.enabled and MAIN_BAR_KEYS[barData.key] then
+                barData.trackedSpells = nil
+            end
+        end
+        BuildAllCDMBars()
+    end
+    C_Timer.After(1, ForceResnapshotMainBars)
+    C_Timer.After(3, ForceResnapshotMainBars)
 
     -- Save the initial spec profile so switching away and back preserves it
     C_Timer.After(1, function()
@@ -4813,6 +5045,48 @@ eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
 eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
 eventFrame:RegisterEvent("UPDATE_BINDINGS")
 eventFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+-- Hero talent / loadout change events
+eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
+eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+
+-- Debounce token for talent-change rebuilds: rapid talent clicks collapse
+-- into a single deferred rebuild rather than firing once per click.
+local _talentRebuildToken = 0
+
+local function ScheduleTalentRebuild()
+    _talentRebuildToken = _talentRebuildToken + 1
+    local token = _talentRebuildToken
+    C_Timer.After(0.5, function()
+        if token ~= _talentRebuildToken then return end  -- superseded
+        -- Wipe per-spell caches that may reference stale override IDs or
+        -- stale charge data from spells that changed with the talent swap.
+        -- Also wipe the persisted DB entries so CacheMultiChargeSpell
+        -- re-detects from live API rather than reading a stale false entry.
+        wipe(_multiChargeSpells)
+        wipe(_maxChargeCount)
+        local db = ECME.db
+        if db and db.global and db.global.multiChargeSpells then
+            wipe(db.global.multiChargeSpells)
+        end
+        -- Clear trackedSpells for main bars so the next snapshot picks up
+        -- the new cdIDs after the talent swap (e.g. Holy Prism → Divine Toll)
+        local p = db and db.profile
+        if p and p.cdmBars and p.cdmBars.bars then
+            for _, barData in ipairs(p.cdmBars.bars) do
+                if MAIN_BAR_KEYS[barData.key] then
+                    barData.trackedSpells = nil
+                end
+            end
+        end
+        -- Clear spell icon cache so custom bars pick up new textures for
+        -- talent-swapped spells (e.g. Holy Prism → Divine Toll icon)
+        wipe(_spellIconCache)
+        -- Rebuild keybind cache (talent swap may change action slot contents)
+        UpdateCDMKeybinds()
+        BuildAllCDMBars()
+    end)
+end
 local _unitAuraTimer = nil
 eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo)
     if not ECME.db then return end
@@ -4833,6 +5107,11 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo)
     end
     if event == "UPDATE_BINDINGS" or event == "ACTIONBAR_SLOT_CHANGED" then
         C_Timer.After(0.5, UpdateCDMKeybinds)  -- defer so action slots are fully populated
+        return
+    end
+    if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" then
+        -- Hero talent or loadout change — debounced rebuild
+        ScheduleTalentRebuild()
         return
     end
     if event == "GROUP_ROSTER_UPDATE" then
@@ -4931,6 +5210,41 @@ end
 --  /cdmstacks debug — dumps stack count data for all visible CDM icons
 -------------------------------------------------------------------------------
 SLASH_CDMSTACKS1 = "/cdmstacks"
+
+SLASH_CDMDEBUG1 = "/cdmdebug"
+SlashCmdList.CDMDEBUG = function()
+    local p = function(...) print("|cffff9900[CDM Debug]|r", ...) end
+    local profile = ECME.db and ECME.db.profile
+    if not profile or not profile.cdmBars then p("No profile"); return end
+    for _, barData in ipairs(profile.cdmBars.bars) do
+        if barData.key == "cooldowns" then
+            local ts = barData.trackedSpells
+            p("trackedSpells:", ts and #ts or "nil")
+            if ts then
+                for i, cdID in ipairs(ts) do
+                    local info = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo and C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+                    local sid = info and (info.overrideSpellID or info.spellID)
+                    p(i, "cdID="..tostring(cdID), "sid="..tostring(sid), sid and C_Spell.GetSpellName(sid) or "?")
+                end
+            end
+        end
+    end
+    local f = _G["EssentialCooldownViewer"]
+    if f then
+        p("Blizzard CDM children:", f:GetNumChildren())
+        for i = 1, f:GetNumChildren() do
+            local c = select(i, f:GetChildren())
+            if c and c.Icon then
+                local info = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo and c.cooldownID and C_CooldownViewer.GetCooldownViewerCooldownInfo(c.cooldownID)
+                local sid = info and (info.overrideSpellID or info.spellID)
+                p("child"..i, "cdID="..tostring(c.cooldownID), "sid="..tostring(sid), sid and C_Spell.GetSpellName(sid) or "?")
+            end
+        end
+    else
+        p("EssentialCooldownViewer not found")
+    end
+end
+
 SlashCmdList.CDMSTACKS = function()
     local p = function(...) print("|cff0cd29f[CDM Stacks]|r", ...) end
     p("--- Stack Count Debug ---")
@@ -5044,5 +5358,3 @@ SlashCmdList.CDMSTACKS = function()
 
     p("--- End ---")
 end
-
-

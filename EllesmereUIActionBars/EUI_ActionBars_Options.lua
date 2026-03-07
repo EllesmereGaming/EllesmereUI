@@ -533,6 +533,12 @@ initFrame:SetScript("OnEvent", function(self)
                 numVisible = ovIcons
             end
 
+            -- Stance bar: ignore icon count setting, use actual shapeshift form count
+            if info.isStance then
+                numVisible = GetNumShapeshiftForms() or info.count
+                if numVisible < 1 then numVisible = info.count end
+            end
+
 
             -- Multi-row layout: show all rows matching the real bar
             local numRows = settings.numRows or 1
@@ -1597,6 +1603,11 @@ initFrame:SetScript("OnEvent", function(self)
 
             row, h = W:DualRow(parent, y,
                 { type="slider", text="Number of Icons", min=1, max=12, step=1,
+                  isDisabled=function()
+                      if isMulti then return false end
+                      local info = BAR_LOOKUP[SelectedKey()]
+                      return info and info.isStance
+                  end,
                   getValue=function()
                       local v = SGet("overrideNumIcons")
                       if v == MIXED then

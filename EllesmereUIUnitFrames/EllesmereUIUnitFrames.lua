@@ -5561,10 +5561,33 @@ function InitializeFrames()
                 if shouldShow then
                     if not frame:IsShown() and UnitExists(unitKey) then
                         frame:SetAttribute("unit", unitKey)
-                        -- Re-enable oUF elements that were disabled on hide
-                        for _, elem in ipairs({"Health", "Power", "Portrait", "Castbar", "Buffs", "Debuffs", "HealthPrediction"}) do
+                        -- Re-enable oUF elements that were disabled on hide.
+                        -- Castbar is handled separately below to respect the
+                        -- user's show/hide setting — never blindly re-enable it.
+                        for _, elem in ipairs({"Health", "Power", "Portrait", "Buffs", "Debuffs", "HealthPrediction"}) do
                             if frame[elem] and not frame:IsElementEnabled(elem) then
                                 frame:EnableElement(elem)
+                            end
+                        end
+                        -- Restore castbar state based on saved setting
+                        if frame.Castbar then
+                            local wantsCastbar
+                            if unitKey == "player" then
+                                wantsCastbar = s.showPlayerCastbar
+                            else
+                                wantsCastbar = s.showCastbar ~= false
+                            end
+                            if wantsCastbar then
+                                if not frame:IsElementEnabled("Castbar") then
+                                    frame:EnableElement("Castbar")
+                                end
+                            else
+                                if frame:IsElementEnabled("Castbar") then
+                                    frame:DisableElement("Castbar")
+                                end
+                                frame.Castbar:Hide()
+                                local castbarBg = frame.Castbar:GetParent()
+                                if castbarBg then castbarBg:Hide() end
                             end
                         end
                         frame:Show()

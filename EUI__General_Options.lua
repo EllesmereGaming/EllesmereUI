@@ -2849,39 +2849,49 @@ initFrame:SetScript("OnEvent", function(self)
     end)
 
     ---------------------------------------------------------------------------
-    --  Runtime: Blizzard UI Scale (UIParent:SetScale)
+    --  Runtime: Blizzard UI Scale (uiScale CVar)
     --  100% = default (no change). We multiply the system's base scale.
     --  Counter-scale our panel so it stays visually identical.
+    --  Uses SetCVar("uiScale") instead of UIParent:SetScale() to avoid
+    --  tainting the coordinate system used by protected Blizzard frames.
     ---------------------------------------------------------------------------
     do
-        local baseUIScale       -- captured once at login (Blizzard default)
+        -- Persistent frame reused across all calls — avoids leaking frames on
+        -- repeated slider drags.
+        local counterFrame = CreateFrame("Frame")
+        local pendingPanelScale  -- panel effective scale captured before CVar fires
 
-        local function ApplyBlizzUIScale()
-            if not baseUIScale then
-                baseUIScale = UIParent:GetScale()
-            end
-            local pct = EllesmereUIDB and EllesmereUIDB.blizzUIScale or 100
-            -- Scale proportionally from the Blizzard default.
-            -- 100% = baseUIScale (Blizzard default, e.g. ~0.64 on 1080p)
-            -- 50%  = baseUIScale * 0.5
-            -- This avoids the discontinuity where 99% jumped to a completely
-            -- different scale than 100%.  ElvUI uses raw scale values directly;
-            -- we convert our percentage into the equivalent raw scale.
-            local newScale = baseUIScale * (pct / 100)
-            -- Snapshot our panel's current effective scale before changing UIParent
-            local mf = EllesmereUI._mainFrame
-            local panelScaleBefore
-            if mf then
-                panelScaleBefore = mf:GetEffectiveScale()
-            end
-            UIParent:SetScale(newScale)
-            -- Counter-scale: keep our panel at the same effective scale
-            if mf and panelScaleBefore then
+        counterFrame:SetScript("OnEvent", function(self)
+            self:UnregisterEvent("UI_SCALE_CHANGED")
+            if pendingPanelScale then
                 local newParentEffective = UIParent:GetEffectiveScale()
                 if newParentEffective > 0 then
-                    mf:SetScale(panelScaleBefore / newParentEffective)
+                    local mf = EllesmereUI._mainFrame
+                    if mf then
+                        mf:SetScale(pendingPanelScale / newParentEffective)
+                    end
                 end
+                pendingPanelScale = nil
             end
+        end)
+
+        local function ApplyBlizzUIScale()
+            local pct = EllesmereUIDB and EllesmereUIDB.blizzUIScale or 100
+            -- pct is a 40–100 slider where 100 = full scale (1.0).
+            -- Divide by 100 to get the absolute CVar value.
+            local newScale = pct / 100
+            newScale = math.max(0.4, math.min(1.0, newScale))
+
+            -- Snapshot panel effective scale before the CVar fires
+            local mf = EllesmereUI._mainFrame
+            if mf then
+                pendingPanelScale = mf:GetEffectiveScale()
+                counterFrame:RegisterEvent("UI_SCALE_CHANGED")
+            end
+
+            -- SetCVar triggers UI_SCALE_CHANGED without touching UIParent directly,
+            -- keeping the coordinate system untainted.
+            SetCVar("uiScale", newScale)
         end
 
         EllesmereUI._applyBlizzUIScale = ApplyBlizzUIScale
@@ -2890,7 +2900,6 @@ initFrame:SetScript("OnEvent", function(self)
         blizzScaleFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         blizzScaleFrame:SetScript("OnEvent", function(self)
             self:UnregisterEvent("PLAYER_ENTERING_WORLD")
-            baseUIScale = UIParent:GetScale()
             local pct = EllesmereUIDB and EllesmereUIDB.blizzUIScale or 100
             if pct ~= 100 then
                 ApplyBlizzUIScale()

@@ -2,7 +2,7 @@
 ## Title: |cff0cd29fEllesmereUI|r
 ## Notes: Shared framework for the EllesmereUI addon suite
 ## Author: Ellesmere
-## Version: 3.2
+## Version: 3.2.5
 ## SavedVariables: EllesmereUIDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 ## X-Curse-Project-ID: 1477613

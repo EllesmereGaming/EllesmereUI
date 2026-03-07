@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Custom Action Bars
 ## Author: Ellesmere
-## Version: 3.2
+## Version: 3.2.5
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIActionBarsDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
