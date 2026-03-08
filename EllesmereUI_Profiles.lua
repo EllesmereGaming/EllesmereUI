@@ -111,26 +111,44 @@ function Serializer.Serialize(tbl)
 end
 
 -- Deserializer
-local function DeserializeValue(str, pos)
+local MAX_DESERIALIZE_DEPTH = 64
+
+local function DeserializeValue(str, pos, depth)
+    depth = depth or 0
+    if depth > MAX_DESERIALIZE_DEPTH then
+        return nil, pos, "max_depth_exceeded"
+    end
+
     local tag = str:sub(pos, pos)
+    if tag == "" then
+        return nil, pos, "unexpected_end"
+    end
+
     if tag == "s" then
-        -- Find the colon after the length
+        -- Strings carry an explicit byte length. Reject truncated payloads so a
+        -- partial import cannot masquerade as valid profile data.
         local colonPos = str:find(":", pos + 1, true)
-        if not colonPos then return nil, pos end
+        if not colonPos then return nil, pos, "invalid_string" end
         local len = tonumber(str:sub(pos + 1, colonPos - 1))
-        if not len then return nil, pos end
-        local val = str:sub(colonPos + 1, colonPos + len)
-        return val, colonPos + len + 1
+        if not len then return nil, pos, "invalid_string" end
+
+        local valueEnd = colonPos + len
+        if valueEnd > #str then return nil, pos, "unexpected_end" end
+        local val = str:sub(colonPos + 1, valueEnd)
+        return val, valueEnd + 1, nil
     elseif tag == "n" then
         local semi = str:find(";", pos + 1, true)
-        if not semi then return nil, pos end
-        return tonumber(str:sub(pos + 1, semi - 1)), semi + 1
+        if not semi then return nil, pos, "invalid_number" end
+
+        local value = tonumber(str:sub(pos + 1, semi - 1))
+        if value == nil then return nil, pos, "invalid_number" end
+        return value, semi + 1, nil
     elseif tag == "T" then
-        return true, pos + 1
+        return true, pos + 1, nil
     elseif tag == "F" then
-        return false, pos + 1
+        return false, pos + 1, nil
     elseif tag == "N" then
-        return nil, pos + 1
+        return nil, pos + 1, nil
     elseif tag == "{" then
         local tbl = {}
         local idx = 1
@@ -138,31 +156,41 @@ local function DeserializeValue(str, pos)
         while p <= #str do
             local c = str:sub(p, p)
             if c == "}" then
-                return tbl, p + 1
+                return tbl, p + 1, nil
             elseif c == "K" then
-                -- Key-value pair
-                local key, val
-                key, p = DeserializeValue(str, p + 1)
-                val, p = DeserializeValue(str, p)
+                -- Key-value pairs recurse into the same value parser so the
+                -- table format stays compact, but each level carries a depth
+                -- bound to keep malformed payloads from blowing the Lua stack.
+                local key, val, err
+                key, p, err = DeserializeValue(str, p + 1, depth + 1)
+                if err then return nil, pos, err end
+                val, p, err = DeserializeValue(str, p, depth + 1)
+                if err then return nil, pos, err end
                 if key ~= nil then
                     tbl[key] = val
                 end
             else
-                -- Array element
-                local val
-                val, p = DeserializeValue(str, p)
+                local val, err
+                val, p, err = DeserializeValue(str, p, depth + 1)
+                if err then return nil, pos, err end
                 tbl[idx] = val
                 idx = idx + 1
             end
         end
-        return tbl, p
+        return nil, pos, "unexpected_end"
     end
-    return nil, pos + 1
+
+    return nil, pos, "invalid_tag"
 end
 
 function Serializer.Deserialize(str)
     if not str or #str == 0 then return nil end
-    local val, _ = DeserializeValue(str, 1)
+
+    local val, nextPos, err = DeserializeValue(str, 1, 0)
+    if err or nextPos ~= (#str + 1) then
+        return nil
+    end
+
     return val
 end
 
@@ -514,6 +542,74 @@ local function GetCurrentSpecID()
     return CanonicalizeSpecAssignmentKey(GetSpecializationInfo(specIdx))
 end
 
+-- Keep raw invalid records around for recovery, but never let automatic
+-- activation paths treat them as safe profile targets.
+local invalidStoredProfiles = {}
+
+local function MarkInvalidStoredProfile(name, err, code)
+    if type(name) == "string" then
+        invalidStoredProfiles[name] = {
+            error = err,
+            errorCode = code,
+        }
+    end
+end
+
+local function ClearInvalidStoredProfile(name)
+    if type(name) == "string" then
+        invalidStoredProfiles[name] = nil
+    end
+end
+
+local function IsStoredProfileUsable(db, name)
+    return type(name) == "string"
+        and type(db.profiles[name]) == "table"
+        and not invalidStoredProfiles[name]
+end
+
+local function ResolveStoredProfileName(db, preferredName, excludedName)
+    if preferredName ~= excludedName and IsStoredProfileUsable(db, preferredName) then
+        return preferredName
+    end
+
+    local seen = {}
+    if RESERVED_PROFILE_NAME ~= excludedName then
+        seen[RESERVED_PROFILE_NAME] = true
+        if preferredName ~= RESERVED_PROFILE_NAME
+            and IsStoredProfileUsable(db, RESERVED_PROFILE_NAME) then
+            return RESERVED_PROFILE_NAME
+        end
+    end
+
+    for _, name in ipairs(db.profileOrder) do
+        if type(name) == "string" and not seen[name] then
+            seen[name] = true
+            if name ~= excludedName and IsStoredProfileUsable(db, name) then
+                return name
+            end
+        end
+    end
+
+    for name in pairs(db.profiles) do
+        if not seen[name] and name ~= excludedName and IsStoredProfileUsable(db, name) then
+            return name
+        end
+    end
+
+    return nil
+end
+
+local function ResolveActiveProfileName(db)
+    db = db or GetProfilesDB()
+    return ResolveStoredProfileName(db, db.activeProfile)
+end
+
+local function EnsureActiveProfileName(db)
+    db = db or GetProfilesDB()
+    db.activeProfile = ResolveActiveProfileName(db)
+    return db.activeProfile
+end
+
 local function ClearManualProfileOverride()
     if EllesmereUIDB then
         EllesmereUIDB._manualProfileOverride = nil
@@ -537,7 +633,7 @@ local function GetManualProfileOverride(db)
         return nil
     end
 
-    if db and not db.profiles[profileName] then
+    if db and not IsStoredProfileUsable(db, profileName) then
         ClearManualProfileOverride()
         return nil
     end
@@ -585,23 +681,11 @@ local function ClearManualProfileOverrideIfSpecChanged(specID)
 end
 
 local function ChooseFallbackProfileName(db, deletedName)
-    if deletedName ~= RESERVED_PROFILE_NAME and db.profiles[RESERVED_PROFILE_NAME] then
+    if deletedName ~= RESERVED_PROFILE_NAME and IsStoredProfileUsable(db, RESERVED_PROFILE_NAME) then
         return RESERVED_PROFILE_NAME
     end
 
-    for _, name in ipairs(db.profileOrder) do
-        if name ~= deletedName and db.profiles[name] then
-            return name
-        end
-    end
-
-    for name in pairs(db.profiles) do
-        if name ~= deletedName then
-            return name
-        end
-    end
-
-    return nil
+    return ResolveStoredProfileName(db, db.activeProfile, deletedName)
 end
 
 local function ValidateProfileName(db, name, opts)
@@ -916,6 +1000,52 @@ local function CoerceStoredProfileRecord(profileData)
     return normalized, nil, nil
 end
 
+local function CanSkipLoginProfileNormalization(profileData)
+    if type(profileData) ~= "table" then
+        return false
+    end
+
+    -- Login only deep-normalizes records that are stale or structurally suspect.
+    -- Profiles already stamped by this addon build keep their current tables so
+    -- opening the game with many saved profiles does not allocate and copy each
+    -- one before the player even uses it.
+    local schemaVersion = tonumber(profileData.schemaVersion)
+    if not schemaVersion or math.floor(schemaVersion) ~= PROFILE_SCHEMA_VERSION then
+        return false
+    end
+    if type(profileData.updatedFromAddonVersion) ~= "string"
+        or profileData.updatedFromAddonVersion == "" then
+        return false
+    end
+    if type(profileData.createdFromAddonVersion) ~= "string"
+        or profileData.createdFromAddonVersion == "" then
+        return false
+    end
+    if type(profileData.createdAt) ~= "number"
+        or type(profileData.updatedAt) ~= "number" then
+        return false
+    end
+    if type(profileData.addons) ~= "table"
+        or type(profileData.includedAddons) ~= "table" then
+        return false
+    end
+    if profileData.fonts ~= nil and type(profileData.fonts) ~= "table" then
+        return false
+    end
+    if profileData.customColors ~= nil and type(profileData.customColors) ~= "table" then
+        return false
+    end
+
+    for _, entry in ipairs(ADDON_DB_MAP) do
+        local snapshot = profileData.addons[entry.folder]
+        if snapshot ~= nil and type(snapshot) ~= "table" then
+            return false
+        end
+    end
+
+    return true
+end
+
 local function StampStoredProfileRecord(profileData, existingProfile)
     local normalized, err, code = NormalizeProfileData(profileData)
     if not normalized then return nil, err, code end
@@ -940,8 +1070,8 @@ end
 
 local function GetCurrentStoredProfileRecord(db)
     db = db or GetProfilesDB()
-    local currentName = db.activeProfile or RESERVED_PROFILE_NAME
-    return db.profiles[currentName]
+    local currentName = ResolveActiveProfileName(db)
+    return currentName and db.profiles[currentName] or nil
 end
 
 local function GetPendingProfileSyncDB()
@@ -1009,12 +1139,7 @@ local function SnapshotCurrentProfileData(folderFilterSet, sourceProfileData)
     return PreserveUnavailableAddonSnapshots(data, sourceProfileData)
 end
 
-local function BuildComparableProfileContent(profileData)
-    local normalized, err, code = NormalizeProfileData(profileData)
-    if not normalized then
-        return nil, err, code
-    end
-
+local function BuildComparableProfileContentFromNormalized(normalized)
     -- Dirty-state comparison should only look at user-controlled profile
     -- content. Metadata like timestamps and addon versions changes whenever we
     -- save, but those fields do not mean the visible settings actually drifted.
@@ -1024,6 +1149,49 @@ local function BuildComparableProfileContent(profileData)
         fonts = normalized.fonts or NormalizeFontsData(nil),
         customColors = normalized.customColors or {},
     }, nil, nil
+end
+
+local function BuildComparableProfileContent(profileData)
+    local normalized, err, code = NormalizeProfileData(profileData)
+    if not normalized then
+        return nil, err, code
+    end
+
+    return BuildComparableProfileContentFromNormalized(normalized)
+end
+
+local dirtyStateStoredComparableCache
+
+local function GetStoredProfileComparableContent(profileName, storedProfile)
+    local cache = dirtyStateStoredComparableCache
+    if cache
+        and cache.profileName == profileName
+        and cache.storedProfile == storedProfile
+        and cache.updatedAt == storedProfile.updatedAt then
+        return cache.comparable, cache.normalized, cache.error, cache.errorCode
+    end
+
+    local normalizedStored, err, code = CoerceStoredProfileRecord(storedProfile)
+    if not normalizedStored then
+        dirtyStateStoredComparableCache = {
+            profileName = profileName,
+            storedProfile = storedProfile,
+            updatedAt = storedProfile.updatedAt,
+            error = err,
+            errorCode = code,
+        }
+        return nil, nil, err, code
+    end
+
+    local comparable = BuildComparableProfileContentFromNormalized(normalizedStored)
+    dirtyStateStoredComparableCache = {
+        profileName = profileName,
+        storedProfile = storedProfile,
+        updatedAt = storedProfile.updatedAt,
+        normalized = normalizedStored,
+        comparable = comparable,
+    }
+    return comparable, normalizedStored, nil, nil
 end
 
 function EllesmereUI.GetActiveProfileDirtyState()
@@ -1038,31 +1206,29 @@ function EllesmereUI.GetActiveProfileDirtyState()
         }
     end
 
-    local normalizedStored, err, code = CoerceStoredProfileRecord(storedProfile)
-    if not normalizedStored then
+    local storedComparable, normalizedStored, storedErr, storedCode =
+        GetStoredProfileComparableContent(activeName, storedProfile)
+    if not storedComparable then
         return {
             profileName = activeName,
             isDirty = false,
             hasStoredProfile = true,
             comparisonFailed = true,
-            error = err,
-            errorCode = code,
+            error = storedErr,
+            errorCode = storedCode,
         }
     end
 
-    db.profiles[activeName] = normalizedStored
-
     local currentSnapshot = SnapshotCurrentProfileData(nil, normalizedStored)
     local currentComparable, currentErr, currentCode = BuildComparableProfileContent(currentSnapshot)
-    local storedComparable, storedErr, storedCode = BuildComparableProfileContent(normalizedStored)
-    if not currentComparable or not storedComparable then
+    if not currentComparable then
         return {
             profileName = activeName,
             isDirty = false,
             hasStoredProfile = true,
             comparisonFailed = true,
-            error = currentErr or storedErr,
-            errorCode = currentCode or storedCode,
+            error = currentErr,
+            errorCode = currentCode,
         }
     end
 
@@ -1333,6 +1499,7 @@ local function StoreProfileRecord(db, name, profileData, opts)
     if not stored then return nil, err, code end
 
     db.profiles[name] = stored
+    ClearInvalidStoredProfile(name)
 
     if existingProfile then
         if opts.moveToFront then
@@ -1437,7 +1604,7 @@ local function ActivateStoredProfile(db, name, profileData, opts)
     opts = opts or {}
 
     if opts.saveCurrent ~= false then
-        local currentName = db.activeProfile or RESERVED_PROFILE_NAME
+        local currentName = ResolveActiveProfileName(db) or RESERVED_PROFILE_NAME
         if currentName ~= name and db.profiles[currentName] then
             EllesmereUI.AutoSaveActiveProfile()
         end
@@ -1449,6 +1616,7 @@ local function ActivateStoredProfile(db, name, profileData, opts)
     end
 
     db.profiles[name] = normalizedOrErr
+    ClearInvalidStoredProfile(name)
     db.activeProfile = name
     AnnounceLoadedProfile(name, opts)
     return normalizedOrErr, nil, nil
@@ -1612,6 +1780,7 @@ function EllesmereUI.ImportProfile(importStr, profileName, opts)
     if not importedProfile then return false, importErr, importCode end
 
     db.profiles[normalizedName] = importedProfile
+    ClearInvalidStoredProfile(normalizedName)
     if existingProfile then
         if opts.moveToFront then
             EnsureProfileInOrder(db, normalizedName, true)
@@ -1687,53 +1856,44 @@ function EllesmereUI.DeleteProfile(name)
             "reserved_profile_name"
     end
 
-    local deletingActiveProfile = (db.activeProfile == normalizedName)
-    local fallbackName, fallbackProfile
+    local deletingActiveProfile = (ResolveActiveProfileName(db) == normalizedName)
+    local fallbackName
 
     if deletingActiveProfile then
         local canApply, applyErr, applyCode = CanApplyProfileData()
         if not canApply then return false, applyErr, applyCode end
 
         fallbackName = ChooseFallbackProfileName(db, normalizedName)
-        if not fallbackName or not db.profiles[fallbackName] then
+        if not fallbackName or not IsStoredProfileUsable(db, fallbackName) then
             return false,
                 "No fallback profile is available.",
                 "missing_fallback_profile"
         end
 
-        fallbackProfile = db.profiles[fallbackName]
+        local activatedProfile, activateErr, activateCode = ActivateStoredProfile(
+            db,
+            fallbackName,
+            db.profiles[fallbackName],
+            { saveCurrent = false }
+        )
+        if not activatedProfile then return false, activateErr, activateCode end
     end
 
     db.profiles[normalizedName] = nil
+    ClearInvalidStoredProfile(normalizedName)
     RemoveProfileFromOrder(db, normalizedName)
     RemoveSpecAssignmentsForProfile(db, normalizedName)
     NormalizeProfileOrder(db)
 
-    if deletingActiveProfile then
-        local activatedProfile, activateErr, activateCode = ActivateStoredProfile(
-            db,
-            fallbackName,
-            fallbackProfile,
-            { saveCurrent = false }
-        )
-        if not activatedProfile then return false, activateErr, activateCode end
-
-        return true, {
-            deletedProfile = normalizedName,
-            activeProfile = fallbackName,
-            fallbackProfile = fallbackName,
-            requiresReload = true,
-        }, nil
-    end
-
     if db.activeProfile == normalizedName then
-        db.activeProfile = nil
+        EnsureActiveProfileName(db)
     end
 
     return true, {
         deletedProfile = normalizedName,
         activeProfile = db.activeProfile,
-        requiresReload = false,
+        fallbackProfile = deletingActiveProfile and fallbackName or nil,
+        requiresReload = deletingActiveProfile,
     }, nil
 end
 
@@ -1765,10 +1925,12 @@ function EllesmereUI.RenameProfile(oldName, newName, opts)
         }, nil
     end
 
+    local oldInvalidState = invalidStoredProfiles[normalizedOldName]
     local overwritingProfile = db.profiles[normalizedNewName]
+    local activeProfileName = ResolveActiveProfileName(db)
     if overwritingProfile
-        and db.activeProfile == normalizedNewName
-        and db.activeProfile ~= normalizedOldName then
+        and activeProfileName == normalizedNewName
+        and activeProfileName ~= normalizedOldName then
         return false,
             "Rename would overwrite the active profile. Switch away from it first.",
             "profile_exists_active"
@@ -1776,12 +1938,17 @@ function EllesmereUI.RenameProfile(oldName, newName, opts)
 
     if overwritingProfile then
         db.profiles[normalizedNewName] = nil
+        ClearInvalidStoredProfile(normalizedNewName)
         RemoveProfileFromOrder(db, normalizedNewName)
         RemoveSpecAssignmentsForProfile(db, normalizedNewName)
     end
 
     db.profiles[normalizedNewName] = db.profiles[normalizedOldName]
     db.profiles[normalizedOldName] = nil
+    ClearInvalidStoredProfile(normalizedOldName)
+    if oldInvalidState then
+        invalidStoredProfiles[normalizedNewName] = oldInvalidState
+    end
 
     local replacedInOrder = false
     for i, orderedName in ipairs(db.profileOrder) do
@@ -1820,9 +1987,14 @@ function EllesmereUI.SwitchProfile(name, opts)
     if not normalizedName or not db.profiles[normalizedName] then
         return false, "That profile does not exist.", "profile_missing"
     end
+    if not IsStoredProfileUsable(db, normalizedName) then
+        return false,
+            "That profile is unavailable because its saved data is corrupt.",
+            "profile_invalid"
+    end
 
     local requiresReload = opts.requiresReload ~= false
-    if db.activeProfile == normalizedName then
+    if ResolveActiveProfileName(db) == normalizedName then
         return true, {
             profileName = normalizedName,
             requiresReload = false,
@@ -1858,18 +2030,11 @@ function EllesmereUI.SwitchProfile(name, opts)
 end
 
 function EllesmereUI.GetActiveProfileName()
-    local db = GetProfilesDB()
-    if db.activeProfile and db.profiles[db.activeProfile] then
-        return db.activeProfile
-    end
+    return ResolveActiveProfileName(GetProfilesDB())
+end
 
-    NormalizeProfileOrder(db)
-    local fallbackName = db.profiles[RESERVED_PROFILE_NAME]
-        and RESERVED_PROFILE_NAME
-        or db.profileOrder[1]
-        or RESERVED_PROFILE_NAME
-    db.activeProfile = fallbackName
-    return fallbackName
+function EllesmereUI.IsProfileUsable(name)
+    return IsStoredProfileUsable(GetProfilesDB(), NormalizeProfileName(name))
 end
 
 function EllesmereUI.GetProfileList()
@@ -1900,7 +2065,7 @@ end
 -------------------------------------------------------------------------------
 function EllesmereUI.AutoSaveActiveProfile()
     local db = GetProfilesDB()
-    local name = db.activeProfile or RESERVED_PROFILE_NAME
+    local name = ResolveActiveProfileName(db) or RESERVED_PROFILE_NAME
 
     local ok, resultOrErr, code = EllesmereUI.SaveCurrentAsProfile(name, {
         currentName = name,
@@ -1909,7 +2074,7 @@ function EllesmereUI.AutoSaveActiveProfile()
         setActive = false,
         moveToFront = false,
     })
-    if ok and not db.activeProfile then
+    if ok then
         db.activeProfile = name
     end
     return ok, resultOrErr, code
@@ -1932,6 +2097,7 @@ function EllesmereUI.RevertActiveProfile()
     end
 
     db.profiles[activeName] = normalizedOrErr
+    ClearInvalidStoredProfile(activeName)
     db.activeProfile = activeName
     AnnounceLoadedProfile(activeName, { reason = "manual" })
 
@@ -1975,11 +2141,11 @@ local function ApplyAssignedProfileForCurrentSpec(opts)
     end
 
     local targetProfile = GetAssignedProfileForSpec(db, specID)
-    if not (targetProfile and db.profiles[targetProfile]) then
+    if not (targetProfile and IsStoredProfileUsable(db, targetProfile)) then
         return false
     end
 
-    local currentProfile = db.activeProfile or RESERVED_PROFILE_NAME
+    local currentProfile = ResolveActiveProfileName(db)
     if currentProfile == targetProfile then
         return true
     end
@@ -2001,15 +2167,30 @@ local function QueueAssignedProfileApply(reason)
     local generation = (EllesmereUI._specProfileApplyGeneration or 0) + 1
     EllesmereUI._specProfileApplyGeneration = generation
 
-    local retryDelays = { 0, 0.1, 0.35, 0.75 }
-    for _, delay in ipairs(retryDelays) do
+    -- Spec data often settles a little after the triggering event. Retry in a
+    -- short sequence, but only schedule the next follow-up when the previous
+    -- attempt still could not find/apply the assigned profile.
+    local absoluteRetryDelays = { 0, 0.1, 0.35, 0.75 }
+    local function QueueRetry(index)
+        local absoluteDelay = absoluteRetryDelays[index]
+        if not absoluteDelay then
+            return
+        end
+
+        local previousDelay = absoluteRetryDelays[index - 1] or 0
+        local delay = absoluteDelay - previousDelay
         C_Timer.After(delay, function()
             if EllesmereUI._specProfileApplyGeneration ~= generation then
                 return
             end
-            ApplyAssignedProfileForCurrentSpec({ reason = reason or "spec" })
+            if ApplyAssignedProfileForCurrentSpec({ reason = reason or "spec" }) then
+                return
+            end
+            QueueRetry(index + 1)
         end)
     end
+
+    QueueRetry(1)
 end
 
 do
@@ -2362,22 +2543,37 @@ do
 
         local db = GetProfilesDB()
 
-        -- Migrate any stored snapshots we already know about into the current
-        -- schema. We do this at login so later UI actions can assume the named
-        -- profile list is working with normalized records.
+        -- Repair stored profiles that are stale or structurally suspect before
+        -- the player interacts with them. Fully current records skip the deep
+        -- copy/normalize pass here and are still normalized again on-demand by
+        -- apply/export/dirty-check code paths.
+        local invalidProfileNames = {}
         for profileName, profileData in pairs(db.profiles) do
-            local normalizedProfile = CoerceStoredProfileRecord(profileData)
-            if normalizedProfile then
-                db.profiles[profileName] = normalizedProfile
+            if CanSkipLoginProfileNormalization(profileData) then
+                ClearInvalidStoredProfile(profileName)
+            else
+                local normalizedProfile, err, code = CoerceStoredProfileRecord(profileData)
+                if normalizedProfile then
+                    db.profiles[profileName] = normalizedProfile
+                    ClearInvalidStoredProfile(profileName)
+                else
+                    MarkInvalidStoredProfile(profileName, err, code)
+                    invalidProfileNames[#invalidProfileNames + 1] = profileName
+                end
             end
+        end
+        if #invalidProfileNames > 0 then
+            table.sort(invalidProfileNames)
+            print(
+                "|cff0CD29DEllesmereUI:|r Some saved profiles are unavailable because their data is corrupt: "
+                    .. table.concat(invalidProfileNames, ", ")
+                    .. "."
+            )
         end
         NormalizeSpecProfileAssignments(db)
 
         -- On first install, create the built-in fallback profile from the
         -- current settings after the addons finish their DB initialization.
-        if not db.activeProfile then
-            db.activeProfile = RESERVED_PROFILE_NAME
-        end
         if not db.profiles[RESERVED_PROFILE_NAME] then
             C_Timer.After(0.5, function()
                 EllesmereUI.SaveCurrentAsProfile(RESERVED_PROFILE_NAME, {
@@ -2391,12 +2587,7 @@ do
         end
 
         NormalizeProfileOrder(db)
-        if not db.profiles[db.activeProfile] then
-            db.activeProfile = db.profiles[RESERVED_PROFILE_NAME]
-                and RESERVED_PROFILE_NAME
-                or db.profileOrder[1]
-                or RESERVED_PROFILE_NAME
-        end
+        EnsureActiveProfileName(db)
 
         -- Auto-save active profile when the settings panel closes
         C_Timer.After(1, function()
