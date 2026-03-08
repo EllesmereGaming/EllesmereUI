@@ -2757,7 +2757,7 @@ initFrame:SetScript("OnEvent", function(self)
         local ddLabel
         local dirtyStateLabel
         local activeProfileNote
-        local PROFILE_APPLY_NOTE = "Save keeps your current changes. Revert reloads the last saved version of this profile. Switching or importing a profile also saves your current settings before reloading."
+        local PROFILE_APPLY_NOTE = "Save updates this profile with your current settings. Revert goes back to the last saved version. Switching or importing a profile also saves your current settings first."
 
         local function RefreshActiveProfileDisplay()
             local activeName = EllesmereUI.GetActiveProfileName()
@@ -2892,14 +2892,14 @@ initFrame:SetScript("OnEvent", function(self)
             if payload.type == "partial" then
                 local payloadAddonsText = FormatAddonDisplayList(payload.data and payload.data.includedAddons)
                 if payloadAddonsText then
-                    importMessage = "Enter a name for the imported profile. These addon settings will be merged into a new profile: "
+                    importMessage = "Enter a name for the imported profile. It will include settings for: "
                         .. payloadAddonsText
-                        .. ". Shared fonts and custom colors from the string are included too, then the UI will reload."
+                        .. ". Shared fonts and custom colors from the import are included too, and your UI will reload when it is applied."
                 else
-                    importMessage = "Enter a name for the imported profile. The included addon settings plus shared fonts/custom colors will be merged into a new profile, then the UI will reload."
+                    importMessage = "Enter a name for the imported profile. It will include the settings from the import, along with shared fonts and custom colors. Your UI will reload when it is applied."
                 end
             else
-                importMessage = "Enter a name for the imported profile. It will become your active profile and the UI will reload."
+                importMessage = "Enter a name for the imported profile. It will become the profile you are using now, and your UI will reload when it is applied."
             end
 
             local function TryImportProfile(name, allowOverwrite)
@@ -2922,7 +2922,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             ShowNamePrompt({
-                title = "Name This Profile",
+                title = "Name Profile",
                 message = importMessage,
                 placeholder = initialName or "Imported Profile",
                 initialText = initialName or "",
@@ -3142,14 +3142,14 @@ initFrame:SetScript("OnEvent", function(self)
                         and EllesmereUI.GetActiveProfileDirtyState()
                         or { isDirty = false }
                     if not dirtyState.isDirty then
-                        ShowProfileError("Revert Profile", "There are no unsaved changes to revert.")
+                        ShowProfileError("Revert Profile", "There is nothing to revert right now.")
                         return
                     end
 
                     local activeName = EllesmereUI.GetActiveProfileName()
                     EllesmereUI:ShowConfirmPopup({
                         title = "Revert Profile",
-                        message = "Discard unsaved changes and reload \"" .. activeName .. "\"?",
+                        message = "Discard your unsaved changes and reload \"" .. activeName .. "\"?",
                         confirmText = "Revert",
                         cancelText = "Cancel",
                         onConfirm = function()
@@ -3171,7 +3171,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.WB_COLOURS, function()
                     ShowNamePrompt({
                         title = "Create Profile",
-                        message = "Enter a name for the new profile. It will become your active profile.",
+                        message = "Enter a name for your new profile. It will become the profile you are using now.",
                         placeholder = "My Profile",
                         confirmText = "Create",
                         onConfirm = function(name)
@@ -3194,7 +3194,7 @@ initFrame:SetScript("OnEvent", function(self)
 
                     ShowNamePrompt({
                         title = "Rename Profile",
-                        message = "Enter a new name for the active profile.",
+                        message = "Enter a new name for the profile you are using now.",
                         placeholder = activeName,
                         initialText = activeName,
                         confirmText = "Rename",
@@ -3218,7 +3218,7 @@ initFrame:SetScript("OnEvent", function(self)
 
                     EllesmereUI:ShowConfirmPopup({
                         title = "Delete Profile",
-                        message = "Delete \"" .. activeName .. "\"? Because it is currently active, EllesmereUI will switch to your fallback profile and reload the UI.",
+                        message = "Delete \"" .. activeName .. "\"? EllesmereUI will switch to another profile and reload your UI.",
                         confirmText = "Delete",
                         cancelText = "Cancel",
                         onConfirm = function()
@@ -3294,8 +3294,8 @@ initFrame:SetScript("OnEvent", function(self)
                         presetKey = activeName,
                         titleText = "Assign Profile to Specs",
                         subtitleBuilder = function(profileName)
-                            return "You are editing assignments for this profile: " .. profileName
-                                .. "\nChecked specs will load it automatically when you switch to them. If a spec is already assigned elsewhere, checking it here will replace that assignment."
+                            return "You are choosing which specs should use: " .. profileName
+                                .. "\nChecked specs will switch to this profile automatically. If a spec is already assigned to another profile, checking it here will move it to this one."
                         end,
                         allPresetKeys = function()
                             local list = {}
@@ -3325,7 +3325,7 @@ initFrame:SetScript("OnEvent", function(self)
             note:SetJustifyH("LEFT")
             note:SetWordWrap(true)
             note:SetSpacing(2)
-            note:SetText("Assign a profile to each spec. When you change specs, EllesmereUI switches to that profile automatically.")
+            note:SetText("Choose which profile each spec should use. EllesmereUI will switch to it automatically when you change specs.")
 
             y = y - ROW_H
         end
@@ -3364,9 +3364,9 @@ initFrame:SetScript("OnEvent", function(self)
             scopeNote:SetJustifyH("LEFT")
             scopeNote:SetWordWrap(true)
             scopeNote:SetSpacing(2)
-            scopeNote:SetText("This profile currently includes: " .. includedAddonsText .. "."
+            scopeNote:SetText("This profile currently includes settings for: " .. includedAddonsText .. "."
                 .. (missingAddonsText
-                    and "\nThese addons are not loaded right now, so they will not be included until they are enabled again: " .. missingAddonsText .. "."
+                    and "\nThese addons are not loaded right now, so their settings will not be updated until they are enabled again: " .. missingAddonsText .. "."
                     or ""))
 
             y = y - ROW_H
@@ -3440,20 +3440,20 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI:ShowInfoPopup({
                     title = "Profile Import / Export",
                     content = "PROFILE SCOPE\n"
-                        .. "Profiles currently include these EllesmereUI addons: " .. includedAddonsText .. ". They also include your shared font and custom color settings."
+                        .. "Profiles currently include these EllesmereUI addons: " .. includedAddonsText .. ". Shared fonts and custom colors are included too."
                         .. (missingAddonsText
-                            and "\n\nThese addons are not loaded right now, so they will not be included until they are enabled again: " .. missingAddonsText .. "."
+                            and "\n\nThese addons are not loaded right now, so their settings will not be updated until they are enabled again: " .. missingAddonsText .. "."
                             or "")
                         .. "\n\nEXCLUDED SETTINGS\n"
-                        .. "Profiles do not include Global Settings on this page, Party Mode, panel scale, minimap button position, privacy/debug options, or other machine- or character-specific settings.\n\n"
+                        .. "Profiles do not include Global Settings on this page, Party Mode, panel scale, minimap button position, privacy and debug settings, or other machine- or character-specific settings.\n\n"
                         .. "SWITCHING AND IMPORTING\n"
-                        .. "When you switch or import a profile, EllesmereUI saves your current settings and reloads the UI so the new profile applies correctly.\n\n"
+                        .. "When you switch or import a profile, EllesmereUI saves your current settings first, then reloads your UI so the new profile is applied cleanly.\n\n"
                         .. "SPEC ASSIGNMENTS\n"
                         .. "If you assign profiles to specs, EllesmereUI switches them automatically when you change specs.\n\n"
                         .. "ERRORS\n"
                         .. "If a profile string is invalid or from an incompatible version, EllesmereUI shows an error instead of importing it.\n\n"
                         .. "PER-ADDON EXPORT\n"
-                        .. "Selective exports only include the addons you choose, plus shared fonts and custom colors. Anything not included keeps its current settings.",
+                        .. "Selective exports only include the addons you choose, plus shared fonts and custom colors. Anything you leave out keeps its current settings.",
                 })
             end)
 

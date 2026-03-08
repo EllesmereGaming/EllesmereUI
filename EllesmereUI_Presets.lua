@@ -637,7 +637,7 @@ do
                             r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
                             r._lbl:SetTextColor(1, 1, 1, hovered and 0.90 or 0.65)
                             if r._priorOwner and r._priorOwner ~= presetKey then
-                                r._hint:SetText("Replaces " .. ResolvePresetDisplayName(r._priorOwner))
+                                r._hint:SetText("Will replace " .. ResolvePresetDisplayName(r._priorOwner))
                                 r._hint:SetTextColor(EG.r, EG.g, EG.b, hovered and 0.90 or 0.70)
                             else
                                 r._hint:SetText("")
@@ -648,7 +648,7 @@ do
                             r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
                             r._lbl:SetTextColor(1, 1, 1, hovered and 0.90 or 0.65)
                             if assignedProfileKey and assignedProfileKey ~= presetKey then
-                                r._hint:SetText("Assigned: " .. assignedProfileName)
+                                r._hint:SetText("Used by: " .. assignedProfileName)
                                 r._hint:SetTextColor(1, 1, 1, hovered and 0.50 or 0.32)
                             else
                                 r._hint:SetText("")
