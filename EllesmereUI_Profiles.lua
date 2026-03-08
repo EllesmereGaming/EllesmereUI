@@ -1244,8 +1244,24 @@ function EllesmereUI.IsActiveProfileDirty()
     return state and state.isDirty or false
 end
 
+local lastLiveSnapshotFallbackSignature
+
+local function ReportLiveSnapshotFallback(err, code)
+    local signature = tostring(code or "unknown") .. ":" .. tostring(err or "unknown")
+    if lastLiveSnapshotFallbackSignature == signature then
+        return
+    end
+    lastLiveSnapshotFallbackSignature = signature
+
+    print(
+        "|cff0CD29DEllesmereUI:|r Falling back to a raw profile snapshot because metadata normalization failed: "
+            .. tostring(err or "unknown error")
+            .. "."
+    )
+end
+
 local function FinalizeLiveSnapshot(snapshotData)
-    local snapshot = StampStoredProfileRecord(snapshotData)
+    local snapshot, err, code = StampStoredProfileRecord(snapshotData)
     if snapshot then
         return snapshot
     end
@@ -1253,6 +1269,7 @@ local function FinalizeLiveSnapshot(snapshotData)
     -- Fall back to the raw snapshot shape rather than throwing a user-facing
     -- Lua error while exporting or auto-saving. The raw snapshot still carries
     -- the current scope; it just skips the metadata stamp.
+    ReportLiveSnapshotFallback(err, code)
     local fallback = DeepCopy(snapshotData)
     local now = GetCurrentTimestamp()
     local version = GetCurrentAddonVersion()
@@ -1320,13 +1337,16 @@ function EllesmereUI.ApplyPendingProfileSync(svName)
     local currentProfile = GetCurrentStoredProfileRecord(GetProfilesDB())
     local normalized = currentProfile and CoerceStoredProfileRecord(currentProfile) or nil
     local snapshot = normalized and normalized.addons and normalized.addons[entry.folder] or nil
-
-    pendingSync[entry.folder] = nil
     if not snapshot then
+        pendingSync[entry.folder] = nil
         return false
     end
 
-    return ApplyAddonSnapshot(entry, snapshot)
+    local ok = ApplyAddonSnapshot(entry, snapshot)
+    if ok then
+        pendingSync[entry.folder] = nil
+    end
+    return ok
 end
 
 local function ApplyFullProfileData(profileData)
@@ -1428,13 +1448,20 @@ function EllesmereUI.SnapshotAddons(folderList)
     return FinalizeLiveSnapshot(SnapshotCurrentProfileData(folderFilterSet))
 end
 
---- Apply a full profile to live SavedVariables.
-function EllesmereUI.ApplyProfileData(profileData)
+local function PrepareStoredProfileForApply(profileData)
     local canApply, err, code = CanApplyProfileData()
-    if not canApply then return false, err, code end
+    if not canApply then return nil, err, code end
 
     local normalized, normalizeErr, normalizeCode = CoerceStoredProfileRecord(profileData)
-    if not normalized then return false, normalizeErr, normalizeCode end
+    if not normalized then return nil, normalizeErr, normalizeCode end
+
+    return normalized, nil, nil
+end
+
+--- Apply a full profile to live SavedVariables.
+function EllesmereUI.ApplyProfileData(profileData)
+    local normalized, err, code = PrepareStoredProfileForApply(profileData)
+    if not normalized then return false, err, code end
 
     ApplyFullProfileData(normalized)
     return true, normalized, nil
@@ -1603,6 +1630,14 @@ end
 local function ActivateStoredProfile(db, name, profileData, opts)
     opts = opts or {}
 
+    -- Validate and normalize the target snapshot before we touch the outgoing
+    -- profile. That way a corrupt import or stale record fails fast instead of
+    -- pointlessly re-saving the current profile first.
+    local normalizedProfile, err, code = PrepareStoredProfileForApply(profileData)
+    if not normalizedProfile then
+        return nil, err, code
+    end
+
     if opts.saveCurrent ~= false then
         local currentName = ResolveActiveProfileName(db) or RESERVED_PROFILE_NAME
         if currentName ~= name and db.profiles[currentName] then
@@ -1610,16 +1645,12 @@ local function ActivateStoredProfile(db, name, profileData, opts)
         end
     end
 
-    local ok, normalizedOrErr, code = EllesmereUI.ApplyProfileData(profileData)
-    if not ok then
-        return nil, normalizedOrErr, code
-    end
-
-    db.profiles[name] = normalizedOrErr
+    ApplyFullProfileData(normalizedProfile)
+    db.profiles[name] = normalizedProfile
     ClearInvalidStoredProfile(name)
     db.activeProfile = name
     AnnounceLoadedProfile(name, opts)
-    return normalizedOrErr, nil, nil
+    return normalizedProfile, nil, nil
 end
 
 local function RunLiveProfileApplyHook(hookFn)
@@ -1779,19 +1810,6 @@ function EllesmereUI.ImportProfile(importStr, profileName, opts)
     )
     if not importedProfile then return false, importErr, importCode end
 
-    db.profiles[normalizedName] = importedProfile
-    ClearInvalidStoredProfile(normalizedName)
-    if existingProfile then
-        if opts.moveToFront then
-            EnsureProfileInOrder(db, normalizedName, true)
-        else
-            NormalizeProfileOrder(db)
-        end
-    else
-        EnsureProfileInOrder(db, normalizedName, true)
-    end
-    NormalizeProfileOrder(db)
-
     local activatedProfile, activateErr, activateCode = ActivateStoredProfile(
         db,
         normalizedName,
@@ -1802,6 +1820,15 @@ function EllesmereUI.ImportProfile(importStr, profileName, opts)
         }
     )
     if not activatedProfile then return false, activateErr, activateCode end
+
+    if existingProfile then
+        if opts.moveToFront then
+            EnsureProfileInOrder(db, normalizedName, true)
+        end
+    else
+        EnsureProfileInOrder(db, normalizedName, true)
+    end
+    NormalizeProfileOrder(db)
 
     UpdateManualProfileOverrideForCurrentSpec(db, normalizedName)
 

@@ -175,35 +175,9 @@ function EUILite.NewDB(svName, defaults)
     if type(sv.profiles[profileName]) ~= "table" then sv.profiles[profileName] = {} end
     local profile = sv.profiles[profileName]
 
-    -- When a profile swap happens while this addon is unavailable, the suite
-    -- profile system records a pending sync and replays the active snapshot the
-    -- next time the addon opens its SavedVariables. This lets late-loading
-    -- modules catch up without forcing every profile switch to fail.
-    if EllesmereUI and EllesmereUI.ApplyPendingProfileSync then
-        EllesmereUI.ApplyPendingProfileSync(svName)
-    end
-
-    -- Merge defaults into profile (fills missing keys only)
+    -- Build the db object early so pending profile sync can look up the live
+    -- defaults for this SavedVariables table through the registry.
     local profileDefaults = defaults and defaults.profile
-    if profileDefaults then
-        DeepMergeDefaults(profile, profileDefaults)
-        -- Validate: if any top-level default sub-table is missing or wrong
-        -- type after merge, the profile is corrupt (e.g. AceDB migration
-        -- leftovers).  Wipe and re-merge from scratch.
-        local corrupt = false
-        for k, v in pairs(profileDefaults) do
-            if type(v) == "table" and type(profile[k]) ~= "table" then
-                corrupt = true
-                break
-            end
-        end
-        if corrupt then
-            wipe(profile)
-            DeepMergeDefaults(profile, profileDefaults)
-        end
-    end
-
-    -- Build the db object
     local db = {
         sv = sv,
         profile = profile,
@@ -226,6 +200,33 @@ function EUILite.NewDB(svName, defaults)
     -- for a SavedVariables table before applying imported snapshots.
     tinsert(dbRegistry, db)
     dbRegistryBySV[svName] = db
+
+    -- When a profile swap happens while this addon is unavailable, the suite
+    -- profile system records a pending sync and replays the active snapshot the
+    -- next time the addon opens its SavedVariables. Register first so the sync
+    -- path can re-merge the current defaults instead of copying a raw snapshot.
+    if EllesmereUI and EllesmereUI.ApplyPendingProfileSync then
+        EllesmereUI.ApplyPendingProfileSync(svName)
+    end
+
+    -- Merge defaults into profile (fills missing keys only)
+    if profileDefaults then
+        DeepMergeDefaults(profile, profileDefaults)
+        -- Validate: if any top-level default sub-table is missing or wrong
+        -- type after merge, the profile is corrupt (e.g. AceDB migration
+        -- leftovers).  Wipe and re-merge from scratch.
+        local corrupt = false
+        for k, v in pairs(profileDefaults) do
+            if type(v) == "table" and type(profile[k]) ~= "table" then
+                corrupt = true
+                break
+            end
+        end
+        if corrupt then
+            wipe(profile)
+            DeepMergeDefaults(profile, profileDefaults)
+        end
+    end
 
     return db
 end
