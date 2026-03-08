@@ -190,6 +190,30 @@ local function DeepMerge(dst, src)
     end
 end
 
+local function DeepEqual(left, right)
+    if type(left) ~= type(right) then
+        return false
+    end
+
+    if type(left) ~= "table" then
+        return left == right
+    end
+
+    for key, leftValue in pairs(left) do
+        if not DeepEqual(leftValue, right[key]) then
+            return false
+        end
+    end
+
+    for key in pairs(right) do
+        if left[key] == nil then
+            return false
+        end
+    end
+
+    return true
+end
+
 EllesmereUI._DeepCopy = DeepCopy
 
 -------------------------------------------------------------------------------
@@ -983,6 +1007,75 @@ local function SnapshotCurrentProfileData(folderFilterSet, sourceProfileData)
     data.fonts = NormalizeFontsData(EllesmereUI.GetFontsDB())
     data.customColors = NormalizeCustomColorsData(EllesmereUI.GetCustomColorsDB())
     return PreserveUnavailableAddonSnapshots(data, sourceProfileData)
+end
+
+local function BuildComparableProfileContent(profileData)
+    local normalized, err, code = NormalizeProfileData(profileData)
+    if not normalized then
+        return nil, err, code
+    end
+
+    -- Dirty-state comparison should only look at user-controlled profile
+    -- content. Metadata like timestamps and addon versions changes whenever we
+    -- save, but those fields do not mean the visible settings actually drifted.
+    return {
+        addons = normalized.addons or {},
+        includedAddons = normalized.includedAddons or {},
+        fonts = normalized.fonts or NormalizeFontsData(nil),
+        customColors = normalized.customColors or {},
+    }, nil, nil
+end
+
+function EllesmereUI.GetActiveProfileDirtyState()
+    local db = GetProfilesDB()
+    local activeName = EllesmereUI.GetActiveProfileName()
+    local storedProfile = GetCurrentStoredProfileRecord(db)
+    if type(storedProfile) ~= "table" then
+        return {
+            profileName = activeName,
+            isDirty = false,
+            hasStoredProfile = false,
+        }
+    end
+
+    local normalizedStored, err, code = CoerceStoredProfileRecord(storedProfile)
+    if not normalizedStored then
+        return {
+            profileName = activeName,
+            isDirty = false,
+            hasStoredProfile = true,
+            comparisonFailed = true,
+            error = err,
+            errorCode = code,
+        }
+    end
+
+    db.profiles[activeName] = normalizedStored
+
+    local currentSnapshot = SnapshotCurrentProfileData(nil, normalizedStored)
+    local currentComparable, currentErr, currentCode = BuildComparableProfileContent(currentSnapshot)
+    local storedComparable, storedErr, storedCode = BuildComparableProfileContent(normalizedStored)
+    if not currentComparable or not storedComparable then
+        return {
+            profileName = activeName,
+            isDirty = false,
+            hasStoredProfile = true,
+            comparisonFailed = true,
+            error = currentErr or storedErr,
+            errorCode = currentCode or storedCode,
+        }
+    end
+
+    return {
+        profileName = activeName,
+        isDirty = not DeepEqual(currentComparable, storedComparable),
+        hasStoredProfile = true,
+    }
+end
+
+function EllesmereUI.IsActiveProfileDirty()
+    local state = EllesmereUI.GetActiveProfileDirtyState()
+    return state and state.isDirty or false
 end
 
 local function FinalizeLiveSnapshot(snapshotData)
@@ -1820,6 +1913,32 @@ function EllesmereUI.AutoSaveActiveProfile()
         db.activeProfile = name
     end
     return ok, resultOrErr, code
+end
+
+function EllesmereUI.RevertActiveProfile()
+    local db = GetProfilesDB()
+    local activeName = EllesmereUI.GetActiveProfileName()
+    local storedProfile = GetCurrentStoredProfileRecord(db)
+    if type(storedProfile) ~= "table" then
+        return false, "That profile does not exist.", "profile_missing"
+    end
+
+    local canApply, applyErr, applyCode = CanApplyProfileData()
+    if not canApply then return false, applyErr, applyCode end
+
+    local ok, normalizedOrErr, code = EllesmereUI.ApplyProfileData(storedProfile)
+    if not ok then
+        return false, normalizedOrErr, code
+    end
+
+    db.profiles[activeName] = normalizedOrErr
+    db.activeProfile = activeName
+    AnnounceLoadedProfile(activeName, { reason = "manual" })
+
+    return true, {
+        profileName = activeName,
+        requiresReload = true,
+    }, nil
 end
 
 -------------------------------------------------------------------------------

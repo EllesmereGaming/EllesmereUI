@@ -2755,20 +2755,47 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:Spacer(parent, y, 10);  y = y - h
 
         local ddLabel
+        local dirtyStateLabel
+        local activeProfileNote
+        local PROFILE_APPLY_NOTE = "Save keeps your current changes. Revert reloads the last saved version of this profile. Switching or importing a profile also saves your current settings before reloading."
+
+        local function RefreshActiveProfileDisplay()
+            local activeName = EllesmereUI.GetActiveProfileName()
+            local dirtyState = EllesmereUI.GetActiveProfileDirtyState
+                and EllesmereUI.GetActiveProfileDirtyState()
+                or { isDirty = false }
+
+            if ddLabel then
+                ddLabel:SetText(dirtyState.isDirty and (activeName .. " *") or activeName)
+            end
+
+            if dirtyStateLabel then
+                if dirtyState.comparisonFailed or dirtyState.hasStoredProfile == false then
+                    dirtyStateLabel:SetText("")
+                elseif dirtyState.isDirty then
+                    dirtyStateLabel:SetText("Unsaved changes")
+                    dirtyStateLabel:SetTextColor(1.0, 0.84, 0.35, 0.95)
+                    dirtyStateLabel:SetAlpha(0.95)
+                else
+                    dirtyStateLabel:SetText("All changes saved")
+                    dirtyStateLabel:SetTextColor(1, 1, 1, 0.45)
+                    dirtyStateLabel:SetAlpha(0.75)
+                end
+            end
+
+            if activeProfileNote then
+                activeProfileNote:SetText(PROFILE_APPLY_NOTE)
+            end
+        end
 
         local function RefreshProfilesPage()
-            if ddLabel then
-                ddLabel:SetText(EllesmereUI.GetActiveProfileName())
-            end
+            RefreshActiveProfileDisplay()
             EllesmereUI:InvalidatePageCache()
             EllesmereUI:RefreshPage(true)
         end
 
         local function FinishProfileAction(result)
-            if ddLabel then
-                ddLabel:SetText(result and (result.activeProfile or result.profileName)
-                    or EllesmereUI.GetActiveProfileName())
-            end
+            RefreshActiveProfileDisplay()
             if result and result.requiresReload then
                 ReloadUI()
                 return
@@ -2920,7 +2947,7 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, "ACTIVE PROFILE", y);  y = y - h
 
         do
-            local ROW_H = 88
+            local ROW_H = 100
             local rowFrame = CreateFrame("Frame", nil, parent)
             local totalW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
             PP.Size(rowFrame, totalW, ROW_H)
@@ -2951,11 +2978,8 @@ initFrame:SetScript("OnEvent", function(self)
             ddLabel:SetPoint("RIGHT", ddBtn, "RIGHT", -28, 0)
             ddLabel:SetJustifyH("LEFT")
 
-            local function RefreshActiveProfileLabel()
-                ddLabel:SetText(EllesmereUI.GetActiveProfileName())
-            end
-            RefreshActiveProfileLabel()
-            EllesmereUI.RegisterWidgetRefresh(RefreshActiveProfileLabel)
+            RefreshActiveProfileDisplay()
+            EllesmereUI.RegisterWidgetRefresh(RefreshActiveProfileDisplay)
 
             EllesmereUI.MakeDropdownArrow(ddBtn, 12, PP)
 
@@ -3108,9 +3132,40 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end)
 
+            local revertBtn = CreateFrame("Button", nil, rowFrame)
+            PP.Size(revertBtn, BTN_W, DD_H)
+            PP.Point(revertBtn, "LEFT", saveBtn, "RIGHT", BTN_GAP, 0)
+            revertBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
+            EllesmereUI.MakeStyledButton(revertBtn, "Revert", 13,
+                EllesmereUI.RB_COLOURS, function()
+                    local dirtyState = EllesmereUI.GetActiveProfileDirtyState
+                        and EllesmereUI.GetActiveProfileDirtyState()
+                        or { isDirty = false }
+                    if not dirtyState.isDirty then
+                        ShowProfileError("Revert Profile", "There are no unsaved changes to revert.")
+                        return
+                    end
+
+                    local activeName = EllesmereUI.GetActiveProfileName()
+                    EllesmereUI:ShowConfirmPopup({
+                        title = "Revert Profile",
+                        message = "Discard unsaved changes and reload \"" .. activeName .. "\"?",
+                        confirmText = "Revert",
+                        cancelText = "Cancel",
+                        onConfirm = function()
+                            local ok, resultOrErr = EllesmereUI.RevertActiveProfile()
+                            if ok then
+                                FinishProfileAction(resultOrErr)
+                            else
+                                ShowProfileError("Revert Profile", resultOrErr)
+                            end
+                        end,
+                    })
+                end)
+
             local createBtn = CreateFrame("Button", nil, rowFrame)
             PP.Size(createBtn, BTN_W, DD_H)
-            PP.Point(createBtn, "LEFT", saveBtn, "RIGHT", BTN_GAP, 0)
+            PP.Point(createBtn, "LEFT", revertBtn, "RIGHT", BTN_GAP, 0)
             createBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
             EllesmereUI.MakeStyledButton(createBtn, "Create", 13,
                 EllesmereUI.WB_COLOURS, function()
@@ -3177,14 +3232,19 @@ initFrame:SetScript("OnEvent", function(self)
                     })
                 end)
 
-            local note = EllesmereUI.MakeFont(rowFrame, 11, nil, 1, 1, 1)
-            note:SetAlpha(0.52)
-            note:SetPoint("TOPLEFT", ddBtn, "BOTTOMLEFT", 0, -16)
-            note:SetPoint("RIGHT", rowFrame, "RIGHT", -20, 0)
-            note:SetJustifyH("LEFT")
-            note:SetWordWrap(true)
-            note:SetSpacing(2)
-            note:SetText("Switching or importing a profile saves your current settings, then reloads the UI so the new profile is applied correctly.")
+            dirtyStateLabel = EllesmereUI.MakeFont(rowFrame, 11, nil, 1, 1, 1)
+            dirtyStateLabel:SetPoint("TOPLEFT", ddBtn, "BOTTOMLEFT", 0, -4)
+            dirtyStateLabel:SetJustifyH("LEFT")
+
+            activeProfileNote = EllesmereUI.MakeFont(rowFrame, 11, nil, 1, 1, 1)
+            activeProfileNote:SetAlpha(0.52)
+            activeProfileNote:SetPoint("TOPLEFT", dirtyStateLabel, "BOTTOMLEFT", 0, -4)
+            activeProfileNote:SetPoint("RIGHT", rowFrame, "RIGHT", -20, 0)
+            activeProfileNote:SetJustifyH("LEFT")
+            activeProfileNote:SetWordWrap(true)
+            activeProfileNote:SetSpacing(2)
+
+            RefreshActiveProfileDisplay()
 
             y = y - ROW_H
         end
