@@ -1139,12 +1139,126 @@ local function SnapshotCurrentProfileData(folderFilterSet, sourceProfileData)
     return PreserveUnavailableAddonSnapshots(data, sourceProfileData)
 end
 
+local DIRTY_COMPARE_ACTION_BARS_FOLDER = "EllesmereUIActionBars"
+local DIRTY_COMPARE_CDM_FOLDER = "EllesmereUICooldownManager"
+local DIRTY_COMPARE_RESOURCE_BARS_FOLDER = "EllesmereUIResourceBars"
+
+local function SanitizeActionBarsComparableSnapshot(snapshot)
+    local bars = type(snapshot.bars) == "table" and snapshot.bars or nil
+    if not bars then
+        return
+    end
+
+    -- Action Bars can auto-trim `numIcons` on login when `alwaysShowButtons`
+    -- is off. That derived count reflects the current character's populated
+    -- actions, not a deliberate profile edit, so it should not keep the whole
+    -- suite profile marked dirty.
+    for _, barData in pairs(bars) do
+        if type(barData) == "table" and barData.alwaysShowButtons == false then
+            barData.numIcons = nil
+        end
+    end
+end
+
+local function SanitizeCooldownManagerComparableSnapshot(snapshot)
+    -- CDM persists runtime-derived spell snapshots and spec caches as part of
+    -- normal login/spec setup. Those fields drift across characters and specs
+    -- even when the user never changes a visible setting, so comparing them
+    -- verbatim produces false "Unsaved changes" states.
+    snapshot._capturedOnce = nil
+    snapshot.activeSpecKey = nil
+
+    -- `spec` is lazily initialized on enable and seeded with a default mapping
+    -- for the current spec, even before the user edits any CDM setting.
+    snapshot.spec = nil
+
+    -- TODO: Narrow this once dirty-state comparison can distinguish CDM's
+    -- user-authored spec data from its auto-captured spell caches.
+    snapshot.specProfiles = nil
+
+    local cdmBars = type(snapshot.cdmBars) == "table" and snapshot.cdmBars or nil
+    local bars = cdmBars and type(cdmBars.bars) == "table" and cdmBars.bars or nil
+    if bars then
+        for _, barData in ipairs(bars) do
+            if type(barData) == "table" then
+                barData.trackedSpells = nil
+                barData.dormantSpells = nil
+            end
+        end
+    end
+end
+
+local function SanitizeResourceBarsComparableSnapshot(snapshot)
+    -- Resource Bars stores class/power-colored defaults in the profile table
+    -- even when the user has not opted into custom colors. Those RGB values are
+    -- character-dependent defaults rather than active settings, so comparing
+    -- them across characters creates false dirty states.
+    local health = type(snapshot.health) == "table" and snapshot.health or nil
+    if health and health.customColored == false then
+        health.fillR = nil
+        health.fillG = nil
+        health.fillB = nil
+        health.fillA = nil
+    end
+
+    local primary = type(snapshot.primary) == "table" and snapshot.primary or nil
+    if primary and primary.customColored == false then
+        primary.fillR = nil
+        primary.fillG = nil
+        primary.fillB = nil
+        primary.fillA = nil
+    end
+end
+
+local function BuildComparableAddonSnapshots(addons)
+    if type(addons) ~= "table" then
+        return {}
+    end
+
+    local comparableAddons = {}
+    local needsSanitization = false
+    for folderName, snapshot in pairs(addons) do
+        comparableAddons[folderName] = snapshot
+        if folderName == DIRTY_COMPARE_ACTION_BARS_FOLDER
+            or folderName == DIRTY_COMPARE_CDM_FOLDER
+            or folderName == DIRTY_COMPARE_RESOURCE_BARS_FOLDER then
+            needsSanitization = true
+        end
+    end
+    if not needsSanitization then
+        return addons
+    end
+
+    local actionBarsSnapshot = comparableAddons[DIRTY_COMPARE_ACTION_BARS_FOLDER]
+    if type(actionBarsSnapshot) == "table" then
+        actionBarsSnapshot = DeepCopy(actionBarsSnapshot)
+        comparableAddons[DIRTY_COMPARE_ACTION_BARS_FOLDER] = actionBarsSnapshot
+        SanitizeActionBarsComparableSnapshot(actionBarsSnapshot)
+    end
+
+    local cdmSnapshot = comparableAddons[DIRTY_COMPARE_CDM_FOLDER]
+    if type(cdmSnapshot) == "table" then
+        cdmSnapshot = DeepCopy(cdmSnapshot)
+        comparableAddons[DIRTY_COMPARE_CDM_FOLDER] = cdmSnapshot
+        SanitizeCooldownManagerComparableSnapshot(cdmSnapshot)
+    end
+
+    local resourceBarsSnapshot = comparableAddons[DIRTY_COMPARE_RESOURCE_BARS_FOLDER]
+    if type(resourceBarsSnapshot) == "table" then
+        resourceBarsSnapshot = DeepCopy(resourceBarsSnapshot)
+        comparableAddons[DIRTY_COMPARE_RESOURCE_BARS_FOLDER] = resourceBarsSnapshot
+        SanitizeResourceBarsComparableSnapshot(resourceBarsSnapshot)
+    end
+
+    return comparableAddons
+end
+
 local function BuildComparableProfileContentFromNormalized(normalized)
     -- Dirty-state comparison should only look at user-controlled profile
     -- content. Metadata like timestamps and addon versions changes whenever we
     -- save, but those fields do not mean the visible settings actually drifted.
     return {
-        addons = normalized.addons or {},
+        addons = BuildComparableAddonSnapshots(normalized.addons),
         includedAddons = normalized.includedAddons or {},
         fonts = normalized.fonts or NormalizeFontsData(nil),
         customColors = normalized.customColors or {},
