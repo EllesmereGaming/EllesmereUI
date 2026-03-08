@@ -116,6 +116,7 @@ initFrame:SetScript("OnEvent", function(self)
         ["targettarget"] = "Focus Target / Target of Target",
         ["pet"]          = "Pet",
         ["boss"]         = "Boss",
+        ["party"]        = "Party",
     }
     local unitOrder = { "player", "target", "focus" }
 
@@ -127,6 +128,7 @@ initFrame:SetScript("OnEvent", function(self)
         ["targettarget"] = "left",
         ["pet"]          = "left",
         ["boss"]         = "right",
+        ["party"]        = "right",
     }
 
     ---------------------------------------------------------------------------
@@ -140,6 +142,7 @@ initFrame:SetScript("OnEvent", function(self)
         targettarget = function() return db.profile.totPet end,
         pet          = function() return db.profile.pet end,
         boss         = function() return db.profile.boss end,
+        party        = function() return db.profile.party end,
     }
 
     local GROUP_UNIT_ORDER = { "player", "target", "focus" }
@@ -150,6 +153,7 @@ initFrame:SetScript("OnEvent", function(self)
         targettarget = "Focus Target / Target of Target",
         pet          = "Pet",
         boss         = "Boss",
+        party        = "Party",
     }
 
     local groupChecked = {}
@@ -768,6 +772,7 @@ initFrame:SetScript("OnEvent", function(self)
         elseif unitKey == "focus" then settings = p.focus
         elseif unitKey == "pet" then settings = p.pet
         elseif unitKey == "boss" then settings = p.boss
+        elseif unitKey == "party" then settings = p.party
         elseif unitKey == "targettarget" then settings = p.totPet
         else settings = p.player end
 
@@ -790,6 +795,8 @@ initFrame:SetScript("OnEvent", function(self)
         if unitKey == "player" then
             local pch = settings.playerCastbarHeight
             castbarH = settings.showPlayerCastbar and (pch and pch > 0 and pch or 14) or 0
+        elseif settings.showCastbar == false then
+            castbarH = 0
         else
             castbarH = settings.castbarHeight or 0
         end
@@ -5569,7 +5576,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if ns.ApplyFrameScale then
                     for unit, frame in pairs(ns.frames or {}) do
                         if type(unit) == "string" and unit:sub(1,1) ~= "_" then
-                            local uKey = unit:match("^boss%d$") and "boss" or (unit == "targettarget" or unit == "focustarget") and "totPet" or unit
+                            local uKey = unit:match("^boss%d$") and "boss" or unit:match("^party%d$") and "party" or (unit == "targettarget" or unit == "focustarget") and "totPet" or unit
                             if db.profile[uKey] == settingsTable then
                                 ns.ApplyFrameScale(frame, unit)
                             end
@@ -5689,6 +5696,80 @@ initFrame:SetScript("OnEvent", function(self)
         return abs(y)
     end
 
+    local function BuildPartyOptions(W, parent, y)
+        local _, h
+
+        local portraitRow
+        local function enableRow(Ww, pp, yy)
+            portraitRow, h = Ww:DualRow(pp, yy,
+                { type="toggle", text="Enable Party Frames",
+                  getValue=function() return db.profile.enabledFrames.party ~= false end,
+                  setValue=function(v)
+                    db.profile.enabledFrames.party = v
+                    -- Suppress or restore Blizzard compact party frame
+                    if CompactPartyFrame then
+                        if v then
+                            CompactPartyFrame:UnregisterAllEvents()
+                            CompactPartyFrame:Hide()
+                        end
+                    end
+                    ReloadAndUpdate()
+                    if ns.UpdatePartyFrameVisibility then ns.UpdatePartyFrameVisibility() end
+                  end },
+                { type="toggle", text="Show Portrait",
+                  getValue=function() return db.profile.party.showPortrait ~= false end,
+                  setValue=function(v)
+                    db.profile.party.showPortrait = v
+                    ReloadAndUpdate()
+                  end })
+            return portraitRow, h
+        end
+
+        local displayHeader, sizeRow, textHeader, textRow
+        y, displayHeader, sizeRow, textHeader, textRow = BuildMiniTextAndSize(W, parent, y, db.profile.party, "party", enableRow)
+
+        -- Additional party-specific options
+        local _, castRow
+        castRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Castbar",
+              getValue=function() return db.profile.party.showCastbar end,
+              setValue=function(v)
+                db.profile.party.showCastbar = v
+                ReloadAndUpdate()
+              end },
+            { type="toggle", text="Only Player Debuffs",
+              getValue=function() return db.profile.party.onlyPlayerDebuffs ~= false end,
+              setValue=function(v)
+                db.profile.party.onlyPlayerDebuffs = v
+                ReloadAndUpdate()
+              end });  y = y - h
+
+        local roleRow
+        roleRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Role Icon",
+              getValue=function() return db.profile.party.showRoleIcon ~= false end,
+              setValue=function(v)
+                db.profile.party.showRoleIcon = v
+                ReloadAndUpdate()
+              end },
+            { type="slider", text="Frame Spacing", min=0, max=40, step=1,
+              getValue=function() return db.profile.partySpacing or 6 end,
+              setValue=function(v)
+                db.profile.partySpacing = v
+                ReloadAndUpdate()
+              end });  y = y - h
+
+        -- Store click targets for hover highlight system
+        parent._ufClickTargets = {
+            healthBar  = { section = displayHeader,  target = sizeRow },
+            portrait   = { section = displayHeader,  target = portraitRow,   slotSide = "right" },
+            nameText   = { section = textHeader or displayHeader,  target = textRow or sizeRow },
+            healthText = { section = textHeader or displayHeader,  target = textRow or sizeRow },
+        }
+
+        return math.abs(y)
+    end
+
     local function BuildBossOptions(W, parent, y)
         local _, h
 
@@ -5732,8 +5813,9 @@ initFrame:SetScript("OnEvent", function(self)
         ["targettarget"] = "Focus Target / Target of Target",
         ["pet"]          = "Pet",
         ["boss"]         = "Boss",
+        ["party"]        = "Party",
     }
-    local miniUnitOrder = { "targettarget", "pet", "boss" }
+    local miniUnitOrder = { "targettarget", "pet", "boss", "party" }
 
     local _miniHeaderBuilder
     local miniHeaderFixedH = 0
@@ -5802,6 +5884,8 @@ initFrame:SetScript("OnEvent", function(self)
             y = -BuildPetOptions(W, parent, y)
         elseif selectedMiniUnit == "boss" then
             y = -BuildBossOptions(W, parent, y)
+        elseif selectedMiniUnit == "party" then
+            y = -BuildPartyOptions(W, parent, y)
         end
 
         -------------------------------------------------------------------

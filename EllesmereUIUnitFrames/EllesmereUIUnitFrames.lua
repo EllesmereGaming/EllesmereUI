@@ -445,6 +445,41 @@ local defaults = {
             borderColor = { r = 0, g = 0, b = 0 },
             highlightColor = { r = 1, g = 1, b = 1 },
         },
+        party = {
+            frameWidth = 160,
+            frameScale = 100,
+            healthHeight = 34,
+            powerHeight = 6,
+            powerPosition = "below",
+            powerWidth = 0,
+            powerX = 0,
+            powerY = 0,
+            powerPercentText = "none",
+            powerPercentSize = 9,
+            powerPercentX = 0,
+            powerPercentY = 0,
+            powerPercentPowerColor = false,
+            castbarHeight = 14,
+            showCastbar = false,
+            healthDisplay = "perhp",
+            showPortrait = false,
+            portraitMode = "2d",
+            selectedFont = "Expressway",
+            healthBarTexture = "none",
+            healthBarOpacity = 0.9,
+            powerBarOpacity = 1.0,
+            textSize = 11,
+            leftTextContent = "name",
+            rightTextContent = "perhp",
+            centerTextContent = "none",
+            borderSize = 1,
+            borderColor = { r = 0, g = 0, b = 0 },
+            highlightColor = { r = 1, g = 1, b = 1 },
+            showDebuffs = true,
+            maxDebuffs = 3,
+            onlyPlayerDebuffs = true,
+            showRoleIcon = true,
+        },
         enabledFrames = {
             player = true,
             target = true,
@@ -453,6 +488,7 @@ local defaults = {
             targettarget = true,
             focustarget = false,
             boss = true,
+            party = false,
         },
         positions = {
             player = { point = "CENTER", x = -317, y = -193.5 },
@@ -462,10 +498,12 @@ local defaults = {
             targettarget = { point = "CENTER", x = 383, y = -152.5 },
             focustarget = { point = "CENTER", x = 50, y = -261 },
             boss = { point = "RIGHT", x = -326, y = 251 },
+            party = { point = "TOPLEFT", x = 20, y = -200 },
             playerCastbar = { point = "CENTER", x = 0, y = -250 },
             classPower = { point = "CENTER", x = 0, y = -220 },
         },
         bossSpacing = 60,
+        partySpacing = 6,
     }
 }
 local frames = {}
@@ -517,7 +555,7 @@ local function ResolveFontPath(unitKey)
     -- Locale override takes absolute priority — no custom font can render CJK/Cyrillic
     if LOCALE_FONT_OVERRIDE then
         cachedFontPath = LOCALE_FONT_OVERRIDE
-        for _, uKey in ipairs({"player", "target", "focus", "boss", "pet", "totPet"}) do
+        for _, uKey in ipairs({"player", "target", "focus", "boss", "party", "pet", "totPet"}) do
             cachedFontPaths[uKey] = LOCALE_FONT_OVERRIDE
         end
         return
@@ -526,7 +564,7 @@ local function ResolveFontPath(unitKey)
     if EllesmereUI and EllesmereUI.GetFontPath then
         local gPath = EllesmereUI.GetFontPath("unitFrames")
         cachedFontPath = gPath
-        for _, uKey in ipairs({"player", "target", "focus", "boss", "pet", "totPet"}) do
+        for _, uKey in ipairs({"player", "target", "focus", "boss", "party", "pet", "totPet"}) do
             cachedFontPaths[uKey] = gPath
         end
         return
@@ -539,7 +577,7 @@ local function ResolveFontPath(unitKey)
     end
     -- Resolve all units + global fallback
     if db and db.profile then
-        for _, uKey in ipairs({"player", "target", "focus", "boss", "pet", "totPet"}) do
+        for _, uKey in ipairs({"player", "target", "focus", "boss", "party", "pet", "totPet"}) do
             local s = db.profile[uKey]
             local fontName = s and s.selectedFont or db.profile.selectedFont or "Expressway"
             cachedFontPaths[uKey] = fontPaths[fontName] or fontPaths["Expressway"]
@@ -627,6 +665,7 @@ ns.healthBarTextureNames = healthBarTextureNames
 local function UnitToSettingsKey(unit)
     if not unit then return nil end
     if unit:match("^boss%d$") then return "boss" end
+    if unit:match("^party%d$") then return "party" end
     if unit == "targettarget" or unit == "focustarget" then return "totPet" end
     if unit == "pet" then return "pet" end
     if db.profile[unit] then return unit end
@@ -786,6 +825,9 @@ local function GetSettingsForUnit(unit)
         }
         for i = 1, 5 do
             unitSettingsMap["boss" .. i] = db.profile.boss
+        end
+        for i = 1, 4 do
+            unitSettingsMap["party" .. i] = db.profile.party
         end
     end
     return unitSettingsMap[unit] or db.profile.player
@@ -3285,6 +3327,191 @@ local function StyleBossFrame(frame, unit)
 end
 
 
+local function StylePartyFrame(frame, unit)
+    local settings = GetSettingsForUnit(unit)
+    local ppPos = settings.powerPosition or "below"
+    local ppIsAtt = (ppPos == "below" or ppPos == "above")
+    local powerHeight = ppIsAtt and (settings.powerHeight or 6) or 0
+    local barHeight = settings.healthHeight + powerHeight
+    local totalWidth = 0
+    local showPortrait = (db.profile.portraitStyle or "attached") ~= "none" and settings.showPortrait ~= false
+    if not showPortrait then
+        totalWidth = settings.frameWidth
+    else
+        totalWidth = barHeight + settings.frameWidth
+    end
+
+    PP.Size(frame, totalWidth, barHeight)
+    local healthRightInset = showPortrait and barHeight or 0
+    frame.Health = CreateHealthBar(frame, unit, settings.healthHeight, 0, settings, healthRightInset)
+    frame.Power = CreatePowerBar(frame, unit, settings)
+    frame.Portrait = CreatePortrait(frame, "right", barHeight, unit)
+    frame._portraitSide = "right"
+    if frame.Portrait and not showPortrait then
+        frame.Portrait.backdrop:Hide()
+    end
+
+    PP.Size(frame, totalWidth, barHeight)
+
+    -- Role icon (tank/healer/dps indicator)
+    if settings.showRoleIcon ~= false then
+        local roleIcon = frame.Health:CreateTexture(nil, "OVERLAY", nil, 2)
+        roleIcon:SetSize(16, 16)
+        roleIcon:SetPoint("BOTTOMRIGHT", frame.Health, "BOTTOMRIGHT", -2, 2)
+        frame.GroupRoleIndicator = roleIcon
+    end
+
+    -- Dead/offline status overlay
+    local statusOverlay = CreateFrame("Frame", nil, frame.Health)
+    statusOverlay:SetAllPoints(frame.Health)
+    statusOverlay:SetFrameLevel(frame.Health:GetFrameLevel() + 2)
+    local statusBg = statusOverlay:CreateTexture(nil, "BACKGROUND")
+    statusBg:SetAllPoints()
+    statusBg:SetColorTexture(0, 0, 0, 0.6)
+    statusBg:Hide()
+    local statusText = statusOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(statusText, 10)
+    statusText:SetTextColor(1, 1, 1)
+    statusText:SetPoint("CENTER", statusOverlay, "CENTER", 0, 0)
+    statusText:Hide()
+    frame._statusOverlay = statusOverlay
+    frame._statusOverlayBg = statusBg
+    frame._statusText = statusText
+
+    -- Register for unit flag updates to show dead/offline state
+    frame:RegisterEvent("UNIT_FLAGS")
+    frame:RegisterEvent("UNIT_CONNECTION")
+    local origScript = frame:GetScript("OnEvent")
+    frame:SetScript("OnEvent", function(self, event, unitID, ...)
+        if (event == "UNIT_FLAGS" or event == "UNIT_CONNECTION") and unitID == self.unit then
+            local isDead = UnitIsDeadOrGhost(self.unit)
+            local isOffline = not UnitIsConnected(self.unit)
+            if isDead or isOffline then
+                self._statusOverlayBg:Show()
+                self._statusText:SetText(isOffline and "Offline" or "Dead")
+                self._statusText:Show()
+            else
+                self._statusOverlayBg:Hide()
+                self._statusText:Hide()
+            end
+        end
+        if origScript then origScript(self, event, unitID, ...) end
+    end)
+
+    CreateUnifiedBorder(frame, unit)
+    UpdateBordersForScale(frame, unit)
+
+    -- Text overlay frame
+    local textOverlay = CreateFrame("Frame", nil, frame.Health)
+    textOverlay:SetAllPoints(frame.Health)
+    textOverlay:SetFrameLevel(frame.Health:GetFrameLevel() + 3)
+    frame._textOverlay = textOverlay
+
+    local ts = settings.textSize or 11
+    local leftContent = settings.leftTextContent or "name"
+    local rightContent = settings.rightTextContent or "perhp"
+    local centerContent = settings.centerTextContent or "none"
+
+    local leftText = textOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(leftText, ts)
+    leftText:SetWordWrap(false)
+    leftText:SetTextColor(1, 1, 1)
+    frame.LeftText = leftText
+
+    local rightText = textOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(rightText, ts)
+    rightText:SetWordWrap(false)
+    rightText:SetTextColor(1, 1, 1)
+    frame.RightText = rightText
+
+    local centerText = textOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(centerText, ts)
+    centerText:SetWordWrap(false)
+    centerText:SetTextColor(1, 1, 1)
+    frame.CenterText = centerText
+
+    frame.NameText = leftText
+    frame.HealthValue = rightText
+
+    local function ApplyTextTags(lc, rc, cc)
+        local ltag = ContentToTag(lc)
+        local rtag = ContentToTag(rc)
+        local ctag = ContentToTag(cc)
+        if leftText._curTag then frame:Untag(leftText); leftText._curTag = nil end
+        if rightText._curTag then frame:Untag(rightText); rightText._curTag = nil end
+        if centerText._curTag then frame:Untag(centerText); centerText._curTag = nil end
+        if ltag then frame:Tag(leftText, ltag); leftText._curTag = ltag end
+        if rtag then frame:Tag(rightText, rtag); rightText._curTag = rtag end
+        if ctag then frame:Tag(centerText, ctag); centerText._curTag = ctag end
+        if frame.UpdateTags then frame:UpdateTags() end
+    end
+    ApplyTextTags(leftContent, rightContent, centerContent)
+    frame._applyTextTags = ApplyTextTags
+
+    local function ApplyTextPositions(s)
+        local lc = s.leftTextContent or "name"
+        local rc = s.rightTextContent or "perhp"
+        local cc = s.centerTextContent or "none"
+        local barW = s.frameWidth or 100
+        if cc ~= "none" then
+            centerText:ClearAllPoints()
+            centerText:SetPoint("CENTER", frame.Health, "CENTER", 0, 0)
+            centerText:SetWidth(0)
+            centerText:Show()
+            leftText:Hide(); rightText:Hide()
+        else
+            centerText:Hide()
+            if lc ~= "none" then
+                leftText:ClearAllPoints()
+                leftText:SetPoint("LEFT", frame.Health, "LEFT", 5, 0)
+                leftText:SetJustifyH("LEFT")
+                if rc ~= "none" then
+                    local rightUsed = EstimateUFTextWidth(rc)
+                    PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
+                else
+                    leftText:SetWidth(0)
+                end
+                leftText:Show()
+            else leftText:Hide() end
+            if rc ~= "none" then
+                rightText:ClearAllPoints()
+                rightText:SetPoint("RIGHT", frame.Health, "RIGHT", -5, 0)
+                rightText:SetJustifyH("RIGHT")
+                if lc ~= "none" then
+                    local leftUsed = EstimateUFTextWidth(lc)
+                    PP.Width(rightText, math.max(barW - leftUsed - 10, 20))
+                else
+                    rightText:SetWidth(0)
+                end
+                rightText:Show()
+            else rightText:Hide() end
+        end
+    end
+    ApplyTextPositions(settings)
+    frame._applyTextPositions = ApplyTextPositions
+
+    -- Castbar (optional, disabled by default)
+    if settings.showCastbar then
+        frame.Castbar = CreateCastBar(frame, unit, settings)
+    end
+
+    -- Debuffs (optional, enabled by default)
+    if settings.showDebuffs ~= false then
+        local debuffAnchor = "BOTTOMLEFT"
+        local debuffs = CreateFrame("Frame", nil, frame)
+        debuffs:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 2)
+        debuffs.size = 20
+        debuffs.num = settings.maxDebuffs or 3
+        debuffs.spacing = 2
+        debuffs.initialAnchor = "BOTTOMLEFT"
+        debuffs.growthX = "RIGHT"
+        debuffs.growthY = "UP"
+        debuffs.onlyShowPlayer = settings.onlyPlayerDebuffs ~= false
+        frame.Debuffs = debuffs
+    end
+end
+
+
 local function RegisterStylesOnce()
     if _G.EllesmereUF_StylesRegistered then
         return
@@ -3311,6 +3538,9 @@ local function RegisterStylesOnce()
     end)
     oUF:RegisterStyle("EllesmereBoss", function(frame, unit)
         StyleBossFrame(frame, unit)
+    end)
+    oUF:RegisterStyle("EllesmereParty", function(frame, unit)
+        StylePartyFrame(frame, unit)
     end)
 end
 
@@ -3806,7 +4036,7 @@ local function ReloadFrames()
     -- Live enable/disable frames without reload
     local function ToggleFrame(unit, frame)
         if not frame then return end
-        local unitKey = unit:match("^boss%d$") and "boss" or unit
+        local unitKey = unit:match("^boss%d$") and "boss" or unit:match("^party%d$") and "party" or unit
         local isEnabled = enabled[unitKey] ~= false
         -- Check group visibility for player/target/focus
         if isEnabled and (unitKey == "player" or unitKey == "target" or unitKey == "focus") then
@@ -3856,7 +4086,7 @@ local function ReloadFrames()
 
     for unit, frame in pairs(frames) do
         if type(unit) == "string" and unit:sub(1,1) ~= "_" and frame then
-            local unitKey = unit:match("^boss%d$") and "boss" or unit
+            local unitKey = unit:match("^boss%d$") and "boss" or unit:match("^party%d$") and "party" or unit
             if enabled[unitKey] == false then
                 -- skip disabled frames
             else
@@ -4795,6 +5025,58 @@ local function ReloadFrames()
                 end
 
                 UpdateBordersForScale(frame, unit)
+
+            elseif unit:match("^party%d$") then
+                local pPpPos = settings.powerPosition or "below"
+                local pPpIsAtt = (pPpPos == "below" or pPpPos == "above")
+                local partyPowerH = pPpIsAtt and (settings.powerHeight or 6) or 0
+                local partyBarH = settings.healthHeight + partyPowerH
+                local partyTotalW = showPortrait and (partyBarH + settings.frameWidth) or settings.frameWidth
+
+                PP.Size(frame, partyTotalW, partyBarH)
+
+                if frame.Portrait and frame.Portrait.backdrop then
+                    PP.Size(frame.Portrait.backdrop, partyBarH, partyBarH)
+                end
+                if frame.Health then
+                    frame.Health:ClearAllPoints()
+                    PP.Point(frame.Health, "TOPLEFT", frame, "TOPLEFT", 0, 0)
+                    PP.Point(frame.Health, "RIGHT", frame, "RIGHT", -(showPortrait and partyBarH or 0), 0)
+                    PP.Height(frame.Health, settings.healthHeight)
+                end
+                if frame.Power then
+                    frame.Power:SetSize(settings.frameWidth, settings.powerHeight or 6)
+                    frame.Power:ClearAllPoints()
+                    if pPpPos == "none" then
+                        frame.Power:Hide()
+                    elseif pPpPos == "above" then
+                        PP.Point(frame.Power, "BOTTOM", frame.Health, "TOP", 0, 0)
+                        frame.Power:Show()
+                    else
+                        PP.Point(frame.Power, "TOP", frame.Health, "BOTTOM", 0, 0)
+                        frame.Power:Show()
+                    end
+                    if frame.Power._applyPowerPercentText then frame.Power._applyPowerPercentText(settings) end
+                end
+
+                -- Reposition party text
+                if frame._applyTextTags then
+                    frame._applyTextTags(settings.leftTextContent or "name", settings.rightTextContent or "perhp", settings.centerTextContent or "none")
+                end
+                if frame._applyTextPositions then
+                    frame._applyTextPositions(settings)
+                end
+
+                -- Reposition party frames vertically
+                local partyPos = db.profile.positions.party
+                local partySpacing = db.profile.partySpacing or 6
+                if partyPos then
+                    local idx = tonumber(unit:match("%d$")) or 1
+                    frame:ClearAllPoints()
+                    frame:SetPoint(partyPos.point, UIParent, partyPos.point, partyPos.x, partyPos.y - ((idx - 1) * (partyBarH + partySpacing)))
+                end
+
+                UpdateBordersForScale(frame, unit)
             end
 
             -- Determine if this is a mini frame that inherits border/texture/font
@@ -5485,6 +5767,38 @@ function InitializeFrames()
         end
     end
 
+    oUF:SetActiveStyle("EllesmereParty")
+    local partyPos = db.profile.positions.party
+    local partySpacing = db.profile.partySpacing or 6
+    for i = 1, 4 do
+        local partyUnit = "party" .. i
+        local partyFrame = oUF:Spawn(partyUnit, "EllesmereUIUnitFrames_Party" .. i)
+        frames[partyUnit] = partyFrame
+
+        if partyPos then
+            local partySettings = db.profile.party
+            local ppPos = partySettings.powerPosition or "below"
+            local ppIsAtt = (ppPos == "below" or ppPos == "above")
+            local partyBarH = partySettings.healthHeight + (ppIsAtt and partySettings.powerHeight or 0)
+            partyFrame:ClearAllPoints()
+            partyFrame:SetPoint(partyPos.point, UIParent, partyPos.point, partyPos.x, partyPos.y - ((i - 1) * (partyBarH + partySpacing)))
+        end
+
+        ApplyFrameScale(partyFrame, partyUnit)
+        SetupUnitMenu(partyFrame, partyUnit)
+
+        if enabled.party == false then
+            partyFrame:Hide()
+            partyFrame:SetAttribute("unit", nil)
+        end
+    end
+
+    -- Suppress Blizzard's default compact party frame when party frames are enabled
+    if enabled.party ~= false and CompactPartyFrame then
+        CompactPartyFrame:UnregisterAllEvents()
+        CompactPartyFrame:Hide()
+    end
+
     -- Disable oUF elements for frames where features are initially off.
     -- Portrait backdrop is already hidden by style functions, but oUF
     -- auto-enables the element at spawn time since frame.Portrait is always set.
@@ -5636,13 +5950,72 @@ function InitializeFrames()
             end
         end
     end
+    -- Party frames: show when in a non-raid party group
+    local function UpdatePartyFrameVisibility()
+        if InCombatLockdown() then return end
+        local enabled2 = db.profile.enabledFrames
+        local partyEnabled = enabled2.party ~= false
+        local inRaid = IsInRaid()
+        local inParty = not inRaid and IsInGroup()
+        for i = 1, 4 do
+            local partyUnit = "party" .. i
+            local f = frames[partyUnit]
+            if f then
+                if partyEnabled and inParty and UnitExists(partyUnit) then
+                    if not f:IsShown() then
+                        f:SetAttribute("unit", partyUnit)
+                        for _, elem in ipairs({"Health", "Power", "Portrait", "Debuffs", "HealthPrediction"}) do
+                            if f[elem] and not f:IsElementEnabled(elem) then
+                                f:EnableElement(elem)
+                            end
+                        end
+                        if f.Castbar then
+                            if db.profile.party.showCastbar then
+                                if not f:IsElementEnabled("Castbar") then f:EnableElement("Castbar") end
+                            else
+                                if f:IsElementEnabled("Castbar") then f:DisableElement("Castbar") end
+                                f.Castbar:Hide()
+                                local cbBg = f.Castbar:GetParent()
+                                if cbBg then cbBg:Hide() end
+                            end
+                        end
+                        f:Show()
+                        f:UpdateAllElements("GroupVisibility")
+                    end
+                else
+                    if f:IsShown() then
+                        for _, elem in ipairs({"Health", "Power", "Portrait", "Castbar", "Debuffs", "HealthPrediction"}) do
+                            if f[elem] and f:IsElementEnabled(elem) then
+                                f:DisableElement(elem)
+                            end
+                        end
+                        f:Hide()
+                        f:SetAttribute("unit", nil)
+                    end
+                end
+            end
+        end
+        -- Suppress or restore Blizzard compact party frame
+        if CompactPartyFrame then
+            if partyEnabled and inParty then
+                CompactPartyFrame:UnregisterAllEvents()
+                CompactPartyFrame:Hide()
+            end
+        end
+    end
+    ns.UpdatePartyFrameVisibility = UpdatePartyFrameVisibility
+
     ns.UpdateFrameVisibility = UpdateFrameVisibility
 
     local visFrame = CreateFrame("Frame")
     visFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
     visFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    visFrame:SetScript("OnEvent", UpdateFrameVisibility)
+    visFrame:SetScript("OnEvent", function(self, event, ...)
+        UpdateFrameVisibility()
+        UpdatePartyFrameVisibility()
+    end)
     UpdateFrameVisibility()
+    UpdatePartyFrameVisibility()
 
     ---------------------------------------------------------------------------
     --  Portrait border color: update when target/focus unit changes
@@ -5702,6 +6075,7 @@ function SetupOptionsPanel()
             player = "Player", target = "Target", focus = "Focus",
             pet = "Pet", targettarget = "Target of Target",
             focustarget = "Focus Target", boss = "Boss Frames",
+            party = "Party Frames",
             classPower = "Class Resource",
         }
         local elements = {}
@@ -5715,6 +6089,7 @@ function SetupOptionsPanel()
                 order = orderBase + order,
                 getFrame = function(k)
                     if k == "boss" then return frames["boss1"] end
+                    if k == "party" then return frames["party1"] end
                     if k == "playerCastbar" then
                         if frames.player and frames.player.Castbar then
                             return frames.player.Castbar:GetParent()
@@ -5746,6 +6121,7 @@ function SetupOptionsPanel()
                         return 120, 14
                     end
                     if k == "boss" then return GetFrameDimensions("boss1") end
+                    if k == "party" then return GetFrameDimensions("party1") end
                     return GetFrameDimensions(k)
                 end,
                 loadPosition = function(k)
@@ -5763,6 +6139,7 @@ function SetupOptionsPanel()
                     -- on reload uses the unlock mode value instead of overwriting it.
                     if scale then
                         local unitKey = (k == "boss") and "boss"
+                                     or (k == "party") and "party"
                                      or (k == "classPower") and nil
                                      or k
                         if unitKey and db.profile[unitKey] then
@@ -5778,6 +6155,19 @@ function SetupOptionsPanel()
                                 if scale then pcall(function() frames["boss" .. i]:SetScale(scale) end) end
                                 frames["boss" .. i]:ClearAllPoints()
                                 frames["boss" .. i]:SetPoint(point, UIParent, point, x, y - ((i - 1) * spacing))
+                            end
+                        end
+                    elseif k == "party" then
+                        local ps = db.profile.party
+                        local ppPos2 = ps.powerPosition or "below"
+                        local ppIsAtt2 = (ppPos2 == "below" or ppPos2 == "above")
+                        local partyBarH2 = ps.healthHeight + (ppIsAtt2 and ps.powerHeight or 0)
+                        local partySpacing2 = db.profile.partySpacing or 6
+                        for i = 1, 4 do
+                            if frames["party" .. i] then
+                                if scale then pcall(function() frames["party" .. i]:SetScale(scale) end) end
+                                frames["party" .. i]:ClearAllPoints()
+                                frames["party" .. i]:SetPoint(point, UIParent, point, x, y - ((i - 1) * (partyBarH2 + partySpacing2)))
                             end
                         end
                     elseif k == "classPower" then
@@ -5811,6 +6201,19 @@ function SetupOptionsPanel()
                                 frames["boss" .. i]:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y - ((i - 1) * spacing))
                             end
                         end
+                    elseif k == "party" then
+                        local ps2 = db.profile.party
+                        local ppPos3 = ps2.powerPosition or "below"
+                        local ppIsAtt3 = (ppPos3 == "below" or ppPos3 == "above")
+                        local partyBarH3 = ps2.healthHeight + (ppIsAtt3 and ps2.powerHeight or 0)
+                        local partySpacing3 = db.profile.partySpacing or 6
+                        for i = 1, 4 do
+                            if frames["party" .. i] then
+                                if sc then pcall(function() frames["party" .. i]:SetScale(sc) end) end
+                                frames["party" .. i]:ClearAllPoints()
+                                frames["party" .. i]:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y - ((i - 1) * (partyBarH3 + partySpacing3)))
+                            end
+                        end
                     elseif k == "classPower" then
                         if frames._classPowerBar then
                             if sc then pcall(function() frames._classPowerBar:SetScale(sc) end) end
@@ -5837,6 +6240,7 @@ function SetupOptionsPanel()
         elements[#elements + 1] = MakeUFElement("targettarget", 5)
         elements[#elements + 1] = MakeUFElement("focustarget", 6)
         elements[#elements + 1] = MakeUFElement("boss", 7)
+        elements[#elements + 1] = MakeUFElement("party", 8)
 
         -- Conditional elements
         if db.profile.player.showClassPowerBar and not db.profile.player.lockClassPowerToFrame then
