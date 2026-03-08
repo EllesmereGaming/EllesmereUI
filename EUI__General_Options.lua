@@ -2761,12 +2761,13 @@ initFrame:SetScript("OnEvent", function(self)
 
         local function RefreshActiveProfileDisplay()
             local activeName = EllesmereUI.GetActiveProfileName()
+            local activeDisplayName = activeName or "No saved profile"
             local dirtyState = EllesmereUI.GetActiveProfileDirtyState
                 and EllesmereUI.GetActiveProfileDirtyState()
                 or { isDirty = false }
 
             if ddLabel then
-                ddLabel:SetText(dirtyState.isDirty and (activeName .. " *") or activeName)
+                ddLabel:SetText(dirtyState.isDirty and (activeDisplayName .. " *") or activeDisplayName)
             end
 
             if dirtyStateLabel then
@@ -3006,7 +3007,8 @@ initFrame:SetScript("OnEvent", function(self)
                 local activeName = EllesmereUI.GetActiveProfileName()
 
                 for _, name in ipairs(order) do
-                    if profiles[name] then
+                    if profiles[name]
+                        and (not EllesmereUI.IsProfileUsable or EllesmereUI.IsProfileUsable(name)) then
                         idx = idx + 1
                         local item = menuItems[idx]
                         if not item then
@@ -3147,6 +3149,11 @@ initFrame:SetScript("OnEvent", function(self)
                     end
 
                     local activeName = EllesmereUI.GetActiveProfileName()
+                    if not activeName then
+                        ShowProfileError("Revert Profile", "There is no saved profile to revert yet.")
+                        return
+                    end
+
                     EllesmereUI:ShowConfirmPopup({
                         title = "Revert Profile",
                         message = "Discard your unsaved changes and reload \"" .. activeName .. "\"?",
@@ -3187,6 +3194,10 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.MakeStyledButton(renameBtn, "Rename", 13,
                 EllesmereUI.WB_COLOURS, function()
                     local activeName = EllesmereUI.GetActiveProfileName()
+                    if not activeName then
+                        ShowProfileError("Rename Profile", "There is no saved profile to rename yet.")
+                        return
+                    end
                     if EllesmereUI.IsReservedProfileName and EllesmereUI.IsReservedProfileName(activeName) then
                         ShowProfileError("Rename Profile", "The built-in Custom profile cannot be renamed.")
                         return
@@ -3211,6 +3222,10 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.MakeStyledButton(deleteBtn, "Delete", 13,
                 EllesmereUI.RB_COLOURS, function()
                     local activeName = EllesmereUI.GetActiveProfileName()
+                    if not activeName then
+                        ShowProfileError("Delete Profile", "There is no saved profile to delete yet.")
+                        return
+                    end
                     if EllesmereUI.IsReservedProfileName and EllesmereUI.IsReservedProfileName(activeName) then
                         ShowProfileError("Delete Profile", "The built-in Custom profile cannot be deleted.")
                         return
@@ -3279,7 +3294,9 @@ initFrame:SetScript("OnEvent", function(self)
                     local tempDB = { _profileSpecs = {} }
                     local order, profiles = EllesmereUI.GetProfileList()
                     for _, profileName in ipairs(order) do
-                        tempDB._profileSpecs[profileName] = {}
+                        if not EllesmereUI.IsProfileUsable or EllesmereUI.IsProfileUsable(profileName) then
+                            tempDB._profileSpecs[profileName] = {}
+                        end
                     end
                     for specID, profileName in pairs(db.specProfiles) do
                         if tempDB._profileSpecs[profileName] then
@@ -3288,6 +3305,11 @@ initFrame:SetScript("OnEvent", function(self)
                     end
 
                     local activeName = EllesmereUI.GetActiveProfileName()
+                    if not activeName then
+                        ShowProfileError("Assign Profile to Specs", "There is no saved profile to assign yet.")
+                        return
+                    end
+
                     EllesmereUI:ShowSpecAssignPopup({
                         db = tempDB,
                         dbKey = "_profileSpecs",
@@ -3300,7 +3322,8 @@ initFrame:SetScript("OnEvent", function(self)
                         allPresetKeys = function()
                             local list = {}
                             for _, profileName in ipairs(order) do
-                                if profiles[profileName] then
+                                if profiles[profileName]
+                                    and (not EllesmereUI.IsProfileUsable or EllesmereUI.IsProfileUsable(profileName)) then
                                     list[#list + 1] = { key = profileName, name = profileName }
                                 end
                             end
