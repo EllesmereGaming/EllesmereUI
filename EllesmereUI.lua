@@ -1027,6 +1027,25 @@ EllesmereUI.FONT_ORDER = {
     "Friz Quadrata", "Arial", "Morpheus", "Skurri",
 }
 
+-- Keep outline-mode definitions in one place so the runtime, options UI, and
+-- profile import/export code all accept the same enum. Older installs may have
+-- persisted `none`; keep it as a hidden alias for the visible Drop Shadow mode
+-- instead of rewriting that setting during profile normalization.
+EllesmereUI.FONT_OUTLINE_MODES = {
+    shadow = { text = "Drop Shadow", flag = "", useShadow = true },
+    outline = { text = "Outline", flag = "OUTLINE", useShadow = false },
+    thick = { text = "Thick Outline", flag = "THICKOUTLINE", useShadow = false },
+    none = { text = "Drop Shadow", flag = "", useShadow = true, hidden = true },
+}
+EllesmereUI.FONT_OUTLINE_MODE_ORDER = { "shadow", "outline", "thick" }
+
+function EllesmereUI.NormalizeFontOutlineMode(mode)
+    if EllesmereUI.FONT_OUTLINE_MODES and EllesmereUI.FONT_OUTLINE_MODES[mode] then
+        return mode
+    end
+    return "shadow"
+end
+
 -- Get the fonts DB table (lazy-init)
 function EllesmereUI.GetFontsDB()
     if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -1080,25 +1099,21 @@ function EllesmereUI.GetFontName(addonKey)
 end
 
 -- Get the WoW font flag string for the current global outline mode.
--- Returns: "OUTLINE", "THICKOUTLINE", or "" (none/shadow — caller should set shadow offset)
+-- Returns: "OUTLINE", "THICKOUTLINE", or "" (shadow — caller should set shadow offset)
 function EllesmereUI.GetFontOutlineFlag()
     local db = EllesmereUI.GetFontsDB()
-    local mode = db.outlineMode or "shadow"
-    if mode == "outline" then
-        return "OUTLINE"
-    elseif mode == "thick" then
-        return "THICKOUTLINE"
-    else
-        return ""
-    end
+    local modeInfo = EllesmereUI.FONT_OUTLINE_MODES
+        and EllesmereUI.FONT_OUTLINE_MODES[EllesmereUI.NormalizeFontOutlineMode(db.outlineMode)]
+    return (modeInfo and modeInfo.flag) or ""
 end
 
 -- Returns true when the current outline mode uses drop shadow instead of outline.
 -- Callers that set SetShadowOffset should check this to decide whether to show shadow.
 function EllesmereUI.GetFontUseShadow()
     local db = EllesmereUI.GetFontsDB()
-    local mode = db.outlineMode or "shadow"
-    return mode == "none" or mode == "shadow"
+    local modeInfo = EllesmereUI.FONT_OUTLINE_MODES
+        and EllesmereUI.FONT_OUTLINE_MODES[EllesmereUI.NormalizeFontOutlineMode(db.outlineMode)]
+    return modeInfo and modeInfo.useShadow or true
 end
 
 -- Get class color (custom or default)

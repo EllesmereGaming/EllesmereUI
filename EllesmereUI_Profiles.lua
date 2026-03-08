@@ -214,12 +214,6 @@ local DEFAULT_FONT_SETTINGS = {
     outlineMode = "shadow",
 }
 
-local VALID_FONT_OUTLINE_MODES = {
-    none = true,
-    outline = true,
-    shadow = true,
-}
-
 local function GetProfilesDB()
     if not EllesmereUIDB then EllesmereUIDB = {} end
     if not EllesmereUIDB.profiles then EllesmereUIDB.profiles = {} end
@@ -335,7 +329,10 @@ local function NormalizeFontsData(fontsData, preserveMissing)
         normalized.global = fontsData.global
     end
 
-    if VALID_FONT_OUTLINE_MODES[fontsData.outlineMode] then
+    -- The profile layer must accept every outline mode the runtime and options
+    -- UI expose, including the legacy `none` alias and the current `thick`
+    -- mode. Otherwise save/import would silently rewrite valid font settings.
+    if EllesmereUI.FONT_OUTLINE_MODES and EllesmereUI.FONT_OUTLINE_MODES[fontsData.outlineMode] then
         normalized.outlineMode = fontsData.outlineMode
     end
 
@@ -417,6 +414,149 @@ local function RemoveSpecAssignmentsForProfile(db, name)
         if profileName == name then
             db.specProfiles[specID] = nil
         end
+    end
+end
+
+local function CanonicalizeSpecAssignmentKey(specID)
+    local numericSpecID = tonumber(specID)
+    if not numericSpecID then
+        return specID
+    end
+
+    -- Preserve compatibility with assignments saved against older spec IDs.
+    -- This lets existing characters recover automatically on the next login
+    -- instead of forcing users to reassign specs by hand.
+    local legacySpecAliases = {
+        [1456] = 1480, -- Demon Hunter `Devourer`
+    }
+    if legacySpecAliases[numericSpecID] then
+        return legacySpecAliases[numericSpecID]
+    end
+
+    -- Older test builds stored assignments as spec indexes (`1`, `2`, `3`)
+    -- instead of stable spec IDs (`577`, `1467`, ...). Fold those legacy keys
+    -- into the current class's spec IDs so existing assignments keep working.
+    if numericSpecID >= 1 and numericSpecID <= 4 then
+        local _, classToken = UnitClass("player")
+        local specData = EllesmereUI and EllesmereUI._SPEC_DATA
+        if classToken and type(specData) == "table" then
+            for _, classInfo in ipairs(specData) do
+                if classInfo.class == classToken and type(classInfo.specs) == "table" then
+                    local specInfo = classInfo.specs[numericSpecID]
+                    if specInfo and specInfo.id then
+                        return specInfo.id
+                    end
+                    break
+                end
+            end
+        end
+    end
+
+    return numericSpecID
+end
+
+local function NormalizeSpecProfileAssignments(db)
+    local normalizedAssignments = {}
+    if type(db.specProfiles) ~= "table" then
+        db.specProfiles = normalizedAssignments
+        return
+    end
+
+    for rawSpecID, profileName in pairs(db.specProfiles) do
+        local normalizedSpecID = CanonicalizeSpecAssignmentKey(rawSpecID)
+        if normalizedSpecID ~= nil and type(profileName) == "string" then
+            normalizedAssignments[normalizedSpecID] = profileName
+        end
+    end
+
+    db.specProfiles = normalizedAssignments
+end
+
+local function GetAssignedProfileForSpec(db, specID)
+    local canonicalSpecID = CanonicalizeSpecAssignmentKey(specID)
+    if canonicalSpecID == nil then
+        return nil
+    end
+
+    return db.specProfiles[canonicalSpecID]
+        or db.specProfiles[tostring(canonicalSpecID)]
+end
+
+local function GetCurrentSpecID()
+    local specIdx = GetSpecialization and GetSpecialization() or 0
+    if not (specIdx and specIdx > 0 and GetSpecializationInfo) then
+        return nil
+    end
+    return CanonicalizeSpecAssignmentKey(GetSpecializationInfo(specIdx))
+end
+
+local function ClearManualProfileOverride()
+    if EllesmereUIDB then
+        EllesmereUIDB._manualProfileOverride = nil
+    end
+end
+
+local function GetManualProfileOverride(db)
+    if not EllesmereUIDB then
+        return nil
+    end
+
+    local override = EllesmereUIDB._manualProfileOverride
+    if type(override) ~= "table" then
+        return nil
+    end
+
+    local profileName = NormalizeProfileName(override.profileName)
+    local specID = CanonicalizeSpecAssignmentKey(override.specID)
+    if not profileName or not specID then
+        ClearManualProfileOverride()
+        return nil
+    end
+
+    if db and not db.profiles[profileName] then
+        ClearManualProfileOverride()
+        return nil
+    end
+
+    override.profileName = profileName
+    override.specID = specID
+    return override
+end
+
+local function SetManualProfileOverride(profileName, specID)
+    local normalizedName = NormalizeProfileName(profileName)
+    local canonicalSpecID = CanonicalizeSpecAssignmentKey(specID)
+    if not normalizedName or not canonicalSpecID then
+        ClearManualProfileOverride()
+        return
+    end
+
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    EllesmereUIDB._manualProfileOverride = {
+        profileName = normalizedName,
+        specID = canonicalSpecID,
+    }
+end
+
+local function UpdateManualProfileOverrideForCurrentSpec(db, profileName)
+    local specID = GetCurrentSpecID()
+    local assignedProfile = specID and GetAssignedProfileForSpec(db, specID) or nil
+
+    -- The dropdown is an explicit "use this now" action. Keep it in front of
+    -- the current spec's auto-assignment until the player actually changes
+    -- specs, but do not create extra state when the chosen profile already
+    -- matches the spec assignment.
+    if specID and assignedProfile and assignedProfile ~= profileName then
+        SetManualProfileOverride(profileName, specID)
+    else
+        ClearManualProfileOverride()
+    end
+end
+
+local function ClearManualProfileOverrideIfSpecChanged(specID)
+    local override = GetManualProfileOverride(GetProfilesDB())
+    if override and specID and override.specID ~= specID then
+        ClearManualProfileOverride()
     end
 end
 
@@ -510,6 +650,38 @@ local function GetAddonProfile(entry)
     return nil
 end
 
+local function GetWritableAddonProfile(entry)
+    if entry.isFlat then
+        return _G[entry.svName]
+    end
+
+    local aceDB = entry.globalName and _G[entry.globalName]
+    if aceDB and aceDB.profile then
+        return aceDB.profile
+    end
+
+    local raw = _G[entry.svName]
+    if type(raw) ~= "table" then
+        return nil
+    end
+
+    local charKey = UnitName("player") .. " - " .. GetRealmName()
+    if type(raw.profileKeys) ~= "table" then
+        raw.profileKeys = {}
+    end
+    local profileName = raw.profileKeys[charKey] or "Default"
+    raw.profileKeys[charKey] = profileName
+
+    if type(raw.profiles) ~= "table" then
+        raw.profiles = {}
+    end
+    if type(raw.profiles[profileName]) ~= "table" then
+        raw.profiles[profileName] = {}
+    end
+
+    return raw.profiles[profileName]
+end
+
 local function GetAddonDefaults(entry)
     if entry.isFlat then
         local ns = _G.EllesmereNameplates_NS
@@ -530,6 +702,81 @@ local function GetAddonDefaults(entry)
     end
 
     return nil
+end
+
+local function BuildIncludedAddonFolderList(addonsData)
+    local includedFolders = {}
+    for _, entry in ipairs(ADDON_DB_MAP) do
+        local folderName = entry.folder
+        if type(addonsData[folderName]) == "table" then
+            includedFolders[#includedFolders + 1] = folderName
+        end
+    end
+
+    return includedFolders
+end
+
+local function BuildCurrentScopeDetails(folderFilterSet)
+    local details = {
+        includedFolders = {},
+        includedDisplays = {},
+        missingFolders = {},
+        missingDisplays = {},
+    }
+
+    for _, entry in ipairs(ADDON_DB_MAP) do
+        if not folderFilterSet or folderFilterSet[entry.folder] then
+            if IsAddonLoaded(entry.folder) then
+                details.includedFolders[#details.includedFolders + 1] = entry.folder
+                details.includedDisplays[#details.includedDisplays + 1] = entry.display
+            else
+                details.missingFolders[#details.missingFolders + 1] = entry.folder
+                details.missingDisplays[#details.missingDisplays + 1] = entry.display
+            end
+        end
+    end
+
+    return details
+end
+
+local function BuildCurrentScopeFolderList(folderFilterSet)
+    return BuildCurrentScopeDetails(folderFilterSet).includedFolders
+end
+
+function EllesmereUI.GetCurrentProfileScopeDetails(folderList)
+    local folderFilterSet
+    if type(folderList) == "table" then
+        folderFilterSet = {}
+        for _, folderName in ipairs(folderList) do
+            if type(folderName) == "string" then
+                folderFilterSet[folderName] = true
+            end
+        end
+    end
+
+    return BuildCurrentScopeDetails(folderFilterSet)
+end
+
+function EllesmereUI.GetProfileAddonDisplayNames(folderList)
+    local displayNames = {}
+    if type(folderList) ~= "table" then
+        return displayNames
+    end
+
+    local requestedSet = {}
+    for _, folderName in ipairs(folderList) do
+        if type(folderName) == "string" then
+            requestedSet[folderName] = true
+        end
+    end
+
+    for _, entry in ipairs(ADDON_DB_MAP) do
+        if requestedSet[entry.folder] then
+            displayNames[#displayNames + 1] = entry.display
+        end
+    end
+
+    return displayNames
 end
 
 local function NormalizeAddonSnapshot(entry, snapshot)
@@ -592,6 +839,7 @@ local function NormalizeProfileData(profileData, opts)
         createdAt = profileData.createdAt,
         updatedAt = profileData.updatedAt,
         addons = {},
+        includedAddons = {},
         fonts = NormalizeFontsData(profileData.fonts, opts.preserveMissingSharedData),
         customColors = NormalizeCustomColorsData(profileData.customColors, opts.preserveMissingSharedData),
     }
@@ -603,6 +851,8 @@ local function NormalizeProfileData(profileData, opts)
             normalized.addons[entry.folder] = NormalizeAddonSnapshot(entry, snapshot)
         end
     end
+
+    normalized.includedAddons = BuildIncludedAddonFolderList(normalized.addons)
 
     return normalized, nil, nil
 end
@@ -664,8 +914,58 @@ local function StampStoredProfileRecord(profileData, existingProfile)
     return normalized, nil, nil
 end
 
-local function SnapshotCurrentProfileData(folderFilterSet)
-    local data = { addons = {} }
+local function GetCurrentStoredProfileRecord(db)
+    db = db or GetProfilesDB()
+    local currentName = db.activeProfile or RESERVED_PROFILE_NAME
+    return db.profiles[currentName]
+end
+
+local function GetPendingProfileSyncDB()
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    if type(EllesmereUIDB._pendingProfileAddonSync) ~= "table" then
+        EllesmereUIDB._pendingProfileAddonSync = {}
+    end
+    return EllesmereUIDB._pendingProfileAddonSync
+end
+
+local function GetAddonEntryBySavedVariables(svName)
+    for _, entry in ipairs(ADDON_DB_MAP) do
+        if entry.svName == svName then
+            return entry
+        end
+    end
+    return nil
+end
+
+local function PreserveUnavailableAddonSnapshots(snapshotData, sourceProfileData)
+    if type(snapshotData) ~= "table" or type(sourceProfileData) ~= "table" then
+        return snapshotData
+    end
+
+    local sourceAddons = type(sourceProfileData.addons) == "table"
+        and sourceProfileData.addons
+        or nil
+    if not sourceAddons then
+        return snapshotData
+    end
+
+    for _, entry in ipairs(ADDON_DB_MAP) do
+        if not snapshotData.addons[entry.folder]
+            and not IsAddonLoaded(entry.folder)
+            and type(sourceAddons[entry.folder]) == "table" then
+            snapshotData.addons[entry.folder] = DeepCopy(sourceAddons[entry.folder])
+        end
+    end
+
+    snapshotData.includedAddons = BuildIncludedAddonFolderList(snapshotData.addons)
+    return snapshotData
+end
+
+local function SnapshotCurrentProfileData(folderFilterSet, sourceProfileData)
+    local data = {
+        addons = {},
+        includedAddons = BuildCurrentScopeFolderList(folderFilterSet),
+    }
 
     for _, entry in ipairs(ADDON_DB_MAP) do
         if (not folderFilterSet or folderFilterSet[entry.folder])
@@ -679,9 +979,10 @@ local function SnapshotCurrentProfileData(folderFilterSet)
         end
     end
 
+    data.includedAddons = BuildIncludedAddonFolderList(data.addons)
     data.fonts = NormalizeFontsData(EllesmereUI.GetFontsDB())
     data.customColors = NormalizeCustomColorsData(EllesmereUI.GetCustomColorsDB())
-    return data
+    return PreserveUnavailableAddonSnapshots(data, sourceProfileData)
 end
 
 local function FinalizeLiveSnapshot(snapshotData)
@@ -713,35 +1014,75 @@ local function CanApplyProfileData()
     return true, nil, nil
 end
 
+local function ApplyAddonSnapshot(entry, snapshot)
+    if type(snapshot) ~= "table" then
+        return false
+    end
+
+    local profile = GetWritableAddonProfile(entry)
+    if not profile then
+        return false
+    end
+
+    if entry.isFlat then
+        local db = _G[entry.svName]
+        if not db then
+            return false
+        end
+        for key in pairs(db) do
+            if not (type(key) == "string" and key:match("^_")) then
+                db[key] = nil
+            end
+        end
+        for key, value in pairs(snapshot) do
+            if not (type(key) == "string" and key:match("^_")) then
+                db[key] = DeepCopy(value)
+            end
+        end
+        return true
+    end
+
+    for key in pairs(profile) do
+        profile[key] = nil
+    end
+    for key, value in pairs(snapshot) do
+        profile[key] = DeepCopy(value)
+    end
+    return true
+end
+
+function EllesmereUI.ApplyPendingProfileSync(svName)
+    local entry = GetAddonEntryBySavedVariables(svName)
+    if not entry then return false end
+
+    local pendingSync = GetPendingProfileSyncDB()
+    if not pendingSync[entry.folder] then return false end
+
+    local currentProfile = GetCurrentStoredProfileRecord(GetProfilesDB())
+    local normalized = currentProfile and CoerceStoredProfileRecord(currentProfile) or nil
+    local snapshot = normalized and normalized.addons and normalized.addons[entry.folder] or nil
+
+    pendingSync[entry.folder] = nil
+    if not snapshot then
+        return false
+    end
+
+    return ApplyAddonSnapshot(entry, snapshot)
+end
+
 local function ApplyFullProfileData(profileData)
+    local pendingSync = GetPendingProfileSyncDB()
+
     for _, entry in ipairs(ADDON_DB_MAP) do
         local snapshot = profileData.addons[entry.folder]
-        if snapshot and IsAddonLoaded(entry.folder) then
-            local profile = GetAddonProfile(entry)
-            if profile then
-                if entry.isFlat then
-                    local db = _G[entry.svName]
-                    if db then
-                        for key in pairs(db) do
-                            if not (type(key) == "string" and key:match("^_")) then
-                                db[key] = nil
-                            end
-                        end
-                        for key, value in pairs(snapshot) do
-                            if not (type(key) == "string" and key:match("^_")) then
-                                db[key] = DeepCopy(value)
-                            end
-                        end
-                    end
-                else
-                    for key in pairs(profile) do
-                        profile[key] = nil
-                    end
-                    for key, value in pairs(snapshot) do
-                        profile[key] = DeepCopy(value)
-                    end
-                end
+        if snapshot then
+            if ApplyAddonSnapshot(entry, snapshot) then
+                pendingSync[entry.folder] = nil
+            else
+                pendingSync[entry.folder] = true
             end
+        else
+            pendingSync[entry.folder] = nil
         end
     end
 
@@ -767,25 +1108,15 @@ local function ApplyFullProfileData(profileData)
 end
 
 local function ApplyPartialProfileData(profileData)
+    local pendingSync = GetPendingProfileSyncDB()
+
     for folderName, snapshot in pairs(profileData.addons or {}) do
         for _, entry in ipairs(ADDON_DB_MAP) do
-            if entry.folder == folderName and IsAddonLoaded(folderName) then
-                local profile = GetAddonProfile(entry)
-                if profile then
-                    if entry.isFlat then
-                        local db = _G[entry.svName]
-                        if db then
-                            for key, value in pairs(snapshot) do
-                                if not (type(key) == "string" and key:match("^_")) then
-                                    db[key] = DeepCopy(value)
-                                end
-                            end
-                        end
-                    else
-                        for key, value in pairs(snapshot) do
-                            profile[key] = DeepCopy(value)
-                        end
-                    end
+            if entry.folder == folderName then
+                if ApplyAddonSnapshot(entry, snapshot) then
+                    pendingSync[entry.folder] = nil
+                else
+                    pendingSync[entry.folder] = true
                 end
                 break
             end
@@ -809,7 +1140,8 @@ end
 
 --- Snapshot the current state of all profiled addons into a versioned profile.
 function EllesmereUI.SnapshotAllAddons()
-    return FinalizeLiveSnapshot(SnapshotCurrentProfileData())
+    local db = GetProfilesDB()
+    return FinalizeLiveSnapshot(SnapshotCurrentProfileData(nil, GetCurrentStoredProfileRecord(db)))
 end
 
 --- Snapshot a single addon's current profile table.
@@ -928,7 +1260,7 @@ local function StoreProfileRecord(db, name, profileData, opts)
     return stored, nil, nil, existingProfile ~= nil
 end
 
-local function BuildImportedProfileRecord(payload, existingProfile)
+local function BuildImportedProfileRecord(payload, existingProfile, sourceProfile)
     if payload.type == "full" then
         local imported, err, code = CoerceStoredProfileRecord(payload.data)
         if not imported then return nil, err, code end
@@ -947,10 +1279,11 @@ local function BuildImportedProfileRecord(payload, existingProfile)
             return nil, normalizeErr, normalizeCode
         end
 
-        local merged = SnapshotCurrentProfileData()
+        local merged = SnapshotCurrentProfileData(nil, sourceProfile)
         for folderName, snapshot in pairs(importedPartial.addons or {}) do
             merged.addons[folderName] = snapshot
         end
+        merged.includedAddons = BuildIncludedAddonFolderList(merged.addons)
         if importedPartial.fonts then
             merged.fonts = importedPartial.fonts
         end
@@ -962,6 +1295,49 @@ local function BuildImportedProfileRecord(payload, existingProfile)
     end
 
     return nil, "Unsupported profile type.", "unsupported_payload_type"
+end
+
+local function GetSpecDisplayName(specID)
+    local canonicalSpecID = CanonicalizeSpecAssignmentKey(specID)
+    if not canonicalSpecID then
+        return nil
+    end
+
+    if GetSpecializationInfoByID then
+        local _, specName = GetSpecializationInfoByID(canonicalSpecID)
+        if type(specName) == "string" and specName ~= "" then
+            return specName
+        end
+    end
+
+    local specData = EllesmereUI and EllesmereUI._SPEC_DATA
+    if type(specData) == "table" then
+        for _, classInfo in ipairs(specData) do
+            for _, specInfo in ipairs(classInfo.specs or {}) do
+                if specInfo.id == canonicalSpecID then
+                    return specInfo.name
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local function AnnounceLoadedProfile(name, opts)
+    if opts and opts.announce == false then
+        return
+    end
+
+    local message = "Loaded profile: " .. name .. "."
+    if opts and opts.reason == "spec" then
+        local specName = GetSpecDisplayName(opts.specID)
+        if specName then
+            message = "Loaded profile: " .. name .. " (" .. specName .. ")."
+        end
+    end
+
+    print("|cff0CD29DEllesmereUI:|r " .. message)
 end
 
 local function ActivateStoredProfile(db, name, profileData, opts)
@@ -981,7 +1357,49 @@ local function ActivateStoredProfile(db, name, profileData, opts)
 
     db.profiles[name] = normalizedOrErr
     db.activeProfile = name
+    AnnounceLoadedProfile(name, opts)
     return normalizedOrErr, nil, nil
+end
+
+local function RunLiveProfileApplyHook(hookFn)
+    if type(hookFn) ~= "function" then
+        return
+    end
+
+    local errorHandler = geterrorhandler and geterrorhandler()
+    if type(errorHandler) == "function" then
+        xpcall(hookFn, errorHandler)
+    else
+        pcall(hookFn)
+    end
+end
+
+local function RunLiveProfileApplyHooks()
+    -- Reload-free spec switching only works when runtime modules re-read the DB
+    -- values we just copied in. Each hook is isolated so one module's refresh
+    -- error cannot abort the whole profile activation.
+    RunLiveProfileApplyHook(_G._ECL_Apply)
+    RunLiveProfileApplyHook(_G._ECL_ApplyGCDCircle)
+    RunLiveProfileApplyHook(_G._ECL_ApplyCastCircle)
+    RunLiveProfileApplyHook(_G._ECL_ApplyTrail)
+    RunLiveProfileApplyHook(_G._ECL_UpdateVisibility)
+
+    RunLiveProfileApplyHook(_G._ERB_Apply)
+    RunLiveProfileApplyHook(_G._ECME_Apply)
+    RunLiveProfileApplyHook(_G._EABR_RequestRefresh)
+    RunLiveProfileApplyHook(_G._EAB_Apply)
+    RunLiveProfileApplyHook(_G._EUF_Apply)
+
+    local npNS = _G.EllesmereNameplates_NS
+    if npNS and npNS.RefreshAllSettings then
+        RunLiveProfileApplyHook(function()
+            npNS.RefreshAllSettings()
+        end)
+    end
+
+    if EllesmereUI and EllesmereUI.ApplyColorsToOUF then
+        RunLiveProfileApplyHook(EllesmereUI.ApplyColorsToOUF)
+    end
 end
 
 function EllesmereUI.ExportProfile(profileName)
@@ -1095,7 +1513,8 @@ function EllesmereUI.ImportProfile(importStr, profileName, opts)
     local existingProfile = db.profiles[normalizedName]
     local importedProfile, importErr, importCode = BuildImportedProfileRecord(
         payload,
-        existingProfile
+        existingProfile,
+        GetCurrentStoredProfileRecord(db)
     )
     if not importedProfile then return false, importErr, importCode end
 
@@ -1115,9 +1534,14 @@ function EllesmereUI.ImportProfile(importStr, profileName, opts)
         db,
         normalizedName,
         importedProfile,
-        { saveCurrent = opts.saveCurrent }
+        {
+            saveCurrent = opts.saveCurrent,
+            reason = "manual",
+        }
     )
     if not activatedProfile then return false, activateErr, activateCode end
+
+    UpdateManualProfileOverrideForCurrentSpec(db, normalizedName)
 
     return true, {
         profileName = normalizedName,
@@ -1144,7 +1568,7 @@ function EllesmereUI.SaveCurrentAsProfile(name, opts)
     local stored, storeErr, storeCode, overwritten = StoreProfileRecord(
         db,
         normalizedName,
-        SnapshotCurrentProfileData(),
+        SnapshotCurrentProfileData(nil, GetCurrentStoredProfileRecord(db)),
         {
             moveToFront = opts.moveToFront,
             setActive = opts.setActive,
@@ -1304,6 +1728,7 @@ function EllesmereUI.SwitchProfile(name, opts)
         return false, "That profile does not exist.", "profile_missing"
     end
 
+    local requiresReload = opts.requiresReload ~= false
     if db.activeProfile == normalizedName then
         return true, {
             profileName = normalizedName,
@@ -1316,13 +1741,26 @@ function EllesmereUI.SwitchProfile(name, opts)
         db,
         normalizedName,
         db.profiles[normalizedName],
-        { saveCurrent = opts.saveCurrent }
+        {
+            saveCurrent = opts.saveCurrent,
+            announce = opts.announce,
+            reason = opts.reason,
+            specID = opts.specID,
+        }
     )
     if not activatedProfile then return false, err, code end
 
+    if opts.reason == "manual" then
+        UpdateManualProfileOverrideForCurrentSpec(db, normalizedName)
+    end
+
+    if not requiresReload then
+        RunLiveProfileApplyHooks()
+    end
+
     return true, {
         profileName = normalizedName,
-        requiresReload = true,
+        requiresReload = requiresReload,
     }, nil
 end
 
@@ -1349,17 +1787,17 @@ end
 
 function EllesmereUI.AssignProfileToSpec(profileName, specID)
     local db = GetProfilesDB()
-    db.specProfiles[specID] = profileName
+    db.specProfiles[CanonicalizeSpecAssignmentKey(specID)] = profileName
 end
 
 function EllesmereUI.UnassignSpec(specID)
     local db = GetProfilesDB()
-    db.specProfiles[specID] = nil
+    db.specProfiles[CanonicalizeSpecAssignmentKey(specID)] = nil
 end
 
 function EllesmereUI.GetSpecProfile(specID)
     local db = GetProfilesDB()
-    return db.specProfiles[specID]
+    return GetAssignedProfileForSpec(db, specID)
 end
 
 -------------------------------------------------------------------------------
@@ -1387,13 +1825,88 @@ end
 -------------------------------------------------------------------------------
 --  Spec auto-switch handler
 -------------------------------------------------------------------------------
--- The initial shipping pass uses reload-based profile activation because the
--- addon suite still has several combat-sensitive modules and deferred rebuild
--- paths. Automatically reloading on every spec change would be more disruptive
--- than helpful, so spec assignments remain stored but inactive for now.
+-- Spec data is not always settled on the same frame as the login/spec-change
+-- event that announces it. Queue a few follow-up checks so the assigned
+-- profile follows the final active spec.
 --
--- TODO: Re-enable spec auto-switch once addons can respond to profile swaps via
--- explicit `onProfileApplied` hooks instead of relying on `ReloadUI()`.
+-- Manual dropdown switches have different UX: they are a direct user choice,
+-- so we keep them in front of the current spec's auto-assignment until the
+-- player actually changes specs. That avoids the frustrating "I picked a
+-- profile and the addon immediately took it back" loop after the forced reload.
+local function RefreshVisibleProfilesUI()
+    if EllesmereUI._mainFrame
+        and EllesmereUI._mainFrame:IsShown() then
+        EllesmereUI:InvalidatePageCache()
+        EllesmereUI:RefreshPage(true)
+    end
+end
+
+local function ApplyAssignedProfileForCurrentSpec(opts)
+    opts = opts or {}
+
+    local specID = CanonicalizeSpecAssignmentKey(opts.specID or GetCurrentSpecID())
+    if not specID then return false end
+
+    ClearManualProfileOverrideIfSpecChanged(specID)
+
+    local db = GetProfilesDB()
+    local manualOverride = GetManualProfileOverride(db)
+    if manualOverride and manualOverride.specID == specID then
+        return true
+    end
+
+    local targetProfile = GetAssignedProfileForSpec(db, specID)
+    if not (targetProfile and db.profiles[targetProfile]) then
+        return false
+    end
+
+    local currentProfile = db.activeProfile or RESERVED_PROFILE_NAME
+    if currentProfile == targetProfile then
+        return true
+    end
+
+    local ok = EllesmereUI.SwitchProfile(targetProfile, {
+        requiresReload = false,
+        reason = opts.reason or "spec",
+        specID = specID,
+    })
+    if not ok then
+        return false
+    end
+
+    RefreshVisibleProfilesUI()
+    return true
+end
+
+local function QueueAssignedProfileApply(reason)
+    local generation = (EllesmereUI._specProfileApplyGeneration or 0) + 1
+    EllesmereUI._specProfileApplyGeneration = generation
+
+    local retryDelays = { 0, 0.1, 0.35, 0.75 }
+    for _, delay in ipairs(retryDelays) do
+        C_Timer.After(delay, function()
+            if EllesmereUI._specProfileApplyGeneration ~= generation then
+                return
+            end
+            ApplyAssignedProfileForCurrentSpec({ reason = reason or "spec" })
+        end)
+    end
+end
+
+do
+    local specFrame = CreateFrame("Frame")
+    specFrame:RegisterEvent("PLAYER_LOGIN")
+    specFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    specFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    specFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+    specFrame:SetScript("OnEvent", function(_, event, unit)
+        if event == "PLAYER_SPECIALIZATION_CHANGED" and unit ~= "player" then
+            return
+        end
+
+        QueueAssignedProfileApply("spec")
+    end)
+end
 
 -------------------------------------------------------------------------------
 --  Popular Presets & Weekly Spotlight
@@ -1460,7 +1973,7 @@ function EllesmereUI.SpinTheWheel()
         if name ~= "---" then validFonts[#validFonts + 1] = name end
     end
     fontsDB.global = pick(validFonts)
-    local outlineModes = { "none", "outline", "shadow" }
+    local outlineModes = EllesmereUI.FONT_OUTLINE_MODE_ORDER or { "shadow", "outline", "thick" }
     fontsDB.outlineMode = pick(outlineModes)
 
     -- Randomize class colors
@@ -1739,6 +2252,7 @@ do
                 db.profiles[profileName] = normalizedProfile
             end
         end
+        NormalizeSpecProfileAssignments(db)
 
         -- On first install, create the built-in fallback profile from the
         -- current settings after the addons finish their DB initialization.

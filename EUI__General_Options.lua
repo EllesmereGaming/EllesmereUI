@@ -2052,12 +2052,12 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        local outlineModeValues = {
-            ["none"]    = { text = "Drop Shadow" },
-            ["outline"] = { text = "Outline" },
-            ["thick"]   = { text = "Thick Outline" },
-        }
-        local outlineModeOrder = { "none", "outline", "thick" }
+        local outlineModeValues = {}
+        local outlineModeOrder = EllesmereUI.FONT_OUTLINE_MODE_ORDER or { "shadow", "outline", "thick" }
+        for _, modeKey in ipairs(outlineModeOrder) do
+            local modeInfo = EllesmereUI.FONT_OUTLINE_MODES and EllesmereUI.FONT_OUTLINE_MODES[modeKey]
+            outlineModeValues[modeKey] = { text = (modeInfo and modeInfo.text) or modeKey }
+        end
 
         _, h = W:DualRow(parent, y,
             { type="dropdown", text="Global Font",
@@ -2072,7 +2072,13 @@ initFrame:SetScript("OnEvent", function(self)
             { type="dropdown", text="Outline Mode",
               tooltip="Controls the text rendering style used across all UI elements",
               values=outlineModeValues, order=outlineModeOrder,
-              getValue=function() return EllesmereUI.GetFontsDB().outlineMode or "shadow" end,
+              getValue=function()
+                  local outlineMode = EllesmereUI.GetFontsDB().outlineMode
+                  if EllesmereUI.NormalizeFontOutlineMode then
+                      return EllesmereUI.NormalizeFontOutlineMode(outlineMode)
+                  end
+                  return outlineMode or "shadow"
+              end,
               setValue=function(v)
                   EllesmereUI.GetFontsDB().outlineMode = v
                   local rl = EllesmereUI._widgetRefreshList
@@ -2731,12 +2737,18 @@ initFrame:SetScript("OnEvent", function(self)
         local EG = EllesmereUI.ELLESMERE_GREEN
         local ADDON_DB_MAP = EllesmereUI._ADDON_DB_MAP
         local PROFILE_NAME_MAX = EllesmereUI.PROFILE_NAME_MAX_LENGTH or 60
-
-        local includedAddons = {}
-        for _, entry in ipairs(ADDON_DB_MAP) do
-            includedAddons[#includedAddons + 1] = entry.display
-        end
-        local includedAddonsText = table.concat(includedAddons, ", ")
+        local currentScope = EllesmereUI.GetCurrentProfileScopeDetails
+            and EllesmereUI.GetCurrentProfileScopeDetails()
+            or {
+                includedDisplays = {},
+                missingDisplays = {},
+            }
+        local includedAddonsText = (#currentScope.includedDisplays > 0)
+            and table.concat(currentScope.includedDisplays, ", ")
+            or "none"
+        local missingAddonsText = (#currentScope.missingDisplays > 0)
+            and table.concat(currentScope.missingDisplays, ", ")
+            or nil
 
         parent._showRowDivider = false
 
@@ -2832,6 +2844,16 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
+        local function FormatAddonDisplayList(folderList)
+            local displayNames = EllesmereUI.GetProfileAddonDisplayNames
+                and EllesmereUI.GetProfileAddonDisplayNames(folderList)
+                or {}
+            if #displayNames == 0 then
+                return nil
+            end
+            return table.concat(displayNames, ", ")
+        end
+
         local function OpenImportNamingFlow(importStr, initialName, errorTitle)
             local payload, err = EllesmereUI.DecodeImportString(importStr)
             if not payload then
@@ -2841,7 +2863,14 @@ initFrame:SetScript("OnEvent", function(self)
 
             local importMessage
             if payload.type == "partial" then
-                importMessage = "Enter a name for the imported profile. The selected addon settings plus shared fonts/custom colors will be merged into a new profile, then the UI will reload."
+                local payloadAddonsText = FormatAddonDisplayList(payload.data and payload.data.includedAddons)
+                if payloadAddonsText then
+                    importMessage = "Enter a name for the imported profile. These addon settings will be merged into a new profile: "
+                        .. payloadAddonsText
+                        .. ". Shared fonts and custom colors from the string are included too, then the UI will reload."
+                else
+                    importMessage = "Enter a name for the imported profile. The included addon settings plus shared fonts/custom colors will be merged into a new profile, then the UI will reload."
+                end
             else
                 importMessage = "Enter a name for the imported profile. It will become your active profile and the UI will reload."
             end
@@ -2921,7 +2950,12 @@ initFrame:SetScript("OnEvent", function(self)
             ddLabel:SetPoint("LEFT", ddBtn, "LEFT", 12, 0)
             ddLabel:SetPoint("RIGHT", ddBtn, "RIGHT", -28, 0)
             ddLabel:SetJustifyH("LEFT")
-            ddLabel:SetText(EllesmereUI.GetActiveProfileName())
+
+            local function RefreshActiveProfileLabel()
+                ddLabel:SetText(EllesmereUI.GetActiveProfileName())
+            end
+            RefreshActiveProfileLabel()
+            EllesmereUI.RegisterWidgetRefresh(RefreshActiveProfileLabel)
 
             EllesmereUI.MakeDropdownArrow(ddBtn, 12, PP)
 
@@ -2986,7 +3020,9 @@ initFrame:SetScript("OnEvent", function(self)
                         item._hl:SetAlpha(item._isSel and 0.04 or 0)
                         item:SetScript("OnClick", function()
                             menu:Hide()
-                            local ok, resultOrErr = EllesmereUI.SwitchProfile(name)
+                            local ok, resultOrErr = EllesmereUI.SwitchProfile(name, {
+                                reason = "manual",
+                            })
                             if ok then
                                 FinishProfileAction(resultOrErr)
                             else
@@ -3024,7 +3060,25 @@ initFrame:SetScript("OnEvent", function(self)
                 local btnScale = ddBtn:GetEffectiveScale()
                 local uiScale = UIParent:GetEffectiveScale()
                 self:SetScale(btnScale / uiScale)
+                self._anchorX, self._anchorY = ddBtn:GetCenter()
                 self:SetScript("OnUpdate", function(m)
+                    local curX, curY = ddBtn:GetCenter()
+                    if not curX or not curY then
+                        m:Hide()
+                        return
+                    end
+
+                    -- The menu lives on `UIParent` so it can draw above the
+                    -- page, but that also means page scrolling can leave it
+                    -- visually detached from the button. Close it as soon as
+                    -- the anchor moves instead of letting it clip through the
+                    -- panel while the content scrolls underneath it.
+                    if m._anchorX and m._anchorY
+                        and (math.abs(curX - m._anchorX) > 0.5 or math.abs(curY - m._anchorY) > 0.5) then
+                        m:Hide()
+                        return
+                    end
+
                     if not ddBtn:IsMouseOver() and not m:IsMouseOver() then
                         if IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton") then
                             m:Hide()
@@ -3034,6 +3088,8 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             menu:SetScript("OnHide", function(self)
                 self:SetScript("OnUpdate", nil)
+                self._anchorX = nil
+                self._anchorY = nil
                 ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
                 ddLabel:SetAlpha(EllesmereUI.DD_TXT_A)
             end)
@@ -3128,7 +3184,88 @@ initFrame:SetScript("OnEvent", function(self)
             note:SetJustifyH("LEFT")
             note:SetWordWrap(true)
             note:SetSpacing(2)
-            note:SetText("Switching or importing a profile saves your current profile, applies the selected snapshot, and reloads the UI for a clean rebuild.")
+            note:SetText("Switching or importing a profile saves your current settings, then reloads the UI so the new profile is applied correctly.")
+
+            y = y - ROW_H
+        end
+
+        -------------------------------------------------------------------
+        --  SPEC ASSIGNMENT section
+        -------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "SPEC ASSIGNMENT", y);  y = y - h
+
+        do
+            local ROW_H = 68
+            local rowFrame = CreateFrame("Frame", nil, parent)
+            local totalW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
+            PP.Size(rowFrame, totalW, ROW_H)
+            PP.Point(rowFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
+            EllesmereUI.RowBg(rowFrame, parent)
+
+            local assignBtn = CreateFrame("Button", nil, rowFrame)
+            PP.Size(assignBtn, 260, 30)
+            PP.Point(assignBtn, "TOP", rowFrame, "TOP", 0, -10)
+            assignBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
+            EllesmereUI.MakeStyledButton(assignBtn, "Assign Current Profile to Specs", 13,
+                EllesmereUI.WB_COLOURS, function()
+                    -- The popup edits a name -> spec-set map, while the stored
+                    -- profile data remains a simple `specID -> profileName`
+                    -- lookup. Build the inverted view on demand, then fold it
+                    -- back into the compact persisted shape when the user saves.
+                    if not EllesmereUIDB then EllesmereUIDB = {} end
+                    local db = EllesmereUIDB
+                    if not db.specProfiles then db.specProfiles = {} end
+
+                    local tempDB = { _profileSpecs = {} }
+                    local order, profiles = EllesmereUI.GetProfileList()
+                    for _, profileName in ipairs(order) do
+                        tempDB._profileSpecs[profileName] = {}
+                    end
+                    for specID, profileName in pairs(db.specProfiles) do
+                        if tempDB._profileSpecs[profileName] then
+                            tempDB._profileSpecs[profileName][specID] = true
+                        end
+                    end
+
+                    local activeName = EllesmereUI.GetActiveProfileName()
+                    EllesmereUI:ShowSpecAssignPopup({
+                        db = tempDB,
+                        dbKey = "_profileSpecs",
+                        presetKey = activeName,
+                        titleText = "Assign Profile to Specs",
+                        subtitleBuilder = function(profileName)
+                            return "You are editing assignments for this profile: " .. profileName
+                                .. "\nChecked specs will load it automatically when you switch to them. If a spec is already assigned elsewhere, checking it here will replace that assignment."
+                        end,
+                        allPresetKeys = function()
+                            local list = {}
+                            for _, profileName in ipairs(order) do
+                                if profiles[profileName] then
+                                    list[#list + 1] = { key = profileName, name = profileName }
+                                end
+                            end
+                            return list
+                        end,
+                        onDone = function()
+                            db.specProfiles = {}
+                            for profileName, specSet in pairs(tempDB._profileSpecs) do
+                                for specID in pairs(specSet) do
+                                    EllesmereUI.AssignProfileToSpec(profileName, specID)
+                                end
+                            end
+                            EllesmereUI:RefreshPage()
+                        end,
+                    })
+                end)
+
+            local note = EllesmereUI.MakeFont(rowFrame, 11, nil, 1, 1, 1)
+            note:SetAlpha(0.52)
+            note:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", 20, -48)
+            note:SetPoint("RIGHT", rowFrame, "RIGHT", -20, 0)
+            note:SetJustifyH("LEFT")
+            note:SetWordWrap(true)
+            note:SetSpacing(2)
+            note:SetText("Assign a profile to each spec. When you change specs, EllesmereUI switches to that profile automatically.")
 
             y = y - ROW_H
         end
@@ -3152,6 +3289,28 @@ initFrame:SetScript("OnEvent", function(self)
                 OpenImportNamingFlow(importStr, nil)
             end)
         end);  y = y - h
+
+        do
+            local ROW_H = missingAddonsText and 56 or 36
+            local scopeFrame = CreateFrame("Frame", nil, parent)
+            local totalW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
+            PP.Size(scopeFrame, totalW, ROW_H)
+            PP.Point(scopeFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
+
+            local scopeNote = EllesmereUI.MakeFont(scopeFrame, 11, nil, 1, 1, 1)
+            scopeNote:SetAlpha(0.52)
+            scopeNote:SetPoint("TOPLEFT", scopeFrame, "TOPLEFT", 0, 0)
+            scopeNote:SetPoint("RIGHT", scopeFrame, "RIGHT", 0, 0)
+            scopeNote:SetJustifyH("LEFT")
+            scopeNote:SetWordWrap(true)
+            scopeNote:SetSpacing(2)
+            scopeNote:SetText("This profile currently includes: " .. includedAddonsText .. "."
+                .. (missingAddonsText
+                    and "\nThese addons are not loaded right now, so they will not be included until they are enabled again: " .. missingAddonsText .. "."
+                    or ""))
+
+            y = y - ROW_H
+        end
 
         -------------------------------------------------------------------
         --  PER-ADDON EXPORT section
@@ -3221,15 +3380,20 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI:ShowInfoPopup({
                     title = "Profile Import / Export",
                     content = "PROFILE SCOPE\n"
-                        .. "Profiles currently include these shipped EllesmereUI modules: " .. includedAddonsText .. ". They also include the shared font selection and shared custom class/power/resource colors.\n\n"
-                        .. "EXCLUDED SETTINGS\n"
-                        .. "Profiles do not include Global Settings on this page, Party Mode, panel scale, minimap button position, privacy/debug toggles, or other machine- or character-specific operational settings.\n\n"
+                        .. "Profiles currently include these EllesmereUI addons: " .. includedAddonsText .. ". They also include your shared font and custom color settings."
+                        .. (missingAddonsText
+                            and "\n\nThese addons are not loaded right now, so they will not be included until they are enabled again: " .. missingAddonsText .. "."
+                            or "")
+                        .. "\n\nEXCLUDED SETTINGS\n"
+                        .. "Profiles do not include Global Settings on this page, Party Mode, panel scale, minimap button position, privacy/debug options, or other machine- or character-specific settings.\n\n"
                         .. "SWITCHING AND IMPORTING\n"
-                        .. "Switching profiles and importing profiles save the current active profile, apply the selected snapshot to SavedVariables, and reload the UI so every addon rebuilds from a consistent state.\n\n"
-                        .. "VERSIONS AND ERRORS\n"
-                        .. "Imports reject malformed strings, unsupported payload versions, and snapshots from newer schemas with a readable error instead of silently applying partial data.\n\n"
+                        .. "When you switch or import a profile, EllesmereUI saves your current settings and reloads the UI so the new profile applies correctly.\n\n"
+                        .. "SPEC ASSIGNMENTS\n"
+                        .. "If you assign profiles to specs, EllesmereUI switches them automatically when you change specs.\n\n"
+                        .. "ERRORS\n"
+                        .. "If a profile string is invalid or from an incompatible version, EllesmereUI shows an error instead of importing it.\n\n"
                         .. "PER-ADDON EXPORT\n"
-                        .. "Selective exports include only the chosen addon settings plus the shared fonts/custom colors. When a partial profile is imported, addons that are not present in the payload keep their current settings.",
+                        .. "Selective exports only include the addons you choose, plus shared fonts and custom colors. Anything not included keeps its current settings.",
                 })
             end)
 

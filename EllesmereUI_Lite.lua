@@ -175,6 +175,14 @@ function EUILite.NewDB(svName, defaults)
     if type(sv.profiles[profileName]) ~= "table" then sv.profiles[profileName] = {} end
     local profile = sv.profiles[profileName]
 
+    -- When a profile swap happens while this addon is unavailable, the suite
+    -- profile system records a pending sync and replays the active snapshot the
+    -- next time the addon opens its SavedVariables. This lets late-loading
+    -- modules catch up without forcing every profile switch to fail.
+    if EllesmereUI and EllesmereUI.ApplyPendingProfileSync then
+        EllesmereUI.ApplyPendingProfileSync(svName)
+    end
+
     -- Merge defaults into profile (fills missing keys only)
     local profileDefaults = defaults and defaults.profile
     if profileDefaults then
