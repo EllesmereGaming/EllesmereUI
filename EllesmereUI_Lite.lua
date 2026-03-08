@@ -149,7 +149,8 @@ local function StripDefaults(db, defaults)
     end
 end
 
-local dbRegistry = {}  -- all db objects, for logout cleanup
+local dbRegistry = {}      -- all db objects, for logout cleanup
+local dbRegistryBySV = {}  -- SavedVariables name -> db object
 
 --- Create or open a database. Replaces AceDB:New(svName, defaults, true).
 -- Returns a db object with .profile pointing to the active profile table.
@@ -174,8 +175,41 @@ function EUILite.NewDB(svName, defaults)
     if type(sv.profiles[profileName]) ~= "table" then sv.profiles[profileName] = {} end
     local profile = sv.profiles[profileName]
 
-    -- Merge defaults into profile (fills missing keys only)
+    -- Build the db object early so pending profile sync can look up the live
+    -- defaults for this SavedVariables table through the registry.
     local profileDefaults = defaults and defaults.profile
+    local db = {
+        sv = sv,
+        profile = profile,
+        _svName = svName,
+        _profileName = profileName,
+        _defaults = defaults,
+        _profileDefaults = profileDefaults,
+    }
+
+    --- Reset the current profile to defaults.
+    function db:ResetProfile()
+        wipe(self.profile)
+        if self._profileDefaults then
+            DeepMergeDefaults(self.profile, self._profileDefaults)
+        end
+    end
+
+    -- Register for logout cleanup and for cross-addon profile tooling.
+    -- The profile system uses the registry to look up the current defaults
+    -- for a SavedVariables table before applying imported snapshots.
+    tinsert(dbRegistry, db)
+    dbRegistryBySV[svName] = db
+
+    -- When a profile swap happens while this addon is unavailable, the suite
+    -- profile system records a pending sync and replays the active snapshot the
+    -- next time the addon opens its SavedVariables. Register first so the sync
+    -- path can re-merge the current defaults instead of copying a raw snapshot.
+    if EllesmereUI and EllesmereUI.ApplyPendingProfileSync then
+        EllesmereUI.ApplyPendingProfileSync(svName)
+    end
+
+    -- Merge defaults into profile (fills missing keys only)
     if profileDefaults then
         DeepMergeDefaults(profile, profileDefaults)
         -- Validate: if any top-level default sub-table is missing or wrong
@@ -194,27 +228,14 @@ function EUILite.NewDB(svName, defaults)
         end
     end
 
-    -- Build the db object
-    local db = {
-        sv = sv,
-        profile = profile,
-        _profileName = profileName,
-        _defaults = defaults,
-        _profileDefaults = profileDefaults,
-    }
-
-    --- Reset the current profile to defaults.
-    function db:ResetProfile()
-        wipe(self.profile)
-        if self._profileDefaults then
-            DeepMergeDefaults(self.profile, self._profileDefaults)
-        end
-    end
-
-    -- Register for logout cleanup
-    tinsert(dbRegistry, db)
-
     return db
+end
+
+--- Look up a registered db object by its SavedVariables name.
+--- This intentionally exposes the live defaults metadata so suite-level
+--- profile import/export code can re-merge current defaults after swaps.
+function EUILite.GetRegisteredDB(svName)
+    return dbRegistryBySV[svName]
 end
 
 --------------------------------------------------------------------------------

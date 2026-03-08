@@ -1454,6 +1454,14 @@ local function InitDB()
     if not EllesmereUINameplatesDB then
         EllesmereUINameplatesDB = {}
     end
+
+    -- Flat-db addons do not pass through `Lite.NewDB`, so they need their own
+    -- late-load sync hook when a profile swap happened while the addon was not
+    -- available.
+    if EllesmereUI and EllesmereUI.ApplyPendingProfileSync then
+        EllesmereUI.ApplyPendingProfileSync("EllesmereUINameplatesDB")
+    end
+
     -- Migrate font path from old location to EllesmereUI/media
     if EllesmereUINameplatesDB.font == "Interface\\AddOns\\EllesmereUINameplates\\Expressway.TTF" then
         EllesmereUINameplatesDB.font = defaults.font

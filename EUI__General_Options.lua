@@ -2052,12 +2052,12 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        local outlineModeValues = {
-            ["none"]    = { text = "Drop Shadow" },
-            ["outline"] = { text = "Outline" },
-            ["thick"]   = { text = "Thick Outline" },
-        }
-        local outlineModeOrder = { "none", "outline", "thick" }
+        local outlineModeValues = {}
+        local outlineModeOrder = EllesmereUI.FONT_OUTLINE_MODE_ORDER or { "shadow", "outline", "thick" }
+        for _, modeKey in ipairs(outlineModeOrder) do
+            local modeInfo = EllesmereUI.FONT_OUTLINE_MODES and EllesmereUI.FONT_OUTLINE_MODES[modeKey]
+            outlineModeValues[modeKey] = { text = (modeInfo and modeInfo.text) or modeKey }
+        end
 
         _, h = W:DualRow(parent, y,
             { type="dropdown", text="Global Font",
@@ -2072,7 +2072,13 @@ initFrame:SetScript("OnEvent", function(self)
             { type="dropdown", text="Outline Mode",
               tooltip="Controls the text rendering style used across all UI elements",
               values=outlineModeValues, order=outlineModeOrder,
-              getValue=function() return EllesmereUI.GetFontsDB().outlineMode or "shadow" end,
+              getValue=function()
+                  local outlineMode = EllesmereUI.GetFontsDB().outlineMode
+                  if EllesmereUI.NormalizeFontOutlineMode then
+                      return EllesmereUI.NormalizeFontOutlineMode(outlineMode)
+                  end
+                  return outlineMode or "shadow"
+              end,
               setValue=function(v)
                   EllesmereUI.GetFontsDB().outlineMode = v
                   local rl = EllesmereUI._widgetRefreshList
@@ -2730,22 +2736,219 @@ initFrame:SetScript("OnEvent", function(self)
         local FONT = EllesmereUI.EXPRESSWAY
         local EG = EllesmereUI.ELLESMERE_GREEN
         local ADDON_DB_MAP = EllesmereUI._ADDON_DB_MAP
+        local PROFILE_NAME_MAX = EllesmereUI.PROFILE_NAME_MAX_LENGTH or 60
+        local currentScope = EllesmereUI.GetCurrentProfileScopeDetails
+            and EllesmereUI.GetCurrentProfileScopeDetails()
+            or {
+                includedDisplays = {},
+                missingDisplays = {},
+            }
+        local includedAddonsText = (#currentScope.includedDisplays > 0)
+            and table.concat(currentScope.includedDisplays, ", ")
+            or "none"
+        local missingAddonsText = (#currentScope.missingDisplays > 0)
+            and table.concat(currentScope.missingDisplays, ", ")
+            or nil
 
         parent._showRowDivider = false
 
         _, h = W:Spacer(parent, y, 10);  y = y - h
+
+        local ddLabel
+        local dirtyStateLabel
+        local activeProfileNote
+        local PROFILE_APPLY_NOTE = "Save updates this profile with your current settings. Revert goes back to the last saved version. Switching or importing a profile also saves your current settings first."
+
+        local function RefreshActiveProfileDisplay()
+            local activeName = EllesmereUI.GetActiveProfileName()
+            local activeDisplayName = activeName or "No saved profile"
+            local dirtyState = EllesmereUI.GetActiveProfileDirtyState
+                and EllesmereUI.GetActiveProfileDirtyState()
+                or { isDirty = false }
+
+            if ddLabel then
+                ddLabel:SetText(dirtyState.isDirty and (activeDisplayName .. " *") or activeDisplayName)
+            end
+
+            if dirtyStateLabel then
+                if dirtyState.comparisonFailed or dirtyState.hasStoredProfile == false then
+                    dirtyStateLabel:SetText("")
+                elseif dirtyState.isDirty then
+                    dirtyStateLabel:SetText("Unsaved changes")
+                    dirtyStateLabel:SetTextColor(1.0, 0.84, 0.35, 0.95)
+                    dirtyStateLabel:SetAlpha(0.95)
+                else
+                    dirtyStateLabel:SetText("All changes saved")
+                    dirtyStateLabel:SetTextColor(1, 1, 1, 0.45)
+                    dirtyStateLabel:SetAlpha(0.75)
+                end
+            end
+
+            if activeProfileNote then
+                activeProfileNote:SetText(PROFILE_APPLY_NOTE)
+            end
+        end
+
+        local function RefreshProfilesPage()
+            RefreshActiveProfileDisplay()
+            EllesmereUI:InvalidatePageCache()
+            EllesmereUI:RefreshPage(true)
+        end
+
+        local function FinishProfileAction(result)
+            RefreshActiveProfileDisplay()
+            if result and result.requiresReload then
+                ReloadUI()
+                return
+            end
+            RefreshProfilesPage()
+        end
+
+        local function ShowProfileError(title, message)
+            EllesmereUI:ShowInfoPopup({
+                title = title,
+                content = message or "Unknown error.",
+            })
+        end
+
+        local function ShowNamePrompt(opts)
+            EllesmereUI:ShowInputPopup({
+                title = opts.title,
+                message = opts.message,
+                placeholder = opts.placeholder,
+                initialText = opts.initialText,
+                confirmText = opts.confirmText,
+                cancelText = opts.cancelText or "Cancel",
+                maxLetters = PROFILE_NAME_MAX,
+                onConfirm = opts.onConfirm,
+            })
+        end
+
+        local function PromptOverwrite(opts)
+            EllesmereUI:ShowConfirmPopup({
+                title = opts.title or "Overwrite Profile",
+                message = opts.message,
+                confirmText = opts.confirmText or "Overwrite",
+                cancelText = opts.cancelText or "Cancel",
+                onConfirm = opts.onConfirm,
+            })
+        end
+
+        local function TryCreateProfile(name, allowOverwrite)
+            local ok, resultOrErr, code = EllesmereUI.SaveCurrentAsProfile(name, {
+                allowOverwrite = allowOverwrite,
+            })
+            if ok then
+                FinishProfileAction(resultOrErr)
+            elseif code == "profile_exists" and not allowOverwrite then
+                PromptOverwrite({
+                    title = "Overwrite Profile",
+                    message = "A profile named \"" .. name .. "\" already exists. Replace it with your current settings?",
+                    onConfirm = function()
+                        TryCreateProfile(name, true)
+                    end,
+                })
+            else
+                ShowProfileError("Create Profile", resultOrErr)
+            end
+        end
+
+        local function TryRenameProfile(oldName, newName, allowOverwrite)
+            local ok, resultOrErr, code = EllesmereUI.RenameProfile(oldName, newName, {
+                allowOverwrite = allowOverwrite,
+            })
+            if ok then
+                FinishProfileAction(resultOrErr)
+            elseif code == "profile_exists" and not allowOverwrite then
+                PromptOverwrite({
+                    title = "Overwrite Profile",
+                    message = "A profile named \"" .. newName .. "\" already exists. Replace it with the renamed profile?",
+                    onConfirm = function()
+                        TryRenameProfile(oldName, newName, true)
+                    end,
+                })
+            else
+                ShowProfileError("Rename Profile", resultOrErr)
+            end
+        end
+
+        local function FormatAddonDisplayList(folderList)
+            local displayNames = EllesmereUI.GetProfileAddonDisplayNames
+                and EllesmereUI.GetProfileAddonDisplayNames(folderList)
+                or {}
+            if #displayNames == 0 then
+                return nil
+            end
+            return table.concat(displayNames, ", ")
+        end
+
+        local function OpenImportNamingFlow(importStr, initialName, errorTitle)
+            local payload, err = EllesmereUI.DecodeImportString(importStr)
+            if not payload then
+                ShowProfileError(errorTitle or "Import Failed", err)
+                return
+            end
+
+            local importMessage
+            if payload.type == "partial" then
+                local payloadAddonsText = FormatAddonDisplayList(payload.data and payload.data.includedAddons)
+                if payloadAddonsText then
+                    importMessage = "Enter a name for the imported profile. It will include settings for: "
+                        .. payloadAddonsText
+                        .. ". Shared fonts and custom colors from the import are included too, and your UI will reload when it is applied."
+                else
+                    importMessage = "Enter a name for the imported profile. It will include the settings from the import, along with shared fonts and custom colors. Your UI will reload when it is applied."
+                end
+            else
+                importMessage = "Enter a name for the imported profile. It will become the profile you are using now, and your UI will reload when it is applied."
+            end
+
+            local function TryImportProfile(name, allowOverwrite)
+                local ok, resultOrErr, code = EllesmereUI.ImportProfile(importStr, name, {
+                    allowOverwrite = allowOverwrite,
+                })
+                if ok then
+                    FinishProfileAction(resultOrErr)
+                elseif code == "profile_exists" and not allowOverwrite then
+                    PromptOverwrite({
+                        title = "Overwrite Profile",
+                        message = "A profile named \"" .. name .. "\" already exists. Replace it with the imported settings?",
+                        onConfirm = function()
+                            TryImportProfile(name, true)
+                        end,
+                    })
+                else
+                    ShowProfileError(errorTitle or "Import Failed", resultOrErr)
+                end
+            end
+
+            ShowNamePrompt({
+                title = "Name Profile",
+                message = importMessage,
+                placeholder = initialName or "Imported Profile",
+                initialText = initialName or "",
+                confirmText = "Import",
+                onConfirm = function(name)
+                    TryImportProfile(name, false)
+                end,
+            })
+        end
+
+        local function TryPresetImport(exportString, suggestedName, title)
+            if not exportString or exportString == "" then
+                ShowProfileError(title or "Preset Error", "That preset does not contain an import string.")
+                return
+            end
+            OpenImportNamingFlow(exportString, suggestedName, title)
+        end
 
         -------------------------------------------------------------------
         --  ACTIVE PROFILE section
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "ACTIVE PROFILE", y);  y = y - h
 
-        -- ddLabel is hoisted so callbacks below (Import, Delete, etc.) can update it
-        local ddLabel
-
-        -- Profile dropdown + action buttons
         do
-            local ROW_H = 60
+            local ROW_H = 100
             local rowFrame = CreateFrame("Frame", nil, parent)
             local totalW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
             PP.Size(rowFrame, totalW, ROW_H)
@@ -2754,13 +2957,15 @@ initFrame:SetScript("OnEvent", function(self)
 
             local DD_W = 220
             local DD_H = 30
-            local BTN_W = 100
+            local BTN_W = 92
             local BTN_GAP = 8
 
-            -- Profile dropdown
+            -- The dropdown remains the profile switcher, but now the apply path is
+            -- intentionally conservative: save the current profile, copy the new
+            -- snapshot into SavedVariables, then reload the UI.
             local ddBtn = CreateFrame("Button", nil, rowFrame)
             PP.Size(ddBtn, DD_W, DD_H)
-            PP.Point(ddBtn, "LEFT", rowFrame, "LEFT", 20, 0)
+            PP.Point(ddBtn, "LEFT", rowFrame, "LEFT", 20, 14)
             ddBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
 
             local ddBg = ddBtn:CreateTexture(nil, "BACKGROUND")
@@ -2773,11 +2978,12 @@ initFrame:SetScript("OnEvent", function(self)
             ddLabel:SetPoint("LEFT", ddBtn, "LEFT", 12, 0)
             ddLabel:SetPoint("RIGHT", ddBtn, "RIGHT", -28, 0)
             ddLabel:SetJustifyH("LEFT")
-            ddLabel:SetText(EllesmereUI.GetActiveProfileName())
+
+            RefreshActiveProfileDisplay()
+            EllesmereUI.RegisterWidgetRefresh(RefreshActiveProfileDisplay)
 
             EllesmereUI.MakeDropdownArrow(ddBtn, 12, PP)
 
-            -- Dropdown menu
             local menu = CreateFrame("Frame", nil, UIParent)
             menu:SetFrameStrata("FULLSCREEN_DIALOG")
             menu:SetFrameLevel(200)
@@ -2785,70 +2991,82 @@ initFrame:SetScript("OnEvent", function(self)
             menu:SetSize(DD_W, 4)
             menu:SetPoint("TOPLEFT", ddBtn, "BOTTOMLEFT", 0, -2)
             menu:Hide()
+
             local menuBg = menu:CreateTexture(nil, "BACKGROUND")
             menuBg:SetAllPoints()
             menuBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.98)
             EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
 
             local menuItems = {}
-
             local function RebuildProfileMenu()
-                for _, itm in ipairs(menuItems) do itm:Hide() end
+                for _, item in ipairs(menuItems) do item:Hide() end
+
                 local order, profiles = EllesmereUI.GetProfileList()
-                local mH = 4
+                local menuHeight = 4
                 local idx = 0
                 local activeName = EllesmereUI.GetActiveProfileName()
 
                 for _, name in ipairs(order) do
-                    if profiles[name] then
+                    if profiles[name]
+                        and (not EllesmereUI.IsProfileUsable or EllesmereUI.IsProfileUsable(name)) then
                         idx = idx + 1
-                        local itm = menuItems[idx]
-                        if not itm then
-                            itm = CreateFrame("Button", nil, menu)
-                            itm:SetHeight(26)
-                            itm:SetFrameLevel(menu:GetFrameLevel() + 1)
-                            local lbl = itm:CreateFontString(nil, "OVERLAY")
+                        local item = menuItems[idx]
+                        if not item then
+                            item = CreateFrame("Button", nil, menu)
+                            item:SetHeight(26)
+                            item:SetFrameLevel(menu:GetFrameLevel() + 1)
+
+                            local lbl = item:CreateFontString(nil, "OVERLAY")
                             lbl:SetFont(FONT, 13, EllesmereUI.GetFontOutlineFlag())
-                            lbl:SetPoint("LEFT", itm, "LEFT", 10, 0)
+                            lbl:SetPoint("LEFT", item, "LEFT", 10, 0)
                             lbl:SetTextColor(0.55, 0.60, 0.65, 1)
-                            itm._lbl = lbl
-                            local hl = itm:CreateTexture(nil, "ARTWORK")
+                            item._lbl = lbl
+
+                            local hl = item:CreateTexture(nil, "ARTWORK")
                             hl:SetAllPoints()
                             hl:SetColorTexture(1, 1, 1, 0)
-                            itm._hl = hl
-                            itm:SetScript("OnEnter", function()
+                            item._hl = hl
+
+                            item:SetScript("OnEnter", function()
                                 lbl:SetTextColor(1, 1, 1, 1)
                                 hl:SetAlpha(0.08)
                             end)
-                            itm:SetScript("OnLeave", function()
+                            item:SetScript("OnLeave", function()
                                 lbl:SetTextColor(0.55, 0.60, 0.65, 1)
-                                hl:SetAlpha(itm._isSel and 0.04 or 0)
+                                hl:SetAlpha(item._isSel and 0.04 or 0)
                             end)
-                            menuItems[idx] = itm
+
+                            menuItems[idx] = item
                         end
-                        itm:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -mH)
-                        itm:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, -mH)
-                        itm._lbl:SetText(name)
-                        itm._isSel = (name == activeName)
-                        itm._hl:SetAlpha(itm._isSel and 0.04 or 0)
-                        itm:SetScript("OnClick", function()
+
+                        item:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -menuHeight)
+                        item:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, -menuHeight)
+                        item._lbl:SetText(name)
+                        item._isSel = (name == activeName)
+                        item._hl:SetAlpha(item._isSel and 0.04 or 0)
+                        item:SetScript("OnClick", function()
                             menu:Hide()
-                            -- Auto-save current before switching
-                            EllesmereUI.AutoSaveActiveProfile()
-                            EllesmereUI.SwitchProfile(name)
-                            ddLabel:SetText(name)
-                            EllesmereUI:InvalidatePageCache()
-                            EllesmereUI:RefreshPage(true)
+                            local ok, resultOrErr = EllesmereUI.SwitchProfile(name, {
+                                reason = "manual",
+                            })
+                            if ok then
+                                FinishProfileAction(resultOrErr)
+                            else
+                                ShowProfileError("Switch Profile", resultOrErr)
+                            end
                         end)
-                        itm:Show()
-                        mH = mH + 26
+                        item:Show()
+                        menuHeight = menuHeight + 26
                     end
                 end
-                menu:SetHeight(mH + 4)
+
+                menu:SetHeight(menuHeight + 4)
             end
 
             ddBtn:SetScript("OnClick", function()
-                if menu:IsShown() then menu:Hide() else
+                if menu:IsShown() then
+                    menu:Hide()
+                else
                     RebuildProfileMenu()
                     menu:Show()
                 end
@@ -2868,72 +3086,180 @@ initFrame:SetScript("OnEvent", function(self)
                 local btnScale = ddBtn:GetEffectiveScale()
                 local uiScale = UIParent:GetEffectiveScale()
                 self:SetScale(btnScale / uiScale)
+                self._anchorX, self._anchorY = ddBtn:GetCenter()
                 self:SetScript("OnUpdate", function(m)
+                    local curX, curY = ddBtn:GetCenter()
+                    if not curX or not curY then
+                        m:Hide()
+                        return
+                    end
+
+                    -- The menu lives on `UIParent` so it can draw above the
+                    -- page, but that also means page scrolling can leave it
+                    -- visually detached from the button. Close it as soon as
+                    -- the anchor moves instead of letting it clip through the
+                    -- panel while the content scrolls underneath it.
+                    if m._anchorX and m._anchorY
+                        and (math.abs(curX - m._anchorX) > 0.5 or math.abs(curY - m._anchorY) > 0.5) then
+                        m:Hide()
+                        return
+                    end
+
                     if not ddBtn:IsMouseOver() and not m:IsMouseOver() then
-                        if IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton") then m:Hide() end
+                        if IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton") then
+                            m:Hide()
+                        end
                     end
                 end)
             end)
             menu:SetScript("OnHide", function(self)
                 self:SetScript("OnUpdate", nil)
+                self._anchorX = nil
+                self._anchorY = nil
                 ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
                 ddLabel:SetAlpha(EllesmereUI.DD_TXT_A)
             end)
 
-            -- Save button
             local saveBtn = CreateFrame("Button", nil, rowFrame)
             PP.Size(saveBtn, BTN_W, DD_H)
             PP.Point(saveBtn, "LEFT", ddBtn, "RIGHT", BTN_GAP, 0)
             saveBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
             EllesmereUI.MakeStyledButton(saveBtn, "Save", 13,
                 EllesmereUI.WB_COLOURS, function()
-                    EllesmereUI.AutoSaveActiveProfile()
+                    local ok, resultOrErr = EllesmereUI.AutoSaveActiveProfile()
+                    if not ok then
+                        ShowProfileError("Save Profile", resultOrErr)
+                    else
+                        FinishProfileAction(resultOrErr)
+                    end
                 end)
 
-            -- Save As button
-            local saveAsBtn = CreateFrame("Button", nil, rowFrame)
-            PP.Size(saveAsBtn, BTN_W, DD_H)
-            PP.Point(saveAsBtn, "LEFT", saveBtn, "RIGHT", BTN_GAP, 0)
-            saveAsBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
-            EllesmereUI.MakeStyledButton(saveAsBtn, "Save As", 13,
-                EllesmereUI.WB_COLOURS, function()
-                    EllesmereUI:ShowInputPopup({
-                        title = "Save Profile As",
-                        message = "Enter a name for the new profile:",
-                        placeholder = "My Profile",
-                        confirmText = "Save",
+            local revertBtn = CreateFrame("Button", nil, rowFrame)
+            PP.Size(revertBtn, BTN_W, DD_H)
+            PP.Point(revertBtn, "LEFT", saveBtn, "RIGHT", BTN_GAP, 0)
+            revertBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
+            EllesmereUI.MakeStyledButton(revertBtn, "Revert", 13,
+                EllesmereUI.RB_COLOURS, function()
+                    local dirtyState = EllesmereUI.GetActiveProfileDirtyState
+                        and EllesmereUI.GetActiveProfileDirtyState()
+                        or { isDirty = false }
+                    if not dirtyState.isDirty then
+                        ShowProfileError("Revert Profile", "There is nothing to revert right now.")
+                        return
+                    end
+
+                    local activeName = EllesmereUI.GetActiveProfileName()
+                    if not activeName then
+                        ShowProfileError("Revert Profile", "There is no saved profile to revert yet.")
+                        return
+                    end
+
+                    EllesmereUI:ShowConfirmPopup({
+                        title = "Revert Profile",
+                        message = "Discard your unsaved changes and reload \"" .. activeName .. "\"?",
+                        confirmText = "Revert",
                         cancelText = "Cancel",
-                        onConfirm = function(name)
-                            if not name or name == "" then return end
-                            EllesmereUI.SaveCurrentAsProfile(name)
-                            ddLabel:SetText(name)
-                            EllesmereUI:RefreshPage()
+                        onConfirm = function()
+                            local ok, resultOrErr = EllesmereUI.RevertActiveProfile()
+                            if ok then
+                                FinishProfileAction(resultOrErr)
+                            else
+                                ShowProfileError("Revert Profile", resultOrErr)
+                            end
                         end,
                     })
                 end)
 
-            -- Delete button
-            local delBtn = CreateFrame("Button", nil, rowFrame)
-            PP.Size(delBtn, BTN_W, DD_H)
-            PP.Point(delBtn, "LEFT", saveAsBtn, "RIGHT", BTN_GAP, 0)
-            delBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
-            EllesmereUI.MakeStyledButton(delBtn, "Delete", 13,
+            local createBtn = CreateFrame("Button", nil, rowFrame)
+            PP.Size(createBtn, BTN_W, DD_H)
+            PP.Point(createBtn, "LEFT", revertBtn, "RIGHT", BTN_GAP, 0)
+            createBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
+            EllesmereUI.MakeStyledButton(createBtn, "Create", 13,
+                EllesmereUI.WB_COLOURS, function()
+                    ShowNamePrompt({
+                        title = "Create Profile",
+                        message = "Enter a name for your new profile. It will become the profile you are using now.",
+                        placeholder = "My Profile",
+                        confirmText = "Create",
+                        onConfirm = function(name)
+                            TryCreateProfile(name, false)
+                        end,
+                    })
+                end)
+
+            local renameBtn = CreateFrame("Button", nil, rowFrame)
+            PP.Size(renameBtn, BTN_W, DD_H)
+            PP.Point(renameBtn, "LEFT", createBtn, "RIGHT", BTN_GAP, 0)
+            renameBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
+            EllesmereUI.MakeStyledButton(renameBtn, "Rename", 13,
+                EllesmereUI.WB_COLOURS, function()
+                    local activeName = EllesmereUI.GetActiveProfileName()
+                    if not activeName then
+                        ShowProfileError("Rename Profile", "There is no saved profile to rename yet.")
+                        return
+                    end
+                    if EllesmereUI.IsReservedProfileName and EllesmereUI.IsReservedProfileName(activeName) then
+                        ShowProfileError("Rename Profile", "The built-in Custom profile cannot be renamed.")
+                        return
+                    end
+
+                    ShowNamePrompt({
+                        title = "Rename Profile",
+                        message = "Enter a new name for the profile you are using now.",
+                        placeholder = activeName,
+                        initialText = activeName,
+                        confirmText = "Rename",
+                        onConfirm = function(name)
+                            TryRenameProfile(activeName, name, false)
+                        end,
+                    })
+                end)
+
+            local deleteBtn = CreateFrame("Button", nil, rowFrame)
+            PP.Size(deleteBtn, BTN_W, DD_H)
+            PP.Point(deleteBtn, "LEFT", renameBtn, "RIGHT", BTN_GAP, 0)
+            deleteBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
+            EllesmereUI.MakeStyledButton(deleteBtn, "Delete", 13,
                 EllesmereUI.RB_COLOURS, function()
                     local activeName = EllesmereUI.GetActiveProfileName()
-                    if activeName == "Custom" then return end
+                    if not activeName then
+                        ShowProfileError("Delete Profile", "There is no saved profile to delete yet.")
+                        return
+                    end
+                    if EllesmereUI.IsReservedProfileName and EllesmereUI.IsReservedProfileName(activeName) then
+                        ShowProfileError("Delete Profile", "The built-in Custom profile cannot be deleted.")
+                        return
+                    end
+
                     EllesmereUI:ShowConfirmPopup({
                         title = "Delete Profile",
-                        message = "Delete \"" .. activeName .. "\"?",
+                        message = "Delete \"" .. activeName .. "\"? EllesmereUI will switch to another profile and reload your UI.",
                         confirmText = "Delete",
                         cancelText = "Cancel",
                         onConfirm = function()
-                            EllesmereUI.DeleteProfile(activeName)
-                            ddLabel:SetText(EllesmereUI.GetActiveProfileName())
-                            EllesmereUI:InvalidatePageCache()
-                            EllesmereUI:RefreshPage(true)
+                            local ok, resultOrErr = EllesmereUI.DeleteProfile(activeName)
+                            if ok then
+                                FinishProfileAction(resultOrErr)
+                            else
+                                ShowProfileError("Delete Profile", resultOrErr)
+                            end
                         end,
                     })
                 end)
+
+            dirtyStateLabel = EllesmereUI.MakeFont(rowFrame, 11, nil, 1, 1, 1)
+            dirtyStateLabel:SetPoint("TOPLEFT", ddBtn, "BOTTOMLEFT", 0, -4)
+            dirtyStateLabel:SetJustifyH("LEFT")
+
+            activeProfileNote = EllesmereUI.MakeFont(rowFrame, 11, nil, 1, 1, 1)
+            activeProfileNote:SetAlpha(0.52)
+            activeProfileNote:SetPoint("TOPLEFT", dirtyStateLabel, "BOTTOMLEFT", 0, -4)
+            activeProfileNote:SetPoint("RIGHT", rowFrame, "RIGHT", -20, 0)
+            activeProfileNote:SetJustifyH("LEFT")
+            activeProfileNote:SetWordWrap(true)
+            activeProfileNote:SetSpacing(2)
+
+            RefreshActiveProfileDisplay()
 
             y = y - ROW_H
         end
@@ -2944,7 +3270,7 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, "SPEC ASSIGNMENT", y);  y = y - h
 
         do
-            local ROW_H = 50
+            local ROW_H = 68
             local rowFrame = CreateFrame("Frame", nil, parent)
             local totalW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
             PP.Size(rowFrame, totalW, ROW_H)
@@ -2953,53 +3279,76 @@ initFrame:SetScript("OnEvent", function(self)
 
             local assignBtn = CreateFrame("Button", nil, rowFrame)
             PP.Size(assignBtn, 260, 30)
-            PP.Point(assignBtn, "CENTER", rowFrame, "CENTER", 0, 0)
+            PP.Point(assignBtn, "TOP", rowFrame, "TOP", 0, -10)
             assignBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
-            EllesmereUI.MakeStyledButton(assignBtn, "Assign Profiles to Specs", 13,
+            EllesmereUI.MakeStyledButton(assignBtn, "Assign Current Profile to Specs", 13,
                 EllesmereUI.WB_COLOURS, function()
-                    -- Adapter: convert specProfiles (specID→name) to the
-                    -- per-preset format the popup expects (name→{specID=true})
-                    local db = EllesmereUIDB or {}
+                    -- The popup edits a name -> spec-set map, while the stored
+                    -- profile data remains a simple `specID -> profileName`
+                    -- lookup. Build the inverted view on demand, then fold it
+                    -- back into the compact persisted shape when the user saves.
+                    if not EllesmereUIDB then EllesmereUIDB = {} end
+                    local db = EllesmereUIDB
                     if not db.specProfiles then db.specProfiles = {} end
 
-                    -- Build inverted table
                     local tempDB = { _profileSpecs = {} }
                     local order, profiles = EllesmereUI.GetProfileList()
-                    for _, pName in ipairs(order) do
-                        tempDB._profileSpecs[pName] = {}
+                    for _, profileName in ipairs(order) do
+                        if not EllesmereUI.IsProfileUsable or EllesmereUI.IsProfileUsable(profileName) then
+                            tempDB._profileSpecs[profileName] = {}
+                        end
                     end
-                    for specID, pName in pairs(db.specProfiles) do
-                        if tempDB._profileSpecs[pName] then
-                            tempDB._profileSpecs[pName][specID] = true
+                    for specID, profileName in pairs(db.specProfiles) do
+                        if tempDB._profileSpecs[profileName] then
+                            tempDB._profileSpecs[profileName][specID] = true
                         end
                     end
 
                     local activeName = EllesmereUI.GetActiveProfileName()
+                    if not activeName then
+                        ShowProfileError("Assign Profile to Specs", "There is no saved profile to assign yet.")
+                        return
+                    end
+
                     EllesmereUI:ShowSpecAssignPopup({
                         db = tempDB,
                         dbKey = "_profileSpecs",
                         presetKey = activeName,
+                        titleText = "Assign Profile to Specs",
+                        subtitleBuilder = function(profileName)
+                            return "You are choosing which specs should use: " .. profileName
+                                .. "\nChecked specs will switch to this profile automatically. If a spec is already assigned to another profile, checking it here will move it to this one."
+                        end,
                         allPresetKeys = function()
                             local list = {}
-                            for _, n in ipairs(order) do
-                                if profiles[n] then
-                                    list[#list + 1] = { key = n, name = n }
+                            for _, profileName in ipairs(order) do
+                                if profiles[profileName]
+                                    and (not EllesmereUI.IsProfileUsable or EllesmereUI.IsProfileUsable(profileName)) then
+                                    list[#list + 1] = { key = profileName, name = profileName }
                                 end
                             end
                             return list
                         end,
                         onDone = function()
-                            -- Convert back: inverted table → specProfiles
                             db.specProfiles = {}
-                            for pName, specSet in pairs(tempDB._profileSpecs) do
+                            for profileName, specSet in pairs(tempDB._profileSpecs) do
                                 for specID in pairs(specSet) do
-                                    db.specProfiles[specID] = pName
+                                    EllesmereUI.AssignProfileToSpec(profileName, specID)
                                 end
                             end
                             EllesmereUI:RefreshPage()
                         end,
                     })
                 end)
+
+            local note = EllesmereUI.MakeFont(rowFrame, 11, nil, 1, 1, 1)
+            note:SetAlpha(0.52)
+            note:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", 20, -48)
+            note:SetPoint("RIGHT", rowFrame, "RIGHT", -20, 0)
+            note:SetJustifyH("LEFT")
+            note:SetWordWrap(true)
+            note:SetSpacing(2)
+            note:SetText("Choose which profile each spec should use. EllesmereUI will switch to it automatically when you change specs.")
 
             y = y - ROW_H
         end
@@ -3009,53 +3358,51 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "IMPORT / EXPORT", y);  y = y - h
 
-        -- Export full profile button
         _, h = W:WideButton(parent, "Export Current Profile", y, function()
-            local str = EllesmereUI.ExportCurrentProfile()
+            local str, err = EllesmereUI.ExportCurrentProfile()
             if str then
                 EllesmereUI:ShowExportPopup(str)
+            else
+                ShowProfileError("Export Failed", err)
             end
         end);  y = y - h
 
-        -- Import profile button
         _, h = W:WideButton(parent, "Import Profile", y, function()
             EllesmereUI:ShowImportPopup(function(importStr)
-                -- Force name the import
-                EllesmereUI:ShowInputPopup({
-                    title = "Name This Profile",
-                    message = "Enter a name for the imported profile:",
-                    placeholder = "Imported Profile",
-                    confirmText = "Import",
-                    cancelText = "Cancel",
-                    onConfirm = function(name)
-                        if not name or name == "" then return end
-                        local ok, err = EllesmereUI.ImportProfile(importStr, name)
-                        if ok then
-                            ddLabel:SetText(name)
-                            EllesmereUI:InvalidatePageCache()
-                            EllesmereUI:RefreshPage(true)
-                            ReloadUI()
-                        else
-                            EllesmereUI:ShowInfoPopup({
-                                title = "Import Failed",
-                                content = err or "Unknown error",
-                            })
-                        end
-                    end,
-                })
+                OpenImportNamingFlow(importStr, nil)
             end)
         end);  y = y - h
+
+        do
+            local ROW_H = missingAddonsText and 56 or 36
+            local scopeFrame = CreateFrame("Frame", nil, parent)
+            local totalW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
+            PP.Size(scopeFrame, totalW, ROW_H)
+            PP.Point(scopeFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
+
+            local scopeNote = EllesmereUI.MakeFont(scopeFrame, 11, nil, 1, 1, 1)
+            scopeNote:SetAlpha(0.52)
+            scopeNote:SetPoint("TOPLEFT", scopeFrame, "TOPLEFT", 0, 0)
+            scopeNote:SetPoint("RIGHT", scopeFrame, "RIGHT", 0, 0)
+            scopeNote:SetJustifyH("LEFT")
+            scopeNote:SetWordWrap(true)
+            scopeNote:SetSpacing(2)
+            scopeNote:SetText("This profile currently includes settings for: " .. includedAddonsText .. "."
+                .. (missingAddonsText
+                    and "\nThese addons are not loaded right now, so their settings will not be updated until they are enabled again: " .. missingAddonsText .. "."
+                    or ""))
+
+            y = y - ROW_H
+        end
 
         -------------------------------------------------------------------
         --  PER-ADDON EXPORT section
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "PER-ADDON EXPORT", y);  y = y - h
 
-        -- Addon checkboxes for selective export
         local selectedAddons = {}
         do
-            local ADDON_DB_MAP_LOCAL = EllesmereUI._ADDON_DB_MAP
-            for _, entry in ipairs(ADDON_DB_MAP_LOCAL) do
+            for _, entry in ipairs(ADDON_DB_MAP) do
                 if C_AddOns.IsAddOnLoaded(entry.folder) then
                     local isChecked = false
                     _, h = W:Checkbox(parent, entry.display, y,
@@ -3073,20 +3420,23 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Export selected addons button
         _, h = W:WideButton(parent, "Export Selected Addons", y, function()
             local folders = {}
             for folder in pairs(selectedAddons) do
                 folders[#folders + 1] = folder
             end
-            if #folders == 0 then return end
-            local str = EllesmereUI.ExportAddons(folders)
+            if #folders == 0 then
+                ShowProfileError("Export Failed", "Select at least one addon to export.")
+                return
+            end
+            local str, err = EllesmereUI.ExportAddons(folders)
             if str then
                 EllesmereUI:ShowExportPopup(str)
+            else
+                ShowProfileError("Export Failed", err)
             end
         end);  y = y - h
 
-        -- "How does this work?" link
         do
             local ROW_H = 30
             local infoFrame = CreateFrame("Frame", nil, parent)
@@ -3112,19 +3462,21 @@ initFrame:SetScript("OnEvent", function(self)
             infoBtn:SetScript("OnClick", function()
                 EllesmereUI:ShowInfoPopup({
                     title = "Profile Import / Export",
-                    content = "Profiles contain all your settings across every EllesmereUI addon, including bar positions, colors, fonts, and visual preferences.\n\n"
-                        .. "FULL PROFILE EXPORT\n"
-                        .. "Exports everything into a single string. When someone imports it, they get an exact copy of your entire setup.\n\n"
+                    content = "PROFILE SCOPE\n"
+                        .. "Profiles currently include these EllesmereUI addons: " .. includedAddonsText .. ". Shared fonts and custom colors are included too."
+                        .. (missingAddonsText
+                            and "\n\nThese addons are not loaded right now, so their settings will not be updated until they are enabled again: " .. missingAddonsText .. "."
+                            or "")
+                        .. "\n\nEXCLUDED SETTINGS\n"
+                        .. "Profiles do not include Global Settings on this page, Party Mode, panel scale, minimap button position, privacy and debug settings, or other machine- or character-specific settings.\n\n"
+                        .. "SWITCHING AND IMPORTING\n"
+                        .. "When you switch or import a profile, EllesmereUI saves your current settings first, then reloads your UI so the new profile is applied cleanly.\n\n"
+                        .. "SPEC ASSIGNMENTS\n"
+                        .. "If you assign profiles to specs, EllesmereUI switches them automatically when you change specs.\n\n"
+                        .. "ERRORS\n"
+                        .. "If a profile string is invalid or from an incompatible version, EllesmereUI shows an error instead of importing it.\n\n"
                         .. "PER-ADDON EXPORT\n"
-                        .. "Select specific addons to export. The recipient can import just those addon settings without affecting their other settings. "
-                        .. "When importing a partial profile, your current settings are preserved for all addons not included in the import.\n\n"
-                        .. "IMPORTING\n"
-                        .. "Paste the import string, give it a name, and it becomes your new active profile. "
-                        .. "Your previous profiles are never overwritten — importing always creates a new profile.\n\n"
-                        .. "SPEC ASSIGNMENT\n"
-                        .. "Assign different profiles to different specs. When you switch specs, your profile automatically switches too. "
-                        .. "Your current profile is saved before switching so no settings are lost.\n\n"
-                        .. "Global Settings (this page) and Party Mode settings are not included in profile exports.",
+                        .. "Selective exports only include the addons you choose, plus shared fonts and custom colors. Anything you leave out keeps its current settings.",
                 })
             end)
 
@@ -3136,7 +3488,6 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "POPULAR PRESETS", y);  y = y - h
 
-        -- EllesmereUI preset (applies defaults)
         _, h = W:WideButton(parent, "EllesmereUI (Default)", y, function()
             EllesmereUI:ShowConfirmPopup({
                 title = "Apply EllesmereUI Defaults",
@@ -3144,8 +3495,6 @@ initFrame:SetScript("OnEvent", function(self)
                 confirmText = "Apply",
                 cancelText = "Cancel",
                 onConfirm = function()
-                    -- Reset all addons to defaults by reloading
-                    -- Store intent in DB so post-reload we know to reset
                     if EllesmereUIDB then
                         EllesmereUIDB._pendingPresetReset = "ellesmereui"
                     end
@@ -3154,7 +3503,6 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end);  y = y - h
 
-        -- Spin the Wheel preset
         _, h = W:WideButton(parent, "Spin the Wheel (Randomize)", y, function()
             EllesmereUI:ShowConfirmPopup({
                 title = "Spin the Wheel",
@@ -3163,46 +3511,33 @@ initFrame:SetScript("OnEvent", function(self)
                 cancelText = "Cancel",
                 onConfirm = function()
                     EllesmereUI.SpinTheWheel()
-                    EllesmereUI.SaveCurrentAsProfile("Spin the Wheel")
-                    ReloadUI()
+                    local ok, resultOrErr = EllesmereUI.SaveCurrentAsProfile("Spin the Wheel", {
+                        allowOverwrite = true,
+                    })
+                    if ok then
+                        FinishProfileAction({
+                            profileName = (resultOrErr and resultOrErr.profileName) or "Spin the Wheel",
+                            requiresReload = true,
+                        })
+                    else
+                        ShowProfileError("Preset Error", resultOrErr)
+                    end
                 end,
             })
         end);  y = y - h
 
-        -- Weekly Spotlight (if set)
         if EllesmereUI.WEEKLY_SPOTLIGHT then
             local spot = EllesmereUI.WEEKLY_SPOTLIGHT
             _, h = W:WideButton(parent,
                 "Weekly Spotlight: " .. spot.name, y, function()
-                    if spot.exportString then
-                        local ok, err = EllesmereUI.ImportProfile(
-                            spot.exportString, "Weekly: " .. spot.name)
-                        if ok then
-                            ReloadUI()
-                        else
-                            EllesmereUI:ShowInfoPopup({
-                                title = "Spotlight Error",
-                                content = err or "Unknown error",
-                            })
-                        end
-                    end
+                    TryPresetImport(spot.exportString, "Weekly: " .. spot.name, "Spotlight Error")
                 end);  y = y - h
         end
 
-        -- Additional popular presets from the hardcoded list
         for _, preset in ipairs(EllesmereUI.POPULAR_PRESETS) do
             if preset.exportString then
                 _, h = W:WideButton(parent, preset.name, y, function()
-                    local ok, err = EllesmereUI.ImportProfile(
-                        preset.exportString, preset.name)
-                    if ok then
-                        ReloadUI()
-                    else
-                        EllesmereUI:ShowInfoPopup({
-                            title = "Preset Error",
-                            content = err or "Unknown error",
-                        })
-                    end
+                    TryPresetImport(preset.exportString, preset.name, "Preset Error")
                 end);  y = y - h
             end
         end
@@ -3214,8 +3549,8 @@ initFrame:SetScript("OnEvent", function(self)
     --  Enabled Addons page
     ---------------------------------------------------------------------------
 
-    local disabledList = { PAGE_CORE, PAGE_PROFILES }
-    local disabledTips = { [PAGE_CORE] = "Coming Soon", [PAGE_PROFILES] = "Coming Soon" }
+    local disabledList = { PAGE_CORE }
+    local disabledTips = { [PAGE_CORE] = "Coming Soon" }
 
     EllesmereUI:RegisterModule(GLOBAL_KEY, {
         title       = "Global Settings",

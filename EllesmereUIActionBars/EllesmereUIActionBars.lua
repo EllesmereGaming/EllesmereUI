@@ -3877,6 +3877,10 @@ function EAB:OnInitialize()
     -- Edit Mode has fully applied bar positions/sizes.
     self._needsCapture = not self.db.profile._capturedOnce
 
+    -- Suite-level profile swaps can reuse the same visual apply path the
+    -- options panel already relies on, so expose it for live spec switching.
+    _G._EAB_Apply = ApplyAll
+
     -- Migration: convert old settings formats if needed
     local p = self.db.profile
     if p.font and p.font:find("EllesmereUIActionBars") and not p.font:find("\\EllesmereUI\\") then
