@@ -52,7 +52,7 @@ do
         { class = "DEMONHUNTER",  name = "Demon Hunter",  specs = {
             { id = 577, name = "Havoc" },
             { id = 581, name = "Vengeance" },
-            { id = 1456, name = "Devourer" },
+            { id = 1480, name = "Devourer" },
         }},
         { class = "DRUID",        name = "Druid",         specs = {
             { id = 102, name = "Balance" },
@@ -127,11 +127,12 @@ do
         local allPresetKeysFn = opts.allPresetKeys
         local onDefaultChanged = opts.onDefaultChanged
         local onDone = opts.onDone
+        local titleText = opts.titleText
+        local subtitleBuilder = opts.subtitleBuilder
 
         -- Ensure assignments table exists
         if not db[dbKey] then db[dbKey] = {} end
         if not db[dbKey][presetKey] then db[dbKey][presetKey] = {} end
-        local assignments = db[dbKey][presetKey]
 
         -- Build or reuse the popup
         if not specPopup then
@@ -472,15 +473,23 @@ do
             specPopup = popup
         end
 
+        local function ResolvePresetDisplayName(key)
+            if not key then return "" end
+            if key == "custom" then return "Custom" end
+            if key == "ellesmereui" then return "EllesmereUI" end
+            if key == "spinthewheel" then return "Spin the Wheel" end
+            if key:sub(1, 5) == "user:" then return key:sub(6) end
+            return key
+        end
+
         -- Update title with preset name
-        local presetName
-        if presetKey == "custom" then presetName = "Custom"
-        elseif presetKey == "ellesmereui" then presetName = "EllesmereUI"
-        elseif presetKey == "spinthewheel" then presetName = "Spin the Wheel"
-        elseif presetKey:sub(1, 5) == "user:" then presetName = presetKey:sub(6)
-        else presetName = presetKey end
-        specPopup._title:SetText("Assign Preset to Specs")
-        specPopup._subtitle:SetText("Select which specs you want " .. presetName .. " to be assigned to")
+        local presetName = ResolvePresetDisplayName(presetKey)
+        specPopup._title:SetText(titleText or "Assign Preset to Specs")
+        if subtitleBuilder then
+            specPopup._subtitle:SetText(subtitleBuilder(presetName, presetKey) or "")
+        else
+            specPopup._subtitle:SetText("Select which specs you want " .. presetName .. " to be assigned to")
+        end
 
         -- Populate columns
         local FONT = EllesmereUI._font or ("Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf")
@@ -494,24 +503,29 @@ do
         local BOX_SZ = 18
         local CHECK_INSET = 3
 
-        -- Build lookup: specID -> presetKey for specs assigned to OTHER presets
-        local lockedSpecs = {}
-        do
-            local fullMap = db[dbKey]
-            if fullMap then
-                for pKey, specList in pairs(fullMap) do
-                    if pKey ~= presetKey and type(specList) == "table" then
-                        for sID in pairs(specList) do
-                            local dName
-                            if pKey == "custom" then dName = "Custom"
-                            elseif pKey == "ellesmereui" then dName = "EllesmereUI"
-                            elseif pKey == "spinthewheel" then dName = "Spin the Wheel"
-                            elseif pKey:sub(1, 5) == "user:" then dName = pKey:sub(6)
-                            else dName = pKey end
-                            lockedSpecs[sID] = dName
-                        end
-                    end
+        local fullMap = db[dbKey] or {}
+
+        local function GetAssignedProfileKey(specID)
+            for profileKey, specList in pairs(fullMap) do
+                if type(specList) == "table" and specList[specID] then
+                    return profileKey
                 end
+            end
+            return nil
+        end
+
+        local function SetAssignedProfileKey(specID, targetProfileKey)
+            for profileKey, specList in pairs(fullMap) do
+                if type(specList) == "table" then
+                    specList[specID] = nil
+                end
+            end
+
+            if targetProfileKey then
+                if not fullMap[targetProfileKey] then
+                    fullMap[targetProfileKey] = {}
+                end
+                fullMap[targetProfileKey][specID] = true
             end
         end
 
@@ -586,9 +600,19 @@ do
                         row._check = check
                         row._box = box
 
+                        local hint = row:CreateFontString(nil, "OVERLAY")
+                        hint:SetFont(FONT, 11, "")
+                        hint:SetWidth(72)
+                        hint:SetJustifyH("RIGHT")
+                        PP.Point(hint, "RIGHT", row, "RIGHT", -6, 0)
+                        hint:SetTextColor(1, 1, 1, 0.32)
+                        row._hint = hint
+
                         local lbl = row:CreateFontString(nil, "OVERLAY")
                         lbl:SetFont(FONT, 17, "")
                         PP.Point(lbl, "LEFT", box, "RIGHT", 8, 0)
+                        lbl:SetPoint("RIGHT", hint, "LEFT", -6, 0)
+                        lbl:SetJustifyH("LEFT")
                         lbl:SetTextColor(1, 1, 1, 0.65)
                         row._lbl = lbl
                     end
@@ -599,47 +623,65 @@ do
 
                     row._lbl:SetText(spec.name)
                     row._specID = spec.id
+                    row._priorOwner = row._priorOwner or nil
 
-                    local lockedBy = lockedSpecs[spec.id]
-                    row._locked = lockedBy ~= nil
-
-                    local checked = assignments[spec.id] == true
-                    row._checked = checked
                     local EG = ELLESMERE_GREEN
-                    local function UpdateVisual(r)
-                        if r._locked then
-                            r._check:Hide()
-                            r._boxBorder:SetColor(BORDER_R, BORDER_G, BORDER_B, CB_BRD_A * 0.4)
-                            r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 0.35)
-                            r._lbl:SetTextColor(1, 1, 1, 0.25)
-                        elseif r._checked then
+                    local function UpdateVisual(r, hovered)
+                        local assignedProfileKey = GetAssignedProfileKey(r._specID)
+                        local assignedProfileName = ResolvePresetDisplayName(assignedProfileKey)
+
+                        r._checked = (assignedProfileKey == presetKey)
+                        if r._checked then
                             r._check:Show()
                             r._boxBorder:SetColor(EG.r, EG.g, EG.b, CB_ACT_BRD_A)
                             r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
-                            r._lbl:SetTextColor(1, 1, 1, 0.65)
+                            r._lbl:SetTextColor(1, 1, 1, hovered and 0.90 or 0.65)
+                            if r._priorOwner and r._priorOwner ~= presetKey then
+                                r._hint:SetText("Replaces " .. ResolvePresetDisplayName(r._priorOwner))
+                                r._hint:SetTextColor(EG.r, EG.g, EG.b, hovered and 0.90 or 0.70)
+                            else
+                                r._hint:SetText("")
+                            end
                         else
                             r._check:Hide()
                             r._boxBorder:SetColor(BORDER_R, BORDER_G, BORDER_B, CB_BRD_A)
                             r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
-                            r._lbl:SetTextColor(1, 1, 1, 0.65)
+                            r._lbl:SetTextColor(1, 1, 1, hovered and 0.90 or 0.65)
+                            if assignedProfileKey and assignedProfileKey ~= presetKey then
+                                r._hint:SetText("Assigned: " .. assignedProfileName)
+                                r._hint:SetTextColor(1, 1, 1, hovered and 0.50 or 0.32)
+                            else
+                                r._hint:SetText("")
+                            end
                         end
                     end
                     UpdateVisual(row)
                     allCheckboxes[#allCheckboxes + 1] = row
 
                     row:SetScript("OnClick", function(self)
-                        if self._locked then return end
-                        self._checked = not self._checked
-                        assignments[spec.id] = self._checked or nil
-                        UpdateVisual(self)
+                        if self._checked then
+                            if self._priorOwner and self._priorOwner ~= presetKey then
+                                SetAssignedProfileKey(self._specID, self._priorOwner)
+                                self._priorOwner = nil
+                            else
+                                SetAssignedProfileKey(self._specID, nil)
+                            end
+                        else
+                            local currentOwner = GetAssignedProfileKey(self._specID)
+                            if currentOwner and currentOwner ~= presetKey then
+                                self._priorOwner = currentOwner
+                            else
+                                self._priorOwner = nil
+                            end
+                            SetAssignedProfileKey(self._specID, presetKey)
+                        end
+                        UpdateVisual(self, true)
                     end)
                     row:SetScript("OnEnter", function(self)
-                        if self._locked then return end
-                        self._lbl:SetTextColor(1, 1, 1, 0.90)
+                        UpdateVisual(self, true)
                     end)
                     row:SetScript("OnLeave", function(self)
-                        if self._locked then return end
-                        self._lbl:SetTextColor(1, 1, 1, 0.65)
+                        UpdateVisual(self, false)
                     end)
 
                     yOff = yOff + SPEC_H
@@ -649,23 +691,31 @@ do
 
         -- Check All / Uncheck All wiring
         specPopup._checkAll:SetScript("OnClick", function()
-            local EG2 = ELLESMERE_GREEN
             for _, row in ipairs(allCheckboxes) do
-                if not row._locked then
-                    row._checked = true
-                    assignments[row._specID] = true
-                    row._check:Show()
-                    row._boxBorder:SetColor(EG2.r, EG2.g, EG2.b, CB_ACT_BRD_A)
+                if not row._checked then
+                    local currentOwner = GetAssignedProfileKey(row._specID)
+                    if currentOwner and currentOwner ~= presetKey then
+                        row._priorOwner = currentOwner
+                    end
+                    SetAssignedProfileKey(row._specID, presetKey)
+                    if row:GetScript("OnLeave") then
+                        row:GetScript("OnLeave")(row)
+                    end
                 end
             end
         end)
         specPopup._uncheckAll:SetScript("OnClick", function()
             for _, row in ipairs(allCheckboxes) do
-                if not row._locked then
-                    row._checked = false
-                    assignments[row._specID] = nil
-                    row._check:Hide()
-                    row._boxBorder:SetColor(BORDER_R, BORDER_G, BORDER_B, CB_BRD_A)
+                if row._checked then
+                    if row._priorOwner and row._priorOwner ~= presetKey then
+                        SetAssignedProfileKey(row._specID, row._priorOwner)
+                        row._priorOwner = nil
+                    else
+                        SetAssignedProfileKey(row._specID, nil)
+                    end
+                    if row:GetScript("OnLeave") then
+                        row:GetScript("OnLeave")(row)
+                    end
                 end
             end
         end)
@@ -677,12 +727,7 @@ do
             specPopup._defDDContainer:Show()
 
             local function DefPresetDisplayName(key)
-                if not key then return "" end
-                if key == "custom" then return "Custom" end
-                if key == "ellesmereui" then return "EllesmereUI" end
-                if key == "spinthewheel" then return "Spin the Wheel" end
-                if key:sub(1, 5) == "user:" then return key:sub(6) end
-                return key
+                return ResolvePresetDisplayName(key)
             end
 
             if selectedDefaultKey then

@@ -5723,6 +5723,10 @@ function SetupOptionsPanel()
             reloadThrottle:Show()
         end
     end
+
+    -- Live profile swaps need a lightweight runtime hook to rebuild frame
+    -- geometry from the newly applied DB values without forcing a full reload.
+    _G._EUF_Apply = ns.ReloadFrames
     ns.ResolveFontPath = ResolveFontPath
 
     -- Trigger the EllesmereUI options module registration now that ns.db is ready
