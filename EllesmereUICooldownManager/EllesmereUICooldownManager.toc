@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: CDM look customization, action bar glows, and buff bars
 ## Author: Ellesmere
-## Version: 3.6.5
+## Version: 3.6.7
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUICooldownManagerDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga

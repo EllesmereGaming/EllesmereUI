@@ -105,6 +105,14 @@ end
 local _multiChargeSpells = {}
 local _maxChargeCount    = {}  -- [spellID] = maxCharges, populated alongside _multiChargeSpells
 
+-- Spells that use the charge system but start at 0 and build stacks in combat.
+-- These report maxCharges > 1 but currentCharges = 0 at rest, so we hide the
+-- charge text when it would show "0".
+local _zeroStartChargeSpells = {
+    [399491] = true,  -- Teachings of the Monastery
+    [115294] = true,  -- Mana Tea
+}
+
 local function CacheMultiChargeSpell(spellID)
     if not spellID or not C_Spell.GetSpellCharges then return end
     if _multiChargeSpells[spellID] ~= nil then return end
@@ -150,6 +158,12 @@ ns.CacheMultiChargeSpell = CacheMultiChargeSpell
 -- OOC and persist to SavedVariables for combat use.
 -- Maps spellID -> last known count (number) or false (confirmed not a cast-count spell)
 local _castCountSpells = {}
+
+-- Pre-seed zero-start charge spells so the cast-count display path
+-- always recognizes them without needing to see count > 0 OOC first.
+for sid in pairs(_zeroStartChargeSpells) do
+    _castCountSpells[sid] = true
+end
 
 local function CacheCastCountSpell(spellID)
     if not spellID or not C_Spell.GetSpellCastCount then return end
@@ -413,7 +427,11 @@ local function ApplySpellCooldown(icon, spellID, desatOnCD, showCharges, swAlpha
 
     -- Charge text: show spell charges for charge-based spells, or aura stacks as fallback
     if showCharges then
-        if isChargeSpell then
+        -- Zero-start charge spells (e.g. Teachings of the Monastery, Mana Tea)
+        -- report as charge spells but start at 0 stacks. Treat them as non-charge
+        -- so they fall through to the aura/cast-count path which handles 0 correctly.
+        local useChargePath = isChargeSpell and not _zeroStartChargeSpells[spellID]
+        if useChargePath then
             local charges = _tickChargeCache[spellID]
             if charges == nil then
                 charges = C_Spell.GetSpellCharges(spellID) or false
