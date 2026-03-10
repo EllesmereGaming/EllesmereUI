@@ -623,6 +623,8 @@ local function ApplyHealthBarTexture(health, unitKey)
     else
         health:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
     end
+    local hFill = health:GetStatusBarTexture()
+    if hFill then UnsnapTex(hFill) end
 
     -- Power bar: same texture
     local frame = health:GetParent()
@@ -633,6 +635,8 @@ local function ApplyHealthBarTexture(health, unitKey)
         else
             power:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
         end
+        local pFill = power:GetStatusBarTexture()
+        if pFill then UnsnapTex(pFill) end
     end
 end
 
@@ -1766,6 +1770,8 @@ local function CreateHealthBar(frame, unit, height, xOffset, settings, rightInse
     rightInset = rightInset or 0
 
     local health = CreateFrame("StatusBar", nil, frame)
+    health:SetFrameStrata(frame:GetFrameStrata())
+    health:SetFrameLevel(frame:GetFrameLevel() + 2)
     -- Two-point horizontal anchoring: width is derived from the frame so it can
     -- never exceed the frame boundary regardless of pixel-snapping rounding.
     PP.Point(health, "TOPLEFT", frame, "TOPLEFT", xOffset, 0)
@@ -1828,6 +1834,8 @@ local function CreatePowerBar(frame, unit, settings)
     local powerPos = settings.powerPosition or "below"
 
     local power = CreateFrame("StatusBar", nil, frame)
+    power:SetFrameStrata(frame:GetFrameStrata())
+    power:SetFrameLevel(frame:GetFrameLevel() + 3)
     local pw = settings.frameWidth
     local isDetached = (powerPos == "detached_top" or powerPos == "detached_bottom")
     if isDetached and (settings.powerWidth or 0) > 0 then
@@ -1839,21 +1847,30 @@ local function CreatePowerBar(frame, unit, settings)
         power:Hide()
     elseif powerPos == "above" then
         PP.Point(power, "BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
+        PP.Point(power, "BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
+        PP.Width(power, frame.Health:GetWidth())
     elseif powerPos == "detached_top" then
         power:SetPoint("BOTTOM", frame.Health, "TOP", settings.powerX or 0, 15 + (settings.powerY or 0))
     elseif powerPos == "detached_bottom" then
         power:SetPoint("TOP", frame.Health, "BOTTOM", settings.powerX or 0, -15 + (settings.powerY or 0))
     else -- "below" (default)
         PP.Point(power, "TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
+        PP.Point(power, "TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
+        PP.Width(power, frame.Health:GetWidth())
     end
 
     power:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     power:GetStatusBarTexture():SetHorizTile(false)
+    do
+        local pFill = power:GetStatusBarTexture()
+        if pFill then UnsnapTex(pFill) end
+    end
 
     local bg = power:CreateTexture(nil, "BACKGROUND")
     PP.Point(bg, "TOPLEFT", power, "TOPLEFT", 0, 0)
     PP.Point(bg, "BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
     bg:SetColorTexture(0, 0, 0, 1)
+    UnsnapTex(bg)
     power.bg = bg
 
     -- Power bar fill color: controlled by powerPercentPowerColor toggle
@@ -2054,6 +2071,8 @@ local function CreatePortrait(frame, side, frameHeight, unit)
     end
 
     local backdrop = CreateFrame("Frame", nil, frame)
+    backdrop:SetFrameStrata(frame:GetFrameStrata())
+    backdrop:SetFrameLevel(frame:GetFrameLevel() + 1)
     PP.Size(backdrop, adjustedHeight, adjustedHeight)
     backdrop:SetClipsChildren(true)
 
@@ -4205,6 +4224,8 @@ local function ReloadFrames()
                             frame.Power:Hide()
                         elseif ppPos == "above" then
                             PP.Point(frame.Power, "BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
+                            PP.Point(frame.Power, "BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
+                            PP.Width(frame.Power, frame.Health:GetWidth())
                             frame.Power:Show()
                         elseif ppPos == "detached_top" then
                             frame.Power:SetPoint("BOTTOM", frame.Health, "TOP", settings.powerX or 0, 15 + (settings.powerY or 0))
@@ -4214,6 +4235,8 @@ local function ReloadFrames()
                             frame.Power:Show()
                         else
                             PP.Point(frame.Power, "TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
+                            PP.Point(frame.Power, "TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
+                            PP.Width(frame.Power, frame.Health:GetWidth())
                             frame.Power:Show()
                         end
                         if frame.Power._applyPowerPercentText then frame.Power._applyPowerPercentText(settings) end
@@ -4521,6 +4544,8 @@ local function ReloadFrames()
                             frame.Power:Hide()
                         elseif ppPos == "above" then
                             PP.Point(frame.Power, "BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
+                            PP.Point(frame.Power, "BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
+                            PP.Width(frame.Power, frame.Health:GetWidth())
                             frame.Power:Show()
                         elseif ppPos == "detached_top" then
                             frame.Power:SetPoint("BOTTOM", frame.Health, "TOP", settings.powerX or 0, 15 + (settings.powerY or 0))
@@ -4530,6 +4555,8 @@ local function ReloadFrames()
                             frame.Power:Show()
                         else
                             PP.Point(frame.Power, "TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
+                            PP.Point(frame.Power, "TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
+                            PP.Width(frame.Power, frame.Health:GetWidth())
                             frame.Power:Show()
                         end
                         if frame.Power._applyPowerPercentText then frame.Power._applyPowerPercentText(settings) end
@@ -4861,6 +4888,8 @@ local function ReloadFrames()
                         frame.Power:Hide()
                     elseif fPpPos == "above" then
                         PP.Point(frame.Power, "BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
+                        PP.Point(frame.Power, "BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
+                        PP.Width(frame.Power, frame.Health:GetWidth())
                         frame.Power:Show()
                     elseif fPpPos == "detached_top" then
                         frame.Power:SetPoint("BOTTOM", frame.Health, "TOP", settings.powerX or 0, 15 + (settings.powerY or 0))
@@ -4870,6 +4899,8 @@ local function ReloadFrames()
                         frame.Power:Show()
                     else
                         PP.Point(frame.Power, "TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
+                        PP.Point(frame.Power, "TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
+                        PP.Width(frame.Power, frame.Health:GetWidth())
                         frame.Power:Show()
                     end
                     if frame.Power._applyPowerPercentText then frame.Power._applyPowerPercentText(settings) end
@@ -5084,6 +5115,8 @@ local function ReloadFrames()
                         frame.Power:Hide()
                     elseif bPpPos == "above" then
                         PP.Point(frame.Power, "BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
+                        PP.Point(frame.Power, "BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
+                        PP.Width(frame.Power, frame.Health:GetWidth())
                         frame.Power:Show()
                     elseif bPpPos == "detached_top" then
                         frame.Power:SetPoint("BOTTOM", frame.Health, "TOP", settings.powerX or 0, 15 + (settings.powerY or 0))
@@ -5093,6 +5126,8 @@ local function ReloadFrames()
                         frame.Power:Show()
                     else
                         PP.Point(frame.Power, "TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
+                        PP.Point(frame.Power, "TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
+                        PP.Width(frame.Power, frame.Health:GetWidth())
                         frame.Power:Show()
                     end
                     if frame.Power._applyPowerPercentText then frame.Power._applyPowerPercentText(settings) end
@@ -6001,6 +6036,50 @@ function InitializeFrames()
             ApplyDetachedPortraitShape(backdrop, uSettings, unitKey)
         end
     end)
+
+    -- Final startup normalization: some late login updates can re-anchor power
+    -- bars after frame construction. Re-apply attached anchors once more.
+    local function NormalizePowerAnchors()
+        local function FixFor(frame, unitKey)
+            if not frame or not frame.Power or not frame.Health then return end
+            local s = GetSettingsForUnit(unitKey)
+            if not s then return end
+            local ppPos = s.powerPosition or "below"
+            if ppPos ~= "below" and ppPos ~= "above" then return end
+            local xShift = 0
+            if unitKey == "player" then
+                local ph = s.powerHeight or 6
+                if ph >= 4 and ph <= 8 then
+                    xShift = 1
+                end
+            end
+
+            frame.Power:ClearAllPoints()
+            if ppPos == "above" then
+                PP.Point(frame.Power, "BOTTOMLEFT", frame.Health, "TOPLEFT", xShift, 0)
+                PP.Point(frame.Power, "BOTTOMRIGHT", frame.Health, "TOPRIGHT", xShift, 0)
+            else
+                PP.Point(frame.Power, "TOPLEFT", frame.Health, "BOTTOMLEFT", xShift, 0)
+                PP.Point(frame.Power, "TOPRIGHT", frame.Health, "BOTTOMRIGHT", xShift, 0)
+            end
+
+            if frame.Power:IsShown() then
+                PP.Width(frame.Power, frame.Health:GetWidth())
+            end
+        end
+
+        FixFor(frames.player, "player")
+        FixFor(frames.target, "target")
+        FixFor(frames.focus, "focus")
+        for i = 1, 5 do
+            local bf = frames["boss" .. i]
+            if bf then FixFor(bf, "boss") end
+        end
+    end
+
+    C_Timer.After(0, NormalizePowerAnchors)
+    C_Timer.After(0.35, NormalizePowerAnchors)
+    C_Timer.After(1.0, NormalizePowerAnchors)
 end
 
 

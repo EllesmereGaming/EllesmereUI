@@ -1190,13 +1190,15 @@ initFrame:SetScript("OnEvent", function(self)
             if initPpPos == "none" then
                 power:Hide()
             elseif initPpPos == "above" then
-                PP.Point(power, "BOTTOM", health, "TOP", 0, 0)
+                PP.Point(power, "BOTTOMLEFT", health, "TOPLEFT", 0, 0)
+                PP.Point(power, "BOTTOMRIGHT", health, "TOPRIGHT", 0, 0)
             elseif initPpPos == "detached_top" then
                 power:SetPoint("BOTTOM", health, "TOP", settings.powerX or 0, 15 + (settings.powerY or 0))
             elseif initPpPos == "detached_bottom" then
                 power:SetPoint("TOP", health, "BOTTOM", settings.powerX or 0, -15 + (settings.powerY or 0))
             else
                 PP.Point(power, "TOPLEFT", health, "BOTTOMLEFT", 0, 0)
+                PP.Point(power, "TOPRIGHT", health, "BOTTOMRIGHT", 0, 0)
             end
 
             -- Power percent text overlay in preview (parented to pf, above border)
@@ -1876,7 +1878,8 @@ initFrame:SetScript("OnEvent", function(self)
                 if pvPpPos == "none" then
                     power:Hide()
                 elseif pvPpPos == "above" then
-                    PP.Point(power, "BOTTOM", health, "TOP", 0, 0)
+                    PP.Point(power, "BOTTOMLEFT", health, "TOPLEFT", 0, 0)
+                    PP.Point(power, "BOTTOMRIGHT", health, "TOPRIGHT", 0, 0)
                     if ph > 0 then power:Show() else power:Hide() end
                 elseif pvPpPos == "detached_top" then
                     power:SetPoint("BOTTOM", health, "TOP", s.powerX or 0, 15 + (s.powerY or 0))
@@ -1886,6 +1889,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if ph > 0 then power:Show() else power:Hide() end
                 else -- "below"
                     PP.Point(power, "TOPLEFT", health, "BOTTOMLEFT", 0, 0)
+                    PP.Point(power, "TOPRIGHT", health, "BOTTOMRIGHT", 0, 0)
                     if ph > 0 then power:Show() else power:Hide() end
                 end
                 if pf._powerFill then
