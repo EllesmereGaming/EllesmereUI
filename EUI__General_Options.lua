@@ -2929,7 +2929,7 @@ initFrame:SetScript("OnEvent", function(self)
                 lbl:SetTextColor(1, 1, 1, EllesmereUI.TEXT_DIM_A)
                 itm._lbl = lbl
                 local hl = itm:CreateTexture(nil, "ARTWORK")
-                hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0)
+                hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 1); hl:SetAlpha(0)
                 itm._hl = hl
                 itm:SetScript("OnEnter", function() lbl:SetTextColor(1,1,1,1); hl:SetAlpha(EllesmereUI.DD_ITEM_HL_A) end)
                 itm:SetScript("OnLeave", function()
@@ -3004,14 +3004,9 @@ initFrame:SetScript("OnEvent", function(self)
                         cancelText  = "Cancel",
                         onConfirm   = function(name)
                             if not name or name == "" then return end
-                            local checkFontChanged = EllesmereUI.CaptureFontState()
                             local ok, err = EllesmereUI.ImportProfile(importStr, name)
                             if ok then
-                                if ddLabel then ddLabel:SetText(name) end
-                                EllesmereUI.RefreshAllAddons()
-                                EllesmereUI:InvalidatePageCache()
-                                EllesmereUI:RefreshPage(true)
-                                checkFontChanged()
+                                ReloadUI()
                             else
                                 EllesmereUI:ShowInfoPopup({ title = "Import Failed", content = err or "Unknown error" })
                             end
@@ -3026,13 +3021,9 @@ initFrame:SetScript("OnEvent", function(self)
                 presetEntries[#presetEntries + 1] = {
                     label = "Spin the Wheel",
                     onApply = function()
-                        local checkFontChanged = EllesmereUI.CaptureFontState()
                         EllesmereUI.SpinTheWheel()
                         EllesmereUI.SaveCurrentAsProfile(UniquePresetName("Spin the Wheel"))
-                        EllesmereUI.RefreshAllAddons()
-                        EllesmereUI:InvalidatePageCache()
-                        EllesmereUI:RefreshPage(true)
-                        checkFontChanged()
+                        ReloadUI()
                     end,
                 }
                 if EllesmereUI.WEEKLY_SPOTLIGHT then
@@ -3041,13 +3032,9 @@ initFrame:SetScript("OnEvent", function(self)
                         label = "Weekly Spotlight: " .. spot.name,
                         onApply = function()
                             if not spot.exportString then return end
-                            local checkFontChanged = EllesmereUI.CaptureFontState()
                             local ok, err = EllesmereUI.ImportProfile(spot.exportString, UniquePresetName("Weekly: " .. spot.name))
                             if ok then
-                                EllesmereUI.RefreshAllAddons()
-                                EllesmereUI:InvalidatePageCache()
-                                EllesmereUI:RefreshPage(true)
-                                checkFontChanged()
+                                ReloadUI()
                             else EllesmereUI:ShowInfoPopup({ title = "Spotlight Error", content = err or "Unknown error" }) end
                         end,
                     }
@@ -3058,13 +3045,9 @@ initFrame:SetScript("OnEvent", function(self)
                         presetEntries[#presetEntries + 1] = {
                             label = p.name,
                             onApply = function()
-                                local checkFontChanged = EllesmereUI.CaptureFontState()
                                 local ok, err = EllesmereUI.ImportProfile(p.exportString, UniquePresetName(p.name))
                                 if ok then
-                                    EllesmereUI.RefreshAllAddons()
-                                    EllesmereUI:InvalidatePageCache()
-                                    EllesmereUI:RefreshPage(true)
-                                    checkFontChanged()
+                                    ReloadUI()
                                 else EllesmereUI:ShowInfoPopup({ title = "Preset Error", content = err or "Unknown error" }) end
                             end,
                         }
@@ -3207,7 +3190,7 @@ initFrame:SetScript("OnEvent", function(self)
                             itm._lbl = lbl
 
                             local hl = itm:CreateTexture(nil, "ARTWORK")
-                            hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0)
+                            hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 1); hl:SetAlpha(0)
                             itm._hl = hl
 
                             local xBtn = CreateFrame("Button", nil, itm)
@@ -3227,6 +3210,23 @@ initFrame:SetScript("OnEvent", function(self)
                                 xBtn:SetAlpha(0.8)
                             end)
                             itm:SetScript("OnLeave", function()
+                                -- Stay highlighted if mouse moved to the X button
+                                if xBtn:IsMouseOver() then return end
+                                lbl:SetTextColor(1, 1, 1, EllesmereUI.TEXT_DIM_A)
+                                hl:SetAlpha(itm._isSel and EllesmereUI.DD_ITEM_SEL_A or 0)
+                                xBtn:SetAlpha(0.4)
+                            end)
+                            xBtn:SetScript("OnEnter", function()
+                                lbl:SetTextColor(1, 1, 1, 1)
+                                hl:SetAlpha(EllesmereUI.DD_ITEM_HL_A)
+                                xBtn:SetAlpha(1)
+                            end)
+                            xBtn:SetScript("OnLeave", function()
+                                -- Stay highlighted if mouse moved back to the item row
+                                if itm:IsMouseOver() then
+                                    xBtn:SetAlpha(0.8)
+                                    return
+                                end
                                 lbl:SetTextColor(1, 1, 1, EllesmereUI.TEXT_DIM_A)
                                 hl:SetAlpha(itm._isSel and EllesmereUI.DD_ITEM_SEL_A or 0)
                                 xBtn:SetAlpha(0.4)
@@ -3245,9 +3245,7 @@ initFrame:SetScript("OnEvent", function(self)
                             menu:Hide()
                             EllesmereUI.AutoSaveActiveProfile()
                             EllesmereUI.SwitchProfile(capName)
-                            ddLabel:SetText(capName)
-                            EllesmereUI:InvalidatePageCache()
-                            EllesmereUI:RefreshPage(true)
+                            ReloadUI()
                         end)
                         itm._xBtn:SetScript("OnClick", function()
                             if capName == "Custom" then return end
@@ -3612,53 +3610,12 @@ initFrame:SetScript("OnEvent", function(self)
             y = y - ROW_H_E
         end
 
-        -- "How does this work?" centered link
-        do
-            local ROW_H = 30
-            local infoFrame = CreateFrame("Frame", nil, parent)
-            local totalW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
-            PP.Size(infoFrame, totalW, ROW_H)
-            PP.Point(infoFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
-
-            local infoBtn = CreateFrame("Button", nil, infoFrame)
-            infoBtn:SetFrameLevel(infoFrame:GetFrameLevel() + 1)
-            local infoFS = infoBtn:CreateFontString(nil, "OVERLAY")
-            infoFS:SetFont(FONT, 12, EllesmereUI.GetFontOutlineFlag())
-            infoFS:SetTextColor(EG.r, EG.g, EG.b, 0.70)
-            infoFS:SetText("How does this work?")
-            infoFS:SetPoint("CENTER", infoFrame, "CENTER", 0, 0)
-            infoBtn:SetSize(infoFS:GetStringWidth() + 10, 18)
-            PP.Point(infoBtn, "CENTER", infoFrame, "CENTER", 0, 0)
-            infoBtn:SetScript("OnEnter", function() infoFS:SetTextColor(EG.r, EG.g, EG.b, 1) end)
-            infoBtn:SetScript("OnLeave", function() infoFS:SetTextColor(EG.r, EG.g, EG.b, 0.70) end)
-            infoBtn:SetScript("OnClick", function()
-                EllesmereUI:ShowInfoPopup({
-                    title = "Profile Import / Export",
-                    content = "Profiles contain all your settings across every EllesmereUI addon, including bar positions, colors, fonts, and visual preferences.\n\n"
-                        .. "EXPORT PROFILE\n"
-                        .. "Exports everything into a single string. When someone imports it, they get an exact copy of your entire setup.\n\n"
-                        .. "IMPORT PROFILE\n"
-                        .. "Paste the import string, give it a name, and it becomes your new active profile. "
-                        .. "Your previous profiles are never overwritten — importing always creates a new profile.\n\n"
-                        .. "POPULAR PRESETS\n"
-                        .. "Apply a curated preset as your active profile. Includes Spin the Wheel for a randomized setup.\n\n"
-                        .. "PER-ADDON EXPORT\n"
-                        .. "Select specific addons to export. The recipient can import just those addon settings without affecting their other settings.\n\n"
-                        .. "ASSIGN TO SPEC\n"
-                        .. "Assign different profiles to different specs. When you switch specs, your profile automatically switches too.\n\n"
-                        .. "Global Settings (this page) and Party Mode settings are not included in profile exports.",
-                })
-            end)
-
-            y = y - ROW_H
-        end
-
         -------------------------------------------------------------------
-        --  CDM SPELL LAYOUT section
+        --  CDM SPELL PROFILE section
         -------------------------------------------------------------------
         if C_AddOns.IsAddOnLoaded("EllesmereUICooldownManager") then
             local cdmHeader
-            cdmHeader, h = W:SectionHeader(parent, "CDM SPELL LAYOUT", y);  y = y - h
+            cdmHeader, h = W:SectionHeader(parent, "CDM SPELL PROFILE", y);  y = y - h
 
             -- Per-spec checkbox grid
             local selectedSpecs = {}
@@ -3815,98 +3772,58 @@ initFrame:SetScript("OnEvent", function(self)
             -- Spacing before buttons
             _, h = W:Spacer(parent, y, 10);  y = y - h
 
-            -- Export CDM Spell Layout button (with error flash)
+            -- Export / Import CDM Spell Profile buttons (side-by-side, temporarily disabled)
             do
-                local BTN_W = 450
-                local BTN_H = 42
-                local ROW_H_E = BTN_H + 20
-                local btnFrame = CreateFrame("Frame", nil, parent)
-                PP.Size(btnFrame, parent:GetWidth() - (EllesmereUI.CONTENT_PAD or 16) * 2, ROW_H_E)
-                PP.Point(btnFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD or 16, y)
-                local exportCDMBtn = CreateFrame("Button", nil, btnFrame)
-                PP.Size(exportCDMBtn, BTN_W, BTN_H)
-                PP.Point(exportCDMBtn, "CENTER", btnFrame, "CENTER", 0, 0)
-                exportCDMBtn:SetFrameLevel(btnFrame:GetFrameLevel() + 1)
-                local _, ecBrd = EllesmereUI.MakeStyledButton(exportCDMBtn, "Export CDM Spell Layout", 14, EllesmereUI.WB_COLOURS, function()
-                    local keys = {}
-                    for key in pairs(selectedSpecs) do keys[#keys + 1] = key end
-                    if #keys == 0 then
-                        if exportCDMBtn._flashError then exportCDMBtn._flashError() end
-                        return
-                    end
-                    local str = EllesmereUI.ExportCDMSpellLayouts(keys)
-                    if str then
-                        EllesmereUI:ShowExportPopup(str)
-                    else
-                        EllesmereUI:ShowInfoPopup({ title = "Export Failed", content = "No data found for selected specs." })
-                    end
-                end)
-                exportCDMBtn._flashError = BuildErrorFlash(exportCDMBtn, ecBrd)
-                y = y - ROW_H_E
-            end
+                local ROW_H  = 70
+                local ITEM_H = 36
+                local GAP    = 35
+                local ITEM_W = 220
 
-            -- Import CDM Spell Layout button
-            do
-                local BTN_W = 450
-                local BTN_H = 42
-                local ROW_H_I = BTN_H + 20
-                local btnFrame = CreateFrame("Frame", nil, parent)
-                PP.Size(btnFrame, parent:GetWidth() - (EllesmereUI.CONTENT_PAD or 16) * 2, ROW_H_I)
-                PP.Point(btnFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD or 16, y)
-                local importCDMBtn = CreateFrame("Button", nil, btnFrame)
-                PP.Size(importCDMBtn, BTN_W, BTN_H)
-                PP.Point(importCDMBtn, "CENTER", btnFrame, "CENTER", 0, 0)
-                importCDMBtn:SetFrameLevel(btnFrame:GetFrameLevel() + 1)
-                EllesmereUI.MakeStyledButton(importCDMBtn, "Import CDM Spell Layout", 14, EllesmereUI.WB_COLOURS, function()
-                    EllesmereUI:ShowImportPopup(function(importStr)
-                        local ok, err, count = EllesmereUI.ImportCDMSpellLayouts(importStr)
-                        if ok then
-                            print("|cff0cd29fEllesmereUI|r: Imported " .. (count or 0) .. " spec layout(s). /reload to apply.")
-                            EllesmereUI:ShowInfoPopup({
-                                title = "CDM Spell Layout Imported",
-                                content = (count or 0) .. " spec layout(s) imported successfully.\n\nPlease /reload to see the changes.",
-                            })
-                        else
-                            EllesmereUI:ShowInfoPopup({ title = "Import Failed", content = err or "Unknown error" })
-                        end
-                    end)
-                end)
-                y = y - ROW_H_I
-            end
-
-            -- "How does this work?" link for CDM spell layouts
-            do
-                local ROW_H = 30
-                local infoFrame = CreateFrame("Frame", nil, parent)
                 local totalW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
-                PP.Size(infoFrame, totalW, ROW_H)
-                PP.Point(infoFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
+                local rowFrame = CreateFrame("Frame", nil, parent)
+                PP.Size(rowFrame, totalW, ROW_H)
+                PP.Point(rowFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
 
-                local infoBtn = CreateFrame("Button", nil, infoFrame)
-                infoBtn:SetFrameLevel(infoFrame:GetFrameLevel() + 1)
-                local infoFS = infoBtn:CreateFontString(nil, "OVERLAY")
-                infoFS:SetFont(FONT, 12, EllesmereUI.GetFontOutlineFlag())
-                infoFS:SetTextColor(EG.r, EG.g, EG.b, 0.70)
-                infoFS:SetText("How does this work?")
-                infoFS:SetPoint("CENTER")
-                infoBtn:SetSize(infoFS:GetStringWidth() + 10, 18)
-                PP.Point(infoBtn, "CENTER", infoFrame, "CENTER", 0, 0)
-                infoBtn:SetScript("OnEnter", function() infoFS:SetTextColor(EG.r, EG.g, EG.b, 1) end)
-                infoBtn:SetScript("OnLeave", function() infoFS:SetTextColor(EG.r, EG.g, EG.b, 0.70) end)
-                infoBtn:SetScript("OnClick", function()
-                    EllesmereUI:ShowInfoPopup({
-                        title = "CDM Spell Layout",
-                        content = "CDM Spell Layout lets you share which abilities are assigned to which CDM bars, completely separate from your visual settings.\n\n"
-                            .. "WHAT'S INCLUDED\n"
-                            .. "Spell assignments for all CDM bars (Cooldowns, Utility, Buffs, and custom bars), plus tracked buff bar spell assignments.\n\n"
-                            .. "WHAT'S NOT INCLUDED\n"
-                            .. "Visual styling (icon size, borders, colors, shapes), bar positions, bar glows, and all other appearance settings. Those stay in your main profile.\n\n"
-                            .. "EXPORTING\n"
-                            .. "Select which spec layouts to include, then export. The recipient imports and matching specs are overwritten with your layout.\n\n"
-                            .. "IMPORTING\n"
-                            .. "Paste the import string and all matching spec layouts are applied directly. /reload to see the changes.",
-                    })
-                end)
+                local groupW = ITEM_W * 2 + GAP
+                local startX = math.floor((totalW - groupW) / 2)
+
+                local DISABLED_TIP = "This option is coming soon"
+
+                -- Export CDM Spell Profile
+                local exportCDMBtn = CreateFrame("Button", nil, rowFrame)
+                PP.Size(exportCDMBtn, ITEM_W, ITEM_H)
+                PP.Point(exportCDMBtn, "TOPLEFT", rowFrame, "TOPLEFT", startX, -math.floor((ROW_H - ITEM_H) / 2))
+                exportCDMBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
+                EllesmereUI.MakeStyledButton(exportCDMBtn, "Export CDM Spell Profile", 13, EllesmereUI.WB_COLOURS, function() end)
+                exportCDMBtn:SetAlpha(0.3)
+                do
+                    local block = CreateFrame("Frame", nil, exportCDMBtn)
+                    block:SetAllPoints()
+                    block:SetFrameLevel(exportCDMBtn:GetFrameLevel() + 10)
+                    block:EnableMouse(true)
+                    block:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(exportCDMBtn, EllesmereUI.DisabledTooltip(DISABLED_TIP))
+                    end)
+                    block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                end
+
+                -- Import CDM Spell Profile
+                local importCDMBtn = CreateFrame("Button", nil, rowFrame)
+                PP.Size(importCDMBtn, ITEM_W, ITEM_H)
+                PP.Point(importCDMBtn, "TOPLEFT", exportCDMBtn, "TOPRIGHT", GAP, 0)
+                importCDMBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
+                EllesmereUI.MakeStyledButton(importCDMBtn, "Import CDM Spell Profile", 13, EllesmereUI.WB_COLOURS, function() end)
+                importCDMBtn:SetAlpha(0.3)
+                do
+                    local block = CreateFrame("Frame", nil, importCDMBtn)
+                    block:SetAllPoints()
+                    block:SetFrameLevel(importCDMBtn:GetFrameLevel() + 10)
+                    block:EnableMouse(true)
+                    block:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(importCDMBtn, EllesmereUI.DisabledTooltip(DISABLED_TIP))
+                    end)
+                    block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                end
 
                 y = y - ROW_H
             end
@@ -3946,6 +3863,15 @@ initFrame:SetScript("OnEvent", function(self)
             end
             -- Reset style/theme settings (accent color, custom theme, class-colored)
             EllesmereUI.ResetTheme()
+            -- Reset all custom class, power, and resource colors to defaults
+            if EllesmereUIDB then
+                EllesmereUIDB.customColors = nil
+            end
+            -- Reset fonts to defaults
+            if EllesmereUIDB then
+                EllesmereUIDB.fonts = nil
+            end
+            EllesmereUI.ApplyColorsToOUF()
             -- Reset panel scale to 100%
             if EllesmereUI.SetPanelScale then
                 EllesmereUI:SetPanelScale(1.0)

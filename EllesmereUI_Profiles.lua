@@ -176,7 +176,7 @@ EllesmereUI._DeepCopy = DeepCopy
 
 -------------------------------------------------------------------------------
 --  CDM spell-layout fields: excluded from main profile snapshots/applies.
---  These are managed exclusively by the CDM Spell Layout export/import.
+--  These are managed exclusively by the CDM Spell Profile export/import.
 -------------------------------------------------------------------------------
 local CDM_SPELL_KEYS = {
     trackedSpells = true,
@@ -186,16 +186,16 @@ local CDM_SPELL_KEYS = {
     customSpells  = true,
 }
 
---- Deep-copy a CDM profile, stripping all spell-layout data and position data.
---- Removes per-bar spell lists, specProfiles, cdmBarPositions, and tbbPositions.
+--- Deep-copy a CDM profile, stripping only spell-layout data.
+--- Removes per-bar spell lists and specProfiles (CDM spell profiles).
+--- Positions (cdmBarPositions, tbbPositions) ARE included in the copy
+--- because they belong to the visual/layout profile, not spell assignments.
 local function DeepCopyCDMStyleOnly(src)
     if type(src) ~= "table" then return src end
     local copy = {}
     for k, v in pairs(src) do
         if k == "specProfiles" then
-            -- Omit entirely — spell-layout only
-        elseif k == "cdmBarPositions" or k == "tbbPositions" then
-            -- Omit — position data is per-character
+            -- Omit entirely -- spell-layout only
         elseif k == "cdmBars" and type(v) == "table" then
             -- Deep-copy cdmBars but strip spell fields from each bar entry
             local barsCopy = {}
@@ -225,16 +225,16 @@ local function DeepCopyCDMStyleOnly(src)
 end
 
 --- Merge a CDM style-only snapshot back into the live profile,
---- preserving all existing spell-layout fields and position data.
+--- preserving all existing spell-layout fields.
+--- Positions (cdmBarPositions, tbbPositions) ARE applied from the snapshot
+--- because they belong to the visual/layout profile.
 local function ApplyCDMStyleOnly(profile, snap)
-    -- Apply top-level non-spell, non-position keys
+    -- Apply top-level non-spell keys
     for k, v in pairs(snap) do
         if k == "specProfiles" then
             -- Never overwrite specProfiles from a style snapshot
         elseif k == "_capturedOnce" then
-            -- Never overwrite — once captured, always captured
-        elseif k == "cdmBarPositions" or k == "tbbPositions" then
-            -- Never overwrite position data from a style snapshot
+            -- Never overwrite -- once captured, always captured
         elseif k == "cdmBars" and type(v) == "table" then
             if not profile.cdmBars then profile.cdmBars = {} end
             for bk, bv in pairs(v) do
@@ -430,8 +430,11 @@ function EllesmereUI.RefreshAllAddons()
     if _G._ERB_Apply then _G._ERB_Apply() end
     -- CDM
     if _G._ECME_Apply then _G._ECME_Apply() end
-    -- Cursor
+    -- Cursor (main dot + trail + GCD/cast circles)
     if _G._ECL_Apply then _G._ECL_Apply() end
+    if _G._ECL_ApplyTrail then _G._ECL_ApplyTrail() end
+    if _G._ECL_ApplyGCDCircle then _G._ECL_ApplyGCDCircle() end
+    if _G._ECL_ApplyCastCircle then _G._ECL_ApplyCastCircle() end
     -- AuraBuffReminders
     if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
     -- ActionBars: use the full apply which includes bar positions
@@ -440,6 +443,8 @@ function EllesmereUI.RefreshAllAddons()
     if _G._EUF_ReloadFrames then _G._EUF_ReloadFrames() end
     -- Nameplates
     if _G._ENP_RefreshAllSettings then _G._ENP_RefreshAllSettings() end
+    -- Global class/power colors (updates oUF, nameplates, raid frames)
+    if EllesmereUI.ApplyColorsToOUF then EllesmereUI.ApplyColorsToOUF() end
 end
 
 --- Snapshot current font settings; returns a function that checks if they
@@ -513,6 +518,7 @@ end
 --    { version = 1, type = "full"|"partial", data = profileData }
 -------------------------------------------------------------------------------
 local EXPORT_PREFIX = "!EUI_"
+local CDM_LAYOUT_PREFIX = "!EUICDM_"
 
 function EllesmereUI.ExportProfile(profileName)
     local db = GetProfilesDB()
@@ -536,7 +542,7 @@ function EllesmereUI.ExportAddons(folderList)
     return EXPORT_PREFIX .. encoded
 end
 
---- Export CDM spell layouts for selected spec keys.
+--- Export CDM spell profiles for selected spec keys.
 --- specKeys = { "250", "251", ... } (specID strings)
 function EllesmereUI.ExportCDMSpellLayouts(specKeys)
     local cdmEntry
@@ -561,13 +567,15 @@ function EllesmereUI.ExportCDMSpellLayouts(specKeys)
     return EXPORT_PREFIX .. encoded
 end
 
---- Import CDM spell layouts from a string. Overwrites matching spec profiles.
+--- Import CDM spell profiles from a string. Overwrites matching spec profiles.
 function EllesmereUI.ImportCDMSpellLayouts(importStr)
-    local payload, err = EllesmereUI.DecodeImportString(importStr)
-    if not payload then return false, err end
-    if payload.type ~= "cdm_spells" then
-        return false, "Not a CDM spell layout string"
+    -- Detect profile strings pasted into the wrong import
+    if importStr and importStr:sub(1, #EXPORT_PREFIX) == EXPORT_PREFIX then
+        return false, "This is a UI Profile string, not a CDM Spell Profile. Use the Profile import instead."
     end
+    local layoutData, err = EllesmereUI.DecodeCDMLayoutString(importStr)
+    if not layoutData then return false, err end
+
     local cdmEntry
     for _, e in ipairs(ADDON_DB_MAP) do
         if e.folder == "EllesmereUICooldownManager" then cdmEntry = e; break end
@@ -575,15 +583,40 @@ function EllesmereUI.ImportCDMSpellLayouts(importStr)
     if not cdmEntry then return false, "Cooldown Manager not found" end
     local profile = GetAddonProfile(cdmEntry)
     if not profile then return false, "Cooldown Manager profile not available" end
-    if not profile.specProfiles then profile.specProfiles = {} end
-    local imported = payload.data
-    if type(imported) ~= "table" then return false, "Invalid data" end
-    local count = 0
-    for specKey, specData in pairs(imported) do
-        profile.specProfiles[specKey] = DeepCopy(specData)
-        count = count + 1
+
+    -- Apply bar spell assignments from the decoded layout
+    if not profile.cdmBars then profile.cdmBars = {} end
+    if not profile.cdmBars.bars then profile.cdmBars.bars = {} end
+
+    if layoutData.bars then
+        for _, importedBar in ipairs(layoutData.bars) do
+            -- Find matching bar by key, or append
+            local found = false
+            for _, existingBar in ipairs(profile.cdmBars.bars) do
+                if existingBar.key == importedBar.key then
+                    -- Overwrite spell assignments only
+                    existingBar.trackedSpells  = importedBar.trackedSpells and DeepCopy(importedBar.trackedSpells) or existingBar.trackedSpells
+                    existingBar.extraSpells    = importedBar.extraSpells and DeepCopy(importedBar.extraSpells) or existingBar.extraSpells
+                    existingBar.removedSpells  = importedBar.removedSpells and DeepCopy(importedBar.removedSpells) or existingBar.removedSpells
+                    existingBar.dormantSpells  = importedBar.dormantSpells and DeepCopy(importedBar.dormantSpells) or existingBar.dormantSpells
+                    existingBar.customSpells   = importedBar.customSpells and DeepCopy(importedBar.customSpells) or existingBar.customSpells
+                    found = true
+                    break
+                end
+            end
+            if not found then
+                profile.cdmBars.bars[#profile.cdmBars.bars + 1] = DeepCopy(importedBar)
+            end
+        end
     end
-    return true, nil, count
+
+    -- Apply tracked buff bar assignments
+    if layoutData.buffBars then
+        if not profile.trackedBuffBars then profile.trackedBuffBars = {} end
+        profile.trackedBuffBars.bars = DeepCopy(layoutData.buffBars)
+    end
+
+    return true, nil, (layoutData.bars and #layoutData.bars or 0)
 end
 
 --- Get a list of saved CDM spec profile keys with display info.
@@ -626,9 +659,13 @@ function EllesmereUI.ExportCurrentProfile()
 end
 
 function EllesmereUI.DecodeImportString(importStr)
-    if not importStr or #importStr < #EXPORT_PREFIX then return nil, "Invalid string" end
+    if not importStr or #importStr < 5 then return nil, "Invalid string" end
+    -- Detect CDM layout strings pasted into the wrong import
+    if importStr:sub(1, #CDM_LAYOUT_PREFIX) == CDM_LAYOUT_PREFIX then
+        return nil, "This is a CDM bar layout string, not a profile string."
+    end
     if importStr:sub(1, #EXPORT_PREFIX) ~= EXPORT_PREFIX then
-        return nil, "Not a valid EllesmereUI profile string"
+        return nil, "Not a valid EllesmereUI string. Make sure you copied the entire string."
     end
     if not LibDeflate then return nil, "LibDeflate not available" end
     local encoded = importStr:sub(#EXPORT_PREFIX + 1)
@@ -646,6 +683,36 @@ function EllesmereUI.DecodeImportString(importStr)
     return payload, nil
 end
 
+--- Reset class-dependent fill colors in Resource Bars after a profile import.
+--- The exporter's class color may be baked into fillR/fillG/fillB; this
+--- resets them to the importer's own class/power colors and clears
+--- customColored so the bars use runtime class color lookup.
+local function FixupImportedClassColors()
+    local rbEntry
+    for _, e in ipairs(ADDON_DB_MAP) do
+        if e.folder == "EllesmereUIResourceBars" then rbEntry = e; break end
+    end
+    if not rbEntry or not IsAddonLoaded(rbEntry.folder) then return end
+    local profile = GetAddonProfile(rbEntry)
+    if not profile then return end
+
+    local _, classFile = UnitClass("player")
+    -- CLASS_COLORS and POWER_COLORS are local to ResourceBars, so we
+    -- use the same lookup the addon uses at init time.
+    local classColors = EllesmereUI.CLASS_COLOR_MAP
+    local cc = classColors and classColors[classFile]
+
+    -- Health bar: reset to importer's class color
+    if profile.health and not profile.health.darkTheme then
+        profile.health.customColored = false
+        if cc then
+            profile.health.fillR = cc.r
+            profile.health.fillG = cc.g
+            profile.health.fillB = cc.b
+        end
+    end
+end
+
 --- Import a profile string. Returns: success, errorMsg
 --- The caller must provide a name for the new profile.
 function EllesmereUI.ImportProfile(importStr, profileName)
@@ -653,6 +720,10 @@ function EllesmereUI.ImportProfile(importStr, profileName)
     if not payload then return false, err end
 
     local db = GetProfilesDB()
+
+    if payload.type == "cdm_spells" then
+        return false, "This is a CDM Spell Profile string. Use the CDM Spell Profile import instead."
+    end
 
     if payload.type == "full" then
         -- Full profile: store as a new named profile
@@ -668,6 +739,9 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         -- Make it the active profile
         db.activeProfile = profileName
         EllesmereUI.ApplyProfileData(payload.data)
+        FixupImportedClassColors()
+        -- Re-snapshot after fixup so the stored profile has correct colors
+        db.profiles[profileName] = EllesmereUI.SnapshotAllAddons()
         return true, nil
     elseif payload.type == "partial" then
         -- Partial: copy current profile, overwrite the imported addons
@@ -696,6 +770,9 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         end
         db.activeProfile = profileName
         EllesmereUI.ApplyProfileData(currentSnap)
+        FixupImportedClassColors()
+        -- Re-snapshot after fixup
+        db.profiles[profileName] = EllesmereUI.SnapshotAllAddons()
         return true, nil
     end
 
@@ -756,7 +833,6 @@ function EllesmereUI.SwitchProfile(name)
     if not profileData then return end
     db.activeProfile = name
     EllesmereUI.ApplyProfileData(profileData)
-    EllesmereUI.RefreshAllAddons()
 end
 
 function EllesmereUI.GetActiveProfileName()
@@ -801,14 +877,36 @@ end
 -------------------------------------------------------------------------------
 do
     local specFrame = CreateFrame("Frame")
+    local lastKnownSpecID = nil
     specFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    specFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     specFrame:SetScript("OnEvent", function(_, event, unit)
-        if event ~= "PLAYER_SPECIALIZATION_CHANGED" then return end
-        if unit ~= "player" then return end
+        -- PLAYER_ENTERING_WORLD has no unit arg; PLAYER_SPECIALIZATION_CHANGED
+        -- fires with "player" as unit. For PEW, always check current spec.
+        if event == "PLAYER_SPECIALIZATION_CHANGED" and unit ~= "player" then
+            return
+        end
         local specIdx = GetSpecialization and GetSpecialization() or 0
         local specID = specIdx and specIdx > 0
             and GetSpecializationInfo(specIdx) or nil
         if not specID then return end
+
+        -- On PLAYER_ENTERING_WORLD (reload/zone-in), only switch if the spec
+        -- actually changed. A plain /reload should not override the user's
+        -- active profile selection.
+        if event == "PLAYER_ENTERING_WORLD" then
+            if lastKnownSpecID == nil then
+                -- First login: record spec but don't force-switch.
+                -- The user's activeProfile from SavedVariables is correct.
+                lastKnownSpecID = specID
+                return
+            end
+            if specID == lastKnownSpecID then
+                return -- spec unchanged, skip
+            end
+        end
+        lastKnownSpecID = specID
+
         local db = GetProfilesDB()
         local targetProfile = db.specProfiles[specID]
         if targetProfile and db.profiles[targetProfile] then
@@ -817,12 +915,7 @@ do
                 -- Auto-save current before switching
                 db.profiles[current] = EllesmereUI.SnapshotAllAddons()
                 EllesmereUI.SwitchProfile(targetProfile)
-                -- Refresh UI if panel is open
-                if EllesmereUI._mainFrame
-                    and EllesmereUI._mainFrame:IsShown() then
-                    EllesmereUI:InvalidatePageCache()
-                    EllesmereUI:RefreshPage(true)
-                end
+                ReloadUI()
             end
         end
     end)
@@ -835,9 +928,7 @@ end
 --  To update the weekly spotlight: change WEEKLY_SPOTLIGHT.
 -------------------------------------------------------------------------------
 EllesmereUI.POPULAR_PRESETS = {
-    -- { name = "Preset Name", description = "Short description", exportString = "!EUI_..." },
-    -- Add exportString once the default profile is exported from a clean install.
-    -- { name = "EllesmereUI", description = "The default EllesmereUI look", exportString = "!EUI_..." },
+    { name = "EllesmereUI", description = "The default EllesmereUI look", exportString = "!EUI_T31wZTnoY6)kZJNZdrfVFZpz7yNKYtID5OzNKTMQCrlrBXtKj1ksnoEs5)7NUrdqaqcsjQeNjzhpvT16qrIl9LV(RBac(LZQ8sQFyvg8)DZMLlpRkm5pZwxLxwuyFa(JZtRtH7Yp5MYI6k4VcsUDz51PlRSTso5ZRwNvvDF6dNvzBNuUPEzEr2BlNJTxrzr2JW1DsMTPQU8UJlxwUUI1wZwMwv9LhFeBT05ZllWl7eKCYYLzv3LTo73EZXLLlNxEFXBtlsVnB9xyn01BU5MJsx)(zPlZyJViXLWgioPAr59tZHgykorUUC98S1hvyDa7FD7HlxTiTWAIhBIDD66xb)Jih4Fbtf6MFF(FrnS4PVK)0vRsNLxCBbE3bjllN9PS5NYEWBYxwNTMnNDtsrryus(SYcQPIWw3nztv2X4CMjdov28hY6SMw5xZRQRSsWFV8MBQYQ)qHRfnaYksVEjRp9tUpFE9Ich2VWMiWCCsan0UDD59)2kwxCx6NrjtrKY85vS5tqYIS8BxutJprN9XIxO0MWmFILptgJI13atPPpYK4GGBz59Oeh05WKk)2I7YiJd3e7RS)ctxawj3ZMU49LCn0ASPAYTnc9K1WS)rX9((6h4kvVK7qPzqYHhp9n)RtyYNz6sVQvzlx(Mxw444gzhEWJFN7X4dEenEHPFv2YSz1zZbbnPkTr5Z7ZQRbRLktsc(9PoQOH6Jgghbu)c(kDht6tcC80yLaM)2rnJTdBurux7jh1BQRbp9qQVHUAg6hMe4)furFx6QvIzHQbi4iMoRgGi4po5VmB(DVFzj1fXIBGlvgJUbaosVd8LSsocCT)L3b)JF5)j72KF5L5)jaU8lxSz9QYQS)xdsR2QvqzSiFE2PRbWNx(2tzQm)Mj)BPPh1RUjobE)JCw78epRh2E)7)Sg)b3eiS1NYloIHjwbUloEjxDx(TRtHB(cet7pZEp5XJ)k8axnlDv9M1zZpVyw2uwJdsbysFrzvoo)zHWS4X6Uk4kBp3ylRWR8S8yYHhkSTSMeBheAh67e7YqwxNT8IYCa7mi54tE30tUeH3x16k2jFU4f2rbtc9IJ8c9SDSzspzVfc9MNVFq0vbUoIEZEsOVLvSTVVtOR3i7oN4GjXW)fe7f545qGMZ4XKR4DXlIdNef5A7cthp)Wr2fEotcdcIcdCCScTCXUWNfoVP59JNeAh4744asT4r2(otcc4YAyYeJnVDSqG5Zvpoxf6lKx(Kal0Xlm2XFCD2lCDIM4zhe4h4f7z7DadnEtD(Y86huKw2U7P0kWEsKDGNvamYiOEY6R6l6W(Sq3mVyWaLc5pDr(Spva00qQElYlWOkiNHBjMrq4GzlsxFB2PabpI0c3FQQoD2NoUCtr9rC)(In3Dje5Nt96tzpCDEX8dbV5yQH4x5Co3fNdAZ0XfVfvljL25vcUqv3NVktqwlKAzKcY7BgpNYCjtlMTOC95CUlwSM)ACwnXIO1OenmejNE(nxMwCB25ad3LPpmTrqCPqqOn(r6qhW6i4M(x5v5xZ0MiL1LaJ3kMmI)eKCJ1kbntoPa15aoXjjZvK6eGB(NzhwKFhJiQpngauUuaObaIoV44xoTbKmo5yPqtNohOQP2cKq1Sge7TL5)1FLUEElv5LfD0UCbVdjmoPb7hLMxkKMW8I6sJ8yjtPiUkzAP04N0En9L0aZHaSrG)QFFrwXBkO5WuMnaBOq2aAgB8HVlJN7lZxNXI9aYOF9Kt5pPorEaKukN1g7OmaZxaKQ15iJzfE7Ewh0CdhZ8oQM2onaqIW(zUwzA2NRNscn0Ji4agEdyQvNdk9ZxNd8VsXbBxJ3pisrrjLdnnezDdu6wuUPc6)xdcUtKg3E8wRjuKxYYSBQBzKj0rCj5r8O1S58I0vIu2eYH)Dz5DcLpoPEL4FWDAEv3H5hkueBNrDZPTgfOc8XHHNAnen57E6zddq5CqBuU2JbZit6MTgGZmbpjnl42MDbMAbYPbn12muhuYGV7piasHj)Mqw1coQhGutO4pj4qBdp87aGKFYLV5vVEKisAHVuqJCSLUvs0iJGiFfGsTWF6dSXaUuV4pkbeeGlgGK6HbY3dOPwKygjW0EYCsdyQdnktWsCEXNzcgBprK6JTMeysZA8NfqjFwMKDziTJqsTnW)hcKuBo4dWmY1rEd)3iwKzYgFpWI6lUWwaL0P5yopNTcjzc0rwEbpmBzNiB7RcJdoZCkAMWy0O5maaXUcg0VBVJtYXSX6V0KK0Vazh)l2gac2jsi9yp)v7N3bjPhpFnW3Ec0OdcnQLWq1HoOhh6(qp2FVAtErdbXnIuGmGg21DVxSbTOBFd8RBfCmeFKP4QSPu5Jr5wVNmnm5wBUiy)q6vdABUxnZ8WShTu4QYsQTd9tra7bXreAETkgmIqY6EV9LzqVoVFtJgpGpA)8c3N4XD8I7ZF)PiESzG42i2)D522Zsl8tJFRZZ(Tp73(ZIF7EuXXT73QTiD)y636N828QzzlxMwKbQpd0NnK5)3r2ZMCE7r93Rl7UWSEBU1JKmDBqS91Fw3P9PkP4ooZdaJ8u4p3jfjzKIOK615fFkRUIV9BGF4Lz3KUzjB3h90x6oDpCZ1qBNDShYzUxZ32v5XqbbnJE1PqJ6wt9HE0N)1oxyoJ6tDiLULhCNGzgWU8BoTH(x6nt1vCi0cdbl)gSebFFiuW7a1cd2PWHFvypDliNwG5Nc4M2LHRBqgAtSYm14getPlXxRqLyR(aavkU3qpsUTuXEO1UeKVln47fjUH3QSzNHegsc8zTE91xl3BrpQ5IQShyXFiuBJZUzDfBRx5MSi7ZW8364x6e)sCJLu1mqzJZ8LmdQBNnx5UpL9FOCBD688nv0Ip18SS9hkO5QbXZcMla44WSKJitDaF(wWKcU8sChMYMj5fGuVygGiSKXJY0(HvSLZE04taKOsRQpoF9SLzkdw3tpmuBW6AnIbl0pGJ56pjDNLd)aW6A9DPl3LX)0wJ)we26EV1Gl3M1zOLb2FxrD1JmenfnjUD4wTeGJywrGf4QlYwpdChbZcyMSMlFDzThUF8UeVcEHfzPlRxWVBMfyD5k8oyyfomF8WKBkbMPSrLcGgboCk62pF5dV7IJRWejCyYFWS73kYlQZwVEZQ68Rz6cCh(znXJb)Z2KF8)8A6pP9Hh6XJ9)hiGibYW8mmZV30SoNSbMROVEnFpkhsUPIz50Yvaqqwr2DpGsicTeI48smQd4SGaAkbQcX5UO)FfeuTErdeKhTR299tEdoRUjDw2FC485Nxu9hk6H)4US55P)b7w)d5wEFY0POOXn5gHWcgnOjYh5tYx4WHBj1bmJMYv8kvKeCdN)wWiKJ(74rtwKp(hvfwqSUvVBZDxNHaPQaMZMHTQP9BPnxpqGerQcqv9ay0X2xXxuEpeIuUv97U7n9AuSSDRhm65MvAJ0WKvPfZZUlFgUnXbyTS5fEK7MU2MFrHUr5Ia8egcR(vIT4jorZeAKn5mD()ztwv9BlVw1c(uAIkv4AgCUKptRoJ7iWzkP(sca)0601zNaG8zYHntMzPiZo5Uv1pOkYSM40i0K74v2MOeTUBEqutICtQbroR3q5d79xOb4VX6LnXqZCwGPDtL7ZDXb3jHVKfxfrDQjjuJ9io6yYsjqdZP7nfhxE31P1nt2OMjRTByZ0f)BAqqE54q(3xasYtzdaTPII7AJnL24kOzCOR8a9Gg4N2dbHqtl(0RtRo8wGmDZW1scvPSFKdyQhhjmZXziKGQLD7otZQ3x1QtZ(w8m)k8JshxcrfHmuO96POx6GiYSaLunCKqGOMYf7F2yuZKTL2vOi2fBhayPptrOxeGExGbO(OEViMzBVxcv8g(GU48tqkCtH)NwSjcw4W1amUuuekcy0OIdB0WsiRyEh2i1Az4zlssqZr2kq2wI)(A(F3EcC0TTE2ijmGLIPg(3KigTp)1smTcDt0ijOBOYwMNnfOx5j0cPjmgUr3b2PhcUucHi(u6a7nuqQMQmBj01yj46zi7Fv)MtuFxaur2PRiSOuYymqcZ2Y8toCEv6krPvfk6TBT4MCfXv(cigAwDNGcWWz(QQ3LLUE3fNGpxJfX2hbXAEZQM9CSwfugLaNTHzSJ0WZ4SsKu6IAHcPareWOgSQJxNxsdXSlZsN)qZajwAe6kzMrddik2SwXJPSFM2e(L87q0AulBmUKVIEvRoJS0mB(PtzTKcjKTlUd6WTIOuRf6VzMA7l9vJ8vyHgs0qDObehkLAj8kNG6)la7jk7Vg2A)o71SdrGHmVMX84KQOanlbffKlpE3hv8ebyIgTgXZy1)QWMhjks916IpDNYeRlsRw8R5fzsxWoXN0CWS4DnBOYdiOq(UflnPst8dmHFSiEDV8qcumryqXvuiDzSl1EcbTxTkBEJAsg(vQI8LEfghT(Q2nsHniwZ2azYUC3C1Pb(Rz6xIlnXxusqX48nutvVDRwBICJAnFewvsKslswF1mS52cSMod1TpaI1UFrshyDjRxNdQIx8NoSXeg2KuJACq0TWKuwcvihQzDBJWUT4zz3vlZd614FPLFNVIeARZqLKUETPwZXszUPL8nMhjeC7DLMhRok2mHnqKTIV5R24BBOgZU53RuqI2u0gi5PEYdRzm66iy1O(uiKb9w)ILcGJHS1bQJxJm99GxcVS6iUBfvZJRO1XIms)Y4A89SifJHz3(XFZeA9tt1o2p2EJVAig4hoCbs2kG)a8i5fqjmCWcOilK1oxwL9JG6qLAXivvdfAzuSx7H6ZEWdDaiRo8w27k2mosQMlVZaCt1kXKohaCULPuFexL4d2sp5a)MmJgU(pJUkpg51zU6t7fv62SDjgCMslRVaVduhkJub37sq1lJWTv(jw)LFt(mgmcdI5PQ(u9qoTFgIJlZcde6hS0xJkK)3ccJduMqZvi7PHJ4G1PRhAI7EjP7RQE9ssCFQO3qvi0yctJKH4ExYWUmd7TiI9x2bt8t)kRjLPeTgxzm7DPgu8myIdT0MnuJtLyXTC2nKb6W5gRlc75NONB7gUJiHNOK7YlYVgCHB0b(2YkM7452OdIJ84WhgxzUXu92ynpRp2A2Q8tTOOoqnFv0QmD32he716f4y3HR6U0t7EjNLXs5PEqlACpf05rmjKfLv15k0)DJLZaj5fRydIETfAZPBwRexeBF(qqHj(2Nj94Dasq1SbB2luSNESmXgWTXN2lfqilfJ0XAKSxQ7E5zYzHD4YLVKjizzUoGVq)WrBLStRv5uEo00J91EHdWeWCEbeSO)EIyfRTS(xaH8XZ9gubePULdqUQ4wx5syIbZoX(xbqLR2ChQK1oVrG)2jH2OroGA8w8iM6Q1BkYOD5aYK4t0Ft7GcCFgbmURyBeJ7l3uWF1DYl(0dxD9sKKbEd3J3aUTnwxUcmENY3eExJBnd2WbsSQEXs8ic6wwtDdOQWhf9FsPQNgLCpmbUzZ6h4zPwY7R07wTm)MhOhnc8GQZUkD()h1WqdDxwDzXTBOn3i7xRslWXayBDFw6QYIRYkMTGMmqiCGSe0GqRrjbGtLJWzY)Ue95WZYnh(gkAv2S80LvVRS4n89tcoKaqbiZ3BG0nYM)7S2)eQ5HghMw1xTPkBU(M3bG7AEKtHjM(DcgGOk4L5vqk3p8w6ut6UhQbjjBekFuuQP(SImVGUPwAaWP4OD1MD4aZCmmzo1zFbLOOLjUfcrHT65dye7aBc3gNmFp1juysjAJx)an9WdmqCpmDiBF7W2DqpiYFYIyo19G1YnmOXzkK)3RBcxZ22yIxjA6SqIXGi7Z8x5xCulNvSX0NvrkO7qf)Jdc1q7I8jvhu6EISbZJ49TPap)aHySS77HIx46gpjYf(p8OhI10nNlqHjtp)c6SnrCWaPCj8KbY2kiK90boXXbbhW6cmvg2(Ie7cITKQD3PTDItZNI7QQQpXpvCGhyt9u6y3Q(E6ARll(RmU306A0ExZOmK1lNxVamAEBEvf3NWNHVth7JvQm7ApMMQpMa2oLlPbv5DKRB1I05L3dD(DtPF)gYT8AOhZw)PROgI5wop7plVITOv4)Q6ba8OSMbLW48FJ4EzhJF676QFRiV(01yzp)c5QbtwqCwt1HqUBYy7IpoCUxYci(Xs9iEgnaoZuHkVMSXqBx(Ds1k3PzJdAYHIn2UxHSMpija)IZez4tbtH4df18D4)zSnYkJ7HSetIsNXcrQ(mGbx26fRyYmwprKvWXyaDHpiYbP1(xTzOrra)OGWa7ItzaeRVlL3dRwX6E1hG1qXewaANCbxhCAx3oe)u5jPsIXRCgVr)yXl47MNzSOLTKlIezi5cpFt2bMMA9epNJqXpRRgUsJcBgg6RtIZ8ZKf8MdmRiD5dtSQ78zbgxqxIqloLyUDQuAQm04sEKG31YeN96QpA25RSlYVXastEdA6RLuk)ACMQbCMQThC8P)JAfzea2leSn4mYMYw9gXymFEwRDUn4mopJ8WeADA)(g1ivrxAXF)HMAxvFnRyllv2vPkAcMbJvVMM7SpzCJN1henNz5nmEyJf2MWrK5f)wB775ZFfHonF5s5iivyRX6B(yzINBSJTFODCqCCefMdd)ffG)xORNJDuaNXN0HwtOqlQIGX92XRCAMYk1yWLxpk8YGjijSPSxA2JLPBQlB6p2PPOSobCQY9ct1Rbgtzj9J)GUsTluOfttq1dOqqTNwiR21hjvl3DdkFtEmM2ubn9OYC1bV6r3Q6R6HxsAawl3U3YQ9jT343OjCkNGo(m6RGqe26SuC0XqI0vnB1wyRGsks7MT)VWZSnI7GrCmfMAQG227H)njPjnzBLyOS482HiVkxVGip3q1sFfcxaFpADJJ5xFhJ6kLLAUvowAU8)AjL3OCpA5O97QIbv3rflMobDbx6gPRwFhjKXY3Gk(qu2C4YfiJ(Pbi4kvekE4bAJx6h4lpISH0wknu18MIlGKZEOtWx2quzQejD9vhlXnJCY8XXPJLnDMTo9SXhN1wiM0eYm3s9CjAV0j0YPqPhzmORPqKJIt4q0jmftowh(ve7brKKIWMW8s9f3PmqXqQLBPgZoNWEe)7qCsHUr(UUPyo1aMjJppptzXyAINBKZJcds13AXwCqTBqMXxFWZgMn3UW(KGCmqKsXVuB824x(rblLbiGAj9c53UYv4QJ4EuhngJwC1lNOHoHc2IIOu7YiP1DuGlhF3ChWejHkIkDYQI1bF6ImWqLLOua7aBEDXzsIbhYEDVivfA8YbgTWdQEo7qE13S4yjxcPXoTlNFwmfUS3xch3sI2FMbps7knC1d6HL6PdXs90)MyP2pe()azL2Ye5NzcPAoaoCm7)2jAALO4ZQw57wmq9Wr3oWavU9(uekYDtBFqZJLI6tdPWXt8nI953qrLo8RbwFKK)kswXa)A27xYIZ6nHaD619YmDpziV3Kj2X4ED4C8TLbD)Sv(EqGUdVwfD53cQ0Bje9OyjBIO9OOdBMMDBMT6fH0yzkgj35EsPWad6EOZEDpP4zMEzpj5sRv3r8QLbTAb9oE16S9Eas89YiDxOjpaj7EOLVB0K3AgYuehdrR)Qin3k5mApy(Jfd5w5j0ox5DU4Kpb8KbK301FInQpLqyLFTtqTmJ0m34rSCwo0IuN8zwp3(7zbvIfI9TKdo(CHEbqmyxhF7yFxY)fxFlpli0SLLBqGJTv8bgwimgFEAO00wH2tC8IJDc9DS4H()CrGR9e)ix)yF46rr90w4cbJvWwF0f57GFHp8dSa6dwUIrNvqa(zdb43g7y50tlQUVBXMkmeBkpFhpRq(E09ZfXbH403Zj0ZjUVwsnVL(NN2obrta1aifJS87RTSv3bPnkpNTO8KR6fT0L(y)h5eamNCcf9FOL7e7GqRWaBBR(KZG5JI4LunUwro2XX28gkmWdLuXb(ErEbMNi4mXt4pRvwgB2qvSUVSYYajUDfzPq7ES3Y)M)qaTImH0ae8PO2maHa(RvgIiytFMxgG7QtIAx1FQMqGanhjPVFRqb7wMcgxHdp9U4Ryj5OLULMdhEDv56RpTtN(bbLJEqw6WUXtDplMkJP3nvJ23kNDZ2iOhRp)5TOjrtZPKJjy8EzHf2A)Ft5G2jlGqfHhV)iPNP817BTAnhrRN8tvD0gfjSXSCPSVxsDs6DOs9p8QL2osMrICdx00U8C2XOOd6qpyIpDwS6wAkRblYq)eFX9jD9fpRc)zqfQqe5RFDUhtfdncWBOWG)4wcqJzW1FX6gY2Xqf56ngB3kYTTmvg89VsXKSZ34XMYWTTL1LI0TLIMnqiTEdtnuDQ4B5LERAKw1Hg61pIFS2TLQeSJ5VouDA6GX0Ugko4zMgU5ZFtXCCN8wAqD1x9L32oHHI7AoP1i9xFhsZjEbt6cS1lCfkL1h)uUJ8Sj7UrS2E6WXDArCy4Wlz1psPf3dNkZ812TCD7SKmJBDw69vRr1I30RyJ4vV5rg4bU9pLZQPLSTB40Z0P2YKCyQtyyeDnwJfvm3UbKcNn(Lqz3xYKUMHSwhFBcyUtNn86J0)IHyi7LoESArUY2(QDyobHEx4J2lsBFR7XoSehx)nzt20FX76DzcAxXO9Ra9D25agRc(4k2DR08(wuR6bQpPPcppih4E2phBPC49ua)Xqnxl8PUD0q1NU3LKX4M8WC(7TwgJMYVAof89FbOuQDbbTyUm2dSMR7oFFT3dFwyKMQBUBRDuF1IFmL8(6URiqeH1ZlUUeOVdixd4J(QAh1QCbIL(T)vA4BrTz0cZP9AjBU8fFfRS3wkBtNL0Z8c00DH(Eswf4rToyuewXXcR4fkGQE6uzEItBQo8uz1DrDGwrOjto1IMpLxwh(rrSM1iXYq916IDiIFe)8iomz1Mkqx1MkSkjMalzrpJCBY2BsCOlpgf1g)wRdYxh)MdP4tMFBw7F2oq7NjQNSpk(8dZB0OcpGukYVJY5I8wOotHsPhzc3a42PJyN64xOSAfEjW83vuUzBixv2BnJJvCqaoag3lDtCiOKdddIS889IPS7G2pG3(HEtcTSSSPpT5TA(T9T(22YZEcmQOpC7I3fWt(mOC5ks23IFXuXpmIMjroEHwHJEQ4eXwFf7aWUNovCytfhfrL7e0tbYT3kWB0TVxS9KWWWi3WqhVOM2ps0(UXGMaharU2w(J9dVUD8ep4z9c8q3y)MMx8zD)fb(SPNLBeCtJ9Jip)fa(TP5O3JOjJ8X18j2oii2YlC0gpGp0KaBBhlxpF02J8GpPygEAJZI92m25Qw34GyBgdGr1r2G8glatKBGp(MLjKnHnQw7Wj2XXX(WFyhfnozZl8CyI7aOjVvzqdduVjEqRghzf7SD7Xwg)Ho(tSCDHjm(1UNwwZ3MpBDPwxegob7H4a7iF3r2fobUOuj0XX2ki2L4Q8E2leMQs2HuY(GEk2A0M9Hw2t8ISd98avmTsrbjxKvR0dorUtCqPFOtOVB8yL(H2talWah)4Wa)GgLRNO5dP1nfSqbdawGSr08WJYwStVypMEWNcOflrCBbgBJhqyPRWYWn)C61Wd442C38k0XE9pzHjJXZfDX5P)ltRtXOtN(n5i5gRc0)zt6A2PRg)ZGWQ1LTor122lnQtZZWg08CjOarTNn4RCp)M7eikulI3EfTv5tCG)erz659N80YqvC)veAN)TjqnGPtcdAIE5xLBagwuOlsNpxHEirRflYJ8KkcsOr7R)H6hufmRd2hzbqtU1KMmKqGYetmPeti2t05l0cNfj9Hw515ZNNvqjPl)MPWAD(lBEG453PbOYNAj(xsdtF3qOkRR0UAL7MgzVNL6ekG5N(Ensj9KUjXrhdoujO3JqEmJj5nJfPScxGI2m73MgO9xYgNKn0l4JsRP91lcPbY)CCqP6Oy8r6p1pWcrO5eZrVGV6WT(GSWRiOsVjRjj(6ndWqL)jKTK8ZXsqcEH1WW4DIM2HSAMTepRIxSUCZTliGgYjq)lsc0BTmMAaCSB88SB87I4zW23NUiOxkLFfwqnZc4F)xGPa7ZtHYCGoR9XdcxUhABHBG8Epr(9QqYC9zh9X7OBVpU5DSY)VohCf)sXbxDhBVwFQum4P)TWD2aK60ZgcaQhF6E9p3h3DDF6OMV3sNnoh6wqsdKPyxpbJkKE8S71a3STy)ZHUyOguAAPG(mM04XK2tYh)Zcv6GwWpM9hmbk1h0X3aWQ(4E8nKPrp4HFxiG0fVsMZ6xPJEpIOFa841SYEc81JE2xFuPyS7o6DHQhJlUkyJtVU86bO2lp6bCD7Xz)j3Jo6htpAt0p(U7XA)S)62In3Fgd7GF6OdfVp48)3NNSr4YhvxoLF88N3hn33D)9NJq)Ce6)g9R7gHwBbnF2PEpDQJF2PElHX5VUyFF8LhiR8)j4t7N8HlA8O)Qk1NzRm)K7z7UkpA7YzU6f6dRP4sEVGV9fJoyOPyhjZRp)Y38Vp)Dtp8xpRhNmIoF7DnXx5C)VLYCg(9agMhEBeWW)qKRehm7zy2bGzJ(AGzFozP9caUVKLu3mu)KHfPVnR(jBW3AdC9uJM(mP2)zH2(CMQN9DauTlRw1Tm5pE(0)qWqY(zp2NRM8pE(Y9tq6YSvFB4y8ZsIQu4FXBKjUpNPD3ctdj2hVn3n7f(vzRoFzwv5M1mMn0hFj8naKla9bt)0544rZpKjZpKnt1WECtQW3cv5RTizNjAJxvqVctYRiAJu27bj5E4NCt(YLhb3BOl7M785SjYoc3C(r2EXrH2TERc2(oNp2lycEKre46A5tFqBeZPxXgbn6khlLr3hlEHpUXMbBXBVKDF0lGi7JP2uzBCe)3eZXJkO6ZR(5PHEY3Vcp6ZyVvwyBiF)G1XTen8LIFVri)ro8FDRJNcCiEyb9XSoMACt6Jl56d1MK0bydCexBqw70X2fFKQQOWgjoG)mVs5hiDlyyk6oabTJbTlxqW79POQK9gksVhIulH2n((KE62SIm67XFe3Wqe8Di)glmCw7dXdDZof1m(gBY6SvRZVlDn77ZlmZxap7IYLZ1c5R(DDIZyyMCVXB0HPunwaDGsipWc0pp8up)j6eP3I)PWQ1XQLLCKEjPcuUcngeUyT)1J4ge94oWEHRfJFH7aJPGe5J7DmXkq9)cpOT)H2hRPTyYZTgn0Mng6(TMjcOMgZx6aVYrEhxmJ)HZJB3AO1h2Os1kVXv4GgJIwFhy)Z8Q8RZxMx)aipPOsDnVfhthpHgC9BFPHMFAB7lLtnPD28IJGpglSaDlSGNelmRFMTWiW2VcJmi2tgGUoFiGTauKFepeGbJo(VFiNe(GiCo076n38CqiUoek0m2WxzSql)OihxFNypXH(vVgFbgS9cS9dIcCc98TIjIdSq4uOhDJsfZq3O(mdTh2SZlzv(QZ7xdhH)(VRA)0YctmxTddOxeuYsTlgjK2x5m5Olkz2c814Mj28Wwog7QxRWRryzBl1NVQqAUQ1k4qjmu9kKW2rz4Ihjs5PlpVy5duMQn)YXygqfUdyJcxhgDnFafLJiXKJ3RhPOI74xW5pBWVOv0fPhr8bpI)3))p" },
     { name = "Spin the Wheel", description = "Randomize all settings", exportString = nil },
 }
 
@@ -964,7 +1055,71 @@ function EllesmereUI._RandomizeProfile(profile, folderName)
         end
     end
 
+    -- Snapshot visibility settings that must survive randomization
+    local savedVis = {}
+
+    if folderName == "EllesmereUIUnitFrames" and profile.enabledFrames then
+        savedVis.enabledFrames = {}
+        for k, v in pairs(profile.enabledFrames) do
+            savedVis.enabledFrames[k] = v
+        end
+    elseif folderName == "EllesmereUICooldownManager" and profile.cdmBars then
+        savedVis.cdmBars = {}
+        if profile.cdmBars.bars then
+            for i, bar in ipairs(profile.cdmBars.bars) do
+                savedVis.cdmBars[i] = bar.barVisibility
+            end
+        end
+    elseif folderName == "EllesmereUIResourceBars" then
+        savedVis.secondary = profile.secondary and profile.secondary.visibility
+        savedVis.health    = profile.health    and profile.health.visibility
+        savedVis.primary   = profile.primary   and profile.primary.visibility
+    elseif folderName == "EllesmereUIActionBars" and profile.bars then
+        savedVis.bars = {}
+        for key, bar in pairs(profile.bars) do
+            savedVis.bars[key] = {
+                alwaysHidden      = bar.alwaysHidden,
+                mouseoverEnabled  = bar.mouseoverEnabled,
+                mouseoverAlpha    = bar.mouseoverAlpha,
+                combatHideEnabled = bar.combatHideEnabled,
+                combatShowEnabled = bar.combatShowEnabled,
+            }
+        end
+    end
+
     RandomizeTable(profile, 0)
+
+    -- Restore visibility settings
+    if folderName == "EllesmereUIUnitFrames" and savedVis.enabledFrames then
+        if not profile.enabledFrames then profile.enabledFrames = {} end
+        for k, v in pairs(savedVis.enabledFrames) do
+            profile.enabledFrames[k] = v
+        end
+    elseif folderName == "EllesmereUICooldownManager" and savedVis.cdmBars then
+        if profile.cdmBars and profile.cdmBars.bars then
+            for i, vis in pairs(savedVis.cdmBars) do
+                if profile.cdmBars.bars[i] then
+                    profile.cdmBars.bars[i].barVisibility = vis
+                end
+            end
+        end
+    elseif folderName == "EllesmereUIResourceBars" then
+        if profile.secondary then profile.secondary.visibility = savedVis.secondary end
+        if profile.health    then profile.health.visibility    = savedVis.health    end
+        if profile.primary   then profile.primary.visibility   = savedVis.primary   end
+    elseif folderName == "EllesmereUIActionBars" and savedVis.bars then
+        if profile.bars then
+            for key, vis in pairs(savedVis.bars) do
+                if profile.bars[key] then
+                    profile.bars[key].alwaysHidden      = vis.alwaysHidden
+                    profile.bars[key].mouseoverEnabled   = vis.mouseoverEnabled
+                    profile.bars[key].mouseoverAlpha     = vis.mouseoverAlpha
+                    profile.bars[key].combatHideEnabled  = vis.combatHideEnabled
+                    profile.bars[key].combatShowEnabled  = vis.combatShowEnabled
+                end
+            end
+        end
+    end
 end
 
 --- Nameplate-specific randomizer (reuses the existing logic from the
@@ -1110,8 +1265,19 @@ end
 -------------------------------------------------------------------------------
 --  Initialize profile system on first login
 --  Creates the "Custom" profile from current settings if none exists.
+--  Also saves the active profile on logout (via Lite pre-logout callback)
+--  so SavedVariables are current before StripDefaults runs.
 -------------------------------------------------------------------------------
 do
+    -- Register pre-logout save via Lite so it runs BEFORE StripDefaults
+    EllesmereUI.Lite.RegisterPreLogout(function()
+        if not EllesmereUI._profileSaveLocked then
+            local db = GetProfilesDB()
+            local name = db.activeProfile or "Custom"
+            db.profiles[name] = EllesmereUI.SnapshotAllAddons()
+        end
+    end)
+
     local initFrame = CreateFrame("Frame")
     initFrame:RegisterEvent("PLAYER_LOGIN")
     initFrame:SetScript("OnEvent", function(self)
@@ -1348,20 +1514,28 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
         editBox:ClearFocus()
     end)
 
-    -- Auto-select: click anywhere in the editbox selects all
-    editBox:SetScript("OnMouseUp", function(self)
-        C_Timer.After(0, function() self:SetFocus(); self:HighlightText() end)
-    end)
-    editBox:SetScript("OnEditFocusGained", function(self)
-        self:HighlightText()
-    end)
+    -- Auto-select for export (read-only): click selects all for easy copy.
+    -- For import (editable): just re-focus so the user can paste immediately.
+    if readOnly then
+        editBox:SetScript("OnMouseUp", function(self)
+            C_Timer.After(0, function() self:SetFocus(); self:HighlightText() end)
+        end)
+        editBox:SetScript("OnEditFocusGained", function(self)
+            self:HighlightText()
+        end)
+    else
+        editBox:SetScript("OnMouseUp", function(self)
+            self:SetFocus()
+        end)
+        -- Click anywhere in the scroll area should also focus the editbox
+        sf:SetScript("OnMouseDown", function()
+            editBox:SetFocus()
+        end)
+    end
 
     if readOnly then
         editBox:SetScript("OnChar", function(self)
             self:SetText(self._readOnly or ""); self:HighlightText()
-        end)
-        editBox:SetScript("OnTextChanged", function(self, userInput)
-            if userInput then self:SetText(self._readOnly or ""); self:HighlightText() end
         end)
     end
 
@@ -1370,9 +1544,15 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
         C_Timer.After(0.01, function()
             local lineH = (editBox.GetLineHeight and editBox:GetLineHeight()) or 14
             local h = editBox:GetNumLines() * lineH
-            h = math.max(h, sf:GetHeight() or 100)
-            sc:SetHeight(h + 4)
-            editBox:SetHeight(h + 4)
+            local sfH = sf:GetHeight() or 100
+            -- Only grow scroll child beyond the visible area when content is taller
+            if h <= sfH then
+                sc:SetHeight(sfH)
+                editBox:SetHeight(sfH)
+            else
+                sc:SetHeight(h + 4)
+                editBox:SetHeight(h + 4)
+            end
             UpdateThumb()
         end)
     end
@@ -1468,7 +1648,7 @@ function EllesmereUI:ShowImportPopup(onImport)
 end
 
 -------------------------------------------------------------------------------
---  CDM Layout Profiles
+--  CDM Spell Profiles
 --  Separate import/export system for CDM ability assignments only.
 --  Captures which spells are assigned to which bars and tracked buff bars,
 --  but NOT bar glows, visual styling, or positions.
@@ -1483,9 +1663,8 @@ end
 --    4. Blocks import until all spells are verified as tracked
 --    5. Applies the layout once verified
 -------------------------------------------------------------------------------
-local CDM_LAYOUT_PREFIX = "!EUICDM_"
 
---- Snapshot the current CDM layout (spell assignments only, no styling/glows)
+--- Snapshot the current CDM spell profile (spell assignments only, no styling/glows)
 function EllesmereUI.ExportCDMLayout()
     local aceDB = _G._ECME_AceDB
     if not aceDB or not aceDB.profile then return nil, "CDM not loaded" end
@@ -1540,13 +1719,17 @@ function EllesmereUI.ExportCDMLayout()
     return CDM_LAYOUT_PREFIX .. encoded
 end
 
---- Decode a CDM layout import string without applying it
+--- Decode a CDM spell profile import string without applying it
 function EllesmereUI.DecodeCDMLayoutString(importStr)
-    if not importStr or #importStr < #CDM_LAYOUT_PREFIX then
+    if not importStr or #importStr < 5 then
         return nil, "Invalid string"
     end
+    -- Detect profile strings pasted into the wrong import
+    if importStr:sub(1, #EXPORT_PREFIX) == EXPORT_PREFIX then
+        return nil, "This is a UI Profile string, not a CDM bar layout string."
+    end
     if importStr:sub(1, #CDM_LAYOUT_PREFIX) ~= CDM_LAYOUT_PREFIX then
-        return nil, "Not a valid CDM layout string (expected " .. CDM_LAYOUT_PREFIX .. " prefix)"
+        return nil, "Not a valid CDM spell profile string. Make sure you copied the entire string."
     end
     if not LibDeflate then return nil, "LibDeflate not available" end
     local encoded = importStr:sub(#CDM_LAYOUT_PREFIX + 1)
@@ -1559,15 +1742,15 @@ function EllesmereUI.DecodeCDMLayoutString(importStr)
         return nil, "Failed to deserialize data"
     end
     if payload.version ~= 1 then
-        return nil, "Unsupported CDM layout version"
+        return nil, "Unsupported CDM spell profile version"
     end
     if not payload.data or not payload.data.bars then
-        return nil, "Invalid CDM layout data"
+        return nil, "Invalid CDM spell profile data"
     end
     return payload.data, nil
 end
 
---- Collect all unique spellIDs from a decoded CDM layout
+--- Collect all unique spellIDs from a decoded CDM spell profile
 local function CollectLayoutSpellIDs(layoutData)
     local spells = {}  -- { [spellID] = barName }
     for _, bar in ipairs(layoutData.bars) do
@@ -1689,7 +1872,7 @@ function EllesmereUI.PrintCDMLayoutMissingSpells(missing)
     local GRAY = "|cff888888"
     local R = "|r"
 
-    print(EG .. "EllesmereUI|r: CDM Layout Import - Spell Check")
+    print(EG .. "EllesmereUI|r: CDM Spell Profile Import - Spell Check")
     print(EG .. "----------------------------------------------|r")
 
     if #missing == 0 then
@@ -1713,7 +1896,7 @@ function EllesmereUI.PrintCDMLayoutMissingSpells(missing)
     print(YELLOW .. "Enable these spells in CDM, then click Import again.|r")
 end
 
---- Apply a decoded CDM layout to the current profile
+--- Apply a decoded CDM spell profile to the current profile
 function EllesmereUI.ApplyCDMLayout(layoutData)
     local aceDB = _G._ECME_AceDB
     if not aceDB or not aceDB.profile then return false, "CDM not loaded" end

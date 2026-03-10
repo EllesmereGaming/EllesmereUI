@@ -397,6 +397,7 @@ local function MakeBorder(parent, r, g, b, a, ppOverride)
     local bf = CreateFrame("Frame", nil, parent)
     bf:SetAllPoints(parent)
     bf:SetFrameLevel(parent:GetFrameLevel() + 1)
+    bf:EnableMouse(false)
 
     -- Use the unified border system (returns a single BackdropTemplate frame)
     local brd = PP.CreateBorder(bf, r, g, b, alpha, 1, "BORDER", 7)
@@ -5300,7 +5301,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "4.1.6"
+EllesmereUI.VERSION = "4.2"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -5721,7 +5722,8 @@ do
             statsFrame:SetSize(160, 60)
             statsFrame:SetFrameStrata("LOW")
             statsText = statsFrame:CreateFontString(nil, "OVERLAY")
-            statsText:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE")
+            local font = EllesmereUI.ResolveFontName(EllesmereUI.GetFontsDB().global)
+            statsText:SetFont(font, 12, EllesmereUI.GetFontOutlineFlag())
             statsText:SetPoint("TOPLEFT")
             statsText:SetJustifyH("LEFT")
         end

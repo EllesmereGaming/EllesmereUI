@@ -1157,7 +1157,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.glow = plate.glowFrame
     plate.glowFrame:Hide()  
     -- Text overlay frame: renders above focus stripe overlay (level +1)
-    plate.healthTextFrame = CreateFrame("Frame", nil, plate.health)
+    plate.healthTextFrame = CreateFrame("Frame", nil, plate)
     plate.healthTextFrame:SetAllPoints(plate.health)
     plate.healthTextFrame:SetFrameLevel(plate.health:GetFrameLevel() + 2)
     plate.hpText = plate.healthTextFrame:CreateFontString(nil, "OVERLAY")

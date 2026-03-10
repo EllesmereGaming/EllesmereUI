@@ -711,6 +711,17 @@ function FriendlyFrame:UNIT_HEALTH()  self:UpdateHealth() end
 function FriendlyFrame:UNIT_NAME_UPDATE()  self:UpdateName() end
 
 -------------------------------------------------------------------------------
+--  Friendly event manager (target, mouseover, raid icons)
+--  Only registered when friendly plates are active -- zero CPU when disabled.
+-------------------------------------------------------------------------------
+local friendlyManager = CreateFrame("Frame")
+local friendlyManagerRegistered = false
+local friendlyMouseoverPlate = nil
+
+local RegisterFriendlyManager   -- forward declaration
+local UnregisterFriendlyManager -- forward declaration
+
+-------------------------------------------------------------------------------
 --  Add / Remove helpers
 -------------------------------------------------------------------------------
 local function ClearAllFriendlyPlates()
@@ -791,14 +802,9 @@ function ns.RemoveFriendlyPlateNoRestore(unit)
 end
 
 -------------------------------------------------------------------------------
---  Friendly event manager (target, mouseover, raid icons)
---  Only registered when friendly plates are active — zero CPU when disabled.
+--  Friendly event manager function definitions
 -------------------------------------------------------------------------------
-local friendlyManager = CreateFrame("Frame")
-local friendlyManagerRegistered = false
-local friendlyMouseoverPlate = nil
-
-local function RegisterFriendlyManager()
+function RegisterFriendlyManager()
     if friendlyManagerRegistered then return end
     friendlyManager:RegisterEvent("PLAYER_TARGET_CHANGED")
     friendlyManager:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
@@ -806,7 +812,7 @@ local function RegisterFriendlyManager()
     friendlyManagerRegistered = true
 end
 
-local function UnregisterFriendlyManager()
+function UnregisterFriendlyManager()
     if not friendlyManagerRegistered then return end
     friendlyManager:UnregisterAllEvents()
     friendlyManagerRegistered = false
