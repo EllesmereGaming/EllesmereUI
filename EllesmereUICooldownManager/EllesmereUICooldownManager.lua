@@ -244,6 +244,13 @@ local function IsBufChildCooldownActive(ch)
     return false
 end
 
+-- Spells whose icon should swap to a different spell's texture when a specific buff is active.
+-- Key = trackedSpellID, value = { buffID, replacementSpellID }
+local BUFF_PROC_ICON_OVERRIDES = {
+    [6807]   = { buffID = 441583, replacementSpellID = 441583 }, -- Maul -> Ravage
+    [400254] = { buffID = 441583, replacementSpellID = 441583 }, -- Raze -> Ravage
+}
+
 -- spellID -> cooldownID map built once from C_CooldownViewer.GetCooldownViewerCategorySet (all categories).
 -- Rebuilt on PLAYER_LOGIN and spec change. Used by custom bars to find CDM child frames by spellID.
 local _spellToCooldownID = {}
@@ -1911,6 +1918,8 @@ local function InstallProcGlowHooks()
             end
             local cr, cg, cb = PROC_GLOW_R, PROC_GLOW_G, PROC_GLOW_B
             ShowProcGlow(ourIcon, cr, cg, cb)
+            -- Force icon texture re-evaluation so proc overrides (e.g. Ravage) apply immediately
+            ourIcon._lastTex = nil
         end)
     end)
 
@@ -3438,6 +3447,19 @@ local function UpdateCustomBarIcons(barKey)
             -- Buff bars may have a hardcoded icon override for specific spells.
             local overrideTex = (barKey == "buffs" or barData.barType == "buffs") and BUFF_ICON_OVERRIDES[spellID]
             local effectiveTex = overrideTex or texID
+            -- Proc-conditional icon overrides: see BUFF_PROC_ICON_OVERRIDES at top of file.
+            local procOverride = BUFF_PROC_ICON_OVERRIDES[spellID] or BUFF_PROC_ICON_OVERRIDES[resolvedID]
+            if procOverride then
+                local buffChild = _tickBlizzBuffChildCache[procOverride.buffID]
+                if buffChild and IsBufChildCooldownActive(buffChild) then
+                    local procTex = _spellIconCache[procOverride.replacementSpellID]
+                    if not procTex then
+                        local info = C_Spell.GetSpellInfo(procOverride.replacementSpellID)
+                        if info then procTex = info.iconID; _spellIconCache[procOverride.replacementSpellID] = procTex end
+                    end
+                    if procTex then effectiveTex = procTex end
+                end
+            end
             if effectiveTex then
                 if effectiveTex ~= ourIcon._lastTex then
                     ourIcon._tex:SetTexture(effectiveTex)
@@ -4228,6 +4250,19 @@ local function UpdateTrackedBarIcons(barKey)
             end
             local overrideTex = (barKey == "buffs") and BUFF_ICON_OVERRIDES[spellID]
             local effectiveTex = overrideTex or texID
+            -- Proc-conditional icon overrides: see BUFF_PROC_ICON_OVERRIDES at top of file.
+            local procOverride = BUFF_PROC_ICON_OVERRIDES[spellID] or BUFF_PROC_ICON_OVERRIDES[resolvedID]
+            if procOverride then
+                local buffChild = _tickBlizzBuffChildCache[procOverride.buffID]
+                if buffChild and IsBufChildCooldownActive(buffChild) then
+                    local procTex = _spellIconCache[procOverride.replacementSpellID]
+                    if not procTex then
+                        local info = C_Spell.GetSpellInfo(procOverride.replacementSpellID)
+                        if info then procTex = info.iconID; _spellIconCache[procOverride.replacementSpellID] = procTex end
+                    end
+                    if procTex then effectiveTex = procTex end
+                end
+            end
             if effectiveTex then
                 if effectiveTex ~= ourIcon._lastTex then
                     ourIcon._tex:SetTexture(effectiveTex)
@@ -5903,6 +5938,14 @@ function ECME:OnEnable()
 
     -- Update any saved racial spellIDs to match this character's race
     RefreshRacialSpells()
+
+    -- Pre-cache proc replacement spell textures so they're available in combat
+    for _, entry in pairs(BUFF_PROC_ICON_OVERRIDES) do
+        if not _spellIconCache[entry.replacementSpellID] then
+            local info = C_Spell.GetSpellInfo(entry.replacementSpellID)
+            if info then _spellIconCache[entry.replacementSpellID] = info.iconID end
+        end
+    end
 
     -- Enable CDM cooldown viewer (keep Blizzard CDM running in background
     -- so we can read its children even while hidden)
