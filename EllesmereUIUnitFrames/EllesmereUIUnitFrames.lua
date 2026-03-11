@@ -176,7 +176,7 @@ local defaults = {
             castbarHeight = 14,
             showCastbar = true,
             showCastIcon = true,
-            castbarHideWhenInactive = false,
+            castbarHideWhenInactive = true,
             castSpellNameSize = 11,
             castSpellNameColor = { r = 1, g = 1, b = 1 },
             castDurationSize = 11,
