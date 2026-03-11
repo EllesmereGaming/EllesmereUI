@@ -49,6 +49,14 @@ ns.SetFSFont = SetFSFont
 ns.plates = {}
 _G.EllesmereNameplates_NS = ns
 
+-- Constant table for health text bar slots (hoisted to file scope to avoid
+-- per-call allocation inside UpdateHealthValues).
+local HP_BAR_SLOTS = {
+    { key = "textSlotRight",  anchor = "RIGHT",  point = "RIGHT",  xOff = -2 },
+    { key = "textSlotLeft",   anchor = "LEFT",   point = "LEFT",   xOff = 4 },
+    { key = "textSlotCenter", anchor = "CENTER", point = "CENTER", xOff = 0 },
+}
+
 local defaults = {
     hostile = { r = 0.39, g = 0.11, b = 0.09 },
     neutral = { r = 0.81, g = 0.72, b = 0.19 },
@@ -2473,10 +2481,14 @@ questCacheWatcher:SetScript("OnEvent", function()
 end)
 
 local function GetReactionColor(unit)
-    local db = EllesmereUINameplatesDB
+    local db = EllesmereUINameplatesDB or defaults
+    local function C(key)
+        return db[key] or defaults[key]
+    end
     -- 1. Tapped always highest
     if UnitIsTapDenied(unit) then
-        return db.tapped.r, db.tapped.g, db.tapped.b
+        local c = C("tapped")
+        return c.r, c.g, c.b
     end
     -- 2. Quest mob second highest
     if db.questMobColorEnabled and IsQuestMob(unit) then
@@ -2498,22 +2510,26 @@ local function GetReactionColor(unit)
                 -- Only apply when in a group (solo players always have aggro)
                 if IsInGroup() then
                 if status >= 3 then
-                    return db.dpsHasAggro.r, db.dpsHasAggro.g, db.dpsHasAggro.b
+                    local c = C("dpsHasAggro")
+                    return c.r, c.g, c.b
                 elseif status >= 2 then
-                    return db.dpsNearAggro.r, db.dpsNearAggro.g, db.dpsNearAggro.b
+                    local c = C("dpsNearAggro")
+                    return c.r, c.g, c.b
                 end
                 end
             else
                 -- Tank: losing aggro / no aggro absolute priority
                 if status < 3 and status >= 2 then
-                    return db.tankLosingAggro.r, db.tankLosingAggro.g, db.tankLosingAggro.b
+                    local c = C("tankLosingAggro")
+                    return c.r, c.g, c.b
                 elseif status < 3 then
                     -- Only show no-aggro warning if a non-tank has it.
                     -- If another tank holds aggro, this is normal offtank positioning.
                     local unitTarget = unit .. "target"
                     local targetRole = UnitExists(unitTarget) and UnitGroupRolesAssigned(unitTarget) or "NONE"
                     if targetRole ~= "TANK" then
-                        return db.tankNoAggro.r, db.tankNoAggro.g, db.tankNoAggro.b
+                        local c = C("tankNoAggro")
+                        return c.r, c.g, c.b
                     end
                     -- Another tank has aggro -- fall through, no warning color
                 end
@@ -2522,20 +2538,23 @@ local function GetReactionColor(unit)
         end
     end
     -- 4. Focus color (if enabled)
-    if db.focus and UnitIsUnit(unit, "focus") then
+    local focusC = C("focus")
+    if focusC and UnitIsUnit(unit, "focus") then
         local enabled = defaults.focusColorEnabled
         if db.focusColorEnabled ~= nil then enabled = db.focusColorEnabled end
         if enabled then
-            return db.focus.r, db.focus.g, db.focus.b
+            return focusC.r, focusC.g, focusC.b
         end
     end
     -- 5. Neutral
     local reaction = UnitReaction(unit, "player")
     if reaction and reaction == 4 then
-        return db.neutral.r, db.neutral.g, db.neutral.b
+        local c = C("neutral")
+        return c.r, c.g, c.b
     end
     if UnitCanAttack("player", unit) and not UnitIsEnemy(unit, "player") then
-        return db.neutral.r, db.neutral.g, db.neutral.b
+        local c = C("neutral")
+        return c.r, c.g, c.b
     end
     -- 6. Enemy player class colors
     if UnitIsPlayer(unit) and UnitCanAttack("player", unit) then
@@ -2552,20 +2571,22 @@ local function GetReactionColor(unit)
         local level = UnitLevel(unit)
         local playerLevel = UnitLevel("player")
         if level == -1 or (playerLevel and level >= playerLevel + 1) then
+            local c = C("miniboss")
             if type(inCombat) == "boolean" and inCombat then
-                return db.miniboss.r, db.miniboss.g, db.miniboss.b
+                return c.r, c.g, c.b
             else
-                return DarkenColor(db.miniboss.r, db.miniboss.g, db.miniboss.b)
+                return DarkenColor(c.r, c.g, c.b)
             end
         end
     end
     -- 8. Caster
     local unitClass = UnitClassBase and UnitClassBase(unit)
     if unitClass == "PALADIN" then
+        local c = C("caster")
         if type(inCombat) == "boolean" and inCombat then
-            return db.caster.r, db.caster.g, db.caster.b
+            return c.r, c.g, c.b
         else
-            return DarkenColor(db.caster.r, db.caster.g, db.caster.b)
+            return DarkenColor(c.r, c.g, c.b)
         end
     end
     -- 9. Tank has aggro (if enabled) below focus/caster/miniboss
@@ -2573,14 +2594,16 @@ local function GetReactionColor(unit)
         local enabled = defaults.tankHasAggroEnabled
         if db.tankHasAggroEnabled ~= nil then enabled = db.tankHasAggroEnabled end
         if enabled then
-            return db.tankHasAggro.r, db.tankHasAggro.g, db.tankHasAggro.b
+            local c = C("tankHasAggro")
+            return c.r, c.g, c.b
         end
     end
     -- 10. Fallback: enemy in combat / out of combat
+    local eic = C("enemyInCombat")
     if type(inCombat) == "boolean" and inCombat then
-        return db.enemyInCombat.r, db.enemyInCombat.g, db.enemyInCombat.b
+        return eic.r, eic.g, eic.b
     end
-    return DarkenColor(db.enemyInCombat.r, db.enemyInCombat.g, db.enemyInCombat.b)
+    return DarkenColor(eic.r, eic.g, eic.b)
 end
 local hookedUFs = {}
 local hookedHighlights = {}
@@ -3195,13 +3218,7 @@ function NameplateFrame:UpdateHealthValues()
     self.hpText:Hide()
     self.hpNumber:Hide()
 
-    -- Helper to show a health FontString in a bar slot
-    local barSlots = {
-        { key = "textSlotRight",  anchor = "RIGHT",  point = "RIGHT",  xOff = -2 },
-        { key = "textSlotLeft",   anchor = "LEFT",   point = "LEFT",   xOff = 4 },
-        { key = "textSlotCenter", anchor = "CENTER", point = "CENTER", xOff = 0 },
-    }
-    for _, slot in ipairs(barSlots) do
+    for _, slot in ipairs(HP_BAR_SLOTS) do
         local element = GetTextSlot(slot.key)
         local txOff, tyOff = GetTextSlotOffsets(slot.key)
         local slotFontSz = GetTextSlotSize(slot.key)
@@ -3271,7 +3288,7 @@ function NameplateFrame:UpdateHealthValues()
                 fs:SetText(FormatCombinedHealth(topElement, pctText, numText))
             end
         end
-        SetFSFont(fs, topFontSz, GetNPOutline())      SetFSFont(fs, topFontSz, GetNPOutline())
+        SetFSFont(fs, topFontSz, GetNPOutline())
         fs:SetParent(self.topTextFrame)
         fs:ClearAllPoints()
         PP.Point(fs, "BOTTOM", self.health, "TOP", txOff, 4 + nameYOff + cpPush + tyOff)

@@ -991,6 +991,7 @@ do
     local scaleWatcher = CreateFrame("Frame")
     scaleWatcher:RegisterEvent("UI_SCALE_CHANGED")
     scaleWatcher:RegisterEvent("DISPLAY_SIZE_CHANGED")
+    scaleWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
     scaleWatcher:SetScript("OnEvent", function(_, event)
         if event == "DISPLAY_SIZE_CHANGED" then
             -- Resolution changed — recalculate perfect and re-apply scale
@@ -1007,6 +1008,19 @@ do
         end
         -- Re-snap all borders with the new scale values
         PP.ResnapAllBorders()
+        -- Re-sync panel scale so pixel-perfect stays accurate after
+        -- loading screens, resolution changes, or UI scale changes
+        local mf = EllesmereUI._mainFrame
+        if mf and mf:IsShown() then
+            local physW = (GetPhysicalScreenSize())
+            local sw = GetScreenWidth()
+            if physW and physW > 0 and sw and sw > 0 then
+                local baseScale = sw / physW
+                local userScale = (EllesmereUIDB and EllesmereUIDB.panelScale) or 1.0
+                mf:SetScale(baseScale * userScale)
+                if EllesmereUI.PanelPP then EllesmereUI.PanelPP.UpdateMult() end
+            end
+        end
     end)
 end
 
@@ -1114,7 +1128,7 @@ local PanelPP = EllesmereUI.PanelPP
 
 -- Default power colors (from WoW's PowerBarColor)
 EllesmereUI.DEFAULT_POWER_COLORS = {
-    MANA         = { r = 0.000, g = 0.000, b = 1.000 },
+    MANA         = { r = 0x33/255, g = 0x59/255, b = 0xD9/255 },
     RAGE         = { r = 1.000, g = 0.000, b = 0.000 },
     FOCUS        = { r = 1.000, g = 0.500, b = 0.250 },
     ENERGY       = { r = 1.000, g = 1.000, b = 0.000 },
@@ -2421,7 +2435,7 @@ function EllesmereUI:ShowInputPopup(opts)
         local EXTRA_BTN_W, EXTRA_BTN_H = 160, 28
         local extraBtn = CreateFrame("Button", nil, popup)
         extraBtn:SetSize(EXTRA_BTN_W, EXTRA_BTN_H)
-        extraBtn:SetPoint("BOTTOM", inputFrame, "TOP", 0, 6)
+        extraBtn:SetPoint("TOP", inputFrame, "BOTTOM", 0, -6)
         extraBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
         local extraBrd = SolidTex(extraBtn, "BACKGROUND", 1, 1, 1, 0.25)
         extraBrd:SetAllPoints()
@@ -3442,6 +3456,10 @@ local function CreateMainFrame()
     PanelPP.Point(scrollFrame, "TOPLEFT", clickArea, "TOPLEFT", rightX, -contentBaseTop)
     scrollFrame:SetFrameLevel(clickArea:GetFrameLevel() + 3)
     scrollFrame:EnableMouseWheel(true)
+    -- Clip child rendering to the scroll viewport so off-screen widgets
+    -- are skipped by the renderer. Without this, all widgets on a page
+    -- render every frame regardless of scroll position.
+    scrollFrame:SetClipsChildren(true)
 
     scrollChild = CreateFrame("Frame", nil, scrollFrame)
     PanelPP.Size(scrollChild, rightW, 1)
@@ -4773,6 +4791,11 @@ function EllesmereUI:ResetAllModules()
     -- Clear unlock mode anchor relationships
     if EllesmereUIDB then
         EllesmereUIDB.unlockAnchors = nil
+        -- Wipe profile system data so the user starts fresh
+        EllesmereUIDB.profiles = nil
+        EllesmereUIDB.profileOrder = nil
+        EllesmereUIDB.specProfiles = nil
+        EllesmereUIDB.activeProfile = nil
     end
 end
 
@@ -5026,6 +5049,9 @@ end
 
 function EllesmereUI:SelectModule(folderName)
     if not modules[folderName] then return end
+
+    -- Re-sync pixel perfect mult on every addon switch
+    if EllesmereUI.PanelPP then EllesmereUI.PanelPP.UpdateMult() end
 
     -- Save current page's content header under the CORRECT old key
     -- before we overwrite activeModule.
@@ -5330,7 +5356,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "4.2.5"
+EllesmereUI.VERSION = "4.3.5"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

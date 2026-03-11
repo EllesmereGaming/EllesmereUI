@@ -188,7 +188,7 @@ initFrame:SetScript("OnEvent", function(self)
     local displayCastIcons = { 136197, 236802, 135808, 136116, 135735, 136048, 135812, 136075 }
     local function RandomizePreviewValues()
         _previewHpPct = math.floor(60 + math.random() * 15)
-        _previewCastFill = 0.40 + math.random() * 0.50
+        _previewCastFill = 0.40 + math.random() * 0.20
         _previewCastIconIdx = math.random(#displayCastIcons)
     end
 
@@ -4040,65 +4040,60 @@ initFrame:SetScript("OnEvent", function(self)
                 ns.ApplyClassPowerSetting(); UpdatePreview()
                 EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="Class Colored",
+            { type="multiSwatch", text="Fill Color",
               disabled=classPowerDisabled,
               disabledTooltip="Show Class Resource",
-              getValue=function()
-                local v = DBVal("classPowerClassColors")
-                if v == nil then return defaults.classPowerClassColors end
-                return v
-              end,
-              setValue=function(v)
-                DB().classPowerClassColors = v
-                ns.RefreshClassPower(); UpdatePreview()
-                EllesmereUI:RefreshPage()
-              end });  y = y - h
-
-        -- Inline color swatch on Class Colors toggle (disabled when class colors is active)
-        do
-            local rightRgn = classResourceToggleRow._rightRegion
-
-            local cpColorGet = function()
-                local c = (DB() and DB().classPowerCustomColor) or defaults.classPowerCustomColor
-                return c.r, c.g, c.b
-            end
-            local cpColorSet = function(r, g, b)
-                DB().classPowerCustomColor = { r = r, g = g, b = b }
-                ns.RefreshClassPower(); UpdatePreview()
-            end
-            local cpSwatch, cpUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, cpColorGet, cpColorSet, nil, 20)
-            PP.Point(cpSwatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
-            rightRgn._lastInline = cpSwatch
-
-            -- Swatch is disabled (grayed out) when class colors toggle is ON or when Show Class Resource is off
-            local function cpSwatchDisabled()
-                if classPowerDisabled() then return true end
-                local v = DBVal("classPowerClassColors")
-                if v == nil then return defaults.classPowerClassColors end
-                return v
-            end
-
-            -- Blocking overlay for disabled state
-            local cpBlock = CreateFrame("Frame", nil, cpSwatch)
-            cpBlock:SetAllPoints()
-            cpBlock:SetFrameLevel(cpSwatch:GetFrameLevel() + 10)
-            cpBlock:EnableMouse(true)
-            cpBlock:SetScript("OnEnter", function()
-                local reason = classPowerDisabled() and "Show Class Resource" or "Class Colored"
-                EllesmereUI.ShowWidgetTooltip(cpSwatch, EllesmereUI.DisabledTooltip(reason))
-            end)
-            cpBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            EllesmereUI.RegisterWidgetRefresh(function()
-                local off = cpSwatchDisabled()
-                cpSwatch:SetAlpha(off and 0.3 or 1)
-                if off then cpBlock:Show() else cpBlock:Hide() end
-                cpUpdateSwatch()
-            end)
-            local cpSwatchOff = cpSwatchDisabled()
-            cpSwatch:SetAlpha(cpSwatchOff and 0.3 or 1)
-            if cpSwatchOff then cpBlock:Show() else cpBlock:Hide() end
-        end
+              swatches = {
+                { tooltip = "Custom Color",
+                  disabled = classPowerDisabled,
+                  disabledTooltip = "Show Class Resource",
+                  getValue = function()
+                      local c = (DB() and DB().classPowerCustomColor) or defaults.classPowerCustomColor
+                      return c.r, c.g, c.b
+                  end,
+                  setValue = function(r, g, b)
+                      DB().classPowerCustomColor = { r = r, g = g, b = b }
+                      ns.RefreshClassPower(); UpdatePreview()
+                  end,
+                  onClick = function(self)
+                      local v = DBVal("classPowerClassColors")
+                      if v == nil then v = defaults.classPowerClassColors end
+                      if v then
+                          DB().classPowerClassColors = false
+                          ns.RefreshClassPower(); UpdatePreview()
+                          EllesmereUI:RefreshPage()
+                          return
+                      end
+                      if self._eabOrigClick then self._eabOrigClick(self) end
+                  end,
+                  refreshAlpha = function()
+                      local v = DBVal("classPowerClassColors")
+                      if v == nil then v = defaults.classPowerClassColors end
+                      return v and 0.3 or 1
+                  end },
+                { tooltip = "Class Colored",
+                  disabled = classPowerDisabled,
+                  disabledTooltip = "Show Class Resource",
+                  getValue = function()
+                      local _, ct = UnitClass("player")
+                      if ct and RAID_CLASS_COLORS[ct] then
+                          local cc = RAID_CLASS_COLORS[ct]
+                          return cc.r, cc.g, cc.b, 1
+                      end
+                      return 1, 1, 1, 1
+                  end,
+                  setValue = function() end,
+                  onClick = function()
+                      DB().classPowerClassColors = true
+                      ns.RefreshClassPower(); UpdatePreview()
+                      EllesmereUI:RefreshPage()
+                  end,
+                  refreshAlpha = function()
+                      local v = DBVal("classPowerClassColors")
+                      if v == nil then v = defaults.classPowerClassColors end
+                      return v and 1 or 0.3
+                  end },
+              } });  y = y - h
 
         -- Row 2: Position (with inline cog for X/Y) | Size
         local classResourceRow2
@@ -4359,21 +4354,57 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 UpdatePreview()
               end },
-            { type="colorpicker", text="Spell Target",
-              disabled=function()
-                local db = DB()
-                if db and db.castTargetClassColor ~= nil then return db.castTargetClassColor end
-                return defaults.castTargetClassColor
-              end,
-              disabledTooltip="Class Colored is enabled in Spell Target Settings",
-              getValue=function() return DBColor("castTargetColor") end,
-              setValue=function(r, g, b)
-                DB().castTargetColor = { r = r, g = g, b = b }
-                for _, plate in pairs(plates) do
-                    plate:UpdateHealth()
-                end
-                UpdatePreview()
-              end })
+            { type="multiSwatch", text="Spell Target",
+              swatches = {
+                { tooltip = "Custom Color",
+                  getValue=function() return DBColor("castTargetColor") end,
+                  setValue=function(r, g, b)
+                    DB().castTargetColor = { r = r, g = g, b = b }
+                    for _, plate in pairs(plates) do
+                        plate:UpdateHealth()
+                    end
+                    UpdatePreview()
+                  end,
+                  onClick = function(self)
+                    local db = DB()
+                    if db.castTargetClassColor ~= nil and db.castTargetClassColor or defaults.castTargetClassColor then
+                        DB().castTargetClassColor = false
+                        for _, plate in pairs(plates) do plate:UpdateHealth() end
+                        UpdatePreview()
+                        EllesmereUI:RefreshPage()
+                        return
+                    end
+                    if self._eabOrigClick then self._eabOrigClick(self) end
+                  end,
+                  refreshAlpha = function()
+                    local db = DB()
+                    local cc = db and db.castTargetClassColor
+                    if cc == nil then cc = defaults.castTargetClassColor end
+                    return cc and 0.3 or 1
+                  end },
+                { tooltip = "Class Colored",
+                  getValue = function()
+                    local _, ct = UnitClass("player")
+                    if ct and RAID_CLASS_COLORS[ct] then
+                        local cc = RAID_CLASS_COLORS[ct]
+                        return cc.r, cc.g, cc.b, 1
+                    end
+                    return 1, 1, 1, 1
+                  end,
+                  setValue = function() end,
+                  onClick = function()
+                    DB().castTargetClassColor = true
+                    for _, plate in pairs(plates) do plate:UpdateHealth() end
+                    UpdatePreview()
+                    EllesmereUI:RefreshPage()
+                  end,
+                  refreshAlpha = function()
+                    local db = DB()
+                    local cc = db and db.castTargetClassColor
+                    if cc == nil then cc = defaults.castTargetClassColor end
+                    return cc and 1 or 0.3
+                  end },
+              } })
         do
             -- LEFT: Spell Name cog for size
             local leftRgn = spellNameRow._leftRegion
@@ -4404,7 +4435,7 @@ initFrame:SetScript("OnEvent", function(self)
             spellNameCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
             spellNameCogBtn:SetScript("OnClick", function(self) spellNameCogShow(self) end)
 
-            -- RIGHT: Spell Target cog for size + class colored
+            -- RIGHT: Spell Target cog for size
             local rightRgn = spellNameRow._rightRegion
             local _, spellTargetCogShow = EllesmereUI.BuildCogPopup({
                 title = "Spell Target Settings",
@@ -4417,20 +4448,6 @@ initFrame:SetScript("OnEvent", function(self)
                             if plate.castTarget then SetFSFont(plate.castTarget, v, GetNPOutline()) end
                         end
                         UpdatePreview()
-                      end },
-                    { type="toggle", label="Class Colored",
-                      get=function()
-                        local db = DB()
-                        if db and db.castTargetClassColor ~= nil then return db.castTargetClassColor end
-                        return defaults.castTargetClassColor
-                      end,
-                      set=function(v)
-                        DB().castTargetClassColor = v
-                        for _, plate in pairs(plates) do
-                            plate:UpdateHealth()
-                        end
-                        UpdatePreview()
-                        EllesmereUI:RefreshPage()
                       end },
                 },
             })
@@ -4943,7 +4960,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
     local function NextCastFill()
         for _ = 1, 50 do
-            local v = 0.40 + math.random() * 0.50
+            local v = 0.40 + math.random() * 0.20
             local ok = true
             for _, prev in ipairs(castFillUsed) do
                 if math.abs(v - prev) < 0.05 then ok = false; break end
@@ -4954,7 +4971,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
         -- fallback if somehow can't find a valid value
-        local v = 0.40 + math.random() * 0.50
+        local v = 0.40 + math.random() * 0.20
         castFillUsed[#castFillUsed + 1] = v
         return v
     end

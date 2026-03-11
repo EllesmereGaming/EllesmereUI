@@ -64,7 +64,7 @@ local EXTRA_BARS = {
     { key = "BagBar",   label = "Bag Bar",        frameName = "BagsBar", visibilityOnly = true },
     { key = "XPBar",    label = "XP Bar",         visibilityOnly = true, isDataBar = true },
     { key = "RepBar",   label = "Reputation Bar",  visibilityOnly = true, isDataBar = true },
-    { key = "ExtraActionButton", label = "Extra Abilities (Special Action)", visibilityOnly = true, isBlizzardMovable = true },
+    { key = "ExtraActionButton", label = "Extra Action Button", visibilityOnly = true, isBlizzardMovable = true },
     { key = "EncounterBar",      label = "Encounter Bar",         visibilityOnly = true, isBlizzardMovable = true },
 }
 
@@ -89,10 +89,6 @@ end
 local VISIBILITY_ONLY = {}
 for _, info in ipairs(EXTRA_BARS) do
     VISIBILITY_ONLY[info.key] = true
-    -- Also register with EAB_ prefix so unlock mode can match blizzard movable elements
-    if info.isBlizzardMovable then
-        VISIBILITY_ONLY["EAB_" .. info.key] = true
-    end
 end
 
 local DATA_BAR = {}
@@ -2893,10 +2889,16 @@ function EAB:ApplyScaleForBar(barKey)
     if not frame then return end
     local scale = s.barScale or 1.0
     if scale < 0.1 then scale = 0.1 end
+    local prev = frame._eabLastScale
     frame:SetScale(scale)
-    -- Re-snap borders after scale change so they stay pixel-perfect
-    local PP = EllesmereUI and EllesmereUI.PP
-    if PP and PP.ResnapAllBorders then PP.ResnapAllBorders() end
+    -- Only re-snap borders when the scale actually changed (avoids iterating
+    -- every registered border in the UI on bar-paging events where scale is
+    -- unchanged).
+    if prev ~= scale then
+        frame._eabLastScale = scale
+        local ppRef = EllesmereUI and EllesmereUI.PP
+        if ppRef and ppRef.ResnapAllBorders then ppRef.ResnapAllBorders() end
+    end
 end
 
 -- Same as ApplyScaleForBar but preserves the bar's visual center.
@@ -3175,6 +3177,7 @@ end
 local _rangeSlots = {}          -- [actionSlot] = true  (slots with range checking enabled)
 local _rangeOutOfRange = {}     -- [actionSlot] = true  (currently out of range)
 local _rangeEventFrame          -- lazy-created event frame
+local _rangeSlotPending = false -- debounce for per-slot range re-enable
 
 -- Resolve the action slot for a button (handles paging for MainBar)
 local function GetButtonActionSlot(btn)
@@ -3319,12 +3322,19 @@ function EAB:ApplyRangeColoring()
                         pcall(C_ActionBar.EnableActionRangeCheck, slot, true)
                     end
                 end
-                -- Re-enable for any new slots that appeared
-                for _, info in ipairs(BAR_CONFIG) do
-                    local s = EAB.db.profile.bars[info.key]
-                    if s and s.outOfRangeColoring then
-                        EnableRangeCheckForBar(info.key)
-                    end
+                -- Debounce the full re-enable pass so 12+ per-slot fires
+                -- during a bar page swap collapse into one deferred call
+                if not _rangeSlotPending then
+                    _rangeSlotPending = true
+                    C_Timer_After(0, function()
+                        _rangeSlotPending = false
+                        for _, info in ipairs(BAR_CONFIG) do
+                            local s = EAB.db.profile.bars[info.key]
+                            if s and s.outOfRangeColoring then
+                                EnableRangeCheckForBar(info.key)
+                            end
+                        end
+                    end)
                 end
             elseif event == "ACTIONBAR_PAGE_CHANGED" then
                 -- Page changed: clear all range state and re-enable for new slots
@@ -4787,6 +4797,8 @@ end
 --  Grid Show/Hide (show empty slots during spell drag)
 -------------------------------------------------------------------------------
 local gridShown = false
+local _slotChangedPending = false -- debounce for ACTIONBAR_SLOT_CHANGED
+local _spellsChangedPending = false -- debounce for SPELLS_CHANGED
 
 local function OnGridChange()
     if InCombatLockdown() then return end
@@ -4917,7 +4929,7 @@ local function RegisterWithUnlockMode()
     local orderBase = 200  -- action bars sort after unit frames (100+)
 
     for idx, info in ipairs(BAR_CONFIG) do
-        local key = "EAB_" .. info.key
+        local key = info.key
         elements[#elements + 1] = {
             key   = key,
             label = info.label,
@@ -4970,7 +4982,7 @@ local function RegisterWithUnlockMode()
             blizzOrder = blizzOrder + 1
             local bk = info.key
             elements[#elements + 1] = {
-                key   = "EAB_" .. bk,
+                key   = bk,
                 label = info.label,
                 group = "Action Bars",
                 order = blizzOrder,
@@ -5594,20 +5606,11 @@ function EAB:FinishSetup()
         end
     end)
 
-    self:RegisterEvent("UPDATE_BONUS_ACTIONBAR", function()
-        -- Skyriding mount/dismount: re-apply scale and layout.
-        -- Two passes: first at 0.1s (catches most cases), second at 0.5s
-        -- (catches slow slot swaps on dismount where HasAction is briefly false).
-        local function DoLayout()
-            if InCombatLockdown() then return end
-            for _, info in ipairs(BAR_CONFIG) do
-                self:ApplyScaleForBar(info.key)
-                LayoutBar(info.key)
-            end
-        end
-        C_Timer_After(0.1, DoLayout)
-        C_Timer_After(0.5, DoLayout)
-    end)
+    -- UPDATE_BONUS_ACTIONBAR is intentionally NOT registered. The secure
+    -- state driver (RegisterStateDriver on MainBar) handles bar paging in
+    -- C code, and ACTIONBAR_SLOT_CHANGED (debounced) handles button
+    -- visibility updates. Re-applying scale and layout here was redundant
+    -- and caused FPS drops during mount/dismount and druid form shifts.
 
     self:RegisterEvent("ZONE_CHANGED_NEW_AREA", function()
         self:UpdateHousingVisibility()
@@ -5624,7 +5627,10 @@ function EAB:FinishSetup()
     -- Spell updates: refresh button icons and visibility
     -- Also re-layout the stance bar since GetNumShapeshiftForms() may have changed
     self:RegisterEvent("SPELLS_CHANGED", function()
+        if _spellsChangedPending then return end
+        _spellsChangedPending = true
         C_Timer_After(0, function()
+            _spellsChangedPending = false
             LayoutBar("StanceBar")
             for _, info in ipairs(BAR_CONFIG) do
                 self:ApplyAlwaysShowButtons(info.key)
@@ -5633,12 +5639,16 @@ function EAB:FinishSetup()
     end)
 
     -- Slot changed: update visibility when a spell is placed/removed from a slot
-    -- This fires per-slot and ensures buttons update without /reload
+    -- This fires per-slot (12+ times during a bar page swap), so debounce into
+    -- a single deferred pass.
     self:RegisterEvent("ACTIONBAR_SLOT_CHANGED", function()
-        -- During drag, skip — OnGridChange already shows everything,
+        -- During drag, skip -- OnGridChange already shows everything,
         -- and HIDEGRID / CURSOR_CHANGED will restore afterwards
         if gridShown then return end
+        if _slotChangedPending then return end
+        _slotChangedPending = true
         C_Timer_After(0, function()
+            _slotChangedPending = false
             if gridShown then return end
             for _, info in ipairs(BAR_CONFIG) do
                 self:ApplyAlwaysShowButtons(info.key)
@@ -6090,7 +6100,7 @@ local function RegisterDataBarsWithUnlockMode()
         if info.isDataBar then
             local bk = info.key
             elements[#elements + 1] = {
-                key   = "EAB_" .. bk,
+                key   = bk,
                 label = info.label,
                 group = "Action Bars",
                 order = orderBase + idx,
@@ -6745,7 +6755,7 @@ local function RegisterExtraBarsWithUnlockMode()
         if not info.isDataBar and not info.isBlizzardMovable and info.frameName then
             local bk = info.key
             elements[#elements + 1] = {
-                key   = "EAB_" .. bk,
+                key   = bk,
                 label = info.label,
                 group = "Action Bars",
                 order = orderBase + idx,

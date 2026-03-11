@@ -129,7 +129,7 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         _, h = W:SectionHeader(parent, SECTION_APPEARANCE, y);  y = y - h
 
-        -- Enable Cursor Circle ---- Use Class Color
+        -- Enable Cursor Circle ---- Color (multiSwatch: custom left, class colored right)
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Enable Cursor Circle",
               getValue=function() local p = DB(); return p and (p.enabled ~= false) end,
@@ -139,51 +139,62 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshAddon()
                 EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="Use Class Color",
-              disabled=function() local p = DB(); return p and p.enabled == false end,
-              disabledTooltip="Enable Cursor Circle",
-              getValue=function() local p = DB(); return p and p.useClassColor end,
-              setValue=function(v)
-                local p = DB(); if not p then return end
-                p.useClassColor = v
-                RefreshAddon()
-                EllesmereUI:RefreshPage()
-              end }
+            { type="multiSwatch", text="Color",
+              swatches = {
+                { tooltip = "Custom Color",
+                  hasAlpha = false,
+                  getValue = function()
+                      local p = DB()
+                      if not p then return 12/255, 210/255, 157/255 end
+                      local r, g, b = HexToRGB(p.hex)
+                      return r, g, b
+                  end,
+                  setValue = function(r, g, b)
+                      local p = DB(); if not p then return end
+                      p.hex = RGBToHex(r, g, b)
+                      RefreshAddon()
+                  end,
+                  onClick = function(self)
+                      local p = DB(); if not p then return end
+                      if p.useClassColor then
+                          p.useClassColor = false
+                          RefreshAddon(); EllesmereUI:RefreshPage()
+                          return
+                      end
+                      if self._eabOrigClick then self._eabOrigClick(self) end
+                  end,
+                  refreshAlpha = function()
+                      local p = DB()
+                      if not p or p.enabled == false then return 0.15 end
+                      return (p.useClassColor) and 0.3 or 1
+                  end,
+                  disabled = function()
+                      local p = DB(); return not p or p.enabled == false
+                  end },
+                { tooltip = "Class Colored",
+                  hasAlpha = false,
+                  getValue = function()
+                      local _, classFile = UnitClass("player")
+                      local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                      if cc then return cc.r, cc.g, cc.b end
+                      return 12/255, 210/255, 157/255
+                  end,
+                  setValue = function() end,
+                  onClick = function()
+                      local p = DB(); if not p then return end
+                      p.useClassColor = true
+                      RefreshAddon(); EllesmereUI:RefreshPage()
+                  end,
+                  refreshAlpha = function()
+                      local p = DB()
+                      if not p or p.enabled == false then return 0.15 end
+                      return (p.useClassColor) and 1 or 0.3
+                  end,
+                  disabled = function()
+                      local p = DB(); return not p or p.enabled == false
+                  end },
+              } }
         );  y = y - h
-
-        -- Inline color swatch on Use Class Color (right side)
-        do
-            local rgn = row._rightRegion
-            local swatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-                function()
-                    local p = DB()
-                    if not p then return 12/255, 210/255, 157/255, 1 end
-                    local r, g, b = HexToRGB(p.hex)
-                    return r, g, b, 1
-                end,
-                function(r, g, b, a)
-                    local p = DB(); if not p then return end
-                    p.hex = RGBToHex(r, g, b)
-                    RefreshAddon()
-                end, false, 20)
-            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            rgn._lastInline = swatch
-            local function UpdateCursorSwatch()
-                local p = DB()
-                if not p or p.enabled == false then
-                    swatch:SetAlpha(0.15); swatch:Disable()
-                    swatch._disabledTooltip = "Enable Cursor Circle"
-                elseif p.useClassColor then
-                    swatch:SetAlpha(0.15); swatch:Disable()
-                    swatch._disabledTooltip = "Disable Use Class Color"
-                else
-                    swatch:SetAlpha(1); swatch:Enable()
-                    swatch._disabledTooltip = nil
-                end
-            end
-            UpdateCursorSwatch()
-            EllesmereUI.RegisterWidgetRefresh(UpdateCursorSwatch)
-        end
 
         -- Texture ---- Scale
         _, h = W:DualRow(parent, y,
@@ -238,7 +249,7 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         _, h = W:SectionHeader(parent, SECTION_GCD, y);  y = y - h
 
-        -- Enable GCD Circle ---- Use Class Color
+        -- Enable GCD Circle ---- Color (multiSwatch: custom left, class colored right)
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Enable GCD Circle",
               getValue=function() return GCD_DB().enabled or false end,
@@ -247,47 +258,58 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshGCD()
                 EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="Use Class Color",
-              disabled=function() return not GCD_DB().enabled end,
-              disabledTooltip="Enable GCD Circle",
-              getValue=function() return GCD_DB().useClassColor or false end,
-              setValue=function(v)
-                GCD_DB().useClassColor = v
-                RefreshGCD()
-                EllesmereUI:RefreshPage()
-              end }
+            { type="multiSwatch", text="Color",
+              swatches = {
+                { tooltip = "Custom Color",
+                  hasAlpha = true,
+                  getValue = function()
+                      local g = GCD_DB()
+                      local r, ng, b = HexToRGB(g.hex)
+                      return r, ng, b, (g.alpha or 80) / 100
+                  end,
+                  setValue = function(r, g, b, a)
+                      local gd = GCD_DB()
+                      gd.hex = RGBToHex(r, g, b)
+                      if a then gd.alpha = floor(a * 100 + 0.5) end
+                      RefreshGCD()
+                  end,
+                  onClick = function(self)
+                      local g = GCD_DB()
+                      if g.useClassColor then
+                          g.useClassColor = false
+                          RefreshGCD(); EllesmereUI:RefreshPage()
+                          return
+                      end
+                      if self._eabOrigClick then self._eabOrigClick(self) end
+                  end,
+                  refreshAlpha = function()
+                      local g = GCD_DB()
+                      if not g.enabled then return 0.15 end
+                      return g.useClassColor and 0.3 or 1
+                  end,
+                  disabled = function() return not GCD_DB().enabled end },
+                { tooltip = "Class Colored",
+                  hasAlpha = false,
+                  getValue = function()
+                      local _, classFile = UnitClass("player")
+                      local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                      if cc then return cc.r, cc.g, cc.b end
+                      return 12/255, 210/255, 157/255
+                  end,
+                  setValue = function() end,
+                  onClick = function()
+                      local g = GCD_DB()
+                      g.useClassColor = true
+                      RefreshGCD(); EllesmereUI:RefreshPage()
+                  end,
+                  refreshAlpha = function()
+                      local g = GCD_DB()
+                      if not g.enabled then return 0.15 end
+                      return g.useClassColor and 1 or 0.3
+                  end,
+                  disabled = function() return not GCD_DB().enabled end },
+              } }
         );  y = y - h
-
-        -- Inline color swatch on Use Class Color (right side, with alpha)
-        do
-            local rgn = row._rightRegion
-            local swatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-                function()
-                    local g = GCD_DB()
-                    local r, ng, b = HexToRGB(g.hex)
-                    return r, ng, b, (g.alpha or 80) / 100
-                end,
-                function(r, g, b, a)
-                    local gd = GCD_DB()
-                    gd.hex = RGBToHex(r, g, b)
-                    if a then gd.alpha = floor(a * 100 + 0.5) end
-                    RefreshGCD()
-                end, true, 20)
-            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            rgn._lastInline = swatch
-            local function UpdateGCDSwatch()
-                local g = GCD_DB()
-                if not g.enabled or g.useClassColor then
-                    swatch:SetAlpha(0.15); swatch:Disable()
-                    swatch._disabledTooltip = g.enabled and "Disable Use Class Color" or "Enable GCD Circle"
-                else
-                    swatch:SetAlpha(1); swatch:Enable()
-                    swatch._disabledTooltip = nil
-                end
-            end
-            UpdateGCDSwatch()
-            EllesmereUI.RegisterWidgetRefresh(UpdateGCDSwatch)
-        end
 
         -- Ring Texture ---- Scale
         _, h = W:DualRow(parent, y,
@@ -332,7 +354,7 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         _, h = W:SectionHeader(parent, SECTION_CAST, y);  y = y - h
 
-        -- Enable Cast Bar Circle ---- Use Class Color
+        -- Enable Cast Bar Circle ---- Color (multiSwatch: custom left, class colored right)
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Enable Cast Bar Circle",
               getValue=function() return Cast_DB().enabled or false end,
@@ -341,15 +363,57 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshCast()
                 EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="Use Class Color",
-              disabled=function() return not Cast_DB().enabled end,
-              disabledTooltip="Enable Cast Bar Circle",
-              getValue=function() return Cast_DB().useClassColor or false end,
-              setValue=function(v)
-                Cast_DB().useClassColor = v
-                RefreshCast()
-                EllesmereUI:RefreshPage()
-              end }
+            { type="multiSwatch", text="Color",
+              swatches = {
+                { tooltip = "Custom Color",
+                  hasAlpha = true,
+                  getValue = function()
+                      local c = Cast_DB()
+                      local r, ng, b = HexToRGB(c.hex)
+                      return r, ng, b, (c.alpha or 80) / 100
+                  end,
+                  setValue = function(r, g, b, a)
+                      local cd = Cast_DB()
+                      cd.hex = RGBToHex(r, g, b)
+                      if a then cd.alpha = floor(a * 100 + 0.5) end
+                      RefreshCast()
+                  end,
+                  onClick = function(self)
+                      local c = Cast_DB()
+                      if c.useClassColor then
+                          c.useClassColor = false
+                          RefreshCast(); EllesmereUI:RefreshPage()
+                          return
+                      end
+                      if self._eabOrigClick then self._eabOrigClick(self) end
+                  end,
+                  refreshAlpha = function()
+                      local c = Cast_DB()
+                      if not c.enabled then return 0.15 end
+                      return c.useClassColor and 0.3 or 1
+                  end,
+                  disabled = function() return not Cast_DB().enabled end },
+                { tooltip = "Class Colored",
+                  hasAlpha = false,
+                  getValue = function()
+                      local _, classFile = UnitClass("player")
+                      local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                      if cc then return cc.r, cc.g, cc.b end
+                      return 12/255, 210/255, 157/255
+                  end,
+                  setValue = function() end,
+                  onClick = function()
+                      local c = Cast_DB()
+                      c.useClassColor = true
+                      RefreshCast(); EllesmereUI:RefreshPage()
+                  end,
+                  refreshAlpha = function()
+                      local c = Cast_DB()
+                      if not c.enabled then return 0.15 end
+                      return c.useClassColor and 1 or 0.3
+                  end,
+                  disabled = function() return not Cast_DB().enabled end },
+              } }
         );  y = y - h
 
         -- Inline cog on Enable Cast Bar Circle for "Show Spark"
@@ -383,37 +447,6 @@ initFrame:SetScript("OnEvent", function(self)
             end
             UpdateCastCog()
             EllesmereUI.RegisterWidgetRefresh(UpdateCastCog)
-        end
-
-        -- Inline color swatch on Use Class Color (right side, with alpha)
-        do
-            local rgn = row._rightRegion
-            local swatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-                function()
-                    local c = Cast_DB()
-                    local r, ng, b = HexToRGB(c.hex)
-                    return r, ng, b, (c.alpha or 80) / 100
-                end,
-                function(r, g, b, a)
-                    local cd = Cast_DB()
-                    cd.hex = RGBToHex(r, g, b)
-                    if a then cd.alpha = floor(a * 100 + 0.5) end
-                    RefreshCast()
-                end, true, 20)
-            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            rgn._lastInline = swatch
-            local function UpdateCastSwatch()
-                local c = Cast_DB()
-                if not c.enabled or c.useClassColor then
-                    swatch:SetAlpha(0.15); swatch:Disable()
-                    swatch._disabledTooltip = c.enabled and "Disable Use Class Color" or "Enable Cast Bar Circle"
-                else
-                    swatch:SetAlpha(1); swatch:Enable()
-                    swatch._disabledTooltip = nil
-                end
-            end
-            UpdateCastSwatch()
-            EllesmereUI.RegisterWidgetRefresh(UpdateCastSwatch)
         end
 
         -- Ring Texture ---- Scale

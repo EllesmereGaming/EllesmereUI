@@ -1205,10 +1205,10 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Row 4: Class Colored Fill (inline swatch) | Resource Text (inline cog RESIZE)
+        -- Row 4: Fill Color (inline swatches) | Resource Text (inline cog RESIZE)
         local classColorRow
         classColorRow, h = W:DualRow(parent, y,
-            { type = "toggle", text = "Class Colored Fill",
+            { type = "toggle", text = "Fill Color",
               disabled = classOff,
               disabledTooltip = "Enable Class Resource",
               getValue = function() local p = DB(); return p and (p.secondary.classColored ~= false) end,
@@ -1227,10 +1227,36 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()
               end }
         );  y = y - h
-        -- Inline color swatch on Class Colored Fill
+        -- Inline double color swatches on Fill Color: custom (left), class colored (right)
         do
             local rgn = classColorRow._leftRegion
-            local swatch, _ = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 2,
+
+            -- Class color swatch (rightmost, single-click activates class color mode)
+            local classFillSwatch, updateClassFillSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, rgn:GetFrameLevel() + 3,
+                function()
+                    local _, classFile = UnitClass("player")
+                    local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                    if cc then return cc.r, cc.g, cc.b end
+                    return 1, 0.82, 0
+                end,
+                function() end,
+                false, 20)
+            PP.Point(classFillSwatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
+            rgn._lastInline = classFillSwatch
+            classFillSwatch:SetScript("OnClick", function()
+                local p = DB(); if not p then return end
+                p.secondary.classColored = true; RebuildClass()
+                EllesmereUI:RefreshPage()
+            end)
+            classFillSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(classFillSwatch, "Class Colored")
+            end)
+            classFillSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Custom color swatch (left of class swatch, two-click: first activates custom mode)
+            local fillSwatch, updateFillSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, rgn:GetFrameLevel() + 3,
                 function()
                     local p = DB()
                     if not p then return 0xDB/255, 0xCF/255, 0x37/255, 1 end
@@ -1241,35 +1267,50 @@ initFrame:SetScript("OnEvent", function(self)
                     p.secondary.fillR, p.secondary.fillG, p.secondary.fillB, p.secondary.fillA = r, g, b, a
                     RebuildClass(); SmoothRefresh()
                 end, true, 20)
-            PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            rgn._lastInline = swatch
-            local swDis = CreateFrame("Frame", nil, rgn)
-            swDis:SetAllPoints(swatch)
-            swDis:SetFrameLevel(swatch:GetFrameLevel() + 5)
-            local swDisTex = swDis:CreateTexture(nil, "OVERLAY")
-            swDisTex:SetAllPoints()
-            swDisTex:SetColorTexture(0.12, 0.12, 0.12, 0.75)
-            swDis:EnableMouse(true)
-            swDis:SetScript("OnEnter", function()
-                local p = DB()
-                if p and not p.secondary.enabled then
-                    EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Enable Class Resource"))
-                else
-                    EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("This option requires Class Colored Fill to be disabled"))
+            PP.Point(fillSwatch, "RIGHT", classFillSwatch, "LEFT", -8, 0)
+            rgn._lastInline = fillSwatch
+            fillSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(fillSwatch, "Custom Colored")
+            end)
+            fillSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Block overlay on custom swatch -- clicking while class colored deactivates class color mode
+            local fillSwatchBlock = CreateFrame("Button", nil, fillSwatch)
+            fillSwatchBlock:SetAllPoints()
+            fillSwatchBlock:SetFrameLevel(fillSwatch:GetFrameLevel() + 10)
+            fillSwatchBlock:EnableMouse(true)
+            fillSwatchBlock:SetScript("OnClick", function()
+                local p = DB(); if not p then return end
+                if p.secondary.classColored ~= false then
+                    p.secondary.classColored = false; RebuildClass()
+                    EllesmereUI:RefreshPage()
                 end
             end)
-            swDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateClassSwDis()
+            fillSwatchBlock:SetScript("OnEnter", function()
                 local p = DB()
-                if p and (not p.secondary.enabled or (p.secondary.classColored ~= false)) then
-                    swDis:Show(); swatch:SetAlpha(0.3)
+                if p and not p.secondary.enabled then
+                    EllesmereUI.ShowWidgetTooltip(fillSwatch, EllesmereUI.DisabledTooltip("Enable Class Resource"))
                 else
-                    swDis:Hide(); swatch:SetAlpha(1)
+                    EllesmereUI.ShowWidgetTooltip(fillSwatch, EllesmereUI.DisabledTooltip("Color is controlled by class color"))
                 end
+            end)
+            fillSwatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            local function UpdateFillSwatchState()
+                local p = DB()
+                local disabled = not p or not p.secondary.enabled
+                local isClassColored = not p or (p.secondary.classColored ~= false)
+                -- Custom swatch: dim when class colored or resource disabled
+                if disabled or isClassColored then
+                    fillSwatch:SetAlpha(0.3); fillSwatchBlock:Show()
+                else
+                    fillSwatch:SetAlpha(1); fillSwatchBlock:Hide()
+                end
+                -- Class swatch: bright when class colored, dim when custom
+                classFillSwatch:SetAlpha((isClassColored and not disabled) and 1 or 0.3)
             end
-            swatch:HookScript("OnShow", UpdateClassSwDis)
-            EllesmereUI.RegisterWidgetRefresh(UpdateClassSwDis)
-            UpdateClassSwDis()
+            EllesmereUI.RegisterWidgetRefresh(function() updateFillSwatch(); updateClassFillSwatch(); UpdateFillSwatchState() end)
+            UpdateFillSwatchState()
         end
         -- Inline cog for Charged Combo Point color
         do
@@ -1765,7 +1806,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 4: Power Colored Fill (inline swatch) | Power Text (inline cog RESIZE)
         local powerColorRow
         powerColorRow, h = W:DualRow(parent, y,
-            { type = "toggle", text = "Power Colored Fill",
+            { type = "toggle", text = "Fill Color",
               disabled = powerOff,
               disabledTooltip = powerDisTip,
               getValue = function() local p = DB(); return p and not p.primary.customColored end,
@@ -1785,10 +1826,36 @@ initFrame:SetScript("OnEvent", function(self)
                   p.primary.textFormat = v; RefreshPower()
               end }
         );  y = y - h
-        -- Inline color swatch on Power Colored Fill
+        -- Inline double color swatches on Fill Color: custom (left), power colored (right)
         do
             local rgn = powerColorRow._leftRegion
-            local swatch, _ = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 2,
+
+            -- Power color swatch (rightmost, single-click activates power color mode)
+            local powerFillSwatch, updatePowerFillSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, rgn:GetFrameLevel() + 3,
+                function()
+                    local _, classFile = UnitClass("player")
+                    local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                    if cc then return cc.r, cc.g, cc.b end
+                    return 0x23/255, 0x8F/255, 0xE7/255
+                end,
+                function() end,
+                false, 20)
+            PP.Point(powerFillSwatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
+            rgn._lastInline = powerFillSwatch
+            powerFillSwatch:SetScript("OnClick", function()
+                local p = DB(); if not p then return end
+                p.primary.customColored = false; RebuildPower()
+                EllesmereUI:RefreshPage()
+            end)
+            powerFillSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(powerFillSwatch, "Class Colored")
+            end)
+            powerFillSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Custom color swatch (left of power swatch, two-click: first activates custom mode)
+            local fillSwatch, updateFillSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, rgn:GetFrameLevel() + 3,
                 function()
                     local p = DB()
                     if not p then return 0x23/255, 0x8F/255, 0xE7/255, 1 end
@@ -1799,40 +1866,55 @@ initFrame:SetScript("OnEvent", function(self)
                     p.primary.fillR, p.primary.fillG, p.primary.fillB, p.primary.fillA = r, g, b, a
                     RebuildPower(); SmoothRefresh()
                 end, true, 20)
-            PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            rgn._lastInline = swatch
-            local swDis = CreateFrame("Frame", nil, rgn)
-            swDis:SetAllPoints(swatch)
-            swDis:SetFrameLevel(swatch:GetFrameLevel() + 5)
-            local swDisTex = swDis:CreateTexture(nil, "OVERLAY")
-            swDisTex:SetAllPoints()
-            swDisTex:SetColorTexture(0.12, 0.12, 0.12, 0.75)
-            swDis:EnableMouse(true)
-            swDis:SetScript("OnEnter", function()
+            PP.Point(fillSwatch, "RIGHT", powerFillSwatch, "LEFT", -8, 0)
+            rgn._lastInline = fillSwatch
+            fillSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(fillSwatch, "Custom Colored")
+            end)
+            fillSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Block overlay on custom swatch -- clicking while power colored deactivates it
+            local fillSwatchBlock = CreateFrame("Button", nil, fillSwatch)
+            fillSwatchBlock:SetAllPoints()
+            fillSwatchBlock:SetFrameLevel(fillSwatch:GetFrameLevel() + 10)
+            fillSwatchBlock:EnableMouse(true)
+            fillSwatchBlock:SetScript("OnClick", function()
+                local p = DB(); if not p then return end
+                if not p.primary.customColored then
+                    p.primary.customColored = true; RebuildPower()
+                    EllesmereUI:RefreshPage()
+                end
+            end)
+            fillSwatchBlock:SetScript("OnEnter", function()
                 if noPrimaryPower then
-                    EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip(SPEC_DIS))
+                    EllesmereUI.ShowWidgetTooltip(fillSwatch, EllesmereUI.DisabledTooltip(SPEC_DIS))
                     return
                 end
                 local p = DB()
                 if p and not p.primary.enabled then
-                    EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Enable Power Bar"))
+                    EllesmereUI.ShowWidgetTooltip(fillSwatch, EllesmereUI.DisabledTooltip("Enable Power Bar"))
                 else
-                    EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Power Colored Fill"))
+                    EllesmereUI.ShowWidgetTooltip(fillSwatch, EllesmereUI.DisabledTooltip("Color is controlled by class color"))
                 end
             end)
-            swDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdatePowerSwDis()
-                if noPrimaryPower then swDis:Show(); swatch:SetAlpha(0.3); return end
+            fillSwatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            local function UpdatePowerFillSwatchState()
+                local disabled = noPrimaryPower
                 local p = DB()
-                if p and (not p.primary.enabled or not p.primary.customColored) then
-                    swDis:Show(); swatch:SetAlpha(0.3)
+                if not disabled then disabled = not p or not p.primary.enabled end
+                local isPowerColored = not p or not p.primary.customColored
+                -- Custom swatch: dim when power colored or bar disabled
+                if disabled or isPowerColored then
+                    fillSwatch:SetAlpha(0.3); fillSwatchBlock:Show()
                 else
-                    swDis:Hide(); swatch:SetAlpha(1)
+                    fillSwatch:SetAlpha(1); fillSwatchBlock:Hide()
                 end
+                -- Power swatch: bright when power colored, dim when custom
+                powerFillSwatch:SetAlpha((isPowerColored and not disabled) and 1 or 0.3)
             end
-            swatch:HookScript("OnShow", UpdatePowerSwDis)
-            EllesmereUI.RegisterWidgetRefresh(UpdatePowerSwDis)
-            UpdatePowerSwDis()
+            EllesmereUI.RegisterWidgetRefresh(function() updateFillSwatch(); updatePowerFillSwatch(); UpdatePowerFillSwatchState() end)
+            UpdatePowerFillSwatchState()
         end
         -- Inline cog (RESIZE) on Power Text for percent sign + text size + x/y offsets
         do
@@ -2245,10 +2327,10 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Row 4: Health Colored Fill (inline swatch) | Health Text (inline cog RESIZE)
+        -- Row 4: Fill Color (inline swatches) | Health Text (inline cog RESIZE)
         local healthColorRow
         healthColorRow, h = W:DualRow(parent, y,
-            { type = "toggle", text = "Health Colored Fill",
+            { type = "toggle", text = "Fill Color",
               disabled = healthOff,
               disabledTooltip = "Enable Health Bar",
               getValue = function() local p = DB(); return p and p.health.customColored end,
@@ -2269,10 +2351,37 @@ initFrame:SetScript("OnEvent", function(self)
                   p.health.textFormat = v; RefreshHealth()
               end }
         );  y = y - h
-        -- Inline color swatch on Health Colored Fill
+        -- Inline double color swatches on Fill Color: custom (left), class colored (right)
         do
             local rgn = healthColorRow._leftRegion
-            local swatch, _ = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 2,
+
+            -- Class color swatch (rightmost, single-click activates class color mode)
+            local healthFillSwatch, updateHealthFillSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, rgn:GetFrameLevel() + 3,
+                function()
+                    local _, classFile = UnitClass("player")
+                    local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                    if cc then return cc.r, cc.g, cc.b end
+                    return 0x40/255, 0xD9/255, 0x67/255
+                end,
+                function() end,
+                false, 20)
+            PP.Point(healthFillSwatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
+            rgn._lastInline = healthFillSwatch
+            healthFillSwatch:SetScript("OnClick", function()
+                local p = DB(); if not p then return end
+                p.health.customColored = false
+                if p.health.darkTheme then p.health.darkTheme = false end
+                RebuildHealth(); EllesmereUI:RefreshPage()
+            end)
+            healthFillSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(healthFillSwatch, "Class Colored")
+            end)
+            healthFillSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Custom color swatch (left of class swatch, two-click: first activates custom mode)
+            local fillSwatch, updateFillSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, rgn:GetFrameLevel() + 3,
                 function()
                     local p = DB()
                     if not p then return 0x40/255, 0xD9/255, 0x67/255, 1 end
@@ -2285,35 +2394,51 @@ initFrame:SetScript("OnEvent", function(self)
                     if p.health.darkTheme then p.health.darkTheme = false end
                     SmoothRefresh(); EllesmereUI:RefreshPage()
                 end, true, 20)
-            PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            rgn._lastInline = swatch
-            local swDis = CreateFrame("Frame", nil, rgn)
-            swDis:SetAllPoints(swatch)
-            swDis:SetFrameLevel(swatch:GetFrameLevel() + 5)
-            local swDisTex = swDis:CreateTexture(nil, "OVERLAY")
-            swDisTex:SetAllPoints()
-            swDisTex:SetColorTexture(0.12, 0.12, 0.12, 0.75)
-            swDis:EnableMouse(true)
-            swDis:SetScript("OnEnter", function()
-                local p = DB()
-                if p and not p.health.enabled then
-                    EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Enable Health Bar"))
-                else
-                    EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Health Colored Fill"))
+            PP.Point(fillSwatch, "RIGHT", healthFillSwatch, "LEFT", -8, 0)
+            rgn._lastInline = fillSwatch
+            fillSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(fillSwatch, "Custom Colored")
+            end)
+            fillSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Block overlay on custom swatch -- clicking while class colored deactivates it
+            local fillSwatchBlock = CreateFrame("Button", nil, fillSwatch)
+            fillSwatchBlock:SetAllPoints()
+            fillSwatchBlock:SetFrameLevel(fillSwatch:GetFrameLevel() + 10)
+            fillSwatchBlock:EnableMouse(true)
+            fillSwatchBlock:SetScript("OnClick", function()
+                local p = DB(); if not p then return end
+                if not p.health.customColored then
+                    p.health.customColored = true
+                    if p.health.darkTheme then p.health.darkTheme = false end
+                    RebuildHealth(); EllesmereUI:RefreshPage()
                 end
             end)
-            swDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateHealthSwDis()
+            fillSwatchBlock:SetScript("OnEnter", function()
                 local p = DB()
-                if p and (not p.health.enabled or not p.health.customColored) then
-                    swDis:Show(); swatch:SetAlpha(0.3)
+                if p and not p.health.enabled then
+                    EllesmereUI.ShowWidgetTooltip(fillSwatch, EllesmereUI.DisabledTooltip("Enable Health Bar"))
                 else
-                    swDis:Hide(); swatch:SetAlpha(1)
+                    EllesmereUI.ShowWidgetTooltip(fillSwatch, EllesmereUI.DisabledTooltip("Color is controlled by class color"))
                 end
+            end)
+            fillSwatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            local function UpdateHealthFillSwatchState()
+                local p = DB()
+                local disabled = not p or not p.health.enabled
+                local isClassColored = not p or not p.health.customColored
+                -- Custom swatch: dim when class colored or bar disabled
+                if disabled or isClassColored then
+                    fillSwatch:SetAlpha(0.3); fillSwatchBlock:Show()
+                else
+                    fillSwatch:SetAlpha(1); fillSwatchBlock:Hide()
+                end
+                -- Class swatch: bright when class colored, dim when custom
+                healthFillSwatch:SetAlpha((isClassColored and not disabled) and 1 or 0.3)
             end
-            swatch:HookScript("OnShow", UpdateHealthSwDis)
-            EllesmereUI.RegisterWidgetRefresh(UpdateHealthSwDis)
-            UpdateHealthSwDis()
+            EllesmereUI.RegisterWidgetRefresh(function() updateFillSwatch(); updateHealthFillSwatch(); UpdateHealthFillSwatchState() end)
+            UpdateHealthFillSwatchState()
         end
         -- Inline cog (RESIZE) on Health Text for text size + x/y offsets
         do

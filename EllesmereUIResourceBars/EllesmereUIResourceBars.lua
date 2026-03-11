@@ -3041,6 +3041,7 @@ function ERB:ApplyAll()
     UpdateVisibility()
 
     -- Vehicle proxy: hide resource bars during full vehicle UI ([vehicleui] condition)
+    -- RegisterStateDriver calls SetAttribute which is blocked in combat -- defer if needed
     if not ERB._vehicleProxy then
         ERB._vehicleProxy = CreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
         ERB._vehicleProxy:SetAttribute("_onstate-erbvehicle", [[
@@ -3050,7 +3051,18 @@ function ERB:ApplyAll()
             ERB._inVehicle = (state == "hide")
             UpdateVisibility()
         end
-        RegisterStateDriver(ERB._vehicleProxy, "erbvehicle", "[vehicleui][petbattle] hide; show")
+        if InCombatLockdown() then
+            ERB._vehicleProxy:RegisterEvent("PLAYER_REGEN_ENABLED")
+            ERB._vehicleProxy:SetScript("OnEvent", function(self, event)
+                if event == "PLAYER_REGEN_ENABLED" then
+                    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+                    self:SetScript("OnEvent", nil)
+                    RegisterStateDriver(self, "erbvehicle", "[vehicleui][petbattle] hide; show")
+                end
+            end)
+        else
+            RegisterStateDriver(ERB._vehicleProxy, "erbvehicle", "[vehicleui][petbattle] hide; show")
+        end
     end
 end
 
