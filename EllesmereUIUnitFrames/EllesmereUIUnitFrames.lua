@@ -18,8 +18,8 @@ local defaults = {
         portraitMode = "2d",
         portraitStyle = "attached",
         healthBarTexture = "none",
-        healthBarOpacity = 0.9,
-        powerBarOpacity = 1.0,
+        healthBarOpacity = 90,
+        powerBarOpacity = 100,
         darkTheme = false,
         -- NEW: separate player sub-table (migrated from shared playerTarget)
         player = {
@@ -39,7 +39,7 @@ local defaults = {
             powerPercentY = 0,
             powerPercentPowerColor = true,
             powerPercentTextPowerColor = false,
-            healthClassColored = false,
+            healthClassColored = true,
             healthDisplay = "both",
             showBuffs = false,
             maxBuffs = 4,
@@ -110,8 +110,8 @@ local defaults = {
             detachedPortraitBorderSize = 7,
             selectedFont = "Expressway",
             healthBarTexture = "none",
-            healthBarOpacity = 0.9,
-            powerBarOpacity = 1.0,
+            healthBarOpacity = 90,
+            powerBarOpacity = 100,
             showPlayerAbsorb = false,
             showPlayerCastbar = false,
             showPlayerCastIcon = true,
@@ -172,7 +172,7 @@ local defaults = {
             powerPercentY = 0,
             powerPercentPowerColor = true,
             powerPercentTextPowerColor = false,
-            healthClassColored = false,
+            healthClassColored = true,
             castbarHeight = 14,
             showCastbar = true,
             showCastIcon = true,
@@ -255,8 +255,8 @@ local defaults = {
             detachedPortraitBorderSize = 7,
             selectedFont = "Expressway",
             healthBarTexture = "none",
-            healthBarOpacity = 0.9,
-            powerBarOpacity = 1.0,
+            healthBarOpacity = 90,
+            powerBarOpacity = 100,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
             highlightColor = { r = 1, g = 1, b = 1 },
@@ -278,7 +278,7 @@ local defaults = {
             powerPercentY = 0,
             powerPercentPowerColor = true,
             powerPercentTextPowerColor = false,
-            healthClassColored = false,
+            healthClassColored = true,
             castbarHeight = 14,
             maxBuffs = 20,
             maxDebuffs = 20,
@@ -303,7 +303,7 @@ local defaults = {
             portraitMode = "2d",
             selectedFont = "Expressway",
             healthBarTexture = "none",
-            healthBarOpacity = 0.9,
+            healthBarOpacity = 90,
             textSize = 12,
             leftTextContent = "name",
             rightTextContent = "none",
@@ -321,7 +321,7 @@ local defaults = {
             portraitMode = "2d",
             selectedFont = "Expressway",
             healthBarTexture = "none",
-            healthBarOpacity = 0.9,
+            healthBarOpacity = 90,
             textSize = 12,
             leftTextContent = "name",
             rightTextContent = "none",
@@ -348,7 +348,7 @@ local defaults = {
             powerPercentY = 0,
             powerPercentPowerColor = true,
             powerPercentTextPowerColor = false,
-            healthClassColored = false,
+            healthClassColored = true,
             castbarHeight = 14,
             showCastbar = true,
             showCastIcon = true,
@@ -421,8 +421,8 @@ local defaults = {
             btbBgOpacity = 1.0,
             selectedFont = "Expressway",
             healthBarTexture = "none",
-            healthBarOpacity = 0.9,
-            powerBarOpacity = 1.0,
+            healthBarOpacity = 90,
+            powerBarOpacity = 100,
             onlyPlayerDebuffs = true,
             debuffAnchor = "bottomleft",
             debuffGrowth = "auto",
@@ -452,15 +452,15 @@ local defaults = {
             powerPercentY = 0,
             powerPercentPowerColor = true,
             powerPercentTextPowerColor = false,
-            healthClassColored = false,
+            healthClassColored = true,
             castbarHeight = 14,
             healthDisplay = "perhp",
             showPortrait = false,
             portraitMode = "2d",
             selectedFont = "Expressway",
             healthBarTexture = "none",
-            healthBarOpacity = 0.9,
-            powerBarOpacity = 1.0,
+            healthBarOpacity = 90,
+            powerBarOpacity = 100,
             textSize = 12,
             leftTextContent = "name",
             rightTextContent = "perhp",
@@ -646,17 +646,13 @@ end
 local function ApplyHealthBarAlpha(health, unitKey)
     if not health then return end
     local s = unitKey and db.profile[unitKey]
-    local fillA = 0.9
-    local bgA   = 0.75
-    if s then
-        local cf = s.customFillColor
-        if cf and cf.a then fillA = cf.a end
-        local cb = s.customBgColor
-        if cb and cb.a then bgA = cb.a end
-    end
+    local opacity = s and (s.healthBarOpacity or 90) or 90
+    -- Handle old profiles that stored opacity as a 0-1 float instead of 0-100 int
+    if opacity <= 1.0 then opacity = opacity * 100 end
+    local fillA = opacity / 100
     local fillTex = health:GetStatusBarTexture()
     if fillTex then fillTex:SetAlpha(fillA) end
-    if health.bg then health.bg:SetAlpha(bgA) end
+    if health.bg then health.bg:SetAlpha(fillA) end
 end
 
 -------------------------------------------------------------------------------
@@ -665,17 +661,13 @@ end
 local function ApplyPowerBarAlpha(power, unitKey)
     if not power then return end
     local s = unitKey and db.profile[unitKey]
-    local fillA = 1.0
-    local bgA   = 0.5
-    if s then
-        local cf = s.customPowerFillColor
-        if cf and cf.a then fillA = cf.a end
-        local cb = s.customPowerBgColor
-        if cb and cb.a then bgA = cb.a end
-    end
+    local opacity = s and (s.powerBarOpacity or 100) or 100
+    -- Handle old profiles that stored opacity as a 0-1 float instead of 0-100 int
+    if opacity <= 1.0 then opacity = opacity * 100 end
+    local fillA = opacity / 100
     local fillTex = power:GetStatusBarTexture()
     if fillTex then fillTex:SetAlpha(fillA) end
-    if power.bg then power.bg:SetAlpha(bgA) end
+    if power.bg then power.bg:SetAlpha(fillA) end
 end
 
 -------------------------------------------------------------------------------
@@ -758,6 +750,9 @@ local function ApplyDarkTheme(health)
                 elseif color and color.GetRGB then
                     local r, g, b = color:GetRGB()
                     self.bg:SetColorTexture(r * 0.2, g * 0.2, b * 0.2, 1)
+                else
+                    -- No color source available (e.g. no target) -- use default bg
+                    self.bg:SetColorTexture(DARK_HEALTH_R, DARK_HEALTH_G, DARK_HEALTH_B, 1)
                 end
             end
         end
@@ -771,7 +766,8 @@ local function ApplyDarkTheme(health)
             elseif customFill then
                 health.bg:SetColorTexture(customFill.r * 0.2, customFill.g * 0.2, customFill.b * 0.2, 1)
             else
-                health.bg:SetColorTexture(0, 0, 0, 1)
+                -- No custom colors set -- use default dark bg (#111)
+                health.bg:SetColorTexture(DARK_HEALTH_R, DARK_HEALTH_G, DARK_HEALTH_B, 1)
             end
         end
     end
@@ -1892,7 +1888,12 @@ local function CreatePowerBar(frame, unit, settings)
     local bg = power:CreateTexture(nil, "BACKGROUND")
     PP.Point(bg, "TOPLEFT", power, "TOPLEFT", 0, 0)
     PP.Point(bg, "BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
-    bg:SetColorTexture(0, 0, 0, 1)
+    local initBg = settings.customPowerBgColor
+    if initBg then
+        bg:SetColorTexture(initBg.r, initBg.g, initBg.b, 1)
+    else
+        bg:SetColorTexture(17/255, 17/255, 17/255, 1)
+    end
     UnsnapTex(bg)
     power.bg = bg
 
@@ -1911,9 +1912,9 @@ local function CreatePowerBar(frame, unit, settings)
                 if cf then self:SetStatusBarColor(cf.r, cf.g, cf.b) end
             end
         else
-            power:SetStatusBarColor(0.2, 0.35, 0.85)
+            power:SetStatusBarColor(0, 0, 1)
             power.PostUpdateColor = function(self)
-                self:SetStatusBarColor(0.2, 0.35, 0.85)
+                self:SetStatusBarColor(0, 0, 1)
             end
         end
     end
@@ -2037,13 +2038,12 @@ local function CreatePowerBar(frame, unit, settings)
             if customBg then
                 if self.bg then self.bg:SetColorTexture(customBg.r, customBg.g, customBg.b, 1) end
             else
-                if self.bg then self.bg:SetColorTexture(0, 0, 0, 1) end
+                if self.bg then self.bg:SetColorTexture(17/255, 17/255, 17/255, 1) end
             end
-            -- Restore original bg alpha
+            -- Restore bg alpha from unified opacity setting
             if self.bg then
-                local bgA = 0.5
-                if customBg and customBg.a then bgA = customBg.a end
-                self.bg:SetAlpha(bgA)
+                local opacity = s and (s.powerBarOpacity or 100) or 100
+                self.bg:SetAlpha(opacity / 100)
             end
         end
     end
@@ -4072,6 +4072,29 @@ local function ReloadFrames()
     -- Reset cached settings map so it rebuilds with fresh DB references
     unitSettingsMap = nil
 
+    -- Normalize opacity values: old profiles stored 0-1 floats, new format is 0-100 integers
+    do
+        local prof = db.profile
+        local UNITS = { "player", "target", "focus", "boss", "pet", "totPet" }
+        if prof.healthBarOpacity and prof.healthBarOpacity <= 1.0 then
+            prof.healthBarOpacity = math.floor(prof.healthBarOpacity * 100 + 0.5)
+        end
+        if prof.powerBarOpacity and prof.powerBarOpacity <= 1.0 then
+            prof.powerBarOpacity = math.floor(prof.powerBarOpacity * 100 + 0.5)
+        end
+        for _, uKey in ipairs(UNITS) do
+            local s = prof[uKey]
+            if s then
+                if s.healthBarOpacity and s.healthBarOpacity <= 1.0 then
+                    s.healthBarOpacity = math.floor(s.healthBarOpacity * 100 + 0.5)
+                end
+                if s.powerBarOpacity and s.powerBarOpacity <= 1.0 then
+                    s.powerBarOpacity = math.floor(s.powerBarOpacity * 100 + 0.5)
+                end
+            end
+        end
+    end
+
     local profile = db.profile
     local castbarColor = GetCastbarColor()
     local castbarOpacity = profile.castbarOpacity
@@ -5279,9 +5302,9 @@ local function ReloadFrames()
                             if cf then self:SetStatusBarColor(cf.r, cf.g, cf.b) end
                         end
                     else
-                        frame.Power:SetStatusBarColor(0.2, 0.35, 0.85)
+                        frame.Power:SetStatusBarColor(0, 0, 1)
                         frame.Power.PostUpdateColor = function(self)
-                            self:SetStatusBarColor(0.2, 0.35, 0.85)
+                            self:SetStatusBarColor(0, 0, 1)
                         end
                     end
                 end
@@ -5289,7 +5312,7 @@ local function ReloadFrames()
                 if customBg and frame.Power.bg then
                     frame.Power.bg:SetColorTexture(customBg.r, customBg.g, customBg.b, 1)
                 elseif frame.Power.bg then
-                    frame.Power.bg:SetColorTexture(0, 0, 0, 1)
+                    frame.Power.bg:SetColorTexture(17/255, 17/255, 17/255, 1)
                 end
                 if frame.Power.ForceUpdate then frame.Power:ForceUpdate() end
             end
@@ -5438,13 +5461,15 @@ function InitializeFrames()
         local ps = db.profile.player
         local COMBAT_MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\combat\\"
 
-        -- Create a holder frame at a high frame level so the indicator draws above everything
-        local combatHolder = CreateFrame("Frame", nil, pf)
-        combatHolder:SetAllPoints(pf)
-        combatHolder:SetFrameLevel(pf:GetFrameLevel() + 20)
-        local combat = combatHolder:CreateTexture(nil, "OVERLAY", nil, 7)
-        combat:Hide()
-        pf._combatIndicator = combat
+        -- Create holder + texture ONCE, reuse on subsequent calls
+        if not pf._combatHolder then
+            pf._combatHolder = CreateFrame("Frame", nil, pf)
+            pf._combatHolder:SetAllPoints(pf)
+            pf._combatIndicator = pf._combatHolder:CreateTexture(nil, "OVERLAY", nil, 7)
+            pf._combatIndicator:Hide()
+        end
+        pf._combatHolder:SetFrameLevel(pf:GetFrameLevel() + 20)
+        local combat = pf._combatIndicator
 
         -- Helper: resolve which texture file + coords to use
         local function ApplyCombatTexture()
@@ -5499,10 +5524,13 @@ function InitializeFrames()
         end
         pf._applyCombatTexture = ApplyCombatTexture
 
-        -- Event frame for combat state changes
-        local combatFrame = CreateFrame("Frame", nil, pf)
-        combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-        combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        -- Event frame for combat state changes (reuse existing)
+        if not pf._combatEventFrame then
+            pf._combatEventFrame = CreateFrame("Frame", nil, pf)
+            pf._combatEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+            pf._combatEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        end
+        local combatFrame = pf._combatEventFrame
         combatFrame:SetScript("OnEvent", function(_, event)
             local style = ps.combatIndicatorStyle or "standard"
             if style ~= "none" then
@@ -5529,30 +5557,32 @@ function InitializeFrames()
     do
         local pf = frames.player
         if pf and pf.Health then
-            local restHolder = CreateFrame("Frame", nil, pf.Health)
-            restHolder:SetAllPoints(pf.Health)
-            restHolder:SetFrameLevel(pf.Health:GetFrameLevel() + 5)
+            if not pf._restHolder then
+                pf._restHolder = CreateFrame("Frame", nil, pf.Health)
+                local restText = pf._restHolder:CreateFontString(nil, "OVERLAY")
+                SetFSFont(restText, 9)
+                restText:SetTextColor(1, 1, 1)
+                restText:SetText("ZZZ")
+                restText:Hide()
+                pf._restIndicator = restText
 
-            local restText = restHolder:CreateFontString(nil, "OVERLAY")
-            SetFSFont(restText, 9)
-            restText:SetTextColor(1, 1, 1)
-            restText:SetText("ZZZ")
-            restText:SetPoint("TOPLEFT", pf.Health, "TOPLEFT", 3, -2)
-            restText:Hide()
-            pf._restIndicator = restText
+                pf._restEventFrame = CreateFrame("Frame", nil, pf)
+                pf._restEventFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
+                pf._restEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+                pf._restEventFrame:SetScript("OnEvent", function()
+                    if IsResting() then
+                        pf._restIndicator:Show()
+                    else
+                        pf._restIndicator:Hide()
+                    end
+                end)
+            end
+            pf._restHolder:SetAllPoints(pf.Health)
+            pf._restHolder:SetFrameLevel(pf.Health:GetFrameLevel() + 5)
+            pf._restIndicator:ClearAllPoints()
+            pf._restIndicator:SetPoint("TOPLEFT", pf.Health, "TOPLEFT", 3, -2)
 
-            local restFrame = CreateFrame("Frame", nil, pf)
-            restFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
-            restFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-            restFrame:SetScript("OnEvent", function()
-                if IsResting() then
-                    restText:Show()
-                else
-                    restText:Hide()
-                end
-            end)
-
-            if IsResting() then restText:Show() end
+            if IsResting() then pf._restIndicator:Show() else pf._restIndicator:Hide() end
         end
     end
 
@@ -5572,10 +5602,10 @@ function InitializeFrames()
     -- on PLAYER_ENTERING_WORLD, which lets it show again on the next cast.
     -- The hooksecurefunc on Show above already makes it permanently invisible,
     -- but hiding it here prevents even a single-frame flash before the hook fires.
-    do
-        local cbSuppressFrame = CreateFrame("Frame")
-        cbSuppressFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-        cbSuppressFrame:SetScript("OnEvent", function()
+    if not frames._cbSuppressFrame then
+        frames._cbSuppressFrame = CreateFrame("Frame")
+        frames._cbSuppressFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+        frames._cbSuppressFrame:SetScript("OnEvent", function()
             if PlayerCastingBarFrame then
                 PlayerCastingBarFrame:Hide()
             end
@@ -6089,20 +6119,24 @@ function InitializeFrames()
     end
     ns.UpdateFrameVisibility = UpdateFrameVisibility
 
-    local visFrame = CreateFrame("Frame")
-    visFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-    visFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    visFrame:SetScript("OnEvent", UpdateFrameVisibility)
+    if not frames._visFrame then
+        frames._visFrame = CreateFrame("Frame")
+        frames._visFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+        frames._visFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    end
+    frames._visFrame:SetScript("OnEvent", UpdateFrameVisibility)
     UpdateFrameVisibility()
 
     ---------------------------------------------------------------------------
     --  Portrait border color: update when target/focus unit changes
     --  so "class color" mode reflects the new unit's color.
     ---------------------------------------------------------------------------
-    local portraitBorderUpdater = CreateFrame("Frame")
-    portraitBorderUpdater:RegisterEvent("PLAYER_TARGET_CHANGED")
-    portraitBorderUpdater:RegisterEvent("PLAYER_FOCUS_CHANGED")
-    portraitBorderUpdater:SetScript("OnEvent", function(_, event)
+    if not frames._portraitBorderUpdater then
+        frames._portraitBorderUpdater = CreateFrame("Frame")
+        frames._portraitBorderUpdater:RegisterEvent("PLAYER_TARGET_CHANGED")
+        frames._portraitBorderUpdater:RegisterEvent("PLAYER_FOCUS_CHANGED")
+    end
+    frames._portraitBorderUpdater:SetScript("OnEvent", function(_, event)
         local unitKey = (event == "PLAYER_TARGET_CHANGED") and "target" or "focus"
         local frame = frames[unitKey]
         if not frame or not frame.Portrait then return end
@@ -6498,6 +6532,29 @@ function EllesmereUF:OnInitialize()
             local s = prof[uKey]
             if s and s.healthBarTexture and OLD_KEYS[s.healthBarTexture] then
                 s.healthBarTexture = "none"
+            end
+        end
+    end
+
+    -- Migrate opacity values stored as 0-1 floats to 0-100 integers
+    do
+        local prof = db.profile
+        local UNITS = { "player", "target", "focus", "boss", "pet", "totPet" }
+        if prof.healthBarOpacity and prof.healthBarOpacity <= 1.0 then
+            prof.healthBarOpacity = math.floor(prof.healthBarOpacity * 100 + 0.5)
+        end
+        if prof.powerBarOpacity and prof.powerBarOpacity <= 1.0 then
+            prof.powerBarOpacity = math.floor(prof.powerBarOpacity * 100 + 0.5)
+        end
+        for _, uKey in ipairs(UNITS) do
+            local s = prof[uKey]
+            if s then
+                if s.healthBarOpacity and s.healthBarOpacity <= 1.0 then
+                    s.healthBarOpacity = math.floor(s.healthBarOpacity * 100 + 0.5)
+                end
+                if s.powerBarOpacity and s.powerBarOpacity <= 1.0 then
+                    s.powerBarOpacity = math.floor(s.powerBarOpacity * 100 + 0.5)
+                end
             end
         end
     end

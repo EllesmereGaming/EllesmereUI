@@ -1,12 +1,11 @@
-﻿-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 --  EUI_UnitFrames_Options.lua
 --  Registers the Unit Frames module with EllesmereUI
---  2 tabs: Multi-Frame Display, Individual Display
+--  2 tabs: Frame Display, Mini Frame Edit
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
-local PAGE_MULTI     = "Multi Frame Edit"
-local PAGE_INDIVIDUAL = "Single Frame Edit"
+local PAGE_DISPLAY   = "Frame Display"
 local PAGE_MINI      = "Mini Frame Edit"
 local PAGE_UNLOCK    = "Unlock Mode"
 
@@ -54,10 +53,8 @@ initFrame:SetScript("OnEvent", function(self)
 
     local showCombatIndicatorPreview = false
     -- Preview hover-highlight hint text (shared across Single/Multi tabs)
-    local _ufPreviewHintFS_individual     -- hint FontString for Single Frame Edit
-    local _ufPreviewHintFS_multi          -- hint FontString for Multi Frame Edit
-    local _individualHeaderBaseH = 0      -- individual header height WITHOUT hint
-    local _multiHeaderBaseH = 0           -- multi header height WITHOUT hint
+    local _ufPreviewHintFS_display     -- hint FontString for Frame Display
+    local _displayHeaderBaseH = 0      -- display header height WITHOUT hint
 
     local function IsPreviewHintDismissed()
         return EllesmereUIDB and EllesmereUIDB.previewHintDismissed
@@ -114,7 +111,7 @@ initFrame:SetScript("OnEvent", function(self)
     }
 
     ---------------------------------------------------------------------------
-    --  Group editing state  (Multi Frame Edit page)
+    --  Group editing state  (sync icon targets)
     ---------------------------------------------------------------------------
     -- Map unit keys to their DB settings table
     local UNIT_DB_MAP = {
@@ -136,89 +133,6 @@ initFrame:SetScript("OnEvent", function(self)
         boss         = "Boss",
     }
 
-    local groupChecked = {}
-    local groupEyeball = nil
-
-    local function InitGroupState()
-        for _, key in ipairs(GROUP_UNIT_ORDER) do
-            if groupChecked[key] == nil then
-                groupChecked[key] = true
-            end
-        end
-        if not groupEyeball or not groupChecked[groupEyeball] then
-            for _, key in ipairs(GROUP_UNIT_ORDER) do
-                if groupChecked[key] then
-                    groupEyeball = key
-                    break
-                end
-            end
-        end
-    end
-
-    local MIXED = {}
-
-    local function DeepEqual(a, b)
-        if a == b then return true end
-        if type(a) ~= "table" or type(b) ~= "table" then return false end
-        for k, v in pairs(a) do
-            if not DeepEqual(v, b[k]) then return false end
-        end
-        for k in pairs(b) do
-            if a[k] == nil then return false end
-        end
-        return true
-    end
-
-    local function GroupSB()
-        return UNIT_DB_MAP[groupEyeball]()
-    end
-
-    local function GroupGet(settingKey)
-        local val = nil
-        local first = true
-        for _, key in ipairs(GROUP_UNIT_ORDER) do
-            if groupChecked[key] then
-                local s = UNIT_DB_MAP[key]()
-                local v = s[settingKey]
-                if first then
-                    val = v
-                    first = false
-                elseif not DeepEqual(val, v) then
-                    return MIXED
-                end
-            end
-        end
-        return val
-    end
-
-    local function GroupSet(settingKey, value)
-        for _, key in ipairs(GROUP_UNIT_ORDER) do
-            if groupChecked[key] then
-                UNIT_DB_MAP[key]()[settingKey] = value
-            end
-        end
-        ReloadAndUpdate()
-    end
-
-    local function GroupSync(settingKey)
-        local src = GroupSB()[settingKey]
-        if type(src) == "table" then
-            for _, key in ipairs(GROUP_UNIT_ORDER) do
-                if groupChecked[key] then
-                    local copy = {}
-                    for k, v in pairs(src) do copy[k] = v end
-                    UNIT_DB_MAP[key]()[settingKey] = copy
-                end
-            end
-        else
-            for _, key in ipairs(GROUP_UNIT_ORDER) do
-                if groupChecked[key] then
-                    UNIT_DB_MAP[key]()[settingKey] = src
-                end
-            end
-        end
-        ReloadAndUpdate()
-    end
 
     ---------------------------------------------------------------------------
     --  Health display dropdown values
@@ -279,10 +193,10 @@ initFrame:SetScript("OnEvent", function(self)
                         if pFill then
                             if texPath then
                                 pFill:SetTexture(texPath)
-                                pFill:SetVertexColor(0.2, 0.35, 0.85, 1)
+                                pFill:SetVertexColor(0, 0, 1, 1)
                             else
                                 pFill:SetVertexColor(1, 1, 1, 1)
-                                pFill:SetColorTexture(0.2, 0.35, 0.85, 1)
+                                pFill:SetColorTexture(0, 0, 1, 1)
                             end
                         end
                     end
@@ -874,6 +788,10 @@ initFrame:SetScript("OnEvent", function(self)
                 return portraitModel
             end
 
+            -- Track last applied mode+style to avoid redundant re-init
+            local _lastAppliedMode = nil
+            local _lastAppliedStyle = nil
+
             local function ApplyPortraitMode()
                 -- Read settings fresh from DB so the closure never goes stale
                 -- after a preview switch or cache restore.
@@ -886,6 +804,12 @@ initFrame:SetScript("OnEvent", function(self)
                 elseif unitKey == "targettarget" then curSettings = db.profile.totPet
                 else curSettings = db.profile.player end
                 local mode = curSettings.portraitMode or "2d"
+                local style = curSettings.classThemeStyle or "modern"
+                -- Skip if nothing changed -- avoids re-initializing PlayerModel
+                -- every Update() call which causes blinking and massive GPU cost
+                if mode == _lastAppliedMode and style == _lastAppliedStyle then return end
+                _lastAppliedMode = mode
+                _lastAppliedStyle = style
                 if mode == "3d" then
                     portraitFrame:Show()
                     portraitTex:Hide()
@@ -898,8 +822,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if portraitModel then portraitModel:Hide() end
                     portraitTex:Show()
                     local _, ct = UnitClass("player")
-                    local cts = curSettings.classThemeStyle or "modern"
-                    ApplyClassIconTexture_Preview(portraitTex, ct or "WARRIOR", cts)
+                    ApplyClassIconTexture_Preview(portraitTex, ct or "WARRIOR", style)
                     portraitTex:SetAlpha(0.9)
                     -- Use current portrait frame height for inset (not captured barH)
                     local curBH = portraitFrame:GetHeight()
@@ -937,7 +860,8 @@ initFrame:SetScript("OnEvent", function(self)
             hR, hG, hB, hA = 0x11/255, 0x11/255, 0x11/255, 0.90
             bgR, bgG, bgB, bgA = 0x4f/255, 0x4f/255, 0x4f/255, 1
         else
-            hA = 0.9
+            local barOpacity = (settings.healthBarOpacity or 90) / 100
+            hA = barOpacity
             -- Check for custom fill color (skipped when class colored is enabled)
             local cFill = settings.customFillColor
             local isClassColored = settings.healthClassColored
@@ -945,17 +869,16 @@ initFrame:SetScript("OnEvent", function(self)
                 local _, classToken = UnitClass("player")
                 local cc = RAID_CLASS_COLORS[classToken]
                 if cc then hR, hG, hB = cc.r, cc.g, cc.b
-                else hR, hG, hB = 0.2, 0.6, 0.2 end
+                else hR, hG, hB = 37/255, 193/255, 29/255 end
             elseif cFill then
                 hR, hG, hB = cFill.r, cFill.g, cFill.b
-                if cFill.a then hA = cFill.a end
             elseif unitKey == "player" then
                 local _, classToken = UnitClass("player")
                 local cc = RAID_CLASS_COLORS[classToken]
                 if cc then hR, hG, hB = cc.r, cc.g, cc.b
-                else hR, hG, hB = 0.2, 0.6, 0.2 end
+                else hR, hG, hB = 37/255, 193/255, 29/255 end
             elseif unitKey == "pet" then
-                hR, hG, hB = 0.2, 0.6, 0.2
+                hR, hG, hB = 37/255, 193/255, 29/255
             else
                 hR, hG, hB = 0.8, 0.2, 0.2
             end
@@ -963,10 +886,10 @@ initFrame:SetScript("OnEvent", function(self)
             local cBg = settings.customBgColor
             if cBg then
                 bgR, bgG, bgB = cBg.r, cBg.g, cBg.b
-                bgA = cBg.a or 0.75
             else
-                bgR, bgG, bgB, bgA = hR * 0.2, hG * 0.2, hB * 0.2, 0.75
+                bgR, bgG, bgB = 17/255, 17/255, 17/255
             end
+            bgA = barOpacity
         end
 
         -- Health bar
@@ -1095,7 +1018,7 @@ initFrame:SetScript("OnEvent", function(self)
         local function PreviewPowerColor(fs, contentKey, usePowerColor)
             if not fs or not usePowerColor then return end
             if contentKey == "perpp" or contentKey == "curpp" or contentKey == "curhp_curpp" or contentKey == "perhp_perpp" then
-                fs:SetTextColor(0.2, 0.35, 0.85)
+                fs:SetTextColor(0, 0, 1)
             end
         end
         local function ApplyPreviewTextPositions(s, donorS)
@@ -1180,26 +1103,31 @@ initFrame:SetScript("OnEvent", function(self)
             pf._powerFill = powerFill
 
             -- Apply custom power bar colors or default
+            local isPowerColored = settings.powerPercentPowerColor ~= false
             local customPFill = settings.customPowerFillColor
             local customPBg = settings.customPowerBgColor
-            local pfR, pfG, pfB = 0.2, 0.35, 0.85
-            local pbR, pbG, pbB = pfR * 0.3, pfG * 0.3, pfB * 0.3
-            local pfA = 1.0
-            local pbA = 0.5
-            if customPFill then
+            local pfR, pfG, pfB
+            if isPowerColored then
+                local pType = UnitPowerType("player")
+                local info = PowerBarColor[pType]
+                if info then pfR, pfG, pfB = info.r, info.g, info.b
+                else pfR, pfG, pfB = 0, 0, 1 end
+            elseif customPFill then
                 pfR, pfG, pfB = customPFill.r, customPFill.g, customPFill.b
-                if customPFill.a then pfA = customPFill.a end
+            else
+                pfR, pfG, pfB = 0, 0, 1
             end
+            local pbR, pbG, pbB
             if customPBg then
                 pbR, pbG, pbB = customPBg.r, customPBg.g, customPBg.b
-                if customPBg.a then pbA = customPBg.a end
             else
-                pbR, pbG, pbB = pfR * 0.3, pfG * 0.3, pfB * 0.3
+                pbR, pbG, pbB = 17/255, 17/255, 17/255
             end
+            local powerOpacity = (settings.powerBarOpacity or 100) / 100
             powerBg:SetColorTexture(pbR, pbG, pbB, 1)
-            powerBg:SetAlpha(pbA)
+            powerBg:SetAlpha(powerOpacity)
             powerFill:SetColorTexture(pfR, pfG, pfB, 1)
-            powerFill:SetAlpha(pfA)
+            powerFill:SetAlpha(powerOpacity)
             -- Initial anchor based on power position
             if initPpPos == "none" then
                 power:Hide()
@@ -1234,9 +1162,18 @@ initFrame:SetScript("OnEvent", function(self)
                 healthFill:SetVertexColor(hR, hG, hB, 1)
                 if pf._powerFill and powerH > 0 then
                     pf._powerFill:SetTexture(texPath)
-                    local cpf = settings.customPowerFillColor
-                    local txR, txG, txB = 0.2, 0.35, 0.85
-                    if cpf then txR, txG, txB = cpf.r, cpf.g, cpf.b end
+                    local txR, txG, txB
+                    local isPwrC = settings.powerPercentPowerColor ~= false
+                    if isPwrC then
+                        local pType = UnitPowerType("player")
+                        local info = PowerBarColor[pType]
+                        if info then txR, txG, txB = info.r, info.g, info.b
+                        else txR, txG, txB = 0, 0, 1 end
+                    else
+                        local cpf = settings.customPowerFillColor
+                        if cpf then txR, txG, txB = cpf.r, cpf.g, cpf.b
+                        else txR, txG, txB = 0, 0, 1 end
+                    end
                     pf._powerFill:SetVertexColor(txR, txG, txB, 1)
                 end
             end
@@ -1800,16 +1737,16 @@ initFrame:SetScript("OnEvent", function(self)
                         local _, ct = UnitClass("player")
                         local cc = RAID_CLASS_COLORS[ct]
                         if cc then uHR, uHG, uHB = cc.r, cc.g, cc.b
-                        else uHR, uHG, uHB = 0.2, 0.6, 0.2 end
+                        else uHR, uHG, uHB = 37/255, 193/255, 29/255 end
                     elseif cFill then
                         uHR, uHG, uHB = cFill.r, cFill.g, cFill.b
                     elseif unitKey == "player" then
                         local _, ct = UnitClass("player")
                         local cc = RAID_CLASS_COLORS[ct]
                         if cc then uHR, uHG, uHB = cc.r, cc.g, cc.b
-                        else uHR, uHG, uHB = 0.2, 0.6, 0.2 end
+                        else uHR, uHG, uHB = 37/255, 193/255, 29/255 end
                     elseif unitKey == "pet" then
-                        uHR, uHG, uHB = 0.2, 0.6, 0.2
+                        uHR, uHG, uHB = 37/255, 193/255, 29/255
                     else
                         uHR, uHG, uHB = 0.8, 0.2, 0.2
                     end
@@ -1818,7 +1755,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if cBg then
                         uBgR, uBgG, uBgB = cBg.r, cBg.g, cBg.b
                     else
-                        uBgR, uBgG, uBgB = uHR * 0.2, uHG * 0.2, uHB * 0.2
+                        uBgR, uBgG, uBgB = 17/255, 17/255, 17/255
                     end
                 end
                 healthFill:SetColorTexture(uHR, uHG, uHB, 1)
@@ -1845,9 +1782,18 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     end
                     if pf._powerFill then
-                        local cpf2 = s.customPowerFillColor
-                        local pvFR, pvFG, pvFB = 0.2, 0.35, 0.85
-                        if cpf2 then pvFR, pvFG, pvFB = cpf2.r, cpf2.g, cpf2.b end
+                        local pvFR, pvFG, pvFB
+                        local isPwrC2 = s.powerPercentPowerColor ~= false
+                        if isPwrC2 then
+                            local pType = UnitPowerType("player")
+                            local info = PowerBarColor[pType]
+                            if info then pvFR, pvFG, pvFB = info.r, info.g, info.b
+                            else pvFR, pvFG, pvFB = 0, 0, 1 end
+                        else
+                            local cpf2 = s.customPowerFillColor
+                            if cpf2 then pvFR, pvFG, pvFB = cpf2.r, cpf2.g, cpf2.b
+                            else pvFR, pvFG, pvFB = 0, 0, 1 end
+                        end
                         if curTexPath then
                             pf._powerFill:SetTexture(curTexPath)
                             pf._powerFill:SetVertexColor(pvFR, pvFG, pvFB, 1)
@@ -1858,18 +1804,15 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
 
-                -- Apply health bar alpha from custom color tables
+                -- Apply health bar alpha from unified opacity setting
                 local hFillA, hBgA
                 if isDark then
                     hFillA = 0.90
                     hBgA   = 1
                 else
-                    hFillA = 0.9
-                    hBgA   = 0.75
-                    local hcf = s.customFillColor
-                    if hcf and hcf.a then hFillA = hcf.a end
-                    local hcb = s.customBgColor
-                    if hcb and hcb.a then hBgA = hcb.a end
+                    local barOp = (s.healthBarOpacity or 90) / 100
+                    hFillA = barOp
+                    hBgA   = barOp
                 end
                 if healthFill then healthFill:SetAlpha(hFillA) end
                 if healthBgColor then healthBgColor:SetAlpha(hBgA) end
@@ -1910,29 +1853,28 @@ initFrame:SetScript("OnEvent", function(self)
                     PP.Width(pf._powerFill, math.floor(pvPw * (_previewPowerPct or 0.85) + 0.5))
                 end
 
-                -- Apply power bar alpha from custom color tables
-                local pFillA = 1.0
-                local pBgA   = 0.5
-                local cpFill = s.customPowerFillColor
-                local cpBg = s.customPowerBgColor
-                if cpFill and cpFill.a then pFillA = cpFill.a end
-                if cpBg and cpBg.a then pBgA = cpBg.a end
-                if pf._powerFill then pf._powerFill:SetAlpha(pFillA) end
-                if pf._powerBg then pf._powerBg:SetAlpha(pBgA) end
+                -- Apply power bar opacity from unified setting
+                local pOpacity = (s.powerBarOpacity or 100) / 100
+                if pf._powerFill then pf._powerFill:SetAlpha(pOpacity) end
+                if pf._powerBg then pf._powerBg:SetAlpha(pOpacity) end
 
-                -- Apply custom power bar colors
-                local pvPfR, pvPfG, pvPfB = 0.2, 0.35, 0.85
-                local pvPbR, pvPbG, pvPbB = pvPfR * 0.3, pvPfG * 0.3, pvPfB * 0.3
+                -- Apply power bar colors
+                local pvPfR, pvPfG, pvPfB
                 local pvUsePowerColor = s.powerPercentPowerColor ~= false
                 if pvUsePowerColor then
                     local pType = UnitPowerType("player")
                     local info = PowerBarColor[pType]
-                    if info then pvPfR, pvPfG, pvPfB = info.r, info.g, info.b end
-                elseif cpFill then
-                    pvPfR, pvPfG, pvPfB = cpFill.r, cpFill.g, cpFill.b
+                    if info then pvPfR, pvPfG, pvPfB = info.r, info.g, info.b
+                    else pvPfR, pvPfG, pvPfB = 0, 0, 1 end
+                else
+                    local cpFill = s.customPowerFillColor
+                    if cpFill then pvPfR, pvPfG, pvPfB = cpFill.r, cpFill.g, cpFill.b
+                    else pvPfR, pvPfG, pvPfB = 0, 0, 1 end
                 end
+                local pvPbR, pvPbG, pvPbB
+                local cpBg = s.customPowerBgColor
                 if cpBg then pvPbR, pvPbG, pvPbB = cpBg.r, cpBg.g, cpBg.b
-                else pvPbR, pvPbG, pvPbB = pvPfR * 0.3, pvPfG * 0.3, pvPfB * 0.3 end
+                else pvPbR, pvPbG, pvPbB = 17/255, 17/255, 17/255 end
                 if pf._powerFill then pf._powerFill:SetColorTexture(pvPfR, pvPfG, pvPfB, 1) end
                 if pf._powerBg then pf._powerBg:SetColorTexture(pvPbR, pvPbG, pvPbB, 1) end
             end
@@ -1973,7 +1915,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     ppPreviewFS:SetText(ppTxt)
                     if s.powerPercentTextPowerColor then
-                        ppPreviewFS:SetTextColor(0.2, 0.35, 0.85)
+                        ppPreviewFS:SetTextColor(0, 0, 1)
                     else
                         local ptc = s.powerTextColor
                         if ptc then
@@ -2490,8 +2432,7 @@ initFrame:SetScript("OnEvent", function(self)
             local parentTH = th * combinedScale
             local cpBottomScaled = cpBottomH * combinedScale
             local hintH = 0
-            if _ufPreviewHintFS_individual and _ufPreviewHintFS_individual:IsShown() then hintH = 29
-            elseif _ufPreviewHintFS_multi and _ufPreviewHintFS_multi:IsShown() then hintH = 29 end
+            if _ufPreviewHintFS_display and _ufPreviewHintFS_display:IsShown() then hintH = 29 end
             local fixedH = pf._headerFixedH or 0
             if fixedH > 0 then
                 EllesmereUI:UpdateContentHeaderHeight(fixedH + parentTH + buffExtra + detTopExtra + cpBottomScaled + hintH)
@@ -2652,22 +2593,6 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  MULTI FRAME EDIT TAB  (checkbox selector + shared per-unit settings)
     ---------------------------------------------------------------------------
-    local _multiHeaderBuilder
-    local _multiPreviewOverride = nil
-    local multiHeaderFixedH = 0
-
-    local function UpdateMultiPreview()
-        if not activePreview and EllesmereUI._contentHeaderPreview then
-            activePreview = EllesmereUI._contentHeaderPreview
-        end
-        for _, pv in pairs(allPreviews) do
-            if pv and pv.Update then pv:Update() end
-        end
-        -- Refresh dropdown labels so mutual-exclusion changes are visible
-        local rl = EllesmereUI._widgetRefreshList
-        if rl then for i = 1, #rl do rl[i]() end end
-    end
-
     local function RegisterWidgetRefresh(fn)
         if not EllesmereUI._widgetRefreshList then
             EllesmereUI._widgetRefreshList = {}
@@ -2676,107 +2601,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  Sync overlay wrapper for group editing widgets
-    ---------------------------------------------------------------------------
-    local function WrapGroupWidget(slotFrame, settingKey)
-        if GroupGet(settingKey) ~= MIXED then return end
-
-        local overlay = CreateFrame("Button", nil, slotFrame)
-        overlay:SetAllPoints()
-        overlay:SetFrameLevel(slotFrame:GetFrameLevel() + 10)
-
-        local bg = overlay:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0.08, 0.08, 0.10, 0.92)
-
-        local txt = overlay:CreateFontString(nil, "OVERLAY")
-        txt:SetFont(EllesmereUI.EXPRESSWAY, 11, GetUFOptOutline())
-        txt:SetTextColor(
-            EllesmereUI.ELLESMERE_GREEN.r,
-            EllesmereUI.ELLESMERE_GREEN.g,
-            EllesmereUI.ELLESMERE_GREEN.b, 1.0)
-        txt:SetPoint("CENTER")
-        txt:SetText("Click to Sync Different Values")
-
-        overlay:SetScript("OnEnter", function()
-            txt:SetTextColor(1, 1, 1, 1)
-        end)
-        overlay:SetScript("OnLeave", function()
-            txt:SetTextColor(
-                EllesmereUI.ELLESMERE_GREEN.r,
-                EllesmereUI.ELLESMERE_GREEN.g,
-                EllesmereUI.ELLESMERE_GREEN.b, 1.0)
-        end)
-
-        overlay:SetScript("OnClick", function()
-            GroupSync(settingKey)
-            UpdateMultiPreview()
-            EllesmereUI:RefreshPage(true)
-        end)
-    end
-
-    ---------------------------------------------------------------------------
-    --  WrapGroupCogPopup overlay for cog-popup settings in multi-edit
-    --  Checks at SHOW TIME whether any settingKeys are MIXED.  If so, an
-    --  overlay covers the popup with "Click to Sync".  If not, the overlay
-    --  is hidden and the popup works normally.  This means syncing one cog
-    --  popup correctly removes the overlay from others on next open.
-    ---------------------------------------------------------------------------
-    local function WrapGroupCogPopup(origShowFn, settingKeys)
-        local function AnyMixed()
-            for _, sk in ipairs(settingKeys) do
-                if GroupGet(sk) == MIXED then return true end
-            end
-            return false
-        end
-
-        local function EnsureOverlay(popup)
-            if not popup then return end
-            if popup._syncOverlay then return popup._syncOverlay end
-
-            local ov = CreateFrame("Button", nil, popup)
-            ov:SetAllPoints()
-            ov:SetFrameLevel(popup:GetFrameLevel() + 20)
-            ov:SetIgnoreParentAlpha(true)
-            -- Fully opaque bg so content is invisible even during fade-in
-            local bg = ov:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints()
-            bg:SetColorTexture(0.08, 0.08, 0.10, 1)
-            local txt = ov:CreateFontString(nil, "OVERLAY")
-            txt:SetFont(EllesmereUI.EXPRESSWAY, 11, GetUFOptOutline())
-            txt:SetTextColor(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 1.0)
-            txt:SetPoint("CENTER")
-            txt:SetText("Click to Sync Different Values")
-            ov:SetScript("OnEnter", function() txt:SetTextColor(1, 1, 1, 1) end)
-            ov:SetScript("OnLeave", function() txt:SetTextColor(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 1.0) end)
-            ov:SetScript("OnClick", function()
-                for _, sk in ipairs(settingKeys) do
-                    GroupSync(sk)
-                end
-                ov:Hide()
-                UpdateMultiPreview()
-                if popup._refresh then popup._refresh() end
-                C_Timer.After(0, function() local rl = EllesmereUI._widgetRefreshList; if rl then for i = 1, #rl do rl[i]() end end end)
-            end)
-            popup._syncOverlay = ov
-            return ov
-        end
-
-        return function(anchorBtn)
-            origShowFn(anchorBtn)
-            local popup = origShowFn._popupFrame
-            if popup and popup:IsShown() then
-                local ov = EnsureOverlay(popup)
-                if ov then
-                    if AnyMixed() then ov:Show() else ov:Hide() end
-                end
-            end
-        end
-    end
-
-    ---------------------------------------------------------------------------
-    --  Unified settings builder  (shared by Multi Frame Edit & Single Frame Edit)
-    --  mode = "multi" | "single"
+    --  Unified settings builder  (shared settings for Frame Display)
     ---------------------------------------------------------------------------
     local UNIT_SUPPORTS = {
         powerHeight          = { player=true, target=true, focus=true },
@@ -2827,117 +2652,47 @@ initFrame:SetScript("OnEvent", function(self)
     }
     local UNIT_LABELS_SUP = { player="Player", target="Target", focus="Focus" }
 
-    local function BuildSharedSettings(mode, parent, y)
+    local function BuildSharedSettings(parent, y)
         local W = EllesmereUI.Widgets
         local _, h
         local row
-        local isMulti = (mode == "multi")
 
         ---------------------------------------------------------------
         --  Unified Get / Set / DB abstraction
         ---------------------------------------------------------------
         local function SGet(key)
-            if isMulti then return GroupGet(key) end
             return UNIT_DB_MAP[selectedUnit]()[key]
         end
         local function SSet(key, val)
-            if isMulti then GroupSet(key, val); return end
             UNIT_DB_MAP[selectedUnit]()[key] = val
             ReloadAndUpdate()
         end
         local function SDB()
-            if isMulti then return GroupSB() end
             return UNIT_DB_MAP[selectedUnit]()
         end
-        -- Resolve MIXED for display: if multi and MIXED, fall back to eyeball DB
         local function SVal(key, default)
-            local v = SGet(key)
-            if v == MIXED then
-                local dv = SDB()[key]
-                return dv ~= nil and dv or default
-            end
+            local v = UNIT_DB_MAP[selectedUnit]()[key]
             if v ~= nil then return v end
             return default
         end
-        -- Set that also writes to all supported units (for UNIT_SUPPORTS keys)
+        -- Set that also writes to the current unit (for UNIT_SUPPORTS keys)
         local function SSetSupported(key, val)
-            if isMulti then
-                local sup = UNIT_SUPPORTS[key] or {}
-                for _, k in ipairs(GROUP_UNIT_ORDER) do
-                    if groupChecked[k] and sup[k] then
-                        UNIT_DB_MAP[k]()[key] = val
-                    end
-                end
-                ReloadAndUpdate(); UpdateMultiPreview()
-            else
-                UNIT_DB_MAP[selectedUnit]()[key] = val
-                ReloadAndUpdate(); UpdateMultiPreview()
-            end
+            UNIT_DB_MAP[selectedUnit]()[key] = val
+            ReloadAndUpdate(); UpdatePreview()
         end
         local function SGetSupported(key)
-            if isMulti then
-                local sup = UNIT_SUPPORTS[key] or {}
-                local first, mixed = nil, false
-                for _, k in ipairs(GROUP_UNIT_ORDER) do
-                    if groupChecked[k] and sup[k] then
-                        local val = UNIT_DB_MAP[k]()[key]
-                        if first == nil then first = val
-                        elseif first ~= val then return MIXED end
-                    end
-                end
-                return first
-            else
-                return UNIT_DB_MAP[selectedUnit]()[key]
-            end
+            return UNIT_DB_MAP[selectedUnit]()[key]
         end
         local function SValSupported(key, default)
-            local v = SGetSupported(key)
-            if v == MIXED then
-                local mv = SDB()[key]
-                if mv == nil then return default end
-                return mv
-            end
+            local v = UNIT_DB_MAP[selectedUnit]()[key]
             if v == nil then return default end
             return v
         end
-        -- Wrap widget for MIXED overlay (multi only, no-op in single)
-        local function SWrap(region, key)
-            if isMulti and key then WrapGroupWidget(region, key) end
-        end
-        -- Wrap cog popup for sync overlay (multi only, passthrough in single)
-        -- Filter out keys where fewer than 2 checked units support the setting,
-        -- since those can never be MIXED and shouldn't show a sync overlay.
-        local function SWrapCog(showFn, keys)
-            if not isMulti then return showFn end
-            local syncableKeys = {}
-            for _, key in ipairs(keys) do
-                local sup = UNIT_SUPPORTS[key]
-                if not sup then
-                    -- No support restriction = all units, always syncable
-                    syncableKeys[#syncableKeys + 1] = key
-                else
-                    local count = 0
-                    for _, u in ipairs(GROUP_UNIT_ORDER) do
-                        if groupChecked[u] and sup[u] then count = count + 1 end
-                    end
-                    if count >= 2 then syncableKeys[#syncableKeys + 1] = key end
-                end
-            end
-            if #syncableKeys == 0 then return showFn end
-            return WrapGroupCogPopup(showFn, syncableKeys)
-        end
-        -- Check if current unit(s) support a setting
+        -- Check if current unit supports a setting
         local function SVisible(key)
             local sup = UNIT_SUPPORTS[key]
             if not sup then return true end
-            if isMulti then
-                for _, k in ipairs(GROUP_UNIT_ORDER) do
-                    if groupChecked[k] and sup[k] then return true end
-                end
-                return false
-            else
-                return sup[selectedUnit] == true
-            end
+            return sup[selectedUnit] == true
         end
         local function SSupportTooltip(key)
             local sup = UNIT_SUPPORTS[key]
@@ -3002,20 +2757,10 @@ initFrame:SetScript("OnEvent", function(self)
         do
             local sn = portraitArtValues["class"].subnav
             sn.onSelect = function(styleKey)
-                if isMulti then
-                    for _, key in ipairs(GROUP_UNIT_ORDER) do
-                        if groupChecked[key] then
-                            UNIT_DB_MAP[key]().portraitMode = "class"
-                            UNIT_DB_MAP[key]().classThemeStyle = styleKey
-                            UNIT_DB_MAP[key]().showPortrait = true
-                        end
-                    end
-                else
-                    UNIT_DB_MAP[selectedUnit]().portraitMode = "class"
-                    UNIT_DB_MAP[selectedUnit]().classThemeStyle = styleKey
-                    UNIT_DB_MAP[selectedUnit]().showPortrait = true
-                end
-                ReloadAndUpdate(); UpdateMultiPreview()
+                UNIT_DB_MAP[selectedUnit]().portraitMode = "class"
+                UNIT_DB_MAP[selectedUnit]().classThemeStyle = styleKey
+                UNIT_DB_MAP[selectedUnit]().showPortrait = true
+                ReloadAndUpdate(); UpdatePreview()
                 C_Timer.After(0, function() local rl = EllesmereUI._widgetRefreshList; if rl then for ri = 1, #rl do rl[ri]() end end end)
             end
             sn.icon = function(styleKey)
@@ -3030,100 +2775,78 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 1: Enable Frame + Frame Scale
         local sharedEnableRow
         sharedEnableRow, h = W:DualRow(parent, y,
-            { type="toggle", text=isMulti and "Enable Frames" or "Enable Frame",
+            { type="toggle", text="Enable Frame",
               getValue=function()
-                  if isMulti then
-                      return db.profile.enabledFrames[groupEyeball] ~= false
-                  else
-                      return db.profile.enabledFrames[selectedUnit] ~= false
-                  end
+                  return db.profile.enabledFrames[selectedUnit] ~= false
               end,
               setValue=function(v)
-                  if isMulti then
-                      for _, key in ipairs(GROUP_UNIT_ORDER) do
-                          if groupChecked[key] then
-                              db.profile.enabledFrames[key] = v
-                          end
-                      end
-                  else
-                      db.profile.enabledFrames[selectedUnit] = v
-                  end
+                  db.profile.enabledFrames[selectedUnit] = v
                   ReloadAndUpdate()
                   EllesmereUI:RefreshPage()
               end },
             { type="slider", text="Frame Scale", min=50, max=200, step=1,
               getValue=function() return SVal("frameScale", 100) end,
               setValue=function(v) SSet("frameScale", v) end });  y = y - h
-        SWrap(sharedEnableRow._leftRegion, nil)
-        SWrap(sharedEnableRow._rightRegion, "frameScale")
-
-        -- Enable Frame MIXED overlay (multi only)
-        if isMulti then
-            local first, mixed = nil, false
-            for _, key in ipairs(GROUP_UNIT_ORDER) do
-                if groupChecked[key] then
-                    local val = db.profile.enabledFrames[key] ~= false
-                    if first == nil then first = val
-                    elseif first ~= val then mixed = true; break end
-                end
-            end
-            if mixed then
-                local slotFrame = sharedEnableRow._leftRegion
-                local overlay = CreateFrame("Button", nil, slotFrame)
-                overlay:SetAllPoints()
-                overlay:SetFrameLevel(slotFrame:GetFrameLevel() + 10)
-                local bg = overlay:CreateTexture(nil, "BACKGROUND")
-                bg:SetAllPoints()
-                bg:SetColorTexture(0.08, 0.08, 0.10, 0.92)
-                local txt = overlay:CreateFontString(nil, "OVERLAY")
-                txt:SetFont(EllesmereUI.EXPRESSWAY, 11, GetUFOptOutline())
-                txt:SetTextColor(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 1.0)
-                txt:SetPoint("CENTER")
-                txt:SetText("Click to Sync Different Values")
-                overlay:SetScript("OnEnter", function() txt:SetTextColor(1, 1, 1, 1) end)
-                overlay:SetScript("OnLeave", function() txt:SetTextColor(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 1.0) end)
-                overlay:SetScript("OnClick", function()
-                    local src = db.profile.enabledFrames[groupEyeball] ~= false
+        -- Sync icon: Frame Scale
+        do
+            local rgn = sharedEnableRow._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Frame Scale to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().frameScale or 100
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
-                        if groupChecked[key] then db.profile.enabledFrames[key] = src end
+                        if key ~= selectedUnit then
+                            UNIT_DB_MAP[key]().frameScale = v
+                        end
                     end
-                    ReloadAndUpdate(); UpdateMultiPreview()
-                    EllesmereUI:RefreshPage(true)
-                end)
-            end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().frameScale or 100
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().frameScale or 100) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().frameScale or 100
+                        for _, key in ipairs(checkedKeys) do
+                            UNIT_DB_MAP[key]().frameScale = v
+                        end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
         end
 
         -- Inline cog on Enable Frames for group visibility (player/target/focus only)
         do
             local rgn = sharedEnableRow._leftRegion
             local function VisSet(key, v)
-                if isMulti then
-                    for _, uk in ipairs(GROUP_UNIT_ORDER) do
-                        if groupChecked[uk] then
-                            UNIT_DB_MAP[uk]()[key] = v
-                        end
-                    end
-                else
-                    UNIT_DB_MAP[selectedUnit]()[key] = v
-                end
+                UNIT_DB_MAP[selectedUnit]()[key] = v
                 if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
             end
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Frame Display Options",
                 rows = {
                     { type = "toggle", label = "In Raid Group",
-                      get = function() local v = SGet("showInRaid"); if v == nil then return true end; if v == MIXED then v = SDB().showInRaid end; return v ~= false end,
+                      get = function() local v = SGet("showInRaid"); if v == nil then return true end; return v ~= false end,
                       set = function(v) VisSet("showInRaid", v) end },
                     { type = "toggle", label = "In Party",
-                      get = function() local v = SGet("showInParty"); if v == nil then return true end; if v == MIXED then v = SDB().showInParty end; return v ~= false end,
+                      get = function() local v = SGet("showInParty"); if v == nil then return true end; return v ~= false end,
                       set = function(v) VisSet("showInParty", v) end },
                     { type = "toggle", label = "Solo",
-                      get = function() local v = SGet("showSolo"); if v == nil then return true end; if v == MIXED then v = SDB().showSolo end; return v ~= false end,
+                      get = function() local v = SGet("showSolo"); if v == nil then return true end; return v ~= false end,
                       set = function(v) VisSet("showSolo", v) end },
                 },
             })
-            local wrappedCogShow = SWrapCog(cogShow, { "showInRaid", "showInParty", "showSolo" })
-            local visCogBtn = MakeCogBtn(rgn, wrappedCogShow)
+            local visCogBtn = MakeCogBtn(rgn, cogShow)
 
             -- Blocking overlay: disabled when Enable Frame is off
             local visCogBlock = CreateFrame("Frame", nil, visCogBtn)
@@ -3131,16 +2854,11 @@ initFrame:SetScript("OnEvent", function(self)
             visCogBlock:SetFrameLevel(visCogBtn:GetFrameLevel() + 10)
             visCogBlock:EnableMouse(true)
             visCogBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(visCogBtn, EllesmereUI.DisabledTooltip(isMulti and "Enable Frames" or "Enable Frame"))
+                EllesmereUI.ShowWidgetTooltip(visCogBtn, EllesmereUI.DisabledTooltip("Enable Frame"))
             end)
             visCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateVisCogDisabled()
-                local frameEnabled
-                if isMulti then
-                    frameEnabled = db.profile.enabledFrames[groupEyeball] ~= false
-                else
-                    frameEnabled = db.profile.enabledFrames[selectedUnit] ~= false
-                end
+                local frameEnabled = db.profile.enabledFrames[selectedUnit] ~= false
                 if frameEnabled then
                     visCogBtn:SetAlpha(0.4)
                     visCogBlock:Hide()
@@ -3160,14 +2878,49 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return db.profile.darkTheme end,
               setValue=function(v)
                   db.profile.darkTheme = v
-                  ReloadAndUpdate(); UpdateMultiPreview()
+                  ReloadAndUpdate(); UpdatePreview()
                   EllesmereUI:RefreshPage()
               end },
             { type="dropdown", text="Bar Texture", values=hbtValues, order=hbtOrder,
               getValue=function() return SVal("healthBarTexture", "none") end,
-              setValue=function(v) SSet("healthBarTexture", v); ReloadAndUpdate(); UpdateMultiPreview() end });  y = y - h
-        SWrap(sharedDarkTexRow._leftRegion, nil)
-        SWrap(sharedDarkTexRow._rightRegion, "healthBarTexture")
+              setValue=function(v) SSet("healthBarTexture", v); ReloadAndUpdate(); UpdatePreview() end });  y = y - h
+        -- Sync icon: Health Bar Texture
+        do
+            local rgn = sharedDarkTexRow._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Bar Texture to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().healthBarTexture or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then
+                            UNIT_DB_MAP[key]().healthBarTexture = v
+                        end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().healthBarTexture or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().healthBarTexture or "none") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().healthBarTexture or "none"
+                        for _, key in ipairs(checkedKeys) do
+                            UNIT_DB_MAP[key]().healthBarTexture = v
+                        end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
 
         -- Row 3: Border Color (with Highlight in cog)
         local sharedBorderRow
@@ -3175,22 +2928,54 @@ initFrame:SetScript("OnEvent", function(self)
             { type="colorpicker", text="Border Color",
               getValue=function()
                   local c = SGet("borderColor")
-                  if c == MIXED then c = SDB().borderColor end
                   if not c then return 0, 0, 0 end
                   return c.r, c.g, c.b
               end,
               setValue=function(r, g, b)
-                  if isMulti then
-                      for _, key in ipairs(GROUP_UNIT_ORDER) do
-                          if groupChecked[key] then UNIT_DB_MAP[key]().borderColor = { r=r, g=g, b=b } end
-                      end
-                  else
-                      UNIT_DB_MAP[selectedUnit]().borderColor = { r=r, g=g, b=b }
-                  end
+                  UNIT_DB_MAP[selectedUnit]().borderColor = { r=r, g=g, b=b }
                   ReloadAndUpdate()
               end },
             { type="label", text="" });  y = y - h
-        SWrap(sharedBorderRow._leftRegion, "borderColor")
+        -- Sync icon: Border Color (deep compare for table values)
+        do
+            local rgn = sharedBorderRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Border Color to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().borderColor
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit and v then
+                            UNIT_DB_MAP[key]().borderColor = { r=v.r, g=v.g, b=v.b }
+                        end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().borderColor
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        local other = UNIT_DB_MAP[key]().borderColor
+                        if v and other then
+                            if v.r ~= other.r or v.g ~= other.g or v.b ~= other.b then return false end
+                        elseif v ~= other then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().borderColor
+                        for _, key in ipairs(checkedKeys) do
+                            if v then UNIT_DB_MAP[key]().borderColor = { r=v.r, g=v.g, b=v.b } end
+                        end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
         -- Inline cog on Border Color for Highlight Color + Border Size
         do
             local leftRgn = sharedBorderRow._leftRegion
@@ -3203,23 +2988,16 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="colorpicker", label="Highlight Color",
                       get=function()
                           local c = SGet("highlightColor")
-                          if c == MIXED then c = SDB().highlightColor end
                           if not c then return 1, 1, 1 end
                           return c.r, c.g, c.b
                       end,
                       set=function(r, g, b)
-                          if isMulti then
-                              for _, key in ipairs(GROUP_UNIT_ORDER) do
-                                  if groupChecked[key] then UNIT_DB_MAP[key]().highlightColor = { r=r, g=g, b=b } end
-                              end
-                          else
-                              UNIT_DB_MAP[selectedUnit]().highlightColor = { r=r, g=g, b=b }
-                          end
+                          UNIT_DB_MAP[selectedUnit]().highlightColor = { r=r, g=g, b=b }
                           ReloadAndUpdate()
                       end },
                 },
             })
-            local borderCogShow = SWrapCog(borderCogShowRaw, { "borderSize", "highlightColor" })
+            local borderCogShow = borderCogShowRaw
             MakeCogBtn(leftRgn, borderCogShow, nil, EllesmereUI.RESIZE_ICON)
         end
 
@@ -3246,26 +3024,10 @@ initFrame:SetScript("OnEvent", function(self)
                   db.profile.portraitStyle = v
                   -- Reset detached-only settings when leaving detached mode
                   if v ~= "detached" then
-                      if isMulti then
-                          for _, key in ipairs(GROUP_UNIT_ORDER) do
-                              if groupChecked[key] then
-                                  UNIT_DB_MAP[key]().portraitSize = 0
-                              end
-                          end
-                      else
-                          UNIT_DB_MAP[selectedUnit]().portraitSize = 0
-                      end
+                      UNIT_DB_MAP[selectedUnit]().portraitSize = 0
                   end
-                  if isMulti then
-                      for _, key in ipairs(GROUP_UNIT_ORDER) do
-                          if groupChecked[key] then
-                              UNIT_DB_MAP[key]().showPortrait = (v ~= "none")
-                          end
-                      end
-                  else
-                      UNIT_DB_MAP[selectedUnit]().showPortrait = (v ~= "none")
-                  end
-                  ReloadAndUpdate(); UpdateMultiPreview()
+                  UNIT_DB_MAP[selectedUnit]().showPortrait = (v ~= "none")
+                  ReloadAndUpdate(); UpdatePreview()
                   C_Timer.After(0, function() local rl = EllesmereUI._widgetRefreshList; if rl then for i = 1, #rl do rl[i]() end end end)
               end },
             { type="dropdown", text="Art Style", values=portraitArtValues, order=portraitArtOrder,
@@ -3273,7 +3035,6 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip="Portrait Mode is set to None",
               getValue=function()
                   local v = SGet("portraitMode")
-                  if v == MIXED then v = SDB().portraitMode or "2d" end
                   if v == "class" then return SVal("classThemeStyle", "modern") end
                   return v or "2d"
               end,
@@ -3289,18 +3050,9 @@ initFrame:SetScript("OnEvent", function(self)
                               onConfirm   = function()
                                   if not EllesmereUIDB then EllesmereUIDB = {} end
                                   EllesmereUIDB.dismissed3DWarning = true
-                                  if isMulti then
-                                      for _, key in ipairs(GROUP_UNIT_ORDER) do
-                                          if groupChecked[key] then
-                                              UNIT_DB_MAP[key]().portraitMode = "3d"
-                                              UNIT_DB_MAP[key]().showPortrait = true
-                                          end
-                                      end
-                                  else
-                                      UNIT_DB_MAP[selectedUnit]().portraitMode = "3d"
-                                      UNIT_DB_MAP[selectedUnit]().showPortrait = true
-                                  end
-                                  ReloadAndUpdate(); UpdateMultiPreview()
+                                  UNIT_DB_MAP[selectedUnit]().portraitMode = "3d"
+                                  UNIT_DB_MAP[selectedUnit]().showPortrait = true
+                                  ReloadAndUpdate(); UpdatePreview()
                                   if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage(true) end
                               end,
                               onCancel    = function()
@@ -3310,21 +3062,43 @@ initFrame:SetScript("OnEvent", function(self)
                           return
                       end
                   end
-                  if isMulti then
-                      for _, key in ipairs(GROUP_UNIT_ORDER) do
-                          if groupChecked[key] then
-                              UNIT_DB_MAP[key]().portraitMode = v
-                              UNIT_DB_MAP[key]().showPortrait = true
-                          end
-                      end
-                  else
-                      UNIT_DB_MAP[selectedUnit]().portraitMode = v
-                      UNIT_DB_MAP[selectedUnit]().showPortrait = true
-                  end
-                  ReloadAndUpdate(); UpdateMultiPreview()
+                  UNIT_DB_MAP[selectedUnit]().portraitMode = v
+                  UNIT_DB_MAP[selectedUnit]().showPortrait = true
+                  ReloadAndUpdate(); UpdatePreview()
               end });  y = y - h
-        SWrap(sharedPortraitModeRow._leftRegion, nil)
-        SWrap(sharedPortraitModeRow._rightRegion, "portraitMode")
+        -- Sync icon: Portrait Mode (Art Style)
+        do
+            local rgn = sharedPortraitModeRow._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Art Style to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().portraitMode
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then UNIT_DB_MAP[key]().portraitMode = v end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().portraitMode or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().portraitMode or "none") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().portraitMode
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().portraitMode = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
 
         -- Row 2: Size + Position
         local portraitLocationValues = { ["left"] = "Left", ["right"] = "Right", ["top"] = "Top" }
@@ -3335,16 +3109,79 @@ initFrame:SetScript("OnEvent", function(self)
               disabled=function() return (db.profile.portraitStyle or "attached") ~= "detached" end,
               disabledTooltip="Only available when Portrait Mode is Detached",
               getValue=function() return SVal("portraitSize", 0) end,
-              setValue=function(v) SSet("portraitSize", v); UpdateMultiPreview() end },
+              setValue=function(v) SSet("portraitSize", v); UpdatePreview() end },
             { type="dropdown", text="Position", values=portraitLocationValues, order=portraitLocationOrder,
               disabled=function() return (db.profile.portraitStyle or "attached") == "none" end,
               disabledTooltip="Portrait Mode is set to None",
               itemDisabled=function(v) return v == "top" and (db.profile.portraitStyle or "attached") == "attached" end,
               itemDisabledTooltip=function(v) if v == "top" then return "Top position is only available in Detached mode" end end,
               getValue=function() return SVal("portraitSide", "left") end,
-              setValue=function(v) SSet("portraitSide", v); UpdateMultiPreview() end });  y = y - h
-        SWrap(sharedSizePosRow._leftRegion, "portraitSize")
-        SWrap(sharedSizePosRow._rightRegion, "portraitSide")
+              setValue=function(v) SSet("portraitSide", v); UpdatePreview() end });  y = y - h
+        -- Sync icons: Portrait Size (left) and Portrait Side (right)
+        do
+            local rgn = sharedSizePosRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Portrait Size to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().portraitSize or 0
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then UNIT_DB_MAP[key]().portraitSize = v end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().portraitSize or 0
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().portraitSize or 0) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().portraitSize or 0
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().portraitSize = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = sharedSizePosRow._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Portrait Position to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().portraitSide or "left"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then UNIT_DB_MAP[key]().portraitSide = v end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().portraitSide or "left"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().portraitSide or "left") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().portraitSide or "left"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().portraitSide = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
         sharedDetSizeRow = sharedSizePosRow
         -- Cog on Position for X/Y offsets
         do
@@ -3354,16 +3191,16 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type="slider", label="X Offset", min=-100, max=100, step=1,
                       get=function() return SVal("portraitX", 0) end,
-                      set=function(v) SSet("portraitX", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("portraitX", v); UpdatePreview() end },
                     { type="slider", label="Y Offset", min=-100, max=100, step=1,
                       get=function() return SVal("portraitY", 0) end,
-                      set=function(v) SSet("portraitY", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("portraitY", v); UpdatePreview() end },
                     { type="slider", label="Art Scale", min=50, max=200, step=1,
                       get=function() return SVal("portraitArtScale", 100) end,
-                      set=function(v) SSet("portraitArtScale", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("portraitArtScale", v); UpdatePreview() end },
                 },
             })
-            local posCogShow = SWrapCog(posCogShowRaw, { "portraitX", "portraitY", "portraitArtScale" })
+            local posCogShow = posCogShowRaw
             local cogBtn = MakeCogBtn(posRgn, posCogShow, nil, EllesmereUI.DIRECTIONS_ICON)
             local function UpdatePosCogState()
                 local pStyle = db.profile.portraitStyle or "attached"
@@ -3388,39 +3225,26 @@ initFrame:SetScript("OnEvent", function(self)
         sharedShapeBorderRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Shape", values=detPortraitShapeValues, order=detPortraitShapeOrder,
               disabled=function() return (db.profile.portraitStyle or "attached") ~= "detached" end,
-              disabledTooltip="Only available when Portrait Mode is Detached",
+              disabledTooltip="This option is only available when Portrait Mode is Detached.",
               getValue=function() return SVal("detachedPortraitShape", "portrait") end,
               setValue=function(v)
-                  SSet("detachedPortraitShape", v); UpdateMultiPreview()
+                  SSet("detachedPortraitShape", v); UpdatePreview()
               end },
             { type="colorpicker", text="Shape Border",
               disabled=function() return (db.profile.portraitStyle or "attached") ~= "detached" end,
               disabledTooltip="Only available when Portrait Mode is Detached",
               getValue=function()
                   local c = SGet("detachedPortraitBorderColor")
-                  if c == MIXED then c = SDB().detachedPortraitBorderColor or { r=0, g=0, b=0 } end
                   c = c or { r=0, g=0, b=0 }
                   local a = SGet("detachedPortraitBorderOpacity")
-                  if a == MIXED then a = SDB().detachedPortraitBorderOpacity or 100 end
                   return c.r, c.g, c.b, (a or 100) / 100
               end,
               setValue=function(r, g, b, a)
-                  if isMulti then
-                      for _, key in ipairs(GROUP_UNIT_ORDER) do
-                          if groupChecked[key] then
-                              UNIT_DB_MAP[key]().detachedPortraitBorderColor = { r=r, g=g, b=b }
-                              UNIT_DB_MAP[key]().detachedPortraitBorderOpacity = math.floor(a * 100 + 0.5)
-                          end
-                      end
-                  else
-                      UNIT_DB_MAP[selectedUnit]().detachedPortraitBorderColor = { r=r, g=g, b=b }
-                      UNIT_DB_MAP[selectedUnit]().detachedPortraitBorderOpacity = math.floor(a * 100 + 0.5)
-                  end
-                  ReloadAndUpdate(); UpdateMultiPreview()
+                  UNIT_DB_MAP[selectedUnit]().detachedPortraitBorderColor = { r=r, g=g, b=b }
+                  UNIT_DB_MAP[selectedUnit]().detachedPortraitBorderOpacity = math.floor(a * 100 + 0.5)
+                  ReloadAndUpdate(); UpdatePreview()
               end,
               hasAlpha=true });  y = y - h
-        SWrap(sharedShapeBorderRow._leftRegion, "detachedPortraitShape")
-        SWrap(sharedShapeBorderRow._rightRegion, "detachedPortraitBorderColor")
         -- Disabled state for Shape Border swatch
         do
             local borderRgn = sharedShapeBorderRow._rightRegion
@@ -3459,17 +3283,17 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="toggle", label="Class Color",
                       get=function() return SVal("detachedPortraitClassColor", true) end,
                       set=function(v)
-                          SSet("detachedPortraitClassColor", v); UpdateMultiPreview()
+                          SSet("detachedPortraitClassColor", v); UpdatePreview()
                       end },
                     { type="slider", label="Size", min=1, max=7, step=1,
                       get=function() return SVal("detachedPortraitBorderSize", 7) end,
-                      set=function(v) SSet("detachedPortraitBorderSize", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("detachedPortraitBorderSize", v); UpdatePreview() end },
                     { type="slider", label="Border", min=0, max=100, step=1,
                       get=function() return SVal("detachedPortraitBorderOpacity", 100) end,
-                      set=function(v) SSet("detachedPortraitBorderOpacity", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("detachedPortraitBorderOpacity", v); UpdatePreview() end },
                 },
             })
-            local detShapeCogShow = SWrapCog(detShapeCogShowRaw, { "detachedPortraitClassColor", "detachedPortraitBorderSize", "detachedPortraitBorderOpacity" })
+            local detShapeCogShow = detShapeCogShowRaw
             local cogBtn = MakeCogBtn(borderRgn, detShapeCogShow)
             local function UpdateDetShapeCogState()
                 local pStyle = db.profile.portraitStyle or "attached"
@@ -3488,6 +3312,100 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateDetShapeCogState()
             RegisterWidgetRefresh(UpdateDetShapeCogState)
         end
+        -- Sync icons: Shape (left) and Shape Border (right)
+        do
+            local rgn = sharedShapeBorderRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Portrait Shape to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().detachedPortraitShape or "portrait"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then UNIT_DB_MAP[key]().detachedPortraitShape = v end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().detachedPortraitShape or "portrait"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().detachedPortraitShape or "portrait") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().detachedPortraitShape or "portrait"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().detachedPortraitShape = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = sharedShapeBorderRow._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Shape Border to all Frames",
+                onClick = function()
+                    local src = UNIT_DB_MAP[selectedUnit]()
+                    local bc = src.detachedPortraitBorderColor
+                    local bo = src.detachedPortraitBorderOpacity
+                    local bs = src.detachedPortraitBorderSize
+                    local cc = src.detachedPortraitClassColor
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then
+                            local d = UNIT_DB_MAP[key]()
+                            if bc then d.detachedPortraitBorderColor = { r=bc.r, g=bc.g, b=bc.b }
+                            else d.detachedPortraitBorderColor = nil end
+                            d.detachedPortraitBorderOpacity = bo
+                            d.detachedPortraitBorderSize = bs
+                            d.detachedPortraitClassColor = cc
+                        end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local src = UNIT_DB_MAP[selectedUnit]()
+                    local cc = src.detachedPortraitClassColor
+                    if cc == nil then cc = true end
+                    local bs = src.detachedPortraitBorderSize or 7
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        local d = UNIT_DB_MAP[key]()
+                        local dcc = d.detachedPortraitClassColor
+                        if dcc == nil then dcc = true end
+                        if dcc ~= cc then return false end
+                        if (d.detachedPortraitBorderSize or 7) ~= bs then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local src = UNIT_DB_MAP[selectedUnit]()
+                        local bc = src.detachedPortraitBorderColor
+                        local bo = src.detachedPortraitBorderOpacity
+                        local bs = src.detachedPortraitBorderSize
+                        local cc = src.detachedPortraitClassColor
+                        for _, key in ipairs(checkedKeys) do
+                            local d = UNIT_DB_MAP[key]()
+                            if bc then d.detachedPortraitBorderColor = { r=bc.r, g=bc.g, b=bc.b }
+                            else d.detachedPortraitBorderColor = nil end
+                            d.detachedPortraitBorderOpacity = bo
+                            d.detachedPortraitBorderSize = bs
+                            d.detachedPortraitClassColor = cc
+                        end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
 
         _, h = W:Spacer(parent, y, 20); y = y - h
 
@@ -3497,165 +3415,232 @@ initFrame:SetScript("OnEvent", function(self)
         local sharedBarsHeader
         sharedBarsHeader, h = W:SectionHeader(parent, "HEALTH BAR", y); y = y - h
 
-        -- Row 1: Health Bar Height + Health Bar Width (was Frame Width)
+        -- Row 1: Bar Height + Bar Width (was Frame Width)
         local sharedSizeRow
         sharedSizeRow, h = W:DualRow(parent, y,
-            { type="slider", text="Health Bar Height", min=15, max=100, step=1,
+            { type="slider", text="Bar Height", min=15, max=100, step=1,
               getValue=function() return SVal("healthHeight", 46) end,
               setValue=function(v) SSet("healthHeight", v) end },
-            { type="slider", text="Health Bar Width", min=80, max=400, step=1,
+            { type="slider", text="Bar Width", min=80, max=400, step=1,
               getValue=function() return SVal("frameWidth", 181) end,
               setValue=function(v) SSet("frameWidth", v) end });  y = y - h
-        SWrap(sharedSizeRow._leftRegion, "healthHeight")
-        SWrap(sharedSizeRow._rightRegion, "frameWidth")
-
-        -- Row 2: Class Colored (toggle with inline bg+fill swatches) + Center Text
-        local sharedHealthColorRow
-        sharedHealthColorRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Class Colored",
-              getValue=function() return SVal("healthClassColored", false) end,
-              setValue=function(v)
-                  SSet("healthClassColored", v)
-                  ReloadAndUpdate(); UpdateMultiPreview()
-                  EllesmereUI:RefreshPage()
-              end },
-            { type="dropdown", text="Center Text", values=healthTextValues, order=healthTextOrder,
-              getValue=function() return SVal("centerTextContent", "none") end,
-              setValue=function(v)
-                  SSet("centerTextContent", v)
-                  if v ~= "none" then
-                      SSet("leftTextContent", "none")
-                      SSet("rightTextContent", "none")
-                  end
-                  ReloadAndUpdate(); UpdateMultiPreview()
-              end });  y = y - h
-        SWrap(sharedHealthColorRow._leftRegion, "healthClassColored")
-        SWrap(sharedHealthColorRow._rightRegion, "centerTextContent")
-        -- Inline bg + fill swatches on Class Colored disabled when toggle is ON
+        -- Sync icons: Bar Height (left) and Bar Width (right)
         do
-            local rgn = sharedHealthColorRow._leftRegion
-
-            -- Background swatch
-            local bgSwatch, _ = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 2,
-                function()
-                    local c = SGet("customBgColor")
-                    if c == MIXED then c = SDB().customBgColor end
-                    if c then return c.r, c.g, c.b, c.a or 0.75 end
-                    local _, ct = UnitClass("player")
-                    local cc = ct and RAID_CLASS_COLORS[ct]
-                    if cc then return cc.r * 0.2, cc.g * 0.2, cc.b * 0.2, 0.75 end
-                    return 0.04, 0.12, 0.04, 0.75
-                end,
-                function(r, g, b, a)
-                    if isMulti then
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            if groupChecked[key] then UNIT_DB_MAP[key]().customBgColor = { r=r, g=g, b=b, a=a } end
-                        end
-                    else
-                        UNIT_DB_MAP[selectedUnit]().customBgColor = { r=r, g=g, b=b, a=a }
+            local rgn = sharedSizeRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Bar Height to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().healthHeight or 46
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then UNIT_DB_MAP[key]().healthHeight = v end
                     end
-                    ReloadAndUpdate(); UpdateMultiPreview()
-                end, true, 20)
-            PP.Point(bgSwatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            rgn._lastInline = bgSwatch
-
-            -- Fill swatch
-            local fillSwatch, _ = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 2,
-                function()
-                    local c = SGet("customFillColor")
-                    if c == MIXED then c = SDB().customFillColor end
-                    if c then return c.r, c.g, c.b, c.a or 0.9 end
-                    local _, ct = UnitClass("player")
-                    local cc = ct and RAID_CLASS_COLORS[ct]
-                    if cc then return cc.r, cc.g, cc.b, 0.9 end
-                    return 0.2, 0.6, 0.2, 0.9
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
                 end,
-                function(r, g, b, a)
-                    if isMulti then
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            if groupChecked[key] then UNIT_DB_MAP[key]().customFillColor = { r=r, g=g, b=b, a=a } end
-                        end
-                    else
-                        UNIT_DB_MAP[selectedUnit]().customFillColor = { r=r, g=g, b=b, a=a }
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().healthHeight or 46
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().healthHeight or 46) ~= v then return false end
                     end
-                    ReloadAndUpdate(); UpdateMultiPreview()
-                end, true, 20)
-            PP.Point(fillSwatch, "RIGHT", bgSwatch, "LEFT", -4, 0)
-            rgn._lastInline = fillSwatch
-
-            -- Shared disable logic: block both swatches when Class Colored is ON or Dark Mode is ON
-            local function MakeSwatchBlock(swatch, tooltipFn)
-                local blk = CreateFrame("Frame", nil, swatch)
-                blk:SetAllPoints()
-                blk:SetFrameLevel(swatch:GetFrameLevel() + 5)
-                blk:EnableMouse(true)
-                blk:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, tooltipFn()) end)
-                blk:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                return blk
-            end
-
-            local bgBlock = MakeSwatchBlock(bgSwatch, function()
-                if db.profile.darkTheme then return EllesmereUI.DisabledTooltip("Dark Mode") end
-                return EllesmereUI.DisabledTooltip("Class Colored")
-            end)
-            local fillBlock = MakeSwatchBlock(fillSwatch, function()
-                if db.profile.darkTheme then return EllesmereUI.DisabledTooltip("Dark Mode") end
-                return EllesmereUI.DisabledTooltip("Class Colored")
-            end)
-
-            local function UpdateHealthSwatchDis()
-                local isCC = SVal("healthClassColored", false)
-                local isDark = db.profile.darkTheme
-                local disabled = isCC or isDark
-                bgSwatch:SetAlpha(disabled and 0.3 or 1)
-                fillSwatch:SetAlpha(disabled and 0.3 or 1)
-                if disabled then bgBlock:Show(); fillBlock:Show()
-                else bgBlock:Hide(); fillBlock:Hide() end
-            end
-            bgSwatch:HookScript("OnShow", UpdateHealthSwatchDis)
-            EllesmereUI.RegisterWidgetRefresh(UpdateHealthSwatchDis)
-            UpdateHealthSwatchDis()
-        end
-        local sharedCenterTextRow = sharedHealthColorRow
-        -- Cogwheel on Center Text
-        do
-            local ctrRgn = sharedHealthColorRow._rightRegion
-            local _, centerCogShowRaw = EllesmereUI.BuildCogPopup({
-                title = "Center Text Settings",
-                rows = {
-                    { type="toggle", label="Class Color",
-                      get=function() return SVal("centerTextClassColor", false) end,
-                      set=function(v) SSet("centerTextClassColor", v); UpdateMultiPreview() end },
-                    { type="slider", label="Size", min=8, max=24, step=1,
-                      get=function() return SVal("centerTextSize", SDB().textSize or 12) end,
-                      set=function(v) SSet("centerTextSize", v); UpdateMultiPreview() end },
-                    { type="slider", label="X", min=-50, max=50, step=1,
-                      get=function() return SVal("centerTextX", 0) end,
-                      set=function(v) SSet("centerTextX", v); UpdateMultiPreview() end },
-                    { type="slider", label="Y", min=-30, max=30, step=1,
-                      get=function() return SVal("centerTextY", 0) end,
-                      set=function(v) SSet("centerTextY", v); UpdateMultiPreview() end },
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().healthHeight or 46
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().healthHeight = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
                 },
             })
-            local centerCogShow = SWrapCog(centerCogShowRaw, { "centerTextClassColor", "centerTextSize", "centerTextX", "centerTextY" })
-            local centerCogBtn = MakeCogBtn(ctrRgn, centerCogShow)
-            local function UpdateCenterCogState()
-                local isNone = SVal("centerTextContent", "none") == "none"
-                centerCogBtn:SetAlpha(isNone and 0.15 or 0.4)
-                centerCogBtn:SetEnabled(not isNone)
-            end
-            centerCogBtn:SetScript("OnEnter", function(self)
-                if SVal("centerTextContent", "none") == "none" then
-                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("This option requires a text selection other than none."))
-                else self:SetAlpha(0.7) end
-            end)
-            centerCogBtn:SetScript("OnLeave", function(self) UpdateCenterCogState(); EllesmereUI.HideWidgetTooltip() end)
-            centerCogBtn:SetScript("OnClick", function(self) centerCogShow(self) end)
-            UpdateCenterCogState()
-            RegisterWidgetRefresh(UpdateCenterCogState)
+        end
+        do
+            local rgn = sharedSizeRow._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Bar Width to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().frameWidth or 181
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then UNIT_DB_MAP[key]().frameWidth = v end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().frameWidth or 181
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().frameWidth or 181) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().frameWidth or 181
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().frameWidth = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
         end
 
-        -- Row 2: Left Text + Right Text
+        -- Row 2: Bar Color (multiSwatch) + Bar Opacity (slider)
+        local sharedHealthColorRow
+        sharedHealthColorRow, h = W:DualRow(parent, y,
+            { type="multiSwatch", text="Bar Color",
+              swatches = {
+                { tooltip = "Bar Background",
+                  hasAlpha = false,
+                  getValue = function()
+                      local c = SGet("customBgColor")
+                      if c then return c.r, c.g, c.b end
+                      return 17/255, 17/255, 17/255
+                  end,
+                  setValue = function(r, g, b)
+                      UNIT_DB_MAP[selectedUnit]().customBgColor = { r=r, g=g, b=b }
+                      ReloadAndUpdate(); UpdatePreview()
+                  end },
+                { tooltip = "Custom Colored Fill",
+                  hasAlpha = false,
+                  getValue = function()
+                      local c = SGet("customFillColor")
+                      if c then return c.r, c.g, c.b end
+                      return 37/255, 193/255, 29/255
+                  end,
+                  setValue = function(r, g, b)
+                      UNIT_DB_MAP[selectedUnit]().customFillColor = { r=r, g=g, b=b }
+                      ReloadAndUpdate(); UpdatePreview()
+                  end,
+                  onClick = function(self)
+                      if SVal("healthClassColored", true) then
+                          SSet("healthClassColored", false)
+                          UpdatePreview()
+                          EllesmereUI:RefreshPage()
+                          return
+                      end
+                      if self._eabOrigClick then self._eabOrigClick(self) end
+                  end,
+                  refreshAlpha = function()
+                      return SVal("healthClassColored", true) and 0.3 or 1
+                  end },
+                { tooltip = "Class Colored Fill",
+                  hasAlpha = false,
+                  getValue = function()
+                      local _, ct = UnitClass("player")
+                      if ct and RAID_CLASS_COLORS[ct] then
+                          local cc = RAID_CLASS_COLORS[ct]
+                          return cc.r, cc.g, cc.b
+                      end
+                      return 1, 1, 1
+                  end,
+                  setValue = function() end,
+                  onClick = function()
+                      SSet("healthClassColored", true)
+                      UpdatePreview()
+                      EllesmereUI:RefreshPage()
+                  end,
+                  refreshAlpha = function()
+                      return SVal("healthClassColored", true) and 1 or 0.3
+                  end },
+              } },
+            { type="slider", text="Bar Opacity", min=10, max=100, step=1,
+              getValue=function() return SVal("healthBarOpacity", 90) end,
+              setValue=function(v)
+                  SSet("healthBarOpacity", v)
+                  UpdatePreview()
+              end });  y = y - h
+        -- Sync icons: Bar Color (left) and Bar Opacity (right)
+        do
+            local rgn = sharedHealthColorRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Bar Color to all Frames",
+                onClick = function()
+                    local src = UNIT_DB_MAP[selectedUnit]()
+                    local cc = src.healthClassColored or false
+                    local fc = src.customFillColor
+                    local bc = src.customBgColor or { r=17/255, g=17/255, b=17/255 }
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then
+                            local d = UNIT_DB_MAP[key]()
+                            d.healthClassColored = cc
+                            if fc then d.customFillColor = { r=fc.r, g=fc.g, b=fc.b }
+                            else d.customFillColor = nil end
+                            d.customBgColor = { r=bc.r, g=bc.g, b=bc.b }
+                        end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local src = UNIT_DB_MAP[selectedUnit]()
+                    local cc = src.healthClassColored or false
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().healthClassColored or false) ~= cc then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local src = UNIT_DB_MAP[selectedUnit]()
+                        local cc = src.healthClassColored or false
+                        local fc = src.customFillColor
+                        local bc = src.customBgColor or { r=17/255, g=17/255, b=17/255 }
+                        for _, key in ipairs(checkedKeys) do
+                            local d = UNIT_DB_MAP[key]()
+                            d.healthClassColored = cc
+                            if fc then d.customFillColor = { r=fc.r, g=fc.g, b=fc.b }
+                            else d.customFillColor = nil end
+                            d.customBgColor = { r=bc.r, g=bc.g, b=bc.b }
+                        end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = sharedHealthColorRow._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Bar Opacity to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().healthBarOpacity or 90
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then UNIT_DB_MAP[key]().healthBarOpacity = v end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().healthBarOpacity or 90
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().healthBarOpacity or 90) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().healthBarOpacity or 90
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().healthBarOpacity = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+
+        -- Row 3: Left Text + Right Text
         local sharedTextRow
         sharedTextRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Left Text", values=healthTextValues, order=healthTextOrder,
@@ -3666,7 +3651,7 @@ initFrame:SetScript("OnEvent", function(self)
                       local rv = SGet("rightTextContent")
                       if rv == v then SSet("rightTextContent", "none") end
                   end
-                  UpdateMultiPreview()
+                  UpdatePreview()
               end },
             { type="dropdown", text="Right Text", values=healthTextValues, order=healthTextOrder,
               getValue=function() return SVal("rightTextContent", "both") end,
@@ -3676,10 +3661,73 @@ initFrame:SetScript("OnEvent", function(self)
                       local lv = SGet("leftTextContent")
                       if lv == v then SSet("leftTextContent", "none") end
                   end
-                  UpdateMultiPreview()
+                  UpdatePreview()
               end });  y = y - h
-        SWrap(sharedTextRow._leftRegion, "leftTextContent")
-        SWrap(sharedTextRow._rightRegion, "rightTextContent")
+        -- Sync icons: Left Text (left) and Right Text (right)
+        do
+            local rgn = sharedTextRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Left Text to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().leftTextContent or "name"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then UNIT_DB_MAP[key]().leftTextContent = v end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().leftTextContent or "name"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().leftTextContent or "name") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().leftTextContent or "name"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().leftTextContent = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = sharedTextRow._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Right Text to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().rightTextContent or "both"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then UNIT_DB_MAP[key]().rightTextContent = v end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().rightTextContent or "both"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().rightTextContent or "both") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().rightTextContent or "both"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().rightTextContent = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
         -- Cogwheel on Left Text
         do
             local leftRgn = sharedTextRow._leftRegion
@@ -3688,19 +3736,19 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type="toggle", label="Class Color",
                       get=function() return SVal("leftTextClassColor", false) end,
-                      set=function(v) SSet("leftTextClassColor", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("leftTextClassColor", v); UpdatePreview() end },
                     { type="slider", label="Size", min=8, max=24, step=1,
                       get=function() return SVal("leftTextSize", SDB().textSize or 12) end,
-                      set=function(v) SSet("leftTextSize", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("leftTextSize", v); UpdatePreview() end },
                     { type="slider", label="X", min=-50, max=50, step=1,
                       get=function() return SVal("leftTextX", 0) end,
-                      set=function(v) SSet("leftTextX", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("leftTextX", v); UpdatePreview() end },
                     { type="slider", label="Y", min=-30, max=30, step=1,
                       get=function() return SVal("leftTextY", 0) end,
-                      set=function(v) SSet("leftTextY", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("leftTextY", v); UpdatePreview() end },
                 },
             })
-            local leftCogShow = SWrapCog(leftCogShowRaw, { "leftTextClassColor", "leftTextSize", "leftTextX", "leftTextY" })
+            local leftCogShow = leftCogShowRaw
             local leftCogBtn = MakeCogBtn(leftRgn, leftCogShow)
             local function UpdateLeftCogState()
                 local isNone = SVal("leftTextContent", "name") == "none"
@@ -3725,19 +3773,19 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type="toggle", label="Class Color",
                       get=function() return SVal("rightTextClassColor", false) end,
-                      set=function(v) SSet("rightTextClassColor", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("rightTextClassColor", v); UpdatePreview() end },
                     { type="slider", label="Size", min=8, max=24, step=1,
                       get=function() return SVal("rightTextSize", SDB().textSize or 12) end,
-                      set=function(v) SSet("rightTextSize", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("rightTextSize", v); UpdatePreview() end },
                     { type="slider", label="X", min=-50, max=50, step=1,
                       get=function() return SVal("rightTextX", 0) end,
-                      set=function(v) SSet("rightTextX", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("rightTextX", v); UpdatePreview() end },
                     { type="slider", label="Y", min=-30, max=30, step=1,
                       get=function() return SVal("rightTextY", 0) end,
-                      set=function(v) SSet("rightTextY", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("rightTextY", v); UpdatePreview() end },
                 },
             })
-            local rightCogShow = SWrapCog(rightCogShowRaw, { "rightTextClassColor", "rightTextSize", "rightTextX", "rightTextY" })
+            local rightCogShow = rightCogShowRaw
             local rightCogBtn = MakeCogBtn(rightRgn, rightCogShow)
             local function UpdateRightCogState()
                 local isNone = SVal("rightTextContent", "both") == "none"
@@ -3755,6 +3803,91 @@ initFrame:SetScript("OnEvent", function(self)
             RegisterWidgetRefresh(UpdateRightCogState)
         end
 
+        -- Row 4: Center Text + empty
+        local sharedCenterTextRow
+        sharedCenterTextRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Center Text", values=healthTextValues, order=healthTextOrder,
+              getValue=function() return SVal("centerTextContent", "none") end,
+              setValue=function(v)
+                  SSet("centerTextContent", v)
+                  if v ~= "none" then
+                      SSet("leftTextContent", "none")
+                      SSet("rightTextContent", "none")
+                  end
+                  ReloadAndUpdate(); UpdatePreview()
+              end },
+            { type="label", text="" });  y = y - h
+        -- Sync icon: Center Text (left)
+        do
+            local rgn = sharedCenterTextRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Center Text to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().centerTextContent or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then UNIT_DB_MAP[key]().centerTextContent = v end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().centerTextContent or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().centerTextContent or "none") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().centerTextContent or "none"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().centerTextContent = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        -- Cogwheel on Center Text
+        do
+            local ctrRgn = sharedCenterTextRow._leftRegion
+            local _, centerCogShowRaw = EllesmereUI.BuildCogPopup({
+                title = "Center Text Settings",
+                rows = {
+                    { type="toggle", label="Class Color",
+                      get=function() return SVal("centerTextClassColor", false) end,
+                      set=function(v) SSet("centerTextClassColor", v); UpdatePreview() end },
+                    { type="slider", label="Size", min=8, max=24, step=1,
+                      get=function() return SVal("centerTextSize", SDB().textSize or 12) end,
+                      set=function(v) SSet("centerTextSize", v); UpdatePreview() end },
+                    { type="slider", label="X", min=-50, max=50, step=1,
+                      get=function() return SVal("centerTextX", 0) end,
+                      set=function(v) SSet("centerTextX", v); UpdatePreview() end },
+                    { type="slider", label="Y", min=-30, max=30, step=1,
+                      get=function() return SVal("centerTextY", 0) end,
+                      set=function(v) SSet("centerTextY", v); UpdatePreview() end },
+                },
+            })
+            local centerCogShow = centerCogShowRaw
+            local centerCogBtn = MakeCogBtn(ctrRgn, centerCogShow)
+            local function UpdateCenterCogState()
+                local isNone = SVal("centerTextContent", "none") == "none"
+                centerCogBtn:SetAlpha(isNone and 0.15 or 0.4)
+                centerCogBtn:SetEnabled(not isNone)
+            end
+            centerCogBtn:SetScript("OnEnter", function(self)
+                if SVal("centerTextContent", "none") == "none" then
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("This option requires a text selection other than none."))
+                else self:SetAlpha(0.7) end
+            end)
+            centerCogBtn:SetScript("OnLeave", function(self) UpdateCenterCogState(); EllesmereUI.HideWidgetTooltip() end)
+            centerCogBtn:SetScript("OnClick", function(self) centerCogShow(self) end)
+            UpdateCenterCogState()
+            RegisterWidgetRefresh(UpdateCenterCogState)
+        end
+
         _, h = W:Spacer(parent, y, 20); y = y - h
 
         -------------------------------------------------------------------
@@ -3770,20 +3903,18 @@ initFrame:SetScript("OnEvent", function(self)
         local ppFmtValues = { ["none"]="None", ["smart"]="Smart Text", ["curpp"]="Power Value", ["perpp"]="Power %", ["both"]="Value | %" }
         local ppFmtOrder = { "none", "smart", "curpp", "perpp", "both" }
 
-        -- Row 1: Height + Position
+        -- Row 1: Bar Height + Bar Position
         local sharedPowerRow1
         sharedPowerRow1, h = W:DualRow(parent, y,
-            { type="slider", text="Height", min=0, max=30, step=1,
+            { type="slider", text="Bar Height", min=0, max=30, step=1,
               getValue=function() return SValSupported("powerHeight", 6) end,
-              setValue=function(v) SSetSupported("powerHeight", v); ReloadAndUpdate(); UpdateMultiPreview() end },
-            { type="dropdown", text="Position", values=ppPosValues, order=ppPosOrder,
+              setValue=function(v) SSetSupported("powerHeight", v); ReloadAndUpdate(); UpdatePreview() end },
+            { type="dropdown", text="Bar Position", values=ppPosValues, order=ppPosOrder,
               getValue=function() return SVal("powerPosition", "below") end,
               setValue=function(v)
                   SSet("powerPosition", v)
-                  ReloadAndUpdate(); UpdateMultiPreview()
+                  ReloadAndUpdate(); UpdatePreview()
               end });  y = y - h
-        SWrap(sharedPowerRow1._leftRegion, "powerHeight")
-        SWrap(sharedPowerRow1._rightRegion, "powerPosition")
         -- Cog on Position for X/Y offsets + Width (disabled unless detached)
         do
             local posRgn = sharedPowerRow1._rightRegion
@@ -3792,16 +3923,16 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type="slider", label="Width", min=0, max=400, step=1,
                       get=function() return SVal("powerWidth", 0) end,
-                      set=function(v) SSet("powerWidth", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("powerWidth", v); UpdatePreview() end },
                     { type="slider", label="X Offset", min=-200, max=200, step=1,
                       get=function() return SVal("powerX", 0) end,
-                      set=function(v) SSet("powerX", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("powerX", v); UpdatePreview() end },
                     { type="slider", label="Y Offset", min=-200, max=200, step=1,
                       get=function() return SVal("powerY", 0) end,
-                      set=function(v) SSet("powerY", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("powerY", v); UpdatePreview() end },
                 },
             })
-            local ppPosCogShow = SWrapCog(ppPosCogShowRaw, { "powerWidth", "powerX", "powerY" })
+            local ppPosCogShow = ppPosCogShowRaw
             local ppPosCogBtn = MakeCogBtn(posRgn, ppPosCogShow, nil, EllesmereUI.RESIZE_ICON)
             local function _ppPosCogUpdate()
                 local pos = SVal("powerPosition", "below")
@@ -3819,6 +3950,67 @@ initFrame:SetScript("OnEvent", function(self)
             _ppPosCogUpdate()
             RegisterWidgetRefresh(_ppPosCogUpdate)
         end
+        -- Sync icons: Power Height (left) and Power Position (right)
+        do
+            local rgn = sharedPowerRow1._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Bar Height to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().powerHeight or 6
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().powerHeight = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().powerHeight or 6
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().powerHeight or 6) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().powerHeight or 6
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().powerHeight = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = sharedPowerRow1._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Bar Position to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().powerPosition or "below"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().powerPosition = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().powerPosition or "below"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().powerPosition or "below") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().powerPosition or "below"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().powerPosition = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
 
         -- Row 2: Power Text (format) + Text Position
         local sharedPowerRow2
@@ -3833,14 +4025,12 @@ initFrame:SetScript("OnEvent", function(self)
                   end
                   -- If format is "none", clear position too
                   if v == "none" then SSet("powerPercentText", "none") end
-                  ReloadAndUpdate(); UpdateMultiPreview()
+                  ReloadAndUpdate(); UpdatePreview()
                   EllesmereUI:RefreshPage()
               end },
             { type="dropdown", text="Text Position", values=ppTextValues, order=ppTextOrder,
               getValue=function() return SVal("powerPercentText", "none") end,
-              setValue=function(v) SSet("powerPercentText", v); ReloadAndUpdate(); UpdateMultiPreview() end });  y = y - h
-        SWrap(sharedPowerRow2._leftRegion, "powerTextFormat")
-        SWrap(sharedPowerRow2._rightRegion, "powerPercentText")
+              setValue=function(v) SSet("powerPercentText", v); ReloadAndUpdate(); UpdatePreview() end });  y = y - h
         -- Cogwheel on Power Text for Show % toggle
         do
             local fmtRgn = sharedPowerRow2._leftRegion
@@ -3851,11 +4041,11 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return SVal("powerShowPercent", true) ~= false end,
                       set=function(v)
                           SSet("powerShowPercent", v)
-                          UpdateMultiPreview()
+                          UpdatePreview()
                       end },
                 },
             })
-            local fmtCogShow = SWrapCog(fmtCogShowRaw, {"powerShowPercent"})
+            local fmtCogShow = fmtCogShowRaw
             local fmtCogBtn = MakeCogBtn(fmtRgn, fmtCogShow)
             local function UpdateFmtCogState()
                 local fmt = SVal("powerTextFormat", "perpp")
@@ -3882,16 +4072,16 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type="slider", label="Size", min=6, max=24, step=1,
                       get=function() return SVal("powerPercentSize", 9) end,
-                      set=function(v) SSet("powerPercentSize", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("powerPercentSize", v); UpdatePreview() end },
                     { type="slider", label="X Offset", min=-50, max=50, step=1,
                       get=function() return SVal("powerPercentX", 0) end,
-                      set=function(v) SSet("powerPercentX", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("powerPercentX", v); UpdatePreview() end },
                     { type="slider", label="Y Offset", min=-50, max=50, step=1,
                       get=function() return SVal("powerPercentY", 0) end,
-                      set=function(v) SSet("powerPercentY", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("powerPercentY", v); UpdatePreview() end },
                 },
             })
-            local ppCogShow = SWrapCog(ppCogShowRaw, {"powerPercentSize","powerPercentX","powerPercentY"})
+            local ppCogShow = ppCogShowRaw
             local ppCogBtn = MakeCogBtn(ppRgn, ppCogShow, nil, EllesmereUI.RESIZE_ICON)
             local function UpdatePPCogState()
                 local isNone = SVal("powerPercentText", "none") == "none"
@@ -3908,162 +4098,314 @@ initFrame:SetScript("OnEvent", function(self)
             UpdatePPCogState()
             RegisterWidgetRefresh(UpdatePPCogState)
         end
+        -- Sync icons: Power Text Format (left) and Text Position (right)
+        do
+            local rgn = sharedPowerRow2._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Power Text Format to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().powerTextFormat or "perpp"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().powerTextFormat = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().powerTextFormat or "perpp"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().powerTextFormat or "perpp") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().powerTextFormat or "perpp"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().powerTextFormat = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = sharedPowerRow2._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Power Text Position to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().powerPercentText or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().powerPercentText = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().powerPercentText or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().powerPercentText or "none") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().powerPercentText or "none"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().powerPercentText = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
 
-        -- Row 3: Power Colored Fill (toggle with inline bg+fill swatches) + Power Colored Text (toggle with inline text color swatch)
+        -- Row 3: Bar Color (multiSwatch) + Power Bar Opacity (slider)
         local sharedPowerRow3
         sharedPowerRow3, h = W:DualRow(parent, y,
-            { type="toggle", text="Power Colored Fill",
-              getValue=function() return SVal("powerPercentPowerColor", true) end,
-              setValue=function(v)
-                  -- When turning ON power coloring, clear any custom fill color first
-                  if v then
-                      if isMulti then
-                          for _, key in ipairs(GROUP_UNIT_ORDER) do
-                              if groupChecked[key] then UNIT_DB_MAP[key]().customPowerFillColor = nil end
-                          end
-                      else
-                          UNIT_DB_MAP[selectedUnit]().customPowerFillColor = nil
+            { type="multiSwatch", text="Bar Color",
+              swatches = {
+                { tooltip = "Bar Background",
+                  hasAlpha = false,
+                  getValue = function()
+                      local c = SGet("customPowerBgColor")
+                      if c then return c.r, c.g, c.b end
+                      return 17/255, 17/255, 17/255
+                  end,
+                  setValue = function(r, g, b)
+                      UNIT_DB_MAP[selectedUnit]().customPowerBgColor = { r=r, g=g, b=b }
+                      ReloadAndUpdate(); UpdatePreview()
+                  end },
+                { tooltip = "Custom Colored Fill",
+                  hasAlpha = false,
+                  getValue = function()
+                      local c = SGet("customPowerFillColor")
+                      if c then return c.r, c.g, c.b end
+                      return 0, 0, 1
+                  end,
+                  setValue = function(r, g, b)
+                      UNIT_DB_MAP[selectedUnit]().customPowerFillColor = { r=r, g=g, b=b }
+                      ReloadAndUpdate(); UpdatePreview()
+                  end,
+                  onClick = function(self)
+                      local v = SVal("powerPercentPowerColor", true)
+                      if v then
+                          SSet("powerPercentPowerColor", false)
+                          UpdatePreview()
+                          EllesmereUI:RefreshPage()
+                          return
                       end
-                  end
-                  SSet("powerPercentPowerColor", v)
-                  UpdateMultiPreview()
-                  EllesmereUI:RefreshPage()
-              end },
-            { type="toggle", text="Power Colored Text",
-              getValue=function() return SVal("powerPercentTextPowerColor", false) end,
+                      if self._eabOrigClick then self._eabOrigClick(self) end
+                  end,
+                  refreshAlpha = function()
+                      return SVal("powerPercentPowerColor", true) and 0.3 or 1
+                  end },
+                { tooltip = "Power Colored Fill",
+                  hasAlpha = false,
+                  getValue = function()
+                      local pType = UnitPowerType("player")
+                      local info = PowerBarColor[pType]
+                      if info then return info.r, info.g, info.b end
+                      return 0, 0, 1
+                  end,
+                  setValue = function() end,
+                  onClick = function()
+                      SSet("powerPercentPowerColor", true)
+                      UpdatePreview()
+                      EllesmereUI:RefreshPage()
+                  end,
+                  refreshAlpha = function()
+                      return SVal("powerPercentPowerColor", true) and 1 or 0.3
+                  end },
+              } },
+            { type="slider", text="Power Bar Opacity", min=10, max=100, step=1,
+              getValue=function() return SVal("powerBarOpacity", 100) end,
               setValue=function(v)
-                  SSet("powerPercentTextPowerColor", v)
-                  -- When turning ON power text coloring, clear any custom text color
-                  if v then
-                      if isMulti then
-                          for _, key in ipairs(GROUP_UNIT_ORDER) do
-                              if groupChecked[key] then UNIT_DB_MAP[key]().powerTextColor = nil end
-                          end
-                      else
-                          UNIT_DB_MAP[selectedUnit]().powerTextColor = nil
-                      end
-                  end
-                  UpdateMultiPreview()
-                  EllesmereUI:RefreshPage()
+                  SSet("powerBarOpacity", v)
+                  UpdatePreview()
               end });  y = y - h
-        SWrap(sharedPowerRow3._leftRegion, "powerPercentPowerColor")
-        SWrap(sharedPowerRow3._rightRegion, "powerPercentTextPowerColor")
-        -- Inline bg + fill swatches on Power Colored disabled when toggle is ON
+        -- Sync icons: Bar Color (left) and Power Bar Opacity (right)
         do
             local rgn = sharedPowerRow3._leftRegion
-
-            -- Background swatch
-            local bgSwatch, _ = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 2,
-                function()
-                    local c = SGet("customPowerBgColor")
-                    if c == MIXED then c = SDB().customPowerBgColor end
-                    if c then return c.r, c.g, c.b, c.a or 0.5 end
-                    return 0, 0, 0, 0.5
-                end,
-                function(r, g, b, a)
-                    if isMulti then
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            if groupChecked[key] then UNIT_DB_MAP[key]().customPowerBgColor = { r=r, g=g, b=b, a=a } end
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Bar Color to all Frames",
+                onClick = function()
+                    local src = UNIT_DB_MAP[selectedUnit]()
+                    local pc = src.powerPercentPowerColor
+                    if pc == nil then pc = true end
+                    local fc = src.customPowerFillColor
+                    local bc = src.customPowerBgColor or { r=17/255, g=17/255, b=17/255 }
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then
+                            local d = UNIT_DB_MAP[key]()
+                            d.powerPercentPowerColor = pc
+                            if fc then d.customPowerFillColor = { r=fc.r, g=fc.g, b=fc.b }
+                            else d.customPowerFillColor = nil end
+                            d.customPowerBgColor = { r=bc.r, g=bc.g, b=bc.b }
                         end
-                    else
-                        UNIT_DB_MAP[selectedUnit]().customPowerBgColor = { r=r, g=g, b=b, a=a }
                     end
-                    ReloadAndUpdate(); UpdateMultiPreview()
-                end, true, 20)
-            PP.Point(bgSwatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            rgn._lastInline = bgSwatch
-
-            -- Fill swatch
-            local fillSwatch, _ = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 2,
-                function()
-                    local c = SGet("customPowerFillColor")
-                    if c == MIXED then c = SDB().customPowerFillColor end
-                    if c then return c.r, c.g, c.b, c.a or 1.0 end
-                    local pType = UnitPowerType("player")
-                    local info = PowerBarColor[pType]
-                    if info then return info.r, info.g, info.b, 1.0 end
-                    return 0.2, 0.35, 0.85, 1.0
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
                 end,
-                function(r, g, b, a)
-                    if isMulti then
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            if groupChecked[key] then UNIT_DB_MAP[key]().customPowerFillColor = { r=r, g=g, b=b, a=a } end
-                        end
-                    else
-                        UNIT_DB_MAP[selectedUnit]().customPowerFillColor = { r=r, g=g, b=b, a=a }
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().powerPercentPowerColor
+                    if v == nil then v = true end
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        local ov = UNIT_DB_MAP[key]().powerPercentPowerColor
+                        if ov == nil then ov = true end
+                        if ov ~= v then return false end
                     end
-                    ReloadAndUpdate(); UpdateMultiPreview()
-                end, true, 20)
-            PP.Point(fillSwatch, "RIGHT", bgSwatch, "LEFT", -4, 0)
-            rgn._lastInline = fillSwatch
-
-            local function MakePowerSwatchBlock(swatch, tooltipFn)
-                local blk = CreateFrame("Frame", nil, swatch)
-                blk:SetAllPoints()
-                blk:SetFrameLevel(swatch:GetFrameLevel() + 5)
-                blk:EnableMouse(true)
-                blk:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, tooltipFn()) end)
-                blk:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                return blk
-            end
-            local bgBlock = MakePowerSwatchBlock(bgSwatch, function()
-                return EllesmereUI.DisabledTooltip("Power Colored Fill")
-            end)
-            local fillBlock = MakePowerSwatchBlock(fillSwatch, function()
-                return EllesmereUI.DisabledTooltip("Power Colored Fill")
-            end)
-
-            local function UpdatePowerBarSwatchDis()
-                local isPowerColored = SVal("powerPercentPowerColor", true)
-                local disabled = isPowerColored
-                bgSwatch:SetAlpha(disabled and 0.3 or 1)
-                fillSwatch:SetAlpha(disabled and 0.3 or 1)
-                if disabled then bgBlock:Show(); fillBlock:Show()
-                else bgBlock:Hide(); fillBlock:Hide() end
-            end
-            bgSwatch:HookScript("OnShow", UpdatePowerBarSwatchDis)
-            EllesmereUI.RegisterWidgetRefresh(UpdatePowerBarSwatchDis)
-            UpdatePowerBarSwatchDis()
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local src = UNIT_DB_MAP[selectedUnit]()
+                        local pc = src.powerPercentPowerColor
+                        if pc == nil then pc = true end
+                        local fc = src.customPowerFillColor
+                        local bc = src.customPowerBgColor or { r=17/255, g=17/255, b=17/255 }
+                        for _, key in ipairs(checkedKeys) do
+                            local d = UNIT_DB_MAP[key]()
+                            d.powerPercentPowerColor = pc
+                            if fc then d.customPowerFillColor = { r=fc.r, g=fc.g, b=fc.b }
+                            else d.customPowerFillColor = nil end
+                            d.customPowerBgColor = { r=bc.r, g=bc.g, b=bc.b }
+                        end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
         end
-        -- Inline text color swatch on Power Colored Text -- disabled when toggle is ON
         do
             local rgn = sharedPowerRow3._rightRegion
-
-            local textSwatch, _ = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 2,
-                function()
-                    local c = SGet("powerTextColor")
-                    if c == MIXED then c = SDB().powerTextColor end
-                    if c then return c.r, c.g, c.b end
-                    return 1, 1, 1
-                end,
-                function(r, g, b)
-                    if isMulti then
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            if groupChecked[key] then UNIT_DB_MAP[key]().powerTextColor = { r=r, g=g, b=b } end
-                        end
-                    else
-                        UNIT_DB_MAP[selectedUnit]().powerTextColor = { r=r, g=g, b=b }
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Power Bar Opacity to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().powerBarOpacity or 100
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then UNIT_DB_MAP[key]().powerBarOpacity = v end
                     end
-                    ReloadAndUpdate(); UpdateMultiPreview()
-                end, false, 20)
-            PP.Point(textSwatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            rgn._lastInline = textSwatch
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().powerBarOpacity or 100
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().powerBarOpacity or 100) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().powerBarOpacity or 100
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().powerBarOpacity = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
 
-            local textBlock = CreateFrame("Frame", nil, textSwatch)
-            textBlock:SetAllPoints()
-            textBlock:SetFrameLevel(textSwatch:GetFrameLevel() + 5)
-            textBlock:EnableMouse(true)
-            textBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(textSwatch, EllesmereUI.DisabledTooltip("Power Colored Text")) end)
-            textBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            local function UpdatePowerTextSwatchDis()
-                local isTextPowerColored = SVal("powerPercentTextPowerColor", false)
-                textSwatch:SetAlpha(isTextPowerColored and 0.3 or 1)
-                if isTextPowerColored then textBlock:Show() else textBlock:Hide() end
-            end
-            textSwatch:HookScript("OnShow", UpdatePowerTextSwatchDis)
-            EllesmereUI.RegisterWidgetRefresh(UpdatePowerTextSwatchDis)
-            UpdatePowerTextSwatchDis()
+        -- Row 4: Text Color (multiSwatch: custom left, power colored right) + empty
+        local sharedPowerRow4
+        sharedPowerRow4, h = W:DualRow(parent, y,
+            { type="multiSwatch", text="Text Color",
+              swatches = {
+                { tooltip = "Custom Text Color",
+                  hasAlpha = false,
+                  getValue = function()
+                      local c = SGet("powerTextColor")
+                      if c then return c.r, c.g, c.b end
+                      return 1, 1, 1
+                  end,
+                  setValue = function(r, g, b)
+                      UNIT_DB_MAP[selectedUnit]().powerTextColor = { r=r, g=g, b=b }
+                      ReloadAndUpdate(); UpdatePreview()
+                  end,
+                  onClick = function(self)
+                      local v = SVal("powerPercentTextPowerColor", false)
+                      if v then
+                          SSet("powerPercentTextPowerColor", false)
+                          UpdatePreview()
+                          EllesmereUI:RefreshPage()
+                          return
+                      end
+                      if self._eabOrigClick then self._eabOrigClick(self) end
+                  end,
+                  refreshAlpha = function()
+                      return SVal("powerPercentTextPowerColor", false) and 0.3 or 1
+                  end },
+                { tooltip = "Power Colored Text",
+                  hasAlpha = false,
+                  getValue = function()
+                      local pType = UnitPowerType("player")
+                      local info = PowerBarColor[pType]
+                      if info then return info.r, info.g, info.b end
+                      return 0, 0, 1
+                  end,
+                  setValue = function() end,
+                  onClick = function()
+                      SSet("powerPercentTextPowerColor", true)
+                      UNIT_DB_MAP[selectedUnit]().powerTextColor = nil
+                      UpdatePreview()
+                      EllesmereUI:RefreshPage()
+                  end,
+                  refreshAlpha = function()
+                      return SVal("powerPercentTextPowerColor", false) and 1 or 0.3
+                  end },
+              } },
+            { type="label", text="" });  y = y - h
+        -- Sync icon: Text Color (left of row 4)
+        do
+            local rgn = sharedPowerRow4._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Text Color to all Frames",
+                onClick = function()
+                    local src = UNIT_DB_MAP[selectedUnit]()
+                    local v = src.powerPercentTextPowerColor or false
+                    local tc = src.powerTextColor
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        local d = UNIT_DB_MAP[key]()
+                        d.powerPercentTextPowerColor = v
+                        if tc then d.powerTextColor = { r=tc.r, g=tc.g, b=tc.b }
+                        else d.powerTextColor = nil end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().powerPercentTextPowerColor or false
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().powerPercentTextPowerColor or false) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local src = UNIT_DB_MAP[selectedUnit]()
+                        local v = src.powerPercentTextPowerColor or false
+                        local tc = src.powerTextColor
+                        for _, key in ipairs(checkedKeys) do
+                            local d = UNIT_DB_MAP[key]()
+                            d.powerPercentTextPowerColor = v
+                            if tc then d.powerTextColor = { r=tc.r, g=tc.g, b=tc.b }
+                            else d.powerTextColor = nil end
+                        end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
         end
 
         _, h = W:Spacer(parent, y, 20); y = y - h
@@ -4228,7 +4570,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Height getter/setter: player -> playerCastbarHeight, target/focus -> castbarHeight
         local function GetCastbarHeight()
-            local u = isMulti and groupEyeball or selectedUnit
+            local u = selectedUnit
             if u == "player" then
                 local v = UNIT_DB_MAP.player().playerCastbarHeight or 0
                 return (v <= 0) and 14 or v
@@ -4237,17 +4579,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
         local function SetCastbarHeight(v)
-            if isMulti then
-                for _, key in ipairs(GROUP_UNIT_ORDER) do
-                    if groupChecked[key] then
-                        if key == "player" then UNIT_DB_MAP.player().playerCastbarHeight = v
-                        else UNIT_DB_MAP[key]().castbarHeight = v end
-                    end
-                end
-            else
-                if selectedUnit == "player" then UNIT_DB_MAP.player().playerCastbarHeight = v
-                else UNIT_DB_MAP[selectedUnit]().castbarHeight = v end
-            end
+            if selectedUnit == "player" then UNIT_DB_MAP.player().playerCastbarHeight = v
+            else UNIT_DB_MAP[selectedUnit]().castbarHeight = v end
         end
 
         -- Row 1: Show Cast Bars (checkbox dropdown) | Height (slider)
@@ -4259,7 +4592,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function() end },
             { type="slider", text="Height", min=1, max=40, step=1,
               getValue=GetCastbarHeight,
-              setValue=function(v) SetCastbarHeight(v); ReloadAndUpdate(); UpdateMultiPreview() end });  y = y - h
+              setValue=function(v) SetCastbarHeight(v); ReloadAndUpdate(); UpdatePreview() end });  y = y - h
 
         -- Replace the dummy dropdown with our checkbox dropdown
         do
@@ -4274,7 +4607,7 @@ initFrame:SetScript("OnEvent", function(self)
             local cbDD, cbDDRefresh = BuildCBDropdown(leftRgn, 170, leftRgn:GetFrameLevel() + 2,
                 castbarItems, GetCastbarEnabled, function(k, v)
                     SetCastbarEnabled(k, v)
-                    ReloadAndUpdate(); UpdateMultiPreview()
+                    ReloadAndUpdate(); UpdatePreview()
                     EllesmereUI:RefreshPage()
                 end)
             PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
@@ -4298,42 +4631,32 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type="toggle", label="Hide Idle Player Cast Bar",
                       get=function() return GetHideInactive("player") end,
-                      set=function(v) SetHideInactive("player", v); ReloadAndUpdate(); UpdateMultiPreview() end },
+                      set=function(v) SetHideInactive("player", v); ReloadAndUpdate(); UpdatePreview() end },
                     { type="toggle", label="Hide Idle Target Cast Bar",
                       get=function() return GetHideInactive("target") end,
-                      set=function(v) SetHideInactive("target", v); ReloadAndUpdate(); UpdateMultiPreview() end },
+                      set=function(v) SetHideInactive("target", v); ReloadAndUpdate(); UpdatePreview() end },
                     { type="toggle", label="Hide Idle Focus Cast Bar",
                       get=function() return GetHideInactive("focus") end,
-                      set=function(v) SetHideInactive("focus", v); ReloadAndUpdate(); UpdateMultiPreview() end },
+                      set=function(v) SetHideInactive("focus", v); ReloadAndUpdate(); UpdatePreview() end },
                     { type="toggle", label="Show Icon",
                       get=function()
-                          local u = isMulti and groupEyeball or selectedUnit
-                          if u == "player" then return UNIT_DB_MAP.player().showPlayerCastIcon ~= false
-                          else return UNIT_DB_MAP[u]().showCastIcon ~= false end
+                          if selectedUnit == "player" then return UNIT_DB_MAP.player().showPlayerCastIcon ~= false
+                          else return UNIT_DB_MAP[selectedUnit]().showCastIcon ~= false end
                       end,
                       set=function(v)
-                          if isMulti then
-                              for _, key in ipairs(GROUP_UNIT_ORDER) do
-                                  if groupChecked[key] then
-                                      if key == "player" then UNIT_DB_MAP.player().showPlayerCastIcon = v
-                                      else UNIT_DB_MAP[key]().showCastIcon = v end
-                                  end
-                              end
-                          else
-                              if selectedUnit == "player" then UNIT_DB_MAP.player().showPlayerCastIcon = v
-                              else UNIT_DB_MAP[selectedUnit]().showCastIcon = v end
-                          end
-                          ReloadAndUpdate(); UpdateMultiPreview()
+                          if selectedUnit == "player" then UNIT_DB_MAP.player().showPlayerCastIcon = v
+                          else UNIT_DB_MAP[selectedUnit]().showCastIcon = v end
+                          ReloadAndUpdate(); UpdatePreview()
                       end },
                     { type="toggle", label="Class Colored Player",
                       get=function() return UNIT_DB_MAP.player().castbarClassColored or false end,
                       set=function(v)
                           UNIT_DB_MAP.player().castbarClassColored = v
-                          ReloadAndUpdate(); UpdateMultiPreview()
+                          ReloadAndUpdate(); UpdatePreview()
                       end },
                 },
             })
-            local castCogShow = SWrapCog(castCogShowRaw, { "showCastIcon", "castbarClassColored", "castbarHideWhenInactive" })
+            local castCogShow = castCogShowRaw
 
             MakeCogBtn(leftRgn, castCogShow)
 
@@ -4341,21 +4664,12 @@ initFrame:SetScript("OnEvent", function(self)
             local cbSw = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
                 function()
                     local c = SGetSupported("castbarFillColor")
-                    if c == MIXED then c = SDB().castbarFillColor end
                     c = c or { r=1, g=0.7, b=0 }
                     return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
-                    if isMulti then
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            if groupChecked[key] and (UNIT_SUPPORTS.castbarFillColor or {})[key] then
-                                UNIT_DB_MAP[key]().castbarFillColor = { r=r, g=g, b=b }
-                            end
-                        end
-                    else
-                        UNIT_DB_MAP[selectedUnit]().castbarFillColor = { r=r, g=g, b=b }
-                    end
-                    ReloadAndUpdate(); UpdateMultiPreview()
+                    UNIT_DB_MAP[selectedUnit]().castbarFillColor = { r=r, g=g, b=b }
+                    ReloadAndUpdate(); UpdatePreview()
                 end, false, 20)
             cbSw:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -12, 0)
             cbSw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, "Fill Color") end)
@@ -4382,16 +4696,56 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateCBSwDisabled()
             EllesmereUI.RegisterWidgetRefresh(UpdateCBSwDisabled)
         end
+        -- Sync icon: Cast Bar Height (right region)
+        do
+            local rgn = sharedCastRow1._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Cast Bar Height to all Frames",
+                onClick = function()
+                    local v = GetCastbarHeight()
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key == "player" then UNIT_DB_MAP[key]().playerCastbarHeight = v
+                        else UNIT_DB_MAP[key]().castbarHeight = v end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = GetCastbarHeight()
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        local kv
+                        if key == "player" then kv = UNIT_DB_MAP[key]().playerCastbarHeight or 20
+                        else kv = UNIT_DB_MAP[key]().castbarHeight or 20 end
+                        if kv ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = GetCastbarHeight()
+                        for _, key in ipairs(checkedKeys) do
+                            if key == "player" then UNIT_DB_MAP[key]().playerCastbarHeight = v
+                            else UNIT_DB_MAP[key]().castbarHeight = v end
+                        end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
 
         -- Row 2: Spell Name Size (with inline color swatch) | Duration Size (with inline color swatch)
         local castTextRow
         castTextRow, h = W:DualRow(parent, y,
             { type="slider", text="Spell Name Size", min=6, max=20, step=1,
               getValue=function() return SValSupported("castSpellNameSize", 11) end,
-              setValue=function(v) SSetSupported("castSpellNameSize", v); ReloadAndUpdate(); UpdateMultiPreview() end },
+              setValue=function(v) SSetSupported("castSpellNameSize", v); ReloadAndUpdate(); UpdatePreview() end },
             { type="slider", text="Duration Size", min=6, max=20, step=1,
               getValue=function() return SValSupported("castDurationSize", 11) end,
-              setValue=function(v) SSetSupported("castDurationSize", v); ReloadAndUpdate(); UpdateMultiPreview() end });  y = y - h
+              setValue=function(v) SSetSupported("castDurationSize", v); ReloadAndUpdate(); UpdatePreview() end });  y = y - h
         SApplySupport(castTextRow._leftRegion, "castSpellNameSize")
         SApplySupport(castTextRow._rightRegion, "castDurationSize")
         -- Inline color swatch on Spell Name Size
@@ -4400,21 +4754,12 @@ initFrame:SetScript("OnEvent", function(self)
             local snSw = EllesmereUI.BuildColorSwatch(snRgn, snRgn:GetFrameLevel() + 5,
                 function()
                     local c = SGetSupported("castSpellNameColor")
-                    if c == MIXED then c = SDB().castSpellNameColor end
                     c = c or { r=1, g=1, b=1 }
                     return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
-                    if isMulti then
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            if groupChecked[key] then
-                                UNIT_DB_MAP[key]().castSpellNameColor = { r=r, g=g, b=b }
-                            end
-                        end
-                    else
-                        UNIT_DB_MAP[selectedUnit]().castSpellNameColor = { r=r, g=g, b=b }
-                    end
-                    ReloadAndUpdate(); UpdateMultiPreview()
+                    UNIT_DB_MAP[selectedUnit]().castSpellNameColor = { r=r, g=g, b=b }
+                    ReloadAndUpdate(); UpdatePreview()
                 end, false, 20)
             snSw:SetPoint("RIGHT", snRgn._lastInline or snRgn._control, "LEFT", -12, 0)
             snRgn._lastInline = snSw
@@ -4425,24 +4770,76 @@ initFrame:SetScript("OnEvent", function(self)
             local dtSw = EllesmereUI.BuildColorSwatch(dtRgn, dtRgn:GetFrameLevel() + 5,
                 function()
                     local c = SGetSupported("castDurationColor")
-                    if c == MIXED then c = SDB().castDurationColor end
                     c = c or { r=1, g=1, b=1 }
                     return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
-                    if isMulti then
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            if groupChecked[key] then
-                                UNIT_DB_MAP[key]().castDurationColor = { r=r, g=g, b=b }
-                            end
-                        end
-                    else
-                        UNIT_DB_MAP[selectedUnit]().castDurationColor = { r=r, g=g, b=b }
-                    end
-                    ReloadAndUpdate(); UpdateMultiPreview()
+                    UNIT_DB_MAP[selectedUnit]().castDurationColor = { r=r, g=g, b=b }
+                    ReloadAndUpdate(); UpdatePreview()
                 end, false, 20)
             dtSw:SetPoint("RIGHT", dtRgn._lastInline or dtRgn._control, "LEFT", -12, 0)
             dtRgn._lastInline = dtSw
+        end
+        -- Sync icons: Spell Name Size (left) and Duration Size (right)
+        do
+            local rgn = castTextRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Spell Name Size to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().castSpellNameSize or 11
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().castSpellNameSize = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().castSpellNameSize or 11
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().castSpellNameSize or 11) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().castSpellNameSize or 11
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().castSpellNameSize = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = castTextRow._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Duration Size to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().castDurationSize or 11
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().castDurationSize = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().castDurationSize or 11
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().castDurationSize or 11) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().castDurationSize or 11
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().castDurationSize = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
         end
 
         _, h = W:Spacer(parent, y, 20); y = y - h
@@ -4459,13 +4856,13 @@ initFrame:SetScript("OnEvent", function(self)
         sharedBtbToggleRow, h = W:DualRow(parent, y,
             { type="toggle", text="Enable Text Bar",
               getValue=function() return SVal("bottomTextBar", false) end,
-              setValue=function(v) SSet("bottomTextBar", v); UpdateMultiPreview() end },
+              setValue=function(v) SSet("bottomTextBar", v); UpdatePreview() end },
             { type="dropdown", text="Position", values=btbPositionValues, order=btbPositionOrder,
               disabled=function() return not SVal("bottomTextBar", false) end,
               disabledTooltip="Enable Text Bar is off",
               getValue=function() return SVal("btbPosition", "bottom") end,
               setValue=function(v)
-                  SSet("btbPosition", v); UpdateMultiPreview()
+                  SSet("btbPosition", v); UpdatePreview()
                   if _sharedBtbWidthRgn then
                       local isDet = (v == "detached_top" or v == "detached_bottom")
                       if _sharedBtbWidthRgn._control and _sharedBtbWidthRgn._control.SetEnabled then
@@ -4473,33 +4870,86 @@ initFrame:SetScript("OnEvent", function(self)
                       end
                   end
               end });  y = y - h
-        SWrap(sharedBtbToggleRow._leftRegion, "bottomTextBar")
-        SWrap(sharedBtbToggleRow._rightRegion, "btbPosition")
+        -- Sync icon: Enable Text Bar
+        do
+            local rgn = sharedBtbToggleRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Enable Text Bar to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().bottomTextBar or false
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then UNIT_DB_MAP[key]().bottomTextBar = v end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().bottomTextBar or false
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().bottomTextBar or false) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().bottomTextBar or false
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().bottomTextBar = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        -- Sync icon: Text Bar Position (right region)
+        do
+            local rgn = sharedBtbToggleRow._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Text Bar Position to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().btbPosition or "bottom"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then UNIT_DB_MAP[key]().btbPosition = v end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().btbPosition or "bottom"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().btbPosition or "bottom") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().btbPosition or "bottom"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().btbPosition = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
         -- Inline color swatch for BTB background on Enable Text Bar
         do
             local btbRgn = sharedBtbToggleRow._leftRegion
             local sw = EllesmereUI.BuildColorSwatch(btbRgn, btbRgn:GetFrameLevel() + 5,
                 function()
                     local c = SGet("btbBgColor")
-                    if c == MIXED then c = SDB().btbBgColor or { r=0.2, g=0.2, b=0.2 } end
                     c = c or { r=0.2, g=0.2, b=0.2 }
                     local a = SGet("btbBgOpacity")
-                    if a == MIXED then a = SDB().btbBgOpacity or 1.0 end
                     return c.r, c.g, c.b, a or 1.0
                 end,
                 function(r, g, b, a)
-                    if isMulti then
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            if groupChecked[key] then
-                                UNIT_DB_MAP[key]().btbBgColor = { r=r, g=g, b=b }
-                                UNIT_DB_MAP[key]().btbBgOpacity = a
-                            end
-                        end
-                    else
-                        UNIT_DB_MAP[selectedUnit]().btbBgColor = { r=r, g=g, b=b }
-                        UNIT_DB_MAP[selectedUnit]().btbBgOpacity = a
-                    end
-                    ReloadAndUpdate(); UpdateMultiPreview()
+                    UNIT_DB_MAP[selectedUnit]().btbBgColor = { r=r, g=g, b=b }
+                    UNIT_DB_MAP[selectedUnit]().btbBgOpacity = a
+                    ReloadAndUpdate(); UpdatePreview()
                 end, true, 20)
             sw:SetPoint("RIGHT", btbRgn._lastInline or btbRgn._control, "LEFT", -12, 0)
             btbRgn._lastInline = sw
@@ -4531,13 +4981,13 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type="slider", label="X Offset", min=-200, max=200, step=1,
                       get=function() return SVal("btbX", 0) end,
-                      set=function(v) SSet("btbX", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbX", v); UpdatePreview() end },
                     { type="slider", label="Y Offset", min=-200, max=200, step=1,
                       get=function() return SVal("btbY", 0) end,
-                      set=function(v) SSet("btbY", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbY", v); UpdatePreview() end },
                 },
             })
-            local btbPosCogShow = SWrapCog(btbPosCogShowRaw, { "btbX", "btbY" })
+            local btbPosCogShow = btbPosCogShowRaw
             local cogBtn = MakeCogBtn(posRgn, btbPosCogShow, nil, EllesmereUI.DIRECTIONS_ICON)
             local function _btbPosCogUpdate()
                 local btbOff = not SVal("bottomTextBar", false)
@@ -4574,7 +5024,7 @@ initFrame:SetScript("OnEvent", function(self)
               disabled=function() return not SVal("bottomTextBar", false) end,
               disabledTooltip="Enable Text Bar is off",
               getValue=function() return SVal("bottomTextBarHeight", 16) end,
-              setValue=function(v) SSet("bottomTextBarHeight", v); UpdateMultiPreview() end },
+              setValue=function(v) SSet("bottomTextBarHeight", v); UpdatePreview() end },
             { type="slider", text="Width", min=0, max=400, step=1,
               disabled=function()
                   if not SVal("bottomTextBar", false) then return true end
@@ -4586,9 +5036,7 @@ initFrame:SetScript("OnEvent", function(self)
                   return "This option requires the position setting to be detached"
               end,
               getValue=function() return SVal("btbWidth", 0) end,
-              setValue=function(v) SSet("btbWidth", v); UpdateMultiPreview() end });  y = y - h
-        SWrap(sharedBtbHeightRow._leftRegion, "bottomTextBarHeight")
-        SWrap(sharedBtbHeightRow._rightRegion, "btbWidth")
+              setValue=function(v) SSet("btbWidth", v); UpdatePreview() end });  y = y - h
         _sharedBtbWidthRgn = sharedBtbHeightRow._rightRegion
         do
             local pos = SVal("btbPosition", "bottom")
@@ -4596,6 +5044,67 @@ initFrame:SetScript("OnEvent", function(self)
             if _sharedBtbWidthRgn._control and _sharedBtbWidthRgn._control.SetEnabled then
                 _sharedBtbWidthRgn._control:SetEnabled(isDet)
             end
+        end
+        -- Sync icons: BTB Height (left) and BTB Width (right)
+        do
+            local rgn = sharedBtbHeightRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Text Bar Height to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().bottomTextBarHeight or 16
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().bottomTextBarHeight = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().bottomTextBarHeight or 16
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().bottomTextBarHeight or 16) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().bottomTextBarHeight or 16
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().bottomTextBarHeight = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = sharedBtbHeightRow._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Text Bar Width to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().btbWidth or 0
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().btbWidth = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().btbWidth or 0
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().btbWidth or 0) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().btbWidth or 0
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().btbWidth = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
         end
 
         -- Row 3: Left Text + Right Text
@@ -4611,7 +5120,7 @@ initFrame:SetScript("OnEvent", function(self)
                       if SGet("btbRightContent") == v then SSet("btbRightContent", "none") end
                       if SGet("btbCenterContent") == v then SSet("btbCenterContent", "none") end
                   end
-                  ReloadAndUpdate(); UpdateMultiPreview()
+                  ReloadAndUpdate(); UpdatePreview()
               end },
             { type="dropdown", text="Right Text", values=btbTextValues, order=btbTextOrder,
               disabled=function() return not SVal("bottomTextBar", false) end,
@@ -4623,10 +5132,8 @@ initFrame:SetScript("OnEvent", function(self)
                       if SGet("btbLeftContent") == v then SSet("btbLeftContent", "none") end
                       if SGet("btbCenterContent") == v then SSet("btbCenterContent", "none") end
                   end
-                  ReloadAndUpdate(); UpdateMultiPreview()
+                  ReloadAndUpdate(); UpdatePreview()
               end });  y = y - h
-        SWrap(sharedBtbTextRow._leftRegion, "btbLeftContent")
-        SWrap(sharedBtbTextRow._rightRegion, "btbRightContent")
         -- Cogwheel on BTB Left Text
         do
             local btbLRgn = sharedBtbTextRow._leftRegion
@@ -4635,22 +5142,22 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type="toggle", label="Class Color",
                       get=function() return SVal("btbLeftClassColor", false) end,
-                      set=function(v) SSet("btbLeftClassColor", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbLeftClassColor", v); UpdatePreview() end },
                     { type="toggle", label="Power Color",
                       get=function() return SVal("btbLeftPowerColor", false) end,
-                      set=function(v) SSet("btbLeftPowerColor", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbLeftPowerColor", v); UpdatePreview() end },
                     { type="slider", label="Size", min=8, max=24, step=1,
                       get=function() return SVal("btbLeftSize", 11) end,
-                      set=function(v) SSet("btbLeftSize", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbLeftSize", v); UpdatePreview() end },
                     { type="slider", label="X", min=-50, max=50, step=1,
                       get=function() return SVal("btbLeftX", 0) end,
-                      set=function(v) SSet("btbLeftX", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbLeftX", v); UpdatePreview() end },
                     { type="slider", label="Y", min=-30, max=30, step=1,
                       get=function() return SVal("btbLeftY", 0) end,
-                      set=function(v) SSet("btbLeftY", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbLeftY", v); UpdatePreview() end },
                 },
             })
-            local btbLeftCogShow = SWrapCog(btbLeftCogShowRaw, { "btbLeftClassColor", "btbLeftPowerColor", "btbLeftSize", "btbLeftX", "btbLeftY" })
+            local btbLeftCogShow = btbLeftCogShowRaw
             local btbLCogBtn = MakeCogBtn(btbLRgn, btbLeftCogShow)
             local function UpdateBtbLCogState()
                 local btbOff = not SVal("bottomTextBar", false)
@@ -4680,22 +5187,22 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type="toggle", label="Class Color",
                       get=function() return SVal("btbRightClassColor", false) end,
-                      set=function(v) SSet("btbRightClassColor", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbRightClassColor", v); UpdatePreview() end },
                     { type="toggle", label="Power Color",
                       get=function() return SVal("btbRightPowerColor", false) end,
-                      set=function(v) SSet("btbRightPowerColor", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbRightPowerColor", v); UpdatePreview() end },
                     { type="slider", label="Size", min=8, max=24, step=1,
                       get=function() return SVal("btbRightSize", 11) end,
-                      set=function(v) SSet("btbRightSize", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbRightSize", v); UpdatePreview() end },
                     { type="slider", label="X", min=-50, max=50, step=1,
                       get=function() return SVal("btbRightX", 0) end,
-                      set=function(v) SSet("btbRightX", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbRightX", v); UpdatePreview() end },
                     { type="slider", label="Y", min=-30, max=30, step=1,
                       get=function() return SVal("btbRightY", 0) end,
-                      set=function(v) SSet("btbRightY", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbRightY", v); UpdatePreview() end },
                 },
             })
-            local btbRightCogShow = SWrapCog(btbRightCogShowRaw, { "btbRightClassColor", "btbRightPowerColor", "btbRightSize", "btbRightX", "btbRightY" })
+            local btbRightCogShow = btbRightCogShowRaw
             local btbRCogBtn = MakeCogBtn(btbRRgn, btbRightCogShow)
             local function UpdateBtbRCogState()
                 local btbOff = not SVal("bottomTextBar", false)
@@ -4717,6 +5224,67 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateBtbRCogState()
             RegisterWidgetRefresh(UpdateBtbRCogState)
         end
+        -- Sync icons: BTB Left Text (left) and BTB Right Text (right)
+        do
+            local rgn = sharedBtbTextRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Text Bar Left Text to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().btbLeftContent or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().btbLeftContent = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().btbLeftContent or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().btbLeftContent or "none") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().btbLeftContent or "none"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().btbLeftContent = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = sharedBtbTextRow._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Text Bar Right Text to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().btbRightContent or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().btbRightContent = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().btbRightContent or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().btbRightContent or "none") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().btbRightContent or "none"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().btbRightContent = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
 
         -- Row 4: Center Text + Class Icon
         local sharedBtbCenterRow
@@ -4731,15 +5299,13 @@ initFrame:SetScript("OnEvent", function(self)
                       SSet("btbLeftContent", "none")
                       SSet("btbRightContent", "none")
                   end
-                  ReloadAndUpdate(); UpdateMultiPreview()
+                  ReloadAndUpdate(); UpdatePreview()
               end },
             { type="dropdown", text="Class Icon", values=classIconValues, order=classIconOrder,
               disabled=function() return not SVal("bottomTextBar", false) end,
               disabledTooltip="Enable Text Bar is off",
               getValue=function() return SVal("btbClassIcon", "none") end,
-              setValue=function(v) SSet("btbClassIcon", v); UpdateMultiPreview() end });  y = y - h
-        SWrap(sharedBtbCenterRow._leftRegion, "btbCenterContent")
-        SWrap(sharedBtbCenterRow._rightRegion, "btbClassIcon")
+              setValue=function(v) SSet("btbClassIcon", v); UpdatePreview() end });  y = y - h
         -- Cogwheel on BTB Center Text
         do
             local btbCRgn = sharedBtbCenterRow._leftRegion
@@ -4748,22 +5314,22 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type="toggle", label="Class Color",
                       get=function() return SVal("btbCenterClassColor", false) end,
-                      set=function(v) SSet("btbCenterClassColor", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbCenterClassColor", v); UpdatePreview() end },
                     { type="toggle", label="Power Color",
                       get=function() return SVal("btbCenterPowerColor", false) end,
-                      set=function(v) SSet("btbCenterPowerColor", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbCenterPowerColor", v); UpdatePreview() end },
                     { type="slider", label="Size", min=8, max=24, step=1,
                       get=function() return SVal("btbCenterSize", 11) end,
-                      set=function(v) SSet("btbCenterSize", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbCenterSize", v); UpdatePreview() end },
                     { type="slider", label="X", min=-50, max=50, step=1,
                       get=function() return SVal("btbCenterX", 0) end,
-                      set=function(v) SSet("btbCenterX", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbCenterX", v); UpdatePreview() end },
                     { type="slider", label="Y", min=-30, max=30, step=1,
                       get=function() return SVal("btbCenterY", 0) end,
-                      set=function(v) SSet("btbCenterY", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbCenterY", v); UpdatePreview() end },
                 },
             })
-            local btbCenterCogShow = SWrapCog(btbCenterCogShowRaw, { "btbCenterClassColor", "btbCenterPowerColor", "btbCenterSize", "btbCenterX", "btbCenterY" })
+            local btbCenterCogShow = btbCenterCogShowRaw
             local btbCCogBtn = MakeCogBtn(btbCRgn, btbCenterCogShow)
             local function UpdateBtbCCogState()
                 local btbOff = not SVal("bottomTextBar", false)
@@ -4793,19 +5359,19 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type="slider", label="Size", min=8, max=60, step=1,
                       get=function() return SVal("btbClassIconSize", 14) end,
-                      set=function(v) SSet("btbClassIconSize", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbClassIconSize", v); UpdatePreview() end },
                     { type="dropdown", label="Location", values=classIconLocValues, order=classIconLocOrder,
                       get=function() return SVal("btbClassIconLocation", "left") end,
-                      set=function(v) SSet("btbClassIconLocation", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbClassIconLocation", v); UpdatePreview() end },
                     { type="slider", label="X Offset", min=-50, max=50, step=1,
                       get=function() return SVal("btbClassIconX", 0) end,
-                      set=function(v) SSet("btbClassIconX", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbClassIconX", v); UpdatePreview() end },
                     { type="slider", label="Y Offset", min=-50, max=50, step=1,
                       get=function() return SVal("btbClassIconY", 0) end,
-                      set=function(v) SSet("btbClassIconY", v); UpdateMultiPreview() end },
+                      set=function(v) SSet("btbClassIconY", v); UpdatePreview() end },
                 },
             })
-            local ciCogShow = SWrapCog(ciCogShowRaw, { "btbClassIconSize", "btbClassIconLocation", "btbClassIconX", "btbClassIconY" })
+            local ciCogShow = ciCogShowRaw
             local ciCogBtn = MakeCogBtn(ciRgn, ciCogShow)
             local function UpdateCiCogState()
                 local btbOff = not SVal("bottomTextBar", false)
@@ -4827,9 +5393,70 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateCiCogState()
             RegisterWidgetRefresh(UpdateCiCogState)
         end
+        -- Sync icons: BTB Center Text (left) and Class Icon (right)
+        do
+            local rgn = sharedBtbCenterRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Text Bar Center Text to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().btbCenterContent or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().btbCenterContent = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().btbCenterContent or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().btbCenterContent or "none") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().btbCenterContent or "none"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().btbCenterContent = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = sharedBtbCenterRow._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Text Bar Class Icon to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().btbClassIcon or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().btbClassIcon = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().btbClassIcon or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().btbClassIcon or "none") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().btbClassIcon or "none"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().btbClassIcon = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
 
         -- CLASS RESOURCE section: only shown in multi-edit or when player is selected
-        local _showClassRes = isMulti or selectedUnit == "player"
+        local _showClassRes = selectedUnit == "player"
         if _showClassRes then
         _, h = W:Spacer(parent, y, 20); y = y - h
 
@@ -4850,23 +5477,18 @@ initFrame:SetScript("OnEvent", function(self)
                   if ns.frames and ns.frames._toggleClassPower then
                       ns.frames._toggleClassPower(v)
                   end
-                  UpdateMultiPreview()
+                  UpdatePreview()
                   C_Timer.After(0, function() local rl = EllesmereUI._widgetRefreshList; if rl then for i = 1, #rl do rl[i]() end end end)
               end },
             { type="toggle", text="Class Colors",
               disabled=function() return SValSupported("classPowerStyle", "none") == "none" end,
               disabledTooltip="Enable Class Resource is set to None",
               getValue=function()
-                  local v = SGetSupported("classPowerClassColor")
-                  if v == MIXED then return SDB().classPowerClassColor ~= false end
-                  return v ~= false
+                  return SGetSupported("classPowerClassColor")
               end,
               setValue=function(v)
                   SSetSupported("classPowerClassColor", v)
-                  if ns.frames and ns.frames._toggleClassPower then
-                      ns.frames._toggleClassPower()
-                  end
-                  ReloadAndUpdate(); UpdateMultiPreview()
+                  ReloadAndUpdate(); UpdatePreview()
                   C_Timer.After(0, function() local rl = EllesmereUI._widgetRefreshList; if rl then for i = 1, #rl do rl[i]() end end end)
               end });  y = y - h
         SApplySupport(sharedClassResRow._leftRegion, "classPowerStyle")
@@ -4877,24 +5499,15 @@ initFrame:SetScript("OnEvent", function(self)
             local ccSwatch = EllesmereUI.BuildColorSwatch(ccRgn, ccRgn:GetFrameLevel() + 5,
                 function()
                     local c = SGetSupported("classPowerCustomColor")
-                    if c == MIXED then c = SDB().classPowerCustomColor end
                     c = c or { r=1, g=0.82, b=0 }
                     return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
-                    if isMulti then
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            if groupChecked[key] then
-                                UNIT_DB_MAP[key]().classPowerCustomColor = { r=r, g=g, b=b }
-                            end
-                        end
-                    else
-                        UNIT_DB_MAP[selectedUnit]().classPowerCustomColor = { r=r, g=g, b=b }
-                    end
+                    UNIT_DB_MAP[selectedUnit]().classPowerCustomColor = { r=r, g=g, b=b }
                     if ns.frames and ns.frames._toggleClassPower then
                         ns.frames._toggleClassPower()
                     end
-                    ReloadAndUpdate(); UpdateMultiPreview()
+                    ReloadAndUpdate(); UpdatePreview()
                 end, false, 20)
             ccSwatch:SetPoint("RIGHT", ccRgn._lastInline or ccRgn._control, "LEFT", -12, 0)
             ccRgn._lastInline = ccSwatch
@@ -4929,24 +5542,7 @@ initFrame:SetScript("OnEvent", function(self)
             local emptySwatch = EllesmereUI.BuildColorSwatch(ccRgn, ccRgn:GetFrameLevel() + 5,
                 function()
                     local c = SGetSupported("classPowerEmptyColor")
-                    if c == MIXED then c = SDB().classPowerEmptyColor end
-                    c = c or { r=0.2, g=0.2, b=0.2, a=1.0 }
-                    return c.r, c.g, c.b, c.a
-                end,
-                function(r, g, b, a)
-                    if isMulti then
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            if groupChecked[key] then
-                                UNIT_DB_MAP[key]().classPowerEmptyColor = { r=r, g=g, b=b, a=a }
-                            end
-                        end
-                    else
-                        UNIT_DB_MAP[selectedUnit]().classPowerEmptyColor = { r=r, g=g, b=b, a=a }
-                    end
-                    if ns.frames and ns.frames._toggleClassPower then
-                        ns.frames._toggleClassPower()
-                    end
-                    ReloadAndUpdate(); UpdateMultiPreview()
+                    ReloadAndUpdate(); UpdatePreview()
                 end, true, 20)
             emptySwatch:SetPoint("RIGHT", ccRgn._lastInline or ccRgn._control, "LEFT", -6, 0)
             ccRgn._lastInline = emptySwatch
@@ -4969,6 +5565,78 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             emptySwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         end
+        -- Sync icons: Enable Class Resource (left) and Class Colors (right)
+        do
+            local rgn = sharedClassResRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Class Resource Style to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().classPowerStyle or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        UNIT_DB_MAP[key]().classPowerStyle = v
+                        UNIT_DB_MAP[key]().showClassPowerBar = (v ~= "none")
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().classPowerStyle or "none"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().classPowerStyle or "none") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().classPowerStyle or "none"
+                        for _, key in ipairs(checkedKeys) do
+                            UNIT_DB_MAP[key]().classPowerStyle = v
+                            UNIT_DB_MAP[key]().showClassPowerBar = (v ~= "none")
+                        end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = sharedClassResRow._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Class Colors to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().classPowerClassColor
+                    if v == nil then v = true end
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().classPowerClassColor = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().classPowerClassColor
+                    if v == nil then v = true end
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        local ov = UNIT_DB_MAP[key]().classPowerClassColor
+                        if ov == nil then ov = true end
+                        if ov ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().classPowerClassColor
+                        if v == nil then v = true end
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().classPowerClassColor = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
 
         -- Row 2: Position (with cog for x/y) + Size
         row, h = W:DualRow(parent, y,
@@ -4981,7 +5649,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if ns.frames and ns.frames._toggleClassPower then
                       ns.frames._toggleClassPower()
                   end
-                  UpdatePreview(); UpdateMultiPreview()
+                  UpdatePreview(); UpdatePreview()
               end },
             { type="slider", text="Size", min=4, max=30, step=1,
               disabled=function() return SValSupported("classPowerStyle", "none") == "none" end,
@@ -4992,7 +5660,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if ns.frames and ns.frames._toggleClassPower then
                       ns.frames._toggleClassPower()
                   end
-                  UpdatePreview(); UpdateMultiPreview()
+                  UpdatePreview(); UpdatePreview()
               end });  y = y - h
         SApplySupport(row._leftRegion, "classPowerPosition")
         SApplySupport(row._rightRegion, "classPowerSize")
@@ -5006,15 +5674,15 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return SValSupported("classPowerBarX", 0) end,
                       set=function(v) SSetSupported("classPowerBarX", v)
                           if ns.frames and ns.frames._toggleClassPower then ns.frames._toggleClassPower() end
-                          UpdatePreview(); UpdateMultiPreview() end },
+                          UpdatePreview(); UpdatePreview() end },
                     { type="slider", label="Y Offset", min=-100, max=100, step=1,
                       get=function() return SValSupported("classPowerBarY", 0) end,
                       set=function(v) SSetSupported("classPowerBarY", v)
                           if ns.frames and ns.frames._toggleClassPower then ns.frames._toggleClassPower() end
-                          UpdatePreview(); UpdateMultiPreview() end },
+                          UpdatePreview(); UpdatePreview() end },
                 },
             })
-            local cpPosCogShow = SWrapCog(cpPosCogShowRaw, { "classPowerBarX", "classPowerBarY" })
+            local cpPosCogShow = cpPosCogShowRaw
             local cpPosCogBtn = MakeCogBtn(posRgn, cpPosCogShow, nil, EllesmereUI.DIRECTIONS_ICON)
             local function UpdateCpPosCogState()
                 local crOff = SValSupported("classPowerStyle", "none") == "none"
@@ -5035,6 +5703,67 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateCpPosCogState()
             RegisterWidgetRefresh(UpdateCpPosCogState)
         end
+        -- Sync icons: Class Resource Position (left) and Size (right)
+        do
+            local rgn = row._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Class Resource Position to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().classPowerPosition or "top"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().classPowerPosition = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().classPowerPosition or "top"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().classPowerPosition or "top") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().classPowerPosition or "top"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().classPowerPosition = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = row._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Class Resource Size to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().classPowerSize or 8
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().classPowerSize = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().classPowerSize or 8
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().classPowerSize or 8) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().classPowerSize or 8
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().classPowerSize = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
 
         -- Row 3: Bar Spacing + Background Color (with alpha)
         local sharedClassResRow3
@@ -5046,32 +5775,98 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   SSetSupported("classPowerSpacing", v)
                   if ns.frames and ns.frames._toggleClassPower then ns.frames._toggleClassPower() end
-                  UpdatePreview(); UpdateMultiPreview()
+                  UpdatePreview(); UpdatePreview()
               end },
             { type="colorpicker", text="Background Color", hasAlpha=true,
               disabled=function() return SValSupported("classPowerStyle", "none") == "none" end,
               disabledTooltip="Enable Class Resource is set to None",
               getValue=function()
                   local c = SGetSupported("classPowerBgColor")
-                  if c == MIXED then c = SDB().classPowerBgColor end
                   c = c or { r=0.082, g=0.082, b=0.082, a=1.0 }
                   return c.r, c.g, c.b, c.a
               end,
               setValue=function(r, g, b, a)
-                  if multiMode then
-                      for _, key in ipairs(GROUP_UNIT_ORDER) do
-                          if groupChecked[key] then
-                              UNIT_DB_MAP[key]().classPowerBgColor = { r=r, g=g, b=b, a=a }
-                          end
-                      end
-                  else
-                      UNIT_DB_MAP[selectedUnit]().classPowerBgColor = { r=r, g=g, b=b, a=a }
-                  end
-                  if ns.frames and ns.frames._toggleClassPower then ns.frames._toggleClassPower() end
-                  UpdatePreview(); UpdateMultiPreview()
+                  SSetSupported("classPowerBgColor", { r=r, g=g, b=b, a=a or 1 })
+                  UpdatePreview()
               end });  y = y - h
         SApplySupport(sharedClassResRow3._leftRegion, "classPowerSpacing")
         SApplySupport(sharedClassResRow3._rightRegion, "classPowerBgColor")
+        -- Sync icons: Bar Spacing (left) and Background Color (right)
+        do
+            local rgn = sharedClassResRow3._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Class Resource Bar Spacing to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().classPowerSpacing or 2
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().classPowerSpacing = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().classPowerSpacing or 2
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().classPowerSpacing or 2) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().classPowerSpacing or 2
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().classPowerSpacing = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = sharedClassResRow3._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Class Resource Background Color to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().classPowerBgColor
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if v then UNIT_DB_MAP[key]().classPowerBgColor = { r=v.r, g=v.g, b=v.b, a=v.a }
+                        else UNIT_DB_MAP[key]().classPowerBgColor = nil end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().classPowerBgColor
+                    local vr = v and v.r or 0
+                    local vg = v and v.g or 0
+                    local vb = v and v.b or 0
+                    local va = v and v.a or 0.5
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        local ov = UNIT_DB_MAP[key]().classPowerBgColor
+                        local or_ = ov and ov.r or 0
+                        local og = ov and ov.g or 0
+                        local ob = ov and ov.b or 0
+                        local oa = ov and ov.a or 0.5
+                        if or_ ~= vr or og ~= vg or ob ~= vb or oa ~= va then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().classPowerBgColor
+                        for _, key in ipairs(checkedKeys) do
+                            if v then UNIT_DB_MAP[key]().classPowerBgColor = { r=v.r, g=v.g, b=v.b, a=v.a }
+                            else UNIT_DB_MAP[key]().classPowerBgColor = nil end
+                        end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
 
         end -- _showClassRes
 
@@ -5084,7 +5879,7 @@ initFrame:SetScript("OnEvent", function(self)
         sharedAddHeader, h = W:SectionHeader(parent, "ADDITIONAL SETTINGS", y); y = y - h
 
         -- Row 1: Show Absorbs on Frame + Combat Indicator (player-only in single edit)
-        local _showAbsorbsCombat = isMulti or selectedUnit == "player"
+        local _showAbsorbsCombat = selectedUnit == "player"
         if _showAbsorbsCombat then
         local COMBAT_MEDIA_P = "Interface\\AddOns\\EllesmereUI\\media\\combat\\"
         local combatIndValues = {
@@ -5110,10 +5905,70 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSetSupported("showPlayerAbsorb", v) end },
             { type="dropdown", text="Combat Indicator", values=combatIndValues, order=combatIndOrder,
               getValue=function() return SValSupported("combatIndicatorStyle", "class") end,
-              setValue=function(v) SSetSupported("combatIndicatorStyle", v); ReloadAndUpdate(); UpdateMultiPreview() end });  y = y - h
+              setValue=function(v) SSetSupported("combatIndicatorStyle", v); ReloadAndUpdate(); UpdatePreview() end });  y = y - h
         SApplySupport(sharedAddRow1._leftRegion, "showPlayerAbsorb")
         SApplySupport(sharedAddRow1._rightRegion, "combatIndicatorStyle")
-
+        -- Sync icons: Show Absorbs (left) and Combat Indicator (right)
+        do
+            local rgn = sharedAddRow1._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Show Absorbs to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().showPlayerAbsorb or false
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().showPlayerAbsorb = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().showPlayerAbsorb or false
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().showPlayerAbsorb or false) ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().showPlayerAbsorb or false
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().showPlayerAbsorb = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = sharedAddRow1._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Combat Indicator Style to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().combatIndicatorStyle or "class"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().combatIndicatorStyle = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().combatIndicatorStyle or "class"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().combatIndicatorStyle or "class") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().combatIndicatorStyle or "class"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().combatIndicatorStyle = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
 
         -- Eyeball toggle + cog + swatch on combat indicator dropdown
         do
@@ -5155,43 +6010,34 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type="toggle", label="Class Colored",
                       get=function() return SValSupported("combatIndicatorColor", "custom") == "classcolor" end,
-                      set=function(v) SSetSupported("combatIndicatorColor", v and "classcolor" or "custom"); ReloadAndUpdate(); UpdateMultiPreview() end },
+                      set=function(v) SSetSupported("combatIndicatorColor", v and "classcolor" or "custom"); ReloadAndUpdate(); UpdatePreview() end },
                     { type="dropdown", label="Position", values=combatPosValues, order=combatPosOrder,
                       get=function() return SValSupported("combatIndicatorPosition", "healthbar") end,
-                      set=function(v) SSetSupported("combatIndicatorPosition", v); ReloadAndUpdate(); UpdateMultiPreview() end },
+                      set=function(v) SSetSupported("combatIndicatorPosition", v); ReloadAndUpdate(); UpdatePreview() end },
                     { type="slider", label="Size", min=8, max=64, step=1,
                       get=function() return SValSupported("combatIndicatorSize", 22) end,
-                      set=function(v) SSetSupported("combatIndicatorSize", v); ReloadAndUpdate(); UpdateMultiPreview() end },
+                      set=function(v) SSetSupported("combatIndicatorSize", v); ReloadAndUpdate(); UpdatePreview() end },
                     { type="slider", label="X", min=-100, max=100, step=1,
                       get=function() return SValSupported("combatIndicatorX", 0) end,
-                      set=function(v) SSetSupported("combatIndicatorX", v); ReloadAndUpdate(); UpdateMultiPreview() end },
+                      set=function(v) SSetSupported("combatIndicatorX", v); ReloadAndUpdate(); UpdatePreview() end },
                     { type="slider", label="Y", min=-100, max=100, step=1,
                       get=function() return SValSupported("combatIndicatorY", 0) end,
-                      set=function(v) SSetSupported("combatIndicatorY", v); ReloadAndUpdate(); UpdateMultiPreview() end },
+                      set=function(v) SSetSupported("combatIndicatorY", v); ReloadAndUpdate(); UpdatePreview() end },
                 },
             })
-            local combatCogShow = SWrapCog(combatCogShowRaw, { "combatIndicatorColor", "combatIndicatorPosition", "combatIndicatorSize", "combatIndicatorX", "combatIndicatorY" })
+            local combatCogShow = combatCogShowRaw
             MakeCogBtn(ciRgn, combatCogShow)
 
             -- Inline color swatch for custom color
             local combatSwatch = EllesmereUI.BuildColorSwatch(ciRgn, ciRgn:GetFrameLevel() + 5,
                 function()
                     local cc = SGetSupported("combatIndicatorCustomColor")
-                    if cc == MIXED then cc = SDB().combatIndicatorCustomColor or { r=1, g=1, b=1 } end
                     cc = cc or { r=1, g=1, b=1 }
                     return cc.r, cc.g, cc.b, 1
                 end,
                 function(r, g, b)
-                    if isMulti then
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            if groupChecked[key] then
-                                UNIT_DB_MAP[key]().combatIndicatorCustomColor = { r=r, g=g, b=b }
-                            end
-                        end
-                    else
-                        UNIT_DB_MAP[selectedUnit]().combatIndicatorCustomColor = { r=r, g=g, b=b }
-                    end
-                    ReloadAndUpdate(); UpdateMultiPreview()
+                    UNIT_DB_MAP[selectedUnit]().combatIndicatorCustomColor = { r=r, g=g, b=b }
+                    ReloadAndUpdate(); UpdatePreview()
                 end, false, 20)
             combatSwatch:SetPoint("RIGHT", ciRgn._lastInline or ciRgn._control, "LEFT", -12, 0)
             ciRgn._lastInline = combatSwatch
@@ -5216,22 +6062,83 @@ initFrame:SetScript("OnEvent", function(self)
             { type="toggle", text="Show Buffs on Frame",
               getValue=function()
                   local v = SGetSupported("showBuffs")
-                  if v == MIXED then return SDB().showBuffs or false end
                   return v ~= false
               end,
               setValue=function(v) SSetSupported("showBuffs", v) end },
             { type="dropdown", text="Target Debuffs Location", values=buffAnchorValues, order=buffAnchorOrder,
               getValue=function() return SValSupported("debuffAnchor", "bottomleft") end,
               setValue=function(v)
-                  if isMulti then
-                      SSetSupported("debuffAnchor", v)
-                  else
-                      SwapAuraSlot(UNIT_DB_MAP[selectedUnit](), "debuffAnchor", v)
-                      ReloadAndUpdate(); UpdateMultiPreview()
-                  end
+                  SwapAuraSlot(UNIT_DB_MAP[selectedUnit](), "debuffAnchor", v)
+                  ReloadAndUpdate(); UpdatePreview()
               end });  y = y - h
         SApplySupport(sharedAddRow2._leftRegion, "showBuffs")
         SApplySupport(sharedAddRow2._rightRegion, "debuffAnchor")
+        -- Sync icons: Show Buffs (left) and Target Debuffs Location (right)
+        do
+            local rgn = sharedAddRow2._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Show Buffs to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().showBuffs
+                    if v == nil then v = true end
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().showBuffs = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().showBuffs
+                    if v == nil then v = true end
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        local ov = UNIT_DB_MAP[key]().showBuffs
+                        if ov == nil then ov = true end
+                        if ov ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().showBuffs
+                        if v == nil then v = true end
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().showBuffs = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        do
+            local rgn = sharedAddRow2._rightRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Target Debuffs Location to all Frames",
+                onClick = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().debuffAnchor or "bottomleft"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().debuffAnchor = v end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = UNIT_DB_MAP[selectedUnit]().debuffAnchor or "bottomleft"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().debuffAnchor or "bottomleft") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = UNIT_DB_MAP[selectedUnit]().debuffAnchor or "bottomleft"
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().debuffAnchor = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
 
         -- Cogwheel on Show Buffs for Position, Growth Direction, Max Count
         do
@@ -5242,12 +6149,8 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="dropdown", label="Position", values=buffAnchorValues, order=buffAnchorOrder,
                       get=function() return SValSupported("buffAnchor", "topleft") end,
                       set=function(v)
-                          if isMulti then
-                              SSetSupported("buffAnchor", v)
-                          else
-                              SwapAuraSlot(UNIT_DB_MAP[selectedUnit](), "buffAnchor", v)
-                              ReloadAndUpdate(); UpdateMultiPreview()
-                          end
+                          SwapAuraSlot(UNIT_DB_MAP[selectedUnit](), "buffAnchor", v)
+                          ReloadAndUpdate(); UpdatePreview()
                       end },
                     { type="dropdown", label="Growth Direction", values=buffGrowthValues, order=buffGrowthOrder,
                       get=function() return SValSupported("buffGrowth", "auto") end,
@@ -5257,7 +6160,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) SSetSupported("maxBuffs", v) end },
                 },
             })
-            local buffCogShow = SWrapCog(buffCogShowRaw, { "buffAnchor", "buffGrowth", "maxBuffs" })
+            local buffCogShow = buffCogShowRaw
             MakeCogBtn(leftRgn, buffCogShow)
         end
 
@@ -5278,7 +6181,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) SSetSupported("onlyPlayerDebuffs", v) end },
                 },
             })
-            local debuffCogShow = SWrapCog(debuffCogShowRaw, { "debuffGrowth", "maxDebuffs", "onlyPlayerDebuffs" })
+            local debuffCogShow = debuffCogShowRaw
             MakeCogBtn(rightRgn, debuffCogShow)
         end
 
@@ -5294,7 +6197,7 @@ initFrame:SetScript("OnEvent", function(self)
             portrait     = { section = sharedPortraitHeader, target = sharedPortraitModeRow, slotSide = "left" },
             nameText     = { section = sharedBarsHeader,     target = sharedTextRow, slotSide = "left" },
             healthText   = { section = sharedBarsHeader,     target = sharedTextRow, slotSide = "right" },
-            centerText   = { section = sharedBarsHeader,     target = sharedCenterTextRow, slotSide = "right" },
+            centerText   = { section = sharedBarsHeader,     target = sharedCenterTextRow, slotSide = "left" },
             classResource= { section = sharedClassResHeader, target = sharedClassResRow, slotSide = "left" },
             btbBar       = { section = sharedBtbHeader,      target = sharedBtbToggleRow, slotSide = "left" },
             btbLeftText  = { section = sharedBtbHeader,      target = sharedBtbTextRow, slotSide = "left" },
@@ -5308,341 +6211,12 @@ initFrame:SetScript("OnEvent", function(self)
     end  -- BuildSharedSettings
 
     ---------------------------------------------------------------------------
-    --  Multi Frame Edit page  (header + shared settings + click navigation)
+    --  Frame Display page  (dropdown selector + shared/mini settings)
     ---------------------------------------------------------------------------
-    local function BuildMultiPage(pageName, parent, yOffset)
-        local W = EllesmereUI.Widgets
-        local y = yOffset
-        local _, h
+    local _displayHeaderBuilder
+    local displayHeaderFixedH = 0
 
-        InitGroupState()
-        _multiPreviewOverride = groupEyeball
-
-        -------------------------------------------------------------------
-        --  CONTENT HEADER  (dropdown + preview + checkbox selector)
-        -------------------------------------------------------------------
-        _multiHeaderBuilder = function(hdr, hdrW)
-            InitGroupState()
-            local PAD = EllesmereUI.CONTENT_PAD
-            local fy = -20
-            local availW = hdrW - PAD * 2
-
-            -- 1) "Preview Frame:" dropdown + label
-            local DD_ROW_H = 36
-            local ddRowFrame = CreateFrame("Frame", nil, hdr)
-            ddRowFrame:SetSize(availW, DD_ROW_H)
-            PP.Point(ddRowFrame, "TOPLEFT", hdr, "TOPLEFT", PAD, fy)
-
-            local ddValues = {}
-            local ddOrder = {}
-            for _, key in ipairs(GROUP_UNIT_ORDER) do
-                if groupChecked[key] then
-                    ddValues[key] = SHORT_LABELS[key] or key
-                    ddOrder[#ddOrder + 1] = key
-                end
-            end
-
-            local ddW = 200
-            local ddBtn, ddLbl = EllesmereUI.BuildDropdownControl(
-                ddRowFrame, ddW, hdr:GetFrameLevel() + 5,
-                ddValues, ddOrder,
-                function() return groupEyeball end,
-                function(val)
-                    groupEyeball = val
-                    _multiPreviewOverride = groupEyeball
-                    EllesmereUI:InvalidateContentHeaderCache()
-                    EllesmereUI:SetContentHeader(_multiHeaderBuilder)
-                end
-            )
-
-            local ddLabel = ddRowFrame:CreateFontString(nil, "OVERLAY")
-            ddLabel:SetFont(EllesmereUI.EXPRESSWAY, 12, GetUFOptOutline())
-            ddLabel:SetTextColor(EllesmereUI.TEXT_WHITE_R or 0.9, EllesmereUI.TEXT_WHITE_G or 0.9, EllesmereUI.TEXT_WHITE_B or 0.9, 0.7)
-            ddLabel:SetText("Preview Frame:")
-            local lblW = ddLabel:GetStringWidth()
-            local ddGap = 8
-            local totalDDW = lblW + ddGap + ddW
-            local ddStartX = (availW - totalDDW) / 2
-            PP.Point(ddLabel, "LEFT", ddRowFrame, "LEFT", ddStartX, 0)
-            PP.Point(ddBtn, "LEFT", ddLabel, "RIGHT", ddGap, 0)
-
-            fy = fy - DD_ROW_H - 20
-
-            -- 2) Unit preview
-            _multiPreviewOverride = groupEyeball
-            local side = unitSide[groupEyeball] or "left"
-            local preview = BuildUnitPreview(hdr, groupEyeball, side)
-            activePreview = preview
-            local previewScale = preview._previewScale or 1
-            local mBuffTopPad = preview._buffTopPad or 0
-            preview._headerDropdownOY = math.abs(fy)
-            preview._headerDropdownOY = math.abs(fy)
-            preview:ClearAllPoints()
-            PP.Point(preview, "TOP", hdr, "TOP", 0, (fy - mBuffTopPad) / previewScale)
-            preview._lastOY = (fy - mBuffTopPad) / previewScale
-            preview:Update()
-            local previewH = preview:GetHeight() * preview:GetScale()
-            local buffExtra = preview._buffExtra or 0
-            local detTopExtra = preview._detTopExtra or 0
-            fy = fy - previewH - buffExtra - detTopExtra - 12
-
-            -- 3) Unit segmented control
-            local segRefresh
-            local segFrame, segH
-            segFrame, segH, segRefresh = EllesmereUI.BuildSegmentedControl({
-                parent     = hdr,
-                width      = 340,
-                autoWidth  = false,
-                keys       = GROUP_UNIT_ORDER,
-                labels     = SHORT_LABELS,
-                getChecked = function(key) return groupChecked[key] end,
-                getEyeball = function() return groupEyeball end,
-                onToggle   = function(key)
-                    if groupChecked[key] then
-                        local count = 0
-                        for _, k in ipairs(GROUP_UNIT_ORDER) do
-                            if groupChecked[k] then count = count + 1 end
-                        end
-                        if count <= 1 then return end
-                        groupChecked[key] = false
-                        if groupEyeball == key then
-                            for _, k in ipairs(GROUP_UNIT_ORDER) do
-                                if groupChecked[k] then groupEyeball = k; break end
-                            end
-                        end
-                    else
-                        groupChecked[key] = true
-                        groupEyeball = key
-                    end
-                    segRefresh()
-                    _multiPreviewOverride = groupEyeball
-                    EllesmereUI:InvalidateContentHeaderCache()
-                    EllesmereUI:SetContentHeader(_multiHeaderBuilder)
-                    EllesmereUI:RefreshPage(true)
-                end,
-            })
-            PP.Point(segFrame, "TOP", hdr, "TOP", 0, fy)
-            if preview then preview._segFrame = segFrame; preview._segGap = 12 end
-            local selectorH = segH
-            fy = fy - selectorH - 20
-
-            multiHeaderFixedH = 20 + DD_ROW_H + 20 + 12 + selectorH + 20
-            if preview then preview._headerFixedH = multiHeaderFixedH end
-
-            -- Hint text
-            if _ufPreviewHintFS_multi and not _ufPreviewHintFS_multi:GetParent() then
-                _ufPreviewHintFS_multi = nil
-            end
-            local hintH = 0
-            if not IsPreviewHintDismissed() then
-                if not _ufPreviewHintFS_multi then
-                    _ufPreviewHintFS_multi = EllesmereUI.MakeFont(preview or hdr, 11, nil, 1, 1, 1)
-                    _ufPreviewHintFS_multi:SetAlpha(0.45)
-                    _ufPreviewHintFS_multi:SetText("Click elements to scroll to and highlight their options")
-                end
-                _ufPreviewHintFS_multi:SetParent(preview or hdr)
-                _ufPreviewHintFS_multi:ClearAllPoints()
-                _ufPreviewHintFS_multi:SetPoint("BOTTOM", hdr, "BOTTOM", 0, 17)
-                _ufPreviewHintFS_multi:SetAlpha(0.45)
-                _ufPreviewHintFS_multi:Show()
-                hintH = 29
-            elseif _ufPreviewHintFS_multi then
-                _ufPreviewHintFS_multi:Hide()
-            end
-
-            _multiHeaderBaseH = math.abs(fy)
-            return _multiHeaderBaseH + hintH
-        end
-        EllesmereUI:SetContentHeader(_multiHeaderBuilder)
-
-        -------------------------------------------------------------------
-        --  Build shared settings (multi mode)
-        -------------------------------------------------------------------
-        y = BuildSharedSettings("multi", parent, y)
-
-        -------------------------------------------------------------------
-        --  CLICK NAVIGATION
-        -------------------------------------------------------------------
-        local multiGlowFrame
-        local function PlayMultiGlow(targetFrame)
-            if not targetFrame then return end
-            if not multiGlowFrame then
-                multiGlowFrame = CreateFrame("Frame")
-                local c = EllesmereUI.ELLESMERE_GREEN
-                local function MkEdge()
-                    local t = multiGlowFrame:CreateTexture(nil, "OVERLAY", nil, 7)
-                    t:SetColorTexture(c.r, c.g, c.b, 1)
-                    return t
-                end
-                multiGlowFrame._top = MkEdge()
-                multiGlowFrame._bot = MkEdge()
-                multiGlowFrame._lft = MkEdge()
-                multiGlowFrame._rgt = MkEdge()
-                multiGlowFrame._top:SetHeight(2)
-                multiGlowFrame._top:SetPoint("TOPLEFT"); multiGlowFrame._top:SetPoint("TOPRIGHT")
-                multiGlowFrame._bot:SetHeight(2)
-                multiGlowFrame._bot:SetPoint("BOTTOMLEFT"); multiGlowFrame._bot:SetPoint("BOTTOMRIGHT")
-                multiGlowFrame._lft:SetWidth(2)
-                multiGlowFrame._lft:SetPoint("TOPLEFT", multiGlowFrame._top, "BOTTOMLEFT")
-                multiGlowFrame._lft:SetPoint("BOTTOMLEFT", multiGlowFrame._bot, "TOPLEFT")
-                multiGlowFrame._rgt:SetWidth(2)
-                multiGlowFrame._rgt:SetPoint("TOPRIGHT", multiGlowFrame._top, "BOTTOMRIGHT")
-                multiGlowFrame._rgt:SetPoint("BOTTOMRIGHT", multiGlowFrame._bot, "TOPRIGHT")
-            end
-            multiGlowFrame:SetParent(targetFrame)
-            multiGlowFrame:SetAllPoints(targetFrame)
-            multiGlowFrame:SetFrameLevel(targetFrame:GetFrameLevel() + 5)
-            multiGlowFrame:SetAlpha(1)
-            multiGlowFrame:Show()
-            local elapsed = 0
-            multiGlowFrame:SetScript("OnUpdate", function(self, dt)
-                elapsed = elapsed + dt
-                if elapsed >= 0.75 then
-                    self:Hide(); self:SetScript("OnUpdate", nil); return
-                end
-                self:SetAlpha(1 - elapsed / 0.75)
-            end)
-        end
-
-        local function MultiNavigateToSetting(key)
-            local m = parent._sharedClickTargets and parent._sharedClickTargets[key]
-            if not m or not m.section or not m.target then return end
-
-            -- Dismiss hint
-            if not IsPreviewHintDismissed() and _ufPreviewHintFS_multi and _ufPreviewHintFS_multi:IsShown() then
-                EllesmereUIDB = EllesmereUIDB or {}
-                EllesmereUIDB.previewHintDismissed = true
-                local hint = _ufPreviewHintFS_multi
-                local _, anchorTo, _, _, startY = hint:GetPoint(1)
-                startY = startY or 17
-                anchorTo = anchorTo or hint:GetParent()
-                local startHeaderH = _multiHeaderBaseH + 29
-                local targetHeaderH = _multiHeaderBaseH
-                local steps = 0
-                local ticker
-                ticker = C_Timer.NewTicker(0.016, function()
-                    steps = steps + 1
-                    local progress = steps * 0.016 / 0.3
-                    if progress >= 1 then
-                        hint:Hide(); ticker:Cancel()
-                        if targetHeaderH > 0 then EllesmereUI:SetContentHeaderHeightSilent(targetHeaderH) end
-                        return
-                    end
-                    hint:SetAlpha(0.45 * (1 - progress))
-                    hint:ClearAllPoints()
-                    hint:SetPoint("BOTTOM", anchorTo, "BOTTOM", 0, startY + progress * 12)
-                    local hh = startHeaderH - 29 * progress
-                    if hh > 0 then EllesmereUI:SetContentHeaderHeightSilent(hh) end
-                end)
-            end
-
-            local sf = EllesmereUI._scrollFrame
-            if not sf then return end
-            local _, _, _, _, headerY = m.section:GetPoint(1)
-            if not headerY then return end
-            local scrollPos = math.max(0, math.abs(headerY) - 40)
-            EllesmereUI.SmoothScrollTo(scrollPos)
-            local glowTarget = m.target
-            if m.slotSide and m.target then
-                local region = (m.slotSide == "left") and m.target._leftRegion or m.target._rightRegion
-                if region then glowTarget = region end
-            end
-            C_Timer.After(0.15, function() PlayMultiGlow(glowTarget) end)
-        end
-
-        -- Hit overlay factory for multi page
-        local function CreateMultiHitOverlay(element, mappingKey, isText, frameLevelOverride, opts)
-            local anchor = isText and element:GetParent() or element
-            if not anchor.CreateTexture then anchor = anchor:GetParent() end
-            local btn = CreateFrame("Button", nil, anchor)
-            if isText then
-                local function ResizeToText()
-                    local ok, tw, th = pcall(function()
-                        local w = element:GetStringWidth() or 0
-                        local hh = element:GetStringHeight() or 0
-                        if w < 4 then w = 4 end
-                        if hh < 4 then hh = 4 end
-                        return w, hh
-                    end)
-                    if not ok then tw = 40; th = 12 end
-                    btn:SetSize(tw + 4, th + 4)
-                end
-                ResizeToText()
-                local justify = element:GetJustifyH()
-                if justify == "RIGHT" then btn:SetPoint("RIGHT", element, "RIGHT", 2, 0)
-                elseif justify == "CENTER" then btn:SetPoint("CENTER", element, "CENTER", 0, 0)
-                else btn:SetPoint("LEFT", element, "LEFT", -2, 0) end
-                btn:SetScript("OnShow", function() ResizeToText() end)
-                btn._resizeToText = ResizeToText
-            else
-                btn:SetAllPoints(opts and opts.hlAnchor or element)
-            end
-            btn:SetFrameLevel(frameLevelOverride or (anchor:GetFrameLevel() + 20))
-            btn:RegisterForClicks("LeftButtonDown")
-            local c = EllesmereUI.ELLESMERE_GREEN
-            local hlTarget = (opts and opts.hlBehindText) and element or (opts and opts.hlAnchor) or btn
-            local brd = EllesmereUI.PP.CreateBorder(hlTarget, c.r, c.g, c.b, 1, 2, "OVERLAY", 7)
-            brd:Hide()
-            btn:SetScript("OnEnter", function() brd:Show() end)
-            btn:SetScript("OnLeave", function() brd:Hide() end)
-            btn:SetScript("OnMouseDown", function() MultiNavigateToSetting(mappingKey) end)
-            return btn
-        end
-
-        -- Create hit overlays on preview elements
-        local textOverlays = {}
-        if activePreview then
-            local pv = activePreview
-            local baseLevel = (pv._health and pv._health:GetFrameLevel() or 20) + 15
-            local textLevel = baseLevel + 10
-            if pv._health then CreateMultiHitOverlay(pv._health, "healthBar", false, baseLevel, { hlAnchor = pv._health }) end
-            if pv._power then CreateMultiHitOverlay(pv._power, "powerBar", false, baseLevel, { hlAnchor = pv._power }) end
-            if pv._ppFS and pv._ppFS:IsShown() then textOverlays[#textOverlays+1] = CreateMultiHitOverlay(pv._ppFS, "powerBarText", true, textLevel) end
-            if pv._portraitFrame and pv._portraitFrame:IsShown() then CreateMultiHitOverlay(pv._portraitFrame, "portrait", false, baseLevel) end
-            if pv._castbar then
-                local castLevel = pv._castbar:GetFrameLevel() + 20
-                CreateMultiHitOverlay(pv._castbar, "castBar", false, castLevel)
-                if pv._castIconFrame then CreateMultiHitOverlay(pv._castIconFrame, "castIcon", false, castLevel) end
-                if pv._castNameFS then textOverlays[#textOverlays+1] = CreateMultiHitOverlay(pv._castNameFS, "castName", true, castLevel + 5) end
-            end
-            if pv._nameFS and pv._nameFS:IsShown() then textOverlays[#textOverlays+1] = CreateMultiHitOverlay(pv._nameFS, "nameText", true, textLevel) end
-            if pv._hpFS and pv._hpFS:IsShown() then textOverlays[#textOverlays+1] = CreateMultiHitOverlay(pv._hpFS, "healthText", true, textLevel) end
-            if pv._centerFS and pv._centerFS:IsShown() then textOverlays[#textOverlays+1] = CreateMultiHitOverlay(pv._centerFS, "centerText", true, textLevel) end
-            if pv._buffIcons then
-                for i = 1, #pv._buffIcons do
-                    if pv._buffIcons[i] and pv._buffIcons[i]:IsShown() then CreateMultiHitOverlay(pv._buffIcons[i], "buffIcon", false, baseLevel) end
-                end
-            end
-            if pv._btbFrame then
-                local btbLevel = pv._btbFrame:GetFrameLevel() + 20
-                CreateMultiHitOverlay(pv._btbFrame, "btbBar", false, btbLevel)
-                local btbTextLevel = btbLevel + 5
-                if pv._btbLeftFS then textOverlays[#textOverlays+1] = CreateMultiHitOverlay(pv._btbLeftFS, "btbLeftText", true, btbTextLevel) end
-                if pv._btbRightFS then textOverlays[#textOverlays+1] = CreateMultiHitOverlay(pv._btbRightFS, "btbRightText", true, btbTextLevel) end
-                if pv._btbCenterFS then textOverlays[#textOverlays+1] = CreateMultiHitOverlay(pv._btbCenterFS, "btbCenterText", true, btbTextLevel) end
-                if pv._btbClassIcon then
-                    local ciOv = CreateMultiHitOverlay(pv._btbClassIcon, "btbClassIcon", false, btbTextLevel + 2)
-                    pv._btbClassIconOv = ciOv
-                    if not pv._btbClassIcon:IsShown() then ciOv:Hide() end
-                end
-            end
-            if pv._cpPipContainer and pv._cpPipContainer:IsShown() then
-                pv._cpPipOv = CreateMultiHitOverlay(pv._cpPipContainer, "classResource", false, baseLevel + 10)
-            end
-            if pv._combatIndicator and pv._combatIndicator:IsShown() then CreateMultiHitOverlay(pv._combatIndicator, "combatIndicator", false, baseLevel + 20) end
-            pv._textOverlays = textOverlays
-        end
-
-        return abs(y)
-    end
-
-    ---------------------------------------------------------------------------
-    --  Individual Display page  (dropdown selector + shared/mini settings)
-    ---------------------------------------------------------------------------
-    local _individualHeaderBuilder
-    local individualHeaderFixedH = 0
-
-    local function BuildIndividualPage(pageName, parent, yOffset)
+    local function BuildFrameDisplayPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
         local _, h
@@ -5652,7 +6226,7 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         --  CONTENT HEADER  (dropdown + preview)
         -------------------------------------------------------------------
-        _individualHeaderBuilder = function(hdr, hdrW)
+        _displayHeaderBuilder = function(hdr, hdrW)
             local DD_H = 34
             local fy = -20
 
@@ -5665,7 +6239,7 @@ initFrame:SetScript("OnEvent", function(self)
                 function(v)
                     selectedUnit = v
                     EllesmereUI:InvalidateContentHeaderCache()
-                    EllesmereUI:SetContentHeader(_individualHeaderBuilder)
+                    EllesmereUI:SetContentHeader(_displayHeaderBuilder)
                     EllesmereUI:RefreshPage(true)
                 end
             )
@@ -5688,34 +6262,34 @@ initFrame:SetScript("OnEvent", function(self)
             local detTopExtra = preview._detTopExtra or 0
             fy = fy - previewH - buffExtra - detTopExtra - 20
 
-            individualHeaderFixedH = 20 + DD_H + 20 + 20
-            if preview then preview._headerFixedH = individualHeaderFixedH end
+            displayHeaderFixedH = 20 + DD_H + 20 + 20
+            if preview then preview._headerFixedH = displayHeaderFixedH end
 
             -- Hint text
-            if _ufPreviewHintFS_individual and not _ufPreviewHintFS_individual:GetParent() then
-                _ufPreviewHintFS_individual = nil
+            if _ufPreviewHintFS_display and not _ufPreviewHintFS_display:GetParent() then
+                _ufPreviewHintFS_display = nil
             end
             local hintH = 0
             if not IsPreviewHintDismissed() then
-                if not _ufPreviewHintFS_individual then
-                    _ufPreviewHintFS_individual = EllesmereUI.MakeFont(preview or hdr, 11, nil, 1, 1, 1)
-                    _ufPreviewHintFS_individual:SetAlpha(0.45)
-                    _ufPreviewHintFS_individual:SetText("Click elements to scroll to and highlight their options")
+                if not _ufPreviewHintFS_display then
+                    _ufPreviewHintFS_display = EllesmereUI.MakeFont(preview or hdr, 11, nil, 1, 1, 1)
+                    _ufPreviewHintFS_display:SetAlpha(0.45)
+                    _ufPreviewHintFS_display:SetText("Click elements to scroll to and highlight their options")
                 end
-                _ufPreviewHintFS_individual:SetParent(preview or hdr)
-                _ufPreviewHintFS_individual:ClearAllPoints()
-                _ufPreviewHintFS_individual:SetPoint("BOTTOM", hdr, "BOTTOM", 0, 17)
-                _ufPreviewHintFS_individual:SetAlpha(0.45)
-                _ufPreviewHintFS_individual:Show()
+                _ufPreviewHintFS_display:SetParent(preview or hdr)
+                _ufPreviewHintFS_display:ClearAllPoints()
+                _ufPreviewHintFS_display:SetPoint("BOTTOM", hdr, "BOTTOM", 0, 17)
+                _ufPreviewHintFS_display:SetAlpha(0.45)
+                _ufPreviewHintFS_display:Show()
                 hintH = 29
-            elseif _ufPreviewHintFS_individual then
-                _ufPreviewHintFS_individual:Hide()
+            elseif _ufPreviewHintFS_display then
+                _ufPreviewHintFS_display:Hide()
             end
 
-            _individualHeaderBaseH = math.abs(fy)
-            return _individualHeaderBaseH + hintH
+            _displayHeaderBaseH = math.abs(fy)
+            return _displayHeaderBaseH + hintH
         end
-        EllesmereUI:SetContentHeader(_individualHeaderBuilder)
+        EllesmereUI:SetContentHeader(_displayHeaderBuilder)
 
         parent._showRowDivider = true
 
@@ -5723,7 +6297,7 @@ initFrame:SetScript("OnEvent", function(self)
         --  Route to shared settings or mini builders
         -------------------------------------------------------------------
         if selectedUnit == "player" or selectedUnit == "target" or selectedUnit == "focus" then
-            y = BuildSharedSettings("single", parent, y)
+            y = BuildSharedSettings(parent, y)
         elseif selectedUnit == "targettarget" then
             y = -BuildFoTToTOptions(W, parent, y)
         elseif selectedUnit == "pet" then
@@ -5783,15 +6357,15 @@ initFrame:SetScript("OnEvent", function(self)
             if not m or not m.section or not m.target then return end
 
             -- Dismiss hint
-            if not IsPreviewHintDismissed() and _ufPreviewHintFS_individual and _ufPreviewHintFS_individual:IsShown() then
+            if not IsPreviewHintDismissed() and _ufPreviewHintFS_display and _ufPreviewHintFS_display:IsShown() then
                 EllesmereUIDB = EllesmereUIDB or {}
                 EllesmereUIDB.previewHintDismissed = true
-                local hint = _ufPreviewHintFS_individual
+                local hint = _ufPreviewHintFS_display
                 local _, anchorTo, _, _, startY = hint:GetPoint(1)
                 startY = startY or 17
                 anchorTo = anchorTo or hint:GetParent()
-                local startHeaderH = _individualHeaderBaseH + 29
-                local targetHeaderH = _individualHeaderBaseH
+                local startHeaderH = _displayHeaderBaseH + 29
+                local targetHeaderH = _displayHeaderBaseH
                 local steps = 0
                 local ticker
                 ticker = C_Timer.NewTicker(0.016, function()
@@ -5937,16 +6511,16 @@ initFrame:SetScript("OnEvent", function(self)
             y = y - h
         end
 
-        -- Row: Health Bar Height + Health Bar Width
+        -- Row: Bar Height + Bar Width
         local sizeRow
         sizeRow, h = W:DualRow(parent, y,
-            { type="slider", text="Health Bar Height", min=10, max=80, step=1,
+            { type="slider", text="Bar Height", min=10, max=80, step=1,
               getValue=function() return settingsTable.healthHeight end,
               setValue=function(v)
                 settingsTable.healthHeight = v
                 ReloadAndUpdate()
               end },
-            { type="slider", text="Health Bar Width", min=60, max=300, step=1,
+            { type="slider", text="Bar Width", min=60, max=300, step=1,
               getValue=function() return settingsTable.frameWidth end,
               setValue=function(v)
                 settingsTable.frameWidth = v
@@ -5971,7 +6545,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
                 UpdatePreview()
-              end }, nil);  y = y - h
+              end }, { type="label", text="" });  y = y - h
 
         -- TEXT section
         local textHeader
@@ -6011,7 +6585,7 @@ initFrame:SetScript("OnEvent", function(self)
                     settingsTable.rightTextContent = "none"
                 end
                 ReloadAndUpdate()
-              end }, nil);  y = y - h
+              end }, { type="label", text="" });  y = y - h
 
         return y, displayHeader, sizeRow, textHeader, textRow, enableRowFrame
     end
@@ -6344,23 +6918,19 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUIUnitFrames", {
         title       = "Unit Frames",
         description = "Configure unit frame appearance and behavior.",
-        pages       = { PAGE_MULTI, PAGE_INDIVIDUAL, PAGE_MINI },
+        pages       = { PAGE_DISPLAY, PAGE_MINI },
         buildPage   = function(pageName, parent, yOffset)
             -- Randomize preview creature IDs on every tab switch
             RandomizePreviewCreatures()
-            if pageName == PAGE_INDIVIDUAL then
-                return BuildIndividualPage(pageName, parent, yOffset)
-            elseif pageName == PAGE_MULTI then
-                return BuildMultiPage(pageName, parent, yOffset)
+            if pageName == PAGE_DISPLAY then
+                return BuildFrameDisplayPage(pageName, parent, yOffset)
             elseif pageName == PAGE_MINI then
                 return BuildMiniPage(pageName, parent, yOffset)
             end
         end,
         getHeaderBuilder = function(pageName)
-            if pageName == PAGE_INDIVIDUAL then
-                return _individualHeaderBuilder
-            elseif pageName == PAGE_MULTI then
-                return _multiHeaderBuilder
+            if pageName == PAGE_DISPLAY then
+                return _displayHeaderBuilder
             elseif pageName == PAGE_MINI then
                 return _miniHeaderBuilder
             end
@@ -6383,34 +6953,15 @@ initFrame:SetScript("OnEvent", function(self)
                     if pv._health then pv._health._anchorKey = nil end
                 end
             end
-            -- Multi-edit page must always rebuild so click-to-sync overlays
-            -- reflect the current MIXED state (settings may have changed in
-            -- single-edit while the multi page was cached).
-            if pageName == PAGE_MULTI then
-                C_Timer.After(0, function()
-                    EllesmereUI:RefreshPage(true)
-                end)
-                return
-            end
             UpdatePreview()
-            if pageName == PAGE_MULTI then
-                UpdateMultiPreview()
-            end
             -- Refresh hint visibility on cache restore
             local dismissed = IsPreviewHintDismissed()
-            if pageName == PAGE_INDIVIDUAL and _ufPreviewHintFS_individual then
+            if pageName == PAGE_DISPLAY and _ufPreviewHintFS_display then
                 if dismissed then
-                    _ufPreviewHintFS_individual:Hide()
+                    _ufPreviewHintFS_display:Hide()
                 else
-                    _ufPreviewHintFS_individual:SetAlpha(0.45)
-                    _ufPreviewHintFS_individual:Show()
-                end
-            elseif pageName == PAGE_MULTI and _ufPreviewHintFS_multi then
-                if dismissed then
-                    _ufPreviewHintFS_multi:Hide()
-                else
-                    _ufPreviewHintFS_multi:SetAlpha(0.45)
-                    _ufPreviewHintFS_multi:Show()
+                    _ufPreviewHintFS_display:SetAlpha(0.45)
+                    _ufPreviewHintFS_display:Show()
                 end
             end
         end,

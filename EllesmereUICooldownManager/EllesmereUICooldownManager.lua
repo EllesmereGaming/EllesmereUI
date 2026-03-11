@@ -27,7 +27,7 @@ local function SnapForScale(x, barScale)
     return PP.SnapForES(x, es)
 end
 
-local floor, abs, format = math.floor, math.abs, string.format
+local floor = math.floor
 local GetTime = GetTime
 local InCombatLockdown = InCombatLockdown
 local GetSpecialization = GetSpecialization
@@ -224,7 +224,14 @@ local _tickBlizzAllChildCache = {} -- [resolvedSid] = blizzChild, for all CDM ch
 local _tickBlizzBuffChildCache = {} -- [resolvedSid] = blizzChild, only from BuffIcon/BuffBar viewers
 local _tickBlizzCDChildCache   = {} -- [resolvedSid] = blizzChild, only from Essential/Utility viewers
 
--- Separate tables keyed by child frame reference — avoids reading tainted fields on Blizzard-owned frames.
+-- Reusable spell list buffers -- avoids table allocation every tick in update functions
+local _combinedBuf = {}   -- reused by UpdateTrackedBarIcons for tracked+extra spell list
+local _spellsBuf   = {}   -- reused by UpdateCustomBarIcons for racial-substituted spell list
+
+-- Reusable children buffer for the per-tick viewer scan -- avoids GetChildren vararg allocation
+local _viewerChildBuf = {}
+
+-- Separate tables keyed by child frame reference -- avoids reading tainted fields on Blizzard-owned frames.
 -- ch.isActive and ch._ecmeDurObj etc. are tainted secret values; we track state in our own tables instead.
 local _ecmeChildHasDurObj = {}   -- [ch] = true when we have captured a DurationObject for this child
 local _ecmeDurObjCache = {}      -- [ch] = durObj captured from SetCooldownFromDurationObject hook
@@ -307,15 +314,26 @@ local _cdmViewerNames = {
 }
 local function FindCDMChildByCooldownID(cooldownID)
     if not cooldownID then return nil end
+    -- Fast path: scan the per-tick all-child cache (already built by the
+    -- viewer scan in UpdateAllCDMBars). Avoids GetChildren() allocation.
+    for _, ch in pairs(_tickBlizzAllChildCache) do
+        local chID = ch.cooldownID or (ch.cooldownInfo and ch.cooldownInfo.cooldownID)
+        if chID == cooldownID then return ch end
+    end
+    -- Slow fallback: only needed if tick cache is empty (first frame, etc.)
     for _, vname in ipairs(_cdmViewerNames) do
         local viewer = _G[vname]
         if viewer then
-            for ci = 1, viewer:GetNumChildren() do
-                local ch = select(ci, viewer:GetChildren())
-                if ch then
-                    local chID = ch.cooldownID or (ch.cooldownInfo and ch.cooldownInfo.cooldownID)
-                    if chID == cooldownID then
-                        return ch
+            local nCh = viewer:GetNumChildren()
+            if nCh > 0 then
+                local children = { viewer:GetChildren() }
+                for ci = 1, nCh do
+                    local ch = children[ci]
+                    if ch then
+                        local chID = ch.cooldownID or (ch.cooldownInfo and ch.cooldownInfo.cooldownID)
+                        if chID == cooldownID then
+                            return ch
+                        end
                     end
                 end
             end
@@ -1495,7 +1513,7 @@ local function SlotSortComparator(a, b)
     local ax, ay = a:GetCenter()
     local bx, by = b:GetCenter()
     ax, ay, bx, by = ax or 0, ay or 0, bx or 0, by or 0
-    if abs(ay - by) > 2 then return ay > by end
+    if math.abs(ay - by) > 2 then return ay > by end
     return ax < bx
 end
 
@@ -1897,8 +1915,8 @@ local function StopProcGlow(icon)
             if glowIdx then
                 local animR, animG, animB = 1.0, 0.85, 0.0
                 if barData.activeAnimClassColor then
-                    local _, ct = UnitClass("player")
-                    if ct then local cc = RAID_CLASS_COLORS[ct]; if cc then animR, animG, animB = cc.r, cc.g, cc.b end end
+                    local cc = _playerClass and RAID_CLASS_COLORS[_playerClass]
+                    if cc then animR, animG, animB = cc.r, cc.g, cc.b end
                 elseif barData.activeAnimR then
                     animR = barData.activeAnimR; animG = barData.activeAnimG or 0.85; animB = barData.activeAnimB or 0.0
                 end
@@ -2047,11 +2065,10 @@ local BLIZZ_CDM_FRAMES = {
     buffs     = "BuffIconCooldownViewer",
 }
 
--- Secondary viewer for bar keys that span two Blizzard viewers.
--- The buffs bar covers both BuffIconCooldownViewer (tracked buffs)
--- and BuffBarCooldownViewer (tracked bars).
+-- BuffBarCooldownViewer (the Blizzard buff bar) is intentionally NOT included
+-- here. We leave it visible and unmodified so Blizzard's buff bars show normally.
+-- CDM only hides the icon-based viewers it replaces with its own bars.
 local BLIZZ_CDM_FRAMES_SECONDARY = {
-    buffs = "BuffBarCooldownViewer",
 }
 
 -- CDM category numbers per bar key (for C_CooldownViewer API)
@@ -3028,35 +3045,30 @@ local function CreateCDMIcon(barKey, index)
     icon._keybindText = keybindText
 
     -- Tooltip on hover ΓÇö uses OnUpdate cursor check so the icon stays click-through
-    -- (EnableMouse stays false; we poll IsMouseOver each frame instead)
+    -- Tooltip on hover: only register the OnUpdate poll when tooltips are enabled for this bar.
+    -- Icons are rebuilt via BuildAllCDMBars when showTooltip changes, so creation-time gating is sufficient.
     local tooltipOverlay = CreateFrame("Frame", nil, icon)
     tooltipOverlay:SetAllPoints(icon)
     tooltipOverlay:SetFrameLevel(icon:GetFrameLevel() + 4)
     tooltipOverlay:EnableMouse(false)
     icon._tooltipShown = false
-    icon:SetScript("OnUpdate", function(self)
-        local bd = barDataByKey[self._barKey]
-        if not bd or not bd.showTooltip then
-            if self._tooltipShown then
+    if barData.showTooltip then
+        icon:SetScript("OnUpdate", function(self)
+            local over = self:IsMouseOver()
+            if over and not self._tooltipShown then
+                local sid = self._spellID
+                if sid then
+                    GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
+                    GameTooltip:SetSpellByID(sid)
+                    GameTooltip:Show()
+                    self._tooltipShown = true
+                end
+            elseif not over and self._tooltipShown then
                 GameTooltip:Hide()
                 self._tooltipShown = false
             end
-            return
-        end
-        local over = self:IsMouseOver()
-        if over and not self._tooltipShown then
-            local sid = self._spellID
-            if sid then
-                GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
-                GameTooltip:SetSpellByID(sid)
-                GameTooltip:Show()
-                self._tooltipShown = true
-            end
-        elseif not over and self._tooltipShown then
-            GameTooltip:Hide()
-            self._tooltipShown = false
-        end
-    end)
+        end)
+    end
     icon._tooltipOverlay = tooltipOverlay
 
     -- Pixel-perfect border (4 strips via PP)
@@ -3089,11 +3101,8 @@ ApplyShapeToCDMIcon = function(icon, shape, barData)
     local brdB = barData.borderB or 0
     local brdA = barData.borderA or 1
     if barData.borderClassColor then
-        local _, ct = UnitClass("player")
-        if ct then
-            local cc = RAID_CLASS_COLORS[ct]
-            if cc then brdR, brdG, brdB = cc.r, cc.g, cc.b end
-        end
+        local cc = _playerClass and RAID_CLASS_COLORS[_playerClass]
+        if cc then brdR, brdG, brdB = cc.r, cc.g, cc.b end
     end
 
     if shape == "none" or shape == "cropped" or not shape then
@@ -3298,14 +3307,18 @@ local function UpdateCustomBarIcons(barKey)
             if ALL_RACIAL_SPELLS[sid] and not _myRacialsSet[sid] then needsSub = true; break end
         end
         if needsSub then
-            spells = {}
+            local buf = _spellsBuf
+            local n = 0
             for _, sid in ipairs(rawSpells) do
+                n = n + 1
                 if ALL_RACIAL_SPELLS[sid] and not _myRacialsSet[sid] then
-                    spells[#spells + 1] = _myRacials[1]
+                    buf[n] = _myRacials[1]
                 else
-                    spells[#spells + 1] = sid
+                    buf[n] = sid
                 end
             end
+            for i = n + 1, #buf do buf[i] = nil end
+            spells = buf
         end
     end
 
@@ -3313,8 +3326,8 @@ local function UpdateCustomBarIcons(barKey)
     local activeAnim = barData.activeStateAnim or "blizzard"
     local animR, animG, animB = 1.0, 0.85, 0.0
     if barData.activeAnimClassColor then
-        local _, ct = UnitClass("player")
-        if ct then local cc = RAID_CLASS_COLORS[ct]; if cc then animR, animG, animB = cc.r, cc.g, cc.b end end
+        local cc = _playerClass and RAID_CLASS_COLORS[_playerClass]
+        if cc then animR, animG, animB = cc.r, cc.g, cc.b end
     elseif barData.activeAnimR then
         animR = barData.activeAnimR; animG = barData.activeAnimG or 0.85; animB = barData.activeAnimB or 0.0
     end
@@ -3590,8 +3603,7 @@ local function UpdateCustomBarIcons(barKey)
                         if hasRuntimeOverride then
                             auraHandled = false
                         else
-                            local chargeInfo = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(resolvedID)
-                            local isChargeSid = chargeInfo ~= nil
+                            local isChargeSid = _multiChargeSpells[resolvedID] == true
                             if auraID and (not isChargeSid or isBuffBarForOverride) then
                                 local ok, auraDurObj = pcall(C_UnitAuras.GetAuraDuration, auraUnit, auraID)
                                 if ok and auraDurObj then
@@ -3765,11 +3777,14 @@ UpdateCDMBarIcons = function(barKey)
     local blizzIcons = _blizzIconsBuf
     local blizzCount = 0
 
-    for i = 1, blizzFrame:GetNumChildren() do
-        local child = select(i, blizzFrame:GetChildren())
-        if child and child.Icon and child.Icon:GetTexture() then
-            blizzCount = blizzCount + 1
-            blizzIcons[blizzCount] = child
+    do
+        local children = { blizzFrame:GetChildren() }
+        for i = 1, #children do
+            local child = children[i]
+            if child and child.Icon and child.Icon:GetTexture() then
+                blizzCount = blizzCount + 1
+                blizzIcons[blizzCount] = child
+            end
         end
     end
 
@@ -3778,8 +3793,9 @@ UpdateCDMBarIcons = function(barKey)
     if secondaryName then
         local secondaryFrame = _G[secondaryName]
         if secondaryFrame then
-            for i = 1, secondaryFrame:GetNumChildren() do
-                local child = select(i, secondaryFrame:GetChildren())
+            local children = { secondaryFrame:GetChildren() }
+            for i = 1, #children do
+                local child = children[i]
                 if child and child.Icon and child.Icon:GetTexture() then
                     blizzCount = blizzCount + 1
                     blizzIcons[blizzCount] = child
@@ -3808,8 +3824,8 @@ UpdateCDMBarIcons = function(barKey)
     -- Active animation color: class color or custom, full alpha
     local animR, animG, animB = 1.0, 0.85, 0.0
     if barData.activeAnimClassColor then
-        local _, ct = UnitClass("player")
-        if ct then local cc = RAID_CLASS_COLORS[ct]; if cc then animR, animG, animB = cc.r, cc.g, cc.b end end
+        local cc = _playerClass and RAID_CLASS_COLORS[_playerClass]
+        if cc then animR, animG, animB = cc.r, cc.g, cc.b end
     elseif barData.activeAnimR then
         animR = barData.activeAnimR; animG = barData.activeAnimG or 0.85; animB = barData.activeAnimB or 0.0
     end
@@ -3821,18 +3837,20 @@ UpdateCDMBarIcons = function(barKey)
             -- Store mapping so proc glow hooks can find our icon from the Blizzard child
             ourIcon._blizzChild = blizzIcon
 
-            -- Resolve spell ID from Blizzard CDM child first, so we can use
-            -- the correct overrideSpellID for the icon texture.
-            local blizzCdID = blizzIcon.cooldownID
-            if not blizzCdID and blizzIcon.cooldownInfo then
-                blizzCdID = blizzIcon.cooldownInfo.cooldownID
-            end
-            local resolvedSid
-            if blizzCdID then
-                local cdViewerInfo = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
-                    and C_CooldownViewer.GetCooldownViewerCooldownInfo(blizzCdID)
-                if cdViewerInfo then
-                    resolvedSid = ResolveInfoSpellID(cdViewerInfo)
+            -- Resolve spell ID from Blizzard CDM child -- use cached value
+            -- from the per-tick viewer scan to avoid a redundant API call.
+            local resolvedSid = blizzIcon._ecmeResolvedSid
+            if not resolvedSid then
+                local blizzCdID = blizzIcon.cooldownID
+                if not blizzCdID and blizzIcon.cooldownInfo then
+                    blizzCdID = blizzIcon.cooldownInfo.cooldownID
+                end
+                if blizzCdID then
+                    local cdViewerInfo = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+                        and C_CooldownViewer.GetCooldownViewerCooldownInfo(blizzCdID)
+                    if cdViewerInfo then
+                        resolvedSid = ResolveInfoSpellID(cdViewerInfo)
+                    end
                 end
             end
 
@@ -3883,9 +3901,8 @@ UpdateCDMBarIcons = function(barKey)
             local skipCDDisplay = false
 
             if isAura and activeAnim ~= "hideActive" then
-                -- Use non-secret charge detection (returns plain table, not DurationObject)
-                local chargeInfo = resolvedSid and C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(resolvedSid)
-                local isChargeSid = chargeInfo ~= nil
+                -- Use cached charge detection to avoid allocating a table per tick
+                local isChargeSid = resolvedSid and _multiChargeSpells[resolvedSid] == true
                 -- Buff bars always show buff duration; other bars skip aura duration for charge spells
                 local isBuffBar = (barKey == "buffs")
                 local auraID = blizzIcon.auraInstanceID
@@ -4190,28 +4207,31 @@ local function UpdateTrackedBarIcons(barKey)
     local activeAnim = barData.activeStateAnim or "blizzard"
     local animR, animG, animB = 1.0, 0.85, 0.0
     if barData.activeAnimClassColor then
-        local _, ct = UnitClass("player")
-        if ct then local cc = RAID_CLASS_COLORS[ct]; if cc then animR, animG, animB = cc.r, cc.g, cc.b end end
+        local cc = _playerClass and RAID_CLASS_COLORS[_playerClass]
+        if cc then animR, animG, animB = cc.r, cc.g, cc.b end
     elseif barData.activeAnimR then
         animR = barData.activeAnimR; animG = barData.activeAnimG or 0.85; animB = barData.activeAnimB or 0.0
     end
     local prevCount = frame._prevVisibleCount or 0
     local visCount = 0
 
-    -- Build combined spell list: tracked + extras
-    -- For extras, substitute any racial spellID from another race with this character's racial.
-    local combined = {}
-    for _, sid in ipairs(tracked) do combined[#combined + 1] = sid end
+    -- Build combined spell list: tracked + extras into reusable buffer (avoids allocation per tick)
+    local combined = _combinedBuf
+    local combinedN = 0
+    for _, sid in ipairs(tracked) do combinedN = combinedN + 1; combined[combinedN] = sid end
     local extras = barData.extraSpells
     if extras then
         for _, sid in ipairs(extras) do
+            combinedN = combinedN + 1
             if ALL_RACIAL_SPELLS[sid] and not _myRacialsSet[sid] and _myRacials[1] then
-                combined[#combined + 1] = _myRacials[1]
+                combined[combinedN] = _myRacials[1]
             else
-                combined[#combined + 1] = sid
+                combined[combinedN] = sid
             end
         end
     end
+    -- Clear stale entries beyond current length
+    for i = combinedN + 1, #combined do combined[i] = nil end
 
     -- Ensure we have enough icon frames
     while #icons < #combined do
@@ -4465,8 +4485,7 @@ local function UpdateTrackedBarIcons(barKey)
                         if hasRuntimeOverride then
                             auraHandled = false
                         else
-                            local chargeInfo = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(resolvedID)
-                            local isChargeSid = chargeInfo ~= nil
+                            local isChargeSid = _multiChargeSpells[resolvedID] == true
                             if auraID and (not isChargeSid or isBuffBarForOvr) then
                                 local ok, auraDurObj = pcall(C_UnitAuras.GetAuraDuration, auraUnit, auraID)
                                 if ok and auraDurObj then
@@ -4620,86 +4639,120 @@ local function UpdateAllCDMBars(dt)
     wipe(_tickBlizzBuffChildCache)
     wipe(_tickBlizzCDChildCache)
     do
-        local viewers = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
-        for _, vName in ipairs(viewers) do
+        for vi = 1, 4 do
+            local vName = _cdmViewerNames[vi]
             local vf = _G[vName]
-            local isBuffViewer = (vName == "BuffIconCooldownViewer" or vName == "BuffBarCooldownViewer")
+            local isBuffViewer = (vi == 3 or vi == 4)
             if vf then
-                for ci = 1, vf:GetNumChildren() do
-                    local ch = select(ci, vf:GetChildren())
+                -- Load children into reusable buffer with a single GetChildren call
+                local nChildren = vf:GetNumChildren()
+                if nChildren > 0 then
+                    local children = { vf:GetChildren() }
+                    for ci = 1, nChildren do _viewerChildBuf[ci] = children[ci] end
+                    for ci = nChildren + 1, #_viewerChildBuf do _viewerChildBuf[ci] = nil end
+                else
+                    wipe(_viewerChildBuf)
+                end
+                for ci = 1, nChildren do
+                    local ch = _viewerChildBuf[ci]
                     if ch then
                         local cdID = ch.cooldownID or (ch.cooldownInfo and ch.cooldownInfo.cooldownID)
                         if cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-                            local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
-                            if info then
+                            -- Use cached info from previous tick if available.
+                            -- GetCooldownViewerCooldownInfo allocates a new table each
+                            -- call; caching the extracted values on the child frame
+                            -- avoids ~30 table allocs/tick across all viewers.
+                            local resolvedSid = ch._ecmeResolvedSid
+                            local baseSpellID = ch._ecmeBaseSpellID
+                            local cachedOverride = ch._ecmeOverrideSid
+                            if not resolvedSid then
+                                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+                                if info then
+                                    baseSpellID = info.spellID
+                                    cachedOverride = info.overrideSpellID
+                                    resolvedSid = ResolveInfoSpellID(info)
+                                    ch._ecmeBaseSpellID = baseSpellID
+                                    ch._ecmeOverrideSid = cachedOverride
+                                    ch._ecmeResolvedSid = resolvedSid
+                                end
+                            else
+                                -- Refresh override from lightweight API (returns
+                                -- a number, not a table) so runtime activation
+                                -- overrides are still detected each tick.
+                                if baseSpellID and C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+                                    local liveOverride = C_SpellBook.FindSpellOverrideByID(baseSpellID)
+                                    if liveOverride and not (issecretvalue and issecretvalue(liveOverride))
+                                       and liveOverride ~= 0 and liveOverride ~= cachedOverride then
+                                        cachedOverride = liveOverride
+                                        resolvedSid = liveOverride
+                                        ch._ecmeOverrideSid = cachedOverride
+                                        ch._ecmeResolvedSid = resolvedSid
+                                    end
+                                end
+                            end
+                            if resolvedSid and resolvedSid > 0 then
                                 -- Override cache: base -> override (always, not just when active)
-                                if info.spellID and info.overrideSpellID and info.overrideSpellID ~= info.spellID then
-                                    _tickBlizzOverrideCache[info.spellID] = info.overrideSpellID
-                                    -- Child cache: overrideSpellID -> blizzChild for direct charge reads
-                                    _tickBlizzChildCache[info.overrideSpellID] = ch
+                                if baseSpellID and cachedOverride and cachedOverride ~= baseSpellID then
+                                    _tickBlizzOverrideCache[baseSpellID] = cachedOverride
+                                    _tickBlizzChildCache[cachedOverride] = ch
                                 end
-                                -- All-child cache: resolved spellID -> blizzChild (used by custom bars
-                                -- to get auraInstanceID directly from the frame, which is non-secret)
-                                local resolvedSid = ResolveInfoSpellID(info)
+                                _tickBlizzAllChildCache[resolvedSid] = ch
+                                -- Buff-viewer-only child cache (for IsShown fallback on
+                                -- summon-type spells that have no aura)
+                                if isBuffViewer then
+                                    _tickBlizzBuffChildCache[resolvedSid] = ch
+                                else
+                                    -- CD/utility viewer child cache: used by CD bars to
+                                    -- avoid picking up the buff viewer's aura state for
+                                    -- spells that appear in both viewer types.
+                                    _tickBlizzCDChildCache[resolvedSid] = ch
+                                end
+                            end
+                            -- Also map the correct spellID for buff viewer children.
+                            -- Uses the persistent _cdIDToCorrectSID map (built OOC)
+                            -- instead of calling ResolveChildSpellID which can fail
+                            -- in combat due to secret number values.
+                            if isBuffViewer and cdID then
+                                local correctSid = _cdIDToCorrectSID[cdID]
+                                if correctSid and resolvedSid and correctSid ~= resolvedSid then
+                                    _tickBlizzAllChildCache[correctSid] = ch
+                                    _tickBlizzBuffChildCache[correctSid] = ch
+                                    if ch.wasSetFromAura == true or ch.auraInstanceID ~= nil then
+                                        _tickBlizzActiveCache[correctSid] = true
+                                    end
+                                end
+                            end
+                            -- Active cache: resolved spellID -> true when aura-active
+                            if ch.wasSetFromAura == true or ch.auraInstanceID ~= nil then
                                 if resolvedSid and resolvedSid > 0 then
-                                    _tickBlizzAllChildCache[resolvedSid] = ch
-                                    -- Buff-viewer-only child cache (for IsShown fallback on
-                                    -- summon-type spells that have no aura)
-                                    if isBuffViewer then
-                                        _tickBlizzBuffChildCache[resolvedSid] = ch
-                                    else
-                                        -- CD/utility viewer child cache: used by CD bars to
-                                        -- avoid picking up the buff viewer's aura state for
-                                        -- spells that appear in both viewer types.
-                                        _tickBlizzCDChildCache[resolvedSid] = ch
-                                    end
+                                    _tickBlizzActiveCache[resolvedSid] = true
                                 end
-                                -- Also map the correct spellID for buff viewer children.
-                                -- Uses the persistent _cdIDToCorrectSID map (built OOC)
-                                -- instead of calling ResolveChildSpellID which can fail
-                                -- in combat due to secret number values.
-                                if isBuffViewer and cdID then
-                                    local correctSid = _cdIDToCorrectSID[cdID]
-                                    if correctSid and correctSid ~= resolvedSid then
-                                        _tickBlizzAllChildCache[correctSid] = ch
-                                        _tickBlizzBuffChildCache[correctSid] = ch
-                                        if ch.wasSetFromAura == true or ch.auraInstanceID ~= nil then
-                                            _tickBlizzActiveCache[correctSid] = true
-                                        end
-                                    end
-                                end
-                                -- Active cache: resolved spellID -> true when aura-active
-                                if ch.wasSetFromAura == true or ch.auraInstanceID ~= nil then
-                                    if resolvedSid and resolvedSid > 0 then
-                                        _tickBlizzActiveCache[resolvedSid] = true
-                                    end
-                                end
-                                -- Hook the child's Cooldown widget to capture DurationObjects
-                                -- when Blizzard sets them. Avoids secret-value arithmetic.
-                                -- Store captured values in our own tables, not on the child frame,
-                                -- to avoid taint from writing to Blizzard-owned frame fields.
-                                if ch.Cooldown and not ch._ecmeHooked then
-                                    ch._ecmeHooked = true
-                                    if ch.Cooldown.SetCooldownFromDurationObject then
-                                        hooksecurefunc(ch.Cooldown, "SetCooldownFromDurationObject", function(_, durObj)
-                                            _ecmeDurObjCache[ch] = durObj
-                                            _ecmeChildHasDurObj[ch] = true
-                                        end)
-                                    end
-                                    hooksecurefunc(ch.Cooldown, "SetCooldown", function(_, start, dur)
-                                        _ecmeRawStartCache[ch] = start
-                                        _ecmeRawDurCache[ch] = dur
+                            end
+                            -- Hook the child's Cooldown widget to capture DurationObjects
+                            -- when Blizzard sets them. Avoids secret-value arithmetic.
+                            -- Store captured values in our own tables, not on the child frame,
+                            -- to avoid taint from writing to Blizzard-owned frame fields.
+                            if ch.Cooldown and not ch._ecmeHooked then
+                                ch._ecmeHooked = true
+                                if ch.Cooldown.SetCooldownFromDurationObject then
+                                    hooksecurefunc(ch.Cooldown, "SetCooldownFromDurationObject", function(_, durObj)
+                                        _ecmeDurObjCache[ch] = durObj
+                                        _ecmeChildHasDurObj[ch] = true
                                     end)
-                                    -- Clear hook: wipe our cached state when Blizzard clears the cooldown.
-                                    -- This ensures IsBufChildCooldownActive returns false after expiry.
-                                    if ch.Cooldown.Clear then
-                                        hooksecurefunc(ch.Cooldown, "Clear", function()
-                                            _ecmeDurObjCache[ch] = nil
-                                            _ecmeChildHasDurObj[ch] = nil
-                                            _ecmeRawStartCache[ch] = nil
-                                            _ecmeRawDurCache[ch] = nil
-                                        end)
-                                    end
+                                end
+                                hooksecurefunc(ch.Cooldown, "SetCooldown", function(_, start, dur)
+                                    _ecmeRawStartCache[ch] = start
+                                    _ecmeRawDurCache[ch] = dur
+                                end)
+                                -- Clear hook: wipe our cached state when Blizzard clears the cooldown.
+                                -- This ensures IsBufChildCooldownActive returns false after expiry.
+                                if ch.Cooldown.Clear then
+                                    hooksecurefunc(ch.Cooldown, "Clear", function()
+                                        _ecmeDurObjCache[ch] = nil
+                                        _ecmeChildHasDurObj[ch] = nil
+                                        _ecmeRawStartCache[ch] = nil
+                                        _ecmeRawDurCache[ch] = nil
+                                    end)
                                 end
                             end
                         end
@@ -5855,6 +5908,26 @@ RegisterCDMUnlockElements = function()
             local isPlayerFrameAnchored = barData.anchorTo == "playerframe"
             local isMouseAnchored = barData.anchorTo == "mouse"
             if not isPartyAnchored and not isPlayerFrameAnchored and not isMouseAnchored then
+            -- Skip bars with no assigned icons (nothing to position)
+            local bd = barDataByKey[key]
+            local iconCount = 0
+            if bd then
+                if bd.customSpells then
+                    for _, sid in ipairs(bd.customSpells) do
+                        if sid and sid ~= 0 then iconCount = iconCount + 1 end
+                    end
+                elseif bd.trackedSpells then
+                    for _, sid in ipairs(bd.trackedSpells) do
+                        if sid and sid ~= 0 then iconCount = iconCount + 1 end
+                    end
+                    if bd.extraSpells then
+                        for _, sid in ipairs(bd.extraSpells) do
+                            if sid and sid ~= 0 then iconCount = iconCount + 1 end
+                        end
+                    end
+                end
+            end
+            if iconCount > 0 then
             -- Collect linked unlock element keys (children anchored to this bar)
             local linked = nil
             if anchorChildren[key] then
@@ -5968,6 +6041,7 @@ RegisterCDMUnlockElements = function()
                     return bd and bd.anchorTo and bd.anchorTo ~= "none"
                 end,
             }
+            end -- iconCount > 0
             end -- not isPartyAnchored
         end
     end
@@ -6161,8 +6235,7 @@ end
 --  Resnapshot helpers — module-level so they can be called from both
 --  CDMFinishSetup (login) and PLAYER_ENTERING_WORLD (zone/reload).
 -------------------------------------------------------------------------------
-local _resnapshotTicker   -- active retry ticker, if any
-local _resnapshotAttempts = 0
+local _resnapshotTicker, _resnapshotAttempts = nil, 0
 
 -- Temporarily show Blizzard CDM viewers at alpha 0 so their children
 -- populate, then immediately re-hide. Blizzard only populates frame children
@@ -6911,6 +6984,22 @@ local function ScheduleTalentRebuild()
         -- Clear spell icon cache so custom bars pick up new textures for
         -- talent-swapped spells
         wipe(_spellIconCache)
+        -- Clear cached viewer child info so the next tick re-reads from API
+        -- (overrideSpellID may have changed with the new talent set)
+        for _, vname in ipairs(_cdmViewerNames) do
+            local vf = _G[vname]
+            if vf and vf:GetNumChildren() > 0 then
+                local children = { vf:GetChildren() }
+                for ci = 1, #children do
+                    local ch = children[ci]
+                    if ch then
+                        ch._ecmeResolvedSid = nil
+                        ch._ecmeBaseSpellID = nil
+                        ch._ecmeOverrideSid = nil
+                    end
+                end
+            end
+        end
         -- Rebuild keybind cache (talent swap may change action slot contents)
         UpdateCDMKeybinds()
     end)

@@ -2804,6 +2804,11 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                 PP.Point(swatch, "RIGHT", region, "RIGHT", anchorX, 0)
                 anchorX = anchorX - SWATCH_SZ - SWATCH_GAP
                 leftmostSwatch = swatch
+                -- Override click handler if provided (e.g. class color toggle)
+                if sc.onClick then
+                    swatch._eabOrigClick = swatch:GetScript("OnClick")
+                    swatch:SetScript("OnClick", sc.onClick)
+                end
                 -- Per-swatch disabled overlay (same pattern as AuraBuffReminders)
                 if sc.disabled then
                     local swatchBlock = CreateFrame("Frame", nil, swatch)
@@ -2837,6 +2842,20 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                     swatch:HookScript("OnLeave", function()
                         HideWidgetTooltip()
                     end)
+                end
+                -- Per-swatch alpha refresh (e.g. dim inactive, bright active)
+                if sc.refreshAlpha then
+                    local _sw, _ra, _sd = swatch, sc.refreshAlpha, sc.disabled
+                    local function UpdateAlpha()
+                        -- Skip when disabled -- disabled handler controls alpha
+                        if _sd then
+                            local dis = type(_sd) == "function" and _sd() or _sd
+                            if dis then return end
+                        end
+                        _sw:SetAlpha(_ra())
+                    end
+                    UpdateAlpha()
+                    RegisterWidgetRefresh(UpdateAlpha)
                 end
                 RegisterWidgetRefresh(function() updateSwatch() end)
             end
@@ -4427,11 +4446,274 @@ end
 EllesmereUI.PlayWhiteFlash = PlayWhiteFlash
 
 --------------------------------------------------------------------------------
+--  BuildMultiApplyDropdown -- checkbox popup for selective "Apply to Multiple"
+--
+--  Opens a DIALOG-strata popup with checkboxes for each element. The current
+--  element is pre-checked and grayed out. All others are checked by default.
+--  An "Apply" button at the top applies the setting to all checked elements.
+--
+--  opts = {
+--      elementKeys   = { "MainBar", "Bar2", ... },
+--      elementLabels = { MainBar = "Bar 1", Bar2 = "Bar 2", ... },
+--      getCurrentKey = function() return selectedBarKey end,
+--      onApply       = function(checkedKeys) ... end,
+--  }
+--  anchorFrame: frame to anchor the dropdown below
+--  flashTargets: optional table or function for PlayWhiteFlash on apply
+--
+--  Returns: dropdownFrame
+--------------------------------------------------------------------------------
+local _activeMultiApplyDropdown = nil  -- only one open at a time
+-- Persistent checkbox state per element-key-set (survives dropdown close/reopen)
+local _multiApplyCheckedState = {}
+
+local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
+    -- Close any existing dropdown first
+    if _activeMultiApplyDropdown then
+        _activeMultiApplyDropdown:Hide()
+        _activeMultiApplyDropdown = nil
+    end
+
+    local currentKey = opts.getCurrentKey()
+    local keys = opts.elementKeys
+    local labels = opts.elementLabels
+
+    -- Build a stable cache key from the element keys list
+    local cacheKey = table.concat(keys, "|")
+
+    local ITEM_H = 28
+    local APPLY_H = 29   -- 10% smaller than the 32px footer button height
+    local PAD = 6
+    local menuW = 180
+    local menuH = PAD + APPLY_H + 2 + #keys * ITEM_H + PAD
+
+    local menu = CreateFrame("Frame", nil, UIParent)
+    menu:SetFrameStrata("FULLSCREEN_DIALOG")
+    menu:SetFrameLevel(200)
+    menu:SetClampedToScreen(true)
+    menu:EnableMouse(true)
+    PP.Size(menu, menuW, menuH)
+    menu:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", 0, -2)
+
+    local mBg = menu:CreateTexture(nil, "BACKGROUND")
+    mBg:SetAllPoints()
+    mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.96)
+    EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+
+    local ppScale = EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale() or 1
+    menu:SetScale(ppScale)
+
+    -- Restore or initialize checked state for this key-set
+    if not _multiApplyCheckedState[cacheKey] then
+        _multiApplyCheckedState[cacheKey] = {}
+        for _, key in ipairs(keys) do
+            _multiApplyCheckedState[cacheKey][key] = true
+        end
+    end
+    local checked = _multiApplyCheckedState[cacheKey]
+
+    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("options") or "Fonts\\FRIZQT__.TTF"
+
+    -- "Apply" button at top -- styled like the footer Reset/Reload buttons (white, muted, fade hover)
+    local applyRow = CreateFrame("Button", nil, menu)
+    applyRow:SetHeight(APPLY_H)
+    applyRow:SetPoint("TOPLEFT", menu, "TOPLEFT", PAD, -PAD)
+    applyRow:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -PAD, -PAD)
+    applyRow:SetFrameLevel(menu:GetFrameLevel() + 2)
+
+    local DB_BG = EllesmereUI.DARK_BG or { r = 0.05, g = 0.07, b = 0.09 }
+    local applyBg = applyRow:CreateTexture(nil, "BACKGROUND")
+    applyBg:SetAllPoints()
+    applyBg:SetColorTexture(DB_BG.r, DB_BG.g, DB_BG.b, 0.92)
+    local applyBrd = EllesmereUI.MakeBorder(applyRow, 1, 1, 1, 0.4, PP)
+
+    local applyLbl = applyRow:CreateFontString(nil, "OVERLAY")
+    applyLbl:SetFont(fontPath, 12, "")
+    applyLbl:SetTextColor(1, 1, 1, 0.5)
+    applyLbl:SetText("Apply")
+    applyLbl:SetPoint("CENTER", applyRow, "CENTER", 0, 0)
+
+    -- Fade hover (matches footer button 0.1s fade)
+    do
+        local FADE_DUR = 0.1
+        local progress, target = 0, 0
+        local function ApplyHover(t)
+            applyLbl:SetTextColor(1, 1, 1, 0.5 + 0.2 * t)
+            applyBrd:SetColor(1, 1, 1, 0.4 + 0.2 * t)
+        end
+        local function OnUpdate(self, elapsed)
+            local dir = (target == 1) and 1 or -1
+            progress = progress + dir * (elapsed / FADE_DUR)
+            if (dir == 1 and progress >= 1) or (dir == -1 and progress <= 0) then
+                progress = target; self:SetScript("OnUpdate", nil)
+            end
+            ApplyHover(progress)
+        end
+        applyRow:SetScript("OnEnter", function(self)
+            if not applyRow:IsEnabled() then return end
+            target = 1; self:SetScript("OnUpdate", OnUpdate)
+        end)
+        applyRow:SetScript("OnLeave", function(self)
+            target = 0; self:SetScript("OnUpdate", OnUpdate)
+        end)
+    end
+
+    -- Separator line below Apply button
+    local sep = menu:CreateTexture(nil, "ARTWORK")
+    sep:SetHeight(1)
+    sep:SetPoint("TOPLEFT", applyRow, "BOTTOMLEFT", 0, -1)
+    sep:SetPoint("TOPRIGHT", applyRow, "BOTTOMRIGHT", 0, -1)
+    sep:SetColorTexture(1, 1, 1, 0.08)
+
+    -- Count checked (excluding current) for disabled state
+    local function CountChecked()
+        local n = 0
+        for _, key in ipairs(keys) do
+            if key ~= currentKey and checked[key] then n = n + 1 end
+        end
+        return n
+    end
+
+    local function UpdateApplyState()
+        local n = CountChecked()
+        if n > 0 then
+            applyLbl:SetTextColor(1, 1, 1, 0.5)
+            applyBrd:SetColor(1, 1, 1, 0.4)
+            applyBg:SetColorTexture(DB_BG.r, DB_BG.g, DB_BG.b, 0.92)
+            applyRow:Enable()
+        else
+            applyLbl:SetTextColor(1, 1, 1, 0.2)
+            applyBrd:SetColor(1, 1, 1, 0.15)
+            applyBg:SetColorTexture(DB_BG.r, DB_BG.g, DB_BG.b, 0.92)
+            applyRow:Disable()
+        end
+    end
+
+    -- Checkbox rows
+    local yOff = -(PAD + APPLY_H + 3)
+    local checkRows = {}
+    for _, key in ipairs(keys) do
+        local isCurrent = (key == currentKey)
+        local row = CreateFrame("Button", nil, menu)
+        row:SetHeight(ITEM_H)
+        row:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, yOff)
+        row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, yOff)
+        row:SetFrameLevel(menu:GetFrameLevel() + 2)
+
+        local box = CreateFrame("Frame", nil, row)
+        box:SetSize(16, 16)
+        box:SetPoint("LEFT", row, "LEFT", 10, 0)
+        local boxBg = box:CreateTexture(nil, "BACKGROUND")
+        boxBg:SetAllPoints()
+        boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+        local boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
+
+        local chk = box:CreateTexture(nil, "ARTWORK")
+        PP.SetInside(chk, box, 2, 2)
+        local gr = EllesmereUI.ELLESMERE_GREEN
+        chk:SetColorTexture(gr.r, gr.g, gr.b, 1)
+
+        local lbl = row:CreateFontString(nil, "OVERLAY")
+        lbl:SetFont(fontPath, 13, "")
+        lbl:SetPoint("LEFT", box, "RIGHT", 8, 0)
+        lbl:SetText(labels[key] or key)
+
+        local hl = row:CreateTexture(nil, "ARTWORK")
+        hl:SetAllPoints()
+        hl:SetColorTexture(1, 1, 1, 0)
+
+        local function UpdateCheck()
+            if checked[key] then
+                chk:Show()
+                boxBrd:SetColor(gr.r, gr.g, gr.b, 0.8)
+            else
+                chk:Hide()
+                boxBrd:SetColor(0.4, 0.4, 0.4, 0.6)
+            end
+        end
+
+        if isCurrent then
+            -- Current element: checked, grayed out, non-interactive
+            lbl:SetTextColor(0.45, 0.45, 0.45, 0.7)
+            chk:Show()
+            boxBrd:SetColor(gr.r, gr.g, gr.b, 0.4)
+            chk:SetAlpha(0.4)
+            row:Disable()
+        else
+            lbl:SetTextColor(0.75, 0.75, 0.75, 1)
+            UpdateCheck()
+            row:SetScript("OnEnter", function()
+                lbl:SetTextColor(1, 1, 1, 1)
+                hl:SetColorTexture(1, 1, 1, 0.04)
+            end)
+            row:SetScript("OnLeave", function()
+                lbl:SetTextColor(0.75, 0.75, 0.75, 1)
+                hl:SetColorTexture(1, 1, 1, 0)
+            end)
+            row:SetScript("OnClick", function()
+                checked[key] = not checked[key]
+                UpdateCheck()
+                UpdateApplyState()
+            end)
+        end
+
+        checkRows[key] = row
+        yOff = yOff - ITEM_H
+    end
+
+    UpdateApplyState()
+
+    -- Apply button click
+    applyRow:SetScript("OnClick", function()
+        local result = {}
+        for _, key in ipairs(keys) do
+            if checked[key] and key ~= currentKey then
+                result[#result + 1] = key
+            end
+        end
+        if #result > 0 and opts.onApply then
+            opts.onApply(result)
+        end
+        -- White flash on targets
+        if flashTargets then
+            local targets = flashTargets
+            if type(targets) == "function" then targets = targets() end
+            for _, f in ipairs(targets) do PlayWhiteFlash(f) end
+        end
+        menu:Hide()
+    end)
+
+    -- Click-outside-to-close
+    local blocker = CreateFrame("Button", nil, UIParent)
+    blocker:SetFrameStrata("FULLSCREEN")
+    blocker:SetFrameLevel(199)
+    blocker:SetAllPoints(UIParent)
+    blocker:SetScript("OnClick", function()
+        menu:Hide()
+    end)
+    blocker:Show()
+
+    menu:HookScript("OnHide", function()
+        blocker:Hide()
+        blocker:SetParent(nil)
+        _activeMultiApplyDropdown = nil
+    end)
+
+    _activeMultiApplyDropdown = menu
+    menu:Show()
+    return menu
+end
+
+--------------------------------------------------------------------------------
 --  BuildSyncIcon -- label-shift + "Apply to All" subtext pattern
 --
 --  When the setting is desynced across bars, the row label shifts up and an
 --  accent-colored "Apply to All" button appears below it. Clicking it syncs.
 --  Hovering it pulses the flash targets' borders (same as before).
+--
+--  When opts.multiApply is provided, an additional " | Apply to Multiple"
+--  link appears next to "Apply to All". Clicking it opens a checkbox dropdown
+--  for selective application.
 --
 --  opts = {
 --      region       = DualRow half-region (_leftRegion / _rightRegion),
@@ -4439,6 +4721,12 @@ EllesmereUI.PlayWhiteFlash = PlayWhiteFlash
 --      onClick      = function() ... end,
 --      isSynced     = function() return bool end,      -- required
 --      flashTargets = { f1, f2, ... } or function(),   -- optional
+--      multiApply   = {                                 -- optional
+--          elementKeys   = { "MainBar", "Bar2", ... },
+--          elementLabels = { MainBar = "Bar 1", ... },
+--          getCurrentKey = function() return key end,
+--          onApply       = function(checkedKeys) ... end,
+--      },
 --  }
 --  Returns: applyBtn (the "Apply to All" button, or nil if no isSynced)
 --------------------------------------------------------------------------------
@@ -4463,7 +4751,28 @@ local function BuildSyncIcon(opts)
     applyText:SetFont(EXPRESSWAY, 11, "")
     applyText:SetTextColor(ar, ag, ab, 1)
     applyText:SetText("Apply to All")
-    applyText:SetPoint("CENTER", applyBtn, "CENTER", 0, 0)
+    applyText:SetPoint("LEFT", applyBtn, "LEFT", 0, 0)
+
+    -- "Apply to Multiple" link (only when multiApply opts are provided)
+    local multiBtn, multiText, sepText
+    if opts.multiApply then
+        sepText = applyBtn:CreateFontString(nil, "OVERLAY")
+        sepText:SetFont(EXPRESSWAY, 11, "")
+        sepText:SetTextColor(0.45, 0.45, 0.45, 0.7)
+        sepText:SetText(" | ")
+        sepText:SetPoint("LEFT", applyText, "RIGHT", 0, 0)
+
+        multiBtn = CreateFrame("Button", nil, region)
+        multiBtn:SetFrameLevel(region:GetFrameLevel() + 4)
+        multiText = multiBtn:CreateFontString(nil, "OVERLAY")
+        multiText:SetFont(EXPRESSWAY, 11, "")
+        multiText:SetTextColor(ar, ag, ab, 1)
+        multiText:SetText("Apply to Multiple")
+        multiText:SetPoint("CENTER", multiBtn, "CENTER", 0, 0)
+        multiBtn:SetSize(100, 14)  -- initial estimate, corrected below
+        -- Anchor multiBtn right after the separator
+        multiBtn:SetPoint("LEFT", sepText, "RIGHT", 0, 0)
+    end
 
     -- Size the button to the text + 2px padding each side (set after first render via OnUpdate)
     applyBtn:SetSize(80, 14)  -- initial estimate, corrected below
@@ -4472,6 +4781,13 @@ local function BuildSyncIcon(opts)
         local th = applyText:GetStringHeight()
         if tw and tw > 0 then
             applyBtn:SetSize(tw + 4, th + 4)
+        end
+        if multiBtn and multiText then
+            local mw = multiText:GetStringWidth()
+            local mh = multiText:GetStringHeight()
+            if mw and mw > 0 then
+                multiBtn:SetSize(mw + 4, mh + 4)
+            end
         end
     end
     -- Anchor subtext below label's left edge
@@ -4491,6 +4807,11 @@ local function BuildSyncIcon(opts)
         PP.Point(label, "LEFT", region, "LEFT", labelXOff, labelY)
         applyBtn:SetAlpha(s)
         if s <= 0 then applyBtn:Hide() else applyBtn:Show() end
+        if multiBtn then
+            multiBtn:SetAlpha(s)
+            if s <= 0 then multiBtn:Hide() else multiBtn:Show() end
+        end
+        if sepText then sepText:SetAlpha(s) end
     end
 
     -- Apply immediately on load (no animation)
@@ -4519,86 +4840,9 @@ local function BuildSyncIcon(opts)
     end
 
     -- ----------------------------------------------------------------
-    --  Hover pulse helpers (shared with OnEnter/OnLeave)
-    -- ----------------------------------------------------------------
-    local function StartPulse()
-        if not opts.flashTargets then return end
-        local targets = opts.flashTargets
-        if type(targets) == "function" then targets = targets() end
-        applyBtn._pulseTargets = targets
-        applyBtn._pulseElapsed = 0
-        for _, f in ipairs(targets) do
-            local glow = _syncGlowPool[f]
-            if not glow then PlaySyncFlash(f) end
-            glow = _syncGlowPool[f]
-            if glow then glow:SetScript("OnUpdate", nil); glow:SetAlpha(0); glow:Show() end
-        end
-        -- Fade in then pulse
-        local fadeElapsed = 0
-        local FADE_DUR = 0.6
-        applyBtn:SetScript("OnUpdate", function(_, dt)
-            fadeElapsed = fadeElapsed + dt
-            local t = math.min(fadeElapsed / FADE_DUR, 1)
-            if t < 1 then
-                local fadeA = 0.40 * t
-                local ar2, ag2, ab2 = EllesmereUI.GetAccentColor()
-                for _, f2 in ipairs(applyBtn._pulseTargets) do
-                    local g2 = _syncGlowPool[f2]
-                    if g2 then
-                        g2:SetAlpha(fadeA)
-                        for ei = 0, (g2._edgeN or 0) - 1 do
-                            local e = g2["_c_" .. ei]; if e then e:SetColorTexture(ar2, ag2, ab2, 1) end
-                        end
-                    end
-                end
-            else
-                applyBtn._pulseElapsed = 0
-                applyBtn:SetScript("OnUpdate", function(_, dt2)
-                    applyBtn._pulseElapsed = applyBtn._pulseElapsed + dt2
-                    local a = 0.30 + 0.10 * math.sin(applyBtn._pulseElapsed * 4.2)
-                    local ar2, ag2, ab2 = EllesmereUI.GetAccentColor()
-                    for _, f2 in ipairs(applyBtn._pulseTargets) do
-                        local g2 = _syncGlowPool[f2]
-                        if g2 then
-                            g2:SetAlpha(a)
-                            for ei = 0, (g2._edgeN or 0) - 1 do
-                                local e = g2["_c_" .. ei]; if e then e:SetColorTexture(ar2, ag2, ab2, 1) end
-                            end
-                        end
-                    end
-                end)
-            end
-        end)
-    end
-
-    local function StopPulse()
-        applyBtn:SetScript("OnUpdate", nil)
-        if applyBtn._pulseTargets then
-            for _, f in ipairs(applyBtn._pulseTargets) do
-                local g2 = _syncGlowPool[f]
-                if g2 then g2:Hide(); g2:SetScript("OnUpdate", nil) end
-            end
-            applyBtn._pulseTargets = nil
-        end
-    end
-
-    -- ----------------------------------------------------------------
     --  Button scripts
     -- ----------------------------------------------------------------
-    applyBtn:SetScript("OnEnter", function(self)
-        local r, g, b = EllesmereUI.GetAccentColor()
-        applyText:SetTextColor(r + (1 - r) * 0.40, g + (1 - g) * 0.40, b + (1 - b) * 0.40, 1)
-        StartPulse()
-    end)
-
-    applyBtn:SetScript("OnLeave", function(self)
-        local r, g, b = EllesmereUI.GetAccentColor()
-        applyText:SetTextColor(r, g, b, 1)
-        StopPulse()
-    end)
-
     applyBtn:SetScript("OnClick", function()
-        StopPulse()
         if opts.onClick then opts.onClick() end
         -- White border flash on all targets
         local targets = opts.flashTargets
@@ -4609,6 +4853,15 @@ local function BuildSyncIcon(opts)
     end)
 
     -- ----------------------------------------------------------------
+    --  "Apply to Multiple" button scripts
+    -- ----------------------------------------------------------------
+    if multiBtn then
+        multiBtn:SetScript("OnClick", function()
+            BuildMultiApplyDropdown(multiBtn, opts.multiApply, opts.flashTargets)
+        end)
+    end
+
+    -- ----------------------------------------------------------------
     --  RefreshPage hook: animate when sync state changes.
     --  Deferred if a slider is being dragged or color picker is open,
     --  so the label doesn't jitter mid-interaction.
@@ -4617,6 +4870,7 @@ local function BuildSyncIcon(opts)
         -- Re-color accent in case it changed
         local r, g, b = EllesmereUI.GetAccentColor()
         applyText:SetTextColor(r, g, b, 1)
+        if multiText then multiText:SetTextColor(r, g, b, 1) end
         ResizeBtn()
 
         local synced = opts.isSynced()
@@ -4636,6 +4890,7 @@ local function BuildSyncIcon(opts)
                 EllesmereUI._deferredDriftChecks[function()
                     local r2, g2, b2 = EllesmereUI.GetAccentColor()
                     applyText:SetTextColor(r2, g2, b2, 1)
+                    if multiText then multiText:SetTextColor(r2, g2, b2, 1) end
                     ResizeBtn()
                     AnimateTo(opts.isSynced() and 0 or 1)
                 end] = true
@@ -4651,6 +4906,7 @@ local function BuildSyncIcon(opts)
             EllesmereUI._deferredDriftChecks[function()
                 local r2, g2, b2 = EllesmereUI.GetAccentColor()
                 applyText:SetTextColor(r2, g2, b2, 1)
+                if multiText then multiText:SetTextColor(r2, g2, b2, 1) end
                 ResizeBtn()
                 AnimateTo(opts.isSynced() and 0 or 1)
             end] = true
@@ -4670,6 +4926,7 @@ EllesmereUI.BuildToggleControl   = BuildToggleControl
 EllesmereUI.BuildCheckboxControl = BuildCheckboxControl
 EllesmereUI.BuildCogPopup       = BuildCogPopup
 EllesmereUI.BuildSyncIcon       = BuildSyncIcon
+EllesmereUI.BuildMultiApplyDropdown = BuildMultiApplyDropdown
 EllesmereUI.ShowWidgetTooltip   = ShowWidgetTooltip
 EllesmereUI.HideWidgetTooltip   = HideWidgetTooltip
 EllesmereUI.DisabledTooltip     = DisabledTooltip

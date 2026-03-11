@@ -90,8 +90,7 @@ local NO_SCALE_BARS = {
     EncounterBar        = true,
 }
 local function IsNoScaleBar(barKey)
-    local stripped = barKey:match("^EAB_(.+)$") or barKey
-    return NO_SCALE_BARS[stripped] == true
+    return NO_SCALE_BARS[barKey] == true
 end
 -- Local aliases for the shared registration tables
 local registeredElements = EllesmereUI._unlockRegisteredElements
@@ -168,6 +167,7 @@ end
 local flashlightEnabled = true  -- cursor flashlight toggle
 local hoverBarEnabled = false   -- show-bar-on-hover toggle
 local darkOverlaysEnabled = true  -- dark overlay backgrounds on movers
+local coordsEnabled = false     -- show coordinates for all elements at all times
 local unlockTipFrame           -- one-time "how to use" tip frame
 local pendingAfterClose        -- callback to run after DoClose completes
 local selectedMover            -- currently selected mover frame (for arrow key nudging)
@@ -611,6 +611,7 @@ local function CreateGrid(parent)
             end
             tex:SetColorTexture(ar, ag, ab, baseA)
             tex._baseAlpha = baseA
+            tex._isWhite = false
             tex._isVert = true
             tex._pos = x
             tex:ClearAllPoints()
@@ -630,6 +631,7 @@ local function CreateGrid(parent)
             end
             tex:SetColorTexture(ar, ag, ab, baseA)
             tex._baseAlpha = baseA
+            tex._isWhite = false
             tex._isVert = true
             tex._pos = x
             tex:ClearAllPoints()
@@ -651,6 +653,7 @@ local function CreateGrid(parent)
             end
             tex:SetColorTexture(ar, ag, ab, baseA)
             tex._baseAlpha = baseA
+            tex._isWhite = false
             tex._isVert = false
             tex._pos = y
             tex:ClearAllPoints()
@@ -669,6 +672,7 @@ local function CreateGrid(parent)
             end
             tex:SetColorTexture(ar, ag, ab, baseA)
             tex._baseAlpha = baseA
+            tex._isWhite = false
             tex._isVert = false
             tex._pos = y
             tex:ClearAllPoints()
@@ -678,7 +682,7 @@ local function CreateGrid(parent)
             y = y + GRID_SPACING
         end
 
-        -- Center crosshair (brighter)
+        -- Center crosshair: full-length accent lines at screen center
         for _, axis in ipairs({"V", "H"}) do
             idx = idx + 1
             local tex = self._lines[idx]
@@ -688,6 +692,7 @@ local function CreateGrid(parent)
             end
             tex:SetColorTexture(ar, ag, ab, centerA)
             tex._baseAlpha = centerA
+            tex._isWhite = false
             tex._isVert = (axis == "V")
             tex._pos = 0
             tex:ClearAllPoints()
@@ -697,6 +702,33 @@ local function CreateGrid(parent)
             else
                 tex:SetSize(w, 1)
                 tex:SetPoint("LEFT", UIParent, "LEFT", 0, 0)
+            end
+            tex:Show()
+        end
+
+        -- White crosshair pip at dead center (short lines forming a + shape)
+        -- Always 50% alpha regardless of grid brightness mode
+        local CROSS_ARM = 20  -- pixels per arm from center
+        local CROSS_ALPHA = 0.5
+        for _, axis in ipairs({"V", "H"}) do
+            idx = idx + 1
+            local tex = self._lines[idx]
+            if not tex then
+                tex = self:CreateTexture(nil, "BACKGROUND", nil, -5)
+                self._lines[idx] = tex
+            end
+            tex:SetColorTexture(1, 1, 1, CROSS_ALPHA)
+            tex._baseAlpha = CROSS_ALPHA
+            tex._isWhite = true
+            tex._isVert = (axis == "V")
+            tex._pos = 0
+            tex:ClearAllPoints()
+            if axis == "V" then
+                tex:SetSize(1, CROSS_ARM * 2)
+                tex:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+            else
+                tex:SetSize(CROSS_ARM * 2, 1)
+                tex:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
             end
             tex:Show()
         end
@@ -759,7 +791,11 @@ local function CreateGrid(parent)
         for i = 1, lineCount do
             local tex = self._lines[i]
             if tex and tex:IsShown() and tex._baseAlpha then
-                tex:SetColorTexture(cachedAR, cachedAG, cachedAB, tex._baseAlpha)
+                if tex._isWhite then
+                    tex:SetColorTexture(1, 1, 1, tex._baseAlpha)
+                else
+                    tex:SetColorTexture(cachedAR, cachedAG, cachedAB, tex._baseAlpha)
+                end
 
                 -- Perpendicular distance from cursor to this line
                 local perpDist
@@ -792,7 +828,11 @@ local function CreateGrid(parent)
                                 if alpha > 0.003 then
                                     glowIdx = glowIdx + 1
                                     local g = GetGlow(glowIdx)
-                                    g:SetColorTexture(cachedAR, cachedAG, cachedAB, alpha)
+                                    if tex._isWhite then
+                                        g:SetColorTexture(1, 1, 1, alpha)
+                                    else
+                                        g:SetColorTexture(cachedAR, cachedAG, cachedAB, alpha)
+                                    end
                                     g:ClearAllPoints()
                                     g:SetSize(1, segEnd - segY)
                                     g:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", tex._pos, max(0, segY))
@@ -818,7 +858,11 @@ local function CreateGrid(parent)
                                 if alpha > 0.003 then
                                     glowIdx = glowIdx + 1
                                     local g = GetGlow(glowIdx)
-                                    g:SetColorTexture(cachedAR, cachedAG, cachedAB, alpha)
+                                    if tex._isWhite then
+                                        g:SetColorTexture(1, 1, 1, alpha)
+                                    else
+                                        g:SetColorTexture(cachedAR, cachedAG, cachedAB, alpha)
+                                    end
                                     g:ClearAllPoints()
                                     g:SetSize(segEnd - segX, 1)
                                     g:SetPoint("TOPLEFT", UIParent, "TOPLEFT", max(0, segX), -tex._pos)
@@ -1217,6 +1261,8 @@ local function SelectMover(m)
         end
         -- Hide action buttons on old selection
         if selectedMover._hideCogAfterDelay then selectedMover._hideCogAfterDelay() end
+        -- Hide coordinates on old selection (keep if coords-always-on)
+        if selectedMover._coordFS and not coordsEnabled then selectedMover._coordFS:Hide() end
     end
     selectedMover = m
     if m then
@@ -1265,8 +1311,8 @@ local function DeselectMover()
         if selectedMover._scaleValBox then selectedMover._scaleValBox:SetFrameLevel(baseSettingsLevel) end
         -- Hide action buttons
         if selectedMover._hideCogAfterDelay then selectedMover._hideCogAfterDelay() end
-        -- Hide coordinates
-        if selectedMover._coordFS then selectedMover._coordFS:Hide() end
+        -- Hide coordinates (keep visible if coords-always-on mode is active)
+        if selectedMover._coordFS and not coordsEnabled then selectedMover._coordFS:Hide() end
         -- Clear snap highlight
         ClearSnapHighlight()
         -- Cancel select-element pick mode if this mover was the picker — restore previous target
@@ -1299,7 +1345,14 @@ local function ApplyDarkOverlays()
         else
             m._bg:SetColorTexture(0, 0, 0, 0)
             if m._label then m._label:Hide() end
-            if m._coordFS then m._coordFS:Hide() end
+            -- When coords-always-on is active, show coords for all movers; otherwise hide
+            if m._coordFS then
+                if coordsEnabled then
+                    if m.UpdateCoordText then m:UpdateCoordText() end
+                else
+                    m._coordFS:Hide()
+                end
+            end
             -- Hide action row text
             if m._hideOverlayText then m._hideOverlayText() end
             -- Restore normal alpha behavior
@@ -1309,8 +1362,6 @@ local function ApplyDarkOverlays()
         end
     end
 end
-
--- Nudge the selected mover by (dx, dy) pixels and update the real bar
 local function NudgeMover(dx, dy)
     local m = selectedMover
     if not m or InCombatLockdown() then return end
@@ -1447,9 +1498,7 @@ end
 -------------------------------------------------------------------------------
 local function GetActionBarVisualSize(barKey)
     if not EAB or not EAB.db then return nil end
-    -- Strip EAB_ prefix for registered element keys
-    local lookupKey = barKey:match("^EAB_(.+)$") or barKey
-    local info = BAR_LOOKUP[lookupKey]
+    local info = BAR_LOOKUP[barKey]
     if not info then return nil end
     local s = EAB.db.profile.bars[lookupKey]
     if not s then return nil end
@@ -2038,8 +2087,10 @@ local function CreateMover(barKey)
         self:SetScript("OnUpdate", nil)
         self._dragging = false
         self:SetAlpha(darkOverlaysEnabled and 1 or MOVER_HOVER)
-        -- Update coords to final position (stays visible if selected)
+        -- Update coords to final position (stays visible if selected or coords-always-on)
         if self._selected and self.UpdateCoordText then
+            self:UpdateCoordText()
+        elseif coordsEnabled and self.UpdateCoordText then
             self:UpdateCoordText()
         else
             self._coordFS:Hide()
@@ -2613,7 +2664,7 @@ local function CreateMover(barKey)
     snapDD:SetScript("OnEnter", function(self)
         if not snapEnabled then
             -- Grayed out: show tooltip explaining why
-            EllesmereUI.ShowWidgetTooltip(self, "This feature requires Snap to Elements to be enabled")
+            EllesmereUI.ShowWidgetTooltip(self, "This feature requires Snap Elements to be enabled")
             return
         end
         self._bg:SetColorTexture(0.075, 0.113, 0.141, 0.98)
@@ -2646,12 +2697,11 @@ local function CreateMover(barKey)
     mover._refreshSnapDD = RefreshSnapDDState
 
     -- Snap dropdown menu frame (lazy-created, shared across this mover)
-    local snapMenu, snapSubMenu
+    local snapMenu
     local regSubMenus = {}
 
     local function CloseSnapMenu()
         if snapMenu then snapMenu:Hide() end
-        if snapSubMenu then snapSubMenu:Hide() end
         for _, rs in pairs(regSubMenus) do
             if rs and rs.Hide then rs:Hide() end
         end
@@ -2768,21 +2818,12 @@ local function CreateMover(barKey)
             mover._snapTarget = nil
         end, not curTarget)
 
-        -- Select Element
-        MakeItem(snapMenu, "Select Element", function()
-            mover._preSelectTarget = mover._snapTarget
-            mover._snapTarget = "_select_"
-            -- Enter select-element mode: next click on a different mover sets the target
-            selectElementPicker = mover
-            FadeOverlayForSelectElement(true)
-        end, curTarget == "_select_")
-
         -- None (per-mover snap disable)
         MakeItem(snapMenu, "None", function()
             mover._snapTarget = "_disable_"
         end, curTarget == "_disable_")
 
-        -- Divider
+        -- Divider before element groups
         local div = snapMenu:CreateTexture(nil, "ARTWORK")
         div:SetHeight(1)
         div:SetColorTexture(1, 1, 1, 0.10)
@@ -2790,113 +2831,7 @@ local function CreateMover(barKey)
         div:SetPoint("TOPRIGHT", snapMenu, "TOPRIGHT", -1, yOff - 4)
         yOff = yOff - 9
 
-        -- Action Bars group header (with arrow for sub-menu)
-        local groupItem = CreateFrame("Button", nil, snapMenu)
-        groupItem:SetHeight(ITEM_H)
-        groupItem:SetPoint("TOPLEFT", snapMenu, "TOPLEFT", 1, yOff)
-        groupItem:SetPoint("TOPRIGHT", snapMenu, "TOPRIGHT", -1, yOff)
-        groupItem:SetFrameLevel(snapMenu:GetFrameLevel() + 2)
-        groupItem:RegisterForClicks("AnyUp")
-        local gHl = groupItem:CreateTexture(nil, "ARTWORK")
-        gHl:SetAllPoints()
-        gHl:SetColorTexture(1, 1, 1, 0)
-        local gLbl = groupItem:CreateFontString(nil, "OVERLAY")
-        gLbl:SetFont(FONT_PATH, 11, "OUTLINE")
-        gLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
-        gLbl:SetJustifyH("LEFT")
-        gLbl:SetPoint("LEFT", groupItem, "LEFT", 10, 0)
-        gLbl:SetText("Action Bars")
-        local gArrow = groupItem:CreateTexture(nil, "ARTWORK")
-        gArrow:SetSize(10, 10)
-        gArrow:SetPoint("RIGHT", groupItem, "RIGHT", -8, 0)
-        gArrow:SetTexture(ARROW_RIGHT_ICON)
-        gArrow:SetAlpha(0.7)
-        yOff = yOff - ITEM_H
-
-        -- Sub-menu for Action Bars
-        local function ShowSubMenu()
-            if snapSubMenu then
-                for _, child in ipairs({snapSubMenu:GetChildren()}) do child:Hide(); child:SetParent(nil) end
-                for _, tex in ipairs({snapSubMenu:GetRegions()}) do if tex.Hide then tex:Hide() end end
-            end
-            snapSubMenu = snapSubMenu or CreateFrame("Frame", nil, unlockFrame)
-            snapSubMenu:SetFrameStrata("FULLSCREEN_DIALOG")
-            snapSubMenu:SetFrameLevel(260)
-            snapSubMenu:SetClampedToScreen(true)
-            snapSubMenu:SetSize(DD_W, 10)
-            snapSubMenu:SetPoint("TOPLEFT", groupItem, "TOPRIGHT", 2, 0)
-            local sBg = snapSubMenu:CreateTexture(nil, "BACKGROUND")
-            sBg:SetAllPoints()
-            sBg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
-            EllesmereUI.MakeBorder(snapSubMenu, 1, 1, 1, 0.20)
-
-            local sYOff = -4
-            for _, bk in ipairs(ALL_BAR_ORDER) do
-                if bk ~= barKey and movers[bk] and movers[bk]:IsShown() and not GetVisibilityOnly()[bk] then
-                    local isSel = (curTarget == bk)
-                    local sItem = CreateFrame("Button", nil, snapSubMenu)
-                    sItem:SetHeight(ITEM_H)
-                    sItem:SetPoint("TOPLEFT", snapSubMenu, "TOPLEFT", 1, sYOff)
-                    sItem:SetPoint("TOPRIGHT", snapSubMenu, "TOPRIGHT", -1, sYOff)
-                    sItem:SetFrameLevel(snapSubMenu:GetFrameLevel() + 2)
-                    sItem:RegisterForClicks("AnyUp")
-                    local sHl = sItem:CreateTexture(nil, "ARTWORK")
-                    sHl:SetAllPoints()
-                    sHl:SetColorTexture(1, 1, 1, isSel and 0.04 or 0)
-                    local sLbl = sItem:CreateFontString(nil, "OVERLAY")
-                    sLbl:SetFont(FONT_PATH, 11, "OUTLINE")
-                    sLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
-                    sLbl:SetJustifyH("LEFT")
-                    sLbl:SetPoint("LEFT", sItem, "LEFT", 10, 0)
-                    sLbl:SetText(lbl)
-                    if isSel then sLbl:SetTextColor(1, 1, 1, 1) end
-                    sItem:SetScript("OnEnter", function()
-                        sHl:SetColorTexture(1, 1, 1, 0.08)
-                        sLbl:SetTextColor(1, 1, 1, 1)
-                    end)
-                    sItem:SetScript("OnLeave", function()
-                        sHl:SetColorTexture(1, 1, 1, isSel and 0.04 or 0)
-                        sLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
-                    end)
-                    sItem:SetScript("OnClick", function()
-                        mover._snapTarget = bk
-                        CloseSnapMenu()
-                        UpdateSnapLabel()
-                    end)
-                    sYOff = sYOff - ITEM_H
-                end
-            end
-            snapSubMenu:SetHeight(-sYOff + 4)
-            snapSubMenu:EnableMouse(true)
-            snapSubMenu:SetScript("OnLeave", function(self)
-                C_Timer.After(0.05, function()
-                    if self:IsShown() and not self:IsMouseOver() and not groupItem:IsMouseOver() then
-                        self:Hide()
-                    end
-                end)
-            end)
-            snapSubMenu:Show()
-        end
-
-        groupItem:SetScript("OnEnter", function()
-            gHl:SetColorTexture(1, 1, 1, 0.08)
-            gLbl:SetTextColor(1, 1, 1, 1)
-            gArrow:SetAlpha(0.9)
-            ShowSubMenu()
-        end)
-        groupItem:SetScript("OnLeave", function()
-            gHl:SetColorTexture(1, 1, 1, 0)
-            gLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
-            gArrow:SetAlpha(0.5)
-            -- Delayed hide: only close sub-menu if mouse isn't over it
-            C_Timer.After(0.05, function()
-                if snapSubMenu and snapSubMenu:IsShown() and not snapSubMenu:IsMouseOver() and not groupItem:IsMouseOver() then
-                    snapSubMenu:Hide()
-                end
-            end)
-        end)
-
-        -- Registered element groups (Unit Frames, Resource Bars, Cursor Lite, etc.)
+        -- Registered element groups (Unit Frames, Action Bars, Resource Bars, etc.)
         RebuildRegisteredOrder()
         local regGroups = {}   -- { groupName = { {key,label}, ... } }
         local regGroupOrder = {} -- preserve first-seen order
@@ -2948,6 +2883,10 @@ local function CreateMover(barKey)
 
             local regSub
             local function ShowRegSub()
+                -- Close any other open leaf sub-menus first
+                for otherName, rs in pairs(regSubMenus) do
+                    if otherName ~= gName and rs and rs:IsShown() then rs:Hide() end
+                end
                 if regSub then
                     for _, child in ipairs({regSub:GetChildren()}) do child:Hide(); child:SetParent(nil) end
                     for _, tex in ipairs({regSub:GetRegions()}) do if tex.Hide then tex:Hide() end end
@@ -2998,13 +2937,19 @@ local function CreateMover(barKey)
                     rsYOff = rsYOff - ITEM_H
                 end
                 regSub:SetHeight(-rsYOff + 4)
+                -- Width: fit the widest label + left padding (10) + right spacing (10) + border (2)
+                local rsMaxW = DD_W
+                for _, eInfo in ipairs(gElems) do
+                    local tw = (EllesmereUI.MeasureText and EllesmereUI.MeasureText(eInfo.label, FONT_PATH, 11)) or 0
+                    local needed = 10 + tw + 10 + 2
+                    if needed > rsMaxW then rsMaxW = needed end
+                end
+                regSub:SetWidth(rsMaxW)
                 regSub:EnableMouse(true)
                 regSub:SetScript("OnLeave", function(self)
-                    C_Timer.After(0.05, function()
-                        if self:IsShown() and not self:IsMouseOver() and not rgItem:IsMouseOver() then
-                            self:Hide()
-                        end
-                    end)
+                    if self:IsShown() and not self:IsMouseOver() and not rgItem:IsMouseOver() then
+                        self:Hide()
+                    end
                 end)
                 regSub:Show()
                 regSubMenus[gName] = regSub
@@ -3020,12 +2965,10 @@ local function CreateMover(barKey)
                 rgHl:SetColorTexture(1, 1, 1, 0)
                 rgLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
                 rgArrow:SetAlpha(0.5)
-                C_Timer.After(0.05, function()
-                    local rs = regSubMenus[gName]
-                    if rs and rs:IsShown() and not rs:IsMouseOver() and not rgItem:IsMouseOver() then
-                        rs:Hide()
-                    end
-                end)
+                local rs = regSubMenus[gName]
+                if rs and rs:IsShown() and not rs:IsMouseOver() and not rgItem:IsMouseOver() then
+                    rs:Hide()
+                end
             end)
         end
 
@@ -3156,6 +3099,41 @@ local function CreateMover(barKey)
         local ITEM_H = 24
         local yOff = -4
 
+        -- Select Element: enter pick mode to choose a specific snap target by clicking
+        local selElemItem = CreateFrame("Button", nil, cogMenu)
+        selElemItem:SetHeight(ITEM_H)
+        selElemItem:SetPoint("TOPLEFT", cogMenu, "TOPLEFT", 1, yOff)
+        selElemItem:SetPoint("TOPRIGHT", cogMenu, "TOPRIGHT", -1, yOff)
+        selElemItem:SetFrameLevel(cogMenu:GetFrameLevel() + 2)
+        selElemItem:RegisterForClicks("AnyUp")
+        local selElemHl = selElemItem:CreateTexture(nil, "ARTWORK")
+        selElemHl:SetAllPoints()
+        local isSelElem = (mover._snapTarget == "_select_")
+        selElemHl:SetColorTexture(1, 1, 1, isSelElem and 0.04 or 0)
+        local selElemLbl = selElemItem:CreateFontString(nil, "OVERLAY")
+        selElemLbl:SetFont(FONT_PATH, 11, "OUTLINE")
+        selElemLbl:SetTextColor(isSelElem and 1 or 0.75, isSelElem and 1 or 0.75, isSelElem and 1 or 0.75, 0.9)
+        selElemLbl:SetJustifyH("LEFT")
+        selElemLbl:SetPoint("LEFT", selElemItem, "LEFT", 10, 0)
+        selElemLbl:SetText("Select Element")
+        selElemItem:SetScript("OnEnter", function()
+            selElemHl:SetColorTexture(1, 1, 1, 0.08)
+            selElemLbl:SetTextColor(1, 1, 1, 1)
+        end)
+        selElemItem:SetScript("OnLeave", function()
+            selElemHl:SetColorTexture(1, 1, 1, isSelElem and 0.04 or 0)
+            selElemLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
+        end)
+        selElemItem:SetScript("OnClick", function()
+            mover._preSelectTarget = mover._snapTarget
+            mover._snapTarget = "_select_"
+            selectElementPicker = mover
+            FadeOverlayForSelectElement(true)
+            UpdateSnapLabel()
+            CloseCogMenu()
+        end)
+        yOff = yOff - ITEM_H
+
         -- Snap to: sub-menu item (with arrow)
         local snapItem = CreateFrame("Button", nil, cogMenu)
         snapItem:SetHeight(ITEM_H)
@@ -3250,7 +3228,6 @@ local function CreateMover(barKey)
                 sYOff = sYOff - sITEM_H
             end
             MakeSnapItem("All Elements", nil, not curTgt)
-            MakeSnapItem("Select Element", "_select_", curTgt == "_select_")
             MakeSnapItem("None", "_disable_", curTgt == "_disable_")
             -- Divider
             local sDiv = cogSnapMenu:CreateTexture(nil, "ARTWORK")
@@ -3259,110 +3236,7 @@ local function CreateMover(barKey)
             sDiv:SetPoint("TOPLEFT", cogSnapMenu, "TOPLEFT", 1, sYOff - 4)
             sDiv:SetPoint("TOPRIGHT", cogSnapMenu, "TOPRIGHT", -1, sYOff - 4)
             sYOff = sYOff - 9
-            -- Action Bars group with nested sub-menu
-            local abItem = CreateFrame("Button", nil, cogSnapMenu)
-            abItem:SetHeight(sITEM_H)
-            abItem:SetPoint("TOPLEFT", cogSnapMenu, "TOPLEFT", 1, sYOff)
-            abItem:SetPoint("TOPRIGHT", cogSnapMenu, "TOPRIGHT", -1, sYOff)
-            abItem:SetFrameLevel(cogSnapMenu:GetFrameLevel() + 2)
-            abItem:RegisterForClicks("AnyUp")
-            local abHl = abItem:CreateTexture(nil, "ARTWORK")
-            abHl:SetAllPoints()
-            abHl:SetColorTexture(1, 1, 1, 0)
-            local abLbl = abItem:CreateFontString(nil, "OVERLAY")
-            abLbl:SetFont(FONT_PATH, 11, "OUTLINE")
-            abLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
-            abLbl:SetJustifyH("LEFT")
-            abLbl:SetPoint("LEFT", abItem, "LEFT", 10, 0)
-            abLbl:SetText("Action Bars")
-            local abArrow = abItem:CreateTexture(nil, "ARTWORK")
-            abArrow:SetSize(10, 10)
-            abArrow:SetPoint("RIGHT", abItem, "RIGHT", -8, 0)
-            abArrow:SetTexture(ARROW_RIGHT_ICON)
-            abArrow:SetAlpha(0.7)
-            sYOff = sYOff - sITEM_H
-            -- Nested sub-menu for individual bars
-            local cogSnapBarMenu
-            local function ShowCogSnapBarSub()
-                if cogSnapBarMenu then
-                    for _, child in ipairs({cogSnapBarMenu:GetChildren()}) do child:Hide(); child:SetParent(nil) end
-                    for _, tex in ipairs({cogSnapBarMenu:GetRegions()}) do if tex.Hide then tex:Hide() end end
-                end
-                cogSnapBarMenu = cogSnapBarMenu or CreateFrame("Frame", nil, cogMenu)
-                cogSnapBarMenu:SetFrameStrata("FULLSCREEN_DIALOG")
-                cogSnapBarMenu:SetFrameLevel(270)
-                cogSnapBarMenu:SetClampedToScreen(true)
-                cogSnapBarMenu:SetSize(DD_W, 10)
-                cogSnapBarMenu:SetPoint("TOPLEFT", abItem, "TOPRIGHT", 2, 0)
-                local bBg = cogSnapBarMenu:CreateTexture(nil, "BACKGROUND")
-                bBg:SetAllPoints()
-                bBg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
-                EllesmereUI.MakeBorder(cogSnapBarMenu, 1, 1, 1, 0.20)
-                local bYOff = -4
-                for _, bk in ipairs(ALL_BAR_ORDER) do
-                    if bk ~= barKey and movers[bk] and movers[bk]:IsShown() and not GetVisibilityOnly()[bk] then
-                        local bLabel = GetBarLabel(bk)
-                        local bSel = (curTgt == bk)
-                        local bi = CreateFrame("Button", nil, cogSnapBarMenu)
-                        bi:SetHeight(sITEM_H)
-                        bi:SetPoint("TOPLEFT", cogSnapBarMenu, "TOPLEFT", 1, bYOff)
-                        bi:SetPoint("TOPRIGHT", cogSnapBarMenu, "TOPRIGHT", -1, bYOff)
-                        bi:SetFrameLevel(cogSnapBarMenu:GetFrameLevel() + 2)
-                        bi:RegisterForClicks("AnyUp")
-                        local bHl = bi:CreateTexture(nil, "ARTWORK")
-                        bHl:SetAllPoints()
-                        bHl:SetColorTexture(1, 1, 1, bSel and 0.04 or 0)
-                        local bLbl = bi:CreateFontString(nil, "OVERLAY")
-                        bLbl:SetFont(FONT_PATH, 11, "OUTLINE")
-                        bLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
-                        bLbl:SetJustifyH("LEFT")
-                        bLbl:SetPoint("LEFT", bi, "LEFT", 10, 0)
-                        bLbl:SetText(bLabel)
-                        if bSel then bLbl:SetTextColor(1, 1, 1, 1) end
-                        bi:SetScript("OnEnter", function()
-                            bHl:SetColorTexture(1, 1, 1, 0.08)
-                            bLbl:SetTextColor(1, 1, 1, 1)
-                        end)
-                        bi:SetScript("OnLeave", function()
-                            bHl:SetColorTexture(1, 1, 1, bSel and 0.04 or 0)
-                            bLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
-                        end)
-                        bi:SetScript("OnClick", function()
-                            mover._snapTarget = bk
-                            UpdateSnapLabel()
-                            CloseCogMenu()
-                        end)
-                        bYOff = bYOff - sITEM_H
-                    end
-                end
-                cogSnapBarMenu:SetHeight(-bYOff + 4)
-                cogSnapBarMenu:EnableMouse(true)
-                cogSnapBarMenu:SetScript("OnLeave", function(self)
-                    C_Timer.After(0.05, function()
-                        if self:IsShown() and not self:IsMouseOver() and not abItem:IsMouseOver() then
-                            self:Hide()
-                        end
-                    end)
-                end)
-                cogSnapBarMenu:Show()
-            end
-            abItem:SetScript("OnEnter", function()
-                abHl:SetColorTexture(1, 1, 1, 0.08)
-                abLbl:SetTextColor(1, 1, 1, 1)
-                abArrow:SetAlpha(0.9)
-                ShowCogSnapBarSub()
-            end)
-            abItem:SetScript("OnLeave", function()
-                abHl:SetColorTexture(1, 1, 1, 0)
-                abLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
-                abArrow:SetAlpha(0.5)
-                C_Timer.After(0.05, function()
-                    if cogSnapBarMenu and cogSnapBarMenu:IsShown() and not cogSnapBarMenu:IsMouseOver() and not abItem:IsMouseOver() then
-                        cogSnapBarMenu:Hide()
-                    end
-                end)
-            end)
-            -- Registered element groups (Unit Frames, Resource Bars, Cursor Lite, etc.)
+            -- Registered element groups (Unit Frames, Action Bars, Resource Bars, etc.)
             RebuildRegisteredOrder()
             local cogRegGroups = {}
             local cogRegGroupOrder = {}
@@ -3414,6 +3288,10 @@ local function CreateMover(barKey)
 
                 local crSub
                 local function ShowCogRegSub()
+                    -- Close any other open leaf sub-menus first
+                    for otherName, crs in pairs(cogRegSubMenus) do
+                        if otherName ~= gName and crs and crs:IsShown() then crs:Hide() end
+                    end
                     if crSub then
                         for _, child in ipairs({crSub:GetChildren()}) do child:Hide(); child:SetParent(nil) end
                         for _, tex in ipairs({crSub:GetRegions()}) do if tex.Hide then tex:Hide() end end
@@ -3464,13 +3342,19 @@ local function CreateMover(barKey)
                         crsYOff = crsYOff - sITEM_H
                     end
                     crSub:SetHeight(-crsYOff + 4)
+                    -- Width: fit the widest label
+                    local crsMaxW = DD_W
+                    for _, eInfo in ipairs(gElems) do
+                        local tw = (EllesmereUI.MeasureText and EllesmereUI.MeasureText(eInfo.label, FONT_PATH, 11)) or 0
+                        local needed = 10 + tw + 10 + 2
+                        if needed > crsMaxW then crsMaxW = needed end
+                    end
+                    crSub:SetWidth(crsMaxW)
                     crSub:EnableMouse(true)
                     crSub:SetScript("OnLeave", function(self)
-                        C_Timer.After(0.05, function()
-                            if self:IsShown() and not self:IsMouseOver() and not crItem:IsMouseOver() then
-                                self:Hide()
-                            end
-                        end)
+                        if self:IsShown() and not self:IsMouseOver() and not crItem:IsMouseOver() then
+                            self:Hide()
+                        end
                     end)
                     crSub:Show()
                     cogRegSubMenus[gName] = crSub
@@ -3486,37 +3370,30 @@ local function CreateMover(barKey)
                     crHl:SetColorTexture(1, 1, 1, 0)
                     crLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
                     crArrow:SetAlpha(0.5)
-                    C_Timer.After(0.05, function()
-                        local crs = cogRegSubMenus[gName]
-                        if crs and crs:IsShown() and not crs:IsMouseOver() and not crItem:IsMouseOver() then
-                            crs:Hide()
-                        end
-                    end)
+                    local crs = cogRegSubMenus[gName]
+                    if crs and crs:IsShown() and not crs:IsMouseOver() and not crItem:IsMouseOver() then
+                        crs:Hide()
+                    end
                 end)
             end
             cogSnapMenu:SetHeight(-sYOff + 4)
             cogSnapMenu:EnableMouse(true)
             cogSnapMenu:SetScript("OnLeave", function(self)
-                C_Timer.After(0.05, function()
-                    if self:IsShown() and not self:IsMouseOver() and not snapItem:IsMouseOver()
-                       and not (cogSnapBarMenu and cogSnapBarMenu:IsMouseOver()) then
-                        -- Also check registered group sub-menus
-                        for _, crs in pairs(cogRegSubMenus) do
-                            if crs and crs:IsShown() and crs:IsMouseOver() then return end
-                        end
-                        if cogSnapBarMenu then cogSnapBarMenu:Hide() end
-                        for _, crs in pairs(cogRegSubMenus) do
-                            if crs then crs:Hide() end
-                        end
-                        self:Hide()
+                if self:IsShown() and not self:IsMouseOver() and not snapItem:IsMouseOver() then
+                    for _, crs in pairs(cogRegSubMenus) do
+                        if crs and crs:IsShown() and crs:IsMouseOver() then return end
                     end
-                end)
+                    for _, crs in pairs(cogRegSubMenus) do
+                        if crs then crs:Hide() end
+                    end
+                    self:Hide()
+                end
             end)
             cogSnapMenu:Show()
         end
         snapItem:SetScript("OnEnter", function()
             if not snapEnabled then
-                EllesmereUI.ShowWidgetTooltip(snapItem, "Snap to Elements is disabled")
+                EllesmereUI.ShowWidgetTooltip(snapItem, "Snap Elements is disabled")
                 return
             end
             snapHl:SetColorTexture(1, 1, 1, 0.08)
@@ -3596,7 +3473,7 @@ local function CreateMover(barKey)
             if b then
                 -- For action bars, reset scale via EAB profile
                 local elem = registeredElements[bk]
-                if not elem and EAB and EAB.db and EAB.db.profile.bars[bk] then
+                if EAB and EAB.db and EAB.db.profile.bars[bk] then
                     EAB.db.profile.bars[bk].barScale = 1
                     if not InCombatLockdown() then
                         EAB:ApplyScaleForBar(bk)
@@ -3806,16 +3683,15 @@ local function CreateMover(barKey)
             local b = GetBarFrame(bk)
             if b then
                 local elem = registeredElements[bk]
-                local eabKey = bk:match("^EAB_(.+)$")
-                local isActionBar = eabKey and EAB and EAB.db and EAB.db.profile.bars[eabKey]
+                local isActionBar = EAB and EAB.db and EAB.db.profile.bars[bk]
                 if isActionBar then
                     local uiS = UIParent:GetEffectiveScale()
                     local oldS = b:GetEffectiveScale()
                     local oldCX = (b:GetLeft() + b:GetRight()) * 0.5 * oldS / uiS
                     local oldCY = (b:GetTop() + b:GetBottom()) * 0.5 * oldS / uiS
-                    EAB.db.profile.bars[eabKey].barScale = sc
+                    EAB.db.profile.bars[bk].barScale = sc
                     if not InCombatLockdown() then
-                        EAB:ApplyScaleForBar(eabKey)
+                        EAB:ApplyScaleForBar(bk)
                     end
                     local newS = b:GetEffectiveScale()
                     pcall(function()
@@ -3849,8 +3725,7 @@ local function CreateMover(barKey)
                 -- For action bars, update the stored position to match
                 -- the bar's new anchor after re-centering, so CommitPositions
                 -- saves the correct coordinates for the new scale.
-                local eabK = bk:match("^EAB_(.+)$")
-                if eabK and b then
+                if EAB and EAB.db and EAB.db.profile.bars[bk] and b then
                     local pt, _, rpt, px, py = b:GetPoint(1)
                     if pt then
                         pendingPositions[bk].point = pt
@@ -4056,6 +3931,7 @@ local MAGNET_ICON     = "Interface\\AddOns\\EllesmereUI\\media\\icons\\magnet.pn
 local FLASHLIGHT_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\flashlight.png"
 local HOVER_ICON      = "Interface\\AddOns\\EllesmereUI\\media\\icons\\hover.png"
 local DARK_OVERLAY_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\dark-overlay.png"
+local COORD_ICON      = "Interface\\AddOns\\EllesmereUI\\media\\icons\\coordinates.png"
 local BANNER_TEX      = "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-banner-2.png"
 
 local HUD_ON_ALPHA  = 0.60
@@ -4257,7 +4133,7 @@ local function CreateHUD(parent)
     --  Magnet/Snap toggle (right of center): label RIGHT of icon
     ---------------------------------------------------------------
     local magnetBtn = CreateFrame("Button", nil, hudFrame)
-    magnetBtn:SetPoint("LEFT", hudFrame, "TOP", 80 - iconSz / 2, iconCenterY)
+    magnetBtn:SetPoint("LEFT", hudFrame, "TOP", 76 - iconSz / 2, iconCenterY)
 
     local magnetTex = magnetBtn:CreateTexture(nil, "OVERLAY")
     magnetTex:SetSize(iconSz, iconSz)
@@ -4271,7 +4147,7 @@ local function CreateHUD(parent)
     magnetLabel:SetJustifyH("LEFT")
     magnetLabel:SetPoint("LEFT", magnetTex, "RIGHT", 5, 0)
     magnetLabel:SetTextColor(1, 1, 1, snapEnabled and HUD_ON_ALPHA or HUD_OFF_ALPHA)
-    magnetLabel:SetText(snapEnabled and "Snap to Elements\nEnabled" or "Snap to Elements\nDisabled")
+    magnetLabel:SetText(snapEnabled and "Snap Elements\nEnabled" or "Snap Elements\nDisabled")
     magnetBtn._label = magnetLabel
 
     local magnetLabelW = magnetLabel:GetStringWidth() or 100
@@ -4284,7 +4160,7 @@ local function CreateHUD(parent)
             if EllesmereUIDB then EllesmereUIDB.unlockSnapEnabled = snapEnabled end
             magnetTex:SetAlpha(snapEnabled and HUD_ON_ALPHA or HUD_OFF_ALPHA)
             magnetLabel:SetTextColor(1, 1, 1, snapEnabled and HUD_ON_ALPHA or HUD_OFF_ALPHA)
-            magnetLabel:SetText(snapEnabled and "Snap to Elements\nEnabled" or "Snap to Elements\nDisabled")
+            magnetLabel:SetText(snapEnabled and "Snap Elements\nEnabled" or "Snap Elements\nDisabled")
             -- Refresh all movers' snap dropdown visual state
             for _, m in pairs(movers) do
                 if m._refreshSnapDD then m._refreshSnapDD() end
@@ -4293,14 +4169,61 @@ local function CreateHUD(parent)
     hudFrame._magnetBtn = magnetBtn
 
     ---------------------------------------------------------------
-    --  Hover toggle (right of snap): label RIGHT of icon
+    --  Coordinates toggle (right of snap): label RIGHT of icon
+    ---------------------------------------------------------------
+    local coordBtn = CreateFrame("Button", nil, hudFrame)
+    coordBtn:SetPoint("LEFT", magnetBtn, "RIGHT", 7, 0)
+
+    local coordTex = coordBtn:CreateTexture(nil, "OVERLAY")
+    coordTex:SetSize(iconSz, iconSz)
+    coordTex:SetPoint("LEFT", coordBtn, "LEFT", 0, 0)
+    coordTex:SetTexture(COORD_ICON)
+    coordTex:SetAlpha(coordsEnabled and HUD_ON_ALPHA or HUD_OFF_ALPHA)
+    coordBtn._tex = coordTex
+
+    local coordLabel = coordBtn:CreateFontString(nil, "OVERLAY")
+    coordLabel:SetFont(FONT_PATH, 10, "OUTLINE")
+    coordLabel:SetJustifyH("LEFT")
+    coordLabel:SetPoint("LEFT", coordTex, "RIGHT", 1, 0)
+    coordLabel:SetTextColor(1, 1, 1, coordsEnabled and HUD_ON_ALPHA or HUD_OFF_ALPHA)
+    coordLabel:SetText(coordsEnabled and "Coordinates\nEnabled" or "Coordinates\nDisabled")
+    coordBtn._label = coordLabel
+
+    local coordLabelW = coordLabel:GetStringWidth() or 110
+    coordBtn:SetSize(iconSz + 5 + coordLabelW, max(iconSz, 24))
+
+    SetupToggleBtn(coordBtn, coordTex, coordLabel,
+        function() return coordsEnabled end,
+        function()
+            coordsEnabled = not coordsEnabled
+            coordTex:SetAlpha(coordsEnabled and HUD_ON_ALPHA or HUD_OFF_ALPHA)
+            coordLabel:SetTextColor(1, 1, 1, coordsEnabled and HUD_ON_ALPHA or HUD_OFF_ALPHA)
+            coordLabel:SetText(coordsEnabled and "Coordinates\nEnabled" or "Coordinates\nDisabled")
+            -- Show or hide coords for all movers based on new state
+            for _, m in pairs(movers) do
+                if m._coordFS then
+                    if coordsEnabled then
+                        if m.UpdateCoordText then m:UpdateCoordText() end
+                    else
+                        -- Only keep visible on the currently selected mover
+                        if not m._selected then
+                            m._coordFS:Hide()
+                        end
+                    end
+                end
+            end
+        end)
+    hudFrame._coordBtn = coordBtn
+
+    ---------------------------------------------------------------
+    --  Hover toggle (right of coords): label RIGHT of icon
     ---------------------------------------------------------------
     local hoverBtn = CreateFrame("Button", nil, hudFrame)
-    hoverBtn:SetPoint("LEFT", magnetBtn, "RIGHT", 20, 0)
+    hoverBtn:SetPoint("LEFT", coordBtn, "RIGHT", 2, 0)
 
     local hoverTex = hoverBtn:CreateTexture(nil, "OVERLAY")
     hoverTex:SetSize(iconSz, iconSz)
-    hoverTex:SetPoint("LEFT", hoverBtn, "LEFT", 0, -2)
+    hoverTex:SetPoint("LEFT", hoverBtn, "LEFT", 0, 0)
     hoverTex:SetTexture(HOVER_ICON)
     hoverTex:SetAlpha(hoverBarEnabled and HUD_ON_ALPHA or HUD_OFF_ALPHA)
     hoverBtn._tex = hoverTex
@@ -4346,7 +4269,7 @@ local function CreateHUD(parent)
     -- Save & Exit button (right side, 50px from right edge, green "Done" style)
     do
         local btn = CreateFrame("Button", nil, hudFrame)
-        btn:SetSize(100, BTN_H)
+        btn:SetSize(90, BTN_H)
         btn:SetPoint("RIGHT", hudFrame, "TOPRIGHT", -85, btnCenterY)
         btn:SetFrameLevel(hudFrame:GetFrameLevel() + 2)
 
@@ -4636,10 +4559,9 @@ local function SnapshotPositions()
         local elem = registeredElements[key]
         local snap = snapshotPositions[key]
         if snap and elem then
-            -- EAB_ action bar elements: snapshot from EAB profile
-            local eabKey = key:match("^EAB_(.+)$")
-            if eabKey and EAB and EAB.db and EAB.db.profile.bars[eabKey] then
-                snap.barScale = EAB.db.profile.bars[eabKey].barScale
+            -- Action bar elements: snapshot barScale from EAB profile
+            if EAB and EAB.db and EAB.db.profile.bars[key] then
+                snap.barScale = EAB.db.profile.bars[key].barScale
             else
                 -- Non-action-bar elements: snapshot from getScale or frame:GetScale
                 if elem.getScale then
@@ -4717,14 +4639,10 @@ local function RevertPositions()
     -- Revert action bar scale to snapshot values
     if EAB and EAB.db then
         for barKey, _ in pairs(pendingPositions) do
-            -- For action bars (both legacy and registered EAB_ elements),
-            -- revert barScale to the snapshot value.
-            local eabKey = barKey:match("^EAB_(.+)$") or barKey
-            if not registeredElements[barKey] or barKey:match("^EAB_") then
-                local snap = snapshotPositions[barKey]
-                if snap and snap.barScale and EAB.db.profile.bars[eabKey] then
-                    EAB.db.profile.bars[eabKey].barScale = snap.barScale
-                end
+            -- For action bars, revert barScale to the snapshot value.
+            local snap = snapshotPositions[barKey]
+            if snap and snap.barScale and EAB.db.profile.bars[barKey] then
+                EAB.db.profile.bars[barKey].barScale = snap.barScale
             end
         end
     end
@@ -4748,7 +4666,7 @@ local function RevertPositions()
             if snap then
                 -- Revert scale for non-action-bar registered elements
                 local elem = registeredElements[barKey]
-                if elem and not barKey:match("^EAB_") and snap.elemScale then
+                if elem and not (EAB and EAB.db and EAB.db.profile.bars[barKey]) and snap.elemScale then
                     pcall(function() bar:SetScale(snap.elemScale) end)
                 end
                 pcall(function()
@@ -5373,8 +5291,8 @@ function ns.OpenUnlockMode()
                     hudFrame:SetPoint("TOP", UIParent, "TOP", 0, (BANNER_PX_H + 10) * ppS)
                 end
                 for _, barKey in ipairs(ALL_BAR_ORDER) do
-                    -- Skip bars that have a registered EAB_ element (avoids duplicates)
-                    if not registeredElements["EAB_" .. barKey] then
+                    -- Skip bars that have a registered element (avoids duplicates)
+                    if not registeredElements[barKey] then
                         local m = CreateMover(barKey)
                         if m then m:Sync(); m:SetAlpha(0) end
                     end

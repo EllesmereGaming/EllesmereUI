@@ -4310,18 +4310,83 @@ initFrame:SetScript("OnEvent", function(self)
                   Refresh()
               end });  y = y - h
 
-        -- Inline active anim color swatch + eye + cog on Active Animation (right of row 1)
+        -- Inline active anim color swatches + eye on Active Animation (right of row 1)
+        -- Order right-to-left: [class swatch] [custom swatch] [eye]
         do
             local rightRgn = scaleAnimRow._rightRegion
             local ctrl = rightRgn._control
 
-            -- Eye preview button
+            -- Class color swatch (rightmost, single-click activates class color mode)
+            local classSwatch, updateClassSwatch = EllesmereUI.BuildColorSwatch(
+                rightRgn, scaleAnimRow:GetFrameLevel() + 3,
+                function()
+                    local _, classFile = UnitClass("player")
+                    local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                    if cc then return cc.r, cc.g, cc.b end
+                    return 1, 0.82, 0
+                end,
+                function() end,
+                false, 20)
+            PP.Point(classSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            classSwatch:SetScript("OnClick", function()
+                BD().activeAnimClassColor = true; ns.BuildAllCDMBars()
+                if _cdmActivePreviewOn and _cdmPreview then StopActiveStatePreview(); StartActiveStatePreview() end
+                Refresh(); EllesmereUI:RefreshPage()
+            end)
+            classSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(classSwatch, "Class Colored")
+            end)
+            classSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Custom color swatch (left of class swatch, two-click: first activates custom mode)
+            local animSwatch, updateAnimSwatch = EllesmereUI.BuildColorSwatch(
+                rightRgn, scaleAnimRow:GetFrameLevel() + 3,
+                function() return BD().activeAnimR or 1.0, BD().activeAnimG or 0.85, BD().activeAnimB or 0.0 end,
+                function(r, g, b)
+                    BD().activeAnimR = r; BD().activeAnimG = g; BD().activeAnimB = b
+                    ns.BuildAllCDMBars()
+                    if _cdmActivePreviewOn and _cdmPreview then StopActiveStatePreview(); StartActiveStatePreview() end
+                    Refresh()
+                end,
+                false, 20)
+            PP.Point(animSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
+            animSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(animSwatch, "Custom Colored")
+            end)
+            animSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Block overlay on custom swatch -- clicking while class colored deactivates class color mode
+            local animSwatchBlock = CreateFrame("Button", nil, animSwatch)
+            animSwatchBlock:SetAllPoints(); animSwatchBlock:SetFrameLevel(animSwatch:GetFrameLevel() + 10)
+            animSwatchBlock:EnableMouse(true)
+            animSwatchBlock:SetScript("OnClick", function()
+                local a = BD().activeStateAnim or "blizzard"
+                local noAnim = a == "none" or a == "hideActive" or IsCustomShape()
+                if not noAnim and BD().activeAnimClassColor then
+                    BD().activeAnimClassColor = false; ns.BuildAllCDMBars()
+                    if _cdmActivePreviewOn and _cdmPreview then StopActiveStatePreview(); StartActiveStatePreview() end
+                    Refresh(); EllesmereUI:RefreshPage()
+                end
+            end)
+            animSwatchBlock:SetScript("OnEnter", function()
+                local a = BD().activeStateAnim or "blizzard"
+                local reason
+                if a == "none" or a == "hideActive" or IsCustomShape() then
+                    reason = "This option requires an active state selection"
+                else
+                    reason = "Color is controlled by class color"
+                end
+                EllesmereUI.ShowWidgetTooltip(animSwatch, EllesmereUI.DisabledTooltip(reason))
+            end)
+            animSwatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Eye preview button (leftmost, left of custom swatch)
             local EYE_MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
             local EYE_VIS   = EYE_MEDIA .. "eui-visible.png"
             local EYE_INVIS = EYE_MEDIA .. "eui-invisible.png"
             local eyeBtn = CreateFrame("Button", nil, rightRgn)
             eyeBtn:SetSize(26, 26)
-            eyeBtn:SetPoint("RIGHT", ctrl, "LEFT", -8, 0)
+            eyeBtn:SetPoint("RIGHT", animSwatch, "LEFT", -8, 0)
             eyeBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
             eyeBtn:SetAlpha(0.4)
             local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
@@ -4344,60 +4409,21 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             eyeBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
-            -- Color swatch
-            local animSwatch, updateAnimSwatch = EllesmereUI.BuildColorSwatch(
-                rightRgn, scaleAnimRow:GetFrameLevel() + 3,
-                function() return BD().activeAnimR or 1.0, BD().activeAnimG or 0.85, BD().activeAnimB or 0.0 end,
-                function(r, g, b)
-                    BD().activeAnimR = r; BD().activeAnimG = g; BD().activeAnimB = b
-                    ns.BuildAllCDMBars()
-                    if _cdmActivePreviewOn and _cdmPreview then StopActiveStatePreview(); StartActiveStatePreview() end
-                    Refresh()
-                end,
-                false, 20)
-            PP.Point(animSwatch, "RIGHT", eyeBtn, "LEFT", -8, 0)
-
-            local animSwatchBlock = CreateFrame("Frame", nil, animSwatch)
-            animSwatchBlock:SetAllPoints(); animSwatchBlock:SetFrameLevel(animSwatch:GetFrameLevel() + 10)
-            animSwatchBlock:EnableMouse(true)
-            animSwatchBlock:SetScript("OnEnter", function()
-                local reason
-                local a = BD().activeStateAnim or "blizzard"
-                if a == "none" or a == "hideActive" or IsCustomShape() then
-                    reason = "This option requires an active state selection"
-                else
-                    reason = "Color is controlled by class color"
-                end
-                EllesmereUI.ShowWidgetTooltip(animSwatch, EllesmereUI.DisabledTooltip(reason))
-            end)
-            animSwatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            -- Cog popup with class color toggle
-            local _, animCogShow = EllesmereUI.BuildCogPopup({
-                title = "Animation Options",
-                rows = {
-                    { type="toggle", label="Class Colored Animation",
-                      get=function() return BD().activeAnimClassColor end,
-                      set=function(v)
-                          BD().activeAnimClassColor = v; ns.BuildAllCDMBars()
-                          if _cdmActivePreviewOn and _cdmPreview then StopActiveStatePreview(); StartActiveStatePreview() end
-                          Refresh(); EllesmereUI:RefreshPage()
-                      end },
-                },
-            })
-            MakeCogBtn(rightRgn, animCogShow, animSwatch, EllesmereUI.COGS_ICON)
-
             local function UpdateAnimState()
                 local a = BD().activeStateAnim or "blizzard"
                 local noAnim = a == "none" or a == "hideActive" or IsCustomShape()
                 RefreshEye()
                 if noAnim then eyeBtn:SetAlpha(0.15); eyeBlock:Show()
                 else eyeBtn:SetAlpha(0.4); eyeBlock:Hide() end
-                local swatchDis = BD().activeAnimClassColor or noAnim
-                if swatchDis then animSwatch:SetAlpha(0.3); animSwatchBlock:Show()
+                local isClassColored = BD().activeAnimClassColor
+                -- Custom swatch: dim when class colored or no anim
+                local customDis = isClassColored or noAnim
+                if customDis then animSwatch:SetAlpha(0.3); animSwatchBlock:Show()
                 else animSwatch:SetAlpha(1); animSwatchBlock:Hide() end
+                -- Class swatch: bright when class colored, dim when custom or no anim
+                classSwatch:SetAlpha((isClassColored and not noAnim) and 1 or 0.3)
             end
-            EllesmereUI.RegisterWidgetRefresh(function() updateAnimSwatch(); UpdateAnimState() end)
+            EllesmereUI.RegisterWidgetRefresh(function() updateAnimSwatch(); updateClassSwatch(); UpdateAnimState() end)
             UpdateAnimState()
         end
 
@@ -4545,10 +4571,35 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Inline border color swatch + cog (class color) on Border Size (left of row 3)
+        -- Inline border color swatches on Border Size (left of row 3)
+        -- Order right-to-left: [class swatch] [custom swatch]
         do
             local leftRgn = borderRow._leftRegion
             local ctrl = leftRgn._control
+
+            -- Class color swatch (rightmost, single-click activates class color mode)
+            local classBorderSwatch, updateClassBorderSwatch = EllesmereUI.BuildColorSwatch(
+                leftRgn, borderRow:GetFrameLevel() + 3,
+                function()
+                    local _, classFile = UnitClass("player")
+                    local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                    if cc then return cc.r, cc.g, cc.b end
+                    return 1, 1, 1
+                end,
+                function() end,
+                false, 20)
+            PP.Point(classBorderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            classBorderSwatch:SetScript("OnClick", function()
+                BD().borderClassColor = true
+                ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
+                EllesmereUI:RefreshPage()
+            end)
+            classBorderSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(classBorderSwatch, "Class Colored")
+            end)
+            classBorderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Custom color swatch (left of class swatch, two-click: first activates custom mode)
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                 leftRgn, borderRow:GetFrameLevel() + 3,
                 function() return BD().borderR or 0, BD().borderG or 0, BD().borderB or 0 end,
@@ -4557,39 +4608,39 @@ initFrame:SetScript("OnEvent", function(self)
                     ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
                 end,
                 false, 20)
-            PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            PP.Point(swatch, "RIGHT", classBorderSwatch, "LEFT", -8, 0)
+            swatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(swatch, "Custom Colored")
+            end)
+            swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
-            local swatchBlock = CreateFrame("Frame", nil, swatch)
+            -- Block overlay on custom swatch -- clicking while class colored deactivates class color mode
+            local swatchBlock = CreateFrame("Button", nil, swatch)
             swatchBlock:SetAllPoints()
             swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
             swatchBlock:EnableMouse(true)
+            swatchBlock:SetScript("OnClick", function()
+                if BD().borderClassColor then
+                    BD().borderClassColor = false
+                    ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
+                    EllesmereUI:RefreshPage()
+                end
+            end)
             swatchBlock:SetScript("OnEnter", function()
                 EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Border color is controlled by class color"))
             end)
             swatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
-            local _, borderCogShow = EllesmereUI.BuildCogPopup({
-                title = "Border Options",
-                rows = {
-                    { type="toggle", label="Class Colored Border",
-                      get=function() return BD().borderClassColor end,
-                      set=function(v)
-                          BD().borderClassColor = v
-                          ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
-                          EllesmereUI:RefreshPage()
-                      end },
-                },
-            })
-            MakeCogBtn(leftRgn, borderCogShow, swatch, EllesmereUI.COGS_ICON)
-
             local function UpdateBorderSwatchState()
-                if BD().borderClassColor then
+                local isClassColored = BD().borderClassColor
+                if isClassColored then
                     swatch:SetAlpha(0.3); swatchBlock:Show()
                 else
                     swatch:SetAlpha(1); swatchBlock:Hide()
                 end
+                classBorderSwatch:SetAlpha(isClassColored and 1 or 0.3)
             end
-            EllesmereUI.RegisterWidgetRefresh(function() updateSwatch(); UpdateBorderSwatchState() end)
+            EllesmereUI.RegisterWidgetRefresh(function() updateSwatch(); updateClassBorderSwatch(); UpdateBorderSwatchState() end)
             UpdateBorderSwatchState()
         end
 
