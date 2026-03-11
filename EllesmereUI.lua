@@ -2407,6 +2407,16 @@ function EllesmereUI:ShowInputPopup(opts)
         end)
         popup._editBox = editBox
 
+        -- Optional warning text (shown below the input field)
+        local warnLabel = MakeFont(popup, 10, nil, 1, 0.65, 0.2, 0.85)
+        warnLabel:SetPoint("TOP", inputFrame, "BOTTOM", 0, -8)
+        warnLabel:SetWidth(POPUP_W - 40)
+        warnLabel:SetJustifyH("CENTER")
+        warnLabel:SetWordWrap(true)
+        warnLabel:SetSpacing(2)
+        warnLabel:Hide()
+        popup._warnLabel = warnLabel
+
         -- Optional extra button (shown above the input field, e.g. "Add Current Zone")
         local EXTRA_BTN_W, EXTRA_BTN_H = 160, 28
         local extraBtn = CreateFrame("Button", nil, popup)
@@ -2543,6 +2553,7 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._confirmBtn._resetAnim()
 
     -- Extra button (e.g. "Add Current Zone")
+    local extraH = 0
     if opts.extraButton then
         popup._extraLbl:SetText(opts.extraButton.text or "Extra")
         popup._extraBtn._resetAnim()
@@ -2550,11 +2561,23 @@ function EllesmereUI:ShowInputPopup(opts)
             if opts.extraButton.onClick then opts.extraButton.onClick(popup._editBox) end
         end)
         popup._extraBtn:Show()
-        popup:SetHeight(220)  -- taller to fit extra button
+        extraH = 26
     else
         popup._extraBtn:Hide()
-        popup:SetHeight(194)  -- default height
     end
+
+    -- Optional warning text below the input field
+    local warnH = 0
+    if opts.warning and opts.warning ~= "" then
+        popup._warnLabel:SetText(opts.warning)
+        popup._warnLabel:Show()
+        warnH = popup._warnLabel:GetStringHeight() + 10
+    else
+        popup._warnLabel:SetText("")
+        popup._warnLabel:Hide()
+    end
+
+    popup:SetHeight(194 + extraH + warnH)
 
     popup._cancelBtn:SetScript("OnClick", function()
         popup._dimmer:Hide()
@@ -2599,7 +2622,13 @@ local function CreateMainFrame()
     mainFrame:EnableMouse(false)
     mainFrame:SetMovable(true)
     mainFrame:SetScript("OnShow", function()
-        -- Re-sync PanelPP mult in case UIParent scale changed since last open
+        -- Recalculate pixel-perfect base scale every time the panel opens
+        -- so resolution or UIParent scale changes are picked up immediately
+        local physW2 = (GetPhysicalScreenSize())
+        local baseScale2 = GetScreenWidth() / physW2
+        local userScale2 = (EllesmereUIDB and EllesmereUIDB.panelScale) or 1.0
+        mainFrame:SetScale(baseScale2 * userScale2)
+        -- Re-sync PanelPP mult for the (possibly new) scale
         if EllesmereUI.PanelPP then EllesmereUI.PanelPP.UpdateMult() end
         for _, fn in ipairs(_onShowCallbacks) do fn() end
     end)
@@ -5301,7 +5330,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "4.2"
+EllesmereUI.VERSION = "4.2.5"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

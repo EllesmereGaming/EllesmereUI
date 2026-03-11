@@ -91,11 +91,18 @@ initFrame:SetScript("OnEvent", function(self)
         if cf == "SHAMAN" and spec == 1 then return true end -- Elemental
         if cf == "PRIEST" and spec == 3 then return true end -- Shadow
         if cf == "MONK" and spec == 1 then return true end -- Brewmaster
+        if cf == "HUNTER" and (spec == 1 or spec == 2) then return true end -- BM / MM Focus bar
         if cf == "DEMONHUNTER" and spec then
             local specID = C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo(spec)
             if specID == 1480 then return true end -- Devourer
         end
         return false
+    end
+
+    -- Helper: returns true if the current class/spec has a primary power bar
+    local HasPrimaryPower = function()
+        local gpp = _G._ERB_GetPrimaryPowerType
+        return gpp and gpp() ~= nil
     end
 
     local function IsPreviewHintDismissed()
@@ -1543,12 +1550,23 @@ initFrame:SetScript("OnEvent", function(self)
         local powerSection
         powerSection, h = W:SectionHeader(parent, "POWER BAR", y);  y = y - h
 
-        local powerOff = function() local p = DB(); return p and not p.primary.enabled end
+        local noPrimaryPower = not HasPrimaryPower()
+        local SPEC_DIS = "This option is not available for your spec"
+        local powerOff = function()
+            if noPrimaryPower then return true end
+            local p = DB(); return p and not p.primary.enabled
+        end
+        local powerDisTip = function()
+            if noPrimaryPower then return SPEC_DIS end
+            return "Enable Power Bar"
+        end
 
         -- Row 1: Show Power Bar | Orientation
         local powerEnableRow
         powerEnableRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Show Power Bar",
+              disabled = noPrimaryPower and function() return true end or nil,
+              disabledTooltip = noPrimaryPower and SPEC_DIS or nil,
               getValue = function() local p = DB(); return p and p.primary.enabled end,
               setValue = function(v)
                   local p = DB(); if not p then return end
@@ -1557,7 +1575,7 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             { type = "dropdown", text = "Orientation",
               disabled = powerOff,
-              disabledTooltip = "Enable Power Bar",
+              disabledTooltip = powerDisTip,
               values = { HORIZONTAL = "Horizontal", VERTICAL_UP = "Vertical Up", VERTICAL_DOWN = "Vertical Down" },
               order = { "HORIZONTAL", "VERTICAL_UP", "VERTICAL_DOWN" },
               getValue = function()
@@ -1576,7 +1594,7 @@ initFrame:SetScript("OnEvent", function(self)
             { type = "slider", text = "Height",
               min = 1, max = 30, step = 1,
               disabled = powerOff,
-              disabledTooltip = "Enable Power Bar",
+              disabledTooltip = powerDisTip,
               getValue = function() local p = DB(); return p and p.primary.height or 16 end,
               setValue = function(v)
                   local p = DB(); if not p then return end
@@ -1586,7 +1604,7 @@ initFrame:SetScript("OnEvent", function(self)
             { type = "slider", text = "Width",
               min = 50, max = 350, step = 1,
               disabled = powerOff,
-              disabledTooltip = "Enable Power Bar",
+              disabledTooltip = powerDisTip,
               getValue = function() local p = DB(); return p and p.primary.width or 220 end,
               setValue = function(v)
                   local p = DB(); if not p then return end
@@ -1641,7 +1659,7 @@ initFrame:SetScript("OnEvent", function(self)
         powerBorderRow, h = W:DualRow(parent, y,
             { type = "colorpicker", text = "Border", hasAlpha = true,
               disabled = powerOff,
-              disabledTooltip = "Enable Power Bar",
+              disabledTooltip = powerDisTip,
               getValue = function()
                   local p = DB()
                   if not p then return 0, 0, 0, 1 end
@@ -1655,7 +1673,7 @@ initFrame:SetScript("OnEvent", function(self)
             { type = "slider", text = "Opacity",
               min = 0, max = 100, step = 5,
               disabled = powerOff,
-              disabledTooltip = "Enable Power Bar",
+              disabledTooltip = powerDisTip,
               getValue = function() local p = DB(); return math.floor((p and p.primary.barAlpha or 1) * 100 + 0.5) end,
               setValue = function(v)
                   local p = DB(); if not p then return end
@@ -1686,10 +1704,11 @@ initFrame:SetScript("OnEvent", function(self)
             cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
             cogDis:EnableMouse(true)
             cogDis:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Enable Power Bar"))
+                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(noPrimaryPower and SPEC_DIS or "Enable Power Bar"))
             end)
             cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateBorderCogDisP()
+                if noPrimaryPower then cogDis:Show(); return end
                 local p = DB()
                 if p and not p.primary.enabled then cogDis:Show() else cogDis:Hide() end
             end
@@ -1748,7 +1767,7 @@ initFrame:SetScript("OnEvent", function(self)
         powerColorRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Power Colored Fill",
               disabled = powerOff,
-              disabledTooltip = "Enable Power Bar",
+              disabledTooltip = powerDisTip,
               getValue = function() local p = DB(); return p and not p.primary.customColored end,
               setValue = function(v)
                   local p = DB(); if not p then return end
@@ -1757,7 +1776,7 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             { type = "dropdown", text = "Power Text",
               disabled = powerOff,
-              disabledTooltip = "Enable Power Bar",
+              disabledTooltip = powerDisTip,
               values = { none = "None", smart = "Smart Text", curpp = "Power Value", perpp = "Power %", both = "Power Value | Power %" },
               order = { "none", "smart", "curpp", "perpp", "both" },
               getValue = function() local p = DB(); return p and p.primary.textFormat or "none" end,
@@ -1790,6 +1809,10 @@ initFrame:SetScript("OnEvent", function(self)
             swDisTex:SetColorTexture(0.12, 0.12, 0.12, 0.75)
             swDis:EnableMouse(true)
             swDis:SetScript("OnEnter", function()
+                if noPrimaryPower then
+                    EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip(SPEC_DIS))
+                    return
+                end
                 local p = DB()
                 if p and not p.primary.enabled then
                     EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Enable Power Bar"))
@@ -1799,6 +1822,7 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             swDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdatePowerSwDis()
+                if noPrimaryPower then swDis:Show(); swatch:SetAlpha(0.3); return end
                 local p = DB()
                 if p and (not p.primary.enabled or not p.primary.customColored) then
                     swDis:Show(); swatch:SetAlpha(0.3)
@@ -1851,10 +1875,11 @@ initFrame:SetScript("OnEvent", function(self)
             cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
             cogDis:EnableMouse(true)
             cogDis:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Enable Power Bar"))
+                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(noPrimaryPower and SPEC_DIS or "Enable Power Bar"))
             end)
             cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateCogDisP2()
+                if noPrimaryPower then cogDis:Show(); return end
                 local p = DB()
                 if p and not p.primary.enabled then cogDis:Show() else cogDis:Hide() end
             end
@@ -1868,7 +1893,7 @@ initFrame:SetScript("OnEvent", function(self)
         powerThreshRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Threshold Color",
               disabled = powerOff,
-              disabledTooltip = "Enable Power Bar",
+              disabledTooltip = powerDisTip,
               getValue = function() local p = DB(); return p and p.primary.thresholdEnabled end,
               setValue = function(v)
                   local p = DB(); if not p then return end
@@ -1877,8 +1902,15 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             { type = "slider", text = "Threshold %",
               min = 1, max = 99, step = 1,
-              disabled = function() local p = DB(); return p and (not p.primary.enabled or not p.primary.thresholdEnabled) end,
-              disabledTooltip = function() local p = DB(); if p and not p.primary.enabled then return "Enable Power Bar" end; return "Enable Threshold Color first" end,
+              disabled = function()
+                  if noPrimaryPower then return true end
+                  local p = DB(); return p and (not p.primary.enabled or not p.primary.thresholdEnabled)
+              end,
+              disabledTooltip = function()
+                  if noPrimaryPower then return SPEC_DIS end
+                  local p = DB(); if p and not p.primary.enabled then return "Enable Power Bar" end
+                  return "Enable Threshold Color first"
+              end,
               getValue = function() local p = DB(); return p and p.primary.thresholdPct or 30 end,
               setValue = function(v)
                   local p = DB(); if not p then return end
@@ -1909,6 +1941,10 @@ initFrame:SetScript("OnEvent", function(self)
             swDisTex:SetColorTexture(0.12, 0.12, 0.12, 0.75)
             swDis:EnableMouse(true)
             swDis:SetScript("OnEnter", function()
+                if noPrimaryPower then
+                    EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip(SPEC_DIS))
+                    return
+                end
                 local p = DB()
                 if p and not p.primary.enabled then
                     EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Enable Power Bar"))
@@ -1918,6 +1954,7 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             swDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdatePowerThreshSwDis()
+                if noPrimaryPower then swDis:Show(); return end
                 local p = DB()
                 if p and (not p.primary.enabled or not p.primary.thresholdEnabled) then swDis:Show() else swDis:Hide() end
             end
@@ -1931,7 +1968,7 @@ initFrame:SetScript("OnEvent", function(self)
         powerAnchorRow, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Anchored To",
               disabled = powerOff,
-              disabledTooltip = "Enable Power Bar",
+              disabledTooltip = powerDisTip,
               values = {
                   none = "None", erb_classresource = "Class Resource", erb_health = "Health Bar",
                   ["---1"] = "---",
@@ -1945,8 +1982,14 @@ initFrame:SetScript("OnEvent", function(self)
                   p.primary.anchorTo = v; SmoothRefresh()
               end },
             { type = "dropdown", text = "Anchor Position",
-              disabled = function() local p = DB(); return p and (not p.primary.enabled or (p.primary.anchorTo or "none") == "none") end,
-              disabledTooltip = "Set Anchored To first",
+              disabled = function()
+                  if noPrimaryPower then return true end
+                  local p = DB(); return p and (not p.primary.enabled or (p.primary.anchorTo or "none") == "none")
+              end,
+              disabledTooltip = function()
+                  if noPrimaryPower then return SPEC_DIS end
+                  return "Set Anchored To first"
+              end,
               values = { left = "Left", right = "Right", top = "Top", bottom = "Bottom" },
               order = { "left", "right", "top", "bottom" },
               getValue = function() local p = DB(); return p and p.primary.anchorPosition or "left" end,
@@ -1981,10 +2024,11 @@ initFrame:SetScript("OnEvent", function(self)
             cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
             cogDis:EnableMouse(true)
             cogDis:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Set Anchored To first"))
+                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(noPrimaryPower and SPEC_DIS or "Set Anchored To first"))
             end)
             cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdatePowerAnchorCogDis()
+                if noPrimaryPower then cogDis:Show(); return end
                 local p = DB()
                 if p and (not p.primary.enabled or (p.primary.anchorTo or "none") == "none") then cogDis:Show() else cogDis:Hide() end
             end

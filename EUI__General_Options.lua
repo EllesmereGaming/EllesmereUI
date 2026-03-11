@@ -2996,16 +2996,38 @@ initFrame:SetScript("OnEvent", function(self)
             importBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
             EllesmereUI.MakeStyledButton(importBtn, "Import Profile", 13, PROF_BTN_COLOURS, function()
                 EllesmereUI:ShowImportPopup(function(importStr)
+                    -- Pre-decode to detect missing addons for the warning
+                    local warnText
+                    local payload = EllesmereUI.DecodeImportString(importStr)
+                    if payload and payload.type == "full" and payload.data and payload.data.addons then
+                        local missing = {}
+                        local isLoaded = C_AddOns and C_AddOns.IsAddOnLoaded or _G.IsAddOnLoaded
+                        for _, entry in ipairs(EllesmereUI._ADDON_DB_MAP) do
+                            if isLoaded and isLoaded(entry.folder) and not payload.data.addons[entry.folder] then
+                                missing[#missing + 1] = entry.display
+                            end
+                        end
+                        if #missing > 0 then
+                            warnText = "Not included: " .. table.concat(missing, ", ")
+                        end
+                    end
+
                     EllesmereUI:ShowInputPopup({
                         title       = "Name This Profile",
                         message     = "Enter a name for the imported profile:",
                         placeholder = "Imported Profile",
-                        confirmText = "Import",
+                        confirmText = "Import & Reload",
                         cancelText  = "Cancel",
+                        warning     = warnText,
                         onConfirm   = function(name)
                             if not name or name == "" then return end
-                            local ok, err = EllesmereUI.ImportProfile(importStr, name)
-                            if ok then
+                            local ok, err, status = EllesmereUI.ImportProfile(importStr, name)
+                            if ok and status == "spec_locked" then
+                                EllesmereUI:ShowInfoPopup({
+                                    title   = "Profile Imported",
+                                    content = "\"" .. name .. "\" was saved but cannot be loaded because this spec has an assigned profile. Switch specs or remove the spec assignment to use it.",
+                                })
+                            elseif ok then
                                 ReloadUI()
                             else
                                 EllesmereUI:ShowInfoPopup({ title = "Import Failed", content = err or "Unknown error" })
@@ -3023,7 +3045,13 @@ initFrame:SetScript("OnEvent", function(self)
                     onApply = function()
                         EllesmereUI.SpinTheWheel()
                         EllesmereUI.SaveCurrentAsProfile(UniquePresetName("Spin the Wheel"))
-                        ReloadUI()
+                        EllesmereUI:ShowConfirmPopup({
+                            title       = "Reload Required",
+                            message     = "Preset applied. Reload to apply.",
+                            confirmText = "Reload Now",
+                            cancelText  = "Cancel",
+                            onConfirm   = function() ReloadUI() end,
+                        })
                     end,
                 }
                 if EllesmereUI.WEEKLY_SPOTLIGHT then
@@ -3032,9 +3060,20 @@ initFrame:SetScript("OnEvent", function(self)
                         label = "Weekly Spotlight: " .. spot.name,
                         onApply = function()
                             if not spot.exportString then return end
-                            local ok, err = EllesmereUI.ImportProfile(spot.exportString, UniquePresetName("Weekly: " .. spot.name))
-                            if ok then
-                                ReloadUI()
+                            local ok, err, status = EllesmereUI.ImportProfile(spot.exportString, UniquePresetName("Weekly: " .. spot.name))
+                            if ok and status == "spec_locked" then
+                                EllesmereUI:ShowInfoPopup({
+                                    title   = "Profile Imported",
+                                    content = "Profile was saved but cannot be loaded because this spec has an assigned profile.",
+                                })
+                            elseif ok then
+                                EllesmereUI:ShowConfirmPopup({
+                                    title       = "Reload Required",
+                                    message     = "Preset applied. Reload to apply.",
+                                    confirmText = "Reload Now",
+                                    cancelText  = "Cancel",
+                                    onConfirm   = function() ReloadUI() end,
+                                })
                             else EllesmereUI:ShowInfoPopup({ title = "Spotlight Error", content = err or "Unknown error" }) end
                         end,
                     }
@@ -3045,9 +3084,20 @@ initFrame:SetScript("OnEvent", function(self)
                         presetEntries[#presetEntries + 1] = {
                             label = p.name,
                             onApply = function()
-                                local ok, err = EllesmereUI.ImportProfile(p.exportString, UniquePresetName(p.name))
-                                if ok then
-                                    ReloadUI()
+                                local ok, err, status = EllesmereUI.ImportProfile(p.exportString, UniquePresetName(p.name))
+                                if ok and status == "spec_locked" then
+                                    EllesmereUI:ShowInfoPopup({
+                                        title   = "Profile Imported",
+                                        content = "Profile was saved but cannot be loaded because this spec has an assigned profile.",
+                                    })
+                                elseif ok then
+                                    EllesmereUI:ShowConfirmPopup({
+                                        title       = "Reload Required",
+                                        message     = "Preset applied. Reload to apply.",
+                                        confirmText = "Reload Now",
+                                        cancelText  = "Cancel",
+                                        onConfirm   = function() ReloadUI() end,
+                                    })
                                 else EllesmereUI:ShowInfoPopup({ title = "Preset Error", content = err or "Unknown error" }) end
                             end,
                         }
@@ -3078,13 +3128,7 @@ initFrame:SetScript("OnEvent", function(self)
 
                 local menu = MakeDropdownMenu(ddBtn, ITEM_W)
                 local menuBtns = MakeMenuItems(menu, presetEntries, function(idx, entry)
-                    EllesmereUI:ShowConfirmPopup({
-                        title       = entry.label,
-                        message     = "Apply \"" .. entry.label .. "\" as your active profile?",
-                        confirmText = "Apply",
-                        cancelText  = "Cancel",
-                        onConfirm   = function() entry.onApply() end,
-                    })
+                    entry.onApply()
                 end)
 
                 local function PresetApplyNormal()
@@ -3172,6 +3216,13 @@ initFrame:SetScript("OnEvent", function(self)
                 local mH = 4
                 local idx = 0
                 local activeName = EllesmereUI.GetActiveProfileName()
+                -- Determine if current spec has an assigned profile
+                local specAssigned
+                do
+                    local si = GetSpecialization and GetSpecialization() or 0
+                    local sid = si and si > 0 and GetSpecializationInfo(si) or nil
+                    if sid then specAssigned = EllesmereUI.GetSpecProfile(sid) end
+                end
                 for _, name in ipairs(order) do
                     if profiles[name] then
                         idx = idx + 1
@@ -3241,28 +3292,63 @@ initFrame:SetScript("OnEvent", function(self)
                         itm._hl:SetAlpha(itm._isSel and 0.04 or 0)
 
                         local capName = name
-                        itm:SetScript("OnClick", function()
-                            menu:Hide()
-                            EllesmereUI.AutoSaveActiveProfile()
-                            EllesmereUI.SwitchProfile(capName)
-                            ReloadUI()
-                        end)
-                        itm._xBtn:SetScript("OnClick", function()
-                            if capName == "Custom" then return end
-                            menu:Hide()
-                            EllesmereUI:ShowConfirmPopup({
-                                title       = "Delete Profile",
-                                message     = "Delete \"" .. capName .. "\"?",
-                                confirmText = "Delete",
-                                cancelText  = "Cancel",
-                                onConfirm   = function()
-                                    EllesmereUI.DeleteProfile(capName)
-                                    ddLabel:SetText(EllesmereUI.GetActiveProfileName())
-                                    EllesmereUI:InvalidatePageCache()
-                                    EllesmereUI:RefreshPage(true)
-                                end,
-                            })
-                        end)
+                        local specLocked = specAssigned and specAssigned ~= capName
+
+                        if specLocked then
+                            -- Disable: dim label, hide X, block clicks, show tooltip
+                            itm._lbl:SetTextColor(1, 1, 1, 0.25)
+                            itm._xBtn:Hide()
+                            itm:SetScript("OnClick", nil)
+                            itm:SetScript("OnEnter", function()
+                                EllesmereUI.ShowWidgetTooltip(itm, "This spec has an assigned profile")
+                            end)
+                            itm:SetScript("OnLeave", function()
+                                EllesmereUI.HideWidgetTooltip()
+                            end)
+                        else
+                            local iLbl, iHl, iXBtn = itm._lbl, itm._hl, itm._xBtn
+                            iLbl:SetTextColor(1, 1, 1, EllesmereUI.TEXT_DIM_A)
+                            iXBtn:Show()
+                            itm:SetScript("OnEnter", function()
+                                iLbl:SetTextColor(1, 1, 1, 1)
+                                iHl:SetAlpha(EllesmereUI.DD_ITEM_HL_A)
+                                iXBtn:SetAlpha(0.8)
+                            end)
+                            itm:SetScript("OnLeave", function()
+                                if iXBtn:IsMouseOver() then return end
+                                iLbl:SetTextColor(1, 1, 1, EllesmereUI.TEXT_DIM_A)
+                                iHl:SetAlpha(itm._isSel and EllesmereUI.DD_ITEM_SEL_A or 0)
+                                iXBtn:SetAlpha(0.4)
+                            end)
+                            itm:SetScript("OnClick", function()
+                                menu:Hide()
+                                EllesmereUI.AutoSaveActiveProfile()
+                                EllesmereUI.SwitchProfile(capName)
+                                EllesmereUI:ShowConfirmPopup({
+                                    title       = "Reload Required",
+                                    message     = "Profile switched to \"" .. capName .. "\". Reload to apply.",
+                                    confirmText = "Reload Now",
+                                    cancelText  = "Cancel",
+                                    onConfirm   = function() ReloadUI() end,
+                                })
+                            end)
+                            iXBtn:SetScript("OnClick", function()
+                                if capName == "Custom" then return end
+                                menu:Hide()
+                                EllesmereUI:ShowConfirmPopup({
+                                    title       = "Delete Profile",
+                                    message     = "Delete \"" .. capName .. "\"?",
+                                    confirmText = "Delete",
+                                    cancelText  = "Cancel",
+                                    onConfirm   = function()
+                                        EllesmereUI.DeleteProfile(capName)
+                                        ddLabel:SetText(EllesmereUI.GetActiveProfileName())
+                                        EllesmereUI:InvalidatePageCache()
+                                        EllesmereUI:RefreshPage(true)
+                                    end,
+                                })
+                            end)
+                        end
 
                         itm:Show()
                         mH = mH + 26
@@ -3772,7 +3858,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Spacing before buttons
             _, h = W:Spacer(parent, y, 10);  y = y - h
 
-            -- Export / Import CDM Spell Profile buttons (side-by-side, temporarily disabled)
+            -- Export / Import CDM Spell Profile buttons (side-by-side)
             do
                 local ROW_H  = 70
                 local ITEM_H = 36
@@ -3787,43 +3873,47 @@ initFrame:SetScript("OnEvent", function(self)
                 local groupW = ITEM_W * 2 + GAP
                 local startX = math.floor((totalW - groupW) / 2)
 
-                local DISABLED_TIP = "This option is coming soon"
-
                 -- Export CDM Spell Profile
                 local exportCDMBtn = CreateFrame("Button", nil, rowFrame)
                 PP.Size(exportCDMBtn, ITEM_W, ITEM_H)
                 PP.Point(exportCDMBtn, "TOPLEFT", rowFrame, "TOPLEFT", startX, -math.floor((ROW_H - ITEM_H) / 2))
                 exportCDMBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
-                EllesmereUI.MakeStyledButton(exportCDMBtn, "Export CDM Spell Profile", 13, EllesmereUI.WB_COLOURS, function() end)
-                exportCDMBtn:SetAlpha(0.3)
-                do
-                    local block = CreateFrame("Frame", nil, exportCDMBtn)
-                    block:SetAllPoints()
-                    block:SetFrameLevel(exportCDMBtn:GetFrameLevel() + 10)
-                    block:EnableMouse(true)
-                    block:SetScript("OnEnter", function()
-                        EllesmereUI.ShowWidgetTooltip(exportCDMBtn, EllesmereUI.DisabledTooltip(DISABLED_TIP))
-                    end)
-                    block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                end
+                EllesmereUI.MakeStyledButton(exportCDMBtn, "Export CDM Spell Profile", 13, EllesmereUI.WB_COLOURS, function()
+                    local keys = {}
+                    for k in pairs(selectedSpecs) do keys[#keys + 1] = k end
+                    if #keys == 0 then
+                        EllesmereUI:ShowInfoPopup({ title = "No Specs Selected", content = "Select at least one spec to export." })
+                        return
+                    end
+                    local str = EllesmereUI.ExportCDMSpellLayouts(keys)
+                    if str then
+                        EllesmereUI:ShowExportPopup(str)
+                    else
+                        EllesmereUI:ShowInfoPopup({ title = "Export Failed", content = "No spell data found for the selected specs." })
+                    end
+                end)
 
                 -- Import CDM Spell Profile
                 local importCDMBtn = CreateFrame("Button", nil, rowFrame)
                 PP.Size(importCDMBtn, ITEM_W, ITEM_H)
                 PP.Point(importCDMBtn, "TOPLEFT", exportCDMBtn, "TOPRIGHT", GAP, 0)
                 importCDMBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
-                EllesmereUI.MakeStyledButton(importCDMBtn, "Import CDM Spell Profile", 13, EllesmereUI.WB_COLOURS, function() end)
-                importCDMBtn:SetAlpha(0.3)
-                do
-                    local block = CreateFrame("Frame", nil, importCDMBtn)
-                    block:SetAllPoints()
-                    block:SetFrameLevel(importCDMBtn:GetFrameLevel() + 10)
-                    block:EnableMouse(true)
-                    block:SetScript("OnEnter", function()
-                        EllesmereUI.ShowWidgetTooltip(importCDMBtn, EllesmereUI.DisabledTooltip(DISABLED_TIP))
+                EllesmereUI.MakeStyledButton(importCDMBtn, "Import CDM Spell Profile", 13, EllesmereUI.WB_COLOURS, function()
+                    EllesmereUI:ShowImportPopup(function(importStr)
+                        local ok, err, count = EllesmereUI.ImportCDMSpellLayouts(importStr)
+                        if ok then
+                            EllesmereUI:ShowConfirmPopup({
+                                title       = "Import Successful",
+                                message     = (count or 0) .. " spec profile(s) imported. Reload to apply changes.",
+                                confirmText = "Reload Now",
+                                cancelText  = "Cancel",
+                                onConfirm   = function() ReloadUI() end,
+                            })
+                        else
+                            EllesmereUI:ShowInfoPopup({ title = "Import Failed", content = err or "Unknown error" })
+                        end
                     end)
-                    block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                end
+                end)
 
                 y = y - ROW_H
             end

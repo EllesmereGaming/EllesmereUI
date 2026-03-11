@@ -4134,42 +4134,44 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateAnchorCogState)
         end
 
-        -- Hide Buffs When Inactive (buffs bar only)
+        -- Hide Buffs When Inactive / Out of Range + Show Keybind
+        local kbRow
         if barData.barType == "buffs" or barData.key == "buffs" then
-            _, h = W:DualRow(parent, y,
+            kbRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Hide Buffs When Inactive",
                   getValue=function() return BD().hideBuffsWhenInactive ~= false end,
                   setValue=function(v) BD().hideBuffsWhenInactive = v; Refresh() end },
-                { type="label", text="" }
+                { type="toggle", text="Show Keybind",
+                  getValue=function() return BD().showKeybind == true end,
+                  setValue=function(v)
+                      BD().showKeybind = v
+                      ns.RefreshCDMIconAppearance(BD().key); ns.ApplyCachedKeybinds(); UpdateCDMPreview(); EllesmereUI:RefreshPage()
+                  end }
             );  y = y - h
-        end
-
-        -- Out of Range Overlay (non-buff bars only)
-        if barData.barType ~= "buffs" and barData.key ~= "buffs" then
-            _, h = W:DualRow(parent, y,
+        else
+            kbRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Out of Range Overlay",
                   getValue=function() return BD().outOfRangeOverlay == true end,
                   setValue=function(v) BD().outOfRangeOverlay = v; Refresh() end,
                   tooltip="Show a red overlay on icons when the target is out of range" },
-                { type="label", text="" }
+                { type="toggle", text="Show Keybind",
+                  getValue=function() return BD().showKeybind == true end,
+                  setValue=function(v)
+                      BD().showKeybind = v
+                      ns.RefreshCDMIconAppearance(BD().key); ns.ApplyCachedKeybinds(); UpdateCDMPreview(); EllesmereUI:RefreshPage()
+                  end }
             );  y = y - h
         end
 
-        -- Tooltip / Keybind
-        local kbRow
-        kbRow, h = W:DualRow(parent, y,
+        -- Tooltip
+        _, h = W:DualRow(parent, y,
             { type="toggle", text="Show Tooltip on Hover",
               getValue=function() return BD().showTooltip == true end,
               setValue=function(v)
                   BD().showTooltip = v
                   Refresh()
               end },
-            { type="toggle", text="Show Keybind",
-              getValue=function() return BD().showKeybind == true end,
-              setValue=function(v)
-                  BD().showKeybind = v
-                  ns.RefreshCDMIconAppearance(BD().key); ns.ApplyCachedKeybinds(); UpdateCDMPreview(); EllesmereUI:RefreshPage()
-              end }
+            { type="label", text="" }
         );  y = y - h
 
         -- Inline color swatch + cog on Show Keybind (right region)

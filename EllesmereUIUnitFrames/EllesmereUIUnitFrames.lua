@@ -1,4 +1,4 @@
-﻿local addonName, ns = ...
+local addonName, ns = ...
 
 local oUF = ns.oUF or oUF
 local PP = EllesmereUI.PP
@@ -641,7 +641,7 @@ local function ApplyHealthBarTexture(health, unitKey)
 end
 
 -------------------------------------------------------------------------------
---  Health Bar Opacity � controls the overall alpha of the health bar fill
+--  Health Bar Opacity ? controls the overall alpha of the health bar fill
 -------------------------------------------------------------------------------
 local function ApplyHealthBarAlpha(health, unitKey)
     if not health then return end
@@ -660,7 +660,7 @@ local function ApplyHealthBarAlpha(health, unitKey)
 end
 
 -------------------------------------------------------------------------------
---  Power Bar Opacity � controls the overall alpha of the power bar
+--  Power Bar Opacity ? controls the overall alpha of the power bar
 -------------------------------------------------------------------------------
 local function ApplyPowerBarAlpha(power, unitKey)
     if not power then return end
@@ -679,7 +679,7 @@ local function ApplyPowerBarAlpha(power, unitKey)
 end
 
 -------------------------------------------------------------------------------
---  Dark Mode � flat dark health bar with gray background
+--  Dark Mode ? flat dark health bar with gray background
 -------------------------------------------------------------------------------
 local DARK_HEALTH_R, DARK_HEALTH_G, DARK_HEALTH_B = 0x11/255, 0x11/255, 0x11/255  -- #111111
 local DARK_HEALTH_A = 1.0
@@ -1136,7 +1136,7 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
         end
     end
 
-    -- Remove mask when not detached
+    -- Remove mask when not detached and reset texture positions
     if not isDetached then
         if backdrop._shapeMask then
             if backdrop._2d then backdrop._2d:RemoveMaskTexture(backdrop._shapeMask) end
@@ -1147,6 +1147,25 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
         if backdrop._shapeBorderTex then backdrop._shapeBorderTex:Hide() end
         if backdrop._sqBorderTexs then
             for _, t in ipairs(backdrop._sqBorderTexs) do t:Hide() end
+        end
+        -- Reset texture positions to default (detached mode expands them for mask fill)
+        if backdrop._2d then
+            backdrop._2d:ClearAllPoints()
+            PP.Point(backdrop._2d, "TOPLEFT", backdrop, "TOPLEFT", 0, 0)
+            PP.Point(backdrop._2d, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", 0, 0)
+        end
+        if backdrop._class then
+            backdrop._class:ClearAllPoints()
+            local bh2 = backdrop:GetHeight()
+            if bh2 < 1 then bh2 = 46 end
+            local classInset = math.floor(bh2 * 0.08)
+            PP.Point(backdrop._class, "TOPLEFT", backdrop, "TOPLEFT", classInset, -classInset)
+            PP.Point(backdrop._class, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", -classInset, classInset)
+        end
+        if backdrop._3d then
+            backdrop._3d:ClearAllPoints()
+            PP.Point(backdrop._3d, "TOPLEFT", backdrop, "TOPLEFT", 0, 0)
+            PP.Point(backdrop._3d, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", 0, 0)
         end
         return
     end
@@ -1234,9 +1253,11 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
         PP.Point(backdrop._class, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", -classInset + oR, classInset + oB)
     end
     if backdrop._3d then
+        -- 3D models ignore SetClipsChildren, so keep them within the backdrop
+        -- bounds. Art scale is not applied to 3D (camera zoom is fixed).
         backdrop._3d:ClearAllPoints()
-        PP.Point(backdrop._3d, "TOPLEFT", backdrop, "TOPLEFT", oL, oT)
-        PP.Point(backdrop._3d, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", oR, oB)
+        PP.Point(backdrop._3d, "TOPLEFT", backdrop, "TOPLEFT", 0, 0)
+        PP.Point(backdrop._3d, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", 0, 0)
     end
 end
 -- Create the bottom text bar frame below the health+power area, above the castbar
@@ -1367,7 +1388,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
     btb._applyBTBTextTags = ApplyBTBTextTags
     btb._applyBTBTextPositions = ApplyBTBTextPositions
 
-    -- Class icon overlay � on a high-level frame so it renders above the border
+    -- Class icon overlay ? on a high-level frame so it renders above the border
     local classIconHolder = CreateFrame("Frame", nil, frame)
     classIconHolder:SetAllPoints(textOvr)
     classIconHolder:SetFrameLevel(frame:GetFrameLevel() + 12)
@@ -1404,7 +1425,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
     return btb
 end
 
--- SetFrameMovable removed — positioning is now handled by Unlock Mode
+-- SetFrameMovable removed � positioning is now handled by Unlock Mode
 
 local function ApplyFramePosition(frame, unit)
     if not frame or not db.profile.positions[unit] then return end
@@ -1434,7 +1455,7 @@ local function UpdateBordersForScale(frame, unit)
     local ppIsAtt = (ppPos == "below" or ppPos == "above")
     local ppIsDet = (ppPos == "detached_top" or ppPos == "detached_bottom")
     local ph = settings.powerHeight or 6
-    -- Simple frames (pet/tot/focustarget) have no power bar � skip power height
+    -- Simple frames (pet/tot/focustarget) have no power bar ? skip power height
     local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget")
     local powerH = (ppIsAtt and not isMini) and ph or 0
 
@@ -1716,7 +1737,7 @@ local function ApplyFrameScaleCentered(frame, unit, newScale, animate)
     end)
 end
 
--- ToggleLock removed — positioning is now handled by Unlock Mode
+-- ToggleLock removed � positioning is now handled by Unlock Mode
 
 -- fakeFrames / CreateFakeFrame / ShowFakeFrames / HideFakeFrames removed
 -- Positioning is now handled exclusively by Unlock Mode
@@ -1762,24 +1783,28 @@ local function GetFrameDimensions(unit)
     return 150, 30
 end
 
--- ShowFakeFrames / HideFakeFrames removed — Unlock Mode handles all positioning
+-- ShowFakeFrames / HideFakeFrames removed � Unlock Mode handles all positioning
 
 local function CreateHealthBar(frame, unit, height, xOffset, settings, rightInset)
     height = height or settings.healthHeight
     xOffset = xOffset or 0
     rightInset = rightInset or 0
 
+    -- When power bar is "above", push health bar down by power bar height
+    local ppPos = settings.powerPosition or "below"
+    local powerAboveOff = (ppPos == "above") and (settings.powerHeight or 0) or 0
+
     local health = CreateFrame("StatusBar", nil, frame)
     health:SetFrameStrata(frame:GetFrameStrata())
     health:SetFrameLevel(frame:GetFrameLevel() + 2)
     -- Two-point horizontal anchoring: width is derived from the frame so it can
     -- never exceed the frame boundary regardless of pixel-snapping rounding.
-    PP.Point(health, "TOPLEFT", frame, "TOPLEFT", xOffset, 0)
+    PP.Point(health, "TOPLEFT", frame, "TOPLEFT", xOffset, -powerAboveOff)
     PP.Point(health, "RIGHT", frame, "RIGHT", -rightInset, 0)
     PP.Height(health, height)
     health._xOffset = xOffset  -- store for class power repositioning
     health._rightInset = rightInset  -- store for class power repositioning
-    health._topOffset = 0  -- store for SnapLayout re-anchoring
+    health._topOffset = powerAboveOff  -- store for SnapLayout re-anchoring
     health:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     health:GetStatusBarTexture():SetHorizTile(false)
 
@@ -2174,8 +2199,29 @@ local function CreatePortrait(frame, side, frameHeight, unit)
     tex2D.PostUpdate = function(self)
         UnsnapTex(self)
         self:ClearAllPoints()
-        PP.Point(self, "TOPLEFT", backdrop, "TOPLEFT", 0, 0)
-        PP.Point(self, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", 0, 0)
+        -- When detached, ApplyDetachedPortraitShape sets expanded offsets for mask fill.
+        -- Re-apply those offsets instead of resetting to default.
+        local isDetNow = (db.profile.portraitStyle or "attached") == "detached"
+        if isDetNow and backdrop then
+            local uKey2 = UnitToSettingsKey(unit)
+            local uS2 = uKey2 and db.profile[uKey2]
+            local shape2 = (uS2 and uS2.detachedPortraitShape) or "portrait"
+            local insetPx2 = MASK_INSETS[shape2] or 17
+            local bw2 = backdrop:GetWidth()
+            local bh3 = backdrop:GetHeight()
+            if bw2 < 1 then bw2 = 46 end
+            if bh3 < 1 then bh3 = 46 end
+            local visR2 = (128 - 2 * insetPx2) / 128
+            local cS2 = 1 / visR2
+            local artS2 = ((uS2 and uS2.portraitArtScale) or 100) / 100
+            cS2 = cS2 * artS2
+            local exp2 = (cS2 - 1) * 0.5
+            PP.Point(self, "TOPLEFT", backdrop, "TOPLEFT", -(exp2 * bw2), exp2 * bh3)
+            PP.Point(self, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", exp2 * bw2, -(exp2 * bh3))
+        else
+            PP.Point(self, "TOPLEFT", backdrop, "TOPLEFT", 0, 0)
+            PP.Point(self, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", 0, 0)
+        end
     end
 
     -- Apply detached portrait shape (mask + border) on creation
@@ -2228,7 +2274,7 @@ local function CreateCastBar(frame, unit, settings)
         else
             PP.Size(castbarBg, totalWidth, settings.castbarHeight or 14)
         end
-        -- Player castbar is always locked to frame � anchor from left edge of frame
+        -- Player castbar is always locked to frame ? anchor from left edge of frame
         local healthOff = (frame.Health and frame.Health._xOffset) or 0
         castbarBg:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", -healthOff, 0)
     else
@@ -2627,13 +2673,15 @@ local function StyleFullFrame(frame, unit)
             local snappedPortW = frame.Portrait.backdrop:GetWidth()
             local newXOff = (effectiveSide == "left") and snappedPortW or 0
             local newRI = (effectiveSide == "right") and snappedPortW or 0
+            local powerAboveOff = (powerPos == "above") and settings.powerHeight or 0
+            local topOff = cpAboveH + powerAboveOff
             frame.Health:ClearAllPoints()
-            PP.Point(frame.Health, "TOPLEFT", frame, "TOPLEFT", newXOff, 0)
+            PP.Point(frame.Health, "TOPLEFT", frame, "TOPLEFT", newXOff, -topOff)
             PP.Point(frame.Health, "RIGHT", frame, "RIGHT", -newRI, 0)
             PP.Height(frame.Health, settings.healthHeight)
             frame.Health._xOffset = newXOff
             frame.Health._rightInset = newRI
-            frame.Health._topOffset = 0
+            frame.Health._topOffset = topOff
         end
 
         -- Always create castbar; oUF element disabled later if not wanted
@@ -2719,13 +2767,14 @@ local function StyleFullFrame(frame, unit)
             local snappedPortW = frame.Portrait.backdrop:GetWidth()
             local newXOff = (effectiveSide == "left") and snappedPortW or 0
             local newRI = (effectiveSide == "right") and snappedPortW or 0
+            local powerAboveOff = (powerPos == "above") and settings.powerHeight or 0
             frame.Health:ClearAllPoints()
-            PP.Point(frame.Health, "TOPLEFT", frame, "TOPLEFT", newXOff, 0)
+            PP.Point(frame.Health, "TOPLEFT", frame, "TOPLEFT", newXOff, -powerAboveOff)
             PP.Point(frame.Health, "RIGHT", frame, "RIGHT", -newRI, 0)
             PP.Height(frame.Health, settings.healthHeight)
             frame.Health._xOffset = newXOff
             frame.Health._rightInset = newRI
-            frame.Health._topOffset = 0
+            frame.Health._topOffset = powerAboveOff
         end
 
         CreateTargetAuras(frame, unit)
@@ -2932,13 +2981,14 @@ local function StyleFocusFrame(frame, unit)
         local snappedPortW = frame.Portrait.backdrop:GetWidth()
         local newXOff = (effectiveSide == "left") and snappedPortW or 0
         local newRI = (effectiveSide == "right") and snappedPortW or 0
+        local powerAboveOff = (fPpPos == "above") and (settings.powerHeight or 6) or 0
         frame.Health:ClearAllPoints()
-        PP.Point(frame.Health, "TOPLEFT", frame, "TOPLEFT", newXOff, 0)
+        PP.Point(frame.Health, "TOPLEFT", frame, "TOPLEFT", newXOff, -powerAboveOff)
         PP.Point(frame.Health, "RIGHT", frame, "RIGHT", -newRI, 0)
         PP.Height(frame.Health, settings.healthHeight)
         frame.Health._xOffset = newXOff
         frame.Health._rightInset = newRI
-        frame.Health._topOffset = 0
+        frame.Health._topOffset = powerAboveOff
     end
 
     PP.Size(frame, totalWidth, focusBarHeight)
@@ -3108,8 +3158,14 @@ local function StyleSimpleFrame(frame, unit)
     health.colorDisconnected = true
     health._euiUnitKey = UnitToSettingsKey(unit)
 
-    ApplyHealthBarTexture(health, UnitToSettingsKey(unit))
-    ApplyHealthBarAlpha(health, UnitToSettingsKey(unit))
+    -- Inherit health bar texture from donor frame (focus > target > player)
+    local donor = GetMiniDonorSettings()
+    local unitKey = UnitToSettingsKey(unit)
+    local origTex = settings.healthBarTexture
+    settings.healthBarTexture = donor.healthBarTexture
+    ApplyHealthBarTexture(health, unitKey)
+    settings.healthBarTexture = origTex
+    ApplyHealthBarAlpha(health, unitKey)
     ApplyDarkTheme(health)
 
     frame.Health = health
@@ -3240,8 +3296,14 @@ local function StylePetFrame(frame, unit)
     health.colorDisconnected = true
     health._euiUnitKey = UnitToSettingsKey(unit)
 
-    ApplyHealthBarTexture(health, UnitToSettingsKey(unit))
-    ApplyHealthBarAlpha(health, UnitToSettingsKey(unit))
+    -- Inherit health bar texture from donor frame (focus > target > player)
+    local donor = GetMiniDonorSettings()
+    local unitKey = UnitToSettingsKey(unit)
+    local origTex = settings.healthBarTexture
+    settings.healthBarTexture = donor.healthBarTexture
+    ApplyHealthBarTexture(health, unitKey)
+    settings.healthBarTexture = origTex
+    ApplyHealthBarAlpha(health, unitKey)
     ApplyDarkTheme(health)
 
     frame.Health = health
@@ -3385,13 +3447,14 @@ local function StyleBossFrame(frame, unit)
     -- Re-anchor health bar to portrait's actual snapped width (eliminates sub-pixel gap)
     if frame.Portrait and frame.Portrait.backdrop and showPortrait and frame.Health then
         local snappedPortW = frame.Portrait.backdrop:GetWidth()
+        local powerAboveOff = (bPpPos == "above") and (settings.powerHeight or 6) or 0
         frame.Health:ClearAllPoints()
-        PP.Point(frame.Health, "TOPLEFT", frame, "TOPLEFT", 0, 0)
+        PP.Point(frame.Health, "TOPLEFT", frame, "TOPLEFT", 0, -powerAboveOff)
         PP.Point(frame.Health, "RIGHT", frame, "RIGHT", -snappedPortW, 0)
         PP.Height(frame.Health, settings.healthHeight)
         frame.Health._xOffset = 0
         frame.Health._rightInset = snappedPortW
-        frame.Health._topOffset = 0
+        frame.Health._topOffset = powerAboveOff
     end
 
     PP.Size(frame, totalWidth, bossBarHeight)
@@ -3562,6 +3625,12 @@ local function SwapPortraitMode(frame)
     if bd._class then bd._class:Hide() end
 
     if wantMode == "class" and bd._class then
+        -- Re-apply class art style texture (may have changed since creation)
+        local uKey2 = UnitToSettingsKey(unit)
+        local s2 = uKey2 and db.profile[uKey2]
+        local classStyle = (s2 and s2.classThemeStyle) or "modern"
+        local _, ct = UnitClass("player")
+        ApplyClassIconTexture(bd._class, ct or "WARRIOR", classStyle)
         bd._class:Show()
         -- Keep tex2D as the oUF element (hidden) so oUF doesn't overwrite texClass
         bd._2d:Hide()
@@ -4077,6 +4146,18 @@ local function ReloadFrames()
                 SwapPortraitMode(frame)
             end
 
+            -- Refresh class art style texture (may have changed without mode change)
+            if frame.Portrait and frame.Portrait.backdrop and frame.Portrait.backdrop._class then
+                local uKey = UnitToSettingsKey(unit) or unit
+                local uSettings = uKey and db.profile[uKey]
+                local isClassMode = ((uSettings and uSettings.portraitMode) or "2d") == "class"
+                if isClassMode and unit == "player" then
+                    local classStyle = (uSettings and uSettings.classThemeStyle) or "modern"
+                    local _, ct = UnitClass("player")
+                    ApplyClassIconTexture(frame.Portrait.backdrop._class, ct or "WARRIOR", classStyle)
+                end
+            end
+
             -- Show/hide portrait live (no reload needed)
             if frame.Portrait and frame.Portrait.backdrop then
                 local uKey = UnitToSettingsKey(unit) or unit
@@ -4204,7 +4285,8 @@ local function ReloadFrames()
                         end
                         frame.Health._xOffset = healthXOffset
                         frame.Health._rightInset = healthRightInset
-                        local hTopOff = cpAboveH + (btbPos == "top" and settings.bottomTextBar and (settings.bottomTextBarHeight or 16) or 0)
+                        local powerAboveOff = (ppPos == "above") and settings.powerHeight or 0
+                        local hTopOff = cpAboveH + powerAboveOff + (btbPos == "top" and settings.bottomTextBar and (settings.bottomTextBarHeight or 16) or 0)
                         frame.Health._topOffset = hTopOff
                         PP.Point(frame.Health, "TOPLEFT", frame, "TOPLEFT", healthXOffset, -hTopOff)
                         PP.Point(frame.Health, "RIGHT", frame, "RIGHT", -healthRightInset, 0)
@@ -4290,7 +4372,7 @@ local function ReloadFrames()
                                 local pBtbVisible = (settings.bottomTextBar and pBtbPos == "bottom" and frame.BottomTextBar and frame.BottomTextBar:IsShown())
                                 local anchorFrame = pBtbVisible and frame.BottomTextBar or (ppIsAtt and frame.Power) or frame.Health
                                 local pCbXOff = pBtbVisible and 0 or castBarOffset
-                                -- Player castbar is always locked to frame � no x/y offsets
+                                -- Player castbar is always locked to frame ? no x/y offsets
                                 castbarBg:SetPoint("TOP", anchorFrame, "BOTTOM", pCbXOff, 0)
                                 -- Respect hide-while-not-casting
                                 if settings.castbarHideWhenInactive and not frame.Castbar:IsShown() then
@@ -4521,10 +4603,12 @@ local function ReloadFrames()
                             healthRightInset = (effectiveSide == "right") and snappedPortW or 0
                         end
                         local tBtbTopOff = (btbPos == "top" and settings.bottomTextBar and (settings.bottomTextBarHeight or 16) or 0)
+                        local tPowerAboveOff = (ppPos == "above") and settings.powerHeight or 0
+                        local tTopOff = tBtbTopOff + tPowerAboveOff
                         frame.Health._xOffset = healthXOffset
                         frame.Health._rightInset = healthRightInset
-                        frame.Health._topOffset = tBtbTopOff
-                        PP.Point(frame.Health, "TOPLEFT", frame, "TOPLEFT", healthXOffset, -tBtbTopOff)
+                        frame.Health._topOffset = tTopOff
+                        PP.Point(frame.Health, "TOPLEFT", frame, "TOPLEFT", healthXOffset, -tTopOff)
                         PP.Point(frame.Health, "RIGHT", frame, "RIGHT", -healthRightInset, 0)
                         PP.Height(frame.Health, settings.healthHeight)
                     end
@@ -4588,7 +4672,7 @@ local function ReloadFrames()
                         frame._applyTextPositions(settings)
                     end
 
-                    -- Bottom Text Bar update (target) � must come before castbar so castbar can anchor to it
+                    -- Bottom Text Bar update (target) ? must come before castbar so castbar can anchor to it
                     local tPpBtbAnchor = (ppIsAtt and frame.Power) or frame.Health
                     if settings.bottomTextBar then
                         local btbPos2 = settings.btbPosition or "bottom"
@@ -4634,7 +4718,7 @@ local function ReloadFrames()
                         frame.BottomTextBar:Hide()
                     end
 
-                    -- Castbar (target) � anchors to BTB when BTB is bottom, otherwise to power/health
+                    -- Castbar (target) ? anchors to BTB when BTB is bottom, otherwise to power/health
                     if frame.Castbar then
                         local castbarBg = frame.Castbar:GetParent()
                         if castbarBg then
@@ -4863,6 +4947,8 @@ local function ReloadFrames()
                         focusHealthRightInset = (effectiveSide == "right") and snappedPortW or 0
                     end
                     local fHTopOff = (fBtbPos == "top" and settings.bottomTextBar and (settings.bottomTextBarHeight or 16) or 0)
+                    local fPowerAboveOff = (fPpPos == "above") and (settings.powerHeight or 6) or 0
+                    fHTopOff = fHTopOff + fPowerAboveOff
                     frame.Health._xOffset = focusHealthXOff
                     frame.Health._rightInset = focusHealthRightInset
                     frame.Health._topOffset = fHTopOff
@@ -4904,7 +4990,7 @@ local function ReloadFrames()
                     frame._applyTextPositions(settings)
                 end
 
-                -- Bottom Text Bar update (focus) � must come before castbar so castbar can anchor to it
+                -- Bottom Text Bar update (focus) ? must come before castbar so castbar can anchor to it
                 local fPpBtbAnchor = (fPpIsAtt and frame.Power) or frame.Health
                 if settings.bottomTextBar then
                     local btbPos2 = settings.btbPosition or "bottom"
@@ -4950,7 +5036,7 @@ local function ReloadFrames()
                     frame.BottomTextBar:Hide()
                 end
 
-                -- Castbar (focus) � anchors to BTB when BTB is bottom, otherwise to power/health
+                -- Castbar (focus) ? anchors to BTB when BTB is bottom, otherwise to power/health
                 if frame.Castbar then
                     local castbarBg = frame.Castbar:GetParent()
                     if castbarBg then
@@ -5088,12 +5174,13 @@ local function ReloadFrames()
                             bossRightInset = bossBarHeight
                         end
                     end
-                    PP.Point(frame.Health, "TOPLEFT", frame, "TOPLEFT", 0, 0)
+                    local bPowerAboveOff = (bPpPos == "above") and (settings.powerHeight or 6) or 0
+                    PP.Point(frame.Health, "TOPLEFT", frame, "TOPLEFT", 0, -bPowerAboveOff)
                     PP.Point(frame.Health, "RIGHT", frame, "RIGHT", -bossRightInset, 0)
                     PP.Height(frame.Health, settings.healthHeight)
                     frame.Health._xOffset = 0
                     frame.Health._rightInset = bossRightInset
-                    frame.Health._topOffset = 0
+                    frame.Health._topOffset = bPowerAboveOff
                 end
                 if frame.Power then
                     local bpw = settings.frameWidth
@@ -5575,7 +5662,7 @@ function InitializeFrames()
         end
 
         if style == "modern" and position == "above" then
-            -- Above health bar, inside the frame � pips stretch to fill health bar width
+            -- Above health bar, inside the frame ? pips stretch to fill health bar width
             -- Bottom of pips flush with top of health bar, top of pips flush with top of border
             bar:SetParent(frames.player)
             local anchorFrame = frames.player.Health
@@ -5604,7 +5691,7 @@ function InitializeFrames()
                 bar._bottomBdrFrame:Show()
             end
         elseif style == "modern" and position == "top" then
-            -- "top" floats above the frame (like "bottom" floats below) � does NOT become part of the frame
+            -- "top" floats above the frame (like "bottom" floats below) ? does NOT become part of the frame
             bar:SetParent(frames.player)
             ResizeFrameForClassPower(0)
             -- Reset health bar to normal position
@@ -5654,7 +5741,7 @@ function InitializeFrames()
                 PP.Point(frames.player.Health, "TOPLEFT", frames.player, "TOPLEFT", frames.player.Health._xOffset or 0, -btbOff)
                 PP.Point(frames.player.Health, "RIGHT", frames.player, "RIGHT", -(frames.player.Health._rightInset or 0), 0)
             end
-            -- "bottom" position � flush with bottom of frame; shifts below castbar when visible (unless user set Y offset)
+            -- "bottom" position ? flush with bottom of frame; shifts below castbar when visible (unless user set Y offset)
             bar:SetParent(frames.player)
             if bar._bottomBdrFrame then bar._bottomBdrFrame:Hide() end
             local function AnchorBottom()
@@ -6027,41 +6114,48 @@ function InitializeFrames()
         end
     end)
 
-    -- Final startup normalization: some late login updates can re-anchor power
-    -- bars after frame construction. Re-apply attached anchors once more.
-    local function NormalizePowerAnchors()
-        local function FixFor(frame, unitKey)
-            if not frame or not frame.Power or not frame.Health then return end
-            local s = GetSettingsForUnit(unitKey)
-            if not s then return end
-            local ppPos = s.powerPosition or "below"
-            if ppPos ~= "below" and ppPos ~= "above" then return end
-            local xShift = 0
-
-            frame.Power:ClearAllPoints()
-            if ppPos == "above" then
-                PP.Point(frame.Power, "BOTTOMLEFT", frame.Health, "TOPLEFT", xShift, 0)
-                PP.Point(frame.Power, "BOTTOMRIGHT", frame.Health, "TOPRIGHT", xShift, 0)
-            else
-                PP.Point(frame.Power, "TOPLEFT", frame.Health, "BOTTOMLEFT", xShift, 0)
-                PP.Point(frame.Power, "TOPRIGHT", frame.Health, "BOTTOMRIGHT", xShift, 0)
+    -- Deferred normalization: some late-login updates can re-anchor power bars
+    -- after frame construction. Re-apply two-point attached anchors once more.
+    C_Timer.After(0, function()
+        for _, unitKey in ipairs({"player", "target", "focus"}) do
+            local frame = frames[unitKey]
+            if frame and frame.Power and frame.Health then
+                local s = GetSettingsForUnit(unitKey)
+                if s then
+                    local ppPos = s.powerPosition or "below"
+                    if ppPos == "below" or ppPos == "above" then
+                        frame.Power:ClearAllPoints()
+                        if ppPos == "above" then
+                            PP.Point(frame.Power, "BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
+                            PP.Point(frame.Power, "BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
+                        else
+                            PP.Point(frame.Power, "TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
+                            PP.Point(frame.Power, "TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
+                        end
+                    end
+                end
             end
-
-            -- Width is derived by left+right anchors to Health.
         end
-
-        FixFor(frames.player, "player")
-        FixFor(frames.target, "target")
-        FixFor(frames.focus, "focus")
         for i = 1, 5 do
             local bf = frames["boss" .. i]
-            if bf then FixFor(bf, "boss") end
+            if bf and bf.Power and bf.Health then
+                local s = GetSettingsForUnit("boss")
+                if s then
+                    local ppPos = s.powerPosition or "below"
+                    if ppPos == "below" or ppPos == "above" then
+                        bf.Power:ClearAllPoints()
+                        if ppPos == "above" then
+                            PP.Point(bf.Power, "BOTTOMLEFT", bf.Health, "TOPLEFT", 0, 0)
+                            PP.Point(bf.Power, "BOTTOMRIGHT", bf.Health, "TOPRIGHT", 0, 0)
+                        else
+                            PP.Point(bf.Power, "TOPLEFT", bf.Health, "BOTTOMLEFT", 0, 0)
+                            PP.Point(bf.Power, "TOPRIGHT", bf.Health, "BOTTOMRIGHT", 0, 0)
+                        end
+                    end
+                end
+            end
         end
-    end
-
-    C_Timer.After(0, NormalizePowerAnchors)
-    C_Timer.After(0.35, NormalizePowerAnchors)
-    C_Timer.After(1.0, NormalizePowerAnchors)
+    end)
 end
 
 
@@ -6441,7 +6535,7 @@ function EllesmereUF:OnInitialize()
         end
     end
 
-    -- Migrate old classPowerStyle values (bars/circles → modern) and
+    -- Migrate old classPowerStyle values (bars/circles ? modern) and
     -- sync showClassPowerBar with classPowerStyle
     do
         local p = db and db.profile
@@ -6462,7 +6556,7 @@ function EllesmereUF:OnInitialize()
         end
     end
 
-    -- Migrate portraitMode="none" → portraitStyle="none" + portraitMode="2d"
+    -- Migrate portraitMode="none" ? portraitStyle="none" + portraitMode="2d"
     -- (portrait hide moved from per-unit portraitMode to global portraitStyle)
     do
         local prof = db.profile

@@ -1851,7 +1851,9 @@ local CLASS_POWER_MAP = {
     DEMONHUNTER = { [581] = { "SOUL_FRAGMENTS_VENGEANCE", 6 } },  -- Vengeance only (secret value)
     SHAMAN      = { [263] = { "MAELSTROM_WEAPON", 10 } },  -- Enhancement only
     PRIEST      = { [258] = { "INSANITY_BAR", 100 } },     -- Shadow only
-    HUNTER      = { [255] = { "TIP_OF_THE_SPEAR", 3 } },   -- Survival only
+    HUNTER      = { [253] = { "FOCUS_BAR", 100 },
+                    [254] = { "FOCUS_BAR", 100 },
+                    [255] = { "TIP_OF_THE_SPEAR", 3 } },   -- Survival only
     WARRIOR     = { [72]  = { "WHIRLWIND_STACKS", 4 } },    -- Fury only
 }
 
@@ -1999,6 +2001,42 @@ local function UpdateClassPowerOnPlate(plate)
         bar:SetPoint(anchorPoint, anchorFrame, anchorRelPoint,
             cpXOff, yDir * cpYOff)
         bar:SetMinMaxValues(0, maxI)
+        bar:SetValue(cur)
+
+        local _, pClass = UnitClass("player")
+        local cpColor = CP_CLASS_COLORS[pClass] or CP_DEFAULT_COLOR
+        if not GetClassPowerClassColors() then
+            local cc = GetClassPowerCustomColor()
+            cpColor = { cc.r, cc.g, cc.b }
+        end
+        bar:SetStatusBarColor(cpColor[1], cpColor[2], cpColor[3], 1)
+
+        bar._bg:SetColorTexture(bgCol.r, bgCol.g, bgCol.b, bgCol.a)
+        bar:Show()
+        return
+    end
+
+    -- Bar-type resource (Hunter Focus for BM/MM): single StatusBar
+    if classPowerType == "FOCUS_BAR" then
+        for i = 1, #plate._cpPips do
+            plate._cpPips[i]:Hide()
+            if plate._cpPips[i]._bg then plate._cpPips[i]._bg:Hide() end
+            if plate._cpPips[i]._secretBar then plate._cpPips[i]._secretBar:Hide() end
+        end
+        EnsureClassPowerBar(plate)
+        local bar = plate._cpBar
+        local cur = UnitPower("player", 2) or 0  -- Enum.PowerType.Focus = 2
+        local maxF = UnitPowerMax("player", 2) or 100
+        if issecretvalue and issecretvalue(maxF) then maxF = 100 end
+        if not maxF or maxF <= 0 then maxF = 100 end
+
+        local scaledW = CP_PIP_W * cpScale * 6
+        local scaledH = CP_PIP_H * cpScale
+        bar:ClearAllPoints()
+        bar:SetSize(scaledW, scaledH)
+        bar:SetPoint(anchorPoint, anchorFrame, anchorRelPoint,
+            cpXOff, yDir * cpYOff)
+        bar:SetMinMaxValues(0, maxF)
         bar:SetValue(cur)
 
         local _, pClass = UnitClass("player")
@@ -2738,6 +2776,11 @@ end)
 
 local NameplateFrame = {}
 function NameplateFrame:SetUnit(unit, nameplate)
+    -- Cancel any stale deferred aura timer from a previous unit assignment
+    if self._auraDeferTimer then
+        self._auraDeferTimer:Cancel()
+        self._auraDeferTimer = nil
+    end
     self.unit = unit
     self.nameplate = nameplate
     self:SetParent(nameplate)
@@ -2974,7 +3017,12 @@ end
 end
 function NameplateFrame:ClearUnit()
     self:UnregisterAllEvents()
-    
+    -- Cancel any pending deferred aura update so it cannot fire on a
+    -- cleared or recycled plate and leave stale icons visible.
+    if self._auraDeferTimer then
+        self._auraDeferTimer:Cancel()
+        self._auraDeferTimer = nil
+    end
     
     if self.isCasting then
         self.isCasting = false
@@ -2990,6 +3038,7 @@ function NameplateFrame:ClearUnit()
     for i = 1, 2 do
         local slot = self.cc[i]
         if slot.cd then
+            if slot.cd.SetDrawSwipe then slot.cd:SetDrawSwipe(false) end
             if slot.cd.Clear then
                 slot.cd:Clear()
             elseif CooldownFrame_Clear then
@@ -2998,11 +3047,13 @@ function NameplateFrame:ClearUnit()
                 slot.cd:SetCooldown(0, 0)
             end
         end
+        slot.icon:SetTexture(nil)
         slot:Hide()
     end
     for i = 1, 4 do
         local dSlot = self.debuffs[i]
         if dSlot.cd then
+            if dSlot.cd.SetDrawSwipe then dSlot.cd:SetDrawSwipe(false) end
             if dSlot.cd.Clear then
                 dSlot.cd:Clear()
             elseif CooldownFrame_Clear then
@@ -3011,11 +3062,13 @@ function NameplateFrame:ClearUnit()
                 dSlot.cd:SetCooldown(0, 0)
             end
         end
+        dSlot.icon:SetTexture(nil)
         dSlot:Hide()
         ns.StopPandemicGlow(dSlot)
         dSlot._durationObj = nil
         local bSlot = self.buffs[i]
         if bSlot.cd then
+            if bSlot.cd.SetDrawSwipe then bSlot.cd:SetDrawSwipe(false) end
             if bSlot.cd.Clear then
                 bSlot.cd:Clear()
             elseif CooldownFrame_Clear then
@@ -3024,6 +3077,7 @@ function NameplateFrame:ClearUnit()
                 bSlot.cd:SetCooldown(0, 0)
             end
         end
+        bSlot.icon:SetTexture(nil)
         bSlot:Hide()
     end
     self.unit = nil
@@ -3530,19 +3584,23 @@ function NameplateFrame:UpdateAuras(updateInfo)
         local dSlot = self.debuffs[i]
         local bSlot = self.buffs[i]
         dSlot:Hide()
+        dSlot.icon:SetTexture(nil)
         if dSlot.pandemicGlow and dSlot.pandemicGlow.active then
             ns.StopPandemicGlow(dSlot)
         end
         dSlot._durationObj = nil
         bSlot:Hide()
+        bSlot.icon:SetTexture(nil)
         local dCd = dSlot.cd
         if dCd then
+            if dCd.SetDrawSwipe then dCd:SetDrawSwipe(false) end
             if dCd.Clear then dCd:Clear()
             elseif CooldownFrame_Clear then CooldownFrame_Clear(dCd)
             else dCd:SetCooldown(0, 0) end
         end
         local bCd = bSlot.cd
         if bCd then
+            if bCd.SetDrawSwipe then bCd:SetDrawSwipe(false) end
             if bCd.Clear then bCd:Clear()
             elseif CooldownFrame_Clear then CooldownFrame_Clear(bCd)
             else bCd:SetCooldown(0, 0) end
@@ -3551,8 +3609,10 @@ function NameplateFrame:UpdateAuras(updateInfo)
     for i = 1, 2 do
         local ccSlot = self.cc[i]
         ccSlot:Hide()
+        ccSlot.icon:SetTexture(nil)
         local cCd = ccSlot.cd
         if cCd then
+            if cCd.SetDrawSwipe then cCd:SetDrawSwipe(false) end
             if cCd.Clear then cCd:Clear()
             elseif CooldownFrame_Clear then CooldownFrame_Clear(cCd)
             else cCd:SetCooldown(0, 0) end
@@ -3585,7 +3645,7 @@ function NameplateFrame:UpdateAuras(updateInfo)
             for _, aura in ipairs(allDebuffs) do
                 if dIdx > 4 then break end
                 local id = aura and aura.auraInstanceID
-                if id and (showAll or (importantSet and importantSet[id])) then
+                if id and (showAll or (importantSet and importantSet[id])) and aura.icon then
                         local slot = self.debuffs[dIdx]
                         slot.icon:SetTexture(aura.icon)
                         slot.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -3596,6 +3656,7 @@ function NameplateFrame:UpdateAuras(updateInfo)
                         if cd and GetDur then
                             local durObj = GetDur(unit, id)
                             if durObj and cd.SetCooldownFromDurationObject then
+                                if cd.SetDrawSwipe then cd:SetDrawSwipe(true) end
                                 cd:SetCooldownFromDurationObject(durObj)
                                 cd:Show()
                             end
@@ -3643,7 +3704,7 @@ function NameplateFrame:UpdateAuras(updateInfo)
             for _, aura in ipairs(allBuffs) do
                 if bIdx > 4 then break end
                 local id = aura and aura.auraInstanceID
-                if id and type(aura.dispelName) ~= "nil" then
+                if id and type(aura.dispelName) ~= "nil" and aura.icon then
                     local slot = self.buffs[bIdx]
                     slot.icon:SetTexture(aura.icon)
                     slot.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -3654,6 +3715,7 @@ function NameplateFrame:UpdateAuras(updateInfo)
                     if cd and GetDur then
                         local durObj = GetDur(unit, id)
                         if durObj and cd.SetCooldownFromDurationObject then
+                            if cd.SetDrawSwipe then cd:SetDrawSwipe(true) end
                             cd:SetCooldownFromDurationObject(durObj)
                             cd:Show()
                         end
@@ -3674,7 +3736,7 @@ function NameplateFrame:UpdateAuras(updateInfo)
             local GetDur = C_UnitAuras.GetAuraDuration
             for _, aura in ipairs(ccAuras) do
                 if ccShown >= 2 then break end
-                if aura and aura.auraInstanceID then
+                if aura and aura.auraInstanceID and aura.icon then
                     ccShown = ccShown + 1
                     local slot = self.cc[ccShown]
                     slot.icon:SetTexture(aura.icon)
@@ -3684,6 +3746,7 @@ function NameplateFrame:UpdateAuras(updateInfo)
                     if cd and GetDur then
                         local durObj = GetDur(unit, aura.auraInstanceID)
                         if durObj and cd.SetCooldownFromDurationObject then
+                            if cd.SetDrawSwipe then cd:SetDrawSwipe(true) end
                             cd:SetCooldownFromDurationObject(durObj)
                             cd:Show()
                         end
@@ -3702,12 +3765,18 @@ function NameplateFrame:UpdateAuras(updateInfo)
         if buffCount > 0 then
             local spacing = GetAuraSpacing()
             local buffSz = GetBuffIconSize()
+            for i = 1, buffCount do
+                PP.Size(self.buffs[i], buffSz, buffSz)
+            end
             PositionAuraSlot(self.buffs, buffCount, buffSlotVal, self, buffSz, buffSz, spacing, GetAuraSlotOffsets("buffSlot"))
         end
     end
     if ccSlotVal ~= "none" and ccShown > 0 then
         local spacing = GetAuraSpacing()
         local ccSz = GetCCIconSize()
+        for i = 1, ccShown do
+            PP.Size(self.cc[i], ccSz, ccSz)
+        end
         PositionAuraSlot(self.cc, ccShown, ccSlotVal, self, ccSz, ccSz, spacing, GetAuraSlotOffsets("ccSlot"))
     end
     -- Reposition target arrows outside the outermost side auras

@@ -110,6 +110,7 @@ local POWER_COLORS = {
     ["MAELSTROM_WEAPON"] = { 0.00, 0.44, 0.87 },
     ["MAELSTROM_BAR"]    = { 0.00, 0.50, 1.00 },
     ["INSANITY_BAR"]     = { 0.40, 0.00, 0.80 },
+    ["FOCUS_BAR"]        = { 0.77, 0.53, 0.24 },
     ["TIP_OF_THE_SPEAR"] = { 0.67, 0.83, 0.45 },
     ["WHIRLWIND_STACKS"] = { 0.78, 0.61, 0.43 },
     ["BREWMASTER_STAGGER"] = { 0.52, 1.00, 0.52 },  -- green (light stagger default)
@@ -155,6 +156,11 @@ local function GetPrimaryPowerType()
     if classFile == "PRIEST" then
         -- All priest specs use Mana as primary; Insanity is a class resource
         -- displayed as a secondary bar (Shadow).
+    end
+    if classFile == "HUNTER" then
+        -- BM and MM: Focus is displayed as a class resource bar (secondary),
+        -- not the power bar. Survival keeps Focus as the power bar.
+        if spec == 1 or spec == 2 then return nil end
     end
     if classFile == "MONK" then
         if spec == 1 then return PT.ENERGY end  -- Brewmaster
@@ -235,6 +241,12 @@ local function GetSecondaryResource()
         return { power = "MAELSTROM_WEAPON", max = 5, type = "custom" }
     elseif classFile == "HUNTER" and spec == 3 then
         return { power = "TIP_OF_THE_SPEAR", max = 3, type = "custom" }
+    elseif classFile == "HUNTER" and (spec == 1 or spec == 2) then
+        -- BM and MM: Focus as a class resource bar
+        local mx = UnitPowerMax("player", PT.FOCUS)
+        if issecretvalue and issecretvalue(mx) then mx = 100 end
+        if not mx or mx <= 0 then mx = 100 end
+        return { power = "FOCUS_BAR", max = mx, type = "bar" }
     elseif classFile == "WARRIOR" and spec == 2 then
         return { power = "WHIRLWIND_STACKS", max = 4, type = "custom" }
     end
@@ -1204,8 +1216,9 @@ local function BuildBars()
     end
 
     -- Power bar (primary resource)
+    cachedPrimary = GetPrimaryPowerType()
     local pp = p.primary or FALLBACK.primary
-    if pp.enabled ~= false then
+    if pp.enabled ~= false and cachedPrimary then
         local ppOri = pp.orientation or g.orientation or "HORIZONTAL"
         if not primaryBar then
             primaryBar = CreateStatusBar(mainFrame, "ERB_PrimaryBar", pp.width, pp.height,
@@ -1562,14 +1575,15 @@ local function UpdateHealthBar()
     healthBar:SetMinMaxValues(0, mx)
 
     local curTainted = issecretvalue and issecretvalue(cur)
-    local pctRaw = (not curTainted) and (cur / mx * 100) or 0
-    local pct01  = (not curTainted) and (cur / mx) or 1
+    local pctRaw = UnitHealthPercent and UnitHealthPercent("player", true, CurveConstants and CurveConstants.ScaleTo100) or 0
+    local pctTainted = issecretvalue and issecretvalue(pctRaw)
+    local pct01 = (not pctTainted) and (pctRaw / 100) or 1
 
     -- Color: dark theme and custom colored are handled in BuildBars,
     -- but we need to re-apply class color + low health lerp dynamically.
     -- When threshold is enabled, always re-apply color so we can swap
     -- between normal and threshold colors each tick.
-    local applyThreshold = hp.thresholdEnabled and not curTainted and pctRaw <= (hp.thresholdPct or 30)
+    local applyThreshold = hp.thresholdEnabled and not pctTainted and pctRaw <= (hp.thresholdPct or 30)
     if applyThreshold then
         healthBar:GetStatusBarTexture():SetVertexColor(
             hp.thresholdR or 1, hp.thresholdG or 0.2, hp.thresholdB or 0.2, hp.thresholdA or 1)
@@ -1624,6 +1638,7 @@ local function UpdatePrimaryBar()
     local pp = ERB.db.profile.primary
 
     cachedPrimary = GetPrimaryPowerType()
+    if not cachedPrimary then return end
     local cur = UnitPower("player", cachedPrimary)
     local mx = UnitPowerMax("player", cachedPrimary)
     if not mx or mx <= 0 then return end
@@ -1866,6 +1881,11 @@ local function UpdateSecondaryResource()
                 maxC = UnitPowerMax("player", PT.INSANITY) or maxPts
                 if issecretvalue and issecretvalue(maxC) then maxC = maxPts end
                 if maxC <= 0 then maxC = maxPts end
+            elseif powerType == "FOCUS_BAR" then
+                cur = UnitPower("player", PT.FOCUS) or 0
+                maxC = UnitPowerMax("player", PT.FOCUS) or maxPts
+                if issecretvalue and issecretvalue(maxC) then maxC = maxPts end
+                if maxC <= 0 then maxC = maxPts end
             elseif powerType == "BREWMASTER_STAGGER" then
                 cur = UnitStagger("player") or 0
                 maxC = UnitHealthMax("player") or 1
@@ -1898,6 +1918,7 @@ local function UpdateSecondaryResource()
                 if ft then
                     local pType = (powerType == "MAELSTROM_BAR") and PT.MAELSTROM
                                or (powerType == "INSANITY_BAR") and PT.INSANITY
+                               or (powerType == "FOCUS_BAR") and PT.FOCUS
                                or nil
                     if sp.thresholdEnabled and pType and UnitPowerPercent then
                         -- Use ColorCurve + UnitPowerPercent: WoW evaluates the secret
@@ -1951,6 +1972,13 @@ local function UpdateSecondaryResource()
                         end
                     elseif powerType == "INSANITY_BAR" then
                         local pct = UnitPowerPercent and UnitPowerPercent("player", PT.INSANITY) or 0
+                        if not issecretvalue(pct) then
+                            secondaryFrame._countText:SetText(format("%d", pct) .. "%")
+                        else
+                            secondaryFrame._countText:SetText(tostring(cur))
+                        end
+                    elseif powerType == "FOCUS_BAR" then
+                        local pct = UnitPowerPercent and UnitPowerPercent("player", PT.FOCUS) or 0
                         if not issecretvalue(pct) then
                             secondaryFrame._countText:SetText(format("%d", pct) .. "%")
                         else
@@ -3186,6 +3214,7 @@ function ERB:OnInitialize()
     _G._ERB_AceDB = self.db
     _G._ERB_Apply = function() ERB:ApplyAll() end
     _G._ERB_GetSecondaryResource = GetSecondaryResource
+    _G._ERB_GetPrimaryPowerType = GetPrimaryPowerType
     _G._ERB_PowerColors = POWER_COLORS
 
     AppendSharedMediaTextures()

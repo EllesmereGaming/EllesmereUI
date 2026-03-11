@@ -502,6 +502,17 @@ initFrame:SetScript("OnEvent", function(self)
             if pFrame._sqBorderTexs then
                 for _, t in ipairs(pFrame._sqBorderTexs) do t:Hide() end
             end
+            -- Reset texture positions to default (detached mode expands them for mask fill)
+            if pFrame._previewTex then
+                pFrame._previewTex:ClearAllPoints()
+                pFrame._previewTex:SetPoint("TOPLEFT", pFrame, "TOPLEFT", 0, 0)
+                pFrame._previewTex:SetPoint("BOTTOMRIGHT", pFrame, "BOTTOMRIGHT", 0, 0)
+            end
+            if pFrame._previewModel then
+                pFrame._previewModel:ClearAllPoints()
+                pFrame._previewModel:SetPoint("TOPLEFT", pFrame, "TOPLEFT", 0, 0)
+                pFrame._previewModel:SetPoint("BOTTOMRIGHT", pFrame, "BOTTOMRIGHT", 0, 0)
+            end
             return
         end
 
@@ -572,9 +583,11 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(pFrame._previewTex, "BOTTOMRIGHT", pFrame, "BOTTOMRIGHT", oR, oB)
         end
         if pFrame._previewModel then
+            -- 3D models can't be clipped by SetClipsChildren, so keep them
+            -- within the portrait frame bounds to prevent overflow
             pFrame._previewModel:ClearAllPoints()
-            PP.Point(pFrame._previewModel, "TOPLEFT", pFrame, "TOPLEFT", oL, oT)
-            PP.Point(pFrame._previewModel, "BOTTOMRIGHT", pFrame, "BOTTOMRIGHT", oR, oB)
+            PP.Point(pFrame._previewModel, "TOPLEFT", pFrame, "TOPLEFT", 0, 0)
+            PP.Point(pFrame._previewModel, "BOTTOMRIGHT", pFrame, "BOTTOMRIGHT", 0, 0)
         end
     end
 
@@ -969,14 +982,15 @@ initFrame:SetScript("OnEvent", function(self)
         end
         healthBgColor:SetColorTexture(bgR, bgG, bgB, 1)
         healthBgColor:SetAlpha(bgA)
+        local pvPowerAboveOff = (initPpPos == "above") and powerH or 0
         if showPortrait and portraitFrame then
             if side == "left" then
-                PP.Point(health, "TOPLEFT", portraitFrame, "TOPRIGHT", 0, 0)
+                PP.Point(health, "TOPLEFT", portraitFrame, "TOPRIGHT", 0, -pvPowerAboveOff)
             else
-                PP.Point(health, "TOPRIGHT", portraitFrame, "TOPLEFT", 0, 0)
+                PP.Point(health, "TOPRIGHT", portraitFrame, "TOPLEFT", 0, -pvPowerAboveOff)
             end
         else
-            PP.Point(health, "TOPLEFT", barArea, "TOPLEFT", 0, 0)
+            PP.Point(health, "TOPLEFT", barArea, "TOPLEFT", 0, -pvPowerAboveOff)
         end
 
         local healthBg = health:CreateTexture(nil, "BACKGROUND", nil, -1)
@@ -1731,6 +1745,7 @@ initFrame:SetScript("OnEvent", function(self)
             if portraitFrame then portraitFrame:ClearAllPoints() end
             health:ClearAllPoints()
             local btbTopOff = (s.bottomTextBar and (s.btbPosition or "bottom") == "top") and (s.bottomTextBarHeight or 16) or 0
+            local pvPwAbove = (pvPpPos == "above") and ph or 0
 
             if portraitFrame and sp then
                 PP.Size(portraitFrame, portraitDim, portraitDim)
@@ -1738,16 +1753,14 @@ initFrame:SetScript("OnEvent", function(self)
                     -- Attached: portrait to barArea, then health to portrait
                     if effectiveSide == "left" then
                         portraitFrame:SetPoint("TOPLEFT", barArea, "TOPLEFT", 0, 0)
-                        -- portraitFrame:SetPoint("BOTTOMLEFT", barArea, "BOTTOMLEFT", 0, 0)  -- removed: SetSize handles height
-                        PP.Point(health, "TOPLEFT", portraitFrame, "TOPRIGHT", 0, -cpAboveH - btbTopOff)
+                        PP.Point(health, "TOPLEFT", portraitFrame, "TOPRIGHT", 0, -cpAboveH - btbTopOff - pvPwAbove)
                     else
                         portraitFrame:SetPoint("TOPRIGHT", barArea, "TOPRIGHT", 0, 0)
-                        -- portraitFrame:SetPoint("BOTTOMRIGHT", barArea, "BOTTOMRIGHT", 0, 0)  -- removed: SetSize handles height
-                        PP.Point(health, "TOPRIGHT", portraitFrame, "TOPLEFT", 0, -cpAboveH - btbTopOff)
+                        PP.Point(health, "TOPRIGHT", portraitFrame, "TOPLEFT", 0, -cpAboveH - btbTopOff - pvPwAbove)
                     end
                 else
                     -- Detached: health to barArea, then portrait floats
-                    PP.Point(health, "TOPLEFT", barArea, "TOPLEFT", 0, -cpAboveH - btbTopOff)
+                    PP.Point(health, "TOPLEFT", barArea, "TOPLEFT", 0, -cpAboveH - btbTopOff - pvPwAbove)
                     if effectiveSide == "top" then
                         -- Top: portrait centered above health bar
                         portraitFrame:SetPoint("BOTTOM", health, "TOP", pXOff, 15 + pYOff)
@@ -1759,14 +1772,15 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 portraitFrame._anchored = true
                 portraitFrame._anchoredAttached = isAttached
-                -- Raise detached portrait above border in preview
+                -- Raise detached portrait above border in preview (capped to avoid
+                -- overlapping dropdown menus and other UI controls)
                 if isAttached then
                     portraitFrame:SetFrameLevel(pf:GetFrameLevel() + 1)
                 else
-                    portraitFrame:SetFrameLevel(pf:GetFrameLevel() + 10)
+                    portraitFrame:SetFrameLevel(pf:GetFrameLevel() + 3)
                 end
             else
-                PP.Point(health, "TOPLEFT", barArea, "TOPLEFT", 0, -cpAboveH - btbTopOff)
+                PP.Point(health, "TOPLEFT", barArea, "TOPLEFT", 0, -cpAboveH - btbTopOff - pvPwAbove)
                 if portraitFrame then portraitFrame._anchored = false end
             end
             PP.Width(healthFill, math.floor(fw * (_previewHealthPct or 0.70) + 0.5))
@@ -3230,6 +3244,18 @@ initFrame:SetScript("OnEvent", function(self)
               end,
               setValue=function(v)
                   db.profile.portraitStyle = v
+                  -- Reset detached-only settings when leaving detached mode
+                  if v ~= "detached" then
+                      if isMulti then
+                          for _, key in ipairs(GROUP_UNIT_ORDER) do
+                              if groupChecked[key] then
+                                  UNIT_DB_MAP[key]().portraitSize = 0
+                              end
+                          end
+                      else
+                          UNIT_DB_MAP[selectedUnit]().portraitSize = 0
+                      end
+                  end
                   if isMulti then
                       for _, key in ipairs(GROUP_UNIT_ORDER) do
                           if groupChecked[key] then

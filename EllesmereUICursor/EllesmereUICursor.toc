@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Add a custom texture to your mouse
 ## Author: Ellesmere
-## Version: 4.2
+## Version: 4.2.5
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUICursorDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga

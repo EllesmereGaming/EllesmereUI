@@ -41,6 +41,16 @@ local BUFF_ICON_OVERRIDES = {
     [470057] = 135813,  -- Voltaic Blaze: show Flame Shock icon
 }
 
+-- Spells whose icon should swap to a different spell's texture while a
+-- specific buff is active on the player. Checked via CDM buff-viewer child
+-- state (IsBufChildCooldownActive) since passive auras are invisible to
+-- C_UnitAuras.GetPlayerAuraBySpellID.
+-- Key = base spellID the user has in their bar, value = { buffID, replacementSpellID }
+local BUFF_PROC_ICON_OVERRIDES = {
+    [6807]   = { buffID = 441583, replacementSpellID = 441583 }, -- Maul -> Ravage
+    [400254] = { buffID = 441583, replacementSpellID = 441583 }, -- Raze -> Ravage
+}
+
 -------------------------------------------------------------------------------
 --  Shape Constants (shared with action bars)
 -------------------------------------------------------------------------------
@@ -73,7 +83,7 @@ local CDM_SHAPES = {
         portrait = 2, shield = 2, square = 4,
     },
     zoomDefaults = {
-        none = 0.08, cropped = 0.05, square = 0.06, circle = 0.06, csquare = 0.06,
+        none = 0.08, cropped = 0.04, square = 0.06, circle = 0.06, csquare = 0.06,
         diamond = 0.06, hexagon = 0.06, portrait = 0.06, shield = 0.06,
     },
     edgeScales = {
@@ -1785,6 +1795,24 @@ end
 _G._ECME_FindPlayerUnitFrame = function()
     return FindPlayerUnitFrame()
 end
+-- Global accessor: apply a spec profile to the live bars (used by profile import)
+_G._ECME_LoadSpecProfile = function(specKey)
+    LoadSpecProfile(specKey)
+end
+-- Global accessor: get the current spec key string (e.g. "250")
+_G._ECME_GetCurrentSpecKey = function()
+    return GetCurrentSpecKey()
+end
+-- Global accessor: returns a set of all spellIDs currently in the user's CDM
+-- viewer (all categories, displayed + known). Used by profile import to filter
+-- out spells the importing user does not have in their CDM.
+_G._ECME_GetCDMSpellSet = function()
+    local set = {}
+    for sid in pairs(_spellToCooldownID) do
+        set[sid] = true
+    end
+    return set
+end
 ns.GetCDMBarIcons = function(barKey)
     return cdmBarIcons[barKey]
 end
@@ -1911,6 +1939,8 @@ local function InstallProcGlowHooks()
             end
             local cr, cg, cb = PROC_GLOW_R, PROC_GLOW_G, PROC_GLOW_B
             ShowProcGlow(ourIcon, cr, cg, cb)
+            -- Force icon texture re-evaluation so override textures apply immediately
+            ourIcon._lastTex = nil
         end)
     end)
 
@@ -1937,6 +1967,8 @@ local function InstallProcGlowHooks()
         end
 
         StopProcGlow(ourIcon)
+        -- Force icon texture re-evaluation so the original texture restores immediately
+        ourIcon._lastTex = nil
     end)
 
     _procGlowHooksInstalled = true
@@ -2013,6 +2045,13 @@ local BLIZZ_CDM_FRAMES = {
     cooldowns = "EssentialCooldownViewer",
     utility   = "UtilityCooldownViewer",
     buffs     = "BuffIconCooldownViewer",
+}
+
+-- Secondary viewer for bar keys that span two Blizzard viewers.
+-- The buffs bar covers both BuffIconCooldownViewer (tracked buffs)
+-- and BuffBarCooldownViewer (tracked bars).
+local BLIZZ_CDM_FRAMES_SECONDARY = {
+    buffs = "BuffBarCooldownViewer",
 }
 
 -- CDM category numbers per bar key (for C_CooldownViewer API)
@@ -2355,7 +2394,10 @@ end
 --  Hide / Restore Blizzard CDM
 -------------------------------------------------------------------------------
 HideBlizzardCDM = function()
-    for _, frameName in pairs(BLIZZ_CDM_FRAMES) do
+    local allFrameNames = {}
+    for _, fn in pairs(BLIZZ_CDM_FRAMES) do allFrameNames[#allFrameNames + 1] = fn end
+    for _, fn in pairs(BLIZZ_CDM_FRAMES_SECONDARY) do allFrameNames[#allFrameNames + 1] = fn end
+    for _, frameName in ipairs(allFrameNames) do
         local frame = _G[frameName]
         if frame then
             -- Always re-apply hide in case a cinematic or loading screen
@@ -2396,7 +2438,10 @@ HideBlizzardCDM = function()
 end
 
 RestoreBlizzardCDM = function()
-    for _, frameName in pairs(BLIZZ_CDM_FRAMES) do
+    local allFrameNames = {}
+    for _, fn in pairs(BLIZZ_CDM_FRAMES) do allFrameNames[#allFrameNames + 1] = fn end
+    for _, fn in pairs(BLIZZ_CDM_FRAMES_SECONDARY) do allFrameNames[#allFrameNames + 1] = fn end
+    for _, frameName in ipairs(allFrameNames) do
         local frame = _G[frameName]
         if frame and frame._ecmeHidden then
             frame._ecmeRestoring = true
@@ -2856,23 +2901,20 @@ LayoutCDMBar = function(barKey)
         local iconsInRow = math.min(stride, count - rowStart)
 
         if grow == "RIGHT" then
-            local flippedRow = (numRows - 1) - row
             -- Center partial rows: offset by half the missing icons' width
             local rowOffset = SnapForScale((stride - iconsInRow) * stepW / 2, barScale)
             icon:SetPoint("TOPLEFT", frame, "TOPLEFT",
                 col * stepW + rowOffset,
-                -(flippedRow * stepH))
+                -(row * stepH))
         elseif grow == "LEFT" then
-            local flippedRow = (numRows - 1) - row
             local rowOffset = SnapForScale((stride - iconsInRow) * stepW / 2, barScale)
             icon:SetPoint("TOPRIGHT", frame, "TOPRIGHT",
                 -(col * stepW + rowOffset),
-                -(flippedRow * stepH))
+                -(row * stepH))
         elseif grow == "DOWN" then
-            local flippedRow = (numRows - 1) - row
             local rowOffset = SnapForScale((stride - iconsInRow) * stepH / 2, barScale)
             icon:SetPoint("TOPLEFT", frame, "TOPLEFT",
-                flippedRow * stepW,
+                row * stepW,
                 -(col * stepH + rowOffset))
         elseif grow == "UP" then
             local rowOffset = SnapForScale((stride - iconsInRow) * stepH / 2, barScale)
@@ -3435,11 +3477,51 @@ local function UpdateCustomBarIcons(barKey)
                     _spellIconCache[resolvedID] = texID
                 end
             end
+            -- Fallback: C_Spell.GetSpellTexture is more reliable for bar-type
+            -- buff spells where GetSpellInfo may return nil.
+            if not texID then
+                texID = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(resolvedID)
+                if not texID and resolvedID ~= spellID then
+                    texID = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
+                end
+                if texID then _spellIconCache[resolvedID] = texID end
+            end
             -- Buff bars may have a hardcoded icon override for specific spells.
             local overrideTex = (barKey == "buffs" or barData.barType == "buffs") and BUFF_ICON_OVERRIDES[spellID]
+            -- For buff bars, prefer the CDM child's live Icon texture so
+            -- aura-driven icon changes (e.g. Heating Up -> Hot Streak) are
+            -- reflected each tick instead of staying stuck on the static cache.
+            local isBuffCustom = (barKey == "buffs" or barData.barType == "buffs")
+            local blizzBuffChildC = isBuffCustom
+                and (_tickBlizzBuffChildCache[resolvedID] or _tickBlizzBuffChildCache[spellID]
+                     or _tickBlizzAllChildCache[resolvedID] or _tickBlizzAllChildCache[spellID])
+                or nil
+            local blizzBuffChildCTexSet = false
+            if blizzBuffChildC and not overrideTex and blizzBuffChildC.Icon and blizzBuffChildC.Icon.GetTexture then
+                local childTexC = blizzBuffChildC.Icon:GetTexture()
+                if childTexC then
+                    ourIcon._tex:SetTexture(childTexC)
+                    ourIcon._lastTex = 0
+                    blizzBuffChildCTexSet = true
+                end
+            end
             local effectiveTex = overrideTex or texID
+            -- Proc-conditional icon override: swap icon while a buff is active
+            local procActiveC = false
+            local procEntry = BUFF_PROC_ICON_OVERRIDES[spellID] or BUFF_PROC_ICON_OVERRIDES[resolvedID]
+            if procEntry then
+                local buffChild = _tickBlizzBuffChildCache[procEntry.buffID]
+                if IsBufChildCooldownActive(buffChild) then
+                    local procTex = _spellIconCache[procEntry.replacementSpellID]
+                    if not procTex then
+                        local info = C_Spell.GetSpellInfo(procEntry.replacementSpellID)
+                        if info then procTex = info.iconID; _spellIconCache[procEntry.replacementSpellID] = procTex end
+                    end
+                    if procTex then effectiveTex = procTex; procActiveC = true end
+                end
+            end
             if effectiveTex then
-                if effectiveTex ~= ourIcon._lastTex then
+                if (not blizzBuffChildCTexSet or overrideTex or procActiveC) and effectiveTex ~= ourIcon._lastTex then
                     ourIcon._tex:SetTexture(effectiveTex)
                     ourIcon._lastTex = effectiveTex
                 end
@@ -3690,6 +3772,22 @@ UpdateCDMBarIcons = function(barKey)
             blizzIcons[blizzCount] = child
         end
     end
+
+    -- Also scan the secondary viewer (e.g. BuffBarCooldownViewer for buffs)
+    local secondaryName = BLIZZ_CDM_FRAMES_SECONDARY[barKey]
+    if secondaryName then
+        local secondaryFrame = _G[secondaryName]
+        if secondaryFrame then
+            for i = 1, secondaryFrame:GetNumChildren() do
+                local child = select(i, secondaryFrame:GetChildren())
+                if child and child.Icon and child.Icon:GetTexture() then
+                    blizzCount = blizzCount + 1
+                    blizzIcons[blizzCount] = child
+                end
+            end
+        end
+    end
+
     -- Clear excess entries from previous tick
     for i = blizzCount + 1, #blizzIcons do blizzIcons[i] = nil end
 
@@ -3748,7 +3846,20 @@ UpdateCDMBarIcons = function(barKey)
                     ourIcon._tex:SetTexture(overrideTex)
                 else
                     local set = false
-                    if resolvedSid and resolvedSid > 0 then
+                    -- Proc-conditional icon override: swap icon while a buff is active
+                    local procEntryM = BUFF_PROC_ICON_OVERRIDES[spellID] or (resolvedSid and BUFF_PROC_ICON_OVERRIDES[resolvedSid])
+                    if procEntryM then
+                        local buffChildM = _tickBlizzBuffChildCache[procEntryM.buffID]
+                        if IsBufChildCooldownActive(buffChildM) then
+                            local procTexM = _spellIconCache[procEntryM.replacementSpellID]
+                            if not procTexM then
+                                local info = C_Spell.GetSpellInfo(procEntryM.replacementSpellID)
+                                if info then procTexM = info.iconID; _spellIconCache[procEntryM.replacementSpellID] = procTexM end
+                            end
+                            if procTexM then ourIcon._tex:SetTexture(procTexM); set = true end
+                        end
+                    end
+                    if not set and resolvedSid and resolvedSid > 0 then
                         local tex = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(resolvedSid)
                         if tex then
                             ourIcon._tex:SetTexture(tex)
@@ -4000,6 +4111,20 @@ local function SnapshotBlizzardCDM(barKey, barData)
         end
     end
 
+    -- Also scan the secondary viewer (e.g. BuffBarCooldownViewer for buffs)
+    local secondaryName = BLIZZ_CDM_FRAMES_SECONDARY[barKey]
+    if secondaryName then
+        local secondaryFrame = _G[secondaryName]
+        if secondaryFrame then
+            for i = 1, secondaryFrame:GetNumChildren() do
+                local child = select(i, secondaryFrame:GetChildren())
+                if child and child.Icon then
+                    blizzIcons[#blizzIcons + 1] = child
+                end
+            end
+        end
+    end
+
     table.sort(blizzIcons, SortBlizzChildren)
 
     -- Passive filter only applies to cooldown bars (cats 0/1).
@@ -4226,10 +4351,49 @@ local function UpdateTrackedBarIcons(barKey)
                     _spellIconCache[resolvedID] = texID
                 end
             end
+            -- Fallback: C_Spell.GetSpellTexture is more reliable for bar-type
+            -- buff spells where GetSpellInfo may return nil.
+            if not texID then
+                texID = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(resolvedID)
+                if not texID and resolvedID ~= spellID then
+                    texID = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID)
+                end
+                if texID then _spellIconCache[resolvedID] = texID end
+            end
             local overrideTex = (barKey == "buffs") and BUFF_ICON_OVERRIDES[spellID]
+            -- For buff bars, prefer the CDM child's live Icon texture so
+            -- aura-driven icon changes (e.g. Heating Up -> Hot Streak) are
+            -- reflected each tick instead of staying stuck on the static cache.
+            local blizzBuffChild = isBuffBarForOvr
+                and (_tickBlizzBuffChildCache[resolvedID] or _tickBlizzBuffChildCache[spellID]
+                     or _tickBlizzAllChildCache[resolvedID] or _tickBlizzAllChildCache[spellID])
+                or nil
+            local blizzBuffChildTexSet = false
+            if blizzBuffChild and not overrideTex and blizzBuffChild.Icon and blizzBuffChild.Icon.GetTexture then
+                local childTex = blizzBuffChild.Icon:GetTexture()
+                if childTex then
+                    ourIcon._tex:SetTexture(childTex)
+                    ourIcon._lastTex = 0
+                    blizzBuffChildTexSet = true
+                end
+            end
             local effectiveTex = overrideTex or texID
+            -- Proc-conditional icon override: swap icon while a buff is active
+            local procActive2 = false
+            local procEntry2 = BUFF_PROC_ICON_OVERRIDES[spellID] or BUFF_PROC_ICON_OVERRIDES[resolvedID]
+            if procEntry2 then
+                local buffChild2 = _tickBlizzBuffChildCache[procEntry2.buffID]
+                if IsBufChildCooldownActive(buffChild2) then
+                    local procTex2 = _spellIconCache[procEntry2.replacementSpellID]
+                    if not procTex2 then
+                        local info = C_Spell.GetSpellInfo(procEntry2.replacementSpellID)
+                        if info then procTex2 = info.iconID; _spellIconCache[procEntry2.replacementSpellID] = procTex2 end
+                    end
+                    if procTex2 then effectiveTex = procTex2; procActive2 = true end
+                end
+            end
             if effectiveTex then
-                if effectiveTex ~= ourIcon._lastTex then
+                if (not blizzBuffChildTexSet or overrideTex or procActive2) and effectiveTex ~= ourIcon._lastTex then
                     ourIcon._tex:SetTexture(effectiveTex)
                     ourIcon._lastTex = effectiveTex
                 end
@@ -5387,6 +5551,8 @@ function ns.AddTrackedSpell(barKey, id, isExtra)
             end
             local frame = cdmBarFrames[barKey]
             if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+            -- Persist to spec profile immediately so reloads/spec switches keep the change
+            if p.activeSpecKey and p.activeSpecKey ~= "0" then SaveCurrentSpecProfile() end
             return true
         end
     end
@@ -5831,6 +5997,14 @@ end
 function ECME:OnInitialize()
     self.db = EllesmereUI.Lite.NewDB("EllesmereUICooldownManagerDB", DEFAULTS, true)
 
+    -- Save spec profile before StripDefaults runs on logout
+    EllesmereUI.Lite.RegisterPreLogout(function()
+        local p = ECME.db and ECME.db.profile
+        if p and p.activeSpecKey and p.activeSpecKey ~= "0" then
+            SaveCurrentSpecProfile()
+        end
+    end)
+
     -- Migration: enable showStackCount on the buffs bar (was false by default)
     do
         local bars = self.db.profile.cdmBars and self.db.profile.cdmBars.bars
@@ -5903,6 +6077,14 @@ function ECME:OnEnable()
 
     -- Update any saved racial spellIDs to match this character's race
     RefreshRacialSpells()
+
+    -- Pre-cache proc replacement spell textures so they are available in combat
+    for _, entry in pairs(BUFF_PROC_ICON_OVERRIDES) do
+        if not _spellIconCache[entry.replacementSpellID] then
+            local info = C_Spell.GetSpellInfo(entry.replacementSpellID)
+            if info then _spellIconCache[entry.replacementSpellID] = info.iconID end
+        end
+    end
 
     -- Enable CDM cooldown viewer (keep Blizzard CDM running in background
     -- so we can read its children even while hidden)
@@ -6011,9 +6193,38 @@ ForcePopulateBlizzardViewers = function(callback)
             frame._ecmeRestoring = nil
         end
     end
+    -- Also force-populate secondary viewers (e.g. BuffBarCooldownViewer)
+    for _, frameName in pairs(BLIZZ_CDM_FRAMES_SECONDARY) do
+        local frame = _G[frameName]
+        if frame and frame._ecmeHidden then
+            frame._ecmeRestoring = true
+            if frame._ecmeOrigPoints and #frame._ecmeOrigPoints > 0 then
+                frame:ClearAllPoints()
+                for _, pt in ipairs(frame._ecmeOrigPoints) do
+                    frame:SetPoint(pt[1], pt[2], pt[3], pt[4], pt[5])
+                end
+            else
+                frame:ClearAllPoints()
+                frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+            end
+            frame:SetAlpha(0)
+            frame:Show()
+            frame._ecmeRestoring = nil
+        end
+    end
     -- Wait briefly for Blizzard to populate children, then re-hide and snapshot.
     local function rehideAndSnapshot()
         for _, frameName in pairs(BLIZZ_CDM_FRAMES) do
+            local frame = _G[frameName]
+            if frame and frame._ecmeHidden then
+                frame._ecmeRestoring = true
+                frame:SetAlpha(0)
+                frame:ClearAllPoints()
+                frame:SetPoint("CENTER", UIParent, "CENTER", 0, 10000)
+                frame._ecmeRestoring = nil
+            end
+        end
+        for _, frameName in pairs(BLIZZ_CDM_FRAMES_SECONDARY) do
             local frame = _G[frameName]
             if frame and frame._ecmeHidden then
                 frame._ecmeRestoring = true
@@ -6049,6 +6260,27 @@ local function TalentAwareReconcile()
     -- so we can detect genuinely new spells to append
     local viewerSpells = {}  -- [spellID] = true
     for _, viewerName in pairs(BLIZZ_CDM_FRAMES) do
+        local vf = _G[viewerName]
+        if vf then
+            for ci = 1, vf:GetNumChildren() do
+                local ch = select(ci, vf:GetChildren())
+                if ch then
+                    local cdID = ch.cooldownID or (ch.cooldownInfo and ch.cooldownInfo.cooldownID)
+                    if cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+                        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+                        if info then
+                            local rsid = ResolveInfoSpellID(info)
+                            if rsid and rsid > 0 then
+                                viewerSpells[rsid] = true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    -- Include secondary viewers (e.g. BuffBarCooldownViewer)
+    for _, viewerName in pairs(BLIZZ_CDM_FRAMES_SECONDARY) do
         local vf = _G[viewerName]
         if vf then
             for ci = 1, vf:GetNumChildren() do
@@ -6315,6 +6547,12 @@ local function ReconcileMainBarSpells()
         local pool = BuildViewerPool(viewerName, fp)
         for sid in pairs(pool) do allViewerSpells[sid] = true end
     end
+    -- Include secondary viewers (e.g. BuffBarCooldownViewer for buffs)
+    for barKey, viewerName in pairs(BLIZZ_CDM_FRAMES_SECONDARY) do
+        local fp = (barKey ~= "buffs")
+        local pool = BuildViewerPool(viewerName, fp)
+        for sid in pairs(pool) do allViewerSpells[sid] = true end
+    end
     -- Also include all known spellIDs from the API so spells that are
     -- learned but whose viewer hasn't populated yet are preserved.
     local knownSet = BuildKnownSpellIDSet()
@@ -6330,14 +6568,23 @@ local function ReconcileMainBarSpells()
                 SnapshotBlizzardCDM(barData.key, barData)
             else
                 local barPool = BuildViewerPool(viewerName, barData.key ~= "buffs")
+                -- Include secondary viewer in the bar pool (e.g. BuffBarCooldownViewer for buffs)
+                local secondaryName = BLIZZ_CDM_FRAMES_SECONDARY[barData.key]
+                if secondaryName then
+                    local secPool = BuildViewerPool(secondaryName, barData.key ~= "buffs")
+                    for sid in pairs(secPool) do barPool[sid] = true end
+                end
                 -- Build a correction map: old (wrong) spellID -> correct spellID.
                 -- For buff entries the cooldownInfo struct can return a spec aura ID
                 -- while the child frame knows the real tracked spell. This lets us
                 -- silently fix saved trackedSpells that were captured with the wrong ID.
                 local sidCorrection = {}
                 do
-                    local vf = _G[viewerName]
-                    if vf then
+                    local viewersToScan = { _G[viewerName] }
+                    if secondaryName and _G[secondaryName] then
+                        viewersToScan[#viewersToScan + 1] = _G[secondaryName]
+                    end
+                    for _, vf in ipairs(viewersToScan) do
                         for ci = 1, vf:GetNumChildren() do
                             local ch = select(ci, vf:GetChildren())
                             if ch then
@@ -6399,8 +6646,11 @@ local function ReconcileMainBarSpells()
                     -- are appended in a consistent order rather than pairs() order.
                     local newSpells = {}
                     local dormant = barData.dormantSpells
-                    local vf = _G[viewerName]
-                    if vf then
+                    local viewersToScan2 = { _G[viewerName] }
+                    if secondaryName and _G[secondaryName] then
+                        viewersToScan2[#viewersToScan2 + 1] = _G[secondaryName]
+                    end
+                    for _, vf in ipairs(viewersToScan2) do
                         for ci = 1, vf:GetNumChildren() do
                             local ch = select(ci, vf:GetChildren())
                             if ch then
@@ -6669,11 +6919,6 @@ local _unitAuraTimer = nil
 eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     if not ECME.db then return end
     if event == "PLAYER_LOGOUT" then
-        -- Save current spec profile on logout
-        local p = ECME.db.profile
-        if p.activeSpecKey and p.activeSpecKey ~= "0" then
-            SaveCurrentSpecProfile()
-        end
         return
     end
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
