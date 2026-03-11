@@ -739,7 +739,8 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end
 
-        _, h = W:DualRow(parent, y,
+        local uiScaleRow
+        uiScaleRow, h = W:DualRow(parent, y,
             { type="slider", text="UI Scale",
               min=0.40, max=1.00, step=0.01,
               tooltip="Sets the scale of the entire game UI. Lower values make everything smaller, higher values make everything larger.",
@@ -786,6 +787,58 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI.HideMinimapButton()
                 end
               end });  y = y - h
+
+        -- Pixel-perfect button (inline with the UI Scale slider)
+        do
+            local leftRgn = uiScaleRow._leftRegion
+            local ppBtn = CreateFrame("Button", nil, leftRgn)
+            EllesmereUI.PP.Size(ppBtn, 26, 22)
+            EllesmereUI.PP.Point(ppBtn, "RIGHT", leftRgn._control, "LEFT", -6, 0)
+            ppBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+            local ppBg = EllesmereUI.SolidTex(ppBtn, "BACKGROUND",
+                EllesmereUI.BTN_BG_R, EllesmereUI.BTN_BG_G, EllesmereUI.BTN_BG_B, EllesmereUI.BTN_BG_A)
+            ppBg:SetAllPoints()
+            local ppBrd = EllesmereUI.MakeBorder(ppBtn, 1, 1, 1, EllesmereUI.BTN_BRD_A, EllesmereUI.PP)
+            local ppLbl = EllesmereUI.MakeFont(ppBtn, 10, nil, 1, 1, 1)
+            ppLbl:SetAlpha(EllesmereUI.BTN_TXT_A)
+            ppLbl:SetPoint("CENTER")
+            ppLbl:SetText("PP")
+            ppBtn:SetScript("OnClick", function()
+                local bestScale = EllesmereUI.PP.PixelBestSize()
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.ppUIScale = bestScale
+                EllesmereUIDB.ppUIScaleAuto = false
+                -- Snapshot panel scale before changing UIParent
+                local mf = EllesmereUI._mainFrame
+                local panelScaleBefore
+                if mf then panelScaleBefore = mf:GetEffectiveScale() end
+                EllesmereUI.PP.SetUIScale(bestScale)
+                -- Counter-scale panel so it stays visually identical
+                if mf and panelScaleBefore then
+                    local newEff = UIParent:GetEffectiveScale()
+                    if newEff > 0 then mf:SetScale(panelScaleBefore / newEff) end
+                end
+                EllesmereUI:RefreshPage()
+            end)
+            ppBtn:SetScript("OnEnter", function(self)
+                ppBg:SetColorTexture(
+                    EllesmereUI.BTN_BG_R, EllesmereUI.BTN_BG_G, EllesmereUI.BTN_BG_B, EllesmereUI.BTN_BG_HA)
+                ppBrd:SetColor(1, 1, 1, EllesmereUI.BTN_BRD_HA)
+                ppLbl:SetAlpha(EllesmereUI.BTN_TXT_HA)
+                local ph = EllesmereUI.PP.physicalHeight or 0
+                local best = EllesmereUI.PP.PixelBestSize()
+                EllesmereUI.ShowWidgetTooltip(self,
+                    "Pixel Perfect\nSets UI scale to 768 / " .. ph .. " = " .. string.format("%.2f", best)
+                    .. "\nEnsures crisp, unblurred UI elements.")
+            end)
+            ppBtn:SetScript("OnLeave", function(self)
+                ppBg:SetColorTexture(
+                    EllesmereUI.BTN_BG_R, EllesmereUI.BTN_BG_G, EllesmereUI.BTN_BG_B, EllesmereUI.BTN_BG_A)
+                ppBrd:SetColor(1, 1, 1, EllesmereUI.BTN_BRD_A)
+                ppLbl:SetAlpha(EllesmereUI.BTN_TXT_A)
+                EllesmereUI.HideWidgetTooltip()
+            end)
+        end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
