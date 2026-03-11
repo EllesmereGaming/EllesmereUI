@@ -1848,7 +1848,6 @@ local function CreatePowerBar(frame, unit, settings)
     elseif powerPos == "above" then
         PP.Point(power, "BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
         PP.Point(power, "BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
-        PP.Width(power, frame.Health:GetWidth())
     elseif powerPos == "detached_top" then
         power:SetPoint("BOTTOM", frame.Health, "TOP", settings.powerX or 0, 15 + (settings.powerY or 0))
     elseif powerPos == "detached_bottom" then
@@ -1856,7 +1855,6 @@ local function CreatePowerBar(frame, unit, settings)
     else -- "below" (default)
         PP.Point(power, "TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
         PP.Point(power, "TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
-        PP.Width(power, frame.Health:GetWidth())
     end
 
     power:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
@@ -4225,7 +4223,6 @@ local function ReloadFrames()
                         elseif ppPos == "above" then
                             PP.Point(frame.Power, "BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
                             PP.Point(frame.Power, "BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
-                            PP.Width(frame.Power, frame.Health:GetWidth())
                             frame.Power:Show()
                         elseif ppPos == "detached_top" then
                             frame.Power:SetPoint("BOTTOM", frame.Health, "TOP", settings.powerX or 0, 15 + (settings.powerY or 0))
@@ -4236,7 +4233,6 @@ local function ReloadFrames()
                         else
                             PP.Point(frame.Power, "TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
                             PP.Point(frame.Power, "TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
-                            PP.Width(frame.Power, frame.Health:GetWidth())
                             frame.Power:Show()
                         end
                         if frame.Power._applyPowerPercentText then frame.Power._applyPowerPercentText(settings) end
@@ -4545,7 +4541,6 @@ local function ReloadFrames()
                         elseif ppPos == "above" then
                             PP.Point(frame.Power, "BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
                             PP.Point(frame.Power, "BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
-                            PP.Width(frame.Power, frame.Health:GetWidth())
                             frame.Power:Show()
                         elseif ppPos == "detached_top" then
                             frame.Power:SetPoint("BOTTOM", frame.Health, "TOP", settings.powerX or 0, 15 + (settings.powerY or 0))
@@ -4556,7 +4551,6 @@ local function ReloadFrames()
                         else
                             PP.Point(frame.Power, "TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
                             PP.Point(frame.Power, "TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
-                            PP.Width(frame.Power, frame.Health:GetWidth())
                             frame.Power:Show()
                         end
                         if frame.Power._applyPowerPercentText then frame.Power._applyPowerPercentText(settings) end
@@ -4889,7 +4883,6 @@ local function ReloadFrames()
                     elseif fPpPos == "above" then
                         PP.Point(frame.Power, "BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
                         PP.Point(frame.Power, "BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
-                        PP.Width(frame.Power, frame.Health:GetWidth())
                         frame.Power:Show()
                     elseif fPpPos == "detached_top" then
                         frame.Power:SetPoint("BOTTOM", frame.Health, "TOP", settings.powerX or 0, 15 + (settings.powerY or 0))
@@ -4900,7 +4893,6 @@ local function ReloadFrames()
                     else
                         PP.Point(frame.Power, "TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
                         PP.Point(frame.Power, "TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
-                        PP.Width(frame.Power, frame.Health:GetWidth())
                         frame.Power:Show()
                     end
                     if frame.Power._applyPowerPercentText then frame.Power._applyPowerPercentText(settings) end
@@ -5116,7 +5108,6 @@ local function ReloadFrames()
                     elseif bPpPos == "above" then
                         PP.Point(frame.Power, "BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 0)
                         PP.Point(frame.Power, "BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 0)
-                        PP.Width(frame.Power, frame.Health:GetWidth())
                         frame.Power:Show()
                     elseif bPpPos == "detached_top" then
                         frame.Power:SetPoint("BOTTOM", frame.Health, "TOP", settings.powerX or 0, 15 + (settings.powerY or 0))
@@ -5127,7 +5118,6 @@ local function ReloadFrames()
                     else
                         PP.Point(frame.Power, "TOPLEFT", frame.Health, "BOTTOMLEFT", 0, 0)
                         PP.Point(frame.Power, "TOPRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
-                        PP.Width(frame.Power, frame.Health:GetWidth())
                         frame.Power:Show()
                     end
                     if frame.Power._applyPowerPercentText then frame.Power._applyPowerPercentText(settings) end
@@ -6047,12 +6037,6 @@ function InitializeFrames()
             local ppPos = s.powerPosition or "below"
             if ppPos ~= "below" and ppPos ~= "above" then return end
             local xShift = 0
-            if unitKey == "player" then
-                local ph = s.powerHeight or 6
-                if ph >= 4 and ph <= 8 then
-                    xShift = 1
-                end
-            end
 
             frame.Power:ClearAllPoints()
             if ppPos == "above" then
@@ -6063,9 +6047,7 @@ function InitializeFrames()
                 PP.Point(frame.Power, "TOPRIGHT", frame.Health, "BOTTOMRIGHT", xShift, 0)
             end
 
-            if frame.Power:IsShown() then
-                PP.Width(frame.Power, frame.Health:GetWidth())
-            end
+            -- Width is derived by left+right anchors to Health.
         end
 
         FixFor(frames.player, "player")
