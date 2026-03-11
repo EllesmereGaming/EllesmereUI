@@ -259,7 +259,8 @@ local function IsBufChildCooldownActive(ch)
     end
     -- Non-totem: check our hook-captured cooldown state tables
     if _ecmeChildHasDurObj[ch] then return true end
-    if _ecmeRawDurCache[ch] then return true end
+    local rawDur = _ecmeRawDurCache[ch]
+    if rawDur and rawDur > 0 then return true end
     return false
 end
 
