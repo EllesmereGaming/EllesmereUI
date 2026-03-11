@@ -1918,7 +1918,7 @@ local function InstallProcGlowHooks()
             end
             local cr, cg, cb = PROC_GLOW_R, PROC_GLOW_G, PROC_GLOW_B
             ShowProcGlow(ourIcon, cr, cg, cb)
-            -- Force icon texture re-evaluation so proc overrides (e.g. Ravage) apply immediately
+            -- Force icon texture re-evaluation so override textures apply immediately
             ourIcon._lastTex = nil
         end)
     end)
@@ -1946,6 +1946,8 @@ local function InstallProcGlowHooks()
         end
 
         StopProcGlow(ourIcon)
+        -- Force icon texture re-evaluation so the original texture restores immediately
+        ourIcon._lastTex = nil
     end)
 
     _procGlowHooksInstalled = true
@@ -3447,7 +3449,7 @@ local function UpdateCustomBarIcons(barKey)
             -- Buff bars may have a hardcoded icon override for specific spells.
             local overrideTex = (barKey == "buffs" or barData.barType == "buffs") and BUFF_ICON_OVERRIDES[spellID]
             local effectiveTex = overrideTex or texID
-            -- Proc-conditional icon overrides: see BUFF_PROC_ICON_OVERRIDES at top of file.
+            -- Proc-conditional icon override: swap icon while a buff is active
             local procOverride = BUFF_PROC_ICON_OVERRIDES[spellID] or BUFF_PROC_ICON_OVERRIDES[resolvedID]
             if procOverride then
                 local buffChild = _tickBlizzBuffChildCache[procOverride.buffID]
@@ -3770,7 +3772,20 @@ UpdateCDMBarIcons = function(barKey)
                     ourIcon._tex:SetTexture(overrideTex)
                 else
                     local set = false
-                    if resolvedSid and resolvedSid > 0 then
+                    -- Proc-conditional icon override: swap icon while a buff is active
+                    local procOverride = BUFF_PROC_ICON_OVERRIDES[spellID] or (resolvedSid and BUFF_PROC_ICON_OVERRIDES[resolvedSid])
+                    if procOverride then
+                        local buffChild = _tickBlizzBuffChildCache[procOverride.buffID]
+                        if buffChild and IsBufChildCooldownActive(buffChild) then
+                            local procTex = _spellIconCache[procOverride.replacementSpellID]
+                            if not procTex then
+                                local info = C_Spell.GetSpellInfo(procOverride.replacementSpellID)
+                                if info then procTex = info.iconID; _spellIconCache[procOverride.replacementSpellID] = procTex end
+                            end
+                            if procTex then ourIcon._tex:SetTexture(procTex); set = true end
+                        end
+                    end
+                    if not set and resolvedSid and resolvedSid > 0 then
                         local tex = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(resolvedSid)
                         if tex then
                             ourIcon._tex:SetTexture(tex)
@@ -4250,7 +4265,7 @@ local function UpdateTrackedBarIcons(barKey)
             end
             local overrideTex = (barKey == "buffs") and BUFF_ICON_OVERRIDES[spellID]
             local effectiveTex = overrideTex or texID
-            -- Proc-conditional icon overrides: see BUFF_PROC_ICON_OVERRIDES at top of file.
+            -- Proc-conditional icon override: swap icon while a buff is active
             local procOverride = BUFF_PROC_ICON_OVERRIDES[spellID] or BUFF_PROC_ICON_OVERRIDES[resolvedID]
             if procOverride then
                 local buffChild = _tickBlizzBuffChildCache[procOverride.buffID]
@@ -5866,6 +5881,14 @@ end
 function ECME:OnInitialize()
     self.db = EllesmereUI.Lite.NewDB("EllesmereUICooldownManagerDB", DEFAULTS, true)
 
+    -- Save spec profile before StripDefaults runs on logout
+    EllesmereUI.Lite.RegisterPreLogout(function()
+        local p = ECME.db and ECME.db.profile
+        if p and p.activeSpecKey and p.activeSpecKey ~= "0" then
+            SaveCurrentSpecProfile()
+        end
+    end)
+
     -- Migration: enable showStackCount on the buffs bar (was false by default)
     do
         local bars = self.db.profile.cdmBars and self.db.profile.cdmBars.bars
@@ -5939,7 +5962,7 @@ function ECME:OnEnable()
     -- Update any saved racial spellIDs to match this character's race
     RefreshRacialSpells()
 
-    -- Pre-cache proc replacement spell textures so they're available in combat
+    -- Pre-cache proc replacement spell textures so they are available in combat
     for _, entry in pairs(BUFF_PROC_ICON_OVERRIDES) do
         if not _spellIconCache[entry.replacementSpellID] then
             local info = C_Spell.GetSpellInfo(entry.replacementSpellID)
@@ -6712,11 +6735,6 @@ local _unitAuraTimer = nil
 eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     if not ECME.db then return end
     if event == "PLAYER_LOGOUT" then
-        -- Save current spec profile on logout
-        local p = ECME.db.profile
-        if p.activeSpecKey and p.activeSpecKey ~= "0" then
-            SaveCurrentSpecProfile()
-        end
         return
     end
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
