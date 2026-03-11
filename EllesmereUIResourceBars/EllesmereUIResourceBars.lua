@@ -576,8 +576,9 @@ local function CreateStatusBar(parent, name, w, h, borderSize, borderR, borderG,
         end
     end
 
-    -- Text overlay on a child frame above the border (above frame level + 1 border)
-    local textFrame = CreateFrame("Frame", nil, bar)
+    -- Text overlay on a frame above the border (parented to parent, not bar, so the
+    -- StatusBar's stencil clip does not cut off text that is taller than the bar)
+    local textFrame = CreateFrame("Frame", nil, parent)
     textFrame:SetAllPoints(bar)
     textFrame:SetFrameLevel(bar:GetFrameLevel() + 2)
     textFrame:EnableMouse(false)
@@ -1533,7 +1534,9 @@ local function BuildBars()
             if not secondaryFrame._countText then
                 -- Parent to a high-level overlay so text renders above pip fills and borders
                 if not secondaryFrame._countTextOverlay then
-                    secondaryFrame._countTextOverlay = CreateFrame("Frame", nil, secondaryFrame)
+                    -- Parent to mainFrame (not secondaryFrame) so SetClipsChildren(true)
+                    -- on secondaryFrame does not clip the text when font size is large
+                    secondaryFrame._countTextOverlay = CreateFrame("Frame", nil, mainFrame)
                     secondaryFrame._countTextOverlay:SetAllPoints(secondaryFrame)
                 end
                 secondaryFrame._countTextOverlay:SetFrameLevel(secondaryFrame:GetFrameLevel() + 10)
