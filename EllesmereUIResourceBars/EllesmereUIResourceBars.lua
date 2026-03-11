@@ -3042,15 +3042,19 @@ function ERB:ApplyAll()
 
     -- Vehicle proxy: hide resource bars during full vehicle UI ([vehicleui] condition)
     if not ERB._vehicleProxy then
-        ERB._vehicleProxy = CreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
-        ERB._vehicleProxy:SetAttribute("_onstate-erbvehicle", [[
-            self:CallMethod("OnVehicleStateChanged", newstate)
-        ]])
-        ERB._vehicleProxy.OnVehicleStateChanged = function(_, state)
-            ERB._inVehicle = (state == "hide")
-            UpdateVisibility()
+        if InCombatLockdown() then
+            ERB._vehicleProxyPending = true
+        else
+            ERB._vehicleProxy = CreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
+            ERB._vehicleProxy:SetAttribute("_onstate-erbvehicle", [[
+                self:CallMethod("OnVehicleStateChanged", newstate)
+            ]])
+            ERB._vehicleProxy.OnVehicleStateChanged = function(_, state)
+                ERB._inVehicle = (state == "hide")
+                UpdateVisibility()
+            end
+            RegisterStateDriver(ERB._vehicleProxy, "erbvehicle", "[vehicleui][petbattle] hide; show")
         end
-        RegisterStateDriver(ERB._vehicleProxy, "erbvehicle", "[vehicleui][petbattle] hide; show")
     end
 end
 
@@ -3105,6 +3109,10 @@ local function OnEvent(self, event, ...)
     elseif event == "PLAYER_REGEN_ENABLED" then
         isInCombat = false
         UpdateVisibility()
+        if ERB._vehicleProxyPending and not ERB._vehicleProxy then
+            ERB._vehicleProxyPending = nil
+            ERB:ApplyAll()
+        end
         -- Clean up Whirlwind GUID cache on combat end
         if EllesmereUI and EllesmereUI.HandleWhirlwindStacks then
             EllesmereUI.HandleWhirlwindStacks(event)
