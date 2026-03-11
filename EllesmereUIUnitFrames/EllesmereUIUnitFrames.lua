@@ -5586,27 +5586,55 @@ function InitializeFrames()
         end
     end
 
-    -- Always suppress the Blizzard default castbar ? we have our own.
-    -- This must run unconditionally so zone changes (portals, etc.) can't
-    -- re-show it even when the player castbar setting is disabled.
+    -- Manage the Blizzard default castbar based on whether the UnitFrames
+    -- player castbar is active.  oUF's DisableBlizzard() runs during Spawn()
+    -- above and strips events from PlayerFrame.spellbar (which is
+    -- PlayerCastingBarFrame) and may leave it parented under PlayerFrame
+    -- (which oUF moved to a hidden frame).  We must actively restore it when
+    -- we are not replacing it ourselves.
     if PlayerCastingBarFrame then
-        PlayerCastingBarFrame:UnregisterAllEvents()
-        PlayerCastingBarFrame:Hide()
-        PlayerCastingBarFrame:SetScript("OnUpdate", nil)
+        if db.profile.player.showPlayerCastbar then
+            -- UnitFrames has its own castbar; fully suppress the Blizzard one.
+            PlayerCastingBarFrame:UnregisterAllEvents()
+            PlayerCastingBarFrame:Hide()
+            PlayerCastingBarFrame:SetScript("OnUpdate", nil)
+        else
+            -- No UnitFrames castbar — restore the Blizzard bar.
+            -- 1) Re-parent to UIParent in case it ended up under PlayerFrame
+            --    (which oUF moved to a hidden frame).
+            if PlayerCastingBarFrame:GetParent() ~= UIParent then
+                PlayerCastingBarFrame:SetParent(UIParent)
+            end
+            -- 2) Re-register the events oUF stripped.
+            PlayerCastingBarFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+            PlayerCastingBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_START", "player", "vehicle")
+            PlayerCastingBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_STOP", "player", "vehicle")
+            PlayerCastingBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "player", "vehicle")
+            PlayerCastingBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "player", "vehicle")
+            PlayerCastingBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_DELAYED", "player", "vehicle")
+            PlayerCastingBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "player", "vehicle")
+            PlayerCastingBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "player", "vehicle")
+            PlayerCastingBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_UPDATE", "player", "vehicle")
+            PlayerCastingBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTIBLE", "player")
+            PlayerCastingBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_NOT_INTERRUPTIBLE", "player")
+        end
+        -- Hook Show() so the setting can suppress the bar even if Blizzard
+        -- tries to re-show it (e.g. after zone transitions).  The body checks
+        -- the setting dynamically so toggling works without a reload.
         if not PlayerCastingBarFrame._euiShowHooked then
             PlayerCastingBarFrame._euiShowHooked = true
-            hooksecurefunc(PlayerCastingBarFrame, "Show", function(self) self:Hide() end)
+            hooksecurefunc(PlayerCastingBarFrame, "Show", function(self)
+                if db.profile.player.showPlayerCastbar then self:Hide() end
+            end)
         end
     end
-    -- Re-suppress after zone changes: Blizzard re-registers events on PlayerCastingBarFrame
-    -- on PLAYER_ENTERING_WORLD, which lets it show again on the next cast.
-    -- The hooksecurefunc on Show above already makes it permanently invisible,
-    -- but hiding it here prevents even a single-frame flash before the hook fires.
+    -- After zone changes Blizzard re-registers events on PlayerCastingBarFrame
+    -- via PLAYER_ENTERING_WORLD; suppress it again if the setting is on.
     if not frames._cbSuppressFrame then
         frames._cbSuppressFrame = CreateFrame("Frame")
         frames._cbSuppressFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         frames._cbSuppressFrame:SetScript("OnEvent", function()
-            if PlayerCastingBarFrame then
+            if PlayerCastingBarFrame and db.profile.player.showPlayerCastbar then
                 PlayerCastingBarFrame:Hide()
             end
         end)
