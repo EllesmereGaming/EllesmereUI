@@ -8,3 +8,6 @@ EllesmereUIUnitFrames/Libs/
 
 # Developer scripts
 *.ps1
+
+# BigWigs Packager Output
+.release/
