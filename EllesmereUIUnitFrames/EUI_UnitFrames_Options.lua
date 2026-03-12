@@ -6180,6 +6180,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="toggle", label="Show Own Only",
                       get=function() return SValSupported("onlyPlayerDebuffs", false) end,
                       set=function(v) SSetSupported("onlyPlayerDebuffs", v) end },
+                    { type="toggle", label="Use Aura Spell ID Filter",
+                      get=function() return SValSupported("useAuraFilter", false) end,
+                      set=function(v) SSetSupported("useAuraFilter", v) end },
                 },
             })
             local debuffCogShow = debuffCogShowRaw

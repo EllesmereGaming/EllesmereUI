@@ -3629,6 +3629,7 @@ function NameplateFrame:UpdateAuras(updateInfo)
     local debuffSlotVal, buffSlotVal, ccSlotVal = GetAuraSlots()
     local dIdx = 1
     local db = EllesmereUINameplatesDB
+    local npUseAuraFilter = db and db.useAuraFilter and EllesmereUI.IsSpellFiltered
     if debuffSlotVal ~= "none" then
     local showAll = db and db.showAllDebuffs
     -- Build the important set from Blizzard's debuffList synchronously.
@@ -3652,7 +3653,8 @@ function NameplateFrame:UpdateAuras(updateInfo)
             for _, aura in ipairs(allDebuffs) do
                 if dIdx > 4 then break end
                 local id = aura and aura.auraInstanceID
-                if id and aura.icon and (showAll or (importantSet and importantSet[id])) then
+                if id and aura.icon and (showAll or (importantSet and importantSet[id]))
+                    and not (npUseAuraFilter and npUseAuraFilter(aura.spellId)) then
                         local slot = self.debuffs[dIdx]
                         slot.icon:SetTexture(aura.icon)
                         slot.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -3711,7 +3713,8 @@ function NameplateFrame:UpdateAuras(updateInfo)
             for _, aura in ipairs(allBuffs) do
                 if bIdx > 4 then break end
                 local id = aura and aura.auraInstanceID
-                if id and type(aura.dispelName) ~= "nil" and aura.icon then
+                if id and type(aura.dispelName) ~= "nil" and aura.icon
+                    and not (npUseAuraFilter and npUseAuraFilter(aura.spellId)) then
                     local slot = self.buffs[bIdx]
                     slot.icon:SetTexture(aura.icon)
                     slot.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -3743,7 +3746,8 @@ function NameplateFrame:UpdateAuras(updateInfo)
             local GetDur = C_UnitAuras.GetAuraDuration
             for _, aura in ipairs(ccAuras) do
                 if ccShown >= 2 then break end
-                if aura and aura.auraInstanceID and aura.icon then
+                if aura and aura.auraInstanceID and aura.icon
+                    and not (npUseAuraFilter and npUseAuraFilter(aura.spellId)) then
                     ccShown = ccShown + 1
                     local slot = self.cc[ccShown]
                     slot.icon:SetTexture(aura.icon)
@@ -4200,6 +4204,16 @@ manager:RegisterEvent("PLAYER_REGEN_DISABLED")
 manager:RegisterEvent("PLAYER_REGEN_ENABLED")
 manager:RegisterEvent("DISPLAY_SIZE_CHANGED")
 manager:RegisterEvent("UI_SCALE_CHANGED")
+
+-- Register for aura filter changes so nameplates refresh when mode/list changes
+if EllesmereUI and EllesmereUI.RegisterAuraFilterCallback then
+    EllesmereUI.RegisterAuraFilterCallback(function()
+        local plates = ns.plates
+        for _, plate in pairs(plates) do
+            plate:UpdateAuras()
+        end
+    end)
+end
 
 local pendingUnits = {}
 ns.pendingUnits = pendingUnits
