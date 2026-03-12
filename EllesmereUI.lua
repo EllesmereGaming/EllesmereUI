@@ -4973,6 +4973,7 @@ function EllesmereUI:ResetAllModules()
         EllesmereUIDB.profileOrder = nil
         EllesmereUIDB.specProfiles = nil
         EllesmereUIDB.activeProfile = nil
+        EllesmereUIDB.auraFilter = nil
     end
 end
 
@@ -6133,6 +6134,196 @@ do
 end
 
 -------------------------------------------------------------------------------
+--  Aura Spell ID Filter  (shared across nameplates + unit frames)
+-------------------------------------------------------------------------------
+do
+    local auraFilterCache = {}  -- { [spellID] = true }
+    local auraFilterCallbacks = {}  -- registered refresh callbacks
+
+    function EllesmereUI.RegisterAuraFilterCallback(fn)
+        auraFilterCallbacks[#auraFilterCallbacks + 1] = fn
+    end
+
+    local function NotifyAuraFilterChanged()
+        for _, fn in ipairs(auraFilterCallbacks) do fn() end
+    end
+
+    function EllesmereUI.RebuildAuraFilterCache()
+        wipe(auraFilterCache)
+        if not EllesmereUIDB or not EllesmereUIDB.auraFilter then return end
+        local str = EllesmereUIDB.auraFilter.spellIDs
+        if not str or str == "" then return end
+        for id in str:gmatch("%d+") do
+            local num = tonumber(id)
+            if num then auraFilterCache[num] = true end
+        end
+        NotifyAuraFilterChanged()
+    end
+
+    function EllesmereUI.NotifyAuraFilterChanged()
+        NotifyAuraFilterChanged()
+    end
+
+    function EllesmereUI.GetAuraFilterCache()
+        return auraFilterCache
+    end
+
+    function EllesmereUI.GetAuraFilterMode()
+        if not EllesmereUIDB or not EllesmereUIDB.auraFilter then return "disabled" end
+        return EllesmereUIDB.auraFilter.mode or "disabled"
+    end
+
+    function EllesmereUI.IsSpellFiltered(spellId)
+        if not spellId then return false end
+        local mode = EllesmereUI.GetAuraFilterMode()
+        if mode == "disabled" then return false end
+        local cache = auraFilterCache
+        if next(cache) == nil then return false end  -- empty list = no filtering
+        if mode == "whitelist" then
+            return not cache[spellId]
+        else -- blacklist
+            return cache[spellId] == true
+        end
+    end
+
+    -- Popup for editing the spell ID list (reuses the profile popup visual style)
+    local auraPopupDimmer, auraPopupEditBox, auraPopupRefreshH
+    function EllesmereUI:ShowAuraFilterPopup(currentText)
+        if not auraPopupDimmer then
+            local POPUP_W, POPUP_H = 520, 310
+            local FONT = EllesmereUI.EXPRESSWAY
+
+            local dimmer = CreateFrame("Frame", nil, UIParent)
+            dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
+            dimmer:SetAllPoints(UIParent)
+            dimmer:EnableMouse(true)
+            dimmer:EnableMouseWheel(true)
+            dimmer:SetScript("OnMouseWheel", function() end)
+            local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
+            dimTex:SetAllPoints()
+            dimTex:SetColorTexture(0, 0, 0, 0.25)
+
+            local popup = CreateFrame("Frame", nil, dimmer)
+            popup:SetSize(POPUP_W, POPUP_H)
+            popup:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
+            popup:SetFrameStrata("FULLSCREEN_DIALOG")
+            popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
+            popup:EnableMouse(true)
+            local bg = popup:CreateTexture(nil, "BACKGROUND")
+            bg:SetAllPoints()
+            bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
+
+            local titleFS = EllesmereUI.MakeFont(popup, 15, "", 1, 1, 1)
+            titleFS:SetPoint("TOP", popup, "TOP", 0, -20)
+            titleFS:SetText("Edit Aura Spell ID List")
+
+            local subFS = EllesmereUI.MakeFont(popup, 11, "", 1, 1, 1)
+            subFS:SetAlpha(0.45)
+            subFS:SetPoint("TOP", titleFS, "BOTTOM", 0, -4)
+            subFS:SetText("Enter spell IDs separated by commas (e.g. 12345, 67890)")
+
+            local sf = CreateFrame("ScrollFrame", nil, popup)
+            sf:SetPoint("TOPLEFT", popup, "TOPLEFT", 20, -58)
+            sf:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -20, 52)
+            sf:SetFrameLevel(popup:GetFrameLevel() + 1)
+            sf:EnableMouseWheel(true)
+
+            local sc = CreateFrame("Frame", nil, sf)
+            sc:SetWidth(sf:GetWidth() or (POPUP_W - 40))
+            sc:SetHeight(1)
+            sf:SetScrollChild(sc)
+
+            local editBox = CreateFrame("EditBox", nil, sc)
+            editBox:SetMultiLine(true)
+            editBox:SetAutoFocus(false)
+            editBox:SetFont(FONT, 11, "")
+            editBox:SetTextColor(1, 1, 1, 0.75)
+            editBox:SetPoint("TOPLEFT", sc, "TOPLEFT", 0, 0)
+            editBox:SetPoint("TOPRIGHT", sc, "TOPRIGHT", -14, 0)
+            editBox:SetHeight(1)
+
+            sf:SetScript("OnMouseWheel", function(self, delta)
+                local maxScroll = tonumber(self:GetVerticalScrollRange()) or 0
+                if maxScroll <= 0 then return end
+                local cur = self:GetVerticalScroll()
+                self:SetVerticalScroll(math.max(0, math.min(maxScroll, cur - delta * 30)))
+            end)
+
+            sf:SetScript("OnMouseDown", function() editBox:SetFocus() end)
+
+            local function RefreshHeight()
+                C_Timer.After(0.01, function()
+                    local lineH = (editBox.GetLineHeight and editBox:GetLineHeight()) or 14
+                    local h = editBox:GetNumLines() * lineH
+                    local sfH = sf:GetHeight() or 100
+                    if h <= sfH then
+                        sc:SetHeight(sfH)
+                        editBox:SetHeight(sfH)
+                    else
+                        sc:SetHeight(h + 4)
+                        editBox:SetHeight(h + 4)
+                    end
+                end)
+            end
+            editBox:SetScript("OnTextChanged", function() RefreshHeight() end)
+
+            -- Save button
+            local saveBtn = CreateFrame("Button", nil, popup)
+            saveBtn:SetSize(120, 26)
+            saveBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOM", -4, 14)
+            saveBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
+            EllesmereUI.MakeStyledButton(saveBtn, "Save", 11,
+                EllesmereUI.WB_COLOURS, function()
+                    local str = editBox:GetText() or ""
+                    if not EllesmereUIDB then EllesmereUIDB = {} end
+                    if not EllesmereUIDB.auraFilter then
+                        EllesmereUIDB.auraFilter = { mode = "disabled", spellIDs = "" }
+                    end
+                    EllesmereUIDB.auraFilter.spellIDs = str
+                    EllesmereUI.RebuildAuraFilterCache()
+                    dimmer:Hide()
+                end)
+
+            local cancelBtn = CreateFrame("Button", nil, popup)
+            cancelBtn:SetSize(120, 26)
+            cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 14)
+            cancelBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
+            EllesmereUI.MakeStyledButton(cancelBtn, "Cancel", 11,
+                EllesmereUI.RB_COLOURS, function() dimmer:Hide() end)
+
+            dimmer:SetScript("OnMouseDown", function()
+                if not popup:IsMouseOver() then dimmer:Hide() end
+            end)
+
+            popup:EnableKeyboard(true)
+            popup:SetScript("OnKeyDown", function(self, key)
+                if key == "ESCAPE" then
+                    self:SetPropagateKeyboardInput(false)
+                    dimmer:Hide()
+                else
+                    self:SetPropagateKeyboardInput(true)
+                end
+            end)
+
+            dimmer:HookScript("OnHide", function()
+                editBox:ClearFocus()
+                sf:SetVerticalScroll(0)
+            end)
+
+            auraPopupDimmer = dimmer
+            auraPopupEditBox = editBox
+            auraPopupRefreshH = RefreshHeight
+        end
+
+        auraPopupEditBox:SetText(currentText or "")
+        auraPopupDimmer:Show()
+        auraPopupRefreshH()
+        C_Timer.After(0.05, function() auraPopupEditBox:SetFocus() end)
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Init  +  Demo Modules  (temporary placeholder content)
 -------------------------------------------------------------------------------
 local initFrame = CreateFrame("Frame")
@@ -6215,6 +6406,13 @@ initFrame:SetScript("OnEvent", function(self, event)
     -- Apply streamer settings
     if EllesmereUI._applyGuildChatPrivacy then EllesmereUI._applyGuildChatPrivacy() end
     if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
+
+    -- Initialize aura filter defaults and rebuild cache
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    if not EllesmereUIDB.auraFilter then
+        EllesmereUIDB.auraFilter = { mode = "disabled", spellIDs = "" }
+    end
+    EllesmereUI.RebuildAuraFilterCache()
 
     -- Re-read theme settings from SavedVariables (belt-and-suspenders for persistence)
     if EllesmereUIDB then

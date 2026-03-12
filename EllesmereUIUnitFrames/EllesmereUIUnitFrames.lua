@@ -2517,6 +2517,12 @@ local function CreateUnifiedBorder(frame, unit)
 end
 
 
+-- Shared oUF FilterAura for spell ID filtering
+local function AuraSpellIDFilter(element, unit, data)
+    if not data or not data.spellId then return true end
+    return not EllesmereUI.IsSpellFiltered(data.spellId)
+end
+
 local function CreateTargetAuras(frame, unit)
     local function SetupAuraIcon(_, button)
         if not button then return end
@@ -2584,6 +2590,9 @@ local function CreateTargetAuras(frame, unit)
         buffs:Hide()
         buffs.num = 0
     end
+    if settings.useAuraFilter then
+        buffs.FilterAura = AuraSpellIDFilter
+    end
     frame.Buffs = buffs
 
     local maxDebuffs = (settings and settings.maxDebuffs) or 28
@@ -2611,6 +2620,9 @@ local function CreateTargetAuras(frame, unit)
     debuffs.PostCreateButton = SetupAuraIcon
     if settings and settings.onlyPlayerDebuffs then
         debuffs.onlyShowPlayer = true
+    end
+    if settings.useAuraFilter then
+        debuffs.FilterAura = AuraSpellIDFilter
     end
     frame.Debuffs = debuffs
 end
@@ -2736,6 +2748,9 @@ local function StyleFullFrame(frame, unit)
                     button.Border:SetFrameLevel(button:GetFrameLevel() + 1)
                     PP.CreateBorder(button.Border, 0, 0, 0, 1)
                 end
+            end
+            if settings.useAuraFilter then
+                buffs.FilterAura = AuraSpellIDFilter
             end
             frame.Buffs = buffs
         end

@@ -1698,6 +1698,68 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
+        -----------------------------------------------------------------------
+        --  AURA SPELL ID FILTER
+        -----------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "AURA SPELL ID FILTER", y);  y = y - h
+
+        local auraFilterModeValues = {
+            disabled  = "Disabled",
+            whitelist = "Whitelist (Show Only These)",
+            blacklist = "Blacklist (Hide These)",
+        }
+        local auraFilterModeOrder = { "disabled", "whitelist", "blacklist" }
+
+        _, h = W:DualRow(parent, y,
+            { type="dropdown", text="Filter Mode",
+              values=auraFilterModeValues,
+              order=auraFilterModeOrder,
+              getValue=function()
+                return EllesmereUI.GetAuraFilterMode()
+              end,
+              setValue=function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                if not EllesmereUIDB.auraFilter then
+                    EllesmereUIDB.auraFilter = { mode = "disabled", spellIDs = "" }
+                end
+                EllesmereUIDB.auraFilter.mode = v
+                if EllesmereUI.NotifyAuraFilterChanged then
+                    EllesmereUI.NotifyAuraFilterChanged()
+                end
+              end },
+            { type="label", text="" });  y = y - h
+
+        -- "Edit Spell ID List" button
+        do
+            local BTN_W, BTN_H = 220, 28
+            local btn = CreateFrame("Button", nil, parent)
+            btn:SetSize(BTN_W, BTN_H)
+            btn:SetPoint("TOP", parent, "TOP", 0, y)
+            btn:SetFrameLevel(parent:GetFrameLevel() + 5)
+            EllesmereUI.MakeStyledButton(btn, "Edit Spell ID List", 11,
+                EllesmereUI.WB_COLOURS, function()
+                    local currentIDs = ""
+                    if EllesmereUIDB and EllesmereUIDB.auraFilter then
+                        currentIDs = EllesmereUIDB.auraFilter.spellIDs or ""
+                    end
+                    EllesmereUI:ShowAuraFilterPopup(currentIDs)
+                end)
+            y = y - BTN_H - 4
+        end
+
+        -- Helper text
+        do
+            local helpFS = EllesmereUI.MakeFont(parent, 10, "", 1, 1, 1)
+            helpFS:SetAlpha(0.35)
+            helpFS:SetPoint("TOP", parent, "TOP", 0, y)
+            helpFS:SetWidth(360)
+            helpFS:SetJustifyH("CENTER")
+            helpFS:SetText("Enter spell IDs separated by commas. Enable 'Show Spell ID on Tooltip' above to find IDs.")
+            y = y - 18
+        end
+
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+
         -- Reset ALL EUI Addon Settings (wide warning button)
         y = y - 30  -- spacer
         do

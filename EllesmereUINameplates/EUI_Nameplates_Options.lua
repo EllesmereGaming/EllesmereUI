@@ -2307,6 +2307,16 @@ initFrame:SetScript("OnEvent", function(self)
               end,
               tooltip="Scales enemy nameplates while they are casting. 100% = no change." });  y = y - h
 
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Use Aura Spell ID Filter",
+              getValue=function() return DBVal("useAuraFilter") == true end,
+              setValue=function(v)
+                DB().useAuraFilter = v
+                RefreshAllAuras()
+              end,
+              tooltip="Apply the global Aura Spell ID Filter (configured in Global Settings) to nameplates." },
+            { type="label", text="" });  y = y - h
+
         -- Helper: pandemic glow is off when style is "None"
         local function pandemicOff()
             return DBVal("pandemicGlow") ~= true
