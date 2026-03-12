@@ -2746,9 +2746,11 @@ end
 ns.HideBlizzardFrame = HideBlizzardFrame
 local castFallbackFrame = CreateFrame("Frame")
 local fallbackCastCount = 0
+local _fallbackPlates = {}
+local _importantSetBuf = {}
 castFallbackFrame:SetScript("OnUpdate", function()
-    for _, plate in pairs(ns.plates) do
-        if plate._castFallback and plate.isCasting and plate.unit and plate.nameplate then
+    for plate in pairs(_fallbackPlates) do
+        if plate.isCasting and plate.unit and plate.nameplate then
             local bc = plate.nameplate.UnitFrame and plate.nameplate.UnitFrame.castBar
             if bc and bc:IsShown() then
                 plate.cast:SetMinMaxValues(bc:GetMinMaxValues())
@@ -2759,6 +2761,7 @@ castFallbackFrame:SetScript("OnUpdate", function()
                 end
                 plate.isCasting = false
                 plate._castFallback = nil
+                _fallbackPlates[plate] = nil
                 fallbackCastCount = fallbackCastCount - 1
                 if fallbackCastCount <= 0 then
                     fallbackCastCount = 0
@@ -3043,6 +3046,7 @@ function NameplateFrame:ClearUnit()
         self.isCasting = false
         if self._castFallback then
             self._castFallback = nil
+            _fallbackPlates[self] = nil
             fallbackCastCount = fallbackCastCount - 1
             if fallbackCastCount <= 0 then fallbackCastCount = 0; castFallbackFrame:Hide() end
         end
@@ -3104,6 +3108,7 @@ function NameplateFrame:ClearUnit()
     self.castBarOverlay:SetAlpha(0)
     self.isCasting = false
     self._castFallback = nil
+    _fallbackPlates[self] = nil
     self._kickProtected = nil
     self:HideKickTick()
     if self._interruptTimer then
@@ -3644,7 +3649,8 @@ function NameplateFrame:UpdateAuras(updateInfo)
     -- UnitFrame has already processed the event and debuffList is current.
     local importantSet
     if not showAll and self.nameplate then
-        importantSet = {}
+        wipe(_importantSetBuf)
+        importantSet = _importantSetBuf
         local uf = self.nameplate.UnitFrame
         if uf and uf.AurasFrame and uf.AurasFrame.debuffList and uf.AurasFrame.debuffList.Iterate then
             uf.AurasFrame.debuffList:Iterate(function(auraInstanceID)
@@ -3815,6 +3821,7 @@ function NameplateFrame:UpdateCast()
         if self.isCasting then
             if self._castFallback then
                 self._castFallback = nil
+                _fallbackPlates[self] = nil
                 fallbackCastCount = fallbackCastCount - 1
                 if fallbackCastCount <= 0 then fallbackCastCount = 0; castFallbackFrame:Hide() end
             end
@@ -3918,6 +3925,7 @@ function NameplateFrame:UpdateCast()
         if not self.isCasting then
             self.isCasting = true
             self._castFallback = true
+            _fallbackPlates[self] = true
             fallbackCastCount = fallbackCastCount + 1
             castFallbackFrame:Show()
             NotifyCastStarted()
@@ -4065,6 +4073,7 @@ function NameplateFrame:ShowInterrupted(interrupterGUID)
     if self.isCasting then
         if self._castFallback then
             self._castFallback = nil
+            _fallbackPlates[self] = nil
             fallbackCastCount = fallbackCastCount - 1
             if fallbackCastCount <= 0 then fallbackCastCount = 0; castFallbackFrame:Hide() end
         end

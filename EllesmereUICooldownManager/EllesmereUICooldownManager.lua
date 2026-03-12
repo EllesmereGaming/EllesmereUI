@@ -3044,30 +3044,30 @@ local function CreateCDMIcon(barKey, index)
     keybindText:Hide()
     icon._keybindText = keybindText
 
-    -- Tooltip on hover ΓÇö uses OnUpdate cursor check so the icon stays click-through
-    -- Tooltip on hover: only register the OnUpdate poll when tooltips are enabled for this bar.
+    -- Tooltip on hover via OnEnter/OnLeave on a motion-only overlay (click-through).
     -- Icons are rebuilt via BuildAllCDMBars when showTooltip changes, so creation-time gating is sufficient.
     local tooltipOverlay = CreateFrame("Frame", nil, icon)
     tooltipOverlay:SetAllPoints(icon)
     tooltipOverlay:SetFrameLevel(icon:GetFrameLevel() + 4)
-    tooltipOverlay:EnableMouse(false)
     icon._tooltipShown = false
     if barData.showTooltip then
-        icon:SetScript("OnUpdate", function(self)
-            local over = self:IsMouseOver()
-            if over and not self._tooltipShown then
-                local sid = self._spellID
-                if sid then
-                    GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
-                    GameTooltip:SetSpellByID(sid)
-                    GameTooltip:Show()
-                    self._tooltipShown = true
-                end
-            elseif not over and self._tooltipShown then
-                GameTooltip:Hide()
-                self._tooltipShown = false
+        tooltipOverlay:SetMouseMotionEnabled(true)
+        tooltipOverlay:SetMouseClickEnabled(false)
+        tooltipOverlay:SetScript("OnEnter", function()
+            local sid = icon._spellID
+            if sid then
+                GameTooltip:SetOwner(icon, "ANCHOR_CURSOR")
+                GameTooltip:SetSpellByID(sid)
+                GameTooltip:Show()
+                icon._tooltipShown = true
             end
         end)
+        tooltipOverlay:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+            icon._tooltipShown = false
+        end)
+    else
+        tooltipOverlay:EnableMouse(false)
     end
     icon._tooltipOverlay = tooltipOverlay
 
@@ -4644,11 +4644,10 @@ local function UpdateAllCDMBars(dt)
             local vf = _G[vName]
             local isBuffViewer = (vi == 3 or vi == 4)
             if vf then
-                -- Load children into reusable buffer with a single GetChildren call
+                -- Load children into reusable buffer without intermediate table allocation
                 local nChildren = vf:GetNumChildren()
                 if nChildren > 0 then
-                    local children = { vf:GetChildren() }
-                    for ci = 1, nChildren do _viewerChildBuf[ci] = children[ci] end
+                    for ci = 1, nChildren do _viewerChildBuf[ci] = select(ci, vf:GetChildren()) end
                     for ci = nChildren + 1, #_viewerChildBuf do _viewerChildBuf[ci] = nil end
                 else
                     wipe(_viewerChildBuf)
