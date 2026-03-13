@@ -6360,6 +6360,21 @@ local function SetupBlizzardMovableFrame(barKey)
             blizzFrame:SetParent(holder)
             blizzFrame:ClearAllPoints()
             blizzFrame:SetPoint("CENTER", holder, "CENTER", 0, 0)
+            -- Allow right-click to pass through for camera movement (bug fix:
+            -- Blizzard's ExtraAbilityContainer and its children have mouse
+            -- enabled by default, blocking right-click+drag camera rotation).
+            if barKey == "ExtraActionButton" then
+                blizzFrame:SetPassThroughButtons("RightButton")
+                if ExtraActionBarFrame then
+                    ExtraActionBarFrame:SetPassThroughButtons("RightButton")
+                end
+                if ExtraActionButton1 then
+                    ExtraActionButton1:SetPassThroughButtons("RightButton")
+                end
+                if ZoneAbilityFrame then
+                    ZoneAbilityFrame:SetPassThroughButtons("RightButton")
+                end
+            end
         end
         if encounterWidgetBar then
             encounterWidgetBar.ignoreInLayout = true
