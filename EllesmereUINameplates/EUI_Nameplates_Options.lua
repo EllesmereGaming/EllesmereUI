@@ -400,7 +400,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local t = gf:CreateTexture(nil, "BACKGROUND")
                 t:SetTexture(GLOW_TEX)
                 t:SetVertexColor(0.4117, 0.6667, 1.0, 1.0)
-                t:SetBlendMode("ADD")
+                t:SetBlendMode("BLEND")
                 t:SetTexCoord(unpack(coords))
                 return t
             end

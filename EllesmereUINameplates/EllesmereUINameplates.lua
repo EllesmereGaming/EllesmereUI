@@ -483,6 +483,7 @@ local function GetHealthBarWidth()
     return BAR_W + extra
 end
 ns.GetHealthBarWidth = GetHealthBarWidth
+
 -- Slot-based size/offset getters
 local function GetSlotSize(posKey)
     local db = EllesmereUINameplatesDB
@@ -1089,24 +1090,35 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     bc.r, bc.g, bc.b = GetBorderColor()
     plate.borderFrame = CreateBorderSet(plate.health, BORDER_TEX, bc)
     plate._simpleBorderFrame = CreateBorderSet(plate.health, BORDER_TEX_SIMPLE, bc)
+    local PP = EllesmereUI and EllesmereUI.PP
+    if PP then
+        plate._fallbackBorder = PP.CreateBorder(plate.health, bc.r, bc.g, bc.b, 1, 1, "OVERLAY", 6)
+    end
 
     function plate:ApplyBorderStyle()
         local style = GetBorderStyle()
         if style == "none" then
             plate.borderFrame:Hide()
             plate._simpleBorderFrame:Hide()
+            if plate._fallbackBorder then plate._fallbackBorder:Hide() end
         elseif style == "simple" then
             plate.borderFrame:Hide()
             plate._simpleBorderFrame:Show()
+            if plate._fallbackBorder then plate._fallbackBorder:Show() end
         else
             plate.borderFrame:Show()
             plate._simpleBorderFrame:Hide()
+            if plate._fallbackBorder then plate._fallbackBorder:Show() end
         end
     end
     function plate:ApplyBorderColor()
         local cr, cg, cb = GetBorderColor()
         for _, tex in ipairs(plate.borderFrame._texs) do tex:SetVertexColor(cr, cg, cb) end
         for _, tex in ipairs(plate._simpleBorderFrame._texs) do tex:SetVertexColor(cr, cg, cb) end
+        if PP and plate._fallbackBorder then
+            PP.SetBorderColor(plate.health, cr, cg, cb, 1)
+            PP.SetBorderSize(plate.health, 1)
+        end
     end
     plate:ApplyBorderStyle()
     local GLOW_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\background.png"
@@ -1122,7 +1134,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         local t = plate.glowFrame:CreateTexture(nil, "BACKGROUND")
         t:SetTexture(GLOW_TEX)
         t:SetVertexColor(0.4117, 0.6667, 1.0, 1.0)
-        t:SetBlendMode("ADD")
+        t:SetBlendMode("BLEND")
         return t
     end
     plate.glowTL = CreateGlowTex()
