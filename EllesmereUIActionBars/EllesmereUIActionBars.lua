@@ -4756,7 +4756,7 @@ _vehicleStateFrame:SetAttribute("_onstate-vehicleui", [[
 ]])
 _vehicleStateFrame.OnVehicleEnter = ClearKeybindsForVehicle
 _vehicleStateFrame.OnVehicleExit  = RestoreKeybindsAfterVehicle
-RegisterStateDriver(_vehicleStateFrame, "vehicleui", "[vehicleui] invehicle; novehicle")
+RegisterStateDriver(_vehicleStateFrame, "vehicleui", "[petbattle] invehicle; [vehicleui] invehicle; novehicle")
 
 -------------------------------------------------------------------------------
 --  Vehicle Exit Button
