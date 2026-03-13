@@ -1058,55 +1058,31 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
             PP.CreateBorder(parent, 0, 0, 0, 1, 1, "OVERLAY", 5)
         end
     end
-    local BORDER_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\border-colorless.png"
-    local BORDER_TEX_SIMPLE = "Interface\\AddOns\\EllesmereUINameplates\\Media\\border-simple.png"
-    local BORDER_CORNER = 6
-
-    local function CreateBorderSet(parent, tex, color)
-        local f = CreateFrame("Frame", nil, parent)
-        f:SetFrameLevel(parent:GetFrameLevel() + 5)
-        f:SetAllPoints()
-        f._texs = {}
-        local function Mk()
-            local t = f:CreateTexture(nil, "OVERLAY", nil, 7)
-            t:SetTexture(tex)
-            t:SetVertexColor(color.r, color.g, color.b)
-            f._texs[#f._texs + 1] = t
-            return t
-        end
-        local tl = Mk(); tl:SetSize(BORDER_CORNER, BORDER_CORNER); tl:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0); tl:SetTexCoord(0, 0.5, 0, 0.5)
-        local tr = Mk(); tr:SetSize(BORDER_CORNER, BORDER_CORNER); tr:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0); tr:SetTexCoord(0.5, 1, 0, 0.5)
-        local bl = Mk(); bl:SetSize(BORDER_CORNER, BORDER_CORNER); bl:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0); bl:SetTexCoord(0, 0.5, 0.5, 1)
-        local br = Mk(); br:SetSize(BORDER_CORNER, BORDER_CORNER); br:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0); br:SetTexCoord(0.5, 1, 0.5, 1)
-        local top = Mk(); top:SetHeight(BORDER_CORNER); top:SetPoint("TOPLEFT", tl, "TOPRIGHT", 0, 0); top:SetPoint("TOPRIGHT", tr, "TOPLEFT", 0, 0); top:SetTexCoord(0.5, 0.5, 0, 0.5)
-        local bot = Mk(); bot:SetHeight(BORDER_CORNER); bot:SetPoint("BOTTOMLEFT", bl, "BOTTOMRIGHT", 0, 0); bot:SetPoint("BOTTOMRIGHT", br, "BOTTOMLEFT", 0, 0); bot:SetTexCoord(0.5, 0.5, 0.5, 1)
-        local lft = Mk(); lft:SetWidth(BORDER_CORNER); lft:SetPoint("TOPLEFT", tl, "BOTTOMLEFT", 0, 0); lft:SetPoint("BOTTOMLEFT", bl, "TOPLEFT", 0, 0); lft:SetTexCoord(0, 0.5, 0.5, 0.5)
-        local rgt = Mk(); rgt:SetWidth(BORDER_CORNER); rgt:SetPoint("TOPRIGHT", tr, "BOTTOMRIGHT", 0, 0); rgt:SetPoint("BOTTOMRIGHT", br, "TOPRIGHT", 0, 0); rgt:SetTexCoord(0.5, 1, 0.5, 0.5)
-        return f
-    end
-
     local bc = { r = 0, g = 0, b = 0 }
     bc.r, bc.g, bc.b = GetBorderColor()
-    plate.borderFrame = CreateBorderSet(plate.health, BORDER_TEX, bc)
-    plate._simpleBorderFrame = CreateBorderSet(plate.health, BORDER_TEX_SIMPLE, bc)
+    plate.borderFrame = CreateFrame("Frame", nil, plate.health)
+    plate.borderFrame:SetFrameLevel(plate.health:GetFrameLevel() + 5)
+    plate.borderFrame:SetAllPoints()
+    PP.CreateBorder(plate.borderFrame, bc.r, bc.g, bc.b, 1, 2, "OVERLAY", 7)
+
+    local function GetBorderThickness(style)
+        if style == "simple" then return 1 end
+        if style == "none" then return 0 end
+        return 2
+    end
 
     function plate:ApplyBorderStyle()
         local style = GetBorderStyle()
         if style == "none" then
-            plate.borderFrame:Hide()
-            plate._simpleBorderFrame:Hide()
-        elseif style == "simple" then
-            plate.borderFrame:Hide()
-            plate._simpleBorderFrame:Show()
+            PP.HideBorder(plate.borderFrame)
         else
-            plate.borderFrame:Show()
-            plate._simpleBorderFrame:Hide()
+            PP.SetBorderSize(plate.borderFrame, GetBorderThickness(style))
+            PP.ShowBorder(plate.borderFrame)
         end
     end
     function plate:ApplyBorderColor()
         local cr, cg, cb = GetBorderColor()
-        for _, tex in ipairs(plate.borderFrame._texs) do tex:SetVertexColor(cr, cg, cb) end
-        for _, tex in ipairs(plate._simpleBorderFrame._texs) do tex:SetVertexColor(cr, cg, cb) end
+        PP.SetBorderColor(plate.borderFrame, cr, cg, cb, 1)
     end
     plate:ApplyBorderStyle()
     local GLOW_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\background.png"
@@ -3521,8 +3497,7 @@ function NameplateFrame:ApplyTarget()
     end
     -- Vibrant: override health bar border to white on selected target
     if isTarget and style == "vibrant" then
-        for _, tex in ipairs(self.borderFrame._texs) do tex:SetVertexColor(1, 1, 1) end
-        for _, tex in ipairs(self._simpleBorderFrame._texs) do tex:SetVertexColor(1, 1, 1) end
+        PP.SetBorderColor(self.borderFrame, 1, 1, 1, 1)
     else
         self:ApplyBorderColor()
     end
