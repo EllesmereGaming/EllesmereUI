@@ -944,6 +944,7 @@ local DEFAULTS = {
             barDefaults = {
                 iconSize    = 36,
                 numRows     = 1,
+                fillFirstRow = false,
                 spacing     = 2,
                 borderSize  = 1,
                 borderR     = 0, borderG = 0, borderB = 0, borderA = 1,
@@ -2807,6 +2808,7 @@ LayoutCDMBar = function(barKey)
     local grow = frame._mouseGrow or barData.growDirection or "RIGHT"
     local numRows = barData.numRows or 1
     if numRows < 1 then numRows = 1 end
+    local fillFirst = barData.fillFirstRow
 
     -- Collect visible icons (reuse buffer to avoid garbage)
     local visibleIcons = frame._visibleIconsBuf
@@ -2826,6 +2828,8 @@ LayoutCDMBar = function(barKey)
 
     local isHoriz = (grow == "RIGHT" or grow == "LEFT")
     local stride = math.ceil(count / numRows)
+    -- Recompute numRows to eliminate empty rows
+    numRows = math.ceil(count / stride)
 
     -- Container size (already snapped values)
     local totalW, totalH
@@ -2866,13 +2870,15 @@ LayoutCDMBar = function(barKey)
     local stepW = iconW + spacing
     local stepH = iconH + spacing
 
-    -- How many icons on the top row (remainder goes top, full rows on bottom)
-    local topRowCount = count - (numRows - 1) * stride
-    if topRowCount < 0 then topRowCount = 0 end
-    local topRowHasLess = (topRowCount > 0 and topRowCount < stride)
+    -- How many icons on the partial row
+    local partialCount = count - (numRows - 1) * stride
+    if partialCount < 0 then partialCount = 0 end
+    local partialHasLess = (partialCount > 0 and partialCount < stride)
 
-    -- Position each icon: fill bottom-up so bottom rows are full,
-    -- top row gets the remainder. Centering only on top row when partial.
+    -- When fillFirst is true, full rows come first and the partial row is last.
+    -- When false (default), partial row is first (row 0) and full rows follow.
+    local partialRow = fillFirst and (numRows - 1) or 0
+
     for i, icon in ipairs(visibleIcons) do
         icon:SetSize(iconW, iconH)
         if icon._glowOverlay then
@@ -2880,48 +2886,58 @@ LayoutCDMBar = function(barKey)
         end
         icon:ClearAllPoints()
 
-        -- Map sequential index to bottom-up grid position.
-        -- Icon 1..topRowCount fill the top row (visual row 0).
-        -- Remaining icons fill rows 1..numRows-1 (bottom rows, full).
         local col, row
-        if i <= topRowCount then
-            col = i - 1
-            row = 0
+        if fillFirst then
+            -- Full rows first (rows 0..numRows-2), partial row last
+            local fullSlots = (numRows - 1) * stride
+            if i <= fullSlots then
+                col = (i - 1) % stride
+                row = math.floor((i - 1) / stride)
+            else
+                col = i - fullSlots - 1
+                row = numRows - 1
+            end
         else
-            local bottomIdx = i - topRowCount - 1
-            col = bottomIdx % stride
-            row = 1 + math.floor(bottomIdx / stride)
+            -- Partial row first (row 0), full rows after (original behavior)
+            if i <= partialCount then
+                col = i - 1
+                row = 0
+            else
+                local bottomIdx = i - partialCount - 1
+                col = bottomIdx % stride
+                row = 1 + math.floor(bottomIdx / stride)
+            end
         end
 
-        -- Only center the top row when it has fewer icons than stride
+        -- Center the partial row when it has fewer icons than stride
         if grow == "RIGHT" then
             local rowOffset = 0
-            if row == 0 and topRowHasLess then
-                rowOffset = SnapForScale((stride - topRowCount) * stepW / 2, barScale)
+            if row == partialRow and partialHasLess then
+                rowOffset = SnapForScale((stride - partialCount) * stepW / 2, barScale)
             end
             icon:SetPoint("TOPLEFT", frame, "TOPLEFT",
                 col * stepW + rowOffset,
                 -(row * stepH))
         elseif grow == "LEFT" then
             local rowOffset = 0
-            if row == 0 and topRowHasLess then
-                rowOffset = SnapForScale((stride - topRowCount) * stepW / 2, barScale)
+            if row == partialRow and partialHasLess then
+                rowOffset = SnapForScale((stride - partialCount) * stepW / 2, barScale)
             end
             icon:SetPoint("TOPRIGHT", frame, "TOPRIGHT",
                 -(col * stepW + rowOffset),
                 -(row * stepH))
         elseif grow == "DOWN" then
             local rowOffset = 0
-            if row == 0 and topRowHasLess then
-                rowOffset = SnapForScale((stride - topRowCount) * stepH / 2, barScale)
+            if row == partialRow and partialHasLess then
+                rowOffset = SnapForScale((stride - partialCount) * stepH / 2, barScale)
             end
             icon:SetPoint("TOPLEFT", frame, "TOPLEFT",
                 row * stepW,
                 -(col * stepH + rowOffset))
         elseif grow == "UP" then
             local rowOffset = 0
-            if row == 0 and topRowHasLess then
-                rowOffset = SnapForScale((stride - topRowCount) * stepH / 2, barScale)
+            if row == partialRow and partialHasLess then
+                rowOffset = SnapForScale((stride - partialCount) * stepH / 2, barScale)
             end
             icon:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT",
                 row * stepW,
@@ -6002,26 +6018,31 @@ function ns.AddTrackedSpell(barKey, id, isExtra)
                 for _, existing in ipairs(b.customSpells) do
                     if existing == id then return false end
                 end
-                -- Insert so the new spell fills the top row's next empty slot.
-                -- With bottom-up fill, icons 1..topRowCount go to the top row.
+                -- Insert position depends on row fill direction
+                local fillFirst = b.fillFirstRow
                 local numRows = b.numRows or 1
                 if numRows < 1 then numRows = 1 end
                 local curCount = #b.customSpells
                 local stride = math.ceil(curCount / numRows)
                 if stride < 1 then stride = 1 end
-                local topRowCount = curCount - (numRows - 1) * stride
-                if topRowCount < 0 then topRowCount = 0 end
-                -- New count after insert
                 local newCount = curCount + 1
-                local newStride = math.ceil(newCount / numRows)
-                if newStride < 1 then newStride = 1 end
-                local newTopRow = newCount - (numRows - 1) * newStride
-                if newTopRow < 0 then newTopRow = 0 end
-                -- If stride didn't change, insert at end of top row section
-                if newStride == stride and newTopRow > topRowCount then
-                    table.insert(b.customSpells, topRowCount + 1, id)
-                else
+
+                if fillFirst then
+                    -- Partial row is last; appending fills it naturally
                     b.customSpells[newCount] = id
+                else
+                    -- Partial row is first (top); insert to fill top row
+                    local topRowCount = curCount - (numRows - 1) * stride
+                    if topRowCount < 0 then topRowCount = 0 end
+                    local newStride = math.ceil(newCount / numRows)
+                    if newStride < 1 then newStride = 1 end
+                    local newTopRow = newCount - (numRows - 1) * newStride
+                    if newTopRow < 0 then newTopRow = 0 end
+                    if newStride == stride and newTopRow > topRowCount then
+                        table.insert(b.customSpells, topRowCount + 1, id)
+                    else
+                        b.customSpells[newCount] = id
+                    end
                 end
             elseif isExtra then
                 -- Default bar: store extras in a separate list
@@ -6035,23 +6056,29 @@ function ns.AddTrackedSpell(barKey, id, isExtra)
                 for _, existing in ipairs(b.trackedSpells) do
                     if existing == id then return false end
                 end
-                -- Insert so the new spell fills the top row's next empty slot
+                -- Insert position depends on row fill direction
+                local fillFirst = b.fillFirstRow
                 local numRows = b.numRows or 1
                 if numRows < 1 then numRows = 1 end
                 local curCount = #b.trackedSpells
                 local stride = math.ceil(curCount / numRows)
                 if stride < 1 then stride = 1 end
-                local topRowCount = curCount - (numRows - 1) * stride
-                if topRowCount < 0 then topRowCount = 0 end
                 local newCount = curCount + 1
-                local newStride = math.ceil(newCount / numRows)
-                if newStride < 1 then newStride = 1 end
-                local newTopRow = newCount - (numRows - 1) * newStride
-                if newTopRow < 0 then newTopRow = 0 end
-                if newStride == stride and newTopRow > topRowCount then
-                    table.insert(b.trackedSpells, topRowCount + 1, id)
-                else
+
+                if fillFirst then
                     b.trackedSpells[newCount] = id
+                else
+                    local topRowCount = curCount - (numRows - 1) * stride
+                    if topRowCount < 0 then topRowCount = 0 end
+                    local newStride = math.ceil(newCount / numRows)
+                    if newStride < 1 then newStride = 1 end
+                    local newTopRow = newCount - (numRows - 1) * newStride
+                    if newTopRow < 0 then newTopRow = 0 end
+                    if newStride == stride and newTopRow > topRowCount then
+                        table.insert(b.trackedSpells, topRowCount + 1, id)
+                    else
+                        b.trackedSpells[newCount] = id
+                    end
                 end
                 -- Clear removal flag so reconcile does not strip it
                 if b.removedSpells then b.removedSpells[id] = nil end

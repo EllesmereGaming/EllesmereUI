@@ -3834,6 +3834,7 @@ initFrame:SetScript("OnEvent", function(self)
             local grow     = bd.growDirection or "RIGHT"
             local numRows  = bd.numRows or 1
             if numRows < 1 then numRows = 1 end
+            local fillFirst = bd.fillFirstRow
 
             local tracked
             local isCustomBar = (bd.customSpells ~= nil)
@@ -3854,15 +3855,18 @@ initFrame:SetScript("OnEvent", function(self)
             -- Spell columns: enough to fit all spells with full rows
             local stride = math.ceil(count / numRows)
             if stride < 1 then stride = 1 end
+            -- Recompute numRows to eliminate empty rows
+            if count > 0 then numRows = math.ceil(count / stride) end
             local gridSlots = (count > 0) and (stride * numRows) or 0
             self._stride = stride
             self._numRows = numRows
             self._gridSlots = gridSlots
 
-            -- How many icons on the top row (remainder). Bottom rows are full.
-            local topRowCount = count - (numRows - 1) * stride
-            if topRowCount < 0 then topRowCount = 0 end
-            local topRowHasLess = (topRowCount > 0 and topRowCount < stride)
+            -- How many icons on the partial row
+            local partialCount = count - (numRows - 1) * stride
+            if partialCount < 0 then partialCount = 0 end
+            local partialHasLess = (partialCount > 0 and partialCount < stride)
+            local partialRow = fillFirst and (numRows - 1) or 0
 
             -- Total dimensions: spell grid + 1 extra slot for the "+" button
             local isVert = (grow == "DOWN" or grow == "UP")
@@ -3881,15 +3885,13 @@ initFrame:SetScript("OnEvent", function(self)
             local startY = -5
 
             -- Position helper: places frame at grid position (col, row).
-            -- Row 0 = top row (partial, centered when fewer icons).
-            -- Rows 1..numRows-1 = bottom rows (always full).
+            -- Centering applies to the partial row (row 0 when !fillFirst, last row when fillFirst).
             local function PosAtGrid(frame, col, row)
                 PP.Size(frame, iconSize, iconH); frame:ClearAllPoints()
-                -- Centering only applies to top row when it has fewer icons
                 local rowOffset = 0
                 if isVert then
-                    if row == 0 and topRowHasLess then
-                        rowOffset = math.floor((stride - topRowCount) * (iconH + spacing) / 2)
+                    if row == partialRow and partialHasLess then
+                        rowOffset = math.floor((stride - partialCount) * (iconH + spacing) / 2)
                     end
                     local px = startX + row * (iconSize + spacing)
                     local py
@@ -3902,8 +3904,8 @@ initFrame:SetScript("OnEvent", function(self)
                     frame._baseX = px
                     frame._baseY = py
                 else
-                    if row == 0 and topRowHasLess then
-                        rowOffset = math.floor((stride - topRowCount) * (iconSize + spacing) / 2)
+                    if row == partialRow and partialHasLess then
+                        rowOffset = math.floor((stride - partialCount) * (iconSize + spacing) / 2)
                     end
                     local px
                     if grow == "LEFT" then
@@ -3930,21 +3932,31 @@ initFrame:SetScript("OnEvent", function(self)
 
             local shape = bd.iconShape or "none"
 
-            -- Layout: fill bottom-up. Icons 1..topRowCount go to top row (row 0),
-            -- remaining icons fill rows 1..numRows-1 (full bottom rows).
+            -- Layout icons across grid rows
             for i = 1, math.min(gridSlots, MAX_PREVIEW_ICONS) do
                 local slot = previewSlots[i]
                 slot._slotIdx = i
 
-                -- Map sequential index to bottom-up grid position
+                -- Map sequential index to grid position
                 local col, row
-                if i <= topRowCount then
-                    col = i - 1
-                    row = 0
+                if fillFirst then
+                    local fullSlots = (numRows - 1) * stride
+                    if i <= fullSlots then
+                        col = (i - 1) % stride
+                        row = math.floor((i - 1) / stride)
+                    else
+                        col = i - fullSlots - 1
+                        row = numRows - 1
+                    end
                 else
-                    local bottomIdx = i - topRowCount - 1
-                    col = bottomIdx % stride
-                    row = 1 + math.floor(bottomIdx / stride)
+                    if i <= partialCount then
+                        col = i - 1
+                        row = 0
+                    else
+                        local bottomIdx = i - partialCount - 1
+                        col = bottomIdx % stride
+                        row = 1 + math.floor(bottomIdx / stride)
+                    end
                 end
                 PosAtGrid(slot, col, row)
 
@@ -4596,14 +4608,36 @@ initFrame:SetScript("OnEvent", function(self)
             MakeCogBtn(rightRgn, bgCogShow, ctrl)
         end
 
-        -- Row 2: Number of Rows | Vertical Orientation
-        _, h = W:DualRow(parent, y,
+        -- Row 2: Number of Rows/Columns | Vertical Orientation
+        local function GetSpellCount()
+            local bd = BD()
+            if bd.customSpells then return #bd.customSpells end
+            local n = 0
+            if bd.trackedSpells then n = n + #bd.trackedSpells end
+            if bd.extraSpells then n = n + #bd.extraSpells end
+            return n
+        end
+        local function MaxRows()
+            local count = GetSpellCount()
+            if count <= 1 then return 1 end
+            return math.min(6, math.ceil(count / 2))
+        end
+        local numRowsRow
+        numRowsRow, h = W:DualRow(parent, y,
             { type="slider", text="Number of Rows",
               min=1, max=6, step=1,
-              getValue=function() return BD().numRows or 1 end,
+              getValue=function()
+                  local v = BD().numRows or 1
+                  local mx = MaxRows()
+                  if v > mx then return mx end
+                  return v
+              end,
               setValue=function(v)
+                  local mx = MaxRows()
+                  if v > mx then v = mx end
                   BD().numRows = v
                   ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+                  EllesmereUI:RefreshPage()
               end },
             { type="toggle", text="Vertical Orientation",
               getValue=function() return BD().verticalOrientation end,
@@ -4611,9 +4645,51 @@ initFrame:SetScript("OnEvent", function(self)
                   BD().verticalOrientation = v
                   BD().growDirection = v and "DOWN" or "RIGHT"
                   ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+                  EllesmereUI:RefreshPage()
               end });  y = y - h
+        -- Dynamic label: adapts to vertical orientation
+        EllesmereUI.RegisterWidgetRefresh(function()
+            local lbl = numRowsRow._leftRegion and numRowsRow._leftRegion._label
+            if lbl then
+                lbl:SetText(BD().verticalOrientation and "Number of Columns" or "Number of Rows")
+            end
+        end)
 
-        -- Row 3: Anchored To | Anchor Position (cog: Growth + X + Y)
+        -- Row 3: Fill Top Row/Left Column First | Show Tooltip on Hover
+        local fillRow
+        fillRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Fill Top Row First",
+              disabled=function()
+                  local rows = BD().numRows or 1
+                  local mx = MaxRows()
+                  if rows > mx then rows = mx end
+                  return rows <= 1
+              end,
+              disabledTooltip="Requires more than 1 row",
+              tooltip="When enabled, fills the first row or column completely before distributing remaining icons to subsequent rows or columns",
+              getValue=function() return BD().fillFirstRow end,
+              setValue=function(v)
+                  BD().fillFirstRow = v
+                  ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+              end },
+            { type="toggle", text="Show Tooltip on Hover",
+              getValue=function() return BD().showTooltip == true end,
+              setValue=function(v)
+                  BD().showTooltip = v
+                  ns.ApplyCDMTooltipState(BD().key)
+                  Refresh()
+              end });  y = y - h
+        -- Dynamic label + tooltip: adapts to vertical orientation
+        EllesmereUI.RegisterWidgetRefresh(function()
+            local rgn = fillRow._leftRegion
+            if not rgn then return end
+            local isVert = BD().verticalOrientation
+            if rgn._label then
+                rgn._label:SetText(isVert and "Fill Left Column First" or "Fill Top Row First")
+            end
+        end)
+
+        -- Row 4: Anchored To | Anchor Position (cog: Growth + X + Y)
         local _erbLoaded = C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("EllesmereUIResourceBars")
         local ERB_ANCHOR_KEYS = { erb_castbar = true, erb_powerbar = true, erb_classresource = true }
         local function GetAnchorChoices()
@@ -4784,18 +4860,6 @@ initFrame:SetScript("OnEvent", function(self)
                   end }
             );  y = y - h
         end
-
-        -- Tooltip
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Tooltip on Hover",
-              getValue=function() return BD().showTooltip == true end,
-              setValue=function(v)
-                  BD().showTooltip = v
-                  ns.ApplyCDMTooltipState(BD().key)
-                  Refresh()
-              end },
-            { type="label", text="" }
-        );  y = y - h
 
         -- Inline color swatch + cog on Show Keybind (right region)
         do
