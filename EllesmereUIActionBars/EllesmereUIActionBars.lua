@@ -2150,6 +2150,7 @@ local function ComputeBarLayout(key)
     return result, max(frameW, 1), max(frameH, 1)
 end
 
+
 local function LayoutBar(key)
     if InCombatLockdown() then return end
     local info = BAR_LOOKUP[key]
@@ -2176,7 +2177,6 @@ local function LayoutBar(key)
     local shape = s.buttonShape or "none"
 
     -- Button size: use the original button size captured during SetupBar.
-    -- StanceButtons are 30x30; action buttons are 45x45.
     local base = barBaseSize[key]
     local btnW = base and base.w or 45
     local btnH = base and base.h or 45
@@ -2201,34 +2201,67 @@ local function LayoutBar(key)
     if showEmpty == nil then showEmpty = true end
     if info.isStance then showEmpty = false end
 
-    for row = 0, numRows - 1 do
-        local rowStart = row * stride + 1
-        local rowEnd = math.min(rowStart + stride - 1, numIcons)
-        local countInRow = rowEnd - rowStart + 1
-        local rowW = countInRow * btnW + (countInRow - 1) * padding
-        local startX = math.max(0, (frame:GetWidth() - rowW) / 2)
-        for col = 0, countInRow - 1 do
-            local i = rowStart + col
-            local btn = buttons[i]
-            if not btn then break end
-            btn:Show()
-            btn:ClearAllPoints()
-            local xOff = startX + col * stepW
-            local yOff = -(row * stepH)
-            btn:SetPoint("TOPLEFT", frame, "TOPLEFT", xOff, yOff)
-            btn:SetSize(btnW, btnH)
-            if btn.AutoCastOverlay then
-                btn.AutoCastOverlay:SetAllPoints(btn)
+    if isVertical then
+        for col = 0, numRows - 1 do
+            local colStart = col * stride + 1
+            local colEnd = math.min(colStart + stride - 1, numIcons)
+            local countInCol = colEnd - colStart + 1
+            local colH = countInCol * btnH + (countInCol - 1) * padding
+            local startY = math.max(0, (frame:GetHeight() - colH) / 2)
+            for row = 0, countInCol - 1 do
+                local i = colStart + row
+                local btn = buttons[i]
+                if not btn then break end
+                btn:Show()
+                btn:ClearAllPoints()
+                local xOff = col * stepW
+                local yOff = startY - row * stepH
+                btn:SetPoint("TOPLEFT", frame, "TOPLEFT", xOff, yOff)
+                btn:SetSize(btnW, btnH)
+                if btn.AutoCastOverlay then
+                    btn.AutoCastOverlay:SetAllPoints(btn)
+                end
+                if not showEmpty and not gridShown and not ButtonHasAction(btn, info.blizzBtnPrefix) then
+                    btn:SetAlpha(0)
+                else
+                    if not s.mouseoverEnabled then
+                        btn:SetAlpha(1)
+                    end
+                end
             end
-            if not showEmpty and not gridShown and not ButtonHasAction(btn, info.blizzBtnPrefix) then
-                btn:SetAlpha(0)
-            else
-                if not s.mouseoverEnabled then
-                    btn:SetAlpha(1)
+        end
+    else
+
+        for row = 0, numRows - 1 do
+            local rowStart = row * stride + 1
+            local rowEnd = math.min(rowStart + stride - 1, numIcons)
+            local countInRow = rowEnd - rowStart + 1
+            local rowW = countInRow * btnW + (countInRow - 1) * padding
+            local startX = math.max(0, (frame:GetWidth() - rowW) / 2)
+            for col = 0, countInRow - 1 do
+                local i = rowStart + col
+                local btn = buttons[i]
+                if not btn then break end
+                btn:Show()
+                btn:ClearAllPoints()
+                local xOff = startX + col * stepW
+                local yOff = -(row * stepH)
+                btn:SetPoint("TOPLEFT", frame, "TOPLEFT", xOff, yOff)
+                btn:SetSize(btnW, btnH)
+                if btn.AutoCastOverlay then
+                    btn.AutoCastOverlay:SetAllPoints(btn)
+                end
+                if not showEmpty and not gridShown and not ButtonHasAction(btn, info.blizzBtnPrefix) then
+                    btn:SetAlpha(0)
+                else
+                    if not s.mouseoverEnabled then
+                        btn:SetAlpha(1)
+                    end
                 end
             end
         end
     end
+
     for i = numIcons + 1, info.count do
         local btn = buttons[i]
         if btn then
@@ -2263,14 +2296,11 @@ local function LayoutBar(key)
             local thirdW = uiW / 3
             local thirdH = uiH / 3
             if isVertical then
-                -- Vertical bar: flyout goes left if bar is in the right third, else right
                 flyDir = (cx > thirdW * 2) and "LEFT" or "RIGHT"
             else
-                -- Horizontal bar: flyout goes down if bar is in the top third, else up
                 flyDir = (cy > thirdH * 2) and "DOWN" or "UP"
             end
         else
-            -- Frame not yet on screen safe fallback
             flyDir = isVertical and "RIGHT" or "UP"
         end
     end
