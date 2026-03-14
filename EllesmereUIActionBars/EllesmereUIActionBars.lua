@@ -2201,49 +2201,25 @@ local function LayoutBar(key)
     if showEmpty == nil then showEmpty = true end
     if info.isStance then showEmpty = false end
 
-    for i = 1, info.count do
-        local btn = buttons[i]
-        if not btn then break end
-
-        if i > numIcons then
-            btn:Hide()
-            btn:SetAlpha(0)
-        else
-            -- Always keep buttons within the icon range shown. Visibility
-            -- is controlled purely through alpha so page swaps during
-            -- combat never leave buttons stuck in a hidden state.
+    for row = 0, numRows - 1 do
+        local rowStart = row * stride + 1
+        local rowEnd = math.min(rowStart + stride - 1, numIcons)
+        local countInRow = rowEnd - rowStart + 1
+        local rowW = countInRow * btnW + (countInRow - 1) * padding
+        local startX = math.max(0, (frame:GetWidth() - rowW) / 2)
+        for col = 0, countInRow - 1 do
+            local i = rowStart + col
+            local btn = buttons[i]
+            if not btn then break end
             btn:Show()
-
-            local col, row
-            if isVertical then
-                col = floor((i - 1) / stride)
-                row = (i - 1) % stride
-            else
-                col = (i - 1) % stride
-                row = floor((i - 1) / stride)
-            end
-
             btn:ClearAllPoints()
-            local xOff = col * stepW
-            local yOff
-            if isVertical then
-                yOff = -(row * stepH)
-            else
-                if growUp then
-                    local flippedRow = (numRows - 1) - row
-                    yOff = -(flippedRow * stepH)
-                else
-                    yOff = -(row * stepH)
-                end
-            end
+            local xOff = startX + col * stepW
+            local yOff = -(row * stepH)
             btn:SetPoint("TOPLEFT", frame, "TOPLEFT", xOff, yOff)
             btn:SetSize(btnW, btnH)
-
-            -- Resize the autocast overlay to match the button size
             if btn.AutoCastOverlay then
                 btn.AutoCastOverlay:SetAllPoints(btn)
             end
-
             if not showEmpty and not gridShown and not ButtonHasAction(btn, info.blizzBtnPrefix) then
                 btn:SetAlpha(0)
             else
@@ -2251,6 +2227,13 @@ local function LayoutBar(key)
                     btn:SetAlpha(1)
                 end
             end
+        end
+    end
+    for i = numIcons + 1, info.count do
+        local btn = buttons[i]
+        if btn then
+            btn:Hide()
+            btn:SetAlpha(0)
         end
     end
 
