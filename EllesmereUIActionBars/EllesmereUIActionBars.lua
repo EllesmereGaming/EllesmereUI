@@ -750,28 +750,6 @@ local function HideBlizzardBars()
         local bar = _G[name]
         if bar then
             bar:UnregisterAllEvents()
-            -- Only override numButtonsShowable / UpdateShownButtons on the
-            -- numbered action bars.  StanceBar and PetActionBar have their
-            -- own secure visibility systems (ActionBarController_UpdateAll
-            -- calls SetShown -> SetShownBase) and tainting them causes
-            -- ADDON_ACTION_BLOCKED.
-            if name ~= "StanceBar" and name ~= "PetActionBar" then
-                -- Force Blizzard's numButtonsShowable to the maximum so any
-                -- residual Blizzard code (e.g. UpdateShownState) that checks
-                -- the bar's visible button count never hides buttons we want
-                -- shown.  Edit Mode may have set this to fewer than 12, but
-                -- we control button visibility ourselves.
-                if bar.numButtonsShowable ~= nil then
-                    bar.numButtonsShowable = 12
-                end
-                -- Replace UpdateShownButtons with a no-op so Blizzard's
-                -- OnEnter -> UpdateAction chain cannot call SetShown() on
-                -- buttons we manage.  This prevents the stale
-                -- numButtonsShowable from hiding buttons on hover.
-                if bar.UpdateShownButtons then
-                    bar.UpdateShownButtons = function() end
-                end
-            end
             bar:SetParent(hiddenParent)
             bar:Hide()
         end
@@ -5914,14 +5892,6 @@ function EAB:FinishSetup()
             local bar = _G[name]
             if bar then
                 bar:UnregisterAllEvents()
-                if name ~= "StanceBar" and name ~= "PetActionBar" then
-                    if bar.numButtonsShowable ~= nil then
-                        bar.numButtonsShowable = 12
-                    end
-                    if bar.UpdateShownButtons then
-                        bar.UpdateShownButtons = function() end
-                    end
-                end
                 bar:SetParent(hiddenParent)
                 bar:Hide()
             end
