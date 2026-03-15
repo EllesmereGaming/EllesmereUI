@@ -4457,6 +4457,9 @@ local function ReloadFrames()
                             -- Store per-unit settings for PostCastStart
                             frame.Castbar._eufSettings = settings
                             -- Resolve per-unit fill color
+                            if not settings.castbarFillColor then
+                                settings.castbarFillColor = { r = 0.863, g = 0.820, b = 0.639 }
+                            end
                             local pCbColor = castbarColor
                             if settings.castbarClassColored then
                                 local _, classToken = UnitClass("player")
@@ -4839,6 +4842,9 @@ local function ReloadFrames()
                         -- Store per-unit settings for PostCastStart
                         frame.Castbar._eufSettings = settings
                         -- Resolve per-unit fill color
+                        if not settings.castbarFillColor then
+                            settings.castbarFillColor = { r = 0.863, g = 0.820, b = 0.639 }
+                        end
                         local tCbColor = castbarColor
                         if settings.castbarFillColor then
                             tCbColor = settings.castbarFillColor
@@ -5166,6 +5172,9 @@ local function ReloadFrames()
                     -- Store per-unit settings for PostCastStart
                     frame.Castbar._eufSettings = settings
                     -- Resolve per-unit fill color
+                    if not settings.castbarFillColor then
+                        settings.castbarFillColor = { r = 0.863, g = 0.820, b = 0.639 }
+                    end
                     local fCbColor = castbarColor
                     if settings.castbarFillColor then
                         fCbColor = settings.castbarFillColor
@@ -6855,6 +6864,9 @@ function EllesmereUF:OnEnable()
         if EllesmereUI and EllesmereUI.ApplyColorsToOUF then
             EllesmereUI.ApplyColorsToOUF()
         end
+    end)
+    C_Timer.After(0.1, function()
+        if ns.ReloadFrames then ns.ReloadFrames() end
     end)
 
     -- Incompatible addon detection is handled globally by EllesmereUI
