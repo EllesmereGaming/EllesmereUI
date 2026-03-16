@@ -727,6 +727,28 @@ local FOOD_ITEMS = {
     { key="tasty_smoked_tetra",    itemID=242278, name="Tasty Smoked Tetra" },
     { key="crimson_calamari",      itemID=242277, name="Crimson Calamari" },
     { key="braised_blood_hunter",  itemID=242276, name="Braised Blood Hunter" },
+    { key="harandar_celebration",  itemID=255846, name="Harandar Celebration" },
+    { key="silvermoon_parade",     itemID=255845, name="Silvermoon Parade" },
+    { key="queldorei_medley",      itemID=242272, name="Quel'dorei Medley" },
+    { key="blooming_feast",        itemID=242273, name="Blooming Feast" },
+    { key="sunwell_delight",       itemID=242293, name="Sunwell Delight" },
+    { key="hearthflame_supper",    itemID=242295, name="Hearthflame Supper" },
+    { key="fried_bloomtail",       itemID=242291, name="Fried Bloomtail" },
+    { key="felberry_figs",         itemID=242294, name="Felberry Figs" },
+    { key="eversong_pudding",      itemID=242292, name="Eversong Pudding" },
+    { key="bloodthistle_wrapped_cutlets", itemID=242296, name="Bloodthistle-wrapped Cutlets" },
+    { key="wise_tails",            itemID=242290, name="Wise Tails" },
+    { key="twilight_anglers_medley", itemID=242288, name="Twilight Angler's Medley" },
+    { key="spellfire_filet",       itemID=242289, name="Spellfire Filet" },
+    { key="spiced_biscuits",       itemID=242304, name="Spiced Biscuits" },
+    { key="silvermoon_standard",   itemID=242305, name="Silvermoon Standard" },
+    { key="quick_sandwich",        itemID=242307, name="Quick Sandwich" },
+    { key="portable_snack",        itemID=242308, name="Portable Snack" },
+    { key="mana_infused_stew",     itemID=242303, name="Mana-Infused Stew" },
+    { key="foragers_medley",       itemID=242306, name="Forager's Medley" },
+    { key="farstrider_rations",    itemID=242309, name="Farstrider Rations" },
+    { key="bloom_skewers",         itemID=242302, name="Bloom Skewers" },
+ }
 }
 
 -- Weapon Enchant dropdown choices (name best itemID lookup at runtime)
