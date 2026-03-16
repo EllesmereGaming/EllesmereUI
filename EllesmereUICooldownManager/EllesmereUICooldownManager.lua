@@ -990,6 +990,7 @@ local DEFAULTS = {
         cdmBars = {
             enabled = true,
             hideBlizzard = true,
+            useBlizzardBuffBars = false,
             -- Default bar template (applied to each bar)
             barDefaults = {
                 iconSize    = 36,
@@ -2555,6 +2556,25 @@ RestoreBlizzardCDM = function()
             frame._ecmeHidden = false
             frame._ecmeRestoring = nil
         end
+    end
+end
+
+-- Restore only the Blizzard buff CDM frame (BuffIconCooldownViewer).
+local function RestoreBlizzardBuffFrame()
+    local frameName = BLIZZ_CDM_FRAMES.buffs
+    if not frameName then return end
+    local frame = _G[frameName]
+    if frame and frame._ecmeHidden then
+        frame._ecmeRestoring = true
+        frame:SetAlpha(frame._ecmeOrigAlpha or 1)
+        if frame._ecmeOrigPoints then
+            frame:ClearAllPoints()
+            for _, pt in ipairs(frame._ecmeOrigPoints) do
+                frame:SetPoint(pt[1], pt[2], pt[3], pt[4], pt[5])
+            end
+        end
+        frame._ecmeHidden = false
+        frame._ecmeRestoring = nil
     end
 end
 
@@ -5405,8 +5425,9 @@ local function UpdateAllCDMBars(dt)
         end
     end
 
+    local useBlizzBuffs = p.cdmBars.useBlizzardBuffBars
     for _, barData in ipairs(p.cdmBars.bars) do
-        if barData.enabled then
+        if barData.enabled and not (useBlizzBuffs and barData.key == "buffs") then
             if BLIZZ_CDM_FRAMES[barData.key] then
                 -- Default bar: use tracked spells if snapshotted, otherwise mirror Blizzard
                 -- trackedSpells == nil means never snapshotted; empty table means user cleared all
@@ -5753,26 +5774,36 @@ BuildAllCDMBars = function()
         HideBlizzardCDM()
     end
 
+    local useBlizzBuffs = p.cdmBars.useBlizzardBuffBars
+    if useBlizzBuffs and p.cdmBars.hideBlizzard then
+        RestoreBlizzardBuffFrame()
+    end
+
     -- Build each bar and populate fast lookup
     wipe(barDataByKey)
     for i, barData in ipairs(p.cdmBars.bars) do
         barDataByKey[barData.key] = barData
-        BuildCDMBar(i)
-        RefreshCDMIconAppearance(barData.key)
-        -- Reset cached icon state so textures re-evaluate after a character switch
-        local icons = cdmBarIcons[barData.key]
-        if icons then
-            for _, icon in ipairs(icons) do
-                icon._lastTex = nil
-                icon._lastDesat = nil
-                icon._spellID = nil
-                icon._blizzChild = nil
+        if useBlizzBuffs and barData.key == "buffs" then
+            local frame = cdmBarFrames[barData.key]
+            if frame then frame:Hide() end
+        else
+            BuildCDMBar(i)
+            RefreshCDMIconAppearance(barData.key)
+            -- Reset cached icon state so textures re-evaluate after a character switch
+            local icons = cdmBarIcons[barData.key]
+            if icons then
+                for _, icon in ipairs(icons) do
+                    icon._lastTex = nil
+                    icon._lastDesat = nil
+                    icon._spellID = nil
+                    icon._blizzChild = nil
+                end
             end
+            local frame = cdmBarFrames[barData.key]
+            if frame then frame._prevVisibleCount = nil end
+            LayoutCDMBar(barData.key)
+            ApplyCDMTooltipState(barData.key)
         end
-        local frame = cdmBarFrames[barData.key]
-        if frame then frame._prevVisibleCount = nil end
-        LayoutCDMBar(barData.key)
-        ApplyCDMTooltipState(barData.key)
     end
     _CDMApplyVisibility()
     UpdateCDMKeybinds()
@@ -7727,7 +7758,12 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         -- Re-hide immediately so the Blizzard CDM doesn't reappear.
         local p = ECME.db and ECME.db.profile
         if p and p.cdmBars and p.cdmBars.hideBlizzard then
-            C_Timer.After(0, function() HideBlizzardCDM() end)
+            C_Timer.After(0, function()
+                HideBlizzardCDM()
+                if p.cdmBars.useBlizzardBuffBars then
+                    RestoreBlizzardBuffFrame()
+                end
+            end)
         end
         return
     end

@@ -5855,6 +5855,21 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         parent._showRowDivider = true
 
+        if barData.key == "buffs" then
+            _, h = W:Toggle(parent, "Use Blizzard Buff Bar", y,
+                function() return DB().cdmBars.useBlizzardBuffBars == true end,
+                function(v)
+                    DB().cdmBars.useBlizzardBuffBars = v
+                    ns.BuildAllCDMBars()
+                    Refresh()
+                end
+            );  y = y - h
+
+            if DB().cdmBars.useBlizzardBuffBars then
+                return math.abs(y)
+            end
+        end
+
         -------------------------------------------------------------------
         --  BAR LAYOUT
         -------------------------------------------------------------------
