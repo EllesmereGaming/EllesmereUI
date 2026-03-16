@@ -2653,8 +2653,15 @@ local function CreateMover(barKey)
                 local ratio = uiS / bS
                 local barHW = (bar:GetWidth() or 0) * 0.5
                 local barHH = (bar:GetHeight() or 0) * 0.5
+                -- Strip centerYOff so Sync() doesn't double-apply it
+                local centerYOff = 0
+                local elem = registeredElements[self._barKey]
+                if elem and elem.getSize then
+                    local _, _, gyOff = elem.getSize(self._barKey)
+                    centerYOff = gyOff or 0
+                end
                 local barX = cx * ratio - barHW
-                local barY = (cy - UIParent:GetHeight()) * ratio + barHH
+                local barY = (cy - UIParent:GetHeight() - centerYOff) * ratio + barHH
                 pendingPositions[self._barKey] = {
                     point = "TOPLEFT", relPoint = "TOPLEFT",
                     x = barX, y = barY,
@@ -2663,9 +2670,16 @@ local function CreateMover(barKey)
                 -- No live frame (e.g. unit frame not spawned) -- store in UIParent coords
                 local halfW = (baseW > 0 and baseW or self:GetWidth()) / 2
                 local halfH = (baseH > 0 and baseH or self:GetHeight()) / 2
+                -- Strip centerYOff so Sync() doesn't double-apply it
+                local centerYOff = 0
+                local elem = registeredElements[self._barKey]
+                if elem and elem.getSize then
+                    local _, _, gyOff = elem.getSize(self._barKey)
+                    centerYOff = gyOff or 0
+                end
                 pendingPositions[self._barKey] = {
                     point = "TOPLEFT", relPoint = "TOPLEFT",
-                    x = cx - halfW, y = cy + halfH - UIParent:GetHeight(),
+                    x = cx - halfW, y = cy + halfH - UIParent:GetHeight() - centerYOff,
                 }
             end
             hasChanges = true
@@ -4118,8 +4132,15 @@ local function CreateMover(barKey)
                 local ratio = uiS / bS
                 local barHW = (b:GetWidth() or 0) * 0.5
                 local barHH = (b:GetHeight() or 0) * 0.5
+                -- Strip centerYOff so Sync() doesn't double-apply it
+                local centerYOff = 0
+                local elem = registeredElements[bk]
+                if elem and elem.getSize then
+                    local _, _, gyOff = elem.getSize(bk)
+                    centerYOff = gyOff or 0
+                end
                 local barX = cx * ratio - barHW
-                local barY = cy * ratio + barHH
+                local barY = (cy - centerYOff) * ratio + barHH
                 pcall(function()
                     b:ClearAllPoints()
                     b:SetPoint("TOPLEFT", UIParent, "TOPLEFT", barX, barY)
