@@ -129,6 +129,7 @@ local POWER_COLORS = {
     ["MAELSTROM_BAR"]    = { 0.00, 0.50, 1.00 },
     ["INSANITY_BAR"]     = { 0.40, 0.00, 0.80 },
     ["FOCUS_BAR"]        = { 0.77, 0.53, 0.24 },
+    ["LUNAR_POWER_BAR"]  = { 0.30, 0.52, 0.90 },
     ["TIP_OF_THE_SPEAR"] = { 0.67, 0.83, 0.45 },
     ["WHIRLWIND_STACKS"] = { 0.78, 0.61, 0.43 },
     ["BREWMASTER_STAGGER"] = { 0.52, 1.00, 0.52 },  -- green (light stagger default)
@@ -163,7 +164,9 @@ local function GetPrimaryPowerType()
     if classFile == "DRUID" then
         if form == 1 then return PT.ENERGY end
         if form == 5 then return PT.RAGE end
-        if spec == 1 then return PT.LUNAR_POWER end
+        -- Balance: Mana on the power bar; Astral Power is a class resource bar
+        -- (mirrors Shadow Priest / Elemental Shaman pattern)
+        if spec == 1 then return PT.MANA end
         return PT.MANA
     end
 
@@ -206,6 +209,12 @@ local function GetSecondaryResource()
     elseif classFile == "DRUID" and form == 1 then
         local mx = UnitPowerMax("player", PT.COMBO)
         return { power = PT.COMBO, max = (not issecretvalue or not issecretvalue(mx)) and mx or 5, type = "points" }
+    elseif classFile == "DRUID" and spec == 1 then
+        -- Balance: Astral Power as a class resource bar (like Elemental maelstrom)
+        local mx = UnitPowerMax("player", PT.LUNAR_POWER)
+        if issecretvalue and issecretvalue(mx) then mx = 100 end
+        if not mx or mx <= 0 then mx = 100 end
+        return { power = "LUNAR_POWER_BAR", max = mx, type = "bar" }
     elseif classFile == "MONK" and (spec == 3) then
         local mx = UnitPowerMax("player", PT.CHI)
         return { power = PT.CHI, max = (not issecretvalue or not issecretvalue(mx)) and mx or 5, type = "points" }
@@ -2049,6 +2058,11 @@ local function UpdateSecondaryResource()
                 maxC = UnitPowerMax("player", PT.FOCUS) or maxPts
                 if issecretvalue and issecretvalue(maxC) then maxC = maxPts end
                 if maxC <= 0 then maxC = maxPts end
+            elseif powerType == "LUNAR_POWER_BAR" then
+                cur = UnitPower("player", PT.LUNAR_POWER) or 0
+                maxC = UnitPowerMax("player", PT.LUNAR_POWER) or maxPts
+                if issecretvalue and issecretvalue(maxC) then maxC = maxPts end
+                if maxC <= 0 then maxC = maxPts end
             elseif powerType == "BREWMASTER_STAGGER" then
                 cur = UnitStagger("player") or 0
                 maxC = UnitHealthMax("player") or 1
@@ -2082,6 +2096,7 @@ local function UpdateSecondaryResource()
                     local pType = (powerType == "MAELSTROM_BAR") and PT.MAELSTROM
                                or (powerType == "INSANITY_BAR") and PT.INSANITY
                                or (powerType == "FOCUS_BAR") and PT.FOCUS
+                               or (powerType == "LUNAR_POWER_BAR") and PT.LUNAR_POWER
                                or nil
                     if sp.thresholdEnabled and pType and UnitPowerPercent then
                         -- Use ColorCurve + UnitPowerPercent: WoW evaluates the secret
@@ -2142,6 +2157,13 @@ local function UpdateSecondaryResource()
                         end
                     elseif powerType == "FOCUS_BAR" then
                         local pct = UnitPowerPercent and UnitPowerPercent("player", PT.FOCUS) or 0
+                        if not issecretvalue(pct) then
+                            secondaryFrame._countText:SetText(format("%d", pct) .. "%")
+                        else
+                            secondaryFrame._countText:SetText(tostring(cur))
+                        end
+                    elseif powerType == "LUNAR_POWER_BAR" then
+                        local pct = UnitPowerPercent and UnitPowerPercent("player", PT.LUNAR_POWER) or 0
                         if not issecretvalue(pct) then
                             secondaryFrame._countText:SetText(format("%d", pct) .. "%")
                         else

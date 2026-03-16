@@ -88,6 +88,7 @@ initFrame:SetScript("OnEvent", function(self)
     IsBarTypeSecondary = function()
         local _, cf = UnitClass("player")
         local spec = GetSpecialization()
+        if cf == "DRUID" and spec == 1 then return true end -- Balance (Astral Power bar)
         if cf == "SHAMAN" and spec == 1 then return true end -- Elemental
         if cf == "PRIEST" and spec == 3 then return true end -- Shadow
         if cf == "MONK" and spec == 1 then return true end -- Brewmaster

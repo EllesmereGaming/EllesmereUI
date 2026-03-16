@@ -3696,12 +3696,16 @@ local function UpdateCustomBarIcons(barKey)
                      or _tickBlizzAllChildCache[resolvedID] or _tickBlizzAllChildCache[spellID])
                 or nil
             local blizzBuffChildCTexSet = false
-            if blizzBuffChildC and not overrideTex and blizzBuffChildC.Icon and blizzBuffChildC.Icon.GetTexture then
-                local childTexC = blizzBuffChildC.Icon:GetTexture()
-                if childTexC then
-                    ourIcon._tex:SetTexture(childTexC)
-                    ourIcon._lastTex = 0
-                    blizzBuffChildCTexSet = true
+            if blizzBuffChildC and not overrideTex and blizzBuffChildC.Icon then
+                local iwC = blizzBuffChildC.Icon
+                if not iwC.GetTexture and iwC.Icon then iwC = iwC.Icon end
+                if iwC.GetTexture then
+                    local childTexC = iwC:GetTexture()
+                    if childTexC then
+                        ourIcon._tex:SetTexture(childTexC)
+                        ourIcon._lastTex = 0
+                        blizzBuffChildCTexSet = true
+                    end
                 end
             end
             local effectiveTex = overrideTex or texID
@@ -4016,17 +4020,30 @@ UpdateCDMBarIcons = function(barKey)
     -- We do NOT filter by IsShown() because Blizzard children can briefly
     -- hide/show during state transitions (GCD end, cooldown start, etc.),
     -- which causes our icons to flicker.  Instead we check for a texture.
+    -- BuffIcon children have Icon as a Texture (with GetTexture).
+    -- BuffBar children wrap it: Icon is a Frame, Icon.Icon is the Texture.
+    -- Guard both paths to avoid "GetTexture is nil" errors on BuffBar children.
     -- Reuse buffer to avoid table allocation per tick
     local blizzIcons = _blizzIconsBuf
     local blizzCount = 0
+    -- Dedup by resolved spellID across primary + secondary viewers so that
+    -- spells appearing in both (e.g. Remorseless Winter) only show once.
+    -- Primary viewer children are collected first and win on conflict.
+    local _blizzIconSeen = {}
 
     do
         local children = { blizzFrame:GetChildren() }
         for i = 1, #children do
             local child = children[i]
-            if child and child.Icon and child.Icon:GetTexture() then
-                blizzCount = blizzCount + 1
-                blizzIcons[blizzCount] = child
+            if child and child.Icon then
+                local iw = child.Icon
+                if not iw.GetTexture and iw.Icon then iw = iw.Icon end
+                if iw.GetTexture and iw:GetTexture() then
+                    local sid = child._ecmeResolvedSid
+                    if sid and sid > 0 then _blizzIconSeen[sid] = true end
+                    blizzCount = blizzCount + 1
+                    blizzIcons[blizzCount] = child
+                end
             end
         end
     end
@@ -4039,9 +4056,17 @@ UpdateCDMBarIcons = function(barKey)
             local children = { secondaryFrame:GetChildren() }
             for i = 1, #children do
                 local child = children[i]
-                if child and child.Icon and child.Icon:GetTexture() then
-                    blizzCount = blizzCount + 1
-                    blizzIcons[blizzCount] = child
+                if child and child.Icon then
+                    local iw = child.Icon
+                    if not iw.GetTexture and iw.Icon then iw = iw.Icon end
+                    if iw.GetTexture and iw:GetTexture() then
+                        local sid = child._ecmeResolvedSid
+                        if not sid or sid <= 0 or not _blizzIconSeen[sid] then
+                            if sid and sid > 0 then _blizzIconSeen[sid] = true end
+                            blizzCount = blizzCount + 1
+                            blizzIcons[blizzCount] = child
+                        end
+                    end
                 end
             end
         end
@@ -4479,11 +4504,13 @@ local function SnapshotBlizzardCDM(barKey, barData)
     local filterPassives = (barKey ~= "buffs")
 
     local tracked = {}
+    local trackedSeen = {}  -- dedup by spellID across primary + secondary viewers
     for _, child in ipairs(blizzIcons) do
         local sid = ResolveChildSpellID(child)
-        if sid and sid > 0 then
+        if sid and sid > 0 and not trackedSeen[sid] then
             local skip = filterPassives and IsTrulyPassive(sid)
             if not skip then
+                trackedSeen[sid] = true
                 tracked[#tracked + 1] = sid
                 -- Store spellID -> cdID mapping for buff bars so the tick cache
                 -- can find the correct viewer child even when the cooldownInfo
@@ -7975,7 +8002,9 @@ SlashCmdList.CDMSTACKS = function()
 
         for i = 1, blizzFrame:GetNumChildren() do
             local child = select(i, blizzFrame:GetChildren())
-            if child and child.Icon and child.Icon:GetTexture() then
+            local dbgIw = child and child.Icon
+            if dbgIw and not dbgIw.GetTexture and dbgIw.Icon then dbgIw = dbgIw.Icon end
+            if dbgIw and dbgIw.GetTexture and dbgIw:GetTexture() then
                 local cdID = child.cooldownID
                 if not cdID and child.cooldownInfo then cdID = child.cooldownInfo.cooldownID end
 
