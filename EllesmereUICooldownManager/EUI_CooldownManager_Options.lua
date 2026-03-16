@@ -5861,7 +5861,7 @@ initFrame:SetScript("OnEvent", function(self)
                 function(v)
                     DB().cdmBars.useBlizzardBuffBars = v
                     ns.BuildAllCDMBars()
-                    Refresh()
+                    EllesmereUI:RefreshPage(true)
                 end
             );  y = y - h
 
