@@ -2475,6 +2475,14 @@ local function CreateMover(barKey)
         self:SetAlpha(darkOverlaysEnabled and 1 or MOVER_DRAG)
         self._dragging = true
         self._shiftAxis = nil  -- nil = not locked, "X" or "Y" once determined
+        -- Cache centerYOff for tiny-anchor elements (used in OnUpdate and OnDragStop)
+        local elem = registeredElements[self._barKey]
+        if elem and elem.getSize then
+            local _, _, gyOff = elem.getSize(self._barKey)
+            self._dragCenterYOff = gyOff or 0
+        else
+            self._dragCenterYOff = 0
+        end
         -- Animate links away during drag
         if self._hideOverlayText then self._hideOverlayText() end
 
@@ -2559,7 +2567,7 @@ local function CreateMover(barKey)
                 local barHW = (bar:GetWidth() or 0) * 0.5
                 local barHH = (bar:GetHeight() or 0) * 0.5
                 local barX = snapCX * ratio - barHW
-                local barY = (snapCY - UIParent:GetHeight()) * ratio + barHH
+                local barY = (snapCY - UIParent:GetHeight() - (s._dragCenterYOff or 0)) * ratio + barHH
                 pcall(function()
                     bar:ClearAllPoints()
                     bar:SetPoint("TOPLEFT", UIParent, "TOPLEFT", barX, barY)
@@ -2648,20 +2656,14 @@ local function CreateMover(barKey)
                 end
             end
 
+            local dragCYOff = self._dragCenterYOff or 0
             if bar then
                 local bS = bar:GetEffectiveScale()
                 local ratio = uiS / bS
                 local barHW = (bar:GetWidth() or 0) * 0.5
                 local barHH = (bar:GetHeight() or 0) * 0.5
-                -- Strip centerYOff so Sync() doesn't double-apply it
-                local centerYOff = 0
-                local elem = registeredElements[self._barKey]
-                if elem and elem.getSize then
-                    local _, _, gyOff = elem.getSize(self._barKey)
-                    centerYOff = gyOff or 0
-                end
                 local barX = cx * ratio - barHW
-                local barY = (cy - UIParent:GetHeight() - centerYOff) * ratio + barHH
+                local barY = (cy - UIParent:GetHeight() - dragCYOff) * ratio + barHH
                 pendingPositions[self._barKey] = {
                     point = "TOPLEFT", relPoint = "TOPLEFT",
                     x = barX, y = barY,
@@ -2670,16 +2672,9 @@ local function CreateMover(barKey)
                 -- No live frame (e.g. unit frame not spawned) -- store in UIParent coords
                 local halfW = (baseW > 0 and baseW or self:GetWidth()) / 2
                 local halfH = (baseH > 0 and baseH or self:GetHeight()) / 2
-                -- Strip centerYOff so Sync() doesn't double-apply it
-                local centerYOff = 0
-                local elem = registeredElements[self._barKey]
-                if elem and elem.getSize then
-                    local _, _, gyOff = elem.getSize(self._barKey)
-                    centerYOff = gyOff or 0
-                end
                 pendingPositions[self._barKey] = {
                     point = "TOPLEFT", relPoint = "TOPLEFT",
-                    x = cx - halfW, y = cy + halfH - UIParent:GetHeight() - centerYOff,
+                    x = cx - halfW, y = cy + halfH - UIParent:GetHeight() - dragCYOff,
                 }
             end
             hasChanges = true
