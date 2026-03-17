@@ -347,16 +347,9 @@ local function StylePartyFrame(frame, unit)
     summon:SetPoint("CENTER", frame, "CENTER", 0, 0)
     frame.SummonIndicator = summon
 
-    -- Hook for role icon updates
-    -- Note: WoW Frame:RegisterEvent takes only event name (no callback arg).
-    -- Use OnEvent script + OnShow hook instead.
-    frame:RegisterEvent("GROUP_ROSTER_UPDATE")
-    frame:RegisterEvent("PLAYER_ROLES_ASSIGNED")
-    frame:HookScript("OnEvent", function(self, event)
-        if event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ROLES_ASSIGNED" then
-            UpdateRoleIcon(self)
-        end
-    end)
+    -- Hook for role icon updates using oUF's RegisterEvent (requires callback)
+    frame:RegisterEvent("GROUP_ROSTER_UPDATE", UpdateRoleIcon)
+    frame:RegisterEvent("PLAYER_ROLES_ASSIGNED", UpdateRoleIcon)
     frame:HookScript("OnShow", function(self)
         UpdateRoleIcon(self)
     end)
