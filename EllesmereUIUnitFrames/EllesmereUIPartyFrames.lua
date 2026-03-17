@@ -460,14 +460,11 @@ local function UpdatePartyLayout()
     partyHeader:SetAttribute("yOffset", yOff)
     partyHeader:SetAttribute("showPlayer", settings.showPlayer or false)
 
+    -- Always set all sort attributes to clear stale values when switching modes
     local sortCfg = SORT_CONFIGS[settings.sortOrder or "role"] or SORT_CONFIGS.role
-    if sortCfg.groupBy then
-        partyHeader:SetAttribute("groupBy", sortCfg.groupBy)
-        partyHeader:SetAttribute("groupingOrder", sortCfg.groupingOrder)
-    end
-    if sortCfg.sortMethod then
-        partyHeader:SetAttribute("sortMethod", sortCfg.sortMethod)
-    end
+    partyHeader:SetAttribute("groupBy", sortCfg.groupBy)
+    partyHeader:SetAttribute("groupingOrder", sortCfg.groupingOrder)
+    partyHeader:SetAttribute("sortMethod", sortCfg.sortMethod)
 
     ns.ApplyFramePosition(partyHeader, "party")
 end

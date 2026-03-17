@@ -6260,6 +6260,18 @@ function InitializeFrames()
         ns.SpawnPartyHeader()
     end
 
+    -- Hide Blizzard party frames when our party frames are enabled
+    if enabled.party ~= false then
+        if CompactPartyFrame then
+            CompactPartyFrame:UnregisterAllEvents()
+            CompactPartyFrame:Hide()
+        end
+        if PartyFrame then
+            PartyFrame:UnregisterAllEvents()
+            PartyFrame:Hide()
+        end
+    end
+
     -- Disable oUF elements for frames where features are initially off.
     -- Portrait backdrop is already hidden by style functions, but oUF
     -- auto-enables the element at spawn time since frame.Portrait is always set.
