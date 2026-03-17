@@ -404,6 +404,10 @@ local function SpawnPartyHeader()
         "oUF-initialConfigFunction", ([[
             self:SetWidth(%d)
             self:SetHeight(%d)
+            -- Ensure oUF-guessUnit is never nil (oUF crashes at ouf.lua:270 otherwise)
+            if(not self:GetAttribute('oUF-guessUnit')) then
+                self:SetAttribute('oUF-guessUnit', 'party')
+            end
         ]]):format(settings.frameWidth or 160, (settings.healthHeight or 36) + ((settings.powerPosition ~= "none") and (settings.powerHeight or 4) or 0)),
     }
 
