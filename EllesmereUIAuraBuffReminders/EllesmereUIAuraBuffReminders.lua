@@ -2302,11 +2302,19 @@ local _beaconCachedInInstance = false
 local function BeaconUpdateInstanceCache()
     local _, instanceType, difficultyID = GetInstanceInfo()
     difficultyID = tonumber(difficultyID) or 0
-    if difficultyID == 0 then _beaconCachedInInstance = false; return end
     if C_Garrison and C_Garrison.IsOnGarrisonMap and C_Garrison.IsOnGarrisonMap() then
         _beaconCachedInInstance = false; return
     end
-    _beaconCachedInInstance = (instanceType == "party" or instanceType == "raid")
+    local isGroupInstance = (instanceType == "party" or instanceType == "raid")
+    if isGroupInstance and difficultyID == 0 then
+        C_Timer.After(1, function()
+            BeaconUpdateInstanceCache()
+            BeaconUpdateOverlayEvents()
+            BeaconRefresh()
+        end)
+        return
+    end
+    _beaconCachedInInstance = isGroupInstance and difficultyID > 0
 end
 
 local function BeaconUpdateOverlayEvents()
