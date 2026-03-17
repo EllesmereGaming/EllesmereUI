@@ -388,9 +388,11 @@ local function SpawnPartyHeader()
     -- Sort config
     local sortCfg = SORT_CONFIGS[settings.sortOrder or "role"] or SORT_CONFIGS.role
 
-    -- Guard: oUF errors on duplicate style registration (e.g. during ReloadFrames)
-    if not oUF.styles or not oUF.styles["EllesmereParty"] then
+    -- Register style once — oUF stores styles in a local table (not oUF.styles),
+    -- so we track registration ourselves to avoid "already registered" errors.
+    if not ns._partyStyleRegistered then
         oUF:RegisterStyle("EllesmereParty", StylePartyFrame)
+        ns._partyStyleRegistered = true
     end
     oUF:SetActiveStyle("EllesmereParty")
 
@@ -506,10 +508,7 @@ SlashCmdList.EUIPARTYTEST = function()
     end
 
     if not testFrame then
-        -- Register guard (style may already be registered by SpawnPartyHeader)
-        if not oUF.styles or not oUF.styles["EllesmereParty"] then
-            oUF:RegisterStyle("EllesmereParty", StylePartyFrame)
-        end
+        -- Style is already registered by SpawnPartyHeader, just set it active
         oUF:SetActiveStyle("EllesmereParty")
         testFrame = oUF:Spawn("player", "EllesmereUIPartyTest")
     end
