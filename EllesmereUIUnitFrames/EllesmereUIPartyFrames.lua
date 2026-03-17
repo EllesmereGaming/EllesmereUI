@@ -476,3 +476,43 @@ end
 ns.SpawnPartyHeader = SpawnPartyHeader
 ns.UpdatePartyLayout = UpdatePartyLayout
 ns.StylePartyFrame = StylePartyFrame
+
+----------------------------------------------------------------------
+--  Test Mode: /partytest
+----------------------------------------------------------------------
+
+local testMode = false
+
+SLASH_EUIPARTYTEST1 = "/partytest"
+SlashCmdList.EUIPARTYTEST = function()
+    if InCombatLockdown() then
+        print("|cff0cd29f[EUI Party]|r Cannot toggle test mode during combat.")
+        return
+    end
+    if not partyHeader then
+        print("|cff0cd29f[EUI Party]|r Party header not initialized.")
+        return
+    end
+
+    testMode = not testMode
+    if testMode then
+        partyHeader:SetAttribute("showSolo", true)
+        partyHeader:SetAttribute("showPlayer", true)
+        -- Force visibility when not in a party
+        RegisterAttributeDriver(partyHeader, "state-visibility", "show")
+        print("|cff0cd29f[EUI Party]|r Test mode |cff00ff00ON|r — showing party frames solo. Type /partytest again to disable.")
+    else
+        partyHeader:SetAttribute("showSolo", false)
+        local db = ns.db
+        local settings = db and db.profile and db.profile.party
+        partyHeader:SetAttribute("showPlayer", settings and settings.showPlayer or false)
+        -- Restore normal visibility driver
+        local enabled = db and db.profile and db.profile.enabledFrames
+        if enabled and enabled.party == false then
+            RegisterAttributeDriver(partyHeader, "state-visibility", "hide")
+        else
+            RegisterAttributeDriver(partyHeader, "state-visibility", "custom [@party1,exists] show;hide")
+        end
+        print("|cff0cd29f[EUI Party]|r Test mode |cffff6060OFF|r — normal party visibility restored.")
+    end
+end
