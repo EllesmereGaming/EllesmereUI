@@ -501,6 +501,33 @@ local defaults = {
             borderColor = { r = 0, g = 0, b = 0 },
             highlightColor = { r = 1, g = 1, b = 1 },
         },
+        party = {
+            frameWidth = 160,
+            healthHeight = 36,
+            powerPosition = "below",
+            powerHeight = 4,
+            leftTextContent = "name",
+            rightTextContent = "perhp",
+            centerTextContent = "none",
+            textSize = 11,
+            healthBarOpacity = 90,
+            powerBarOpacity = 100,
+            showPortrait = false,
+            showRoleIcon = true,
+            showCastbar = false,
+            showThreat = true,
+            enableRangeFade = true,
+            rangeFadeAlpha = 0.4,
+            showDebuffs = true,
+            maxDebuffs = 3,
+            showBuffs = false,
+            maxBuffs = 0,
+            highlightDispellable = true,
+            growthDirection = "vertical",
+            sortOrder = "role",
+            spacing = 1,
+            showPlayer = false,
+        },
         enabledFrames = {
             player = true,
             target = true,
@@ -509,6 +536,7 @@ local defaults = {
             targettarget = true,
             focustarget = false,
             boss = true,
+            party = true,
         },
         positions = {
             player = { point = "CENTER", relPoint = "CENTER", x = -317, y = -193.5 },
@@ -519,6 +547,7 @@ local defaults = {
             focustarget = { point = "CENTER", relPoint = "CENTER", x = 50, y = -261 },
             boss = { point = "CENTER", relPoint = "CENTER", x = 661, y = 251 },
             classPower = { point = "CENTER", relPoint = "CENTER", x = 0, y = -220 },
+            party = { point = "TOPLEFT", relPoint = "TOPLEFT", x = 20, y = -40 },
         },
         bossSpacing = 60,
     }
@@ -4004,7 +4033,7 @@ local function ReloadFrames()
     -- Normalize opacity values: old profiles stored 0-1 floats, new format is 0-100 integers
     do
         local prof = db.profile
-        local UNITS = { "player", "target", "focus", "boss", "pet", "totPet" }
+        local UNITS = { "player", "target", "focus", "boss", "pet", "totPet", "party" }
         if prof.healthBarOpacity and prof.healthBarOpacity <= 1.0 then
             prof.healthBarOpacity = math.floor(prof.healthBarOpacity * 100 + 0.5)
         end
