@@ -347,9 +347,10 @@ local function StylePartyFrame(frame, unit)
     summon:SetPoint("CENTER", frame, "CENTER", 0, 0)
     frame.SummonIndicator = summon
 
-    -- Hook for role icon updates using oUF's RegisterEvent (requires callback)
-    frame:RegisterEvent("GROUP_ROSTER_UPDATE", UpdateRoleIcon)
-    frame:RegisterEvent("PLAYER_ROLES_ASSIGNED", UpdateRoleIcon)
+    -- Hook for role icon updates using oUF's RegisterEvent
+    -- Third arg = true marks these as unitless (they don't fire for specific units)
+    frame:RegisterEvent("GROUP_ROSTER_UPDATE", UpdateRoleIcon, true)
+    frame:RegisterEvent("PLAYER_ROLES_ASSIGNED", UpdateRoleIcon, true)
     frame:HookScript("OnShow", function(self)
         UpdateRoleIcon(self)
     end)
