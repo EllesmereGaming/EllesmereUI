@@ -548,7 +548,7 @@ local defaults = {
             focustarget = { point = "CENTER", relPoint = "CENTER", x = 50, y = -261 },
             boss = { point = "CENTER", relPoint = "CENTER", x = 661, y = 251 },
             classPower = { point = "CENTER", relPoint = "CENTER", x = 0, y = -220 },
-            party = { point = "TOPLEFT", relPoint = "TOPLEFT", x = 20, y = -40 },
+            party = { point = "TOPLEFT", relPoint = "TOPLEFT", x = 20, y = -200 },
         },
         bossSpacing = 60,
     }
