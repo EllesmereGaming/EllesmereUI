@@ -6661,7 +6661,7 @@ function SetupOptionsPanel()
                         return nil
                     end
                     if k == "classPower" then return frames._classPowerBar end
-                    if k == "party" then return ns.partyHeader end
+                    if k == "party" then return ns.partyAnchor or ns.partyHeader end
                     return frames[k]
                 end,
                 getSize = function(k)
@@ -6809,9 +6809,10 @@ function SetupOptionsPanel()
                             frames._classPowerBar:SetPoint(point, UIParent, relPoint, x, y)
                         end
                     elseif k == "party" then
-                        if ns.partyHeader then
-                            ns.partyHeader:ClearAllPoints()
-                            ns.partyHeader:SetPoint(point, UIParent, relPoint, x, y)
+                        local anchor = ns.partyAnchor or ns.partyHeader
+                        if anchor then
+                            anchor:ClearAllPoints()
+                            anchor:SetPoint(point, UIParent, relPoint, x, y)
                         end
                     else
                         local fr = frames[k]
@@ -6851,9 +6852,10 @@ function SetupOptionsPanel()
                             frames._classPowerBar:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
                         end
                     elseif k == "party" then
-                        if ns.partyHeader then
-                            ns.partyHeader:ClearAllPoints()
-                            ns.partyHeader:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
+                        local anchor = ns.partyAnchor or ns.partyHeader
+                        if anchor then
+                            anchor:ClearAllPoints()
+                            anchor:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
                         end
                     else
                         local fr = frames[k]

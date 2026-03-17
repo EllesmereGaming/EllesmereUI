@@ -366,6 +366,7 @@ end
 ----------------------------------------------------------------------
 
 local partyHeader
+local partyAnchor  -- persistent anchor frame for positioning (survives header hide)
 
 local function SpawnPartyHeader()
     local db = ns.db
@@ -417,6 +418,16 @@ local function SpawnPartyHeader()
         headerArgs[#headerArgs + 1] = sortCfg.sortMethod
     end
 
+    -- Create a persistent anchor frame for positioning.
+    -- The header hides when solo (SecureGroupHeader visibility driver),
+    -- which breaks Unlock Mode positioning. The anchor stays visible and
+    -- holds the saved position; the header attaches to it.
+    if not partyAnchor then
+        partyAnchor = CreateFrame("Frame", "EllesmereUIPartyAnchor", UIParent)
+        partyAnchor:SetSize(settings.frameWidth or 160, (settings.healthHeight or 36) + ((settings.powerPosition ~= "none") and (settings.powerHeight or 4) or 0))
+    end
+    ns.ApplyFramePosition(partyAnchor, "party")
+
     partyHeader = oUF:SpawnHeader(
         "EllesmereUIPartyHeader",
         nil,
@@ -424,15 +435,17 @@ local function SpawnPartyHeader()
         unpack(headerArgs)
     )
 
-    ns.ApplyFramePosition(partyHeader, "party")
+    -- Attach header to the anchor
+    partyHeader:SetPoint("TOPLEFT", partyAnchor, "TOPLEFT", 0, 0)
 
     local enabled = db.profile.enabledFrames
     if enabled.party == false then
         RegisterAttributeDriver(partyHeader, "state-visibility", "hide")
     end
 
-    -- Store reference
+    -- Store references
     ns.partyHeader = partyHeader
+    ns.partyAnchor = partyAnchor
 
     return partyHeader
 end
@@ -466,7 +479,9 @@ local function UpdatePartyLayout()
     partyHeader:SetAttribute("groupingOrder", sortCfg.groupingOrder)
     partyHeader:SetAttribute("sortMethod", sortCfg.sortMethod)
 
-    ns.ApplyFramePosition(partyHeader, "party")
+    if partyAnchor then
+        ns.ApplyFramePosition(partyAnchor, "party")
+    end
 end
 
 ----------------------------------------------------------------------
