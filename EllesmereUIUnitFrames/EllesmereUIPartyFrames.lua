@@ -404,10 +404,6 @@ local function SpawnPartyHeader()
         "oUF-initialConfigFunction", ([[
             self:SetWidth(%d)
             self:SetHeight(%d)
-            -- Ensure oUF-guessUnit is never nil (oUF crashes at ouf.lua:270 otherwise)
-            if(not self:GetAttribute('oUF-guessUnit')) then
-                self:SetAttribute('oUF-guessUnit', 'party')
-            end
         ]]):format(settings.frameWidth or 160, (settings.healthHeight or 36) + ((settings.powerPosition ~= "none") and (settings.powerHeight or 4) or 0)),
     }
 
@@ -488,8 +484,12 @@ ns.StylePartyFrame = StylePartyFrame
 ----------------------------------------------------------------------
 --  Test Mode: /partytest
 ----------------------------------------------------------------------
+--  Spawns a standalone oUF frame styled as a party frame using the
+--  player unit. This avoids SecureGroupHeader issues with showSolo
+--  where oUF's initObject crashes on nil objectUnit.
+----------------------------------------------------------------------
 
-local testMode = false
+local testFrame
 
 SLASH_EUIPARTYTEST1 = "/partytest"
 SlashCmdList.EUIPARTYTEST = function()
@@ -497,37 +497,32 @@ SlashCmdList.EUIPARTYTEST = function()
         print("|cff0cd29f[EUI Party]|r Cannot toggle test mode during combat.")
         return
     end
-    if not partyHeader then
-        print("|cff0cd29f[EUI Party]|r Party header not initialized.")
+
+    if testFrame and testFrame:IsShown() then
+        testFrame:Hide()
+        testFrame:SetAttribute("unit", nil)
+        print("|cff0cd29f[EUI Party]|r Test mode |cffff6060OFF|r")
         return
     end
 
-    testMode = not testMode
-    if testMode then
-        -- Set showSolo and showPlayer first so the header knows to include
-        -- the player unit, then swap the visibility driver. Order matters:
-        -- the header must know about showSolo before it processes the show.
-        partyHeader:SetAttribute("showSolo", true)
-        partyHeader:SetAttribute("showPlayer", true)
-        -- Use the macro conditional that always evaluates to show, which
-        -- lets the secure header properly assign units before styling
-        UnregisterAttributeDriver(partyHeader, "state-visibility")
-        RegisterAttributeDriver(partyHeader, "state-visibility", "[exists] show; show")
-        print("|cff0cd29f[EUI Party]|r Test mode |cff00ff00ON|r — showing party frames solo. Type /partytest again to disable.")
-    else
-        -- Restore normal attributes
-        partyHeader:SetAttribute("showSolo", false)
-        local db = ns.db
-        local settings = db and db.profile and db.profile.party
-        partyHeader:SetAttribute("showPlayer", settings and settings.showPlayer or false)
-        -- Restore normal visibility driver
-        UnregisterAttributeDriver(partyHeader, "state-visibility")
-        local enabled = db and db.profile and db.profile.enabledFrames
-        if enabled and enabled.party == false then
-            RegisterAttributeDriver(partyHeader, "state-visibility", "hide")
-        else
-            RegisterAttributeDriver(partyHeader, "state-visibility", "custom [@party1,exists] show;hide")
+    if not testFrame then
+        -- Register guard (style may already be registered by SpawnPartyHeader)
+        if not oUF.styles or not oUF.styles["EllesmereParty"] then
+            oUF:RegisterStyle("EllesmereParty", StylePartyFrame)
         end
-        print("|cff0cd29f[EUI Party]|r Test mode |cffff6060OFF|r — normal party visibility restored.")
+        oUF:SetActiveStyle("EllesmereParty")
+        testFrame = oUF:Spawn("player", "EllesmereUIPartyTest")
     end
+
+    -- Position near the party header anchor (or center-left if no header)
+    testFrame:ClearAllPoints()
+    if partyHeader then
+        testFrame:SetPoint("TOPLEFT", partyHeader, "TOPLEFT", 0, 0)
+    else
+        testFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -40)
+    end
+
+    testFrame:SetAttribute("unit", "player")
+    testFrame:Show()
+    print("|cff0cd29f[EUI Party]|r Test mode |cff00ff00ON|r — showing party frame preview (player unit). Type /partytest again to hide.")
 end
