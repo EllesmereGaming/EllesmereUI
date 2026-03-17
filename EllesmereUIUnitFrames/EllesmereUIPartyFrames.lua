@@ -522,12 +522,12 @@ SlashCmdList.EUIPARTYTEST = function()
         testFrame = oUF:Spawn("player", "EllesmereUIPartyTest")
     end
 
-    -- Position near the party header anchor (or center-left if no header)
+    -- Position at the party anchor (always visible, unlike the header)
     testFrame:ClearAllPoints()
-    if partyHeader then
-        testFrame:SetPoint("TOPLEFT", partyHeader, "TOPLEFT", 0, 0)
+    if partyAnchor then
+        testFrame:SetPoint("TOPLEFT", partyAnchor, "TOPLEFT", 0, 0)
     else
-        testFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -40)
+        testFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -200)
     end
 
     testFrame:SetAttribute("unit", "player")
