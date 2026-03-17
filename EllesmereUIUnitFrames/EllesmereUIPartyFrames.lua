@@ -138,6 +138,10 @@ local function StylePartyFrame(frame, unit)
     local db = ns.db
     if not db then return end
 
+    -- oUF may call style function before a unit is assigned (e.g. test mode)
+    -- Default to "player" so builders that require a unit don't error
+    unit = unit or frame:GetAttribute("unit") or "player"
+
     local settings = db.profile.party
     if not settings then return end
 
@@ -496,17 +500,24 @@ SlashCmdList.EUIPARTYTEST = function()
 
     testMode = not testMode
     if testMode then
+        -- Set showSolo and showPlayer first so the header knows to include
+        -- the player unit, then swap the visibility driver. Order matters:
+        -- the header must know about showSolo before it processes the show.
         partyHeader:SetAttribute("showSolo", true)
         partyHeader:SetAttribute("showPlayer", true)
-        -- Force visibility when not in a party
-        RegisterAttributeDriver(partyHeader, "state-visibility", "show")
+        -- Use the macro conditional that always evaluates to show, which
+        -- lets the secure header properly assign units before styling
+        UnregisterAttributeDriver(partyHeader, "state-visibility")
+        RegisterAttributeDriver(partyHeader, "state-visibility", "[exists] show; show")
         print("|cff0cd29f[EUI Party]|r Test mode |cff00ff00ON|r — showing party frames solo. Type /partytest again to disable.")
     else
+        -- Restore normal attributes
         partyHeader:SetAttribute("showSolo", false)
         local db = ns.db
         local settings = db and db.profile and db.profile.party
         partyHeader:SetAttribute("showPlayer", settings and settings.showPlayer or false)
         -- Restore normal visibility driver
+        UnregisterAttributeDriver(partyHeader, "state-visibility")
         local enabled = db and db.profile and db.profile.enabledFrames
         if enabled and enabled.party == false then
             RegisterAttributeDriver(partyHeader, "state-visibility", "hide")
