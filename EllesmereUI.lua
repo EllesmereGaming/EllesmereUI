@@ -1697,6 +1697,7 @@ EllesmereUI.RESOURCE_BAR_ANCHOR_KEYS = {
 
 do
 local PARTY_FRAME_SOURCES = {
+    { addon = "EllesmereUIUnitFrames", prefix = "EllesmereUIPartyHeaderUnitButton", count = 5 },
     { addon = "ElvUI",  prefix = "ElvUF_PartyGroup1UnitButton", count = 5 },
     { addon = "Cell",   prefix = "CellPartyFrameMember",        count = 5 },
     { addon = nil,      prefix = "CompactPartyFrameMember",     count = 5 },
