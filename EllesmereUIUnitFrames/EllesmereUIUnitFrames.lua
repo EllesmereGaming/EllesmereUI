@@ -6255,6 +6255,11 @@ function InitializeFrames()
         end
     end
 
+    -- Party frames (spawned via header in EllesmereUIPartyFrames.lua)
+    if ns.SpawnPartyHeader then
+        ns.SpawnPartyHeader()
+    end
+
     -- Disable oUF elements for frames where features are initially off.
     -- Portrait backdrop is already hidden by style functions, but oUF
     -- auto-enables the element at spawn time since frame.Portrait is always set.
@@ -6620,6 +6625,7 @@ function SetupOptionsPanel()
             playerCastbar = "Player Cast Bar",
             targetCastbar = "Target Cast Bar",
             focusCastbar = "Focus Cast Bar",
+            party = "Party Frames",
         }
         local elements = {}
         local orderBase = 100
@@ -6643,6 +6649,7 @@ function SetupOptionsPanel()
                         return nil
                     end
                     if k == "classPower" then return frames._classPowerBar end
+                    if k == "party" then return ns.partyHeader end
                     return frames[k]
                 end,
                 getSize = function(k)
@@ -6670,10 +6677,23 @@ function SetupOptionsPanel()
                         end
                         return 120, 14
                     end
+                    if k == "party" then
+                        local s = db.profile.party
+                        if not s then return 160, 36 end
+                        local ppPos = s.powerPosition or "below"
+                        local ppIsAtt = (ppPos == "below" or ppPos == "above")
+                        local ph = ppIsAtt and (s.powerHeight or 4) or 0
+                        local frameH = s.healthHeight + ph
+                        local frameW = s.frameWidth
+                        local showPortrait = s.showPortrait ~= false and (db.profile.portraitStyle or "attached") ~= "none"
+                        if showPortrait then frameW = frameW + frameH end
+                        return frameW, frameH
+                    end
                     if k == "boss" then return GetFrameDimensions("boss1") end
                     return GetFrameDimensions(k)
                 end,
                 setWidth = function(k, w)
+                    if k == "party" then return end
                     if k == "playerCastbar" then
                         db.profile.player.playerCastbarWidth = math.max(math.floor(w + 0.5), 30)
                         local cbBg = frames.player and frames.player.Castbar and frames.player.Castbar:GetParent()
@@ -6710,6 +6730,7 @@ function SetupOptionsPanel()
                     Rebuild()
                 end,
                 setHeight = function(k, h)
+                    if k == "party" then return end
                     if k == "playerCastbar" then
                         local newH = math.max(math.floor(h + 0.5), 5)
                         db.profile.player.playerCastbarHeight = newH
@@ -6775,6 +6796,11 @@ function SetupOptionsPanel()
                             frames._classPowerBar:ClearAllPoints()
                             frames._classPowerBar:SetPoint(point, UIParent, relPoint, x, y)
                         end
+                    elseif k == "party" then
+                        if ns.partyHeader then
+                            ns.partyHeader:ClearAllPoints()
+                            ns.partyHeader:SetPoint(point, UIParent, relPoint, x, y)
+                        end
                     else
                         local fr = frames[k]
                         if fr then
@@ -6812,6 +6838,11 @@ function SetupOptionsPanel()
                             frames._classPowerBar:ClearAllPoints()
                             frames._classPowerBar:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
                         end
+                    elseif k == "party" then
+                        if ns.partyHeader then
+                            ns.partyHeader:ClearAllPoints()
+                            ns.partyHeader:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
+                        end
                     else
                         local fr = frames[k]
                         if fr then
@@ -6831,6 +6862,7 @@ function SetupOptionsPanel()
         elements[#elements + 1] = MakeUFElement("targettarget", 5)
         elements[#elements + 1] = MakeUFElement("focustarget", 6)
         elements[#elements + 1] = MakeUFElement("boss", 7)
+        elements[#elements + 1] = MakeUFElement("party", 8)
 
         -- Conditional elements
         if db.profile.player.showClassPowerBar and not db.profile.player.lockClassPowerToFrame then
