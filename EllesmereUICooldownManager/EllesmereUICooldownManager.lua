@@ -5648,6 +5648,9 @@ local _barBindingDefs = {
     { prefix = "MULTIACTIONBAR7BUTTON", startSlot = 169 },  -- bar 8
     { prefix = "ACTIONBUTTON",          startSlot = 1   },  -- bar 1 (last = lowest priority)
 }
+-- Bonus/paged action bar slot ranges that share ACTIONBUTTON1-12 keybinds.
+-- These hold form-specific spells (e.g. druid Bear slots 97-108, Cat slots 73-84).
+local _pagedBarSlotRanges = { 13, 25, 37, 49, 61, 73, 85, 97, 109 }
 
 local function FormatKeybindKey(key)
     if not key or key == "" then return nil end
@@ -5698,6 +5701,33 @@ local function RebuildKeybindCache()
             end
         end
     end
+    -- Scan paged/bonus bar slots that share ACTIONBUTTON1-12 keybinds.
+    -- These hold form-specific spells (druid Bear/Cat, warrior stances, etc.)
+    -- that aren't on the default bar 1 slots 1-12.
+    for _, pageStart in ipairs(_pagedBarSlotRanges) do
+        for i = 1, 12 do
+            local slot = pageStart + i - 1
+            local slotType, id = GetActionInfo(slot)
+            local spellID
+            if slotType == "spell" then
+                spellID = id
+            elseif slotType == "macro" and id then
+                local macroSpell = GetMacroSpell(id)
+                spellID = macroSpell or (id > 0 and id) or nil
+            end
+            if spellID and not _cdmKeybindCache[spellID] then
+                local key = GetBindingKey("ACTIONBUTTON" .. i)
+                if key then
+                    local formatted = FormatKeybindKey(key)
+                    _cdmKeybindCache[spellID] = formatted
+                    local name = C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
+                    if name and not _cdmKeybindCache[name] then
+                        _cdmKeybindCache[name] = formatted
+                    end
+                end
+            end
+        end
+    end
 end
 
 -- Apply the current cache to all visible CDM icon keybind texts
@@ -5710,6 +5740,18 @@ local function ApplyCachedKeybinds()
                     local key = _cdmKeybindCache[icon._spellID]
                     local name = C_Spell.GetSpellName and C_Spell.GetSpellName(icon._spellID)
                     if not key and name then key = _cdmKeybindCache[name] end
+                    -- Override lookup: action bar may have the talent-override spellID
+                    -- while the CDM icon tracks the base spellID.
+                    if not key and C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+                        local overrideID = C_SpellBook.FindSpellOverrideByID(icon._spellID)
+                        if overrideID and overrideID ~= icon._spellID then
+                            key = _cdmKeybindCache[overrideID]
+                            if not key then
+                                local ovrName = C_Spell.GetSpellName and C_Spell.GetSpellName(overrideID)
+                                if ovrName then key = _cdmKeybindCache[ovrName] end
+                            end
+                        end
+                    end
                     if key then
                         icon._keybindText:SetText(key)
                         icon._keybindText:Show()
@@ -7517,6 +7559,7 @@ eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
 eventFrame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
 eventFrame:RegisterEvent("UPDATE_BINDINGS")
 eventFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+eventFrame:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
 -- Hero talent / loadout change events
 eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
 eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
@@ -7646,7 +7689,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         end
         return
     end
-    if event == "UPDATE_BINDINGS" or event == "ACTIONBAR_SLOT_CHANGED" then
+    if event == "UPDATE_BINDINGS" or event == "ACTIONBAR_SLOT_CHANGED" or event == "ACTIONBAR_PAGE_CHANGED" then
         C_Timer.After(0.5, UpdateCDMKeybinds)  -- defer so action slots are fully populated
         return
     end
@@ -7676,6 +7719,10 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     end
     if event == "PLAYER_MOUNT_DISPLAY_CHANGED" or event == "PLAYER_TARGET_CHANGED" or event == "UPDATE_SHAPESHIFT_FORM" then
         _CDMApplyVisibility()
+        -- Shapeshift changes the action bar page — keybinds map to different spells now
+        if event == "UPDATE_SHAPESHIFT_FORM" then
+            C_Timer.After(0.5, UpdateCDMKeybinds)
+        end
         return
     end
     if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" or event == "ZONE_CHANGED_NEW_AREA" then
