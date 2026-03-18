@@ -16,6 +16,7 @@ local UnitCastingInfo, UnitChannelInfo = UnitCastingInfo, UnitChannelInfo
 local GetTime = GetTime
 local C_NamePlate = C_NamePlate
 local GetRaidTargetIndex, SetRaidTargetIconTexture = GetRaidTargetIndex, SetRaidTargetIconTexture
+local GetCreatureDifficultyColor = GetCreatureDifficultyColor
 local C_CVar, NamePlateConstants, Enum = C_CVar, NamePlateConstants, Enum
 local function GetFont()
     if EllesmereUI and EllesmereUI.GetFontPath then
@@ -420,13 +421,19 @@ local function GetLevelPrefix(unit)
     local db = EllesmereUINameplatesDB or defaults
     if not db.showLevel then return nil end
     local level = UnitLevel(unit)
-    local levelStr = level == -1 and "??" or tostring(level)
-    local lr, lg, lb
-    if db.levelDifficultyColor and GetCreatureDifficultyColor then
-        local color = GetCreatureDifficultyColor(level)
-        lr, lg, lb = color.r, color.g, color.b
+    if not level or level <= 0 and level ~= -1 then return nil end
+    local levelStr, lr, lg, lb
+    if level == -1 then
+        levelStr = "??"
+        lr, lg, lb = 1, 0, 0
     else
-        lr, lg, lb = 1, 0.82, 0
+        levelStr = tostring(level)
+        if db.levelDifficultyColor and GetCreatureDifficultyColor then
+            local color = GetCreatureDifficultyColor(level)
+            lr, lg, lb = color.r, color.g, color.b
+        else
+            lr, lg, lb = 1, 0.82, 0
+        end
     end
     return string.format("|cff%02x%02x%02x%s|r", lr * 255, lg * 255, lb * 255, levelStr)
 end
@@ -3272,9 +3279,10 @@ end
 function NameplateFrame:UpdateNameWidth()
     local barW = GetHealthBarWidth()
     local nameSlot = FindSlotForElement("enemyName")
+    local levelExtra = ((EllesmereUINameplatesDB or defaults).showLevel) and 25 or 0
     if nameSlot == "textSlotTop" then
         -- Above the bar: full bar width minus raid marker if shown
-        local nameW = barW
+        local nameW = barW + levelExtra
         local rmPos = GetRaidMarkerPos()
         if rmPos ~= "none" and self.raidFrame:IsShown() then
             nameW = nameW - 2 * (GetRaidMarkerSize() - 2) - 7
