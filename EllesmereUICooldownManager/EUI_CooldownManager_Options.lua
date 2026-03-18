@@ -186,10 +186,16 @@ initFrame:SetScript("OnEvent", function(self)
     -- Preview glow state tracking
     local _bgPreviewGlowActive = {}
     local _bgPreviewGlowOverlays = {}
+    local _bgPreviewDurTickers = {}   -- [pvKey] = { ticker, startTime }
     local _bgSpellPickerMenu
 
     EllesmereUI:RegisterOnHide(function()
         if _bgSpellPickerMenu then _bgSpellPickerMenu:Hide() end
+        -- Cancel any running preview countdown tickers
+        for _, info in pairs(_bgPreviewDurTickers) do
+            if info.ticker then info.ticker:Cancel() end
+        end
+        wipe(_bgPreviewDurTickers)
     end)
 
     local function ShowBarGlowSpellPicker(anchorFrame, barIdx, btnIdx, onChanged)
@@ -370,6 +376,11 @@ initFrame:SetScript("OnEvent", function(self)
                         glowColor = { r = 1, g = 0.82, b = 0.1 },
                         classColor = false,
                         mode = "ACTIVE",
+                        showDuration = false,
+                        durationSize = 12,
+                        durationOffsetX = 0,
+                        durationOffsetY = 0,
+                        durationR = 1, durationG = 1, durationB = 1,
                     }
                     local prefix = BAR_BUTTON_PREFIXES[barIdx]
                     local realBtn = prefix and _G[prefix .. btnIdx]
@@ -469,12 +480,16 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         EllesmereUI:ClearContentHeader()
 
-        -- Stop any lingering preview glows
+        -- Stop any lingering preview glows and countdown tickers
         for idx, ov in pairs(_bgPreviewGlowOverlays) do
             ns.StopNativeGlow(ov)
         end
+        for _, info in pairs(_bgPreviewDurTickers) do
+            if info.ticker then info.ticker:Cancel() end
+        end
         wipe(_bgPreviewGlowOverlays)
         wipe(_bgPreviewGlowActive)
+        wipe(_bgPreviewDurTickers)
 
         _glowHeaderBuilder = function(headerFrame, width)
             -- Re-read current state each build
@@ -995,8 +1010,82 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     end
 
-                    -- Helper: resolve current glow color and restart preview if active
+                    -- Helper: format and refresh the countdown timer on the preview glow
                     local pvKey = assignKey .. "_" .. aIdx
+                    local function FormatPreviewDuration(remaining)
+                        return string.format("%d", math.ceil(remaining))
+                    end
+
+                    local function RefreshPreviewDuration()
+                        local ov = _bgPreviewGlowOverlays[pvKey]
+                        if not ov or not _bgPreviewGlowActive[pvKey] then
+                            -- Cancel any running ticker
+                            local info = _bgPreviewDurTickers[pvKey]
+                            if info then
+                                if info.ticker then info.ticker:Cancel() end
+                                _bgPreviewDurTickers[pvKey] = nil
+                            end
+                            return
+                        end
+                        local previewBtn = _glowBtnFrames[curBtn]
+                        if not previewBtn then return end
+                        if entry.showDuration then
+                            if not ov._pvDurationText then
+                                ov._pvDurationText = ov:CreateFontString(nil, "OVERLAY")
+                            end
+                            local fs = ov._pvDurationText
+                            fs:SetFont(FONT_PATH, entry.durationSize or 12, "OUTLINE")
+                            fs:SetShadowOffset(0, 0)
+                            fs:ClearAllPoints()
+                            fs:SetPoint("BOTTOMLEFT", previewBtn, "BOTTOMLEFT",
+                                3 + (entry.durationOffsetX or 0), 4 + (entry.durationOffsetY or 0))
+                            fs:SetTextColor(entry.durationR or 1, entry.durationG or 1, entry.durationB or 1)
+                            -- Start or continue countdown from 12.0
+                            local info = _bgPreviewDurTickers[pvKey]
+                            if not info then
+                                local startTime = GetTime()
+                                local DURATION = 12.0
+                                local ticker
+                                ticker = C_Timer.NewTicker(0.1, function()
+                                    if not ov._pvDurationText or not _bgPreviewGlowActive[pvKey] then
+                                        ticker:Cancel()
+                                        _bgPreviewDurTickers[pvKey] = nil
+                                        return
+                                    end
+                                    local elapsed = GetTime() - startTime
+                                    local remaining = DURATION - elapsed
+                                    if remaining <= 0 then
+                                        -- Loop back to 12
+                                        startTime = GetTime()
+                                        remaining = DURATION
+                                        local i2 = _bgPreviewDurTickers[pvKey]
+                                        if i2 then i2.startTime = startTime end
+                                    end
+                                    ov._pvDurationText:SetText(FormatPreviewDuration(remaining))
+                                end)
+                                _bgPreviewDurTickers[pvKey] = { ticker = ticker, startTime = startTime }
+                                fs:SetText(FormatPreviewDuration(DURATION))
+                            else
+                                -- Ticker already running; just update font/position/color, keep countdown
+                                local remaining = 12.0 - (GetTime() - info.startTime)
+                                if remaining <= 0 then remaining = 12.0 end
+                                remaining = remaining % 12.0
+                                if remaining <= 0 then remaining = 12.0 end
+                                fs:SetText(FormatPreviewDuration(remaining))
+                            end
+                            fs:Show()
+                        else
+                            -- Duration disabled: cancel ticker and hide
+                            local info = _bgPreviewDurTickers[pvKey]
+                            if info then
+                                if info.ticker then info.ticker:Cancel() end
+                                _bgPreviewDurTickers[pvKey] = nil
+                            end
+                            if ov._pvDurationText then ov._pvDurationText:Hide() end
+                        end
+                    end
+
+                    -- Helper: resolve current glow color and restart preview if active
                     local function RefreshPreviewGlow()
                         if not _bgPreviewGlowActive[pvKey] then return end
                         local ov = _bgPreviewGlowOverlays[pvKey]
@@ -1077,6 +1166,13 @@ initFrame:SetScript("OnEvent", function(self)
                                 if _bgPreviewGlowActive[pvKey] then
                                     ns.StopNativeGlow(ov)
                                     _bgPreviewGlowActive[pvKey] = false
+                                    -- Stop countdown ticker and hide preview duration text
+                                    local durInfo = _bgPreviewDurTickers[pvKey]
+                                    if durInfo then
+                                        if durInfo.ticker then durInfo.ticker:Cancel() end
+                                        _bgPreviewDurTickers[pvKey] = nil
+                                    end
+                                    if ov._pvDurationText then ov._pvDurationText:Hide() end
                                     -- Restore accent border
                                     if previewBtn._accentBrd then previewBtn._accentBrd:Show() end
                                 else
@@ -1092,6 +1188,8 @@ initFrame:SetScript("OnEvent", function(self)
                                     _bgPreviewGlowActive[pvKey] = true
                                     -- Hide accent border so glow is visible
                                     if previewBtn._accentBrd then previewBtn._accentBrd:Hide() end
+                                    -- Show preview duration text when showDuration is on
+                                    RefreshPreviewDuration()
                                 end
                                 RefreshEye()
                             end)
@@ -1124,6 +1222,91 @@ initFrame:SetScript("OnEvent", function(self)
                                 end,
                                 false, 20)
                             PP.Point(glowSwatch, "RIGHT", toggle, "LEFT", -8, 0)
+                        end
+                    end
+
+                    -- Row 3: Show Duration (with swatch + cog)
+                    local durRow
+                    durRow, h = W:DualRow(parent, y,
+                        { type = "toggle", text = "Show Duration",
+                          getValue = function() return entry.showDuration == true end,
+                          setValue = function(v)
+                              entry.showDuration = v
+                              Refresh()
+                              RefreshPreviewDuration()
+                              EllesmereUI:RefreshPage()
+                          end,
+                        },
+                        { type = "label", text = "" }
+                    );  y = y - h
+
+                    -- Inline color swatch + cog for duration text (on left region of row 3)
+                    do
+                        local leftRgn = durRow._leftRegion
+                        local ctrl = leftRgn and leftRgn._control
+
+                        -- Color swatch
+                        local durSwatch
+                        if ctrl and EllesmereUI.BuildColorSwatch then
+                            durSwatch = EllesmereUI.BuildColorSwatch(
+                                leftRgn, durRow:GetFrameLevel() + 3,
+                                function()
+                                    return entry.durationR or 1, entry.durationG or 1, entry.durationB or 1
+                                end,
+                                function(r, g, b)
+                                    entry.durationR = r; entry.durationG = g; entry.durationB = b
+                                    Refresh()
+                                    RefreshPreviewDuration()
+                                    EllesmereUI:RefreshPage()
+                                end,
+                                false, 20)
+                            PP.Point(durSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+                        end
+
+                        -- Cog: size + x/y offsets
+                        local _, durCogShow = EllesmereUI.BuildCogPopup({
+                            title = "Duration Text Settings",
+                            rows = {
+                                { type = "slider", label = "Text Size", min = 6, max = 20, step = 1,
+                                  get = function() return entry.durationSize or 12 end,
+                                  set = function(v) entry.durationSize = v; Refresh(); RefreshPreviewDuration(); EllesmereUI:RefreshPage() end },
+                                { type = "slider", label = "X Offset", min = -30, max = 30, step = 1,
+                                  get = function() return entry.durationOffsetX or 0 end,
+                                  set = function(v) entry.durationOffsetX = v; Refresh(); RefreshPreviewDuration(); EllesmereUI:RefreshPage() end },
+                                { type = "slider", label = "Y Offset", min = -30, max = 30, step = 1,
+                                  get = function() return entry.durationOffsetY or 0 end,
+                                  set = function(v) entry.durationOffsetY = v; Refresh(); RefreshPreviewDuration(); EllesmereUI:RefreshPage() end },
+                            },
+                        })
+                        -- Cog button
+                        do
+                            local anchor = durSwatch or ctrl
+                            if anchor and leftRgn then
+                                local cogBtn = CreateFrame("Button", nil, leftRgn)
+                                cogBtn:SetSize(26, 26)
+                                cogBtn:SetPoint("RIGHT", anchor, "LEFT", -8, 0)
+                                cogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+                                cogBtn:SetAlpha(0.4)
+                                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                                cogTex:SetAllPoints()
+                                cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
+                                cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+                                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+                                cogBtn:SetScript("OnClick", function(self) durCogShow(self) end)
+                            end
+                        end
+
+                        -- Blocking overlay when Show Duration is off
+                        if durSwatch then
+                            local swatchBlock = CreateFrame("Frame", nil, durSwatch)
+                            swatchBlock:SetAllPoints()
+                            swatchBlock:SetFrameLevel(durSwatch:GetFrameLevel() + 10)
+                            swatchBlock:EnableMouse(true)
+                            EllesmereUI.RegisterWidgetRefresh(function()
+                                local on = entry.showDuration == true
+                                durSwatch:SetAlpha(on and 1 or 0.3)
+                                if on then swatchBlock:Hide() else swatchBlock:Show() end
+                            end)
                         end
                     end
                 end

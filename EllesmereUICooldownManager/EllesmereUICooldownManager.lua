@@ -993,7 +993,7 @@ local DEFAULTS = {
             enabled = true,
             selectedBar = 1,
             selectedButton = nil,
-            assignments = {},  -- ["barIdx_btnIdx"] = { {spellID, glowStyle, glowColor, classColor, mode}, ... }
+            assignments = {},  -- ["barIdx_btnIdx"] = { {spellID, glowStyle, glowColor, classColor, mode, showDuration, ...}, ... }
         },
         -- Tracked Buff Bars v2 (per-bar buff tracking with individual settings)
         -- Note: not in defaults -- lazy-initialized by ns.GetTrackedBuffBars()
