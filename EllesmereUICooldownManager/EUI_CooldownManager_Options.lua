@@ -6063,8 +6063,8 @@ initFrame:SetScript("OnEvent", function(self)
                   ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
               end },
             { type="dropdown", text="Grow Direction",
-              values={ RIGHT="Horizontal", DOWN="Vertical" },
-              order={ "RIGHT", "DOWN" },
+              values={ RIGHT="Right", LEFT="Left", DOWN="Down", UP="Up" },
+              order={ "RIGHT", "LEFT", "DOWN", "UP" },
               getValue=function()
                   local bd = BD()
                   if bd.growDirection then return bd.growDirection end
@@ -6072,7 +6072,7 @@ initFrame:SetScript("OnEvent", function(self)
               end,
               setValue=function(v)
                   BD().growDirection = v
-                  BD().verticalOrientation = (v == "DOWN")
+                  BD().verticalOrientation = (v == "DOWN" or v == "UP")
                   ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
               end });  y = y - h
 
