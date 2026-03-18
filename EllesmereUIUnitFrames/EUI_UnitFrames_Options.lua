@@ -7,7 +7,6 @@ local ADDON_NAME, ns = ...
 
 local PAGE_DISPLAY   = "Frame Display"
 local PAGE_MINI      = "Mini Frame Edit"
-local PAGE_UNLOCK    = "Unlock Mode"
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -52,7 +51,7 @@ initFrame:SetScript("OnEvent", function(self)
     local allPreviews = {}
 
     local showCombatIndicatorPreview = false
-    -- Preview hover-highlight hint text (shared across Single/Multi tabs)
+    -- Preview hover-highlight hint text (shared across Unit Frames pages)
     local _ufPreviewHintFS_display     -- hint FontString for Frame Display
     local _displayHeaderBaseH = 0      -- display header height WITHOUT hint
 
@@ -89,14 +88,37 @@ initFrame:SetScript("OnEvent", function(self)
     --  Individual Display unit selector
     ---------------------------------------------------------------------------
     local selectedUnit = "player"
+    local supportedDisplayUnits = {
+        player = true,
+        target = true,
+        focus = true,
+        targettarget = true,
+        pet = true,
+        boss = true,
+    }
+
+    -- Frame Display intentionally exposes one shared mini-frame settings path
+    -- for both ToT and FoT. Normalize external selections to that supported
+    -- options state before the page consumes them.
+    local function NormalizeDisplayUnit(unit)
+        if unit == "focustarget" then
+            return "targettarget"
+        end
+        if supportedDisplayUnits[unit] then
+            return unit
+        end
+        return "player"
+    end
 
     -- Allow external code to pre-select a unit before page rebuild.
     -- Two mechanisms: direct setter + pending override consumed at page build time.
-    EllesmereUI._setUnitFrameUnit = function(unit) selectedUnit = unit end
+    EllesmereUI._setUnitFrameUnit = function(unit)
+        selectedUnit = NormalizeDisplayUnit(unit)
+    end
     EllesmereUI._consumePendingUnitSelect = function()
         local pending = EllesmereUI._pendingUnitSelect
         if pending then
-            selectedUnit = pending
+            selectedUnit = NormalizeDisplayUnit(pending)
             EllesmereUI._pendingUnitSelect = nil
         end
     end
@@ -7020,24 +7042,14 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  Unlock Mode page  (stub SelectPage intercepts this before buildPage)
-    ---------------------------------------------------------------------------
-    local function BuildUnlockPage(pageName, parent, yOffset)
-        -- SelectPage() intercepts "Unlock Mode" and fires _openUnlockMode directly.
-        -- This stub exists only as a safety net in case buildPage is ever called.
-        if EllesmereUI._openUnlockMode then
-            C_Timer.After(0, EllesmereUI._openUnlockMode)
-        end
-        return 100
-    end
-
-
-    ---------------------------------------------------------------------------
     --  Register the module
     ---------------------------------------------------------------------------
     EllesmereUI:RegisterModule("EllesmereUIUnitFrames", {
         title       = "Unit Frames",
         description = "Configure unit frame appearance and behavior.",
+        -- Unlock Mode is a root-level fake nav item handled by
+        -- `EllesmereUI:SelectPage()`, so Unit Frames only registers its real
+        -- options pages here.
         pages       = { PAGE_DISPLAY, PAGE_MINI },
         buildPage   = function(pageName, parent, yOffset)
             -- Randomize preview creature IDs on every tab switch

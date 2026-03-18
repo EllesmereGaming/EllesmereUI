@@ -309,7 +309,9 @@ local function SelectActionBar(key)
 end
 local function SelectUnitFrame(unit)
     return function()
-        -- Direct setter (if init already ran) + pending flag (consumed at page build)
+        -- Direct setter (if init already ran) + pending flag (consumed at page build).
+        -- Unit Frames owns the final normalization, but Unlock Mode should still
+        -- route Focus Target into the shared ToT/FoT settings path explicitly.
         if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit(unit) end
         EllesmereUI._pendingUnitSelect = unit
     end
@@ -321,7 +323,7 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["focus"]        = { module = "EllesmereUIUnitFrames",       page = "Frame Display",                sectionName = "HEALTH BAR",       preSelectFn = SelectUnitFrame("focus"),        highlightText = "Bar Height" },
     ["pet"]          = { module = "EllesmereUIUnitFrames",       page = "Frame Display",                sectionName = "HEALTH BAR",       preSelectFn = SelectUnitFrame("pet"),          highlightText = "Bar Height" },
     ["targettarget"] = { module = "EllesmereUIUnitFrames",       page = "Frame Display",                sectionName = "HEALTH BAR",       preSelectFn = SelectUnitFrame("targettarget"), highlightText = "Bar Height" },
-    ["focustarget"]  = { module = "EllesmereUIUnitFrames",       page = "Frame Display",                sectionName = "HEALTH BAR",       preSelectFn = SelectUnitFrame("focustarget"),  highlightText = "Bar Height" },
+    ["focustarget"]  = { module = "EllesmereUIUnitFrames",       page = "Frame Display",                sectionName = "HEALTH BAR",       preSelectFn = SelectUnitFrame("targettarget"), highlightText = "Bar Height" },
     ["boss"]         = { module = "EllesmereUIUnitFrames",       page = "Frame Display",                sectionName = "HEALTH BAR",       preSelectFn = SelectUnitFrame("boss"),         highlightText = "Bar Height" },
     ["classPower"]   = { module = "EllesmereUIUnitFrames",       page = "Frame Display",                sectionName = "CLASS RESOURCE",   preSelectFn = SelectUnitFrame("player"),       highlightText = "Enable Class Resource" },
 
