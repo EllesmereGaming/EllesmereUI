@@ -94,6 +94,8 @@ local defaults = {
     textSlotRight = "healthPercent",
     textSlotLeft = "none",
     textSlotCenter = "none",
+    showLevel = true,
+    levelDifficultyColor = true,
     showTargetArrows = false,
     targetArrowScale = 1.0,
     showClassPower = false,
@@ -411,6 +413,22 @@ local function FormatCombinedHealth(element, pctText, numText)
     elseif element == "healthNumPct" then return numText .. " | " .. pctText
     end
     return ""
+end
+
+-- Build a colored level prefix string for a unit, or nil if disabled.
+local function GetLevelPrefix(unit)
+    local db = EllesmereUINameplatesDB or defaults
+    if not db.showLevel then return nil end
+    local level = UnitLevel(unit)
+    local levelStr = level == -1 and "??" or tostring(level)
+    local lr, lg, lb
+    if db.levelDifficultyColor and GetCreatureDifficultyColor then
+        local color = GetCreatureDifficultyColor(level)
+        lr, lg, lb = color.r, color.g, color.b
+    else
+        lr, lg, lb = 1, 0.82, 0
+    end
+    return string.format("|cff%02x%02x%02x%s|r", lr * 255, lg * 255, lb * 255, levelStr)
 end
 
 -- Estimate pixel width of health text for a given element type.
@@ -3199,6 +3217,10 @@ function NameplateFrame:UpdateName()
     end
     local name = UnitName(unit)
     if type(name) == "string" then
+        local levelPrefix = GetLevelPrefix(unit)
+        if levelPrefix then
+            name = levelPrefix .. "  " .. name
+        end
         self.name:SetText(name)
     end
 end
@@ -4494,6 +4516,7 @@ do
 
     -- Store preset keys so the login handler can use them (set once, never changes)
     ns._displayPresetKeys = {
+        "showLevel", "levelDifficultyColor",
         "borderStyle", "borderColor", "targetGlowStyle", "showTargetArrows",
         "showClassPower", "classPowerPos", "classPowerYOffset", "classPowerXOffset", "classPowerScale",
         "classPowerClassColors", "classPowerCustomColor", "classPowerGap",
