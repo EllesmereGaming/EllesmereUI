@@ -1,5 +1,11 @@
 local addon, ns = ...
 
+local ENP = EllesmereUI.Lite.NewAddon("EllesmereUINameplates")
+
+-- Profile alias: set in OnInitialize, nil before that.
+-- Getters fall back to defaults when p is nil (brief window before init).
+local p
+
 local pairs, ipairs, type = pairs, ipairs, type
 local PP = EllesmereUI.PP
 local UnitHealth, UnitHealthMax = UnitHealth, UnitHealthMax
@@ -21,7 +27,7 @@ local function GetFont()
     if EllesmereUI and EllesmereUI.GetFontPath then
         return EllesmereUI.GetFontPath("nameplates")
     end
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.font or defaults.font
+    return (p and p.font) or defaults.font
 end
 local function GetNPOutline()
     return (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag()) or "OUTLINE"
@@ -235,8 +241,7 @@ end
 local function ApplyHealthBarTexture(plate)
     local health = plate.health
     if not health then return end
-    local db = EllesmereUINameplatesDB
-    local texKey = (db and db.healthBarTexture) or defaults.healthBarTexture or "none"
+    local texKey = (p and p.healthBarTexture) or defaults.healthBarTexture or "none"
     local path   = EllesmereUI.ResolveTexturePath(ns.healthBarTextures, texKey, "Interface\\Buttons\\WHITE8x8")
     health:SetStatusBarTexture(path)
 end
@@ -244,43 +249,41 @@ ns.ApplyHealthBarTexture = ApplyHealthBarTexture
 
 local HOVER_ALPHA = 0.3
 local function GetNameplateYOffset()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.nameplateYOffset or defaults.nameplateYOffset
+    return (p and p.nameplateYOffset) or defaults.nameplateYOffset
 end
 ns.GetNameplateYOffset = GetNameplateYOffset
 local function GetStackSpacingScale()
-    return (EllesmereUINameplatesDB and EllesmereUINameplatesDB.stackSpacingScale) or defaults.stackSpacingScale
+    return (p and p.stackSpacingScale) or defaults.stackSpacingScale
 end
 ns.GetStackSpacingScale = GetStackSpacingScale
 local function GetCastScale()
-    return (EllesmereUINameplatesDB and EllesmereUINameplatesDB.castScale) or defaults.castScale
+    return (p and p.castScale) or defaults.castScale
 end
 ns.GetCastScale = GetCastScale
 local function GetHealthBarHeight()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.healthBarHeight or defaults.healthBarHeight
+    return (p and p.healthBarHeight) or defaults.healthBarHeight
 end
 ns.GetHealthBarHeight = GetHealthBarHeight
 local function GetFriendlyHealthBarHeight()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.friendlyHealthBarHeight or defaults.friendlyHealthBarHeight
+    return (p and p.friendlyHealthBarHeight) or defaults.friendlyHealthBarHeight
 end
 ns.GetFriendlyHealthBarHeight = GetFriendlyHealthBarHeight
 local function GetFriendlyHealthBarWidth()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.friendlyHealthBarWidth or defaults.friendlyHealthBarWidth
+    return (p and p.friendlyHealthBarWidth) or defaults.friendlyHealthBarWidth
 end
 ns.GetFriendlyHealthBarWidth = GetFriendlyHealthBarWidth
 local function GetEnemyNameTextSize()
     -- Returns the font size of the top text slot (used for stacking gap calculations)
-    local db = EllesmereUINameplatesDB
-    return (db and db.textSlotTopSize) or defaults.textSlotTopSize or 10
+    return (p and p.textSlotTopSize) or defaults.textSlotTopSize or 10
 end
 ns.GetEnemyNameTextSize = GetEnemyNameTextSize
 local function GetDebuffTextColor()
-    local db = EllesmereUINameplatesDB
-    local c = db and db.debuffTimerColor or defaults.debuffTimerColor
+    local c = (p and p.debuffTimerColor) or defaults.debuffTimerColor
     return c.r, c.g, c.b, 1
 end
 ns.GetDebuffTextColor = GetDebuffTextColor
 local function GetPandemicGlow()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.pandemicGlow or defaults.pandemicGlow
+    return (p and p.pandemicGlow) or defaults.pandemicGlow
 end
 
 -- Pandemic glow style definitions (replaces LibCustomGlow)
@@ -299,76 +302,71 @@ local PANDEMIC_GLOW_STYLES = {
 ns.PANDEMIC_GLOW_STYLES = PANDEMIC_GLOW_STYLES
 
 local function GetPandemicGlowStyle()
-    local db = EllesmereUINameplatesDB
-    local raw = db and db.pandemicGlowStyle
+    local raw = p and p.pandemicGlowStyle
     if raw == nil then return defaults.pandemicGlowStyle end
     if type(raw) == "number" then return raw end
     return 1
 end
 ns.GetPandemicGlowStyle = GetPandemicGlowStyle
 local function GetPandemicGlowColor()
-    local db = EllesmereUINameplatesDB
-    local c = (db and db.pandemicGlowColor) or defaults.pandemicGlowColor
+    local c = (p and p.pandemicGlowColor) or defaults.pandemicGlowColor
     return c.r, c.g, c.b
 end
 local function GetPandemicGlowLines()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.pandemicGlowLines or defaults.pandemicGlowLines
+    return (p and p.pandemicGlowLines) or defaults.pandemicGlowLines
 end
 ns.GetPandemicGlowLines = GetPandemicGlowLines
 local function GetPandemicGlowThickness()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.pandemicGlowThickness or defaults.pandemicGlowThickness
+    return (p and p.pandemicGlowThickness) or defaults.pandemicGlowThickness
 end
 ns.GetPandemicGlowThickness = GetPandemicGlowThickness
 local function GetPandemicGlowSpeed()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.pandemicGlowSpeed or defaults.pandemicGlowSpeed
+    return (p and p.pandemicGlowSpeed) or defaults.pandemicGlowSpeed
 end
 ns.GetPandemicGlowSpeed = GetPandemicGlowSpeed
 local function GetCastBarHeight()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.castBarHeight or defaults.castBarHeight
+    return (p and p.castBarHeight) or defaults.castBarHeight
 end
 ns.GetCastBarHeight = GetCastBarHeight
 local function GetFocusCastHeight()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.focusCastHeight or defaults.focusCastHeight
+    return (p and p.focusCastHeight) or defaults.focusCastHeight
 end
 ns.GetFocusCastHeight = GetFocusCastHeight
 local function GetShowCastIcon()
-    local db = EllesmereUINameplatesDB
-    if db and db.showCastIcon ~= nil then return db.showCastIcon end
+    if p and p.showCastIcon ~= nil then return p.showCastIcon end
     return defaults.showCastIcon
 end
 local function GetCastIconScale()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.castIconScale or defaults.castIconScale
+    return (p and p.castIconScale) or defaults.castIconScale
 end
 local function GetKickTickEnabled()
-    local db = EllesmereUINameplatesDB
-    if db and db.kickTickEnabled ~= nil then return db.kickTickEnabled end
+    if p and p.kickTickEnabled ~= nil then return p.kickTickEnabled end
     return true
 end
 local function GetKickTickColor()
-    local db = EllesmereUINameplatesDB
-    local c = (db and db.kickTickColor) or defaults.kickTickColor
+    local c = (p and p.kickTickColor) or defaults.kickTickColor
     return c.r, c.g, c.b
 end
 local function GetAuraSpacing()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.auraSpacing or defaults.auraSpacing
+    return (p and p.auraSpacing) or defaults.auraSpacing
 end
 ns.GetAuraSpacing = GetAuraSpacing
 local function GetDebuffYOffset()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.debuffYOffset or defaults.debuffYOffset
+    return (p and p.debuffYOffset) or defaults.debuffYOffset
 end
 ns.GetDebuffYOffset = GetDebuffYOffset
 local function GetSideAuraXOffset()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.sideAuraXOffset or defaults.sideAuraXOffset
+    return (p and p.sideAuraXOffset) or defaults.sideAuraXOffset
 end
 ns.GetSideAuraXOffset = GetSideAuraXOffset
 local function GetRaidMarkerPos()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.raidMarkerPos or defaults.raidMarkerPos
+    return (p and p.raidMarkerPos) or defaults.raidMarkerPos
 end
 ns.GetRaidMarkerPos = GetRaidMarkerPos
 local function GetRaidMarkerSize()
-    local pos = EllesmereUINameplatesDB and EllesmereUINameplatesDB.raidMarkerPos or defaults.raidMarkerPos
+    local pos = (p and p.raidMarkerPos) or defaults.raidMarkerPos
     if pos == "none" then return defaults.raidMarkerSize or 24 end
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB[pos .. "SlotSize"] or defaults[pos .. "SlotSize"] or 24
+    return (p and p[pos .. "SlotSize"]) or defaults[pos .. "SlotSize"] or 24
 end
 ns.GetRaidMarkerSize = GetRaidMarkerSize
 local function GetRaidMarkerYOffset()
@@ -376,25 +374,24 @@ local function GetRaidMarkerYOffset()
 end
 ns.GetRaidMarkerYOffset = GetRaidMarkerYOffset
 local function GetClassificationSlot()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.classificationSlot or defaults.classificationSlot
+    return (p and p.classificationSlot) or defaults.classificationSlot
 end
 ns.GetClassificationSlot = GetClassificationSlot
 local function GetRareEliteIconSize()
-    local pos = EllesmereUINameplatesDB and EllesmereUINameplatesDB.classificationSlot or defaults.classificationSlot
+    local pos = (p and p.classificationSlot) or defaults.classificationSlot
     if pos == "none" then return defaults.rareEliteIconSize or 20 end
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB[pos .. "SlotSize"] or defaults[pos .. "SlotSize"] or 20
+    return (p and p[pos .. "SlotSize"]) or defaults[pos .. "SlotSize"] or 20
 end
 ns.GetRareEliteIconSize = GetRareEliteIconSize
 local function GetNameYOffset()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.nameYOffset or defaults.nameYOffset
+    return (p and p.nameYOffset) or defaults.nameYOffset
 end
 ns.GetNameYOffset = GetNameYOffset
 local textSlotKeys = { "textSlotTop", "textSlotRight", "textSlotLeft", "textSlotCenter" }
 ns.textSlotKeys = textSlotKeys
 
 local function GetTextSlot(slotKey)
-    local db = EllesmereUINameplatesDB
-    return (db and db[slotKey]) or defaults[slotKey]
+    return (p and p[slotKey]) or defaults[slotKey]
 end
 ns.GetTextSlot = GetTextSlot
 
@@ -430,7 +427,7 @@ end
 ns.EstimateHealthTextWidth = EstimateHealthTextWidth
 
 local function GetHealthBarWidth()
-    local extra = EllesmereUINameplatesDB and EllesmereUINameplatesDB.healthBarWidth or defaults.healthBarWidth
+    local extra = (p and p.healthBarWidth) or defaults.healthBarWidth
     return BAR_W + extra
 end
 ns.GetHealthBarWidth = GetHealthBarWidth
@@ -439,7 +436,7 @@ ns.GetHealthBarWidth = GetHealthBarWidth
 -- SetNamePlateSize grows/shrinks the frame from its base anchor, so we shift
 -- content to keep the visual bar in the same screen position.
 local function GetHitboxYShift()
-    local db = EllesmereUINameplatesDB or defaults
+    local db = p or defaults
     local sy = (db.hitboxScaleY or 100) / 100
     if sy == 1 then return 0 end
     return -((GetHealthBarHeight() * sy) - GetHealthBarHeight()) / 2
@@ -447,41 +444,35 @@ end
 ns.GetHitboxYShift = GetHitboxYShift
 -- Slot-based size/offset getters
 local function GetSlotSize(posKey)
-    local db = EllesmereUINameplatesDB
-    return (db and db[posKey .. "SlotSize"]) or defaults[posKey .. "SlotSize"] or 24
+    return (p and p[posKey .. "SlotSize"]) or defaults[posKey .. "SlotSize"] or 24
 end
 ns.GetSlotSize = GetSlotSize
 local function GetSlotOffsets(posKey)
-    local db = EllesmereUINameplatesDB
-    local xOff = (db and db[posKey .. "SlotXOffset"]) or defaults[posKey .. "SlotXOffset"] or 0
-    local yOff = (db and db[posKey .. "SlotYOffset"]) or defaults[posKey .. "SlotYOffset"] or 0
+    local xOff = (p and p[posKey .. "SlotXOffset"]) or defaults[posKey .. "SlotXOffset"] or 0
+    local yOff = (p and p[posKey .. "SlotYOffset"]) or defaults[posKey .. "SlotYOffset"] or 0
     return xOff, yOff
 end
 ns.GetSlotOffsets = GetSlotOffsets
 local function GetDebuffIconSize()
-    local db = EllesmereUINameplatesDB
-    local slot = (db and db.debuffSlot) or defaults.debuffSlot
+    local slot = (p and p.debuffSlot) or defaults.debuffSlot
     if slot == "none" then return defaults.debuffIconSize or 26 end
     return GetSlotSize(slot)
 end
 ns.GetDebuffIconSize = GetDebuffIconSize
 local function GetBuffIconSize()
-    local db = EllesmereUINameplatesDB
-    local slot = (db and db.buffSlot) or defaults.buffSlot
+    local slot = (p and p.buffSlot) or defaults.buffSlot
     if slot == "none" then return defaults.buffIconSize or 24 end
     return GetSlotSize(slot)
 end
 ns.GetBuffIconSize = GetBuffIconSize
 local function GetCCIconSize()
-    local db = EllesmereUINameplatesDB
-    local slot = (db and db.ccSlot) or defaults.ccSlot
+    local slot = (p and p.ccSlot) or defaults.ccSlot
     if slot == "none" then return defaults.ccIconSize or 24 end
     return GetSlotSize(slot)
 end
 ns.GetCCIconSize = GetCCIconSize
 local function GetTargetGlowStyle()
-    local db = EllesmereUINameplatesDB
-    if db and db.targetGlowStyle then return db.targetGlowStyle end
+    if p and p.targetGlowStyle then return p.targetGlowStyle end
     return defaults.targetGlowStyle
 end
 ns.GetTargetGlowStyle = GetTargetGlowStyle
@@ -490,75 +481,63 @@ local function GetShowTargetGlow()
 end
 ns.GetShowTargetGlow = GetShowTargetGlow
 local function GetShowClassPower()
-    local db = EllesmereUINameplatesDB
-    if db and db.showClassPower ~= nil then return db.showClassPower end
+    if p and p.showClassPower ~= nil then return p.showClassPower end
     return defaults.showClassPower
 end
 ns.GetShowClassPower = GetShowClassPower
 local function GetClassPowerPos()
-    local db = EllesmereUINameplatesDB
-    return (db and db.classPowerPos) or defaults.classPowerPos
+    return (p and p.classPowerPos) or defaults.classPowerPos
 end
 ns.GetClassPowerPos = GetClassPowerPos
 local function GetClassPowerYOffset()
-    local db = EllesmereUINameplatesDB
-    return (db and db.classPowerYOffset) or defaults.classPowerYOffset
+    return (p and p.classPowerYOffset) or defaults.classPowerYOffset
 end
 ns.GetClassPowerYOffset = GetClassPowerYOffset
 local function GetClassPowerXOffset()
-    local db = EllesmereUINameplatesDB
-    return (db and db.classPowerXOffset) or defaults.classPowerXOffset
+    return (p and p.classPowerXOffset) or defaults.classPowerXOffset
 end
 ns.GetClassPowerXOffset = GetClassPowerXOffset
 local function GetClassPowerScale()
-    local db = EllesmereUINameplatesDB
-    return (db and db.classPowerScale) or defaults.classPowerScale
+    return (p and p.classPowerScale) or defaults.classPowerScale
 end
 ns.GetClassPowerScale = GetClassPowerScale
 local function GetClassPowerGap()
-    local db = EllesmereUINameplatesDB
-    return (db and db.classPowerGap) or defaults.classPowerGap
+    return (p and p.classPowerGap) or defaults.classPowerGap
 end
 ns.GetClassPowerGap = GetClassPowerGap
 local function GetClassPowerClassColors()
-    local db = EllesmereUINameplatesDB
-    if db and db.classPowerClassColors ~= nil then return db.classPowerClassColors end
+    if p and p.classPowerClassColors ~= nil then return p.classPowerClassColors end
     return defaults.classPowerClassColors
 end
 ns.GetClassPowerClassColors = GetClassPowerClassColors
 local function GetClassPowerCustomColor()
-    local db = EllesmereUINameplatesDB
-    local c = (db and db.classPowerCustomColor) or defaults.classPowerCustomColor
+    local c = (p and p.classPowerCustomColor) or defaults.classPowerCustomColor
     return c
 end
 ns.GetClassPowerCustomColor = GetClassPowerCustomColor
 local function GetClassPowerBgColor()
-    local db = EllesmereUINameplatesDB
-    local c = (db and db.classPowerBgColor) or defaults.classPowerBgColor
+    local c = (p and p.classPowerBgColor) or defaults.classPowerBgColor
     return c
 end
 ns.GetClassPowerBgColor = GetClassPowerBgColor
 local function GetClassPowerEmptyColor()
-    local db = EllesmereUINameplatesDB
-    local c = (db and db.classPowerEmptyColor) or defaults.classPowerEmptyColor
+    local c = (p and p.classPowerEmptyColor) or defaults.classPowerEmptyColor
     return c
 end
 ns.GetClassPowerEmptyColor = GetClassPowerEmptyColor
 local function GetBorderStyle()
-    return EllesmereUINameplatesDB and EllesmereUINameplatesDB.borderStyle or defaults.borderStyle
+    return (p and p.borderStyle) or defaults.borderStyle
 end
 ns.GetBorderStyle = GetBorderStyle
 local function GetBorderColor()
-    local db = EllesmereUINameplatesDB
-    local c = (db and db.borderColor) or defaults.borderColor
+    local c = (p and p.borderColor) or defaults.borderColor
     return c.r, c.g, c.b
 end
 ns.GetBorderColor = GetBorderColor
 local function GetAuraSlots()
-    local db = EllesmereUINameplatesDB
-    local ds = (db and db.debuffSlot) or defaults.debuffSlot
-    local bs = (db and db.buffSlot)   or defaults.buffSlot
-    local cs = (db and db.ccSlot)     or defaults.ccSlot
+    local ds = (p and p.debuffSlot) or defaults.debuffSlot
+    local bs = (p and p.buffSlot)   or defaults.buffSlot
+    local cs = (p and p.ccSlot)     or defaults.ccSlot
     return ds, bs, cs
 end
 ns.GetAuraSlots = GetAuraSlots
@@ -769,8 +748,7 @@ local function PositionAuraSlot(frames, count, slot, plate, sizeW, sizeH, gap, x
         elseif slot == "topleft" then
             local debuffY = GetDebuffYOffset()
             local cpPush = GetClassPowerTopPush(plate)
-            local db = EllesmereUINameplatesDB
-            local growth = (db and db.topleftSlotGrowth) or defaults.topleftSlotGrowth
+            local growth = (p and p.topleftSlotGrowth) or defaults.topleftSlotGrowth
             -- Icon 1 is always flush with the top-left corner of the health bar.
             -- Growth direction only affects where icons 2+ go from there.
             local baseX = -2 + xOff
@@ -790,8 +768,7 @@ local function PositionAuraSlot(frames, count, slot, plate, sizeW, sizeH, gap, x
         elseif slot == "topright" then
             local debuffY = GetDebuffYOffset()
             local cpPush = GetClassPowerTopPush(plate)
-            local db = EllesmereUINameplatesDB
-            local growth = (db and db.toprightSlotGrowth) or defaults.toprightSlotGrowth
+            local growth = (p and p.toprightSlotGrowth) or defaults.toprightSlotGrowth
             -- Icon 1 is always flush with the top-right corner of the health bar.
             -- Growth direction only affects where icons 2+ go from there.
             local baseX = 2 + xOff
@@ -829,31 +806,27 @@ local auraSlotToDBKey = {
 local function GetAuraSlotOffsets(slotKey)
     local dbKey = auraSlotToDBKey[slotKey]
     if not dbKey then return 0, 0 end
-    local db = EllesmereUINameplatesDB
-    local pos = (db and db[dbKey]) or defaults[dbKey]
+    local pos = (p and p[dbKey]) or defaults[dbKey]
     if not pos or pos == "none" then return 0, 0 end
     return GetSlotOffsets(pos)
 end
 
 -- Get XY offset for a text slot key (e.g. "textSlotTop")
 local function GetTextSlotOffsets(slotKey)
-    local db = EllesmereUINameplatesDB
-    local xOff = (db and db[slotKey .. "XOffset"]) or 0
-    local yOff = (db and db[slotKey .. "YOffset"]) or 0
+    local xOff = (p and p[slotKey .. "XOffset"]) or 0
+    local yOff = (p and p[slotKey .. "YOffset"]) or 0
     return xOff, yOff
 end
 
 -- Get font size for a text slot key (e.g. "textSlotTop")
 local function GetTextSlotSize(slotKey)
-    local db = EllesmereUINameplatesDB
-    return (db and db[slotKey .. "Size"]) or defaults[slotKey .. "Size"] or 10
+    return (p and p[slotKey .. "Size"]) or defaults[slotKey .. "Size"] or 10
 end
 ns.GetTextSlotSize = GetTextSlotSize
 
 -- Get color for a text slot key (e.g. "textSlotTop")
 local function GetTextSlotColor(slotKey)
-    local db = EllesmereUINameplatesDB
-    local c = (db and db[slotKey .. "Color"]) or defaults[slotKey .. "Color"]
+    local c = (p and p[slotKey .. "Color"]) or defaults[slotKey .. "Color"]
     if c then return c.r, c.g, c.b end
     return 1, 1, 1
 end
@@ -970,7 +943,7 @@ local function EnsureArrows(plate)
     plate.leftArrow:SetTexture("Interface\\AddOns\\EllesmereUINameplates\\Media\\arrow_left.png")
     plate.rightArrow = plate:CreateTexture(nil, "OVERLAY")
     plate.rightArrow:SetTexture("Interface\\AddOns\\EllesmereUINameplates\\Media\\arrow_right.png")
-    local sc = (EllesmereUINameplatesDB and EllesmereUINameplatesDB.targetArrowScale) or 1.0
+    local sc = (p and p.targetArrowScale) or 1.0
     local aw, ah = math.floor(11 * sc + 0.5), math.floor(16 * sc + 0.5)
     PP.Size(plate.leftArrow, aw, ah)
     PP.Point(plate.leftArrow, "RIGHT", plate.health, "LEFT", -8, 0)
@@ -982,8 +955,8 @@ end
 
 local function EnsureFocusOverlay(plate)
     if plate.focusClipFill then return end
-    local overlayAlpha = (EllesmereUINameplatesDB and EllesmereUINameplatesDB.focusOverlayAlpha) or defaults.focusOverlayAlpha
-    local overlayColor = (EllesmereUINameplatesDB and EllesmereUINameplatesDB.focusOverlayColor) or defaults.focusOverlayColor
+    local overlayAlpha = (p and p.focusOverlayAlpha) or defaults.focusOverlayAlpha
+    local overlayColor = (p and p.focusOverlayColor) or defaults.focusOverlayColor
     local STRIPE_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\striped-v2.png"
     local fillTex = plate.health:GetStatusBarTexture()
     plate.focusClipFill = CreateFrame("Frame", nil, plate.health)
@@ -1366,18 +1339,8 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     end)
 end)
 local function InitDB()
-    if not EllesmereUINameplatesDB then
-        EllesmereUINameplatesDB = {}
-    end
-    for k, v in pairs(defaults) do
-        if EllesmereUINameplatesDB[k] == nil then
-            if type(v) == "table" then
-                EllesmereUINameplatesDB[k] = { r = v.r, g = v.g, b = v.b }
-            else
-                EllesmereUINameplatesDB[k] = v
-            end
-        end
-    end
+    -- Legacy stub: NewDB + DeepMergeDefaults handles defaults now.
+    -- Kept as a no-op so any stray call sites don't error.
 end
 local kickSpellsByClass = {
     DEATHKNIGHT = {47528},
@@ -1461,7 +1424,7 @@ end
 
 function ns.RefreshStackingMotion()
     if not C_CVar or not C_CVar.SetCVarBitfield then return end
-    local db = EllesmereUINameplatesDB or defaults
+    local db = p or defaults
     local enabled = (db.stackingEnabled ~= false)
     -- Enemy stacking follows our toggle. Friendly stacking is always forced
     -- off so Blizzard's "Stack Nameplates: Friendly Units" setting has no effect.
@@ -1474,7 +1437,7 @@ end
 function ns.RefreshHitboxSize()
     if InCombatLockdown() then return end
     if not C_NamePlate or not C_NamePlate.SetNamePlateSize then return end
-    local db = EllesmereUINameplatesDB or defaults
+    local db = p or defaults
     local sx = (db.hitboxScaleX or 100) / 100
     local sy = (db.hitboxScaleY or 100) / 100
     local baseW = GetHealthBarWidth()
@@ -1585,7 +1548,7 @@ local function SetupAuraCVars()
         end
     end
     if SetCVar then
-        local db = EllesmereUINameplatesDB or defaults
+        local db = p or defaults
         local nameOnly = (db.friendlyNameOnly ~= false)
         local showPlayers = (db.showFriendlyPlayers ~= false)
         local showNPCs = (db.showFriendlyNPCs == true)
@@ -1603,7 +1566,7 @@ local function SetupAuraCVars()
         SetCVar("nameplateShowAll", 1)
         SetCVar("nameplateMinScale", 1)
         SetCVar("nameplateOverlapH", 1)
-        SetCVar("nameplateOverlapV", EllesmereUINameplatesDB and EllesmereUINameplatesDB.nameplateOverlapV or defaults.nameplateOverlapV)
+        SetCVar("nameplateOverlapV", (p and p.nameplateOverlapV) or defaults.nameplateOverlapV)
         SetCVar("nameplateMaxAlpha", 1)
         SetCVar("nameplateMaxAlphaDistance", 40)
         SetCVar("nameplateMinAlpha", 0.6)
@@ -1618,7 +1581,7 @@ local function SetupAuraCVars()
     ns.RefreshStackingMotion()
     local function ApplyNamePlateClickArea()
         if InCombatLockdown() then return end
-        local db = EllesmereUINameplatesDB or defaults
+        local db = p or defaults
         local sx = (db.hitboxScaleX or 100) / 100
         local sy = (db.hitboxScaleY or 100) / 100
         local baseH = GetHealthBarHeight()
@@ -2333,7 +2296,7 @@ questCacheWatcher:SetScript("OnEvent", function()
 end)
 
 local function GetReactionColor(unit)
-    local db = EllesmereUINameplatesDB or defaults
+    local db = p or defaults
     local function C(key)
         return db[key] or defaults[key]
     end
@@ -2754,7 +2717,6 @@ function NameplateFrame:SetUnit(unit, nameplate)
     -- Kick tick marker sizing
     self.kickMarker:SetSize(GetHealthBarWidth(), castH)
     -- Enemy name color (per-slot)
-    local db = EllesmereUINameplatesDB
     local nameSlotKey = FindSlotForElement("enemyName")
     if nameSlotKey then
         local nr, ng, nb = GetTextSlotColor(nameSlotKey)
@@ -2763,15 +2725,15 @@ function NameplateFrame:SetUnit(unit, nameplate)
     -- Name position (top = above bar, left/center/right = inside bar)
     self:RefreshNamePosition()
     -- Cast text sizes and colors
-    local cns = (db and db.castNameSize) or defaults.castNameSize
-    local cts = (db and db.castTargetSize) or defaults.castTargetSize
-    local cnc = (db and db.castNameColor) or defaults.castNameColor
+    local cns = (p and p.castNameSize) or defaults.castNameSize
+    local cts = (p and p.castTargetSize) or defaults.castTargetSize
+    local cnc = (p and p.castNameColor) or defaults.castNameColor
     SetFSFont(self.castName, cns, GetNPOutline())
     SetFSFont(self.castTarget, cts, GetNPOutline())
     self.castName:SetTextColor(cnc.r, cnc.g, cnc.b, 1)
     -- Cast target color: class-colored if enabled and target is a player, otherwise use castTargetColor
     local useClassColor = defaults.castTargetClassColor
-    if db and db.castTargetClassColor ~= nil then useClassColor = db.castTargetClassColor end
+    if p and p.castTargetClassColor ~= nil then useClassColor = p.castTargetClassColor end
     if useClassColor then
         local appliedCTC = false
         if self.unit then
@@ -3037,8 +2999,8 @@ function NameplateFrame:UpdateHealthValues()
     end
 
     -- Hash line positioning (target only)
-    local hlEnabled = (EllesmereUINameplatesDB and EllesmereUINameplatesDB.hashLineEnabled)
-    local hlPct = (EllesmereUINameplatesDB and EllesmereUINameplatesDB.hashLinePercent) or defaults.hashLinePercent
+    local hlEnabled = (p and p.hashLineEnabled)
+    local hlPct = (p and p.hashLinePercent) or defaults.hashLinePercent
     local isTarget = unit and UnitIsUnit(unit, "target")
     if hlEnabled and hlPct and hlPct > 0 and isTarget then
         local barW = self.health:GetWidth()
@@ -3046,7 +3008,7 @@ function NameplateFrame:UpdateHealthValues()
         self.hashLine:ClearAllPoints()
         self.hashLine:SetPoint("TOP", self.health, "TOPLEFT", xPos, 0)
         self.hashLine:SetPoint("BOTTOM", self.health, "BOTTOMLEFT", xPos, 0)
-        local hlc = (EllesmereUINameplatesDB and EllesmereUINameplatesDB.hashLineColor) or defaults.hashLineColor
+        local hlc = (p and p.hashLineColor) or defaults.hashLineColor
         self.hashLine:SetColorTexture(hlc.r, hlc.g, hlc.b, 0.8)
         self.hashLine:Show()
     else
@@ -3069,8 +3031,6 @@ function NameplateFrame:UpdateHealthValues()
         pctNoSignText = ""
         numText = ""
     end
-
-    local db = EllesmereUINameplatesDB
 
     -- Hide all health text first
     self.hpText:Hide()
@@ -3162,7 +3122,7 @@ function NameplateFrame:UpdateHealthColor()
     self.health:SetStatusBarColor(GetReactionColor(unit))
     -- Focus overlay: show stripe textures on focus target's health bar
     -- Fill clip frame at full alpha, bg clip frame at half alpha
-    local db2 = EllesmereUINameplatesDB or defaults
+    local db2 = p or defaults
     local focusTex = db2.focusOverlayTexture or defaults.focusOverlayTexture
     if focusTex ~= "none" and UnitIsUnit(unit, "focus") then
         EnsureFocusOverlay(self)
@@ -3381,10 +3341,10 @@ function NameplateFrame:ApplyTarget()
     else
         self:ApplyBorderColor()
     end
-    if EllesmereUINameplatesDB and EllesmereUINameplatesDB.showTargetArrows then
+    if p and p.showTargetArrows then
         if isTarget then
             EnsureArrows(self)
-            local sc = EllesmereUINameplatesDB.targetArrowScale or 1.0
+            local sc = p.targetArrowScale or 1.0
             local aw, ah = math.floor(11 * sc + 0.5), math.floor(16 * sc + 0.5)
             PP.Size(self.leftArrow,  aw, ah)
             PP.Size(self.rightArrow, aw, ah)
@@ -3496,9 +3456,8 @@ function NameplateFrame:UpdateAuras(updateInfo)
     -- Get slot assignments; skip processing for any slot set to "none"
     local debuffSlotVal, buffSlotVal, ccSlotVal = GetAuraSlots()
     local dIdx = 1
-    local db = EllesmereUINameplatesDB
     if debuffSlotVal ~= "none" then
-    local showAll = db and db.showAllDebuffs
+    local showAll = p and p.showAllDebuffs
     -- Build the important set from Blizzard's debuffList synchronously.
     -- The debuffList is already current when UNIT_AURA fires.
     local importantSet
@@ -3719,7 +3678,7 @@ function NameplateFrame:UpdateCast()
     self.castTarget:SetText(type(spellTarget) ~= "nil" and spellTarget or "")
 
     -- Apply class color to cast target text if enabled and target is a player
-    local db = EllesmereUINameplatesDB or defaults
+    local db = p or defaults
     local useClassColor = defaults.castTargetClassColor
     if db.castTargetClassColor ~= nil then useClassColor = db.castTargetClassColor end
     if useClassColor then
@@ -3750,7 +3709,7 @@ function NameplateFrame:UpdateCast()
         kickProtected = false
     end
     self._kickProtected = kickProtected
-    local cfg = EllesmereUINameplatesDB or defaults
+    local cfg = p or defaults
     local unintColor = cfg.castBarUninterruptible or defaults.castBarUninterruptible
     self.castBarOverlay:SetVertexColor(unintColor.r, unintColor.g, unintColor.b)
     self.castShieldFrame:Show()
@@ -3800,7 +3759,7 @@ function NameplateFrame:ApplyCastScale()
     end
 end
 function NameplateFrame:ApplyCastColor(uninterruptible)
-    local cfg = EllesmereUINameplatesDB or defaults
+    local cfg = p or defaults
     local kickReadyTint = cfg.interruptReady or defaults.interruptReady
     local normalCastTint = cfg.castBar or defaults.castBar
     local cr, cg, cb = ComputeCastBarTint(kickReadyTint, normalCastTint)
@@ -3960,7 +3919,7 @@ function NameplateFrame:ShowInterrupted(interrupterGUID)
     end
     if interrupterName then
         self.castTarget:SetText(interrupterName)
-        local cfg = EllesmereUINameplatesDB or defaults
+        local cfg = p or defaults
         local useClassColor = defaults.castTargetClassColor
         if cfg.castTargetClassColor ~= nil then useClassColor = cfg.castTargetClassColor end
         if useClassColor then
@@ -4239,7 +4198,7 @@ local function UpdateMouseover()
 end
 -- Refresh Y-offset on all visible friendly name-only plates
 function ns.RefreshFriendlyNameOnlyOffset()
-    local db = EllesmereUINameplatesDB or defaults
+    local db = p or defaults
     local nameOnly = (db.friendlyNameOnly ~= false)
     local yOff = nameOnly and (db.friendlyNameOnlyYOffset or 0) or 0
     for unit, nameplate in pairs(pendingUnits) do
@@ -4273,7 +4232,7 @@ manager:SetScript("OnEvent", function(self, event, unit)
             -- Ensure the Blizzard UF is visible for name-only friendly plates.
             -- Nameplate frames are recycled a UF previously used for an enemy
             -- may still have alpha 0 or children parented offscreen.
-            local db = EllesmereUINameplatesDB or defaults
+            local db = p or defaults
             if db.friendlyNameOnly ~= false then
                 local uf = nameplate.UnitFrame
                 if uf then
@@ -4405,8 +4364,7 @@ end)
 -------------------------------------------------------------------------------
 do
     local function ApplySpecPresetFromDB()
-        local db = EllesmereUINameplatesDB
-        if not db then return end
+        if not p then return end
 
         local specIndex = GetSpecialization and GetSpecialization() or 0
         local specID = specIndex and specIndex > 0
@@ -4420,7 +4378,7 @@ do
         local K_SNAP    = "_builtinSnapshot"
         local K_CUSTOM  = "_customPreset"
 
-        local specMap = db[K_ASSIGN]
+        local specMap = p[K_ASSIGN]
         if not specMap then return end
 
         -- Check if any spec assignment exists at all
@@ -4436,12 +4394,12 @@ do
             if specList[specID] then targetKey = presetKey; break end
         end
         -- Fall back to default preset if no direct match
-        if not targetKey and db[K_DEFAULT] then
-            targetKey = db[K_DEFAULT]
+        if not targetKey and p[K_DEFAULT] then
+            targetKey = p[K_DEFAULT]
         end
         if not targetKey then return end
 
-        local currentActive = db[K_ACTIVE] or "ellesmereui"
+        local currentActive = p[K_ACTIVE] or "ellesmereui"
         if currentActive == targetKey then return end  -- already correct
 
         -- Apply the snapshot for targetKey
@@ -4452,44 +4410,44 @@ do
             for _, key in ipairs(presetKeys) do
                 local def = ns.defaults[key]
                 if type(def) == "table" and def.r then
-                    db[key] = { r = def.r, g = def.g, b = def.b }
+                    p[key] = { r = def.r, g = def.g, b = def.b }
                 else
-                    db[key] = def
+                    p[key] = def
                 end
             end
-            db[K_SNAP] = nil
+            p[K_SNAP] = nil
         elseif targetKey == "custom" then
-            if db[K_CUSTOM] then
+            if p[K_CUSTOM] then
                 for _, key in ipairs(presetKeys) do
-                    local v = db[K_CUSTOM][key]
+                    local v = p[K_CUSTOM][key]
                     if v ~= nil then
                         if type(v) == "table" and v.r then
-                            db[key] = { r = v.r, g = v.g, b = v.b }
+                            p[key] = { r = v.r, g = v.g, b = v.b }
                         else
-                            db[key] = v
+                            p[key] = v
                         end
                     end
                 end
             end
         elseif targetKey:sub(1, 5) == "user:" then
             local name = targetKey:sub(6)
-            local snap = db[K_PRESETS] and db[K_PRESETS][name]
+            local snap = p[K_PRESETS] and p[K_PRESETS][name]
             if snap then
                 for _, key in ipairs(presetKeys) do
                     local v = snap[key]
                     if v ~= nil then
                         if type(v) == "table" and v.r then
-                            db[key] = { r = v.r, g = v.g, b = v.b }
+                            p[key] = { r = v.r, g = v.g, b = v.b }
                         else
-                            db[key] = v
+                            p[key] = v
                         end
                     end
                 end
             end
         end
 
-        db[K_ACTIVE] = targetKey
-        db[K_SNAP] = nil
+        p[K_ACTIVE] = targetKey
+        p[K_SNAP] = nil
     end
 
     -- Store preset keys so the login handler can use them (set once, never changes)
@@ -4544,9 +4502,11 @@ do
     _G._ENP_RefreshAllSettings = function() if ns.RefreshAllSettings then ns.RefreshAllSettings() end end
 end
 
-local npAddon = EllesmereUI.Lite.NewAddon("EllesmereUINameplatesInit")
+local npAddon = ENP
 function npAddon:OnInitialize()
-    InitDB()
+    ENP.db = EllesmereUI.Lite.NewDB("EllesmereUINameplatesDB", { profile = defaults })
+    p = ENP.db.profile
+    ns.db = ENP.db
     -- Append SharedMedia textures to runtime tables so SM texture keys resolve at runtime
     if EllesmereUI.AppendSharedMediaTextures then
         EllesmereUI.AppendSharedMediaTextures(

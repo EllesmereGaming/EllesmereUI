@@ -10,6 +10,11 @@ local GetHealthBarHeight = ns.GetHealthBarHeight
 local GetFriendlyHealthBarHeight = ns.GetFriendlyHealthBarHeight
 local GetFriendlyHealthBarWidth = ns.GetFriendlyHealthBarWidth
 
+-- Profile alias: reads from the centralized store via ns.db
+local function FP()
+    return ns.db and ns.db.profile
+end
+
 local pairs, ipairs = pairs, ipairs
 local UnitHealth, UnitHealthMax = UnitHealth, UnitHealthMax
 local UnitName, UnitIsUnit = UnitName, UnitIsUnit
@@ -31,16 +36,18 @@ local FRIENDLY_BAR_W = 150
 local FRIENDLY_PLATE_Y_OFFSET = -18
 
 local function IsFriendlyEnabled()
-    return EllesmereUINameplatesDB and (EllesmereUINameplatesDB.friendlyNameOnly == false)
+    local fp = FP()
+    return fp and (fp.friendlyNameOnly == false)
 end
 
 local function IsNameOnlyMode()
-    local db = EllesmereUINameplatesDB
-    return not db or (db.friendlyNameOnly ~= false)
+    local fp = FP()
+    return not fp or (fp.friendlyNameOnly ~= false)
 end
 
 local function IsFriendlyNPCEnabled()
-    return EllesmereUINameplatesDB and (EllesmereUINameplatesDB.showFriendlyNPCs == true)
+    local fp = FP()
+    return fp and (fp.showFriendlyNPCs == true)
 end
 
 -- Friendly NPC color: #00ff00
@@ -585,7 +592,7 @@ function FriendlyFrame:SetUnit(unit, nameplate)
     self:SetParent(nameplate)
     self:ClearAllPoints()
     -- Single center anchor to prevent pixel shimmer when nameplate bounces
-    local yOff = EllesmereUINameplatesDB and EllesmereUINameplatesDB.friendlyPlateYOffset or 0
+    local yOff = (FP() and FP().friendlyPlateYOffset) or 0
     self:SetPoint("CENTER", nameplate, "CENTER", 0, yOff)
     self:SetSize(1, 1)
     self:SetFrameLevel(nameplate:GetFrameLevel() + 1)
@@ -655,8 +662,8 @@ function FriendlyFrame:UpdateHealth()
     if UnitIsDeadOrGhost(unit) then
         self.hpText:SetText("0%")
     elseif UnitHealthPercent then
-        local db = EllesmereUINameplatesDB
-        if db and db.friendlyHideHealthText then
+        local fp = FP()
+        if fp and fp.friendlyHideHealthText then
             self.hpText:SetText("")
         else
             self.hpText:SetFormattedText("%d%%", UnitHealthPercent(unit, true, CurveConstants.ScaleTo100))
@@ -702,7 +709,7 @@ function FriendlyFrame:ApplyTarget()
     if not self.unit then return end
     local isTarget = UnitIsUnit(self.unit, "target")
     self.glow:SetShown(isTarget)
-    local showArrows = isTarget and EllesmereUINameplatesDB and EllesmereUINameplatesDB.showTargetArrows
+    local showArrows = isTarget and FP() and FP().showTargetArrows
     self.leftArrow:SetShown(showArrows or false)
     self.rightArrow:SetShown(showArrows or false)
 end
@@ -844,7 +851,7 @@ end)
 --  Live refresh of friendly plate Y offset
 -------------------------------------------------------------------------------
 function ns.RefreshFriendlyPlateYOffset()
-    local yOff = EllesmereUINameplatesDB and EllesmereUINameplatesDB.friendlyPlateYOffset or 0
+    local yOff = (FP() and FP().friendlyPlateYOffset) or 0
     for _, plate in pairs(friendlyPlates) do
         if plate.nameplate then
             plate:ClearAllPoints()
@@ -927,14 +934,14 @@ function ns.UpdateFriendlyNameplateSystem()
     end
 
     -- Name-only font override: apply when name-only AND friendly plates are shown
-    local showFriendly = EllesmereUINameplatesDB and EllesmereUINameplatesDB.showFriendlyPlayers ~= false
+    local _fp = FP()
+    local showFriendly = _fp and _fp.showFriendlyPlayers ~= false
     if nameOnly and showFriendly then
         ApplyFriendlyFontOverride()
         -- (nameplate sizing handled by Blizzard in name-only mode)
         -- Set class-color CVar for Blizzard's name-only rendering
         if SetCVar then
-            local db = EllesmereUINameplatesDB
-            local cc = (db and db.classColorFriendly ~= false) and 1 or 0
+            local cc = (_fp and _fp.classColorFriendly ~= false) and 1 or 0
             pcall(SetCVar, "nameplateUseClassColorForFriendlyPlayerUnitNames", cc)
         end
         -- Sweep NPC plates: suppress health bars and color names green

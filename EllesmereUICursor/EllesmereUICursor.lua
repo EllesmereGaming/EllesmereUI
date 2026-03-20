@@ -920,6 +920,9 @@ end
 -- Position apply helpers (called from unlock mode and from ApplyGCDCircle/ApplyCastCircle)
 _G._ECL_ApplyGCDPosition = function()
     if not gcdRoot then return end
+    -- Skip for unlock-anchored elements (anchor system is authority)
+    local anchored = EllesmereUI and EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored("ECL_GCD")
+    if anchored and gcdRoot:GetLeft() then return end
     local g = GCD_DB()
     local pos = g.pos
     if pos and pos.point then
@@ -934,6 +937,9 @@ end
 
 _G._ECL_ApplyCastPosition = function()
     if not castRoot then return end
+    -- Skip for unlock-anchored elements (anchor system is authority)
+    local anchored = EllesmereUI and EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored("ECL_Cast")
+    if anchored and castRoot:GetLeft() then return end
     local c = Cast_DB()
     local pos = c.pos
     if pos and pos.point then

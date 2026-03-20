@@ -2,7 +2,7 @@
 ## Title: |cff0cd29fEllesmereUI|r
 ## Notes: Shared framework for the EllesmereUI addon suite
 ## Author: Ellesmere
-## Version: 5.1.8
+## Version: 5.2.4
 ## SavedVariables: EllesmereUIDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 ## X-Curse-Project-ID: 1477613
@@ -17,7 +17,10 @@ Libs\LibDeflate\LibDeflate.lua
 # Lightweight addon framework (replaces Ace3)
 EllesmereUI_Lite.lua
 
-# Early startup — applies engine-cached settings before PLAYER_LOGIN
+# One-time data migration (runs before child addons init)
+EllesmereUI_Migration.lua
+
+# Early startup -- applies engine-cached settings before PLAYER_LOGIN
 EllesmereUI_Startup.lua
 
 # Shared EllesmereUI Files

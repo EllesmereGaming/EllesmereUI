@@ -153,6 +153,19 @@ local function StripDefaults(db, defaults)
     end
 end
 
+local function DeepCopy(src)
+    if type(src) ~= "table" then return src end
+    local copy = {}
+    for k, v in pairs(src) do
+        if type(v) == "table" then
+            copy[k] = DeepCopy(v)
+        else
+            copy[k] = v
+        end
+    end
+    return copy
+end
+
 local dbRegistry = {}  -- all db objects, for logout cleanup
 
 -- Expose so the profile system can update db.profile in-place after injection
@@ -187,6 +200,61 @@ function EUILite.NewDB(svName, defaults, defaultToCharKey)
     end
     local profile = profileData.addons[folder]
 
+    -- One-time flat-SV migration: if the centralized slot is empty and the
+    -- global SV contains data from a previous version, copy it into the slot.
+    -- Handles two legacy formats:
+    --   1) Flat data (e.g. Nameplates wrote directly to _G[svName])
+    --   2) Old Lite/AceDB format with profiles/profileKeys sub-tables
+    if not next(profile) then
+        local globalSV = _G[svName]
+        if globalSV and type(globalSV) == "table" then
+            if not globalSV.profiles and not globalSV.profileKeys then
+                -- Format 1: flat data, copy everything
+                for k, v in pairs(globalSV) do
+                    if type(v) == "table" then
+                        profile[k] = DeepCopy(v)
+                    else
+                        profile[k] = v
+                    end
+                end
+            elseif globalSV.profiles and type(globalSV.profiles) == "table" then
+                -- Format 2: old profile-based SV. Extract the matching
+                -- profile (or "Default") so settings carry over.
+                local oldProfile = globalSV.profiles[profileName]
+                if not oldProfile and globalSV.profileKeys then
+                    -- Try the character-keyed profile name
+                    local charName = UnitName("player")
+                    local realm = GetRealmName()
+                    if charName and realm then
+                        local charKey = charName .. " - " .. realm
+                        local mappedName = globalSV.profileKeys[charKey]
+                        if mappedName then
+                            oldProfile = globalSV.profiles[mappedName]
+                        end
+                    end
+                end
+                if not oldProfile then
+                    -- Fall back to "Default" or first available profile
+                    oldProfile = globalSV.profiles["Default"]
+                    if not oldProfile then
+                        for _, v in pairs(globalSV.profiles) do
+                            if type(v) == "table" then oldProfile = v; break end
+                        end
+                    end
+                end
+                if oldProfile and type(oldProfile) == "table" then
+                    for k, v in pairs(oldProfile) do
+                        if type(v) == "table" then
+                            profile[k] = DeepCopy(v)
+                        else
+                            profile[k] = v
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     -- Merge defaults into profile (fills missing keys only)
     local profileDefaults = defaults and defaults.profile
     if profileDefaults then
@@ -203,6 +271,13 @@ function EUILite.NewDB(svName, defaults, defaultToCharKey)
         if corrupt then
             wipe(profile)
             DeepMergeDefaults(profile, profileDefaults)
+            -- One-time warning per session
+            if not EUILite._corruptionWarned then
+                EUILite._corruptionWarned = true
+                C_Timer.After(5, function()
+                    print("|cffff6600EllesmereUI:|r Profile data for " .. folder .. " was corrupted and has been repaired. Your settings may have been reset to defaults.")
+                end)
+            end
         end
     end
 
@@ -252,10 +327,19 @@ logoutFrame:SetScript("OnEvent", function()
         safecall(fn)
     end
 
-    -- Strip defaults from all db.profile tables (which live in EllesmereUIDB)
-    for _, db in pairs(dbRegistry) do
-        if db._profileDefaults and db.profile then
-            StripDefaults(db.profile, db._profileDefaults)
+    -- Strip defaults from a COPY of each profile table, then write the
+    -- stripped copy back into the central store. This keeps the live
+    -- db.profile references untouched (important if any pre-logout
+    -- callback still reads from them after this point).
+    local activeProfile = EllesmereUIDB and EllesmereUIDB.activeProfile or "Default"
+    local profileData = EllesmereUIDB and EllesmereUIDB.profiles and EllesmereUIDB.profiles[activeProfile]
+    if profileData and profileData.addons then
+        for _, db in pairs(dbRegistry) do
+            if db._profileDefaults and db.profile then
+                local stripped = DeepCopy(db.profile)
+                StripDefaults(stripped, db._profileDefaults)
+                profileData.addons[db.folder] = stripped
+            end
         end
     end
 end)

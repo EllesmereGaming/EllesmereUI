@@ -113,6 +113,7 @@ initFrame:SetScript("OnEvent", function(self)
     local errorPopup
 
     local function ShowErrorPopup(id, err)
+        EllesmereUI:EnsureLoaded()
         if not errorPopup then
             local POPUP_W, POPUP_H = 520, 340
             local FONT = EllesmereUI.EXPRESSWAY
@@ -3213,8 +3214,15 @@ initFrame:SetScript("OnEvent", function(self)
                             -- Grab the imported CDM data for the spec picker
                             local importedCDMSnap
                             if C_AddOns.IsAddOnLoaded("EllesmereUICooldownManager") then
-                                if payload and payload.data and payload.data.addons then
-                                    importedCDMSnap = payload.data.addons["EllesmereUICooldownManager"]
+                                -- New format: spellAssignments on the payload data
+                                if payload and payload.data and payload.data.spellAssignments then
+                                    importedCDMSnap = payload.data.spellAssignments
+                                -- Backward compat: legacy CDM addon data with specProfiles
+                                elseif payload and payload.data and payload.data.addons then
+                                    local cdm = payload.data.addons["EllesmereUICooldownManager"]
+                                    if cdm and cdm.specProfiles then
+                                        importedCDMSnap = { specProfiles = cdm.specProfiles, barGlows = cdm.barGlows }
+                                    end
                                 end
                             end
 
@@ -3342,8 +3350,15 @@ initFrame:SetScript("OnEvent", function(self)
 
                         local importedCDMSnap
                         if C_AddOns.IsAddOnLoaded("EllesmereUICooldownManager") then
-                            if payload and payload.data and payload.data.addons then
-                                importedCDMSnap = payload.data.addons["EllesmereUICooldownManager"]
+                            -- New format: spellAssignments on the payload data
+                            if payload and payload.data and payload.data.spellAssignments then
+                                importedCDMSnap = payload.data.spellAssignments
+                            -- Backward compat: legacy CDM addon data with specProfiles
+                            elseif payload and payload.data and payload.data.addons then
+                                local cdm = payload.data.addons["EllesmereUICooldownManager"]
+                                if cdm and cdm.specProfiles then
+                                    importedCDMSnap = { specProfiles = cdm.specProfiles, barGlows = cdm.barGlows }
+                                end
                             end
                         end
 
@@ -4063,9 +4078,7 @@ initFrame:SetScript("OnEvent", function(self)
                     onConfirm   = function(name)
                         if not name or name == "" then return end
                         EllesmereUI.SaveCurrentAsProfile(name)
-                        EllesmereUI.RefreshAllAddons()
-                        ddLabel:SetText(name)
-                        EllesmereUI:RefreshPage()
+                        ReloadUI()
                     end,
                 })
             end)
@@ -4148,7 +4161,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -------------------------------------------------------------------
-        --  PER-ADDON EXPORT section
+        --[[ PER-ADDON EXPORT DISABLED
         -------------------------------------------------------------------
         local perAddonHeader
         perAddonHeader, h = W:SectionHeader(parent, "PER-ADDON EXPORT", y);  y = y - h
@@ -4318,6 +4331,7 @@ initFrame:SetScript("OnEvent", function(self)
             exportAddonBtn._flashError = BuildErrorFlash(exportAddonBtn, eaBrd)
             y = y - ROW_H_E
         end
+        --]] -- END PER-ADDON EXPORT DISABLED
 
         return math.abs(y)
     end

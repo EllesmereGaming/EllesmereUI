@@ -67,17 +67,23 @@ function ns.GetAllCDMBuffSpells()
     return tracked, untracked
 end
 
---- Get barGlows profile data (with lazy init)
+--- Get barGlows data from the dedicated spell assignment store (with lazy init)
 function ns.GetBarGlows()
-    if not ECME or not ECME.db then return { enabled = true, selectedBar = 1, assignments = {} } end
-    local p = ECME.db.profile
-    if not p.barGlows then
-        p.barGlows = {
-            enabled = true, selectedBar = 1, selectedButton = nil,
-            selectedAssignment = 1, assignments = {},
+    if not EllesmereUIDB then return { enabled = true, selectedBar = 1, assignments = {} } end
+    if not EllesmereUIDB.spellAssignments then
+        EllesmereUIDB.spellAssignments = { specProfiles = {}, barGlows = {} }
+    end
+    local sa = EllesmereUIDB.spellAssignments
+    if not sa.barGlows or not next(sa.barGlows) then
+        sa.barGlows = {
+            enabled = true,
+            selectedBar = 1,
+            selectedButton = nil,
+            selectedAssignment = 1,
+            assignments = {},
         }
     end
-    return p.barGlows
+    return sa.barGlows
 end
 
 --- Get assignments for a specific action bar button
@@ -89,9 +95,8 @@ end
 
 --- Returns true if the user has at least one bar glow assignment configured
 function ns.HasBarGlowAssignments()
-    if not ECME or not ECME.db then return false end
-    local p = ECME.db.profile
-    local bg = p and p.barGlows
+    if not EllesmereUIDB or not EllesmereUIDB.spellAssignments then return false end
+    local bg = EllesmereUIDB.spellAssignments.barGlows
     if not bg or not bg.assignments then return false end
     for _, buffList in pairs(bg.assignments) do
         if buffList and #buffList > 0 then return true end
@@ -279,8 +284,7 @@ end
 
 local function SetupOverlays()
     if not ECME or not ECME.db then return end
-    local p = ECME.db.profile
-    local bg = p.barGlows
+    local bg = ns.GetBarGlows()
     if not bg or not bg.enabled then
         hasActiveOverlays = false
         hasHiddenSlots = false

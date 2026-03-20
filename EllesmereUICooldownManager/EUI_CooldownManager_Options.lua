@@ -3199,16 +3199,17 @@ initFrame:SetScript("OnEvent", function(self)
         -- Build item list: tracked first (minus current), divider, rest, disabled at bottom
         local tracked = {}
         local bd = SelectedCDMBar()
-        if bd and bd.customSpells then
+        local sd = bd and ns.GetBarSpellData(bd.key)
+        if sd and sd.customSpells then
             -- Custom bar: build tracked set by spellID
-            for _, sid in ipairs(bd.customSpells) do tracked[sid] = true end
-        elseif bd and bd.trackedSpells then
-            for _, sid in ipairs(bd.trackedSpells) do tracked[sid] = true end
-            if bd.extraSpells then
-                for _, eid in ipairs(bd.extraSpells) do tracked[eid] = true end
+            for _, sid in ipairs(sd.customSpells) do tracked[sid] = true end
+        elseif sd and sd.trackedSpells then
+            for _, sid in ipairs(sd.trackedSpells) do tracked[sid] = true end
+            if sd.extraSpells then
+                for _, eid in ipairs(sd.extraSpells) do tracked[eid] = true end
             end
         end
-        local isCustomBar = bd and bd.customSpells ~= nil
+        local isCustomBar = sd and sd.customSpells ~= nil
 
         -- Determine primary/secondary category order based on bar type.
         -- Cooldown-type bars: Essential (0) first, Utility (1) second.
@@ -3485,24 +3486,25 @@ initFrame:SetScript("OnEvent", function(self)
                         return
                     end
                     -- Check if already tracked
-                    if bd and bd.customSpells then
-                        for _, existing in ipairs(bd.customSpells) do
+                    local sdChk = bd and ns.GetBarSpellData(bd.key)
+                    if sdChk and sdChk.customSpells then
+                        for _, existing in ipairs(sdChk.customSpells) do
                             if existing == sid then
                                 SetStatus("Already tracked")
                                 return
                             end
                         end
                     end
-                    if bd and bd.trackedSpells then
-                        for _, existing in ipairs(bd.trackedSpells) do
+                    if sdChk and sdChk.trackedSpells then
+                        for _, existing in ipairs(sdChk.trackedSpells) do
                             if existing == sid then
                                 SetStatus("Already tracked")
                                 return
                             end
                         end
                     end
-                    if bd and bd.extraSpells then
-                        for _, existing in ipairs(bd.extraSpells) do
+                    if sdChk and sdChk.extraSpells then
+                        for _, existing in ipairs(sdChk.extraSpells) do
                             if existing == sid then
                                 SetStatus("Already tracked")
                                 return
@@ -3686,8 +3688,9 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Filter out items already tracked on this bar
                 local items = _cachedBagItems or {}
                 local alreadyTracked = {}
-                if bd and bd.customSpells then
-                    for _, sid in ipairs(bd.customSpells) do
+                local sdCT = bd and ns.GetBarSpellData(bd.key)
+                if sdCT and sdCT.customSpells then
+                    for _, sid in ipairs(sdCT.customSpells) do
                         if sid <= -100 then alreadyTracked[-sid] = true end
                     end
                 end
@@ -4050,8 +4053,9 @@ initFrame:SetScript("OnEvent", function(self)
                         return
                     end
                     -- Check if already tracked
-                    if bd and bd.customSpells then
-                        for _, existing in ipairs(bd.customSpells) do
+                    local sdBuf = bd and ns.GetBarSpellData(bd.key)
+                    if sdBuf and sdBuf.customSpells then
+                        for _, existing in ipairs(sdBuf.customSpells) do
                             if existing == sid then
                                 SetStatus("Already tracked")
                                 return
@@ -4070,8 +4074,9 @@ initFrame:SetScript("OnEvent", function(self)
                             SetStatus("Enter a duration in seconds")
                             return
                         end
-                        if not bd.customSpellDurations then bd.customSpellDurations = {} end
-                        bd.customSpellDurations[sid] = math.floor(dur)
+                        if not sdBuf then return end
+                        if not sdBuf.customSpellDurations then sdBuf.customSpellDurations = {} end
+                        sdBuf.customSpellDurations[sid] = math.floor(dur)
                     end
                     popup._dimmer:Hide()
                     if onSelect then onSelect(sid, true) end
@@ -4128,11 +4133,12 @@ initFrame:SetScript("OnEvent", function(self)
             local function ShowPresetsSub()
                 -- Build the already-tracked primary IDs so we can grey out duplicates
                 local alreadyTracked = {}
-                if bd and bd.customSpells then
-                    for _, sid in ipairs(bd.customSpells) do alreadyTracked[sid] = true end
+                local sdPS = bd and ns.GetBarSpellData(bd.key)
+                if sdPS and sdPS.customSpells then
+                    for _, sid in ipairs(sdPS.customSpells) do alreadyTracked[sid] = true end
                 end
-                if bd and bd.extraSpells then
-                    for _, sid in ipairs(bd.extraSpells) do alreadyTracked[sid] = true end
+                if sdPS and sdPS.extraSpells then
+                    for _, sid in ipairs(sdPS.extraSpells) do alreadyTracked[sid] = true end
                 end
 
                 if not _presetsSub then
@@ -4964,12 +4970,13 @@ initFrame:SetScript("OnEvent", function(self)
                     local bd = SelectedCDMBar()
                     if not bd then return end
                     local si = self._slotIdx
-                    if bd.customSpells then
-                        local t = bd.customSpells
+                    local sdMid = ns.GetBarSpellData(bd.key)
+                    if sdMid and sdMid.customSpells then
+                        local t = sdMid.customSpells
                         if not t[si] or t[si] == 0 then return end
                     else
-                        local tLen = bd.trackedSpells and #bd.trackedSpells or 0
-                        local eLen = bd.extraSpells and #bd.extraSpells or 0
+                        local tLen = sdMid and sdMid.trackedSpells and #sdMid.trackedSpells or 0
+                        local eLen = sdMid and sdMid.extraSpells and #sdMid.extraSpells or 0
                         if si < 1 or si > tLen + eLen then return end
                     end
                     ns.RemoveTrackedSpell(bd.key, si)
@@ -4980,34 +4987,35 @@ initFrame:SetScript("OnEvent", function(self)
                     local bd = SelectedCDMBar()
                     if not bd then return end
                     local si = self._slotIdx
+                    local sdClick = ns.GetBarSpellData(bd.key)
 
                     -- Determine if this slot is occupied or empty
                     local isOccupied = false
-                    if bd.customSpells then
-                        local t = bd.customSpells
+                    if sdClick and sdClick.customSpells then
+                        local t = sdClick.customSpells
                         isOccupied = t and t[si] and t[si] ~= 0
                     else
-                        local tLen = bd.trackedSpells and #bd.trackedSpells or 0
-                        local eLen = bd.extraSpells and #bd.extraSpells or 0
+                        local tLen = sdClick and sdClick.trackedSpells and #sdClick.trackedSpells or 0
+                        local eLen = sdClick and sdClick.extraSpells and #sdClick.extraSpells or 0
                         isOccupied = si >= 1 and si <= tLen + eLen
                     end
 
                     if isOccupied then
                         -- Occupied slot: open picker to replace, exclude only this spell
                         local excl = {}
-                        if bd.customSpells then
-                            local t = bd.customSpells
+                        if sdClick and sdClick.customSpells then
+                            local t = sdClick.customSpells
                             excl[t[si]] = true
-                        else
-                            local tLen = bd.trackedSpells and #bd.trackedSpells or 0
+                        elseif sdClick then
+                            local tLen = sdClick.trackedSpells and #sdClick.trackedSpells or 0
                             if si <= tLen then
-                                if bd.trackedSpells[si] and bd.trackedSpells[si] ~= 0 then
-                                    excl[bd.trackedSpells[si]] = true
+                                if sdClick.trackedSpells[si] and sdClick.trackedSpells[si] ~= 0 then
+                                    excl[sdClick.trackedSpells[si]] = true
                                 end
                             else
                                 local eIdx = si - tLen
-                                if bd.extraSpells and bd.extraSpells[eIdx] then
-                                    excl[bd.extraSpells[eIdx]] = true
+                                if sdClick.extraSpells and sdClick.extraSpells[eIdx] then
+                                    excl[sdClick.extraSpells[eIdx]] = true
                                 end
                             end
                         end
@@ -5022,14 +5030,14 @@ initFrame:SetScript("OnEvent", function(self)
                     else
                         -- Empty slot: open picker to add, exclude all currently tracked spells
                         local excl = {}
-                        if bd.customSpells then
-                            for _, sid in ipairs(bd.customSpells) do excl[sid] = true end
-                        else
-                            if bd.trackedSpells then
-                                for _, sid in ipairs(bd.trackedSpells) do excl[sid] = true end
+                        if sdClick and sdClick.customSpells then
+                            for _, sid in ipairs(sdClick.customSpells) do excl[sid] = true end
+                        elseif sdClick then
+                            if sdClick.trackedSpells then
+                                for _, sid in ipairs(sdClick.trackedSpells) do excl[sid] = true end
                             end
-                            if bd.extraSpells then
-                                for _, eid in ipairs(bd.extraSpells) do excl[eid] = true end
+                            if sdClick.extraSpells then
+                                for _, eid in ipairs(sdClick.extraSpells) do excl[eid] = true end
                             end
                         end
                         ShowSpellPicker(self, bd.key, nil, excl, function(newSpellID, isExtra)
@@ -5191,13 +5199,14 @@ initFrame:SetScript("OnEvent", function(self)
             local function BeginDrag(self)
                 local bd = SelectedCDMBar()
                 if not bd then return end
+                local sdDrag = ns.GetBarSpellData(bd.key)
                 local t
-                if bd.customSpells then
-                    t = bd.customSpells
+                if sdDrag and sdDrag.customSpells then
+                    t = sdDrag.customSpells
                 else
                     t = {}
-                    if bd.trackedSpells then for _, v in ipairs(bd.trackedSpells) do t[#t + 1] = v end end
-                    if bd.extraSpells then for _, v in ipairs(bd.extraSpells) do t[#t + 1] = v end end
+                    if sdDrag and sdDrag.trackedSpells then for _, v in ipairs(sdDrag.trackedSpells) do t[#t + 1] = v end end
+                    if sdDrag and sdDrag.extraSpells then for _, v in ipairs(sdDrag.extraSpells) do t[#t + 1] = v end end
                 end
                 local si = self._slotIdx
                 if not t[si] or t[si] == 0 then return end
@@ -5249,10 +5258,11 @@ initFrame:SetScript("OnEvent", function(self)
                     local tBd = SelectedCDMBar()
                     local tCount = 0
                     if tBd then
-                        if tBd.customSpells then
-                            tCount = #tBd.customSpells
-                        else
-                            tCount = (tBd.trackedSpells and #tBd.trackedSpells or 0) + (tBd.extraSpells and #tBd.extraSpells or 0)
+                        local sdT = ns.GetBarSpellData(tBd.key)
+                        if sdT and sdT.customSpells then
+                            tCount = #sdT.customSpells
+                        elseif sdT then
+                            tCount = (sdT.trackedSpells and #sdT.trackedSpells or 0) + (sdT.extraSpells and #sdT.extraSpells or 0)
                         end
                     end
                     local visCount = pf._gridSlots or tCount
@@ -5349,16 +5359,17 @@ initFrame:SetScript("OnEvent", function(self)
         addBtn:SetScript("OnClick", function(self)
             local bd = SelectedCDMBar()
             if not bd then return end
+            local sdAdd = ns.GetBarSpellData(bd.key)
             local excl = {}
-            if bd.customSpells then
+            if sdAdd and sdAdd.customSpells then
                 -- Custom bar: exclude by spellID (customSpells stores spellIDs)
-                for _, sid in ipairs(bd.customSpells) do excl[sid] = true end
-            else
-                if bd.trackedSpells then
-                    for _, sid in ipairs(bd.trackedSpells) do excl[sid] = true end
+                for _, sid in ipairs(sdAdd.customSpells) do excl[sid] = true end
+            elseif sdAdd then
+                if sdAdd.trackedSpells then
+                    for _, sid in ipairs(sdAdd.trackedSpells) do excl[sid] = true end
                 end
-                if bd.extraSpells then
-                    for _, eid in ipairs(bd.extraSpells) do excl[eid] = true end
+                if sdAdd.extraSpells then
+                    for _, eid in ipairs(sdAdd.extraSpells) do excl[eid] = true end
                 end
             end
             ShowSpellPicker(self, bd.key, nil, excl, function(newSpellID, isExtra)
@@ -5391,18 +5402,19 @@ initFrame:SetScript("OnEvent", function(self)
             local numRows  = bd.numRows or 1
             if numRows < 1 then numRows = 1 end
 
+            local sdUpd = ns.GetBarSpellData(bd.key)
             local tracked
-            local isCustomBar = (bd.customSpells ~= nil)
+            local isCustomBar = (sdUpd and sdUpd.customSpells ~= nil)
             if isCustomBar then
-                tracked = bd.customSpells
+                tracked = sdUpd.customSpells
             else
                 -- Default bar: combine trackedSpells + extraSpells into one display list
                 tracked = {}
-                if bd.trackedSpells then
-                    for _, v in ipairs(bd.trackedSpells) do tracked[#tracked + 1] = v end
+                if sdUpd and sdUpd.trackedSpells then
+                    for _, v in ipairs(sdUpd.trackedSpells) do tracked[#tracked + 1] = v end
                 end
-                if bd.extraSpells then
-                    for _, v in ipairs(bd.extraSpells) do tracked[#tracked + 1] = v end
+                if sdUpd and sdUpd.extraSpells then
+                    for _, v in ipairs(sdUpd.extraSpells) do tracked[#tracked + 1] = v end
                 end
             end
             local count = #tracked
@@ -5535,7 +5547,7 @@ initFrame:SetScript("OnEvent", function(self)
                             end
                         else
                             -- Default bar: check if this is an extra spell
-                            local trackedLen = bd.trackedSpells and #bd.trackedSpells or 0
+                            local trackedLen = sdUpd and sdUpd.trackedSpells and #sdUpd.trackedSpells or 0
                             if i > trackedLen then
                                 -- Extra spell (trinket/racial/potion/bag item)
                                 if id <= -100 then
@@ -6321,12 +6333,13 @@ initFrame:SetScript("OnEvent", function(self)
                       if bd.topRowCount and bd.topRowCount > 0 then return bd.topRowCount end
                       -- Auto: count visible spells and compute default
                       local count = 0
-                      if bd.customSpells then
-                          for _, sid in ipairs(bd.customSpells) do if sid and sid ~= 0 then count = count + 1 end end
-                      elseif bd.trackedSpells then
-                          for _, sid in ipairs(bd.trackedSpells) do if sid and sid ~= 0 then count = count + 1 end end
-                          if bd.extraSpells then
-                              for _, sid in ipairs(bd.extraSpells) do if sid and sid ~= 0 then count = count + 1 end end
+                      local sdTR = ns.GetBarSpellData(bd.key)
+                      if sdTR and sdTR.customSpells then
+                          for _, sid in ipairs(sdTR.customSpells) do if sid and sid ~= 0 then count = count + 1 end end
+                      elseif sdTR and sdTR.trackedSpells then
+                          for _, sid in ipairs(sdTR.trackedSpells) do if sid and sid ~= 0 then count = count + 1 end end
+                          if sdTR.extraSpells then
+                              for _, sid in ipairs(sdTR.extraSpells) do if sid and sid ~= 0 then count = count + 1 end end
                           end
                       end
                       if count == 0 then return 1 end

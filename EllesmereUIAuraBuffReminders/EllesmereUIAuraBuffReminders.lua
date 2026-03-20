@@ -7,6 +7,7 @@
 local ADDON_NAME = ...
 
 -- AceDB replaced by EllesmereUI.Lite.NewDB
+local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 
 local Known = function(id) return id and (IsPlayerSpell(id) or IsSpellKnown(id)) end
 local InCombat = function() return InCombatLockdown and InCombatLockdown() end
@@ -1105,7 +1106,7 @@ local defaults = {
     },
 }
 
-local db  -- set at PLAYER_LOGIN
+local db  -- set in EABR:OnInitialize()
 local euiPanelOpen = false
 
 -------------------------------------------------------------------------------
@@ -1131,7 +1132,7 @@ local talentActiveIcons = {}
 --  Parented to a separate combatAnchor (not iconAnchor) so Show/Hide is
 --  never blocked by combat lockdown.
 -------------------------------------------------------------------------------
-local combatAnchor      -- created at PLAYER_LOGIN, follows iconAnchor position
+local combatAnchor      -- created in OnEnable, follows iconAnchor position
 local combatIconPool = {}
 local combatActiveIcons = {}
 
@@ -1180,7 +1181,7 @@ local function HideCombatIcons()
         if f then f._text:SetText(""); f:Hide() end
     end
     wipe(combatActiveIcons)
-    if combatAnchor then combatAnchor:Hide() end
+    if combatAnchor then EllesmereUI.SetElementVisibility(combatAnchor, false) end
 end
 
 local function ShowCombatIcon(iconIdx, spellID, texture, label)
@@ -1254,7 +1255,7 @@ local function HideCursorIcons()
         if f then f._text:SetText(""); f:Hide() end
     end
     wipe(cursorActiveIcons)
-    if cursorAnchor then cursorAnchor:Hide() end
+    if cursorAnchor then EllesmereUI.SetElementVisibility(cursorAnchor, false) end
 end
 
 local function ShowCursorIcon(iconIdx, spellID, texture, label)
@@ -1464,27 +1465,15 @@ local function HideAllIcons()
         if btn then RemoveGlow(btn); btn._text:SetText(""); btn:Hide() end
     end
     wipe(talentActiveIcons)
-    if talentIconAnchor then talentIconAnchor:Hide() end
+    if talentIconAnchor then EllesmereUI.SetElementVisibility(talentIconAnchor, false) end
 end
 
--- Resize iconAnchor while keeping its visual center in place.
--- TOPLEFT anchoring means we need to shift the position by half the width delta.
--- Skip the position shift during unlock mode -- the mover handles positioning.
+-- Resize iconAnchor to match the current icon layout.
+-- Centered growth is handled by the centralized unlock mode position system
+-- (NotifyElementResized re-applies CENTER anchor on resize).
 local function ResizeAnchorCentered(newW, newH)
     if not iconAnchor then return end
-    local oldW = iconAnchor:GetWidth() or 0
     iconAnchor:SetSize(newW, newH)
-    local inUnlock = EllesmereUI and EllesmereUI.IsUnlockModeActive and EllesmereUI.IsUnlockModeActive()
-    if not inUnlock then
-        local dx = (oldW - newW) * 0.5
-        if math.abs(dx) > 0.5 then
-            local p, rel, rp, px, py = iconAnchor:GetPoint(1)
-            if p then
-                iconAnchor:ClearAllPoints()
-                iconAnchor:SetPoint(p, rel, rp, (px or 0) + dx, py or 0)
-            end
-        end
-    end
 end
 
 local function LayoutIcons()
@@ -2142,8 +2131,8 @@ local function Refresh()
                     end
                 end
             end
-            if combatIdx > 0 then combatAnchor:Show(); LayoutCombatIcons() end
-            if cursorIdx > 0 then cursorAnchor:Show(); LayoutCursorIcons() end
+            if combatIdx > 0 then EllesmereUI.SetElementVisibility(combatAnchor, true); LayoutCombatIcons() end
+            if cursorIdx > 0 then EllesmereUI.SetElementVisibility(cursorAnchor, true); LayoutCursorIcons() end
         end
         return
     end
@@ -2164,8 +2153,12 @@ local function Refresh()
         end
         if iconIdx > 0 then
             LayoutIcons()
-            iconAnchor:Show()
+            EllesmereUI.SetElementVisibility(iconAnchor, true)
+        else
+            EllesmereUI.SetElementVisibility(iconAnchor, false)
         end
+    else
+        EllesmereUI.SetElementVisibility(iconAnchor, false)
     end
 
     -- Talent reminders on a separate anchor below the main icons
@@ -2174,7 +2167,7 @@ local function Refresh()
             ShowTalentIcon(i, m.setup)
         end
         LayoutTalentIcons()
-        talentIconAnchor:Show()
+        EllesmereUI.SetElementVisibility(talentIconAnchor, true)
     end
 end
 
@@ -2193,6 +2186,9 @@ end
 -------------------------------------------------------------------------------
 local function ApplyUnlockPos()
     if not iconAnchor or not db then return end
+    -- Skip for unlock-anchored elements (anchor system is authority)
+    local anchored = EllesmereUI and EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored("EABR_Reminders")
+    if anchored and iconAnchor:GetLeft() then return end
     local pos = db.profile.unlockPos
     if pos and pos.point then
         iconAnchor:ClearAllPoints()
@@ -2385,9 +2381,9 @@ local function BeaconLayoutIcons()
         if _beaconIconState[id] then visible[#visible+1] = _beaconIcons[id] end
     end
     local count = #visible
-    if count == 0 then if _beaconAnchor then _beaconAnchor:Hide() end; return end
+    if count == 0 then if _beaconAnchor then EllesmereUI.SetElementVisibility(_beaconAnchor, false) end; return end
     if not _beaconAnchor then return end
-    _beaconAnchor:Show()
+    EllesmereUI.SetElementVisibility(_beaconAnchor, true)
     local p = db and db.profile.display
     local spacing = p and p.iconSpacing or 8
     local baseScale = (p and p.scale or 1.0) * (db and db.profile.auras and db.profile.auras.scale or 1.0)
@@ -2516,8 +2512,9 @@ local function BeaconInit()
     _beaconAnchor:SetSize(1, 1)
     _beaconAnchor:SetFrameStrata("HIGH")
     _beaconAnchor:EnableMouse(false)
-    _beaconAnchor:Hide()
-    -- Anchor to the combat anchor (created by mainFrame PLAYER_LOGIN before this call)
+    _beaconAnchor:Show()
+    EllesmereUI.SetElementVisibility(_beaconAnchor, false)
+    -- Anchor to the combat anchor (created by OnEnable before this call)
     if combatAnchor then
         _beaconAnchor:SetPoint("CENTER", combatAnchor, "CENTER", 0, -60)
     else
@@ -2561,154 +2558,168 @@ _beaconFrame:SetScript("OnEvent", function(_, e, id)
 end)
 
 -------------------------------------------------------------------------------
---  MAIN EVENT HANDLER
+--  MAIN EVENT FRAME (forward-declared so OnEnable can reference it)
 -------------------------------------------------------------------------------
 local mainFrame = CreateFrame("Frame")
 
-mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
-    if e == "PLAYER_LOGIN" then
-        db = EllesmereUI.Lite.NewDB("EllesmereUIAuraBuffRemindersDB", defaults, true)
+-------------------------------------------------------------------------------
+--  Lifecycle: OnInitialize (fires at ADDON_LOADED time)
+--  Creates the DB early so EABR is in _dbRegistry before PreSeedSpecProfile.
+-------------------------------------------------------------------------------
+function EABR:OnInitialize()
+    db = EllesmereUI.Lite.NewDB("EllesmereUIAuraBuffRemindersDB", defaults, true)
+end
 
-        -- Expose globals for options
-        _G._EABR_AceDB = db
-        _G._EABR_RequestRefresh = RequestRefresh
-        _G._EABR_HideAllIcons = HideAllIcons
-        _G._EABR_GLOW_VALUES = GLOW_VALUES
-        _G._EABR_GLOW_ORDER = GLOW_ORDER
-        _G._EABR_GLOW_TYPES = GLOW_TYPES
-        _G._EABR_StartPixelGlow = StartPixelGlow
-        _G._EABR_StartButtonGlow = StartButtonGlow
-        _G._EABR_StartAutoCastShine = StartAutoCastShine
-        _G._EABR_StartFlipBookGlow = StartFlipBookGlow
-        _G._EABR_StopAllGlows = StopAllGlows
-        _G._EABR_RegisterUnlock = RegisterUnlockElements
-        _G._EABR_ApplyUnlockPos = ApplyUnlockPos
-        _G._EABR_RAID_BUFFS = RAID_BUFFS
-        _G._EABR_AURAS = AURAS
-        _G._EABR_ROGUE_POISONS = ROGUE_POISONS
-        _G._EABR_PALADIN_RITES = PALADIN_RITES
-        _G._EABR_SHAMAN_IMBUES = SHAMAN_IMBUES
-        _G._EABR_SHAMAN_SHIELDS = SHAMAN_SHIELDS
-        _G._EABR_WEAPON_ENCHANT_ITEMS = WEAPON_ENCHANT_ITEMS
-        _G._EABR_Tex = Tex
-        _G._EABR_ICON_SIZE = ICON_SIZE
-        _G._EABR_FLASK_ITEMS = FLASK_ITEMS
-        _G._EABR_FOOD_ITEMS = FOOD_ITEMS
-        _G._EABR_WEAPON_ENCHANT_CHOICES = WEAPON_ENCHANT_CHOICES
-        _G._EABR_TALENT_REMINDER_ZONES = TALENT_REMINDER_ZONES
+-------------------------------------------------------------------------------
+--  Lifecycle: OnEnable (fires at PLAYER_LOGIN time, after PreSeedSpecProfile)
+--  All UI creation and event wiring that depends on db being ready.
+-------------------------------------------------------------------------------
+function EABR:OnEnable()
+    -- Expose globals for options
+    _G._EABR_AceDB = db
+    _G._EABR_RequestRefresh = RequestRefresh
+    _G._EABR_HideAllIcons = HideAllIcons
+    _G._EABR_GLOW_VALUES = GLOW_VALUES
+    _G._EABR_GLOW_ORDER = GLOW_ORDER
+    _G._EABR_GLOW_TYPES = GLOW_TYPES
+    _G._EABR_StartPixelGlow = StartPixelGlow
+    _G._EABR_StartButtonGlow = StartButtonGlow
+    _G._EABR_StartAutoCastShine = StartAutoCastShine
+    _G._EABR_StartFlipBookGlow = StartFlipBookGlow
+    _G._EABR_StopAllGlows = StopAllGlows
+    _G._EABR_RegisterUnlock = RegisterUnlockElements
+    _G._EABR_ApplyUnlockPos = ApplyUnlockPos
+    _G._EABR_RAID_BUFFS = RAID_BUFFS
+    _G._EABR_AURAS = AURAS
+    _G._EABR_ROGUE_POISONS = ROGUE_POISONS
+    _G._EABR_PALADIN_RITES = PALADIN_RITES
+    _G._EABR_SHAMAN_IMBUES = SHAMAN_IMBUES
+    _G._EABR_SHAMAN_SHIELDS = SHAMAN_SHIELDS
+    _G._EABR_WEAPON_ENCHANT_ITEMS = WEAPON_ENCHANT_ITEMS
+    _G._EABR_Tex = Tex
+    _G._EABR_ICON_SIZE = ICON_SIZE
+    _G._EABR_FLASK_ITEMS = FLASK_ITEMS
+    _G._EABR_FOOD_ITEMS = FOOD_ITEMS
+    _G._EABR_WEAPON_ENCHANT_CHOICES = WEAPON_ENCHANT_CHOICES
+    _G._EABR_TALENT_REMINDER_ZONES = TALENT_REMINDER_ZONES
 
-        local STRATA_VALUES = {
-            BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium",
-            HIGH = "High", DIALOG = "Dialog", FULLSCREEN = "Fullscreen",
-            FULLSCREEN_DIALOG = "Fullscreen Dialog", TOOLTIP = "Tooltip",
-        }
-        local STRATA_ORDER = {
-            "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG",
-            "FULLSCREEN", "FULLSCREEN_DIALOG", "TOOLTIP",
-        }
-        _G._EABR_STRATA_VALUES = STRATA_VALUES
-        _G._EABR_STRATA_ORDER = STRATA_ORDER
+    local STRATA_VALUES = {
+        BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium",
+        HIGH = "High", DIALOG = "Dialog", FULLSCREEN = "Fullscreen",
+        FULLSCREEN_DIALOG = "Fullscreen Dialog", TOOLTIP = "Tooltip",
+    }
+    local STRATA_ORDER = {
+        "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG",
+        "FULLSCREEN", "FULLSCREEN_DIALOG", "TOOLTIP",
+    }
+    _G._EABR_STRATA_VALUES = STRATA_VALUES
+    _G._EABR_STRATA_ORDER = STRATA_ORDER
 
-        -- Create anchor
-        iconAnchor = CreateFrame("Frame", "EABR_Anchor", UIParent)
-        iconAnchor:SetSize(1, 1)
-        iconAnchor:SetFrameStrata(GetStrata())
-        iconAnchor:EnableMouse(false)
-        ApplyUnlockPos()
+    -- Create anchor
+    iconAnchor = CreateFrame("Frame", "EABR_Anchor", UIParent)
+    iconAnchor:SetSize(1, 1)
+    iconAnchor:SetFrameStrata(GetStrata())
+    iconAnchor:EnableMouse(false)
+    ApplyUnlockPos()
 
-        -- Create combat anchor (non-secure, follows iconAnchor position)
-        -- Parented to UIParent so Show/Hide is never blocked by combat lockdown.
-        combatAnchor = CreateFrame("Frame", "EABR_CombatAnchor", UIParent)
-        combatAnchor:SetSize(1, 1)
-        combatAnchor:SetFrameStrata(GetStrata())
-        combatAnchor:SetFrameLevel(110)
-        combatAnchor:EnableMouse(false)
-        combatAnchor:SetAllPoints(iconAnchor)
-        combatAnchor:Hide()
+    -- Create combat anchor (non-secure, follows iconAnchor position)
+    -- Parented to UIParent so Show/Hide is never blocked by combat lockdown.
+    combatAnchor = CreateFrame("Frame", "EABR_CombatAnchor", UIParent)
+    combatAnchor:SetSize(1, 1)
+    combatAnchor:SetFrameStrata(GetStrata())
+    combatAnchor:SetFrameLevel(110)
+    combatAnchor:EnableMouse(false)
+    combatAnchor:SetAllPoints(iconAnchor)
+    combatAnchor:Show()
+    EllesmereUI.SetElementVisibility(combatAnchor, false)
 
-        -- Create cursor-attached anchor for important buffs.
-        -- Parents to EllesmereUICursorFrame if it exists (the cursor circle
-        -- addon's tracking frame already has an OnUpdate for cursor position).
-        -- Falls back to UIParent center if cursor addon isn't loaded.
-        local cursorParent = _G.EllesmereUICursorFrame or UIParent
-        cursorAnchor = CreateFrame("Frame", "EABR_CursorAnchor", cursorParent)
-        cursorAnchor:SetSize(1, 1)
-        cursorAnchor:SetFrameStrata("TOOLTIP")
-        cursorAnchor:SetFrameLevel(9980)
-        cursorAnchor:EnableMouse(false)
-        cursorAnchor:SetPoint("CENTER", cursorParent, "CENTER", 0, 60)
-        cursorAnchor:Hide()
+    -- Create cursor-attached anchor for important buffs.
+    -- Parents to EllesmereUICursorFrame if it exists (the cursor circle
+    -- addon's tracking frame already has an OnUpdate for cursor position).
+    -- Falls back to UIParent center if cursor addon isn't loaded.
+    local cursorParent = _G.EllesmereUICursorFrame or UIParent
+    cursorAnchor = CreateFrame("Frame", "EABR_CursorAnchor", cursorParent)
+    cursorAnchor:SetSize(1, 1)
+    cursorAnchor:SetFrameStrata("TOOLTIP")
+    cursorAnchor:SetFrameLevel(9980)
+    cursorAnchor:EnableMouse(false)
+    cursorAnchor:SetPoint("CENTER", cursorParent, "CENTER", 0, 60)
+    cursorAnchor:Show()
+    EllesmereUI.SetElementVisibility(cursorAnchor, false)
 
-        -- Create talent reminder anchor (offset below main anchor)
-        talentIconAnchor = CreateFrame("Frame", "EABR_TalentAnchor", iconAnchor)
-        talentIconAnchor:SetSize(1, 1)
-        talentIconAnchor:SetFrameStrata(GetStrata())
-        talentIconAnchor:EnableMouse(false)
-        talentIconAnchor:SetPoint("TOP", iconAnchor, "BOTTOM", 0, db.profile.talentReminderYOffset or -50)
-        talentIconAnchor:Hide()
+    -- Create talent reminder anchor (offset below main anchor)
+    talentIconAnchor = CreateFrame("Frame", "EABR_TalentAnchor", iconAnchor)
+    talentIconAnchor:SetSize(1, 1)
+    talentIconAnchor:SetFrameStrata(GetStrata())
+    talentIconAnchor:EnableMouse(false)
+    talentIconAnchor:SetPoint("TOP", iconAnchor, "BOTTOM", 0, db.profile.talentReminderYOffset or -50)
+    talentIconAnchor:Show()
+    EllesmereUI.SetElementVisibility(talentIconAnchor, false)
 
-        local function ApplyStrata()
-            local strata = GetStrata()
-            iconAnchor:SetFrameStrata(strata)
-            combatAnchor:SetFrameStrata(strata)
-            talentIconAnchor:SetFrameStrata(strata)
-            for _, btn in pairs(iconPool) do btn:SetFrameStrata(strata) end
-            for _, btn in pairs(talentIconPool) do btn:SetFrameStrata(strata) end
-            for _, f in pairs(combatIconPool) do f:SetFrameStrata(strata) end
+    local function ApplyStrata()
+        local strata = GetStrata()
+        iconAnchor:SetFrameStrata(strata)
+        combatAnchor:SetFrameStrata(strata)
+        talentIconAnchor:SetFrameStrata(strata)
+        for _, btn in pairs(iconPool) do btn:SetFrameStrata(strata) end
+        for _, btn in pairs(talentIconPool) do btn:SetFrameStrata(strata) end
+        for _, f in pairs(combatIconPool) do f:SetFrameStrata(strata) end
+    end
+    _G._EABR_ApplyStrata = ApplyStrata
+
+    -- Hook EUI panel show/hide
+    if EllesmereUI then
+        if EllesmereUI.RegisterOnShow then
+            EllesmereUI:RegisterOnShow(function()
+                euiPanelOpen = true; HideAllIcons(); BeaconRefresh()
+            end)
         end
-        _G._EABR_ApplyStrata = ApplyStrata
-
-        -- Hook EUI panel show/hide
-        if EllesmereUI then
-            if EllesmereUI.RegisterOnShow then
-                EllesmereUI:RegisterOnShow(function()
-                    euiPanelOpen = true; HideAllIcons(); BeaconRefresh()
-                end)
-            end
-            if EllesmereUI.RegisterOnHide then
-                EllesmereUI:RegisterOnHide(function()
-                    euiPanelOpen = false; RequestRefresh(); BeaconRefresh()
-                end)
-            end
+        if EllesmereUI.RegisterOnHide then
+            EllesmereUI:RegisterOnHide(function()
+                euiPanelOpen = false; RequestRefresh(); BeaconRefresh()
+            end)
         end
-
-        RequestRefresh()
-        BeaconInit()
-        C_Timer.After(0.5, RegisterUnlockElements)
-
-        -- Conditionally register group UNIT_AURA only when needed.
-        -- Needed for: showOthersMissing (raid buffs), Earth Shield orbit
-        -- (Resto Shaman), Source of Magic (Evoker ownOnRaid check).
-        local _groupAuraRegistered = false
-        local function UpdateGroupAuraRegistration()
-            local needGroup = false
-            local rb = db.profile.raidBuffs
-            if rb and rb.showOthersMissing then needGroup = true end
-            if not needGroup then
-                local cls = GetPlayerClass()
-                if cls == "SHAMAN" or cls == "EVOKER" then needGroup = true end
-            end
-            if needGroup and not _groupAuraRegistered then
-                mainFrame:RegisterEvent("GROUP_JOINED")
-                mainFrame:RegisterEvent("GROUP_LEFT")
-                _groupAuraRegistered = true
-            elseif not needGroup and _groupAuraRegistered then
-                mainFrame:UnregisterEvent("GROUP_JOINED")
-                mainFrame:UnregisterEvent("GROUP_LEFT")
-                _groupAuraRegistered = false
-            end
-        end
-        _G._EABR_UpdateGroupAuraRegistration = UpdateGroupAuraRegistration
-        UpdateGroupAuraRegistration()
-
-        -- Register spellcast tracking for Hunters (combat reminder for Hunter's Mark)
-        if GetPlayerClass() == "HUNTER" then
-            mainFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-        end
-
-        return
     end
 
+    RequestRefresh()
+    BeaconInit()
+    C_Timer.After(0.5, RegisterUnlockElements)
+
+    -- Conditionally register group UNIT_AURA only when needed.
+    -- Needed for: showOthersMissing (raid buffs), Earth Shield orbit
+    -- (Resto Shaman), Source of Magic (Evoker ownOnRaid check).
+    local _groupAuraRegistered = false
+    local function UpdateGroupAuraRegistration()
+        local needGroup = false
+        local rb = db.profile.raidBuffs
+        if rb and rb.showOthersMissing then needGroup = true end
+        if not needGroup then
+            local cls = GetPlayerClass()
+            if cls == "SHAMAN" or cls == "EVOKER" then needGroup = true end
+        end
+        if needGroup and not _groupAuraRegistered then
+            mainFrame:RegisterEvent("GROUP_JOINED")
+            mainFrame:RegisterEvent("GROUP_LEFT")
+            _groupAuraRegistered = true
+        elseif not needGroup and _groupAuraRegistered then
+            mainFrame:UnregisterEvent("GROUP_JOINED")
+            mainFrame:UnregisterEvent("GROUP_LEFT")
+            _groupAuraRegistered = false
+        end
+    end
+    _G._EABR_UpdateGroupAuraRegistration = UpdateGroupAuraRegistration
+    UpdateGroupAuraRegistration()
+
+    -- Register spellcast tracking for Hunters (combat reminder for Hunter's Mark)
+    if GetPlayerClass() == "HUNTER" then
+        mainFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    end
+end
+
+-------------------------------------------------------------------------------
+--  MAIN EVENT HANDLER (OnEvent script for runtime events)
+-------------------------------------------------------------------------------
+mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     if e == "PLAYER_REGEN_DISABLED" then
         -- Entering combat: immediately hide OOC secure icons, snapshot, then refresh
         _huntersMarkNeeded = true
@@ -2809,7 +2820,6 @@ bagTrackFrame:SetScript("OnEvent", function(_, ev)
     end
 end)
 
-mainFrame:RegisterEvent("PLAYER_LOGIN")
 mainFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 mainFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 mainFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -2840,7 +2850,7 @@ SlashCmdList["EABRDEBUG"] = function()
     local p = function(...) print("|cff0cd29f[EABR Debug]|r", ...) end
     p("--- AuraBuff Reminders Debug ---")
 
-    if not db then p("|cffff4444db is nil PLAYER_LOGIN never fired or AceDB failed|r"); return end
+    if not db then p("|cffff4444db is nil -- OnInitialize never fired|r"); return end
 
     local playerClass = GetPlayerClass()
     local specID = GetSpecID()

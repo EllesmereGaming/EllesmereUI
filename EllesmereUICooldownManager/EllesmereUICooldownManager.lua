@@ -988,13 +988,6 @@ local DEFAULTS = {
         -- Bar Glows (per-spec)
         spec            = {},
         activeSpecKey   = "0",
-        -- Bar Glows v2 (buff  action button glow assignments)
-        barGlows = {
-            enabled = true,
-            selectedBar = 1,
-            selectedButton = nil,
-            assignments = {},  -- ["barIdx_btnIdx"] = { {spellID, glowStyle, glowColor, classColor, mode, showDuration, ...}, ... }
-        },
         -- Tracked Buff Bars v2 (per-bar buff tracking with individual settings)
         -- Note: not in defaults -- lazy-initialized by ns.GetTrackedBuffBars()
         -- CDM Bars (our replacement for Blizzard CDM)
@@ -1096,11 +1089,105 @@ local DEFAULTS = {
         cdmBarPositions = {},
         -- Saved positions for tracked buff bars (keyed by bar index string)
         tbbPositions = {},
-        -- Per-spec profiles: spell lists, bar glows, buff bars (keyed by specID string)
-        specProfiles = {},
 
     },
 }
+
+-------------------------------------------------------------------------------
+--  Dedicated spell assignment store helpers
+--  Lives at EllesmereUIDB.spellAssignments, completely separate from profiles.
+--  Consolidated into a single local table to stay within Lua 5.1's 200 local
+--  variable limit for the main chunk.
+-------------------------------------------------------------------------------
+local SpellStore = {}
+
+function SpellStore.Get()
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    if not EllesmereUIDB.spellAssignments then
+        EllesmereUIDB.spellAssignments = { specProfiles = {}, barGlows = {} }
+    end
+    return EllesmereUIDB.spellAssignments
+end
+
+function SpellStore.GetSpecProfiles()
+    return SpellStore.Get().specProfiles
+end
+
+function SpellStore.GetBarGlows()
+    local sa = SpellStore.Get()
+    if not sa.barGlows or not next(sa.barGlows) then
+        sa.barGlows = {
+            enabled = true,
+            selectedBar = 1,
+            selectedButton = nil,
+            selectedAssignment = 1,
+            assignments = {},
+        }
+    end
+    return sa.barGlows
+end
+
+-------------------------------------------------------------------------------
+--  Direct spell data accessor (single source of truth)
+--  Returns the spell table for a bar key under the current spec, creating
+--  it if needed. All spell reads/writes go through this -- no copies.
+-------------------------------------------------------------------------------
+function ns.GetBarSpellData(barKey)
+    local specKey = ns.GetActiveSpecKey()
+    if not specKey or specKey == "0" then return nil end
+    local sp = SpellStore.GetSpecProfiles()
+    local prof = sp[specKey]
+    if not prof then
+        prof = { barSpells = {} }
+        sp[specKey] = prof
+    end
+    if not prof.barSpells then prof.barSpells = {} end
+    local bs = prof.barSpells[barKey]
+    if not bs then
+        bs = {}
+        prof.barSpells[barKey] = bs
+    end
+    -- Custom bars must always have a customSpells list so all code paths
+    -- (AddTrackedSpell, UpdateCustomBarIcons, reconcile, etc.) use the
+    -- correct field. Without this, spells added on a spec where the bar
+    -- was not originally created would land in trackedSpells instead,
+    -- making them invisible on reload.
+    if barKey ~= "cooldowns" and barKey ~= "utility" and barKey ~= "buffs" then
+        if not bs.customSpells then
+            -- Migrate any spells that were incorrectly stored as trackedSpells
+            if bs.trackedSpells and #bs.trackedSpells > 0 then
+                bs.customSpells = bs.trackedSpells
+                bs.trackedSpells = nil
+            else
+                bs.customSpells = {}
+            end
+        end
+    end
+    return bs
+end
+
+-- Variant that accepts an explicit specKey (for validation, migration, etc.)
+function ns.GetBarSpellDataForSpec(barKey, specKey)
+    if not specKey or specKey == "0" then return nil end
+    local sp = SpellStore.GetSpecProfiles()
+    local prof = sp[specKey]
+    if not prof then return nil end
+    if not prof.barSpells then return nil end
+    local bs = prof.barSpells[barKey]
+    if not bs then return nil end
+    -- Same custom-bar migration as GetBarSpellData
+    if barKey ~= "cooldowns" and barKey ~= "utility" and barKey ~= "buffs" then
+        if not bs.customSpells then
+            if bs.trackedSpells and #bs.trackedSpells > 0 then
+                bs.customSpells = bs.trackedSpells
+                bs.trackedSpells = nil
+            else
+                bs.customSpells = {}
+            end
+        end
+    end
+    return bs
+end
 
 -------------------------------------------------------------------------------
 --  Spec helpers
@@ -1110,6 +1197,28 @@ local function GetCurrentSpecKey()
     if not specIndex then return "0" end
     local specID = select(1, C_SpecializationInfo.GetSpecializationInfo(specIndex))
     return tostring(specID or 0)
+end
+
+-- Per-character activeSpecKey storage.
+-- Stored in EllesmereUIDB.cdmActiveSpec[charKey] so shared profiles
+-- can never cause cross-character spell contamination.
+-- Placed on ns to avoid consuming file-scope local slots.
+function ns.GetCharKey()
+    local name = UnitName("player") or "Unknown"
+    local realm = GetRealmName() or "Unknown"
+    return name .. "-" .. realm
+end
+
+function ns.GetActiveSpecKey()
+    if not EllesmereUIDB then return "0" end
+    if not EllesmereUIDB.cdmActiveSpec then EllesmereUIDB.cdmActiveSpec = {} end
+    return EllesmereUIDB.cdmActiveSpec[ns.GetCharKey()] or "0"
+end
+
+function ns.SetActiveSpecKey(specKey)
+    if not EllesmereUIDB then return end
+    if not EllesmereUIDB.cdmActiveSpec then EllesmereUIDB.cdmActiveSpec = {} end
+    EllesmereUIDB.cdmActiveSpec[ns.GetCharKey()] = specKey
 end
 
 -- Validates that activeSpecKey matches the real spec. If not, triggers a full
@@ -1122,7 +1231,7 @@ function ns.IsReconcileReady()
     if not _specValidated then return false end
     local realKey = GetCurrentSpecKey()
     if realKey == "0" then return false end
-    if p.activeSpecKey ~= realKey then return false end
+    if ns.GetActiveSpecKey() ~= realKey then return false end
     local now = GetTime()
     if RECONCILE.lastSpecChangeAt > 0 and (now - RECONCILE.lastSpecChangeAt) < RECONCILE.readyDelay then return false end
     if RECONCILE.lastZoneInAt > 0 and (now - RECONCILE.lastZoneInAt) < RECONCILE.readyDelay then return false end
@@ -1140,12 +1249,11 @@ local function ValidateSpec()
     if not ECME.db then return end
     local realKey = GetCurrentSpecKey()
     if realKey == "0" then return end  -- spec API not ready yet
-    local p = ECME.db.profile
-    if p.activeSpecKey == realKey then
+    if ns.GetActiveSpecKey() == realKey then
         _specValidated = true
         return
     end
-    -- Mismatch detected ΓÇö force a full spec switch
+    -- Mismatch detected -- force a full spec switch
     _specValidated = true
     -- SwitchSpecProfile is defined later; called via ns reference
     if ns.SwitchSpecProfile then
@@ -1161,7 +1269,8 @@ end
 
 local function GetStore()
     local p = ECME.db.profile
-    return EnsureSpec(p, p.activeSpecKey or "0")
+    local specKey = ns.GetActiveSpecKey()
+    return EnsureSpec(p, specKey)
 end
 
 local function EnsureMappings(store)
@@ -1415,52 +1524,50 @@ end
 -- Forward declaration — defined after RACE_RACIALS is built
 local RefreshRacialSpells
 
---- Save the current spec's per-spec data into specProfiles[specKey]
-local function SaveCurrentSpecProfile()
-    local p = ECME.db.profile
-    local specKey = p.activeSpecKey
+--- Save the current spec's non-spell per-spec data (barGlows, trackedBuffBars).
+--- Spell data lives directly in the global store via ns.GetBarSpellData()
+-------------------------------------------------------------------------------
+--  Cached bar sizes -- purely cosmetic hint for pre-sizing frames on login
+--  so anchored elements don't jump. Has zero impact on spell logic or icons.
+--  Stored in EllesmereUIDB.cdmCachedBarSizes[charKey][specKey][barKey] = count
+-------------------------------------------------------------------------------
+function ns.SaveCachedBarSizes()
+    if not EllesmereUIDB then return end
+    local charKey = ns.GetCharKey()
+    local specKey = ns.GetActiveSpecKey()
     if not specKey or specKey == "0" then return end
-    if not p.specProfiles then p.specProfiles = {} end
-    local prev = p.specProfiles[specKey]
-
-    local preserveMissing = not (ns.IsReconcileReady and ns.IsReconcileReady())
-    local function CopyLiveOrPrev(live, prevVal)
-        if live ~= nil then return DeepCopy(live) end
-        if preserveMissing and prevVal ~= nil then return DeepCopy(prevVal) end
-        return nil
-    end
-
-    local prof = {}
-
-    -- 1) Spell lists for each bar
-    prof.barSpells = {}
-    for _, barData in ipairs(p.cdmBars.bars) do
-        local key = barData.key
-        if key then
-            local entry = {}
-            local prevEntry = prev and prev.barSpells and prev.barSpells[key] or nil
-            if MAIN_BAR_KEYS[key] then
-                -- trackedSpells are now stable spellIDs — persist them.
-                entry.trackedSpells = CopyLiveOrPrev(barData.trackedSpells, prevEntry and prevEntry.trackedSpells)
-                entry.extraSpells   = CopyLiveOrPrev(barData.extraSpells,   prevEntry and prevEntry.extraSpells)
-                entry.removedSpells = CopyLiveOrPrev(barData.removedSpells, prevEntry and prevEntry.removedSpells)
-                entry.dormantSpells = CopyLiveOrPrev(barData.dormantSpells, prevEntry and prevEntry.dormantSpells)
-            elseif barData.barType ~= "misc" then
-                -- Custom non-misc bars: save customSpells
-                entry.customSpells = CopyLiveOrPrev(barData.customSpells, prevEntry and prevEntry.customSpells)
-                if TALENT_AWARE_BAR_TYPES[barData.barType] then
-                    entry.dormantSpells = CopyLiveOrPrev(barData.dormantSpells, prevEntry and prevEntry.dormantSpells)
-                end
+    if not EllesmereUIDB.cdmCachedBarSizes then EllesmereUIDB.cdmCachedBarSizes = {} end
+    if not EllesmereUIDB.cdmCachedBarSizes[charKey] then EllesmereUIDB.cdmCachedBarSizes[charKey] = {} end
+    local frames = ns.cdmBarFrames
+    local iconsByKey = ns.cdmBarIcons
+    if not frames or not iconsByKey then return end
+    local counts = {}
+    for key, frame in pairs(frames) do
+        local icons = iconsByKey[key]
+        if icons then
+            local vis = 0
+            for _, icon in ipairs(icons) do
+                if icon:IsShown() then vis = vis + 1 end
             end
-            -- Misc bars: nothing to save (spell list is shared across all specs)
-            prof.barSpells[key] = entry
+            if vis > 0 then counts[key] = vis end
         end
     end
+    EllesmereUIDB.cdmCachedBarSizes[charKey][specKey] = counts
+end
 
-    -- 2) Bar Glows (full table)
-    prof.barGlows = DeepCopy(p.barGlows)
+--- and never needs copying.
+local function SaveCurrentSpecProfile()
+    local p = ECME.db.profile
+    local specKey = ns.GetActiveSpecKey()
+    if not specKey or specKey == "0" then return end
+    local specProfiles = SpellStore.GetSpecProfiles()
+    if not specProfiles[specKey] then specProfiles[specKey] = { barSpells = {} } end
+    local prof = specProfiles[specKey]
 
-    -- 3) Tracked buff bar state
+    -- Bar Glows (full table) -- from dedicated store
+    prof.barGlows = DeepCopy(SpellStore.GetBarGlows())
+
+    -- Tracked buff bar state
     if p.trackedBuffBars then
         prof.trackedBuffBars = DeepCopy(p.trackedBuffBars)
     end
@@ -1468,53 +1575,21 @@ local function SaveCurrentSpecProfile()
         prof.tbbPositions = DeepCopy(p.tbbPositions)
     end
 
-    p.specProfiles[specKey] = prof
+    -- Snapshot visible icon counts for pre-sizing on next login
+    ns.SaveCachedBarSizes()
 end
 
---- Restore a spec profile into the live data, or initialize fresh if none exists
+--- Restore non-spell per-spec data (barGlows, trackedBuffBars) for a spec.
+--- Spell data is read directly from the global store by all consumers.
 local function LoadSpecProfile(specKey)
     local p = ECME.db.profile
-    if not p.specProfiles then p.specProfiles = {} end
-    local prof = p.specProfiles[specKey]
+    local specProfiles = SpellStore.GetSpecProfiles()
+    local prof = specProfiles[specKey]
 
     if prof then
-        -- Restore saved spell lists
-        if prof.barSpells then
-            for _, barData in ipairs(p.cdmBars.bars) do
-                local saved = prof.barSpells[barData.key]
-                if saved then
-                    if MAIN_BAR_KEYS[barData.key] then
-                        -- trackedSpells are now stable spellIDs  restore them.
-                        barData.trackedSpells = DeepCopy(saved.trackedSpells)
-                        barData.extraSpells   = DeepCopy(saved.extraSpells)
-                        barData.removedSpells = DeepCopy(saved.removedSpells)
-                        barData.dormantSpells = DeepCopy(saved.dormantSpells)
-                    elseif barData.barType ~= "misc" then
-                        barData.customSpells = DeepCopy(saved.customSpells)
-                        if TALENT_AWARE_BAR_TYPES[barData.barType] then
-                            barData.dormantSpells = DeepCopy(saved.dormantSpells)
-                        end
-                    end
-                else
-                    -- Bar exists now but wasn't in the saved profile (new bar added since).
-                    -- Main bars: clear so Blizzard snapshot re-captures.
-                    -- Custom bars: leave customSpells untouched -- the user's spells
-                    -- are not spec-specific for a bar that didn't exist when the spec
-                    -- profile was saved, so wiping them would lose their work.
-                    if MAIN_BAR_KEYS[barData.key] then
-                        barData.trackedSpells = nil  -- will trigger Blizzard snapshot
-                        barData.extraSpells = nil
-                        barData.removedSpells = nil
-                        barData.dormantSpells = nil
-                    end
-                    -- misc bars and custom bars: no action -- preserve existing state
-                end
-            end
-        end
-
-        -- Restore bar glows
+        -- Restore bar glows to dedicated store
         if prof.barGlows then
-            p.barGlows = DeepCopy(prof.barGlows)
+            SpellStore.Get().barGlows = DeepCopy(prof.barGlows)
         end
 
         -- Restore tracked buff bar state
@@ -1526,28 +1601,12 @@ local function LoadSpecProfile(specKey)
         end
     else
         -- No saved profile for this spec: initialize fresh
-        -- Main bars: clear trackedSpells so SnapshotBlizzardCDM re-captures
-        for _, barData in ipairs(p.cdmBars.bars) do
-            if MAIN_BAR_KEYS[barData.key] then
-                barData.trackedSpells = nil
-                barData.extraSpells = nil
-                barData.removedSpells = nil
-                barData.dormantSpells = nil
-            elseif barData.barType ~= "misc" then
-                barData.customSpells = {}
-                barData.dormantSpells = nil
-            end
-        end
-
-        -- Reset bar glows to fresh state
-        p.barGlows = {
+        SpellStore.Get().barGlows = {
             enabled = true,
             selectedBar = 1,
             selectedButton = nil,
             assignments = {},
         }
-
-        -- Reset tracked buff bars to empty for this new spec
         p.trackedBuffBars = { selectedBar = 1, bars = {} }
         p.tbbPositions = nil
     end
@@ -1560,23 +1619,25 @@ end
 -- during the transition window where spell data may be stale.
 local _lastSpecSwitchTime = 0
 
---- Full spec switch: save current, load new, rebuild everything
+--- Full spec switch: save non-spell data, update active spec, rebuild everything.
+--- Spell data is already in the global store keyed by spec -- switching the
+--- active spec key is all that's needed for spells to "switch".
 local function SwitchSpecProfile(newSpecKey)
     _lastSpecSwitchTime = GetTime()
 
     local p = ECME.db.profile
-    local oldSpecKey = p.activeSpecKey
+    local oldSpecKey = ns.GetActiveSpecKey()
 
-    -- Save current spec (if valid)
+    -- Save non-spell per-spec data for the old spec (barGlows, TBB)
     if oldSpecKey and oldSpecKey ~= "0" then
         SaveCurrentSpecProfile()
     end
 
-    -- Update active spec
-    p.activeSpecKey = newSpecKey
+    -- Update active spec (per-character)
+    ns.SetActiveSpecKey(newSpecKey)
     EnsureSpec(p, newSpecKey)
 
-    -- Load new spec profile
+    -- Load non-spell per-spec data for the new spec (barGlows, TBB)
     LoadSpecProfile(newSpecKey)
 
     -- Rebuild all CDM systems (deferred so Blizzard CDM frames are ready)
@@ -1595,8 +1656,7 @@ local function SwitchSpecProfile(newSpecKey)
         ns.BuildTrackedBuffBars()
         RegisterCDMUnlockElements()
         -- Force viewers to populate before reconciling so the viewer is fully
-        -- ready when ReconcileMainBarSpells runs. Bare timers are intentionally
-        -- omitted here -- a partially-populated viewer causes spells to be dropped.
+        -- ready when ReconcileMainBarSpells runs.
         ForcePopulateBlizzardViewers(function()
             ForceResnapshotMainBars()
             StartResnapshotRetry()
@@ -1947,8 +2007,11 @@ _G._ECME_GetBarFrame = function(barKey)
     return cdmBarFrames[barKey]
 end
 -- Global accessor: apply a spec profile to the live bars (used by profile import)
+-- Loads non-spell per-spec data and rebuilds bars. Spell data is already
+-- in the global store and will be read directly by BuildAllCDMBars.
 _G._ECME_LoadSpecProfile = function(specKey)
     LoadSpecProfile(specKey)
+    BuildAllCDMBars()
 end
 -- Global accessor: get the current spec key string (e.g. "250")
 _G._ECME_GetCurrentSpecKey = function()
@@ -2154,33 +2217,37 @@ local function OnProcGlowEvent(event, spellID)
     if not p or not p.cdmBars or not p.cdmBars.bars then return end
 
     for _, barData in ipairs(p.cdmBars.bars) do
-        if barData.enabled and barData.customSpells then
-            local icons = cdmBarIcons[barData.key]
-            if icons then
-                for i, sid in ipairs(barData.customSpells) do
-                    -- Direct match
-                    local matched = (sid == spellID)
-                    -- Override match: resolve the base spell to its current override
-                    if not matched and C_SpellBook and C_SpellBook.FindSpellOverrideByID then
-                        local overrideID = C_SpellBook.FindSpellOverrideByID(sid)
-                        if overrideID and overrideID == spellID then
-                            matched = true
+        if barData.enabled then
+            local spells = ns.GetBarSpellData(barData.key)
+            local csList = spells and spells.customSpells
+            if csList then
+                local icons = cdmBarIcons[barData.key]
+                if icons then
+                    for i, sid in ipairs(csList) do
+                        -- Direct match
+                        local matched = (sid == spellID)
+                        -- Override match: resolve the base spell to its current override
+                        if not matched and C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+                            local overrideID = C_SpellBook.FindSpellOverrideByID(sid)
+                            if overrideID and overrideID == spellID then
+                                matched = true
+                            end
                         end
-                    end
-                    -- Blizzard CDM override cache (deeper activation overrides)
-                    if not matched then
-                        local blizzOvr = _tickBlizzOverrideCache[sid]
-                        if blizzOvr and blizzOvr == spellID then
-                            matched = true
+                        -- Blizzard CDM override cache (deeper activation overrides)
+                        if not matched then
+                            local blizzOvr = _tickBlizzOverrideCache[sid]
+                            if blizzOvr and blizzOvr == spellID then
+                                matched = true
+                            end
                         end
-                    end
-                    if matched and icons[i] then
-                        if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then
+                        if matched and icons[i] then
+                            if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then
                             ShowProcGlow(icons[i], PROC_GLOW_R, PROC_GLOW_G, PROC_GLOW_B)
                         else
                             StopProcGlow(icons[i])
                         end
                     end
+                end
                 end
             end
         end
@@ -2231,7 +2298,7 @@ local CDM_BAR_CATEGORIES = {
 }
 
 -- Maximum number of custom bars a user can create
-local MAX_CUSTOM_BARS = 6
+local MAX_CUSTOM_BARS = 10
 
 -------------------------------------------------------------------------------
 --  Trinket / Racial / Health Potion / On-Use Bag Item data (misc and custom bars)
@@ -2536,10 +2603,37 @@ end
 -------------------------------------------------------------------------------
 --  CDM Bar Position Helpers
 -------------------------------------------------------------------------------
-local function ApplyBarPositionCentered(frame, pos, w, h, scale)
+local function ApplyBarPositionCentered(frame, pos, barKey)
     if not pos or not pos.point then return end
+    local px, py = pos.x or 0, pos.y or 0
+    local anchor = pos.point
+
+    -- If stored as CENTER/CENTER, convert to grow-direction-aware anchor
+    -- so the fixed edge stays put when bar width changes across specs.
+    if pos.point == "CENTER" and (pos.relPoint == "CENTER" or not pos.relPoint) then
+        local bd = barKey and barDataByKey[barKey]
+        local grow = bd and bd.growDirection or "RIGHT"
+        local fw = frame:GetWidth() or 0
+        local fh = frame:GetHeight() or 0
+
+        if grow == "RIGHT" then
+            anchor = "LEFT"
+            px = px - fw / 2
+        elseif grow == "LEFT" then
+            anchor = "RIGHT"
+            px = px + fw / 2
+        elseif grow == "DOWN" then
+            anchor = "TOP"
+            py = py + fh / 2
+        elseif grow == "UP" then
+            anchor = "BOTTOM"
+            py = py - fh / 2
+        end
+        -- CENTER grow: keep anchor as CENTER (no adjustment needed)
+    end
+
     frame:ClearAllPoints()
-    frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+    frame:SetPoint(anchor, UIParent, pos.relPoint or anchor, px, py)
 end
 
 local function SaveCDMBarPosition(barKey, frame)
@@ -2560,6 +2654,7 @@ local function SaveCDMBarPosition(barKey, frame)
     elseif grow == "LEFT"  then pt = "RIGHT"
     elseif grow == "DOWN"  then pt = "TOP"
     elseif grow == "UP"    then pt = "BOTTOM"
+    elseif grow == "CENTER" then pt = "CENTER"
     else                        pt = "LEFT"
     end
 
@@ -2592,6 +2687,11 @@ local function SaveCDMBarPosition(barKey, frame)
         if not by then return end
         ax = cx * ratio
         ay = by * ratio
+    elseif pt == "CENTER" then
+        local cx, cy = frame:GetCenter()
+        if not cx or not cy then return end
+        ax = cx * ratio
+        ay = cy * ratio
     end
 
     -- Store relative to UIParent CENTER so offset math is consistent
@@ -2613,6 +2713,7 @@ local function CDMFrameAnchorPoint(anchorSide, grow, centered)
     if grow == "LEFT"  then return "RIGHT"  end
     if grow == "DOWN"  then return "TOP"    end
     if grow == "UP"    then return "BOTTOM" end
+    if grow == "CENTER" then return "CENTER" end
     return "LEFT"
 end
 
@@ -2674,7 +2775,7 @@ BuildCDMBar = function(barIndex)
             SetFrameClickThrough(frame, false)
             if frame.EnableMouseMotion then frame:EnableMouseMotion(true) end
         end
-        frame:Hide()
+        EllesmereUI.SetElementVisibility(frame, false)
         return
     end
 
@@ -2782,7 +2883,7 @@ BuildCDMBar = function(barIndex)
             -- No party frame found  fall back to saved position
             local pos = p.cdmBarPositions[key]
             if pos and pos.point then
-                ApplyBarPositionCentered(frame, pos, 1, 1, scale)
+                ApplyBarPositionCentered(frame, pos, key)
             else
                 frame:ClearAllPoints()
                 frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
@@ -2813,7 +2914,7 @@ BuildCDMBar = function(barIndex)
             -- No player frame found  fall back to saved position
             local pos = p.cdmBarPositions[key]
             if pos and pos.point then
-                ApplyBarPositionCentered(frame, pos, 1, 1, scale)
+                ApplyBarPositionCentered(frame, pos, key)
             else
                 frame:ClearAllPoints()
                 frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
@@ -2856,7 +2957,7 @@ BuildCDMBar = function(barIndex)
             -- Resource Bars frame not available  fall back to saved position
             local pos = p.cdmBarPositions[key]
             if pos and pos.point then
-                ApplyBarPositionCentered(frame, pos, 1, 1, scale)
+                ApplyBarPositionCentered(frame, pos, key)
             else
                 frame:ClearAllPoints()
                 frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
@@ -2865,7 +2966,12 @@ BuildCDMBar = function(barIndex)
     else
         local pos = p.cdmBarPositions[key]
         if pos and pos.point then
-            ApplyBarPositionCentered(frame, pos, 1, 1, scale)
+            -- Skip for unlock-anchored bars (anchor system is authority)
+            local unlockKey = "CDM_" .. key
+            local anchored = EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(unlockKey)
+            if not anchored or not frame:GetLeft() then
+                ApplyBarPositionCentered(frame, pos, key)
+            end
         else
             -- Default fallback positions
             frame:ClearAllPoints()
@@ -2882,6 +2988,7 @@ BuildCDMBar = function(barIndex)
     end
 
     frame:Show()
+    EllesmereUI.SetElementVisibility(frame, true)
 end
 
 -- Compute stride respecting topRowCount override (only for numRows == 2)
@@ -2932,12 +3039,19 @@ LayoutCDMBar = function(barKey)
 
     local count = #visibleIcons
     if count == 0 then
-        frame:SetSize(1, 1)
+        -- Keep the frame at its current size so anchor math has valid bounds.
+        -- Alpha-zero hides it visually while preserving layout dimensions.
+        EllesmereUI.SetElementVisibility(frame, false)
         if frame._barBg then frame._barBg:Hide() end
+        -- No propagation needed: frame stays at its current size (alpha-zero),
+        -- so anchored children remain in their correct positions.
         return
     end
 
-    local isHoriz = (grow == "RIGHT" or grow == "LEFT")
+    -- Bar has visible icons -- ensure it is visible
+    EllesmereUI.SetElementVisibility(frame, true)
+
+    local isHoriz = (grow == "RIGHT" or grow == "LEFT" or grow == "CENTER")
     local stride, _, customTopCount = ComputeTopRowStride(barData, count)
 
     -- Container size (already snapped values)
@@ -2951,6 +3065,20 @@ LayoutCDMBar = function(barKey)
     end
     frame:SetSize(SnapForScale(totalW, 1), SnapForScale(totalH, 1))
 
+    -- Track which axes actually changed for axis-isolated propagation
+    local prevW = frame._prevLayoutW or 0
+    local prevH = frame._prevLayoutH or 0
+    local newW = SnapForScale(totalW, 1)
+    local newH = SnapForScale(totalH, 1)
+    local widthChanged = (math.abs(newW - prevW) > 0.5)
+    local heightChanged = (math.abs(newH - prevH) > 0.5)
+    frame._prevLayoutW = newW
+    frame._prevLayoutH = newH
+
+    -- Centered growth for buff/custom bars is handled by the centralized
+    -- unlock mode position system (NotifyElementResized re-applies CENTER
+    -- anchor on resize). No per-addon repositioning needed here.
+
     -- During unlock mode, skip anchor/propagation -- unlock mode owns positioning.
     if not EllesmereUI._unlockActive then
         -- Immediately reposition this bar if it's anchored to something,
@@ -2962,6 +3090,7 @@ LayoutCDMBar = function(barKey)
         if not frame._propagatingMatch then
             frame._propagatingMatch = true
             local unlockKey = "CDM_" .. barKey
+
             if EllesmereUI.PropagateWidthMatch then
                 EllesmereUI.PropagateWidthMatch(unlockKey)
             end
@@ -2969,7 +3098,15 @@ LayoutCDMBar = function(barKey)
                 EllesmereUI.PropagateHeightMatch(unlockKey)
             end
             if EllesmereUI.PropagateAnchorChain then
-                EllesmereUI.PropagateAnchorChain(unlockKey)
+                -- Pass axis so TOP/BOTTOM children don't move on width-only
+                -- changes and LEFT/RIGHT children don't move on height-only.
+                if widthChanged and heightChanged then
+                    EllesmereUI.PropagateAnchorChain(unlockKey)
+                elseif widthChanged then
+                    EllesmereUI.PropagateAnchorChain(unlockKey, "width")
+                elseif heightChanged then
+                    EllesmereUI.PropagateAnchorChain(unlockKey, "height")
+                end
             end
             frame._propagatingMatch = false
         end
@@ -3062,6 +3199,14 @@ LayoutCDMBar = function(barKey)
             icon:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT",
                 row * stepW,
                 col * stepH + rowOffset)
+        elseif grow == "CENTER" then
+            local rowOffset = 0
+            if row == 0 and topRowHasLess then
+                rowOffset = SnapForScale((stride - topRowCount) * stepW / 2, 1)
+            end
+            icon:SetPoint("TOPLEFT", frame, "CENTER",
+                col * stepW + rowOffset - totalW / 2,
+                -(row * stepH) + totalH / 2)
         end
     end
 end
@@ -3492,14 +3637,15 @@ local function UpdateCustomBarIcons(barKey)
     if not barData or not barData.enabled then return end
 
 
-    local rawSpells = barData.customSpells
+    local sd = ns.GetBarSpellData(barKey)
+    local rawSpells = sd and sd.customSpells
     if not rawSpells or #rawSpells == 0 then
         -- Hide all icons
         local icons = cdmBarIcons[barKey]
         if icons then
             for _, icon in ipairs(icons) do icon:Hide() end
         end
-        frame:SetSize(1, 1)
+        EllesmereUI.SetElementVisibility(frame, false)
         return
     end
 
@@ -4652,9 +4798,12 @@ local function BuildCustomBarSpellSet()
     local p = ECME.db and ECME.db.profile
     if not p or not p.cdmBars or not p.cdmBars.bars then return set end
     for _, bd in ipairs(p.cdmBars.bars) do
-        if bd.customSpells and not MAIN_BAR_KEYS[bd.key] and bd.barType ~= "misc" then
-            for _, sid in ipairs(bd.customSpells) do
-                if sid and sid > 0 then set[sid] = true end
+        if not MAIN_BAR_KEYS[bd.key] and bd.barType ~= "misc" then
+            local sd = ns.GetBarSpellData(bd.key)
+            if sd and sd.customSpells then
+                for _, sid in ipairs(sd.customSpells) do
+                    if sid and sid > 0 then set[sid] = true end
+                end
             end
         end
     end
@@ -4723,11 +4872,14 @@ local function SnapshotBlizzardCDM(barKey, barData)
     -- Only commit if we got actual children
     if #tracked == 0 then return false end
 
+    -- Read removedSpells from the global store
+    local spells = ns.GetBarSpellData(barKey)
+
     -- Filter out any spells the user has explicitly removed
-    if barData.removedSpells and next(barData.removedSpells) then
+    if spells and spells.removedSpells and next(spells.removedSpells) then
         local filtered = {}
         for _, sid in ipairs(tracked) do
-            if not barData.removedSpells[sid] then
+            if not spells.removedSpells[sid] then
                 filtered[#filtered + 1] = sid
             end
         end
@@ -4747,7 +4899,10 @@ local function SnapshotBlizzardCDM(barKey, barData)
         tracked = filtered
     end
 
-    barData.trackedSpells = tracked
+    -- Write directly to the global store
+    if spells then
+        spells.trackedSpells = tracked
+    end
     return true
 end
 ns.SnapshotBlizzardCDM = SnapshotBlizzardCDM
@@ -4764,16 +4919,17 @@ local function UpdateTrackedBarIcons(barKey)
     local barData = barDataByKey[barKey]
     if not barData or not barData.enabled then return end
 
-    local tracked = barData.trackedSpells
+    local spells = ns.GetBarSpellData(barKey)
+    local tracked = spells and spells.trackedSpells
     local hasTracked = tracked and #tracked > 0
-    local hasExtras = barData.extraSpells and #barData.extraSpells > 0
+    local hasExtras = spells and spells.extraSpells and #spells.extraSpells > 0
     if not hasTracked and not hasExtras then
         -- Hide all leftover icons and collapse the bar
         local icons2 = cdmBarIcons[barKey]
         if icons2 then
             for _, ic in ipairs(icons2) do ic:Hide() end
         end
-        frame:SetSize(1, 1)
+        EllesmereUI.SetElementVisibility(frame, false)
         frame._prevVisibleCount = 0
         if frame._barBg then frame._barBg:Hide() end
         return
@@ -4842,7 +4998,7 @@ local function UpdateTrackedBarIcons(barKey)
         end
     end
     local companionChild = hasCompanions and _activeMultiScratch or nil
-    local extras = barData.extraSpells
+    local extras = spells and spells.extraSpells
     if extras then
         -- Dedup: skip extras already present in trackedSpells (avoids duplicate icons
         -- when the same spellID appears in both lists after spec switch or reconcile).
@@ -5733,22 +5889,19 @@ local function UpdateAllCDMBars(dt)
     local useBlizzBuffs = false
     for _, barData in ipairs(p.cdmBars.bars) do
         if barData.enabled and not (useBlizzBuffs and barData.key == "buffs") then
+            local sd = ns.GetBarSpellData(barData.key)
             if BLIZZ_CDM_FRAMES[barData.key] then
                 -- Default bar: use tracked spells if snapshotted, otherwise mirror Blizzard
-                -- trackedSpells == nil means never snapshotted; empty table means user cleared all
-                if barData.trackedSpells then
+                if sd and sd.trackedSpells then
                     UpdateTrackedBarIcons(barData.key)
                 else
-                    -- Try to snapshot from Blizzard CDM
                     if SnapshotBlizzardCDM(barData.key, barData) then
                         UpdateTrackedBarIcons(barData.key)
                     else
-                        -- Blizzard CDM not ready yet, fall back to mirror
                         UpdateCDMBarIcons(barData.key)
                     end
                 end
-            elseif barData.customSpells then
-                -- Custom bar: track spells directly
+            elseif sd and sd.customSpells then
                 UpdateCustomBarIcons(barData.key)
             end
         end
@@ -6073,9 +6226,15 @@ BuildAllCDMBars = function()
         -- Restore Blizzard CDM if we're disabled
         RestoreBlizzardCDM()
         for key, frame in pairs(cdmBarFrames) do
-            frame:Hide()
+            EllesmereUI.SetElementVisibility(frame, false)
         end
         return
+    end
+
+    -- Hide ALL existing bar frames before rebuilding. This ensures bars
+    -- from a previous spec that are not in the current spec get hidden.
+    for key, frame in pairs(cdmBarFrames) do
+        EllesmereUI.SetElementVisibility(frame, false)
     end
 
     -- Hide Blizzard CDM
@@ -6097,7 +6256,7 @@ BuildAllCDMBars = function()
         barDataByKey[barData.key] = barData
         if useBlizzBuffs and barData.key == "buffs" then
             local frame = cdmBarFrames[barData.key]
-            if frame then frame:Hide() end
+            if frame then EllesmereUI.SetElementVisibility(frame, false) end
         else
             BuildCDMBar(i)
             RefreshCDMIconAppearance(barData.key)
@@ -6115,6 +6274,26 @@ BuildAllCDMBars = function()
             if frame then frame._prevVisibleCount = nil end
             LayoutCDMBar(barData.key)
             ApplyCDMTooltipState(barData.key)
+        end
+    end
+    -- Re-apply saved positions now that LayoutCDMBar has set correct frame
+    -- sizes. The initial BuildCDMBar call used stale dimensions for the
+    -- grow-direction anchor conversion, causing position drift.
+    for _, barData in ipairs(p.cdmBars.bars) do
+        if barData.enabled then
+            local ak = barData.anchorTo
+            if not ak or ak == "none" then
+                local frame = cdmBarFrames[barData.key]
+                local pos = p.cdmBarPositions[barData.key]
+                if frame and pos and pos.point then
+                    -- Skip for unlock-anchored bars (anchor system is authority)
+                    local unlockKey = "CDM_" .. barData.key
+                    local anchored = EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(unlockKey)
+                    if not anchored or not frame:GetLeft() then
+                        ApplyBarPositionCentered(frame, pos, barData.key)
+                    end
+                end
+            end
         end
     end
     -- Second pass: reapply unlock-mode anchors now that ALL bars are
@@ -6173,6 +6352,9 @@ ns.BLIZZ_CDM_FRAMES = BLIZZ_CDM_FRAMES
 ns.CDM_BAR_CATEGORIES = CDM_BAR_CATEGORIES
 ns.MAX_CUSTOM_BARS = MAX_CUSTOM_BARS
 ns.FindPlayerPartyFrame = EllesmereUI.FindPlayerPartyFrame
+
+-- Expose LayoutCDMBar globally so unlock mode can trigger rebuilds
+EllesmereUI.LayoutCDMBar = LayoutCDMBar
 ns.FindPlayerUnitFrame = EllesmereUI.FindPlayerUnitFrame
 ns.UpdateCDMBarIcons = UpdateCDMBarIcons
 ns.UpdateCustomBarIcons = UpdateCustomBarIcons
@@ -6274,25 +6456,26 @@ function ns.GetCDMSpellsForBar(barKey)
     -- Build our pool set: spellIDs we're currently tracking on this bar
     local ourPool = {}  -- [spellID] = true
     local isBuffBarType = (barType == "buffs")
-    if bd then
-        if bd.customSpells then
-            for _, sid in ipairs(bd.customSpells) do
+    local sd = ns.GetBarSpellData(barKey)
+    if sd then
+        if sd.customSpells then
+            for _, sid in ipairs(sd.customSpells) do
                 if sid and sid ~= 0 then
                     local skip = (not isBuffBarType) and IsTrulyPassive(sid)
                     if not skip then ourPool[sid] = true end
                 end
             end
         end
-        if bd.trackedSpells then
-            for _, sid in ipairs(bd.trackedSpells) do
+        if sd.trackedSpells then
+            for _, sid in ipairs(sd.trackedSpells) do
                 if sid and sid ~= 0 then
                     local skip = (not isBuffBarType) and IsTrulyPassive(sid)
                     if not skip then ourPool[sid] = true end
                 end
             end
         end
-        if bd.extraSpells then
-            for _, sid in ipairs(bd.extraSpells) do
+        if sd.extraSpells then
+            for _, sid in ipairs(sd.extraSpells) do
                 if sid and sid ~= 0 then ourPool[sid] = true end
             end
         end
@@ -6498,63 +6681,55 @@ end
 
 --- Swap two tracked spell positions
 function ns.SwapTrackedSpells(barKey, idx1, idx2)
-    local p = ECME.db.profile
-    for _, b in ipairs(p.cdmBars.bars) do
-        if b.key == barKey then
-            if b.customSpells then
-                local t = b.customSpells
-                if t and idx1 >= 1 and idx2 >= 1 then
-                    local maxIdx = math.max(idx1, idx2)
-                    while #t < maxIdx do t[#t + 1] = 0 end
-                    t[idx1], t[idx2] = t[idx2], t[idx1]
-                    while #t > 0 and (t[#t] == 0 or t[#t] == nil) do t[#t] = nil end
-                    local frame = cdmBarFrames[barKey]
-                    if frame then frame._blizzCache = nil end
-                    return true
-                end
-            else
-                -- Default bar: build a combined virtual list of trackedSpells + extraSpells,
-                -- swap by position, then split back by position (not by original src tag).
-                -- Position determines list membership: slots 1..tLen are tracked, rest are extras.
-                if not b.trackedSpells then b.trackedSpells = {} end
-                if not b.extraSpells then b.extraSpells = {} end
-                local tracked = b.trackedSpells
-                local extras  = b.extraSpells
-                local tLen = #tracked
-                local eLen = #extras
-                local total = tLen + eLen
-                if idx1 < 1 or idx2 < 1 then return false end
-
-                -- Pad tracked list if needed so blank grid slots are addressable
-                local maxIdx = math.max(idx1, idx2)
-                if maxIdx > total then
-                    while #tracked < maxIdx do tracked[#tracked + 1] = 0 end
-                    tLen = #tracked
-                    total = tLen + eLen
-                end
-
-                -- Read values from their current lists
-                local function getVal(i)
-                    if i <= tLen then return tracked[i] else return extras[i - tLen] end
-                end
-                -- Write values back to the list determined by destination position
-                local function setVal(i, v)
-                    if i <= tLen then tracked[i] = v else extras[i - tLen] = v end
-                end
-
-                local v1 = getVal(idx1)
-                local v2 = getVal(idx2)
-                setVal(idx1, v2)
-                setVal(idx2, v1)
-
-                -- Trim trailing zeros
-                while #tracked > 0 and (tracked[#tracked] == 0 or tracked[#tracked] == nil) do tracked[#tracked] = nil end
-                while #extras  > 0 and (extras[#extras]   == 0 or extras[#extras]   == nil) do extras[#extras]   = nil end
-                local frame = cdmBarFrames[barKey]
-                if frame then frame._blizzCache = nil end
-                return true
-            end
+    local sd = ns.GetBarSpellData(barKey)
+    if not sd then return false end
+    if sd.customSpells then
+        local t = sd.customSpells
+        if t and idx1 >= 1 and idx2 >= 1 then
+            local maxIdx = math.max(idx1, idx2)
+            while #t < maxIdx do t[#t + 1] = 0 end
+            t[idx1], t[idx2] = t[idx2], t[idx1]
+            while #t > 0 and (t[#t] == 0 or t[#t] == nil) do t[#t] = nil end
+            local frame = cdmBarFrames[barKey]
+            if frame then frame._blizzCache = nil end
+            return true
         end
+    else
+        -- Default bar: build a combined virtual list of trackedSpells + extraSpells,
+        -- swap by position, then split back by position (not by original src tag).
+        if not sd.trackedSpells then sd.trackedSpells = {} end
+        if not sd.extraSpells then sd.extraSpells = {} end
+        local tracked = sd.trackedSpells
+        local extras  = sd.extraSpells
+        local tLen = #tracked
+        local eLen = #extras
+        local total = tLen + eLen
+        if idx1 < 1 or idx2 < 1 then return false end
+
+        local maxIdx = math.max(idx1, idx2)
+        if maxIdx > total then
+            while #tracked < maxIdx do tracked[#tracked + 1] = 0 end
+            tLen = #tracked
+            total = tLen + eLen
+        end
+
+        local function getVal(i)
+            if i <= tLen then return tracked[i] else return extras[i - tLen] end
+        end
+        local function setVal(i, v)
+            if i <= tLen then tracked[i] = v else extras[i - tLen] = v end
+        end
+
+        local v1 = getVal(idx1)
+        local v2 = getVal(idx2)
+        setVal(idx1, v2)
+        setVal(idx2, v1)
+
+        while #tracked > 0 and (tracked[#tracked] == 0 or tracked[#tracked] == nil) do tracked[#tracked] = nil end
+        while #extras  > 0 and (extras[#extras]   == 0 or extras[#extras]   == nil) do extras[#extras]   = nil end
+        local frame = cdmBarFrames[barKey]
+        if frame then frame._blizzCache = nil end
+        return true
     end
     return false
 end
@@ -6562,58 +6737,49 @@ end
 --- Move a tracked spell from one position to another (insert, not swap)
 function ns.MoveTrackedSpell(barKey, fromIdx, toIdx)
     if fromIdx == toIdx then return false end
-    local p = ECME.db.profile
-    for _, b in ipairs(p.cdmBars.bars) do
-        if b.key == barKey then
-            if b.customSpells then
-                local t = b.customSpells
-                if fromIdx < 1 or fromIdx > #t then return false end
-                if toIdx < 1 then toIdx = 1 end
-                -- Pad if moving to a blank grid slot
-                while #t < toIdx do t[#t + 1] = 0 end
-                local val = table.remove(t, fromIdx)
-                table.insert(t, toIdx, val)
-                while #t > 0 and (t[#t] == 0 or t[#t] == nil) do t[#t] = nil end
-                local frame = cdmBarFrames[barKey]
-                if frame then frame._blizzCache = nil end
-                return true
-            else
-                if not b.trackedSpells then b.trackedSpells = {} end
-                if not b.extraSpells then b.extraSpells = {} end
-                local tracked = b.trackedSpells
-                local extras = b.extraSpells
-                local tLen = #tracked
-                local eLen = #extras
-                local total = tLen + eLen
-                if fromIdx < 1 or fromIdx > total then return false end
-                if toIdx < 1 then toIdx = 1 end
-                -- Pad if moving to a blank grid slot beyond current count
-                if toIdx > total then
-                    while #tracked < toIdx do tracked[#tracked + 1] = 0 end
-                    tLen = #tracked
-                    total = tLen + eLen
-                end
-                -- Build combined list and move
-                local combined = {}
-                for i = 1, tLen do combined[i] = tracked[i] end
-                for i = 1, eLen do combined[tLen + i] = extras[i] end
-                local val = table.remove(combined, fromIdx)
-                table.insert(combined, toIdx, val)
-                -- Split back by position: first tLen slots go to trackedSpells, rest to extraSpells.
-                -- tLen is fixed ΓÇö the boundary doesn't move when items are reordered.
-                b.trackedSpells = {}
-                b.extraSpells = {}
-                for i = 1, tLen do b.trackedSpells[i] = combined[i] end
-                for i = tLen + 1, #combined do b.extraSpells[i - tLen] = combined[i] end
-                while #b.trackedSpells > 0 and (b.trackedSpells[#b.trackedSpells] == 0 or b.trackedSpells[#b.trackedSpells] == nil) do b.trackedSpells[#b.trackedSpells] = nil end
-                while #b.extraSpells  > 0 and (b.extraSpells[#b.extraSpells]   == 0 or b.extraSpells[#b.extraSpells]   == nil) do b.extraSpells[#b.extraSpells]   = nil end
-                local frame = cdmBarFrames[barKey]
-                if frame then frame._blizzCache = nil end
-                return true
-            end
+    local sd = ns.GetBarSpellData(barKey)
+    if not sd then return false end
+    if sd.customSpells then
+        local t = sd.customSpells
+        if fromIdx < 1 or fromIdx > #t then return false end
+        if toIdx < 1 then toIdx = 1 end
+        while #t < toIdx do t[#t + 1] = 0 end
+        local val = table.remove(t, fromIdx)
+        table.insert(t, toIdx, val)
+        while #t > 0 and (t[#t] == 0 or t[#t] == nil) do t[#t] = nil end
+        local frame = cdmBarFrames[barKey]
+        if frame then frame._blizzCache = nil end
+        return true
+    else
+        if not sd.trackedSpells then sd.trackedSpells = {} end
+        if not sd.extraSpells then sd.extraSpells = {} end
+        local tracked = sd.trackedSpells
+        local extras = sd.extraSpells
+        local tLen = #tracked
+        local eLen = #extras
+        local total = tLen + eLen
+        if fromIdx < 1 or fromIdx > total then return false end
+        if toIdx < 1 then toIdx = 1 end
+        if toIdx > total then
+            while #tracked < toIdx do tracked[#tracked + 1] = 0 end
+            tLen = #tracked
+            total = tLen + eLen
         end
+        local combined = {}
+        for i = 1, tLen do combined[i] = tracked[i] end
+        for i = 1, eLen do combined[tLen + i] = extras[i] end
+        local val = table.remove(combined, fromIdx)
+        table.insert(combined, toIdx, val)
+        sd.trackedSpells = {}
+        sd.extraSpells = {}
+        for i = 1, tLen do sd.trackedSpells[i] = combined[i] end
+        for i = tLen + 1, #combined do sd.extraSpells[i - tLen] = combined[i] end
+        while #sd.trackedSpells > 0 and (sd.trackedSpells[#sd.trackedSpells] == 0 or sd.trackedSpells[#sd.trackedSpells] == nil) do sd.trackedSpells[#sd.trackedSpells] = nil end
+        while #sd.extraSpells  > 0 and (sd.extraSpells[#sd.extraSpells]   == 0 or sd.extraSpells[#sd.extraSpells]   == nil) do sd.extraSpells[#sd.extraSpells]   = nil end
+        local frame = cdmBarFrames[barKey]
+        if frame then frame._blizzCache = nil end
+        return true
     end
-    return false
 end
 
 -- Returns the bar type ("buffs", "cooldowns", "utility", etc.) for a given barKey.
@@ -6636,13 +6802,15 @@ SpellConflictsWithOtherBar = function(spellID, targetBarKey)
         if b.key ~= targetBarKey then
             local bt = GetBarType(b.key)
             local bIsBuff = (bt == "buffs")
-            -- Conflict: one is buff, the other is CD/utility
             if targetIsBuff ~= bIsBuff then
-                local lists = { b.customSpells, b.trackedSpells, b.extraSpells }
-                for _, list in ipairs(lists) do
-                    if list then
-                        for _, sid in ipairs(list) do
-                            if sid == spellID then return true, b.key end
+                local sd = ns.GetBarSpellData(b.key)
+                if sd then
+                    local lists = { sd.customSpells, sd.trackedSpells, sd.extraSpells }
+                    for _, list in ipairs(lists) do
+                        if list then
+                            for _, sid in ipairs(list) do
+                                if sid == spellID then return true, b.key end
+                            end
                         end
                     end
                 end
@@ -6658,176 +6826,140 @@ ns.SpellConflictsWithOtherBar = SpellConflictsWithOtherBar
 --- Only works on custom bars with barType="buffs" (has customSpells).
 --- Duration and group variant mappings are stored in customSpellDurations/customSpellGroups.
 function ns.AddPresetToBar(barKey, preset)
-    local p = ECME.db.profile
-    for _, b in ipairs(p.cdmBars.bars) do
-        if b.key == barKey then
-            local primaryID = preset.spellIDs[1]
-            -- Determine which spell list to use
-            local spellList
-            if b.customSpells then
-                spellList = b.customSpells
-            else
-                if not b.extraSpells then b.extraSpells = {} end
-                spellList = b.extraSpells
-            end
-            -- Check not already tracked
-            for _, existing in ipairs(spellList) do
-                if existing == primaryID then return false, "exists" end
-            end
-            -- Add primary ID as the icon slot
-            spellList[#spellList + 1] = primaryID
-            -- Store duration for primary
-            if not b.customSpellDurations then b.customSpellDurations = {} end
-            b.customSpellDurations[primaryID] = preset.duration
-            -- Map all variant IDs -> primary so any cast triggers the timer
-            if not b.customSpellGroups then b.customSpellGroups = {} end
-            for _, sid in ipairs(preset.spellIDs) do
-                b.customSpellGroups[sid] = primaryID
-            end
-            local frame = cdmBarFrames[barKey]
-            if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
-            if p.activeSpecKey and p.activeSpecKey ~= "0" then SaveCurrentSpecProfile() end
-            return true
-        end
+    local sd = ns.GetBarSpellData(barKey)
+    if not sd then return false end
+    local primaryID = preset.spellIDs[1]
+    local spellList
+    if sd.customSpells then
+        spellList = sd.customSpells
+    else
+        if not sd.extraSpells then sd.extraSpells = {} end
+        spellList = sd.extraSpells
     end
-    return false
+    for _, existing in ipairs(spellList) do
+        if existing == primaryID then return false, "exists" end
+    end
+    spellList[#spellList + 1] = primaryID
+    if not sd.customSpellDurations then sd.customSpellDurations = {} end
+    sd.customSpellDurations[primaryID] = preset.duration
+    if not sd.customSpellGroups then sd.customSpellGroups = {} end
+    for _, sid in ipairs(preset.spellIDs) do
+        sd.customSpellGroups[sid] = primaryID
+    end
+    local frame = cdmBarFrames[barKey]
+    if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+    return true
 end
 
 --- Add a tracked spell (spellID) to a bar
 --- When isExtra is true, id is a spellID (positive) or trinket slot (negative)
 function ns.AddTrackedSpell(barKey, id, isExtra)
-    -- Block assignment if this spell is already tracked on a bar of the opposite type
     if id and id > 0 then
         local conflicts = SpellConflictsWithOtherBar(id, barKey)
         if conflicts then return false, "conflict" end
     end
-    local p = ECME.db.profile
-    for _, b in ipairs(p.cdmBars.bars) do
-        if b.key == barKey then
-            if b.customSpells then
-                for _, existing in ipairs(b.customSpells) do
-                    if existing == id then return false end
-                end
-                -- Insert so the new spell fills the top row's next empty slot.
-                -- With bottom-up fill, icons 1..topRowCount go to the top row.
-                local numRows = b.numRows or 1
-                if numRows < 1 then numRows = 1 end
-                local curCount = #b.customSpells
-                local stride, _, topRowCount = ComputeTopRowStride(b, curCount)
-                if stride < 1 then stride = 1 end
-                -- New count after insert
-                local newCount = curCount + 1
-                local newStride, _, newTopRow = ComputeTopRowStride(b, newCount)
-                if newStride < 1 then newStride = 1 end
-                -- If stride didn't change, insert at end of top row section
-                if newStride == stride and newTopRow > topRowCount then
-                    table.insert(b.customSpells, topRowCount + 1, id)
-                else
-                    b.customSpells[newCount] = id
-                end
-            elseif isExtra then
-                -- Default bar: store extras in a separate list
-                if not b.extraSpells then b.extraSpells = {} end
-                for _, existing in ipairs(b.extraSpells) do
-                    if existing == id then return false end
-                end
-                b.extraSpells[#b.extraSpells + 1] = id
-            else
-                if not b.trackedSpells then b.trackedSpells = {} end
-                for _, existing in ipairs(b.trackedSpells) do
-                    if existing == id then return false end
-                end
-                -- Insert so the new spell fills the top row's next empty slot
-                local numRows = b.numRows or 1
-                if numRows < 1 then numRows = 1 end
-                local curCount = #b.trackedSpells
-                local stride, _, topRowCount = ComputeTopRowStride(b, curCount)
-                if stride < 1 then stride = 1 end
-                local newCount = curCount + 1
-                local newStride, _, newTopRow = ComputeTopRowStride(b, newCount)
-                if newStride < 1 then newStride = 1 end
-                if newStride == stride and newTopRow > topRowCount then
-                    table.insert(b.trackedSpells, topRowCount + 1, id)
-                else
-                    b.trackedSpells[newCount] = id
-                end
-                -- Clear removal flag so reconcile does not strip it
-                if b.removedSpells then b.removedSpells[id] = nil end
-            end
-            local frame = cdmBarFrames[barKey]
-            if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
-            -- Persist to spec profile immediately so reloads/spec switches keep the change
-            if p.activeSpecKey and p.activeSpecKey ~= "0" then SaveCurrentSpecProfile() end
-            return true
+    local sd = ns.GetBarSpellData(barKey)
+    if not sd then return false end
+    local bd = barDataByKey[barKey]
+    if sd.customSpells then
+        for _, existing in ipairs(sd.customSpells) do
+            if existing == id then return false end
         end
+        local numRows = bd and bd.numRows or 1
+        if numRows < 1 then numRows = 1 end
+        local curCount = #sd.customSpells
+        local stride, _, topRowCount = ComputeTopRowStride(bd or {}, curCount)
+        if stride < 1 then stride = 1 end
+        local newCount = curCount + 1
+        local newStride, _, newTopRow = ComputeTopRowStride(bd or {}, newCount)
+        if newStride < 1 then newStride = 1 end
+        if newStride == stride and newTopRow > topRowCount then
+            table.insert(sd.customSpells, topRowCount + 1, id)
+        else
+            sd.customSpells[newCount] = id
+        end
+    elseif isExtra then
+        if not sd.extraSpells then sd.extraSpells = {} end
+        for _, existing in ipairs(sd.extraSpells) do
+            if existing == id then return false end
+        end
+        sd.extraSpells[#sd.extraSpells + 1] = id
+    else
+        if not sd.trackedSpells then sd.trackedSpells = {} end
+        for _, existing in ipairs(sd.trackedSpells) do
+            if existing == id then return false end
+        end
+        local numRows = bd and bd.numRows or 1
+        if numRows < 1 then numRows = 1 end
+        local curCount = #sd.trackedSpells
+        local stride, _, topRowCount = ComputeTopRowStride(bd or {}, curCount)
+        if stride < 1 then stride = 1 end
+        local newCount = curCount + 1
+        local newStride, _, newTopRow = ComputeTopRowStride(bd or {}, newCount)
+        if newStride < 1 then newStride = 1 end
+        if newStride == stride and newTopRow > topRowCount then
+            table.insert(sd.trackedSpells, topRowCount + 1, id)
+        else
+            sd.trackedSpells[newCount] = id
+        end
+        if sd.removedSpells then sd.removedSpells[id] = nil end
     end
-    return false
+    local frame = cdmBarFrames[barKey]
+    if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+    return true
 end
 
 --- Remove a tracked spell by index
 function ns.RemoveTrackedSpell(barKey, idx)
-    local p = ECME.db.profile
-    for _, b in ipairs(p.cdmBars.bars) do
-        if b.key == barKey then
-            if b.customSpells then
-                local list = b.customSpells
-                if list and idx >= 1 and idx <= #list then
-                    local removedID = list[idx]
-                    table.remove(list, idx)
-                    -- Clean up duration entry if present
-                    if removedID and b.customSpellDurations then
-                        b.customSpellDurations[removedID] = nil
+    local sd = ns.GetBarSpellData(barKey)
+    if not sd then return false end
+    if sd.customSpells then
+        local list = sd.customSpells
+        if list and idx >= 1 and idx <= #list then
+            local removedID = list[idx]
+            table.remove(list, idx)
+            if removedID and sd.customSpellDurations then
+                sd.customSpellDurations[removedID] = nil
+            end
+            if removedID and sd.customSpellGroups then
+                for variantID, primaryID in pairs(sd.customSpellGroups) do
+                    if primaryID == removedID then
+                        sd.customSpellGroups[variantID] = nil
                     end
-                    -- Clean up spell group variant mappings that point to this primary ID
-                    if removedID and b.customSpellGroups then
-                        for variantID, primaryID in pairs(b.customSpellGroups) do
-                            if primaryID == removedID then
-                                b.customSpellGroups[variantID] = nil
-                            end
-                        end
-                    end
-                    local frame = cdmBarFrames[barKey]
-                    if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
-                    -- Persist to spec profile immediately so spec switches don't restore removed spells
-                    if p.activeSpecKey and p.activeSpecKey ~= "0" then SaveCurrentSpecProfile() end
-                    return true
-                end
-            else
-                local tracked = b.trackedSpells or {}
-                local extras  = b.extraSpells or {}
-                if idx >= 1 and idx <= #tracked then
-                    local sid = tracked[idx]
-                    table.remove(tracked, idx)
-                    -- Persist removal so reconcile does not re-add it
-                    if sid and sid ~= 0 then
-                        if not b.removedSpells then b.removedSpells = {} end
-                        b.removedSpells[sid] = true
-                    end
-                    -- Clean up duration and group mappings (preset spells on built-in bars)
-                    if sid and b.customSpellDurations then
-                        b.customSpellDurations[sid] = nil
-                    end
-                    if sid and b.customSpellGroups then
-                        for variantID, primaryID in pairs(b.customSpellGroups) do
-                            if primaryID == sid then
-                                b.customSpellGroups[variantID] = nil
-                            end
-                        end
-                    end
-                    local frame = cdmBarFrames[barKey]
-                    if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
-                    -- Persist to spec profile immediately so spec switches don't restore removed spells
-                    if p.activeSpecKey and p.activeSpecKey ~= "0" then SaveCurrentSpecProfile() end
-                    return true
-                elseif idx > #tracked and idx <= #tracked + #extras then
-                    table.remove(extras, idx - #tracked)
-                    local frame = cdmBarFrames[barKey]
-                    if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
-                    -- Persist to spec profile immediately so spec switches don't restore removed spells
-                    if p.activeSpecKey and p.activeSpecKey ~= "0" then SaveCurrentSpecProfile() end
-                    return true
                 end
             end
+            local frame = cdmBarFrames[barKey]
+            if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+            return true
+        end
+    else
+        local tracked = sd.trackedSpells or {}
+        local extras  = sd.extraSpells or {}
+        if idx >= 1 and idx <= #tracked then
+            local sid = tracked[idx]
+            table.remove(tracked, idx)
+            if sid and sid ~= 0 then
+                if not sd.removedSpells then sd.removedSpells = {} end
+                sd.removedSpells[sid] = true
+            end
+            if sid and sd.customSpellDurations then
+                sd.customSpellDurations[sid] = nil
+            end
+            if sid and sd.customSpellGroups then
+                for variantID, primaryID in pairs(sd.customSpellGroups) do
+                    if primaryID == sid then
+                        sd.customSpellGroups[variantID] = nil
+                    end
+                end
+            end
+            local frame = cdmBarFrames[barKey]
+            if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+            return true
+        elseif idx > #tracked and idx <= #tracked + #extras then
+            table.remove(extras, idx - #tracked)
+            local frame = cdmBarFrames[barKey]
+            if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+            return true
         end
     end
     return false
@@ -6836,94 +6968,82 @@ end
 --- Replace a tracked spell at a given index with a new spellID
 --- When isExtra is true, newID is a spellID or trinket slot directly
 function ns.ReplaceTrackedSpell(barKey, idx, newID, isExtra)
-    -- Block replacement if the new spell is already tracked on a bar of the opposite type
     if newID and newID > 0 then
         local conflicts = SpellConflictsWithOtherBar(newID, barKey)
         if conflicts then return false, "conflict" end
     end
-    local p = ECME.db.profile
-    for _, b in ipairs(p.cdmBars.bars) do
-        if b.key == barKey then
-            if b.customSpells then
-                local list = b.customSpells
-                -- Extend array if replacing beyond current length
-                while #list < idx do list[#list + 1] = 0 end
-                if idx >= 1 then
-                    for i, existing in ipairs(list) do
-                        if existing == newID and i ~= idx then
-                            table.remove(list, i)
-                            if i < idx then idx = idx - 1 end
-                            break
-                        end
-                    end
-                    list[idx] = newID
-                    -- Trim trailing zeros
-                    while #list > 0 and (list[#list] == 0 or list[#list] == nil) do list[#list] = nil end
-                    local frame = cdmBarFrames[barKey]
-                    if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
-                    return true
-                end
-            else
-                -- Default bar: determine if index falls in trackedSpells or extraSpells
-                local tracked = b.trackedSpells or {}
-                local extras  = b.extraSpells or {}
-                if idx >= 1 and idx <= #tracked then
-                    -- Replacing within trackedSpells
-                    if isExtra then
-                        -- Replacing a tracked spell with an extra: remove from tracked, add to extras
-                        table.remove(tracked, idx)
-                        if not b.extraSpells then b.extraSpells = {} end
-                        local found = false
-                        for _, ex in ipairs(b.extraSpells) do
-                            if ex == newID then found = true; break end
-                        end
-                        if not found then b.extraSpells[#b.extraSpells + 1] = newID end
-                    else
-                        while #b.trackedSpells < idx do b.trackedSpells[#b.trackedSpells + 1] = 0 end
-                        for i, existing in ipairs(b.trackedSpells) do
-                            if existing == newID and i ~= idx then
-                                table.remove(b.trackedSpells, i)
-                                if i < idx then idx = idx - 1 end
-                                break
-                            end
-                        end
-                        b.trackedSpells[idx] = newID
-                        while #b.trackedSpells > 0 and (b.trackedSpells[#b.trackedSpells] == 0 or b.trackedSpells[#b.trackedSpells] == nil) do b.trackedSpells[#b.trackedSpells] = nil end
-                        -- Clear removal flag so reconcile does not strip it
-                        if b.removedSpells then b.removedSpells[newID] = nil end
-                    end
-                    local frame = cdmBarFrames[barKey]
-                    if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
-                    return true
-                elseif idx > #tracked and idx <= #tracked + #extras then
-                    -- Replacing within extraSpells
-                    local eIdx = idx - #tracked
-                    if isExtra then
-                        for i, existing in ipairs(extras) do
-                            if existing == newID and i ~= eIdx then
-                                table.remove(extras, i)
-                                if i < eIdx then eIdx = eIdx - 1 end
-                                break
-                            end
-                        end
-                        extras[eIdx] = newID
-                    else
-                        -- Replacing an extra with a tracked spell: remove from extras, add to tracked
-                        table.remove(extras, eIdx)
-                        if not b.trackedSpells then b.trackedSpells = {} end
-                        local found = false
-                        for _, ex in ipairs(b.trackedSpells) do
-                            if ex == newID then found = true; break end
-                        end
-                        if not found then b.trackedSpells[#b.trackedSpells + 1] = newID end
-                        -- Clear removal flag so reconcile does not strip it
-                        if b.removedSpells then b.removedSpells[newID] = nil end
-                    end
-                    local frame = cdmBarFrames[barKey]
-                    if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
-                    return true
+    local sd = ns.GetBarSpellData(barKey)
+    if not sd then return false end
+    if sd.customSpells then
+        local list = sd.customSpells
+        while #list < idx do list[#list + 1] = 0 end
+        if idx >= 1 then
+            for i, existing in ipairs(list) do
+                if existing == newID and i ~= idx then
+                    table.remove(list, i)
+                    if i < idx then idx = idx - 1 end
+                    break
                 end
             end
+            list[idx] = newID
+            while #list > 0 and (list[#list] == 0 or list[#list] == nil) do list[#list] = nil end
+            local frame = cdmBarFrames[barKey]
+            if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+            return true
+        end
+    else
+        local tracked = sd.trackedSpells or {}
+        local extras  = sd.extraSpells or {}
+        if idx >= 1 and idx <= #tracked then
+            if isExtra then
+                table.remove(tracked, idx)
+                if not sd.extraSpells then sd.extraSpells = {} end
+                local found = false
+                for _, ex in ipairs(sd.extraSpells) do
+                    if ex == newID then found = true; break end
+                end
+                if not found then sd.extraSpells[#sd.extraSpells + 1] = newID end
+            else
+                if not sd.trackedSpells then sd.trackedSpells = {} end
+                while #sd.trackedSpells < idx do sd.trackedSpells[#sd.trackedSpells + 1] = 0 end
+                for i, existing in ipairs(sd.trackedSpells) do
+                    if existing == newID and i ~= idx then
+                        table.remove(sd.trackedSpells, i)
+                        if i < idx then idx = idx - 1 end
+                        break
+                    end
+                end
+                sd.trackedSpells[idx] = newID
+                while #sd.trackedSpells > 0 and (sd.trackedSpells[#sd.trackedSpells] == 0 or sd.trackedSpells[#sd.trackedSpells] == nil) do sd.trackedSpells[#sd.trackedSpells] = nil end
+                if sd.removedSpells then sd.removedSpells[newID] = nil end
+            end
+            local frame = cdmBarFrames[barKey]
+            if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+            return true
+        elseif idx > #tracked and idx <= #tracked + #extras then
+            local eIdx = idx - #tracked
+            if isExtra then
+                for i, existing in ipairs(extras) do
+                    if existing == newID and i ~= eIdx then
+                        table.remove(extras, i)
+                        if i < eIdx then eIdx = eIdx - 1 end
+                        break
+                    end
+                end
+                extras[eIdx] = newID
+            else
+                table.remove(extras, eIdx)
+                if not sd.trackedSpells then sd.trackedSpells = {} end
+                local found = false
+                for _, ex in ipairs(sd.trackedSpells) do
+                    if ex == newID then found = true; break end
+                end
+                if not found then sd.trackedSpells[#sd.trackedSpells + 1] = newID end
+                if sd.removedSpells then sd.removedSpells[newID] = nil end
+            end
+            local frame = cdmBarFrames[barKey]
+            if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+            return true
         end
     end
     return false
@@ -6980,11 +7100,13 @@ function ns.AddCDMBar(barType, name, numRows)
         stackCountX = 0, stackCountY = 0,
         stackCountR = 1, stackCountG = 1, stackCountB = 1,
         -- Custom bars use a spell list instead of mirroring Blizzard
-        customSpells = {},
         outOfRangeOverlay = false,
         pandemicGlow = false,
         pandemicR = 1, pandemicG = 1, pandemicB = 0,
     }
+    -- Initialize spell data in the global store for this custom bar
+    local sd = ns.GetBarSpellData(key)
+    if sd then sd.customSpells = {} end
     BuildAllCDMBars()
     -- Immediately populate icons so the bar is visible without a /reload
     UpdateCustomBarIcons(key)
@@ -7001,7 +7123,7 @@ function ns.RemoveCDMBar(key)
         if barData.key == key then
             -- Clean up frame
             local frame = cdmBarFrames[key]
-            if frame then frame:Hide() end
+            if frame then EllesmereUI.SetElementVisibility(frame, false) end
             cdmBarFrames[key] = nil
             cdmBarIcons[key] = nil
             p.cdmBarPositions[key] = nil
@@ -7079,16 +7201,18 @@ RegisterCDMUnlockElements = function()
     -- Helper: count spells in a bar's data
     local function CountBarSpells(bd)
         local count = 0
-        if bd.customSpells then
-            for _, sid in ipairs(bd.customSpells) do
+        local sd = ns.GetBarSpellData(bd.key)
+        if not sd then return 0 end
+        if sd.customSpells then
+            for _, sid in ipairs(sd.customSpells) do
                 if sid and sid ~= 0 then count = count + 1 end
             end
-        elseif bd.trackedSpells then
-            for _, sid in ipairs(bd.trackedSpells) do
+        elseif sd.trackedSpells then
+            for _, sid in ipairs(sd.trackedSpells) do
                 if sid and sid ~= 0 then count = count + 1 end
             end
-            if bd.extraSpells then
-                for _, sid in ipairs(bd.extraSpells) do
+            if sd.extraSpells then
+                for _, sid in ipairs(sd.extraSpells) do
                     if sid and sid ~= 0 then count = count + 1 end
                 end
             end
@@ -7108,7 +7232,7 @@ RegisterCDMUnlockElements = function()
         if rows < 1 then rows = 1 end
         local stride = ComputeTopRowStride(bd, count)
         local grow = bd.growDirection or "RIGHT"
-        local isH = (grow == "RIGHT" or grow == "LEFT")
+        local isH = (grow == "RIGHT" or grow == "LEFT" or grow == "CENTER")
         if isH then
             return stride * iW + (stride - 1) * sp,
                    rows * iH + (rows - 1) * sp
@@ -7144,6 +7268,12 @@ RegisterCDMUnlockElements = function()
                 group = "Cooldown Manager",
                 order = 600,
                 linkedKeys = linked,
+                isHidden = function()
+                    -- If this bar key is no longer in the current profile's
+                    -- barDataByKey, it is a stale registration from a previous
+                    -- profile and should not get a mover.
+                    return not barDataByKey[key]
+                end,
                 getFrame = function() return cdmBarFrames[key] end,
                 getSize = function()
                     local f = cdmBarFrames[key]
@@ -7169,7 +7299,7 @@ RegisterCDMUnlockElements = function()
                     if rows < 1 then rows = 1 end
                     local stride = ComputeTopRowStride(bd2, count)
                     local grow = bd2.growDirection or "RIGHT"
-                    local isH = (grow == "RIGHT" or grow == "LEFT")
+                    local isH = (grow == "RIGHT" or grow == "LEFT" or grow == "CENTER")
                     local sp = SnapForScale(bd2.spacing or 2, 1)
                     local rawIcon
                     if isH then
@@ -7191,7 +7321,7 @@ RegisterCDMUnlockElements = function()
                     if rows < 1 then rows = 1 end
                     local stride = ComputeTopRowStride(bd2, count)
                     local grow = bd2.growDirection or "RIGHT"
-                    local isH = (grow == "RIGHT" or grow == "LEFT")
+                    local isH = (grow == "RIGHT" or grow == "LEFT" or grow == "CENTER")
                     local sp = SnapForScale(bd2.spacing or 2, 1)
                     local shape = bd2.iconShape or "none"
                     local rawIcon
@@ -7208,34 +7338,8 @@ RegisterCDMUnlockElements = function()
                 end,
                 savePos = function(_, point, relPoint, x, y)
                     local p = ECME.db.profile
-                    -- Convert TOPLEFT (from unlock mode) to the grow-direction
-                    -- edge point so the near edge stays fixed when icon count
-                    -- changes across specs.
-                    local f = cdmBarFrames[key]
-                    if f and point == "TOPLEFT" and relPoint == "TOPLEFT" then
-                        local bd2 = barDataByKey[key]
-                        local grow = bd2 and bd2.growDirection or "RIGHT"
-                        local fw, fh = f:GetWidth() or 0, f:GetHeight() or 0
-                        local uiW, uiH = UIParent:GetSize()
-                        local pt, ax, ay
-                        if grow == "RIGHT" then
-                            pt = "LEFT";   ax = x;            ay = y - fh * 0.5
-                        elseif grow == "LEFT" then
-                            pt = "RIGHT";  ax = x + fw;       ay = y - fh * 0.5
-                        elseif grow == "DOWN" then
-                            pt = "TOP";    ax = x + fw * 0.5; ay = y
-                        elseif grow == "UP" then
-                            pt = "BOTTOM"; ax = x + fw * 0.5; ay = y - fh
-                        else
-                            pt = "LEFT";   ax = x;            ay = y - fh * 0.5
-                        end
-                        p.cdmBarPositions[key] = {
-                            point = pt, relPoint = "CENTER",
-                            x = ax - uiW * 0.5, y = ay + uiH * 0.5,
-                        }
-                    else
-                        p.cdmBarPositions[key] = { point = point, relPoint = relPoint, x = x, y = y }
-                    end
+                    -- Centralized system already converts to CENTER/CENTER
+                    p.cdmBarPositions[key] = { point = point, relPoint = relPoint, x = x, y = y }
                     -- Skip rebuild when called from anchor propagation --
                     -- the bar is already positioned correctly and rebuilding
                     -- would re-trigger propagation in an infinite loop.
@@ -7285,8 +7389,9 @@ end
 -------------------------------------------------------------------------------
 local function SetActiveSpec()
     local p = ECME.db.profile
-    p.activeSpecKey = GetCurrentSpecKey()
-    EnsureSpec(p, p.activeSpecKey)
+    local specKey = GetCurrentSpecKey()
+    ns.SetActiveSpecKey(specKey)
+    EnsureSpec(p, specKey)
 end
 
 function ECME:OnInitialize()
@@ -7294,8 +7399,8 @@ function ECME:OnInitialize()
 
     -- Save spec profile before StripDefaults runs on logout
     EllesmereUI.Lite.RegisterPreLogout(function()
-        local p = ECME.db and ECME.db.profile
-        if p and p.activeSpecKey and p.activeSpecKey ~= "0" then
+        local specKey = ns.GetActiveSpecKey()
+        if specKey and specKey ~= "0" then
             SaveCurrentSpecProfile()
         end
     end)
@@ -7359,39 +7464,25 @@ function ECME:OnEnable()
 
     -- Detect spec/character change since last session and swap profiles
     local p = ECME.db.profile
-    local oldSpecKey = p.activeSpecKey
+    local oldSpecKey = ns.GetActiveSpecKey()
     local newSpecKey = GetCurrentSpecKey()
     if newSpecKey ~= "0" and oldSpecKey and oldSpecKey ~= "0" and oldSpecKey ~= newSpecKey then
         -- Spec changed (different character or respec while offline).
-        -- Do NOT re-save the old spec here -- the pre-logout hook already
-        -- saved it correctly. The live bar data at this point belongs to
-        -- the OLD spec key but may have been repointed by a profile switch
-        -- on a different character, so saving it again would corrupt the
-        -- old spec's saved profile with wrong data.
+        -- Non-spell per-spec data (barGlows, TBB) needs loading.
         SetActiveSpec()
         LoadSpecProfile(newSpecKey)
         _specValidated = true
     elseif newSpecKey ~= "0" then
         SetActiveSpec()
-        -- Restore trackedSpells from specProfiles if any main bar lost them.
-        local specKey = p.activeSpecKey
-        if specKey and specKey ~= "0" and p.specProfiles and p.specProfiles[specKey] then
-            local needsRestore = false
-            if p.cdmBars and p.cdmBars.bars then
-                for _, barData in ipairs(p.cdmBars.bars) do
-                    if MAIN_BAR_KEYS[barData.key] and not barData.trackedSpells then
-                        needsRestore = true
-                        break
-                    end
-                end
-            end
-            if needsRestore then
-                LoadSpecProfile(specKey)
-            end
+        -- Load non-spell per-spec data for the current spec
+        local specKey = ns.GetActiveSpecKey()
+        local specProfiles = SpellStore.GetSpecProfiles()
+        if specKey and specKey ~= "0" and specProfiles[specKey] then
+            LoadSpecProfile(specKey)
         end
         _specValidated = true
     else
-        -- GetSpecialization() not ready yet ΓÇö leave activeSpecKey as-is,
+        -- GetSpecialization() not ready yet -- leave activeSpecKey as-is,
         -- ValidateSpec will fix it when SPELLS_CHANGED or PEW fires
         _specValidated = false
     end
@@ -7540,7 +7631,11 @@ local function TalentAwareReconcile()
     -- Helper: reconcile a single spell list (trackedSpells or customSpells)
     -- Returns the new active list with dormant spells removed and returning
     -- spells re-inserted at their saved positions.
-    local function ReconcileSpellList(spellList, dormant, removed)
+    -- classSpellSet: optional set of ALL class spellIDs (from the full CDM
+    -- category set). When provided, spells in this set are never moved to
+    -- dormant -- they are permanent class abilities that may appear missing
+    -- from the "currently known" set during API timing gaps.
+    local function ReconcileSpellList(spellList, dormant, removed, classSpellSet)
         if not spellList then return nil, dormant end
         if not dormant then dormant = {} end
 
@@ -7554,7 +7649,8 @@ local function TalentAwareReconcile()
             if sid and sid ~= 0 then
                 if seenInActive[sid] then
                     -- Duplicate already in active list -- skip silently
-                elseif knownSet[sid] or (_IPS and _IPS(sid)) then
+                elseif knownSet[sid] or (_IPS and _IPS(sid))
+                       or (classSpellSet and classSpellSet[sid]) then
                     active[#active + 1] = sid
                     seenInActive[sid] = true
                 else
@@ -7578,6 +7674,7 @@ local function TalentAwareReconcile()
         for sid, savedSlot in pairs(dormant) do
             local isKnown = knownSet[sid]
                 or (_IPS and _IPS(sid))
+                or (classSpellSet and classSpellSet[sid])
             if isKnown and not (removed and removed[sid]) then
                 -- Only return spells that aren't already in the active list
                 if not activeSet[sid] then
@@ -7641,24 +7738,52 @@ local function TalentAwareReconcile()
         return active, (next(dormant) and dormant or nil)
     end
 
-    -- Process each bar
-    for _, barData in ipairs(p.cdmBars.bars) do
-        if MAIN_BAR_KEYS[barData.key] and TALENT_AWARE_BAR_TYPES[barData.key] then
-            -- Main bars (cooldowns, utility): reconcile trackedSpells
-            if barData.trackedSpells and #barData.trackedSpells > 0 then
-                barData.trackedSpells, barData.dormantSpells =
-                    ReconcileSpellList(barData.trackedSpells, barData.dormantSpells, barData.removedSpells)
-            end
-        elseif TALENT_AWARE_BAR_TYPES[barData.barType] then
-            -- Custom cooldown/utility bars: reconcile customSpells
-            if barData.customSpells and #barData.customSpells > 0 then
-                barData.customSpells, barData.dormantSpells =
-                    ReconcileSpellList(barData.customSpells, barData.dormantSpells, nil)
+    -- Build a set of ALL class spellIDs (regardless of current talents).
+    -- Used for custom bars so permanent class abilities (e.g. Stampeding Roar)
+    -- are never moved to dormant due to API timing gaps during talent swaps.
+    local classSpellSet = {}
+    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCategorySet then
+        for cat = 0, 3 do
+            local allIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, true)
+            if allIDs then
+                for _, cdID in ipairs(allIDs) do
+                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+                    if info then
+                        if info.spellID and info.spellID > 0 then
+                            classSpellSet[info.spellID] = true
+                        end
+                        if info.overrideSpellID and info.overrideSpellID > 0 then
+                            classSpellSet[info.overrideSpellID] = true
+                        end
+                        if info.linkedSpellIDs then
+                            for _, lsid in ipairs(info.linkedSpellIDs) do
+                                if lsid and lsid > 0 then
+                                    classSpellSet[lsid] = true
+                                end
+                            end
+                        end
+                    end
+                end
             end
         end
-        -- Buffs bar (and other MAIN_BAR_KEYS not in TALENT_AWARE_BAR_TYPES):
-        -- skip entirely. Buff/proc spells are not talent-dependent and should
-        -- never be moved to dormant on talent or level-up events.
+    end
+
+    -- Process each bar
+    for _, barData in ipairs(p.cdmBars.bars) do
+        local sd = ns.GetBarSpellData(barData.key)
+        if not sd then
+            -- no spell data for this bar/spec yet, skip
+        elseif MAIN_BAR_KEYS[barData.key] and TALENT_AWARE_BAR_TYPES[barData.key] then
+            if sd.trackedSpells and #sd.trackedSpells > 0 then
+                sd.trackedSpells, sd.dormantSpells =
+                    ReconcileSpellList(sd.trackedSpells, sd.dormantSpells, sd.removedSpells, nil)
+            end
+        elseif TALENT_AWARE_BAR_TYPES[barData.barType] then
+            if sd.customSpells and #sd.customSpells > 0 then
+                sd.customSpells, sd.dormantSpells =
+                    ReconcileSpellList(sd.customSpells, sd.dormantSpells, nil, classSpellSet)
+            end
+        end
     end
 
     BuildAllCDMBars()
@@ -7701,7 +7826,8 @@ local function ReconcileMainBarSpells()
     -- moves spells to/from dormant slots.
     for _, barData in ipairs(p.cdmBars.bars) do
         if barData.enabled and MAIN_BAR_KEYS[barData.key] then
-            if not barData.trackedSpells then
+            local sd = ns.GetBarSpellData(barData.key)
+            if not (sd and sd.trackedSpells) then
                 local viewerName = BLIZZ_CDM_FRAMES[barData.key]
                 if viewerName then
                     SnapshotBlizzardCDM(barData.key, barData)
@@ -7711,6 +7837,17 @@ local function ReconcileMainBarSpells()
     end
 
     BuildAllCDMBars()
+
+    -- Re-apply width/height matches after bars have their final spell count.
+    -- LayoutCDMBar (inside BuildAllCDMBars) propagates matches, but the
+    -- resource bar or other matched elements may not have been registered
+    -- yet on the very first call. Defer slightly so the tick populates
+    -- icons and LayoutCDMBar produces correct frame sizes.
+    C_Timer.After(0.3, function()
+        if EllesmereUI.ApplyAllWidthHeightMatches then
+            EllesmereUI.ApplyAllWidthHeightMatches()
+        end
+    end)
 
     -- Rebuild the persistent cdID -> correct spellID map now that viewer
     -- children are populated. This feeds the tick cache dual mapping.
@@ -7750,10 +7887,12 @@ local function ReconcileMainBarSpells()
         local p2 = ECME.db and ECME.db.profile
         if p2 and p2.cdmBars and p2.cdmBars.bars then
             for _, barData in ipairs(p2.cdmBars.bars) do
-                if barData.enabled and barData.customSpells then
+                if barData.enabled then
+                    local sd2 = ns.GetBarSpellData(barData.key)
+                    if sd2 and sd2.customSpells then
                     local icons = cdmBarIcons[barData.key]
                     if icons then
-                        for i, sid in ipairs(barData.customSpells) do
+                        for i, sid in ipairs(sd2.customSpells) do
                             if sid and sid > 0 and icons[i] then
                                 local checkID = sid
                                 if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
@@ -7766,6 +7905,7 @@ local function ReconcileMainBarSpells()
                                 end
                             end
                         end
+                    end
                     end
                 end
             end
@@ -7793,9 +7933,12 @@ StartResnapshotRetry = function()
         end
         local allReady = true
         for _, barData in ipairs(p.cdmBars.bars) do
-            if barData.enabled and MAIN_BAR_KEYS[barData.key] and not barData.trackedSpells then
-                allReady = false
-                break
+            if barData.enabled and MAIN_BAR_KEYS[barData.key] then
+                local sd = ns.GetBarSpellData(barData.key)
+                if not (sd and sd.trackedSpells) then
+                    allReady = false
+                    break
+                end
             end
         end
         if allReady or _resnapshotAttempts >= 15 then
@@ -7811,7 +7954,233 @@ StartResnapshotRetry = function()
     end)
 end
 
+-------------------------------------------------------------------------------
+--  One-time per-spec validation
+--  Checks that the specProfile's trackedSpells belong to the current spec
+--  using Blizzard CDM (GetCooldownViewerCategorySet with false) as ground
+--  truth. Runs once per spec per character via a ticker, then sets a flag
+--  so it never runs again for that spec. Called from CDMFinishSetup (login)
+--  and after spec swaps / zone-ins.
+-------------------------------------------------------------------------------
+do
+    local _validateTicker
+    local _validateAttempts = 0
+    local _validateGeneration = 0
+
+    local function TryValidateSpec(gen)
+        -- Stale ticker from a previous StartSpecValidation call
+        if gen ~= _validateGeneration then
+            if _validateTicker then _validateTicker:Cancel(); _validateTicker = nil end
+            return
+        end
+        _validateAttempts = _validateAttempts + 1
+        if _validateAttempts > 30 then
+            if _validateTicker then _validateTicker:Cancel(); _validateTicker = nil end
+            return
+        end
+        if not (ns.IsReconcileReady and ns.IsReconcileReady()) then return end
+        if _validateTicker then _validateTicker:Cancel(); _validateTicker = nil end
+
+        local specKey = ns.GetActiveSpecKey()
+        if not specKey or specKey == "0" then return end
+
+        -- Check if this spec was already validated for this character
+        local charKey = ns.GetCharKey()
+        if not EllesmereUIDB.cdmSpecValidated then EllesmereUIDB.cdmSpecValidated = {} end
+        if not EllesmereUIDB.cdmSpecValidated[charKey] then EllesmereUIDB.cdmSpecValidated[charKey] = {} end
+        if EllesmereUIDB.cdmSpecValidated[charKey][specKey] then
+            return
+        end
+
+        local pp = ECME.db and ECME.db.profile
+        if not pp or not pp.cdmBars then return end
+
+        -- Build the full spell set for the current spec from Blizzard CDM
+        -- (false = current spec only, includes displayed + not displayed)
+        local specSpells = {}
+        for cat = 0, 3 do
+            local ids = C_CooldownViewer.GetCooldownViewerCategorySet(cat, false)
+            if ids then
+                for _, cdID in ipairs(ids) do
+                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+                    if info then
+                        if info.spellID and info.spellID > 0 then
+                            specSpells[info.spellID] = true
+                        end
+                        if info.overrideSpellID and info.overrideSpellID > 0 then
+                            specSpells[info.overrideSpellID] = true
+                        end
+                        if info.linkedSpellIDs then
+                            for _, lsid in ipairs(info.linkedSpellIDs) do
+                                if lsid and lsid > 0 then
+                                    specSpells[lsid] = true
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        local mapSize = 0
+        for _ in pairs(specSpells) do mapSize = mapSize + 1 end
+        if mapSize == 0 then return end
+
+        -- Check each main bar's trackedSpells against the spec set.
+        -- Track which specific bars have corrupted spells.
+        local corruptedBars = {}
+        local corruptBar = nil
+        local corruptSpell = nil
+        for _, barData in ipairs(pp.cdmBars.bars) do
+            if MAIN_BAR_KEYS[barData.key] then
+                local sd = ns.GetBarSpellData(barData.key)
+                if sd and sd.trackedSpells then
+                for _, sid in ipairs(sd.trackedSpells) do
+                    if sid and sid > 0 then
+                        if not specSpells[sid] then
+                            corruptedBars[barData.key] = true
+                            if not corruptBar then
+                                corruptBar = barData.key
+                                corruptSpell = sid
+                            end
+                        end
+                    end
+                end
+                end
+            end
+        end
+
+        if corruptBar then
+            -- Only wipe bars that actually contain corrupted spells.
+            -- Custom bar customSpells are user-curated and must never be
+            -- destroyed by main-bar corruption recovery.
+            local specProfiles = SpellStore.GetSpecProfiles()
+            local prof = specProfiles[specKey]
+            if prof and prof.barSpells then
+                for bk, _ in pairs(corruptedBars) do
+                    local sd = prof.barSpells[bk]
+                    if sd then
+                        sd.trackedSpells = nil
+                        sd.extraSpells = nil
+                        -- Keep removedSpells -- those are user intent
+                    end
+                end
+            end
+
+            local function DoCorruptionRecovery()
+                BuildAllCDMBars()
+                ForcePopulateBlizzardViewers(function()
+                    ForceResnapshotMainBars()
+                    StartResnapshotRetry()
+                end)
+                C_Timer.After(3, function()
+                    local sk = ns.GetActiveSpecKey()
+                    if sk and sk ~= "0" then
+                        SaveCurrentSpecProfile()
+                        EllesmereUIDB.cdmSpecValidated[charKey][sk] = true
+                    end
+                end)
+            end
+
+            if InCombatLockdown() then
+                local combatFrame = CreateFrame("Frame")
+                combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+                combatFrame:SetScript("OnEvent", function(self)
+                    self:UnregisterAllEvents()
+                    DoCorruptionRecovery()
+                end)
+            else
+                DoCorruptionRecovery()
+            end
+        else
+            EllesmereUIDB.cdmSpecValidated[charKey][specKey] = true
+        end
+    end
+
+    function ns.StartSpecValidation()
+        -- Cancel any existing ticker and reset attempts
+        if _validateTicker then _validateTicker:Cancel(); _validateTicker = nil end
+        _validateAttempts = 0
+        _validateGeneration = _validateGeneration + 1
+        local gen = _validateGeneration
+        C_Timer.After(5, function()
+            -- Bail if a newer StartSpecValidation was called while we waited
+            if gen ~= _validateGeneration then return end
+            _validateTicker = C_Timer.NewTicker(0.5, function() TryValidateSpec(gen) end)
+        end)
+    end
+end
+
 function ECME:CDMFinishSetup()
+    -- Load the full unlock mode body early so anchor/propagation functions
+    -- (ApplyAnchorPosition, PropagateWidthMatch, etc.) are available for
+    -- the initial build pass. CDM SavedVariables are ready by this point.
+    EllesmereUI:EnsureLoaded()
+
+    -- Pre-size CDM bar frames using cached icon counts from last session.
+    -- Purely cosmetic: gives anchored elements correct dimensions to compute
+    -- against before the real spell data populates. BuildAllCDMBars below
+    -- overwrites everything with real data.
+    do
+        local p = ECME.db and ECME.db.profile
+        if p and p.cdmBars and p.cdmBars.enabled and EllesmereUIDB then
+            local charKey = ns.GetCharKey()
+            local specKey = ns.GetActiveSpecKey()
+            local cache = EllesmereUIDB.cdmCachedBarSizes
+            local counts = cache and cache[charKey] and cache[charKey][specKey]
+            if counts then
+                for i, barData in ipairs(p.cdmBars.bars) do
+                    if barData.enabled then
+                        local cachedCount = counts[barData.key]
+                        if cachedCount and cachedCount > 0 then
+                            local key = barData.key
+                            local frame = cdmBarFrames[key]
+                            if not frame then
+                                frame = CreateFrame("Frame", "ECME_CDMBar_" .. key, UIParent)
+                                frame:SetFrameStrata("LOW")
+                                frame:SetFrameLevel(5)
+                                if frame.EnableMouseClicks then frame:EnableMouseClicks(false) end
+                                if frame.EnableMouseMotion then frame:EnableMouseMotion(true) end
+                                frame._barKey = key
+                                frame._barIndex = i
+                                cdmBarFrames[key] = frame
+                                cdmBarIcons[key] = {}
+                            end
+                            local iconW = SnapForScale(barData.iconSize or 36, 1)
+                            local iconH = iconW
+                            if (barData.iconShape or "none") == "cropped" then
+                                iconH = SnapForScale(math.floor((barData.iconSize or 36) * 0.80 + 0.5), 1)
+                            end
+                            local spacing = SnapForScale(barData.spacing or 2, 1)
+                            local grow = barData.growDirection or "RIGHT"
+                            local numRows = barData.numRows or 1
+                            if numRows < 1 then numRows = 1 end
+                            local stride = ComputeTopRowStride(barData, cachedCount)
+                            local isHoriz = (grow == "RIGHT" or grow == "LEFT" or grow == "CENTER")
+                            local totalW, totalH
+                            if isHoriz then
+                                totalW = stride * iconW + (stride - 1) * spacing
+                                totalH = numRows * iconH + (numRows - 1) * spacing
+                            else
+                                totalW = numRows * iconW + (numRows - 1) * spacing
+                                totalH = stride * iconH + (stride - 1) * spacing
+                            end
+                            frame:SetSize(SnapForScale(totalW, 1), SnapForScale(totalH, 1))
+                            frame._prevLayoutW = SnapForScale(totalW, 1)
+                            frame._prevLayoutH = SnapForScale(totalH, 1)
+                            local pos = p.cdmBarPositions and p.cdmBarPositions[key]
+                            if pos and pos.point then
+                                frame:ClearAllPoints()
+                                frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+                            end
+                            frame:Show()
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     BuildAllCDMBars()
     -- Mark for snapshot if this spec has no buff bars configured yet.
     -- Fires on first load after the feature was added (existing profiles have
@@ -7835,13 +8204,21 @@ function ECME:CDMFinishSetup()
         StartResnapshotRetry()
     end)
 
-    -- Save the initial spec profile so switching away and back preserves it
+    -- Save non-spell per-spec data (barGlows, TBB) after initial setup
     C_Timer.After(1, function()
-        local p = ECME.db.profile
-        if p.activeSpecKey and p.activeSpecKey ~= "0" then
+        local specKey = ns.GetActiveSpecKey()
+        if specKey and specKey ~= "0" then
             SaveCurrentSpecProfile()
         end
     end)
+
+    -- One-time per-spec validation: check that the specProfile's
+    -- trackedSpells belong to the current spec using Blizzard CDM as
+    -- ground truth. Runs once per spec per character, then marks the
+    -- spec as validated so it never runs again. This cleans up
+    -- corrupted specProfiles from before the per-character activeSpecKey
+    -- fix. Exposed on ns so it can be triggered after spec swaps too.
+    ns.StartSpecValidation()
 
     -- Deferred keybind update: wait 3s so Blizzard's hotkey update cycle
     -- has fully run before we read HotKey text from button frames
@@ -7865,7 +8242,21 @@ function ECME:CDMFinishSetup()
     -- frame, icon visibility has settled and a rebuild produces correct sizes
     -- and anchor positions.
     C_Timer.After(0, function()
+        -- Ensure the full unlock mode body is loaded so propagation
+        -- functions (PropagateWidthMatch, PropagateAnchorChain, etc.)
+        -- are available. CDM data is ready by this point.
+        EllesmereUI:EnsureLoaded()
         BuildAllCDMBars()
+        -- Defer one frame so WoW flushes layout after the final bar sizes,
+        -- then re-propagate width/height matches and anchor positions.
+        C_Timer.After(0, function()
+            if EllesmereUI.ApplyAllWidthHeightMatches then
+                EllesmereUI.ApplyAllWidthHeightMatches()
+            end
+            if EllesmereUI._applySavedPositions then
+                EllesmereUI._applySavedPositions()
+            end
+        end)
     end)
 end
 
@@ -7970,6 +8361,7 @@ end
 eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     if not ECME.db then return end
     if event == "PLAYER_LOGOUT" then
+        ns.SaveCachedBarSizes()
         return
     end
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
@@ -7994,19 +8386,22 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
             if p and p.cdmBars and p.cdmBars.bars then
                 for _, barData in ipairs(p.cdmBars.bars) do
                     local isBuffBar = (barData.key == "buffs" or barData.barType == "buffs")
-                    if barData.enabled and isBuffBar and barData.customSpellDurations then
-                        local durations = barData.customSpellDurations
-                        local primaryID = castSpellID
-                        local groups = barData.customSpellGroups
-                        if groups and groups[castSpellID] then
-                            primaryID = groups[castSpellID]
-                        end
-                        local dur = durations[primaryID]
-                        if dur and dur > 0 then
-                            if not _customBarTimers[barData.key] then
-                                _customBarTimers[barData.key] = {}
+                    if barData.enabled and isBuffBar then
+                        local sd = ns.GetBarSpellData(barData.key)
+                        if sd and sd.customSpellDurations then
+                            local durations = sd.customSpellDurations
+                            local primaryID = castSpellID
+                            local groups = sd.customSpellGroups
+                            if groups and groups[castSpellID] then
+                                primaryID = groups[castSpellID]
                             end
-                            _customBarTimers[barData.key][primaryID] = GetTime() + dur
+                            local dur = durations[primaryID]
+                            if dur and dur > 0 then
+                                if not _customBarTimers[barData.key] then
+                                    _customBarTimers[barData.key] = {}
+                                end
+                                _customBarTimers[barData.key][primaryID] = GetTime() + dur
+                            end
                         end
                     end
                 end
@@ -8086,7 +8481,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
             if not _specValidated then return end
             local newSpecKey = GetCurrentSpecKey()
             local p = ECME.db and ECME.db.profile
-            if p and newSpecKey == p.activeSpecKey then
+            if p and newSpecKey == ns.GetActiveSpecKey() then
                 BuildAllCDMBars()
                 -- Blizzard CDM may not be ready yet on zone-in; use ForcePopulate
                 -- to ensure the viewer is fully populated before reconciling.
@@ -8099,6 +8494,10 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
                 end)
             end
         end)
+        -- Trigger per-spec validation on zone-in (catches LFG auto spec swaps)
+        if ns.StartSpecValidation then
+            ns.StartSpecValidation()
+        end
     end
     if event == "SPELLS_CHANGED" then
         -- SPELLS_CHANGED fires reliably after spec data is available.
@@ -8137,8 +8536,8 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         end
         RECONCILE.lastSpecChangeAt = GetTime()
         local newSpecKey = GetCurrentSpecKey()
-        local p = ECME.db.profile
-        if newSpecKey ~= "0" and newSpecKey ~= p.activeSpecKey then
+        local curSpecKey = ns.GetActiveSpecKey()
+        if newSpecKey ~= "0" and newSpecKey ~= curSpecKey then
             SwitchSpecProfile(newSpecKey)
             _specValidated = true
             if RECONCILE.pending then
@@ -8151,13 +8550,25 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         elseif newSpecKey ~= "0" then
             SetActiveSpec()
             _specValidated = true
-            C_Timer.After(0.5, function() BuildAllCDMBars() end)
+            C_Timer.After(0.5, function()
+                BuildAllCDMBars()
+                -- Re-apply width/height matches after bars settle
+                C_Timer.After(0.3, function()
+                    if EllesmereUI.ApplyAllWidthHeightMatches then
+                        EllesmereUI.ApplyAllWidthHeightMatches()
+                    end
+                end)
+            end)
         end
         -- Rebuild spellID -> cooldownID map after spec change (new talents may change IDs)
         C_Timer.After(1.5, function()
             RebuildCdIDToCorrectSID()
             RebuildSpellToCooldownID()
         end)
+        -- Trigger per-spec validation for the new spec (one-time, ticker-based)
+        if ns.StartSpecValidation then
+            ns.StartSpecValidation()
+        end
     end
     if event == "UNIT_AURA" then return end
     if ns.ApplyPerSlotHidingAndPackSoon then ns.ApplyPerSlotHidingAndPackSoon() end
@@ -8197,9 +8608,10 @@ SlashCmdList.CDMCUSTOM = function()
     local profile = ECME.db and ECME.db.profile
     if not profile or not profile.cdmBars then p("No profile"); return end
     for _, barData in ipairs(profile.cdmBars.bars) do
-        if barData.customSpells and #barData.customSpells > 0 then
+        local sd = ns.GetBarSpellData(barData.key)
+        if sd and sd.customSpells and #sd.customSpells > 0 then
             p("Bar: "..tostring(barData.key))
-            for _, sid in ipairs(barData.customSpells) do
+            for _, sid in ipairs(sd.customSpells) do
                 if sid and sid > 0 then
                     local name = C_Spell.GetSpellName and C_Spell.GetSpellName(sid) or "?"
                     local cdID = _spellToCooldownID[sid]
@@ -8233,7 +8645,8 @@ SlashCmdList.CDMDEBUG = function()
       "lastZoneInAt:", tostring(RECONCILE.lastZoneInAt))
     for _, barData in ipairs(profile.cdmBars.bars) do
         if barData.key == "cooldowns" then
-            local ts = barData.trackedSpells
+            local sd = ns.GetBarSpellData(barData.key)
+            local ts = sd and sd.trackedSpells
             p("trackedSpells:", ts and #ts or "nil")
             if ts then
                 for i, cdID in ipairs(ts) do

@@ -1111,11 +1111,17 @@ function ns.BuildTrackedBuffBars()
             -- Saved position
             local posKey = tostring(i)
             local pos = p.tbbPositions[posKey]
-            bar:ClearAllPoints()
             if pos and pos.point then
-                if pos.scale then pcall(function() bar:SetScale(pos.scale) end) end
-                bar:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+                -- Skip for unlock-anchored bars (anchor system is authority)
+                local unlockKey = "TBB_" .. posKey
+                local anchored = EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(unlockKey)
+                if not anchored or not bar:GetLeft() then
+                    bar:ClearAllPoints()
+                    if pos.scale then pcall(function() bar:SetScale(pos.scale) end) end
+                    bar:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+                end
             else
+                bar:ClearAllPoints()
                 bar:SetPoint("CENTER", UIParent, "CENTER", 0, 200 - (i - 1) * ((cfg.height or 24) + 4))
             end
 
@@ -1850,6 +1856,8 @@ function ns.RegisterTBBUnlockElements()
     local MK = EllesmereUI.MakeUnlockElement
     local tbb = ns.GetTrackedBuffBars()
     local bars = tbb.bars
+    if not bars then bars = {} end
+
     if not bars or #bars == 0 then return end
 
     local elements = {}
@@ -1863,6 +1871,13 @@ function ns.RegisterTBBUnlockElements()
                 label = "Buff Bar: " .. (cfg.name or ("Bar " .. idx)),
                 group = "Cooldown Manager",
                 order = 650,
+                isHidden = function()
+                    -- If this index exceeds the current bar count, it is a
+                    -- stale registration from a previous spec/profile.
+                    local tbb2 = ns.GetTrackedBuffBars()
+                    local b = tbb2 and tbb2.bars
+                    return not b or idx > #b
+                end,
                 getFrame = function() return tbbFrames[idx] end,
                 getSize = function()
                     local f = tbbFrames[idx]

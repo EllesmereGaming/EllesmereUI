@@ -5924,7 +5924,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "5.1.8"
+EllesmereUI.VERSION = "5.2.4"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -6965,4 +6965,25 @@ function EllesmereUI.CheckVisibilityMode(mode, state)
     if mode == "solo" then return not state.inRaid and not state.inParty end
     -- "always" and "mouseover" both return true (mouseover handled separately)
     return true
+end
+
+-------------------------------------------------------------------------------
+--  Alpha-Zero Visibility Helper
+--  For anchor-participating container frames: use alpha 0 + EnableMouse(false)
+--  instead of :Hide() so the frame stays in the layout engine with valid bounds.
+--  Sub-widgets (icons, text, glows) inside these frames still use :Hide()/:Show().
+-------------------------------------------------------------------------------
+function EllesmereUI.SetElementVisibility(frame, visible)
+    if not frame then return end
+    if visible then
+        frame:SetAlpha(frame._euiRestoreAlpha or 1)
+        frame:EnableMouse(frame._euiRestoreMouse or false)
+    else
+        if frame:GetAlpha() > 0 then
+            frame._euiRestoreAlpha = frame:GetAlpha()
+        end
+        frame._euiRestoreMouse = frame:IsMouseEnabled()
+        frame:SetAlpha(0)
+        frame:EnableMouse(false)
+    end
 end

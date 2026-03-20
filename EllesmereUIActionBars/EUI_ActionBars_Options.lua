@@ -1717,8 +1717,21 @@ initFrame:SetScript("OnEvent", function(self)
                 MakeCogBtn(rightRgn, growCogShow)
             end
 
-            -- Row 3: Vertical Orientation | (empty)
+            -- Row 3: Vertical Orientation | Show Paging Arrows (MainBar only)
             do
+                local rightWidget
+                if SelectedKey() == "MainBar" then
+                    rightWidget = { type="toggle", text="Show Paging Arrows",
+                      getValue=function() return SGet("showPagingArrows") or false end,
+                      setValue=function(v)
+                          SSet("showPagingArrows", v, function(k)
+                              if ns.LayoutPagingFrame then ns.LayoutPagingFrame() end
+                          end)
+                      end,
+                      tooltip="Show page up/down arrows next to Action Bar 1 for cycling through action bar pages 1-6." }
+                else
+                    rightWidget = { type="label", text="" }
+                end
                 local orientRow
                 orientRow, h = W:DualRow(parent, y,
                     { type="toggle", text="Vertical Orientation",
@@ -1736,7 +1749,7 @@ initFrame:SetScript("OnEvent", function(self)
                           EllesmereUI:RefreshPage()
                       end,
                       tooltip="Toggle between horizontal and vertical bar layout." },
-                    { type="label", text="" });  y = y - h
+                    rightWidget);  y = y - h
                 -- Sync icon: Orientation (left)
                 do
                     local rgn = orientRow._leftRegion
@@ -1775,6 +1788,62 @@ initFrame:SetScript("OnEvent", function(self)
                             end,
                         },
                     })
+                end
+
+                -- Inline cog: Paging Arrows settings (right region, MainBar only)
+                if SelectedKey() == "MainBar" then
+                    local rRgn = orientRow._rightRegion
+                    local pagingOff = function() return not (SGet("showPagingArrows") or false) end
+
+                    local _, pagingCogShow = EllesmereUI.BuildCogPopup({
+                        title = "Paging Arrow Settings",
+                        rows = {
+                            { type="toggle", label="Show Arrows on Right",
+                              get=function() return SGet("pagingArrowsRight") or false end,
+                              set=function(v)
+                                  SSet("pagingArrowsRight", v, function()
+                                      if ns.LayoutPagingFrame then ns.LayoutPagingFrame() end
+                                  end)
+                              end },
+                        },
+                    })
+                    local pagingCogBtn = CreateFrame("Button", nil, rRgn)
+                    pagingCogBtn:SetSize(26, 26)
+                    pagingCogBtn:SetPoint("RIGHT", rRgn._lastInline or rRgn._control, "LEFT", -9, 0)
+                    rRgn._lastInline = pagingCogBtn
+                    pagingCogBtn:SetFrameLevel(rRgn:GetFrameLevel() + 5)
+                    pagingCogBtn:SetAlpha(pagingOff() and 0.15 or 0.4)
+                    local pagingCogTex = pagingCogBtn:CreateTexture(nil, "OVERLAY")
+                    pagingCogTex:SetAllPoints()
+                    pagingCogTex:SetTexture(EllesmereUI.COGS_ICON)
+                    pagingCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+                    pagingCogBtn:SetScript("OnLeave", function(self)
+                        self:SetAlpha(pagingOff() and 0.15 or 0.4)
+                    end)
+                    pagingCogBtn:SetScript("OnClick", function(self) pagingCogShow(self) end)
+
+                    local pagingCogBlock = CreateFrame("Frame", nil, pagingCogBtn)
+                    pagingCogBlock:SetAllPoints()
+                    pagingCogBlock:SetFrameLevel(pagingCogBtn:GetFrameLevel() + 10)
+                    pagingCogBlock:EnableMouse(true)
+                    pagingCogBlock:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(pagingCogBtn, EllesmereUI.DisabledTooltip("Show Paging Arrows"))
+                    end)
+                    pagingCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+                    EllesmereUI.RegisterWidgetRefresh(function()
+                        local off = pagingOff()
+                        if off then
+                            pagingCogBtn:SetAlpha(0.15)
+                            pagingCogBlock:Show()
+                        else
+                            pagingCogBtn:SetAlpha(0.4)
+                            pagingCogBlock:Hide()
+                        end
+                    end)
+                    local pagingCogInitOff = pagingOff()
+                    pagingCogBtn:SetAlpha(pagingCogInitOff and 0.15 or 0.4)
+                    if pagingCogInitOff then pagingCogBlock:Show() else pagingCogBlock:Hide() end
                 end
             end
 
@@ -2651,7 +2720,7 @@ initFrame:SetScript("OnEvent", function(self)
                 MakeCogBtn(rightRgn, kbSizeCogShow, nil, EllesmereUI.RESIZE_ICON)
             end
 
-            -- Row 2: Charges Text colorpicker (left) | empty (right)
+            -- Row 2: Charges Text colorpicker (left) | Cooldown Text colorpicker (right)
             chargesRow, h = W:DualRow(parent, y,
                 { type="colorpicker", text="Charges Text",
                   getValue=function()
@@ -2664,7 +2733,17 @@ initFrame:SetScript("OnEvent", function(self)
                       SUpdatePreview()
                   end,
                   hasAlpha=false },
-                { type="label", text="" });  y = y - h
+                { type="colorpicker", text="Cooldown Text",
+                  getValue=function()
+                      local c = SGet("cooldownTextColor")
+                      if not c then return 1, 1, 1, 1 end
+                      return c.r, c.g, c.b, 1
+                  end,
+                  setValue=function(r, g, b)
+                      SSetColor("cooldownTextColor", r, g, b, nil, function(k) EAB:ApplyCooldownFontsForBar(k) end)
+                      SUpdatePreview()
+                  end,
+                  hasAlpha=false });  y = y - h
             -- Sync icon: Charges Text (left region)
             do
                 local rgn = chargesRow._leftRegion
@@ -2748,25 +2827,9 @@ initFrame:SetScript("OnEvent", function(self)
                 MakeCogBtn(leftRgn, ctSizeCogShow, nil, EllesmereUI.RESIZE_ICON)
             end
 
-            -- Row 3: Cooldown Text colorpicker (left) | empty (right)
-            local cdTextRow
-            cdTextRow, h = W:DualRow(parent, y,
-                { type="colorpicker", text="Cooldown Text",
-                  getValue=function()
-                      local c = SGet("cooldownTextColor")
-                      if not c then return 1, 1, 1, 1 end
-                      return c.r, c.g, c.b, 1
-                  end,
-                  setValue=function(r, g, b)
-                      SSetColor("cooldownTextColor", r, g, b, nil, function(k) EAB:ApplyCooldownFontsForBar(k) end)
-                      SUpdatePreview()
-                  end,
-                  hasAlpha=false },
-                { type="label", text="" });  y = y - h
-
-            -- Sync icon: Cooldown Text (left region)
+            -- Sync icon: Cooldown Text (right region of row 2)
             do
-                local rgn = cdTextRow._leftRegion
+                local rgn = chargesRow._rightRegion
                 EllesmereUI.BuildSyncIcon({
                     region  = rgn,
                     tooltip = "Apply Cooldown Text Settings to all Bars",
@@ -2817,9 +2880,9 @@ initFrame:SetScript("OnEvent", function(self)
                 })
             end
 
-            -- Inline cog on Cooldown Text (left) for Size + X/Y offsets
+            -- Inline cog on Cooldown Text (right region of row 2) for Size + X/Y offsets
             do
-                local leftRgn = cdTextRow._leftRegion
+                local rightRgn = chargesRow._rightRegion
                 local _, cdSizeCogShowRaw = EllesmereUI.BuildCogPopup({
                     title = "Cooldown Text Settings",
                     rows = {
@@ -2844,7 +2907,7 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
                 local cdSizeCogShow = cdSizeCogShowRaw
-                MakeCogBtn(leftRgn, cdSizeCogShow, nil, EllesmereUI.RESIZE_ICON)
+                MakeCogBtn(rightRgn, cdSizeCogShow, nil, EllesmereUI.RESIZE_ICON)
             end
 
             _, h = W:Spacer(parent, y, 20);  y = y - h

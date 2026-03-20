@@ -1,7 +1,7 @@
 -------------------------------------------------------------------------------
 --  EUI_Nameplates_Options.lua
 --  Registers the Nameplates module with EllesmereUI.
---  All get/set calls go to EllesmereUINameplatesDB.
+--  All get/set calls go to ns.db.profile (centralized store).
 --  Does NOT touch nameplate rendering logic.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
@@ -62,10 +62,10 @@ initFrame:SetScript("OnEvent", function(self)
     local floor = math.floor
 
     ---------------------------------------------------------------------------
-    --  DB helper always reads live EllesmereUINameplatesDB
+    --  DB helper reads from the centralized profile via ns.db
     ---------------------------------------------------------------------------
     local function DB()
-        return EllesmereUINameplatesDB
+        return ns.db and ns.db.profile
     end
 
     local function DBVal(key)
@@ -101,14 +101,14 @@ initFrame:SetScript("OnEvent", function(self)
             plate:UpdateHealthValues()
             local cns = ns.defaults.castNameSize
             local cts = ns.defaults.castTargetSize
-            local db = EllesmereUINameplatesDB
-            if db then
-                cns = db.castNameSize or cns
-                cts = db.castTargetSize or cts
+            local _db = DB()
+            if _db then
+                cns = _db.castNameSize or cns
+                cts = _db.castTargetSize or cts
             end
             if plate.castName then SetFSFont(plate.castName, cns, GetNPOutline()) end
             if plate.castTarget then SetFSFont(plate.castTarget, cts, GetNPOutline()) end
-            local auraStackSz = (db and db.auraStackTextSize) or ns.defaults.auraStackTextSize
+            local auraStackSz = (_db and _db.auraStackTextSize) or ns.defaults.auraStackTextSize
             for i = 1, 4 do
                 if plate.debuffs[i] and plate.debuffs[i].count then SetFSFont(plate.debuffs[i].count, auraStackSz, "OUTLINE") end
                 if plate.buffs[i] and plate.buffs[i].count then SetFSFont(plate.buffs[i].count, auraStackSz, "OUTLINE") end
@@ -1887,7 +1887,8 @@ initFrame:SetScript("OnEvent", function(self)
                     tgKnob:SetSize(KNOB_SZ, KNOB_SZ)
 
                     local function UpdateToggle4()
-                        local on = not (EllesmereUINameplatesDB and EllesmereUINameplatesDB.friendlyHideHealthText)
+                        local _db = DB()
+                        local on = not (_db and _db.friendlyHideHealthText)
                         if on then
                             local g = EllesmereUI.ELLESMERE_GREEN
                             tgBg:SetColorTexture(g.r, g.g, g.b, 0.45)
@@ -1901,7 +1902,8 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     UpdateToggle4()
                     tgBtn:SetScript("OnClick", function()
-                        local cur = EllesmereUINameplatesDB and EllesmereUINameplatesDB.friendlyHideHealthText or false
+                        local _db = DB()
+                        local cur = _db and _db.friendlyHideHealthText or false
                         DB().friendlyHideHealthText = not cur
                         if ns.RefreshFriendlyHealthText then ns.RefreshFriendlyHealthText() end
                         UpdateToggle4()
@@ -1924,7 +1926,8 @@ initFrame:SetScript("OnEvent", function(self)
                     tgKnob5:SetSize(KNOB_SZ, KNOB_SZ)
 
                     local function UpdateToggle5()
-                        local on = (EllesmereUINameplatesDB and EllesmereUINameplatesDB.friendlyShowDefaultNames == true)
+                        local _db = DB()
+                        local on = (_db and _db.friendlyShowDefaultNames == true)
                         if on then
                             local g = EllesmereUI.ELLESMERE_GREEN
                             tgBg5:SetColorTexture(g.r, g.g, g.b, 0.45)
@@ -1938,7 +1941,8 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     UpdateToggle5()
                     tgBtn5:SetScript("OnClick", function()
-                        local cur = EllesmereUINameplatesDB and EllesmereUINameplatesDB.friendlyShowDefaultNames or false
+                        local _db = DB()
+                        local cur = _db and _db.friendlyShowDefaultNames or false
                         local newVal = not cur
                         DB().friendlyShowDefaultNames = newVal
                         if newVal then
@@ -5902,17 +5906,17 @@ initFrame:SetScript("OnEvent", function(self)
             -- Invalidate page cache so pages are rebuilt with fresh defaults
             EllesmereUI:InvalidatePageCache()
             -- Preserve user-saved presets (display + color), Custom presets, AND spec assignments across reset
-            if EllesmereUINameplatesDB then
-                local pD = EllesmereUINameplatesDB._presets
-                local oD = EllesmereUINameplatesDB._presetOrder
-                local pC = EllesmereUINameplatesDB._color_presets
-                local oC = EllesmereUINameplatesDB._color_presetOrder
-                local cD = EllesmereUINameplatesDB._customPreset
-                local cC = EllesmereUINameplatesDB._color_customPreset
-                local sA = EllesmereUINameplatesDB._specAssignments
-                local sCA = EllesmereUINameplatesDB._color_specAssignments
-                local sDP = EllesmereUINameplatesDB._specDefaultPreset
-                local old = EllesmereUINameplatesDB
+            local old = DB()
+            if old then
+                local pD = old._presets
+                local oD = old._presetOrder
+                local pC = old._color_presets
+                local oC = old._color_presetOrder
+                local cD = old._customPreset
+                local cC = old._color_customPreset
+                local sA = old._specAssignments
+                local sCA = old._color_specAssignments
+                local sDP = old._specDefaultPreset
                 for k in pairs(old) do old[k] = nil end
                 if pD and next(pD) then old._presets = pD; old._presetOrder = oD end
                 if pC and next(pC) then old._color_presets = pC; old._color_presetOrder = oC end
@@ -5924,8 +5928,6 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Explicitly activate EllesmereUI for both preset systems
                 old._activePreset = "ellesmereui"
                 old._color_activePreset = "ellesmereui"
-            else
-                EllesmereUINameplatesDB = nil
             end
         end,
     })
@@ -5941,28 +5943,27 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         if msg == "reset" then
-            if EllesmereUINameplatesDB then
-                local pD = EllesmereUINameplatesDB._presets
-                local oD = EllesmereUINameplatesDB._presetOrder
-                local pC = EllesmereUINameplatesDB._color_presets
-                local oC = EllesmereUINameplatesDB._color_presetOrder
-                local cD = EllesmereUINameplatesDB._customPreset
-                local cC = EllesmereUINameplatesDB._color_customPreset
-                local sA = EllesmereUINameplatesDB._specAssignments
-                local sCA = EllesmereUINameplatesDB._color_specAssignments
-                local sDP = EllesmereUINameplatesDB._specDefaultPreset
-                for k in pairs(EllesmereUINameplatesDB) do EllesmereUINameplatesDB[k] = nil end
-                if pD and next(pD) then EllesmereUINameplatesDB._presets = pD; EllesmereUINameplatesDB._presetOrder = oD end
-                if pC and next(pC) then EllesmereUINameplatesDB._color_presets = pC; EllesmereUINameplatesDB._color_presetOrder = oC end
-                if cD then EllesmereUINameplatesDB._customPreset = cD end
-                if cC then EllesmereUINameplatesDB._color_customPreset = cC end
-                if sA and next(sA) then EllesmereUINameplatesDB._specAssignments = sA end
-                if sCA and next(sCA) then EllesmereUINameplatesDB._color_specAssignments = sCA end
-                if sDP then EllesmereUINameplatesDB._specDefaultPreset = sDP end
-                EllesmereUINameplatesDB._activePreset = "ellesmereui"
-                EllesmereUINameplatesDB._color_activePreset = "ellesmereui"
-            else
-                EllesmereUINameplatesDB = nil
+            local _db = DB()
+            if _db then
+                local pD = _db._presets
+                local oD = _db._presetOrder
+                local pC = _db._color_presets
+                local oC = _db._color_presetOrder
+                local cD = _db._customPreset
+                local cC = _db._color_customPreset
+                local sA = _db._specAssignments
+                local sCA = _db._color_specAssignments
+                local sDP = _db._specDefaultPreset
+                for k in pairs(_db) do _db[k] = nil end
+                if pD and next(pD) then _db._presets = pD; _db._presetOrder = oD end
+                if pC and next(pC) then _db._color_presets = pC; _db._color_presetOrder = oC end
+                if cD then _db._customPreset = cD end
+                if cC then _db._color_customPreset = cC end
+                if sA and next(sA) then _db._specAssignments = sA end
+                if sCA and next(sCA) then _db._color_specAssignments = sCA end
+                if sDP then _db._specDefaultPreset = sDP end
+                _db._activePreset = "ellesmereui"
+                _db._color_activePreset = "ellesmereui"
             end
             ReloadUI()
             return

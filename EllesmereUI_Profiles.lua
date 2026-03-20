@@ -38,22 +38,22 @@ StaticPopupDialogs["EUI_PROFILE_RELOAD"] = {
 }
 
 -------------------------------------------------------------------------------
---  Addon registry: maps addon folder names to their DB accessor info.
---  Each entry: { svName, globalName, isFlat }
---    svName    = SavedVariables name (e.g. "EllesmereUINameplatesDB")
---    globalName = global variable holding the AceDB object (e.g. "_ECME_AceDB")
---    isFlat    = true if the DB is a flat table (Nameplates), false if AceDB
+--  Addon registry: display-order list of all managed addons.
+--  Each entry: { folder, display, svName }
+--    folder  = addon folder name (matches _dbRegistry key)
+--    display = human-readable name for the Profiles UI
+--    svName  = SavedVariables name (e.g. "EllesmereUINameplatesDB")
 --
---  Order matters for UI display.
+--  All addons use _dbRegistry for profile access. Order matters for UI display.
 -------------------------------------------------------------------------------
 local ADDON_DB_MAP = {
-    { folder = "EllesmereUINameplates",        display = "Nameplates",         svName = "EllesmereUINameplatesDB",        globalName = nil,            isFlat = true  },
-    { folder = "EllesmereUIActionBars",        display = "Action Bars",        svName = "EllesmereUIActionBarsDB",        globalName = nil,            isFlat = false },
-    { folder = "EllesmereUIUnitFrames",        display = "Unit Frames",        svName = "EllesmereUIUnitFramesDB",        globalName = nil,            isFlat = false },
-    { folder = "EllesmereUICooldownManager",   display = "Cooldown Manager",   svName = "EllesmereUICooldownManagerDB",   globalName = "_ECME_AceDB",  isFlat = false },
-    { folder = "EllesmereUIResourceBars",      display = "Resource Bars",      svName = "EllesmereUIResourceBarsDB",      globalName = "_ERB_AceDB",   isFlat = false },
-    { folder = "EllesmereUIAuraBuffReminders", display = "AuraBuff Reminders", svName = "EllesmereUIAuraBuffRemindersDB", globalName = "_EABR_AceDB",  isFlat = false },
-    { folder = "EllesmereUICursor",            display = "Cursor",             svName = "EllesmereUICursorDB",            globalName = "_ECL_AceDB",   isFlat = false },
+    { folder = "EllesmereUINameplates",        display = "Nameplates",         svName = "EllesmereUINameplatesDB"        },
+    { folder = "EllesmereUIActionBars",        display = "Action Bars",        svName = "EllesmereUIActionBarsDB"        },
+    { folder = "EllesmereUIUnitFrames",        display = "Unit Frames",        svName = "EllesmereUIUnitFramesDB"        },
+    { folder = "EllesmereUICooldownManager",   display = "Cooldown Manager",   svName = "EllesmereUICooldownManagerDB"   },
+    { folder = "EllesmereUIResourceBars",      display = "Resource Bars",      svName = "EllesmereUIResourceBarsDB"      },
+    { folder = "EllesmereUIAuraBuffReminders", display = "AuraBuff Reminders", svName = "EllesmereUIAuraBuffRemindersDB" },
+    { folder = "EllesmereUICursor",            display = "Cursor",             svName = "EllesmereUICursorDB"            },
 }
 EllesmereUI._ADDON_DB_MAP = ADDON_DB_MAP
 
@@ -213,6 +213,15 @@ local function GetProfilesDB()
 end
 EllesmereUI.GetProfilesDB = GetProfilesDB
 
+-------------------------------------------------------------------------------
+--  Anchor offset format conversion
+--
+--  Anchor offsets were originally stored relative to the target's center
+--  (format version 0/nil). The current system stores them relative to
+--  stable edges (format version 1):
+--    TOP/BOTTOM: offsetX relative to target LEFT edge
+--    LEFT/RIGHT: offsetY relative to target TOP edge
+--
 --- Check if an addon is loaded
 local function IsAddonLoaded(name)
     if C_AddOns and C_AddOns.IsAddOnLoaded then return C_AddOns.IsAddOnLoaded(name) end
@@ -232,16 +241,6 @@ local function RepointAllDBs(profileName)
 
     local registry = EllesmereUI.Lite and EllesmereUI.Lite._dbRegistry
     if not registry then return end
-    -- Save CDM barGlows and specProfiles before repointing so they survive
-    -- profile switches. Both are per-spec, not per-profile.
-    local savedBarGlows, savedSpecProfiles
-    for _, db in ipairs(registry) do
-        if db.folder == "EllesmereUICooldownManager" and db.profile then
-            savedBarGlows = db.profile.barGlows
-            savedSpecProfiles = db.profile.specProfiles
-            break
-        end
-    end
     for _, db in ipairs(registry) do
         local folder = db.folder
         if folder then
@@ -254,40 +253,19 @@ local function RepointAllDBs(profileName)
             if db._profileDefaults then
                 EllesmereUI.Lite.DeepMergeDefaults(db.profile, db._profileDefaults)
             end
-            -- Restore barGlows and specProfiles into the new profile
-            if folder == "EllesmereUICooldownManager" then
-                if savedBarGlows then
-                    db.profile.barGlows = savedBarGlows
-                end
-                if savedSpecProfiles then
-                    db.profile.specProfiles = savedSpecProfiles
-                end
-            end
         end
     end
-    -- Restore flat addons (e.g. Nameplates) from the profile snapshot.
-    -- Flat addons write directly to their global SV, so RepointAllDBs must
-    -- overwrite the global with the target profile's stored snapshot.
-    for _, entry in ipairs(ADDON_DB_MAP) do
-        if entry.isFlat then
-            local snap = profileData.addons[entry.folder]
-            local sv = _G[entry.svName]
-            if sv and snap then
-                for k in pairs(sv) do
-                    if not k:match("^_") then sv[k] = nil end
-                end
-                for k, v in pairs(snap) do
-                    if not k:match("^_") then sv[k] = DeepCopy(v) end
-                end
-            end
-        end
-    end
-    -- Restore unlock layout from the profile
-    if profileData.unlockLayout then
-        local ul = profileData.unlockLayout
-        EllesmereUIDB.unlockAnchors     = DeepCopy(ul.anchors     or {})
-        EllesmereUIDB.unlockWidthMatch  = DeepCopy(ul.widthMatch  or {})
-        EllesmereUIDB.unlockHeightMatch = DeepCopy(ul.heightMatch or {})
+    -- Restore unlock layout from the profile.
+    -- If the profile has no unlockLayout yet (e.g. created before this key
+    -- existed), leave the live unlock data untouched so the current
+    -- positions are preserved. Only restore when the profile explicitly
+    -- contains layout data from a previous save.
+    local ul = profileData.unlockLayout
+    if ul then
+        EllesmereUIDB.unlockAnchors     = DeepCopy(ul.anchors      or {})
+        EllesmereUIDB.unlockWidthMatch  = DeepCopy(ul.widthMatch   or {})
+        EllesmereUIDB.unlockHeightMatch = DeepCopy(ul.heightMatch  or {})
+        EllesmereUIDB.phantomBounds     = DeepCopy(ul.phantomBounds or {})
     end
     -- Restore fonts and custom colors from the profile
     if profileData.fonts then
@@ -305,6 +283,57 @@ local function RepointAllDBs(profileName)
 end
 
 -------------------------------------------------------------------------------
+--  ResolveSpecProfile
+--
+--  Single authoritative function that resolves the current spec's target
+--  profile name. Used by both PreSeedSpecProfile (before OnEnable) and the
+--  runtime spec event handler.
+--
+--  Resolution order:
+--    1. Cached spec from lastSpecByChar (reliable across sessions)
+--    2. Live GetSpecialization() API (available after ADDON_LOADED for
+--       returning characters, may be nil for brand-new characters)
+--
+--  Returns: targetProfileName, resolvedSpecID, charKey  -- or nil if no
+--           spec assignment exists or spec cannot be resolved yet.
+-------------------------------------------------------------------------------
+local function ResolveSpecProfile()
+    if not EllesmereUIDB then return nil end
+    local specProfiles = EllesmereUIDB.specProfiles
+    if not specProfiles or not next(specProfiles) then return nil end
+
+    local charKey = UnitName("player") .. " - " .. GetRealmName()
+    if not EllesmereUIDB.lastSpecByChar then
+        EllesmereUIDB.lastSpecByChar = {}
+    end
+
+    -- Prefer cached spec from last session (always reliable)
+    local resolvedSpecID = EllesmereUIDB.lastSpecByChar[charKey]
+
+    -- Fall back to live API if no cached value
+    if not resolvedSpecID then
+        local specIdx = GetSpecialization and GetSpecialization()
+        if specIdx and specIdx > 0 then
+            local liveSpecID = GetSpecializationInfo(specIdx)
+            if liveSpecID then
+                resolvedSpecID = liveSpecID
+                EllesmereUIDB.lastSpecByChar[charKey] = resolvedSpecID
+            end
+        end
+    end
+
+    if not resolvedSpecID then return nil end
+
+    local targetProfile = specProfiles[resolvedSpecID]
+    if not targetProfile then return nil end
+
+    local profiles = EllesmereUIDB.profiles
+    if not profiles or not profiles[targetProfile] then return nil end
+
+    return targetProfile, resolvedSpecID, charKey
+end
+
+-------------------------------------------------------------------------------
 --  Spec profile pre-seed
 --
 --  Runs once just before child addon OnEnable calls, after all OnInitialize
@@ -312,131 +341,33 @@ end
 --  At this point the spec API is available, so we can resolve the current
 --  spec and re-point all db.profile references to the correct profile table
 --  in the central store before any addon builds its UI.
+--
+--  This is the sole pre-OnEnable resolution point. NewDB reads activeProfile
+--  as-is (defaults to "Default" or whatever was saved from last session).
 -------------------------------------------------------------------------------
-
--------------------------------------------------------------------------------
---  ADDON_LOADED handler: resolve which profile this character should use
---  and set EllesmereUIDB.activeProfile. NewDB reads directly from the
---  central store, so no injection into child SVs is needed.
--------------------------------------------------------------------------------
-do
-    local preSeedFrame = CreateFrame("Frame")
-    preSeedFrame:RegisterEvent("ADDON_LOADED")
-    preSeedFrame:SetScript("OnEvent", function(self, event, addonName)
-        if addonName ~= "EllesmereUI" then return end
-        self:UnregisterEvent("ADDON_LOADED")
-
-        if not EllesmereUIDB then return end
-
-        local specProfiles = EllesmereUIDB.specProfiles
-        if not specProfiles then return end
-
-        -- Resolve the current spec. Prefer the saved lastSpecByChar value
-        -- (always reliable). If this is a new character with no saved entry,
-        -- try GetSpecialization() live -- it is available at ADDON_LOADED
-        -- time for returning characters and most new characters.
-        local charKey = UnitName("player") .. " - " .. GetRealmName()
-        if not EllesmereUIDB.lastSpecByChar then
-            EllesmereUIDB.lastSpecByChar = {}
-        end
-        local lastSpecByChar = EllesmereUIDB.lastSpecByChar
-        local resolvedSpecID = lastSpecByChar[charKey]
-
-        if not resolvedSpecID then
-            local specIdx = GetSpecialization and GetSpecialization()
-            if specIdx and specIdx > 0 then
-                local liveSpecID = GetSpecializationInfo(specIdx)
-                if liveSpecID and specProfiles[liveSpecID] then
-                    resolvedSpecID = liveSpecID
-                    lastSpecByChar[charKey] = resolvedSpecID
-                end
-            end
-        end
-
-        if not resolvedSpecID or not specProfiles[resolvedSpecID] then
-            if next(specProfiles) then
-                EllesmereUI._profileSaveLocked = true
-            end
-            -- If activeProfile belongs to a spec assignment from another
-            -- character, fall back to a safe default.
-            local curActive = EllesmereUIDB.activeProfile
-            local safe = curActive
-            if curActive and next(specProfiles) then
-                for _, pName in pairs(specProfiles) do
-                    if pName == curActive then
-                        safe = EllesmereUIDB.lastNonSpecProfile
-                        if not safe or not (EllesmereUIDB.profiles or {})[safe] then
-                            safe = "Default"
-                        end
-                        EllesmereUIDB.activeProfile = safe
-                        break
-                    end
-                end
-            end
-            return
-        end
-
-        local targetProfile = specProfiles[resolvedSpecID]
-        if not targetProfile then return end
-
-        EllesmereUIDB.activeProfile = targetProfile
-    end)
-end
 
 --- Called by EllesmereUI_Lite just before child addon OnEnable calls fire.
---- Resolves the current spec and re-points all db.profile references to
---- the correct profile table in the central store.
+--- Uses ResolveSpecProfile() to determine the correct profile, then
+--- re-points all db.profile references via RepointAllDBs.
 function EllesmereUI.PreSeedSpecProfile()
-    if not EllesmereUIDB then return end
-    local specProfiles = EllesmereUIDB.specProfiles
-    if not specProfiles or not next(specProfiles) then return end
-
-    local charKey = UnitName("player") .. " - " .. GetRealmName()
-
-    if not EllesmereUIDB.lastSpecByChar then
-        EllesmereUIDB.lastSpecByChar = {}
-    end
-    local lastSpecByChar = EllesmereUIDB.lastSpecByChar
-    local resolvedSpecID = lastSpecByChar[charKey]
-
-    if not resolvedSpecID then
-        local specIdx = GetSpecialization and GetSpecialization()
-        if specIdx and specIdx > 0 then
-            local liveSpecID = GetSpecializationInfo(specIdx)
-            if liveSpecID and specProfiles[liveSpecID] then
-                resolvedSpecID = liveSpecID
-                lastSpecByChar[charKey] = resolvedSpecID
-            end
-        end
-    end
-
-    if not resolvedSpecID or not specProfiles[resolvedSpecID] then
-        if next(specProfiles) then
+    local targetProfile, resolvedSpecID = ResolveSpecProfile()
+    if not targetProfile then
+        -- No spec assignment resolved; lock auto-save if spec profiles exist
+        if EllesmereUIDB and EllesmereUIDB.specProfiles and next(EllesmereUIDB.specProfiles) then
             EllesmereUI._profileSaveLocked = true
         end
         return
     end
 
-    local targetProfile = specProfiles[resolvedSpecID]
-    if not targetProfile then return end
-
-    local profiles = EllesmereUIDB.profiles
-    if not profiles or not profiles[targetProfile] then return end
-
     EllesmereUIDB.activeProfile = targetProfile
     RepointAllDBs(targetProfile)
-
     EllesmereUI._preSeedComplete = true
 end
 
 --- Get the live profile table for an addon.
---- In single-storage mode, non-flat addons read from the db registry
---- (which points into EllesmereUIDB.profiles[active].addons[folder]).
+--- All addons use _dbRegistry (which points into
+--- EllesmereUIDB.profiles[active].addons[folder]).
 local function GetAddonProfile(entry)
-    if entry.isFlat then
-        return _G[entry.svName]
-    end
-    -- Look up from the Lite db registry (canonical source)
     if EllesmereUI.Lite and EllesmereUI.Lite._dbRegistry then
         for _, db in ipairs(EllesmereUI.Lite._dbRegistry) do
             if db.folder == entry.folder then
@@ -444,24 +375,7 @@ local function GetAddonProfile(entry)
             end
         end
     end
-    -- Fallback: CDM globalName accessor
-    local aceDB = entry.globalName and _G[entry.globalName]
-    if aceDB and aceDB.profile then return aceDB.profile end
     return nil
-end
-
---- Strip barGlows from a CDM addon snapshot (and from specProfiles entries).
---- barGlows is per-spec internal state that should never be in profile data.
-local function StripCDMBarGlows(snapshot)
-    if not snapshot or not snapshot.addons then return end
-    local cdm = snapshot.addons["EllesmereUICooldownManager"]
-    if not cdm then return end
-    cdm.barGlows = nil
-    if cdm.specProfiles then
-        for _, sp in pairs(cdm.specProfiles) do
-            if type(sp) == "table" then sp.barGlows = nil end
-        end
-    end
 end
 
 --- Snapshot the current state of all loaded addons into a profile data table
@@ -482,16 +396,16 @@ function EllesmereUI.SnapshotAllAddons()
     -- Include unlock mode layout data (anchors, size matches)
     if EllesmereUIDB then
         data.unlockLayout = {
-            anchors     = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
-            widthMatch  = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
-            heightMatch = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
+            anchors       = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
+            widthMatch    = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
+            heightMatch   = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
+            phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds     or {}),
         }
     end
-    -- barGlows is excluded from all profile data
-    StripCDMBarGlows(data)
     return data
 end
 
+--[[ ADDON-SPECIFIC EXPORT DISABLED
 --- Snapshot a single addon's profile
 function EllesmereUI.SnapshotAddon(folderName)
     for _, entry in ipairs(ADDON_DB_MAP) do
@@ -523,15 +437,15 @@ function EllesmereUI.SnapshotAddons(folderList)
     -- Include unlock mode layout data
     if EllesmereUIDB then
         data.unlockLayout = {
-            anchors     = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
-            widthMatch  = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
-            heightMatch = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
+            anchors       = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
+            widthMatch    = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
+            heightMatch   = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
+            phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds     or {}),
         }
     end
-    -- barGlows is excluded from all profile data
-    StripCDMBarGlows(data)
     return data
 end
+--]] -- END ADDON-SPECIFIC EXPORT DISABLED
 
 --- Apply imported profile data into the live db.profile tables.
 --- Used by import to write external data into the active profile.
@@ -550,46 +464,22 @@ function EllesmereUI.ApplyProfileData(profileData)
     for _, entry in ipairs(ADDON_DB_MAP) do
         local snap = profileData.addons[entry.folder]
         if snap and IsAddonLoaded(entry.folder) then
-            if entry.isFlat then
-                local sv = _G[entry.svName]
-                if sv then
-                    for k in pairs(sv) do
-                        if not k:match("^_") then sv[k] = nil end
-                    end
-                    for k, v in pairs(snap) do
-                        if not k:match("^_") then sv[k] = DeepCopy(v) end
-                    end
+            local db = dbByFolder[entry.folder]
+            if db then
+                local profile = db.profile
+                for k in pairs(profile) do profile[k] = nil end
+                for k, v in pairs(snap) do profile[k] = DeepCopy(v) end
+                if db._profileDefaults then
+                    EllesmereUI.Lite.DeepMergeDefaults(profile, db._profileDefaults)
                 end
-            else
-                local db = dbByFolder[entry.folder]
-                if db then
-                    local profile = db.profile
-                    -- Preserve barGlows and specProfiles across CDM profile applies
-                    local savedBarGlows, savedSpecProfiles
-                    if entry.folder == "EllesmereUICooldownManager" then
-                        savedBarGlows = profile.barGlows
-                        savedSpecProfiles = profile.specProfiles
-                    end
-                    for k in pairs(profile) do profile[k] = nil end
-                    for k, v in pairs(snap) do profile[k] = DeepCopy(v) end
-                    if savedBarGlows then
-                        profile.barGlows = savedBarGlows
-                    end
-                    if savedSpecProfiles then
-                        profile.specProfiles = savedSpecProfiles
-                    end
-                    if db._profileDefaults then
-                        EllesmereUI.Lite.DeepMergeDefaults(profile, db._profileDefaults)
-                    end
-                    -- Ensure per-unit bg colors are never nil after import
-                    if entry.folder == "EllesmereUIUnitFrames" then
-                        local UF_UNITS = { "player", "target", "focus", "boss", "pet", "totPet" }
-                        local DEF_BG = 17/255
-                        for _, uKey in ipairs(UF_UNITS) do
-                            local s = profile[uKey]
-                            if s and s.customBgColor == nil then
-                                s.customBgColor = { r = DEF_BG, g = DEF_BG, b = DEF_BG }
-                            end
+                -- Ensure per-unit bg colors are never nil after import
+                if entry.folder == "EllesmereUIUnitFrames" then
+                    local UF_UNITS = { "player", "target", "focus", "boss", "pet", "totPet" }
+                    local DEF_BG = 17/255
+                    for _, uKey in ipairs(UF_UNITS) do
+                        local s = profile[uKey]
+                        if s and s.customBgColor == nil then
+                            s.customBgColor = { r = DEF_BG, g = DEF_BG, b = DEF_BG }
                         end
                     end
                 end
@@ -616,9 +506,13 @@ function EllesmereUI.ApplyProfileData(profileData)
     -- Restore unlock mode layout data
     if EllesmereUIDB then
         local ul = profileData.unlockLayout
-        EllesmereUIDB.unlockAnchors     = ul and DeepCopy(ul.anchors)     or {}
-        EllesmereUIDB.unlockWidthMatch  = ul and DeepCopy(ul.widthMatch)  or {}
-        EllesmereUIDB.unlockHeightMatch = ul and DeepCopy(ul.heightMatch) or {}
+        if ul then
+            EllesmereUIDB.unlockAnchors     = DeepCopy(ul.anchors      or {})
+            EllesmereUIDB.unlockWidthMatch  = DeepCopy(ul.widthMatch   or {})
+            EllesmereUIDB.unlockHeightMatch = DeepCopy(ul.heightMatch  or {})
+            EllesmereUIDB.phantomBounds     = DeepCopy(ul.phantomBounds or {})
+        end
+        -- If profile predates unlockLayout, leave live data untouched
     end
 end
 
@@ -652,15 +546,25 @@ function EllesmereUI.RefreshAllAddons()
     -- Global class/power colors (updates oUF, nameplates, raid frames)
     if EllesmereUI.ApplyColorsToOUF then EllesmereUI.ApplyColorsToOUF() end
     -- After all addons have rebuilt and positioned their frames from
-    -- db.profile.positions (the absolute saved positions), resync anchor
-    -- offsets so the anchor relationships stay correct for future drags.
-    -- Double-deferred so it runs AFTER debounced rebuilds (e.g. UnitFrames
-    -- OnUpdate throttle) have completed and frames are at final positions.
-    if EllesmereUI.ResyncAnchorOffsets then
+    -- db.profile.positions, re-apply centralized grow-direction positioning
+    -- (handles lazy migration of imported TOPLEFT positions to CENTER format)
+    -- and resync anchor offsets so the anchor relationships stay correct for
+    -- future drags. Triple-deferred so it runs AFTER debounced rebuilds have
+    -- completed and frames are at final positions.
+    C_Timer.After(0, function()
         C_Timer.After(0, function()
-            C_Timer.After(0, EllesmereUI.ResyncAnchorOffsets)
+            C_Timer.After(0, function()
+                -- Re-apply centralized positions (migrates legacy formats)
+                if EllesmereUI._applySavedPositions then
+                    EllesmereUI._applySavedPositions()
+                end
+                -- Resync anchor offsets (does NOT move frames)
+                if EllesmereUI.ResyncAnchorOffsets then
+                    EllesmereUI.ResyncAnchorOffsets()
+                end
+            end)
         end)
-    end
+    end)
 end
 
 -------------------------------------------------------------------------------
@@ -778,6 +682,7 @@ function EllesmereUI.ProfileChangesFont(profileData)
     return curFont ~= newFont or curOutline ~= newOutline
 end
 
+--[[ ADDON-SPECIFIC EXPORT DISABLED
 --- Apply a partial profile (specific addons only) by merging into active
 function EllesmereUI.ApplyPartialProfile(profileData)
     if not profileData or not profileData.addons then return end
@@ -786,22 +691,8 @@ function EllesmereUI.ApplyPartialProfile(profileData)
             if entry.folder == folderName and IsAddonLoaded(folderName) then
                 local profile = GetAddonProfile(entry)
                 if profile then
-                    if entry.isFlat then
-                        local db = _G[entry.svName]
-                        if db then
-                            for k, v in pairs(snap) do
-                                if not k:match("^_") then
-                                    db[k] = DeepCopy(v)
-                                end
-                            end
-                        end
-                    else
-                        for k, v in pairs(snap) do
-                            -- barGlows is excluded from profile data
-                            if not (folderName == "EllesmereUICooldownManager" and k == "barGlows") then
-                                profile[k] = DeepCopy(v)
-                            end
-                        end
+                    for k, v in pairs(snap) do
+                        profile[k] = DeepCopy(v)
                     end
                 end
                 break
@@ -822,6 +713,7 @@ function EllesmereUI.ApplyPartialProfile(profileData)
         end
     end
 end
+--]] -- END ADDON-SPECIFIC EXPORT DISABLED
 
 -------------------------------------------------------------------------------
 --  Export / Import
@@ -840,14 +732,21 @@ function EllesmereUI.ExportProfile(profileName)
         profileData.fonts = DeepCopy(EllesmereUI.GetFontsDB())
         profileData.customColors = DeepCopy(EllesmereUI.GetCustomColorsDB())
         profileData.unlockLayout = {
-            anchors     = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
-            widthMatch  = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
-            heightMatch = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
+            anchors       = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
+            widthMatch    = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
+            heightMatch   = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
+            phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds     or {}),
         }
     end
-    -- DeepCopy so we can strip barGlows without affecting the live store
     local exportData = DeepCopy(profileData)
-    StripCDMBarGlows(exportData)
+    -- Include spell assignments from the dedicated store on the export copy
+    local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
+    if sa then
+        exportData.spellAssignments = {
+            specProfiles = DeepCopy(sa.specProfiles or {}),
+            barGlows = DeepCopy(sa.barGlows or {}),
+        }
+    end
     local payload = { version = 2, type = "full", data = exportData }
     local serialized = Serializer.Serialize(payload)
     if not LibDeflate then return nil end
@@ -856,6 +755,7 @@ function EllesmereUI.ExportProfile(profileName)
     return EXPORT_PREFIX .. encoded
 end
 
+--[[ ADDON-SPECIFIC EXPORT DISABLED
 function EllesmereUI.ExportAddons(folderList)
     local profileData = EllesmereUI.SnapshotAddons(folderList)
     local sw, sh = GetPhysicalScreenSize()
@@ -872,6 +772,7 @@ function EllesmereUI.ExportAddons(folderList)
     local encoded = LibDeflate:EncodeForPrint(compressed)
     return EXPORT_PREFIX .. encoded
 end
+--]] -- END ADDON-SPECIFIC EXPORT DISABLED
 
 -------------------------------------------------------------------------------
 --  CDM spec profile helpers for export/import spec picker
@@ -882,14 +783,8 @@ end
 --- Includes ALL specs for the player's class, with hasData indicating
 --- whether specProfiles contains data for that spec.
 function EllesmereUI.GetCDMSpecInfo()
-    local cdmProfile
-    for _, entry in ipairs(ADDON_DB_MAP) do
-        if entry.folder == "EllesmereUICooldownManager" then
-            cdmProfile = GetAddonProfile(entry)
-            break
-        end
-    end
-    local specProfiles = cdmProfile and cdmProfile.specProfiles or {}
+    local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
+    local specProfiles = sa and sa.specProfiles or {}
     local result = {}
     local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
     for i = 1, numSpecs do
@@ -907,37 +802,34 @@ function EllesmereUI.GetCDMSpecInfo()
     return result
 end
 
---- Filter specProfiles in a CDM addon snapshot to only include selected specs.
+--- Filter specProfiles in an export snapshot to only include selected specs.
+--- Reads from snapshot.spellAssignments (the dedicated store copy on the payload).
 --- Modifies the snapshot in-place. selectedSpecs = { ["250"] = true, ... }
 function EllesmereUI.FilterExportSpecProfiles(snapshot, selectedSpecs)
-    if not snapshot or not snapshot.addons then return end
-    local cdmSnap = snapshot.addons["EllesmereUICooldownManager"]
-    if not cdmSnap or not cdmSnap.specProfiles then return end
-    for key in pairs(cdmSnap.specProfiles) do
+    if not snapshot or not snapshot.spellAssignments then return end
+    local sp = snapshot.spellAssignments.specProfiles
+    if not sp then return end
+    for key in pairs(sp) do
         if not selectedSpecs[key] then
-            cdmSnap.specProfiles[key] = nil
+            sp[key] = nil
         end
     end
 end
 
 --- After a profile import, apply only selected specs' specProfiles from the
---- imported data into the live CDM profile. Non-selected specs are untouched.
---- importedCDMSnap = the CDM addon data from the imported profile.
+--- imported data into the dedicated spell assignment store.
+--- importedSpellAssignments = the spellAssignments object from the import payload.
 --- selectedSpecs = { ["250"] = true, ... }
-function EllesmereUI.ApplyImportedSpecProfiles(importedCDMSnap, selectedSpecs)
-    if not importedCDMSnap or not importedCDMSnap.specProfiles then return end
-    local cdmProfile
-    for _, entry in ipairs(ADDON_DB_MAP) do
-        if entry.folder == "EllesmereUICooldownManager" then
-            cdmProfile = GetAddonProfile(entry)
-            break
-        end
+function EllesmereUI.ApplyImportedSpecProfiles(importedSpellAssignments, selectedSpecs)
+    if not importedSpellAssignments or not importedSpellAssignments.specProfiles then return end
+    if not EllesmereUIDB.spellAssignments then
+        EllesmereUIDB.spellAssignments = { specProfiles = {}, barGlows = {} }
     end
-    if not cdmProfile then return end
-    if not cdmProfile.specProfiles then cdmProfile.specProfiles = {} end
-    for key, data in pairs(importedCDMSnap.specProfiles) do
+    local sa = EllesmereUIDB.spellAssignments
+    if not sa.specProfiles then sa.specProfiles = {} end
+    for key, data in pairs(importedSpellAssignments.specProfiles) do
         if selectedSpecs[key] then
-            cdmProfile.specProfiles[key] = DeepCopy(data)
+            sa.specProfiles[key] = DeepCopy(data)
         end
     end
     -- If the current spec was imported, reload it live
@@ -949,12 +841,16 @@ function EllesmereUI.ApplyImportedSpecProfiles(importedCDMSnap, selectedSpecs)
     end
 end
 
---- Get the list of spec keys that have data in an imported CDM snapshot.
+--- Get the list of spec keys that have data in imported spell assignments.
 --- Returns same format as GetCDMSpecInfo but based on imported data.
-function EllesmereUI.GetImportedCDMSpecInfo(importedCDMSnap)
-    if not importedCDMSnap or not importedCDMSnap.specProfiles then return {} end
+--- Accepts either the new spellAssignments format or legacy CDM snapshot.
+function EllesmereUI.GetImportedCDMSpecInfo(importedSpellAssignments)
+    if not importedSpellAssignments then return {} end
+    -- Support both new format (spellAssignments.specProfiles) and legacy (cdmSnap.specProfiles)
+    local specProfiles = importedSpellAssignments.specProfiles
+    if not specProfiles then return {} end
     local result = {}
-    for specKey in pairs(importedCDMSnap.specProfiles) do
+    for specKey in pairs(specProfiles) do
         local specID = tonumber(specKey)
         local name, icon
         if specID and specID > 0 and GetSpecializationInfoByID then
@@ -1059,9 +955,21 @@ end
 
 function EllesmereUI.ExportCurrentProfile(selectedSpecs)
     local profileData = EllesmereUI.SnapshotAllAddons()
-    -- Filter CDM specProfiles to only include selected specs
-    if selectedSpecs then
-        EllesmereUI.FilterExportSpecProfiles(profileData, selectedSpecs)
+    -- Include spell assignments from the dedicated store
+    local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
+    if sa then
+        profileData.spellAssignments = {
+            specProfiles = DeepCopy(sa.specProfiles or {}),
+            barGlows = DeepCopy(sa.barGlows or {}),
+        }
+        -- Filter by selected specs if provided
+        if selectedSpecs and profileData.spellAssignments.specProfiles then
+            for key in pairs(profileData.spellAssignments.specProfiles) do
+                if not selectedSpecs[key] then
+                    profileData.spellAssignments.specProfiles[key] = nil
+                end
+            end
+        end
     end
     local sw, sh = GetPhysicalScreenSize()
     -- Use EllesmereUI's own stored scale (UIParent scale), not Blizzard's CVar
@@ -1161,13 +1069,18 @@ function EllesmereUI.ImportProfile(importStr, profileName)
     end
 
     if payload.type == "full" then
+        -- Migrate all positions to CENTER/CENTER before storing or applying
+        if EllesmereUI.MigrateProfilePositions then
+            EllesmereUI.MigrateProfilePositions(payload.data)
+        end
         -- Full profile: store as a new named profile
         local stored = DeepCopy(payload.data)
-        -- specProfiles are per-spec, not per-profile; strip from stored data
-        -- (the caller handles selective import via ApplyImportedSpecProfiles)
+        -- Strip spell assignment data from stored profile (lives in dedicated store)
         if stored.addons and stored.addons["EllesmereUICooldownManager"] then
             stored.addons["EllesmereUICooldownManager"].specProfiles = nil
+            stored.addons["EllesmereUICooldownManager"].barGlows = nil
         end
+        stored.spellAssignments = nil
         db.profiles[profileName] = stored
         -- Add to order if not present
         local found = false
@@ -1176,6 +1089,44 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         end
         if not found then
             table.insert(db.profileOrder, 1, profileName)
+        end
+        -- Write spell assignments to dedicated store
+        if payload.data.spellAssignments then
+            if not EllesmereUIDB.spellAssignments then
+                EllesmereUIDB.spellAssignments = { specProfiles = {}, barGlows = {} }
+            end
+            local sa = EllesmereUIDB.spellAssignments
+            local imported = payload.data.spellAssignments
+            if imported.specProfiles then
+                for key, data in pairs(imported.specProfiles) do
+                    sa.specProfiles[key] = DeepCopy(data)
+                end
+            end
+            if imported.barGlows and next(imported.barGlows) then
+                sa.barGlows = DeepCopy(imported.barGlows)
+            end
+        end
+        -- Backward compat: extract specProfiles from CDM addon data (pre-migration format)
+        if payload.data.addons and payload.data.addons["EllesmereUICooldownManager"] then
+            local cdm = payload.data.addons["EllesmereUICooldownManager"]
+            if cdm.specProfiles then
+                if not EllesmereUIDB.spellAssignments then
+                    EllesmereUIDB.spellAssignments = { specProfiles = {}, barGlows = {} }
+                end
+                for key, data in pairs(cdm.specProfiles) do
+                    if not EllesmereUIDB.spellAssignments.specProfiles[key] then
+                        EllesmereUIDB.spellAssignments.specProfiles[key] = DeepCopy(data)
+                    end
+                end
+            end
+            if cdm.barGlows then
+                if not EllesmereUIDB.spellAssignments then
+                    EllesmereUIDB.spellAssignments = { specProfiles = {}, barGlows = {} }
+                end
+                if not next(EllesmereUIDB.spellAssignments.barGlows or {}) then
+                    EllesmereUIDB.spellAssignments.barGlows = DeepCopy(cdm.barGlows)
+                end
+            end
         end
         if specLocked then
             return true, nil, "spec_locked"
@@ -1186,8 +1137,10 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         -- Apply imported data into the live db.profile tables
         EllesmereUI.ApplyProfileData(payload.data)
         FixupImportedClassColors()
-        -- No re-snapshot needed: fixup wrote directly to the central store
+        -- Reload UI so every addon rebuilds from scratch with correct data
+        ReloadUI()
         return true, nil
+    --[[ ADDON-SPECIFIC EXPORT DISABLED
     elseif payload.type == "partial" then
         -- Partial: deep-copy current profile, overwrite the imported addons
         local current = db.activeProfile or "Default"
@@ -1197,9 +1150,10 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         if payload.data and payload.data.addons then
             for folder, snap in pairs(payload.data.addons) do
                 local copy = DeepCopy(snap)
-                -- specProfiles are per-spec, not per-profile
+                -- Strip spell assignment data from CDM profile (lives in dedicated store)
                 if folder == "EllesmereUICooldownManager" and type(copy) == "table" then
                     copy.specProfiles = nil
+                    copy.barGlows = nil
                 end
                 merged.addons[folder] = copy
             end
@@ -1211,6 +1165,7 @@ function EllesmereUI.ImportProfile(importStr, profileName)
             merged.customColors = DeepCopy(payload.data.customColors)
         end
         -- Store as new profile
+        merged.spellAssignments = nil
         db.profiles[profileName] = merged
         local found = false
         for _, n in ipairs(db.profileOrder) do
@@ -1219,6 +1174,44 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         if not found then
             table.insert(db.profileOrder, 1, profileName)
         end
+        -- Write spell assignments to dedicated store
+        if payload.data and payload.data.spellAssignments then
+            if not EllesmereUIDB.spellAssignments then
+                EllesmereUIDB.spellAssignments = { specProfiles = {}, barGlows = {} }
+            end
+            local sa = EllesmereUIDB.spellAssignments
+            local imported = payload.data.spellAssignments
+            if imported.specProfiles then
+                for key, data in pairs(imported.specProfiles) do
+                    sa.specProfiles[key] = DeepCopy(data)
+                end
+            end
+            if imported.barGlows and next(imported.barGlows) then
+                sa.barGlows = DeepCopy(imported.barGlows)
+            end
+        end
+        -- Backward compat: extract specProfiles from CDM addon data (pre-migration format)
+        if payload.data and payload.data.addons and payload.data.addons["EllesmereUICooldownManager"] then
+            local cdm = payload.data.addons["EllesmereUICooldownManager"]
+            if cdm.specProfiles then
+                if not EllesmereUIDB.spellAssignments then
+                    EllesmereUIDB.spellAssignments = { specProfiles = {}, barGlows = {} }
+                end
+                for key, data in pairs(cdm.specProfiles) do
+                    if not EllesmereUIDB.spellAssignments.specProfiles[key] then
+                        EllesmereUIDB.spellAssignments.specProfiles[key] = DeepCopy(data)
+                    end
+                end
+            end
+            if cdm.barGlows then
+                if not EllesmereUIDB.spellAssignments then
+                    EllesmereUIDB.spellAssignments = { specProfiles = {}, barGlows = {} }
+                end
+                if not next(EllesmereUIDB.spellAssignments.barGlows or {}) then
+                    EllesmereUIDB.spellAssignments.barGlows = DeepCopy(cdm.barGlows)
+                end
+            end
+        end
         if specLocked then
             return true, nil, "spec_locked"
         end
@@ -1226,7 +1219,10 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         RepointAllDBs(profileName)
         EllesmereUI.ApplyProfileData(merged)
         FixupImportedClassColors()
+        -- Reload UI so every addon rebuilds from scratch with correct data
+        ReloadUI()
         return true, nil
+    --]] -- END ADDON-SPECIFIC EXPORT DISABLED
     end
 
     return false, "Unknown profile type"
@@ -1245,9 +1241,10 @@ function EllesmereUI.SaveCurrentAsProfile(name)
     copy.fonts = DeepCopy(EllesmereUI.GetFontsDB())
     copy.customColors = DeepCopy(EllesmereUI.GetCustomColorsDB())
     copy.unlockLayout = {
-        anchors     = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
-        widthMatch  = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
-        heightMatch = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
+        anchors       = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
+        widthMatch    = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
+        heightMatch   = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
+        phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds     or {}),
     }
     db.profiles[name] = copy
     local found = false
@@ -1310,20 +1307,11 @@ function EllesmereUI.SwitchProfile(name)
         outgoing.customColors = DeepCopy(EllesmereUI.GetCustomColorsDB())
         -- Save unlock layout into outgoing profile
         outgoing.unlockLayout = {
-            anchors     = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
-            widthMatch  = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
-            heightMatch = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
+            anchors       = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
+            widthMatch    = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
+            heightMatch   = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
+            phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds     or {}),
         }
-        -- Save flat addon data into outgoing profile
-        if not outgoing.addons then outgoing.addons = {} end
-        for _, entry in ipairs(ADDON_DB_MAP) do
-            if entry.isFlat and IsAddonLoaded(entry.folder) then
-                local sv = _G[entry.svName]
-                if sv then
-                    outgoing.addons[entry.folder] = DeepCopy(sv)
-                end
-            end
-        end
     end
     db.activeProfile = name
     RepointAllDBs(name)
@@ -1366,53 +1354,70 @@ end
 
 -------------------------------------------------------------------------------
 --  Spec auto-switch handler
+--
+--  Single authoritative runtime handler for spec-based profile switching.
+--  Uses ResolveSpecProfile() for all resolution. Defers the entire switch
+--  during combat via pendingSpecSwitch / PLAYER_REGEN_ENABLED.
 -------------------------------------------------------------------------------
 do
     local specFrame = CreateFrame("Frame")
     local lastKnownSpecID = nil
     local lastKnownCharKey = nil
-    local pendingReload = false
-    local pendingFontCheck = nil
-    local specRetryTimer = nil  -- retry handle for new characters
+    local pendingSpecSwitch = false   -- true when a switch was deferred by combat
+    local specRetryTimer = nil        -- retry handle for new characters
 
     specFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     specFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     specFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     specFrame:SetScript("OnEvent", function(_, event, unit)
-        -- Deferred reload: fire once combat ends
+        ---------------------------------------------------------------
+        --  PLAYER_REGEN_ENABLED: handle deferred spec switch
+        ---------------------------------------------------------------
         if event == "PLAYER_REGEN_ENABLED" then
-            if pendingReload then
-                pendingReload = false
-                EllesmereUI.RefreshAllAddons()
-                if pendingFontCheck then
-                    pendingFontCheck = nil
-                    EllesmereUI:ShowConfirmPopup({
-                        title       = "Reload Required",
-                        message     = "Font changed. A UI reload is needed to apply the new font.",
-                        confirmText = "Reload Now",
-                        cancelText  = "Later",
-                        onConfirm   = function() ReloadUI() end,
-                    })
+            if pendingSpecSwitch then
+                pendingSpecSwitch = false
+                -- Re-resolve after combat ends (spec may have changed again)
+                local targetProfile = ResolveSpecProfile()
+                if targetProfile then
+                    local current = EllesmereUIDB and EllesmereUIDB.activeProfile or "Default"
+                    if current ~= targetProfile then
+                        local fontWillChange = EllesmereUI.ProfileChangesFont(
+                            EllesmereUIDB.profiles[targetProfile])
+                        EllesmereUI.SwitchProfile(targetProfile)
+                        EllesmereUI.RefreshAllAddons()
+                        if fontWillChange then
+                            EllesmereUI:ShowConfirmPopup({
+                                title       = "Reload Required",
+                                message     = "Font changed. A UI reload is needed to apply the new font.",
+                                confirmText = "Reload Now",
+                                cancelText  = "Later",
+                                onConfirm   = function() ReloadUI() end,
+                            })
+                        end
+                    end
                 end
             end
             return
         end
 
-        -- PLAYER_ENTERING_WORLD has no unit arg; PLAYER_SPECIALIZATION_CHANGED
-        -- fires with "player" as unit. For PEW, always check current spec.
+        ---------------------------------------------------------------
+        --  Filter: only handle "player" for PLAYER_SPECIALIZATION_CHANGED
+        ---------------------------------------------------------------
         if event == "PLAYER_SPECIALIZATION_CHANGED" and unit ~= "player" then
             return
         end
+
+        ---------------------------------------------------------------
+        --  Resolve the current spec via live API
+        ---------------------------------------------------------------
         local specIdx = GetSpecialization and GetSpecialization() or 0
         local specID = specIdx and specIdx > 0
             and GetSpecializationInfo(specIdx) or nil
+
         if not specID then
             -- Spec info not available yet (common on brand new characters).
-            -- Start a short polling retry so we can re-assign the correct
-            -- profile once the server sends spec data. By the time the
-            -- retry fires, all addons have already built their UI, so we
-            -- do a full SwitchProfile + RefreshAllAddons (not the deferred
-            -- first-login path which skips refresh).
+            -- Start a short polling retry so we can assign the correct
+            -- profile once the server sends spec data.
             if not specRetryTimer and (lastKnownSpecID == nil) then
                 local attempts = 0
                 specRetryTimer = C_Timer.NewTicker(1, function(ticker)
@@ -1433,14 +1438,13 @@ do
                         end
                         EllesmereUIDB.lastSpecByChar[ck] = sid
                         EllesmereUI._profileSaveLocked = false
-                        -- Resolve the target profile for this spec
-                        local pdb = GetProfilesDB()
-                        local target = pdb.specProfiles[sid]
-                        if target and pdb.profiles[target] then
-                            local cur = pdb.activeProfile or "Default"
+                        -- Resolve via the unified function
+                        local target = ResolveSpecProfile()
+                        if target then
+                            local cur = (EllesmereUIDB and EllesmereUIDB.activeProfile) or "Default"
                             if cur ~= target then
                                 local fontChange = EllesmereUI.ProfileChangesFont(
-                                    pdb.profiles[target])
+                                    EllesmereUIDB.profiles[target])
                                 EllesmereUI.SwitchProfile(target)
                                 EllesmereUI.RefreshAllAddons()
                                 if fontChange then
@@ -1462,6 +1466,7 @@ do
             end
             return
         end
+
         -- Spec resolved -- cancel any pending retry
         if specRetryTimer then
             specRetryTimer:Cancel()
@@ -1485,38 +1490,44 @@ do
         lastKnownSpecID = specID
         lastKnownCharKey = charKey
 
-        -- Persist the current spec so the pre-seed logic at ADDON_LOADED
-        -- can guarantee the correct profile is loaded on next login.
+        -- Persist the current spec so PreSeedSpecProfile can guarantee the
+        -- correct profile is loaded on next login via ResolveSpecProfile().
         if not EllesmereUIDB then EllesmereUIDB = {} end
         if not EllesmereUIDB.lastSpecByChar then EllesmereUIDB.lastSpecByChar = {} end
         EllesmereUIDB.lastSpecByChar[charKey] = specID
 
         -- Spec resolved successfully -- unlock auto-save if it was locked
-        -- during ADDON_LOADED / PreSeedSpecProfile when spec was unavailable.
+        -- during PreSeedSpecProfile when spec was unavailable.
         EllesmereUI._profileSaveLocked = false
 
+        ---------------------------------------------------------------
+        --  Defer entire switch during combat
+        ---------------------------------------------------------------
+        if InCombatLockdown() then
+            pendingSpecSwitch = true
+            return
+        end
+
+        ---------------------------------------------------------------
+        --  Resolve target profile via the unified function
+        ---------------------------------------------------------------
         local db = GetProfilesDB()
-        local targetProfile = db.specProfiles[specID]
-        if targetProfile and db.profiles[targetProfile] then
+        local targetProfile = ResolveSpecProfile()
+        if targetProfile then
             local current = db.activeProfile or "Default"
             if current ~= targetProfile then
                 local function doSwitch()
                     local fontWillChange = EllesmereUI.ProfileChangesFont(db.profiles[targetProfile])
                     EllesmereUI.SwitchProfile(targetProfile)
-                    if InCombatLockdown() then
-                        pendingReload = true
-                        pendingFontCheck = fontWillChange
-                    else
-                        EllesmereUI.RefreshAllAddons()
-                        if not isFirstLogin and fontWillChange then
-                            EllesmereUI:ShowConfirmPopup({
-                                title       = "Reload Required",
-                                message     = "Font changed. A UI reload is needed to apply the new font.",
-                                confirmText = "Reload Now",
-                                cancelText  = "Later",
-                                onConfirm   = function() ReloadUI() end,
-                            })
-                        end
+                    EllesmereUI.RefreshAllAddons()
+                    if not isFirstLogin and fontWillChange then
+                        EllesmereUI:ShowConfirmPopup({
+                            title       = "Reload Required",
+                            message     = "Font changed. A UI reload is needed to apply the new font.",
+                            confirmText = "Reload Now",
+                            cancelText  = "Later",
+                            onConfirm   = function() ReloadUI() end,
+                        })
                     end
                 end
                 if isFirstLogin then
@@ -1595,7 +1606,7 @@ end
 --  To update the weekly spotlight: change WEEKLY_SPOTLIGHT.
 -------------------------------------------------------------------------------
 EllesmereUI.POPULAR_PRESETS = {
-    { name = "EllesmereUI (2k)", description = "The default EllesmereUI look", exportString = "!EUI_T31wZTTTZ(Vk9XZ5H4H3V5NSDSCY4KyFCuBD(pDMmus0w8yjsDiPsIBg)D)GDxacasqDX2jTPnzMovMIey3f7(BVaWvF98AVKLznPSpeLKTo)9ttxKvyDqGBm8Vi)GyVO4dpVomPEAvwwXRkS98SuUWVx44hyD4dWi1C)Qm2)7M1lwa3WNYQQZllkCoe(YzP404NCtzrtn7tbj3UOCs6IABRKt)YQQS66pNE)5122jLRBwKxK92YzzSBREE6SYpZMbBNK1flkNE3BsVNDlFfMK0IPZlRGXlo50Ro(Jxw(5SkC0BsRUnRP2oeV(jlsRRVkRUCD10m4blV5M6SMpuyFGRRRNRVLFKFSBesR154eF8fJhFXBL381fVWcUB3qplh2Ze6d8nJEVPC66AA(uNAF6luNn2ayheegYKSEE(U2oY5Znz8fxQoz(wh4GZGBYk9boiz1I07ZQ6mYHEXmoioWlcPTnZjb(heW(NJFCyGFGdYjUjN8Y3(XPLLlyc8IAnXOn(DRBYxK3CV6eBjNiVK3C6OXAtJ9bm9OaMilk2kGyh2Y4Pftlxx0KvDCAVfRV0uLE00gMMZXRBAkl0ysVOd8GbKPw6454SfE0Mjbz3TtqOFyKnYJIPsDwdtEBAEbJu0NQdIu0m8KtLFYvV(SxPXMbh4zlLLixgN8(gMYzwho00sN9b(Bqn4fHreHtp4tGWnS8eDGvux9zh(W3xqj(GoXZgbplpFpBlB)GnWimno2C5fhyfJtfz7mpl)25nVnTz6CeoIXnU0)ZbUbRKpNpRzU47zpaAnNw3WUJbmUvqc68apq8hyTwU8KYfaYbkBtNnRev4DcsoDXIS6Lzvz)6RpHBk820I0BrzpJ5wLnfUXKaFe2Cz6Qv5f3w)vepkRiDYISzJW5jvrnUWgrnNoB57xu2G)vS4gsR4)ndr8ZizbSAYegsmCD7KBzFkYb)iCRiABr6sMq2k5413CZV8o2F8l)xz3M8lVm)tmOZF5Y1vRkRZ(VreEch9Otg)6F7uX08(M7zq94WZweylyJQyIKx(2rOmYpPoBr20MSzVLypywjicgq9DmLUYQzmX7y8EzmfJhUSSohyhcmwffXo5EWy06GyMvINTJRVlOXhXgRfxwMxaAwNC67gF6vGdIvDUIDYxkEHteG8Afy7yh5qWv(jtySE74h4b3HTVxqitHCphF0dwychERljZnS3VHmWfayz48XE2EwbO4lKlQQv1vgdRrtGlcZBqYNYRVOyX9VUOgbqQbDjpUJUwzSxYISBygIo0IhOeu)7ZZkEDbOt9PmyHjeCKEXnxLwCB2fmVXm8Jr4YDgGX((vzlwGQ)HjfRxEv5NRj1bVK7YUFsEXSl4gUohQtTrIB4iMAjeDatvNr)hF7PsLFMDYCqjlD6DNaq9J46oll)u2m(uFEHddyo09WXNxW0icWp4y5bxbD7n52RyZGvervm5YRyS6BrphWKeMmb1cpg9bX0d53X7khJWuJui1ZeQ6aznMPB2KVc)(8PLfVp)pZkCJL3WjZHba1UTiw7OfRMNAu(WqCDONKFzC0S5KerHJNNp9UcweoqusZZlWrzkojJyHdrpHGaBLzhZXmOX4i8VCHzr18cLRKYXfkEKzxKr3)wED(euLgW4wWIVQgvXepTCYDioto5A0ePtDur(YZaKi)Ux9kK24ysXjNOqCQmeDBms72QYp)Y8Qme(t6qTdNCnXjbCbaIYJOJKYethE6DTktfU2rrEhwWCT4hgCi8NoisjBrGiuMYydsTSv9jlY)Z)mTAgG9JRVCDipPo0PfzlVxrl7k8oI4u44sGDllYuFOxvUUMHvYvBWNIeJhQOjEL(FEmh6h1dNNIrq3oUmC70M1vm6(IItEj66UEv6uap2HenO2kxCpMzxpMSBaltaVYogcdVjNfx)fv5zfmratIpcjW6pNVkJ0RzXoc3CuYCIdaM50w7DT1qs9siuod)lhlfDb9LjvTeUmwD0iZs(AGqcdII)tz5sHTpWqNj(d(9Ew)X662lXKjNts3r0tFm90p8iay7SqnaOQec1XaeXZheAFz33zus7FGqjB9NF(3smYOdpFiisdgWCmYWKFTL0mIq(4XbTT8yWG2XwHaCOTfllPIiFx2hT9d9XaDmaIPyLOIYOkAVQdePeTthdDBqFgX6mbhzamEdinpbSW(UYE0qHBXBJb8Wneb33uCXHCd)yaj1va2ge537Om9IJE2cOu3yq3qrnyshPi)zcMmozvAXSSL5t5QOddBkVvjG(oGxYtOQh(ZZjA5MIOCy4sFml36oWugCB1bivZaYGZZNeqllLfiqthh3i7Wdlc8CgaBDlyc6aidejypKWhvuNBkBXbC1oCW6gqnF8yWBay3KRH(WWdIy7ingwWcQ5CtyW9Igx8ih)Tb6vpalEvPWvgUwXyuuTUU9cWsgu4GrugnCvrXvPkJjkzJOEs8QkWRBdxfCv2ugHGLVcN1MjtKfUHieOcxxwvEt(ISAzLUmoRIPWW8J1aL9Tcy4U1eQxzi236dSRPaQxQOD0mEq3iDRt0(h)fF5wxWtxnuR4JRRQPkb6KKZDddUKhb8tnUtnOrNvY006MtYRMUiZ4DJlPPv3jnkAFElEoTnmv254x5Mmp7lmvA3rhfoAeOCxLolFDDHl5WRcGAW7OOSAz6Iof90fuAL2V4CLIwUrw0EzqdV1jV0j(L6E8rfS8fyoB3oDMrEPLCCaEFh4Jr4)uPC)KfqjN3mHpQlHBGZctAyQWRRYaLzy0)ijsEabAvwjHQZUAbd7hnN8sUbG(MT4(3ZabEz2nPRx0a3sn3ndBqHAeFfqLWfMNLUOz(LzvtzaMOLtt5k4oqyAhexnK2RjK0ua)ia5r857DxEcmhooOgdZm9xlYHDHPA9QM8jK2dw1zS8PuzN5FSI(iH(ab9bZ)1KBtcKlgOQkGM79vUI57vyX(lS5y4coDC5kg6qg4zdKdK3awyaVecfGzFaosuCjfZItaSNhNZeVT2qHW8tHJ6rBYOVFYRb27M0Pz)XrZMDrr9FOSQ8hlZMLN(h4T(hYDG8GXJbzKB7QeqsG23h4S0lC4rjqRlm2AmxnqXFntrE2Bz2CCFXoEehdrZ8bvrtK(YTAX)T5Rb28faB(UnoDkmFB)oJuLVQRhmLZPGEmUdjNi3lK2LF32v)ipTH0tO5PXdHAEyz4GzZkWNZbHDFTiOysi4L0QZDvw6S7BNvN2z1vQZftOXH6IjzuXmnL)V1z1nVTCIQU)iI)jfcd6JT6Pkeg3eINXIiCdoJmpVzs5xW9h)AoCdBQLIXtxUQ5EDPOKFCAzhEiIlZlYNuwx3EVXCbnE3EUT3VVDeN)3OcpJxb7fmrODt5GV30W(IjmkT4lMtkByAeMeAT60mAOoQ1Eh)s0691fNuUCsAJC7RCdB5lXNb(sWvAuTIjERIMgjeObXix6yReAQhApeSDMf39Q06JULfjBlLfixEIKRpwieNJeA6Kmqz9d6ubUSNpDmBCXbDekqv02u0QCAhQ3W(sjebHbdylkvcZtr4RaUt4NODK0TFChAC7R5UKs0oQFWGzgsDJjVfGJxcU1(qFWEGX2(SeQybPTO5NChlP2XS)tZzgT9ZhvXYirrseGQraFz02iu6zPJwMTirpn7wRaPoR4Zv8p3LOp(2opBKuTYsvVkYHlwbLX3uc5PORpsfwfFWq5ZfztagWchSu3wXfyhAz5lCeJXfco4P0H2BdwPESc3I78l4Vv4kKuMumsovDtSvX2PRi0IuYZpizqp)TKZzPROQJ72U4UDnKyTayUepce1uADZwv)US0QDxm6qrkt1YrlsofJjWkvtFMQX0jTSrRRLwo(mM6yZCw8Ic0WOoMMkw4AoL3Gx0ooKDKSvuhBAn3FYi4cLHWf5l9NYYbH7jVn6LFhoGffiqdtanTJ76anjJKtcqzzMCgJdKZOVD7e64km1lerbtEyx9BWzhXNektLbEZxQh3hwVdkC34ZWiYlYwZsIyXoPpOejBNvcPsR4lqgYjXaaVphv6mXHQatTvyBTo)CDFQAZKnOe311KukQTsRfoJbn0JwS4LyyX1KvQselFq4C3H0L5otgtuVuFurpnuBzF72PU4iJfN6YSgmld7EXWVldZhP6uCjlCA6yN1vuQgK22hWa1Cf26TdEywTkBwR6JFVfd4t8qH1SXLE21Xs64wBEA983KxKXZMJYQgUUWAunfjMiuR2vIc9IeTsgkVY0dBhQQWWXOADFyJa(VRSd6P0ZNJ2Xncrg6G57XfTsadadjgXfEVsA5mcPkTk70f5nzY71aMhixQP9tt1VbeSza3ccxrBbs6e3Hq2U1LzOwNTocKk9HjZlRBYvYd2sIEylH0CJHbjuKuRebS9M9AVxeTLLWDVLkc112VJEHIRxfFQDq(WIhkdfQMCjrrLEt(u0EdJwqnmil(Yf(fUWxGtmwSsw0iY4S6f9RQkmpVHTggTW79hNclgB2OM5kzksvspO6ftOdMjM0G(XGqbeB7R(DYxvEq4I1axez1dfGUPkNbl8Ip5GkAKG8dkXDXgtuqYjls9xS2Qe0XwPnFffFriUGguKA9KGO(GIWEfJhkGJH3xr5cZ2QE9syzu78L9vOeUz8GMsxF7s2I6hRwxKrLWc4T7YWYVDdBQVd0aswuJx4ZLRlMrBSqEXD3)XjlGu1GB4Z1JP6SuoBmFV9MW3ec2QBAvZ8fWbr8w8lPA4b7faahNsE3Js(mJ4VzDf9hPnvLRyaC0SLUC1I8BUNgGiMArt2htN9)sdpJmxM1uwC7AGSJPVToTaFwVKpNLUQS4JzftNttkdsIT8Xgq2Orw)RQYUjRQIzNbCm7gy)VMpUUoBgwFoCtfxLnnpDr97kle7bkAC4iF4FhNOtP5rFq0kqRRY8XKx63jBfhwlEzEnC(E5h59L33WefNtfl5U7pge7)Nsa63krKgbB0BKkapG1RKPxal9AZobx0HnuvoyPfwUym8)RlxsIF6i3Ftz1su8vFpBXTSjNlGNWMWSQ7(inC4Dml7tLFeZcJgVBOXzw2nI7IkC(mIn)kSOc2SWMn17faaoGUqPVpcRM7i4EHtS647xLXXGKSxysjyY1CFbpJUBQGuQzXa2KYeKV90x(6Ffpu43lSwrFsDpQTvTMJmi7qmwykWB2NFahxCx5eB2lGVhrWWz4ECXlMzBjc9rs7l64wWDOILYZfO1Jkf4GjIY(qbMbigJ5VgemhJ49DFXlCIXtBAGDGNBmceRCsvdHtInD0VfhvvLlbNvvBl74dC8IJTJJIzChojq5EoMVTj6GjP5K6YD3JM0tycI1n4OpFzA1DJPdDCZNPVTQS4pZ4OfvnJFWOoz3n1ieVJlAMZ01EBEDn32f8nPP5lL4w8k3OGt(Rf5nJa9buoro9NKwDHQgdZ4KrvmETHcExUjcNV5A8cPtxxlujc4Xxths)XIJopCwike5TQeEEe)gpHOikyasXe4BuStMqlt)c)54XmXIjeCoWd1lGmXXlXJPevOIf8M86FqedkEXXO1x1YuWT7QSQvRAxxiQ9OjmtWj0onRrSThha1bN2PtaDu5Iuvi45yZjs4fu4qucqIwzE4ITRLUoN)8uka2ezaUEsDKlvPnGCJ1jx(JqgCmP5XkYsonb7ddNKhFUChx4yY1yv5M3oHYsbCmnHDKpCrH(IcvDkH4GEQPQd01IC50UkxwBrWA8ygJS7VOdJpx38bsrKRvJEuCsCMjFpIGK)zYKf6B4Gr0gKPNIrbsjWX(uHwvm1wTC8v1mKNsO272avblU4EqOwlnr92oVwVoCI6Z9qpHILTbe1(hiITAsRxpWkz64I5NNwz7OiqtIvYW(soBsfggcaVJ0d3Llre(9LS0sixNxxQyBl3PGaEHDWmvjyBOe5nx(ZL5FuwMvETUg8q31)uqAZISICsjib6adf1k51wgEp92FXteu96)zMa2XaeFCllDTaYFsZee(dYJ)AH)eLmwqxOTcA4yHbBh0RlMbzLwkGZCAhyL1qkFA8uui3vKDyTuQ22cH27G9nS)wJhYphlng9nLuk11kV0ndVbQQHsYtjMRo5bJAxrBRiXGBpHpsTT2qnj5HC0TvNpeds7TvxxJ8Y(AqNLCdsb((E2qnEZBcAAHSMjD3muAdsj7BKuvwsILeN2bYicUowtnJHpZpvvVU4sw6N3toYh8el6WtI)i69hgrqGcm1wSK(oCTWn(OTqAPRBkpVTUlxQbfkkVYgXL0qua5OUTczlXTUAdF6ArabTlpFO3vUwig7oIyH34vmH7Czu(If64XrbUg0FHxjCma7GEqphlzXqASnfufNrgppdspdyTa8ftScoM)7tGvOvul2d7Z8doHUlR4wqURnfUkxOT7EcgAt)u1XnT5FInfKYnbYAtYLJlXKtOKQvarbjjufuh3URGTkyXC1OjW7(lh6uuP9T7R3LRSdklCrTWEOR69gDRnqaON3p2a2cvglH7Zhi9LoSPM7gLDqd5ch4QhFRwsCMJAwDntTEHBklfUvohwqDpV7R4RVfIrT6I6qTr6(12(QJc8x3mg44FDv2XPwbavskA4NXTx(AHthXfuKVUsGeTn4v1Ji9fGJIoz1zo0ViPsKz6HwWCCgaBHeV6j7j2alpLaa08fWLvkC2gdXLNwScUC7EMPY5QQ4dKL4qz229aBt5QQzjksVnqkYj3GDP29j0Ehz2ZSjV)ljmxqTlzN2EZDwhBRzbbLaaegEr64p7hmfmjxdWsDjsDoSJBthsrSo68TvpdZfgrp8DkuH(vZq6dHtDHdOFUD3hXkHtPXwbAq3kkRw8GzUknx5KC2P0moXdqrD0Hvc3R9iPZUs7AKY2RnqrvSiux9qfgmOoTOc1Hjvdy)dIGv7G)pCi16iLrKdvIkv8M(it1SFmy4Jd7pfoCui88JT3(yboiKWWUj1danGhTZWA69JI2GJ2hPCXqySpXOP2n7Yr9MO9UkJ7tvnC94YidLACtPGA0N3wZaB3k9iUapF15BW)0qzuONWGH85Ah7Ejs9yc67bT9g2KVodLcxZT4EwFJEr4B25KXYD80uFnuxet6mgRwYGUXg0dX(gCVXIRShr8pCDyEmQfNVZLOzySqtLOrFNrShcXR)bEANtQqPAnd6TCJzsycE57wweBf)PxfGgo9IHZiztOkpwVnDtMzVJ8yYMkD3q5gnuEedfF2MdQ(rxtlZPKzUWW7xIABTAzpNzY94R8w3SemLh3MCgpOBYEHaVRXoVPu02y4fMcHRtn5L1YTFyXBiwatbfTXOdhijVb3EJnK6z3KIgm)4(bnA3cgdHRF(WHfVBHhkrZ7Ke5JpnT9jO(9UGS9k)YFVkc7W5EVX6Y0jp1UBSXUvTwLTu4bz)gCpcKC0wqK)ljIYHLO)BncYnHC)xCiKdE4A(whc5JhTAOsv3R2rM2CXDis0nU5JpYO727azhSoR7FeUD2JZUbAoC8V77E7Zle8qXoQTbQ98NoqGOdf36EK16KUv)FGyr(Xp61TStcFJJHDGyNF(2sI(LZ18EtV3XjU5yDngdPHax3WECpzJ5MnuOKdKuCNZk5a77Wg3hLbZS9VSOx3RyqnDof274snvbU)MfBANSc31u32Vsh84cDD4saHd5m48qdSeH5jA4iIdLmTFcK2RAx3ECB1uhlJhM2(eLMn)i(z6CS8CKrZ6kLwXSD3(tpEGXJ8cH2LStKLFGB3UX8UCGXd49884WyBxEyJD6B44ef67InMENypNi79EECJ9HoMFCCGf0jDEq)eZHtqy8bwS)z774hfgVVZqGl1i8fTLATn5Hn(o83L1Vu8cx8fCtmoI2LN(7efiAdDrrBSJLvy3gr92jOyMKfAG7wmQjkk(Woje9mWY2obUh4ZEChhRqlxoqICd7etJdftm2ES73LRPyZ0oGoTpO)wEW2tImkVCTvBF(7l3alGydVp01HPmt9xj93dGJeTzDCnkmz16Ag0r3Dzu9O8ehQGXrDgAcKZYJVFU0y8RD6zq2YoH3PZULs9XbBI7o(AFJHhKgrfWsmsgQJTbcyOLbuKVK8zsqgt0766u3ZVvlXjcwLTSdCcSI2FTe7Wq4hVHyF74OiUHbB8d4JFO3bHwTkrDSS3wZr32YZ(aMMUVVtORhjtTt(FwNTgBsEsJjB7ilux3X3X2A7gt6tJhOBG)EB4fBtNcl6NwGUYih3ip7O9w3lkMSvd88yttmNn(TS55txKD6xYL64o2ix476z5hU3Zdti7bOuSHXlmoQLpIeJpatgbRgmJjl)9S53)c74d8ypRN4xoeXW7lgE)aluvim022U7Rx02gEXbOR3VShIrpWoahD(VQhBv40rvY1kgCrezfZpODT)Sy0IhXBpy7jj373PeIAdcpyq9(DzP01d)nGH5ol0skRdBxk9TXF1scDykl2r7hH)cpFNdSyoFyug97qsaBWVvH8TTd8WFdvIzcmNWTs(De2mQcg)Gy430aE3m6T5tRk1McoYrCGn0572VPaCob2Som79GyxkYm1FlvAdRWf)htTXE76mgCAOqHOC6YSgvDMixCzWp0HnxX77YqOnSi36ttSk71Ar5qWAm382H(75QS1H8FKoMLxdXtYBKK88QxvvsVyZTVnDqFeGFXE(D06YKVmTjfCtoctwRnpeET6Wxatr23)FRtRWxNFEVLrP5pY9dHwqI5fFwKwCKJBpIjuZh5JZ1SW9ExIwPjE6FG4fyHtDMs0Y4lcQQu5je)aVTzQ6XEOQKmbHkVmD2S2x39q(XucsGsPFbyZJsuPUno8hx8E7qn37o9HzeIdErC3E6M9l2KctlyybZIprV28mNUOsPWs6Cwg2cUJu6z04OZR1)gB6W8HE3ODz7hft9TtdFr5R2(qny7o2upOf4c)KYpLvvbPyRi7v79LSBrHBOH0Im1G4)0AB3TlyYAlyULfpqvV7wzdH(uhIEJnDyLQU7qeejq5nW6WKjAhsEL(NYaQjlzcUmqkP0CSXF73wL1TE4BtNRBll2jz9kussgdK9bAlGNQ42zq2cmIzKVIKqx15d6DxofM)Ar7OOLz0mpPPVtRDMnalGUH18QY13oNKXDAj4i36RsPYAP431UHR4k6tuaaKq5f(eP(QOnIq4CaYcXFkAWl937Tn8B1Gl)R06w(LYU8mO6nN93)jtZf6BSQl6utJeApvKqLqYuEJMykPKH)7Xs(bcsSxiltj57baQh9E9)xoaQgYXJc6CaaSNvqY9cEE)Gon4b5rdGs32FLiOgm0(7paQhV1TTlaODqjT6RQ1Pdh9dhaQnLHzhe0UUg5eYJhcnQT95F(gWpnGvs1lQdSkHi1PQl9TSmVCmai6q2XdAImapywHUZITwDqmkS)Nj(FNfP9XlGFsr2NGF)r)U4eWKN89eP3CuiFVW6hWuAaT5(Eg2rxa)DeUFiuU)DI5BW5xp4EZHG(uW731qM1ciCFI86bOgtxFjVWxprSFZwf(0pHVfE0MYUla7JH6XnNF6dIoCdm(GOj9KJV6IRE9)5I3n(O3qatDRT7tK3)E73tTELFh88X)1)4NE((PNVF657FZE(qGG)H45tUxWMm1EEbq)zT3nJRoa2xp8Sn5FDpWL3PAUBQwJNVFqQgDj)Sx4ObWJ(bbt1urN)3eukTfephqNgDG)4Wtho4itLpsEmr(EedkSDSpfi0TUI)8cr(TpiZbGp2V4m3jiXNu8L7VRR(iLgvX3vCYFqkWUP4o57RSrC(Hl07ZaQ5tbFR3pFT7oUAhhaDc(Ko5C)Tj4tJz5TpXg9G(b06hUAqCv2QNhs)hNshjpTEFdC5PR9)u81T)yU7IVWhB9w2DlIZ)3y2c7CrvgWlOjZID034(6h0a253CNGgr9Fm(NEwCm2pkYHCpVp(9gY3PTHnDFVD4zABmnwZJhPBW9kNb7bok4prpiFVD(PFUN)bJ47CIQ)EC2PWFT8EkE0(z2BppzVn(89Z50(hjXo73AN8q9dC2B4Ha)NjVXl3f9I8)T(isTZoTEgYDt7nn6Bq6a9CCtw8)ed9VAmuIZ)jg63bmu89B4NyO84)Hh8Fyfat(IX9Dab9N7HWprq)3gc6p3dH)zVhcuntBFVu70bjymH41CvitEa7wIkniJRYQlxxHLdG(1(u(tBn9Jv7yg)FwHOF)qDYO3WVojOUTkDgW8Afk72PZoMPfnlT6(R44eKu7O(OgUj1qtHd0SKGbXTJlm78jxzupID1yFTBum0PyV5I0C9tUjFXIJz3m(E5snok8Ne(XQCy7OjiZRWNw8xNH)LC3fW3oy72jMzkQVzbNd)zdBCFBA1D1xPrxmVB(WQdtn6wAwKKXXAZk9x2UCAMpAJfmfXUQt0X4viE89ROFpwLINJ5gFbShyzM8xKnfHknJuxQJ3ZdbY8yo7Jp31Qu17flCJrkPDDSThu1sBNH0gmAGSMFokGH4StEPy6hbKlojOEqS2Q7vc1aLbvmusjOqwdnno1MmPy)KSJ5h9cSLEXaIlYwapxDhgOTLz1XtcWaNPOzbuvCqpbzRfJHFXEd9JpWpc6atoEHwBVpm0TlbXE8GGGqVilVGiSJGqKcmN(8o)a1FYOc81mNjhMZqV1kJyFxF6)qgZxKNkFv3fBAGMzCPIxc9EELAJ7tZKFeTgM12f6uACWT06vTk3IRqZyh7z1B4yUcYMmAfemZimG3jitv8iZTjpWkq9FOYQ5nqr1oD7VXGQg3KPp36YWe2AP43HnptAh8jJHoAiCfH2Vd2sf7O5QHMy0BixP3Kyzd7yARkLwqQoso5YP8txEx93qMFR8LmZOVAMD(2O(At95pzJPBy9zRd74cBh0NzacHqZUY1X3lmU3Ykx(3r8i2U6SVSkTy2RV5DLch2J6R8BhXwGSTI9zal8SDmAjePBi4)93qORT9zMO(D02WecRxe2JxCJIHgB0H7lcBa1HwScdCIPEBOUv7qMETgwDSQ0n)giIZ(a1JXUoIuFiTQjpDb8GpV2KcmvBJMI3MvKvLU4RBDGTavOXD87QhnMsmqqJAe3oQ6mwGgZ4g7gfc7O5Eam)hJkgQrYz0u3HA6DCGHnAR3lC1ow1X(qtom0jii2ZkYOvT0PvWakSorypnYloW2jY)XOWcpodyXN3fVOy44rMPJdWdG63sxSMLxJvspJ)U4krUXX2Hr(rbrU(s0b7DdnWKH)Q8vIFwgTpCd6KxjclxZhLh88xmSMye89)UQfxhOMqBhF3yxhMO2jwc1OMMc3qFOKd7dWfdtQydpDoucsXj5wc4eqqH7p0Wg3rjLLtLlirjtNdZdr8HQx5y9BOnNGDo0aUvZvQMqh3gBcf1o)YNXZoGpxWIJN3HA(sCJoufdjgYr9Hh())" },
+    { name = "EllesmereUI (2k)", description = "The default EllesmereUI look", exportString = "!EUI_T3vAtTns36)kZhV3pekTVXNacqOijWL4zMK3AQkLSTaRl2s(vsoeMu8F)Ew6wQBT4fGK3K7avLk2YsDF6ZYZzPx03oV0jArsvm8HGOKvPFys88KmJ98C2)8s)OYjfjjzVjZ0XXq5c)zMLRNX(pGpD19ltG)76vZNJ3WxskktZZYS2h)XPXutBAfTkBE(KBFB895RQ(gEJXztMLxucFom64Ro8ZxMFxsb8nVOQ4IBsQkn9PRF084YYRskZxvmjbFW8RVUmP6tzM7zBB7y7A4g4gAhq9xz60eOfo8IrJU4Dn38hZELbE32(ogwWZ47I0UPz015twvY9NAx7Y)GAVbnGPNNVFGRNJJRTPvt)zhn6Ilv7mxJ9S4EWs0ID7c5h0hrgb2ogoUoMgMUERPh8C3lag8HEgHYbJD0rV(DFEsE(8P53LvQXjnPFBvv680Q7v7rJM(Wj6ThFYinEM5EHHHEaxli0WJhr2rlBpowop((KIw8kFNqqMe65eqC71lBGrJh8NLBOVNRNf2pY2xTR8JExCA2HX69LdYjQ1dCA6k3ORo703OnI82ZXSPFObuy0hQavXeOz30WYCp31isELFat48d(ei8EKebOMrlTxROJZMKVkRkPOfXJwoFTQi(GjvGP4HRQQYZ076G9CqrBOtGLJL1gepMG6mC3wE(U(bGI)dSTZSK0BMv9U4QjZiyeGiS5)ZcVbJO7sNwnt(7WdqwZXLvWDmGXTcsqRh4bI1gpDAoPAB5fD885jLlsks(9ZosO0)U4S4BiwVPB0KPlGN7Y8YuKjW4mQwhMr3JdnJ9cbvchtlBxBu8gevKm)Y80muh4OJF)OJV6CqvAjDfPKXm6RGmja1YbzINbib9qzIB04vaxt26EoiOJPRJNpyxVXwV5ky7tWR(rcJ22eSqhE3AspB0odaWcDmbYMfKae14XnSjQtzExjHtNKfpEEY0rOiEmErKuCI(sA5BanM3KVQmn7Mr01yi962YjAEY1aaNfORa36HiR5pNLKDwwmOy(Le8Ha1SvvxC9vXz3KCb47aSDoHuwsqf4pSmz(CbnLTAXv53vMzUpPCvEx6YKdMVCwm4TYFFDkni62K7hNMn9a4hd3NgLaTF4nhZ3Yje5wol)oW4FYThHwrC3ww)9tPEYoA8nxbnIb6FPzy)oYUdBh)OX5ftbtqclf07e3X7ZhrgJk3Yv8TyhDtr(DVoTiHmpBWPcIsNKN9H0)ojZMiAtIepAg2qLJOHnnk4HTjtrIr6fsBBl(jfxMAntbPXKXOzPtUnlPSeDEplnJALjuNCsEwf)eM73IDCi1FYHYbcMd0lQMv0OJ1cUqXddCrGU)J0Y0XKYmAjp)U47X73R(PB6ClEK105A0eR8Cqw6ItbbtGB7REfrBorzXlsaI7ifItDaX3MGhpcUPQ0LN0za8rEa4jg3eE1r5ZZl4Bf0rNCBYuHEAMTzqGZ(zacTRV3(4xTmjSAxb9bQBvercc7XZt)7)oUyQI6kRZ5XszwJcvapSwb0gm2xK)L6E88mlau23E)rNNb4xE0hSmCWR8ar3G64fzZV)SSsYnx5jSAenAy26(keWv6F9qPswTs9XzjlqlubnYQ0bcw2OCKTNNLq9mP7ky(JaZ5r8GbnjrClZqmwXQuiGZlkstYaodynGKxq0mgvb7YJRnQBRR)XmR2kPS6MLHI2GMetQ(Eklvv1Ae2VqiRjLXvRka50fzh96rOBdYSCwmfNlp8yt1)vE(cPObhANk)IG7u3nnu4hRVeWDoNhoeHvUmEcmKHX0d7maRMcZaqQnaOex7xya0gEfRRwdAA(leOzTJ9Z)Eczg0wlVbXShfDbKPF0VxtA9ay(uWhnnCa4rZqdFeM00ac9mlW1g(OPRVlfXtFyj9GrpOlunK0(X)AdVTj4qnSU(rHwtiodJg9uWixVdLo4CTHiheJTRJ0(rj74q4hbkPIVWDhKSTuFtWKpQ4mBX4)Xbr2sXxlQb14kTA4RptqKHrlJZMMSiDIqF57fKPi5QZ)Ecy(OIX0n6qMW09m1f2QlAARud6XU6jH3cHeIXHAzzhy6VFMNJ1qqSdIO2FersrUqJ0Q(cNohgXN)yd8CnWOn9PaAVBajDdo2jmqgh8JgP97x0O6HT1dm76b5)rG4Q46Jkwqy0QYKdfKakMWYeCcjnibN4xgXfKuq9ltMaTyPvKNlnOekPYh)B1vwGRRuzYCqje(94ImtUgZLqtGv9bAbQq1lIxUeKiuTiQXJzYiwPMxctSjtx8H55v03cL3a1443VzoQyaseQel8vnJUbn7jjA0y4Jc6Gm3Tni79F79Wx(T)RKBI(TxN(L0SKF7YvflZlt(VPAQNtvt7GJgD2FCSSB(q19ZtKydi)6KI8fh963DYdCoIYr(74Hho6FqOxxEBA2HKTdbyBrSKllYVoDEszdRPxUBhEAddNkak8rPft7AK1Pom7CgOBzoY6fpBlbYg0IVDLZ29ar7T0y8v91k94QIss1rnSaqsstJcYPjbs6Cw5mvagIaJu8m3mzAlvyVOI4PPRG004Nw0sgg03Ijp0bIKURaZ3zup6hvGX)K8v4EMJLLTVUdydG1RgeKD0m4z8IoH(JlB7K4YQJslMmpzisZ2yhinsxnU42gOZgI1dGTkwepFBO2rnuR9jh4tuR8cgh9ARWx37Z4hvbQWRaliqzg73pZD5dK3gfjjAoVCoa0k0aNfxo7TGzDFydMcGbtHwi2fieZviRNE4K45vZUmPyc4kHSJQYxI3b55ZI844ZtYe1(k(vyxvNGoHMo)(3F5ri(QLfjwaZ3FplfR4FXQLvPJjresyg7rLxMXTeFCm)rgAbJbg7)pYERy0(qKQkqAUZpzl7V3qv5pZ0NrTKJ0r5lbSIemifKXXU5GyeEngNayTGUyvIOkecIaTUhLcm7AlkFS)5OZDaMrwvPRB0z4W764jj)1btNErw5FPiJ(RfjttJ)l6w)RJ)6sqQwcX4T3OripYo6Ajxdijun6tIH0RSernXYfyynsOuuhaKdOCNciVf3kcpXYHhXiM)Nuznb6I7nRFygnzc2FB(odu5VQYdqvDcQvttnYrRkRa)g97ZYPw2BtnPJuZtBm4RfWgGkMmnJEslce(mz(cmtWjQwN7QK4P3xR0fAv3X2nkDwcDoE2Oov64J8MiLLRsjvM)9QKYQ3Lpw1iGd6sOz0JIzTcRcfkSLe5XjtxtmIMLwno)R0mB)rbCf01n8ZJxSS6(g2PidiAa2m(S0hEqmiPzPJZllRzgUMbn3TJD99hcYe2VXATaGXmAarjlUDAlU1yucGggyg7OCi8Nf9X7Q1XbsOmO2(N(rYA(SSJYxmoUQEy1mOmT9Rhu4N5bLgrRyYxR4PrcEAqonsqqGOzvP9q4SOND7BIlp4gilLAkZObYtjunE(JTAGQokbvEvv)B3zAMgUQQEkQyw1pZBHFSb4GrMrehLYg6OicuG8zuvY6QoabefwJs3SG3M1K2sLea8ziDoGriHmVeD99PUUaWb2M7fFfZPpQZnVnfunG)P5IJHgoOaY5SHt4l95ulH9RfWnWAHIoS23tl9otzQXkenOR410wYppw852dGdVPFWaJGg4adfno8ZseVSBFBoMSOUMAqdaTVssfHmsckmrXFDPQWubGSdoaSSKmtrrgvCcuhKt5iLrnJ0g2a0EoPGPy(CSA2sQEb4Ri1SuQsIxuVXi0XeRfwJuWVzTNqTqEUKw)eI0CMUS89jXfBp70IdGLlmMwKGkgAOfSMUoxOUJQ5U1(GQh5NcQQvZG4CL4LbTg9kw)AUXxJF3bCHxpISTcf27A(jR5dqUknpLRsuFIviItt8o)jUwmY8ytYgTifyiBriAFsrJdU4N5K4VeIvIxjrAUWHbuMmUz257Y)axgtUmBystUgcHllh(8e8ABOPDvfKBuhYKDevplANRg1BlzqZ4x(dMSEUsqQBUhTvANtJxY9PQV3w9QMlhDTLghoQpJhaDt4cnkDAbZ8jrWmsgD61PtOGVPhsn0cxvfsLU2xZIyBgYOzcvAYlbrgxttWeTLR5gD5ADs8X9ibAsJ(RLTYDAwR(g65kWKvdQBZuxO29lJWhRHFvr6YKPV6lwelKm1f(H5k5PBj34B3qOrqmuBKHsZqqYkiN(5BfCegKM0gulvkonVrn(bl1tH5n99uOJZLWiPjMZUC69KRTre0)959lxSuOt2bOHijffCFFvftb(N0fvijl)GsfaGBViUi545Pvjn5pic6dTnXwV3aFvnKWWs9e2qKOPbdOrV1YPMn9bGj(6KRJxnNIuHuj9AWKunN8JMLxwLQKZmVkB4yBBu)mKryOcvJrzxsZNkKkEhzeJUA6k8LWknnmbpMju7l5t6Er1QDUCstiHLLzNKQ3gZavJ6wrJrv8fqipwPyvKvJsu1kUIAhwTsohAXr0t8YSl1dMp)1e3GKm6fC4tTsmObIAZdsbvJMXsdeJ(YSTPIROcER8A9e4MtgbMkKHYjulqmjHRewf3vqJTlWWinkh53sTumuKa16lHrZHfL9kG2YW64IJpiIoWyy1cKvQTC7(gws3erqqXRUzbGm95IvzjCjTqeTB5pZLndNpdqmusc07YxLnLNxV0SBV)ZJNJPNH3WDLJ4YZvKVe00gjMWZXIjpfCbhxunBowp7ByDdGbHpk6BmM9FheDhmaUEvb(fSUn5I(kEXY5PxFp)ObG6EvYNJN()Ynm0qlsQYZUzfpBo0VwgNnHrGVljEzE2NtYMmJhmaadaAdni0ACSm4q5qCK8VYrdeJiciGMG1LjtsJNx((8m50nHKeyPUSi56KIIKP)j1(hZnp04WWQ6ZRktMQxTwalQ(robgy63jO1HIGxNwIRX33XL4FX9vaNKOWMhf5AQpRm9aOBQAuae5PQD16sw5Yywt5o7Bihf1ZWzWez2nv)IurMq1H(aQSR00bJZ3WO7xMqwxQdr)OCuZU6(mr6sxxG5UcE0QIHHZ7o(1N9706)9EzGGKHv7jkHIp13RgQWx85I64XOzNsoFOO9wa7YlHM8nrTeBgUeP9vvib(oubWebwx7IIH6ujkD0cIyEaVpE7haExO77(Sxzfslgwptph7qcNtzH06JlUBEP(kxjTkxcxkTMgMH7z5egAggeAsf4jKQUYHY5WGDWRQsEsB7740rynSlV9EYcBm8aRQO(C2I4IBhXtKu1D8VwKN93jctUIk0OqtZ1N6VlQMbAwVlTSuy44sEqqks7U7sDJ0PoBWj8CM8YxW23LZINMFh05lgX)(1ST7yOhtkU9ZCdr2Utt(s(NjN(43kVhqyYRi8gkMQRL3lnJk61H)3ZsRobvjjUihaW44IluvATRNvc5nkx29e)bll3OApBJAwz8cOOMn9XjID0WOZBVxngrs0LklFCZ2BxespkWXhxK3wbgUE2Txb5BJEKNytje6hAsLSvUfl4M32uDplSRnVNTlVld8TTacKJcVEdkq9GVF4EgWF4KHz7e(y6bWmY3WYYhdD4HoCY6oY1cx66Ub(bwHU7ChzAh6IBbNWqpdC(6Eqp0fKx5BtIIqaXYV9YTFZDqiijqELHRTBqqiZRAneEA8ktlp79CHh3YYW3Wwg3DDWV1ytCyZ0MaO7A5NteJfIhXgh1pO7gEq22qC7wIi9(A2RSPyuLpGyXFi2Nh4tiXX948sB0GAVeS4Kye2S41BVA4G8ft45g8safdqmR4vWqa0383pNYIUAmLsQ26BXQ(EixaIOT14e8AUiKcif908rz1OGgKAmmeqXfdL0ztVWXZIRxiSg4NLnfZOox0Qeey(DNLDfGZpIitkjiCoLBQ)RaED4zAcI5JsZuH86znFzf2HrXZ)FnqOHGMWrgx)nzXTvhRVnNRjG6UXy4PsAmtpQb)xVimGwTn39tY6ZZJwrK4ouKabIlQL2xtLmc1LBIhLgaG(fLkipPg8ZFNOImNOpK)KiSGfXFLC8MjIRN6foDj42ODUdKt5mzmiFaAQrB3SaXZ4JKNizjYj5YGjvo)pHsvnXPP8givP)yVrYiw5nNLDjeaoLwXAwpBn2bumOwrwtjAHIKtKlAGiPhm3R6C3JxvLFED9IKjCZIgr5n6UgTuvMLkFHcnTw2jC1NffyKakOjeqA9ulv(uNR0ys2QfPS1eLHwyUEs6856bI6PKjFqJmkWJWyT8gWuIACr1yikfRMGuT786kLoAwcgGmo08Of2tbUwg9BvYyG7GkNTWJ4Xfz88rzo4WNfZCSu3KrgcRfR1OwQgc1lNSg4dD4XnnhgY5QqYPmuyvI5WaahW4KBgvJYPqS4a9uQBmY5OQHy3wIvRqfkuBgJ77rbwPSsgBiKDw9NkceomfSwlrHvARo7wJhPWrPfLGzxOe1L84sndaqWKaP4CoAls)Iatsu9MwdtnhlktaankSWRE4nAXSQY(ou6OcDVw1SeJAQ8fM7QcL3aaYHqJSHd4nqT6051vrxFgqcQ190rud0DKTzPJckNEl5u75ULYn11k4KnKIMsCy9L)O03I8ck8x7gGdT5Ps1Xh)dO)aHsaUVx3N1eBmGArLazvRl1pzjScTgaszejfAPR01l7GCvvDEzHT8QvuAkWKqnJnieAce0n(81v9FPqzRvmdorZGwEU(QxziIYrHD1WS7I9tTewJFAWE(qlb4agGHrhvqxee7iQehflIXOqxMuSC556rm9PwrmPSsPvX)0MiOwME1Awnrts76AzLTrC9dLLS0IGs6SBc6Dr4ddonWFf1DZoZkTsOwsuyrLnvgfKthfLtgrvnE1rN3gLJesI9SfouKkOCqfQ3z9IjNUnIYpyCzEXyrqWka2AADstefBVqLqUunCS8hWqzJmIgVHFsfQvAElJ8tyviUN6eh0rL8vgHczZjN3So9ef0Roirg0PURufa6TJCgK8uc6RfIIwmM6OX2cBfvF1Y1KW5L6Rvb5AyGd6K8UO)qdeJkNoEpHlwxLHDcmyTyNTsdWYD)Z76Lv5U7li2EdDx8ed7NVt00DdID7nahkC31MuNUPgNLIA44gc)wpcjolcLPQQ9CUMo1pNNybaqlmaUIKQLVONe1bPzEMC9wOmln9GTUvPT3j(1wiSQtJD3e57ly3TxQ1tg)t0YSK5u7wDagcuBNdMTxiZDic3hxHgwxWVpVfHOxNHgyw5c1kXeb3tG1DNo(ToKALssmCC0pA)pdgL9wv(JTiu81wEKHZsCNdwFDPs8KR1s7W6xF8)kEQxtnAgoZmTQ30UCCDcyyGumgod6ojFmqDiF0v9P3SzwB9s3XuD2yzLALl0AkY0ZqMqBkbL(dbONmD0lK0G51SU8N6Vsy9ft5AtfPVISnu439K2YAkL241v02bJiDOeXvYIHfe9NfZAcCDWIf0xSvsmCmNUZhorLbcpFlZtzNIuTtDXxFSRBtXj7pH2FYklz)PRpC2CRP4z7sEg6148rfN75dLqMihgE(DRdODWGx7jx)wwdBxKj9oZs9hM66qmgcDO)SU7tXFDoWBHN3Frghy(zgQwfdKT8WZyt)f9EaT3bt6U)cQReVbjP2yel9h4)qisBgpxjUzTjqDNqJ268ywtvPxBzU7emfPaoBzVHe0rvFdqJTX7F2Sb6M18tt)xpoHwQ92I5g8rLDFFbQ0wtUML3VM)g1ChmUMHYL9XbY2n61TZ4WZytghkRhJ(9v2dMnpZsptfCyhw3a72CR9p1Yl8iNATTR6cRfRBtfuWCi32FNlOWMY(Nqz2IS)7p26Do3(nHP80NOU15BzDLPy3IESBHgw7mGoqQ9dhM7As0D79n)8M3FVLK97B6(BiF8NNu(7Xvz7I)0tk(R1)7qEgBxWMTTEL94ytp0H1ptSDsRFxIf8jurYDUAfdN7XGbbny9a6uETHkjX)XQpWWXJn4er8KRjq3Ym8Zv9awFXfBVGghCU(hVUIt9mK5VsHD55TkV6YxMEYEbbEKjW89C6jbuxC7kG6FNSbcXUXsK0uBoQGE48wBeGdKhuxLC5EwUQeUT2RLg1f3MNrZ0HgiS1q6m0NnWmA0LeegTdzSeOz6Nw88bAp1h4k)2kax52gMEwEgb7(k)203hFzke6Agge4Y1ldAFpr777SNVr9cd3uV530X6UPHJ5EHEEUUw(2oYdBKoVbaKdfptpIueN()BCO0QZSncXLHFGrOyndYh5)Tzuw2boMb78gwiiKxe(EoobEEHIIN8hjZsNmp54VM2SXiSmPLIVRTJHR)o3paN2b33cqZ44hgupocKTpUBdcqrsGTPH7oE29)kZW9CGN1r((Vq28UYM31ZGec((MMMT3(rBQ5neSL)NvjROdhWM9ab0ygeFXY1Y0yZ7bc9g2b3Ui0B5eNqtw6w)URq2d82bBNP2oVTkyDrp)9guVFBKI2o0RLfE3NuZM9RLIUM07UcFlqpXmy3i8x54ATNHTTfqz8llepOXVrH8nn9CO3KgHG5GL)gj)wMsavHTVxi(2yqCSc9U0jf5ADHa5i0ZepH62TUa3WjOa1cug8cjuq9x4jIDMdTXzG)aqbZnJi0ZwasHcj(e49wvNjWMedU(wqFfURIbFtuixVhOKszNAJjlwN32W103DhLY8jBPLB9bF4XtVj53BDo5HrErUFuIiJ814IBqtCROjoMxLtjKsBr3S1EKBQWgpqTBjCNNMZBAz9TJAERZkKnTZl1oJoFDCv8HIZOZqXyOZGdIp)FVkUG22(yb5W9KUOB7CVw1)e57ugFFZ5lPWX55u0ykSHhNlBRggwBsr5So1Lp(dKXi025UQJ)Nq8dIdnt1qd6VmNR5eq2xSSzXq4v2b9MIvQLsPfWJIh0TTmCvuTU1PtneUoDQsdHBU5yJ7gHPYqxoSLdz6j6Cc3ASV(5CjKhxZzOn1UIQyi3aGQZrKNS12oYT5GiLY2sFFbJNDQnhsTRFvm0907Lfr5FjPOaRWOohTBvkDvjCoIDdwBJ7LpqtTikQkzIPwOOMWDFNxZwIwa6WPjzCu5TtmO3kHAl0nUmE606v5Sf3XmNsEGDJjwfVmHbBupcohRTbrupPw6xvybWgtqEMYHeUNAJV96vTpRPTIwXfRqrKqqrzSROm5x5KNCBR0vJkAwB9AwB7g0J20N0pC5uyBItXzVMHR2XCXK54zA1SI8v3mJnBz5G(HWCBdNpjLKkCR6C6dbjHgqa3ImqGL(jcVsDc7)KcFClXCnCtlTFZO8Md5AuRBg89)g0yPJIvfHnFYqIN0umBzGZrDFn27gmU1Y95hhaQdFcd8FCa0ES63ny0bKb)scyY1YthW0uwjYUiMAoFEkyL9zs9RnuPjNv2ZawzlarJUkxTo4E(5aRKp1JB7euxj9zaSmO(9eW5RfPCNc2zxXphQ8oDHw6x6mai6q2(dWygC03v43JrHwfx6vS9piVaRly62G1UrzjFbFZKURAz7IhIbDZ8I)HFb8p0dY4)SCnmKdYbI3850bXwhnDFr3TRocCJ(4LI6S9eX(7FS5YVeFZCKBC4(0D1fOJWY)ntmH5b7Vooqhg3BU4QZ(xx8(rh82ZhaPH1cBxk5N4y)hTFp1YJ(dZZhD2W)INVx889pipF2)ZlPO)P45RzwN7tJ97ba6)pOc87EPJ2rG2hrHL2jb)5dvk9DazLvX7dzTpi7UHwmGTWalz5U7DITO09M7)Ra6QfptR)dhDDDtZYtd09rIU2jIM(cq5b1fKYpUyq92)Nci0DOg8RbrBhXgxlk7aiZ9d2TBrIQ5VyiCYEMIGTfHCa8WxccvgekV400HjBHR8SaaoaC3JbqExGihk7L(IevOu)eaf7dL)rbt(CeeQ66b7xSAq0ScQEb9)f0)xq)Fb9)f0)De9VzPg)JQee)Sm7L)kvcIMIg)CvbINyLDhgFDBwLGdNvz)iXTGA(Uv(HEmw)EcR2)CAoag4Zc(6qP43xax7a85JbFUhSvXjwtxq0(94TLUNFKGRBBfim7Sfw(fliA9TRXVyeFRncYpUvIj9Yx7NaVyVKhWAZdy4zG8L8a0ASTYHLfFEn8sEaLz273ESUJluZFQYcqBds(dRwkoSn9lyO)CJHYJ7xWq3OY1wHHsk9VGHIdDXUk7)VukfVORsw(8eg9VklKXhO9zlIvGhmoWVEqw6cUby4f5(ST(jOtZfLdiJRskZxvqbWZV7GXt6fMjYV6zhbdMtZKN1m8zaYBfxNr5UPiEks4Agq3mz6HGn004I7VsG7XAph0ff0oQepSYqPCd4wyD7I9o25nmspTFx2IX0bsfBU6gDD685hcpPV9(QdLdGlf6sxQZRZvF3W9CdW3dNwo(gBEN43(D)i844BXsNadhVa5IsqHruZgL8ItLU)uUPAcKhcxHFvC4txb0)7IlUT8kTrmeIGlgyiyFEZvzgAd3dPVl7p(BM8BG)rYwBe)OcIrPBoK6g(CV9dl5xMS6el3GEWJSiP5fCylpn85YJ4G0d7PdL3yTyV(KTMoJNatPSK5i9H0wi36uZf2IcpL6aSnr2MOwiyBC6rVwsJNO3vFmtx76kH2LAZkBSg(OKJJNbpQNfnsibZWGgo7hK91OAEt7E9qcBxkKznyabq(ZGpS2iaszOucZIWf0bMg3kO6LlDet4hDtswsr88VTrCfdmGQrTgv62sk6z4rFg1(llaCMI7hQU195(q)D1SqrCsZoPNqoAJsKR6cMpcWAo0Q0pYGupGKyYwB1SYV3RPZ2mLdNRQzWWEg4Lbvdc8X3sU2wUo(H(U7RFdhiH3RVYLtaOi62cIs(k(gJ)SRFFUeq9e9hhf4MbgEEMgHUa(IyEmvXbQX3cug6sJ7auo14MryRVNHN6FKbqpbf2Y(FlxLzku)P9r9ct5EOHAdYHaADcOd7d7Gq8WTz)DfO1JpQom89ScTPZ3hjEVGW)YahsJRXsqab2ZOrAJBrhxIwkSf8esmnEog9ehIr9VOvb7EcWs1UVgOF)ARe10r0n8BBQlpNS(HAjoSHNMV9t2odV2kBQCLAp4TTL66gvp8af7hVF82pDLBBPXsBJorqxAyo2cFLTv2oPTQ6JvHFhuzfXM0vRDiJW26VGJSeiYGPcNj9Ac5HYUdLHn0v7v87it0D)n4dXIpNdf65R1jsN4uB5Ui013bpvO88cDmc2GsSxp6Wb2HHM(bUbEb2UnrkjICOvqIC4j)r88vjLLgrD0O7dM1kGosMCc9mTc4j7AhHzXhhCh6ko)XyZgZTYmrXc0wWDwMUu(ovKhUtMH2pe30XPrsEATjZPYodE0lgwxoa)9)uv1VLDKVPLRDOTfWgScBCEPpsuGi3qwXnaSHyplNtclfZ515jQEGFGoF4q9VseoNgsE(Kgr9ACb508lhHYfUoP9byjy1xnOpMow6ISu7XsVvKdn24GVz5REUg3lLFJN)rkK8dkltVjBbEsxY5TdxDYLf5qlKGxXkYJwEXUrvfXtUf4rRU(ArYQMANzuuxloEL4dus4JuO4LuYSYIjiEYeCVVl(zU4rfjlGSYNkFKmlFxFW3ZOZZCTD9Opyz4GxHVFbbjU)mBZaiuMmWsbpkbXVAj3FL0Pn(367HGwgVzll7at)9Z8CS2VFIXbsWyexQ4vvK(uVTNPbyhbzJy4J0IPbOsMHNNAaAMRVRrT4OACZ5s(3OlsWjyPce8NynbJDK5Nn)gXhVr7GeJz7CzRehhTCTS4HrmvjoI6o71q0Yq01SN7sXLeJCuYHh3SGA5bhn6S)4ysVAI(jin2Z0j(jOv)W3bAX0YX0Mo632jIXJKYihY7PZHcrPKkrXAi7ijzxtsopzssyg8mstwpzAcqXFU0JE4b2g96Cwt3d)5XXZXN74VUeatlbqBYKiFv180SK3XTF5SyaobE6)V)" },
     --{ name = "Spin the Wheel", description = "Randomize all settings", exportString = nil },
 }
 
@@ -1631,11 +1642,15 @@ function EllesmereUI.SpinTheWheel()
         end
     end
 
-    -- Nameplates: use the existing randomizer keys from the preset system
+    -- Nameplates: use the existing randomizer via db.profile (through _dbRegistry)
     if IsAddonLoaded("EllesmereUINameplates") then
-        local db = _G.EllesmereUINameplatesDB
-        if db then
-            EllesmereUI._RandomizeNameplates(db)
+        local npEntry
+        for _, entry in ipairs(ADDON_DB_MAP) do
+            if entry.folder == "EllesmereUINameplates" then npEntry = entry; break end
+        end
+        local npProfile = npEntry and GetAddonProfile(npEntry)
+        if npProfile then
+            EllesmereUI._RandomizeNameplates(npProfile)
         end
     end
 
@@ -1729,9 +1744,6 @@ function EllesmereUI._RandomizeProfile(profile, folderName)
             end
         end
         -- Save top-level CDM internal tables that must not be randomized
-        savedVis.specProfiles    = profile.specProfiles
-        savedVis.activeSpecKey   = profile.activeSpecKey
-        savedVis.barGlows        = profile.barGlows
         savedVis.trackedBuffBars = profile.trackedBuffBars
         savedVis.spec            = profile.spec
     elseif folderName == "EllesmereUIResourceBars" then
@@ -1768,9 +1780,6 @@ function EllesmereUI._RandomizeProfile(profile, folderName)
             end
         end
         -- Restore top-level CDM internal tables
-        profile.specProfiles    = savedVis.specProfiles
-        profile.activeSpecKey   = savedVis.activeSpecKey
-        profile.barGlows        = savedVis.barGlows
         profile.trackedBuffBars = savedVis.trackedBuffBars
         profile.spec            = savedVis.spec
     elseif folderName == "EllesmereUIResourceBars" then
@@ -1941,9 +1950,8 @@ end
 do
     -- Register pre-logout callback to persist fonts, colors, and unlock layout
     -- into the active profile, and track the last non-spec profile.
-    -- No addon data snapshot needed for NewDB addons -- they write directly
-    -- to the central store. Flat addons (e.g. Nameplates) write to their own
-    -- global SV, so we snapshot them back into the profile here.
+    -- All addons use _dbRegistry (NewDB), so no manual snapshot is needed --
+    -- they write directly to the central store.
     EllesmereUI.Lite.RegisterPreLogout(function()
         if not EllesmereUI._profileSaveLocked then
             local db = GetProfilesDB()
@@ -1953,20 +1961,11 @@ do
                 profileData.fonts = DeepCopy(EllesmereUI.GetFontsDB())
                 profileData.customColors = DeepCopy(EllesmereUI.GetCustomColorsDB())
                 profileData.unlockLayout = {
-                    anchors     = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
-                    widthMatch  = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
-                    heightMatch = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
+                    anchors       = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
+                    widthMatch    = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
+                    heightMatch   = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
+                    phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds     or {}),
                 }
-                -- Snapshot flat addon data into the active profile
-                if not profileData.addons then profileData.addons = {} end
-                for _, entry in ipairs(ADDON_DB_MAP) do
-                    if entry.isFlat and IsAddonLoaded(entry.folder) then
-                        local sv = _G[entry.svName]
-                        if sv then
-                            profileData.addons[entry.folder] = DeepCopy(sv)
-                        end
-                    end
-                end
             end
             -- Track the last active profile that was NOT spec-assigned so
             -- characters without a spec assignment can fall back to it.
