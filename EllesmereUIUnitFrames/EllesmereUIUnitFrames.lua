@@ -172,6 +172,9 @@ local defaults = {
             healthClassColored = true,
             customBgColor = { r = 0.067, g = 0.067, b = 0.067 },
             castbarHeight = 14,
+            castbarAnchor = "auto",
+            castbarAnchorX = 0,
+            castbarAnchorY = 0,
             showCastbar = true,
             showCastIcon = true,
             castbarHideWhenInactive = false,
@@ -288,6 +291,9 @@ local defaults = {
             powerPercentTextPowerColor = false,
             healthClassColored = true,
             castbarHeight = 14,
+            castbarAnchor = "auto",
+            castbarAnchorX = 0,
+            castbarAnchorY = 0,
             maxBuffs = 4,
             maxDebuffs = 20,
             healthDisplay = "both",
@@ -4775,9 +4781,14 @@ local function ReloadFrames()
                                 castbarBg:ClearAllPoints()
                                 local tBtbPos = settings.btbPosition or "bottom"
                                 local btbVisible = (settings.bottomTextBar and tBtbPos == "bottom" and frame.BottomTextBar and frame.BottomTextBar:IsShown())
-                                local cbAnchor = btbVisible and frame.BottomTextBar or tPpBtbAnchor
-                                local cbXOff = btbVisible and 0 or castBarOffset
-                                castbarBg:SetPoint("TOP", cbAnchor, "BOTTOM", cbXOff, 0)
+                                local cbAnchorMode = settings.castbarAnchor or "auto"
+                                local cbAnchor
+                                if cbAnchorMode == "health" then cbAnchor = frame.Health
+                                elseif cbAnchorMode == "power" and frame.Power and frame.Power:IsShown() then cbAnchor = frame.Power
+                                elseif cbAnchorMode == "text" and frame.BottomTextBar and frame.BottomTextBar:IsShown() then cbAnchor = frame.BottomTextBar
+                                else cbAnchor = btbVisible and frame.BottomTextBar or tPpBtbAnchor end
+                                local cbXOff = (cbAnchor == frame.BottomTextBar) and 0 or castBarOffset
+                                castbarBg:SetPoint("TOP", cbAnchor, "BOTTOM", cbXOff + (settings.castbarAnchorX or 0), settings.castbarAnchorY or 0)
                                 -- Respect hide-while-not-casting: only show bg if inactive hiding is off or cast is active
                                 if settings.castbarHideWhenInactive and not frame.Castbar:IsShown() then
                                     castbarBg:Hide()
@@ -5103,9 +5114,14 @@ local function ReloadFrames()
                             castbarBg:ClearAllPoints()
                             local fBtbPos2 = settings.btbPosition or "bottom"
                             local btbVisible = (settings.bottomTextBar and fBtbPos2 == "bottom" and frame.BottomTextBar and frame.BottomTextBar:IsShown())
-                            local cbAnchor = btbVisible and frame.BottomTextBar or fPpBtbAnchor
-                            local cbXOff = btbVisible and 0 or castBarOffset
-                            castbarBg:SetPoint("TOP", cbAnchor, "BOTTOM", cbXOff, 0)
+                            local cbAnchorMode = settings.castbarAnchor or "auto"
+                            local cbAnchor
+                            if cbAnchorMode == "health" then cbAnchor = frame.Health
+                            elseif cbAnchorMode == "power" and frame.Power and frame.Power:IsShown() then cbAnchor = frame.Power
+                            elseif cbAnchorMode == "text" and frame.BottomTextBar and frame.BottomTextBar:IsShown() then cbAnchor = frame.BottomTextBar
+                            else cbAnchor = btbVisible and frame.BottomTextBar or fPpBtbAnchor end
+                            local cbXOff = (cbAnchor == frame.BottomTextBar) and 0 or castBarOffset
+                            castbarBg:SetPoint("TOP", cbAnchor, "BOTTOM", cbXOff + (settings.castbarAnchorX or 0), settings.castbarAnchorY or 0)
                             -- Respect hide-while-not-casting: only show bg if inactive hiding is off or cast is active
                             if settings.castbarHideWhenInactive and not frame.Castbar:IsShown() then
                                 castbarBg:Hide()

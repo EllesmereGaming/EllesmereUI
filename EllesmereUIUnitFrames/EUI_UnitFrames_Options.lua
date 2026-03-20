@@ -5007,6 +5007,33 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
+        -- Row 3: Cast Bar Anchor (target/focus only)
+        local cbAnchorValues = { ["auto"]="Auto", ["health"]="Health Bar", ["power"]="Power Bar", ["text"]="Text Bar" }
+        local cbAnchorOrder = { "auto", "health", "power", "text" }
+        local cbAnchorRow
+        cbAnchorRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Anchor To", values=cbAnchorValues, order=cbAnchorOrder,
+              getValue=function() return UNIT_DB_MAP[selectedUnit]().castbarAnchor or "auto" end,
+              setValue=function(v) UNIT_DB_MAP[selectedUnit]().castbarAnchor = v; ReloadAndUpdate(); UpdatePreview() end },
+            {});  y = y - h
+
+        -- Cog on Anchor To for X/Y offsets
+        do
+            local anchorRgn = cbAnchorRow._leftRegion
+            local _, cbAnchorCogShow = EllesmereUI.BuildCogPopup({
+                title = "Cast Bar Anchor Offsets",
+                rows = {
+                    { type="slider", label="X", min=-200, max=200, step=1,
+                      get=function() return UNIT_DB_MAP[selectedUnit]().castbarAnchorX or 0 end,
+                      set=function(v) UNIT_DB_MAP[selectedUnit]().castbarAnchorX = v; ReloadAndUpdate(); UpdatePreview() end },
+                    { type="slider", label="Y", min=-200, max=200, step=1,
+                      get=function() return UNIT_DB_MAP[selectedUnit]().castbarAnchorY or 0 end,
+                      set=function(v) UNIT_DB_MAP[selectedUnit]().castbarAnchorY = v; ReloadAndUpdate(); UpdatePreview() end },
+                },
+            })
+            MakeCogBtn(anchorRgn, cbAnchorCogShow, nil, EllesmereUI.DIRECTIONS_ICON)
+        end
+
         _, h = W:Spacer(parent, y, 20); y = y - h
 
         -------------------------------------------------------------------
