@@ -44,6 +44,7 @@ local defaults = {
         friends = {
             enabled        = true,
             bgAlpha        = 0.8,
+            showBorder     = true,
             borderR        = 0.05, borderG = 0.05, borderB = 0.05, borderA = 1,
             useClassColor  = false,
             useAccentTab   = true,
@@ -653,7 +654,7 @@ end
 -- Update accent underline on active tab
 local function UpdateTabUnderlines()
     local p = EBS.db and EBS.db.profile and EBS.db.profile.friends
-    if not p or not p.enabled or not p.useAccentTab then return end
+    if not p or not p.enabled then return end
     local selected = PanelTemplates_GetSelectedTab and
                      PanelTemplates_GetSelectedTab(FriendsFrame) or 1
     for i = 1, 4 do
@@ -664,10 +665,12 @@ local function UpdateTabUnderlines()
     end
 end
 
--- Skin a single friend button (row bg + hover)
+-- Skin a single friend button (row bg + hover + fonts)
 local function SkinFriendButton(button)
     if button._ebsSkinned then return end
     button._ebsSkinned = true
+
+    local font = EllesmereUI.EXPRESSWAY or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
 
     -- Row background
     if not button._ebsRowBg then
@@ -679,9 +682,19 @@ local function SkinFriendButton(button)
     if not button._ebsHover then
         button._ebsHover = button:CreateTexture(nil, "HIGHLIGHT")
         button._ebsHover:SetAllPoints()
-        button._ebsHover:SetColorTexture(1, 1, 1, 0.05)
+        button._ebsHover:SetColorTexture(1, 1, 1, 0.08)
         button._ebsHover:SetBlendMode("ADD")
     end
+
+    -- Apply EUI font to friend row text
+    local nameText = button.name or button.Name
+    if nameText and nameText.SetFont then nameText:SetFont(font, 12, "") end
+    local infoText = button.info or button.Info
+    if infoText and infoText.SetFont then infoText:SetFont(font, 10, "") end
+    local statusText = button.status or button.Status
+    if statusText and statusText.SetFont then statusText:SetFont(font, 10, "") end
+    local gameText = button.gameText or button.GameText
+    if gameText and gameText.SetFont then gameText:SetFont(font, 10, "") end
 end
 
 -- Apply alternating row colors to visible buttons
@@ -691,8 +704,7 @@ local function UpdateRowColors()
     local idx = 0
     for _, button in scrollBox:EnumerateFrames() do
         if button._ebsRowBg then
-            local alpha = (idx % 2 == 0) and 0.03 or 0.06
-            button._ebsRowBg:SetColorTexture(1, 1, 1, alpha)
+            button._ebsRowBg:SetColorTexture(1, 1, 1, 0)
         end
         idx = idx + 1
     end
@@ -702,7 +714,7 @@ end
 local function ProcessFriendButtons()
     local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
     if not scrollBox then return end
-    local ar, ag, ab = EllesmereUI.GetAccentColor()
+    local ar, ag, ab = (EllesmereUI.GetAccentColor or function() return 0.047, 0.824, 0.624 end)()
     for _, button in scrollBox:EnumerateFrames() do
         SkinFriendButton(button)
         local bnetInfo, wowInfo = GetFriendInfo(button)
@@ -712,56 +724,142 @@ local function ProcessFriendButtons()
     UpdateRowColors()
 end
 
--- Skin the scrollbar
-local function SkinScrollbar()
-    local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
-    if not scrollBox then return end
-    local scrollBar = scrollBox.ScrollBar or (FriendsListFrame and FriendsListFrame.ScrollBar)
-    if not scrollBar then return end
+-- Skin the scrollbar — hide Blizzard bar and overlay a thin EUI-style track
+-- Skin a single ScrollBox+ScrollBar pair with EUI thin track
+local function SkinOneScrollbar(scrollBox, scrollBar)
+    if not scrollBox or not scrollBar then return end
+    if scrollBox._ebsTrack then return end -- already skinned
 
-    -- Hide Blizzard scrollbar chrome
-    if scrollBar.Background then scrollBar.Background:Hide() end
-    if scrollBar.Track then
-        if scrollBar.Track.Begin then scrollBar.Track.Begin:Hide() end
-        if scrollBar.Track.End then scrollBar.Track.End:Hide() end
-        if scrollBar.Track.Middle then
-            scrollBar.Track.Middle:SetColorTexture(0.08, 0.08, 0.08, 0.5)
+    -- Hide Blizzard scrollbar visuals
+    scrollBar:SetAlpha(0)
+
+    -- Create thin EUI-style track overlay
+    local track = CreateFrame("Frame", nil, scrollBox)
+    track:SetWidth(4)
+    track:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 4, -2)
+    track:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 4, 2)
+    track:SetFrameLevel(scrollBox:GetFrameLevel() + 5)
+    scrollBox._ebsTrack = track
+    scrollBox._ebsScrollBar = scrollBar
+
+    local trackBg = track:CreateTexture(nil, "BACKGROUND")
+    trackBg:SetColorTexture(1, 1, 1, 0.02)
+    trackBg:SetAllPoints()
+
+    local thumb = CreateFrame("Frame", nil, track)
+    thumb:SetWidth(4)
+    thumb:SetHeight(60)
+    thumb:SetPoint("TOP", track, "TOP", 0, 0)
+    thumb:SetFrameLevel(track:GetFrameLevel() + 1)
+    scrollBox._ebsThumb = thumb
+
+    local thumbTex = thumb:CreateTexture(nil, "ARTWORK")
+    thumbTex:SetColorTexture(1, 1, 1, 0.27)
+    thumbTex:SetAllPoints()
+
+    local function UpdateThumb()
+        local ok1, pct = pcall(function() return scrollBar:GetScrollPercentage() or 0 end)
+        local ok2, extent = pcall(function() return scrollBar:GetVisibleExtentPercentage() or 1 end)
+        if not ok1 then pct = 0 end
+        if not ok2 then extent = 1 end
+        if extent >= 1 then
+            track:Hide()
+            return
         end
+        track:Show()
+        local trackH = track:GetHeight()
+        local thumbH = math.max(20, trackH * extent)
+        thumb:SetHeight(thumbH)
+        local travel = trackH - thumbH
+        thumb:ClearAllPoints()
+        thumb:SetPoint("TOP", track, "TOP", 0, -(travel * pct))
     end
 
-    -- Skin thumb
-    local thumb = scrollBar.Thumb or (scrollBar.Track and scrollBar.Track.Thumb)
-    if thumb then
-        if thumb.Begin then thumb.Begin:Hide() end
-        if thumb.End then thumb.End:Hide() end
-        if thumb.Middle then
-            thumb.Middle:SetColorTexture(0.3, 0.3, 0.3, 0.6)
+    if scrollBar.RegisterCallback then
+        scrollBar:RegisterCallback("OnScroll", UpdateThumb)
+    end
+    if scrollBar.SetScrollPercentage then
+        hooksecurefunc(scrollBar, "SetScrollPercentage", function() C_Timer.After(0, UpdateThumb) end)
+    end
+    C_Timer.After(0.1, UpdateThumb)
+end
+
+-- Find and skin all scrollbars in the FriendsFrame hierarchy
+local function SkinScrollbar()
+    -- Known scroll frames across all tabs
+    local targets = {
+        FriendsListFrame,           -- Contacts tab
+        WhoFrame or _G["WhoFrame"], -- Who tab
+        _G["RaidFrame"],            -- Raid tab
+        _G["QuickJoinFrame"],       -- Quick Join tab
+        _G["RecruitAFriendFrame"],  -- Recruit a Friend
+        _G["RecentAlliesFrame"],    -- Recent Allies
+    }
+    for _, f in ipairs(targets) do
+        if f then
+            -- Try direct .ScrollBox/.ScrollBar
+            local sb = f.ScrollBox
+            local bar = sb and (sb.ScrollBar or f.ScrollBar)
+            if sb and bar then
+                SkinOneScrollbar(sb, bar)
+            end
+            -- Also search one level of children for ScrollBox
+            for _, child in ipairs({f:GetChildren()}) do
+                if child.ScrollBox then
+                    local csb = child.ScrollBox
+                    local cbar = csb.ScrollBar or child.ScrollBar
+                    if csb and cbar then SkinOneScrollbar(csb, cbar) end
+                elseif child:GetObjectType() == "Frame" then
+                    -- Check if the child itself is a ScrollBox-like frame
+                    if child.ScrollBar and child.EnumerateFrames then
+                        SkinOneScrollbar(child, child.ScrollBar)
+                    end
+                end
+            end
         end
     end
 end
 
--- Skin bottom-area buttons (AddFriend, etc.)
+-- Skin bottom-area buttons (AddFriend, etc.) — matches EUI footer button style
 local function SkinBottomButton(btn, r, g, b, a)
     if not btn or btn._ebsBtnSkinned then return end
     btn._ebsBtnSkinned = true
 
-    -- Strip default art from BORDER/BACKGROUND layers
+    local font = EllesmereUI.EXPRESSWAY or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+
+    -- Strip ALL Blizzard art
     for _, child in ipairs({btn:GetRegions()}) do
         if child:IsObjectType("Texture") then
-            local layer = child:GetDrawLayer()
-            if layer == "BORDER" or layer == "BACKGROUND" then
-                child:SetAlpha(0)
-            end
+            child:SetAlpha(0)
         end
     end
 
-    -- Dark background
-    if not btn._ebsBg then
-        btn._ebsBg = btn:CreateTexture(nil, "BACKGROUND", nil, -6)
-        btn._ebsBg:SetColorTexture(0.1, 0.1, 0.1, 0.9)
-        btn._ebsBg:SetAllPoints()
+    -- Dark background with margin (inset 3px each side for visual spacing)
+    btn._ebsBg = btn:CreateTexture(nil, "BACKGROUND", nil, -6)
+    btn._ebsBg:SetColorTexture(0.05, 0.07, 0.09, 0.92)
+    btn._ebsBg:SetPoint("TOPLEFT", 3, -2)
+    btn._ebsBg:SetPoint("BOTTOMRIGHT", -3, 2)
+
+    PP.CreateBorder(btn, 1, 1, 1, 0.4, 1, "OVERLAY", 7)
+
+    -- EUI font
+    local text = btn:GetFontString()
+    if text then
+        text:SetFont(font, 13, "")
+        text:SetTextColor(1, 1, 1, 0.5)
     end
-    PP.CreateBorder(btn, r, g, b, a, 1, "OVERLAY", 7)
+
+    -- Hover fade (matching EUI footer buttons)
+    btn:HookScript("OnEnter", function()
+        if text then text:SetTextColor(1, 1, 1, 0.7) end
+        if btn._ppBorders then PP.SetBorderColor(btn, 1, 1, 1, 0.6) end
+        if btn._ebsBg then btn._ebsBg:SetColorTexture(0.05, 0.07, 0.09, 0.95) end
+    end)
+    btn:HookScript("OnLeave", function()
+        if text then text:SetTextColor(1, 1, 1, 0.5) end
+        if btn._ppBorders then PP.SetBorderColor(btn, 1, 1, 1, 0.4) end
+        if btn._ebsBg then btn._ebsBg:SetColorTexture(0.05, 0.07, 0.09, 0.92) end
+    end)
 end
 
 -- Right-click group menu (closures lifted to module level to avoid per-open allocation)
@@ -831,7 +929,7 @@ end
 -- Hook new ScrollBox buttons for right-click group menu
 local function HookNewButtonClicks(scrollBox)
     for _, button in scrollBox:EnumerateFrames() do
-        if not button._ebsClickHooked then
+        if not button._ebsClickHooked and button.RegisterForClicks then
             button._ebsClickHooked = true
             button:HookScript("OnClick", function(btn, mouseButton)
                 if mouseButton == "RightButton" then
@@ -859,10 +957,16 @@ local function SkinFriendsFrame()
     if frame.TitleBg then frame.TitleBg:Hide() end
     if frame.TopTileStreaks then frame.TopTileStreaks:Hide() end
 
-    -- Portrait
-    if frame.portrait then frame.portrait:SetAlpha(0) end
-    if frame.PortraitContainer then frame.PortraitContainer:SetAlpha(0) end
-    if FriendsFramePortrait then FriendsFramePortrait:SetAlpha(0) end
+    -- Portrait / top-left icon — hide everything related
+    if frame.portrait then frame.portrait:Hide() end
+    if frame.PortraitContainer then
+        frame.PortraitContainer:Hide()
+        if frame.PortraitContainer.portrait then frame.PortraitContainer.portrait:Hide() end
+    end
+    if FriendsFramePortrait then FriendsFramePortrait:Hide() end
+    if FriendsFrameIcon then FriendsFrameIcon:Hide() end
+    if frame.PortraitFrame then frame.PortraitFrame:Hide() end
+    if frame.portraitIcon then frame.portraitIcon:Hide() end
 
     -- ButtonFrameTemplate border textures
     for _, key in ipairs({"TopBorder", "TopRightCorner", "RightBorder",
@@ -878,20 +982,58 @@ local function SkinFriendsFrame()
         if frame.Inset.Bg then frame.Inset.Bg:Hide() end
     end
 
-    -- ── Dark background ────────────────────────────────────────────────
-    frame._ebsBg = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-    frame._ebsBg:SetColorTexture(0, 0, 0)
+    -- ── Dark background (EUI panel color) ───────────────────────────
+    frame._ebsBg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
+    frame._ebsBg:SetColorTexture(0.05, 0.07, 0.09)
     frame._ebsBg:SetAllPoints()
     frame._ebsBg:SetAlpha(p.bgAlpha)
 
-    -- ── Pixel border on frame ──────────────────────────────────────────
+    -- ── Pixel border on frame (always created, alpha-controlled) ───────
     local r, g, b, a = GetBorderColor(p)
-    PP.CreateBorder(frame, r, g, b, a, 1, "OVERLAY", 7)
+    local borderAlpha = (p.showBorder ~= false) and a or 0
+    PP.CreateBorder(frame, r, g, b, borderAlpha, 1, "OVERLAY", 7)
+
+    -- ── Bottom tab bar background (extends main frame bg) ───────────────
+    if not frame._ebsTabBarBg then
+        -- Find the first and last tab to size the bar
+        local firstTab = _G["FriendsFrameTab1"]
+        local lastTab = _G["FriendsFrameTab4"] or _G["FriendsFrameTab3"] or _G["FriendsFrameTab2"] or firstTab
+        if firstTab then
+            frame._ebsTabBarBg = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
+            frame._ebsTabBarBg:SetColorTexture(0.05, 0.07, 0.09)
+            frame._ebsTabBarBg:SetAlpha(p.bgAlpha)
+            -- Span the full width of the frame, from bottom of frame down to bottom of tabs
+            frame._ebsTabBarBg:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 2)
+            frame._ebsTabBarBg:SetPoint("TOPRIGHT", frame, "BOTTOMRIGHT", 0, 2)
+            frame._ebsTabBarBg:SetPoint("BOTTOM", firstTab, "BOTTOM", 0, 0)
+        end
+    end
 
     -- ── Skin tabs ──────────────────────────────────────────────────────
     for i = 1, 4 do
         local tab = _G["FriendsFrameTab" .. i]
         if tab then
+            -- Move first tab flush with frame left edge
+            if i == 1 then
+                tab:ClearAllPoints()
+                tab:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 2)
+            end
+
+            -- Lock tab geometry — prevent Blizzard from resizing/offsetting on select/deselect
+            if tab.SetPushedTextOffset then
+                tab:SetPushedTextOffset(0, 0)
+                tab.SetPushedTextOffset = function() end
+            end
+            -- Lock height so PanelTemplates_TabResize can't change it
+            local tabH = tab:GetHeight()
+            tab.SetHeight = function(self, h) end
+            -- Lock text position so it never shifts
+            local text = tab:GetFontString()
+            if text then
+                text:ClearAllPoints()
+                text:SetPoint("CENTER", tab, "CENTER", 0, 0)
+            end
+
             -- Hide all Blizzard tab textures
             for _, child in ipairs({tab:GetRegions()}) do
                 if child:IsObjectType("Texture") then
@@ -899,22 +1041,20 @@ local function SkinFriendsFrame()
                 end
             end
 
-            -- Dark tab background
-            tab._ebsBg = tab:CreateTexture(nil, "BACKGROUND", nil, -6)
-            tab._ebsBg:SetColorTexture(0, 0, 0, 0.8)
-            tab._ebsBg:SetPoint("TOPLEFT", 2, -2)
-            tab._ebsBg:SetPoint("BOTTOMRIGHT", -2, 2)
 
-            -- Tab border
-            PP.CreateBorder(tab, r, g, b, a, 1, "OVERLAY", 7)
 
-            -- Accent underline (only active tab)
-            if p.useAccentTab then
+            -- Accent underline (always created, shown/hidden by UpdateTabUnderlines)
+            do
                 local underline = tab:CreateTexture(nil, "OVERLAY", nil, 6)
                 underline:SetHeight(2)
                 underline:SetPoint("BOTTOMLEFT", 2, 0)
                 underline:SetPoint("BOTTOMRIGHT", -2, 0)
-                local ar, ag, ab = EllesmereUI.GetAccentColor()
+                local ar, ag, ab
+                if EllesmereUI.GetAccentColor then
+                    ar, ag, ab = EllesmereUI.GetAccentColor()
+                else
+                    ar, ag, ab = 0.047, 0.824, 0.624
+                end
                 underline:SetColorTexture(ar, ag, ab, 1)
                 tab._ebsUnderline = underline
                 EllesmereUI.RegAccent({ type = "solid", obj = underline, a = 1 })
@@ -922,11 +1062,74 @@ local function SkinFriendsFrame()
             end
         end
     end
+    -- Set initial underline visibility
+    C_Timer.After(0, UpdateTabUnderlines)
 
-    -- Hook tab switching
+    -- Build set of bottom tab frames to exclude from button skinning
+    local bottomTabSet = {}
+    for i = 1, 4 do
+        local tab = _G["FriendsFrameTab" .. i]
+        if tab then bottomTabSet[tab] = true end
+    end
+
+    -- Hook tab switching — update underlines + skin new buttons on the visible tab
     if PanelTemplates_SetTab then
         hooksecurefunc("PanelTemplates_SetTab", function(f)
-            if f == FriendsFrame then UpdateTabUnderlines() end
+            if f == FriendsFrame then
+                -- Re-zero pushed text offset (Blizzard resets on tab switch)
+                for i = 1, 4 do
+                    local tab = _G["FriendsFrameTab" .. i]
+                    if tab and tab.SetPushedTextOffset then
+                        tab:SetPushedTextOffset(0, 0)
+                    end
+                end
+                UpdateTabUnderlines()
+                -- Skin scrollbars + action buttons on newly-visible tab
+                if EBS.db and EBS.db.profile.friends.enabled then
+                    SkinScrollbar()
+                    C_Timer.After(0.1, function()
+                        local p2 = EBS.db.profile.friends
+                        local r2, g2, b2, a2 = GetBorderColor(p2)
+                        local function SkinNewButtons(parent)
+                            if not parent then return end
+                            for _, child in ipairs({parent:GetChildren()}) do
+                                if child:IsObjectType("Button") and not child._ebsBtnSkinned
+                                   and not child._ebsSubSkinned and not bottomTabSet[child] then
+                                    local ok, txt = pcall(function() return child:GetText() end)
+                                    if ok and txt and #txt > 1 then
+                                        local lower = txt:lower()
+                                        local isAction = (lower:find("add") and lower:find("friend"))
+                                            or lower:find("send") or lower:find("message")
+                                            or lower:find("refresh") or lower:find("group")
+                                            or lower:find("invite") or lower:find("raid")
+                                            or lower:find("convert") or lower:find("info")
+                                            or lower:find("request") or lower:find("join")
+                                        local isSubTab = lower == "friends" or lower == "recent"
+                                            or lower == "allies" or lower:find("recruit a friend")
+                                            or lower == "contacts" or lower == "who" or lower == "quick join"
+                                        if isAction and not isSubTab then
+                                            SkinBottomButton(child, r2, g2, b2, a2)
+                                        end
+                                    end
+                                end
+                                SkinNewButtons(child)
+                            end
+                        end
+                        SkinNewButtons(frame)
+                    end)
+                end
+            end
+        end)
+    end
+    -- Hook tab select/deselect to re-zero pushed text offset
+    if PanelTemplates_SelectTab then
+        hooksecurefunc("PanelTemplates_SelectTab", function(tab)
+            if tab and tab.SetPushedTextOffset then tab:SetPushedTextOffset(0, 0) end
+        end)
+    end
+    if PanelTemplates_DeselectTab then
+        hooksecurefunc("PanelTemplates_DeselectTab", function(tab)
+            if tab and tab.SetPushedTextOffset then tab:SetPushedTextOffset(0, 0) end
         end)
     end
 
@@ -940,7 +1143,7 @@ local function SkinFriendsFrame()
             if not EBS.db or not EBS.db.profile.friends.enabled then return end
             SkinFriendButton(button)
             local bnetInfo, wowInfo = GetFriendInfo(button)
-            local ar, ag, ab = EllesmereUI.GetAccentColor()
+            local ar, ag, ab = (EllesmereUI.GetAccentColor or function() return 0.047, 0.824, 0.624 end)()
             UpdateClassIcon(button, bnetInfo, wowInfo)
             UpdateGroupTag(button, bnetInfo, wowInfo, ar, ag, ab)
         end)
@@ -956,9 +1159,432 @@ local function SkinFriendsFrame()
         end)
     end
 
+    -- ── Skin Who tab content to match Contacts tab ─────────────────────
+    local function SkinWhoFrame()
+        local who = WhoFrame or _G["WhoFrame"]
+        if not who or who._ebsSkinned then return end
+        who._ebsSkinned = true
+
+        local font = EllesmereUI.EXPRESSWAY or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+
+        -- Strip ALL Blizzard textures from a frame
+        local function StripTextures(f)
+            if not f then return end
+            for _, region in ipairs({f:GetRegions()}) do
+                if region:IsObjectType("Texture") then
+                    region:SetAlpha(0)
+                end
+            end
+        end
+
+        -- Strip Who frame's own textures
+        StripTextures(who)
+
+        -- Hide NineSlice / Inset / border frames
+        if who.NineSlice then who.NineSlice:Hide() end
+        if who.Inset then
+            if who.Inset.NineSlice then who.Inset.NineSlice:Hide() end
+            if who.Inset.Bg then who.Inset.Bg:Hide() end
+            StripTextures(who.Inset)
+        end
+
+        -- Strip ALL children frame textures recursively (depth 1)
+        for _, child in ipairs({who:GetChildren()}) do
+            if child:IsObjectType("Frame") and not child:IsObjectType("Button") then
+                local cname = child:GetName() or ""
+                if not cname:find("ScrollBox") and not cname:find("ScrollBar") then
+                    StripTextures(child)
+                    if child.NineSlice then child.NineSlice:Hide() end
+                end
+            end
+        end
+
+        -- Skin column headers
+        for i = 1, 6 do
+            local col = _G["WhoFrameColumn_" .. i] or _G["WhoFrameColumnHeader" .. i]
+            if col then
+                StripTextures(col)
+                local text = col:GetFontString()
+                if text then
+                    text:SetFont(font, 11, "")
+                    text:SetTextColor(1, 1, 1, 0.53)
+                end
+                -- Add subtle bottom border
+                col._ebsDiv = col:CreateTexture(nil, "OVERLAY")
+                local div = col._ebsDiv
+                div:SetColorTexture(1, 1, 1, 0.06)
+                div:SetHeight(1)
+                div:SetPoint("BOTTOMLEFT", 0, 0)
+                div:SetPoint("BOTTOMRIGHT", 0, 0)
+            end
+        end
+
+        -- Skin the search edit box
+        local editBox = WhoFrameEditBox or _G["WhoFrameEditBox"]
+        if editBox then
+            StripTextures(editBox)
+            -- Dark bg for edit box
+            if not editBox._ebsBg then
+                editBox._ebsBg = editBox:CreateTexture(nil, "BACKGROUND", nil, -6)
+                editBox._ebsBg:SetColorTexture(0.05, 0.07, 0.09, 0.8)
+                editBox._ebsBg:SetPoint("TOPLEFT", -4, 2)
+                editBox._ebsBg:SetPoint("BOTTOMRIGHT", 4, -2)
+            end
+            editBox:SetFont(font, 12, "")
+            editBox:SetTextColor(1, 1, 1, 0.8)
+        end
+
+        -- Skin the total count text
+        local totalCount = WhoFrameTotals or _G["WhoFrameTotals"]
+        if totalCount and totalCount.SetFont then
+            totalCount:SetFont(font, 11, "")
+            totalCount:SetTextColor(1, 1, 1, 0.53)
+        end
+
+        -- Skin list rows — strip textures, apply EUI font
+        local function SkinWhoButtons()
+            for i = 1, 22 do
+                local btn = _G["WhoFrameButton" .. i]
+                if btn and not btn._ebsSkinned then
+                    btn._ebsSkinned = true
+                    StripTextures(btn)
+                    -- Hover highlight
+                    btn._ebsHover = btn:CreateTexture(nil, "HIGHLIGHT")
+                    btn._ebsHover:SetAllPoints()
+                    btn._ebsHover:SetColorTexture(1, 1, 1, 0.08)
+                    btn._ebsHover:SetBlendMode("ADD")
+                    -- Font for all text columns
+                    for j = 1, 6 do
+                        local colText = _G["WhoFrameButton" .. i .. "Name"]
+                            or _G["WhoFrameButton" .. i .. "Column" .. j]
+                        if colText and colText.SetFont then
+                            colText:SetFont(font, 11, "")
+                        end
+                    end
+                    -- Also try standard name/level/class/race/zone fields
+                    for _, key in ipairs({"Name", "Level", "Class", "Race", "Zone"}) do
+                        local txt = _G["WhoFrameButton" .. i .. key]
+                        if txt and txt.SetFont then
+                            txt:SetFont(font, 11, "")
+                        end
+                    end
+                end
+            end
+        end
+        SkinWhoButtons()
+
+        -- Hook Who list updates to skin new rows
+        if WhoList_Update then
+            hooksecurefunc("WhoList_Update", function()
+                if EBS.db and EBS.db.profile.friends.enabled then
+                    SkinWhoButtons()
+                end
+            end)
+        end
+
+        -- Also search children recursively for any unskinned textures
+        for _, child in ipairs({who:GetChildren()}) do
+            if child:IsObjectType("Frame") and not child:IsObjectType("Button") then
+                local cname = child:GetName() or ""
+                -- Skip ScrollBox (handled by SkinScrollbar)
+                if not cname:find("ScrollBox") and not cname:find("ScrollBar") then
+                    StripTextures(child)
+                end
+            end
+        end
+    end
+    -- Skin immediately if WhoFrame exists, also on tab switch
+    SkinWhoFrame()
+    frame:HookScript("OnShow", function()
+        C_Timer.After(0.1, SkinWhoFrame)
+    end)
+
     -- ── Skin bottom buttons ────────────────────────────────────────────
-    for _, btn in ipairs({ AddFriendButton, FriendsFrameSendMessageButton }) do
-        SkinBottomButton(btn, r, g, b, a)
+    -- Search all descendants for Add Friend / Send Message buttons
+    -- Be specific: only match action buttons, NOT sub-tab labels or bottom tabs
+    local function FindButtons(parent)
+        if not parent then return end
+        for _, child in ipairs({parent:GetChildren()}) do
+            if child:IsObjectType("Button") and not bottomTabSet[child]
+               and not child._ebsSubSkinned then
+                local ok, txt = pcall(function() return child:GetText() end)
+                if ok and txt and #txt > 1 then
+                    local lower = txt:lower()
+                    -- Match action buttons across all tabs (but not sub-tab labels)
+                    local isActionBtn = (lower:find("add") and lower:find("friend"))
+                        or lower:find("send") or lower:find("message")
+                        or lower:find("refresh") or lower:find("group")
+                        or lower:find("invite") or lower:find("raid")
+                        or lower:find("convert") or lower:find("info")
+                        or lower:find("request") or lower:find("join")
+                    -- Exclude sub-tab labels
+                    local isSubTab = lower == "friends" or lower == "recent" or lower == "allies"
+                        or lower:find("recruit a friend")
+                        or lower == "contacts" or lower == "who" or lower == "quick join"
+                    if isActionBtn and not isSubTab then
+                        SkinBottomButton(child, r, g, b, a)
+                    end
+                end
+            end
+            FindButtons(child)
+        end
+    end
+    FindButtons(frame)
+    if FriendsListFrame then FindButtons(FriendsListFrame) end
+
+    -- ── Apply EUI font to all buttons and tabs ───────────────────────
+    local font = EllesmereUI.EXPRESSWAY or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+
+    -- Main tab fonts (Friends/Who/Raid/Quick Join) — white text, dimmed for inactive
+    for i = 1, 4 do
+        local tab = _G["FriendsFrameTab" .. i]
+        if tab then
+            local text = tab:GetFontString()
+            if text then
+                text:SetFont(font, 11, "")
+                text:SetTextColor(1, 1, 1, 1)
+            end
+            -- Override Blizzard's yellow highlight/normal colors
+            if tab.Text then
+                tab.Text:SetFont(font, 11, "")
+                tab.Text:SetTextColor(1, 1, 1, 1)
+            end
+        end
+    end
+
+    -- Hook tab switching to keep white text (Blizzard resets to yellow)
+    if PanelTemplates_SetTab and not frame._ebsTabColorHooked then
+        frame._ebsTabColorHooked = true
+        hooksecurefunc("PanelTemplates_SetTab", function(f)
+            if f ~= FriendsFrame then return end
+            local selected = PanelTemplates_GetSelectedTab and PanelTemplates_GetSelectedTab(f) or 1
+            for i = 1, 4 do
+                local tab = _G["FriendsFrameTab" .. i]
+                if tab then
+                    local text = tab:GetFontString() or tab.Text
+                    if text then
+                        text:SetTextColor(1, 1, 1, i == selected and 1 or 0.5)
+                    end
+                end
+            end
+        end)
+    end
+
+    -- Title text
+    if frame.TitleContainer then
+        local title = frame.TitleContainer.TitleText or frame.TitleContainer:GetFontString()
+        if title then
+            title:SetFont(font, 13, "")
+            title:SetTextColor(1, 1, 1, 1)
+        end
+    elseif FriendsFrameTitleText then
+        FriendsFrameTitleText:SetFont(font, 13, "")
+        FriendsFrameTitleText:SetTextColor(1, 1, 1, 1)
+    end
+
+    -- ── Subtle divider under title (EUI content header style) ──────
+    if not frame._ebsTitleDiv then
+        frame._ebsTitleDiv = frame:CreateTexture(nil, "OVERLAY", nil, 1)
+        frame._ebsTitleDiv:SetColorTexture(1, 1, 1, 0.06)
+        frame._ebsTitleDiv:SetHeight(1)
+        frame._ebsTitleDiv:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -24)
+        frame._ebsTitleDiv:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -24)
+    end
+
+    -- ── Skin sub-tabs (Friends/Recent/Allies/Recruit) — EUI tab bar style ──
+    -- Matches EUI exactly: height 40, font 16pt Expressway, dim white 0.53a,
+    -- full white active, accent underline only on active, 6px gap, no bg
+    local EUI_TAB_H = 30
+    local EUI_TAB_PAD = 10    -- horizontal text padding (20 total = textW + 20)
+    local EUI_TAB_GAP = 4     -- gap between tabs
+    local EUI_TAB_FONT = 12
+    local skinnedSubTabs = {}
+
+    local function SkinSubTab(subTab)
+        if not subTab or subTab._ebsSubSkinned then return end
+        subTab._ebsSubSkinned = true
+        skinnedSubTabs[#skinnedSubTabs + 1] = subTab
+
+        -- Strip ALL Blizzard textures on tab and its children
+        for _, region in ipairs({subTab:GetRegions()}) do
+            if region:IsObjectType("Texture") then
+                region:SetAlpha(0)
+            end
+        end
+        for _, child in ipairs({subTab:GetChildren()}) do
+            for _, tex in ipairs({child:GetRegions()}) do
+                if tex:IsObjectType("Texture") then
+                    tex:SetAlpha(0)
+                end
+            end
+        end
+
+        -- Kill Blizzard's pushed text offset (causes text to jump down on active)
+        if subTab.SetPushedTextOffset then
+            subTab:SetPushedTextOffset(0, 0)
+        end
+        if subTab.SetDisabledFontObject and subTab.GetNormalFontObject then
+            local nfo = subTab:GetNormalFontObject()
+            if nfo then subTab:SetDisabledFontObject(nfo) end
+        end
+
+        -- EUI font — Expressway, dim white for inactive
+        local text = subTab:GetFontString()
+        if text then
+            text:SetFont(font, EUI_TAB_FONT, "")
+            text:SetTextColor(1, 1, 1, 0.53)
+            text:SetDrawLayer("OVERLAY", 2)
+        end
+
+        local textW = text and text:GetStringWidth() or 40
+
+        -- Accent underline — 2px, always present (transparent when inactive, visible when active)
+        local underline = subTab:CreateTexture(nil, "OVERLAY", nil, 6)
+        underline:SetHeight(2)
+        underline:SetWidth(textW + 14)
+        underline:SetPoint("BOTTOM", subTab, "BOTTOM", 0, 0)
+        local ar, ag, ab = (EllesmereUI.GetAccentColor or function() return 0.047, 0.824, 0.624 end)()
+        underline:SetColorTexture(ar, ag, ab, 1)
+        EllesmereUI.RegAccent({ type = "solid", obj = underline, a = 1 })
+        underline:SetAlpha(0)  -- start transparent, UpdateSubTabStates sets alpha
+        subTab._ebsUnderline = underline
+
+        -- Hover/leave handled by UpdateSubTabStates below
+        subTab:HookScript("OnEnter", function()
+            if text and not subTab._ebsActive then
+                text:SetTextColor(1, 1, 1, 0.86)
+            end
+        end)
+        subTab:HookScript("OnLeave", function()
+            if text then
+                text:SetTextColor(1, 1, 1, subTab._ebsActive and 1 or 0.53)
+            end
+        end)
+    end
+
+    -- Update all sub-tab underlines/colors based on Blizzard's own enabled state
+    -- Blizzard disables (SetEnabled(false)) inactive tabs after click
+    local function UpdateSubTabStates()
+        for _, st in ipairs(skinnedSubTabs) do
+            -- Blizzard marks active tab as disabled (not clickable) and inactive as enabled
+            local isSelected = st.IsEnabled and not st:IsEnabled()
+            -- Fallback: check button state
+            if st.GetButtonState then
+                local state = st:GetButtonState()
+                if state == "PUSHED" or state == "DISABLED" then isSelected = true end
+            end
+            st._ebsActive = isSelected
+            if st._ebsUnderline then st._ebsUnderline:SetAlpha(isSelected and 1 or 0) end
+            local stText = st:GetFontString()
+            if stText then stText:SetTextColor(1, 1, 1, isSelected and 1 or 0.53) end
+        end
+    end
+
+    -- Don't reposition tabs — let Blizzard handle layout, we only restyle visuals
+    local function RepositionSubTabs() end
+
+    -- Scan a frame tree for unskinned tab-like buttons (depth-limited)
+    local function ScanForSubTabs(parent, depth)
+        if depth > 3 or not parent then return end
+        for _, child in ipairs({parent:GetChildren()}) do
+            if child:IsObjectType("Button") and not child._ebsSubSkinned
+               and not child._ebsBtnSkinned then
+                local name = child:GetName() or ""
+                local ok, txt = pcall(function() return child:GetText() end)
+                local isTab = name:lower():find("tab")
+                if ok and txt and #txt > 0 and #txt < 30 then
+                    local lower = txt:lower()
+                    isTab = isTab or lower:find("friend") or lower:find("recent")
+                            or lower:find("all") or lower:find("allies") or lower:find("recruit")
+                end
+                if isTab then SkinSubTab(child) end
+            end
+            -- Strip bg textures on header-like frames
+            if child:IsObjectType("Frame") and not child:IsObjectType("Button") then
+                local cname = child:GetName() or ""
+                if cname:lower():find("tab") or cname:lower():find("header") then
+                    for _, region in ipairs({child:GetRegions()}) do
+                        if region:IsObjectType("Texture") then region:SetAlpha(0) end
+                    end
+                end
+            end
+            ScanForSubTabs(child, depth + 1)
+        end
+    end
+
+    -- Scan _G for FriendsTabHeader* globals
+    local function ScanGlobalsForTabs()
+        for k, v in pairs(_G) do
+            if type(k) == "string" and k:find("^FriendsTabHeader") and type(v) == "table"
+               and type(v.GetObjectType) == "function" then
+                if v:IsObjectType("Button") then
+                    SkinSubTab(v)
+                elseif v:IsObjectType("Frame") then
+                    for _, region in ipairs({v:GetRegions()}) do
+                        if region:IsObjectType("Texture") then region:SetAlpha(0) end
+                    end
+                    for _, child in ipairs({v:GetChildren()}) do
+                        if child:IsObjectType("Button") then SkinSubTab(child) end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Run scan and set initial underline state
+    local function ScanAllSubTabs()
+        local prevCount = #skinnedSubTabs
+        ScanGlobalsForTabs()
+        ScanForSubTabs(frame, 0)
+        if FriendsListFrame then ScanForSubTabs(FriendsListFrame, 0) end
+        -- Hook OnClick on any newly-skinned tabs to trigger state update
+        for i = prevCount + 1, #skinnedSubTabs do
+            skinnedSubTabs[i]:HookScript("OnClick", function()
+                C_Timer.After(0.05, UpdateSubTabStates)
+            end)
+        end
+        -- Update states after Blizzard has finished its own setup
+        C_Timer.After(0.1, UpdateSubTabStates)
+    end
+
+    -- Run immediately + hook OnShow for lazily-created tabs
+    ScanAllSubTabs()
+    frame:HookScript("OnShow", function()
+        C_Timer.After(0.05, ScanAllSubTabs)
+    end)
+    if FriendsListFrame then
+        FriendsListFrame:HookScript("OnShow", function()
+            C_Timer.After(0.05, ScanAllSubTabs)
+        end)
+    end
+
+    -- ── Skin close button — EUI style (custom X with hover) ─────────
+    local closeBtn = frame.CloseButton or _G["FriendsFrameCloseButton"]
+    if closeBtn then
+        -- Store refs to Blizzard textures so we can toggle them
+        if not closeBtn._ebsBlizzTextures then
+            closeBtn._ebsBlizzTextures = {}
+            for _, child in ipairs({closeBtn:GetRegions()}) do
+                if child:IsObjectType("Texture") then
+                    closeBtn._ebsBlizzTextures[#closeBtn._ebsBlizzTextures + 1] = child
+                    child:SetAlpha(0)
+                end
+            end
+        end
+        -- Custom X label
+        if not closeBtn._ebsX then
+            closeBtn._ebsX = closeBtn:CreateFontString(nil, "OVERLAY")
+            closeBtn._ebsX:SetFont(font, 16, "")
+            closeBtn._ebsX:SetText("x")
+            closeBtn._ebsX:SetTextColor(1, 1, 1, 0.5)
+            closeBtn._ebsX:SetPoint("CENTER", 0, 0)
+        end
+        closeBtn:HookScript("OnEnter", function()
+            if closeBtn._ebsX then closeBtn._ebsX:SetTextColor(1, 1, 1, 0.9) end
+        end)
+        closeBtn:HookScript("OnLeave", function()
+            if closeBtn._ebsX then closeBtn._ebsX:SetTextColor(1, 1, 1, 0.5) end
+        end)
     end
 
     -- Initial tab underline update
@@ -979,12 +1605,29 @@ local function ApplyFriends()
             if FriendsFrame.NineSlice then FriendsFrame.NineSlice:Show() end
             if FriendsFrame.Bg then FriendsFrame.Bg:Show() end
             if FriendsFrame.TitleBg then FriendsFrame.TitleBg:Show() end
-            if FriendsFrame.portrait then FriendsFrame.portrait:SetAlpha(1) end
-            if FriendsFrame.PortraitContainer then FriendsFrame.PortraitContainer:SetAlpha(1) end
+            if FriendsFrame.portrait then FriendsFrame.portrait:Show() end
+            if FriendsFrame.PortraitContainer then
+                FriendsFrame.PortraitContainer:Show()
+                if FriendsFrame.PortraitContainer.portrait then FriendsFrame.PortraitContainer.portrait:Show() end
+            end
+            if FriendsFramePortrait then FriendsFramePortrait:Show() end
+            if FriendsFrameIcon then FriendsFrameIcon:Show() end
+            if FriendsFrame.PortraitFrame then FriendsFrame.PortraitFrame:Show() end
+            if FriendsFrame.portraitIcon then FriendsFrame.portraitIcon:Show() end
+            -- Hide EUI background + theme texture + tab bar bg + title divider + border
+            if FriendsFrame._ebsBg then FriendsFrame._ebsBg:SetAlpha(0) end
+            if FriendsFrame._ebsTabBarBg then FriendsFrame._ebsTabBarBg:SetAlpha(0) end
+            if FriendsFrame._ebsTitleDiv then FriendsFrame._ebsTitleDiv:Hide() end
+            if FriendsFrame._ppBorders then PP.SetBorderColor(FriendsFrame, 0, 0, 0, 0) end
+            -- Restore Inset
+            if FriendsFrame.Inset then
+                if FriendsFrame.Inset.NineSlice then FriendsFrame.Inset.NineSlice:Show() end
+                if FriendsFrame.Inset.Bg then FriendsFrame.Inset.Bg:Show() end
+            end
+            -- Restore bottom tabs
             for i = 1, 4 do
                 local tab = _G["FriendsFrameTab" .. i]
                 if tab then
-                    if tab._ppBorders then PP.SetBorderColor(tab, 0, 0, 0, 0) end
                     if tab._ebsBg then tab._ebsBg:Hide() end
                     if tab._ebsUnderline then tab._ebsUnderline:Hide() end
                     -- Restore original tab textures
@@ -993,6 +1636,157 @@ local function ApplyFriends()
                            and child ~= tab._ebsBg
                            and child ~= tab._ebsUnderline then
                             child:SetAlpha(1)
+                        end
+                    end
+                end
+            end
+            -- Restore sub-tabs (Friends/Recent/Allies/Recruit)
+            local function RestoreSubTabs(parent, depth)
+                if depth > 3 or not parent then return end
+                for _, child in ipairs({parent:GetChildren()}) do
+                    if child._ebsSubSkinned then
+                        -- Restore Blizzard textures
+                        for _, region in ipairs({child:GetRegions()}) do
+                            if region:IsObjectType("Texture")
+                               and region ~= child._ebsUnderline then
+                                region:SetAlpha(1)
+                            end
+                        end
+                        for _, sub in ipairs({child:GetChildren()}) do
+                            for _, tex in ipairs({sub:GetRegions()}) do
+                                if tex:IsObjectType("Texture") then tex:SetAlpha(1) end
+                            end
+                        end
+                        if child._ebsUnderline then child._ebsUnderline:SetAlpha(0) end
+                    end
+                    -- Restore header frame textures
+                    if child:IsObjectType("Frame") and not child:IsObjectType("Button") then
+                        local cname = child:GetName() or ""
+                        if cname:lower():find("tab") or cname:lower():find("header") then
+                            for _, region in ipairs({child:GetRegions()}) do
+                                if region:IsObjectType("Texture") then region:SetAlpha(1) end
+                            end
+                        end
+                    end
+                    RestoreSubTabs(child, depth + 1)
+                end
+            end
+            RestoreSubTabs(FriendsFrame, 0)
+            if FriendsListFrame then RestoreSubTabs(FriendsListFrame, 0) end
+            -- Restore bottom buttons (Add Friend / Send Message)
+            local function RestoreButtons(parent)
+                if not parent then return end
+                for _, child in ipairs({parent:GetChildren()}) do
+                    if child._ebsBtnSkinned then
+                        if child._ppBorders then PP.SetBorderColor(child, 0, 0, 0, 0) end
+                        if child._ebsBg then child._ebsBg:Hide() end
+                        -- Restore ALL Blizzard textures that were stripped
+                        for _, region in ipairs({child:GetRegions()}) do
+                            if region:IsObjectType("Texture") and region ~= child._ebsBg then
+                                region:SetAlpha(1)
+                            end
+                        end
+                    end
+                    RestoreButtons(child)
+                end
+            end
+            RestoreButtons(FriendsFrame)
+            if FriendsListFrame then RestoreButtons(FriendsListFrame) end
+            -- Restore close button
+            local cb = FriendsFrame.CloseButton or _G["FriendsFrameCloseButton"]
+            if cb then
+                if cb._ebsBlizzTextures then
+                    for _, tex in ipairs(cb._ebsBlizzTextures) do tex:SetAlpha(1) end
+                end
+                if cb._ebsX then cb._ebsX:Hide() end
+            end
+            -- Restore all scrollbars — show Blizzard, hide EUI tracks
+            local scrollTargets = {
+                FriendsListFrame, WhoFrame or _G["WhoFrame"],
+                _G["RaidFrame"], _G["QuickJoinFrame"],
+                _G["RecruitAFriendFrame"], _G["RecentAlliesFrame"],
+            }
+            for _, sf in ipairs(scrollTargets) do
+                if sf then
+                    local sbox = sf.ScrollBox
+                    if sbox then
+                        if sbox._ebsScrollBar then sbox._ebsScrollBar:SetAlpha(1) end
+                        if sbox._ebsTrack then sbox._ebsTrack:Hide() end
+                    end
+                    -- Also check children
+                    for _, ch in ipairs({sf:GetChildren()}) do
+                        if ch.ScrollBox then
+                            local csb = ch.ScrollBox
+                            if csb._ebsScrollBar then csb._ebsScrollBar:SetAlpha(1) end
+                            if csb._ebsTrack then csb._ebsTrack:Hide() end
+                        end
+                    end
+                end
+            end
+            -- Restore friend row visuals
+            if scrollBox then
+                for _, button in scrollBox:EnumerateFrames() do
+                    if button._ebsRowBg then button._ebsRowBg:SetAlpha(0) end
+                    if button._ebsHover then button._ebsHover:Hide() end
+                    if button._ebsClassIcon then button._ebsClassIcon:Hide() end
+                    if button._ebsGroupTag then button._ebsGroupTag:Hide() end
+                end
+            end
+            -- Restore Who frame
+            local who = WhoFrame or _G["WhoFrame"]
+            if who then
+                -- Restore all WhoFrame textures
+                for _, region in ipairs({who:GetRegions()}) do
+                    if region:IsObjectType("Texture") then region:SetAlpha(1) end
+                end
+                if who.NineSlice then who.NineSlice:Show() end
+                if who.Inset then
+                    if who.Inset.NineSlice then who.Inset.NineSlice:Show() end
+                    if who.Inset.Bg then who.Inset.Bg:Show() end
+                    for _, region in ipairs({who.Inset:GetRegions()}) do
+                        if region:IsObjectType("Texture") then region:SetAlpha(1) end
+                    end
+                end
+                -- Restore child frame textures
+                for _, child in ipairs({who:GetChildren()}) do
+                    if child:IsObjectType("Frame") and not child:IsObjectType("Button") then
+                        for _, region in ipairs({child:GetRegions()}) do
+                            if region:IsObjectType("Texture") then region:SetAlpha(1) end
+                        end
+                        if child.NineSlice then child.NineSlice:Show() end
+                    end
+                end
+                -- Hide Who column dividers and restore column header textures
+                for i = 1, 6 do
+                    local col = _G["WhoFrameColumn_" .. i] or _G["WhoFrameColumnHeader" .. i]
+                    if col then
+                        if col._ebsDiv then col._ebsDiv:Hide() end
+                        for _, region in ipairs({col:GetRegions()}) do
+                            if region:IsObjectType("Texture") and region ~= col._ebsDiv then
+                                region:SetAlpha(1)
+                            end
+                        end
+                    end
+                end
+                -- Hide edit box EUI bg, restore textures
+                local editBox = WhoFrameEditBox or _G["WhoFrameEditBox"]
+                if editBox then
+                    if editBox._ebsBg then editBox._ebsBg:Hide() end
+                    for _, region in ipairs({editBox:GetRegions()}) do
+                        if region:IsObjectType("Texture") and region ~= editBox._ebsBg then
+                            region:SetAlpha(1)
+                        end
+                    end
+                end
+                -- Restore Who row buttons
+                for i = 1, 22 do
+                    local btn = _G["WhoFrameButton" .. i]
+                    if btn then
+                        if btn._ebsHover then btn._ebsHover:Hide() end
+                        for _, region in ipairs({btn:GetRegions()}) do
+                            if region:IsObjectType("Texture") and region ~= btn._ebsHover then
+                                region:SetAlpha(1)
+                            end
                         end
                     end
                 end
@@ -1009,24 +1803,162 @@ local function ApplyFriends()
     if FriendsFrame.NineSlice then FriendsFrame.NineSlice:Hide() end
     if FriendsFrame.Bg then FriendsFrame.Bg:Hide() end
     if FriendsFrame.TitleBg then FriendsFrame.TitleBg:Hide() end
+    -- Re-hide portrait/icon (may get re-shown by Blizzard code)
+    if FriendsFrame.portrait then FriendsFrame.portrait:Hide() end
+    if FriendsFrame.PortraitContainer then FriendsFrame.PortraitContainer:Hide() end
+    if FriendsFramePortrait then FriendsFramePortrait:Hide() end
+    if FriendsFrameIcon then FriendsFrameIcon:Hide() end
+    if FriendsFrame.PortraitFrame then FriendsFrame.PortraitFrame:Hide() end
+    if FriendsFrame.portraitIcon then FriendsFrame.portraitIcon:Hide() end
+    -- Re-hide close button Blizzard textures, show EUI X
+    local cb = FriendsFrame.CloseButton or _G["FriendsFrameCloseButton"]
+    if cb then
+        if cb._ebsBlizzTextures then
+            for _, tex in ipairs(cb._ebsBlizzTextures) do tex:SetAlpha(0) end
+        end
+        if cb._ebsX then cb._ebsX:Show() end
+    end
 
     -- Update colors
     local r, g, b, a = GetBorderColor(p)
-    PP.SetBorderColor(FriendsFrame, r, g, b, a)
+    local borderAlpha = (p.showBorder ~= false) and a or 0
+    PP.SetBorderColor(FriendsFrame, r, g, b, borderAlpha)
     if FriendsFrame._ebsBg then
         FriendsFrame._ebsBg:SetAlpha(p.bgAlpha)
+    end
+    if FriendsFrame._ebsTabBarBg then
+        FriendsFrame._ebsTabBarBg:SetAlpha(p.bgAlpha)
     end
     for i = 1, 4 do
         local tab = _G["FriendsFrameTab" .. i]
         if tab then
-            if tab._ppBorders then PP.SetBorderColor(tab, r, g, b, a) end
             if tab._ebsBg then tab._ebsBg:Show() end
+            -- Re-hide Blizzard tab textures (restored during disable)
+            for _, child in ipairs({tab:GetRegions()}) do
+                if child:IsObjectType("Texture")
+                   and child ~= tab._ebsBg
+                   and child ~= tab._ebsUnderline then
+                    child:SetAlpha(0)
+                end
+            end
         end
     end
 
-    -- Update bottom buttons
-    for _, btn in ipairs({ AddFriendButton, FriendsFrameSendMessageButton }) do
-        if btn and btn._ppBorders then PP.SetBorderColor(btn, r, g, b, a) end
+    -- Re-enable bottom buttons
+    local function ReEnableButtons(parent)
+        if not parent then return end
+        for _, child in ipairs({parent:GetChildren()}) do
+            if child._ebsBtnSkinned then
+                if child._ebsBg then child._ebsBg:Show() end
+                if child._ppBorders then PP.SetBorderColor(child, 1, 1, 1, 0.4) end
+                -- Re-hide Blizzard textures
+                for _, region in ipairs({child:GetRegions()}) do
+                    if region:IsObjectType("Texture") and region ~= child._ebsBg then
+                        region:SetAlpha(0)
+                    end
+                end
+            end
+            ReEnableButtons(child)
+        end
+    end
+    ReEnableButtons(FriendsFrame)
+    if FriendsListFrame then ReEnableButtons(FriendsListFrame) end
+
+    -- Re-enable all scrollbars — hide Blizzard, show EUI tracks
+    SkinScrollbar()
+
+    -- Re-enable sub-tab styling
+    local function ReEnableSubTabs(parent, depth)
+        if depth > 3 or not parent then return end
+        for _, child in ipairs({parent:GetChildren()}) do
+            if child._ebsSubSkinned then
+                -- Re-hide Blizzard textures
+                for _, region in ipairs({child:GetRegions()}) do
+                    if region:IsObjectType("Texture") and region ~= child._ebsUnderline then
+                        region:SetAlpha(0)
+                    end
+                end
+                for _, sub in ipairs({child:GetChildren()}) do
+                    for _, tex in ipairs({sub:GetRegions()}) do
+                        if tex:IsObjectType("Texture") then tex:SetAlpha(0) end
+                    end
+                end
+            end
+            -- Re-hide header frame textures
+            if child:IsObjectType("Frame") and not child:IsObjectType("Button") then
+                local cname = child:GetName() or ""
+                if cname:lower():find("tab") or cname:lower():find("header") then
+                    for _, region in ipairs({child:GetRegions()}) do
+                        if region:IsObjectType("Texture") then region:SetAlpha(0) end
+                    end
+                end
+            end
+            ReEnableSubTabs(child, depth + 1)
+        end
+    end
+    ReEnableSubTabs(FriendsFrame, 0)
+    if FriendsListFrame then ReEnableSubTabs(FriendsListFrame, 0) end
+
+    -- Re-enable Who frame styling
+    local who = WhoFrame or _G["WhoFrame"]
+    if who and who._ebsSkinned then
+        -- Re-strip Who textures
+        for _, region in ipairs({who:GetRegions()}) do
+            if region:IsObjectType("Texture") then region:SetAlpha(0) end
+        end
+        if who.NineSlice then who.NineSlice:Hide() end
+        if who.Inset then
+            if who.Inset.NineSlice then who.Inset.NineSlice:Hide() end
+            if who.Inset.Bg then who.Inset.Bg:Hide() end
+            for _, region in ipairs({who.Inset:GetRegions()}) do
+                if region:IsObjectType("Texture") then region:SetAlpha(0) end
+            end
+        end
+        for _, child in ipairs({who:GetChildren()}) do
+            if child:IsObjectType("Frame") and not child:IsObjectType("Button") then
+                local cname = child:GetName() or ""
+                if not cname:find("ScrollBox") and not cname:find("ScrollBar") then
+                    for _, region in ipairs({child:GetRegions()}) do
+                        if region:IsObjectType("Texture") then region:SetAlpha(0) end
+                    end
+                    if child.NineSlice then child.NineSlice:Hide() end
+                end
+            end
+        end
+        -- Re-show Who column dividers, re-strip column textures
+        for i = 1, 6 do
+            local col = _G["WhoFrameColumn_" .. i] or _G["WhoFrameColumnHeader" .. i]
+            if col then
+                if col._ebsDiv then col._ebsDiv:Show() end
+                for _, region in ipairs({col:GetRegions()}) do
+                    if region:IsObjectType("Texture") and region ~= col._ebsDiv then
+                        region:SetAlpha(0)
+                    end
+                end
+            end
+        end
+        -- Re-show edit box bg, re-strip textures
+        local editBox = WhoFrameEditBox or _G["WhoFrameEditBox"]
+        if editBox then
+            if editBox._ebsBg then editBox._ebsBg:Show() end
+            for _, region in ipairs({editBox:GetRegions()}) do
+                if region:IsObjectType("Texture") and region ~= editBox._ebsBg then
+                    region:SetAlpha(0)
+                end
+            end
+        end
+        -- Re-show Who row hovers, re-strip textures
+        for i = 1, 22 do
+            local btn = _G["WhoFrameButton" .. i]
+            if btn then
+                if btn._ebsHover then btn._ebsHover:Show() end
+                for _, region in ipairs({btn:GetRegions()}) do
+                    if region:IsObjectType("Texture") and region ~= btn._ebsHover then
+                        region:SetAlpha(0)
+                    end
+                end
+            end
+        end
     end
 
     UpdateTabUnderlines()
@@ -1244,6 +2176,8 @@ function EBS:OnEnable()
             end)
         end
     else
-        SkinFriendsFrame()
+        if EBS.db.profile.friends.enabled then
+            SkinFriendsFrame()
+        end
     end
 end
