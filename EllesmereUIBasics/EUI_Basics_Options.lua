@@ -438,21 +438,23 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="label", text="" }
             );  y = y - h
 
-            -- List existing groups with rename/delete
+            -- List existing groups with delete (capture name, not index, for safety)
             for i, group in ipairs(fp.groups) do
+                local groupName = group.name
                 _, h = W:DualRow(parent, y,
-                    { type="label", text="|cff" .. "0cd29d" .. i .. ".|r  " .. group.name },
+                    { type="label", text="|cff0cd29d" .. i .. ".|r  " .. groupName },
                     { type="button", text="Delete",
                       onClick=function()
                         local f = FriendsDB(); if not f then return end
-                        -- Unassign friends from this group
-                        local removedName = f.groups[i] and f.groups[i].name
-                        if removedName then
-                            for k, v in pairs(f.assignments) do
-                                if v == removedName then f.assignments[k] = nil end
+                        for j = #f.groups, 1, -1 do
+                            if f.groups[j].name == groupName then
+                                for k, v in pairs(f.assignments) do
+                                    if v == groupName then f.assignments[k] = nil end
+                                end
+                                table.remove(f.groups, j)
+                                break
                             end
                         end
-                        table.remove(f.groups, i)
                         RefreshFriends()
                         EllesmereUI:RefreshPage()
                       end }

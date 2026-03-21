@@ -514,86 +514,74 @@ local function BuildClassNameLookup()
     end
 end
 
--- Resolve class file token from a friend button's data
-local function GetFriendClassFile(button)
-    if not button or not button.buttonType or not button.id then return nil end
+-- Single API call per button — returns (bnetAccountInfo, wowFriendInfo)
+local function GetFriendInfo(button)
+    if not button or not button.buttonType or not button.id then return nil, nil end
+    if button.buttonType == FRIENDS_BUTTON_TYPE_BNET then
+        return C_BattleNet and C_BattleNet.GetFriendAccountInfo(button.id), nil
+    elseif button.buttonType == FRIENDS_BUTTON_TYPE_WOW then
+        return nil, C_FriendList and C_FriendList.GetFriendInfoByIndex(button.id)
+    end
+    return nil, nil
+end
+
+local function GetFriendClassFile(bnetInfo, wowInfo)
     BuildClassNameLookup()
-
-    if button.buttonType == FRIENDS_BUTTON_TYPE_BNET then
-        local info = C_BattleNet and C_BattleNet.GetFriendAccountInfo(button.id)
-        if info and info.gameAccountInfo then
-            local gi = info.gameAccountInfo
-            if gi.classID and gi.classID > 0 then
-                local _, classFile = GetClassInfo(gi.classID)
-                return classFile
-            end
-            if gi.className then
-                return classFileByLocalName[gi.className]
-            end
+    if bnetInfo and bnetInfo.gameAccountInfo then
+        local gi = bnetInfo.gameAccountInfo
+        if gi.classID and gi.classID > 0 then
+            local _, classFile = GetClassInfo(gi.classID)
+            return classFile
         end
-    elseif button.buttonType == FRIENDS_BUTTON_TYPE_WOW then
-        local info = C_FriendList and C_FriendList.GetFriendInfoByIndex(button.id)
-        if info and info.className then
-            return classFileByLocalName[info.className]
+        if gi.className then
+            return classFileByLocalName[gi.className]
         end
+    elseif wowInfo and wowInfo.className then
+        return classFileByLocalName[wowInfo.className]
     end
     return nil
 end
 
--- Get unique key for a friend (used by group assignments)
-local function GetFriendKey(button)
-    if not button or not button.buttonType or not button.id then return nil end
-    if button.buttonType == FRIENDS_BUTTON_TYPE_BNET then
-        local info = C_BattleNet and C_BattleNet.GetFriendAccountInfo(button.id)
-        if info then return "bnet-" .. (info.bnetAccountID or button.id) end
-    elseif button.buttonType == FRIENDS_BUTTON_TYPE_WOW then
-        local info = C_FriendList and C_FriendList.GetFriendInfoByIndex(button.id)
-        if info and info.name then return "wow-" .. info.name end
+local FRIEND_KEY_BNET_PREFIX = "bnet-"
+local FRIEND_KEY_WOW_PREFIX  = "wow-"
+
+local function GetFriendKey(button, bnetInfo, wowInfo)
+    if bnetInfo then
+        return FRIEND_KEY_BNET_PREFIX .. (bnetInfo.bnetAccountID or button.id)
+    elseif wowInfo and wowInfo.name then
+        return FRIEND_KEY_WOW_PREFIX .. wowInfo.name
     end
     return nil
 end
 
--- Is the friend currently online?
-local function IsFriendOnline(button)
-    if not button or not button.buttonType or not button.id then return false end
-    if button.buttonType == FRIENDS_BUTTON_TYPE_BNET then
-        local info = C_BattleNet and C_BattleNet.GetFriendAccountInfo(button.id)
-        return info and info.gameAccountInfo and info.gameAccountInfo.isOnline
-    elseif button.buttonType == FRIENDS_BUTTON_TYPE_WOW then
-        local info = C_FriendList and C_FriendList.GetFriendInfoByIndex(button.id)
-        return info and info.connected
+local function IsFriendOnline(bnetInfo, wowInfo)
+    if bnetInfo then
+        return bnetInfo.gameAccountInfo and bnetInfo.gameAccountInfo.isOnline
     end
+    if wowInfo then return wowInfo.connected end
     return false
 end
 
--- Get the friend's display name (for group management UI)
-local function GetFriendDisplayName(button)
-    if not button or not button.buttonType or not button.id then return nil end
-    if button.buttonType == FRIENDS_BUTTON_TYPE_BNET then
-        local info = C_BattleNet and C_BattleNet.GetFriendAccountInfo(button.id)
-        if info then return info.accountName end
-    elseif button.buttonType == FRIENDS_BUTTON_TYPE_WOW then
-        local info = C_FriendList and C_FriendList.GetFriendInfoByIndex(button.id)
-        if info then return info.name end
-    end
+local function GetFriendDisplayName(bnetInfo, wowInfo)
+    if bnetInfo then return bnetInfo.accountName end
+    if wowInfo then return wowInfo.name end
     return nil
 end
 
 -- Apply class icon to a friend button
-local function UpdateClassIcon(button)
+local function UpdateClassIcon(button, bnetInfo, wowInfo)
     local p = EBS.db.profile.friends
     if not p.showClassIcons then
         if button._ebsClassIcon then button._ebsClassIcon:Hide() end
         return
     end
 
-    local classFile = GetFriendClassFile(button)
+    local classFile = GetFriendClassFile(bnetInfo, wowInfo)
     if not classFile then
         if button._ebsClassIcon then button._ebsClassIcon:Hide() end
         return
     end
 
-    -- Create icon texture if needed
     if not button._ebsClassIcon then
         button._ebsClassIcon = button:CreateTexture(nil, "OVERLAY", nil, 2)
         button._ebsClassIcon:SetSize(16, 16)
@@ -601,45 +589,51 @@ local function UpdateClassIcon(button)
     local icon = button._ebsClassIcon
     local style = p.iconStyle or "blizzard"
 
-    if style == "blizzard" then
-        icon:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
-        local coords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classFile]
-        if coords then
-            icon:SetTexCoord(unpack(coords))
-        end
-    else
-        local coords = CLASS_SPRITE_COORDS[classFile]
-        if coords then
-            icon:SetTexture(CLASS_ICON_SPRITE_BASE .. style .. ".tga")
-            icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+    -- Skip texture/position updates if unchanged
+    if button._ebsLastClassFile ~= classFile or button._ebsLastStyle ~= style then
+        button._ebsLastClassFile = classFile
+        button._ebsLastStyle = style
+        if style == "blizzard" then
+            icon:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
+            local coords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classFile]
+            if coords then
+                icon:SetTexCoord(unpack(coords))
+            end
+        else
+            local coords = CLASS_SPRITE_COORDS[classFile]
+            if coords then
+                icon:SetTexture(CLASS_ICON_SPRITE_BASE .. style .. ".tga")
+                icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+            end
         end
     end
 
-    -- Position to the left of name text
-    icon:ClearAllPoints()
-    local nameText = button.name or button.Name
-    if nameText then
-        icon:SetPoint("RIGHT", nameText, "LEFT", -4, 0)
-    else
-        icon:SetPoint("LEFT", button, "LEFT", 8, 0)
+    if not button._ebsIconAnchored then
+        button._ebsIconAnchored = true
+        icon:ClearAllPoints()
+        local nameText = button.name or button.Name
+        if nameText then
+            icon:SetPoint("RIGHT", nameText, "LEFT", -4, 0)
+        else
+            icon:SetPoint("LEFT", button, "LEFT", 8, 0)
+        end
     end
 
-    -- Desaturate for offline
-    local online = IsFriendOnline(button)
+    local online = IsFriendOnline(bnetInfo, wowInfo)
     icon:SetDesaturated(not online)
     icon:SetAlpha(online and 1 or 0.5)
     icon:Show()
 end
 
 -- Apply group tag to a friend button
-local function UpdateGroupTag(button)
+local function UpdateGroupTag(button, bnetInfo, wowInfo, accentR, accentG, accentB)
     local p = EBS.db.profile.friends
     if not p.groupsEnabled then
         if button._ebsGroupTag then button._ebsGroupTag:Hide() end
         return
     end
 
-    local key = GetFriendKey(button)
+    local key = GetFriendKey(button, bnetInfo, wowInfo)
     local groupName = key and p.assignments[key]
     if not groupName then
         if button._ebsGroupTag then button._ebsGroupTag:Hide() end
@@ -651,8 +645,7 @@ local function UpdateGroupTag(button)
         button._ebsGroupTag:SetPoint("RIGHT", button, "RIGHT", -8, 0)
     end
     local tag = button._ebsGroupTag
-    local ar, ag, ab = EllesmereUI.GetAccentColor()
-    tag:SetTextColor(ar, ag, ab, 0.7)
+    tag:SetTextColor(accentR, accentG, accentB, 0.7)
     tag:SetText(groupName)
     tag:Show()
 end
@@ -705,14 +698,16 @@ local function UpdateRowColors()
     end
 end
 
--- Process all visible friend buttons
+-- Process all visible friend buttons (single API call per button)
 local function ProcessFriendButtons()
     local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
     if not scrollBox then return end
+    local ar, ag, ab = EllesmereUI.GetAccentColor()
     for _, button in scrollBox:EnumerateFrames() do
         SkinFriendButton(button)
-        UpdateClassIcon(button)
-        UpdateGroupTag(button)
+        local bnetInfo, wowInfo = GetFriendInfo(button)
+        UpdateClassIcon(button, bnetInfo, wowInfo)
+        UpdateGroupTag(button, bnetInfo, wowInfo, ar, ag, ab)
     end
     UpdateRowColors()
 end
@@ -769,89 +764,85 @@ local function SkinBottomButton(btn, r, g, b, a)
     PP.CreateBorder(btn, r, g, b, a, 1, "OVERLAY", 7)
 end
 
--- Build the friends-list right-click group menu
+-- Right-click group menu (closures lifted to module level to avoid per-open allocation)
+local _ctxMenuKey = nil
+local _ctxMenuCurrentGroup = nil
+
+local function OnGroupMenuClick(self, groupName)
+    if not _ctxMenuKey then return end
+    local fp = EBS.db.profile.friends
+    fp.assignments[_ctxMenuKey] = groupName or nil
+    CloseDropDownMenus()
+    ProcessFriendButtons()
+end
+
+local function InitGroupMenu(self, level)
+    if not level or level ~= 1 then return end
+    local fp = EBS.db.profile.friends
+
+    local info = UIDropDownMenu_CreateInfo()
+    info.text = "Set Group"
+    info.isTitle = true
+    info.notCheckable = true
+    UIDropDownMenu_AddButton(info, level)
+
+    for _, group in ipairs(fp.groups) do
+        info = UIDropDownMenu_CreateInfo()
+        info.text = group.name
+        info.checked = (_ctxMenuCurrentGroup == group.name)
+        info.func = OnGroupMenuClick
+        info.arg1 = group.name
+        UIDropDownMenu_AddButton(info, level)
+    end
+
+    info = UIDropDownMenu_CreateInfo()
+    info.text = " "
+    info.isTitle = true
+    info.notCheckable = true
+    UIDropDownMenu_AddButton(info, level)
+
+    info = UIDropDownMenu_CreateInfo()
+    info.text = "Remove from Group"
+    info.notCheckable = true
+    info.disabled = (_ctxMenuCurrentGroup == nil)
+    info.func = OnGroupMenuClick
+    info.arg1 = nil
+    UIDropDownMenu_AddButton(info, level)
+end
+
 local function BuildGroupContextMenu(button)
     local p = EBS.db.profile.friends
     if not p.groupsEnabled then return end
 
-    local key = GetFriendKey(button)
-    if not key then return end
-    local currentGroup = p.assignments[key]
+    local bnetInfo, wowInfo = GetFriendInfo(button)
+    _ctxMenuKey = GetFriendKey(button, bnetInfo, wowInfo)
+    if not _ctxMenuKey then return end
+    _ctxMenuCurrentGroup = p.assignments[_ctxMenuKey]
 
     local menuFrame = _G["EBS_FriendGroupMenu"]
     if not menuFrame then
         menuFrame = CreateFrame("Frame", "EBS_FriendGroupMenu", UIParent, "UIDropDownMenuTemplate")
     end
 
-    local function OnClick(self, groupName)
-        local fp = EBS.db.profile.friends
-        if groupName then
-            fp.assignments[key] = groupName
-        else
-            fp.assignments[key] = nil
-        end
-        CloseDropDownMenus()
-        ProcessFriendButtons()
-    end
-
-    local function Init(self, level)
-        if not level then return end
-        local info = UIDropDownMenu_CreateInfo()
-        if level == 1 then
-            info.text = "Set Group"
-            info.isTitle = true
-            info.notCheckable = true
-            UIDropDownMenu_AddButton(info, level)
-
-            for _, group in ipairs(p.groups) do
-                info = UIDropDownMenu_CreateInfo()
-                info.text = group.name
-                info.checked = (currentGroup == group.name)
-                info.func = OnClick
-                info.arg1 = group.name
-                UIDropDownMenu_AddButton(info, level)
-            end
-
-            info = UIDropDownMenu_CreateInfo()
-            info.text = " "
-            info.isTitle = true
-            info.notCheckable = true
-            UIDropDownMenu_AddButton(info, level)
-
-            info = UIDropDownMenu_CreateInfo()
-            info.text = "Remove from Group"
-            info.notCheckable = true
-            info.disabled = (currentGroup == nil)
-            info.func = OnClick
-            info.arg1 = nil
-            UIDropDownMenu_AddButton(info, level)
-        end
-    end
-
-    UIDropDownMenu_Initialize(menuFrame, Init, "MENU")
+    UIDropDownMenu_Initialize(menuFrame, InitGroupMenu, "MENU")
     ToggleDropDownMenu(1, nil, menuFrame, "cursor", 0, 0)
 end
 
--- Hook friend button right-click for group menu
-local function HookFriendButtonClicks()
-    local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
-    if not scrollBox then return end
-
-    hooksecurefunc(scrollBox, "Update", function(self)
-        for _, button in self:EnumerateFrames() do
-            if not button._ebsClickHooked then
-                button._ebsClickHooked = true
-                button:HookScript("OnClick", function(btn, mouseButton)
-                    if mouseButton == "RightButton" then
-                        local fp = EBS.db and EBS.db.profile and EBS.db.profile.friends
-                        if fp and fp.enabled and fp.groupsEnabled then
-                            BuildGroupContextMenu(btn)
-                        end
+-- Hook new ScrollBox buttons for right-click group menu
+local function HookNewButtonClicks(scrollBox)
+    for _, button in scrollBox:EnumerateFrames() do
+        if not button._ebsClickHooked then
+            button._ebsClickHooked = true
+            button:HookScript("OnClick", function(btn, mouseButton)
+                if mouseButton == "RightButton" then
+                    local fp = EBS.db and EBS.db.profile and EBS.db.profile.friends
+                    if fp and fp.enabled and fp.groupsEnabled then
+                        BuildGroupContextMenu(btn)
                     end
-                end)
-            end
+                end
+            end)
         end
-    end)
+    end
 end
 
 -- One-time structural setup
@@ -948,22 +939,22 @@ local function SkinFriendsFrame()
         hooksecurefunc("FriendsFrame_UpdateFriendButton", function(button)
             if not EBS.db or not EBS.db.profile.friends.enabled then return end
             SkinFriendButton(button)
-            UpdateClassIcon(button)
-            UpdateGroupTag(button)
+            local bnetInfo, wowInfo = GetFriendInfo(button)
+            local ar, ag, ab = EllesmereUI.GetAccentColor()
+            UpdateClassIcon(button, bnetInfo, wowInfo)
+            UpdateGroupTag(button, bnetInfo, wowInfo, ar, ag, ab)
         end)
     end
 
-    -- Hook scroll updates for row alternation
+    -- Single scroll hook: row colors + right-click hooking
     local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
     if scrollBox then
-        hooksecurefunc(scrollBox, "Update", function()
+        hooksecurefunc(scrollBox, "Update", function(self)
             if not EBS.db or not EBS.db.profile.friends.enabled then return end
             UpdateRowColors()
+            HookNewButtonClicks(self)
         end)
     end
-
-    -- Hook right-click for group assignment menu
-    HookFriendButtonClicks()
 
     -- ── Skin bottom buttons ────────────────────────────────────────────
     for _, btn in ipairs({ AddFriendButton, FriendsFrameSendMessageButton }) do
@@ -1220,8 +1211,6 @@ function EBS:OnInitialize()
     _G._EBS_ApplyChat    = ApplyChat
     _G._EBS_ApplyMinimap = ApplyMinimap
     _G._EBS_ApplyFriends = ApplyFriends
-    _G._EBS_GetFriendKey = GetFriendKey
-    _G._EBS_GetFriendDisplayName = GetFriendDisplayName
     _G._EBS_ProcessFriendButtons = ProcessFriendButtons
 end
 
