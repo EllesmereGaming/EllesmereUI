@@ -305,6 +305,23 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Friends List Page
     ---------------------------------------------------------------------------
+    local SECTION_GROUPS  = "FRIEND GROUPS"
+
+    local ICON_STYLE_VALUES = {
+        blizzard = "Blizzard",
+        modern   = "Modern",
+        pixel    = "Pixel",
+        glyph    = "Glyph",
+        arcade   = "Arcade",
+        legend   = "Legend",
+        midnight = "Midnight",
+        runic    = "Runic",
+    }
+    local ICON_STYLE_ORDER = {
+        "blizzard", "modern", "pixel", "glyph",
+        "arcade", "legend", "midnight", "runic",
+    }
+
     local function BuildFriendsPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
@@ -332,6 +349,116 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip="Module is disabled",
               swatches = MakeBorderSwatch(FriendsDB, RefreshFriends) }
         );  y = y - h
+
+        -- Accent Tab Underline | Show Class Icons
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Accent Tab Underline",
+              disabled=function() local f = FriendsDB(); return f and not f.enabled end,
+              disabledTooltip="Module is disabled",
+              getValue=function() local f = FriendsDB(); return f and f.useAccentTab end,
+              setValue=function(v)
+                local f = FriendsDB(); if not f then return end
+                f.useAccentTab = v
+                RefreshFriends()
+              end },
+            { type="toggle", text="Show Class Icons",
+              disabled=function() local f = FriendsDB(); return f and not f.enabled end,
+              disabledTooltip="Module is disabled",
+              getValue=function() local f = FriendsDB(); return f and f.showClassIcons end,
+              setValue=function(v)
+                local f = FriendsDB(); if not f then return end
+                f.showClassIcons = v
+                RefreshFriends()
+              end }
+        );  y = y - h
+
+        -- Icon Style
+        _, h = W:DualRow(parent, y,
+            { type="dropdown", text="Icon Style",
+              disabled=function()
+                local f = FriendsDB()
+                return f and (not f.enabled or not f.showClassIcons)
+              end,
+              disabledTooltip="Enable class icons first",
+              values = ICON_STYLE_VALUES,
+              order  = ICON_STYLE_ORDER,
+              getValue=function()
+                local f = FriendsDB(); return f and f.iconStyle or "blizzard"
+              end,
+              setValue=function(v)
+                local f = FriendsDB(); if not f then return end
+                f.iconStyle = v
+                RefreshFriends()
+              end },
+            { type="label", text="" }
+        );  y = y - h
+
+        -- ── Friend Groups ──────────────────────────────────────────────
+        _, h = W:SectionHeader(parent, SECTION_GROUPS, y);  y = y - h
+
+        -- Enable Groups | Show Ungrouped
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Enable Friend Groups",
+              disabled=function() local f = FriendsDB(); return f and not f.enabled end,
+              disabledTooltip="Module is disabled",
+              getValue=function() local f = FriendsDB(); return f and f.groupsEnabled end,
+              setValue=function(v)
+                local f = FriendsDB(); if not f then return end
+                f.groupsEnabled = v
+                RefreshFriends()
+                EllesmereUI:RefreshPage()
+              end },
+            { type="toggle", text="Show Ungrouped",
+              disabled=function()
+                local f = FriendsDB()
+                return f and (not f.enabled or not f.groupsEnabled)
+              end,
+              disabledTooltip="Enable friend groups first",
+              getValue=function() local f = FriendsDB(); return f and f.showUngrouped end,
+              setValue=function(v)
+                local f = FriendsDB(); if not f then return end
+                f.showUngrouped = v
+                RefreshFriends()
+              end }
+        );  y = y - h
+
+        -- Group management (only shown when groups enabled)
+        local fp = FriendsDB()
+        if fp and fp.groupsEnabled then
+            -- Add Group button
+            _, h = W:DualRow(parent, y,
+                { type="button", text="Add Group",
+                  onClick=function()
+                    local f = FriendsDB(); if not f then return end
+                    local idx = #f.groups + 1
+                    f.groups[idx] = { name = "Group " .. idx, collapsed = false }
+                    RefreshFriends()
+                    EllesmereUI:RefreshPage()
+                  end },
+                { type="label", text="" }
+            );  y = y - h
+
+            -- List existing groups with rename/delete
+            for i, group in ipairs(fp.groups) do
+                _, h = W:DualRow(parent, y,
+                    { type="label", text="|cff" .. "0cd29d" .. i .. ".|r  " .. group.name },
+                    { type="button", text="Delete",
+                      onClick=function()
+                        local f = FriendsDB(); if not f then return end
+                        -- Unassign friends from this group
+                        local removedName = f.groups[i] and f.groups[i].name
+                        if removedName then
+                            for k, v in pairs(f.assignments) do
+                                if v == removedName then f.assignments[k] = nil end
+                            end
+                        end
+                        table.remove(f.groups, i)
+                        RefreshFriends()
+                        EllesmereUI:RefreshPage()
+                      end }
+                );  y = y - h
+            end
+        end
 
         return math.abs(y)
     end
@@ -364,6 +491,7 @@ initFrame:SetScript("OnEvent", function(self)
             if _G._EBS_ResetQuestTracker then _G._EBS_ResetQuestTracker() end
             EllesmereUI:InvalidatePageCache()
             RefreshAll()
+            if _G._EBS_ProcessFriendButtons then _G._EBS_ProcessFriendButtons() end
         end,
     })
 

@@ -1,6 +1,8 @@
 -------------------------------------------------------------------------------
 --  EllesmereUIBasics.lua
 --  Chat, Minimap, and Friends List skinning for EllesmereUI.
+--  Friends List: full frame reskin, accent tab underlines, class icons,
+--  and custom friend groups with right-click assignment.
 -------------------------------------------------------------------------------
 local ADDON_NAME = ...
 
@@ -40,11 +42,18 @@ local defaults = {
             visHideNoEnemy   = false,
         },
         friends = {
-            enabled       = true,
-            bgAlpha       = 0.8,
-            borderR       = 0.05, borderG = 0.05, borderB = 0.05, borderA = 1,
-            useClassColor = false,
-            visibility    = "always",
+            enabled        = true,
+            bgAlpha        = 0.8,
+            borderR        = 0.05, borderG = 0.05, borderB = 0.05, borderA = 1,
+            useClassColor  = false,
+            useAccentTab   = true,
+            showClassIcons = true,
+            iconStyle      = "blizzard",
+            groupsEnabled  = false,
+            showUngrouped  = true,
+            groups         = {},
+            assignments    = {},
+            visibility     = "always",
             visOnlyInstances = false,
             visHideHousing   = false,
             visHideMounted   = false,
@@ -470,36 +479,499 @@ end
 --  Friends List Skin
 -------------------------------------------------------------------------------
 local friendsSkinned = false
+local friendButtonHooked = false
 
--- One-time structural setup (background, NineSlice hide, border creation)
+local CLASS_ICON_SPRITE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\"
+local CLASS_SPRITE_COORDS = {
+    WARRIOR     = { 0,     0.125, 0,     0.125 },
+    MAGE        = { 0.125, 0.25,  0,     0.125 },
+    ROGUE       = { 0.25,  0.375, 0,     0.125 },
+    DRUID       = { 0.375, 0.5,   0,     0.125 },
+    EVOKER      = { 0.5,   0.625, 0,     0.125 },
+    HUNTER      = { 0,     0.125, 0.125, 0.25  },
+    SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
+    PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
+    WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
+    PALADIN     = { 0,     0.125, 0.25,  0.375 },
+    DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
+    MONK        = { 0.25,  0.375, 0.25,  0.375 },
+    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
+}
+
+-- Reverse lookup: localized class name → class file token
+local classFileByLocalName = {}
+local function BuildClassNameLookup()
+    if next(classFileByLocalName) then return end
+    if LOCALIZED_CLASS_NAMES_MALE then
+        for token, name in pairs(LOCALIZED_CLASS_NAMES_MALE) do
+            classFileByLocalName[name] = token
+        end
+    end
+    if LOCALIZED_CLASS_NAMES_FEMALE then
+        for token, name in pairs(LOCALIZED_CLASS_NAMES_FEMALE) do
+            classFileByLocalName[name] = token
+        end
+    end
+end
+
+-- Resolve class file token from a friend button's data
+local function GetFriendClassFile(button)
+    if not button or not button.buttonType or not button.id then return nil end
+    BuildClassNameLookup()
+
+    if button.buttonType == FRIENDS_BUTTON_TYPE_BNET then
+        local info = C_BattleNet and C_BattleNet.GetFriendAccountInfo(button.id)
+        if info and info.gameAccountInfo then
+            local gi = info.gameAccountInfo
+            if gi.classID and gi.classID > 0 then
+                local _, classFile = GetClassInfo(gi.classID)
+                return classFile
+            end
+            if gi.className then
+                return classFileByLocalName[gi.className]
+            end
+        end
+    elseif button.buttonType == FRIENDS_BUTTON_TYPE_WOW then
+        local info = C_FriendList and C_FriendList.GetFriendInfoByIndex(button.id)
+        if info and info.className then
+            return classFileByLocalName[info.className]
+        end
+    end
+    return nil
+end
+
+-- Get unique key for a friend (used by group assignments)
+local function GetFriendKey(button)
+    if not button or not button.buttonType or not button.id then return nil end
+    if button.buttonType == FRIENDS_BUTTON_TYPE_BNET then
+        local info = C_BattleNet and C_BattleNet.GetFriendAccountInfo(button.id)
+        if info then return "bnet-" .. (info.bnetAccountID or button.id) end
+    elseif button.buttonType == FRIENDS_BUTTON_TYPE_WOW then
+        local info = C_FriendList and C_FriendList.GetFriendInfoByIndex(button.id)
+        if info and info.name then return "wow-" .. info.name end
+    end
+    return nil
+end
+
+-- Is the friend currently online?
+local function IsFriendOnline(button)
+    if not button or not button.buttonType or not button.id then return false end
+    if button.buttonType == FRIENDS_BUTTON_TYPE_BNET then
+        local info = C_BattleNet and C_BattleNet.GetFriendAccountInfo(button.id)
+        return info and info.gameAccountInfo and info.gameAccountInfo.isOnline
+    elseif button.buttonType == FRIENDS_BUTTON_TYPE_WOW then
+        local info = C_FriendList and C_FriendList.GetFriendInfoByIndex(button.id)
+        return info and info.connected
+    end
+    return false
+end
+
+-- Get the friend's display name (for group management UI)
+local function GetFriendDisplayName(button)
+    if not button or not button.buttonType or not button.id then return nil end
+    if button.buttonType == FRIENDS_BUTTON_TYPE_BNET then
+        local info = C_BattleNet and C_BattleNet.GetFriendAccountInfo(button.id)
+        if info then return info.accountName end
+    elseif button.buttonType == FRIENDS_BUTTON_TYPE_WOW then
+        local info = C_FriendList and C_FriendList.GetFriendInfoByIndex(button.id)
+        if info then return info.name end
+    end
+    return nil
+end
+
+-- Apply class icon to a friend button
+local function UpdateClassIcon(button)
+    local p = EBS.db.profile.friends
+    if not p.showClassIcons then
+        if button._ebsClassIcon then button._ebsClassIcon:Hide() end
+        return
+    end
+
+    local classFile = GetFriendClassFile(button)
+    if not classFile then
+        if button._ebsClassIcon then button._ebsClassIcon:Hide() end
+        return
+    end
+
+    -- Create icon texture if needed
+    if not button._ebsClassIcon then
+        button._ebsClassIcon = button:CreateTexture(nil, "OVERLAY", nil, 2)
+        button._ebsClassIcon:SetSize(16, 16)
+    end
+    local icon = button._ebsClassIcon
+    local style = p.iconStyle or "blizzard"
+
+    if style == "blizzard" then
+        icon:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
+        local coords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classFile]
+        if coords then
+            icon:SetTexCoord(unpack(coords))
+        end
+    else
+        local coords = CLASS_SPRITE_COORDS[classFile]
+        if coords then
+            icon:SetTexture(CLASS_ICON_SPRITE_BASE .. style .. ".tga")
+            icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+        end
+    end
+
+    -- Position to the left of name text
+    icon:ClearAllPoints()
+    local nameText = button.name or button.Name
+    if nameText then
+        icon:SetPoint("RIGHT", nameText, "LEFT", -4, 0)
+    else
+        icon:SetPoint("LEFT", button, "LEFT", 8, 0)
+    end
+
+    -- Desaturate for offline
+    local online = IsFriendOnline(button)
+    icon:SetDesaturated(not online)
+    icon:SetAlpha(online and 1 or 0.5)
+    icon:Show()
+end
+
+-- Apply group tag to a friend button
+local function UpdateGroupTag(button)
+    local p = EBS.db.profile.friends
+    if not p.groupsEnabled then
+        if button._ebsGroupTag then button._ebsGroupTag:Hide() end
+        return
+    end
+
+    local key = GetFriendKey(button)
+    local groupName = key and p.assignments[key]
+    if not groupName then
+        if button._ebsGroupTag then button._ebsGroupTag:Hide() end
+        return
+    end
+
+    if not button._ebsGroupTag then
+        button._ebsGroupTag = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        button._ebsGroupTag:SetPoint("RIGHT", button, "RIGHT", -8, 0)
+    end
+    local tag = button._ebsGroupTag
+    local ar, ag, ab = EllesmereUI.GetAccentColor()
+    tag:SetTextColor(ar, ag, ab, 0.7)
+    tag:SetText(groupName)
+    tag:Show()
+end
+
+-- Update accent underline on active tab
+local function UpdateTabUnderlines()
+    local p = EBS.db and EBS.db.profile and EBS.db.profile.friends
+    if not p or not p.enabled or not p.useAccentTab then return end
+    local selected = PanelTemplates_GetSelectedTab and
+                     PanelTemplates_GetSelectedTab(FriendsFrame) or 1
+    for i = 1, 4 do
+        local tab = _G["FriendsFrameTab" .. i]
+        if tab and tab._ebsUnderline then
+            tab._ebsUnderline:SetShown(i == selected)
+        end
+    end
+end
+
+-- Skin a single friend button (row bg + hover)
+local function SkinFriendButton(button)
+    if button._ebsSkinned then return end
+    button._ebsSkinned = true
+
+    -- Row background
+    if not button._ebsRowBg then
+        button._ebsRowBg = button:CreateTexture(nil, "BACKGROUND", nil, -6)
+        button._ebsRowBg:SetAllPoints()
+    end
+
+    -- Hover highlight
+    if not button._ebsHover then
+        button._ebsHover = button:CreateTexture(nil, "HIGHLIGHT")
+        button._ebsHover:SetAllPoints()
+        button._ebsHover:SetColorTexture(1, 1, 1, 0.05)
+        button._ebsHover:SetBlendMode("ADD")
+    end
+end
+
+-- Apply alternating row colors to visible buttons
+local function UpdateRowColors()
+    local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
+    if not scrollBox then return end
+    local idx = 0
+    for _, button in scrollBox:EnumerateFrames() do
+        if button._ebsRowBg then
+            local alpha = (idx % 2 == 0) and 0.03 or 0.06
+            button._ebsRowBg:SetColorTexture(1, 1, 1, alpha)
+        end
+        idx = idx + 1
+    end
+end
+
+-- Process all visible friend buttons
+local function ProcessFriendButtons()
+    local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
+    if not scrollBox then return end
+    for _, button in scrollBox:EnumerateFrames() do
+        SkinFriendButton(button)
+        UpdateClassIcon(button)
+        UpdateGroupTag(button)
+    end
+    UpdateRowColors()
+end
+
+-- Skin the scrollbar
+local function SkinScrollbar()
+    local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
+    if not scrollBox then return end
+    local scrollBar = scrollBox.ScrollBar or (FriendsListFrame and FriendsListFrame.ScrollBar)
+    if not scrollBar then return end
+
+    -- Hide Blizzard scrollbar chrome
+    if scrollBar.Background then scrollBar.Background:Hide() end
+    if scrollBar.Track then
+        if scrollBar.Track.Begin then scrollBar.Track.Begin:Hide() end
+        if scrollBar.Track.End then scrollBar.Track.End:Hide() end
+        if scrollBar.Track.Middle then
+            scrollBar.Track.Middle:SetColorTexture(0.08, 0.08, 0.08, 0.5)
+        end
+    end
+
+    -- Skin thumb
+    local thumb = scrollBar.Thumb or (scrollBar.Track and scrollBar.Track.Thumb)
+    if thumb then
+        if thumb.Begin then thumb.Begin:Hide() end
+        if thumb.End then thumb.End:Hide() end
+        if thumb.Middle then
+            thumb.Middle:SetColorTexture(0.3, 0.3, 0.3, 0.6)
+        end
+    end
+end
+
+-- Skin bottom-area buttons (AddFriend, etc.)
+local function SkinBottomButton(btn, r, g, b, a)
+    if not btn or btn._ebsBtnSkinned then return end
+    btn._ebsBtnSkinned = true
+
+    -- Strip default art from BORDER/BACKGROUND layers
+    for _, child in ipairs({btn:GetRegions()}) do
+        if child:IsObjectType("Texture") then
+            local layer = child:GetDrawLayer()
+            if layer == "BORDER" or layer == "BACKGROUND" then
+                child:SetAlpha(0)
+            end
+        end
+    end
+
+    -- Dark background
+    if not btn._ebsBg then
+        btn._ebsBg = btn:CreateTexture(nil, "BACKGROUND", nil, -6)
+        btn._ebsBg:SetColorTexture(0.1, 0.1, 0.1, 0.9)
+        btn._ebsBg:SetAllPoints()
+    end
+    PP.CreateBorder(btn, r, g, b, a, 1, "OVERLAY", 7)
+end
+
+-- Build the friends-list right-click group menu
+local function BuildGroupContextMenu(button)
+    local p = EBS.db.profile.friends
+    if not p.groupsEnabled then return end
+
+    local key = GetFriendKey(button)
+    if not key then return end
+    local currentGroup = p.assignments[key]
+
+    local menuFrame = _G["EBS_FriendGroupMenu"]
+    if not menuFrame then
+        menuFrame = CreateFrame("Frame", "EBS_FriendGroupMenu", UIParent, "UIDropDownMenuTemplate")
+    end
+
+    local function OnClick(self, groupName)
+        local fp = EBS.db.profile.friends
+        if groupName then
+            fp.assignments[key] = groupName
+        else
+            fp.assignments[key] = nil
+        end
+        CloseDropDownMenus()
+        ProcessFriendButtons()
+    end
+
+    local function Init(self, level)
+        if not level then return end
+        local info = UIDropDownMenu_CreateInfo()
+        if level == 1 then
+            info.text = "Set Group"
+            info.isTitle = true
+            info.notCheckable = true
+            UIDropDownMenu_AddButton(info, level)
+
+            for _, group in ipairs(p.groups) do
+                info = UIDropDownMenu_CreateInfo()
+                info.text = group.name
+                info.checked = (currentGroup == group.name)
+                info.func = OnClick
+                info.arg1 = group.name
+                UIDropDownMenu_AddButton(info, level)
+            end
+
+            info = UIDropDownMenu_CreateInfo()
+            info.text = " "
+            info.isTitle = true
+            info.notCheckable = true
+            UIDropDownMenu_AddButton(info, level)
+
+            info = UIDropDownMenu_CreateInfo()
+            info.text = "Remove from Group"
+            info.notCheckable = true
+            info.disabled = (currentGroup == nil)
+            info.func = OnClick
+            info.arg1 = nil
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end
+
+    UIDropDownMenu_Initialize(menuFrame, Init, "MENU")
+    ToggleDropDownMenu(1, nil, menuFrame, "cursor", 0, 0)
+end
+
+-- Hook friend button right-click for group menu
+local function HookFriendButtonClicks()
+    local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
+    if not scrollBox then return end
+
+    hooksecurefunc(scrollBox, "Update", function(self)
+        for _, button in self:EnumerateFrames() do
+            if not button._ebsClickHooked then
+                button._ebsClickHooked = true
+                button:HookScript("OnClick", function(btn, mouseButton)
+                    if mouseButton == "RightButton" then
+                        local fp = EBS.db and EBS.db.profile and EBS.db.profile.friends
+                        if fp and fp.enabled and fp.groupsEnabled then
+                            BuildGroupContextMenu(btn)
+                        end
+                    end
+                end)
+            end
+        end
+    end)
+end
+
+-- One-time structural setup
 local function SkinFriendsFrame()
     local frame = FriendsFrame
     if not frame or friendsSkinned then return end
     friendsSkinned = true
 
-    -- Dark background
-    if not frame._ebsBg then
-        frame._ebsBg = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-        frame._ebsBg:SetColorTexture(0, 0, 0)
-        frame._ebsBg:SetPoint("TOPLEFT", 0, 0)
-        frame._ebsBg:SetPoint("BOTTOMRIGHT", 0, 0)
-    end
-
-    -- Hide NineSlice
-    if frame.NineSlice then
-        frame.NineSlice:Hide()
-    end
-
-    -- Create border + tab borders (colors applied by ApplyFriends)
     local p = EBS.db.profile.friends
+
+    -- ── Hide Blizzard decorations ──────────────────────────────────────
+    if frame.NineSlice then frame.NineSlice:Hide() end
+    if frame.Bg then frame.Bg:Hide() end
+    if frame.TitleBg then frame.TitleBg:Hide() end
+    if frame.TopTileStreaks then frame.TopTileStreaks:Hide() end
+
+    -- Portrait
+    if frame.portrait then frame.portrait:SetAlpha(0) end
+    if frame.PortraitContainer then frame.PortraitContainer:SetAlpha(0) end
+    if FriendsFramePortrait then FriendsFramePortrait:SetAlpha(0) end
+
+    -- ButtonFrameTemplate border textures
+    for _, key in ipairs({"TopBorder", "TopRightCorner", "RightBorder",
+                          "BottomRightCorner", "BottomBorder", "BottomLeftCorner",
+                          "LeftBorder", "TopLeftCorner", "BtnCornerLeft",
+                          "BtnCornerRight"}) do
+        if frame[key] then frame[key]:Hide() end
+    end
+
+    -- Inset
+    if frame.Inset then
+        if frame.Inset.NineSlice then frame.Inset.NineSlice:Hide() end
+        if frame.Inset.Bg then frame.Inset.Bg:Hide() end
+    end
+
+    -- ── Dark background ────────────────────────────────────────────────
+    frame._ebsBg = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
+    frame._ebsBg:SetColorTexture(0, 0, 0)
+    frame._ebsBg:SetAllPoints()
+    frame._ebsBg:SetAlpha(p.bgAlpha)
+
+    -- ── Pixel border on frame ──────────────────────────────────────────
     local r, g, b, a = GetBorderColor(p)
     PP.CreateBorder(frame, r, g, b, a, 1, "OVERLAY", 7)
+
+    -- ── Skin tabs ──────────────────────────────────────────────────────
     for i = 1, 4 do
         local tab = _G["FriendsFrameTab" .. i]
         if tab then
+            -- Hide all Blizzard tab textures
+            for _, child in ipairs({tab:GetRegions()}) do
+                if child:IsObjectType("Texture") then
+                    child:SetAlpha(0)
+                end
+            end
+
+            -- Dark tab background
+            tab._ebsBg = tab:CreateTexture(nil, "BACKGROUND", nil, -6)
+            tab._ebsBg:SetColorTexture(0, 0, 0, 0.8)
+            tab._ebsBg:SetPoint("TOPLEFT", 2, -2)
+            tab._ebsBg:SetPoint("BOTTOMRIGHT", -2, 2)
+
+            -- Tab border
             PP.CreateBorder(tab, r, g, b, a, 1, "OVERLAY", 7)
+
+            -- Accent underline (only active tab)
+            if p.useAccentTab then
+                local underline = tab:CreateTexture(nil, "OVERLAY", nil, 6)
+                underline:SetHeight(2)
+                underline:SetPoint("BOTTOMLEFT", 2, 0)
+                underline:SetPoint("BOTTOMRIGHT", -2, 0)
+                local ar, ag, ab = EllesmereUI.GetAccentColor()
+                underline:SetColorTexture(ar, ag, ab, 1)
+                tab._ebsUnderline = underline
+                EllesmereUI.RegAccent({ type = "solid", obj = underline, a = 1 })
+                underline:Hide()
+            end
         end
     end
+
+    -- Hook tab switching
+    if PanelTemplates_SetTab then
+        hooksecurefunc("PanelTemplates_SetTab", function(f)
+            if f == FriendsFrame then UpdateTabUnderlines() end
+        end)
+    end
+
+    -- ── Skin scrollbar ─────────────────────────────────────────────────
+    SkinScrollbar()
+
+    -- ── Hook friend button updates ─────────────────────────────────────
+    if FriendsFrame_UpdateFriendButton and not friendButtonHooked then
+        friendButtonHooked = true
+        hooksecurefunc("FriendsFrame_UpdateFriendButton", function(button)
+            if not EBS.db or not EBS.db.profile.friends.enabled then return end
+            SkinFriendButton(button)
+            UpdateClassIcon(button)
+            UpdateGroupTag(button)
+        end)
+    end
+
+    -- Hook scroll updates for row alternation
+    local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
+    if scrollBox then
+        hooksecurefunc(scrollBox, "Update", function()
+            if not EBS.db or not EBS.db.profile.friends.enabled then return end
+            UpdateRowColors()
+        end)
+    end
+
+    -- Hook right-click for group assignment menu
+    HookFriendButtonClicks()
+
+    -- ── Skin bottom buttons ────────────────────────────────────────────
+    for _, btn in ipairs({ AddFriendButton, FriendsFrameSendMessageButton }) do
+        SkinBottomButton(btn, r, g, b, a)
+    end
+
+    -- Initial tab underline update
+    C_Timer.After(0, UpdateTabUnderlines)
 end
 
 -- Live updates: colors, opacity — safe to call repeatedly
@@ -510,24 +982,44 @@ local function ApplyFriends()
 
     if not p.enabled then
         if FriendsFrame and friendsSkinned then
+            -- Restore Blizzard chrome
             if FriendsFrame._ebsBg then FriendsFrame._ebsBg:SetAlpha(0) end
             if FriendsFrame._ppBorders then PP.SetBorderColor(FriendsFrame, 0, 0, 0, 0) end
             if FriendsFrame.NineSlice then FriendsFrame.NineSlice:Show() end
+            if FriendsFrame.Bg then FriendsFrame.Bg:Show() end
+            if FriendsFrame.TitleBg then FriendsFrame.TitleBg:Show() end
+            if FriendsFrame.portrait then FriendsFrame.portrait:SetAlpha(1) end
+            if FriendsFrame.PortraitContainer then FriendsFrame.PortraitContainer:SetAlpha(1) end
             for i = 1, 4 do
                 local tab = _G["FriendsFrameTab" .. i]
-                if tab and tab._ppBorders then PP.SetBorderColor(tab, 0, 0, 0, 0) end
+                if tab then
+                    if tab._ppBorders then PP.SetBorderColor(tab, 0, 0, 0, 0) end
+                    if tab._ebsBg then tab._ebsBg:Hide() end
+                    if tab._ebsUnderline then tab._ebsUnderline:Hide() end
+                    -- Restore original tab textures
+                    for _, child in ipairs({tab:GetRegions()}) do
+                        if child:IsObjectType("Texture")
+                           and child ~= tab._ebsBg
+                           and child ~= tab._ebsUnderline then
+                            child:SetAlpha(1)
+                        end
+                    end
+                end
             end
         end
         return
     end
 
-    -- FriendsFrame is load-on-demand — ensure structural setup first
+    -- FriendsFrame is load-on-demand
     if not FriendsFrame then return end
     SkinFriendsFrame()
 
-    -- Re-show our elements in case they were hidden by disable
+    -- Re-hide Blizzard chrome
     if FriendsFrame.NineSlice then FriendsFrame.NineSlice:Hide() end
+    if FriendsFrame.Bg then FriendsFrame.Bg:Hide() end
+    if FriendsFrame.TitleBg then FriendsFrame.TitleBg:Hide() end
 
+    -- Update colors
     local r, g, b, a = GetBorderColor(p)
     PP.SetBorderColor(FriendsFrame, r, g, b, a)
     if FriendsFrame._ebsBg then
@@ -535,10 +1027,19 @@ local function ApplyFriends()
     end
     for i = 1, 4 do
         local tab = _G["FriendsFrameTab" .. i]
-        if tab and tab._ppBorders then
-            PP.SetBorderColor(tab, r, g, b, a)
+        if tab then
+            if tab._ppBorders then PP.SetBorderColor(tab, r, g, b, a) end
+            if tab._ebsBg then tab._ebsBg:Show() end
         end
     end
+
+    -- Update bottom buttons
+    for _, btn in ipairs({ AddFriendButton, FriendsFrameSendMessageButton }) do
+        if btn and btn._ppBorders then PP.SetBorderColor(btn, r, g, b, a) end
+    end
+
+    UpdateTabUnderlines()
+    ProcessFriendButtons()
 end
 
 -------------------------------------------------------------------------------
@@ -719,6 +1220,9 @@ function EBS:OnInitialize()
     _G._EBS_ApplyChat    = ApplyChat
     _G._EBS_ApplyMinimap = ApplyMinimap
     _G._EBS_ApplyFriends = ApplyFriends
+    _G._EBS_GetFriendKey = GetFriendKey
+    _G._EBS_GetFriendDisplayName = GetFriendDisplayName
+    _G._EBS_ProcessFriendButtons = ProcessFriendButtons
 end
 
 function EBS:OnEnable()
