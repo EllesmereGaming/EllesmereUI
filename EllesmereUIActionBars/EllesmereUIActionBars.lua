@@ -4271,10 +4271,14 @@ function EAB_VTABLE.ExtraBars.GetManagedNonSecureFrame(info)
 end
 
 function EAB_VTABLE.ExtraBars.GetManagedNonSecureVisibilityState()
+    local inCombat = EAB_VTABLE.ExtraBars._managedNonSecureInCombat
+    if inCombat == nil then
+        inCombat = InCombatLockdown()
+    end
     local inRaid = IsInRaid and IsInRaid() or false
     local inGroup = IsInGroup and IsInGroup() or false
     return {
-        inCombat = InCombatLockdown(),
+        inCombat = inCombat,
         inRaid = inRaid,
         inParty = inGroup and not inRaid,
     }
@@ -4282,6 +4286,7 @@ end
 
 function EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s)
     if not s then return false end
+    local vis = EAB.VisibilityCompat.Normalize(s)
     if C_PetBattles and C_PetBattles.IsInBattle and C_PetBattles.IsInBattle() then
         return false
     end
@@ -4291,11 +4296,11 @@ function EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s)
     end
     if EllesmereUI and EllesmereUI.CheckVisibilityMode then
         return EllesmereUI.CheckVisibilityMode(
-            s.barVisibility or "always",
+            vis,
             EAB_VTABLE.ExtraBars.GetManagedNonSecureVisibilityState()
         )
     end
-    return (s.barVisibility or "always") ~= "never"
+    return vis ~= "never"
 end
 
 function EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(frame, reason, suppressed)
@@ -4326,22 +4331,28 @@ end
 function EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s)
     if not frame or not s or not frame:IsShown() then return end
 
+    local hstate = hoverStates[info.key]
     if s.mouseoverEnabled then
-        local hstate = hoverStates[info.key]
         if hstate and hstate.isHovered then
             frame:SetAlpha(1)
+            hstate.fadeDir = "in"
         else
             frame:SetAlpha(0)
+            if hstate then hstate.fadeDir = "out" end
         end
     else
         frame:SetAlpha(s.mouseoverAlpha or 1)
+        if hstate then hstate.fadeDir = nil end
     end
 end
 
 function EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, blizzOwnedVisibility, s, shouldShow)
-    if not frame or not s or InCombatLockdown() then return end
+    if not frame or not s then return end
 
     shouldShow = (shouldShow ~= false)
+    -- Managed non-secure bars can safely refresh mouse handling in combat.
+    -- Without this, bars that change visibility on combat enter/leave can end
+    -- up visible but still using the stale hidden-state mouse flags.
     if blizzOwnedVisibility then
         SafeEnableMouse(frame, false)
     elseif s.mouseoverEnabled and s.clickThrough then
@@ -7473,6 +7484,7 @@ function EAB_VTABLE.ExtraBars.EnsureManagedDataBarRuntimeState()
     -- Apply the current combat/group/mouseover state now that every managed
     -- non-secure frame exists. ApplyAll runs earlier in startup before these
     -- holders/data bars are created.
+    EAB_VTABLE.ExtraBars._managedNonSecureInCombat = InCombatLockdown()
     EAB_VTABLE.ExtraBars.RefreshManagedNonSecureVisibility()
 
     if EAB_VTABLE.ExtraBars._managedDataBarCombatFrame then return end
@@ -7482,7 +7494,11 @@ function EAB_VTABLE.ExtraBars.EnsureManagedDataBarRuntimeState()
     EAB_VTABLE.ExtraBars._managedDataBarCombatFrame = CreateFrame("Frame")
     EAB_VTABLE.ExtraBars._managedDataBarCombatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     EAB_VTABLE.ExtraBars._managedDataBarCombatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    EAB_VTABLE.ExtraBars._managedDataBarCombatFrame:SetScript("OnEvent", function()
+    EAB_VTABLE.ExtraBars._managedDataBarCombatFrame:SetScript("OnEvent", function(_, event)
+        -- Rely on the combat event direction here instead of sampling
+        -- `InCombatLockdown()` during the transition. That keeps the managed
+        -- non-secure bars in sync with the same edge that triggered the event.
+        EAB_VTABLE.ExtraBars._managedNonSecureInCombat = (event == "PLAYER_REGEN_DISABLED")
         EAB_VTABLE.ExtraBars.RefreshManagedNonSecureVisibility()
     end)
 end
