@@ -79,6 +79,7 @@ for _, info in ipairs(EXTRA_BARS) do ALL_BARS[#ALL_BARS + 1] = info end
 
 local BAR_LOOKUP = {}
 for _, info in ipairs(BAR_CONFIG) do BAR_LOOKUP[info.key] = info end
+for _, info in ipairs(EXTRA_BARS) do BAR_LOOKUP[info.key] = info end
 
 local BAR_DROPDOWN_VALUES = {}
 local BAR_DROPDOWN_ORDER = {}
@@ -3400,7 +3401,8 @@ function EAB:ApplyBarOpacity(barKey)
 end
 
 function EAB:BarSupportsOrientation(barKey)
-    return BAR_LOOKUP[barKey] ~= nil
+    local info = BAR_LOOKUP[barKey]
+    return info and info.count ~= nil or false
 end
 
 function EAB:GetOrientationForBar(barKey)
