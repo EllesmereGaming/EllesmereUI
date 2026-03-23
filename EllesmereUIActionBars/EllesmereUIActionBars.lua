@@ -7356,66 +7356,84 @@ local function RegisterDataBarsWithUnlockMode()
     EllesmereUI:RegisterUnlockElements(elements)
 end
 
-local function SetupDataBars()
-    -- Skip creating custom bars entirely if user wants Blizzard to control them
-    if EAB.db.profile.useBlizzardDataBars then return end
-
+function EAB_VTABLE.ExtraBars.CreateManagedDataBarFrames()
     CreateXPBar()
     CreateRepBar()
+end
 
-    -- Apply visibility settings (mouseover, combat, etc.)
+function EAB_VTABLE.ExtraBars.InitializeDataBarHoverState()
     for _, info in ipairs(EXTRA_BARS) do
         if info.isDataBar then
-            local frame = dataBarFrames[info.key]
-            if frame then
-                local s = EAB.db.profile.bars[info.key]
-                if s then
-                    AttachDataBarHoverHooks(info.key)
-                    EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, false, s, frame:IsShown())
-                end
-            end
+            AttachDataBarHoverHooks(info.key)
         end
     end
+end
 
-    -- Apply saved positions
+function EAB_VTABLE.ExtraBars.RestoreSavedDataBarPositions()
     local positions = EAB.db.profile.barPositions
-    if positions then
-        for _, info in ipairs(EXTRA_BARS) do
-            if info.isDataBar then
-                local pos = positions[info.key]
-                local frame = dataBarFrames[info.key]
-                if pos and frame and pos.point then
-                    frame:ClearAllPoints()
-                    frame:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
-                end
+    if not positions then return end
+
+    for _, info in ipairs(EXTRA_BARS) do
+        if info.isDataBar then
+            local pos = positions[info.key]
+            local frame = dataBarFrames[info.key]
+            if pos and frame and pos.point then
+                frame:ClearAllPoints()
+                frame:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
             end
         end
     end
+end
 
-    -- Register data bars with unlock mode (frames exist now)
+function EAB_VTABLE.ExtraBars.RegisterDataBarsWithUnlockModeWhenReady()
     if EllesmereUI and EllesmereUI.RegisterUnlockElements then
         RegisterDataBarsWithUnlockMode()
-    else
-        C_Timer_After(1, function()
-            if EllesmereUI and EllesmereUI.RegisterUnlockElements then
-                RegisterDataBarsWithUnlockMode()
-            end
-        end)
+        return
     end
 
+    C_Timer_After(1, function()
+        if EllesmereUI and EllesmereUI.RegisterUnlockElements then
+            RegisterDataBarsWithUnlockMode()
+        end
+    end)
+end
+
+function EAB_VTABLE.ExtraBars.EnsureManagedDataBarRuntimeState()
     -- Apply the current combat/group/mouseover state now that every managed
     -- non-secure frame exists. ApplyAll runs earlier in startup before these
     -- holders/data bars are created.
     EAB_VTABLE.ExtraBars.RefreshManagedNonSecureVisibility()
 
+    if EAB_VTABLE.ExtraBars._managedDataBarCombatFrame then return end
+
     -- Managed non-secure bars need a runtime combat refresh because secure
     -- state drivers are not available for these frames.
-    local combatFrame = CreateFrame("Frame")
-    combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-    combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    combatFrame:SetScript("OnEvent", function()
+    EAB_VTABLE.ExtraBars._managedDataBarCombatFrame = CreateFrame("Frame")
+    EAB_VTABLE.ExtraBars._managedDataBarCombatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+    EAB_VTABLE.ExtraBars._managedDataBarCombatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    EAB_VTABLE.ExtraBars._managedDataBarCombatFrame:SetScript("OnEvent", function()
         EAB_VTABLE.ExtraBars.RefreshManagedNonSecureVisibility()
     end)
+end
+
+local function SetupDataBars()
+    -- Skip creating custom bars entirely if user wants Blizzard to control them
+    if EAB.db.profile.useBlizzardDataBars then return end
+
+    -- Phase 1: create the frames and their update callbacks.
+    EAB_VTABLE.ExtraBars.CreateManagedDataBarFrames()
+
+    -- Phase 2: attach hover handling now that the holders exist.
+    EAB_VTABLE.ExtraBars.InitializeDataBarHoverState()
+
+    -- Phase 3: restore saved positions onto the live holders.
+    EAB_VTABLE.ExtraBars.RestoreSavedDataBarPositions()
+
+    -- Phase 4: register the frames with Unlock Mode once the shared shell is ready.
+    EAB_VTABLE.ExtraBars.RegisterDataBarsWithUnlockModeWhenReady()
+
+    -- Phase 5: apply the current runtime visibility state and keep it in sync.
+    EAB_VTABLE.ExtraBars.EnsureManagedDataBarRuntimeState()
 end
 
 -------------------------------------------------------------------------------
