@@ -4450,8 +4450,7 @@ function EAB:ApplyExtraBarVisibility()
     RegisterStateDriver(_extraBarVisProxy, "extravis", "[petbattle] hide; show")
 end
 
--------------------------------------------------------------------------------
---  Combat Show/Hide, Always Hidden, Click-Through, Housing
+--  Combat Show/Hide, Runtime Visibility, Click-Through, Housing
 -------------------------------------------------------------------------------
 function EAB:ApplyCombatVisibility()
     if InCombatLockdown() then return end
@@ -4474,7 +4473,7 @@ function EAB:ApplyCombatVisibility()
     self:ApplyExtraBarVisibility()
 end
 
-function EAB:ApplyAlwaysHidden()
+function EAB:RefreshRuntimeVisibility()
     for _, info in ipairs(ALL_BARS) do
         local key = info.key
         local s = self.db.profile.bars[key]
@@ -5843,7 +5842,7 @@ local function ApplyAll()
     EAB:ApplyCooldownEdge()
     EAB:ApplyMiscTextures()
     if not inCombat then EAB:ApplyCombatVisibility() end
-    if not inCombat then EAB:ApplyAlwaysHidden() end
+    if not inCombat then EAB:RefreshRuntimeVisibility() end
     EAB:RefreshMouseover()
     EAB:RefreshProcGlows()
     EAB:ApplyRangeColoring()
@@ -8309,7 +8308,7 @@ local function EAB_UpdateQuickKeybindVisibility(show)
         end
     else
         EAB:ApplyCombatVisibility()
-        EAB:ApplyAlwaysHidden()
+        EAB:RefreshRuntimeVisibility()
         for _, info in ipairs(BAR_CONFIG) do
             EAB:ApplyAlwaysShowButtons(info.key)
             EAB:ApplyClickThroughForBar(info.key)
