@@ -4297,6 +4297,7 @@ function EAB_VTABLE.ExtraBars.ApplyManagedNonSecureVisibility(info)
     if shouldShow then
         EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s)
     end
+    EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, info.blizzOwnedVisibility, s, shouldShow)
 
     return shouldShow, frame, s
 end
@@ -4395,8 +4396,7 @@ function EAB:ApplyAlwaysHidden()
         local s = self.db.profile.bars[key]
         if not s then break end
         if EAB_VTABLE.ExtraBars.IsManagedNonSecureBar(info) then
-            local shouldShow, frame = EAB_VTABLE.ExtraBars.ApplyManagedNonSecureVisibility(info)
-            EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, info.blizzOwnedVisibility, s, shouldShow)
+            EAB_VTABLE.ExtraBars.ApplyManagedNonSecureVisibility(info)
         else
         local frame = barFrames[key] or (info.isDataBar and dataBarFrames[key]) or (info.isBlizzardMovable and blizzMovableHolders[key]) or (extraBarHolders[key]) or (info.visibilityOnly and _G[info.frameName])
         if frame then
