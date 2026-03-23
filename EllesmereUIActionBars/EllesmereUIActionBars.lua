@@ -3906,8 +3906,44 @@ end
 -------------------------------------------------------------------------------
 --  Mouseover Fade System
 -------------------------------------------------------------------------------
-local hoverStates = {}  -- [barKey] = { frame=, buttons=, isHovered=false }
+local hoverStates = {}  -- shared by action bars, data bars, and extra bars
 local AttachExtraBarHoverHooks  -- forward declaration; defined near SetupExtraBarHolder
+
+local function AttachDataBarHoverHooks(barKey)
+    if hoverStates[barKey] then return end
+
+    local frame = dataBarFrames[barKey]
+    if not frame then return end
+
+    local state = { frame = frame, isHovered = false, fadeDir = nil }
+    hoverStates[barKey] = state
+
+    local function OnEnter()
+        state.isHovered = true
+        local s = EAB.db.profile.bars[barKey]
+        if s and s.mouseoverEnabled and state.fadeDir ~= "in" then
+            state.fadeDir = "in"
+            StopFade(frame)
+            FadeTo(frame, 1, s.mouseoverSpeed or 0.15)
+        end
+    end
+
+    local function OnLeave()
+        state.isHovered = false
+        C_Timer_After(0.1, function()
+            if state.isHovered then return end
+            if _quickKeybindState.open then return end
+            local s = EAB.db.profile.bars[barKey]
+            if s and s.mouseoverEnabled and state.fadeDir ~= "out" then
+                state.fadeDir = "out"
+                FadeTo(frame, 0, s.mouseoverSpeed or 0.15)
+            end
+        end)
+    end
+
+    frame:HookScript("OnEnter", OnEnter)
+    frame:HookScript("OnLeave", OnLeave)
+end
 
 local function AttachHoverHooks(barKey)
     local frame = barFrames[barKey]
@@ -4023,6 +4059,9 @@ function EAB:RefreshMouseover()
                 if blizzFrame then frame = blizzFrame end
             end
             if s.mouseoverEnabled then
+                if info.isDataBar then
+                    AttachDataBarHoverHooks(key)
+                end
                 -- Ensure extra bars have hover hooks attached (may not have been
                 -- set up at load time if mouseover was disabled then)
                 if info.visibilityOnly and not info.isDataBar and not info.isBlizzardMovable then
@@ -4119,6 +4158,141 @@ local function BuildVisibilityString(info, s)
 end
 
 -------------------------------------------------------------------------------
+--  Managed Non-Secure Visibility
+--  XP/Rep bars and extra bars such as Micro/Bag/QueueStatus are not secure
+--  bar headers, so they need an explicit runtime visibility pass whenever the
+--  player's combat/group/target/mount state changes.
+-------------------------------------------------------------------------------
+function EAB_VTABLE.ExtraBars.IsManagedNonSecureBar(info)
+    return info and (info.isDataBar or (info.visibilityOnly and not info.isBlizzardMovable))
+end
+
+function EAB_VTABLE.ExtraBars.GetManagedNonSecureFrame(info)
+    if not EAB_VTABLE.ExtraBars.IsManagedNonSecureBar(info) then return nil end
+    if info.isDataBar then
+        return dataBarFrames[info.key]
+    end
+    return info.frameName and _G[info.frameName] or nil
+end
+
+function EAB_VTABLE.ExtraBars.GetManagedNonSecureVisibilityState()
+    local inRaid = IsInRaid and IsInRaid() or false
+    local inGroup = IsInGroup and IsInGroup() or false
+    return {
+        inCombat = InCombatLockdown(),
+        inRaid = inRaid,
+        inParty = inGroup and not inRaid,
+    }
+end
+
+function EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s)
+    if not s then return false end
+    if C_PetBattles and C_PetBattles.IsInBattle and C_PetBattles.IsInBattle() then
+        return false
+    end
+    if s.enabled == false or s.alwaysHidden then return false end
+    if EllesmereUI and EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(s) then
+        return false
+    end
+    if EllesmereUI and EllesmereUI.CheckVisibilityMode then
+        return EllesmereUI.CheckVisibilityMode(
+            s.barVisibility or "always",
+            EAB_VTABLE.ExtraBars.GetManagedNonSecureVisibilityState()
+        )
+    end
+    return (s.barVisibility or "always") ~= "never"
+end
+
+function EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(frame, reason, suppressed)
+    if not frame then return end
+
+    local suppressKey = (reason == "petbattle") and "_eabSuppressedByPetBattle" or "_eabSuppressedByVisibility"
+    local shownKey = (reason == "petbattle") and "_eabWasShownBeforePetBattle" or "_eabWasShownBeforeVisibility"
+
+    if suppressed then
+        if not frame[suppressKey] then
+            frame[shownKey] = frame:IsShown()
+        end
+        frame[suppressKey] = true
+        frame:Hide()
+        return
+    end
+
+    if frame[suppressKey] then
+        local wasShown = frame[shownKey]
+        frame[suppressKey] = nil
+        frame[shownKey] = nil
+        if wasShown then
+            frame:Show()
+        end
+    end
+end
+
+function EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s)
+    if not frame or not s or not frame:IsShown() then return end
+
+    if s.mouseoverEnabled then
+        local hstate = hoverStates[info.key]
+        if hstate and hstate.isHovered then
+            frame:SetAlpha(1)
+        else
+            frame:SetAlpha(0)
+        end
+    else
+        frame:SetAlpha(s.mouseoverAlpha or 1)
+    end
+end
+
+function EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, blizzOwnedVisibility, s, shouldShow)
+    if not frame or not s or InCombatLockdown() then return end
+
+    shouldShow = (shouldShow ~= false)
+    if blizzOwnedVisibility then
+        SafeEnableMouse(frame, false)
+    elseif s.mouseoverEnabled and s.clickThrough then
+        SafeEnableMouseMotionOnly(frame, shouldShow)
+    else
+        SafeEnableMouse(frame, shouldShow and not s.clickThrough)
+    end
+end
+
+function EAB_VTABLE.ExtraBars.ApplyManagedNonSecureVisibility(info)
+    if not EAB_VTABLE.ExtraBars.IsManagedNonSecureBar(info) then return false, nil, nil end
+
+    local s = EAB.db and EAB.db.profile and EAB.db.profile.bars and EAB.db.profile.bars[info.key]
+    local frame = EAB_VTABLE.ExtraBars.GetManagedNonSecureFrame(info)
+    if not s or not frame then return false, frame, s end
+
+    local shouldShow = EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s)
+    if info.blizzOwnedVisibility then
+        EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(frame, "visibility", not shouldShow)
+    elseif shouldShow then
+        if not info.isDataBar then
+            frame:Show()
+        end
+    else
+        frame:Hide()
+    end
+
+    if shouldShow and info.isDataBar and frame._updateFunc then
+        frame._updateFunc()
+    end
+    if shouldShow then
+        EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s)
+    end
+
+    return shouldShow, frame, s
+end
+
+function EAB_VTABLE.ExtraBars.RefreshManagedNonSecureVisibility()
+    for _, info in ipairs(EXTRA_BARS) do
+        if EAB_VTABLE.ExtraBars.IsManagedNonSecureBar(info) then
+            EAB_VTABLE.ExtraBars.ApplyManagedNonSecureVisibility(info)
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Extra Bar Visibility (Pet Battle / Vehicle Hiding)
 --  MicroBar, BagBar, data bars, and Blizzard movable frames are not
 --  SecureHandlerStateTemplate frames, so we use a single secure proxy
@@ -4141,8 +4315,8 @@ function EAB:ApplyExtraBarVisibility()
                 local s = EAB.db and EAB.db.profile.bars[key]
                 if s and not s.alwaysHidden then
                     local frame
-                    if info.isDataBar then
-                        frame = dataBarFrames[key]
+                    if EAB_VTABLE.ExtraBars.IsManagedNonSecureBar(info) then
+                        frame = EAB_VTABLE.ExtraBars.GetManagedNonSecureFrame(info)
                     elseif info.isBlizzardMovable then
                         frame = blizzMovableHolders[key]
                     else
@@ -4151,35 +4325,18 @@ function EAB:ApplyExtraBarVisibility()
                     if frame then
                         if shouldHide then
                             if info.blizzOwnedVisibility then
-                                frame._eabWasShownBeforePetBattle = frame:IsShown()
+                                EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(frame, "petbattle", true)
+                            else
+                                frame:Hide()
                             end
-                            frame:Hide()
                         else
                             if info.blizzOwnedVisibility then
-                                if frame._eabWasShownBeforePetBattle then
-                                    frame:Show()
-                                end
-                                frame._eabWasShownBeforePetBattle = nil
+                                EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(frame, "petbattle", false)
+                            end
+                            if EAB_VTABLE.ExtraBars.IsManagedNonSecureBar(info) then
+                                EAB_VTABLE.ExtraBars.ApplyManagedNonSecureVisibility(info)
                             else
                                 frame:Show()
-                            end
-                            -- Restore correct alpha: mouseover bars fade to 0 when not hovered,
-                            -- so Show() alone leaves them invisible after a pet battle ends.
-                            if s.mouseoverEnabled then
-                                local hstate = hoverStates[key]
-                                local isHovered = hstate and hstate.isHovered
-                                if not isHovered then
-                                    frame:SetAlpha(0)
-                                else
-                                    frame:SetAlpha(s.mouseoverAlpha or 1)
-                                end
-                            else
-                                frame:SetAlpha(s.mouseoverAlpha or 1)
-                            end
-                            -- Data bars may need to re-evaluate (XP at max, etc.)
-                            if info.isDataBar then
-                                local df = dataBarFrames[key]
-                                if df and df._updateFunc then df._updateFunc() end
                             end
                         end
                     end
@@ -4220,6 +4377,10 @@ function EAB:ApplyAlwaysHidden()
         local key = info.key
         local s = self.db.profile.bars[key]
         if not s then break end
+        if EAB_VTABLE.ExtraBars.IsManagedNonSecureBar(info) then
+            local shouldShow, frame = EAB_VTABLE.ExtraBars.ApplyManagedNonSecureVisibility(info)
+            EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, info.blizzOwnedVisibility, s, shouldShow)
+        else
         local frame = barFrames[key] or (info.isDataBar and dataBarFrames[key]) or (info.isBlizzardMovable and blizzMovableHolders[key]) or (extraBarHolders[key]) or (info.visibilityOnly and _G[info.frameName])
         if frame then
             local vis = s.barVisibility or "always"
@@ -4271,6 +4432,7 @@ function EAB:ApplyAlwaysHidden()
                 end
             end
         end
+        end
     end
 end
 
@@ -4287,7 +4449,7 @@ function EAB:ApplyClickThroughForBar(barKey)
     -- Data bars
     local dataFrame = dataBarFrames[barKey]
     if dataFrame then
-        SafeEnableMouse(dataFrame, not s.clickThrough)
+        EAB_VTABLE.ExtraBars.ApplyManagedMouse(dataFrame, false, s, dataFrame:IsShown())
         return
     end
 
@@ -4378,7 +4540,10 @@ function EAB:UpdateHousingVisibility()
             local key = info.key
             local s = self.db.profile.bars[key]
             if s then
-                local frame = barFrames[key] or (info.isDataBar and dataBarFrames[key]) or (info.isBlizzardMovable and blizzMovableHolders[key]) or (extraBarHolders[key]) or (info.visibilityOnly and _G[info.frameName])
+                if EAB_VTABLE.ExtraBars.IsManagedNonSecureBar(info) then
+                    EAB_VTABLE.ExtraBars.ApplyManagedNonSecureVisibility(info)
+                else
+                    local frame = barFrames[key] or (info.isDataBar and dataBarFrames[key]) or (info.isBlizzardMovable and blizzMovableHolders[key]) or (extraBarHolders[key]) or (info.visibilityOnly and _G[info.frameName])
                 if frame then
                     -- Secure action bar frames use the state driver for
                     -- target/enemy options; mounted-like druid forms are
@@ -4416,6 +4581,7 @@ function EAB:UpdateHousingVisibility()
                             frame._updateFunc()
                         end
                     end
+                end
                 end
             end
         end
@@ -6749,16 +6915,44 @@ local function CreateDataBarFrame(barKey, updateFunc)
     return holder
 end
 
+-- Data bars own their content updates, but visibility is shared with the
+-- generic non-secure visibility system above. Guard each update callback so a
+-- later XP/reputation event cannot re-show a bar that runtime conditions have
+-- already hidden (for example `solo` while grouped).
+function EAB_VTABLE.ExtraBars.BeginManagedDataBarUpdate(barKey)
+    local frame = dataBarFrames[barKey]
+    if not frame then return nil, nil end
+    if EAB.db.profile.useBlizzardDataBars then
+        frame:Hide()
+        return nil, nil
+    end
+
+    local s = EAB.db.profile.bars[barKey]
+    if not s then return nil, nil end
+    if s.alwaysHidden or not EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s) then
+        frame:Hide()
+        return nil, s
+    end
+
+    return frame, s
+end
+
+function EAB_VTABLE.ExtraBars.FinishManagedDataBarUpdate(barKey, frame, s)
+    if not frame or not s then return end
+
+    frame:Show()
+    local info = BAR_LOOKUP[barKey]
+    if info then
+        EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s)
+    end
+end
+
 -------------------------------------------------------------------------------
 --  XP Bar
 -------------------------------------------------------------------------------
 local function UpdateXPBar()
-    local frame = dataBarFrames["XPBar"]
+    local frame, s = EAB_VTABLE.ExtraBars.BeginManagedDataBarUpdate("XPBar")
     if not frame then return end
-    if EAB.db.profile.useBlizzardDataBars then frame:Hide(); return end
-    local s = EAB.db.profile.bars["XPBar"]
-    if not s then return end
-    if s.alwaysHidden then frame:Hide(); return end
 
     local bar = frame._bar
     local text = frame._text
@@ -6769,8 +6963,6 @@ local function UpdateXPBar()
         frame:Hide()
         return
     end
-
-    frame:Show()
 
     local currentXP = UnitXP("player")
     local maxXP = UnitXPMax("player")
@@ -6800,6 +6992,8 @@ local function UpdateXPBar()
     else
         text:SetText(format("%.1f%%", pct))
     end
+
+    EAB_VTABLE.ExtraBars.FinishManagedDataBarUpdate("XPBar", frame, s)
 end
 
 local function CreateXPBar()
@@ -6862,12 +7056,8 @@ end
 --  Reputation Bar
 -------------------------------------------------------------------------------
 local function UpdateRepBar()
-    local frame = dataBarFrames["RepBar"]
+    local frame, s = EAB_VTABLE.ExtraBars.BeginManagedDataBarUpdate("RepBar")
     if not frame then return end
-    if EAB.db.profile.useBlizzardDataBars then frame:Hide(); return end
-    local s = EAB.db.profile.bars["RepBar"]
-    if not s then return end
-    if s.alwaysHidden then frame:Hide(); return end
 
     local bar = frame._bar
     local text = frame._text
@@ -6877,8 +7067,6 @@ local function UpdateRepBar()
         frame:Hide()
         return
     end
-
-    frame:Show()
 
     local name = data.name
     local reaction = data.reaction or 4
@@ -6960,6 +7148,8 @@ local function UpdateRepBar()
     if text:GetStringWidth() > barW - 4 then
         text:SetText(format("%.0f%%", pct))
     end
+
+    EAB_VTABLE.ExtraBars.FinishManagedDataBarUpdate("RepBar", frame, s)
 end
 
 local function CreateRepBar()
@@ -7093,32 +7283,8 @@ local function SetupDataBars()
             if frame then
                 local s = EAB.db.profile.bars[info.key]
                 if s then
-                    -- Apply click-through setting
-                    if s.clickThrough then
-                        SafeEnableMouse(frame, false)
-                    end
-                    if s.mouseoverEnabled then
-                        local state = { isHovered = false, fadeDir = nil }
-                        frame:HookScript("OnEnter", function()
-                            state.isHovered = true
-                            if state.fadeDir ~= "in" then
-                                state.fadeDir = "in"
-                                FadeTo(frame, 1, s.mouseoverSpeed or 0.15)
-                            end
-                        end)
-                        frame:HookScript("OnLeave", function()
-                            state.isHovered = false
-                            C_Timer_After(0.1, function()
-                                if state.isHovered then return end
-                                if _quickKeybindState.open then return end
-                                if state.fadeDir ~= "out" then
-                                    state.fadeDir = "out"
-                                    FadeTo(frame, 0, s.mouseoverSpeed or 0.15)
-                                end
-                            end)
-                        end)
-                        frame:SetAlpha(0)
-                    end
+                    AttachDataBarHoverHooks(info.key)
+                    EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, false, s, frame:IsShown())
                 end
             end
         end
@@ -7150,25 +7316,18 @@ local function SetupDataBars()
         end)
     end
 
-    -- Combat show/hide for data bars (can't use RegisterAttributeDriver on non-secure frames)
+    -- Apply the current combat/group/mouseover state now that every managed
+    -- non-secure frame exists. ApplyAll runs earlier in startup before these
+    -- holders/data bars are created.
+    EAB_VTABLE.ExtraBars.RefreshManagedNonSecureVisibility()
+
+    -- Managed non-secure bars need a runtime combat refresh because secure
+    -- state drivers are not available for these frames.
     local combatFrame = CreateFrame("Frame")
     combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    combatFrame:SetScript("OnEvent", function(_, event)
-        local inCombat = (event == "PLAYER_REGEN_DISABLED")
-        for _, info in ipairs(EXTRA_BARS) do
-            if info.isDataBar then
-                local frame = dataBarFrames[info.key]
-                local s = EAB.db.profile.bars[info.key]
-                if frame and s and not s.alwaysHidden then
-                    if s.combatShowEnabled then
-                        if inCombat then frame:Show() else frame:Hide() end
-                    elseif s.combatHideEnabled then
-                        if inCombat then frame:Hide() else frame:Show() end
-                    end
-                end
-            end
-        end
+    combatFrame:SetScript("OnEvent", function()
+        EAB_VTABLE.ExtraBars.RefreshManagedNonSecureVisibility()
     end)
 end
 
