@@ -23,6 +23,7 @@ local EAB_VTABLE = {
     ExtraBars = {},
     CooldownFonts = {},
 }
+EAB.VisibilityCompat = EAB.VisibilityCompat or {}
 
 -------------------------------------------------------------------------------
 --  Upvalues
@@ -107,6 +108,65 @@ ns.DATA_BAR            = DATA_BAR
 ns.BAR_LOOKUP          = BAR_LOOKUP
 ns.ALL_BARS            = ALL_BARS
 ns.EXTRA_BARS          = EXTRA_BARS
+
+function EAB.VisibilityCompat.ApplyMode(settings, mode)
+    if not settings then return "always" end
+
+    mode = mode or "always"
+    settings.barVisibility = mode
+    settings.alwaysHidden = (mode == "never")
+
+    local wasMouseover = settings.mouseoverEnabled
+    settings.mouseoverEnabled = (mode == "mouseover")
+    if mode == "mouseover" then
+        if not wasMouseover then
+            settings._savedBarAlpha = settings.mouseoverAlpha or 1
+        end
+        settings.mouseoverAlpha = 0
+    elseif wasMouseover and settings._savedBarAlpha then
+        settings.mouseoverAlpha = settings._savedBarAlpha
+        settings._savedBarAlpha = nil
+    end
+
+    settings.combatHideEnabled = (mode == "out_of_combat")
+    settings.combatShowEnabled = (mode == "in_combat")
+    return mode
+end
+
+function EAB.VisibilityCompat.Normalize(settings)
+    if not settings then return "always" end
+    if settings.barVisibility then
+        return EAB.VisibilityCompat.ApplyMode(settings, settings.barVisibility)
+    end
+    if settings.alwaysHidden then
+        return EAB.VisibilityCompat.ApplyMode(settings, "never")
+    end
+    if settings.mouseoverEnabled then
+        return EAB.VisibilityCompat.ApplyMode(settings, "mouseover")
+    end
+    if settings.combatShowEnabled then
+        return EAB.VisibilityCompat.ApplyMode(settings, "in_combat")
+    end
+    if settings.combatHideEnabled then
+        return EAB.VisibilityCompat.ApplyMode(settings, "out_of_combat")
+    end
+    return EAB.VisibilityCompat.ApplyMode(settings, "always")
+end
+
+function EAB.VisibilityCompat.Copy(dst, src)
+    if not dst or not src then return end
+
+    local mode = EAB.VisibilityCompat.Normalize(src)
+    EAB.VisibilityCompat.ApplyMode(dst, mode)
+
+    if mode == "mouseover" then
+        dst._savedBarAlpha = src._savedBarAlpha or src.mouseoverAlpha or 1
+        dst.mouseoverAlpha = 0
+    else
+        dst.mouseoverAlpha = src.mouseoverAlpha
+        dst._savedBarAlpha = nil
+    end
+end
 
 function EAB_VTABLE.ExtraBars.PatchDetachedQueueStatusLayout()
     if not MicroMenuContainer or MicroMenuContainer._eabDetachedQueueLayout then return end
@@ -6144,14 +6204,13 @@ function EAB:OnFirstLogin()
             -- options dropdown reflects the actual state.
             if data.visibility then
                 if data.visibility == 3 then
-                    s.alwaysHidden = true
-                    s.barVisibility = "never"
+                    EAB.VisibilityCompat.ApplyMode(s, "never")
                 elseif data.visibility == 1 then
-                    s.combatShowEnabled = true
-                    s.barVisibility = "in_combat"
+                    EAB.VisibilityCompat.ApplyMode(s, "in_combat")
                 elseif data.visibility == 2 then
-                    s.combatHideEnabled = true
-                    s.barVisibility = "out_of_combat"
+                    EAB.VisibilityCompat.ApplyMode(s, "out_of_combat")
+                else
+                    EAB.VisibilityCompat.ApplyMode(s, "always")
                 end
             end
             if data.point then

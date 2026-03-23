@@ -5,6 +5,7 @@
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 local EAB = ns.EAB
+local VisibilityCompat = EAB and EAB.VisibilityCompat
 
 local function GetEABOptOutline() return EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag() or "" end
 local function GetEABOptUseShadow() return EllesmereUI.GetFontUseShadow and EllesmereUI.GetFontUseShadow() or true end
@@ -1027,10 +1028,18 @@ initFrame:SetScript("OnEvent", function(self)
     -- Keep the legacy boolean flags and the newer visibility-mode dropdown in
     -- sync. The runtime still reads both shapes in different code paths.
     local function GetVisibilityKey(s)
-        return s.barVisibility or "always"
+        if not VisibilityCompat then
+            return s.barVisibility or "always"
+        end
+        return VisibilityCompat.Normalize(s)
     end
 
     local function ApplyVisibilityKey(s, v)
+        if VisibilityCompat then
+            VisibilityCompat.ApplyMode(s, v)
+            return
+        end
+
         s.barVisibility = v
         s.alwaysHidden = (v == "never")
 
@@ -1048,6 +1057,22 @@ initFrame:SetScript("OnEvent", function(self)
 
         s.combatHideEnabled = (v == "out_of_combat")
         s.combatShowEnabled = (v == "in_combat")
+    end
+
+    local function CopyVisibilitySettings(dst, src)
+        if VisibilityCompat then
+            VisibilityCompat.Copy(dst, src)
+            return
+        end
+
+        local v = src.barVisibility or "always"
+        dst.barVisibility = v
+        dst.alwaysHidden = src.alwaysHidden
+        dst.mouseoverEnabled = src.mouseoverEnabled
+        dst.mouseoverAlpha = src.mouseoverAlpha
+        dst._savedBarAlpha = src._savedBarAlpha
+        dst.combatHideEnabled = src.combatHideEnabled
+        dst.combatShowEnabled = src.combatShowEnabled
     end
 
 
@@ -1388,16 +1413,9 @@ initFrame:SetScript("OnEvent", function(self)
                     tooltip = "Apply Visibility to all Bars",
                     onClick = function()
                         local src = SB()
-                        local v = src.barVisibility or "always"
                         for _, key in ipairs(GROUP_BAR_ORDER) do
                             local dst = EAB.db.profile.bars[key]
-                            dst.barVisibility    = v
-                            dst.alwaysHidden     = src.alwaysHidden
-                            dst.mouseoverEnabled = src.mouseoverEnabled
-                            dst.mouseoverAlpha   = src.mouseoverAlpha
-                            dst._savedBarAlpha   = src._savedBarAlpha
-                            dst.combatHideEnabled = src.combatHideEnabled
-                            dst.combatShowEnabled = src.combatShowEnabled
+                            CopyVisibilitySettings(dst, src)
                         end
                         EAB:ApplyAlwaysHidden()
                         EAB:RefreshMouseover()
@@ -1418,16 +1436,9 @@ initFrame:SetScript("OnEvent", function(self)
                         getCurrentKey = function() return SelectedKey() end,
                         onApply       = function(checkedKeys)
                             local src = SB()
-                            local v = src.barVisibility or "always"
                             for _, key in ipairs(checkedKeys) do
                                 local dst = EAB.db.profile.bars[key]
-                                dst.barVisibility    = v
-                                dst.alwaysHidden     = src.alwaysHidden
-                                dst.mouseoverEnabled = src.mouseoverEnabled
-                                dst.mouseoverAlpha   = src.mouseoverAlpha
-                                dst._savedBarAlpha   = src._savedBarAlpha
-                                dst.combatHideEnabled = src.combatHideEnabled
-                                dst.combatShowEnabled = src.combatShowEnabled
+                                CopyVisibilitySettings(dst, src)
                             end
                             EAB:ApplyAlwaysHidden()
                             EAB:RefreshMouseover()
