@@ -21,6 +21,7 @@ local PP = EllesmereUI.PP
 -- shared dispatch surface without adding more direct top-level helpers.
 local EAB_VTABLE = {
     ExtraBars = {},
+    CooldownFonts = {},
 }
 
 -------------------------------------------------------------------------------
@@ -3474,40 +3475,65 @@ end
 -------------------------------------------------------------------------------
 --  Cooldown Countdown Font Override
 -------------------------------------------------------------------------------
+function EAB_VTABLE.CooldownFonts.GetSettings(s)
+    return (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("actionBars")) or FONT_PATH,
+        s.cooldownFontSize or 12,
+        s.cooldownTextXOffset or 0,
+        s.cooldownTextYOffset or 0,
+        s.cooldownTextColor or { r = 1, g = 1, b = 1 }
+end
+
+function EAB_VTABLE.CooldownFonts.ApplyToFrame(cdFrame, fontPath, cdSize, cdOX, cdOY, cdColor)
+    if not cdFrame then return false end
+
+    for ri = 1, cdFrame:GetNumRegions() do
+        local region = select(ri, cdFrame:GetRegions())
+        if region and region.GetObjectType and region:GetObjectType() == "FontString" then
+            region:SetFont(fontPath, cdSize, "OUTLINE")
+            region:SetShadowOffset(0, 0)
+            region:SetTextColor(cdColor.r, cdColor.g, cdColor.b)
+            region:ClearAllPoints()
+            region:SetPoint("CENTER", cdFrame, "CENTER", cdOX, cdOY)
+            return true
+        end
+    end
+
+    return false
+end
+
+function EAB_VTABLE.CooldownFonts.ApplyToButton(btn, fontPath, cdSize, cdOX, cdOY, cdColor)
+    if not btn then return end
+
+    local applied = EAB_VTABLE.CooldownFonts.ApplyToFrame(btn.cooldown, fontPath, cdSize, cdOX, cdOY, cdColor)
+    EAB_VTABLE.CooldownFonts.ApplyToFrame(btn.chargeCooldown, fontPath, cdSize, cdOX, cdOY, cdColor)
+    if applied then return end
+
+    -- Some cooldown frames create their countdown FontString lazily on the
+    -- first update after SetCooldown(). Retry once on the next frame.
+    C_Timer_After(0, function()
+        EAB_VTABLE.CooldownFonts.ApplyToFrame(btn.cooldown, fontPath, cdSize, cdOX, cdOY, cdColor)
+        EAB_VTABLE.CooldownFonts.ApplyToFrame(btn.chargeCooldown, fontPath, cdSize, cdOX, cdOY, cdColor)
+    end)
+end
+
 function EAB:ApplyCooldownFontsForBar(barKey)
     local s = self.db.profile.bars[barKey]
     if not s then return end
     local buttons = barButtons[barKey]
     if not buttons then return end
-    local fontPath = EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("actionBars") or FONT_PATH
-    local cdSize = s.cooldownFontSize or 12
-    local cdOX = s.cooldownTextXOffset or 0
-    local cdOY = s.cooldownTextYOffset or 0
-    local cdColor = s.cooldownTextColor or { r = 1, g = 1, b = 1 }
+    local fontPath, cdSize, cdOX, cdOY, cdColor = EAB_VTABLE.CooldownFonts.GetSettings(s)
 
     C_Timer.After(0, function()
         for i = 1, #buttons do
             local btn = buttons[i]
             if not btn then break end
-            local cd = btn.cooldown
-            if cd then
-                for ri = 1, cd:GetNumRegions() do
-                    local region = select(ri, cd:GetRegions())
-                    if region and region.GetObjectType and region:GetObjectType() == "FontString" then
-                        region:SetFont(fontPath, cdSize, "OUTLINE")
-                        region:SetShadowOffset(0, 0)
-                        region:SetTextColor(cdColor.r, cdColor.g, cdColor.b)
-                        region:ClearAllPoints()
-                        region:SetPoint("CENTER", cd, "CENTER", cdOX, cdOY)
-                        break
-                    end
-                end
-            end
+            EAB_VTABLE.CooldownFonts.ApplyToButton(btn, fontPath, cdSize, cdOX, cdOY, cdColor)
         end
     end)
 end
 
 function EAB:ApplyCooldownFonts()
+    EAB_VTABLE.CooldownFonts.HookAll()
     for _, info in ipairs(BAR_CONFIG) do
         self:ApplyCooldownFontsForBar(info.key)
     end
@@ -5150,6 +5176,44 @@ local function HookButtonCooldownEdge(btn)
     end
 end
 
+EAB_VTABLE.CooldownFonts.pending = {}
+EAB_VTABLE.CooldownFonts.timerScheduled = false
+
+function EAB_VTABLE.CooldownFonts.FlushPatch()
+    EAB_VTABLE.CooldownFonts.timerScheduled = false
+
+    for btn in pairs(EAB_VTABLE.CooldownFonts.pending) do
+        local info = buttonToBar[btn]
+        local barKey = info and info.barKey
+        local s = barKey and EAB.db and EAB.db.profile and EAB.db.profile.bars and EAB.db.profile.bars[barKey]
+        if s then
+            local fontPath, cdSize, cdOX, cdOY, cdColor = EAB_VTABLE.CooldownFonts.GetSettings(s)
+            EAB_VTABLE.CooldownFonts.ApplyToButton(btn, fontPath, cdSize, cdOX, cdOY, cdColor)
+        end
+        EAB_VTABLE.CooldownFonts.pending[btn] = nil
+    end
+end
+
+function EAB_VTABLE.CooldownFonts.HookButton(btn)
+    if not btn or btn._eabCDFontsHooked then return end
+    btn._eabCDFontsHooked = true
+
+    local function OnSetCooldown()
+        EAB_VTABLE.CooldownFonts.pending[btn] = true
+        if not EAB_VTABLE.CooldownFonts.timerScheduled then
+            EAB_VTABLE.CooldownFonts.timerScheduled = true
+            C_Timer_After(0, EAB_VTABLE.CooldownFonts.FlushPatch)
+        end
+    end
+
+    if btn.cooldown and btn.cooldown.SetCooldown then
+        hooksecurefunc(btn.cooldown, "SetCooldown", OnSetCooldown)
+    end
+    if btn.chargeCooldown and btn.chargeCooldown.SetCooldown then
+        hooksecurefunc(btn.chargeCooldown, "SetCooldown", OnSetCooldown)
+    end
+end
+
 local function HookCooldownEdge()
     if _cdEdge.hooked then return end
     _cdEdge.hooked = true
@@ -5179,6 +5243,20 @@ function EAB:ApplyCooldownEdge()
                 local btn = buttons[i]
                 if btn and btn._eabSquared then
                     ApplyButtonCooldownEdge(btn, sz, cr, cg, cb, ca)
+                end
+            end
+        end
+    end
+end
+
+function EAB_VTABLE.CooldownFonts.HookAll()
+    for _, info in ipairs(BAR_CONFIG) do
+        local buttons = barButtons[info.key]
+        if buttons then
+            for i = 1, #buttons do
+                local btn = buttons[i]
+                if btn then
+                    EAB_VTABLE.CooldownFonts.HookButton(btn)
                 end
             end
         end
