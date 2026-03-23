@@ -2622,6 +2622,10 @@ local function HideBorder(button)
         button.NormalTexture:Hide()
         button.NormalTexture:SetAlpha(0)
     end
+    if button.Border then
+        button.Border:Hide()
+        button.Border:SetAlpha(0)
+    end
     if button.icon and button.IconMask then
         button.icon:RemoveMaskTexture(button.IconMask)
         -- Neutralize IconMask so Blizzard's UpdateButtonArt can never
@@ -2727,6 +2731,21 @@ local function HideTexture(texture)
     texture:SetAlpha(0)
 end
 
+function EAB_VTABLE.HideRegionDeferred(region, resetAlpha)
+    if not region then return end
+    if not region._eabHideFn then
+        region._eabHideFn = function()
+            if region and not region:IsForbidden() then
+                region:Hide()
+                if resetAlpha then
+                    region:SetAlpha(resetAlpha)
+                end
+            end
+        end
+    end
+    C_Timer_After(0, region._eabHideFn)
+end
+
 local function MakeButtonSquare(btn)
     if btn._eabSquared then return end
     HideBorder(btn)
@@ -2781,12 +2800,7 @@ local function MakeButtonSquare(btn)
             if not prof then return end
             if not prof.hideCastingAnimations and not btn._eabShapeApplied and not btn._eabCropped then return end
             self:SetAlpha(0)
-            if not self._eabHideFn then
-                self._eabHideFn = function()
-                    if self and not self:IsForbidden() then self:Hide(); self:SetAlpha(1) end
-                end
-            end
-            C_Timer_After(0, self._eabHideFn)
+            EAB_VTABLE.HideRegionDeferred(self, 1)
         end)
         btn._eabCastHooked = true
     end
@@ -2796,12 +2810,7 @@ local function MakeButtonSquare(btn)
             if not prof then return end
             if not prof.hideCastingAnimations and not btn._eabShapeApplied and not btn._eabCropped then return end
             self:SetAlpha(0)
-            if not self._eabHideFn then
-                self._eabHideFn = function()
-                    if self and not self:IsForbidden() then self:Hide(); self:SetAlpha(1) end
-                end
-            end
-            C_Timer_After(0, self._eabHideFn)
+            EAB_VTABLE.HideRegionDeferred(self, 1)
         end)
         btn._eabIntHooked = true
     end
@@ -2816,34 +2825,16 @@ local function MakeButtonSquare(btn)
     end
     if btn.SlotArt then btn.SlotArt:Hide() end
     -- Hook Border to suppress Blizzard's item quality overlay (Dragonflight+).
-    -- Blizzard calls Border:SetAtlas() to show quality colors on consumables.
-    -- We re-apply our square texture whenever Blizzard tries to set an atlas,
-    -- and hide it when a custom shape is active (shape border handles visuals).
+    -- Blizzard calls Border:SetAtlas()/Show() on various refreshes. EAB owns
+    -- the visible border entirely, so the Blizzard overlay must stay hidden.
     if btn.Border and not btn._eabBorderHooked then
-        local _borderGuard = false
         hooksecurefunc(btn.Border, "SetAtlas", function(self)
-            if _borderGuard then return end
-            _borderGuard = true
-            if btn._eabShapeApplied then
-                self:Hide()
-            else
-                self:SetAtlas(nil)
-                self:SetTexture(HIGHLIGHT_TEXTURES[1])
-                self:SetTexCoord(0, 1, 0, 1)
-                self:ClearAllPoints()
-                self:SetAllPoints(btn)
-            end
-            _borderGuard = false
+            self:SetAlpha(0)
+            EAB_VTABLE.HideRegionDeferred(self)
         end)
         hooksecurefunc(btn.Border, "Show", function(self)
-            if btn._eabShapeApplied then
-                if not self._eabBorderHideFn then
-                    self._eabBorderHideFn = function()
-                        if self and not self:IsForbidden() then self:Hide() end
-                    end
-                end
-                C_Timer_After(0, self._eabBorderHideFn)
-            end
+            self:SetAlpha(0)
+            EAB_VTABLE.HideRegionDeferred(self)
         end)
         btn._eabBorderHooked = true
     end
