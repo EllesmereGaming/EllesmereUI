@@ -22,6 +22,7 @@ local PP = EllesmereUI.PP
 local EAB_VTABLE = {
     ExtraBars = {},
     CooldownFonts = {},
+    Hover = {},
 }
 EAB.VisibilityCompat = EAB.VisibilityCompat or {}
 
@@ -3986,37 +3987,87 @@ end
 local hoverStates = {}  -- shared by action bars, data bars, and extra bars
 local AttachExtraBarHoverHooks  -- forward declaration; defined near SetupExtraBarHolder
 
+-- Every mouseover-enabled bar follows the same state machine: entering marks
+-- the bar hovered and fades it in, leaving schedules a guarded fade-out on the
+-- next frame. The per-bar attach functions only provide the edge-case policies
+-- that differ between action bars, data bars, and Blizzard-owned extra bars.
+function EAB_VTABLE.Hover.GetSettings(barKey)
+    return EAB.db and EAB.db.profile and EAB.db.profile.bars and EAB.db.profile.bars[barKey]
+end
+
+function EAB_VTABLE.Hover.GetState(barKey, frame)
+    local state = hoverStates[barKey]
+    if not state then
+        state = { frame = frame, isHovered = false, fadeDir = nil }
+        hoverStates[barKey] = state
+    else
+        state.frame = frame or state.frame
+    end
+    return state
+end
+
+function EAB_VTABLE.Hover.FadeIn(barKey, state)
+    local s = EAB_VTABLE.Hover.GetSettings(barKey)
+    if s and s.mouseoverEnabled and state and state.fadeDir ~= "in" then
+        state.fadeDir = "in"
+        StopFade(state.frame)
+        FadeTo(state.frame, 1, s.mouseoverSpeed or 0.15)
+        if barKey == "MainBar" then SyncPagingAlpha(1) end
+    end
+end
+
+function EAB_VTABLE.Hover.FadeOut(barKey, state)
+    local s = EAB_VTABLE.Hover.GetSettings(barKey)
+    if s and s.mouseoverEnabled and state and state.fadeDir ~= "out" then
+        state.fadeDir = "out"
+        StopFade(state.frame)
+        FadeTo(state.frame, 0, s.mouseoverSpeed or 0.15)
+        if barKey == "MainBar" then SyncPagingAlpha(0) end
+    end
+end
+
+function EAB_VTABLE.Hover.ScheduleFadeOut(barKey, state, opts)
+    opts = opts or {}
+
+    C_Timer_After(0.1, function()
+        if opts.isStillHovered and opts.isStillHovered(state) then
+            if opts.markHoveredWhileActive then
+                state.isHovered = true
+            end
+            return
+        end
+        if state.isHovered then return end
+        if _quickKeybindState.open then return end
+        if opts.blockFadeOut and opts.blockFadeOut(state) then return end
+        EAB_VTABLE.Hover.FadeOut(barKey, state)
+    end)
+end
+
+function EAB_VTABLE.Hover.BuildHandlers(barKey, state, opts)
+    opts = opts or {}
+
+    local function OnEnter(self)
+        if opts.canEnter and not opts.canEnter(self, state) then return end
+        state.isHovered = true
+        EAB_VTABLE.Hover.FadeIn(barKey, state)
+    end
+
+    local function OnLeave()
+        state.isHovered = false
+        EAB_VTABLE.Hover.ScheduleFadeOut(barKey, state, opts)
+    end
+
+    return OnEnter, OnLeave
+end
+
 local function AttachDataBarHoverHooks(barKey)
     if hoverStates[barKey] then return end
 
     local frame = dataBarFrames[barKey]
     if not frame then return end
 
-    local state = { frame = frame, isHovered = false, fadeDir = nil }
-    hoverStates[barKey] = state
-
-    local function OnEnter()
-        state.isHovered = true
-        local s = EAB.db.profile.bars[barKey]
-        if s and s.mouseoverEnabled and state.fadeDir ~= "in" then
-            state.fadeDir = "in"
-            StopFade(frame)
-            FadeTo(frame, 1, s.mouseoverSpeed or 0.15)
-        end
-    end
-
-    local function OnLeave()
-        state.isHovered = false
-        C_Timer_After(0.1, function()
-            if state.isHovered then return end
-            if _quickKeybindState.open then return end
-            local s = EAB.db.profile.bars[barKey]
-            if s and s.mouseoverEnabled and state.fadeDir ~= "out" then
-                state.fadeDir = "out"
-                FadeTo(frame, 0, s.mouseoverSpeed or 0.15)
-            end
-        end)
-    end
+    local state = EAB_VTABLE.Hover.GetState(barKey, frame)
+    local OnEnter, OnLeave = EAB_VTABLE.Hover.BuildHandlers(barKey, state)
 
     frame:HookScript("OnEnter", OnEnter)
     frame:HookScript("OnLeave", OnLeave)
@@ -4027,13 +4078,9 @@ local function AttachHoverHooks(barKey)
     local buttons = barButtons[barKey]
     if not frame or not buttons then return end
 
-    local state = hoverStates[barKey]
-    if not state then
-        state = { frame = frame, buttons = buttons, isHovered = false, fadeDir = nil }
-        hoverStates[barKey] = state
-    end
+    local state = EAB_VTABLE.Hover.GetState(barKey, frame)
 
-    local function OnEnter(self)
+    local function CanEnter(self)
         -- Skip hidden empty buttons (alwaysShowButtons off)
         local s = EAB.db.profile.bars[barKey]
         if s then
@@ -4043,7 +4090,7 @@ local function AttachHoverHooks(barKey)
                 if self ~= frame then
                     -- Individual button: skip if it's hidden (no action)
                     if self.GetAlpha and self:GetAlpha() < 0.01 then
-                        return
+                        return false
                     end
                 else
                     -- Bar frame itself (gaps between buttons): only allow if
@@ -4065,51 +4112,20 @@ local function AttachHoverHooks(barKey)
                             end
                         end
                     end
-                    if not nearVisible then return end
+                    if not nearVisible then return false end
                 end
             end
         end
-        state.isHovered = true
-        if s and s.mouseoverEnabled and state.fadeDir ~= "in" then
-            state.fadeDir = "in"
-            StopFade(frame)
-            FadeTo(frame, 1, s.mouseoverSpeed or 0.15)
-            if barKey == "MainBar" then SyncPagingAlpha(1) end
-        end
+        return true
     end
 
-    local function OnLeave()
-        state.isHovered = false
-        C_Timer_After(0.1, function()
-            if state.isHovered then return end
-            if _quickKeybindState.open then return end
-            -- Keep bar visible while a spell flyout spawned from this bar is open
-            if GetEABFlyout():IsVisible() and GetEABFlyout():IsMouseOver() then return end
-            local s = EAB.db.profile.bars[barKey]
-            if s and s.mouseoverEnabled and state.fadeDir ~= "out" then
-                state.fadeDir = "out"
-                FadeTo(frame, 0, s.mouseoverSpeed or 0.15)
-                if barKey == "MainBar" then SyncPagingAlpha(0) end
-            end
-        end)
-    end
-
-    -- When the flyout closes, re-evaluate whether the bar should fade out
-    do
-        local flyFrame = GetEABFlyout():GetFrame()
-        if flyFrame then
-            flyFrame:HookScript("OnHide", function()
-                if _quickKeybindState.open then return end
-                if state.isHovered then return end
-                local s = EAB.db.profile.bars[barKey]
-                if s and s.mouseoverEnabled and state.fadeDir ~= "out" then
-                    state.fadeDir = "out"
-                    FadeTo(frame, 0, s.mouseoverSpeed or 0.15)
-                    if barKey == "MainBar" then SyncPagingAlpha(0) end
-                end
-            end)
-        end
-    end
+    local OnEnter, OnLeave = EAB_VTABLE.Hover.BuildHandlers(barKey, state, {
+        canEnter = CanEnter,
+        blockFadeOut = function()
+            -- Keep bar visible while a spell flyout spawned from this bar is open.
+            return GetEABFlyout():IsVisible() and GetEABFlyout():IsMouseOver()
+        end,
+    })
 
     frame:HookScript("OnEnter", OnEnter)
     frame:HookScript("OnLeave", OnLeave)
@@ -6504,12 +6520,7 @@ function EAB:FinishSetup()
                 if _quickKeybindState.open then return end
                 for key, state in pairs(hoverStates) do
                     if not state.isHovered then
-                        local s = EAB.db.profile.bars[key]
-                        if s and s.mouseoverEnabled and state.fadeDir ~= "out" then
-                            state.fadeDir = "out"
-                            FadeTo(state.frame, 0, s.mouseoverSpeed or 0.15)
-                            if key == "MainBar" then SyncPagingAlpha(0) end
-                        end
+                        EAB_VTABLE.Hover.FadeOut(key, state)
                     end
                 end
             end)
@@ -7843,8 +7854,7 @@ AttachExtraBarHoverHooks = function(info)
     local fadeTarget = blizzFrame
     local hoverRoot = hoverFrame or blizzFrame
 
-    local state = { isHovered = false, fadeDir = nil, frame = fadeTarget }
-    hoverStates[info.key] = state
+    local state = EAB_VTABLE.Hover.GetState(info.key, fadeTarget)
 
     local function IsChildOfHoverRoot(frame)
         while frame do
@@ -7870,32 +7880,15 @@ AttachExtraBarHoverHooks = function(info)
         return MouseIsOver(hoverRoot)
     end
 
-    local function OnEnter()
-        if not IsHoverRootActive() then return end
-        state.isHovered = true
-        local bs = EAB.db.profile.bars[info.key]
-        if bs and bs.mouseoverEnabled and state.fadeDir ~= "in" then
-            state.fadeDir = "in"
-            StopFade(fadeTarget)
-            FadeTo(fadeTarget, 1, bs.mouseoverSpeed or 0.15)
-        end
-    end
-    local function OnLeave()
-        state.isHovered = false
-        C_Timer_After(0.1, function()
-            if IsHoverRootActive() then
-                state.isHovered = true
-                return
-            end
-            if state.isHovered then return end
-            if _quickKeybindState.open then return end
-            local bs = EAB.db.profile.bars[info.key]
-            if bs and bs.mouseoverEnabled and state.fadeDir ~= "out" then
-                state.fadeDir = "out"
-                FadeTo(fadeTarget, 0, bs.mouseoverSpeed or 0.15)
-            end
-        end)
-    end
+    local OnEnter, OnLeave = EAB_VTABLE.Hover.BuildHandlers(info.key, state, {
+        canEnter = function()
+            return IsHoverRootActive()
+        end,
+        isStillHovered = function()
+            return IsHoverRootActive()
+        end,
+        markHoveredWhileActive = true,
+    })
 
     hoverRoot:HookScript("OnEnter", OnEnter)
     hoverRoot:HookScript("OnLeave", OnLeave)
