@@ -4273,6 +4273,25 @@ function EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, blizzOwnedVisibility, s, 
     end
 end
 
+function EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, shouldShow, allowShow)
+    if not frame or not s then return end
+
+    if info.blizzOwnedVisibility then
+        EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(frame, "visibility", not shouldShow)
+    elseif shouldShow then
+        if allowShow ~= false then
+            frame:Show()
+        end
+    else
+        frame:Hide()
+    end
+
+    if shouldShow then
+        EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s)
+    end
+    EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, info.blizzOwnedVisibility, s, shouldShow)
+end
+
 function EAB_VTABLE.ExtraBars.ApplyManagedNonSecureVisibility(info)
     if not EAB_VTABLE.ExtraBars.IsManagedNonSecureBar(info) then return false, nil, nil end
 
@@ -4281,23 +4300,12 @@ function EAB_VTABLE.ExtraBars.ApplyManagedNonSecureVisibility(info)
     if not s or not frame then return false, frame, s end
 
     local shouldShow = EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s)
-    if info.blizzOwnedVisibility then
-        EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(frame, "visibility", not shouldShow)
-    elseif shouldShow then
-        if not info.isDataBar then
-            frame:Show()
-        end
-    else
-        frame:Hide()
-    end
 
     if shouldShow and info.isDataBar and frame._updateFunc then
         frame._updateFunc()
+    else
+        EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, shouldShow, not info.isDataBar)
     end
-    if shouldShow then
-        EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s)
-    end
-    EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, info.blizzOwnedVisibility, s, shouldShow)
 
     return shouldShow, frame, s
 end
@@ -6991,15 +6999,24 @@ end
 function EAB_VTABLE.ExtraBars.BeginManagedDataBarUpdate(barKey)
     local frame = dataBarFrames[barKey]
     if not frame then return nil, nil end
+    local info = BAR_LOOKUP[barKey]
     if EAB.db.profile.useBlizzardDataBars then
-        frame:Hide()
+        if info then
+            EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, EAB.db.profile.bars[barKey], false, true)
+        else
+            frame:Hide()
+        end
         return nil, nil
     end
 
     local s = EAB.db.profile.bars[barKey]
     if not s then return nil, nil end
     if s.alwaysHidden or not EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s) then
-        frame:Hide()
+        if info then
+            EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, false, true)
+        else
+            frame:Hide()
+        end
         return nil, s
     end
 
@@ -7009,10 +7026,11 @@ end
 function EAB_VTABLE.ExtraBars.FinishManagedDataBarUpdate(barKey, frame, s)
     if not frame or not s then return end
 
-    frame:Show()
     local info = BAR_LOOKUP[barKey]
     if info then
-        EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s)
+        EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, true, true)
+    else
+        frame:Show()
     end
 end
 
@@ -7029,7 +7047,7 @@ local function UpdateXPBar()
     -- Hide at max level (or XP disabled)
     if (IsLevelAtEffectiveMaxLevel and IsLevelAtEffectiveMaxLevel(UnitLevel("player")))
         or (IsXPUserDisabled and IsXPUserDisabled()) then
-        frame:Hide()
+        EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(BAR_LOOKUP["XPBar"], frame, s, false, true)
         return
     end
 
@@ -7133,7 +7151,7 @@ local function UpdateRepBar()
 
     local data = C_Reputation and C_Reputation.GetWatchedFactionData and C_Reputation.GetWatchedFactionData()
     if not data or not data.name then
-        frame:Hide()
+        EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(BAR_LOOKUP["RepBar"], frame, s, false, true)
         return
     end
 
@@ -7178,7 +7196,7 @@ local function UpdateRepBar()
         if majorData then
             local hasMax = C_MajorFactions.HasMaximumRenown and C_MajorFactions.HasMaximumRenown(factionID)
             if hasMax then
-                frame:Hide()
+                EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(BAR_LOOKUP["RepBar"], frame, s, false, true)
                 return
             end
             reaction = 10
@@ -7198,7 +7216,7 @@ local function UpdateRepBar()
 
     -- Hide capped / maxed factions (Exalted with no paragon, max friendship, etc.)
     if nextReactionThreshold == math.huge or currentReactionThreshold == nextReactionThreshold then
-        frame:Hide()
+        EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(BAR_LOOKUP["RepBar"], frame, s, false, true)
         return
     end
 
