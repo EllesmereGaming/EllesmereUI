@@ -493,6 +493,7 @@ local DEFAULTS = {
             lastTickR = 1.0, lastTickG = 0.82, lastTickB = 0.0, lastTickA = 0.95,
             showGCDBoundary   = false,
             gcdBoundaryR = 1.0, gcdBoundaryG = 0.82, gcdBoundaryB = 0.0, gcdBoundaryA = 0.95,
+            coloredEmpowerStages = false,  -- Color empowered spells from red to green per stage
         },
         general = {
             anchorX     = 0,
@@ -549,6 +550,48 @@ end
 
 local function IsVerticalOrientation(ori)
     return ori == "VERTICAL_UP" or ori == "VERTICAL_DOWN"
+end
+
+-- Returns the current empowered stage (0-based) based on progress and stage thresholds
+local function GetCurrentEmpowerStage(progress, numStages)
+    if not numStages or numStages <= 0 then return 0 end
+    local stages = UnitEmpoweredStagePercentages("player")
+    if not stages then return 0 end
+
+    local cumulative = 0
+    for i = 1, #stages do
+        cumulative = cumulative + stages[i]
+        if progress < cumulative then
+            return i - 1  -- 0-based stage
+        end
+    end
+    return #stages  -- At max stage
+end
+
+-- Returns RGB color for the current empower stage (red -> yellow -> green gradient)
+local function GetEmpowerStageColor(stage, maxStages)
+    if maxStages <= 1 then
+        return 0, 1, 0  -- Just green for single stage
+    end
+
+    -- Normalize stage to 0..1 range
+    local t = stage / maxStages
+
+    -- Red (1,0,0) -> Yellow (1,1,0) -> Green (0,1,0)
+    local r, g, b
+    if t < 0.5 then
+        -- Red to Yellow
+        r = 1
+        g = t * 2
+        b = 0
+    else
+        -- Yellow to Green
+        r = 1 - (t - 0.5) * 2
+        g = 1
+        b = 0
+    end
+
+    return r, g, b
 end
 
 local function OrientedSize(w, h, orientation)
@@ -3297,7 +3340,8 @@ UpdateCastBar = function(dt)
     if not castBarFrame or not castBarFrame:IsShown() then return end
     local now = GetTime()
     local bar = castBarFrame._bar
-    local showTimer = ERB.db.profile.castBar.showTimer
+    local cb = ERB.db.profile.castBar
+    local showTimer = cb.showTimer
 
     if castBarFrame._casting or castBarFrame._empowering then
         local progress = (now - castBarFrame._startTime) / (castBarFrame._endTime - castBarFrame._startTime)
@@ -3307,6 +3351,26 @@ UpdateCastBar = function(dt)
         if castBarFrame._gradientFullBar and castBarFrame._gradClip then
             castBarFrame._gradClip:SetWidth(max(0.01, bar:GetWidth() * progress))
         end
+
+        -- Apply empowered stage coloring if enabled
+        if castBarFrame._empowering and cb.coloredEmpowerStages then
+            local numStages = castBarFrame._numStages or 0
+            local stage = GetCurrentEmpowerStage(progress, numStages)
+            local r, g, b = GetEmpowerStageColor(stage, numStages)
+
+            -- Apply color to bar or gradient
+            if castBarFrame._gradientFullBar and castBarFrame._gradTex then
+                -- For gradient bars, override the gradient with solid color
+                castBarFrame._gradTex:SetGradient("HORIZONTAL",
+                    CreateColor(r, g, b, 1),
+                    CreateColor(r, g, b, 1))
+            else
+                local fillTex = bar:GetStatusBarTexture()
+                fillTex:SetVertexColor(r, g, b, 1)
+            end
+            castBarFrame._empowerColorApplied = true
+        end
+
         if showTimer then
             local remaining = castBarFrame._endTime - now
             if remaining > 0 then
@@ -3492,6 +3556,14 @@ local function OnEmpowerStop(eventCastID)
         end
     end
     castBarFrame._numStages = 0
+
+    -- Reset empower stage coloring if it was applied
+    if castBarFrame._empowerColorApplied then
+        castBarFrame._empowerColorApplied = false
+        -- Rebuild cast bar to restore normal colors
+        BuildCastBar()
+    end
+
     EllesmereUI.SetElementVisibility(castBarFrame, false)
 end
 
