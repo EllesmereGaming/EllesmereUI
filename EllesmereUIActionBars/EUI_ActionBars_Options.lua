@@ -1366,6 +1366,127 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -----------------------------------------------------------------------
+        --  Keybind Mode button
+        -----------------------------------------------------------------------
+        do
+            local FONT = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("actionBars"))
+                or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+            local kbBtn = CreateFrame("Button", nil, parent)
+            kbBtn:SetSize(160, 32)
+            kbBtn:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
+            kbBtn:SetFrameLevel(parent:GetFrameLevel() + 3)
+
+            local btnBg = kbBtn:CreateTexture(nil, "BACKGROUND")
+            btnBg:SetAllPoints()
+            btnBg:SetColorTexture(0.061, 0.095, 0.120, 0.6)
+
+            EllesmereUI.MakeBorder(kbBtn, 1, 1, 1, 0.15)
+
+            local icon = kbBtn:CreateTexture(nil, "OVERLAY")
+            icon:SetSize(18, 18)
+            icon:SetPoint("LEFT", kbBtn, "LEFT", 10, 0)
+            icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-keybind-2.png")
+            icon:SetAlpha(0.7)
+
+            local label = kbBtn:CreateFontString(nil, "OVERLAY")
+            label:SetFont(FONT, 12, "")
+            label:SetPoint("LEFT", icon, "RIGHT", 8, 0)
+            label:SetTextColor(1, 1, 1, 0.7)
+            label:SetText("Keybind Mode")
+
+            kbBtn:SetScript("OnEnter", function(self)
+                btnBg:SetColorTexture(0.071, 0.110, 0.140, 0.8)
+                EllesmereUI.MakeBorder(self, 0.047, 0.824, 0.624, 0.4)
+                label:SetTextColor(1, 1, 1, 0.9)
+                icon:SetAlpha(0.9)
+            end)
+            kbBtn:SetScript("OnLeave", function(self)
+                btnBg:SetColorTexture(0.061, 0.095, 0.120, 0.6)
+                EllesmereUI.MakeBorder(self, 1, 1, 1, 0.15)
+                label:SetTextColor(1, 1, 1, 0.7)
+                icon:SetAlpha(0.7)
+            end)
+            kbBtn:SetScript("OnClick", function()
+                EllesmereUI:ToggleKeybindMode()
+            end)
+
+            y = y - 42
+        end
+
+        -----------------------------------------------------------------------
+        --  Keybind Profile Info
+        -----------------------------------------------------------------------
+        do
+            local FONT = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("actionBars"))
+                or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+
+            -- Section label
+            local secLabel = parent:CreateFontString(nil, "OVERLAY")
+            secLabel:SetFont(FONT, 11, "")
+            secLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 12, y - 4)
+            secLabel:SetTextColor(1, 1, 1, 0.4)
+            secLabel:SetText("KEYBIND PROFILES")
+            y = y - 22
+
+            -- Current profile display
+            local curLabel = parent:CreateFontString(nil, "OVERLAY")
+            curLabel:SetFont(FONT, 11, "")
+            curLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 14, y)
+            curLabel:SetTextColor(1, 1, 1, 0.5)
+            curLabel:SetText("Active:")
+
+            local curValue = parent:CreateFontString(nil, "OVERLAY")
+            curValue:SetFont(FONT, 12, "")
+            curValue:SetPoint("LEFT", curLabel, "RIGHT", 6, 0)
+            local profileName = EllesmereUI:GetCurrentSpecKeybindProfile()
+            if profileName then
+                curValue:SetTextColor(0.047, 0.824, 0.624, 1)
+                curValue:SetText(profileName)
+            else
+                curValue:SetTextColor(1, 1, 1, 0.3)
+                curValue:SetText("None")
+            end
+            y = y - 20
+
+            -- Per-spec assignment display
+            local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
+            if not EllesmereUIDB then EllesmereUIDB = {} end
+            if not EllesmereUIDB.specKeybindProfiles then EllesmereUIDB.specKeybindProfiles = {} end
+
+            for i = 1, numSpecs do
+                local specID, specName, _, specIcon = GetSpecializationInfo(i)
+                if specID and specName then
+                    local row = CreateFrame("Frame", nil, parent)
+                    row:SetSize(300, 18)
+                    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 14, y)
+
+                    -- Spec icon
+                    local sIcon = row:CreateTexture(nil, "OVERLAY")
+                    sIcon:SetSize(14, 14)
+                    sIcon:SetPoint("LEFT", row, "LEFT", 0, 0)
+                    sIcon:SetTexture(specIcon)
+
+                    -- Spec name and assigned profile
+                    local sLabel = row:CreateFontString(nil, "OVERLAY")
+                    sLabel:SetFont(FONT, 11, "")
+                    sLabel:SetPoint("LEFT", sIcon, "RIGHT", 6, 0)
+                    sLabel:SetTextColor(1, 1, 1, 0.6)
+
+                    local assignedProfile = EllesmereUIDB.specKeybindProfiles[specID]
+                    if assignedProfile then
+                        sLabel:SetText(specName .. ":  |cff0cd29f" .. assignedProfile .. "|r")
+                    else
+                        sLabel:SetText(specName .. ":  |cff666666not set|r")
+                    end
+
+                    y = y - 20
+                end
+            end
+
+            y = y - 10
+        end
+
+        -----------------------------------------------------------------------
         --  VISIBILITY
         -----------------------------------------------------------------------
         _, h = W:SectionHeader(parent, SECTION_VISIBILITY, y);  y = y - h
