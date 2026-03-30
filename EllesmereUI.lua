@@ -6485,9 +6485,14 @@ end
 SLASH_EUIOPTIONS1 = "/eui"
 SLASH_EUIOPTIONS2 = "/ellesmere"
 SLASH_EUIOPTIONS3 = "/ellesmereui"
-SlashCmdList.EUIOPTIONS = function()
+SlashCmdList.EUIOPTIONS = function(msg)
     if InCombatLockdown() then
         print("|cffff6060[EllesmereUI]|r Cannot open options during combat.")
+        return
+    end
+    local cmd = msg and msg:lower():trim() or ""
+    if cmd == "keybind" or cmd == "kb" then
+        EllesmereUI:ToggleKeybindMode()
         return
     end
     EllesmereUI:Toggle()

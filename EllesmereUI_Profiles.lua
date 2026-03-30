@@ -1377,6 +1377,48 @@ function EllesmereUI.SwitchProfile(name)
     RepointAllDBs(name)
 end
 
+-------------------------------------------------------------------------------
+--  SwitchKeybindProfile
+--
+--  Snapshots the outgoing spec's keybinds and restores the incoming spec's
+--  keybind profile. If no profile exists for the incoming spec, one is
+--  created automatically from the current keybinds.
+-------------------------------------------------------------------------------
+local function SwitchKeybindProfile(outgoingSpecID, incomingSpecID)
+    if not EllesmereUIDB then return end
+    if not EllesmereUIDB.specKeybindProfiles then EllesmereUIDB.specKeybindProfiles = {} end
+    if not EllesmereUIDB.keybindProfiles then EllesmereUIDB.keybindProfiles = {} end
+
+    -- Snapshot outgoing spec's keybinds
+    if outgoingSpecID then
+        local outName = EllesmereUIDB.specKeybindProfiles[outgoingSpecID]
+        if outName then
+            EllesmereUI:SnapshotKeybinds(outName)
+        end
+    end
+
+    -- Resolve incoming profile
+    local inName = EllesmereUIDB.specKeybindProfiles[incomingSpecID]
+    if not inName then
+        -- First time on this spec: create profile from current keybinds
+        local specIdx = GetSpecialization and GetSpecialization()
+        local specName
+        if specIdx and specIdx > 0 then
+            _, specName = GetSpecializationInfo(specIdx)
+        end
+        inName = specName or ("Spec " .. incomingSpecID)
+        EllesmereUI:SnapshotKeybinds(inName)
+        EllesmereUIDB.specKeybindProfiles[incomingSpecID] = inName
+    end
+
+    -- Restore incoming keybinds
+    if EllesmereUIDB.keybindProfiles[inName] then
+        EllesmereUI:RestoreKeybinds(inName)
+    end
+end
+
+EllesmereUI._SwitchKeybindProfile = SwitchKeybindProfile
+
 function EllesmereUI.GetActiveProfileName()
     local db = GetProfilesDB()
     return db.activeProfile or "Default"
@@ -1456,6 +1498,11 @@ do
                             })
                         end
                     end
+                end
+                -- Always switch keybind profile on deferred spec change
+                local _, deferredSpecID = ResolveSpecProfile()
+                if deferredSpecID then
+                    SwitchKeybindProfile(nil, deferredSpecID)
                 end
             end
             return
@@ -1549,6 +1596,7 @@ do
                 return -- same char, same spec, nothing to do
             end
         end
+        local oldSpecID = lastKnownSpecID  -- capture before overwrite for keybind switching
         lastKnownSpecID = specID
         lastKnownCharKey = charKey
 
@@ -1658,6 +1706,18 @@ do
                     end)
                 end
             end
+        end
+
+        -- Switch keybind profile on spec change, independent of UI profile.
+        -- Delay slightly so Blizzard's action bar texture rebuild finishes first.
+        if specID and not InCombatLockdown() then
+            local capturedOld = oldSpecID
+            local capturedNew = specID
+            C_Timer.After(0.5, function()
+                if not InCombatLockdown() then
+                    SwitchKeybindProfile(capturedOld, capturedNew)
+                end
+            end)
         end
     end)
 end

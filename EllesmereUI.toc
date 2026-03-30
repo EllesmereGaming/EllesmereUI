@@ -35,3 +35,4 @@ EUI__General_Options.lua
 EUI_UnlockMode.lua
 EUI_PartyMode_Options.lua
 EllesmereUI_Glows.lua
+EUI_KeybindMode.lua
