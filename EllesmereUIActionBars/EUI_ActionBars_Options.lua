@@ -1366,125 +1366,231 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -----------------------------------------------------------------------
-        --  Keybind Mode button
+        --  KEYBINDS section
+        -----------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "KEYBINDS", y);  y = y - h
+
+        -----------------------------------------------------------------------
+        --  Keybind Mode — wide accent button with icon
         -----------------------------------------------------------------------
         do
+            local CONTENT_PAD = 45
             local FONT = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("actionBars"))
                 or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
-            local kbBtn = CreateFrame("Button", nil, parent)
-            kbBtn:SetSize(160, 32)
-            kbBtn:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
-            kbBtn:SetFrameLevel(parent:GetFrameLevel() + 3)
+            local MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\"
+            local aR, aG, aB = EllesmereUI.GetAccentColor()
+
+            local BTN_W, BTN_H = 280, 36
+            local ROW_H = BTN_H + 20
+
+            local row = CreateFrame("Frame", nil, parent)
+            row:SetSize(parent:GetWidth() - CONTENT_PAD * 2, ROW_H)
+            row:SetPoint("TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, y)
+
+            local kbBtn = CreateFrame("Button", nil, row)
+            kbBtn:SetSize(BTN_W, BTN_H)
+            kbBtn:SetPoint("LEFT", row, "LEFT", 20, 0)
+            kbBtn:SetFrameLevel(row:GetFrameLevel() + 2)
 
             local btnBg = kbBtn:CreateTexture(nil, "BACKGROUND")
             btnBg:SetAllPoints()
-            btnBg:SetColorTexture(0.061, 0.095, 0.120, 0.6)
+            btnBg:SetColorTexture(aR, aG, aB, 0.08)
 
-            EllesmereUI.MakeBorder(kbBtn, 1, 1, 1, 0.15)
+            local brd = EllesmereUI.MakeBorder(kbBtn, aR, aG, aB, 0.30)
 
             local icon = kbBtn:CreateTexture(nil, "OVERLAY")
             icon:SetSize(18, 18)
-            icon:SetPoint("LEFT", kbBtn, "LEFT", 10, 0)
-            icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-keybind-2.png")
-            icon:SetAlpha(0.7)
+            icon:SetPoint("LEFT", kbBtn, "LEFT", 14, 0)
+            icon:SetTexture(MEDIA .. "icons\\eui-keybind-2.png")
+            icon:SetVertexColor(aR, aG, aB, 0.9)
 
-            local label = kbBtn:CreateFontString(nil, "OVERLAY")
-            label:SetFont(FONT, 12, "")
-            label:SetPoint("LEFT", icon, "RIGHT", 8, 0)
-            label:SetTextColor(1, 1, 1, 0.7)
-            label:SetText("Keybind Mode")
+            local label = EllesmereUI.MakeFont(kbBtn, 13, nil, 1, 1, 1)
+            label:SetAlpha(0.85)
+            label:SetPoint("LEFT", icon, "RIGHT", 10, 0)
+            label:SetText("Enter Keybind Mode")
+
+            local hint = EllesmereUI.MakeFont(kbBtn, 10, nil, 1, 1, 1)
+            hint:SetAlpha(0.35)
+            hint:SetPoint("RIGHT", kbBtn, "RIGHT", -14, 0)
+            hint:SetText("/eui kb")
 
             kbBtn:SetScript("OnEnter", function(self)
-                btnBg:SetColorTexture(0.071, 0.110, 0.140, 0.8)
-                EllesmereUI.MakeBorder(self, 0.047, 0.824, 0.624, 0.4)
-                label:SetTextColor(1, 1, 1, 0.9)
-                icon:SetAlpha(0.9)
+                btnBg:SetColorTexture(aR, aG, aB, 0.15)
+                brd:SetColor(aR, aG, aB, 0.55)
+                label:SetAlpha(1)
+                icon:SetVertexColor(aR, aG, aB, 1)
+                EllesmereUI.ShowWidgetTooltip(self,
+                    "Opens the fast keybind overlay. Hover over any action button and "
+                    .. "press a key to bind it instantly.\n\n"
+                    .. "Bindings are saved per-spec automatically when you close the overlay.\n\n"
+                    .. "Shortcut:  /eui kb", { anchor = "below" })
             end)
             kbBtn:SetScript("OnLeave", function(self)
-                btnBg:SetColorTexture(0.061, 0.095, 0.120, 0.6)
-                EllesmereUI.MakeBorder(self, 1, 1, 1, 0.15)
-                label:SetTextColor(1, 1, 1, 0.7)
-                icon:SetAlpha(0.7)
+                btnBg:SetColorTexture(aR, aG, aB, 0.08)
+                brd:SetColor(aR, aG, aB, 0.30)
+                label:SetAlpha(0.85)
+                icon:SetVertexColor(aR, aG, aB, 0.9)
+                EllesmereUI.HideWidgetTooltip()
             end)
             kbBtn:SetScript("OnClick", function()
                 EllesmereUI:ToggleKeybindMode()
             end)
 
-            y = y - 42
+            y = y - ROW_H
         end
 
         -----------------------------------------------------------------------
-        --  Keybind Profile Info
+        --  Keybind Profiles — active profile + per-spec assignments
         -----------------------------------------------------------------------
         do
+            local CONTENT_PAD = 45
+            local SIDE_PAD    = 20
             local FONT = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("actionBars"))
                 or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+            local aR, aG, aB = EllesmereUI.GetAccentColor()
 
-            -- Section label
-            local secLabel = parent:CreateFontString(nil, "OVERLAY")
-            secLabel:SetFont(FONT, 11, "")
-            secLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 12, y - 4)
-            secLabel:SetTextColor(1, 1, 1, 0.4)
-            secLabel:SetText("KEYBIND PROFILES")
-            y = y - 22
+            -- Active profile row
+            local activeRow = CreateFrame("Frame", nil, parent)
+            local rowW = parent:GetWidth() - CONTENT_PAD * 2
+            activeRow:SetSize(rowW, 40)
+            activeRow:SetPoint("TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, y)
 
-            -- Current profile display
-            local curLabel = parent:CreateFontString(nil, "OVERLAY")
-            curLabel:SetFont(FONT, 11, "")
-            curLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 14, y)
-            curLabel:SetTextColor(1, 1, 1, 0.5)
-            curLabel:SetText("Active:")
+            -- Alternating row bg
+            local arBg = activeRow:CreateTexture(nil, "BACKGROUND")
+            arBg:SetAllPoints()
+            arBg:SetColorTexture(0, 0, 0, 0.10)
 
-            local curValue = parent:CreateFontString(nil, "OVERLAY")
-            curValue:SetFont(FONT, 12, "")
-            curValue:SetPoint("LEFT", curLabel, "RIGHT", 6, 0)
+            local arLabel = EllesmereUI.MakeFont(activeRow, 13, nil, 1, 1, 1)
+            arLabel:SetAlpha(0.53)
+            arLabel:SetPoint("LEFT", activeRow, "LEFT", SIDE_PAD, 0)
+            arLabel:SetText("Active Keybind Profile")
+
+            local arValue = EllesmereUI.MakeFont(activeRow, 13, nil, 1, 1, 1)
+            arValue:SetPoint("RIGHT", activeRow, "RIGHT", -SIDE_PAD, 0)
             local profileName = EllesmereUI:GetCurrentSpecKeybindProfile()
             if profileName then
-                curValue:SetTextColor(0.047, 0.824, 0.624, 1)
-                curValue:SetText(profileName)
+                arValue:SetTextColor(aR, aG, aB, 1)
+                arValue:SetText(profileName)
             else
-                curValue:SetTextColor(1, 1, 1, 0.3)
-                curValue:SetText("None")
+                arValue:SetTextColor(1, 1, 1, 0.3)
+                arValue:SetText("None")
             end
-            y = y - 20
 
-            -- Per-spec assignment display
+            activeRow:SetScript("OnEnter", function(self)
+                arBg:SetColorTexture(0, 0, 0, 0.18)
+                EllesmereUI.ShowWidgetTooltip(self,
+                    "The keybind profile currently loaded for your active specialization.\n\n"
+                    .. "Profiles are created and saved automatically the first time you "
+                    .. "enter Keybind Mode on a spec. Switching specs restores each spec's bindings.",
+                    { anchor = "below" })
+            end)
+            activeRow:SetScript("OnLeave", function()
+                arBg:SetColorTexture(0, 0, 0, 0.10)
+                EllesmereUI.HideWidgetTooltip()
+            end)
+
+            y = y - 40
+
+            -- Per-spec rows
             local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
             if not EllesmereUIDB then EllesmereUIDB = {} end
             if not EllesmereUIDB.specKeybindProfiles then EllesmereUIDB.specKeybindProfiles = {} end
 
+            local currentSpecIdx = GetSpecialization and GetSpecialization() or 0
+            local currentSpecID = currentSpecIdx > 0 and GetSpecializationInfo(currentSpecIdx) or nil
+
             for i = 1, numSpecs do
                 local specID, specName, _, specIcon = GetSpecializationInfo(i)
                 if specID and specName then
-                    local row = CreateFrame("Frame", nil, parent)
-                    row:SetSize(300, 18)
-                    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 14, y)
+                    local isActive = (specID == currentSpecID)
+                    local sRow = CreateFrame("Frame", nil, parent)
+                    sRow:SetSize(rowW, 34)
+                    sRow:SetPoint("TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, y)
 
-                    -- Spec icon
-                    local sIcon = row:CreateTexture(nil, "OVERLAY")
-                    sIcon:SetSize(14, 14)
-                    sIcon:SetPoint("LEFT", row, "LEFT", 0, 0)
-                    sIcon:SetTexture(specIcon)
+                    -- Alternating bg
+                    local sBg = sRow:CreateTexture(nil, "BACKGROUND")
+                    sBg:SetAllPoints()
+                    sBg:SetColorTexture(0, 0, 0, (i % 2 == 0) and 0.10 or 0.05)
+                    local bgAlphaBase = (i % 2 == 0) and 0.10 or 0.05
 
-                    -- Spec name and assigned profile
-                    local sLabel = row:CreateFontString(nil, "OVERLAY")
-                    sLabel:SetFont(FONT, 11, "")
-                    sLabel:SetPoint("LEFT", sIcon, "RIGHT", 6, 0)
-                    sLabel:SetTextColor(1, 1, 1, 0.6)
-
-                    local assignedProfile = EllesmereUIDB.specKeybindProfiles[specID]
-                    if assignedProfile then
-                        sLabel:SetText(specName .. ":  |cff0cd29f" .. assignedProfile .. "|r")
-                    else
-                        sLabel:SetText(specName .. ":  |cff666666not set|r")
+                    -- Active spec indicator (thin accent bar on left edge)
+                    if isActive then
+                        local activeMark = sRow:CreateTexture(nil, "OVERLAY")
+                        activeMark:SetSize(2, 20)
+                        activeMark:SetPoint("LEFT", sRow, "LEFT", 4, 0)
+                        activeMark:SetColorTexture(aR, aG, aB, 0.7)
                     end
 
-                    y = y - 20
+                    -- Spec icon
+                    local sIcon = sRow:CreateTexture(nil, "OVERLAY")
+                    sIcon:SetSize(16, 16)
+                    sIcon:SetPoint("LEFT", sRow, "LEFT", SIDE_PAD, 0)
+                    sIcon:SetTexture(specIcon)
+                    if not isActive then sIcon:SetDesaturated(true); sIcon:SetAlpha(0.5) end
+
+                    -- Spec name
+                    local sLabel = EllesmereUI.MakeFont(sRow, 12, nil, 1, 1, 1)
+                    sLabel:SetPoint("LEFT", sIcon, "RIGHT", 8, 0)
+                    if isActive then
+                        sLabel:SetTextColor(1, 1, 1, 0.85)
+                    else
+                        sLabel:SetTextColor(1, 1, 1, 0.45)
+                    end
+                    sLabel:SetText(specName)
+
+                    -- Assigned profile value (right-aligned)
+                    local sVal = EllesmereUI.MakeFont(sRow, 12, nil, 1, 1, 1)
+                    sVal:SetPoint("RIGHT", sRow, "RIGHT", -SIDE_PAD, 0)
+                    local assignedProfile = EllesmereUIDB.specKeybindProfiles[specID]
+                    if assignedProfile then
+                        if isActive then
+                            sVal:SetTextColor(aR, aG, aB, 1)
+                        else
+                            sVal:SetTextColor(aR, aG, aB, 0.5)
+                        end
+                        sVal:SetText(assignedProfile)
+                    else
+                        sVal:SetTextColor(1, 1, 1, 0.2)
+                        sVal:SetText("not set")
+                    end
+
+                    -- Hover effect + tooltip
+                    sRow:SetScript("OnEnter", function(self)
+                        sBg:SetColorTexture(0, 0, 0, bgAlphaBase + 0.08)
+                        sLabel:SetTextColor(1, 1, 1, 1)
+                        if not isActive then sIcon:SetAlpha(0.8) end
+                        local tip
+                        if assignedProfile then
+                            tip = specName .. " uses the \"" .. assignedProfile .. "\" keybind profile.\n\n"
+                                .. "This profile was auto-saved the last time you used Keybind Mode on this spec."
+                        else
+                            tip = specName .. " has no keybind profile yet.\n\n"
+                                .. "Enter Keybind Mode while this spec is active to create one automatically."
+                        end
+                        if isActive then
+                            tip = tip .. "\n\n|cff0cd29fThis is your current spec.|r"
+                        end
+                        EllesmereUI.ShowWidgetTooltip(self, tip, { anchor = "below" })
+                    end)
+                    sRow:SetScript("OnLeave", function()
+                        sBg:SetColorTexture(0, 0, 0, bgAlphaBase)
+                        if isActive then
+                            sLabel:SetTextColor(1, 1, 1, 0.85)
+                        else
+                            sLabel:SetTextColor(1, 1, 1, 0.45)
+                            sIcon:SetAlpha(0.5)
+                        end
+                        EllesmereUI.HideWidgetTooltip()
+                    end)
+
+                    y = y - 34
                 end
             end
 
-            y = y - 10
+            y = y - 8
         end
+
+        _, h = W:Spacer(parent, y, 8);  y = y - h
 
         -----------------------------------------------------------------------
         --  VISIBILITY

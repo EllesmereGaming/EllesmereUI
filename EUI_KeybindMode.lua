@@ -64,10 +64,17 @@ local BAR_LABELS = {
     PetBar    = "Pet",
 }
 
--- Colors
+-- Colors (resolve dynamically; fall back to teal if GetAccentColor not yet available)
 local ACCENT_R, ACCENT_G, ACCENT_B = 0.047, 0.824, 0.624
 local WARN_R, WARN_G, WARN_B = 1.0, 0.706, 0.235
 local FONT_PATH = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+local MEDIA_PATH = "Interface\\AddOns\\EllesmereUI\\media\\"
+
+local function RefreshAccent()
+    if EllesmereUI.GetAccentColor then
+        ACCENT_R, ACCENT_G, ACCENT_B = EllesmereUI.GetAccentColor()
+    end
+end
 
 --------------------------------------------------------------------------------
 --  Keybind Profile Commands
@@ -252,68 +259,166 @@ local hudFrame = nil
 
 local function CreateHUD()
     if hudFrame then hudFrame:Show(); return end
+    RefreshAccent()
 
     hudFrame = CreateFrame("Frame", nil, keybindFrame)
-    hudFrame:SetSize(620, 36)
-    hudFrame:SetPoint("TOP", UIParent, "TOP", 0, -20)
+    hudFrame:SetSize(680, 40)
+    hudFrame:SetPoint("TOP", UIParent, "TOP", 0, -18)
     hudFrame:SetFrameLevel(keybindFrame:GetFrameLevel() + 10)
 
     local bg = hudFrame:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.047, 0.071, 0.094, 0.95)
+    bg:SetColorTexture(0.035, 0.055, 0.075, 0.95)
 
-    EllesmereUI.MakeBorder(hudFrame, ACCENT_R, ACCENT_G, ACCENT_B, 0.4)
+    EllesmereUI.MakeBorder(hudFrame, ACCENT_R, ACCENT_G, ACCENT_B, 0.35)
 
+    -- Accent glow along top edge
+    local topGlow = hudFrame:CreateTexture(nil, "BACKGROUND", nil, 1)
+    topGlow:SetHeight(1)
+    topGlow:SetPoint("TOPLEFT", hudFrame, "TOPLEFT", 1, -1)
+    topGlow:SetPoint("TOPRIGHT", hudFrame, "TOPRIGHT", -1, -1)
+    topGlow:SetColorTexture(ACCENT_R, ACCENT_G, ACCENT_B, 0.40)
+
+    -- Keybind icon (left side)
+    local hudIcon = hudFrame:CreateTexture(nil, "OVERLAY")
+    hudIcon:SetSize(16, 16)
+    hudIcon:SetPoint("LEFT", hudFrame, "LEFT", 14, 0)
+    hudIcon:SetTexture(MEDIA_PATH .. "icons\\eui-keybind-2.png")
+    hudIcon:SetVertexColor(ACCENT_R, ACCENT_G, ACCENT_B, 0.9)
+
+    -- Title
     local label = hudFrame:CreateFontString(nil, "OVERLAY")
     label:SetFont(FONT_PATH, 13, "")
     label:SetTextColor(ACCENT_R, ACCENT_G, ACCENT_B, 1)
-    label:SetPoint("LEFT", hudFrame, "LEFT", 16, 0)
+    label:SetPoint("LEFT", hudIcon, "RIGHT", 8, 0)
     label:SetText("KEYBIND MODE")
 
+    -- Separator
     local sep1 = hudFrame:CreateFontString(nil, "OVERLAY")
     sep1:SetFont(FONT_PATH, 11, "")
-    sep1:SetTextColor(1, 1, 1, 0.2)
+    sep1:SetTextColor(1, 1, 1, 0.15)
     sep1:SetPoint("LEFT", label, "RIGHT", 12, 0)
     sep1:SetText("|")
 
+    -- Instructions (hoverable)
     local instr = hudFrame:CreateFontString(nil, "OVERLAY")
-    instr:SetFont(FONT_PATH, 11, "")
-    instr:SetTextColor(1, 1, 1, 0.5)
+    instr:SetFont(FONT_PATH, 10, "")
+    instr:SetTextColor(1, 1, 1, 0.45)
     instr:SetPoint("LEFT", sep1, "RIGHT", 12, 0)
-    instr:SetText("Hover + press key to bind  |  ESC to unbind  |  ESC (no hover) to exit")
+    instr:SetText("Hover + press key  |  ESC unbind  |  ESC exit")
 
+    local instrHit = CreateFrame("Frame", nil, hudFrame)
+    instrHit:SetPoint("TOPLEFT", instr, "TOPLEFT", -4, 4)
+    instrHit:SetPoint("BOTTOMRIGHT", instr, "BOTTOMRIGHT", 4, -4)
+    instrHit:SetScript("OnEnter", function()
+        instr:SetTextColor(1, 1, 1, 0.7)
+        EllesmereUI.ShowWidgetTooltip(instr,
+            "How to use Keybind Mode:\n\n"
+            .. "1. Hover over any action button\n"
+            .. "2. Press a key (or key combo) to bind it\n"
+            .. "3. Press ESC while hovering to clear a binding\n"
+            .. "4. Press ESC with nothing hovered to exit\n\n"
+            .. "Mouse buttons (including Button4/5) also work.\n"
+            .. "Conflicts are shown in orange \226\128\148 press the same key again to override.",
+            { anchor = "below" })
+    end)
+    instrHit:SetScript("OnLeave", function()
+        instr:SetTextColor(1, 1, 1, 0.45)
+        EllesmereUI.HideWidgetTooltip()
+    end)
+    instrHit:SetMouseClickEnabled(false)
+
+    -- Close button (right side)
     local closeBtn = CreateFrame("Button", nil, hudFrame)
-    closeBtn:SetSize(20, 20)
+    closeBtn:SetSize(24, 24)
     closeBtn:SetPoint("RIGHT", hudFrame, "RIGHT", -10, 0)
     closeBtn:SetFrameLevel(hudFrame:GetFrameLevel() + 2)
 
     local closeTex = closeBtn:CreateFontString(nil, "OVERLAY")
     closeTex:SetFont(FONT_PATH, 14, "")
-    closeTex:SetTextColor(1, 1, 1, 0.4)
+    closeTex:SetTextColor(1, 1, 1, 0.35)
     closeTex:SetAllPoints()
     closeTex:SetText("X")
 
-    closeBtn:SetScript("OnEnter", function() closeTex:SetTextColor(1, 1, 1, 0.8) end)
-    closeBtn:SetScript("OnLeave", function() closeTex:SetTextColor(1, 1, 1, 0.4) end)
+    closeBtn:SetScript("OnEnter", function(self)
+        closeTex:SetTextColor(1, 0.35, 0.35, 0.9)
+        EllesmereUI.ShowWidgetTooltip(self, "Close Keybind Mode\nBindings are saved automatically.", { anchor = "below" })
+    end)
+    closeBtn:SetScript("OnLeave", function()
+        closeTex:SetTextColor(1, 1, 1, 0.35)
+        EllesmereUI.HideWidgetTooltip()
+    end)
     closeBtn:SetScript("OnClick", function() CloseKeybindMode() end)
 
-    -- Profile name indicator
-    local profLabel = hudFrame:CreateFontString(nil, "OVERLAY")
+    -- Separator before profile
+    local sep2 = hudFrame:CreateFontString(nil, "OVERLAY")
+    sep2:SetFont(FONT_PATH, 11, "")
+    sep2:SetTextColor(1, 1, 1, 0.15)
+    sep2:SetPoint("RIGHT", closeBtn, "LEFT", -10, 0)
+    sep2:SetText("|")
+
+    -- Profile indicator (hoverable)
+    local profFrame = CreateFrame("Frame", nil, hudFrame)
+    profFrame:SetSize(140, 24)
+    profFrame:SetPoint("RIGHT", sep2, "LEFT", -8, 0)
+    profFrame:SetFrameLevel(hudFrame:GetFrameLevel() + 2)
+
+    local profIcon = profFrame:CreateTexture(nil, "OVERLAY")
+    profIcon:SetSize(14, 14)
+    profIcon:SetPoint("LEFT", profFrame, "LEFT", 0, 0)
+
+    local profLabel = profFrame:CreateFontString(nil, "OVERLAY")
     profLabel:SetFont(FONT_PATH, 11, "")
-    profLabel:SetPoint("RIGHT", closeBtn, "LEFT", -12, 0)
+    profLabel:SetPoint("LEFT", profIcon, "RIGHT", 6, 0)
+    profLabel:SetPoint("RIGHT", profFrame, "RIGHT", 0, 0)
+    profLabel:SetJustifyH("LEFT")
+    profLabel:SetWordWrap(false)
+
+    -- Resolve spec info for profile display
+    local specIdx = GetSpecialization and GetSpecialization()
+    local specName, specIconPath
+    if specIdx and specIdx > 0 then
+        local _, sName, _, sIcon = GetSpecializationInfo(specIdx)
+        specName = sName
+        specIconPath = sIcon
+    end
+
+    if specIconPath then
+        profIcon:SetTexture(specIconPath)
+        profIcon:SetAlpha(0.8)
+    else
+        profIcon:SetTexture(MEDIA_PATH .. "icons\\eui-keybind-2.png")
+        profIcon:SetVertexColor(1, 1, 1, 0.4)
+    end
 
     local profileName = EllesmereUI:GetCurrentSpecKeybindProfile()
     if profileName then
-        profLabel:SetTextColor(ACCENT_R, ACCENT_G, ACCENT_B, 0.8)
+        profLabel:SetTextColor(ACCENT_R, ACCENT_G, ACCENT_B, 0.9)
         profLabel:SetText(profileName)
     else
-        local specIdx = GetSpecialization and GetSpecialization()
-        if specIdx and specIdx > 0 then
-            local _, specName = GetSpecializationInfo(specIdx)
-            profLabel:SetTextColor(1, 1, 1, 0.4)
-            profLabel:SetText(specName or "No Profile")
-        end
+        profLabel:SetTextColor(1, 1, 1, 0.35)
+        profLabel:SetText(specName or "No Profile")
     end
+
+    profFrame:SetScript("OnEnter", function(self)
+        profLabel:SetAlpha(1)
+        profIcon:SetAlpha(1)
+        local tip
+        if profileName then
+            tip = "Keybind Profile: |cff0cd29f" .. profileName .. "|r\n\n"
+                .. "Bindings will be saved to this profile when you close Keybind Mode."
+        else
+            tip = "No keybind profile exists for " .. (specName or "this spec") .. " yet.\n\n"
+                .. "Your current bindings will be saved as a new profile when you close Keybind Mode."
+        end
+        EllesmereUI.ShowWidgetTooltip(self, tip, { anchor = "below" })
+    end)
+    profFrame:SetScript("OnLeave", function()
+        profLabel:SetAlpha(0.9)
+        profIcon:SetAlpha(0.8)
+        EllesmereUI.HideWidgetTooltip()
+    end)
+    profFrame:SetMouseClickEnabled(false)
 end
 
 local function DestroyHUD()
@@ -426,6 +531,18 @@ local function CreateFilterPills()
                 dimmedBars[barKey] = not dimmedBars[barKey]
                 UpdatePillVisual(self, not dimmedBars[barKey])
                 UpdateBarDimming(barKey)
+            end)
+
+            pill:SetScript("OnEnter", function(self)
+                local barLabel = BAR_LABELS[barKey] or barKey
+                local state = dimmedBars[barKey] and "dimmed (click to show)" or "visible (click to dim)"
+                EllesmereUI.ShowWidgetTooltip(self,
+                    barLabel .. " \226\128\148 " .. state .. "\n\n"
+                    .. "Toggle bars to focus on the ones you want to rebind.",
+                    { anchor = "below" })
+            end)
+            pill:SetScript("OnLeave", function()
+                EllesmereUI.HideWidgetTooltip()
             end)
 
             pills[#pills + 1] = pill
@@ -778,6 +895,7 @@ OpenKeybindMode = function()
         return
     end
 
+    RefreshAccent()
     isActive = true
 
     if EllesmereUI.IsShown and EllesmereUI:IsShown() then
