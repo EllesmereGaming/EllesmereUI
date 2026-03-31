@@ -14,10 +14,9 @@ local InCombatLockdown = InCombatLockdown
 local SetBinding, GetBindingKey, SaveBindings = SetBinding, GetBindingKey, SaveBindings
 local GetBindingAction = GetBindingAction
 
--- Debug log (saved to EUI_KeybindDebugLog saved variable)
-EUI_KeybindDebugLog = EUI_KeybindDebugLog or {}
+-- Debug log (silent by default; set EllesmereUIDB.keybindDebug = true to enable)
 local function DebugLog(msg)
-    EUI_KeybindDebugLog[#EUI_KeybindDebugLog + 1] = date("%H:%M:%S") .. " " .. msg
+    if not (EllesmereUIDB and EllesmereUIDB.keybindDebug) then return end
     print("|cff0cd29f[KB]|r " .. msg)
 end
 
@@ -626,6 +625,7 @@ local function FlashFeedback(ov, text, r, g, b)
     ov._bg:SetColorTexture(r, g, b, 0.20)
     -- Fade back after delay
     C_Timer.After(0.8, function()
+        if not isActive then return end
         if ov and ov._ttText then
             if hoveredOverlay == ov then
                 ov._ttText:SetText("Press a key...")
@@ -645,7 +645,6 @@ local function DoBindKey(ov, keyCombo)
     if not cmd then return end
     SetBinding(keyCombo, nil)
     SetBinding(keyCombo, cmd)
-    SaveBindings(2)
     -- Refresh all overlays
     for _, other in ipairs(buttonOverlays) do
         RefreshOverlayText(other)
@@ -676,6 +675,7 @@ local function ApplyKeybind(ov, keyCombo)
         ov._border:SetColor(WARN_R, WARN_G, WARN_B, 0.8)
         -- Auto-clear after 3 seconds if they don't confirm
         C_Timer.After(3, function()
+            if not isActive then return end
             if pendingConflict and pendingConflict.overlay == ov and pendingConflict.keyCombo == keyCombo then
                 ClearPendingConflict(ov)
             end
@@ -702,7 +702,6 @@ local function ClearKeybind(ov)
         cleared = true
     end
     if cleared then
-        SaveBindings(2)
         RefreshOverlayText(ov)
         FlashFeedback(ov, "Cleared!", 1, 0.35, 0.35)
     end
@@ -866,8 +865,22 @@ end)
 --------------------------------------------------------------------------------
 local loginFrame = CreateFrame("Frame")
 loginFrame:RegisterEvent("PLAYER_LOGIN")
-loginFrame:SetScript("OnEvent", function()
+loginFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+loginFrame:SetScript("OnEvent", function(self, event)
+    if event == "PLAYER_REGEN_ENABLED" then
+        -- Deferred restore: combat ended, retry if pending
+        if not self._pendingRestore then return end
+        self._pendingRestore = false
+        self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    end
+
     C_Timer.After(1, function()
+        if InCombatLockdown() then
+            -- Defer until combat ends — SetBinding is protected
+            self._pendingRestore = true
+            return
+        end
+
         local profileName, specID = EllesmereUI:GetCurrentSpecKeybindProfile()
         if profileName and EllesmereUIDB.keybindProfiles
            and EllesmereUIDB.keybindProfiles[profileName] then
@@ -963,6 +976,9 @@ CloseKeybindMode = function()
     if not isActive then return end
     isActive = false
     pendingConflict = nil
+
+    -- Persist all binding changes made during this session (single disk write)
+    SaveBindings(2)
 
     -- Auto-save keybinds to current spec's profile
     local profileName, specID = EllesmereUI:GetCurrentSpecKeybindProfile()
