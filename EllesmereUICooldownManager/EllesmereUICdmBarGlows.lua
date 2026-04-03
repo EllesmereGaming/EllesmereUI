@@ -189,6 +189,23 @@ local function SetupOverlays()
                         overlay:SetAlpha(1)
                         overlay._assignEntry = entry
                         overlay:Show()
+
+                        -- Duration text FontString (created once per overlay)
+                        if not overlay._durationText then
+                            local fs = overlay:CreateFontString(nil, "OVERLAY")
+                            overlay._durationText = fs
+                        end
+                        do
+                            local fs = overlay._durationText
+                            local sz = entry.durationSize or 12
+                            fs:SetFont(EllesmereUI.GetFontPath("cdm"), sz, "OUTLINE")
+                            fs:SetShadowOffset(0, 0)
+                            fs:ClearAllPoints()
+                            fs:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT",
+                                3 + (entry.durationOffsetX or 0), 4 + (entry.durationOffsetY or 0))
+                            fs:SetTextColor(entry.durationR or 1, entry.durationG or 1, entry.durationB or 1)
+                            fs:Hide()
+                        end
                         activeKeys[key] = true
                     end
                 end
@@ -260,6 +277,51 @@ local function UpdateOverlayVisuals()
                     StartNativeGlow(overlay, style, cr, cg, cb)
                 else
                     StopNativeGlow(overlay)
+                end
+            end
+
+            -- Duration text: update every tick when glow is active + showDuration on
+            local dfs = overlay._durationText
+            if dfs then
+                if shouldGlow and entry.showDuration and mode ~= "MISSING" and spellID and spellID > 0 then
+                    local blzChild = (ns._tickBlizzBuffChildCache and ns._tickBlizzBuffChildCache[spellID])
+                                  or (ns._tickBlizzAllChildCache and ns._tickBlizzAllChildCache[spellID])
+                    local durText
+                    if blzChild then
+                        local auraID = blzChild.auraInstanceID
+                        local auraUnit = blzChild.auraDataUnit or "player"
+                        if auraID then
+                            local ok, durObj = pcall(C_UnitAuras.GetAuraDuration, auraUnit, auraID)
+                            if ok and durObj and durObj.GetRemainingDuration then
+                                local rok, remaining = pcall(durObj.GetRemainingDuration, durObj)
+                                if rok and remaining then
+                                    if issecretvalue and issecretvalue(remaining) then
+                                        -- Can't do math on secret values; %.0f rounds to
+                                        -- nearest which is close enough to ceil
+                                        local fok, fstr = pcall(string.format, "%.0f", remaining)
+                                        if fok and fstr then
+                                            durText = fstr
+                                        end
+                                    else
+                                        durText = string.format("%d", math.ceil(remaining))
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    if durText then
+                        local isSecret = issecretvalue and issecretvalue(durText)
+                        if isSecret or dfs._lastText ~= durText then
+                            dfs._lastText = not isSecret and durText or nil
+                            dfs:SetText(durText)
+                        end
+                        dfs:Show()
+                    else
+                        dfs._lastText = nil
+                        dfs:Hide()
+                    end
+                else
+                    dfs:Hide()
                 end
             end
         end
