@@ -6841,6 +6841,12 @@ initFrame:SetScript("OnEvent", function(self, event)
 
         local _gameMenuBaseHeight = nil
         hooksecurefunc(GameMenuFrame, "Layout", function()
+            if InCombatLockdown() then
+                btn:Hide()
+                return
+            end
+            btn:Show()
+
             local eg = ELLESMERE_GREEN
             local hex = string.format("|cff%02x%02x%02x", (eg.r or 0.05) * 255, (eg.g or 0.82) * 255, (eg.b or 0.62) * 255)
             btn:SetText(hex .. "Ellesmere|r|cffffffff" .. "UI|r")
