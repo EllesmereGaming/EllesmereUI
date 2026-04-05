@@ -72,6 +72,45 @@ initFrame:SetScript("OnEvent", function(self)
         return cur == def
     end
 
+---------------------------------------------------------------------------
+    --  Lag Tolerance Helper/Adviser
+---------------------------------------------------------------------------
+    
+    local function Clamp(val, lo, hi)
+        if val < lo then return lo end
+        if val > hi then return hi end
+        return val
+    end
+
+    local function EnsureEUIDB()
+        if not EllesmereUIDB then EllesmereUIDB = {} end
+        return EllesmereUIDB
+    end
+
+    local function GetRecommendedSpellQueueWindow()
+        local _, _, homeMS, worldMS = GetNetStats()
+
+        homeMS = tonumber(homeMS) or 0
+        worldMS = tonumber(worldMS) or 0
+
+        local ping = math.max(homeMS, worldMS)
+        local recommended
+
+        if ping <= 60 then
+            recommended = 150
+        elseif ping <= 100 then
+            recommended = 200
+        elseif ping <= 150 then
+            recommended = 250
+        elseif ping <= 220 then
+            recommended = 300
+        else
+            recommended = 400
+        end
+
+        return Clamp(recommended, 0, 400), ping, homeMS, worldMS
+    end
+        
     ---------------------------------------------------------------------------
     --  EUI preferred defaults — only applied when CVar == Blizzard default
     --
@@ -493,6 +532,21 @@ initFrame:SetScript("OnEvent", function(self)
         local W = EllesmereUI.Widgets
         local y = yOffset
         local _, h
+        local db = EnsureEUIDB()
+
+        -- One-time Lag Tolerance recommendation on first open of General page
+        if not db.spellQueueSuggestedOnce then
+            local recommended = GetRecommendedSpellQueueWindow()
+            local cur, def = CVarInfo("SpellQueueWindow")
+
+            -- Only apply automatically if still untouched at Blizzard default
+            if cur == def then
+                SetCVarSafe("SpellQueueWindow", recommended)
+            end
+
+            db.spellQueueSuggestedOnce = true
+        end
+
 
         parent._showRowDivider = true
 
@@ -790,19 +844,25 @@ initFrame:SetScript("OnEvent", function(self)
               end });  y = y - h
 
         _, h = W:DualRow(parent, y,
-            { type="toggle", text="Cast Actions on Key Down",
-              tooltip="Keybinds respond on key down instead of key up. This helps make your abilities feel more responsive.",
-              getValue=function() return GetCVarBool("ActionButtonUseKeyDown") end,
-              setValue=function(v)
-                SetCVarSafe("ActionButtonUseKeyDown", v and "1" or "0")
-              end },
-            { type="slider", text="Lag Tolerance",
-              tooltip="This is the Spell Queue Window, it helps with making sure you can't queue up too many spells at once which makes the game feel laggy. Recommended settings are generally ~150 for melee and ~300 for casters. Higher if you have high local ping.",
+            {   type="slider", text="Lag Tolerance",
+                tooltip=(function()
+                local recommended, _, homeMS, worldMS = GetRecommendedSpellQueueWindow()
+                return string.format(
+                    "This is the Spell Queue Window, it helps with making sure you can't queue up too many spells at once which makes the game feel laggy. Recommended settings are generally ~150 for melee and ~300 for casters. Higher if you have high local ping.\n\nRecommended right now: %d ms\nHome: %d ms | World: %d ms",
+                    recommended, homeMS, worldMS
+                    )
+                end)(),
               min=0, max=400, step=1,
-              getValue=function() return GetCVarNum("SpellQueueWindow") end,
+              getValue=function()
+                return GetCVarNum("SpellQueueWindow")
+              end,
               setValue=function(v)
                 SetCVarSafe("SpellQueueWindow", v)
+                local db2 = EnsureEUIDB()
+                db2.spellQueueSuggestedOnce = true
+                db2.spellQueueManuallySet = true
               end });  y = y - h
+
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
