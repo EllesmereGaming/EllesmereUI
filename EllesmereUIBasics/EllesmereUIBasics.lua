@@ -2719,6 +2719,7 @@ local function SkinOneScrollbar(scrollBox, scrollBar)
     if scrollBox._ebsTrack then return end
 
     scrollBar:SetAlpha(0)
+    scrollBar:Hide()
     scrollBox._ebsScrollBar = scrollBar
 
     -- Parent to UIParent (parenting to FriendsListFrame taints)
@@ -2789,7 +2790,16 @@ local function SkinOneScrollbar(scrollBox, scrollBar)
 
     local function UpdateScrollThumb()
         local ext = GetExtent()
-        if ext >= 1 then track:SetAlpha(0); return end
+        if ext >= 1 then
+            track:SetAlpha(0)
+            track:Hide()
+            return
+        end
+        if not FriendsFrame or not FriendsFrame:IsShown() then
+            track:Hide()
+            return
+        end
+        track:Show()
         track:SetAlpha(SCROLLBAR_ALPHA)
         local pct = GetPct()
         local trackH = track:GetHeight()
