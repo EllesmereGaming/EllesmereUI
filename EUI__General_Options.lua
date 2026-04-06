@@ -1503,22 +1503,9 @@ initFrame:SetScript("OnEvent", function(self)
             if ssInitOff then ssCogBlock:Show() else ssCogBlock:Hide() end
         end
 
-        -- Row 5: Character Crosshair (left, with inline swatch) | Rested Indicator (right)
-        local crosshairRow
-        crosshairRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Character Crosshair",
-              tooltip="Displays a crosshair at the center of the screen.",
-              values={ ["None"]="None", ["Thin"]="Thin", ["Normal"]="Normal", ["Thick"]="Thick" },
-              order={ "None", "Thin", "Normal", "Thick" },
-              getValue=function()
-                return (EllesmereUIDB and EllesmereUIDB.crosshairSize) or "None"
-              end,
-              setValue=function(v)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.crosshairSize = v
-                if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
-                EllesmereUI:RefreshPage()
-              end },
+        -- Row 5: Rested Indicator (left, with cog)
+        local restedRow
+        restedRow, h = W:DualRow(parent, y,
             { type="toggle", text="Rested Indicator",
               tooltip="Displays a ZZZ indicator on your player frame when you are in a resting area.",
               getValue=function()
@@ -1533,12 +1520,13 @@ initFrame:SetScript("OnEvent", function(self)
                     if v and IsResting() then pf._restIndicator:Show() else pf._restIndicator:Hide() end
                 end
                 EllesmereUI:RefreshPage()
-              end }
+              end },
+            { type="label", text="" }
         );  y = y - h
 
-        -- Inline cog on Rested Indicator (right) for X/Y offsets
+        -- Inline cog on Rested Indicator (left) for X/Y offsets
         do
-            local rightRgn = crosshairRow._rightRegion
+            local leftRgn = restedRow._leftRegion
             local function ApplyRestIndicatorPos()
                 local pf = _G["EllesmereUIUnitFrames_Player"]
                 if pf and pf._restIndicator then
@@ -1567,15 +1555,14 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            -- Manual cog button (no MakeCogBtn in this file)
             local function restOff()
                 return not EllesmereUIDB or EllesmereUIDB.showRestedIndicator ~= true
             end
-            local restCogBtn = CreateFrame("Button", nil, rightRgn)
+            local restCogBtn = CreateFrame("Button", nil, leftRgn)
             restCogBtn:SetSize(26, 26)
-            restCogBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
-            rightRgn._lastInline = restCogBtn
-            restCogBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
+            restCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
+            leftRgn._lastInline = restCogBtn
+            restCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
             restCogBtn:SetAlpha(restOff() and 0.15 or 0.4)
             local restCogTex = restCogBtn:CreateTexture(nil, "OVERLAY")
             restCogTex:SetAllPoints()
@@ -1583,8 +1570,6 @@ initFrame:SetScript("OnEvent", function(self)
             restCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
             restCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(restOff() and 0.15 or 0.4) end)
             restCogBtn:SetScript("OnClick", function(self) restCogShow(self) end)
-
-            -- Blocking overlay when Rested Indicator is off
             local restCogBlock = CreateFrame("Frame", nil, restCogBtn)
             restCogBlock:SetAllPoints()
             restCogBlock:SetFrameLevel(restCogBtn:GetFrameLevel() + 10)
@@ -1602,13 +1587,48 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateRestCogState()
         end
 
-        -- Inline color swatch on the crosshair dropdown (left region)
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+
+        -------------------------------------------------------------------
+        --  CROSSHAIR
+        -------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "CROSSHAIR", y);  y = y - h
+
+        -- Row 1: Character Crosshair toggle (left, with color swatch) | Thickness slider (right)
+        local crosshairRow
+        crosshairRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Character Crosshair",
+              tooltip="Displays a crosshair at the center of the screen.",
+              getValue=function()
+                return (EllesmereUIDB and EllesmereUIDB.crosshairSize or "None") ~= "None"
+              end,
+              setValue=function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.crosshairSize = v and "Custom" or "None"
+                if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+                EllesmereUI:RefreshPage()
+              end },
+            { type="slider", text="Crosshair Thickness",
+              tooltip="Thickness of the crosshair lines.",
+              min=1, max=8, step=0.5,
+              getValue=function()
+                return (EllesmereUIDB and EllesmereUIDB.crosshairThickness) or 2
+              end,
+              setValue=function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.crosshairThickness = v
+                if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+              end }
+        );  y = y - h
+
+        -- Inline color swatch (left) + thickness slider disabled state (right)
         do
-            local leftRgn = crosshairRow._leftRegion
+            local leftRgn  = crosshairRow._leftRegion
+            local rightRgn = crosshairRow._rightRegion
             local function crosshairOff()
                 return not EllesmereUIDB or (EllesmereUIDB.crosshairSize or "None") == "None"
             end
-
+            -- Color swatch
             local chSwGet = function()
                 local c = EllesmereUIDB and EllesmereUIDB.crosshairColor
                 if c then return c.r, c.g, c.b, c.a end
@@ -1622,7 +1642,6 @@ initFrame:SetScript("OnEvent", function(self)
             local chSwatch, chUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, chSwGet, chSwSet, true, 20)
             PP.Point(chSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = chSwatch
-
             local chSwBlock = CreateFrame("Frame", nil, chSwatch)
             chSwBlock:SetAllPoints()
             chSwBlock:SetFrameLevel(chSwatch:GetFrameLevel() + 10)
@@ -1631,21 +1650,218 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.ShowWidgetTooltip(chSwatch, EllesmereUI.DisabledTooltip("Character Crosshair"))
             end)
             chSwBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
+            -- Blocking overlay on thickness slider when crosshair is off
+            local chThkBlock = CreateFrame("Frame", nil, rightRgn)
+            chThkBlock:SetAllPoints()
+            chThkBlock:SetFrameLevel(rightRgn:GetFrameLevel() + 20)
+            chThkBlock:EnableMouse(true)
+            chThkBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(rightRgn, EllesmereUI.DisabledTooltip("Character Crosshair"))
+            end)
+            chThkBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             EllesmereUI.RegisterWidgetRefresh(function()
                 local off = crosshairOff()
-                if off then
-                    chSwatch:SetAlpha(0.3)
-                    chSwBlock:Show()
-                else
-                    chSwatch:SetAlpha(1)
-                    chSwBlock:Hide()
-                end
+                chSwatch:SetAlpha(off and 0.3 or 1)
+                if off then chSwBlock:Show() else chSwBlock:Hide() end
                 chUpdateSwatch()
+                rightRgn:SetAlpha(off and 0.3 or 1)
+                if off then chThkBlock:Show() else chThkBlock:Hide() end
             end)
             local chInitOff = crosshairOff()
             chSwatch:SetAlpha(chInitOff and 0.3 or 1)
             if chInitOff then chSwBlock:Show() else chSwBlock:Hide() end
+            rightRgn:SetAlpha(chInitOff and 0.3 or 1)
+            if chInitOff then chThkBlock:Show() else chThkBlock:Hide() end
+        end
+
+        -- Row 2: Out of Range Indicator toggle (left) with inline OOR color swatch
+        local oorRow
+        oorRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Out of Range Indicator",
+              tooltip="Smoothly rotates the crosshair 45\194\176 into an \"\195\151\" when your target is outside melee range. Melee specs only.",
+              getValue=function()
+                return EllesmereUIDB and EllesmereUIDB.crosshairOutOfRange or false
+              end,
+              setValue=function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.crosshairOutOfRange = v
+                if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+                EllesmereUI:RefreshPage()
+              end },
+            { type="slider", text="OOR Thickness",
+              tooltip="Thickness of the crosshair lines when out of melee range.",
+              min=1, max=8, step=0.5,
+              getValue=function()
+                return (EllesmereUIDB and EllesmereUIDB.crosshairOORThickness) or 4
+              end,
+              setValue=function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.crosshairOORThickness = v
+                if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+              end }
+        );  y = y - h
+
+        -- OOR right region blocking overlay + inline OOR color swatch
+        do
+            local rightRgn = oorRow._rightRegion
+            local oorThkBlock = CreateFrame("Frame", nil, rightRgn)
+            oorThkBlock:SetAllPoints()
+            oorThkBlock:SetFrameLevel(rightRgn:GetFrameLevel() + 20)
+            oorThkBlock:EnableMouse(true)
+            oorThkBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(rightRgn, EllesmereUI.DisabledTooltip("Out of Range Indicator"))
+            end)
+            oorThkBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = not EllesmereUIDB
+                    or not EllesmereUIDB.crosshairOutOfRange
+                    or (EllesmereUIDB.crosshairSize or "None") == "None"
+                rightRgn:SetAlpha(off and 0.3 or 1)
+                if off then oorThkBlock:Show() else oorThkBlock:Hide() end
+            end)
+            local oorInitOff2 = not EllesmereUIDB
+                or not EllesmereUIDB.crosshairOutOfRange
+                or (EllesmereUIDB.crosshairSize or "None") == "None"
+            rightRgn:SetAlpha(oorInitOff2 and 0.3 or 1)
+            if oorInitOff2 then oorThkBlock:Show() else oorThkBlock:Hide() end
+        end
+
+        -- Inline OOR color swatch
+        do
+            local leftRgn = oorRow._leftRegion
+            local function oorOff()
+                return not EllesmereUIDB
+                    or not EllesmereUIDB.crosshairOutOfRange
+                    or (EllesmereUIDB.crosshairSize or "None") == "None"
+            end
+            local oorSwGet = function()
+                local c = EllesmereUIDB and EllesmereUIDB.crosshairOORColor
+                if c then return c.r, c.g, c.b, c.a end
+                return 1, 0.2, 0.2, 0.9
+            end
+            local oorSwSet = function(r, g, b, a)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.crosshairOORColor = { r = r, g = g, b = b, a = a or 1 }
+                if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+            end
+            local oorSwatch, oorUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, oorSwGet, oorSwSet, true, 20)
+            PP.Point(oorSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
+            leftRgn._lastInline = oorSwatch
+            local oorSwBlock = CreateFrame("Frame", nil, oorSwatch)
+            oorSwBlock:SetAllPoints()
+            oorSwBlock:SetFrameLevel(oorSwatch:GetFrameLevel() + 10)
+            oorSwBlock:EnableMouse(true)
+            oorSwBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(oorSwatch, EllesmereUI.DisabledTooltip("Out of Range Indicator"))
+            end)
+            oorSwBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = oorOff()
+                oorSwatch:SetAlpha(off and 0.3 or 1)
+                if off then oorSwBlock:Show() else oorSwBlock:Hide() end
+                oorUpdateSwatch()
+            end)
+            local oorInitOff = oorOff()
+            oorSwatch:SetAlpha(oorInitOff and 0.3 or 1)
+            if oorInitOff then oorSwBlock:Show() else oorSwBlock:Hide() end
+        end
+
+        -- Row 3: Only During Combat toggle (grayed when OOR off)
+        do
+            local combatRow
+            combatRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Only During Combat",
+                  tooltip="When enabled, the out of range indicator only activates while you are in combat.",
+                  getValue=function()
+                    return EllesmereUIDB and EllesmereUIDB.crosshairOORCombatOnly or false
+                  end,
+                  setValue=function(v)
+                    if not EllesmereUIDB then EllesmereUIDB = {} end
+                    EllesmereUIDB.crosshairOORCombatOnly = v
+                    if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+                    EllesmereUI:RefreshPage()
+                  end },
+                { type="label", text="" }
+            );  y = y - h
+            local leftRgn = combatRow._leftRegion
+            local function combatOff()
+                return not EllesmereUIDB
+                    or not EllesmereUIDB.crosshairOutOfRange
+                    or (EllesmereUIDB.crosshairSize or "None") == "None"
+            end
+            local coBlock = CreateFrame("Frame", nil, leftRgn)
+            coBlock:SetAllPoints()
+            coBlock:SetFrameLevel(leftRgn:GetFrameLevel() + 20)
+            coBlock:EnableMouse(true)
+            coBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(leftRgn, EllesmereUI.DisabledTooltip("Out of Range Indicator"))
+            end)
+            coBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = combatOff()
+                leftRgn:SetAlpha(off and 0.3 or 1)
+                if off then coBlock:Show() else coBlock:Hide() end
+            end)
+            local initOff = combatOff()
+            leftRgn:SetAlpha(initOff and 0.3 or 1)
+            if initOff then coBlock:Show() else coBlock:Hide() end
+        end
+
+        -- Row 4: Outline toggle (left) with inline outline color swatch
+        local outlineRow
+        outlineRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Crosshair Outline",
+              tooltip="Draws a dark border around the crosshair lines so they stay visible against any background color.",
+              getValue=function()
+                return EllesmereUIDB and EllesmereUIDB.crosshairOutline or false
+              end,
+              setValue=function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.crosshairOutline = v
+                if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+                EllesmereUI:RefreshPage()
+              end },
+            { type="label", text="" }
+        );  y = y - h
+
+        -- Inline outline color swatch
+        do
+            local leftRgn = outlineRow._leftRegion
+            local function outlineOff()
+                return not EllesmereUIDB
+                    or not EllesmereUIDB.crosshairOutline
+                    or (EllesmereUIDB.crosshairSize or "None") == "None"
+            end
+            local olSwGet = function()
+                local c = EllesmereUIDB and EllesmereUIDB.crosshairOutlineColor
+                if c then return c.r, c.g, c.b, c.a end
+                return 0, 0, 0, 0.8
+            end
+            local olSwSet = function(r, g, b, a)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.crosshairOutlineColor = { r = r, g = g, b = b, a = a or 1 }
+                if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+            end
+            local olSwatch, olUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, olSwGet, olSwSet, true, 20)
+            PP.Point(olSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
+            leftRgn._lastInline = olSwatch
+            local olSwBlock = CreateFrame("Frame", nil, olSwatch)
+            olSwBlock:SetAllPoints()
+            olSwBlock:SetFrameLevel(olSwatch:GetFrameLevel() + 10)
+            olSwBlock:EnableMouse(true)
+            olSwBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(olSwatch, EllesmereUI.DisabledTooltip("Crosshair Outline"))
+            end)
+            olSwBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = outlineOff()
+                olSwatch:SetAlpha(off and 0.3 or 1)
+                if off then olSwBlock:Show() else olSwBlock:Hide() end
+                olUpdateSwatch()
+            end)
+            local olInitOff = outlineOff()
+            olSwatch:SetAlpha(olInitOff and 0.3 or 1)
+            if olInitOff then olSwBlock:Show() else olSwBlock:Hide() end
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -2977,8 +3193,28 @@ initFrame:SetScript("OnEvent", function(self)
     --  Runtime: Character Crosshair
     ---------------------------------------------------------------------------
     do
-        local PP = EllesmereUI.PanelPP
+        local PP   = EllesmereUI.PanelPP
+        local PI45 = math.pi / 4
+        local mcos, msin, mabs, mmin = math.cos, math.sin, math.abs, math.min
+
         local crosshairFrame
+        local isOutOfRange = false
+
+        -- Smooth rotation animation
+        local animAngle   = 0        -- current angle (0 = "+", PI45 = "×")
+        local animTarget  = 0
+        local animStart   = 0
+        local animElapsed = 0
+        local ANIM_DURATION = 0.25   -- seconds for full + ↔ × rotation
+        local animFrame
+
+        -- Range-check throttle
+        local RANGE_THROTTLE = 0.15
+        local rangeElapsed   = 0
+        local rangeUpdateFrame
+        local inCombat       = false
+        local EnsureRangeUpdate  -- forward declaration
+
         local function CreateCrosshair()
             if crosshairFrame then return end
             crosshairFrame = CreateFrame("Frame", "EUI_CharacterCrosshair", UIParent)
@@ -2987,61 +3223,235 @@ initFrame:SetScript("OnEvent", function(self)
             crosshairFrame:EnableMouse(false)
             crosshairFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
             crosshairFrame:SetSize(1, 1)
+            -- Outline lines sit behind the main lines (BACKGROUND < OVERLAY)
+            crosshairFrame._ol1   = crosshairFrame:CreateLine(nil, "BACKGROUND")
+            crosshairFrame._ol2   = crosshairFrame:CreateLine(nil, "BACKGROUND")
+            -- Main colored lines
+            crosshairFrame._line1 = crosshairFrame:CreateLine(nil, "OVERLAY")
+            crosshairFrame._line2 = crosshairFrame:CreateLine(nil, "OVERLAY")
+        end
 
-            local function MakeArm()
-                local t = crosshairFrame:CreateTexture(nil, "OVERLAY")
-                if t.SetSnapToPixelGrid then
-                    t:SetSnapToPixelGrid(false)
-                    t:SetTexelSnappingBias(0)
-                end
-                return t
+        -- Set geometry for both outline and main lines at rotation angle theta.
+        local function SetCrosshairAngle(theta)
+            if not crosshairFrame then return end
+            local ARM = PP.Scale(20)
+            local c, s = mcos(theta), msin(theta)
+            -- line1: horizontal arm rotated by theta
+            local sx1, sy1 = -ARM * c, -ARM * s
+            local ex1, ey1 =  ARM * c,  ARM * s
+            -- line2: vertical arm (= horizontal + 90°) rotated by theta
+            local sx2, sy2 =  ARM * s, -ARM * c
+            local ex2, ey2 = -ARM * s,  ARM * c
+            crosshairFrame._line1:SetStartPoint("CENTER", crosshairFrame, sx1, sy1)
+            crosshairFrame._line1:SetEndPoint(  "CENTER", crosshairFrame, ex1, ey1)
+            crosshairFrame._line2:SetStartPoint("CENTER", crosshairFrame, sx2, sy2)
+            crosshairFrame._line2:SetEndPoint(  "CENTER", crosshairFrame, ex2, ey2)
+            crosshairFrame._ol1:SetStartPoint("CENTER", crosshairFrame, sx1, sy1)
+            crosshairFrame._ol1:SetEndPoint(  "CENTER", crosshairFrame, ex1, ey1)
+            crosshairFrame._ol2:SetStartPoint("CENTER", crosshairFrame, sx2, sy2)
+            crosshairFrame._ol2:SetEndPoint(  "CENTER", crosshairFrame, ex2, ey2)
+        end
+
+        -- Animation OnUpdate: smooth-step from animStart to animTarget, then stops.
+        local function OnCrosshairAnim(self, dt)
+            animElapsed = animElapsed + dt
+            local progress = mmin(animElapsed / ANIM_DURATION, 1)
+            local ease = progress * progress * (3 - 2 * progress)
+            animAngle = animStart + (animTarget - animStart) * ease
+            SetCrosshairAngle(animAngle)
+            if progress >= 1 then
+                animAngle = animTarget
+                self:SetScript("OnUpdate", nil)  -- done; zero CPU cost until next transition
             end
-            crosshairFrame._hBar = MakeArm()
-            crosshairFrame._vBar = MakeArm()
+        end
+
+        local function StartCrosshairAnim(targetAngle)
+            if mabs(targetAngle - animAngle) < 0.001 then return end
+            animTarget  = targetAngle
+            animStart   = animAngle
+            animElapsed = 0
+            if not animFrame then animFrame = CreateFrame("Frame") end
+            animFrame:SetScript("OnUpdate", OnCrosshairAnim)
         end
 
         EllesmereUI._applyCrosshair = function()
             local size = EllesmereUIDB and EllesmereUIDB.crosshairSize or "None"
             if size == "None" then
                 if crosshairFrame then crosshairFrame:Hide() end
+                animAngle  = 0
+                animTarget = 0
+                if animFrame then animFrame:SetScript("OnUpdate", nil) end
+                if EnsureRangeUpdate then EnsureRangeUpdate() end
                 return
             end
 
             CreateCrosshair()
 
-            local c = EllesmereUIDB and EllesmereUIDB.crosshairColor
+            -- OOR state (respects combat-only setting)
+            local oor = isOutOfRange and (EllesmereUIDB and EllesmereUIDB.crosshairOutOfRange)
+            if oor and (EllesmereUIDB and EllesmereUIDB.crosshairOORCombatOnly) and not inCombat then
+                oor = false
+            end
+
+            -- Main color
+            local c = oor and (EllesmereUIDB and EllesmereUIDB.crosshairOORColor)
+                          or  (EllesmereUIDB and EllesmereUIDB.crosshairColor)
             local cr = c and c.r or 1
-            local cg = c and c.g or 1
-            local cb = c and c.b or 1
-            local ca = c and c.a or 0.75
+            local cg = c and c.g or (oor and 0.2 or 1)
+            local cb = c and c.b or (oor and 0.2 or 1)
+            local ca = c and c.a or (oor and 0.9 or 0.75)
 
-            -- Thickness in logical pixels: Thin=1, Normal=2, Thick=3
-            -- Do NOT use PP.Scale() on border/line thickness — raw pixel count
-            local thickness = (size == "Thin") and 1 or (size == "Thick") and 3 or 2
-            -- Arm length: 20 logical px each direction, snapped to physical pixels
-            local ARM = PP.Scale(20)
+            -- Thickness: read from sliders; 1.5 minimum for Line subregions
+            local thickness = math.max(1.5, oor
+                and ((EllesmereUIDB and EllesmereUIDB.crosshairOORThickness) or 4)
+                or  ((EllesmereUIDB and EllesmereUIDB.crosshairThickness) or 2))
 
-            local hBar = crosshairFrame._hBar
-            local vBar = crosshairFrame._vBar
+            crosshairFrame._line1:SetColorTexture(cr, cg, cb, ca)
+            crosshairFrame._line1:SetThickness(thickness)
+            crosshairFrame._line2:SetColorTexture(cr, cg, cb, ca)
+            crosshairFrame._line2:SetThickness(thickness)
 
-            hBar:SetColorTexture(cr, cg, cb, ca)
-            hBar:ClearAllPoints()
-            hBar:SetPoint("LEFT",  crosshairFrame, "CENTER", -ARM, 0)
-            hBar:SetPoint("RIGHT", crosshairFrame, "CENTER",  ARM, 0)
-            hBar:SetHeight(thickness)
+            -- Outline: thicker lines in BACKGROUND layer create a visible border
+            local outlineEnabled = EllesmereUIDB and EllesmereUIDB.crosshairOutline
+            if outlineEnabled then
+                local oc = EllesmereUIDB and EllesmereUIDB.crosshairOutlineColor
+                local wr = oc and oc.r or 0
+                local wg = oc and oc.g or 0
+                local wb = oc and oc.b or 0
+                local wa = oc and oc.a or 0.8
+                crosshairFrame._ol1:SetColorTexture(wr, wg, wb, wa)
+                crosshairFrame._ol1:SetThickness(thickness + 4)
+                crosshairFrame._ol2:SetColorTexture(wr, wg, wb, wa)
+                crosshairFrame._ol2:SetThickness(thickness + 4)
+                crosshairFrame._ol1:Show()
+                crosshairFrame._ol2:Show()
+            else
+                crosshairFrame._ol1:Hide()
+                crosshairFrame._ol2:Hide()
+            end
 
-            vBar:SetColorTexture(cr, cg, cb, ca)
-            vBar:ClearAllPoints()
-            vBar:SetPoint("TOP",    crosshairFrame, "CENTER", 0,  ARM)
-            vBar:SetPoint("BOTTOM", crosshairFrame, "CENTER", 0, -ARM)
-            vBar:SetWidth(thickness)
+            -- Snap to current angle (ensures correct position on settings changes),
+            -- then start animation if target changed.
+            SetCrosshairAngle(animAngle)
+            StartCrosshairAnim(oor and PI45 or 0)
 
             crosshairFrame:Show()
+            if EnsureRangeUpdate then EnsureRangeUpdate() end
+        end
+
+        ---------------------------------------------------------------------------
+        --  Range-check: melee OOR detection
+        --  Throttled OnUpdate (0.15s); only registered when feature is active.
+        ---------------------------------------------------------------------------
+
+        local MELEE_SPELL_BY_SPEC = {
+            [250] = 47528,   -- DK Blood:          Mind Freeze
+            [251] = 47528,   -- DK Frost:          Mind Freeze
+            [252] = 47528,   -- DK Unholy:         Mind Freeze
+            [577] = 162794,  -- DH Havoc:          Chaos Strike
+            [581] = 263642,  -- DH Vengeance:      Fracture
+            [103] = 5221,    -- Druid Feral:       Shred
+            [104] = 33917,   -- Druid Guardian:    Mangle
+            -- Raptor Strike (186270) avoided: Raptor Swipe proc extends its range to ~15 yd
+            [255] = 187707,  -- Hunter Survival:   Muzzle (hard 5-yd interrupt, no proc extension)
+            [268] = 100780,  -- Monk Brewmaster:   Tiger Palm
+            [269] = 100780,  -- Monk Windwalker:   Tiger Palm
+            [270] = 100780,  -- Monk Mistweaver:   Tiger Palm
+            [66]  = 96231,   -- Paladin Prot:      Rebuke
+            [70]  = 96231,   -- Paladin Ret:       Rebuke
+            [259] = 1766,    -- Rogue Assassination: Kick
+            [260] = 1766,    -- Rogue Outlaw:      Kick
+            [261] = 1766,    -- Rogue Subtlety:    Kick
+            [263] = 73899,   -- Shaman Enhancement: Primal Strike
+            [71]  = 6552,    -- Warrior Arms:      Pummel
+            [72]  = 6552,    -- Warrior Fury:      Pummel
+            [73]  = 6552,    -- Warrior Prot:      Pummel
+        }
+
+        local cachedMeleeSpell
+        local meleeSpellResolved = false
+
+        local function GetMeleeSpell()
+            if meleeSpellResolved then return cachedMeleeSpell end
+            meleeSpellResolved = true
+            local specIndex = GetSpecialization()
+            if specIndex then
+                local specID = GetSpecializationInfo(specIndex)
+                cachedMeleeSpell = specID and MELEE_SPELL_BY_SPEC[specID] or false
+            else
+                cachedMeleeSpell = false
+            end
+            return cachedMeleeSpell
+        end
+
+        local function CheckOutOfMeleeRange()
+            local spellID = GetMeleeSpell()
+            if not spellID then return false end
+            if EllesmereUIDB and EllesmereUIDB.crosshairOORCombatOnly and not inCombat then
+                return false
+            end
+            if not UnitExists("target") or not UnitCanAttack("player", "target") then
+                return false
+            end
+            local ok, result = pcall(C_Spell.IsSpellInRange, spellID, "target")
+            return ok and result == false
+        end
+
+        local function OnCrosshairRangeUpdate(self, dt)
+            rangeElapsed = rangeElapsed + dt
+            if rangeElapsed < RANGE_THROTTLE then return end
+            rangeElapsed = 0
+            local newOOR = CheckOutOfMeleeRange()
+            if newOOR ~= isOutOfRange then
+                isOutOfRange = newOOR
+                EllesmereUI._applyCrosshair()
+            end
+        end
+
+        EnsureRangeUpdate = function()
+            local needsRange = EllesmereUIDB
+                and (EllesmereUIDB.crosshairSize or "None") ~= "None"
+                and EllesmereUIDB.crosshairOutOfRange
+
+            if needsRange then
+                if not rangeUpdateFrame then
+                    rangeUpdateFrame = CreateFrame("Frame")
+                    rangeUpdateFrame:SetScript("OnEvent", function(_, event)
+                        if event == "PLAYER_SPECIALIZATION_CHANGED" then
+                            meleeSpellResolved = false
+                            cachedMeleeSpell = nil
+                        elseif event == "PLAYER_REGEN_DISABLED" then
+                            inCombat = true
+                        elseif event == "PLAYER_REGEN_ENABLED" then
+                            inCombat = false
+                            if isOutOfRange and EllesmereUIDB and EllesmereUIDB.crosshairOORCombatOnly then
+                                isOutOfRange = false
+                                EllesmereUI._applyCrosshair()
+                            end
+                        end
+                        rangeElapsed = RANGE_THROTTLE
+                    end)
+                    rangeUpdateFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+                    rangeUpdateFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+                    rangeUpdateFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+                    rangeUpdateFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+                end
+                rangeUpdateFrame:SetScript("OnUpdate", OnCrosshairRangeUpdate)
+            else
+                if rangeUpdateFrame then
+                    rangeUpdateFrame:SetScript("OnUpdate", nil)
+                end
+                if isOutOfRange then
+                    isOutOfRange = false
+                    EllesmereUI._applyCrosshair()
+                end
+            end
         end
 
         -- Apply on login
         C_Timer.After(1, function()
             if EllesmereUIDB and EllesmereUIDB.crosshairSize and EllesmereUIDB.crosshairSize ~= "None" then
+                inCombat = InCombatLockdown()
                 EllesmereUI._applyCrosshair()
             end
         end)
