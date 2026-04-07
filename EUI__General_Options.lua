@@ -1616,7 +1616,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function CreateFPSCounter()
         if fpsFrame then return end
         local FONT = EllesmereUI.GetFontPath("extras")
-        local FONT_SIZE = 12
+        local FONT_SIZE = (EllesmereUIDB and EllesmereUIDB.fpsTextSize) or 12
         local LABEL_SIZE = FONT_SIZE - 2
         local SHADOW_X, SHADOW_Y = 1, -1
         fpsFrame = CreateFrame("Frame", "EUI_FPSCounter", UIParent)
@@ -1742,6 +1742,16 @@ initFrame:SetScript("OnEvent", function(self)
         local shouldShow = EllesmereUIDB and EllesmereUIDB.showFPS
         if shouldShow then
             CreateFPSCounter()
+            -- Re-apply text size from DB
+            local sz = (EllesmereUIDB and EllesmereUIDB.fpsTextSize) or 12
+            local lblSz = sz - 2
+            local fp = EllesmereUI.GetFontPath("extras")
+            local outF = EllesmereUI.GetFontOutlineFlag()
+            if fpsFrame._text then fpsFrame._text:SetFont(fp, sz, outF) end
+            if fpsFrame._textWorld then fpsFrame._textWorld:SetFont(fp, sz, outF) end
+            if fpsFrame._textLocal then fpsFrame._textLocal:SetFont(fp, sz, outF) end
+            if fpsFrame._lblWorld then fpsFrame._lblWorld:SetFont(fp, lblSz, outF) end
+            if fpsFrame._lblLocal then fpsFrame._lblLocal:SetFont(fp, lblSz, outF) end
             -- Apply saved position and scale
             local pos = EllesmereUIDB and EllesmereUIDB.fpsPos
             if pos and pos.point then
@@ -1918,7 +1928,8 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Font -- pull from the global "extras" font key
             local fontPath = EllesmereUI.GetFontPath("extras")
-            fs:SetFont(fontPath, 18, EllesmereUI.GetFontOutlineFlag())
+            local durSz = (EllesmereUIDB and EllesmereUIDB.durWarnTextSize) or 30
+            fs:SetFont(fontPath, durSz, EllesmereUI.GetFontOutlineFlag())
 
             -- Color
             local c = EllesmereUIDB and EllesmereUIDB.durWarnColor
@@ -1962,6 +1973,7 @@ initFrame:SetScript("OnEvent", function(self)
         CreateDurabilityWarning()
         durWarnOverlay._applySettings()
     end
+    EllesmereUI._durWarnApplySettings = EllesmereUI._applyDurWarn
 
     -- Preview: show durability warning at its configured position
     EllesmereUI._durWarnPreview = function()
@@ -2465,6 +2477,16 @@ initFrame:SetScript("OnEvent", function(self)
             local _, fpsCogShow = EllesmereUI.BuildCogPopup({
                 title = "FPS Counter Settings",
                 rows = {
+                    { type="slider", label="Text Size",
+                      min=8, max=24, step=1,
+                      get=function()
+                        return (EllesmereUIDB and EllesmereUIDB.fpsTextSize) or 12
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.fpsTextSize = v
+                        if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                      end },
                     { type="toggle", label="Show Local MS",
                       get=function()
                         if not EllesmereUIDB or EllesmereUIDB.fpsShowLocalMS == nil then return true end
@@ -2729,6 +2751,16 @@ initFrame:SetScript("OnEvent", function(self)
             local _, durCogShow = EllesmereUI.BuildCogPopup({
                 title = "Durability Settings",
                 rows = {
+                    { type="slider", label="Text Size",
+                      min=10, max=50, step=1,
+                      get=function()
+                        return (EllesmereUIDB and EllesmereUIDB.durWarnTextSize) or 30
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.durWarnTextSize = v
+                        if EllesmereUI._durWarnApplySettings then EllesmereUI._durWarnApplySettings() end
+                      end },
                     { type="slider", label="Y-Offset",
                       min=-600, max=600, step=1,
                       get=function()
@@ -3341,6 +3373,104 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUIDB.autoOpenContainers = v
               end }
         );  y = y - h
+
+        ---------------------------------------------------------------------------
+        --  BAGS
+        ---------------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "BAGS", y);  y = y - h
+
+        local ilvlRow
+        ilvlRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Item Level in Bags",
+              tooltip="Displays the current item level as a small label on each equippable item in your bags. The label colour matches the item quality.",
+              getValue=function()
+                  return not (EllesmereUIDB and EllesmereUIDB.bagIlvlEnabled == false)
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.bagIlvlEnabled = v and true or false
+                  if EllesmereUI._refreshBagIlvl then EllesmereUI._refreshBagIlvl() end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="label", text="" }
+        );  y = y - h
+
+        -- Cog on the item-level toggle (position & font-size sub-settings)
+        do
+            local leftRgn = ilvlRow._leftRegion
+            local function ilvlOff()
+                return EllesmereUIDB and EllesmereUIDB.bagIlvlEnabled == false
+            end
+
+            -- Pre-declare the values table as upvalue so the CogPopup closure
+            -- captures a fully-initialised table (inline literals can arrive nil
+            -- if the popup is created lazily before the table is resolved).
+            local posValues = {
+                TOPLEFT    = "Top Left",
+                TOPRIGHT   = "Top Right",
+                BOTTOMLEFT = "Bottom Left",
+                BOTTOMRIGHT= "Bottom Right",
+            }
+            local posOrder = { "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }
+
+            local _, ilvlCogShow = EllesmereUI.BuildCogPopup({
+                title = "Bag Item Level Settings",
+                rows = {
+                    { type="dropdown",
+                      label="Position",
+                      values=posValues,
+                      order=posOrder,
+                      get=function()
+                          return (EllesmereUIDB and EllesmereUIDB.bagIlvlAnchor) or "BOTTOMLEFT"
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.bagIlvlAnchor = v
+                          if EllesmereUI._refreshBagIlvl then EllesmereUI._refreshBagIlvl() end
+                      end },
+                    { type="slider",
+                      label="Font Size",
+                      min=6, max=20, step=1,
+                      get=function()
+                          return (EllesmereUIDB and EllesmereUIDB.bagIlvlFontSize) or 11
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.bagIlvlFontSize = v
+                          if EllesmereUI._refreshBagIlvl then EllesmereUI._refreshBagIlvl() end
+                      end },
+                },
+            })
+
+            local ilvlCogBtn = CreateFrame("Button", nil, leftRgn)
+            ilvlCogBtn:SetSize(26, 26)
+            ilvlCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
+            leftRgn._lastInline = ilvlCogBtn
+            ilvlCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+            ilvlCogBtn:SetAlpha(ilvlOff() and 0.15 or 0.4)
+            local ilvlCogTex = ilvlCogBtn:CreateTexture(nil, "OVERLAY")
+            ilvlCogTex:SetAllPoints()
+            ilvlCogTex:SetTexture(EllesmereUI.COGS_ICON)
+            ilvlCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            ilvlCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(ilvlOff() and 0.15 or 0.4) end)
+            ilvlCogBtn:SetScript("OnClick", function(self) ilvlCogShow(self) end)
+
+            local ilvlCogBlock = CreateFrame("Frame", nil, ilvlCogBtn)
+            ilvlCogBlock:SetAllPoints()
+            ilvlCogBlock:SetFrameLevel(ilvlCogBtn:GetFrameLevel() + 10)
+            ilvlCogBlock:EnableMouse(true)
+            ilvlCogBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(ilvlCogBtn, EllesmereUI.DisabledTooltip("Show Item Level in Bags"))
+            end)
+            ilvlCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = ilvlOff()
+                ilvlCogBtn:SetAlpha(off and 0.15 or 0.4)
+                if off then ilvlCogBlock:Show() else ilvlCogBlock:Hide() end
+            end)
+            if ilvlOff() then ilvlCogBlock:Show() else ilvlCogBlock:Hide() end
+        end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
         return math.abs(y)

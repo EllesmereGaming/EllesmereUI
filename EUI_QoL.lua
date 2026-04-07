@@ -728,6 +728,8 @@ qolFrame:SetScript("OnEvent", function(self)
         local function GetApplicantScore(applicantID)
             if not C_LFGList or not C_LFGList.GetApplicantMemberInfo then return nil end
             local _, _, _, _, _, _, _, _, _, _, _, dungeonScore = C_LFGList.GetApplicantMemberInfo(applicantID, 1)
+            if dungeonScore == nil then return nil end
+            if issecretvalue and issecretvalue(dungeonScore) then return nil end
             if type(dungeonScore) ~= "number" then return nil end
             return dungeonScore
         end
@@ -754,9 +756,9 @@ qolFrame:SetScript("OnEvent", function(self)
             table.sort(applicants, function(a, b)
                 local sa = scores[a]
                 local sb = scores[b]
-                if sa ~= nil and sb ~= nil and sa ~= sb then return sa > sb end
-                if sa ~= nil and sb == nil then return true end
-                if sa == nil and sb ~= nil then return false end
+                if sa and sb and sa ~= sb then return sa > sb end
+                if sa and not sb then return true end
+                if not sa and sb then return false end
                 return (originalOrder[a] or 0) < (originalOrder[b] or 0)
             end)
         end)
@@ -959,6 +961,152 @@ qolFrame:SetScript("OnEvent", function(self)
             end
             return false
         end
+
+    ---------------------------------------------------------------------------
+    --  Bag Item Level Labels
+    --  Draws a small item-level number on every equippable item in the bag.
+    --  Setting: EllesmereUIDB.bagIlvlEnabled  (default: true)
+    ---------------------------------------------------------------------------
+    do
+        -- Items worth showing a level on: anything that occupies a gear slot.
+        -- Bags, tabards, ammo pouches and cosmetics are intentionally excluded.
+        local function IsGearSlot(equipSlot, classID, subclassID)
+            if not equipSlot or equipSlot == "" then return false end
+            if equipSlot == "INVTYPE_NON_EQUIP_IGNORE" then return false end
+            if equipSlot == "INVTYPE_TABARD"           then return false end
+            if equipSlot == "INVTYPE_BAG"              then return false end
+            if equipSlot == "INVTYPE_QUIVER"           then return false end
+            -- classID 4 = Armor, subclassID 5 = Cosmetic
+            if classID == 4 and subclassID == 5        then return false end
+            return true
+        end
+
+        -- Pixel nudge per corner so the number sits just inside the icon edge.
+        local CORNER_OFFSET = {
+            TOPLEFT     = {  1, -1 },
+            TOPRIGHT    = { -1, -1 },
+            BOTTOMLEFT  = {  1,  1 },
+            BOTTOMRIGHT = { -1,  1 },
+        }
+
+        local function GetCorner()
+            return (EllesmereUIDB and EllesmereUIDB.bagIlvlAnchor) or "BOTTOMLEFT"
+        end
+
+        local function GetSize()
+            return (EllesmereUIDB and EllesmereUIDB.bagIlvlFontSize) or 11
+        end
+
+        local function GetFace()
+            return (EllesmereUI and EllesmereUI.GetFont and EllesmereUI.GetFont())
+                or STANDARD_TEXT_FONT
+        end
+
+        local function IsActive()
+            return not (EllesmereUIDB and EllesmereUIDB.bagIlvlEnabled == false)
+        end
+
+        -- Retrieve or create the FontString attached to a button.
+        local function GetOrCreateTag(btn)
+            if btn._euiIlvlTag then return btn._euiIlvlTag end
+            -- Use OVERLAY so the text renders above the item icon texture
+            -- but stays below Blizzard's own search-dimming overlay.
+            local tag = btn:CreateFontString(nil, "OVERLAY")
+            tag:SetFont(GetFace(), GetSize(), "THINOUTLINE")
+            tag:SetShadowOffset(1, -1)
+            tag:SetShadowColor(0, 0, 0, 0.9)
+            btn._euiIlvlTag = tag
+            return tag
+        end
+
+        local function PaintButton(btn, bag, slot)
+            if not btn then return end
+            local tag = GetOrCreateTag(btn)
+
+            if not IsActive() then tag:Hide(); return end
+
+            local link = C_Container.GetContainerItemLink(bag, slot)
+            if not link then tag:Hide(); return end
+
+            local _, _, quality, _, _, classID, subclassID, _, equipSlot =
+                C_Item.GetItemInfo(link)
+
+            if not IsGearSlot(equipSlot, classID, subclassID) then
+                tag:Hide(); return
+            end
+
+            -- GetCurrentItemLevel via ItemLocation is the only reliable way
+            -- to get the actual equipped/upgraded level rather than base level.
+            local loc  = ItemLocation:CreateFromBagAndSlot(bag, slot)
+            local lvl  = loc and C_Item.GetCurrentItemLevel(loc)
+            if not lvl or lvl <= 0 then tag:Hide(); return end
+
+            -- Refresh font in case the user changed size in settings
+            tag:SetFont(GetFace(), GetSize(), "THINOUTLINE")
+
+            local corner = GetCorner()
+            local off    = CORNER_OFFSET[corner] or CORNER_OFFSET.BOTTOMLEFT
+            tag:ClearAllPoints()
+            tag:SetPoint(corner, btn, corner, off[1], off[2])
+
+            -- Colour by quality; grey fallback for unknown quality
+            if quality and quality >= 0 then
+                local r, g, b = C_Item.GetItemQualityColor(quality)
+                tag:SetTextColor(r, g, b, 1)
+            else
+                tag:SetTextColor(0.8, 0.8, 0.8, 1)
+            end
+
+            tag:SetText(lvl)
+            tag:Show()
+        end
+
+        local function ScanOpenBags()
+            if ContainerFrameCombinedBags and ContainerFrameCombinedBags:IsShown() then
+                for _, btn in ContainerFrameCombinedBags:EnumerateValidItems() do
+                    PaintButton(btn, btn:GetBagID(), btn:GetID())
+                end
+            end
+            for _, frame in ipairs((ContainerFrameContainer and
+                                    ContainerFrameContainer.ContainerFrames) or {}) do
+                if frame:IsShown() then
+                    for _, btn in frame:EnumerateValidItems() do
+                        PaintButton(btn, btn:GetBagID(), btn:GetID())
+                    end
+                end
+            end
+        end
+
+        -- Event-driven refresh
+        local watchFrame = CreateFrame("Frame")
+        watchFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+        watchFrame:RegisterEvent("ITEM_UPGRADE_MASTER_SET_ITEM")
+        watchFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+        watchFrame:RegisterEvent("BAG_OPEN")
+        watchFrame:SetScript("OnEvent", function(_, event)
+            if event == "PLAYER_ENTERING_WORLD" then
+                C_Timer.After(2, ScanOpenBags)
+            else
+                ScanOpenBags()
+            end
+        end)
+
+        -- Refresh when any individual bag frame becomes visible
+        for _, frame in ipairs((ContainerFrameContainer and
+                                ContainerFrameContainer.ContainerFrames) or {}) do
+            frame:HookScript("OnShow", function()
+                C_Timer.After(0.1, ScanOpenBags)
+            end)
+        end
+        if ContainerFrameCombinedBags then
+            ContainerFrameCombinedBags:HookScript("OnShow", function()
+                C_Timer.After(0.1, ScanOpenBags)
+            end)
+        end
+
+        -- Expose a refresh handle for the options panel
+        EllesmereUI._refreshBagIlvl = ScanOpenBags
+    end
 
         local resetAnnounceFrame = CreateFrame("Frame")
         resetAnnounceFrame:RegisterEvent("CHAT_MSG_SYSTEM")
