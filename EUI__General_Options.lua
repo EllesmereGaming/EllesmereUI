@@ -3425,6 +3425,15 @@ initFrame:SetScript("OnEvent", function(self)
                           EllesmereUIDB.charIlvlFontSize = v
                           if EllesmereUI._refreshCharIlvl then EllesmereUI._refreshCharIlvl() end
                       end },
+                    { type="toggle", label="Use Item Rarity as Color",
+                      get=function()
+                          return EllesmereUIDB and EllesmereUIDB.charIlvlUseRarityColor == true
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.charIlvlUseRarityColor = v and true or false
+                          if EllesmereUI._refreshCharIlvl then EllesmereUI._refreshCharIlvl() end
+                      end },
                 },
             })
 

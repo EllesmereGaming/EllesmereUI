@@ -1396,7 +1396,7 @@ qolFrame:SetScript("OnEvent", function(self)
         -- Returns or creates socket icon frames on a slot frame (on item border).
         -- Create global socket container on first use
         local globalSocketContainer = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-        globalSocketContainer:SetFrameStrata("TOOLTIP")
+        globalSocketContainer:SetFrameStrata("HIGH")
         globalSocketContainer:Hide()  -- Hidden by default
 
         local function GetOrCreateSocketsIcons(frame, side, slotIndex)
@@ -1474,8 +1474,19 @@ qolFrame:SetScript("OnEvent", function(self)
                 -- Keep font in sync with any setting changes
                 tag:SetFont(CharIlvlFont(), CharIlvlSize(), "THINOUTLINE")
 
-                -- Item level is always white
-                tag:SetTextColor(1, 1, 1, 1)
+                -- Set color based on rarity if enabled, otherwise white
+                local useRarityColor = EllesmereUIDB and EllesmereUIDB.charIlvlUseRarityColor == true
+                if useRarityColor then
+                    local _, _, quality = C_Item.GetItemInfo(link)
+                    if quality and quality >= 0 then
+                        local r, g, b = C_Item.GetItemQualityColor(quality)
+                        tag:SetTextColor(r, g, b, 1)
+                    else
+                        tag:SetTextColor(1, 1, 1, 1)
+                    end
+                else
+                    tag:SetTextColor(1, 1, 1, 1)
+                end
 
                 tag:SetText(lvl)
                 tag:Show()
