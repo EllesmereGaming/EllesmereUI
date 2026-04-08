@@ -728,6 +728,8 @@ qolFrame:SetScript("OnEvent", function(self)
         local function GetApplicantScore(applicantID)
             if not C_LFGList or not C_LFGList.GetApplicantMemberInfo then return nil end
             local _, _, _, _, _, _, _, _, _, _, _, dungeonScore = C_LFGList.GetApplicantMemberInfo(applicantID, 1)
+            if dungeonScore == nil then return nil end
+            if issecretvalue and issecretvalue(dungeonScore) then return nil end
             if type(dungeonScore) ~= "number" then return nil end
             return dungeonScore
         end
@@ -754,9 +756,9 @@ qolFrame:SetScript("OnEvent", function(self)
             table.sort(applicants, function(a, b)
                 local sa = scores[a]
                 local sb = scores[b]
-                if sa ~= nil and sb ~= nil and sa ~= sb then return sa > sb end
-                if sa ~= nil and sb == nil then return true end
-                if sa == nil and sb ~= nil then return false end
+                if sa and sb and sa ~= sb then return sa > sb end
+                if sa and not sb then return true end
+                if not sa and sb then return false end
                 return (originalOrder[a] or 0) < (originalOrder[b] or 0)
             end)
         end)
@@ -959,6 +961,789 @@ qolFrame:SetScript("OnEvent", function(self)
             end
             return false
         end
+
+    ---------------------------------------------------------------------------
+    --  Bag Item Level Labels
+    --  Draws a small item-level number on every equippable item in the bag.
+    --  Setting: EllesmereUIDB.bagIlvlEnabled  (default: true)
+    ---------------------------------------------------------------------------
+    do
+        -- Items worth showing a level on: anything that occupies a gear slot.
+        -- Bags, tabards, ammo pouches and cosmetics are intentionally excluded.
+        local function IsGearSlot(equipSlot, classID, subclassID)
+            if not equipSlot or equipSlot == "" then return false end
+            if equipSlot == "INVTYPE_NON_EQUIP_IGNORE" then return false end
+            if equipSlot == "INVTYPE_TABARD"           then return false end
+            if equipSlot == "INVTYPE_BAG"              then return false end
+            if equipSlot == "INVTYPE_QUIVER"           then return false end
+            -- classID 4 = Armor, subclassID 5 = Cosmetic
+            if classID == 4 and subclassID == 5        then return false end
+            return true
+        end
+
+        -- Pixel nudge per corner so the number sits just inside the icon edge.
+        local CORNER_OFFSET = {
+            TOPLEFT     = {  1, -1 },
+            TOPRIGHT    = { -1, -1 },
+            BOTTOMLEFT  = {  1,  1 },
+            BOTTOMRIGHT = { -1,  1 },
+        }
+
+        local function GetCorner()
+            return (EllesmereUIDB and EllesmereUIDB.bagIlvlAnchor) or "BOTTOMLEFT"
+        end
+
+        local function GetSize()
+            return (EllesmereUIDB and EllesmereUIDB.bagIlvlFontSize) or 11
+        end
+
+        local function GetFace()
+            return (EllesmereUI and EllesmereUI.GetFont and EllesmereUI.GetFont())
+                or STANDARD_TEXT_FONT
+        end
+
+        local function IsActive()
+            return not (EllesmereUIDB and EllesmereUIDB.bagIlvlEnabled == false)
+        end
+
+        -- Retrieve or create the FontString attached to a button.
+        local function GetOrCreateTag(btn)
+            if btn._euiIlvlTag then return btn._euiIlvlTag end
+            -- Use OVERLAY so the text renders above the item icon texture
+            -- but stays below Blizzard's own search-dimming overlay.
+            local tag = btn:CreateFontString(nil, "OVERLAY")
+            tag:SetFont(GetFace(), GetSize(), "THINOUTLINE")
+            tag:SetShadowOffset(1, -1)
+            tag:SetShadowColor(0, 0, 0, 0.9)
+            btn._euiIlvlTag = tag
+            return tag
+        end
+
+        local function PaintButton(btn, bag, slot)
+            if not btn then return end
+            local tag = GetOrCreateTag(btn)
+
+            if not IsActive() then tag:Hide(); return end
+
+            local link = C_Container.GetContainerItemLink(bag, slot)
+            if not link then tag:Hide(); return end
+
+            local _, _, quality, _, _, classID, subclassID, _, equipSlot =
+                C_Item.GetItemInfo(link)
+
+            if not IsGearSlot(equipSlot, classID, subclassID) then
+                tag:Hide(); return
+            end
+
+            -- GetCurrentItemLevel via ItemLocation is the only reliable way
+            -- to get the actual equipped/upgraded level rather than base level.
+            local loc  = ItemLocation:CreateFromBagAndSlot(bag, slot)
+            local lvl  = loc and C_Item.GetCurrentItemLevel(loc)
+            if not lvl or lvl <= 0 then tag:Hide(); return end
+
+            -- Refresh font in case the user changed size in settings
+            tag:SetFont(GetFace(), GetSize(), "THINOUTLINE")
+
+            local corner = GetCorner()
+            local off    = CORNER_OFFSET[corner] or CORNER_OFFSET.BOTTOMLEFT
+            tag:ClearAllPoints()
+            tag:SetPoint(corner, btn, corner, off[1], off[2])
+
+            -- Colour by quality; grey fallback for unknown quality
+            if quality and quality >= 0 then
+                local r, g, b = C_Item.GetItemQualityColor(quality)
+                tag:SetTextColor(r, g, b, 1)
+            else
+                tag:SetTextColor(0.8, 0.8, 0.8, 1)
+            end
+
+            tag:SetText(lvl)
+            tag:Show()
+        end
+
+        local function ScanOpenBags()
+            if ContainerFrameCombinedBags and ContainerFrameCombinedBags:IsShown() then
+                for _, btn in ContainerFrameCombinedBags:EnumerateValidItems() do
+                    PaintButton(btn, btn:GetBagID(), btn:GetID())
+                end
+            end
+            for _, frame in ipairs((ContainerFrameContainer and
+                                    ContainerFrameContainer.ContainerFrames) or {}) do
+                if frame:IsShown() then
+                    for _, btn in frame:EnumerateValidItems() do
+                        PaintButton(btn, btn:GetBagID(), btn:GetID())
+                    end
+                end
+            end
+        end
+
+        -- Event-driven refresh
+        local watchFrame = CreateFrame("Frame")
+        watchFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+        watchFrame:RegisterEvent("ITEM_UPGRADE_MASTER_SET_ITEM")
+        watchFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+        watchFrame:RegisterEvent("BAG_OPEN")
+        watchFrame:SetScript("OnEvent", function(_, event)
+            if event == "PLAYER_ENTERING_WORLD" then
+                C_Timer.After(2, ScanOpenBags)
+            else
+                ScanOpenBags()
+            end
+        end)
+
+        -- Refresh when any individual bag frame becomes visible
+        for _, frame in ipairs((ContainerFrameContainer and
+                                ContainerFrameContainer.ContainerFrames) or {}) do
+            frame:HookScript("OnShow", function()
+                C_Timer.After(0.1, ScanOpenBags)
+            end)
+        end
+        if ContainerFrameCombinedBags then
+            ContainerFrameCombinedBags:HookScript("OnShow", function()
+                C_Timer.After(0.1, ScanOpenBags)
+            end)
+        end
+
+        -- Expose a refresh handle for the options panel
+        EllesmereUI._refreshBagIlvl = ScanOpenBags
+    end
+
+    ---------------------------------------------------------------------------
+    --  Character Frame Item Level Labels
+    --  Draws a small item-level number on each gear slot in the character
+    --  panel. Setting: EllesmereUIDB.charIlvlEnabled  (default: false)
+    ---------------------------------------------------------------------------
+    do
+        -- Inventory slot index → { frame name, side }
+        -- side: "RIGHT" = right column, "LEFT" = left column, "TOP" = top (weapons)
+        local GEAR_SLOTS = {
+            [1]  = { "CharacterHeadSlot",           "RIGHT" },
+            [2]  = { "CharacterNeckSlot",            "RIGHT" },
+            [3]  = { "CharacterShoulderSlot",        "RIGHT" },
+            [15] = { "CharacterBackSlot",            "RIGHT" },
+            [5]  = { "CharacterChestSlot",           "RIGHT" },
+            [4]  = { "CharacterBodySlot",            "RIGHT" },
+            [19] = { "CharacterTabardSlot",          "RIGHT" },
+            [9]  = { "CharacterWristSlot",           "RIGHT" },
+            [10] = { "CharacterHandsSlot",           "LEFT" },
+            [6]  = { "CharacterWaistSlot",           "LEFT" },
+            [7]  = { "CharacterLegsSlot",            "LEFT" },
+            [8]  = { "CharacterFeetSlot",            "LEFT" },
+            [11] = { "CharacterFinger0Slot",         "LEFT" },
+            [12] = { "CharacterFinger1Slot",         "LEFT" },
+            [13] = { "CharacterTrinket0Slot",        "LEFT" },
+            [14] = { "CharacterTrinket1Slot",        "LEFT" },
+            [16] = { "CharacterMainHandSlot",        "TOP" },
+            [17] = { "CharacterSecondaryHandSlot",   "TOP" },
+        }
+
+        -- Slots that can be enchanted in Midnight expansion
+        local ENCHANTABLE_SLOTS = {
+            [1]  = true,   -- Head
+            [3]  = true,   -- Shoulders
+            [5]  = true,   -- Chest
+            [7]  = true,   -- Legs
+            [8]  = true,   -- Feet
+            [11] = true,   -- Ring 1
+            [12] = true,   -- Ring 2
+            [16] = true,   -- Main Hand
+        }
+
+        -- Strip enchant prefixes (inspired by BetterCharacterPanel's approach)
+        local stripEnchantPrefixes = {
+            ["Enchant "] = "",
+            ["Weapon %- "] = "",
+            ["Shoulders %- "] = "",
+            ["Chest %- "] = "",
+            ["Ring %- "] = "",
+            ["Boots %- "] = "",
+            ["Helm %- "] = "",
+            ["Head %- "] = "",
+            ["Legs %- "] = "",
+            ["Feet %- "] = "",
+            ["Wrist %- "] = "",
+            ["%+"] = "",
+        }
+
+        -- Generic enchant replacements that apply to all enchants
+        local alwaysReplaceNames = {
+            ["Stamina"] = "Stam",
+            ["Intellect"] = "Int",
+            ["Agility"] = "Agi",
+            ["Strength"] = "Str",
+            ["Mastery"] = "Mast",
+            ["Versatility"] = "Vers",
+            ["Critical Strike"] = "Crit",
+            ["Haste"] = "Haste",
+            ["Avoidance"] = "Avoid",
+            ["Leech"] = "Leech",
+            ["Speed"] = "Speed",
+            [" and "] = " & ",
+        }
+
+        -- Default enchant shortnames for Midnight expansion
+        local DEFAULT_ENCHANT_SHORTNAMES = {
+            ["Minor Speed Increase"] = "Speed",
+            ["Homebound Speed"] = "Speed & HS Red.",
+            ["Plainsrunner's Breeze"] = "Speed",
+            ["Graceful Avoidance"] = "Avoid",
+            ["Regenerative Leech"] = "Leech",
+            ["Watcher's Loam"] = "Stam",
+            ["Rider's Reassurance"] = "Mount Speed",
+            ["Accelerated Agility"] = "Speed & Agi",
+            ["Reserve of Int"] = "Mana & Int",
+            ["Sustained Str"] = "Stam & Str",
+            ["Waking Stats"] = "Primary Stat",
+
+            ["Cavalry's March"] = "Mount Speed",
+            ["Scout's March"] = "Speed",
+
+            ["Defender's March"] = "Stam",
+            ["Stormrider's Agi"] = "Agi & Speed",
+            ["Council's Intellect"] = "Int & Mana",
+            ["Crystalline Radiance"] = "Primary Stat",
+            ["Oathsworn's Strength"] = "Str & Stam",
+
+            ["Chant of Armored Avoidance"] = "Avoid",
+            ["Chant of Armored Leech"] = "Leech",
+            ["Chant of Armored Speed"] = "Speed",
+            ["Chant of Winged Grace"] = "Avoid & FallDmg",
+            ["Chant of Leeching Fangs"] = "Leech & Recup",
+            ["Chant of Burrowing Rapidity"] = "Speed & HScd",
+
+            ["Cursed Haste"] = "Haste & \124cffcc0000-Vers\124r",
+            ["Cursed Crit"] = "Crit & \124cffcc0000-Haste\124r",
+            ["Cursed Mastery"] = "Mast & \124cffcc0000-Crit\124r",
+            ["Cursed Versatility"] = "Vers & \124cffcc0000-Mast\124r",
+
+            ["Shadowed Belt Clasp"] = "Stamina",
+
+            ["Incandescent Essence"] = "Essence",
+
+            ["Acuity of the Ren'dorei"] = "Proc Prim",
+            ["Arcane Mastery"] = "Proc Mast",
+            ["Berserker's Rage"] = "Proc Haste",
+            ["Flames of the Sin'dorei"] = "Dot->AoE",
+            ["Jan'alai's Precision"] = "Proc Crit",
+            ["Strength of Halazzi"] = "Bleed",
+            ["Worldsoul Aegis"] = "Shield->AoE",
+            ["Worldsoul Tenacity"] = "Proc Vers",
+
+            ["Empowered Blessing of Speed"] = "Speed+Vigor",
+            ["Blessing of Speed"] = "Speed",
+            ["Empowered Rune of Avoidance"] = "Avoid+MS",
+            ["Rune of Avoidance"] = "Avoid",
+            ["Empowered Hex of Leeching"] = "Leech",
+            ["Hex of Leeching"] = "Leech",
+
+            ["Akil'zon's Swiftness"] = "Speed",
+            ["Flight of the Eagle"] = "Speed",
+            ["Amirdrassil's Grace"] = "Avoid",
+            ["Nature's Grace"] = "Avoid",
+            ["Thalassian Recovery"] = "Leech",
+
+            ["Mark of Nalorakk"] = "Str & Stam",
+            ["Mark of the Magister"] = "Int & Mana",
+            ["Mark of the Rootwarden"] = "Agi & Speed",
+            ["Mark of the Worldsoul"] = "Primary Stat",
+
+            ["Arcanoweave Spellthread"] = "Int & Mana",
+            ["Blood Knight's Armor Kit"] = "Agi/Str & Armor",
+            ["Forest Hunter's Armor Kit"] = "Ag/Str & Stam",
+            ["Thalassian Scout Armor Kit"] = "Agi/Str",
+            ["Bright Linen Spellthread"] = "Int",
+
+            ["Shaladrassil's Roots"] = "Leech & Stam",
+            ["Farstrider's Hunt"] = "Speed & Stam",
+            ["Lynx's Dexterity"] = "Avoid & Stam",
+
+            ["Eyes of the Eagle"] = "Crit%+",
+            ["Nature's Fury"] = "Crit",
+            ["Nature's Wrath"] = "Crit",
+            ["Silvermoon's Alacrity"] = "Haste%",
+            ["Silvermoon's Mending"] = "Leech",
+            ["Thalassian Haste"] = "Haste",
+            ["Zul'jin's Mastery"] = "Mast",
+            ["Amani Mastery"] = "Mast",
+            ["Silvermoon's Tenacity"] = "Vers",
+            ["Thalassian Versatility"] = "Vers",
+        }
+
+        local function GetEnchantShortnames()
+            if not EllesmereUIDB then EllesmereUIDB = {} end
+            if not EllesmereUIDB.enchantShortnames then
+                EllesmereUIDB.enchantShortnames = {}
+                -- Initialize with defaults
+                for k, v in pairs(DEFAULT_ENCHANT_SHORTNAMES) do
+                    EllesmereUIDB.enchantShortnames[k] = v
+                end
+            end
+            return EllesmereUIDB.enchantShortnames
+        end
+
+        -- Process enchant text with multiple passes (inspired by BetterCharacterPanel)
+        local function ProcessEnchantText(enchantText)
+            if not enchantText or enchantText == "" then return enchantText end
+
+            -- Pass 1: Apply exact name replacements from user's shortname table
+            local shortnames = GetEnchantShortnames()
+            if shortnames[enchantText] then
+                return shortnames[enchantText]
+            end
+
+            -- Pass 2: Remove prefixes
+            for prefix, replacement in pairs(stripEnchantPrefixes) do
+                enchantText = enchantText:gsub(prefix, replacement)
+            end
+
+            -- Pass 3: Apply generic replacements
+            for name, replacement in pairs(alwaysReplaceNames) do
+                enchantText = enchantText:gsub(name, replacement)
+            end
+
+            return enchantText
+        end
+
+        local function CharIlvlEnabled()
+            return EllesmereUIDB and EllesmereUIDB.charIlvlEnabled == true
+        end
+
+        local function CharIlvlSize()
+            return (EllesmereUIDB and EllesmereUIDB.charIlvlFontSize) or 11
+        end
+
+        local function CharIlvlFont()
+            return (EllesmereUI and EllesmereUI.GetFont and EllesmereUI.GetFont())
+                or STANDARD_TEXT_FONT
+        end
+
+        local function CharTrackLevelEnabled()
+            return EllesmereUIDB and EllesmereUIDB.charTrackLevelEnabled == true
+        end
+
+        local function CharTrackLevelSize()
+            return (EllesmereUIDB and EllesmereUIDB.charTrackLevelFontSize) or 9
+        end
+
+        local function CharEnchantsEnabled()
+            return EllesmereUIDB and EllesmereUIDB.charEnchantsEnabled == true
+        end
+
+        local function CharEnchantsFontSize()
+            return (EllesmereUIDB and EllesmereUIDB.charEnchantsFontSize) or 14
+        end
+
+        local function CharEnchantsShorten()
+            return EllesmereUIDB and EllesmereUIDB.charEnchantsShorten == true
+        end
+
+        local function CharSocketsEnabled()
+            return EllesmereUIDB and EllesmereUIDB.charSocketsEnabled == true
+        end
+
+        local function CharSocketsScale()
+            return (EllesmereUIDB and EllesmereUIDB.charSocketsScale) or 1
+        end
+
+        local function CharSocketsOffsetX()
+            return (EllesmereUIDB and EllesmereUIDB.charSocketsOffsetX) or 0
+        end
+
+        local function CharSocketsOffsetY()
+            return (EllesmereUIDB and EllesmereUIDB.charSocketsOffsetY) or 0
+        end
+
+        -- Returns or creates the tag FontString on a slot frame.
+        -- Right-column slots: label sits to the right of the item.
+        -- Left-column slots: label sits to the left of the item.
+        -- Top slots (weapons): label sits above the item.
+        local function GetOrCreateSlotTag(frame, side, slotIndex)
+            if frame._euiCharIlvlTag then return frame._euiCharIlvlTag end
+            local tag = frame:CreateFontString(nil, "OVERLAY")
+            tag:SetFont(CharIlvlFont(), CharIlvlSize(), "THINOUTLINE")
+            tag:SetShadowOffset(1, -1)
+            tag:SetShadowColor(0, 0, 0, 0.9)
+            -- Anchor based on position
+            if side == "LEFT" then
+                tag:SetPoint("RIGHT", frame, "LEFT", -5, 10)
+            elseif side == "TOP" then
+                -- Weapons: MainHand left, OffHand right
+                if slotIndex == 16 then  -- MainHand
+                    tag:SetPoint("RIGHT", frame, "LEFT", -5, 10)
+                else  -- OffHand (17)
+                    tag:SetPoint("LEFT", frame, "RIGHT", 5, 10)
+                end
+            else  -- RIGHT
+                tag:SetPoint("LEFT", frame, "RIGHT", 5, 10)
+            end
+            frame._euiCharIlvlTag = tag
+            return tag
+        end
+
+        -- Returns or creates the upgrade tag FontString on a slot frame (next to itemlevel).
+        local function GetOrCreateUpgradeTag(frame, side)
+            if frame._euiCharUpgradeTag then return frame._euiCharUpgradeTag end
+            local tag = frame:CreateFontString(nil, "OVERLAY")
+            tag:SetFont(CharIlvlFont(), CharTrackLevelSize(), "THINOUTLINE")
+            tag:SetShadowOffset(1, -1)
+            tag:SetShadowColor(0, 0, 0, 0.9)
+            -- Store side for later use in PaintSlot
+            frame._euiCharUpgradeSide = side
+            frame._euiCharUpgradeTag = tag
+            return tag
+        end
+
+        -- Returns or creates socket icon frames on a slot frame (on item border).
+        -- Create global socket container on first use
+        local globalSocketContainer = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+        globalSocketContainer:SetFrameStrata("TOOLTIP")
+        globalSocketContainer:Hide()  -- Hidden by default
+
+        local function GetOrCreateSocketsIcons(frame, side, slotIndex)
+            if frame._euiCharSocketsIcons then return frame._euiCharSocketsIcons end
+
+            frame._euiCharSocketsIcons = {}
+            for i = 1, 4 do  -- Max 4 sockets per item
+                local icon = globalSocketContainer:CreateTexture(nil, "OVERLAY")
+                icon:SetSize(16, 16)
+                icon:Hide()  -- Hide initially; only show when CharacterFrame is open
+                frame._euiCharSocketsIcons[i] = icon
+            end
+
+            -- Store side for later positioning
+            frame._euiCharSocketsSide = side
+            frame._euiCharSocketsSlotIndex = slotIndex
+
+            return frame._euiCharSocketsIcons
+        end
+
+        -- Returns or creates the enchants tag FontString on a slot frame.
+        local function GetOrCreateEnchantsTag(frame, side, slotIndex)
+            if frame._euiCharEnchantsTag then return frame._euiCharEnchantsTag end
+            local tag = frame:CreateFontString(nil, "OVERLAY")
+            tag:SetFont(CharIlvlFont(), CharEnchantsFontSize(), "THINOUTLINE")
+            tag:SetShadowOffset(1, -1)
+            tag:SetShadowColor(0, 0, 0, 0.9)
+            -- Position one line below item level, aligned with it
+            if side == "LEFT" then
+                tag:SetPoint("TOPRIGHT", frame, "TOPLEFT", -8, -18)
+            elseif side == "TOP" then
+                -- Weapons: both MainHand and OffHand show enchant below
+                if slotIndex == 16 then  -- MainHand - enchant on left
+                    tag:SetPoint("TOPRIGHT", frame, "TOPLEFT", -8, -18)
+                else  -- OffHand (17) - enchant on right
+                    tag:SetPoint("TOPLEFT", frame, "TOPRIGHT", 8, -18)
+                end
+            else  -- RIGHT
+                tag:SetPoint("TOPLEFT", frame, "TOPRIGHT", 8, -18)
+            end
+            frame._euiCharEnchantsTag = tag
+            return tag
+        end
+
+        local function PaintSlot(slotIndex, frameName, side)
+            local frame = _G[frameName]
+            if not frame then return end
+
+            local tag = GetOrCreateSlotTag(frame, side, slotIndex)
+            local upgradeTag = GetOrCreateUpgradeTag(frame, side)
+            local enchantsTag = GetOrCreateEnchantsTag(frame, side, slotIndex)
+            local socketIcons = GetOrCreateSocketsIcons(frame, side, slotIndex)
+
+            local link = GetInventoryItemLink("player", slotIndex)
+            if not link then
+                tag:Hide()
+                upgradeTag:Hide()
+                enchantsTag:Hide()
+                if socketIcons then
+                    for _, icon in ipairs(socketIcons) do icon:Hide() end
+                end
+                return
+            end
+
+            local loc  = ItemLocation:CreateFromEquipmentSlot(slotIndex)
+            local lvl  = loc and C_Item.GetCurrentItemLevel(loc)
+            if not lvl or lvl <= 0 then
+                tag:Hide()
+                upgradeTag:Hide()
+                return
+            end
+
+            -- Show item level if enabled
+            if CharIlvlEnabled() then
+                -- Keep font in sync with any setting changes
+                tag:SetFont(CharIlvlFont(), CharIlvlSize(), "THINOUTLINE")
+
+                -- Item level is always white
+                tag:SetTextColor(1, 1, 1, 1)
+
+                tag:SetText(lvl)
+                tag:Show()
+            else
+                tag:Hide()
+            end
+
+            -- Show track level if enabled
+            if CharTrackLevelEnabled() then
+                upgradeTag:SetFont(CharIlvlFont(), CharTrackLevelSize(), "THINOUTLINE")
+
+                -- Track level uses quality color
+                local _, _, quality = C_Item.GetItemInfo(link)
+                if quality and quality >= 0 then
+                    local r, g, b = C_Item.GetItemQualityColor(quality)
+                    upgradeTag:SetTextColor(r, g, b, 1)
+                else
+                    upgradeTag:SetTextColor(1, 1, 1, 1)
+                end
+
+                -- Position upgrade tag with dynamic offset based on itemlevel font size
+                local side = frame._euiCharUpgradeSide
+                local itemLevelFontSize = CharIlvlSize()
+                local dynamicOffset = itemLevelFontSize + 15  -- Font size + 15px base offset
+
+                if side == "LEFT" then
+                    upgradeTag:SetPoint("RIGHT", frame, "LEFT", -dynamicOffset, 10)
+                elseif side == "TOP" then
+                    upgradeTag:SetPoint("BOTTOM", frame, "TOP", 0, -6)
+                else  -- RIGHT
+                    upgradeTag:SetPoint("LEFT", frame, "RIGHT", dynamicOffset, 10)
+                end
+
+                local trackText = ""
+                local trackColor = { r = 1, g = 1, b = 1 }  -- default white
+
+                -- Try to extract from tooltip
+                if frame and link then
+                    -- Create a hidden tooltip to scan
+                    local tooltip = CreateFrame("GameTooltip", "EUICharIlvlTooltip", nil, "GameTooltipTemplate")
+                    tooltip:SetOwner(UIParent, "ANCHOR_NONE")
+                    tooltip:SetInventoryItem("player", slotIndex)
+
+                    -- Scan all lines in one pass
+                    for i = 1, tooltip:NumLines() do
+                        local textLeft = _G["EUICharIlvlTooltipTextLeft" .. i]:GetText() or ""
+
+                        -- Look for "Upgrade Level: XYZ X/X" pattern
+                        if textLeft:match("Upgrade Level:") then
+                            -- Extract the track info after "Upgrade Level: "
+                            local trackInfo = textLeft:gsub("Upgrade Level:%s*", "")
+
+                            -- Parse the track type and numbers
+                            local trk, nums = trackInfo:match("^(%w+)%s+(.+)$")
+                            if trk and nums then
+                                local shortName = ""
+
+                                -- Map full names to short names and set colors
+                                if trk == "Champion" then
+                                    shortName = "Champion"
+                                    trackColor = { r = 0.6, g = 0, b = 1 }  -- purple
+                                elseif trk:match("Myth") then
+                                    shortName = "Myth"
+                                    trackColor = { r = 1, g = 0.6, b = 0 }  -- orange
+                                elseif trk == "Hero" then
+                                    shortName = "Hero"
+                                    trackColor = { r = 1, g = 0.3, b = 0.8 }  -- pink
+                                elseif trk == "Veteran" then
+                                    shortName = "Veteran"
+                                    trackColor = { r = 0.2, g = 0.9, b = 0.9 }  -- cyan
+                                elseif trk:match("Adv") then
+                                    shortName = "Adventurer"
+                                    trackColor = { r = 0.2, g = 0.6, b = 1 }  -- blue
+                                elseif trk == "Delve" then
+                                    shortName = "Delve"
+                                    trackColor = { r = 1, g = 1, b = 1 }  -- white
+                                end
+
+                                if shortName ~= "" then
+                                    trackText = "(" .. shortName .. " " .. nums .. ")"
+                                end
+                                break
+                            end
+                        end
+                    end
+
+                    tooltip:Hide()
+                end
+
+                if trackText ~= "" then
+                    upgradeTag:SetText(trackText)
+                    upgradeTag:SetTextColor(trackColor.r, trackColor.g, trackColor.b, 1)
+                    upgradeTag:Show()
+                else
+                    upgradeTag:Hide()
+                end
+            else
+                upgradeTag:Hide()
+            end
+
+            -- Show enchants if enabled
+            if CharEnchantsEnabled() then
+                -- Check if this slot can be enchanted in the current expansion
+                if ENCHANTABLE_SLOTS[slotIndex] then
+                    enchantsTag:SetFont(CharIlvlFont(), CharEnchantsFontSize(), "THINOUTLINE")
+
+                    local tooltip = CreateFrame("GameTooltip", "EUICharEnchantsTooltip", nil, "GameTooltipTemplate")
+                    tooltip:SetOwner(UIParent, "ANCHOR_NONE")
+                    tooltip:SetInventoryItem("player", slotIndex)
+
+                    local enchantText = ""
+                    local rankIcon = ""
+
+                    -- Look for "Enchanted:" and "Rank" lines in tooltip
+                    for i = 1, tooltip:NumLines() do
+                        local textLeft = _G["EUICharEnchantsTooltipTextLeft" .. i]:GetText() or ""
+                        if textLeft:match("Enchanted:") then
+                            enchantText = textLeft:gsub("Enchanted:%s*", "")
+                            -- Remove "Enchant [SlotName] - " prefix, keep only the actual enchant name
+                            enchantText = enchantText:gsub("^Enchant%s+[^-]+%s*-%s*", "")
+                        end
+                        -- Look for rank information in tooltip
+                        if textLeft:match("Rank") then
+                            rankIcon = textLeft:match("(Rank %d+)") or ""
+                        end
+                    end
+
+                    tooltip:Hide()
+
+                    -- Clean enchant text: remove trailing non-text characters (icons, etc.)
+                    if enchantText ~= "" then
+                        -- Match only valid text characters at the beginning
+                        enchantText = enchantText:match("^([%w%s'&%-%.%+%%()]+)")
+                        if not enchantText or enchantText == "" then
+                            enchantText = ""
+                        else
+                            -- Trim leading and trailing whitespace
+                            enchantText = enchantText:match("^%s*(.-)%s*$")
+                        end
+                    end
+
+                    -- Apply multi-pass processing if shortening is enabled
+                    if CharEnchantsShorten() and enchantText ~= "" then
+                        enchantText = ProcessEnchantText(enchantText)
+                    end
+
+                    if enchantText ~= "" then
+                        local displayText = enchantText
+                        if rankIcon ~= "" then
+                            displayText = enchantText .. " " .. rankIcon
+                        end
+
+                        enchantsTag:SetText(displayText)
+                        enchantsTag:SetTextColor(1, 1, 1, 1)
+                        enchantsTag:Show()
+                    else
+                        -- No enchant found but slot is enchantable - show "Missing enchant" in red
+                        enchantsTag:SetText("<Missing enchant>")
+                        enchantsTag:SetTextColor(1, 0, 0, 1)  -- Red
+                        enchantsTag:Show()
+                    end
+                else
+                    -- Slot is not enchantable in current expansion
+                    enchantsTag:Hide()
+                end
+            else
+                enchantsTag:Hide()
+            end
+
+            -- Show sockets if enabled and character frame is open
+            if CharSocketsEnabled() and PaperDollFrame and PaperDollFrame:IsShown() then
+                local socketIcons = GetOrCreateSocketsIcons(frame, side, slotIndex)
+
+                local tooltip = CreateFrame("GameTooltip", "EUICharSocketsTooltip", nil, "GameTooltipTemplate")
+                tooltip:SetOwner(UIParent, "ANCHOR_NONE")
+                tooltip:SetInventoryItem("player", slotIndex)
+
+                -- Extract socket textures from tooltip
+                local socketTextures = {}
+                for i = 1, 10 do
+                    local texture = _G["EUICharSocketsTooltipTexture" .. i]
+                    if texture and texture:IsShown() then
+                        local tex = texture:GetTexture() or texture:GetTextureFileID()
+                        if tex then
+                            table.insert(socketTextures, tex)
+                        end
+                    end
+                end
+
+                tooltip:Hide()
+
+                -- Position and show socket icons
+                if #socketTextures > 0 then
+                    local side = frame._euiCharSocketsSide
+                    local slotIdx = frame._euiCharSocketsSlotIndex
+                    local scale = CharSocketsScale()
+                    local offsetX = CharSocketsOffsetX()
+                    local offsetY = CharSocketsOffsetY()
+
+                    for i, icon in ipairs(socketIcons) do
+                        if socketTextures[i] then
+                            icon:SetTexture(socketTextures[i])
+                            icon:SetScale(scale)
+                            -- Position icons on the outside edge of the item icon, clear of border
+                            if side == "LEFT" then
+                                icon:SetPoint("LEFT", frame, "LEFT", -16 - offsetX, -3 + offsetY - (i-1)*18)
+                            elseif side == "TOP" then
+                                if slotIdx == 16 then  -- MainHand - outside right edge
+                                    icon:SetPoint("RIGHT", frame, "RIGHT", 16 + offsetX, -3 + offsetY - (i-1)*18)
+                                else  -- OffHand - outside left edge
+                                    icon:SetPoint("LEFT", frame, "LEFT", -16 - offsetX, -3 + offsetY - (i-1)*18)
+                                end
+                            else  -- RIGHT
+                                icon:SetPoint("RIGHT", frame, "RIGHT", 16 + offsetX, -3 + offsetY - (i-1)*18)
+                            end
+                            icon:Show()
+                        else
+                            icon:Hide()
+                        end
+                    end
+                else
+                    for _, icon in ipairs(socketIcons) do
+                        icon:Hide()
+                    end
+                end
+            else
+                -- Sockets disabled or frame not open - hide all icons
+                if socketIcons then
+                    for _, icon in ipairs(socketIcons) do
+                        icon:Hide()
+                    end
+                end
+            end
+        end
+
+        local function RefreshCharFrame()
+            for slotIndex, data in pairs(GEAR_SLOTS) do
+                PaintSlot(slotIndex, data[1], data[2])
+            end
+        end
+
+        -- Wire up events
+        local charWatcher = CreateFrame("Frame")
+        charWatcher:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+        charWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+        charWatcher:SetScript("OnEvent", function(_, event)
+            if event == "PLAYER_ENTERING_WORLD" then
+                C_Timer.After(1, RefreshCharFrame)
+            else
+                RefreshCharFrame()
+            end
+        end)
+
+        -- Refresh when the character panel opens; hide socket icons when it closes
+        if PaperDollFrame then
+            PaperDollFrame:HookScript("OnShow", function()
+                globalSocketContainer:Show()
+                RefreshCharFrame()
+            end)
+            PaperDollFrame:HookScript("OnHide", function()
+                globalSocketContainer:Hide()
+            end)
+        end
+
+        EllesmereUI._refreshCharIlvl = RefreshCharFrame
+        EllesmereUI._refreshCharEnchants = RefreshCharFrame
+        EllesmereUI._refreshCharSockets = RefreshCharFrame
+    end
 
         local resetAnnounceFrame = CreateFrame("Frame")
         resetAnnounceFrame:RegisterEvent("CHAT_MSG_SYSTEM")
