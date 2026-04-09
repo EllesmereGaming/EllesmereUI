@@ -7260,11 +7260,26 @@ EllesmereUI.VIS_VALUES = {
     mouseover  = "Mouseover",
     in_combat      = "In Combat",
     out_of_combat  = "Out of Combat",
+    skyriding      = "When Skyriding",
     in_raid        = "In Raid Group",
     in_party   = "In Party",
     solo       = "Solo",
 }
-EllesmereUI.VIS_ORDER = { "never", "always", "mouseover", "in_combat", "out_of_combat", "---", "in_raid", "in_party", "solo" }
+EllesmereUI.VIS_ORDER = { "never", "always", "mouseover", "in_combat", "out_of_combat", "skyriding", "---", "in_raid", "in_party", "solo" }
+
+-- Dropdown 2: Visibility mode checkboxes for multi-select behavior
+EllesmereUI.VIS_MODE_ITEMS = {
+    { key = "never",       label = "Never" },
+    { key = "always",      label = "Always" },
+    { key = "mouseover",   label = "Mouseover" },
+    { key = "in_combat",   label = "In Combat" },
+    { key = "out_of_combat", label = "Out of Combat" },
+    { key = "mounted",     label = "When Mounted" },
+    { key = "skyriding",  label = "When Skyriding" },
+    { key = "in_raid",    label = "In Raid Group" },
+    { key = "in_party",   label = "In Party" },
+    { key = "solo",       label = "Solo" },
+}
 
 -- CDM variant (no mouseover -- CDM bars don't support mouseover visibility)
 EllesmereUI.VIS_VALUES_CDM = {
@@ -7286,11 +7301,13 @@ EllesmereUI.VIS_VALUES_BASICS = {
     mouseover  = "Mouseover",
     in_combat      = "In Combat",
     out_of_combat  = "Out of Combat",
+    mounted        = "When Mounted",
+    skyriding      = "When Skyriding",
     in_raid        = "In Raid Group",
     in_party   = "In Party",
     solo       = "Solo",
 }
-EllesmereUI.VIS_ORDER_BASICS = { "disabled", "---", "never", "always", "mouseover", "in_combat", "out_of_combat", "---", "in_raid", "in_party", "solo" }
+EllesmereUI.VIS_ORDER_BASICS = { "disabled", "---", "never", "always", "mouseover", "in_combat", "out_of_combat", "mounted", "skyriding", "---", "in_raid", "in_party", "solo" }
 
 -- Checkbox dropdown 2: Visibility Options (keys match DB fields)
 EllesmereUI.VIS_OPT_ITEMS = {
@@ -7398,18 +7415,57 @@ end
 
 -- Runtime check: returns true if the element should be SHOWN based on the
 -- visibility mode dropdown value. Caller provides combat/group state.
--- `mode` is the string from the visibility dropdown.
--- `state` is a table: { inCombat, inRaid, inParty }
-function EllesmereUI.CheckVisibilityMode(mode, state)
+-- `mode` is the string from the visibility dropdown or a table of modes.
+-- `state` is a table: { inCombat, inRaid, inParty, isSkyriding, isGliding }
+local function CheckSingleVisibilityMode(mode, state)
+    if not mode then return true end
     if mode == "disabled" then return false end
     if mode == "never" then return false end
     if mode == "in_combat" then return state.inCombat end
     if mode == "out_of_combat" then return not state.inCombat end
+    if mode == "mounted" then return state.isMounted end
     if mode == "in_raid" then return state.inRaid end
     if mode == "in_party" then return state.inParty or state.inRaid end
     if mode == "solo" then return not state.inRaid and not state.inParty end
+    if mode == "skyriding" then return state.isSkyriding or state.isGliding end
     -- "always" and "mouseover" both return true (mouseover handled separately)
     return true
+end
+
+function EllesmereUI.CheckVisibilityMode(mode, state)
+    if not state then
+        local isMounted = IsMounted()
+        local isGliding = false
+        local canGlide = false
+        if C_PlayerInfo and C_PlayerInfo.GetGlidingInfo then
+            isGliding, canGlide = C_PlayerInfo.GetGlidingInfo()
+        end
+        state = {
+            inCombat = UnitAffectingCombat("player"),
+            inRaid   = IsInRaid(),
+            inParty  = IsInGroup(),
+            isMounted = isMounted,
+            isSkyriding = isGliding or canGlide,
+        }
+    end
+
+    if type(mode) == "table" then
+        local hasMode = false
+        for key, enabled in pairs(mode) do
+            if enabled then
+                hasMode = true
+                if CheckSingleVisibilityMode(key, state) then
+                    return true
+                end
+            end
+        end
+        if not hasMode then
+            return true
+        end
+        return false
+    end
+
+    return CheckSingleVisibilityMode(mode, state)
 end
 
 -------------------------------------------------------------------------------

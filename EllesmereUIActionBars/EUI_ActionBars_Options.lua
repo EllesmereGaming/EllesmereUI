@@ -5,7 +5,6 @@
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 local EAB = ns.EAB
-local VisibilityCompat = EAB and EAB.VisibilityCompat
 
 local function GetEABOptOutline() return EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag() or "" end
 local function GetEABOptUseShadow() return EllesmereUI.GetFontUseShadow and EllesmereUI.GetFontUseShadow() or true end
@@ -63,9 +62,8 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Helpers
     ---------------------------------------------------------------------------
-    local _selectedBarKey = "MainBar"
     local function SelectedKey()
-        return _selectedBarKey
+        return EAB.db.profile.selectedBar or "MainBar"
     end
 
     local function SB()
@@ -200,10 +198,6 @@ initFrame:SetScript("OnEvent", function(self)
     -- Hide overlay when the panel is closed
     EllesmereUI:RegisterOnHide(HideEditOverlay)
 
-    -- Sync Edit Mode icon counts when the settings panel closes
-    -- (user may have changed numIcons for a bar)
-    EllesmereUI:RegisterOnHide(function() EAB:SyncEditModeIcons() end)
-
     ---------------------------------------------------------------------------
     --  Live Preview System
     --
@@ -261,11 +255,6 @@ initFrame:SetScript("OnEvent", function(self)
         specChangeFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
         specChangeFrame:SetScript("OnEvent", function(self, event)
             if event == "ACTIVE_TALENT_GROUP_CHANGED" and _barsHeaderBuilder then
-                -- Only rebuild if ActionBars is the active module and panel is open
-                if not EllesmereUI:IsShown() or EllesmereUI:GetActiveModule() ~= "EllesmereUIActionBars" then
-                    activePreview = nil
-                    return
-                end
                 -- Force a full rebuild of the preview and header on spec change
                 activePreview = nil
                 EllesmereUI:SetContentHeader(_barsHeaderBuilder)
@@ -1035,54 +1024,125 @@ initFrame:SetScript("OnEvent", function(self)
         RepBar   = "Rep",
     }
 
-    -- Keep the legacy boolean flags and the newer visibility-mode dropdown in
-    -- sync. The runtime still reads both shapes in different code paths.
-    local function GetVisibilityKey(s)
-        if not VisibilityCompat then
-            return s.barVisibility or "always"
+    local function GetVisModes(s)
+        local modes = {}
+        if s and s.barVisibilityMulti and type(s.barVisibilityMulti) == "table" then
+            for k, v in pairs(s.barVisibilityMulti) do
+                if v then modes[k] = true end
+            end
+        elseif s and s.barVisibility and type(s.barVisibility) == "table" then
+            for k, v in pairs(s.barVisibility) do
+                if v then modes[k] = true end
+            end
+        elseif s and s.barVisibility and type(s.barVisibility) == "string" then
+            modes[s.barVisibility] = true
         end
-        return VisibilityCompat.Normalize(s)
+        if s and s.mouseoverEnabled then modes.mouseover = true end
+        if s and s.combatShowEnabled then modes.in_combat = true end
+        if s and s.combatHideEnabled then modes.out_of_combat = true end
+        if s and s.mountedEnabled then modes.mounted = true end
+        if s and s.inRaidEnabled then modes.in_raid = true end
+        if s and s.inPartyEnabled then modes.in_party = true end
+        if s and s.soloEnabled then modes.solo = true end
+        if s and (s.skyridingEnabled or s.dragonridingEnabled) then modes.skyriding = true end
+        if s and s.alwaysHidden then modes.never = true end
+        if not next(modes) then modes.always = true end
+        return modes
     end
 
-    local function ApplyVisibilityKey(s, v)
-        if VisibilityCompat then
-            VisibilityCompat.ApplyMode(s, v)
-            return
+    local function ApplyVisModes(s, modes)
+        if not s then return end
+        s.barVisibilityMulti = modes
+
+        if modes.never then
+            s.barVisibility = "never"
+        elseif modes.always then
+            s.barVisibility = "always"
+        elseif modes.skyriding then
+            s.barVisibility = "skyriding"
+        elseif modes.in_combat then
+            s.barVisibility = "in_combat"
+        elseif modes.out_of_combat then
+            s.barVisibility = "out_of_combat"
+        elseif modes.in_raid then
+            s.barVisibility = "in_raid"
+        elseif modes.in_party then
+            s.barVisibility = "in_party"
+        elseif modes.solo then
+            s.barVisibility = "solo"
+        elseif modes.mouseover then
+            s.barVisibility = "mouseover"
+        else
+            s.barVisibility = "always"
         end
 
-        s.barVisibility = v
-        s.alwaysHidden = (v == "never")
+        s.alwaysHidden = modes.never
+        s.combatShowEnabled = modes.in_combat
+        s.combatHideEnabled = modes.out_of_combat
+        s.mountedEnabled = modes.mounted
+        s.skyridingEnabled = modes.skyriding
+        s.dragonridingEnabled = modes.skyriding
 
-        local wasMouseover = s.mouseoverEnabled
-        s.mouseoverEnabled = (v == "mouseover")
-        if v == "mouseover" then
-            if not wasMouseover then
+        local wasMO = s.mouseoverEnabled
+        s.mouseoverEnabled = modes.mouseover
+        if modes.mouseover then
+            if not wasMO then
                 s._savedBarAlpha = s.mouseoverAlpha or 1
             end
             s.mouseoverAlpha = 0
-        elseif wasMouseover and s._savedBarAlpha then
+        elseif wasMO and s._savedBarAlpha then
             s.mouseoverAlpha = s._savedBarAlpha
             s._savedBarAlpha = nil
         end
-
-        s.combatHideEnabled = (v == "out_of_combat")
-        s.combatShowEnabled = (v == "in_combat")
     end
 
-    local function CopyVisibilitySettings(dst, src)
-        if VisibilityCompat then
-            VisibilityCompat.Copy(dst, src)
-            return
+    local function ToggleVisMode(s, key, value)
+        if not s then return end
+        local modes = GetVisModes(s)
+        if key == "always" or key == "never" then
+            if value then
+                modes = { [key] = true }
+            else
+                modes[key] = nil
+            end
+        else
+            modes[key] = value
+            modes.always = nil
+            modes.never = nil
         end
+        if not next(modes) then
+            modes.always = true
+        end
+        ApplyVisModes(s, modes)
+    end
 
-        local v = src.barVisibility or "always"
-        dst.barVisibility = v
-        dst.alwaysHidden = src.alwaysHidden
-        dst.mouseoverEnabled = src.mouseoverEnabled
-        dst.mouseoverAlpha = src.mouseoverAlpha
-        dst._savedBarAlpha = src._savedBarAlpha
-        dst.combatHideEnabled = src.combatHideEnabled
-        dst.combatShowEnabled = src.combatShowEnabled
+    local localVisibilityModeKeys = {
+        never = true,
+        always = true,
+        mouseover = true,
+        in_combat = true,
+        out_of_combat = true,
+        mounted = true,
+        in_raid = true,
+        in_party = true,
+        solo = true,
+        skyriding = true,
+    }
+
+    local function GetVisOptionValue(s, key)
+        if localVisibilityModeKeys[key] then
+            return GetVisModes(s)[key] or false
+        end
+        return s and s[key] or false
+    end
+
+    local function SetVisOptionValue(s, key, value)
+        if localVisibilityModeKeys[key] then
+            ToggleVisMode(s, key, value)
+            return true
+        end
+        if s then s[key] = value end
+        return false
     end
 
 
@@ -1098,15 +1158,54 @@ initFrame:SetScript("OnEvent", function(self)
         local W = EllesmereUI.Widgets
         local _, h
 
+        local function GetVisKey(s)
+            return s.barVisibility or "always"
+        end
+        local function ApplyVisKey(s, v)
+            s.barVisibility = v
+            s.alwaysHidden      = (v == "never")
+            local wasMO = s.mouseoverEnabled
+            s.mouseoverEnabled  = (v == "mouseover")
+            if v == "mouseover" then
+                if not wasMO then
+                    s._savedBarAlpha = s.mouseoverAlpha or 1
+                end
+                s.mouseoverAlpha = 0
+            elseif wasMO and s._savedBarAlpha then
+                s.mouseoverAlpha = s._savedBarAlpha
+                s._savedBarAlpha = nil
+            end
+            s.combatHideEnabled = false
+            s.combatShowEnabled = (v == "in_combat")
+        end
+
+        local function MakeCogBtn(rgn, showFn, anchorTo)
+            local anchor = anchorTo or (rgn and (rgn._lastInline or rgn._control)) or rgn
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", anchor, "LEFT", -8, 0)
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) showFn(self) end)
+            if rgn then rgn._lastInline = cogBtn end
+            return cogBtn
+        end
+
         local function BuildVisRow(barKey, sectionTitle)
             _, h = W:SectionHeader(parent, sectionTitle, y);  y = y - h
+            local s = EAB.db.profile.bars[barKey]
             local visRow, visH = W:DualRow(parent, y,
                 { type="dropdown", text="Visibility",
                   values=EllesmereUI.VIS_VALUES, order=EllesmereUI.VIS_ORDER,
-                  getValue=function() return GetVisibilityKey(EAB.db.profile.bars[barKey]) end,
+                  getValue=function() return GetVisKey(EAB.db.profile.bars[barKey]) end,
                   setValue=function(v)
-                      ApplyVisibilityKey(EAB.db.profile.bars[barKey], v)
-                      EAB:RefreshRuntimeVisibility()
+                      ApplyVisKey(EAB.db.profile.bars[barKey], v)
+                      EAB:ApplyAlwaysHidden()
                       EAB:RefreshMouseover()
                       EAB:ApplyCombatVisibility()
                       EllesmereUI:RefreshPage()
@@ -1115,6 +1214,30 @@ initFrame:SetScript("OnEvent", function(self)
                   values={ __placeholder = "..." }, order={ "__placeholder" },
                   getValue=function() return "__placeholder" end,
                   setValue=function() end });  y = y - visH
+
+            -- Replace the left dropdown with checkbox dropdown for combined visibility modes
+            do
+                local leftRgn = visRow._leftRegion
+                if leftRgn._control then leftRgn._control:Hide() end
+                local PP = EllesmereUI.PanelPP
+                local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    leftRgn, 210, leftRgn:GetFrameLevel() + 2,
+                    EllesmereUI.VIS_MODE_ITEMS,
+                    function(k) return GetVisOptionValue(s, k) end,
+                    function(k, v)
+                        SetVisOptionValue(s, k, v)
+                        EAB:ApplyAlwaysHidden()
+                        EAB:RefreshMouseover()
+                        EAB:ApplyCombatVisibility()
+                        EllesmereUI:RefreshPage()
+                    end)
+                PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+                cbDD:SetFrameLevel(leftRgn:GetFrameLevel() + 20)
+                cbDD:SetFrameStrata("DIALOG")
+                leftRgn._control = cbDD
+                leftRgn._lastInline = nil
+                EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+            end
 
             -- Replace the dummy right dropdown with checkbox dropdown
             do
@@ -1132,6 +1255,8 @@ initFrame:SetScript("OnEvent", function(self)
                         EllesmereUI:RefreshPage()
                     end)
                 PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+                cbDD:SetFrameLevel(rightRgn:GetFrameLevel() + 20)
+                cbDD:SetFrameStrata("DIALOG")
                 rightRgn._control = cbDD
                 rightRgn._lastInline = nil
                 EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
@@ -1156,6 +1281,44 @@ initFrame:SetScript("OnEvent", function(self)
 
         local BLIZZ_DIS_TIP = "This option does not work with Blizzard Bars. Please use Blizzard Edit Mode."
         local function _blizzDis() return EAB.db.profile.useBlizzardDataBars end
+
+        local function GetVisKey(s)
+            return s.barVisibility or "always"
+        end
+        local function ApplyVisKey(s, v)
+            s.barVisibility = v
+            s.alwaysHidden      = (v == "never")
+            local wasMO = s.mouseoverEnabled
+            s.mouseoverEnabled  = (v == "mouseover")
+            if v == "mouseover" then
+                if not wasMO then
+                    s._savedBarAlpha = s.mouseoverAlpha or 1
+                end
+                s.mouseoverAlpha = 0
+            elseif wasMO and s._savedBarAlpha then
+                s.mouseoverAlpha = s._savedBarAlpha
+                s._savedBarAlpha = nil
+            end
+            s.combatHideEnabled = false
+            s.combatShowEnabled = (v == "in_combat")
+        end
+
+        local function MakeCogBtn(rgn, showFn, anchorTo)
+            local anchor = anchorTo or (rgn and (rgn._lastInline or rgn._control)) or rgn
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", anchor, "LEFT", -8, 0)
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) showFn(self) end)
+            if rgn then rgn._lastInline = cogBtn end
+            return cogBtn
+        end
 
         -- GENERAL section
         _, h = W:SectionHeader(parent, "GENERAL", y);  y = y - h
@@ -1226,10 +1389,10 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="dropdown", text="Visibility",
                   values=EllesmereUI.VIS_VALUES, order=EllesmereUI.VIS_ORDER,
                   disabled=_blizzDis, disabledTooltip=BLIZZ_DIS_TIP,
-                  getValue=function() return GetVisibilityKey(EAB.db.profile.bars[barKey]) end,
+                  getValue=function() return GetVisKey(EAB.db.profile.bars[barKey]) end,
                   setValue=function(v)
-                      ApplyVisibilityKey(EAB.db.profile.bars[barKey], v)
-                      EAB:RefreshRuntimeVisibility()
+                      ApplyVisKey(EAB.db.profile.bars[barKey], v)
+                      EAB:ApplyAlwaysHidden()
                       EAB:RefreshMouseover()
                       EAB:ApplyCombatVisibility()
                       EllesmereUI:RefreshPage()
@@ -1255,23 +1418,23 @@ initFrame:SetScript("OnEvent", function(self)
                         EllesmereUI:RefreshPage()
                     end)
                 PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+                cbDD:SetFrameLevel(rightRgn:GetFrameLevel() + 20)
+                cbDD:SetFrameStrata("DIALOG")
                 rightRgn._control = cbDD
                 rightRgn._lastInline = nil
                 EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
             end
 
-            local wDis, wTip, wRaw = EllesmereUI.MatchGuard(barKey, "Width", _blizzDis, BLIZZ_DIS_TIP)
-            local hDis, hTip, hRaw = EllesmereUI.MatchGuard(barKey, "Height", _blizzDis, BLIZZ_DIS_TIP)
             _, h = W:DualRow(parent, y,
                 { type="slider", text="Width", min=50, max=600, step=1,
-                  disabled=wDis, disabledTooltip=wTip, rawTooltip=wRaw,
+                  disabled=_blizzDis, disabledTooltip=BLIZZ_DIS_TIP,
                   getValue=function() return EAB.db.profile.bars[barKey].width or 400 end,
                   setValue=function(v)
                       EAB.db.profile.bars[barKey].width = v
                       if ns.ApplyDataBarLayout then ns.ApplyDataBarLayout(barKey) end
                   end },
                 { type="slider", text="Height", min=4, max=40, step=1,
-                  disabled=hDis, disabledTooltip=hTip, rawTooltip=hRaw,
+                  disabled=_blizzDis, disabledTooltip=BLIZZ_DIS_TIP,
                   getValue=function() return EAB.db.profile.bars[barKey].height or 18 end,
                   setValue=function(v)
                       EAB.db.profile.bars[barKey].height = v
@@ -1378,17 +1541,40 @@ initFrame:SetScript("OnEvent", function(self)
                 _visBlizzDis = function() return EAB.db.profile.useBlizzardDataBars end
             end
 
+            local function GetVisKey(s)
+                return s.barVisibility or "always"
+            end
+
+            local function ApplyVisKey(s, v)
+                s.barVisibility = v
+                -- Keep boolean flags in sync
+                s.alwaysHidden     = (v == "never")
+                local wasMO = s.mouseoverEnabled
+                s.mouseoverEnabled = (v == "mouseover")
+                if v == "mouseover" then
+                    if not wasMO then
+                        s._savedBarAlpha = s.mouseoverAlpha or 1
+                    end
+                    s.mouseoverAlpha = 0
+                elseif wasMO and s._savedBarAlpha then
+                    s.mouseoverAlpha = s._savedBarAlpha
+                    s._savedBarAlpha = nil
+                end
+                s.combatHideEnabled = false
+                s.combatShowEnabled = (v == "in_combat")
+            end
+
             local visRow1
             visRow1, h = W:DualRow(parent, y,
                 { type="dropdown", text="Visibility",
                   values=EllesmereUI.VIS_VALUES, order=EllesmereUI.VIS_ORDER,
                   disabled=_visBlizzDis, disabledTooltip=_visBlizzDis and _VIS_BLIZZ_TIP or nil,
                   getValue=function()
-                      return GetVisibilityKey(SB())
+                      return GetVisKey(SB())
                   end,
                   setValue=function(v)
-                      ApplyVisibilityKey(SB(), v)
-                      EAB:RefreshRuntimeVisibility()
+                      ApplyVisKey(SB(), v)
+                      EAB:ApplyAlwaysHidden()
                       EAB:RefreshMouseover()
                       EAB:ApplyCombatVisibility()
                       EllesmereUI:RefreshPage()
@@ -1397,6 +1583,30 @@ initFrame:SetScript("OnEvent", function(self)
                   values={ __placeholder = "..." }, order={ "__placeholder" },
                   getValue=function() return "__placeholder" end,
                   setValue=function() end });  y = y - h
+
+            -- Replace the left dropdown with checkbox dropdown for multi-mode selection
+            do
+                local leftRgn = visRow1._leftRegion
+                if leftRgn._control then leftRgn._control:Hide() end
+                local PP = EllesmereUI.PanelPP
+                local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    leftRgn, 210, leftRgn:GetFrameLevel() + 2,
+                    EllesmereUI.VIS_MODE_ITEMS,
+                    function(k) return GetVisOptionValue(SB(), k) end,
+                    function(k, v)
+                        SetVisOptionValue(SB(), k, v)
+                        EAB:ApplyAlwaysHidden()
+                        EAB:RefreshMouseover()
+                        EAB:ApplyCombatVisibility()
+                        EllesmereUI:RefreshPage()
+                    end)
+                PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+                cbDD:SetFrameLevel(leftRgn:GetFrameLevel() + 20)
+                cbDD:SetFrameStrata("DIALOG")
+                leftRgn._control = cbDD
+                leftRgn._lastInline = nil
+                EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+            end
 
             -- Replace the dummy right dropdown with checkbox dropdown
             do
@@ -1413,6 +1623,8 @@ initFrame:SetScript("OnEvent", function(self)
                         EllesmereUI:RefreshPage()
                     end)
                 PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+                cbDD:SetFrameLevel(rightRgn:GetFrameLevel() + 20)
+                cbDD:SetFrameStrata("DIALOG")
                 rightRgn._control = cbDD
                 rightRgn._lastInline = nil
                 EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
@@ -1425,11 +1637,18 @@ initFrame:SetScript("OnEvent", function(self)
                     tooltip = "Apply Visibility to all Bars",
                     onClick = function()
                         local src = SB()
+                        local v = src.barVisibility or "always"
                         for _, key in ipairs(GROUP_BAR_ORDER) do
                             local dst = EAB.db.profile.bars[key]
-                            CopyVisibilitySettings(dst, src)
+                            dst.barVisibility    = v
+                            dst.alwaysHidden     = src.alwaysHidden
+                            dst.mouseoverEnabled = src.mouseoverEnabled
+                            dst.mouseoverAlpha   = src.mouseoverAlpha
+                            dst._savedBarAlpha   = src._savedBarAlpha
+                            dst.combatHideEnabled = src.combatHideEnabled
+                            dst.combatShowEnabled = src.combatShowEnabled
                         end
-                        EAB:RefreshRuntimeVisibility()
+                        EAB:ApplyAlwaysHidden()
                         EAB:RefreshMouseover()
                         EAB:ApplyCombatVisibility()
                         EllesmereUI:RefreshPage()
@@ -1448,11 +1667,18 @@ initFrame:SetScript("OnEvent", function(self)
                         getCurrentKey = function() return SelectedKey() end,
                         onApply       = function(checkedKeys)
                             local src = SB()
+                            local v = src.barVisibility or "always"
                             for _, key in ipairs(checkedKeys) do
                                 local dst = EAB.db.profile.bars[key]
-                                CopyVisibilitySettings(dst, src)
+                                dst.barVisibility    = v
+                                dst.alwaysHidden     = src.alwaysHidden
+                                dst.mouseoverEnabled = src.mouseoverEnabled
+                                dst.mouseoverAlpha   = src.mouseoverAlpha
+                                dst._savedBarAlpha   = src._savedBarAlpha
+                                dst.combatHideEnabled = src.combatHideEnabled
+                                dst.combatShowEnabled = src.combatShowEnabled
                             end
-                            EAB:RefreshRuntimeVisibility()
+                            EAB:ApplyAlwaysHidden()
                             EAB:RefreshMouseover()
                             EAB:ApplyCombatVisibility()
                             EllesmereUI:RefreshPage()
@@ -1550,8 +1776,6 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v)
                       SB().buttonWidth  = v
                       SB().buttonHeight = v
-                      SB()._matchExtraPixels = nil
-                      SB()._matchExtraPixelsH = nil
                       EAB:ApplyButtonSizeForBar(SelectedKey())
                       SUpdatePreviewAndResize()
                       EllesmereUI:RefreshPage()
@@ -1656,7 +1880,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Row 2: Number of Icons | Number of Rows
             row, h = W:DualRow(parent, y,
                 { type="slider", text="Number of Icons", min=1, max=12, step=1,
-                  disabled=function()
+                  isDisabled=function()
                       local info = BAR_LOOKUP[SelectedKey()]
                       return info and info.isStance
                   end,
@@ -3407,7 +3631,7 @@ initFrame:SetScript("OnEvent", function(self)
                 barLabels, barOrder,
                 function() return SelectedKey() end,
                 function(v)
-                    _selectedBarKey = v
+                    EAB.db.profile.selectedBar = v
                     EllesmereUI:InvalidateContentHeaderCache()
                     EllesmereUI:SetContentHeader(_barsHeaderBuilder)
                     -- Always force full rebuild — combined keys (MicroBagBars,
@@ -4151,7 +4375,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Clear the per-install capture flag so the snapshot re-runs
             -- after reload and picks up Blizzard's current bar layout.
             if EAB.db and EAB.db.sv then
-                EAB.db.sv._capturedOnce_EAB = nil
+                EAB.db.sv._capturedOnce = nil
             end
             ReloadUI()
         end,
