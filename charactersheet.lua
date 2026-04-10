@@ -592,71 +592,112 @@ local function SkinCharacterSheet()
         return 0
     end
 
-    -- Define stat sections with colors
-    local statSections = {
-        {
-            title = "Attributes",
-            color = { r = 0.047, g = 0.824, b = 0.616 },  -- Teal
-            stats = {
-                { name = "Intellect", func = function() return UnitStat("player", 4) end },
-                { name = "Stamina", func = function() return UnitStat("player", 3) end },
-                { name = "Health", func = function() return UnitHealthMax("player") end },
-            }
-        },
-        {
-            title = "Secondary Stats",
-            color = { r = 0.471, g = 0.255, b = 0.784 },  -- Purple
-            stats = {
-                { name = "Crit", func = function() return GetCritChance("player") or 0 end, format = "%.2f%%" },
-                { name = "Haste", func = function() return UnitSpellHaste("player") or 0 end, format = "%.2f%%" },
-                { name = "Mastery", func = function() return GetMasteryEffect() or 0 end, format = "%.2f%%" },
-                { name = "Versatility", func = function() return GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) or 0 end, format = "%.2f%%" },
-            }
-        },
-        {
-            title = "Attack",
-            color = { r = 1, g = 0.353, b = 0.122 },  -- Orange
-            stats = {
-                { name = "Spell Power", func = function() return GetSpellBonusDamage(7) end },
-                { name = "Attack Speed", func = function() return UnitAttackSpeed("player") or 0 end, format = "%.2f" },
-            }
-        },
-        {
-            title = "Defense",
-            color = { r = 0.247, g = 0.655, b = 1 },  -- Blue
-            stats = {
-                { name = "Armor", func = function() local base, effectiveArmor = UnitArmor("player") return effectiveArmor end },
-                { name = "Dodge", func = function() return GetDodgeChance() or 0 end, format = "%.2f%%" },
-                { name = "Parry", func = function() return GetParryChance() or 0 end, format = "%.2f%%" },
-            }
-        },
-        {
-            title = "Crests",
-            color = { r = 1, g = 0.784, b = 0.341 },  -- Gold
-            stats = {
-                { name = "Myth", func = function() return GetCrestValue(3347) end, format = "%d" },  -- Myth Dawncrest
-                { name = "Hero", func = function() return GetCrestValue(3345) end, format = "%d" },  -- Hero Dawncrest
-                { name = "Champion", func = function() return GetCrestValue(3344) end, format = "%d" },  -- Champion Dawncrest
-                { name = "Veteran", func = function() return GetCrestValue(3341) end, format = "%d" },  -- Veteran Dawncrest
-                { name = "Adventurer", func = function() return GetCrestValue(3391) end, format = "%d" },  -- Adventurer Dawncrest
+    -- Load stat sections order from saved data or use defaults
+    local function GetStatSectionsOrder()
+        local defaultOrder = {
+            {
+                title = "Attributes",
+                color = { r = 0.047, g = 0.824, b = 0.616 },
+                stats = {
+                    { name = "Intellect", func = function() return UnitStat("player", 4) end },
+                    { name = "Stamina", func = function() return UnitStat("player", 3) end },
+                    { name = "Health", func = function() return UnitHealthMax("player") end },
+                }
+            },
+            {
+                title = "Secondary Stats",
+                color = { r = 0.471, g = 0.255, b = 0.784 },
+                stats = {
+                    { name = "Crit", func = function() return GetCritChance("player") or 0 end, format = "%.2f%%" },
+                    { name = "Haste", func = function() return UnitSpellHaste("player") or 0 end, format = "%.2f%%" },
+                    { name = "Mastery", func = function() return GetMasteryEffect() or 0 end, format = "%.2f%%" },
+                    { name = "Versatility", func = function() return GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) or 0 end, format = "%.2f%%" },
+                }
+            },
+            {
+                title = "Attack",
+                color = { r = 1, g = 0.353, b = 0.122 },
+                stats = {
+                    { name = "Spell Power", func = function() return GetSpellBonusDamage(7) end },
+                    { name = "Attack Speed", func = function() return UnitAttackSpeed("player") or 0 end, format = "%.2f" },
+                }
+            },
+            {
+                title = "Defense",
+                color = { r = 0.247, g = 0.655, b = 1 },
+                stats = {
+                    { name = "Armor", func = function() local base, effectiveArmor = UnitArmor("player") return effectiveArmor end },
+                    { name = "Dodge", func = function() return GetDodgeChance() or 0 end, format = "%.2f%%" },
+                    { name = "Parry", func = function() return GetParryChance() or 0 end, format = "%.2f%%" },
+                }
+            },
+            {
+                title = "Crests",
+                color = { r = 1, g = 0.784, b = 0.341 },
+                stats = {
+                    { name = "Myth", func = function() return GetCrestValue(3347) end, format = "%d" },
+                    { name = "Hero", func = function() return GetCrestValue(3345) end, format = "%d" },
+                    { name = "Champion", func = function() return GetCrestValue(3344) end, format = "%d" },
+                    { name = "Veteran", func = function() return GetCrestValue(3341) end, format = "%d" },
+                    { name = "Adventurer", func = function() return GetCrestValue(3391) end, format = "%d" },
+                }
             }
         }
-    }
+
+        -- Apply saved order if exists
+        if EllesmereUIDB and EllesmereUIDB.statSectionsOrder then
+            local orderedSections = {}
+            for _, title in ipairs(EllesmereUIDB.statSectionsOrder) do
+                for _, section in ipairs(defaultOrder) do
+                    if section.title == title then
+                        table.insert(orderedSections, section)
+                        break
+                    end
+                end
+            end
+            return #orderedSections == #defaultOrder and orderedSections or defaultOrder
+        end
+        return defaultOrder
+    end
+
+    local statSections = GetStatSectionsOrder()
 
     frame._statsPanel = statsPanel
-    frame._statsValues = {}
+    frame._statsValues = {}  -- Will be filled as sections are created
     frame._statsSections = {}  -- Store sections for collapse/expand
+
+    -- Function to update visibility of stat categories
+    local function UpdateStatCategoryVisibility()
+        if not frame._statsSections or #frame._statsSections == 0 then return end
+
+        for _, sectionData in ipairs(frame._statsSections) do
+            local categoryTitle = sectionData.sectionTitle
+            local settingKey = "showStatCategory_" .. categoryTitle:gsub(" ", "")
+            local shouldShow = not (EllesmereUIDB and EllesmereUIDB[settingKey] == false)
+
+            if shouldShow then
+                sectionData.container:Show()
+            else
+                sectionData.container:Hide()
+            end
+        end
+        frame._recalculateSections()
+    end
+    EllesmereUI._updateStatCategoryVisibility = UpdateStatCategoryVisibility
 
     -- Function to recalculate all section positions
     local function RecalculateSectionPositions()
         local yOffset = 0
         for _, sectionData in ipairs(frame._statsSections) do
-            local sectionHeight = sectionData.isCollapsed and 16 or sectionData.height
-            sectionData.container:ClearAllPoints()
-            sectionData.container:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
-            sectionData.container:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", 0, yOffset)
-            sectionData.container:SetHeight(sectionHeight)
-            yOffset = yOffset - sectionHeight - 16
+            -- Skip hidden categories
+            if sectionData.container:IsShown() then
+                local sectionHeight = sectionData.isCollapsed and 16 or sectionData.height
+                sectionData.container:ClearAllPoints()
+                sectionData.container:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
+                sectionData.container:SetPoint("TOPRIGHT", scrollChild, "TOPRIGHT", 0, yOffset)
+                sectionData.container:SetHeight(sectionHeight)
+                yOffset = yOffset - sectionHeight - 16
+            end
         end
         scrollChild:SetHeight(-yOffset)
     end
@@ -706,7 +747,8 @@ local function SkinCharacterSheet()
             container = sectionContainer,
             stats = {},
             isCollapsed = false,
-            height = 0
+            height = 0,
+            sectionTitle = section.title  -- Store title for reordering
         }
         table.insert(frame._statsSections, sectionData)
 
@@ -766,8 +808,98 @@ local function SkinCharacterSheet()
                     if stat.divider then stat.divider:Show() end
                 end
             end
+
             frame._recalculateSections()
         end)
+
+        -- Up/Down arrow buttons (shown on hover)
+        do
+            local arrowSize = 10
+            local MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\"
+
+            -- Up arrow button
+            local upBtn = CreateFrame("Button", nil, titleContainer)
+            upBtn:SetSize(arrowSize, arrowSize)
+            upBtn:SetPoint("RIGHT", titleContainer, "RIGHT", 32, 0)
+            upBtn:SetAlpha(0)  -- Hidden by default
+            local upIcon = upBtn:CreateTexture(nil, "OVERLAY")
+            upIcon:SetAllPoints()
+            upIcon:SetTexture(MEDIA .. "icons\\eui-arrow-up3.png")
+            upBtn:SetScript("OnClick", function()
+                -- Find current index in _statsSections
+                local currentIdx = nil
+                for i, sec in ipairs(frame._statsSections) do
+                    if sec == sectionData then
+                        currentIdx = i
+                        break
+                    end
+                end
+
+                if currentIdx and currentIdx > 1 then
+                    -- Swap with previous section
+                    frame._statsSections[currentIdx], frame._statsSections[currentIdx - 1] = frame._statsSections[currentIdx - 1], frame._statsSections[currentIdx]
+
+                    -- Save new order
+                    if not EllesmereUIDB then EllesmereUIDB = {} end
+                    EllesmereUIDB.statSectionsOrder = {}
+                    for _, sec in ipairs(frame._statsSections) do
+                        table.insert(EllesmereUIDB.statSectionsOrder, sec.sectionTitle)
+                    end
+
+                    frame._recalculateSections()
+                end
+            end)
+
+            -- Down arrow button
+            local downBtn = CreateFrame("Button", nil, titleContainer)
+            downBtn:SetSize(arrowSize, arrowSize)
+            downBtn:SetPoint("RIGHT", upBtn, "LEFT", -4, 0)
+            downBtn:SetAlpha(0)  -- Hidden by default
+            local downIcon = downBtn:CreateTexture(nil, "OVERLAY")
+            downIcon:SetAllPoints()
+            downIcon:SetTexture(MEDIA .. "icons\\eui-arrow-down3.png")
+            downBtn:SetScript("OnClick", function()
+                -- Find current index in _statsSections
+                local currentIdx = nil
+                for i, sec in ipairs(frame._statsSections) do
+                    if sec == sectionData then
+                        currentIdx = i
+                        break
+                    end
+                end
+
+                if currentIdx and currentIdx < #frame._statsSections then
+                    -- Swap with next section
+                    frame._statsSections[currentIdx], frame._statsSections[currentIdx + 1] = frame._statsSections[currentIdx + 1], frame._statsSections[currentIdx]
+
+                    -- Save new order
+                    if not EllesmereUIDB then EllesmereUIDB = {} end
+                    EllesmereUIDB.statSectionsOrder = {}
+                    for _, sec in ipairs(frame._statsSections) do
+                        table.insert(EllesmereUIDB.statSectionsOrder, sec.sectionTitle)
+                    end
+
+                    frame._recalculateSections()
+                end
+            end)
+
+            -- Show arrows on hover (both on titleContainer and arrow buttons)
+            local function ShowArrows()
+                upBtn:SetAlpha(0.8)
+                downBtn:SetAlpha(0.8)
+            end
+            local function HideArrows()
+                upBtn:SetAlpha(0)
+                downBtn:SetAlpha(0)
+            end
+
+            titleContainer:SetScript("OnEnter", ShowArrows)
+            titleContainer:SetScript("OnLeave", HideArrows)
+            upBtn:SetScript("OnEnter", ShowArrows)
+            upBtn:SetScript("OnLeave", HideArrows)
+            downBtn:SetScript("OnEnter", ShowArrows)
+            downBtn:SetScript("OnLeave", HideArrows)
+        end
 
         sectionContainer:SetHeight(sectionData.height)
         yOffset = yOffset - sectionData.height - 16
@@ -776,6 +908,37 @@ local function SkinCharacterSheet()
     -- Set scroll child height
     scrollChild:SetHeight(-yOffset)
 
+    -- Save initial order if not already saved
+    if not (EllesmereUIDB and EllesmereUIDB.statSectionsOrder) then
+        if not EllesmereUIDB then EllesmereUIDB = {} end
+        EllesmereUIDB.statSectionsOrder = {}
+        for _, sec in ipairs(frame._statsSections) do
+            table.insert(EllesmereUIDB.statSectionsOrder, sec.sectionTitle)
+        end
+    end
+
+    -- Apply initial visibility settings
+    UpdateStatCategoryVisibility()
+
+    -- Function to update all stats
+    local function UpdateAllStats()
+        for _, statEntry in ipairs(frame._statsValues) do
+            local result = statEntry.func()
+            if result ~= nil then
+                if statEntry.format:find("%%") then
+                    statEntry.value:SetText(format(statEntry.format, result))
+                else
+                    statEntry.value:SetText(format(statEntry.format, result))
+                end
+            else
+                statEntry.value:SetText("0")
+            end
+        end
+    end
+
+    -- Update stats immediately once
+    UpdateAllStats()
+
     -- Monitor to update stats
     local statsMonitor = CreateFrame("Frame")
     statsMonitor:SetScript("OnUpdate", function()
@@ -783,19 +946,7 @@ local function SkinCharacterSheet()
             return
         end
         if frame and frame:IsShown() and (frame.selectedTab or 1) == 1 then
-            -- Update all stored stats
-            for _, statEntry in ipairs(frame._statsValues) do
-                local result = statEntry.func()
-                if result ~= nil then
-                    if statEntry.format:find("%%") then
-                        statEntry.value:SetText(format(statEntry.format, result))
-                    else
-                        statEntry.value:SetText(format(statEntry.format, result))
-                    end
-                else
-                    statEntry.value:SetText("0")
-                end
-            end
+            UpdateAllStats()
         end
     end)
 
@@ -1537,8 +1688,9 @@ local function SkinCharacterSheet()
         -- Create itemlevel labels
         local slot = _G[slotName]
         if slot and not slot._itemLevelLabel then
+            local itemLevelSize = EllesmereUIDB and EllesmereUIDB.charSheetItemLevelSize or 11
             local label = frame:CreateFontString(nil, "OVERLAY")
-            label:SetFont(fontPath, 11, "")
+            label:SetFont(fontPath, itemLevelSize, "")
             label:SetTextColor(1, 1, 1, 0.8)
             label:SetJustifyH("CENTER")
 
@@ -1562,8 +1714,9 @@ local function SkinCharacterSheet()
 
         -- Create enchant labels
         if slot and not slot._enchantLabel then
+            local enchantSize = EllesmereUIDB and EllesmereUIDB.charSheetEnchantSize or 9
             local enchantLabel = frame:CreateFontString(nil, "OVERLAY")
-            enchantLabel:SetFont(fontPath, 9, "")
+            enchantLabel:SetFont(fontPath, enchantSize, "")
             enchantLabel:SetTextColor(1, 1, 1, 0.8)
             enchantLabel:SetJustifyH("CENTER")
 
@@ -1583,8 +1736,9 @@ local function SkinCharacterSheet()
 
         -- Create upgrade track labels (positioned relative to itemlevel)
         if slot and not slot._upgradeTrackLabel and slot._itemLevelLabel then
+            local upgradeTrackSize = EllesmereUIDB and EllesmereUIDB.charSheetUpgradeTrackSize or 11
             local upgradeTrackLabel = frame:CreateFontString(nil, "OVERLAY")
-            upgradeTrackLabel:SetFont(fontPath, 11, "")
+            upgradeTrackLabel:SetFont(fontPath, upgradeTrackSize, "")
             upgradeTrackLabel:SetTextColor(1, 1, 1, 0.6)
             upgradeTrackLabel:SetJustifyH("CENTER")
 
@@ -1612,11 +1766,21 @@ local function SkinCharacterSheet()
         if slot._euiCharSocketsIcons then return slot._euiCharSocketsIcons end
 
         slot._euiCharSocketsIcons = {}
+        slot._euiCharSocketsBtns = {}
+        slot._gemLinks = {}
+
         for i = 1, 4 do  -- Max 4 sockets per item
             local icon = globalSocketContainer:CreateTexture(nil, "OVERLAY")
             icon:SetSize(16, 16)
             icon:Hide()
             slot._euiCharSocketsIcons[i] = icon
+
+            -- Create invisible button for gem tooltip
+            local socketBtn = CreateFrame("Button", nil, globalSocketContainer)
+            socketBtn:SetSize(16, 16)
+            socketBtn:EnableMouse(true)
+            socketBtn:Hide()
+            slot._euiCharSocketsBtns[i] = socketBtn
         end
 
         slot._euiCharSocketsSide = side
@@ -1660,6 +1824,37 @@ local function SkinCharacterSheet()
 
         tooltip:Hide()
 
+        -- Extract gem links directly from item link
+        slot._gemLinks = {}
+        local itemLink = GetInventoryItemLink("player", slotIndex)
+        if itemLink then
+            -- Item link format: |cff...|Hitem:itemID:enchant:gem1:gem2:gem3:gem4:...|h[Name]|h|r
+            -- Extract the item data part
+            local itemData = string.match(itemLink, "|H(item:[^|]+)|h")
+            if itemData then
+                local parts = {}
+                for part in string.gmatch(itemData, "([^:]+)") do
+                    table.insert(parts, part)
+                end
+
+                -- parts[1] = "item", parts[2] = itemID, parts[3] = enchantID, parts[4-7] = gem IDs
+                if #parts >= 4 then
+                    for i = 4, 7 do
+                        local gemID = tonumber(parts[i])
+                        if gemID and gemID > 0 then
+                            -- Create a gem link from the ID
+                            local gemName = GetItemInfo(gemID)
+                            if gemName then
+                                -- Create a valid link: |cff...|Hitem:gemID|h[Name]|h|r
+                                local gemLink = "|cff9d9d9d|Hitem:" .. gemID .. "|h[" .. gemName .. "]|h|r"
+                                table.insert(slot._gemLinks, gemLink)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
         -- Position and show socket icons
         if #socketTextures > 0 then
             for i, icon in ipairs(socketIcons) do
@@ -1674,13 +1869,37 @@ local function SkinCharacterSheet()
                         icon:SetPoint("LEFT", slot, "LEFT", -20, 0 - (i-1)*18)
                     end
                     icon:Show()
+
+                    -- Position button wrapper
+                    local btn = slot._euiCharSocketsBtns[i]
+                    btn:SetPoint("CENTER", icon, "CENTER")
+                    btn:Show()
                 else
                     icon:Hide()
+                    local btn = slot._euiCharSocketsBtns[i]
+                    if btn then btn:Hide() end
                 end
+            end
+
+            -- Setup tooltip scripts for all gem buttons
+            for i, btn in ipairs(slot._euiCharSocketsBtns) do
+                btn:SetScript("OnEnter", function(self)
+                    if slot._gemLinks[i] then
+                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                        GameTooltip:SetHyperlink(slot._gemLinks[i])
+                        GameTooltip:Show()
+                    end
+                end)
+                btn:SetScript("OnLeave", function()
+                    GameTooltip:Hide()
+                end)
             end
         else
             for _, icon in ipairs(socketIcons) do
                 icon:Hide()
+            end
+            for _, btn in ipairs(slot._euiCharSocketsBtns or {}) do
+                btn:Hide()
             end
         end
     end
@@ -1744,9 +1963,12 @@ local function SkinCharacterSheet()
         local enchantText = ""
         local upgradeTrackText = ""
         local upgradeTrackColor = { r = 1, g = 1, b = 1 }
+        local itemQuality = nil
 
         if itemLink then
-            itemLevel = select(4, GetItemInfo(itemLink)) or ""
+            local _, _, quality, ilvl = GetItemInfo(itemLink)
+            itemLevel = ilvl or ""
+            itemQuality = quality
 
             -- Get enchant and upgrade track from tooltip
             enchantTooltip:SetInventoryItem("player", slot:GetID())
@@ -1768,31 +1990,39 @@ local function SkinCharacterSheet()
                         -- Map track types to short names and colors
                         if trk == "Champion" then
                             upgradeTrackText = "(Champion " .. nums .. ")"
-                            upgradeTrackColor = { r = 0.6, g = 0, b = 1 }  -- purple
+                            upgradeTrackColor = { r = 0.00, g = 0.44, b = 0.87 }  -- blue
                         elseif trk:match("Myth") then
                             upgradeTrackText = "(Myth " .. nums .. ")"
-                            upgradeTrackColor = { r = 1, g = 0.6, b = 0 }  -- orange
+                            upgradeTrackColor = { r = 1.00, g = 0.50, b = 0.00 }  -- orange
                         elseif trk:match("Hero") then
                             upgradeTrackText = "(Hero " .. nums .. ")"
-                            upgradeTrackColor = { r = 0.2, g = 0.8, b = 1 }  -- cyan
+                            upgradeTrackColor = { r = 1.00, g = 0.30, b = 1.00 }  -- purple
                         elseif trk:match("Veteran") then
                             upgradeTrackText = "(Veteran " .. nums .. ")"
-                            upgradeTrackColor = { r = 0, g = 1, b = 0 }  -- green
+                            upgradeTrackColor = { r = 0.12, g = 1.00, b = 0.00 }  -- green
                         elseif trk:match("Adventurer") then
                             upgradeTrackText = "(Adventurer " .. nums .. ")"
-                            upgradeTrackColor = { r = 1, g = 1, b = 0 }  -- yellow
-                        elseif trk:match("Delve") then
-                            upgradeTrackText = "(Delve " .. nums .. ")"
-                            upgradeTrackColor = { r = 1, g = 0.5, b = 1 }  -- magenta
+                            upgradeTrackColor = { r = 1.00, g = 1.00, b = 1.00 }  -- white
+                        elseif trk:match("Delve") or trk:match("Explorer") then
+                            upgradeTrackText = "(" .. trk .. " " .. nums .. ")"
+                            upgradeTrackColor = { r = 0.62, g = 0.62, b = 0.62 }  -- gray
                         end
                     end
                 end
             end
         end
 
-        -- Update itemlevel label
+        -- Update itemlevel label with optional rarity color
         if slot._itemLevelLabel then
             slot._itemLevelLabel:SetText(tostring(itemLevel) or "")
+
+            -- Apply rarity color if enabled
+            if EllesmereUIDB and EllesmereUIDB.charSheetColorItemLevel and itemQuality then
+                local r, g, b = GetItemQualityColor(itemQuality)
+                slot._itemLevelLabel:SetTextColor(r, g, b, 0.9)
+            else
+                slot._itemLevelLabel:SetTextColor(1, 1, 1, 0.9)
+            end
         end
 
         -- Update enchant label
@@ -2013,4 +2243,67 @@ if EllesmereUI then
             end)
         end
     end)
+end
+
+-- Function to apply character sheet text size settings
+function EllesmereUI._applyCharSheetTextSizes()
+    if not CharacterFrame then return end
+
+    local itemLevelSize = EllesmereUIDB and EllesmereUIDB.charSheetItemLevelSize or 11
+    local upgradeTrackSize = EllesmereUIDB and EllesmereUIDB.charSheetUpgradeTrackSize or 11
+    local enchantSize = EllesmereUIDB and EllesmereUIDB.charSheetEnchantSize or 9
+    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath() or STANDARD_TEXT_FONT
+
+    -- Update all slot labels
+    local itemSlots = {
+        "CharacterHeadSlot", "CharacterNeckSlot", "CharacterShoulderSlot", "CharacterBackSlot",
+        "CharacterChestSlot", "CharacterWaistSlot", "CharacterLegsSlot", "CharacterFeetSlot",
+        "CharacterWristSlot", "CharacterHandsSlot", "CharacterFinger0Slot", "CharacterFinger1Slot",
+        "CharacterTrinket0Slot", "CharacterTrinket1Slot", "CharacterMainHandSlot", "CharacterSecondaryHandSlot"
+    }
+
+    for _, slotName in ipairs(itemSlots) do
+        local slot = _G[slotName]
+        if slot then
+            if slot._itemLevelLabel then
+                slot._itemLevelLabel:SetFont(fontPath, itemLevelSize, "")
+            end
+            if slot._upgradeTrackLabel then
+                slot._upgradeTrackLabel:SetFont(fontPath, upgradeTrackSize, "")
+            end
+            if slot._enchantLabel then
+                slot._enchantLabel:SetFont(fontPath, enchantSize, "")
+            end
+        end
+    end
+end
+
+-- Function to recolor item level labels based on rarity setting
+function EllesmereUI._applyCharSheetItemColors()
+    if not CharacterFrame then return end
+
+    local itemSlots = {
+        "CharacterHeadSlot", "CharacterNeckSlot", "CharacterShoulderSlot", "CharacterBackSlot",
+        "CharacterChestSlot", "CharacterWaistSlot", "CharacterLegsSlot", "CharacterFeetSlot",
+        "CharacterWristSlot", "CharacterHandsSlot", "CharacterFinger0Slot", "CharacterFinger1Slot",
+        "CharacterTrinket0Slot", "CharacterTrinket1Slot", "CharacterMainHandSlot", "CharacterSecondaryHandSlot"
+    }
+
+    for _, slotName in ipairs(itemSlots) do
+        local slot = _G[slotName]
+        if slot and slot._itemLevelLabel then
+            local itemLink = GetInventoryItemLink("player", slot:GetID())
+            if itemLink then
+                local _, _, quality = GetItemInfo(itemLink)
+                if EllesmereUIDB and EllesmereUIDB.charSheetColorItemLevel and quality then
+                    local r, g, b = GetItemQualityColor(quality)
+                    slot._itemLevelLabel:SetTextColor(r, g, b, 0.9)
+                else
+                    slot._itemLevelLabel:SetTextColor(1, 1, 1, 0.9)
+                end
+            else
+                slot._itemLevelLabel:SetTextColor(1, 1, 1, 0.9)
+            end
+        end
+    end
 end

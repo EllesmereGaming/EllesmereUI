@@ -3498,6 +3498,11 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
+        ---------------------------------------------------------------------------
+        --  CHARACTER PANEL CUSTOMIZATIONS
+        ---------------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "CHARACTER PANEL CUSTOMIZATIONS", y);  y = y - h
+
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Themed Character Sheet",
               tooltip="Applies EllesmereUI theme styling to the character sheet window.",
@@ -3516,6 +3521,7 @@ initFrame:SetScript("OnEvent", function(self)
                           onConfirm   = function() ReloadUI() end,
                       })
                   end
+                  EllesmereUI:RefreshPage()
               end },
             { type="slider", text="Character Sheet Scale",
               min=0.5, max=1.5, step=0.05,
@@ -3531,6 +3537,257 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end }
         );  y = y - h
+
+        -- Disabled overlay for Scale slider when themed is off
+        do
+            local function themedOff()
+                return not (EllesmereUIDB and EllesmereUIDB.themedCharacterSheet)
+            end
+
+            local scaleBlock = CreateFrame("Frame", nil, parent)
+            scaleBlock:SetSize(400, 30)
+            scaleBlock:SetPoint("TOPLEFT", parent, "TOPLEFT", 420, -y + 30)
+            scaleBlock:SetFrameLevel(parent:GetFrameLevel() + 20)
+            scaleBlock:EnableMouse(true)
+            local scaleBg = EllesmereUI.SolidTex(scaleBlock, "BACKGROUND", 0, 0, 0, 0)
+            scaleBg:SetAllPoints()
+            scaleBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(scaleBlock, EllesmereUI.DisabledTooltip("Themed Character Sheet"))
+            end)
+            scaleBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if themedOff() then
+                    scaleBlock:Show()
+                else
+                    scaleBlock:Hide()
+                end
+            end)
+            if themedOff() then scaleBlock:Show() else scaleBlock:Hide() end
+        end
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Color Item Level by Rarity",
+              tooltip="Colors the item level text based on the item's rarity (Common, Uncommon, Rare, Epic, etc.).",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.charSheetColorItemLevel or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.charSheetColorItemLevel = v
+                  if EllesmereUI._applyCharSheetItemColors then
+                      EllesmereUI._applyCharSheetItemColors()
+                  end
+              end },
+            { type="label", text="" }
+        );  y = y - h
+
+        local itemLevelRow
+        itemLevelRow, h = W:DualRow(parent, y,
+            { type="slider", text="Item Level Font Size",
+              min=8, max=16, step=1,
+              tooltip="Adjusts the font size for item level text on the character sheet.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.charSheetItemLevelSize or 11
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.charSheetItemLevelSize = v
+                  if EllesmereUI._applyCharSheetTextSizes then
+                      EllesmereUI._applyCharSheetTextSizes()
+                  end
+              end },
+            { type="slider", text="Upgrade Track Font Size",
+              min=8, max=16, step=1,
+              tooltip="Adjusts the font size for upgrade track text on the character sheet.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.charSheetUpgradeTrackSize or 11
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.charSheetUpgradeTrackSize = v
+                  if EllesmereUI._applyCharSheetTextSizes then
+                      EllesmereUI._applyCharSheetTextSizes()
+                  end
+              end }
+        );  y = y - h
+
+        -- Disabled overlay for font size row when themed is off
+        do
+            local function themedOff()
+                return not (EllesmereUIDB and EllesmereUIDB.themedCharacterSheet)
+            end
+
+            local fontBlock = CreateFrame("Frame", nil, itemLevelRow)
+            fontBlock:SetAllPoints(itemLevelRow)
+            fontBlock:SetFrameLevel(itemLevelRow:GetFrameLevel() + 10)
+            fontBlock:EnableMouse(true)
+            local fontBg = EllesmereUI.SolidTex(fontBlock, "BACKGROUND", 0, 0, 0, 0)
+            fontBg:SetAllPoints()
+            fontBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(fontBlock, EllesmereUI.DisabledTooltip("Themed Character Sheet"))
+            end)
+            fontBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if themedOff() then
+                    fontBlock:Show()
+                    itemLevelRow:SetAlpha(0.3)
+                else
+                    fontBlock:Hide()
+                    itemLevelRow:SetAlpha(1)
+                end
+            end)
+            if themedOff() then fontBlock:Show() itemLevelRow:SetAlpha(0.3) else fontBlock:Hide() itemLevelRow:SetAlpha(1) end
+        end
+
+        local enchantRow
+        enchantRow, h = W:DualRow(parent, y,
+            { type="slider", text="Enchant Font Size",
+              min=8, max=12, step=1,
+              tooltip="Adjusts the font size for enchant text on the character sheet.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.charSheetEnchantSize or 9
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.charSheetEnchantSize = v
+                  if EllesmereUI._applyCharSheetTextSizes then
+                      EllesmereUI._applyCharSheetTextSizes()
+                  end
+              end },
+            { type="label", text="" }
+        );  y = y - h
+
+        -- Disabled overlay for enchant row when themed is off
+        do
+            local function themedOff()
+                return not (EllesmereUIDB and EllesmereUIDB.themedCharacterSheet)
+            end
+
+            local enchantBlock = CreateFrame("Frame", nil, enchantRow)
+            enchantBlock:SetAllPoints(enchantRow)
+            enchantBlock:SetFrameLevel(enchantRow:GetFrameLevel() + 10)
+            enchantBlock:EnableMouse(true)
+            local enchantBg = EllesmereUI.SolidTex(enchantBlock, "BACKGROUND", 0, 0, 0, 0)
+            enchantBg:SetAllPoints()
+            enchantBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(enchantBlock, EllesmereUI.DisabledTooltip("Themed Character Sheet"))
+            end)
+            enchantBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if themedOff() then
+                    enchantBlock:Show()
+                    enchantRow:SetAlpha(0.3)
+                else
+                    enchantBlock:Hide()
+                    enchantRow:SetAlpha(1)
+                end
+            end)
+            if themedOff() then enchantBlock:Show() enchantRow:SetAlpha(0.3) else enchantBlock:Hide() enchantRow:SetAlpha(1) end
+        end
+
+        -- Stat Category Toggles
+        _, h = W:Spacer(parent, y, 10);  y = y - h
+
+        local categoryRow1, h1 = W:DualRow(parent, y,
+            { type="toggle", text="Show Attributes",
+              tooltip="Toggle visibility of the Attributes stat category.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.showStatCategory_Attributes ~= false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.showStatCategory_Attributes = v
+                  if EllesmereUI._updateStatCategoryVisibility then
+                      EllesmereUI._updateStatCategoryVisibility()
+                  end
+              end },
+            { type="toggle", text="Show Secondary Stats",
+              tooltip="Toggle visibility of the Secondary Stats category.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.showStatCategory_SecondaryStats ~= false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.showStatCategory_SecondaryStats = v
+                  if EllesmereUI._updateStatCategoryVisibility then
+                      EllesmereUI._updateStatCategoryVisibility()
+                  end
+              end }
+        );  y = y - h1
+
+        local categoryRow2, h2 = W:DualRow(parent, y,
+            { type="toggle", text="Show Attack",
+              tooltip="Toggle visibility of the Attack stat category.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.showStatCategory_Attack ~= false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.showStatCategory_Attack = v
+                  if EllesmereUI._updateStatCategoryVisibility then
+                      EllesmereUI._updateStatCategoryVisibility()
+                  end
+              end },
+            { type="toggle", text="Show Defense",
+              tooltip="Toggle visibility of the Defense stat category.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.showStatCategory_Defense ~= false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.showStatCategory_Defense = v
+                  if EllesmereUI._updateStatCategoryVisibility then
+                      EllesmereUI._updateStatCategoryVisibility()
+                  end
+              end }
+        );  y = y - h2
+
+        local categoryRow3, h3 = W:DualRow(parent, y,
+            { type="toggle", text="Show Crests",
+              tooltip="Toggle visibility of the Crests stat category.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.showStatCategory_Crests ~= false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.showStatCategory_Crests = v
+                  if EllesmereUI._updateStatCategoryVisibility then
+                      EllesmereUI._updateStatCategoryVisibility()
+                  end
+              end },
+            { type="label", text="" }
+        );  y = y - h3
+
+        -- Disabled overlay for stat category toggles when themed is off
+        do
+            local function themedOff()
+                return not (EllesmereUIDB and EllesmereUIDB.themedCharacterSheet)
+            end
+
+            local categoryBlock = CreateFrame("Frame", nil, parent)
+            categoryBlock:SetSize(400, h1 + h2 + h3 + 20)
+            categoryBlock:SetPoint("TOPLEFT", parent, "TOPLEFT", 420, -y + h1 + h2 + h3 + 30)
+            categoryBlock:SetFrameLevel(parent:GetFrameLevel() + 20)
+            categoryBlock:EnableMouse(true)
+            local categoryBg = EllesmereUI.SolidTex(categoryBlock, "BACKGROUND", 0, 0, 0, 0)
+            categoryBg:SetAllPoints()
+            categoryBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(categoryBlock, EllesmereUI.DisabledTooltip("Themed Character Sheet"))
+            end)
+            categoryBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if themedOff() then
+                    categoryBlock:Show()
+                else
+                    categoryBlock:Hide()
+                end
+            end)
+            if themedOff() then categoryBlock:Show() else categoryBlock:Hide() end
+        end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
         return math.abs(y)
