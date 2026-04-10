@@ -599,7 +599,7 @@ local function SkinCharacterSheet()
             color = { r = 0.047, g = 0.824, b = 0.616 },  -- Teal
             stats = {
                 { name = "Intellect", func = function() return UnitStat("player", 4) end },
-                { name = "Stamina", func = function() return UnitStat("player", 5) end },
+                { name = "Stamina", func = function() return UnitStat("player", 3) end },
                 { name = "Health", func = function() return UnitHealthMax("player") end },
             }
         },
@@ -786,7 +786,7 @@ local function SkinCharacterSheet()
             -- Update all stored stats
             for _, statEntry in ipairs(frame._statsValues) do
                 local result = statEntry.func()
-                if result then
+                if result ~= nil then
                     if statEntry.format:find("%%") then
                         statEntry.value:SetText(format(statEntry.format, result))
                     else
