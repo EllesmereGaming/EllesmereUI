@@ -994,6 +994,8 @@ local function SkinCharacterSheet()
 
         noTitleBtn:SetScript("OnClick", function()
             SetCurrentTitle(0)
+            titlesSearchBox:SetText("")
+            hintText:Show()
             RefreshTitlesList()
         end)
 
@@ -1034,7 +1036,9 @@ local function SkinCharacterSheet()
                     titleText:SetPoint("LEFT", titleBtn, "LEFT", 10, 0)
 
                     titleBtn:SetScript("OnClick", function()
-                        SetCurrentTitle(titleIndex)
+                        SetCurrentTitle(titleBtn._titleIndex)
+                        titlesSearchBox:SetText("")
+                        hintText:Show()
                         -- Schedule refresh after a frame to ensure the title is updated
                         C_Timer.After(0, RefreshTitlesList)
                     end)
@@ -1085,9 +1089,9 @@ local function SkinCharacterSheet()
 
     -- Focus lost handler
     titlesSearchBox:SetScript("OnEditFocusLost", function()
-        titlesSearchBox:SetText("")
-        hintText:Show()
-        RefreshTitlesList()
+        if titlesSearchBox:GetText() == "" then
+            hintText:Show()
+        end
     end)
 
     -- Hook to refresh titles when shown
@@ -1371,6 +1375,18 @@ local function SkinCharacterSheet()
 
                 -- Create or reuse menu frame
                 if not cogBtn.menuFrame then
+                    -- Create invisible backdrop to catch clicks outside menu
+                    local backdrop = CreateFrame("Button", nil, UIParent)
+                    backdrop:SetFrameStrata("DIALOG")
+                    backdrop:SetFrameLevel(99)
+                    backdrop:SetSize(2560, 1440)
+                    backdrop:SetPoint("CENTER", UIParent, "CENTER")
+                    backdrop:SetScript("OnClick", function()
+                        cogBtn.menuFrame:Hide()
+                        backdrop:Hide()
+                    end)
+                    cogBtn.menuBackdrop = backdrop
+
                     cogBtn.menuFrame = CreateFrame("Frame", nil, UIParent)
                     cogBtn.menuFrame:SetFrameStrata("DIALOG")
                     cogBtn.menuFrame:SetFrameLevel(100)
@@ -1436,6 +1452,7 @@ local function SkinCharacterSheet()
                         C_EquipmentSet.AssignSpecToEquipmentSet(setData.id, spec.index)
                         RefreshEquipmentSets()
                         cogBtn.menuFrame:Hide()
+                        cogBtn.menuBackdrop:Hide()
                     end)
 
                     table.insert(cogBtn.menuFrame.specButtons, btn)
@@ -1445,6 +1462,7 @@ local function SkinCharacterSheet()
                 -- Position and show menu
                 cogBtn.menuFrame:SetPoint("TOPLEFT", self, "BOTTOMLEFT", 0, -5)
                 cogBtn.menuFrame:Show()
+                cogBtn.menuBackdrop:Show()
             end)
 
             yOffset = yOffset - 30
