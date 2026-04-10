@@ -56,7 +56,7 @@ local function SkinCharacterSheet()
         CharacterModelScene:Show()
         CharacterModelScene:ClearAllPoints()
         CharacterModelScene:SetPoint("TOPLEFT", frame, "TOPLEFT", 110, -60)
-        CharacterModelScene:SetFrameLevel(2)
+        CharacterModelScene:SetFrameLevel(1)
 
         -- Hide control frame (zoom, rotation buttons)
         if CharacterModelScene.ControlFrame then
