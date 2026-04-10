@@ -922,10 +922,31 @@ local function SkinCharacterSheet()
     titlesBg:SetColorTexture(0.03, 0.045, 0.05, 0.95)
     titlesBg:SetAllPoints()
 
+    -- Search box for titles
+    local titlesSearchBox = CreateFrame("EditBox", "EUI_CharSheet_TitlesSearchBox", titlesPanel)
+    titlesSearchBox:SetSize(200, 24)
+    titlesSearchBox:SetPoint("TOPLEFT", titlesPanel, "TOPLEFT", 10, -10)
+    titlesSearchBox:SetAutoFocus(false)
+    titlesSearchBox:SetMaxLetters(20)
+
+    local searchBg = titlesSearchBox:CreateTexture(nil, "BACKGROUND")
+    searchBg:SetColorTexture(0.1, 0.12, 0.14, 0.9)
+    searchBg:SetAllPoints()
+
+    titlesSearchBox:SetTextColor(1, 1, 1, 1)
+    titlesSearchBox:SetFont(fontPath, 10, "")
+
+    -- Hint text
+    local hintText = titlesSearchBox:CreateFontString(nil, "OVERLAY")
+    hintText:SetFont(fontPath, 10, "")
+    hintText:SetText("search for title")
+    hintText:SetTextColor(0.6, 0.6, 0.6, 0.7)
+    hintText:SetPoint("LEFT", titlesSearchBox, "LEFT", 5, 0)
+
     -- Create scroll frame for titles
     local titlesScrollFrame = CreateFrame("ScrollFrame", "EUI_CharSheet_TitlesScrollFrame", titlesPanel)
-    titlesScrollFrame:SetSize(200, 320)
-    titlesScrollFrame:SetPoint("TOPLEFT", titlesPanel, "TOPLEFT", 5, -10)
+    titlesScrollFrame:SetSize(200, 300)
+    titlesScrollFrame:SetPoint("TOPLEFT", titlesPanel, "TOPLEFT", 5, -40)
     titlesScrollFrame:EnableMouseWheel(true)
 
     -- Create scroll child
@@ -951,6 +972,8 @@ local function SkinCharacterSheet()
 
         local currentTitle = GetCurrentTitle()
         local yOffset = 0
+        local searchText = titlesSearchBox:GetText():lower()
+        local titleButtons = {}  -- Store button references
 
         -- Add "No Title" button
         local noTitleBtn = CreateFrame("Button", nil, titlesScrollChild)
@@ -961,24 +984,13 @@ local function SkinCharacterSheet()
         local noTitleBg = noTitleBtn:CreateTexture(nil, "BACKGROUND")
         noTitleBg:SetColorTexture(0.05, 0.07, 0.08, 0.8)
         noTitleBg:SetAllPoints()
+        titleButtons[0] = { btn = noTitleBtn, bg = noTitleBg }
 
         local noTitleText = noTitleBtn:CreateFontString(nil, "OVERLAY")
         noTitleText:SetFont(fontPath, 11, "")
         noTitleText:SetText("No Title")
         noTitleText:SetTextColor(1, 1, 1, 1)
         noTitleText:SetPoint("LEFT", noTitleBtn, "LEFT", 10, 0)
-
-        local noTitleCheck = noTitleBtn:CreateFontString(nil, "OVERLAY")
-        noTitleCheck:SetFont(fontPath, 14, "")
-        noTitleCheck:SetText("✓")
-        noTitleCheck:SetTextColor(0.047, 0.824, 0.616, 1)
-        noTitleCheck:SetPoint("RIGHT", noTitleBtn, "RIGHT", -10, 0)
-
-        if currentTitle == 0 then
-            noTitleCheck:Show()
-        else
-            noTitleCheck:Hide()
-        end
 
         noTitleBtn:SetScript("OnClick", function()
             SetCurrentTitle(0)
@@ -990,7 +1002,11 @@ local function SkinCharacterSheet()
         end)
 
         noTitleBtn:SetScript("OnLeave", function()
-            noTitleBg:SetColorTexture(0.05, 0.07, 0.08, 0.8)
+            if GetCurrentTitle() == 0 then
+                noTitleBg:SetColorTexture(0.1, 0.12, 0.14, 0.9)  -- Lighter gray for active title
+            else
+                noTitleBg:SetColorTexture(0.05, 0.07, 0.08, 0.8)
+            end
         end)
 
         yOffset = yOffset - 28
@@ -999,7 +1015,7 @@ local function SkinCharacterSheet()
         for titleIndex = 1, GetNumTitles() do
             if IsTitleKnown(titleIndex) then
                 local titleName = GetTitleName(titleIndex)
-                if titleName then
+                if titleName and (searchText == "" or titleName:lower():find(searchText, 1, true)) then
                     local titleBtn = CreateFrame("Button", nil, titlesScrollChild)
                     titleBtn:SetWidth(240)
                     titleBtn:SetHeight(24)
@@ -1009,6 +1025,7 @@ local function SkinCharacterSheet()
                     local btnBg = titleBtn:CreateTexture(nil, "BACKGROUND")
                     btnBg:SetColorTexture(0.05, 0.07, 0.08, 0.8)
                     btnBg:SetAllPoints()
+                    titleButtons[titleIndex] = { btn = titleBtn, bg = btnBg }
 
                     local titleText = titleBtn:CreateFontString(nil, "OVERLAY")
                     titleText:SetFont(fontPath, 11, "")
@@ -1016,21 +1033,10 @@ local function SkinCharacterSheet()
                     titleText:SetTextColor(1, 1, 1, 1)
                     titleText:SetPoint("LEFT", titleBtn, "LEFT", 10, 0)
 
-                    local checkmark = titleBtn:CreateFontString(nil, "OVERLAY")
-                    checkmark:SetFont(fontPath, 14, "")
-                    checkmark:SetText("✓")
-                    checkmark:SetTextColor(0.047, 0.824, 0.616, 1)
-                    checkmark:SetPoint("RIGHT", titleBtn, "RIGHT", -10, 0)
-
-                    if currentTitle == titleIndex then
-                        checkmark:Show()
-                    else
-                        checkmark:Hide()
-                    end
-
                     titleBtn:SetScript("OnClick", function()
                         SetCurrentTitle(titleIndex)
-                        RefreshTitlesList()
+                        -- Schedule refresh after a frame to ensure the title is updated
+                        C_Timer.After(0, RefreshTitlesList)
                     end)
 
                     titleBtn:SetScript("OnEnter", function()
@@ -1038,7 +1044,11 @@ local function SkinCharacterSheet()
                     end)
 
                     titleBtn:SetScript("OnLeave", function()
-                        btnBg:SetColorTexture(0.05, 0.07, 0.08, 0.8)
+                        if GetCurrentTitle() == titleIndex then
+                            btnBg:SetColorTexture(0.1, 0.12, 0.14, 0.9)  -- Lighter gray for active title
+                        else
+                            btnBg:SetColorTexture(0.05, 0.07, 0.08, 0.8)
+                        end
                     end)
 
                     yOffset = yOffset - 28
@@ -1046,11 +1056,43 @@ local function SkinCharacterSheet()
             end
         end
 
+        -- Re-read current title to ensure it's updated
+        currentTitle = GetCurrentTitle()
+
+        -- Update colors based on current title
+        for titleIndex, btnData in pairs(titleButtons) do
+            if currentTitle == titleIndex then
+                btnData.bg:SetColorTexture(0.1, 0.12, 0.14, 0.9)
+            else
+                btnData.bg:SetColorTexture(0.05, 0.07, 0.08, 0.8)
+            end
+        end
+
         titlesScrollChild:SetHeight(-yOffset)
     end
 
+    -- Search input handler
+    titlesSearchBox:SetScript("OnTextChanged", function()
+        RefreshTitlesList()
+    end)
+
+    -- Focus gained handler
+    titlesSearchBox:SetScript("OnEditFocusGained", function()
+        if titlesSearchBox:GetText() == "" then
+            hintText:Hide()
+        end
+    end)
+
+    -- Focus lost handler
+    titlesSearchBox:SetScript("OnEditFocusLost", function()
+        titlesSearchBox:SetText("")
+        hintText:Show()
+        RefreshTitlesList()
+    end)
+
     -- Hook to refresh titles when shown
     frame._titlesPanel:HookScript("OnShow", function()
+        titlesSearchBox:SetText("")
         RefreshTitlesList()
     end)
 

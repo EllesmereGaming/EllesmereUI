@@ -3507,8 +3507,14 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.themedCharacterSheet = v
-                  if EllesmereUI.ApplyThemedCharacterSheet then
-                      EllesmereUI.ApplyThemedCharacterSheet()
+                  if EllesmereUI.ShowConfirmPopup then
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Reload Required",
+                          message     = "Character Sheet theme setting requires a UI reload to fully apply.",
+                          confirmText = "Reload Now",
+                          cancelText  = "Later",
+                          onConfirm   = function() ReloadUI() end,
+                      })
                   end
               end },
             { type="slider", text="Character Sheet Scale",
