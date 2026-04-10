@@ -7437,15 +7437,25 @@ function EllesmereUI.CheckVisibilityMode(mode, state)
         local isMounted = IsMounted()
         local isGliding = false
         local canGlide = false
-        if C_PlayerInfo and C_PlayerInfo.GetGlidingInfo then
-            isGliding, canGlide = C_PlayerInfo.GetGlidingInfo()
+        
+        -- Detect skyriding/gliding capability and active state
+        if C_PlayerInfo then
+            if C_PlayerInfo.GetGlidingInfo then
+                isGliding, canGlide = C_PlayerInfo.GetGlidingInfo()
+            elseif C_PlayerInfo.IsSkyriding then
+                isGliding = C_PlayerInfo.IsSkyriding() or false
+            elseif C_PlayerInfo.IsDragonriding then
+                isGliding = C_PlayerInfo.IsDragonriding() or false
+            end
         end
+        
         state = {
             inCombat = UnitAffectingCombat("player"),
             inRaid   = IsInRaid(),
             inParty  = IsInGroup(),
             isMounted = isMounted,
-            isSkyriding = isGliding or canGlide,
+            isSkyriding = isGliding or canGlide,  -- true if gliding OR able to glide
+            isGliding = isGliding,                 -- true only if actively gliding
         }
     end
 

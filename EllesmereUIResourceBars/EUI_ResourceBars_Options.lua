@@ -985,31 +985,63 @@ initFrame:SetScript("OnEvent", function(self)
         local generalSection
         generalSection, h = W:SectionHeader(parent, "BAR DISPLAY", y);  y = y - h
 
-        -- Row 1: Visibility | Visibility Options (checkbox dropdown)
-        local visRow
-        visRow, h = W:DualRow(parent, y,
-            { type = "dropdown", text = "Visibility",
-              values = EllesmereUI.VIS_VALUES,
-              order = EllesmereUI.VIS_ORDER,
-              getValue = function()
-                  local p = DB(); if not p then return "always" end
-                  return p.secondary.visibility or "always"
-              end,
-              setValue = function(v)
-                  local p = DB(); if not p then return end
-                  p.secondary.visibility = v
-                  p.health.visibility = v
-                  p.primary.visibility = v
-                  Refresh()
-                  EllesmereUI:RefreshPage()
-              end },
-            { type = "dropdown", text = "Visibility Options",
-              values = { __placeholder = "..." }, order = { "__placeholder" },
-              getValue = function() return "__placeholder" end,
-              setValue = function() end }
-        );  y = y - h
+        -- Set up visibility mode helpers for multi-select
+        local rbVisHelpers = EllesmereUI.CreateVisibilityModeHelpers({
+            tableName = "visibilityMulti",
+            supportMouseover = false,  -- resource bars don't support mouseover
+            supportMounted = true,
+        })
 
-        -- Replace the dummy right dropdown with our checkbox dropdown
+        -- Visibility Mode and Options in dual-column layout
+        local visRow, visH = W:DualRow(parent, y,
+            { type="dropdown", text="Visibility Mode",
+              values=EllesmereUI.VIS_VALUES, order=EllesmereUI.VIS_ORDER,
+              getValue=function() return "__placeholder" end,
+              setValue=function() end },
+            { type="dropdown", text="Visibility Options",
+              values={ __placeholder = "..." }, order={ "__placeholder" },
+              getValue=function() return "__placeholder" end,
+              setValue=function() end });  y = y - visH
+
+        -- Replace the left dropdown with multi-select checkbox dropdown for modes
+        do
+            local leftRgn = visRow._leftRegion
+            if leftRgn._control then leftRgn._control:Hide() end
+            
+            local modeItems = {
+                { key = "never",       label = "Never" },
+                { key = "always",      label = "Always" },
+                { key = "in_combat",   label = "In Combat" },
+                { key = "out_of_combat", label = "Out of Combat" },
+                { key = "mounted",     label = "When Mounted" },
+                { key = "skyriding",   label = "When Skyriding" },
+                { key = "in_raid",     label = "In Raid Group" },
+                { key = "in_party",    label = "In Party" },
+                { key = "solo",        label = "Solo" },
+            }
+            
+            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                leftRgn, 210, leftRgn:GetFrameLevel() + 2,
+                modeItems,
+                function(k)
+                    local p = DB(); if not p then return false end
+                    return rbVisHelpers.GetValue(p.secondary, k)
+                end,
+                function(k, v)
+                    local p = DB(); if not p then return end
+                    rbVisHelpers.SetValue(p.secondary, k, v)
+                    rbVisHelpers.SetValue(p.health, k, v)
+                    rbVisHelpers.SetValue(p.primary, k, v)
+                    Refresh()
+                    EllesmereUI:RefreshPage()
+                end)
+            PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+            leftRgn._control = cbDD
+            leftRgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+        end
+
+        -- Replace right dropdown with checkbox dropdown for special options
         do
             local rightRgn = visRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end

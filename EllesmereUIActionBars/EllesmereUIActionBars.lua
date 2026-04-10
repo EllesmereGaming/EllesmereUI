@@ -4013,35 +4013,9 @@ local function AttachHoverHooks(barKey)
             if GetEABFlyout():IsVisible() and GetEABFlyout():IsMouseOver() then return end
             local s = EAB.db.profile.bars[barKey]
             if s and s.mouseoverEnabled then
-                local modes = NormalizeVisibilityModes(s)
-                local effectiveModes = {}
-                for mode, enabled in pairs(modes) do
-                    if mode ~= "mouseover" and enabled then
-                        effectiveModes[mode] = true
-                    end
-                end
-
-                local isSkyriding = false
-                if C_PlayerInfo then
-                    if C_PlayerInfo.GetGlidingInfo then
-                        local isGliding, canGlide = C_PlayerInfo.GetGlidingInfo()
-                        isSkyriding = (isGliding or canGlide) and true or false
-                    elseif C_PlayerInfo.IsSkyriding then
-                        isSkyriding = C_PlayerInfo.IsSkyriding() or false
-                    elseif C_PlayerInfo.IsDragonriding then
-                        isSkyriding = C_PlayerInfo.IsDragonriding() or false
-                    end
-                end
-                local visibilityState = {
-                    inCombat    = UnitAffectingCombat("player"),
-                    inRaid      = IsInRaid(),
-                    inParty     = IsInGroup(),
-                    isSkyriding = isSkyriding,
-                    isGliding   = isSkyriding,
-                }
-
-                if next(effectiveModes) and EllesmereUI.CheckVisibilityMode(effectiveModes, visibilityState) then
-                    return
+                -- Use shared mouseover fade helper
+                if EllesmereUI.ShouldFadeOutOnMouseLeave and not EllesmereUI.ShouldFadeOutOnMouseLeave(s) then
+                    return  -- Don't fade out, another mode is still true
                 end
 
                 if state.fadeDir ~= "out" then
@@ -4102,47 +4076,57 @@ function EAB:RefreshMouseover()
                     AttachExtraBarHoverHooks(info)
                 end
                 
-                local modes = NormalizeVisibilityModes(s)
-                local inCombat = UnitAffectingCombat("player")
-                local isMounted = IsMounted()
-                -- Check if skyriding is active: canGlide returns true when on a skyriding mount
-                -- in a dragonriding zone (only when actively gliding, not on ground)
-                local isGliding = false
-                local canGlide = false
-                if C_PlayerInfo and C_PlayerInfo.GetGlidingInfo then
-                    isGliding, canGlide = C_PlayerInfo.GetGlidingInfo()
-                end
+                -- Check if mouse is currently over this bar
+                local hoverState = hoverStates[key]
+                local isCurrentlyHovered = hoverState and hoverState.isHovered
                 
-                local isSkyriding = isGliding or canGlide
-                
-                local state = {
-                    inCombat    = inCombat,
-                    inRaid      = IsInRaid(),
-                    inParty     = IsInGroup(),
-                    isMounted   = isMounted,
-                    isSkyriding = isSkyriding,
-                }
-
-                local effectiveModes = {}
-                for mode, enabled in pairs(modes) do
-                    if mode ~= "mouseover" and enabled then
-                        effectiveModes[mode] = true
-                    end
-                end
-
-                local modeCheckResult = next(effectiveModes) and EllesmereUI.CheckVisibilityMode(effectiveModes, state)
-                
-                StopFade(frame)
-                if modeCheckResult then
+                if isCurrentlyHovered then
+                    -- While hovering, always show the bar
+                    StopFade(frame)
                     frame:SetAlpha(1)
                     if key == "MainBar" then SyncPagingAlpha(1) end
                 else
-                    frame:SetAlpha(0)
-                    if key == "MainBar" then SyncPagingAlpha(0) end
-                end
+                    -- When not hovering, evaluate if other modes are active
+                    local modes = NormalizeVisibilityModes(s)
+                    local inCombat = UnitAffectingCombat("player")
+                    local isMounted = IsMounted()
+                    -- Check if skyriding is active: canGlide returns true when on a skyriding mount
+                    -- in a dragonriding zone (only when actively gliding, not on ground)
+                    local isGliding, canGlide = false, false
+                    if C_PlayerInfo and C_PlayerInfo.GetGlidingInfo then
+                        isGliding, canGlide = C_PlayerInfo.GetGlidingInfo()
+                    end
+                    
+                    local isSkyriding = isGliding or canGlide
+                    
+                    local state = {
+                        inCombat    = inCombat,
+                        inRaid      = IsInRaid(),
+                        inParty     = IsInGroup(),
+                        isMounted   = isMounted,
+                        isSkyriding = isSkyriding,
+                    }
 
-                local hoverState = hoverStates[key]
-                if hoverState then hoverState.fadeDir = "out" end
+                    local effectiveModes = {}
+                    for mode, enabled in pairs(modes) do
+                        if mode ~= "mouseover" and enabled then
+                            effectiveModes[mode] = true
+                        end
+                    end
+
+                    local modeCheckResult = next(effectiveModes) and EllesmereUI.CheckVisibilityMode(effectiveModes, state)
+                    
+                    StopFade(frame)
+                    if modeCheckResult then
+                        frame:SetAlpha(1)
+                        if key == "MainBar" then SyncPagingAlpha(1) end
+                    else
+                        frame:SetAlpha(0)
+                        if key == "MainBar" then SyncPagingAlpha(0) end
+                    end
+                    
+                    if hoverState then hoverState.fadeDir = "out" end
+                end
             else
                 StopFade(frame)
                 frame:SetAlpha(s.mouseoverAlpha or 1)
@@ -4156,9 +4140,18 @@ end
 
 -- Normalize visibility modes from settings into a table for OR logic
 NormalizeVisibilityModes = function(s)
+    -- Use the centralized helper from VisibilityModes
+    if EllesmereUI and EllesmereUI.GetVisibilityModes then
+        return EllesmereUI.GetVisibilityModes(s, "visibilityMulti")
+    end
+    
+    -- Fallback for when helper is not available
     local modes = {}
-
-    if s and s.barVisibilityMulti and type(s.barVisibilityMulti) == "table" then
+    if s and s.visibilityMulti and type(s.visibilityMulti) == "table" then
+        for k, v in pairs(s.visibilityMulti) do
+            if v then modes[k] = true end
+        end
+    elseif s and s.barVisibilityMulti and type(s.barVisibilityMulti) == "table" then
         for k, v in pairs(s.barVisibilityMulti) do
             if v then modes[k] = true end
         end

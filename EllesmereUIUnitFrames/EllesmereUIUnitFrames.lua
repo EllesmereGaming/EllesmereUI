@@ -6012,8 +6012,19 @@ local function UnitFrame_OnLeave(self)
     if not unit then return end
     local unitKey = unit:match("^boss%d$") and "boss" or unit
     local s = db and db.profile and db.profile[unitKey]
-    if s and (s.barVisibility or "always") == "mouseover" then
-        (self._visWrap or self):SetAlpha(0)
+    if s then
+        -- Support both old single-mode visibility and new multi-select
+        local hasMouseover = (s.visibilityMulti and s.visibilityMulti.mouseover) or
+                            (s.barVisibility == "mouseover")
+        if hasMouseover then
+            -- Use shared helper to check if other modes are still true
+            if EllesmereUI.ShouldFadeOutOnMouseLeave and not EllesmereUI.ShouldFadeOutOnMouseLeave(s) then
+                -- Don't fade out, another mode is still true
+            else
+                -- Fade out
+                (self._visWrap or self):SetAlpha(0)
+            end
+        end
     end
     if GameTooltip and GameTooltip:IsOwned(self) then
         GameTooltip:Hide()
@@ -6698,7 +6709,30 @@ function InitializeFrames()
             local frame = frames[unitKey]
             if frame and enabled2[unitKey] ~= false and s then
                 local hiddenByOpts = EllesmereUI and EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(s)
+                
+                -- Check multi-select visibility modes first
+                local shouldShowByVisibility = true
                 local vis = s.barVisibility or "always"
+                if s.visibilityMulti then
+                    if EllesmereUI and EllesmereUI.CheckVisibilityMode then
+                        shouldShowByVisibility = EllesmereUI.CheckVisibilityMode(s.visibilityMulti)
+                    end
+                else
+                    -- Fallback to old single-mode visibility
+                    if vis == "never" then
+                        shouldShowByVisibility = false
+                    elseif vis == "in_combat" then
+                        shouldShowByVisibility = _ufInCombat
+                    elseif vis == "out_of_combat" then
+                        shouldShowByVisibility = not _ufInCombat
+                    elseif vis == "in_raid" then
+                        shouldShowByVisibility = inRaid
+                    elseif vis == "in_party" then
+                        shouldShowByVisibility = inRaid or inParty
+                    elseif vis == "solo" then
+                        shouldShowByVisibility = solo
+                    end
+                end
 
                 -- Combat-sensitive and mouseover modes use SetAlpha to show/hide
                 -- (SetAlpha is not a restricted API). The frame stays technically
@@ -6710,7 +6744,18 @@ function InitializeFrames()
                 -- reappear/disappear against our will. Alpha inherits down the
                 -- parent chain so wrapper alpha 0 always wins.
                 local alphaTarget = frame._visWrap or frame
-                if vis == "in_combat" then
+                
+                -- When using multi-select visibility, alpha is driven by the overall mode check
+                if s.visibilityMulti then
+                    -- Multi-select: use the overall visibility result
+                    -- Special handling for mouseover mode
+                    if s.visibilityMulti.mouseover then
+                        alphaTarget:SetAlpha(0)  -- Hidden by default; OnEnter/OnLeave toggle alpha
+                    else
+                        -- Show/hide based on other modes
+                        alphaTarget:SetAlpha((not hiddenByOpts and shouldShowByVisibility) and 1 or 0)
+                    end
+                elseif vis == "in_combat" then
                     alphaTarget:SetAlpha((not hiddenByOpts and _ufInCombat) and 1 or 0)
                 elseif vis == "out_of_combat" then
                     alphaTarget:SetAlpha((not hiddenByOpts and not _ufInCombat) and 1 or 0)
@@ -6720,7 +6765,7 @@ function InitializeFrames()
                 else
                     -- Non-combat modes: restore full alpha; Show/Hide controls
                     -- visibility in the block below.
-                    alphaTarget:SetAlpha(1)
+                    alphaTarget:SetAlpha(shouldShowByVisibility and 1 or 0)
                 end
 
                 -- Show/Hide and SetAttribute are restricted during lockdown.
@@ -6728,11 +6773,14 @@ function InitializeFrames()
                     local shouldShow
                     if hiddenByOpts then
                         shouldShow = false
-                    elseif vis == "never" then
+                    elseif vis == "never" or (s.visibilityMulti and not shouldShowByVisibility) then
                         shouldShow = false
                     elseif vis == "in_combat" or vis == "out_of_combat" or vis == "mouseover" then
                         -- Frame is kept shown; alpha (above) drives visibility.
                         shouldShow = true
+                    elseif s.visibilityMulti then
+                        -- Multi-select visibility: show if ANY mode matches
+                        shouldShow = shouldShowByVisibility
                     elseif vis == "in_raid" then
                         shouldShow = inRaid
                     elseif vis == "in_party" then
@@ -6818,6 +6866,9 @@ function InitializeFrames()
         elseif event == "PLAYER_REGEN_ENABLED" then
             _ufInCombat = false
             UpdateFrameVisibility()
+        elseif event == "PLAYER_MOUNT_DISPLAY_CHANGED" then
+            -- Defer slightly to allow game state to update (C_PlayerInfo.GetGlidingInfo may not be ready immediately)
+            C_Timer.After(0.05, UpdateFrameVisibility)
         else
             -- Defer to next frame to avoid taint from secure execution paths
             C_Timer.After(0, UpdateFrameVisibility)

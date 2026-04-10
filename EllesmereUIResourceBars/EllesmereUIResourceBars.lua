@@ -2659,6 +2659,15 @@ local function ShouldShowSecondary()
     local sp = ERB.db.profile.secondary
     -- Check visibility options first
     if EllesmereUI and EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(sp) then return false end
+    
+    -- Check multi-select visibility modes first
+    if sp and sp.visibilityMulti then
+        if EllesmereUI and EllesmereUI.CheckVisibilityMode then
+            return EllesmereUI.CheckVisibilityMode(sp.visibilityMulti)
+        end
+    end
+    
+    -- Fallback to old single-mode visibility
     local vis = sp.visibility
     if vis == "always" then return true end
     if vis == "never" then return false end
@@ -2679,6 +2688,15 @@ end
 local function ShouldShowBar(barProfile)
     -- Check visibility options first
     if EllesmereUI and EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(barProfile) then return false end
+    
+    -- Check multi-select visibility modes first
+    if barProfile.visibilityMulti then
+        if EllesmereUI and EllesmereUI.CheckVisibilityMode then
+            return EllesmereUI.CheckVisibilityMode(barProfile.visibilityMulti)
+        end
+    end
+    
+    -- Fallback to old single-mode visibility
     local vis = barProfile.visibility or "always"
     if vis == "always" then return true end
     if vis == "never" then return false end
@@ -3923,7 +3941,10 @@ local function OnEvent(self, event, ...)
     elseif event == "PLAYER_TARGET_CHANGED" then
         UpdateVisibility()
     elseif event == "PLAYER_MOUNT_DISPLAY_CHANGED" then
-        UpdateVisibility()
+        -- Defer slightly to allow game state to update (C_PlayerInfo.GetGlidingInfo may not be ready immediately)
+        C_Timer.After(0.05, function()
+            UpdateVisibility()
+        end)
     elseif event == "ZONE_CHANGED_NEW_AREA" then
         UpdateVisibility()
     elseif event == "GROUP_ROSTER_UPDATE" then
@@ -4076,6 +4097,42 @@ function ERB:OnEnable()
     eventFrame:SetScript("OnEvent", OnEvent)
     eventFrame:SetScript("OnUpdate", OnUpdate)
 
+    -- Attach mouseover fade logic to frames (will use shared helper when frames are built)
+    C_Timer.After(0, function()
+        if healthBar and healthBar:IsMouseEnabled() ~= true then
+            healthBar:EnableMouse(true)
+            healthBar:HookScript("OnLeave", function()
+                C_Timer.After(0.1, function()
+                    if not EllesmereUI.ShouldFadeOutOnMouseLeave(ERB.db and ERB.db.profile and ERB.db.profile.health) then
+                        return
+                    end
+                    healthBar:SetAlpha((ERB.db and ERB.db.profile and ERB.db.profile.health and ERB.db.profile.health.barAlpha) or 1)
+                end)
+            end)
+        end
+        if primaryBar and primaryBar:IsMouseEnabled() ~= true then
+            primaryBar:EnableMouse(true)
+            primaryBar:HookScript("OnLeave", function()
+                C_Timer.After(0.1, function()
+                    if not EllesmereUI.ShouldFadeOutOnMouseLeave(ERB.db and ERB.db.profile and ERB.db.profile.primary) then
+                        return
+                    end
+                    primaryBar:SetAlpha((ERB.db and ERB.db.profile and ERB.db.profile.primary and ERB.db.profile.primary.barAlpha) or 1)
+                end)
+            end)
+        end
+        if secondaryFrame and secondaryFrame:IsMouseEnabled() ~= true then
+            secondaryFrame:EnableMouse(true)
+            secondaryFrame:HookScript("OnLeave", function()
+                C_Timer.After(0.1, function()
+                    if not EllesmereUI.ShouldFadeOutOnMouseLeave(ERB.db and ERB.db.profile and ERB.db.profile.secondary) then
+                        return
+                    end
+                    secondaryFrame:SetAlpha((ERB.db and ERB.db.profile and ERB.db.profile.secondary and ERB.db.profile.secondary.barAlpha) or 1)
+                end)
+            end)
+        end
+    end)
     -- Apply immediately at PLAYER_LOGIN so positions are set before combat
     -- lockdown blocks ApplySavedPositions. The PLAYER_ENTERING_WORLD handler
     -- will re-apply after the full game state is available.

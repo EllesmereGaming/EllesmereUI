@@ -2930,40 +2930,64 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Row 1: Visibility | Visibility Options (checkbox dropdown)
-        local visRow
-        visRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Visibility",
-              values = EllesmereUI.VIS_VALUES,
-              order = EllesmereUI.VIS_ORDER,
-              getValue=function() return UNIT_DB_MAP[selectedUnit]().barVisibility or "always" end,
-              setValue=function(v)
-                  UNIT_DB_MAP[selectedUnit]().barVisibility = v
-                  -- Sync enabledFrames: "never" disables the frame entirely
-                  db.profile.enabledFrames[selectedUnit] = (v ~= "never")
-                  -- Keep boolean keys in sync for safety
-                  local s = UNIT_DB_MAP[selectedUnit]()
-                  if v == "always" then
-                      s.showInRaid = true; s.showInParty = true; s.showSolo = true
-                  elseif v == "never" then
-                      s.showInRaid = false; s.showInParty = false; s.showSolo = false
-                  elseif v == "in_raid" then
-                      s.showInRaid = true; s.showInParty = false; s.showSolo = false
-                  elseif v == "in_party" then
-                      s.showInRaid = true; s.showInParty = true; s.showSolo = false
-                  elseif v == "solo" then
-                      s.showInRaid = false; s.showInParty = false; s.showSolo = true
-                  end
-                  if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
-                  ReloadAndUpdate()
-                  EllesmereUI:RefreshPage()
-              end },
+        -- Set up visibility mode helpers for multi-select
+        local ufVisHelpers = EllesmereUI.CreateVisibilityModeHelpers({
+            tableName = "visibilityMulti",
+            supportMouseover = false,  -- unit frames don't support mouseover typically
+            supportMounted = true,
+        })
+
+        -- Visibility Mode and Options in dual-column layout
+        local visRow, visH = W:DualRow(parent, y,
+            { type="dropdown", text="Visibility Mode",
+              values=EllesmereUI.VIS_VALUES, order=EllesmereUI.VIS_ORDER,
+              getValue=function() return "__placeholder" end,
+              setValue=function() end },
             { type="dropdown", text="Visibility Options",
               values={ __placeholder = "..." }, order={ "__placeholder" },
               getValue=function() return "__placeholder" end,
-              setValue=function() end });  y = y - h
+              setValue=function() end });  y = y - visH
 
-        -- Replace the dummy right dropdown with our checkbox dropdown
+        -- Replace the left dropdown with multi-select checkbox dropdown for modes
+        do
+            local leftRgn = visRow._leftRegion
+            if leftRgn._control then leftRgn._control:Hide() end
+            
+            local modeItems = {
+                { key = "never",       label = "Never" },
+                { key = "always",      label = "Always" },
+                { key = "in_combat",   label = "In Combat" },
+                { key = "out_of_combat", label = "Out of Combat" },
+                { key = "mounted",     label = "When Mounted" },
+                { key = "skyriding",   label = "When Skyriding" },
+                { key = "in_raid",     label = "In Raid Group" },
+                { key = "in_party",    label = "In Party" },
+                { key = "solo",        label = "Solo" },
+            }
+            
+            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                leftRgn, 210, leftRgn:GetFrameLevel() + 2,
+                modeItems,
+                function(k)
+                    return ufVisHelpers.GetValue(UNIT_DB_MAP[selectedUnit](), k)
+                end,
+                function(k, v)
+                    local s = UNIT_DB_MAP[selectedUnit]()
+                    ufVisHelpers.SetValue(s, k, v)
+                    -- Sync enabledFrames: "never" disables the frame entirely
+                    db.profile.enabledFrames[selectedUnit] = not s.alwaysHidden
+                    -- Trigger refresh
+                    if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
+                    ReloadAndUpdate()
+                    EllesmereUI:RefreshPage()
+                end)
+            PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+            leftRgn._control = cbDD
+            leftRgn._lastInline = nil
+            RegisterWidgetRefresh(cbDDRefresh)
+        end
+
+        -- Replace right dropdown with checkbox dropdown for special options
         do
             local rightRgn = visRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
@@ -2990,17 +3014,21 @@ initFrame:SetScript("OnEvent", function(self)
                 region  = rgn,
                 tooltip = "Apply Visibility to all Frames",
                 isSynced = function()
-                    local v = UNIT_DB_MAP[selectedUnit]().barVisibility or "always"
+                    local srcModes = ufVisHelpers.GetModes(UNIT_DB_MAP[selectedUnit]())
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
-                        if (UNIT_DB_MAP[key]().barVisibility or "always") ~= v then return false end
+                        local tgtModes = ufVisHelpers.GetModes(UNIT_DB_MAP[key]())
+                        for k in pairs(srcModes) do
+                            if not tgtModes[k] then return false end
+                        end
                     end
                     return true
                 end,
                 onClick = function()
-                    local v = UNIT_DB_MAP[selectedUnit]().barVisibility or "always"
+                    local srcModes = ufVisHelpers.GetModes(UNIT_DB_MAP[selectedUnit]())
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
-                        UNIT_DB_MAP[key]().barVisibility = v
-                        db.profile.enabledFrames[key] = (v ~= "never")
+                        local s = UNIT_DB_MAP[key]()
+                        ufVisHelpers.ApplyModes(s, srcModes)
+                        db.profile.enabledFrames[key] = not s.alwaysHidden
                     end
                     if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()

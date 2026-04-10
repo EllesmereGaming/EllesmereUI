@@ -26,6 +26,7 @@ EllesmereUI_Startup.lua
 # Shared EllesmereUI Files
 EllesmereUI.lua
 EllesmereUI_Widgets.lua
+EllesmereUI_VisibilityModes.lua
 EllesmereUI_Presets.lua
 EllesmereUI_Profiles.lua
 EllesmereUI_PartyMode.lua

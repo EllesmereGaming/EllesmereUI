@@ -1024,126 +1024,7 @@ initFrame:SetScript("OnEvent", function(self)
         RepBar   = "Rep",
     }
 
-    local function GetVisModes(s)
-        local modes = {}
-        if s and s.barVisibilityMulti and type(s.barVisibilityMulti) == "table" then
-            for k, v in pairs(s.barVisibilityMulti) do
-                if v then modes[k] = true end
-            end
-        elseif s and s.barVisibility and type(s.barVisibility) == "table" then
-            for k, v in pairs(s.barVisibility) do
-                if v then modes[k] = true end
-            end
-        elseif s and s.barVisibility and type(s.barVisibility) == "string" then
-            modes[s.barVisibility] = true
-        end
-        if s and s.mouseoverEnabled then modes.mouseover = true end
-        if s and s.combatShowEnabled then modes.in_combat = true end
-        if s and s.combatHideEnabled then modes.out_of_combat = true end
-        if s and s.mountedEnabled then modes.mounted = true end
-        if s and s.inRaidEnabled then modes.in_raid = true end
-        if s and s.inPartyEnabled then modes.in_party = true end
-        if s and s.soloEnabled then modes.solo = true end
-        if s and (s.skyridingEnabled or s.dragonridingEnabled) then modes.skyriding = true end
-        if s and s.alwaysHidden then modes.never = true end
-        if not next(modes) then modes.always = true end
-        return modes
-    end
 
-    local function ApplyVisModes(s, modes)
-        if not s then return end
-        s.barVisibilityMulti = modes
-
-        if modes.never then
-            s.barVisibility = "never"
-        elseif modes.always then
-            s.barVisibility = "always"
-        elseif modes.skyriding then
-            s.barVisibility = "skyriding"
-        elseif modes.in_combat then
-            s.barVisibility = "in_combat"
-        elseif modes.out_of_combat then
-            s.barVisibility = "out_of_combat"
-        elseif modes.in_raid then
-            s.barVisibility = "in_raid"
-        elseif modes.in_party then
-            s.barVisibility = "in_party"
-        elseif modes.solo then
-            s.barVisibility = "solo"
-        elseif modes.mouseover then
-            s.barVisibility = "mouseover"
-        else
-            s.barVisibility = "always"
-        end
-
-        s.alwaysHidden = modes.never
-        s.combatShowEnabled = modes.in_combat
-        s.combatHideEnabled = modes.out_of_combat
-        s.mountedEnabled = modes.mounted
-        s.skyridingEnabled = modes.skyriding
-        s.dragonridingEnabled = modes.skyriding
-
-        local wasMO = s.mouseoverEnabled
-        s.mouseoverEnabled = modes.mouseover
-        if modes.mouseover then
-            if not wasMO then
-                s._savedBarAlpha = s.mouseoverAlpha or 1
-            end
-            s.mouseoverAlpha = 0
-        elseif wasMO and s._savedBarAlpha then
-            s.mouseoverAlpha = s._savedBarAlpha
-            s._savedBarAlpha = nil
-        end
-    end
-
-    local function ToggleVisMode(s, key, value)
-        if not s then return end
-        local modes = GetVisModes(s)
-        if key == "always" or key == "never" then
-            if value then
-                modes = { [key] = true }
-            else
-                modes[key] = nil
-            end
-        else
-            modes[key] = value
-            modes.always = nil
-            modes.never = nil
-        end
-        if not next(modes) then
-            modes.always = true
-        end
-        ApplyVisModes(s, modes)
-    end
-
-    local localVisibilityModeKeys = {
-        never = true,
-        always = true,
-        mouseover = true,
-        in_combat = true,
-        out_of_combat = true,
-        mounted = true,
-        in_raid = true,
-        in_party = true,
-        solo = true,
-        skyriding = true,
-    }
-
-    local function GetVisOptionValue(s, key)
-        if localVisibilityModeKeys[key] then
-            return GetVisModes(s)[key] or false
-        end
-        return s and s[key] or false
-    end
-
-    local function SetVisOptionValue(s, key, value)
-        if localVisibilityModeKeys[key] then
-            ToggleVisMode(s, key, value)
-            return true
-        end
-        if s then s[key] = value end
-        return false
-    end
 
 
 
@@ -1220,12 +1101,20 @@ initFrame:SetScript("OnEvent", function(self)
                 local leftRgn = visRow._leftRegion
                 if leftRgn._control then leftRgn._control:Hide() end
                 local PP = EllesmereUI.PanelPP
+                
+                -- Set up visibility mode helpers for this bar
+                local barVisHelpers = EllesmereUI.CreateVisibilityModeHelpers({
+                    tableName = "visibilityMulti",
+                    supportMouseover = true,
+                    supportMounted = true,
+                })
+                
                 local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                     leftRgn, 210, leftRgn:GetFrameLevel() + 2,
                     EllesmereUI.VIS_MODE_ITEMS,
-                    function(k) return GetVisOptionValue(s, k) end,
+                    function(k) return barVisHelpers.GetValue(s, k) end,
                     function(k, v)
-                        SetVisOptionValue(s, k, v)
+                        barVisHelpers.SetValue(s, k, v)
                         EAB:ApplyAlwaysHidden()
                         EAB:RefreshMouseover()
                         EAB:ApplyCombatVisibility()
@@ -1589,12 +1478,20 @@ initFrame:SetScript("OnEvent", function(self)
                 local leftRgn = visRow1._leftRegion
                 if leftRgn._control then leftRgn._control:Hide() end
                 local PP = EllesmereUI.PanelPP
+                
+                -- Set up visibility mode helpers for the special bar
+                local sbVisHelpers = EllesmereUI.CreateVisibilityModeHelpers({
+                    tableName = "visibilityMulti",
+                    supportMouseover = true,
+                    supportMounted = true,
+                })
+                
                 local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                     leftRgn, 210, leftRgn:GetFrameLevel() + 2,
                     EllesmereUI.VIS_MODE_ITEMS,
-                    function(k) return GetVisOptionValue(SB(), k) end,
+                    function(k) return sbVisHelpers.GetValue(SB(), k) end,
                     function(k, v)
-                        SetVisOptionValue(SB(), k, v)
+                        sbVisHelpers.SetValue(SB(), k, v)
                         EAB:ApplyAlwaysHidden()
                         EAB:RefreshMouseover()
                         EAB:ApplyCombatVisibility()
