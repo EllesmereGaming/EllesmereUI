@@ -3498,6 +3498,34 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Themed Character Sheet",
+              tooltip="Applies EllesmereUI theme styling to the character sheet window.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.themedCharacterSheet or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.themedCharacterSheet = v
+                  if EllesmereUI.ApplyThemedCharacterSheet then
+                      EllesmereUI.ApplyThemedCharacterSheet()
+                  end
+              end },
+            { type="slider", text="Character Sheet Scale",
+              min=0.5, max=1.5, step=0.05,
+              tooltip="Adjusts the scale of the themed character sheet window.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.themedCharacterSheetScale or 1
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.themedCharacterSheetScale = v
+                  if CharacterFrame then
+                      CharacterFrame:SetScale(v)
+                  end
+              end }
+        );  y = y - h
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
         return math.abs(y)
     end
