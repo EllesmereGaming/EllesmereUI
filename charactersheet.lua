@@ -56,7 +56,7 @@ local function SkinCharacterSheet()
         CharacterModelScene:Show()
         CharacterModelScene:ClearAllPoints()
         CharacterModelScene:SetPoint("TOPLEFT", frame, "TOPLEFT", 110, -60)
-        CharacterModelScene:SetFrameLevel(1)
+        CharacterModelScene:SetFrameLevel(2)
 
         -- Hide control frame (zoom, rotation buttons)
         if CharacterModelScene.ControlFrame then
@@ -592,6 +592,20 @@ local function SkinCharacterSheet()
         return 0
     end
 
+    -- Crest maximum values (per season)
+    local crestMaxValues = {
+        [3347] = 400,  -- Myth
+        [3345] = 400,  -- Hero
+        [3344] = 700,  -- Champion
+        [3341] = 700,  -- Veteran
+        [3391] = 700,  -- Adventurer
+    }
+
+    -- Helper function to get crest maximum value
+    local function GetCrestMaxValue(currencyID)
+        return crestMaxValues[currencyID] or 3000
+    end
+
     -- Load stat sections order from saved data or use defaults
     local function GetStatSectionsOrder()
         local defaultOrder = {
@@ -635,11 +649,11 @@ local function SkinCharacterSheet()
                 title = "Crests",
                 color = { r = 1, g = 0.784, b = 0.341 },
                 stats = {
-                    { name = "Myth", func = function() return GetCrestValue(3347) end, format = "%d" },
-                    { name = "Hero", func = function() return GetCrestValue(3345) end, format = "%d" },
-                    { name = "Champion", func = function() return GetCrestValue(3344) end, format = "%d" },
-                    { name = "Veteran", func = function() return GetCrestValue(3341) end, format = "%d" },
-                    { name = "Adventurer", func = function() return GetCrestValue(3391) end, format = "%d" },
+                    { name = "Myth", func = function() return GetCrestValue(3347) end, format = "%d", currencyID = 3347 },
+                    { name = "Hero", func = function() return GetCrestValue(3345) end, format = "%d", currencyID = 3345 },
+                    { name = "Champion", func = function() return GetCrestValue(3344) end, format = "%d", currencyID = 3344 },
+                    { name = "Veteran", func = function() return GetCrestValue(3341) end, format = "%d", currencyID = 3341 },
+                    { name = "Adventurer", func = function() return GetCrestValue(3391) end, format = "%d", currencyID = 3391 },
                 }
             }
         }
@@ -769,6 +783,26 @@ local function SkinCharacterSheet()
             value:SetJustifyH("RIGHT")
             value:SetText("0")
 
+            -- Create button overlay for crest values to show tooltips
+            local valueButton = nil
+            if stat.currencyID then
+                valueButton = CreateFrame("Button", nil, sectionContainer)
+                valueButton:SetPoint("TOPRIGHT", sectionContainer, "TOPRIGHT", -2, statYOffset)
+                valueButton:SetSize(50, 16)
+                valueButton:EnableMouse(true)
+                valueButton:SetScript("OnEnter", function()
+                    local current = GetCrestValue(stat.currencyID)
+                    local maximum = GetCrestMaxValue(stat.currencyID)
+                    GameTooltip:SetOwner(valueButton, "ANCHOR_RIGHT")
+                    GameTooltip:AddLine(stat.name .. " Crests", 1, 1, 1)
+                    GameTooltip:AddLine(string.format("%d / %d", current, maximum), 0.7, 0.7, 0.7)
+                    GameTooltip:Show()
+                end)
+                valueButton:SetScript("OnLeave", function()
+                    GameTooltip:Hide()
+                end)
+            end
+
             -- Store for updates
             table.insert(frame._statsValues, {
                 value = value,
@@ -777,7 +811,7 @@ local function SkinCharacterSheet()
             })
 
             -- Store stat elements for collapse/expand
-            table.insert(sectionData.stats, {label = label, value = value})
+            table.insert(sectionData.stats, {label = label, value = value, button = valueButton})
 
             -- Divider line between stats
             if statIdx < #section.stats then
@@ -801,10 +835,12 @@ local function SkinCharacterSheet()
                 if sectionData.isCollapsed then
                     if stat.label then stat.label:Hide() end
                     if stat.value then stat.value:Hide() end
+                    if stat.button then stat.button:Hide() end
                     if stat.divider then stat.divider:Hide() end
                 else
                     if stat.label then stat.label:Show() end
                     if stat.value then stat.value:Show() end
+                    if stat.button then stat.button:Show() end
                     if stat.divider then stat.divider:Show() end
                 end
             end
@@ -1255,17 +1291,17 @@ local function SkinCharacterSheet()
     characterBtn:SetScript("OnClick", function()
         if not statsPanel:IsShown() then
             statsPanel:Show()
-            frame._titlesPanel:Hide()
-            frame._equipPanel:Hide()
+            CharacterFrame._titlesPanel:Hide()
+            CharacterFrame._equipPanel:Hide()
         end
     end)
 
     -- Titles button to show titles
     CreateEUIButton("Titles", "Titles", function()
-        if not frame._titlesPanel:IsShown() then
-            frame._titlesPanel:Show()
+        if not CharacterFrame._titlesPanel:IsShown() then
+            CharacterFrame._titlesPanel:Show()
             statsPanel:Hide()
-            frame._equipPanel:Hide()
+            CharacterFrame._equipPanel:Hide()
         end
     end)
 
@@ -1627,7 +1663,7 @@ local function SkinCharacterSheet()
     equipSetChangeFrame:RegisterEvent("EQUIPMENT_SETS_CHANGED")
     equipSetChangeFrame:SetScript("OnEvent", function()
         -- activeEquipmentSetID is set by the Equip button and auto-equip logic
-        if CharacterFrame and CharacterFrame:IsShown() and frame._equipPanel and frame._equipPanel:IsShown() then
+        if CharacterFrame and CharacterFrame:IsShown() and CharacterFrame._equipPanel and CharacterFrame._equipPanel:IsShown() then
             RefreshEquipmentSets()
         end
     end)
@@ -1639,10 +1675,10 @@ local function SkinCharacterSheet()
 
     -- Equipment Manager button
     CreateEUIButton("Equipment", "Equipment", function()
-        if not frame._equipPanel:IsShown() then
-            frame._equipPanel:Show()
+        if not CharacterFrame._equipPanel:IsShown() then
+            CharacterFrame._equipPanel:Show()
             statsPanel:Hide()
-            frame._titlesPanel:Hide()
+            CharacterFrame._titlesPanel:Hide()
         end
     end)
 
@@ -1926,10 +1962,10 @@ local function SkinCharacterSheet()
         RefreshAllSocketIcons()
         globalSocketContainer:Show()
         -- Reset to Stats panel on open
-        if statsPanel and frame._titlesPanel and frame._equipPanel then
+        if statsPanel and CharacterFrame._titlesPanel and CharacterFrame._equipPanel then
             statsPanel:Show()
-            frame._titlesPanel:Hide()
-            frame._equipPanel:Hide()
+            CharacterFrame._titlesPanel:Hide()
+            CharacterFrame._equipPanel:Hide()
         end
     end)
 
@@ -2176,7 +2212,7 @@ if EllesmereUI then
                 local setIDs = C_EquipmentSet.GetEquipmentSetIDs()
                 if setIDs then
                     for _, setID in ipairs(setIDs) do
-                        local setItems = C_EquipmentSet.GetEquipmentSetItemIDs(setID)
+                        local setItems = GetEquipmentSetItemIDs(setID)
                         if setItems then
                             local allMatch = true
                             for slotIndex, itemID in pairs(setItems) do
@@ -2205,9 +2241,10 @@ if EllesmereUI then
             specChangeFrame:SetScript("OnEvent", function(self, event)
                 if event == "EQUIPMENT_SETS_CHANGED" then
                     -- Update active set when equipment changes
-                    UpdateActiveEquipmentSet()
-                    if CharacterFrame and CharacterFrame:IsShown() and frame._equipPanel and frame._equipPanel:IsShown() then
-                        RefreshEquipmentSets()
+                    -- UpdateActiveEquipmentSet()  -- API no longer available in current WoW version
+                    -- RefreshEquipmentSets()  -- Function not in scope here
+                    if CharacterFrame and CharacterFrame:IsShown() and CharacterFrame._equipPanel and CharacterFrame._equipPanel:IsShown() then
+                        -- Equipment panel will be refreshed by the equipSetChangeFrame handler
                     end
                 else
                     -- Auto-equip when spec changes
