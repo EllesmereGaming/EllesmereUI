@@ -1281,6 +1281,9 @@ local function SkinCharacterSheet()
         end
     end)
 
+    -- Populate initially
+    RefreshTitlesList()
+
     -- Hook to refresh titles when shown
     frame._titlesPanel:HookScript("OnShow", function()
         titlesSearchBox:SetText("")
