@@ -3566,7 +3566,8 @@ initFrame:SetScript("OnEvent", function(self)
             if themedOff() then scaleBlock:Show() else scaleBlock:Hide() end
         end
 
-        _, h = W:DualRow(parent, y,
+        local colorItemLevelRow
+        colorItemLevelRow, h = W:DualRow(parent, y,
             { type="toggle", text="Color Item Level by Rarity",
               tooltip="Colors the item level text based on the item's rarity (Common, Uncommon, Rare, Epic, etc.).",
               getValue=function()
@@ -3581,6 +3582,35 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             { type="label", text="" }
         );  y = y - h
+
+        -- Disabled overlay for Color Item Level by Rarity when themed is off
+        do
+            local function themedOff()
+                return not (EllesmereUIDB and EllesmereUIDB.themedCharacterSheet)
+            end
+
+            local colorItemBlock = CreateFrame("Frame", nil, colorItemLevelRow)
+            colorItemBlock:SetAllPoints(colorItemLevelRow)
+            colorItemBlock:SetFrameLevel(colorItemLevelRow:GetFrameLevel() + 10)
+            colorItemBlock:EnableMouse(true)
+            local colorItemBg = EllesmereUI.SolidTex(colorItemBlock, "BACKGROUND", 0, 0, 0, 0)
+            colorItemBg:SetAllPoints()
+            colorItemBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(colorItemBlock, EllesmereUI.DisabledTooltip("Themed Character Sheet"))
+            end)
+            colorItemBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if themedOff() then
+                    colorItemBlock:Show()
+                    colorItemLevelRow:SetAlpha(0.3)
+                else
+                    colorItemBlock:Hide()
+                    colorItemLevelRow:SetAlpha(1)
+                end
+            end)
+            if themedOff() then colorItemBlock:Show() colorItemLevelRow:SetAlpha(0.3) else colorItemBlock:Hide() colorItemLevelRow:SetAlpha(1) end
+        end
 
         local itemLevelRow
         itemLevelRow, h = W:DualRow(parent, y,
@@ -3718,6 +3748,35 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h1
 
+        -- Disabled overlay for categoryRow1 when themed is off
+        do
+            local function themedOff()
+                return not (EllesmereUIDB and EllesmereUIDB.themedCharacterSheet)
+            end
+
+            local categoryBlock1 = CreateFrame("Frame", nil, categoryRow1)
+            categoryBlock1:SetAllPoints(categoryRow1)
+            categoryBlock1:SetFrameLevel(categoryRow1:GetFrameLevel() + 10)
+            categoryBlock1:EnableMouse(true)
+            local categoryBg1 = EllesmereUI.SolidTex(categoryBlock1, "BACKGROUND", 0, 0, 0, 0)
+            categoryBg1:SetAllPoints()
+            categoryBlock1:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(categoryBlock1, EllesmereUI.DisabledTooltip("Themed Character Sheet"))
+            end)
+            categoryBlock1:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if themedOff() then
+                    categoryBlock1:Show()
+                    categoryRow1:SetAlpha(0.3)
+                else
+                    categoryBlock1:Hide()
+                    categoryRow1:SetAlpha(1)
+                end
+            end)
+            if themedOff() then categoryBlock1:Show() categoryRow1:SetAlpha(0.3) else categoryBlock1:Hide() categoryRow1:SetAlpha(1) end
+        end
+
         local categoryRow2, h2 = W:DualRow(parent, y,
             { type="toggle", text="Show Attack",
               tooltip="Toggle visibility of the Attack stat category.",
@@ -3745,6 +3804,35 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h2
 
+        -- Disabled overlay for categoryRow2 when themed is off
+        do
+            local function themedOff()
+                return not (EllesmereUIDB and EllesmereUIDB.themedCharacterSheet)
+            end
+
+            local categoryBlock2 = CreateFrame("Frame", nil, categoryRow2)
+            categoryBlock2:SetAllPoints(categoryRow2)
+            categoryBlock2:SetFrameLevel(categoryRow2:GetFrameLevel() + 10)
+            categoryBlock2:EnableMouse(true)
+            local categoryBg2 = EllesmereUI.SolidTex(categoryBlock2, "BACKGROUND", 0, 0, 0, 0)
+            categoryBg2:SetAllPoints()
+            categoryBlock2:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(categoryBlock2, EllesmereUI.DisabledTooltip("Themed Character Sheet"))
+            end)
+            categoryBlock2:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if themedOff() then
+                    categoryBlock2:Show()
+                    categoryRow2:SetAlpha(0.3)
+                else
+                    categoryBlock2:Hide()
+                    categoryRow2:SetAlpha(1)
+                end
+            end)
+            if themedOff() then categoryBlock2:Show() categoryRow2:SetAlpha(0.3) else categoryBlock2:Hide() categoryRow2:SetAlpha(1) end
+        end
+
         local categoryRow3, h3 = W:DualRow(parent, y,
             { type="toggle", text="Show Crests",
               tooltip="Toggle visibility of the Crests stat category.",
@@ -3761,32 +3849,33 @@ initFrame:SetScript("OnEvent", function(self)
             { type="label", text="" }
         );  y = y - h3
 
-        -- Disabled overlay for stat category toggles when themed is off
+        -- Disabled overlay for categoryRow3 when themed is off
         do
             local function themedOff()
                 return not (EllesmereUIDB and EllesmereUIDB.themedCharacterSheet)
             end
 
-            local categoryBlock = CreateFrame("Frame", nil, parent)
-            categoryBlock:SetSize(400, h1 + h2 + h3 + 20)
-            categoryBlock:SetPoint("TOPLEFT", parent, "TOPLEFT", 420, -y + h1 + h2 + h3 + 30)
-            categoryBlock:SetFrameLevel(parent:GetFrameLevel() + 20)
-            categoryBlock:EnableMouse(true)
-            local categoryBg = EllesmereUI.SolidTex(categoryBlock, "BACKGROUND", 0, 0, 0, 0)
-            categoryBg:SetAllPoints()
-            categoryBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(categoryBlock, EllesmereUI.DisabledTooltip("Themed Character Sheet"))
+            local categoryBlock3 = CreateFrame("Frame", nil, categoryRow3)
+            categoryBlock3:SetAllPoints(categoryRow3)
+            categoryBlock3:SetFrameLevel(categoryRow3:GetFrameLevel() + 10)
+            categoryBlock3:EnableMouse(true)
+            local categoryBg3 = EllesmereUI.SolidTex(categoryBlock3, "BACKGROUND", 0, 0, 0, 0)
+            categoryBg3:SetAllPoints()
+            categoryBlock3:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(categoryBlock3, EllesmereUI.DisabledTooltip("Themed Character Sheet"))
             end)
-            categoryBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            categoryBlock3:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
             EllesmereUI.RegisterWidgetRefresh(function()
                 if themedOff() then
-                    categoryBlock:Show()
+                    categoryBlock3:Show()
+                    categoryRow3:SetAlpha(0.3)
                 else
-                    categoryBlock:Hide()
+                    categoryBlock3:Hide()
+                    categoryRow3:SetAlpha(1)
                 end
             end)
-            if themedOff() then categoryBlock:Show() else categoryBlock:Hide() end
+            if themedOff() then categoryBlock3:Show() categoryRow3:SetAlpha(0.3) else categoryBlock3:Hide() categoryRow3:SetAlpha(1) end
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h

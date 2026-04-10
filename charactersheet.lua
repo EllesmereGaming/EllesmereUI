@@ -1,7 +1,6 @@
 --------------------------------------------------------------------------------
 --  Themed Character Sheet
 --------------------------------------------------------------------------------
-
 local ADDON_NAME = ...
 local skinned = false
 local activeEquipmentSetID = nil  -- Track currently equipped set
@@ -16,18 +15,19 @@ local function SkinCharacterSheet()
 
     -- Hide Blizzard decorations
     if CharacterFrame.NineSlice then CharacterFrame.NineSlice:Hide() end
-    if frame.Bg then frame.Bg:Hide() end
+    -- NOTE: Don't hide frame.Bg - we need it as anchor for slots!
     if frame.Background then frame.Background:Hide() end
     if frame.TitleBg then frame.TitleBg:Hide() end
     if frame.TopTileStreaks then frame.TopTileStreaks:Hide() end
     if frame.Portrait then frame.Portrait:Hide() end
     if CharacterFramePortrait then CharacterFramePortrait:Hide() end
-    if CharacterFrameBg then CharacterFrameBg:Hide() end
+    -- NOTE: Don't hide CharacterFrameBg - we use it as anchor point for item slots!
     if CharacterModelFrameBackgroundOverlay then CharacterModelFrameBackgroundOverlay:Hide() end
     if CharacterModelFrameBackgroundTopLeft then CharacterModelFrameBackgroundTopLeft:Hide() end
     if CharacterModelFrameBackgroundBotLeft then CharacterModelFrameBackgroundBotLeft:Hide() end
     if CharacterModelFrameBackgroundTopRight then CharacterModelFrameBackgroundTopRight:Hide() end
     if CharacterModelFrameBackgroundBotRight then CharacterModelFrameBackgroundBotRight:Hide() end
+    -- NOTE: Don't hide CharacterFrameBg - we need it as anchor point for item slots!
     if CharacterFrameInsetRight then
         if CharacterFrameInsetRight.NineSlice then CharacterFrameInsetRight.NineSlice:Hide() end
         CharacterFrameInsetRight:ClearAllPoints()
@@ -56,7 +56,7 @@ local function SkinCharacterSheet()
         CharacterModelScene:Show()
         CharacterModelScene:ClearAllPoints()
         CharacterModelScene:SetPoint("TOPLEFT", frame, "TOPLEFT", 110, -60)
-        CharacterModelScene:SetFrameLevel(2)
+        CharacterModelScene:SetFrameLevel(1)  -- Keep model behind text
 
         -- Hide control frame (zoom, rotation buttons)
         if CharacterModelScene.ControlFrame then
@@ -119,7 +119,7 @@ local function SkinCharacterSheet()
     end
 
 
-    -- Hide all SlotFrame wrapper containers (Frame versions)
+    -- Hide all SlotFrame wrapper containers
     _G.CharacterBackSlotFrame:Hide()
     _G.CharacterChestSlotFrame:Hide()
     _G.CharacterFeetSlotFrame:Hide()
@@ -139,11 +139,10 @@ local function SkinCharacterSheet()
     _G.CharacterWaistSlotFrame:Hide()
     _G.CharacterWristSlotFrame:Hide()
 
-    -- 2-Column layout from CharacterSheetINSPO (exact placement)
-    local vpad = 5
-    local hpad = 8
+    -- Custom flexible grid layout (NO REPARENTING!)
+    -- Slots stay in original parents, positioned via grid system
+    if CharacterFrameBg then CharacterFrameBg:Show() end
 
-    -- Reparent all slots to CharacterFrame so they're visible even when SlotFrames are hidden
     local slotNames = {
         "CharacterHeadSlot", "CharacterNeckSlot", "CharacterShoulderSlot", "CharacterBackSlot",
         "CharacterChestSlot", "CharacterShirtSlot", "CharacterTabardSlot", "CharacterWristSlot",
@@ -151,55 +150,116 @@ local function SkinCharacterSheet()
         "CharacterTrinket0Slot", "CharacterTrinket1Slot", "CharacterFinger0Slot", "CharacterFinger1Slot",
         "CharacterMainHandSlot", "CharacterSecondaryHandSlot"
     }
+
+    -- Show all slots AND their parents
     for _, slotName in ipairs(slotNames) do
         local slot = _G[slotName]
         if slot then
-            slot:SetParent(frame)
             slot:Show()
+            local parent = slot:GetParent()
+            if parent then
+                parent:Show()
+            end
         end
     end
 
-    -- All slots on the left (under head) are tied back to this slot
-    _G.CharacterHeadSlot:ClearAllPoints()
-    _G.CharacterHeadSlot:SetPoint("TOPLEFT", frame, "TOPLEFT", 30, -60)
-    _G.CharacterNeckSlot:ClearAllPoints()
-    _G.CharacterNeckSlot:SetPoint("TOPLEFT", _G.CharacterHeadSlot, "BOTTOMLEFT", 0, -vpad)
-    _G.CharacterShoulderSlot:ClearAllPoints()
-    _G.CharacterShoulderSlot:SetPoint("TOPLEFT", _G.CharacterNeckSlot, "BOTTOMLEFT", 0, -vpad)
-    _G.CharacterBackSlot:ClearAllPoints()
-    _G.CharacterBackSlot:SetPoint("TOPLEFT", _G.CharacterShoulderSlot, "BOTTOMLEFT", 0, -vpad)
-    _G.CharacterChestSlot:ClearAllPoints()
-    _G.CharacterChestSlot:SetPoint("TOPLEFT", _G.CharacterBackSlot, "BOTTOMLEFT", 0, -vpad)
-    _G.CharacterShirtSlot:ClearAllPoints()
-    _G.CharacterShirtSlot:SetPoint("TOPLEFT", _G.CharacterChestSlot, "BOTTOMLEFT", 0, -vpad)
-    _G.CharacterTabardSlot:ClearAllPoints()
-    _G.CharacterTabardSlot:SetPoint("TOPLEFT", _G.CharacterShirtSlot, "BOTTOMLEFT", 0, -vpad)
-    _G.CharacterWristSlot:ClearAllPoints()
-    _G.CharacterWristSlot:SetPoint("TOPLEFT", _G.CharacterTabardSlot, "BOTTOMLEFT", 0, -vpad)
+    -- Grid-based layout system (2 columns)
+    local gridCols = 2
+    local cellWidth = 360
+    local cellHeight = 45
+    local gridStartX = 30
+    local gridStartY = -60
 
-    -- All slots on the right (under hands) are tied back to this slot
-    _G.CharacterHandsSlot:ClearAllPoints()
-    _G.CharacterHandsSlot:SetPoint("TOPLEFT", frame, "TOPLEFT", 380 + hpad, -60)
-    _G.CharacterWaistSlot:ClearAllPoints()
-    _G.CharacterWaistSlot:SetPoint("TOPLEFT", _G.CharacterHandsSlot, "BOTTOMLEFT", 0, -vpad)
-    _G.CharacterLegsSlot:ClearAllPoints()
-    _G.CharacterLegsSlot:SetPoint("TOPLEFT", _G.CharacterWaistSlot, "BOTTOMLEFT", 0, -vpad)
-    _G.CharacterFeetSlot:ClearAllPoints()
-    _G.CharacterFeetSlot:SetPoint("TOPLEFT", _G.CharacterLegsSlot, "BOTTOMLEFT", 0, -vpad)
-    _G.CharacterFinger0Slot:ClearAllPoints()
-    _G.CharacterFinger0Slot:SetPoint("TOPLEFT", _G.CharacterFeetSlot, "BOTTOMLEFT", 0, -vpad)
-    _G.CharacterFinger1Slot:ClearAllPoints()
-    _G.CharacterFinger1Slot:SetPoint("TOPLEFT", _G.CharacterFinger0Slot, "BOTTOMLEFT", 0, -vpad)
-    _G.CharacterTrinket0Slot:ClearAllPoints()
-    _G.CharacterTrinket0Slot:SetPoint("TOPLEFT", _G.CharacterFinger1Slot, "BOTTOMLEFT", 0, -vpad)
-    _G.CharacterTrinket1Slot:ClearAllPoints()
-    _G.CharacterTrinket1Slot:SetPoint("TOPLEFT", _G.CharacterTrinket0Slot, "BOTTOMLEFT", 0, -vpad)
+    -- Equipment slot grid positions (2 columns: left & right)
+    local slotGridMap = {
+        -- Left column
+        CharacterHeadSlot = {col = 0, row = 0},
+        CharacterNeckSlot = {col = 0, row = 1},
+        CharacterShoulderSlot = {col = 0, row = 2},
+        CharacterBackSlot = {col = 0, row = 3},
+        CharacterChestSlot = {col = 0, row = 4},
+        CharacterShirtSlot = {col = 0, row = 5},
+        CharacterTabardSlot = {col = 0, row = 6},
+        CharacterWristSlot = {col = 0, row = 7},
 
-    -- Weapons (main and secondary hand)
+        -- Right column
+        CharacterHandsSlot = {col = 1, row = 0},
+        CharacterWaistSlot = {col = 1, row = 1},
+        CharacterLegsSlot = {col = 1, row = 2},
+        CharacterFeetSlot = {col = 1, row = 3},
+        CharacterFinger0Slot = {col = 1, row = 4},
+        CharacterFinger1Slot = {col = 1, row = 5},
+        CharacterTrinket0Slot = {col = 1, row = 6},
+        CharacterTrinket1Slot = {col = 1, row = 7},
+    }
+
+    -- Position main grid slots using anchor calculations
+    for slotName, gridPos in pairs(slotGridMap) do
+        local slot = _G[slotName]
+        if slot then
+            slot:ClearAllPoints()
+            local xOffset = gridStartX + (gridPos.col * cellWidth)
+            local yOffset = gridStartY - (gridPos.row * cellHeight)
+            slot:SetPoint("TOPLEFT", CharacterFrame, "TOPLEFT", xOffset, yOffset)
+        end
+    end
+
+    -- Weapons positioned in bottom-right area (separate from grid)
     _G.CharacterMainHandSlot:ClearAllPoints()
-    _G.CharacterMainHandSlot:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 180, 15)
+    _G.CharacterMainHandSlot:SetPoint("BOTTOMLEFT", CharacterFrame, "BOTTOMLEFT", 175, 25)
     _G.CharacterSecondaryHandSlot:ClearAllPoints()
-    _G.CharacterSecondaryHandSlot:SetPoint("TOPLEFT", _G.CharacterMainHandSlot, "TOPRIGHT", hpad, 0)
+    _G.CharacterSecondaryHandSlot:SetPoint("TOPLEFT", _G.CharacterMainHandSlot, "TOPRIGHT", 12, 0)
+
+
+
+    -- Hook slot enter to show flyout when equipment mode is active
+    if not frame._slotHookDone then
+        local origOnEnter = PaperDollItemSlotButton_OnEnter
+        PaperDollItemSlotButton_OnEnter = function(button)
+            origOnEnter(button)
+            -- If flyout mode is active, also show flyout
+            if frame._flyoutModeActive and button:GetID() then
+                if EquipmentFlyout_Show then
+                    pcall(EquipmentFlyout_Show, button)
+                end
+            end
+        end
+        frame._slotHookDone = true
+    end
+
+    -- Hide slot textures and borders (Chonky style)
+    select(16, _G.CharacterMainHandSlot:GetRegions()):SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8)
+    select(17, _G.CharacterMainHandSlot:GetRegions()):SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8)
+    select(16, _G.CharacterSecondaryHandSlot:GetRegions()):SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8)
+    select(17, _G.CharacterSecondaryHandSlot:GetRegions()):SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8)
+
+    -- Hide icon borders and adjust texcoords
+    local slotsToHide = {
+        "CharacterBackSlot", "CharacterChestSlot", "CharacterFeetSlot",
+        "CharacterFinger0Slot", "CharacterFinger1Slot", "CharacterHandsSlot",
+        "CharacterHeadSlot", "CharacterLegsSlot", "CharacterMainHandSlot",
+        "CharacterNeckSlot", "CharacterSecondaryHandSlot", "CharacterShirtSlot",
+        "CharacterShoulderSlot", "CharacterTabardSlot", "CharacterTrinket0Slot",
+        "CharacterTrinket1Slot", "CharacterWaistSlot", "CharacterWristSlot"
+    }
+
+    for _, slotName in ipairs(slotsToHide) do
+        local slot = _G[slotName]
+        if slot then
+            slot:Show()
+            if slot.IconBorder then
+                slot.IconBorder:SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8)
+            end
+            local iconTexture = _G[slotName .. "IconTexture"]
+            if iconTexture then
+                iconTexture:SetTexCoord(.07,.07,.07,.93,.93,.07,.93,.93)
+            end
+            local normalTexture = _G[slotName .. "NormalTexture"]
+            if normalTexture then
+                normalTexture:Hide()
+            end
+        end
+    end
 
     -- Hide special regions on weapon slots
     select(16, _G.CharacterMainHandSlot:GetRegions()):SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
@@ -234,12 +294,18 @@ local function SkinCharacterSheet()
 
     -- Resize frame to be wider
     -- Resize frame and hook to keep the size
-    local origW = frame:GetWidth()
-    local origH = frame:GetHeight()
-    local newWidth = origW + 360
-    local newHeight = origH + 50
+    -- Set fixed frame size directly (not expanding from original)
+    local newWidth = 698  -- Fixed width
+    local newHeight = 480  -- Fixed height
     frame:SetWidth(newWidth)
     frame:SetHeight(newHeight)
+
+    -- Also expand CharacterFrameInset to match
+    if CharacterFrameInset then
+        CharacterFrameInset:SetWidth(newWidth - 20)
+        CharacterFrameInset:SetHeight(newHeight - 90)
+        CharacterFrameInset:SetClipsChildren(false)  -- Prevent clipping
+    end
 
     -- Hook SetWidth to prevent Blizzard from changing it back
     hooksecurefunc(frame, "SetWidth", function(self, w)
@@ -255,6 +321,43 @@ local function SkinCharacterSheet()
         end
     end)
 
+    -- Add SetPoint hook too - Blizzard might resize via SetPoint
+    local hookLock = false
+    hooksecurefunc(frame, "SetPoint", function(self, ...)
+        if not hookLock and frame._sizeCheckDone then
+            hookLock = true
+            self:SetSize(newWidth, newHeight)
+            if self._ebsBg then
+                self._ebsBg:SetSize(newWidth, newHeight)
+            end
+            hookLock = false
+        end
+    end)
+
+    -- Aggressive size enforcement with immediate re-setup
+    if not frame._sizeCheckDone then
+        local function EnforceSize()
+            if frame:IsShown() then
+                frame:SetSize(newWidth, newHeight)
+                -- Regenerate background immediately
+                if frame._ebsBg then
+                    frame._ebsBg:SetSize(newWidth, newHeight)
+                    frame._ebsBg:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+                end
+                if CharacterFrameInset then
+                    CharacterFrameInset:SetClipsChildren(false)
+                    CharacterFrameInset:SetSize(newWidth - 20, newHeight - 90)
+                end
+            end
+        end
+
+        -- Continuous check with OnUpdate (no event registration needed)
+        local updateFrame = CreateFrame("Frame")
+        updateFrame:SetScript("OnUpdate", EnforceSize)
+
+        frame._sizeCheckDone = true
+    end
+
     -- Strip textures from frame regions
     for i = 1, select("#", frame:GetRegions()) do
         local region = select(i, frame:GetRegions())
@@ -266,10 +369,11 @@ local function SkinCharacterSheet()
     -- Add custom background with EUI colors (same as FriendsFrame)
     local FRAME_BG_R, FRAME_BG_G, FRAME_BG_B = 0.03, 0.045, 0.05
 
-    -- Main frame background at BACKGROUND layer -8
+    -- Main frame background at BACKGROUND layer -8 (fixed size, not scaled)
     frame._ebsBg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
     frame._ebsBg:SetColorTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B)
-    frame._ebsBg:SetAllPoints()
+    frame._ebsBg:SetSize(newWidth, newHeight)
+    frame._ebsBg:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
     frame._ebsBg:SetAlpha(1)
 
     -- Create dark gray border using PP.CreateBorder
@@ -486,19 +590,33 @@ local function SkinCharacterSheet()
 
     -- Create custom stats panel with scroll
     local statsPanel = CreateFrame("Frame", "EUI_CharSheet_StatsPanel", frame)
-    statsPanel:SetSize(220, 340)  -- Limited to window height
+    statsPanel:SetSize(220 + 360, 340)  -- Also expand with frame
     statsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", 452, -90)
     statsPanel:SetFrameLevel(50)
 
-    -- Stats panel background
+    -- Hook to prevent size reset
+    hooksecurefunc(statsPanel, "SetSize", function(self, w, h)
+        if w ~= (220 + 360) then
+            self:SetSize(220 + 360, 340)
+        end
+    end)
+
+    hooksecurefunc(statsPanel, "SetWidth", function(self, w)
+        if w ~= (220 + 360) then
+            self:SetWidth(220 + 360)
+        end
+    end)
+
+    -- Stats panel background (fixed width, not scaled)
     local statsBg = statsPanel:CreateTexture(nil, "BACKGROUND")
     statsBg:SetColorTexture(0.03, 0.045, 0.05, 0.95)
-    statsBg:SetAllPoints()
+    statsBg:SetSize(220, 340)  -- Fixed size, doesn't expand
+    statsBg:SetPoint("TOPLEFT", statsPanel, "TOPLEFT", 0, 0)
 
-    -- Itemlevel display
+    -- Itemlevel display (anchor to center of statsBg background)
     local iLvlText = statsPanel:CreateFontString(nil, "OVERLAY")
     iLvlText:SetFont(fontPath, 20, "")
-    iLvlText:SetPoint("TOP", statsPanel, "TOP", 0, 60)
+    iLvlText:SetPoint("TOP", statsBg, "TOP", 0,60)
     iLvlText:SetTextColor(0.6, 0.2, 1, 1)
 
     -- Function to update itemlevel
@@ -513,10 +631,11 @@ local function SkinCharacterSheet()
         iLvlText:SetText(format("%s / %s", avgEquippedFormatted, avgFormatted))
     end
 
-    -- Create update frame for itemlevel
+    -- Create update frame for itemlevel and spec changes
     local iLvlUpdateFrame = CreateFrame("Frame")
     iLvlUpdateFrame:SetScript("OnUpdate", function()
         UpdateItemLevelDisplay()
+        -- RefreshAttributeStats will be called later after it's defined
     end)
 
     UpdateItemLevelDisplay()
@@ -538,15 +657,19 @@ local function SkinCharacterSheet()
     scrollChild:SetWidth(200)
     scrollFrame:SetScrollChild(scrollChild)
 
-    -- Create scrollbar
-    local scrollBar = CreateFrame("Slider", "EUI_CharSheet_ScrollBar", statsPanel, "BackdropTemplate")
+    -- Create scrollbar (without template to avoid unwanted textures)
+    local scrollBar = CreateFrame("Slider", "EUI_CharSheet_ScrollBar", statsPanel)
     scrollBar:SetSize(8, 320)
     scrollBar:SetPoint("TOPRIGHT", statsPanel, "TOPRIGHT", -5, -10)
     scrollBar:SetMinMaxValues(0, 0)
     scrollBar:SetValue(0)
     scrollBar:SetOrientation("VERTICAL")
-    scrollBar:SetBackdrop({ bgFile = "Interface/Tooltips/UI-Tooltip-Background", edgeFile = nil })
-    scrollBar:SetBackdropColor(0.1, 0.1, 0.1, 0.5)
+
+    -- Scrollbar background (disabled - causes visual glitches)
+    -- local scrollBarBg = scrollBar:CreateTexture(nil, "BACKGROUND")
+    -- scrollBarBg:SetAllPoints()
+    -- scrollBarBg:SetTexture("Interface/Tooltips/UI-Tooltip-Background")
+    -- scrollBarBg:SetVertexColor(0.1, 0.1, 0.1, 0.5)
 
     -- Scrollbar thumb
     local scrollBarThumb = scrollBar:GetThumbTexture()
@@ -606,17 +729,51 @@ local function SkinCharacterSheet()
         return crestMaxValues[currencyID] or 3000
     end
 
+    -- Check if a stat should be shown based on class/spec conditions
+    local function ShouldShowStat(statShowWhen)
+        if not statShowWhen then return true end  -- Show by default if no condition
+
+        if statShowWhen == "brewmaster" then
+            local specIndex = GetSpecialization()
+            if specIndex then
+                local specId = (GetSpecializationInfo(specIndex))
+                return specId == 268  -- Brewmaster Monk
+            end
+            return false
+        end
+
+        return true
+    end
+
+    -- Determine which stats to show based on class/spec
+    local function GetFilteredAttributeStats()
+        local spec = GetSpecialization()
+        local primaryStatIndex = 4  -- default Intellect
+
+        if spec then
+            -- Get primary stat directly from spec info (6th return value)
+            local _, _, _, _, _, primaryStat = GetSpecializationInfo(spec)
+            primaryStatIndex = primaryStat or 4
+        end
+
+        local primaryStatNames = { "Strength", "Agility", "Stamina", "Intellect" }
+        local primaryStat = primaryStatNames[primaryStatIndex]
+
+        -- Return fixed order: Primary Stat, Stamina, Health
+        return {
+            { name = primaryStat, func = function() return UnitStat("player", primaryStatIndex) end },
+            { name = "Stamina", func = function() return UnitStat("player", 3) end },
+            { name = "Health", func = function() return UnitHealthMax("player") end },
+        }
+    end
+
     -- Load stat sections order from saved data or use defaults
     local function GetStatSectionsOrder()
         local defaultOrder = {
             {
                 title = "Attributes",
                 color = { r = 0.047, g = 0.824, b = 0.616 },
-                stats = {
-                    { name = "Intellect", func = function() return UnitStat("player", 4) end },
-                    { name = "Stamina", func = function() return UnitStat("player", 3) end },
-                    { name = "Health", func = function() return UnitHealthMax("player") end },
-                }
+                stats = GetFilteredAttributeStats()
             },
             {
                 title = "Secondary Stats",
@@ -643,6 +800,7 @@ local function SkinCharacterSheet()
                     { name = "Armor", func = function() local base, effectiveArmor = UnitArmor("player") return effectiveArmor end },
                     { name = "Dodge", func = function() return GetDodgeChance() or 0 end, format = "%.2f%%" },
                     { name = "Parry", func = function() return GetParryChance() or 0 end, format = "%.2f%%" },
+                    { name = "Stagger Effect", func = function() return C_PaperDollInfo.GetStaggerPercentage("player") or 0 end, format = "%.2f%%", showWhen = "brewmaster" },
                 }
             },
             {
@@ -679,6 +837,92 @@ local function SkinCharacterSheet()
     frame._statsPanel = statsPanel
     frame._statsValues = {}  -- Will be filled as sections are created
     frame._statsSections = {}  -- Store sections for collapse/expand
+    frame._lastSpec = GetSpecialization()  -- Track current spec
+
+    -- Function to refresh attributes stats if spec changed
+    local function RefreshAttributeStats()
+        local currentSpec = GetSpecialization()
+        if currentSpec == frame._lastSpec then return end
+
+        frame._lastSpec = currentSpec
+
+        -- Find and update Attributes section
+        for sectionIdx, sectionData in ipairs(frame._statsSections) do
+            if sectionData.sectionTitle == "Attributes" then
+                -- Get new stats for current spec
+                local newStats = GetFilteredAttributeStats()
+
+                -- Update existing stat elements with new names and functions
+                local labelIndex = 0
+                for _, stat in ipairs(sectionData.stats) do
+                    if stat.label then
+                        labelIndex = labelIndex + 1
+
+                        if newStats[labelIndex] then
+                            -- Update label text
+                            stat.label:SetText(newStats[labelIndex].name)
+                            stat.label:Show()
+
+                            if stat.value then
+                                -- Find and update the corresponding entry in frame._statsValues
+                                for _, statsValueEntry in ipairs(frame._statsValues) do
+                                    if statsValueEntry.value == stat.value then
+                                        -- Update the function
+                                        statsValueEntry.func = newStats[labelIndex].func
+                                        statsValueEntry.format = newStats[labelIndex].format or "%d"
+                                        -- Update display immediately
+                                        local newValue = newStats[labelIndex].func()
+                                        if newValue ~= nil then
+                                            local fmt = statsValueEntry.format
+                                            if fmt:find("%%") then
+                                                stat.value:SetText(format(fmt, newValue))
+                                            else
+                                                stat.value:SetText(format(fmt, newValue))
+                                            end
+                                        end
+                                        break
+                                    end
+                                end
+                                stat.value:Show()
+                            end
+                        else
+                            -- Hide stats that aren't in newStats
+                            stat.label:Hide()
+                            if stat.value then stat.value:Hide() end
+                        end
+                    elseif stat.divider then
+                        -- Show dividers only between visible stats
+                        stat.divider:SetShown(labelIndex < #newStats)
+                    end
+                end
+
+                frame._recalculateSections()
+                break
+            end
+        end
+    end
+
+    -- Function to refresh visibility based on showWhen conditions
+    local function RefreshStatsVisibility()
+        local currentSpec = GetSpecialization()
+
+        for _, sectionData in ipairs(frame._statsSections) do
+            for _, stat in ipairs(sectionData.stats) do
+                if stat.label and stat.showWhen then
+                    local shouldShow = ShouldShowStat(stat.showWhen)
+                    if stat.label then stat.label:SetShown(shouldShow) end
+                    if stat.value then stat.value:SetShown(shouldShow) end
+                end
+            end
+        end
+    end
+
+    -- Create update frame to monitor spec changes
+    local specUpdateFrame = CreateFrame("Frame")
+    specUpdateFrame:SetScript("OnUpdate", function()
+        RefreshAttributeStats()  -- Update Primary Stat
+        RefreshStatsVisibility()  -- Update showWhen visibility
+    end)
 
     -- Function to update visibility of stat categories
     local function UpdateStatCategoryVisibility()
@@ -768,62 +1012,65 @@ local function SkinCharacterSheet()
 
         -- Stats in section
         for statIdx, stat in ipairs(section.stats) do
-            -- Stat label
-            local label = sectionContainer:CreateFontString(nil, "OVERLAY")
-            label:SetFont(fontPath, 12, "")
-            label:SetTextColor(0.7, 0.7, 0.7, 0.8)
-            label:SetPoint("TOPLEFT", sectionContainer, "TOPLEFT", 15, statYOffset)
-            label:SetText(stat.name)
+            -- Skip stats that don't meet the show conditions
+            if ShouldShowStat(stat.showWhen) then
+                -- Stat label
+                local label = sectionContainer:CreateFontString(nil, "OVERLAY")
+                label:SetFont(fontPath, 12, "")
+                label:SetTextColor(0.7, 0.7, 0.7, 0.8)
+                label:SetPoint("TOPLEFT", sectionContainer, "TOPLEFT", 15, statYOffset)
+                label:SetText(stat.name)
 
-            -- Stat value
-            local value = sectionContainer:CreateFontString(nil, "OVERLAY")
-            value:SetFont(fontPath, 12, "")
-            value:SetTextColor(section.color.r, section.color.g, section.color.b, 1)
-            value:SetPoint("TOPRIGHT", sectionContainer, "TOPRIGHT", -2, statYOffset)
-            value:SetJustifyH("RIGHT")
-            value:SetText("0")
+                -- Stat value
+                local value = sectionContainer:CreateFontString(nil, "OVERLAY")
+                value:SetFont(fontPath, 12, "")
+                value:SetTextColor(section.color.r, section.color.g, section.color.b, 1)
+                value:SetPoint("TOPRIGHT", sectionContainer, "TOPRIGHT", -2, statYOffset)
+                value:SetJustifyH("RIGHT")
+                value:SetText("0")
 
-            -- Create button overlay for crest values to show tooltips
-            local valueButton = nil
-            if stat.currencyID then
-                valueButton = CreateFrame("Button", nil, sectionContainer)
-                valueButton:SetPoint("TOPRIGHT", sectionContainer, "TOPRIGHT", -2, statYOffset)
-                valueButton:SetSize(50, 16)
-                valueButton:EnableMouse(true)
-                valueButton:SetScript("OnEnter", function()
-                    local current = GetCrestValue(stat.currencyID)
-                    local maximum = GetCrestMaxValue(stat.currencyID)
-                    GameTooltip:SetOwner(valueButton, "ANCHOR_RIGHT")
-                    GameTooltip:AddLine(stat.name .. " Crests", 1, 1, 1)
-                    GameTooltip:AddLine(string.format("%d / %d", current, maximum), 0.7, 0.7, 0.7)
-                    GameTooltip:Show()
-                end)
-                valueButton:SetScript("OnLeave", function()
-                    GameTooltip:Hide()
-                end)
+                -- Create button overlay for crest values to show tooltips
+                local valueButton = nil
+                if stat.currencyID then
+                    valueButton = CreateFrame("Button", nil, sectionContainer)
+                    valueButton:SetPoint("TOPRIGHT", sectionContainer, "TOPRIGHT", -2, statYOffset)
+                    valueButton:SetSize(50, 16)
+                    valueButton:EnableMouse(true)
+                    valueButton:SetScript("OnEnter", function()
+                        local current = GetCrestValue(stat.currencyID)
+                        local maximum = GetCrestMaxValue(stat.currencyID)
+                        GameTooltip:SetOwner(valueButton, "ANCHOR_RIGHT")
+                        GameTooltip:AddLine(stat.name .. " Crests", 1, 1, 1)
+                        GameTooltip:AddLine(string.format("%d / %d", current, maximum), 0.7, 0.7, 0.7)
+                        GameTooltip:Show()
+                    end)
+                    valueButton:SetScript("OnLeave", function()
+                        GameTooltip:Hide()
+                    end)
+                end
+
+                -- Store for updates
+                table.insert(frame._statsValues, {
+                    value = value,
+                    func = stat.func,
+                    format = stat.format or "%d"
+                })
+
+                -- Store stat elements for collapse/expand (include showWhen for visibility checks)
+                table.insert(sectionData.stats, {label = label, value = value, button = valueButton, showWhen = stat.showWhen})
+
+                -- Divider line between stats
+                if statIdx < #section.stats then
+                    local divider = sectionContainer:CreateTexture(nil, "OVERLAY")
+                    divider:SetColorTexture(0.1, 0.1, 0.1, 0.4)
+                    divider:SetPoint("TOPLEFT", sectionContainer, "TOPLEFT", 10, statYOffset - 8)
+                    divider:SetPoint("TOPRIGHT", sectionContainer, "TOPRIGHT", -10, statYOffset - 8)
+                    divider:SetHeight(1)
+                    table.insert(sectionData.stats, {divider = divider})
+                end
+
+                statYOffset = statYOffset - 16
             end
-
-            -- Store for updates
-            table.insert(frame._statsValues, {
-                value = value,
-                func = stat.func,
-                format = stat.format or "%d"
-            })
-
-            -- Store stat elements for collapse/expand
-            table.insert(sectionData.stats, {label = label, value = value, button = valueButton})
-
-            -- Divider line between stats
-            if statIdx < #section.stats then
-                local divider = sectionContainer:CreateTexture(nil, "OVERLAY")
-                divider:SetColorTexture(0.1, 0.1, 0.1, 0.4)
-                divider:SetPoint("TOPLEFT", sectionContainer, "TOPLEFT", 10, statYOffset - 8)
-                divider:SetPoint("TOPRIGHT", sectionContainer, "TOPRIGHT", -10, statYOffset - 8)
-                divider:SetHeight(1)
-                table.insert(sectionData.stats, {divider = divider})
-            end
-
-            statYOffset = statYOffset - 16
         end
 
         sectionData.height = -statYOffset
@@ -1462,9 +1709,21 @@ local function SkinCharacterSheet()
         saveTopText:SetPoint("CENTER", saveTopBtn, "CENTER", 0, 0)
 
         saveTopBtn:SetScript("OnClick", function()
+            -- Visual feedback: change text to "Saved!" and color it green
+            saveTopText:SetText("Saved!")
+            saveTopText:SetTextColor(0.047, 0.824, 0.616, 1)  -- Green
+
             if selectedSetID then
                 C_EquipmentSet.SaveEquipmentSet(selectedSetID)
             end
+
+            -- Change back to "Save" after 1 second
+            C_Timer.After(1, function()
+                if saveTopText then
+                    saveTopText:SetText("Save")
+                    saveTopText:SetTextColor(1, 1, 1, 1)  -- White
+                end
+            end)
         end)
 
         local yOffset = -88  -- After buttons
@@ -1682,6 +1941,11 @@ local function SkinCharacterSheet()
             CharacterFrame._equipPanel:Show()
             statsPanel:Hide()
             CharacterFrame._titlesPanel:Hide()
+
+            -- Activate Flyout-Style mode: show flyout menu on hover for all slots
+            frame._flyoutModeActive = true
+        else
+            frame._flyoutModeActive = false
         end
     end)
 
@@ -1976,14 +2240,6 @@ local function SkinCharacterSheet()
         globalSocketContainer:Hide()
     end)
 
-    -- Wrap EquipmentFlyout_UpdateFlyout to suppress errors from reparented slots
-    if not frame._equipmentFlyoutWrapped then
-        local originalEquipmentFlyoutUpdate = _G.EquipmentFlyout_UpdateFlyout
-        _G.EquipmentFlyout_UpdateFlyout = function(...)
-            pcall(originalEquipmentFlyoutUpdate, ...)
-        end
-        frame._equipmentFlyoutWrapped = true
-    end
 
     -- Create reusable tooltip for enchant scanning
     local enchantTooltip = CreateFrame("GameTooltip", "EUICharacterSheetEnchantTooltip", nil, "GameTooltipTemplate")
