@@ -2860,8 +2860,8 @@ local function StyleFullFrame(frame, unit)
 
     -- Top text overlay (above health bar)
     local topTextOverlay = CreateFrame("Frame", nil, frame)
-    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 4)
-    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 4)
+    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 26)
+    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 26)
     topTextOverlay:SetHeight(20)
     topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel() + 5)
     frame._topTextOverlay = topTextOverlay
@@ -2929,9 +2929,10 @@ local function StyleFullFrame(frame, unit)
         if tlc ~= "none" and trc ~= "none" then
             local totalW = topTextOverlay:GetWidth()
             if totalW and totalW > 0 then
-                local halfW = (totalW - 20) / 2  -- 10px padding each side
-                topLeftText:SetWidth(halfW)
-                topRightText:SetWidth(halfW)
+                local usedW = 20 + math.max(0, tlxo) + math.max(0, -trxo)
+                local halfW = (totalW - usedW) / 2
+                topLeftText:SetWidth(math.max(halfW, 10))
+                topRightText:SetWidth(math.max(halfW, 10))
             end
         else
             topLeftText:SetWidth(0)
@@ -3157,8 +3158,8 @@ local function StyleFocusFrame(frame, unit)
 
     -- Top text overlay (above health bar)
     local topTextOverlay = CreateFrame("Frame", nil, frame)
-    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 4)
-    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 4)
+    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 26)
+    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 26)
     topTextOverlay:SetHeight(20)
     topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel() + 5)
     frame._topTextOverlay = topTextOverlay
@@ -3226,9 +3227,10 @@ local function StyleFocusFrame(frame, unit)
         if tlc ~= "none" and trc ~= "none" then
             local totalW = topTextOverlay:GetWidth()
             if totalW and totalW > 0 then
-                local halfW = (totalW - 20) / 2  -- 10px padding each side
-                topLeftText:SetWidth(halfW)
-                topRightText:SetWidth(halfW)
+                local usedW = 20 + math.max(0, tlxo) + math.max(0, -trxo)
+                local halfW = (totalW - usedW) / 2
+                topLeftText:SetWidth(math.max(halfW, 10))
+                topRightText:SetWidth(math.max(halfW, 10))
             end
         else
             topLeftText:SetWidth(0)
@@ -3460,9 +3462,10 @@ local function StyleSimpleFrame(frame, unit)
         if tlc ~= "none" and trc ~= "none" then
             local totalW = topTextOverlay:GetWidth()
             if totalW and totalW > 0 then
-                local halfW = (totalW - 20) / 2  -- 10px padding each side
-                topLeftText:SetWidth(halfW)
-                topRightText:SetWidth(halfW)
+                local usedW = 20 + math.max(0, tlxo) + math.max(0, -trxo)
+                local halfW = (totalW - usedW) / 2
+                topLeftText:SetWidth(math.max(halfW, 10))
+                topRightText:SetWidth(math.max(halfW, 10))
             end
         else
             topLeftText:SetWidth(0)
@@ -3699,9 +3702,10 @@ local function StylePetFrame(frame, unit)
         if tlc ~= "none" and trc ~= "none" then
             local totalW = topTextOverlay:GetWidth()
             if totalW and totalW > 0 then
-                local halfW = (totalW - 20) / 2  -- 10px padding each side
-                topLeftText:SetWidth(halfW)
-                topRightText:SetWidth(halfW)
+                local usedW = 20 + math.max(0, tlxo) + math.max(0, -trxo)
+                local halfW = (totalW - usedW) / 2
+                topLeftText:SetWidth(math.max(halfW, 10))
+                topRightText:SetWidth(math.max(halfW, 10))
             end
         else
             topLeftText:SetWidth(0)
@@ -3848,8 +3852,8 @@ local function StyleBossFrame(frame, unit)
 
     -- Top text overlay (above health bar)
     local topTextOverlay = CreateFrame("Frame", nil, frame)
-    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 4)
-    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 4)
+    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 26)
+    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 26)
     topTextOverlay:SetHeight(20)
     topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel() + 5)
     frame._topTextOverlay = topTextOverlay
@@ -3917,9 +3921,10 @@ local function StyleBossFrame(frame, unit)
         if tlc ~= "none" and trc ~= "none" then
             local totalW = topTextOverlay:GetWidth()
             if totalW and totalW > 0 then
-                local halfW = (totalW - 20) / 2  -- 10px padding each side
-                topLeftText:SetWidth(halfW)
-                topRightText:SetWidth(halfW)
+                local usedW = 20 + math.max(0, tlxo) + math.max(0, -trxo)
+                local halfW = (totalW - usedW) / 2
+                topLeftText:SetWidth(math.max(halfW, 10))
+                topRightText:SetWidth(math.max(halfW, 10))
             end
         else
             topLeftText:SetWidth(0)
