@@ -2860,10 +2860,10 @@ local function StyleFullFrame(frame, unit)
 
     -- Top text overlay (above health bar)
     local topTextOverlay = CreateFrame("Frame", nil, frame)
-    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 2)
-    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 2)
+    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 4)
+    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 4)
     topTextOverlay:SetHeight(20)
-    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel())
+    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel() + 5)
     frame._topTextOverlay = topTextOverlay
 
     local topLeftText = topTextOverlay:CreateFontString(nil, "OVERLAY")
@@ -2923,6 +2923,19 @@ local function StyleFullFrame(frame, unit)
             ApplyClassColor(topRightText, unit, s.topRightClassColor)
         else
             topRightText:Hide()
+        end
+
+        -- Constrain widths when both sides are active to prevent overlap
+        if tlc ~= "none" and trc ~= "none" then
+            local totalW = topTextOverlay:GetWidth()
+            if totalW and totalW > 0 then
+                local halfW = (totalW - 20) / 2  -- 10px padding each side
+                topLeftText:SetWidth(halfW)
+                topRightText:SetWidth(halfW)
+            end
+        else
+            topLeftText:SetWidth(0)
+            topRightText:SetWidth(0)
         end
     end
     ApplyTopTextPositions(settings)
@@ -3144,10 +3157,10 @@ local function StyleFocusFrame(frame, unit)
 
     -- Top text overlay (above health bar)
     local topTextOverlay = CreateFrame("Frame", nil, frame)
-    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 2)
-    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 2)
+    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 4)
+    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 4)
     topTextOverlay:SetHeight(20)
-    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel())
+    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel() + 5)
     frame._topTextOverlay = topTextOverlay
 
     local topLeftText = topTextOverlay:CreateFontString(nil, "OVERLAY")
@@ -3207,6 +3220,19 @@ local function StyleFocusFrame(frame, unit)
             ApplyClassColor(topRightText, unit, s.topRightClassColor)
         else
             topRightText:Hide()
+        end
+
+        -- Constrain widths when both sides are active to prevent overlap
+        if tlc ~= "none" and trc ~= "none" then
+            local totalW = topTextOverlay:GetWidth()
+            if totalW and totalW > 0 then
+                local halfW = (totalW - 20) / 2  -- 10px padding each side
+                topLeftText:SetWidth(halfW)
+                topRightText:SetWidth(halfW)
+            end
+        else
+            topLeftText:SetWidth(0)
+            topRightText:SetWidth(0)
         end
     end
     ApplyTopTextPositions(settings)
@@ -3365,10 +3391,10 @@ local function StyleSimpleFrame(frame, unit)
 
     -- Top text overlay (above health bar)
     local topTextOverlay = CreateFrame("Frame", nil, frame)
-    topTextOverlay:SetPoint("BOTTOMLEFT", health, "TOPLEFT", 0, 2)
-    topTextOverlay:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", 0, 2)
+    topTextOverlay:SetPoint("BOTTOMLEFT", health, "TOPLEFT", 0, 4)
+    topTextOverlay:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", 0, 4)
     topTextOverlay:SetHeight(20)
-    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel())
+    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel() + 5)
     frame._topTextOverlay = topTextOverlay
 
     local topLeftText = topTextOverlay:CreateFontString(nil, "OVERLAY")
@@ -3428,6 +3454,19 @@ local function StyleSimpleFrame(frame, unit)
             ApplyClassColor(topRightText, unit, s.topRightClassColor)
         else
             topRightText:Hide()
+        end
+
+        -- Constrain widths when both sides are active to prevent overlap
+        if tlc ~= "none" and trc ~= "none" then
+            local totalW = topTextOverlay:GetWidth()
+            if totalW and totalW > 0 then
+                local halfW = (totalW - 20) / 2  -- 10px padding each side
+                topLeftText:SetWidth(halfW)
+                topRightText:SetWidth(halfW)
+            end
+        else
+            topLeftText:SetWidth(0)
+            topRightText:SetWidth(0)
         end
     end
     ApplyTopTextPositions(settings)
@@ -3591,10 +3630,10 @@ local function StylePetFrame(frame, unit)
 
     -- Top text overlay (above health bar)
     local topTextOverlay = CreateFrame("Frame", nil, frame)
-    topTextOverlay:SetPoint("BOTTOMLEFT", health, "TOPLEFT", 0, 2)
-    topTextOverlay:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", 0, 2)
+    topTextOverlay:SetPoint("BOTTOMLEFT", health, "TOPLEFT", 0, 4)
+    topTextOverlay:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", 0, 4)
     topTextOverlay:SetHeight(20)
-    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel())
+    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel() + 5)
     frame._topTextOverlay = topTextOverlay
 
     local topLeftText = topTextOverlay:CreateFontString(nil, "OVERLAY")
@@ -3654,6 +3693,19 @@ local function StylePetFrame(frame, unit)
             ApplyClassColor(topRightText, unit, s.topRightClassColor)
         else
             topRightText:Hide()
+        end
+
+        -- Constrain widths when both sides are active to prevent overlap
+        if tlc ~= "none" and trc ~= "none" then
+            local totalW = topTextOverlay:GetWidth()
+            if totalW and totalW > 0 then
+                local halfW = (totalW - 20) / 2  -- 10px padding each side
+                topLeftText:SetWidth(halfW)
+                topRightText:SetWidth(halfW)
+            end
+        else
+            topLeftText:SetWidth(0)
+            topRightText:SetWidth(0)
         end
     end
     ApplyTopTextPositions(settings)
@@ -3796,10 +3848,10 @@ local function StyleBossFrame(frame, unit)
 
     -- Top text overlay (above health bar)
     local topTextOverlay = CreateFrame("Frame", nil, frame)
-    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 2)
-    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 2)
+    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 4)
+    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 4)
     topTextOverlay:SetHeight(20)
-    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel())
+    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel() + 5)
     frame._topTextOverlay = topTextOverlay
 
     local topLeftText = topTextOverlay:CreateFontString(nil, "OVERLAY")
@@ -3859,6 +3911,19 @@ local function StyleBossFrame(frame, unit)
             ApplyClassColor(topRightText, unit, s.topRightClassColor)
         else
             topRightText:Hide()
+        end
+
+        -- Constrain widths when both sides are active to prevent overlap
+        if tlc ~= "none" and trc ~= "none" then
+            local totalW = topTextOverlay:GetWidth()
+            if totalW and totalW > 0 then
+                local halfW = (totalW - 20) / 2  -- 10px padding each side
+                topLeftText:SetWidth(halfW)
+                topRightText:SetWidth(halfW)
+            end
+        else
+            topLeftText:SetWidth(0)
+            topRightText:SetWidth(0)
         end
     end
     ApplyTopTextPositions(settings)

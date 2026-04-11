@@ -4006,13 +4006,13 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 5: Top Left Text + Top Right Text (above health bar)
         local sharedTopTextRow
         sharedTopTextRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Top Left Text", values=healthTextValues, order=healthTextOrder,
+            { type="dropdown", text="Top Left Text", values=btbTextValues, order=btbTextOrder,
               getValue=function() return SVal("topLeftContent", "none") end,
               setValue=function(v)
                   SSet("topLeftContent", v)
                   UpdatePreview()
               end },
-            { type="dropdown", text="Top Right Text", values=healthTextValues, order=healthTextOrder,
+            { type="dropdown", text="Top Right Text", values=btbTextValues, order=btbTextOrder,
               getValue=function() return SVal("topRightContent", "none") end,
               setValue=function(v)
                   SSet("topRightContent", v)
