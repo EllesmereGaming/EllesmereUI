@@ -4003,6 +4003,96 @@ initFrame:SetScript("OnEvent", function(self)
             RegisterWidgetRefresh(UpdateCenterCogState)
         end
 
+        -- Row 5: Top Left Text + Top Right Text (above health bar)
+        local sharedTopTextRow
+        sharedTopTextRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Top Left Text", values=healthTextValues, order=healthTextOrder,
+              getValue=function() return SVal("topLeftContent", "none") end,
+              setValue=function(v)
+                  SSet("topLeftContent", v)
+                  UpdatePreview()
+              end },
+            { type="dropdown", text="Top Right Text", values=healthTextValues, order=healthTextOrder,
+              getValue=function() return SVal("topRightContent", "none") end,
+              setValue=function(v)
+                  SSet("topRightContent", v)
+                  UpdatePreview()
+              end });  y = y - h
+        -- Cogwheel on Top Left Text
+        do
+            local topLeftRgn = sharedTopTextRow._leftRegion
+            local _, topLeftCogShowRaw = EllesmereUI.BuildCogPopup({
+                title = "Top Left Text Settings",
+                rows = {
+                    { type="toggle", label="Class Color",
+                      get=function() return SVal("topLeftClassColor", false) end,
+                      set=function(v) SSet("topLeftClassColor", v); UpdatePreview() end },
+                    { type="slider", label="Size", min=8, max=24, step=1,
+                      get=function() return SVal("topLeftSize", 12) end,
+                      set=function(v) SSet("topLeftSize", v); UpdatePreview() end },
+                    { type="slider", label="X", min=-50, max=50, step=1,
+                      get=function() return SVal("topLeftX", 0) end,
+                      set=function(v) SSet("topLeftX", v); UpdatePreview() end },
+                    { type="slider", label="Y", min=-30, max=30, step=1,
+                      get=function() return SVal("topLeftY", 0) end,
+                      set=function(v) SSet("topLeftY", v); UpdatePreview() end },
+                },
+            })
+            local topLeftCogShow = topLeftCogShowRaw
+            local topLeftCogBtn = MakeCogBtn(topLeftRgn, topLeftCogShow)
+            local function UpdateTopLeftCogState()
+                local isNone = SVal("topLeftContent", "none") == "none"
+                topLeftCogBtn:SetAlpha(isNone and 0.15 or 0.4)
+                topLeftCogBtn:SetEnabled(not isNone)
+            end
+            topLeftCogBtn:SetScript("OnEnter", function(self)
+                if SVal("topLeftContent", "none") == "none" then
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("This option requires a text selection other than none."))
+                else self:SetAlpha(0.7) end
+            end)
+            topLeftCogBtn:SetScript("OnLeave", function(self) UpdateTopLeftCogState(); EllesmereUI.HideWidgetTooltip() end)
+            topLeftCogBtn:SetScript("OnClick", function(self) topLeftCogShow(self) end)
+            UpdateTopLeftCogState()
+            RegisterWidgetRefresh(UpdateTopLeftCogState)
+        end
+        -- Cogwheel on Top Right Text
+        do
+            local topRightRgn = sharedTopTextRow._rightRegion
+            local _, topRightCogShowRaw = EllesmereUI.BuildCogPopup({
+                title = "Top Right Text Settings",
+                rows = {
+                    { type="toggle", label="Class Color",
+                      get=function() return SVal("topRightClassColor", false) end,
+                      set=function(v) SSet("topRightClassColor", v); UpdatePreview() end },
+                    { type="slider", label="Size", min=8, max=24, step=1,
+                      get=function() return SVal("topRightSize", 12) end,
+                      set=function(v) SSet("topRightSize", v); UpdatePreview() end },
+                    { type="slider", label="X", min=-50, max=50, step=1,
+                      get=function() return SVal("topRightX", 0) end,
+                      set=function(v) SSet("topRightX", v); UpdatePreview() end },
+                    { type="slider", label="Y", min=-30, max=30, step=1,
+                      get=function() return SVal("topRightY", 0) end,
+                      set=function(v) SSet("topRightY", v); UpdatePreview() end },
+                },
+            })
+            local topRightCogShow = topRightCogShowRaw
+            local topRightCogBtn = MakeCogBtn(topRightRgn, topRightCogShow)
+            local function UpdateTopRightCogState()
+                local isNone = SVal("topRightContent", "none") == "none"
+                topRightCogBtn:SetAlpha(isNone and 0.15 or 0.4)
+                topRightCogBtn:SetEnabled(not isNone)
+            end
+            topRightCogBtn:SetScript("OnEnter", function(self)
+                if SVal("topRightContent", "none") == "none" then
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("This option requires a text selection other than none."))
+                else self:SetAlpha(0.7) end
+            end)
+            topRightCogBtn:SetScript("OnLeave", function(self) UpdateTopRightCogState(); EllesmereUI.HideWidgetTooltip() end)
+            topRightCogBtn:SetScript("OnClick", function(self) topRightCogShow(self) end)
+            UpdateTopRightCogState()
+            RegisterWidgetRefresh(UpdateTopRightCogState)
+        end
+
         _, h = W:Spacer(parent, y, 20); y = y - h
 
         -------------------------------------------------------------------

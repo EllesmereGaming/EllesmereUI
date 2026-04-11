@@ -58,6 +58,16 @@ local defaults = {
             centerTextX = 0,
             centerTextY = 0,
             centerTextClassColor = false,
+            topLeftContent = "none",
+            topLeftSize = 12,
+            topLeftX = 0,
+            topLeftY = 0,
+            topLeftClassColor = false,
+            topRightContent = "none",
+            topRightSize = 12,
+            topRightX = 0,
+            topRightY = 0,
+            topRightClassColor = false,
             bottomTextBar = false,
             bottomTextBarHeight = 16,
             btbPosition = "bottom",
@@ -207,6 +217,16 @@ local defaults = {
             centerTextX = 0,
             centerTextY = 0,
             centerTextClassColor = false,
+            topLeftContent = "none",
+            topLeftSize = 12,
+            topLeftX = 0,
+            topLeftY = 0,
+            topLeftClassColor = false,
+            topRightContent = "none",
+            topRightSize = 12,
+            topRightX = 0,
+            topRightY = 0,
+            topRightClassColor = false,
             bottomTextBar = false,
             bottomTextBarHeight = 16,
             btbPosition = "bottom",
@@ -310,6 +330,16 @@ local defaults = {
             leftTextContent = "name",
             rightTextContent = "none",
             centerTextContent = "none",
+            topLeftContent = "none",
+            topLeftSize = 12,
+            topLeftX = 0,
+            topLeftY = 0,
+            topLeftClassColor = false,
+            topRightContent = "none",
+            topRightSize = 12,
+            topRightX = 0,
+            topRightY = 0,
+            topRightClassColor = false,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
             highlightColor = { r = 1, g = 1, b = 1 },
@@ -327,6 +357,16 @@ local defaults = {
             leftTextContent = "name",
             rightTextContent = "none",
             centerTextContent = "none",
+            topLeftContent = "none",
+            topLeftSize = 12,
+            topLeftX = 0,
+            topLeftY = 0,
+            topLeftClassColor = false,
+            topRightContent = "none",
+            topRightSize = 12,
+            topRightX = 0,
+            topRightY = 0,
+            topRightClassColor = false,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
             highlightColor = { r = 1, g = 1, b = 1 },
@@ -376,6 +416,16 @@ local defaults = {
             centerTextX = 0,
             centerTextY = 0,
             centerTextClassColor = false,
+            topLeftContent = "none",
+            topLeftSize = 12,
+            topLeftX = 0,
+            topLeftY = 0,
+            topLeftClassColor = false,
+            topRightContent = "none",
+            topRightSize = 12,
+            topRightX = 0,
+            topRightY = 0,
+            topRightClassColor = false,
             bottomTextBar = false,
             bottomTextBarHeight = 16,
             btbPosition = "bottom",
@@ -470,6 +520,16 @@ local defaults = {
             leftTextContent = "name",
             rightTextContent = "perhp",
             centerTextContent = "none",
+            topLeftContent = "none",
+            topLeftSize = 12,
+            topLeftX = 0,
+            topLeftY = 0,
+            topLeftClassColor = false,
+            topRightContent = "none",
+            topRightSize = 12,
+            topRightX = 0,
+            topRightY = 0,
+            topRightClassColor = false,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
             highlightColor = { r = 1, g = 1, b = 1 },
@@ -2798,6 +2858,76 @@ local function StyleFullFrame(frame, unit)
     ApplyTextPositions(settings)
     frame._applyTextPositions = ApplyTextPositions
 
+    -- Top text overlay (above health bar)
+    local topTextOverlay = CreateFrame("Frame", nil, frame)
+    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 2)
+    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 2)
+    topTextOverlay:SetHeight(20)
+    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel())
+    frame._topTextOverlay = topTextOverlay
+
+    local topLeftText = topTextOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(topLeftText, settings.topLeftSize or 12)
+    topLeftText:SetWordWrap(false)
+    topLeftText:SetTextColor(1, 1, 1)
+    frame.TopLeftText = topLeftText
+
+    local topRightText = topTextOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(topRightText, settings.topRightSize or 12)
+    topRightText:SetWordWrap(false)
+    topRightText:SetTextColor(1, 1, 1)
+    frame.TopRightText = topRightText
+
+    local topLeftContent = settings.topLeftContent or "none"
+    local topRightContent = settings.topRightContent or "none"
+
+    local function ApplyTopTextTags(tlc, trc)
+        local tltag = ContentToTag(tlc)
+        local trtag = ContentToTag(trc)
+        if topLeftText._curTag then frame:Untag(topLeftText); topLeftText._curTag = nil end
+        if topRightText._curTag then frame:Untag(topRightText); topRightText._curTag = nil end
+        if tltag then frame:Tag(topLeftText, tltag); topLeftText._curTag = tltag end
+        if trtag then frame:Tag(topRightText, trtag); topRightText._curTag = trtag end
+        if frame.UpdateTags then frame:UpdateTags() end
+    end
+    ApplyTopTextTags(topLeftContent, topRightContent)
+    frame._applyTopTextTags = ApplyTopTextTags
+
+    local function ApplyTopTextPositions(s)
+        local tlc = s.topLeftContent or "none"
+        local trc = s.topRightContent or "none"
+        local tlsz = s.topLeftSize or 12
+        local trsz = s.topRightSize or 12
+        local tlxo = s.topLeftX or 0
+        local tlyo = s.topLeftY or 0
+        local trxo = s.topRightX or 0
+        local tryo = s.topRightY or 0
+
+        SetFSFont(topLeftText, tlsz)
+        topLeftText:ClearAllPoints()
+        if tlc ~= "none" then
+            topLeftText:SetJustifyH("LEFT")
+            PP.Point(topLeftText, "BOTTOMLEFT", topTextOverlay, "BOTTOMLEFT", 5 + tlxo, tlyo)
+            topLeftText:Show()
+            ApplyClassColor(topLeftText, unit, s.topLeftClassColor)
+        else
+            topLeftText:Hide()
+        end
+
+        SetFSFont(topRightText, trsz)
+        topRightText:ClearAllPoints()
+        if trc ~= "none" then
+            topRightText:SetJustifyH("RIGHT")
+            PP.Point(topRightText, "BOTTOMRIGHT", topTextOverlay, "BOTTOMRIGHT", -5 + trxo, tryo)
+            topRightText:Show()
+            ApplyClassColor(topRightText, unit, s.topRightClassColor)
+        else
+            topRightText:Hide()
+        end
+    end
+    ApplyTopTextPositions(settings)
+    frame._applyTopTextPositions = ApplyTopTextPositions
+
     -- Bottom Text Bar
     if settings.bottomTextBar then
         local anchorFrame = (powerIsAtt and frame.Power) or frame.Health
@@ -3012,6 +3142,76 @@ local function StyleFocusFrame(frame, unit)
     ApplyTextPositions(settings)
     frame._applyTextPositions = ApplyTextPositions
 
+    -- Top text overlay (above health bar)
+    local topTextOverlay = CreateFrame("Frame", nil, frame)
+    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 2)
+    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 2)
+    topTextOverlay:SetHeight(20)
+    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel())
+    frame._topTextOverlay = topTextOverlay
+
+    local topLeftText = topTextOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(topLeftText, settings.topLeftSize or 12)
+    topLeftText:SetWordWrap(false)
+    topLeftText:SetTextColor(1, 1, 1)
+    frame.TopLeftText = topLeftText
+
+    local topRightText = topTextOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(topRightText, settings.topRightSize or 12)
+    topRightText:SetWordWrap(false)
+    topRightText:SetTextColor(1, 1, 1)
+    frame.TopRightText = topRightText
+
+    local topLeftContent = settings.topLeftContent or "none"
+    local topRightContent = settings.topRightContent or "none"
+
+    local function ApplyTopTextTags(tlc, trc)
+        local tltag = ContentToTag(tlc)
+        local trtag = ContentToTag(trc)
+        if topLeftText._curTag then frame:Untag(topLeftText); topLeftText._curTag = nil end
+        if topRightText._curTag then frame:Untag(topRightText); topRightText._curTag = nil end
+        if tltag then frame:Tag(topLeftText, tltag); topLeftText._curTag = tltag end
+        if trtag then frame:Tag(topRightText, trtag); topRightText._curTag = trtag end
+        if frame.UpdateTags then frame:UpdateTags() end
+    end
+    ApplyTopTextTags(topLeftContent, topRightContent)
+    frame._applyTopTextTags = ApplyTopTextTags
+
+    local function ApplyTopTextPositions(s)
+        local tlc = s.topLeftContent or "none"
+        local trc = s.topRightContent or "none"
+        local tlsz = s.topLeftSize or 12
+        local trsz = s.topRightSize or 12
+        local tlxo = s.topLeftX or 0
+        local tlyo = s.topLeftY or 0
+        local trxo = s.topRightX or 0
+        local tryo = s.topRightY or 0
+
+        SetFSFont(topLeftText, tlsz)
+        topLeftText:ClearAllPoints()
+        if tlc ~= "none" then
+            topLeftText:SetJustifyH("LEFT")
+            PP.Point(topLeftText, "BOTTOMLEFT", topTextOverlay, "BOTTOMLEFT", 5 + tlxo, tlyo)
+            topLeftText:Show()
+            ApplyClassColor(topLeftText, unit, s.topLeftClassColor)
+        else
+            topLeftText:Hide()
+        end
+
+        SetFSFont(topRightText, trsz)
+        topRightText:ClearAllPoints()
+        if trc ~= "none" then
+            topRightText:SetJustifyH("RIGHT")
+            PP.Point(topRightText, "BOTTOMRIGHT", topTextOverlay, "BOTTOMRIGHT", -5 + trxo, tryo)
+            topRightText:Show()
+            ApplyClassColor(topRightText, unit, s.topRightClassColor)
+        else
+            topRightText:Hide()
+        end
+    end
+    ApplyTopTextPositions(settings)
+    frame._applyTopTextPositions = ApplyTopTextPositions
+
     -- Bottom Text Bar
     if settings.bottomTextBar then
         local anchorFrame = (fPpIsAtt and frame.Power) or frame.Health
@@ -3162,6 +3362,76 @@ local function StyleSimpleFrame(frame, unit)
     end
     ApplyTextPositions(settings)
     frame._applyTextPositions = ApplyTextPositions
+
+    -- Top text overlay (above health bar)
+    local topTextOverlay = CreateFrame("Frame", nil, frame)
+    topTextOverlay:SetPoint("BOTTOMLEFT", health, "TOPLEFT", 0, 2)
+    topTextOverlay:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", 0, 2)
+    topTextOverlay:SetHeight(20)
+    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel())
+    frame._topTextOverlay = topTextOverlay
+
+    local topLeftText = topTextOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(topLeftText, settings.topLeftSize or 12)
+    topLeftText:SetWordWrap(false)
+    topLeftText:SetTextColor(1, 1, 1)
+    frame.TopLeftText = topLeftText
+
+    local topRightText = topTextOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(topRightText, settings.topRightSize or 12)
+    topRightText:SetWordWrap(false)
+    topRightText:SetTextColor(1, 1, 1)
+    frame.TopRightText = topRightText
+
+    local topLeftContent = settings.topLeftContent or "none"
+    local topRightContent = settings.topRightContent or "none"
+
+    local function ApplyTopTextTags(tlc, trc)
+        local tltag = ContentToTag(tlc)
+        local trtag = ContentToTag(trc)
+        if topLeftText._curTag then frame:Untag(topLeftText); topLeftText._curTag = nil end
+        if topRightText._curTag then frame:Untag(topRightText); topRightText._curTag = nil end
+        if tltag then frame:Tag(topLeftText, tltag); topLeftText._curTag = tltag end
+        if trtag then frame:Tag(topRightText, trtag); topRightText._curTag = trtag end
+        if frame.UpdateTags then frame:UpdateTags() end
+    end
+    ApplyTopTextTags(topLeftContent, topRightContent)
+    frame._applyTopTextTags = ApplyTopTextTags
+
+    local function ApplyTopTextPositions(s)
+        local tlc = s.topLeftContent or "none"
+        local trc = s.topRightContent or "none"
+        local tlsz = s.topLeftSize or 12
+        local trsz = s.topRightSize or 12
+        local tlxo = s.topLeftX or 0
+        local tlyo = s.topLeftY or 0
+        local trxo = s.topRightX or 0
+        local tryo = s.topRightY or 0
+
+        SetFSFont(topLeftText, tlsz)
+        topLeftText:ClearAllPoints()
+        if tlc ~= "none" then
+            topLeftText:SetJustifyH("LEFT")
+            PP.Point(topLeftText, "BOTTOMLEFT", topTextOverlay, "BOTTOMLEFT", 5 + tlxo, tlyo)
+            topLeftText:Show()
+            ApplyClassColor(topLeftText, unit, s.topLeftClassColor)
+        else
+            topLeftText:Hide()
+        end
+
+        SetFSFont(topRightText, trsz)
+        topRightText:ClearAllPoints()
+        if trc ~= "none" then
+            topRightText:SetJustifyH("RIGHT")
+            PP.Point(topRightText, "BOTTOMRIGHT", topTextOverlay, "BOTTOMRIGHT", -5 + trxo, tryo)
+            topRightText:Show()
+            ApplyClassColor(topRightText, unit, s.topRightClassColor)
+        else
+            topRightText:Hide()
+        end
+    end
+    ApplyTopTextPositions(settings)
+    frame._applyTopTextPositions = ApplyTopTextPositions
 end
 
 
@@ -3318,6 +3588,76 @@ local function StylePetFrame(frame, unit)
     end
     ApplyTextPositions(settings)
     frame._applyTextPositions = ApplyTextPositions
+
+    -- Top text overlay (above health bar)
+    local topTextOverlay = CreateFrame("Frame", nil, frame)
+    topTextOverlay:SetPoint("BOTTOMLEFT", health, "TOPLEFT", 0, 2)
+    topTextOverlay:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", 0, 2)
+    topTextOverlay:SetHeight(20)
+    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel())
+    frame._topTextOverlay = topTextOverlay
+
+    local topLeftText = topTextOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(topLeftText, settings.topLeftSize or 12)
+    topLeftText:SetWordWrap(false)
+    topLeftText:SetTextColor(1, 1, 1)
+    frame.TopLeftText = topLeftText
+
+    local topRightText = topTextOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(topRightText, settings.topRightSize or 12)
+    topRightText:SetWordWrap(false)
+    topRightText:SetTextColor(1, 1, 1)
+    frame.TopRightText = topRightText
+
+    local topLeftContent = settings.topLeftContent or "none"
+    local topRightContent = settings.topRightContent or "none"
+
+    local function ApplyTopTextTags(tlc, trc)
+        local tltag = ContentToTag(tlc)
+        local trtag = ContentToTag(trc)
+        if topLeftText._curTag then frame:Untag(topLeftText); topLeftText._curTag = nil end
+        if topRightText._curTag then frame:Untag(topRightText); topRightText._curTag = nil end
+        if tltag then frame:Tag(topLeftText, tltag); topLeftText._curTag = tltag end
+        if trtag then frame:Tag(topRightText, trtag); topRightText._curTag = trtag end
+        if frame.UpdateTags then frame:UpdateTags() end
+    end
+    ApplyTopTextTags(topLeftContent, topRightContent)
+    frame._applyTopTextTags = ApplyTopTextTags
+
+    local function ApplyTopTextPositions(s)
+        local tlc = s.topLeftContent or "none"
+        local trc = s.topRightContent or "none"
+        local tlsz = s.topLeftSize or 12
+        local trsz = s.topRightSize or 12
+        local tlxo = s.topLeftX or 0
+        local tlyo = s.topLeftY or 0
+        local trxo = s.topRightX or 0
+        local tryo = s.topRightY or 0
+
+        SetFSFont(topLeftText, tlsz)
+        topLeftText:ClearAllPoints()
+        if tlc ~= "none" then
+            topLeftText:SetJustifyH("LEFT")
+            PP.Point(topLeftText, "BOTTOMLEFT", topTextOverlay, "BOTTOMLEFT", 5 + tlxo, tlyo)
+            topLeftText:Show()
+            ApplyClassColor(topLeftText, unit, s.topLeftClassColor)
+        else
+            topLeftText:Hide()
+        end
+
+        SetFSFont(topRightText, trsz)
+        topRightText:ClearAllPoints()
+        if trc ~= "none" then
+            topRightText:SetJustifyH("RIGHT")
+            PP.Point(topRightText, "BOTTOMRIGHT", topTextOverlay, "BOTTOMRIGHT", -5 + trxo, tryo)
+            topRightText:Show()
+            ApplyClassColor(topRightText, unit, s.topRightClassColor)
+        else
+            topRightText:Hide()
+        end
+    end
+    ApplyTopTextPositions(settings)
+    frame._applyTopTextPositions = ApplyTopTextPositions
 end
 
 
@@ -3453,6 +3793,76 @@ local function StyleBossFrame(frame, unit)
     end
     ApplyTextPositions(settings)
     frame._applyTextPositions = ApplyTextPositions
+
+    -- Top text overlay (above health bar)
+    local topTextOverlay = CreateFrame("Frame", nil, frame)
+    topTextOverlay:SetPoint("BOTTOMLEFT", frame.Health, "TOPLEFT", 0, 2)
+    topTextOverlay:SetPoint("BOTTOMRIGHT", frame.Health, "TOPRIGHT", 0, 2)
+    topTextOverlay:SetHeight(20)
+    topTextOverlay:SetFrameLevel(textOverlay:GetFrameLevel())
+    frame._topTextOverlay = topTextOverlay
+
+    local topLeftText = topTextOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(topLeftText, settings.topLeftSize or 12)
+    topLeftText:SetWordWrap(false)
+    topLeftText:SetTextColor(1, 1, 1)
+    frame.TopLeftText = topLeftText
+
+    local topRightText = topTextOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(topRightText, settings.topRightSize or 12)
+    topRightText:SetWordWrap(false)
+    topRightText:SetTextColor(1, 1, 1)
+    frame.TopRightText = topRightText
+
+    local topLeftContent = settings.topLeftContent or "none"
+    local topRightContent = settings.topRightContent or "none"
+
+    local function ApplyTopTextTags(tlc, trc)
+        local tltag = ContentToTag(tlc)
+        local trtag = ContentToTag(trc)
+        if topLeftText._curTag then frame:Untag(topLeftText); topLeftText._curTag = nil end
+        if topRightText._curTag then frame:Untag(topRightText); topRightText._curTag = nil end
+        if tltag then frame:Tag(topLeftText, tltag); topLeftText._curTag = tltag end
+        if trtag then frame:Tag(topRightText, trtag); topRightText._curTag = trtag end
+        if frame.UpdateTags then frame:UpdateTags() end
+    end
+    ApplyTopTextTags(topLeftContent, topRightContent)
+    frame._applyTopTextTags = ApplyTopTextTags
+
+    local function ApplyTopTextPositions(s)
+        local tlc = s.topLeftContent or "none"
+        local trc = s.topRightContent or "none"
+        local tlsz = s.topLeftSize or 12
+        local trsz = s.topRightSize or 12
+        local tlxo = s.topLeftX or 0
+        local tlyo = s.topLeftY or 0
+        local trxo = s.topRightX or 0
+        local tryo = s.topRightY or 0
+
+        SetFSFont(topLeftText, tlsz)
+        topLeftText:ClearAllPoints()
+        if tlc ~= "none" then
+            topLeftText:SetJustifyH("LEFT")
+            PP.Point(topLeftText, "BOTTOMLEFT", topTextOverlay, "BOTTOMLEFT", 5 + tlxo, tlyo)
+            topLeftText:Show()
+            ApplyClassColor(topLeftText, unit, s.topLeftClassColor)
+        else
+            topLeftText:Hide()
+        end
+
+        SetFSFont(topRightText, trsz)
+        topRightText:ClearAllPoints()
+        if trc ~= "none" then
+            topRightText:SetJustifyH("RIGHT")
+            PP.Point(topRightText, "BOTTOMRIGHT", topTextOverlay, "BOTTOMRIGHT", -5 + trxo, tryo)
+            topRightText:Show()
+            ApplyClassColor(topRightText, unit, s.topRightClassColor)
+        else
+            topRightText:Hide()
+        end
+    end
+    ApplyTopTextPositions(settings)
+    frame._applyTopTextPositions = ApplyTopTextPositions
 end
 
 
@@ -4431,6 +4841,12 @@ local function ReloadFrames()
                     if frame._applyTextPositions then
                         frame._applyTextPositions(settings)
                     end
+                    if frame._applyTopTextTags then
+                        frame._applyTopTextTags(settings.topLeftContent or "none", settings.topRightContent or "none")
+                    end
+                    if frame._applyTopTextPositions then
+                        frame._applyTopTextPositions(settings)
+                    end
 
                     -- Bottom Text Bar update (player)
                     if settings.bottomTextBar then
@@ -4612,6 +5028,12 @@ local function ReloadFrames()
                     end
                     if frame._applyTextPositions then
                         frame._applyTextPositions(settings)
+                    end
+                    if frame._applyTopTextTags then
+                        frame._applyTopTextTags(settings.topLeftContent or "none", settings.topRightContent or "none")
+                    end
+                    if frame._applyTopTextPositions then
+                        frame._applyTopTextPositions(settings)
                     end
 
                     -- Bottom Text Bar update (target) ? must come before castbar so castbar can anchor to it
@@ -4940,6 +5362,12 @@ local function ReloadFrames()
                 end
                 if frame._applyTextPositions then
                     frame._applyTextPositions(settings)
+                end
+                if frame._applyTopTextTags then
+                    frame._applyTopTextTags(settings.topLeftContent or "none", settings.topRightContent or "none")
+                end
+                if frame._applyTopTextPositions then
+                    frame._applyTopTextPositions(settings)
                 end
 
                 -- Bottom Text Bar update (focus) ? must come before castbar so castbar can anchor to it
@@ -5301,6 +5729,12 @@ local function ReloadFrames()
             end
             if isMiniFrame and frame._applyTextPositions then
                 frame._applyTextPositions(settings)
+            end
+            if isMiniFrame and frame._applyTopTextTags then
+                frame._applyTopTextTags(settings.topLeftContent or "none", settings.topRightContent or "none")
+            end
+            if isMiniFrame and frame._applyTopTextPositions then
+                frame._applyTopTextPositions(settings)
             end
 
             if frame.Castbar then
