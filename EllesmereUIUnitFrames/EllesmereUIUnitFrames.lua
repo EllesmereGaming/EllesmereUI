@@ -6,6 +6,7 @@ local string_format = string.format
 
 local oUF = ns.oUF or oUF
 local PP = EllesmereUI.PP
+ns.PP = PP
 if not oUF then
     error("EllesmereUIUnitFrames: oUF library not found! Please install oUF to Libraries\\oUF\\ folder.")
     return
@@ -562,6 +563,33 @@ local defaults = {
             raidMarkerX = 0,
             raidMarkerY = 0,
         },
+        party = {
+            frameWidth = 160,
+            healthHeight = 36,
+            powerPosition = "below",
+            powerHeight = 4,
+            leftTextContent = "name",
+            rightTextContent = "perhp",
+            centerTextContent = "none",
+            textSize = 11,
+            healthBarOpacity = 90,
+            powerBarOpacity = 100,
+            showPortrait = false,
+            showRoleIcon = true,
+            showCastbar = false,
+            showThreat = true,
+            enableRangeFade = true,
+            rangeFadeAlpha = 0.4,
+            showDebuffs = true,
+            maxDebuffs = 3,
+            showBuffs = false,
+            maxBuffs = 0,
+            highlightDispellable = true,
+            growthDirection = "vertical",
+            sortOrder = "role",
+            spacing = 1,
+            showPlayer = false,
+        },
         enabledFrames = {
             player = true,
             target = true,
@@ -570,6 +598,7 @@ local defaults = {
             targettarget = true,
             focustarget = false,
             boss = true,
+            party = true,
         },
         positions = {
             player = { point = "CENTER", relPoint = "CENTER", x = -317, y = -193.5 },
@@ -580,6 +609,7 @@ local defaults = {
             focustarget = { point = "CENTER", relPoint = "CENTER", x = 50, y = -261 },
             boss = { point = "CENTER", relPoint = "CENTER", x = 661, y = 251 },
             classPower = { point = "CENTER", relPoint = "CENTER", x = 0, y = -220 },
+            party = { point = "TOPLEFT", relPoint = "TOPLEFT", x = 20, y = -200 },
         },
         bossSpacing = 80,
     }
@@ -702,6 +732,7 @@ local function UnitToSettingsKey(unit)
     if unit:match("^boss%d$") then return "boss" end
     if unit == "targettarget" or unit == "focustarget" then return "totPet" end
     if unit == "pet" then return "pet" end
+    if unit:match("^party%d$") then return "party" end
     if db.profile[unit] then return unit end
     return nil
 end
@@ -959,6 +990,10 @@ local function GetSettingsForUnit(unit)
         for i = 1, 5 do
             unitSettingsMap["boss" .. i] = db.profile.boss
         end
+        for i = 1, 4 do
+            unitSettingsMap["party" .. i] = db.profile.party
+        end
+        unitSettingsMap["party"] = db.profile.party
     end
     return unitSettingsMap[unit] or db.profile.player
 end
@@ -3819,6 +3854,26 @@ local function StyleBossFrame(frame, unit)
     frame._applyTextPositions = ApplyTextPositions
 end
 
+-- Expose builders for party/raid frame files
+ns.CreateHealthBar = CreateHealthBar
+ns.CreateAbsorbBar = CreateAbsorbBar
+ns.CreatePowerBar = CreatePowerBar
+ns.CreatePortrait = CreatePortrait
+ns.CreateCastBar = CreateCastBar
+ns.CreateUnifiedBorder = CreateUnifiedBorder
+ns.ReparentBarsToClip = ReparentBarsToClip
+ns.UpdateBordersForScale = UpdateBordersForScale
+ns.ApplyFramePosition = ApplyFramePosition
+ns.SetFSFont = SetFSFont
+ns.ContentToTag = ContentToTag
+ns.EstimateUFTextWidth = EstimateUFTextWidth
+ns.GetSettingsForUnit = GetSettingsForUnit
+ns.GetCastbarColor = GetCastbarColor
+ns.ApplyHealthBarTexture = ApplyHealthBarTexture
+ns.ApplyDarkTheme = ApplyDarkTheme
+ns.ApplyHealthBarAlpha = ApplyHealthBarAlpha
+ns.db = nil
+ns.frames = frames
 
 local function RegisterStylesOnce()
     if _G.EllesmereUF_StylesRegistered then
@@ -4335,7 +4390,7 @@ local function ReloadFrames()
     -- Normalize opacity values: old profiles stored 0-1 floats, new format is 0-100 integers
     do
         local prof = db.profile
-        local UNITS = { "player", "target", "focus", "boss", "pet", "totPet" }
+        local UNITS = { "player", "target", "focus", "boss", "pet", "totPet", "party" }
         if prof.healthBarOpacity and prof.healthBarOpacity <= 1.0 then
             prof.healthBarOpacity = math.floor(prof.healthBarOpacity * 100 + 0.5)
         end
@@ -6083,6 +6138,7 @@ function InitializeFrames()
         frame:HookScript("OnEnter", UnitFrame_OnEnter)
         frame:HookScript("OnLeave", UnitFrame_OnLeave)
     end
+    ns.SetupUnitMenu = SetupUnitMenu
 
     -- Always spawn all frames; hide disabled ones for zero performance impact
     oUF:SetActiveStyle("EllesmerePlayer")
@@ -6703,6 +6759,23 @@ function InitializeFrames()
         end
     end
 
+    -- Party frames (spawned via header in EllesmereUIPartyFrames.lua)
+    if ns.SpawnPartyHeader then
+        ns.SpawnPartyHeader()
+    end
+
+    -- Hide Blizzard party frames when our party frames are enabled
+    if enabled.party ~= false then
+        if CompactPartyFrame then
+            CompactPartyFrame:UnregisterAllEvents()
+            CompactPartyFrame:Hide()
+        end
+        if PartyFrame then
+            PartyFrame:UnregisterAllEvents()
+            PartyFrame:Hide()
+        end
+    end
+
     -- Disable oUF elements for frames where features are initially off.
     -- Portrait backdrop is already hidden by style functions, but oUF
     -- auto-enables the element at spawn time since frame.Portrait is always set.
@@ -7092,6 +7165,7 @@ function SetupOptionsPanel()
             playerCastbar = "Player Cast Bar",
             targetCastbar = "Target Cast Bar",
             focusCastbar = "Focus Cast Bar",
+            party = "Party Frames",
         }
         local elements = {}
         local orderBase = 100
@@ -7115,6 +7189,7 @@ function SetupOptionsPanel()
                         return nil
                     end
                     if k == "classPower" then return frames._classPowerBar end
+                    if k == "party" then return ns.partyAnchor or ns.partyHeader end
                     return frames[k]
                 end,
                 getSize = function(k)
@@ -7142,10 +7217,23 @@ function SetupOptionsPanel()
                         end
                         return 120, 14
                     end
+                    if k == "party" then
+                        local s = db.profile.party
+                        if not s then return 160, 36 end
+                        local ppPos = s.powerPosition or "below"
+                        local ppIsAtt = (ppPos == "below" or ppPos == "above")
+                        local ph = ppIsAtt and (s.powerHeight or 4) or 0
+                        local frameH = s.healthHeight + ph
+                        local frameW = s.frameWidth
+                        local showPortrait = s.showPortrait ~= false and (db.profile.portraitStyle or "attached") ~= "none"
+                        if showPortrait then frameW = frameW + frameH end
+                        return frameW, frameH
+                    end
                     if k == "boss" then return GetFrameDimensions("boss1") end
                     return GetFrameDimensions(k)
                 end,
                 setWidth = function(k, w)
+                    if k == "party" then return end
                     if k == "playerCastbar" then
                         db.profile.player.playerCastbarWidth = math.max(math.floor(w + 0.5), 30)
                         local cbBg = frames.player and frames.player.Castbar and frames.player.Castbar:GetParent()
@@ -7182,6 +7270,7 @@ function SetupOptionsPanel()
                     Rebuild()
                 end,
                 setHeight = function(k, h)
+                    if k == "party" then return end
                     if k == "playerCastbar" then
                         local newH = math.max(math.floor(h + 0.5), 5)
                         db.profile.player.playerCastbarHeight = newH
@@ -7247,6 +7336,12 @@ function SetupOptionsPanel()
                             frames._classPowerBar:ClearAllPoints()
                             frames._classPowerBar:SetPoint(point, UIParent, relPoint, x, y)
                         end
+                    elseif k == "party" then
+                        local anchor = ns.partyAnchor or ns.partyHeader
+                        if anchor then
+                            anchor:ClearAllPoints()
+                            anchor:SetPoint(point, UIParent, relPoint, x, y)
+                        end
                     else
                         local fr = frames[k]
                         if fr then
@@ -7310,6 +7405,12 @@ function SetupOptionsPanel()
                             frames._classPowerBar:ClearAllPoints()
                             frames._classPowerBar:SetPoint(pt, UIParent, rpt, px, py)
                         end
+                    elseif k == "party" then
+                        local anchor = ns.partyAnchor or ns.partyHeader
+                        if anchor then
+                            anchor:ClearAllPoints()
+                            anchor:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x, pos.y)
+                        end
                     else
                         local fr = frames[k]
                         if fr then
@@ -7330,6 +7431,7 @@ function SetupOptionsPanel()
         elements[#elements + 1] = MakeUFElement("targettarget", 5)
         elements[#elements + 1] = MakeUFElement("focustarget", 6)
         elements[#elements + 1] = MakeUFElement("boss", 7)
+        elements[#elements + 1] = MakeUFElement("party", 8)
 
         -- Conditional elements
         if db.profile.player.showClassPowerBar and not db.profile.player.lockClassPowerToFrame then
@@ -7416,6 +7518,7 @@ local EllesmereUF = EllesmereUI.Lite.NewAddon("EllesmereUIUnitFrames")
 
 function EllesmereUF:OnInitialize()
     db = EllesmereUI.Lite.NewDB("EllesmereUIUnitFramesDB", defaults, true)
+    ns.db = db
 
     ResolveFontPath()
 

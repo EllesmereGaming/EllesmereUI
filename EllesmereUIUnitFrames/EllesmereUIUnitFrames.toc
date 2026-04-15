@@ -15,6 +15,7 @@ Libs\oUF\oUF.xml
 
 # Main Luas
 EllesmereUIUnitFrames.lua
+EllesmereUIPartyFrames.lua
 
 # Options
 EUI_UnitFrames_Options.lua
