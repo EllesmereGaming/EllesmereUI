@@ -25,6 +25,7 @@ local UnitCastingInfo, UnitChannelInfo = UnitCastingInfo, UnitChannelInfo
 local GetTime = GetTime
 local C_NamePlate = C_NamePlate
 local GetRaidTargetIndex, SetRaidTargetIconTexture = GetRaidTargetIndex, SetRaidTargetIconTexture
+local GetCreatureDifficultyColor = GetCreatureDifficultyColor
 local C_CVar, NamePlateConstants, Enum = C_CVar, NamePlateConstants, Enum
 local _, PLAYER_CLASS = UnitClass("player")
 local function GetFont()
@@ -107,6 +108,8 @@ local defaults = {
     textSlotRight = "healthPercent",
     textSlotLeft = "none",
     textSlotCenter = "none",
+    showLevel = true,
+    levelDifficultyColor = true,
     showTargetArrows = false,
     targetArrowScale = 1.0,
     showClassPower = false,
@@ -572,6 +575,28 @@ local function SetCombinedHealthText(fs, element, pctText, numText)
     else
         fs:SetText("")
     end
+end
+
+-- Build a colored level prefix string for a unit, or nil if disabled.
+local function GetLevelPrefix(unit)
+    local db = EllesmereUINameplatesDB or defaults
+    if not db.showLevel then return nil end
+    local level = UnitLevel(unit)
+    if not level or level <= 0 and level ~= -1 then return nil end
+    local levelStr, lr, lg, lb
+    if level == -1 then
+        levelStr = "??"
+        lr, lg, lb = 1, 0, 0
+    else
+        levelStr = tostring(level)
+        if db.levelDifficultyColor and GetCreatureDifficultyColor then
+            local color = GetCreatureDifficultyColor(level)
+            lr, lg, lb = color.r, color.g, color.b
+        else
+            lr, lg, lb = 1, 0.82, 0
+        end
+    end
+    return string.format("|cff%02x%02x%02x%s|r", lr * 255, lg * 255, lb * 255, levelStr)
 end
 
 -- Estimate pixel width of health text for a given element type.
@@ -3835,6 +3860,10 @@ function NameplateFrame:UpdateName()
     end
     local name = UnitName(unit)
     if type(name) == "string" then
+        local levelPrefix = GetLevelPrefix(unit)
+        if levelPrefix then
+            name = levelPrefix .. "  " .. name
+        end
         self.name:SetText(name)
     end
 end
@@ -3889,9 +3918,10 @@ end
 function NameplateFrame:UpdateNameWidth()
     local barW = GetHealthBarWidth()
     local nameSlot = FindSlotForElement("enemyName")
+    local levelExtra = ((EllesmereUINameplatesDB or defaults).showLevel) and 25 or 0
     if nameSlot == "textSlotTop" then
         -- Above the bar: full bar width minus raid marker if shown
-        local nameW = barW
+        local nameW = barW + levelExtra
         local rmPos = GetRaidMarkerPos()
         if rmPos ~= "none" and self.raidFrame:IsShown() then
             nameW = nameW - 2 * (GetRaidMarkerSize() - 2) - 7
@@ -5321,6 +5351,7 @@ do
 
     -- Store preset keys so the login handler can use them (set once, never changes)
     ns._displayPresetKeys = {
+        "showLevel", "levelDifficultyColor",
         "borderStyle", "borderColor", "targetGlowStyle", "showTargetArrows",
         "showClassPower", "classPowerPos", "classPowerYOffset", "classPowerXOffset", "classPowerScale",
         "classPowerClassColors", "classPowerCustomColor", "classPowerGap",
