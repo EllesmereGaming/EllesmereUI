@@ -219,7 +219,13 @@ initFrame:SetScript("OnEvent", function(self)
                       Set("timestampFormat", v)
                       if ECHAT.ApplyTimestampCVar then ECHAT.ApplyTimestampCVar() end
                   end },
-                { type="label", text="" })
+                { type="slider", text="Chat History Size",
+              min = 128, max = 4096, step = 128,
+              getValue=function() return Cfg("chatHistorySize") or 512 end,
+              setValue=function(v)
+                  Set("chatHistorySize", v)
+                  if ECHAT.ApplyHistorySize then ECHAT.ApplyHistorySize() end
+              end })
         end
         y = y - h
 

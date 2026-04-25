@@ -65,6 +65,7 @@ local CHAT_DEFAULTS = {
             hideSidebarBg = false,
             sidebarIconScale = 1.0,
             sidebarIconSpacing = 10,
+            chatHistorySize = 512,
             freeMoveIcons = false,
             iconPositions = {},
             sidebarIconOrder = {
@@ -1633,6 +1634,17 @@ local CHAT_MSG_EVENTS = {
     CHAT_MSG_MONSTER_SAY = true, CHAT_MSG_MONSTER_YELL = true,
 }
 
+function ECHAT.ApplyHistorySize()
+    local cfg = ECHAT.DB()
+    local size = cfg.chatHistorySize or 512
+    for i = 1, 20 do
+        local cf = _G["ChatFrame" .. i]
+        if cf and _skinned[cf] then
+            cf:SetMaxLines(size)
+        end
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Tab reskin: in-place reskin of Blizzard tabs.
 --  We work WITH Blizzard's tab system instead of replacing it.
@@ -2218,6 +2230,10 @@ local function SkinChatFrame(cf)
     if cf.SetShadowOffset then cf:SetShadowOffset(1, -1) end
     if cf.SetShadowColor then cf:SetShadowColor(0, 0, 0, 0.8) end
     cf:SetFading(false)
+
+    local db = EnsureDB()
+    local histSize = db and db.profile and db.profile.chat and db.profile.chat.chatHistorySize or 512
+    cf:SetMaxLines(histSize)
 
     -- 3. Hyperlink handlers (per-frame, on our bg frame -- not on Blizzard's cf)
     --    OnHyperlinkEnter/Leave for tooltip, OnHyperlinkClick for item toggle
