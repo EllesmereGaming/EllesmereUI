@@ -67,10 +67,33 @@ local ADDON_NAME = ...
     end
 
     local function _ttOnShow(self) 
-        -- Block tooltips from showing if the hide in combat toggle is on and combat is active
-        if EllesmereUIDB and EllesmereUIDB.tooltipHideInCombat and InCombatLockdown() then
-            self:Hide()
-            return
+        if EllesmereUIDB then
+            -- Combat check
+            if EllesmereUIDB.tooltipHideInCombat and InCombatLockdown() then
+                self:Hide()
+                return
+            end
+            -- Modifier check
+            local modifier = EllesmereUIDB.tooltipModifier or "NONE"
+            if modifier ~= "NONE" then
+                local isHeld = false
+                if modifier == "SHIFT" then isHeld = IsShiftKeyDown()
+                elseif modifier == "CTRL" then isHeld = IsControlKeyDown()
+                elseif modifier == "ALT" then isHeld = IsAltKeyDown()
+                end
+
+                if not isHeld then
+                    local ttData = self.GetTooltipData and self:GetTooltipData()
+                    if ttData then
+                        if ttData.type == Enum.TooltipDataType.Unit and (EllesmereUIDB.ttHideType_Unit ~= false) then self:Hide() end
+                        if ttData.type == Enum.TooltipDataType.Item and (EllesmereUIDB.ttHideType_Item ~= false) then self:Hide() end
+                        if (ttData.type == Enum.TooltipDataType.Spell or ttData.type == Enum.TooltipDataType.Macro) 
+                           and (EllesmereUIDB.ttHideType_Spell ~= false) then self:Hide() end
+                    else
+                        -- Fallback for custom/older frames without TooltipData (treat them as generic UI elements)
+                    end
+                end
+            end
         end
         _ttSkin(self); _ttFonts(self) 
     end

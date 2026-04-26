@@ -100,7 +100,11 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        _, h = W:DualRow(parent, y,
+        local modValues = { NONE = "None", SHIFT = "Shift", CTRL = "Control", ALT = "Alt" }
+        local modOrder  = { "NONE", "SHIFT", "CTRL", "ALT" }
+
+        local tooltipModifierRow
+        tooltipModifierRow, h = W:DualRow(parent, y,
             { type="toggle", text="Anchor Tooltips to Mouse",
               tooltip="Anchors tooltips to your mouse cursor instead of their normal HUD position.",
               getValue=function()
@@ -110,6 +114,63 @@ initFrame:SetScript("OnEvent", function(self)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.tooltipAnchorMouse = v
               end },
+              { type="dropdown", text="Show Tooltip Modifier",
+              tooltip="Require a modifier key to be held down to display tooltips.",
+              values=modValues, order=modOrder,
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.tooltipModifier or "NONE"
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.tooltipModifier = v
+              end }
+        );
+
+        -- Popup cog menu to choose what tooltip types to hide
+        local hideTypesCogOpts = {
+            title = "Hide Tooltip Types",
+            rows = {
+                { type="toggle", label="Units", get=function() return not EllesmereUIDB or EllesmereUIDB.ttHideType_Unit ~= false end, set=function(v) if not EllesmereUIDB then EllesmereUIDB = {} end EllesmereUIDB.ttHideType_Unit = v end },
+                { type="toggle", label="Spells", get=function() return not EllesmereUIDB or EllesmereUIDB.ttHideType_Spell ~= false end, set=function(v) if not EllesmereUIDB then EllesmereUIDB = {} end EllesmereUIDB.ttHideType_Spell = v end },
+                { type="toggle", label="Items", get=function() return not EllesmereUIDB or EllesmereUIDB.ttHideType_Item ~= false end, set=function(v) if not EllesmereUIDB then EllesmereUIDB = {} end EllesmereUIDB.ttHideType_Item = v end },
+            },
+        }
+        local _, cogShow = EllesmereUI.BuildCogPopup(hideTypesCogOpts)
+        local cogBtn = CreateFrame("Button", nil, tooltipModifierRow._rightRegion)
+        cogBtn:SetSize(26, 26)
+        cogBtn:SetPoint("RIGHT", tooltipModifierRow._rightRegion._lastInline or tooltipModifierRow._rightRegion._control, "LEFT", -8, 0)
+        tooltipModifierRow._rightRegion._lastInline = cogBtn
+        cogBtn:SetFrameLevel(tooltipModifierRow._rightRegion:GetFrameLevel() + 5)
+        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+        cogTex:SetAllPoints()
+        cogTex:SetTexture(EllesmereUI.COGS_ICON)
+        local function IsModifierActive()
+            return EllesmereUIDB and EllesmereUIDB.tooltipModifier and EllesmereUIDB.tooltipModifier ~= "NONE"
+        end
+        local function refreshCog()
+            cogBtn:EnableMouse(true)
+            if IsModifierActive() then cogBtn:SetAlpha(0.4) else cogBtn:SetAlpha(0.15) end
+        end
+        cogBtn:SetScript("OnEnter", function(self) 
+            if IsModifierActive() then
+                self:SetAlpha(0.7)
+            else
+                EllesmereUI.ShowWidgetTooltip(self, "This option requires a modifier to be assigned.")
+            end 
+        end)
+        cogBtn:SetScript("OnLeave", function(self) 
+            self:SetAlpha(IsModifierActive() and 0.4 or 0.15) 
+            EllesmereUI.HideWidgetTooltip()
+        end)
+        cogBtn:SetScript("OnClick", function(self) 
+            if IsModifierActive() then cogShow(self) end 
+        end)
+        EllesmereUI.RegisterWidgetRefresh(refreshCog)
+        refreshCog()
+        
+        y = y - h
+        
+        _, h = W:DualRow(parent, y,
             { type="toggle", text="Hide Tooltips in Combat",
               tooltip="Prevents tooltips from showing while you are in combat.",
               getValue=function()
@@ -118,8 +179,9 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.tooltipHideInCombat = v
-              end }
-        );  y = y - h
+              end },
+              { type="label", text="" }
+        ); y = y - h
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
