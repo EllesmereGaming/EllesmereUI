@@ -110,7 +110,15 @@ initFrame:SetScript("OnEvent", function(self)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.tooltipAnchorMouse = v
               end },
-            { type="label", text="" } -- Empty placeholder to keep the grid aligned
+            { type="toggle", text="Hide Tooltips in Combat",
+              tooltip="Prevents tooltips from showing while you are in combat.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.tooltipHideInCombat or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.tooltipHideInCombat = v
+              end }
         );  y = y - h
 
         _, h = W:Spacer(parent, y, 20);  y = y - h

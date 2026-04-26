@@ -66,7 +66,14 @@ local ADDON_NAME = ...
         end
     end
 
-    local function _ttOnShow(self) _ttSkin(self); _ttFonts(self) end
+    local function _ttOnShow(self) 
+        -- Block tooltips from showing if the hide in combat toggle is on and combat is active
+        if EllesmereUIDB and EllesmereUIDB.tooltipHideInCombat and InCombatLockdown() then
+            self:Hide()
+            return
+        end
+        _ttSkin(self); _ttFonts(self) 
+    end
 
     local function _ttHook(tt)
         if not tt or tt:IsForbidden() or _ttSkinned[tt] then return end
@@ -175,6 +182,17 @@ local ADDON_NAME = ...
                 end
             end)
         end
+        -- Hide currently open tooltips when combat starts if the hide in combat toggle is on
+        local combatTooltipHider = CreateFrame("Frame")
+        combatTooltipHider:RegisterEvent("PLAYER_REGEN_DISABLED") -- Fires when entering combat
+        combatTooltipHider:SetScript("OnEvent", function()
+            if EllesmereUIDB and EllesmereUIDB.tooltipHideInCombat then
+                -- Hide the main game tooltip if it's currently on screen
+                if _GameTooltip:IsShown() then
+                    _GameTooltip:Hide()
+                end
+            end
+        end)
     end
 
     -- Context menu skinning
