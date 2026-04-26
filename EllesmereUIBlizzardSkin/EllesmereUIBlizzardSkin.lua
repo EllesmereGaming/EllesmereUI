@@ -165,6 +165,16 @@ local ADDON_NAME = ...
             _GameTooltip:HookScript("OnTooltipSetUnit", _ttUnitColor)
             _GameTooltip:HookScript("OnTooltipSetSpell", _ttAccentTitle)
         end
+        -- Sets tooltip anchor
+        if GameTooltip_SetDefaultAnchor then
+            hooksecurefunc("GameTooltip_SetDefaultAnchor", function(tt, parent)
+                if EllesmereUIDB and EllesmereUIDB.tooltipAnchorMouse then
+                    if parent then
+                        tt:SetOwner(parent, "ANCHOR_CURSOR_RIGHT")
+                    end
+                end
+            end)
+        end
     end
 
     -- Context menu skinning

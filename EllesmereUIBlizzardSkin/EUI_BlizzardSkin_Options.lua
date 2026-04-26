@@ -100,6 +100,19 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Anchor Tooltips to Mouse",
+              tooltip="Anchors tooltips to your mouse cursor instead of their normal HUD position.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.tooltipAnchorMouse or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.tooltipAnchorMouse = v
+              end },
+            { type="label", text="" } -- Empty placeholder to keep the grid aligned
+        );  y = y - h
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         _, h = W:SectionHeader(parent, "GROUP FINDER QUEUE", y);  y = y - h
