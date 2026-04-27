@@ -1135,6 +1135,34 @@ local function EstimateUFTextWidth(content)
     return (ufTextWidths[content] or 0) + UF_TEXT_PADDING
 end
 
+-- Shorten a unit name that would overflow the health bar.
+-- Non-final words are reduced to their first initial; if still too long the
+-- result is hard-truncated with an ellipsis.
+local function ShortenName(name)
+    if not name or #name <= 20 then return name end
+    local words = {}
+    for word in name:gmatch("%S+") do words[#words + 1] = word end
+    if #words <= 1 then
+        return name:sub(1, 19) .. "\226\128\166"  -- …
+    end
+    local parts = {}
+    for i = 1, #words - 1 do
+        parts[#parts + 1] = words[i]:sub(1, 1) .. "."
+    end
+    parts[#parts + 1] = words[#words]
+    local result = table.concat(parts, " ")
+    if #result > 22 then
+        result = result:sub(1, 21) .. "\226\128\166"
+    end
+    return result
+end
+
+-- Override [name] tag to abbreviate long names (e.g. "Dungeoneer's Training Dummy" -> "D. T. Dummy")
+oUF.Tags.Methods["name"] = function(u, r)
+    return ShortenName(UnitName(r or u))
+end
+oUF.Tags.Events["name"] = "UNIT_NAME_UPDATE"
+
 -- Apply class color to a FontString based on the unit
 local function ApplyClassColor(fs, unit, useClassColor, customR, customG, customB)
     if not fs then return end
@@ -3230,7 +3258,7 @@ local function StyleFullFrame(frame, unit)
                     local rightUsed = EstimateUFTextWidth(rc)
                     PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
                 else
-                    leftText:SetWidth(0)
+                    PP.Width(leftText, barW - 10)
                 end
                 leftText:Show()
                 ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
@@ -3475,7 +3503,7 @@ local function StyleFocusFrame(frame, unit)
                     local rightUsed = EstimateUFTextWidth(rc)
                     PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
                 else
-                    leftText:SetWidth(0)
+                    PP.Width(leftText, barW - 10)
                 end
                 leftText:Show()
                 ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
@@ -3674,7 +3702,7 @@ local function StyleSimpleFrame(frame, unit)
                     local rightUsed = EstimateUFTextWidth(rc)
                     PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
                 else
-                    leftText:SetWidth(0)
+                    PP.Width(leftText, barW - 10)
                 end
                 leftText:Show()
             else leftText:Hide() end
@@ -3845,7 +3873,7 @@ local function StylePetFrame(frame, unit)
                     local rightUsed = EstimateUFTextWidth(rc)
                     PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
                 else
-                    leftText:SetWidth(0)
+                    PP.Width(leftText, barW - 10)
                 end
                 leftText:Show()
             else leftText:Hide() end
@@ -4020,7 +4048,7 @@ local function StyleBossFrame(frame, unit)
                     local rightUsed = EstimateUFTextWidth(rc)
                     PP.Width(leftText, math.max(barW - rightUsed - 10, 20))
                 else
-                    leftText:SetWidth(0)
+                    PP.Width(leftText, barW - 10)
                 end
                 leftText:Show()
             else leftText:Hide() end
