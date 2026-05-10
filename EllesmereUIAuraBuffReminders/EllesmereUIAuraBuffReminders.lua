@@ -961,6 +961,74 @@ local function PlayerHasFlaskBuff()
     return false
 end
 
+-- Remaining duration (seconds) on the active flask buff, or nil if unknown/none.
+-- Mirrors PlayerHasFlaskBuff restrictions (no scan in PvP / active M+ key).
+local function GetFlaskBuffRemainingSec()
+    if InPvPInstance() or InMythicPlusKey() then return nil end
+    local best = 0
+    for id in pairs(FLASK_BUFF_ID_SET) do
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
+        if ok and aura and aura.expirationTime and aura.expirationTime > 0 then
+            local rem = aura.expirationTime - GetTime()
+            if rem > best then best = rem end
+        end
+    end
+    if best > 0 then return best end
+    if _AC.valid then
+        _AC.ensureNames()
+        for i = 1, AURA_SCAN_LIMIT do
+            local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
+            if not aura then break end
+            local aName = aura.name
+            if aName and not isSecret(aName) and FLASK_NAME_SET[aName]
+                and aura.expirationTime and aura.expirationTime > 0 then
+                local rem = aura.expirationTime - GetTime()
+                if rem > best then best = rem end
+            end
+        end
+    end
+    return (best > 0) and best or nil
+end
+
+-- Well-fed (food) buff remaining seconds; nil if absent or in suppressed contexts.
+local function GetWellFedRemainingSec()
+    if InCombat() or InMythicPlusKey() or InPvPInstance() then return nil end
+    for i = 1, AURA_SCAN_LIMIT do
+        local aura = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
+        if not aura then break end
+        local ic = aura.icon
+        if ic and not isSecret(ic) and ic == 136000 then
+            if aura.expirationTime and aura.expirationTime > 0 then
+                return aura.expirationTime - GetTime()
+            end
+            return 86400 * 365 -- no expiry on aura; treat as well above any threshold
+        end
+    end
+    return nil
+end
+
+-- Temp weapon enchant remaining seconds from GetWeaponEnchantInfo (expiration is ms on Retail).
+local function TempWeaponEnchantRemainingSec(hasEnchant, rawExpiration)
+    if not hasEnchant or not rawExpiration or rawExpiration <= 0 then return nil end
+    local sec = rawExpiration / 1000
+    return sec > 0 and sec or nil
+end
+
+-- Longest remaining augment rune buff among known IDs (OOC; not used during active M+).
+local function GetAugmentRuneRemainingSec()
+    if InMythicPlusKey() then return nil end
+    local best = 0
+    for j = 1, #RUNE_BUFF_IDS do
+        local id = RUNE_BUFF_IDS[j]
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
+        if ok and aura and aura.expirationTime and aura.expirationTime > 0 then
+            local rem = aura.expirationTime - GetTime()
+            if rem > best then best = rem end
+        end
+    end
+    return (best > 0) and best or nil
+end
+
 -------------------------------------------------------------------------------
 --  Item count cache: GetItemCount is a bag scan. Cache results and only
 --  invalidate on BAG_UPDATE_DELAYED (bags don't change during combat or
@@ -1159,6 +1227,11 @@ local defaults = {
             preferredWeaponEnchant = "last_used",
             runeDisplayMode = "mythic",
             inkyBlackZones = "",
+            -- 0 = only remind when buff/temp enchant is missing; >0 = also remind when remaining time is under this many minutes.
+            flaskReminderMinutes = 0,
+            foodReminderMinutes = 0,
+            weaponEnchantReminderMinutes = 0,
+            augmentRuneReminderMinutes = 0,
         },
         unlockPos = nil,
         talentReminders = {},  -- array of {zoneIDs={}, zoneNames={}, spellID=number, spellName=string, showNotNeeded=bool}
@@ -1893,8 +1966,13 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                 showRune = InRealInstancedContent()
             end
             if showRune then
-                local hasRuneBuff = InMythicPlusKey() or PlayerHasAuraByID(RUNE_BUFF_IDS)
-                if not hasRuneBuff then
+                -- During an active M+ key, rune detection is suppressed (unchanged).
+                if not InMythicPlusKey() then
+                    local hasRune = PlayerHasAuraByID(RUNE_BUFF_IDS)
+                    local thMin = co.augmentRuneReminderMinutes or 0
+                    local rem = GetAugmentRuneRemainingSec()
+                    local low = thMin > 0 and hasRune and rem and (rem < thMin * 60)
+                    if (not hasRune) or low then
                     local voidCount = CachedGetItemCount(259085)
                     local etherCount = CachedGetItemCount(243191)
                     local runeItem = nil
@@ -1908,6 +1986,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                         e.cat = "consumable"; e.scale = co.scale or 1.0
                         e.dismissKey = "consumable:rune"
                         missing[#missing+1] = e
+                    end
                     end
                 end
             end
@@ -1928,15 +2007,21 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
             if IsSpellKnown(sid) then _hasImbueSpell = true; break end
         end
         if co.enabled.weapon_enchant and not _hasImbueSpell then
-            local hasMH, _, _, _, hasOH = GetWeaponEnchantInfo()
+            local hasMH, mhExp, _, _, hasOH, ohExp = GetWeaponEnchantInfo()
             local mhCat = GetWeaponCategory(16)
             local ohCat = GetWeaponCategory(17)
+            local weThMin = co.weaponEnchantReminderMinutes or 0
 
             -- Check each weapon slot independently (both can show at once)
             local preferredKey = co.preferredWeaponEnchant or "last_used"
             local lastUsedID = db.char and db.char.lastUsedWeaponEnchant or nil
-            for _, si in ipairs({{slot=16, cat=mhCat, has=hasMH}, {slot=17, cat=ohCat, has=hasOH}}) do
-                if si.cat and not si.has then
+            for _, si in ipairs({
+                { slot = 16, cat = mhCat, has = hasMH, exp = mhExp },
+                { slot = 17, cat = ohCat, has = hasOH, exp = ohExp },
+            }) do
+                local remSec = TempWeaponEnchantRemainingSec(si.has, si.exp)
+                local lowWe = weThMin > 0 and si.has and remSec and (remSec < weThMin * 60)
+                if si.cat and ((not si.has) or lowWe) then
                     local bestItemID = FindWeaponEnchantItem(preferredKey, lastUsedID, si.cat)
                     local hasBags = (bestItemID ~= nil)
                     if not bestItemID then
@@ -1978,7 +2063,11 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
 
         -- Flask (OOC only; detection uses snapshot during keystones and PvP)
         if co.enabled.flask then
-            if not PlayerHasFlaskBuff() then
+            local thMin = co.flaskReminderMinutes or 0
+            local missingFlask = not PlayerHasFlaskBuff()
+            local remFlask = GetFlaskBuffRemainingSec()
+            local lowFlask = thMin > 0 and (not missingFlask) and remFlask and (remFlask < thMin * 60)
+            if missingFlask or lowFlask then
                 local preferredKey = co.preferredFlask or "last_used"
                 local lastUsedID = db.char and db.char.lastUsedFlask or nil
                 local flaskItemID = FindFlaskItem(preferredKey, lastUsedID)
@@ -2012,7 +2101,11 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
 
         -- Food / Well Fed (OOC only; detection uses snapshot during keystones)
         if co.enabled.food then
-            if not PlayerHasWellFed() then
+            local thFood = co.foodReminderMinutes or 0
+            local missingFood = not PlayerHasWellFed()
+            local remFood = GetWellFedRemainingSec()
+            local lowFood = thFood > 0 and (not missingFood) and remFood and (remFood < thFood * 60)
+            if missingFood or lowFood then
                 local preferredKey = co.preferredFood or "last_used"
                 local lastUsedID = db.char and db.char.lastUsedFood or nil
                 local foodItemID = FindFoodItem(preferredKey, lastUsedID)

@@ -1126,7 +1126,14 @@ initFrame:SetScript("OnEvent", function(self)
         local consumHdr
         consumHdr, h = W:SectionHeader(parent, SECTION_CONSUMABLES, y);  y = y - h
 
-        -- Flask toggle | Preferred Click to Buff dropdown
+        local consumBuffRemindSliderTip =
+            "0 = only when the buff is missing. Above 0 = also remind while it has fewer than this many minutes left (same instance / M+ detection rules as before)."
+        local weRemindTip =
+            "0 = only when a weapon temp enchant is missing on a slot. Above 0 = also remind when that enchant has fewer than this many minutes left."
+        local augmentRuneTip =
+            "0 = only when no augment rune buff. Above 0 = also remind while the rune has fewer than this many minutes left (not during an active Mythic+ key)."
+
+        -- Flask toggle | Preferred Click to Buff dropdown (+ cog: time threshold)
         local consumFirstRow
         local flaskRow
         do
@@ -1147,9 +1154,29 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v) local c = CDB(); if c then c.preferredFlask = v; RefreshAll() end end }
             );  y = y - h
             consumFirstRow = flaskRow
+            do
+                local rgn = flaskRow._leftRegion
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Flask — renew early",
+                    rows = {
+                        { type = "slider", label = "Remind under (minutes)", min = 0, max = 120, step = 1,
+                          get = function() local c = CDB(); return c and c.flaskReminderMinutes or 0 end,
+                          set = function(v) local c = CDB(); if c then c.flaskReminderMinutes = v; RefreshAll(); RebuildPreviewHeader() end end },
+                    },
+                })
+                local cogBtn = MakeCogBtn(rgn, cogShow)
+                cogBtn:SetScript("OnEnter", function(self)
+                    self:SetAlpha(0.7)
+                    EllesmereUI.ShowWidgetTooltip(self, consumBuffRemindSliderTip)
+                end)
+                cogBtn:SetScript("OnLeave", function(self)
+                    self:SetAlpha(0.4)
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+            end
         end
 
-        -- Food toggle | Preferred Click to Buff dropdown
+        -- Food toggle | Preferred Click to Buff dropdown (+ cog)
         local foodRow
         do
             local FOOD_ITEMS = _G._EABR_FOOD_ITEMS or {}
@@ -1168,9 +1195,29 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() local c = CDB(); return c and c.preferredFood or "last_used" end,
                   setValue=function(v) local c = CDB(); if c then c.preferredFood = v; RefreshAll() end end }
             );  y = y - h
+            do
+                local rgn = foodRow._leftRegion
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Food — renew early",
+                    rows = {
+                        { type = "slider", label = "Remind under (minutes)", min = 0, max = 120, step = 1,
+                          get = function() local c = CDB(); return c and c.foodReminderMinutes or 0 end,
+                          set = function(v) local c = CDB(); if c then c.foodReminderMinutes = v; RefreshAll(); RebuildPreviewHeader() end end },
+                    },
+                })
+                local cogBtn = MakeCogBtn(rgn, cogShow)
+                cogBtn:SetScript("OnEnter", function(self)
+                    self:SetAlpha(0.7)
+                    EllesmereUI.ShowWidgetTooltip(self, consumBuffRemindSliderTip)
+                end)
+                cogBtn:SetScript("OnLeave", function(self)
+                    self:SetAlpha(0.4)
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+            end
         end
 
-        -- Weapon Enhancement toggle | Preferred Click to Buff dropdown
+        -- Weapon Enhancement toggle | Preferred Click to Buff dropdown (+ cog)
         local weaponEnchantRow
         do
             local WE_CHOICES = _G._EABR_WEAPON_ENCHANT_CHOICES or {}
@@ -1189,19 +1236,60 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() local c = CDB(); return c and c.preferredWeaponEnchant or "last_used" end,
                   setValue=function(v) local c = CDB(); if c then c.preferredWeaponEnchant = v; RefreshAll() end end }
             );  y = y - h
+            do
+                local rgn = weaponEnchantRow._leftRegion
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Weapon enhancement — renew early",
+                    rows = {
+                        { type = "slider", label = "Remind under (minutes)", min = 0, max = 120, step = 1,
+                          get = function() local c = CDB(); return c and c.weaponEnchantReminderMinutes or 0 end,
+                          set = function(v) local c = CDB(); if c then c.weaponEnchantReminderMinutes = v; RefreshAll(); RebuildPreviewHeader() end end },
+                    },
+                })
+                local cogBtn = MakeCogBtn(rgn, cogShow)
+                cogBtn:SetScript("OnEnter", function(self)
+                    self:SetAlpha(0.7)
+                    EllesmereUI.ShowWidgetTooltip(self, weRemindTip)
+                end)
+                cogBtn:SetScript("OnLeave", function(self)
+                    self:SetAlpha(0.4)
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+            end
         end
 
-        -- Augment Rune toggle | Display In dropdown
-        _, h = W:DualRow(parent, y,
+        -- Augment Rune toggle | Display In dropdown (+ cog)
+        local augmentRow
+        augmentRow, h = W:DualRow(parent, y,
             { type="toggle", text="Augment Rune",
               getValue=function() local c = CDB(); return c and c.enabled and c.enabled.augment_rune end,
               setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.augment_rune = v; RefreshAll(); RebuildPreviewHeader() end end },
-            { type="dropdown", text="Augment Reminder Only In:",
+            { type="dropdown", text="Augment Reminder Only In:", dropdownWidth=220,
               values={ mythic="Mythic Only", heroic_mythic="Heroic and Mythic", all="All Instanced Content" },
               order={ "mythic", "heroic_mythic", "all" },
               getValue=function() local c = CDB(); return c and c.runeDisplayMode or "mythic" end,
               setValue=function(v) local c = CDB(); if c then c.runeDisplayMode = v; RefreshAll() end end }
         );  y = y - h
+        do
+            local rgn = augmentRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Augment rune — renew early",
+                rows = {
+                    { type = "slider", label = "Remind under (minutes)", min = 0, max = 120, step = 1,
+                      get = function() local c = CDB(); return c and c.augmentRuneReminderMinutes or 0 end,
+                      set = function(v) local c = CDB(); if c then c.augmentRuneReminderMinutes = v; RefreshAll(); RebuildPreviewHeader() end end },
+                },
+            })
+            local cogBtn = MakeCogBtn(rgn, cogShow)
+            cogBtn:SetScript("OnEnter", function(self)
+                self:SetAlpha(0.7)
+                EllesmereUI.ShowWidgetTooltip(self, augmentRuneTip)
+            end)
+            cogBtn:SetScript("OnLeave", function(self)
+                self:SetAlpha(0.4)
+                EllesmereUI.HideWidgetTooltip()
+            end)
+        end
 
         -- Healthstone toggle | Inky Black Potion toggle
         row, h = W:DualRow(parent, y,
