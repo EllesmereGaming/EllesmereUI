@@ -3132,11 +3132,11 @@ function EABR:OnEnable()
     BeaconInit()
     C_Timer.After(0.5, RegisterUnlockElements)
 
-    -- OOC tick while any consumable low-time threshold is enabled. Aura APIs update
-    -- expiration every frame, but UNIT_AURA often does not fire as time passes alone,
+    -- OOC tick every 30s while any consumable low-time threshold is enabled. Aura APIs
+    -- update expiration every frame, but UNIT_AURA often does not fire as time passes alone,
     -- so without this the reminder could stay hidden until another event (bag, combat, etc.).
     if not _consumableThresholdTicker then
-        _consumableThresholdTicker = C_Timer.NewTicker(10, function()
+        _consumableThresholdTicker = C_Timer.NewTicker(30, function()
             if not db or not db.profile then return end
             if db.profile.display and db.profile.display.remindersEnabled == false then return end
             local co = db.profile.consumables
