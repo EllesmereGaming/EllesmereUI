@@ -1144,7 +1144,26 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        _, h = W:Spacer(parent, y, 20);  y = y - h
+        -- Module toggle for the forked LFGMythicLocation feature.
+        -- When disabled, the addon stops listening for LFG invite updates.
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Mythic LFG Location",
+              tooltip="Enable or disable the automatic Mythic LFG invite summary when an LFG invite is accepted.",
+              getValue=function()
+                  if not EllesmereUIDB then return true end
+                  return EllesmereUIDB.lfgMythicLocation ~= false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.lfgMythicLocation = v
+                  if _G.EUI_LFGMythicLocation_UpdateState then
+                      _G.EUI_LFGMythicLocation_UpdateState()
+                  end
+              end },
+            { type="label", text=" " }
+        );  y = y - h
+
+        _, h = W:Spacer(parent, y, 44);  y = y - h
 
         ---------------------------------------------------------------------------
         --  UI
@@ -1242,6 +1261,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.instanceResetAnnounceMsg = ""
                 EllesmereUIDB.quickSignup = false
                 EllesmereUIDB.persistSignupNote = false
+                EllesmereUIDB.lfgMythicLocation = true
                 EllesmereUIDB.ahCurrentExpansion = false
                 EllesmereUIDB.healthMacroEnabled = false
                 EllesmereUIDB.healthMacroPrio1 = 1

@@ -17,6 +17,7 @@ EllesmereUIQoL_AutoLogging.lua
 EllesmereUIQoL_Keys.lua
 EllesmereUIQoL_Shifter.lua
 EUI_UpgradeCalc.lua
+LFGMythicLocation.lua
 
 # Options
 EUI_QoL_Options.lua
