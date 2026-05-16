@@ -14,6 +14,7 @@ EllesmereUIQoL.lua
 EllesmereUIQoL_Cursor.lua
 EllesmereUIQoL_BattleRes.lua
 EllesmereUIQoL_AutoLogging.lua
+LFGMythicLocation.lua
 
 # Options
 EUI_QoL_Options.lua
