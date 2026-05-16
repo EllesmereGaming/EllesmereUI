@@ -2,6 +2,7 @@
 -- Changelog:
 -- 2026-05-16: Added QoL options toggle for the Mythic LFG Location module.
 --              The toggle now enables/disables event handling and prevents /lfgtest output when disabled.
+-- Note: renamed file to match upstream EllesmereUIQoL module naming convention.
 local LFGML = {
     Name = "LFGMythicLocation",
     Prefix = "|cff00ff00[LFG-Memo]|r"
