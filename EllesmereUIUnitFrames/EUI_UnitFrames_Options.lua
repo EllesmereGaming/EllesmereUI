@@ -8087,7 +8087,11 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="slider", text="Vertical Spacing", min=20, max=200, step=1,
                   getValue=function() return db.profile.bossSpacing or 80 end,
                   setValue=function(v) db.profile.bossSpacing = v; ReloadAndUpdate() end })
-            return castRow, eh + ch
+            local growthRow, gh = Ww:DualRow(pp, yy - eh - ch,
+                { type="dropdown", text="Stack Direction", values={ down="Down", up="Up" }, order={ "down", "up" },
+                  getValue=function() return db.profile.boss.bossStackDirection or "down" end,
+                  setValue=function(v) db.profile.boss.bossStackDirection = v; ReloadAndUpdate() end })
+            return growthRow, eh + ch + gh
         end
 
         local function bossAfterSize(Ww, pp, yy)
