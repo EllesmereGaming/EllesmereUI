@@ -8084,13 +8084,14 @@ initFrame:SetScript("OnEvent", function(self)
                     db.profile.boss.showCastIcon = v
                     ReloadAndUpdate()
                   end },
-                { type="slider", text="Vertical Spacing", min=20, max=200, step=1,
+                { type="slider", text="Vertical Spacing", min=-200, max=200, step=1,
                   getValue=function() return db.profile.bossSpacing or 80 end,
                   setValue=function(v) db.profile.bossSpacing = v; ReloadAndUpdate() end })
             local growthRow, gh = Ww:DualRow(pp, yy - eh - ch,
                 { type="dropdown", text="Stack Direction", values={ down="Down", up="Up" }, order={ "down", "up" },
                   getValue=function() return db.profile.boss.bossStackDirection or "down" end,
-                  setValue=function(v) db.profile.boss.bossStackDirection = v; ReloadAndUpdate() end })
+                  setValue=function(v) db.profile.boss.bossStackDirection = v; ReloadAndUpdate() end },
+                { type="spacer" })
             return growthRow, eh + ch + gh
         end
 

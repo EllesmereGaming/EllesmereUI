@@ -2696,6 +2696,11 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
     local function BuildHalf(region, cfg)
         if not cfg then return end
         local t = cfg.type
+        -- Empty half-space placeholder for dual/third rows.
+        if t == "spacer" then
+            region._control = nil
+            return
+        end
         -- Label (all types have one)
         local label = MakeFont(region, 14, nil, TEXT_WHITE_R, TEXT_WHITE_G, TEXT_WHITE_B)
         PP.Point(label, "LEFT", region, "LEFT", SIDE_PAD, 0)
