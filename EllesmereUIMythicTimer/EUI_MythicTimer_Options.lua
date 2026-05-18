@@ -336,7 +336,13 @@ initFrame:SetScript("OnEvent", function(self)
               disabled=function() return Cfg("enabled") == false end,
               disabledTooltip="Module is disabled",
               getValue=function() return Cfg("showTimerBar") ~= false end,
-              setValue=function(v) Set("showTimerBar", v); Refresh(); EllesmereUI:RefreshPage() end },
+              setValue=function(v)
+                  Set("showTimerBar", v)
+                  if not v and Cfg("timerInBar") then
+                      Set("timerInBar", false)
+                  end
+                  Refresh(); EllesmereUI:RefreshPage()
+              end },
             { type="dropdown", text="Timer Format",
               disabled=function() return Cfg("enabled") == false end,
               disabledTooltip="Module is disabled",
@@ -346,12 +352,44 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("timerDisplayMode", v); Refresh() end })
         y = y - h
 
+        -- Inline RESIZE cog on Timer Format: Timer Text Size
+        do
+            local PP = EllesmereUI.PP
+            local rightRgn = row._rightRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Timer Text",
+                rows = {
+                    { type="slider", label="Size", min=10, max=32, step=1,
+                      get=function() return Cfg("timerTextSize") or 20 end,
+                      set=function(v) Set("timerTextSize", v); Refresh() end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rightRgn)
+            cogBtn:SetSize(26, 26)
+            PP.Point(cogBtn, "RIGHT", rightRgn._control or rightRgn, "LEFT", -6, 0)
+            cogBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
+            local function isDisabled() return Cfg("enabled") == false end
+            local function UpdateAlpha() cogBtn:SetAlpha(isDisabled() and 0.15 or 0.4) end
+            EllesmereUI.RegisterWidgetRefresh(UpdateAlpha)
+            UpdateAlpha()
+            cogBtn:SetScript("OnClick", function(self)
+                if not isDisabled() then cogShow(self) end
+            end)
+            cogBtn:SetScript("OnEnter", function(self)
+                if not isDisabled() then self:SetAlpha(0.75) end
+            end)
+            cogBtn:SetScript("OnLeave", function(self) UpdateAlpha() end)
+        end
+
         if IsAdvanced() then
             local PP = EllesmereUI.PP
             row, h = W:DualRow(parent, y,
                 { type="toggle", text="Timer Inside Bar",
-                  disabled=function() return Cfg("enabled") == false end,
-                  disabledTooltip="Module is disabled",
+                  disabled=function() return Cfg("enabled") == false or Cfg("showTimerBar") == false end,
+                  disabledTooltip=function() if Cfg("showTimerBar") == false then return "Enable Show Timer Bar" end return "Module is disabled" end,
                   getValue=function() return Cfg("timerInBar") == true end,
                   setValue=function(v) Set("timerInBar", v); Refresh(); EllesmereUI:RefreshPage() end },
                 { type="toggle", text="+2 / +3 Threshold Text",

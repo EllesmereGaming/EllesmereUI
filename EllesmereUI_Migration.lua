@@ -1894,6 +1894,209 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-------------------------------------------------------------------------------
+--  Growth direction independent of anchoring (v7.7.1)
+--
+--  Previously, anchoring an element cleared its growDirection and the grow
+--  button was disabled while anchored. Now growth is independent: the user
+--  can set any orientation-appropriate direction while anchored. This
+--  migration stamps an explicit growDirection on every anchored CDM/AB bar
+--  so the new code (which no longer clears growth on anchor) preserves the
+--  exact same visual layout existing users had.
+--
+--  Mapping: anchor side -> growth direction (orientation-aware)
+--    Horizontal: LEFT->LEFT, RIGHT->RIGHT, TOP->CENTER, BOTTOM->CENTER
+--    Vertical:   TOP->UP, BOTTOM->DOWN, LEFT->CENTER, RIGHT->CENTER
+-------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "unlock_grow_independent_v1",
+    scope       = "profile",
+    description = "Set explicit growDirection on anchored CDM/AB bars to match their anchor side.",
+    body = function(ctx)
+        local anchors = EllesmereUIDB and EllesmereUIDB.unlockAnchors
+        if not anchors then return end
+
+        local HORIZ_MAP = { LEFT = "LEFT", RIGHT = "RIGHT", TOP = "CENTER", BOTTOM = "CENTER" }
+        local VERT_MAP  = { TOP = "UP", BOTTOM = "DOWN", LEFT = "CENTER", RIGHT = "CENTER" }
+
+        -- CDM bars: always set CENTER. CDM bars previously always had nil
+        -- growDirection when anchored (the old code cleared it). nil = CENTER
+        -- for CDM. Setting CENTER explicitly preserves the exact same behavior
+        -- and avoids triggering edge preservation for bars with no growEdge data.
+        local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
+        local cdmBars = cdm and cdm.cdmBars and cdm.cdmBars.bars
+        if cdmBars then
+            for _, bar in ipairs(cdmBars) do
+                local anchorKey = "CDM_" .. bar.key
+                local ai = anchors[anchorKey]
+                if ai and ai.side and not bar.growDirection then
+                    bar.growDirection = "CENTER"
+                end
+            end
+        end
+        -- Note: growEdge promotion to direct edge positions is handled by
+        -- the cdm_clear_stale_growedge_v1 migration (runs after this one).
+
+        -- Action bars
+        local ab = ctx.profile.addons and ctx.profile.addons.EllesmereUIActionBars
+        local abBars = ab and ab.bars
+        if abBars then
+            local AB_KEYS = {
+                MainBar = true, Bar2 = true, Bar3 = true, Bar4 = true,
+                Bar5 = true, Bar6 = true, Bar7 = true, Bar8 = true,
+            }
+            for barKey, cfg in pairs(abBars) do
+                if AB_KEYS[barKey] then
+                    local ai = anchors[barKey]
+                    if ai and ai.side then
+                        local cur = cfg.growDirection
+                        -- Only migrate bars at default ("up" or nil)
+                        if not cur or cur == "up" then
+                            local isVert = (cfg.orientation == "vertical")
+                            local map = isVert and VERT_MAP or HORIZ_MAP
+                            cfg.growDirection = (map[ai.side] or "CENTER"):lower()
+                        end
+                    end
+                end
+            end
+        end
+    end,
+})
+
+-------------------------------------------------------------------------------
+-- Convert CDM bar positions from CENTER+growEdge format to direct edge format.
+-- Positions are now stored using the growth-edge anchor directly (LEFT for
+-- RIGHT-grow, etc.) so SetSize naturally preserves the fixed edge without any
+-- post-resize re-anchoring. If growEdge exists, promote its values to the
+-- primary position fields. If not, leave as-is (CENTER-grow bars or bars that
+-- were never positioned in unlock mode with a non-CENTER direction).
+-------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "cdm_clear_stale_growedge_v1",
+    scope       = "profile",
+    description = "Convert CDM bar positions to direct edge-anchor format.",
+    body = function(ctx)
+        local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
+        local cdmPositions = cdm and cdm.cdmBarPositions
+        if not cdmPositions then return end
+        for _, pos in pairs(cdmPositions) do
+            local ge = pos.growEdge
+            if ge and ge.anchor and ge.x and ge.y then
+                -- Promote growEdge to primary position
+                pos.point = ge.anchor
+                pos.x = ge.x
+                pos.y = ge.y
+                pos.growEdge = nil
+            elseif ge then
+                -- Incomplete growEdge, just remove it
+                pos.growEdge = nil
+            end
+        end
+    end,
+})
+
+-------------------------------------------------------------------------------
+-- Migrate per-profile secondary threshold settings into the new thresholdSpecs
+-- array. If the user had thresholdEnabled, create an "All Specs" entry with
+-- their existing threshold and tick values. If disabled, leave empty.
+-------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "resource_bars_threshold_specs_v1",
+    scope       = "profile",
+    description = "Migrate secondary threshold settings into per-spec thresholdSpecs entries.",
+    body = function(ctx)
+        local erb = ctx.profile.addons and ctx.profile.addons.EllesmereUIResourceBars
+        local sec = erb and erb.secondary
+        if not sec then return end
+        -- Already migrated
+        if sec.thresholdSpecs then return end
+        if sec.thresholdEnabled then
+            sec.thresholdSpecs = {
+                {
+                    specIDs = { 0 },  -- All Specs
+                    hashValues = sec.tickValues or "",
+                    thresholdCount = sec.thresholdCount or 3,
+                    thresholdPartialOnly = sec.thresholdPartialOnly or false,
+                },
+            }
+        else
+            sec.thresholdSpecs = {}
+        end
+    end,
+})
+
+EllesmereUI.RegisterMigration({
+    id          = "resource_bars_power_threshold_specs_v1",
+    scope       = "profile",
+    description = "Migrate power bar threshold settings into per-spec thresholdSpecs entries.",
+    body = function(ctx)
+        local erb = ctx.profile.addons and ctx.profile.addons.EllesmereUIResourceBars
+        local pri = erb and erb.primary
+        if not pri then return end
+        if pri.thresholdSpecs then return end
+        if pri.thresholdEnabled then
+            pri.thresholdSpecs = {
+                {
+                    specIDs = { 0 },
+                    thresholdEnabled = true,
+                    thresholdPct = pri.thresholdPct or 30,
+                    thresholdPartialOnly = pri.thresholdPartialOnly or false,
+                    thresholdR = pri.thresholdR or 1.0,
+                    thresholdG = pri.thresholdG or 0.2,
+                    thresholdB = pri.thresholdB or 0.2,
+                    thresholdA = pri.thresholdA or 1,
+                },
+            }
+        else
+            pri.thresholdSpecs = {}
+        end
+    end,
+})
+
+EllesmereUI.RegisterMigration({
+    id          = "resource_bars_health_threshold_specs_v1",
+    scope       = "profile",
+    description = "Migrate health bar threshold settings into per-spec thresholdSpecs entries.",
+    body = function(ctx)
+        local erb = ctx.profile.addons and ctx.profile.addons.EllesmereUIResourceBars
+        local hp = erb and erb.health
+        if not hp then return end
+        if hp.thresholdSpecs then return end
+        if hp.thresholdEnabled then
+            hp.thresholdSpecs = {
+                {
+                    specIDs = { 0 },
+                    thresholdEnabled = true,
+                    thresholdPct = hp.thresholdPct or 30,
+                    thresholdR = hp.thresholdR or 1.0,
+                    thresholdG = hp.thresholdG or 0.2,
+                    thresholdB = hp.thresholdB or 0.2,
+                    thresholdA = hp.thresholdA or 1,
+                },
+            }
+        else
+            hp.thresholdSpecs = {}
+        end
+    end,
+})
+
+EllesmereUI.RegisterMigration({
+    id          = "ab_default_grow_to_center_v1",
+    scope       = "profile",
+    description = "Convert AB bars with default UP growth to CENTER (UP now has real edge preservation).",
+    body = function(ctx)
+        local ab = ctx.profile.addons and ctx.profile.addons.EllesmereUIActionBars
+        local abBars = ab and ab.bars
+        if not abBars then return end
+        for barKey, cfg in pairs(abBars) do
+            if not cfg.growDirection or cfg.growDirection == "up" then
+                cfg.growDirection = "center"
+            end
+        end
+    end,
+})
+
+
 local migrationFrame = CreateFrame("Frame")
 migrationFrame:RegisterEvent("ADDON_LOADED")
 migrationFrame:SetScript("OnEvent", function(self, event, addonName)

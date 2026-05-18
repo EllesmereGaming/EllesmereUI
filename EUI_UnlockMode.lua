@@ -399,6 +399,7 @@ local snapshotAnchors = {}    -- original anchor data captured when unlock mode 
 local snapshotSizes = {}      -- original sizes captured when unlock mode opens
 local snapshotWidthMatch = {} -- original width match DB captured when unlock mode opens
 local snapshotHeightMatch = {} -- original height match DB captured when unlock mode opens
+local snapshotGrowDirs = {}   -- original growth directions captured when unlock mode opens
 local hasChanges = false      -- true if user dragged anything this session
 local snapHighlightKey = nil   -- barKey of mover currently showing snap highlight border
 local snapHighlightAnim = nil  -- OnUpdate frame for the pulsing border
@@ -591,7 +592,7 @@ local function GetBarGrowDir(barKey)
             for _, bar in ipairs(cdmBars.bars) do
                 if bar.key == rawKey then
                     local g = bar.growDirection
-                    if g then return g end
+                    if g and g ~= "CENTER" then return g end
                     return nil
                 end
             end
@@ -603,7 +604,11 @@ local function GetBarGrowDir(barKey)
                   and eab.db.profile.bars[barKey]
         if s then
             local g = (s.growDirection or "up"):upper()
-            if g ~= "UP" then return g end
+            if g == "CENTER" then return nil end
+            -- UP is the default for horizontal bars (no indicator needed)
+            -- but a meaningful choice for vertical bars (show indicator)
+            if g == "UP" and (s.orientation or "horizontal") ~= "vertical" then return nil end
+            return g
         end
         return nil
     end
@@ -678,15 +683,33 @@ function EllesmereUI.RecenterBarAnchor(barKey)
         aY = uiCY
     end
 
+    -- Convert to CENTER-relative (the unlock mode system's standard format)
+    local uiW, uiH = UIParent:GetSize()
+    local cRelX = aX - uiW / 2
+    local cRelY = aY - uiH / 2
+
+    -- Snap to physical pixel grid to prevent subpixel coordinates from
+    -- persisting into pendingPositions -> CommitPositions -> SavedVariables.
+    local PPr = PP or (EllesmereUI and EllesmereUI.PP)
+    if PPr then
+        if anchor == "CENTER" then
+            cRelX = PPr.SnapCenterForDim(cRelX, w, uiS)
+            cRelY = PPr.SnapCenterForDim(cRelY, h, uiS)
+        else
+            cRelX = PPr.SnapForES(cRelX, uiS)
+            cRelY = PPr.SnapForES(cRelY, uiS)
+        end
+    end
+
     pcall(function()
         b:ClearAllPoints()
-        b:SetPoint(anchor, UIParent, "BOTTOMLEFT", aX, aY)
+        b:SetPoint(anchor, UIParent, "CENTER", cRelX, cRelY)
     end)
 
     -- Keep mover's stored center in sync so drag/snap logic stays consistent
     local m = movers[barKey]
     if m and m._setCenterXY then
-        m._setCenterXY(uiCX, uiCY - UIParent:GetHeight())
+        m._setCenterXY(uiCX, uiCY - uiH)
     end
 end
 
@@ -1057,32 +1080,44 @@ local function ScheduleAnchorBatch()
         if isUnlocked then return end  -- unlock mode handles its own saves
         local keys = _pendingAnchorKeys
         _pendingAnchorKeys = {}
+        -- During profile swap, skip AB bars entirely. LayoutBar already
+        -- positioned them from the new profile; stale resize events would
+        -- move them to wrong spots. CDM bars pass through (need post-settle).
+        local abSkip = EllesmereUI._abAnchorSuppressed and EllesmereUI._abBarKeys
         for k, axis in pairs(keys) do
+            if abSkip and abSkip[k] then
+                -- skip: AB bar during profile swap
+            else
             -- If this element itself is anchored, re-apply its own position
             -- first (handles the case where the element resized and needs to
             -- reposition relative to its anchor target).
+            -- Skip AB growth bars: their position from LayoutBar/applyPos is
+            -- authoritative. The center-based offset gives wrong edge when
+            -- width changed, and repositioning causes visual drift.
             local anchorDB = GetAnchorDB()
             if anchorDB then
                 local ownInfo = anchorDB[k]
                 if ownInfo and ownInfo.target then
-                    ApplyAnchorPosition(k, ownInfo.target, ownInfo.side)
+                    -- Skip AB bars: their position from LayoutBar/applyPos is
+                    -- authoritative. Reapplying from the offset causes drift
+                    -- (stale offset from previous direction or width change).
+                    -- Skip AB bars: their position from LayoutBar/applyPos is
+                    -- authoritative. Reapplying from the offset causes drift
+                    -- (stale offset from previous direction or width change).
+                    local isAB = EllesmereUI._abBarKeys and EllesmereUI._abBarKeys[k]
+                    if not isAB then
+                        ApplyAnchorPosition(k, ownInfo.target, ownInfo.side)
+                    end
                 end
             end
             -- Propagate with axis filter (nil = all axes)
             local propagateAxis = (axis == "all") and nil or axis
             PropagateAnchorChain(k, nil, propagateAxis)
+            end -- abSkip else
         end
-        -- Persist any positions that were updated by the propagation.
-        -- Set a flag so savePos callbacks that trigger full rebuilds
-        -- (e.g. CDM's BuildAllCDMBars) can skip the rebuild -- the bar
-        -- is already in the correct position from ApplyAnchorPosition.
-        EllesmereUI._propagatingSave = true
-        for childKey, pos in pairs(pendingPositions) do
-            if type(pos) == "table" and pos.point then
-                SaveBarPosition(childKey, pos.point, pos.relPoint, pos.x, pos.y)
-            end
-        end
-        EllesmereUI._propagatingSave = false
+        -- No position persistence here. Positions are only saved by
+        -- unlock mode's Save & Exit (CommitPositions). The anchor chain
+        -- repositioned frames in-place; no DB write needed.
         wipe(pendingPositions)
     end)
 end
@@ -1193,7 +1228,12 @@ function EllesmereUI.NotifyElementResized(key)
     -- WoW anchor stays CENTER after addon rebuilds that may use TOPLEFT.
     -- Skip when LayoutBar already positioned the bar from its captured edge
     -- to avoid CENTER->edge->CENTER round-trip drift.
-    if not layoutBarHandled then
+    -- During profile swap, skip AB bar position re-apply. LayoutBar already
+    -- positioned them from the new profile; re-applying here uses stale
+    -- offsets and causes a 1-frame blink. CDM bars are not suppressed.
+    local abSwapSkip = EllesmereUI._abAnchorSuppressed
+        and EllesmereUI._abBarKeys and EllesmereUI._abBarKeys[key]
+    if not layoutBarHandled and not abSwapSkip then
         local anchorDB = GetAnchorDB()
         local ownAnchor = anchorDB and anchorDB[key]
         if ownAnchor and ownAnchor.target then
@@ -1575,6 +1615,7 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove)
     -- unit frames) -- we only call SetPoint on the child, not the target.
     if InCombatLockdown() and childBar:IsProtected() then return end
 
+
     -- If the target frame has no valid screen bounds (hidden / not yet laid out),
     -- bail to avoid computing garbage coordinates that cause oscillation.
     if not targetBar:GetLeft() then return end
@@ -1674,58 +1715,158 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove)
         end
     end
 
+    -- For CDM/AB bars with a non-CENTER growth direction, read the bar's
+    -- live fixed edge and derive center from it. Anchor offsets are stored
+    -- center-based; converting center→edge uses current width which may differ
+    -- from save-time width (pre-icon-population). The saved edge position
+    -- (applied by BuildAllCDMBars/applyPos before this runs) is authoritative.
+    local cdmEdgeAnchor
+    local isCdmOrAB = childKey:sub(1, 4) == "CDM_"
+        or (EllesmereUI._abBarKeys and EllesmereUI._abBarKeys[childKey])
+    local isCDM = childKey:sub(1, 4) == "CDM_"
+    if isCdmOrAB and not isUnlocked
+       and (isCDM or childKey == "StanceBar" or not EllesmereUI._applyingSavedPositions) then
+        local growDir = GetBarGrowDirActual(childKey)
+        if growDir and growDir ~= "CENTER" then
+            local cScale = childBar:GetEffectiveScale()
+            local ratio = cScale / uiS
+            -- For CDM bars, read the saved edge from cdmBarPositions.
+            -- This is width-independent (stored as LEFT/RIGHT/TOP anchor)
+            -- and immune to intermediate CENTER-based repositioning that
+            -- can overwrite live frame bounds during init.
+            local savedEdge
+            if isCDM and EllesmereUI._cdmBarPositions then
+                local sp = EllesmereUI._cdmBarPositions[childKey:sub(5)]
+                if sp then savedEdge = sp end
+            elseif childKey == "StanceBar" and EllesmereUI._abBarPositions then
+                local sp = EllesmereUI._abBarPositions[childKey]
+                if sp then savedEdge = sp end
+            end
+            local uw, uh = UIParent:GetSize()
+            if growDir == "RIGHT" then
+                cdmEdgeAnchor = "LEFT"
+                if savedEdge and savedEdge.point == "LEFT" and savedEdge.x then
+                    cx = (uw / 2 + savedEdge.x) * ratio + cW / 2
+                else
+                    local fL = childBar:GetLeft()
+                    if fL then cx = fL * ratio + cW / 2 end
+                end
+            elseif growDir == "LEFT" then
+                cdmEdgeAnchor = "RIGHT"
+                if savedEdge and savedEdge.point == "RIGHT" and savedEdge.x then
+                    cx = (uw / 2 + savedEdge.x) * ratio - cW / 2
+                else
+                    local fR = childBar:GetRight()
+                    if fR then cx = fR * ratio - cW / 2 end
+                end
+            elseif growDir == "DOWN" then
+                cdmEdgeAnchor = "TOP"
+                if savedEdge and savedEdge.point == "TOP" and savedEdge.y then
+                    cy = (uh / 2 + savedEdge.y) * ratio - cH / 2
+                else
+                    local fT = childBar:GetTop()
+                    if fT then cy = fT * ratio - cH / 2 end
+                end
+            elseif growDir == "UP" then
+                cdmEdgeAnchor = "BOTTOM"
+                if savedEdge and savedEdge.point == "BOTTOM" and savedEdge.y then
+                    cy = (uh / 2 + savedEdge.y) * ratio + cH / 2
+                else
+                    local fB = childBar:GetBottom()
+                    if fB then cy = fB * ratio + cH / 2 end
+                end
+            end
+        end
+    end
+
     -- Convert child center to CENTER-relative offset for centralized positioning
     local uiW, uiH = UIParent:GetSize()
     local centerX = cx - uiW / 2
     local centerY = cy - uiH / 2
 
     -- Only move the actual bar frame when noMove is not set
-    -- Convert UIParent-space offsets to child bar's coordinate space.
-    -- No explicit snap: the center was computed from pixel-aligned target
-    -- edges and pixel-aligned child dimensions. Applying SnapCenterForDim
-    -- here can shift the computed center by 1 physical pixel due to
-    -- floating-point dust in the coordinate-space conversions, breaking
-    -- the exact edge alignment that the anchor system guarantees.
     if not noMove then
         local acRatio = uiS / cS
-        local bCenterX = centerX * acRatio
-        local bCenterY = centerY * acRatio
-        -- Idempotent guard: if the bar is already at this exact position
-        -- (within sub-physical-pixel tolerance), skip the SetPoint. This
-        -- eliminates visible flicker when multiple cascade passes compute
-        -- the same answer (the common case in steady state).
-        local skip = false
-        local okPt, point, relTo, relPoint, curX, curY = pcall(childBar.GetPoint, childBar, 1)
-        if okPt and point == "CENTER" and relPoint == "CENTER" and relTo == UIParent then
-            local onePx = ((PP and PP.perfect) or 1) / cS
-            local tol = onePx * 0.5
-            if curX and curY
-               and math.abs(curX - bCenterX) < tol
-               and math.abs(curY - bCenterY) < tol then
-                skip = true
+
+        if cdmEdgeAnchor then
+            -- Non-CENTER-grow bar: position at the growth edge directly so
+            -- SetSize grows naturally without any post-resize re-anchoring.
+            local bEdgeX, bEdgeY
+            if cdmEdgeAnchor == "LEFT" then
+                bEdgeX = (centerX - (cW / 2)) * acRatio
+                bEdgeY = centerY * acRatio
+            elseif cdmEdgeAnchor == "RIGHT" then
+                bEdgeX = (centerX + (cW / 2)) * acRatio
+                bEdgeY = centerY * acRatio
+            elseif cdmEdgeAnchor == "TOP" then
+                bEdgeX = centerX * acRatio
+                bEdgeY = (centerY + (cH / 2)) * acRatio
+            elseif cdmEdgeAnchor == "BOTTOM" then
+                bEdgeX = centerX * acRatio
+                bEdgeY = (centerY - (cH / 2)) * acRatio
             end
-        end
-        if not skip then
-            -- Snap center to physical pixel grid (dim-aware for odd-pixel frames).
-            -- Use child's own coordinate-space dimensions, not UIParent-space cW/cH.
+            -- Snap edge to physical pixel grid
             local PPa = EllesmereUI and EllesmereUI.PP
-            if PPa and PPa.SnapCenterForDim then
-                local childW = childBar:GetWidth() or 0
-                local childH = childBar:GetHeight() or 0
-                bCenterX = PPa.SnapCenterForDim(bCenterX, childW, cS)
-                bCenterY = PPa.SnapCenterForDim(bCenterY, childH, cS)
+            if PPa and PPa.SnapForES then
+                bEdgeX = PPa.SnapForES(bEdgeX, cS)
+                bEdgeY = PPa.SnapForES(bEdgeY, cS)
             end
-            pcall(function()
-                childBar:ClearAllPoints()
-                childBar:SetPoint("CENTER", UIParent, "CENTER", bCenterX, bCenterY)
-            end)
-            -- Position actually changed -- queue this child for cascade so
-            -- its OWN anchor children re-position against the new edges.
-            -- (NotifyElementResized fires only on size changes, not pure
-            -- position changes -- this closes that gap so a shift in a
-            -- parent always flows through to grandchildren.)
-            _pendingAnchorKeys[childKey] = "all"
-            ScheduleAnchorBatch()
+            -- Idempotent guard
+            local skip = false
+            local okPt, point, relTo, relPoint, curX, curY = pcall(childBar.GetPoint, childBar, 1)
+            if okPt and point == cdmEdgeAnchor and relPoint == "CENTER" and relTo == UIParent then
+                local onePx = ((PP and PP.perfect) or 1) / cS
+                local tol = onePx * 0.5
+                if curX and curY
+                   and math.abs(curX - bEdgeX) < tol
+                   and math.abs(curY - bEdgeY) < tol then
+                    skip = true
+                end
+            end
+            if not skip then
+                pcall(function()
+                    childBar:ClearAllPoints()
+                    childBar:SetPoint(cdmEdgeAnchor, UIParent, "CENTER", bEdgeX, bEdgeY)
+                end)
+                _pendingAnchorKeys[childKey] = "all"
+                ScheduleAnchorBatch()
+            end
+        else
+            -- Standard CENTER positioning for all other elements
+            local bCenterX = centerX * acRatio
+            local bCenterY = centerY * acRatio
+            -- Idempotent guard: if the bar is already at this exact position
+            -- (within sub-physical-pixel tolerance), skip the SetPoint. This
+            -- eliminates visible flicker when multiple cascade passes compute
+            -- the same answer (the common case in steady state).
+            local skip = false
+            local okPt, point, relTo, relPoint, curX, curY = pcall(childBar.GetPoint, childBar, 1)
+            if okPt and point == "CENTER" and relPoint == "CENTER" and relTo == UIParent then
+                local onePx = ((PP and PP.perfect) or 1) / cS
+                local tol = onePx * 0.5
+                if curX and curY
+                   and math.abs(curX - bCenterX) < tol
+                   and math.abs(curY - bCenterY) < tol then
+                    skip = true
+                end
+            end
+            if not skip then
+                -- Snap center to physical pixel grid (dim-aware for odd-pixel frames).
+                -- Use child's own coordinate-space dimensions, not UIParent-space cW/cH.
+                local PPa = EllesmereUI and EllesmereUI.PP
+                if PPa and PPa.SnapCenterForDim then
+                    local childW = childBar:GetWidth() or 0
+                    local childH = childBar:GetHeight() or 0
+                    bCenterX = PPa.SnapCenterForDim(bCenterX, childW, cS)
+                    bCenterY = PPa.SnapCenterForDim(bCenterY, childH, cS)
+                end
+                pcall(function()
+                    childBar:ClearAllPoints()
+                    childBar:SetPoint("CENTER", UIParent, "CENTER", bCenterX, bCenterY)
+                end)
+                _pendingAnchorKeys[childKey] = "all"
+                ScheduleAnchorBatch()
+            end
         end
     else
         -- noMove: bar stays put, but resync ai.offsetX/offsetY from the bar's
@@ -1791,10 +1932,23 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove)
     -- Store in pending positions only during unlock mode (skip at login
     -- so anchor-computed positions don't pollute saved positions)
     if not noMove and EllesmereUI._unlockActive then
-        pendingPositions[childKey] = {
-            point = "CENTER", relPoint = "CENTER",
-            x = bCenterX, y = bCenterY,
-        }
+        -- CDM/AB bars with growth direction store edge-format positions.
+        -- Writing CENTER coords here would overwrite the correct edge
+        -- data on Save & Exit. Mark as anchored so CommitPositions uses
+        -- snapshot/loadPos (which returns the correct edge format).
+        local growSkip = false
+        if isCdmOrAB then
+            local gd = GetBarGrowDirActual(childKey)
+            if gd and gd ~= "CENTER" then growSkip = true end
+        end
+        if growSkip then
+            pendingPositions[childKey] = { _anchored = true }
+        else
+            pendingPositions[childKey] = {
+                point = "CENTER", relPoint = "CENTER",
+                x = bCenterX, y = bCenterY,
+            }
+        end
     end
     if not noMark then hasChanges = true end
 end
@@ -1919,12 +2073,8 @@ EllesmereUI.ReapplyAllUnlockAnchors = function()
         end
     end
 
-    -- Flush pending positions so db.profile.positions stays in sync
-    for childKey, pos in pairs(pendingPositions) do
-        if type(pos) == "table" and pos.point then
-            SaveBarPosition(childKey, pos.point, pos.relPoint, pos.x, pos.y)
-        end
-    end
+    -- No position persistence here. Positions are only saved by
+    -- unlock mode's Save & Exit (CommitPositions).
     wipe(pendingPositions)
 end
 
@@ -1979,22 +2129,25 @@ EllesmereUI.ReapplyAllUnlockAnchorsForced = function()
             local targetBar = GetBarFrame(info.target)
             if childBar and targetBar
                and not (inCombat and childBar:IsProtected()) then
-                -- Clear the child's current SetPoint so the idempotent
-                -- guard in ApplyAnchorPosition reads "no current point"
-                -- and re-asserts the computed position against settled
-                -- target bounds. ClearAllPoints + SetPoint in the same
-                -- frame has no visual flash (WoW coalesces).
-                pcall(childBar.ClearAllPoints, childBar)
-                ApplyAnchorPosition(childKey, info.target, info.side, true)
+                -- AB bars with growth direction: skip entirely. Their position
+                -- is set authoritatively by applyPos from barPositions (edge
+                -- format, width-independent, updated on every LayoutBar).
+                local isABGrow = false
+                if EllesmereUI._abBarKeys and EllesmereUI._abBarKeys[childKey]
+                   and childKey ~= "StanceBar" then
+                    local gd = GetBarGrowDirActual(childKey)
+                    isABGrow = gd and gd ~= "CENTER"
+                end
+                if not isABGrow then
+                    pcall(childBar.ClearAllPoints, childBar)
+                    ApplyAnchorPosition(childKey, info.target, info.side, true)
+                end
             end
         end
     end
 
-    for childKey, pos in pairs(pendingPositions) do
-        if type(pos) == "table" and pos.point then
-            SaveBarPosition(childKey, pos.point, pos.relPoint, pos.x, pos.y)
-        end
-    end
+    -- No position persistence here. Positions are only saved by
+    -- unlock mode's Save & Exit (CommitPositions).
     wipe(pendingPositions)
 end
 
@@ -2051,7 +2204,7 @@ local function ConvertToCenterPos(barKey, point, relPoint, x, y)
 
     -- If already CENTER/CENTER, pass through
     if point == "CENTER" and relPoint == "CENTER" then
-        return "CENTER", "CENTER", x, y
+        return "CENTER", "CENTER", x or 0, y or 0
     end
 
     -- Try to read center from live frame (most accurate)
@@ -2159,30 +2312,39 @@ ApplyCenterPosition = function(barKey, pos)
         end
     else
         -- No anchor relationship -- use grow direction to pick fixed edge.
-        -- Use raw fw/2 and fh/2 (not floor). See comment above.
-        local growDir = GetBarGrowDirActual(barKey)
-        local fw = (frame:GetWidth() or 0)
-        local fh = (frame:GetHeight() or 0)
-        -- Skip grow-direction conversion if frame has no dimensions yet
-        -- (not laid out). Using CENTER avoids wrong edge placement from
-        -- zero-size math. The bar will be re-positioned after LayoutBar runs.
-        if growDir and growDir ~= "CENTER" and fw >= 1 and fh >= 1 then
-            if growDir == "RIGHT" then
-                anchor = "LEFT"
-                adjX = cx - fw / 2
-                adjY = cy
-            elseif growDir == "LEFT" then
-                anchor = "RIGHT"
-                adjX = cx + fw / 2
-                adjY = cy
-            elseif growDir == "DOWN" then
-                anchor = "TOP"
-                adjY = cy + fh / 2
-                adjX = cx
-            elseif growDir == "UP" then
-                anchor = "BOTTOM"
-                adjY = cy - fh / 2
-                adjX = cx
+        -- Prefer growEdge (width-independent absolute edge offset) when
+        -- available. Fall back to CENTER ± width/2 (width-dependent) only
+        -- for legacy positions that predate growEdge.
+        local ge = pos.growEdge
+        if ge and ge.anchor and ge.x and ge.y then
+            anchor = ge.anchor
+            adjX = ge.x
+            adjY = ge.y
+        else
+            local growDir = GetBarGrowDirActual(barKey)
+            local fw = (frame:GetWidth() or 0)
+            local fh = (frame:GetHeight() or 0)
+            -- Skip grow-direction conversion if frame has no dimensions yet
+            -- (not laid out). Using CENTER avoids wrong edge placement from
+            -- zero-size math. The bar will be re-positioned after LayoutBar runs.
+            if growDir and growDir ~= "CENTER" and fw >= 1 and fh >= 1 then
+                if growDir == "RIGHT" then
+                    anchor = "LEFT"
+                    adjX = cx - fw / 2
+                    adjY = cy
+                elseif growDir == "LEFT" then
+                    anchor = "RIGHT"
+                    adjX = cx + fw / 2
+                    adjY = cy
+                elseif growDir == "DOWN" then
+                    anchor = "TOP"
+                    adjY = cy + fh / 2
+                    adjX = cx
+                elseif growDir == "UP" then
+                    anchor = "BOTTOM"
+                    adjY = cy - fh / 2
+                    adjX = cx
+                end
             end
         end
     end
@@ -2324,40 +2486,31 @@ EllesmereUI.GetBarLabel = GetBarLabel
 -------------------------------------------------------------------------------
 local function MigrateAndApplyPosition(barKey, pos, frame)
     if not pos or not pos.point then return false end
-    -- Already CENTER/CENTER: apply directly
+    -- CENTER/CENTER: apply with grow-direction-aware positioning
     if pos.point == "CENTER" and pos.relPoint == "CENTER" then
         return ApplyCenterPosition(barKey, pos)
     end
-    -- Legacy format: apply in old format first so frame has valid bounds
+    -- Non-CENTER format (edge position from DB): apply directly.
+    -- No write-back to DB -- positions are only saved by unlock mode's
+    -- Save & Exit flow (CommitPositions). The edge anchor is correct as stored.
     if frame then
+        local px, py = pos.x or 0, pos.y or 0
+        local PPa = EllesmereUI and EllesmereUI.PP
+        if PPa and PPa.SnapForES then
+            local es = frame:GetEffectiveScale()
+            px = PPa.SnapForES(px, es)
+            py = PPa.SnapForES(py, es)
+        end
         pcall(function()
             frame:ClearAllPoints()
-            frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+            frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, px, py)
         end)
     end
-    -- Convert to CENTER using live frame bounds (most accurate).
-    -- ConvertToCenterPos reads frame edges and computes (top+bottom)/2 etc.,
-    -- which gives exact center values (integer + 0.5 for odd-pixel-dim
-    -- frames). DO NOT snap with SnapForES here -- it would round the .5
-    -- away, and ApplyCenterPosition's edge math (using raw fh/2 for odd
-    -- heights = integer + 0.5) requires the .5 to round-trip correctly.
-    -- Save back in CENTER format (suppress rebuilds during migration)
-    EllesmereUI._propagatingSave = true
-    local elem = registeredElements[barKey]
-    if elem and elem.savePosition then
-        elem.savePosition(barKey, cp, crp, cx, cy)
-    else
-        local db = GetPositionDB()
-        if db then
-            db[barKey] = { point = cp, relPoint = crp, x = cx, y = cy }
-        end
-    end
-    EllesmereUI._propagatingSave = false
-    -- Now apply with centralized grow logic
-    return ApplyCenterPosition(barKey, { point = cp, relPoint = crp, x = cx, y = cy })
+    return true
 end
 
 local function ApplySavedPositions()
+    EllesmereUI._applyingSavedPositions = true
     local inCombat = InCombatLockdown()
 
     -- Action bars: apply from barPositions DB with lazy migration
@@ -2486,6 +2639,9 @@ local function ApplySavedPositions()
         end
     end
 
+    EllesmereUI._applyingSavedPositions = false
+    EllesmereUI._abAnchorSuppressed = false
+
     -- If we skipped protected frames, re-run once combat drops
     if inCombat then
         local reapplyFrame = CreateFrame("Frame")
@@ -2511,6 +2667,7 @@ function EllesmereUI.IsUnlockAnchored(unlockKey)
     local ai = adb and adb[unlockKey]
     return ai and ai.target and true or false
 end
+
 
 -------------------------------------------------------------------------------
 --  frame so that when Blizzard's Edit Mode tries to reposition a bar we
@@ -3396,10 +3553,8 @@ local function SelectMover(m)
         if not darkOverlaysEnabled then m:SetAlpha(MOVER_HOVER) end
         m._brd:SetColor(1, 1, 1, 0.9)
 
-        -- Expand the mover if not already expanded
-        if m._showOverlayText then m._showOverlayText() end
-
-        -- Coordinates will show when expand animation completes
+        -- Update coordinates on selection (expansion is hover-only)
+        if m.UpdateCoordText then m:UpdateCoordText() end
 
         -- Pulse the snap target if this mover has a specific one assigned
         local tgt = m._snapTarget
@@ -3415,12 +3570,13 @@ local function DeselectMover()
     if selectedMover then
         local ar, ag, ab = GetAccent()
         selectedMover._selected = false
-        if not selectedMover._dragging and not selectedMover:IsMouseOver() then
-            selectedMover:SetFrameLevel(selectedMover._baseLevel)
-            if not darkOverlaysEnabled then selectedMover:SetAlpha(MOVER_ALPHA) end
-            selectedMover._brd:SetColor(ar, ag, ab, 0.6)
-            -- Collapse overlay since no longer selected or hovered
-            if selectedMover._hideOverlayText then selectedMover._hideOverlayText() end
+        if not selectedMover._dragging then
+            if not selectedMover:IsMouseOver() then
+                selectedMover:SetFrameLevel(selectedMover._baseLevel)
+                if not darkOverlaysEnabled then selectedMover:SetAlpha(MOVER_ALPHA) end
+                selectedMover._brd:SetColor(ar, ag, ab, 0.6)
+                if selectedMover._hideOverlayText then selectedMover._hideOverlayText() end
+            end
         end
         -- Restore settings widgets to base level
         -- Hide coordinates (keep visible if coords-always-on mode is active)
@@ -4030,35 +4186,13 @@ local function CreateMover(barKey)
     -- Determine if this element can be anchored to other elements
     local canAnchorTo = not (elem and elem.noAnchorTo)
 
-    -- Grow direction is only relevant for horizontal action bars 1-8 and CDM bars
+    -- Grow direction: action bars 1-8 and CDM bars (both horizontal and vertical)
     local _GROW_KEYS = {
         MainBar = true, Bar2 = true, Bar3 = true, Bar4 = true,
         Bar5 = true, Bar6 = true, Bar7 = true, Bar8 = true,
+        StanceBar = true, PetBar = true,
     }
-    local canGrow = _GROW_KEYS[barKey] or (barKey:sub(1, 4) == "CDM_" and canResize)
-    -- Disable grow direction for vertical bars
-    if canGrow then
-        local isVertical = false
-        if barKey:sub(1, 4) == "CDM_" then
-            local cdm = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
-            local cdmBars = cdm and cdm.db and cdm.db.profile and cdm.db.profile.cdmBars
-            local rawKey = barKey:sub(5)
-            if cdmBars and cdmBars.bars then
-                for _, bar in ipairs(cdmBars.bars) do
-                    if bar.key == rawKey then
-                        isVertical = bar.verticalOrientation == true
-                        break
-                    end
-                end
-            end
-        else
-            local eab = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
-            local s = eab and eab.db and eab.db.profile and eab.db.profile.bars
-                      and eab.db.profile.bars[barKey]
-            if s then isVertical = (s.orientation == "vertical") end
-        end
-        if isVertical then canGrow = false end
-    end
+    local canGrow = _GROW_KEYS[barKey] or barKey:sub(1, 4) == "CDM_"
 
     -- Layout: position action link buttons + dividers centered below name
     local function LayoutActionRow()
@@ -4243,18 +4377,8 @@ local function CreateMover(barKey)
             atFS:SetText("Anchor")
             atFS:SetTextColor(ar, ag, ab, 0.85)
         end
-        local gd = GetBarGrowDir(barKey)
-        if ai then
-            -- Anchored: grow is disabled
-            gdFS:SetText("Grow")
-            gdFS:SetTextColor(ar, ag, ab, 0.35)
-        elseif gd then
-            gdFS:SetText("Grow")
-            gdFS:SetTextColor(1, 0.7, 0.3, 0.85)
-        else
-            gdFS:SetText("Grow")
-            gdFS:SetTextColor(ar, ag, ab, 0.85)
-        end
+        gdFS:SetText("Grow")
+        gdFS:SetTextColor(1, 0.7, 0.3, 0.85)
     end
 
     -- Update the name label color based on anchor state
@@ -4526,10 +4650,7 @@ local function CreateMover(barKey)
             end
         elseif matchType == "grow" then
             local gd = GetBarGrowDir(barKey)
-            if GetAnchorInfo(barKey) then
-                EllesmereUI.ShowWidgetTooltip(btn, "Anchored elements auto match their growth to their anchored direction")
-                return
-            elseif gd then
+            if gd then
                 tipText = "Grow " .. gd:sub(1,1) .. gd:sub(2):lower()
             end
         end
@@ -4551,7 +4672,7 @@ local function CreateMover(barKey)
         elseif matchType == "anchor" then
             isActive = GetAnchorInfo(barKey) ~= nil
         elseif matchType == "grow" then
-            isActive = GetBarGrowDir(barKey) ~= nil
+            isActive = true
         end
         if isActive then
             fs:SetTextColor(1, 0.7, 0.3, 0.85)
@@ -4690,6 +4811,18 @@ local function CreateMover(barKey)
         EllesmereUI.HideWidgetTooltip()
         if GetAnchorInfo(barKey) then
             ClearAnchorInfo(barKey)
+            -- Capture current screen position so Save & Exit persists it.
+            -- Without this, the old cdmBarPositions (from when anchored)
+            -- would be used on /reload, snapping the bar to the wrong spot.
+            local bar = GetBarFrame(barKey)
+            if bar then
+                local pt, _, rpt, bx, by = bar:GetPoint(1)
+                if pt then
+                    pendingPositions[barKey] = {
+                        point = pt, relPoint = rpt, x = bx, y = by,
+                    }
+                end
+            end
             hasChanges = true
             RefreshAnchoredIdle()
             RefreshLinkStates()
@@ -4708,73 +4841,6 @@ local function CreateMover(barKey)
 
     gdBtn:SetScript("OnClick", function()
         EllesmereUI.HideWidgetTooltip()
-        -- Anchored elements cannot set a grow direction
-        if GetAnchorInfo(barKey) then
-            EllesmereUI.ShowWidgetTooltip(gdBtn, "Anchored elements auto match their growth to their anchored direction")
-            return
-        end
-        -- If already active, clicking again clears it
-        if GetBarGrowDir(barKey) then
-            hasChanges = true
-
-            -- Capture center before changing grow direction
-            local barFrame = GetBarFrame(barKey)
-            local preCX, preCY
-            if barFrame then
-                preCX, preCY = barFrame:GetCenter()
-            end
-
-            -- Reset the bar's actual grow direction to default
-            if barKey:sub(1, 4) == "CDM_" then
-                local rawKey = barKey:sub(5)
-                local cdm = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
-                local cdmBars = cdm and cdm.db and cdm.db.profile and cdm.db.profile.cdmBars
-                if cdmBars and cdmBars.bars then
-                    for _, bar in ipairs(cdmBars.bars) do
-                        if bar.key == rawKey then
-                            bar.growDirection = nil
-                            break
-                        end
-                    end
-                end
-                if EllesmereUI.LayoutCDMBar then
-                    EllesmereUI.LayoutCDMBar(rawKey)
-                end
-                EllesmereUI.RecenterBarAnchor(barKey)
-            else
-                local eab = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
-                if eab and eab.SetGrowDirectionForBar then
-                    eab:SetGrowDirectionForBar(barKey, "up")
-                end
-            end
-
-            -- Restore visual center so bar doesn't jump
-            if barFrame and preCX and preCY then
-                local postCX, postCY = barFrame:GetCenter()
-                if postCX and postCY then
-                    local dx = preCX - postCX
-                    local dy = preCY - postCY
-                    if math.abs(dx) > 0.5 or math.abs(dy) > 0.5 then
-                        local pt, relTo, relPt, offX, offY = barFrame:GetPoint(1)
-                        if pt then
-                            barFrame:ClearAllPoints()
-                            barFrame:SetPoint(pt, relTo, relPt, offX + dx, offY + dy)
-                        end
-                    end
-                end
-                local pt2, relTo2, relPt2, offX2, offY2 = barFrame:GetPoint(1)
-                if pt2 then
-                    SaveBarPosition(barKey, pt2, relPt2, offX2, offY2)
-                end
-            end
-
-            if movers[barKey] and movers[barKey].Sync then
-                movers[barKey]:Sync()
-            end
-
-            RefreshLinkStates()
-            return
-        end
         -- Build and show the grow direction dropdown
         if not growDropdownFrame then
             growDropdownFrame = CreateFrame("Frame", nil, unlockFrame)
@@ -4830,12 +4896,48 @@ local function CreateMover(barKey)
         titleDiv:SetPoint("TOPRIGHT", growDropdownFrame, "TOPRIGHT", -1, ddY - 2)
         ddY = ddY - 5
 
+        -- Read orientation dynamically (not from closure) so the dropdown
+        -- shows the correct options if orientation changed after mover creation.
+        local isVert = false
+        if barKey:sub(1, 4) == "CDM_" then
+            local cdm3 = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
+            local cb3 = cdm3 and cdm3.db and cdm3.db.profile and cdm3.db.profile.cdmBars
+            if cb3 and cb3.bars then
+                for _, b3 in ipairs(cb3.bars) do
+                    if b3.key == barKey:sub(5) then isVert = b3.verticalOrientation == true; break end
+                end
+            end
+        else
+            local eab3 = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
+            local s3 = eab3 and eab3.db and eab3.db.profile and eab3.db.profile.bars and eab3.db.profile.bars[barKey]
+            if s3 then isVert = (s3.orientation == "vertical") end
+        end
         local growDirs = {
             { label = "Grow Centered", val = "CENTER" },
-            { label = "Grow Left",     val = "LEFT"   },
-            { label = "Grow Right",    val = "RIGHT"  },
         }
-        local currentVal = GetBarGrowDir(barKey) or "CENTER"
+        if isVert then
+            growDirs[#growDirs + 1] = { label = "Grow Up",   val = "UP"   }
+            growDirs[#growDirs + 1] = { label = "Grow Down", val = "DOWN" }
+        else
+            growDirs[#growDirs + 1] = { label = "Grow Left",  val = "LEFT"  }
+            growDirs[#growDirs + 1] = { label = "Grow Right", val = "RIGHT" }
+        end
+        -- Read actual grow direction directly (GetBarGrowDir filters defaults)
+        local currentVal = "CENTER"
+        if barKey:sub(1, 4) == "CDM_" then
+            local cdm4 = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
+            local cb4 = cdm4 and cdm4.db and cdm4.db.profile and cdm4.db.profile.cdmBars
+            if cb4 and cb4.bars then
+                for _, b4 in ipairs(cb4.bars) do
+                    if b4.key == barKey:sub(5) then currentVal = b4.growDirection or "CENTER"; break end
+                end
+            end
+        else
+            local eab4 = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
+            local s4 = eab4 and eab4.db and eab4.db.profile and eab4.db.profile.bars
+                       and eab4.db.profile.bars[barKey]
+            if s4 then currentVal = (s4.growDirection or "up"):upper() end
+        end
 
         for _, entry in ipairs(growDirs) do
             local isDisabled = false
@@ -4882,8 +4984,8 @@ local function CreateMover(barKey)
                     growDropdownFrame:Hide()
                     growDropdownCatcher:Hide()
 
-                    -- If already on centered, just close the popup
-                    if sideVal == "CENTER" and currentVal == "CENTER" then return end
+                    -- If already on this direction, just close the popup
+                    if sideVal == currentVal then return end
 
                     hasChanges = true
 
@@ -4918,7 +5020,8 @@ local function CreateMover(barKey)
                         end
                     end
 
-                    -- Restore the bar's visual center so it doesn't jump
+                    -- Restore the bar's visual center so it doesn't jump,
+                    -- then re-anchor based on the new growth direction.
                     if barFrame and preCX and preCY then
                         local postCX, postCY = barFrame:GetCenter()
                         if postCX and postCY then
@@ -4932,10 +5035,16 @@ local function CreateMover(barKey)
                                 end
                             end
                         end
-                        -- Re-save position from the corrected frame location
+                    end
+                    EllesmereUI.RecenterBarAnchor(barKey)
+                    -- Store in pending (committed on Save & Exit)
+                    if barFrame then
                         local pt2, relTo2, relPt2, offX2, offY2 = barFrame:GetPoint(1)
                         if pt2 then
-                            SaveBarPosition(barKey, pt2, relPt2, offX2, offY2)
+                            pendingPositions[barKey] = {
+                                point = pt2, relPoint = relPt2, x = offX2, y = offY2,
+                            }
+                            hasChanges = true
                         end
                     end
 
@@ -4961,6 +5070,20 @@ local function CreateMover(barKey)
     function mover:UpdateCoordText()
         local fs = self._coordFS
         if not fs then return end
+        -- Read stored position (already pixel-snapped) rather than deriving
+        -- from live bounds, which uses a different rounding grid and drifts.
+        local bk = self._barKey
+        local elem = registeredElements[bk]
+        local pos = elem and elem.loadPosition and elem.loadPosition(bk)
+        if not pos then
+            pos = LoadBarPosition(bk)
+        end
+        if pos and pos.x and pos.y then
+            fs:SetText(format("%.0f, %.0f", round(pos.x), round(pos.y)))
+            fs:Show()
+            return
+        end
+        -- Fallback: derive from mover bounds (legacy path)
         local l, r, t, b2 = self:GetLeft(), self:GetRight(), self:GetTop(), self:GetBottom()
         if not l or not t then fs:Hide(); return end
         local cx = round((l + r) / 2)
@@ -5142,6 +5265,7 @@ local function CreateMover(barKey)
         SelectMover(self)
         self:SetAlpha(darkOverlaysEnabled and 1 or MOVER_DRAG)
         self._dragging = true
+        self._hoverPending = false  -- cancel pending expand animation
         self._shiftAxis = nil  -- nil = not locked, "X" or "Y" once determined
         -- Cache centerYOff for tiny-anchor elements (used in OnUpdate and OnDragStop)
         local elem = registeredElements[self._barKey]
@@ -5553,11 +5677,7 @@ local function CreateMover(barKey)
     end)
     mover:SetScript("OnLeave", function(self)
         if not self._dragging then
-            if not self._selected then
-                if not darkOverlaysEnabled then self:SetAlpha(MOVER_ALPHA) end
-                self._brd:SetColor(ar, ag, ab, 0.6)
-            end
-            -- Delay so hovering child buttons doesn't flicker
+            -- Delay so hovering child buttons (cog, link buttons) doesn't flicker
             C_Timer.After(0.12, function()
                 if self._dragging then return end
                 if self:IsMouseOver() then
@@ -5584,13 +5704,13 @@ local function CreateMover(barKey)
                 end
                 -- Truly left the element -- cancel any pending expand and collapse
                 self._hoverPending = false
+                if self._hideOverlayText then self._hideOverlayText() end
+                if hoveredMover == self then hoveredMover = nil end
+                -- Keep highlight border and raised level if selected (arrow keys)
                 if not self._selected then
                     self:SetFrameLevel(self._baseLevel)
-                    if self._hideOverlayText then self._hideOverlayText() end
-                    if hoveredMover == self then hoveredMover = nil end
-                else
-                    -- Selected mover stays expanded, just clear hoveredMover
-                    if hoveredMover == self then hoveredMover = nil end
+                    if not darkOverlaysEnabled then self:SetAlpha(MOVER_ALPHA) end
+                    self._brd:SetColor(ar, ag, ab, 0.6)
                 end
             end)
         end
@@ -5797,22 +5917,36 @@ local function CreateMover(barKey)
                         item:SetScript("OnClick", function()
                             anchorDropdownFrame:Hide()
                             anchorDropdownCatcher:Hide()
-                            -- Clear grow direction before anchoring so it
-                            -- doesn't fight the anchor's positioning.
+                            -- Default grow direction to match the anchor side
+                            -- (orientation-aware: cross-axis sides map to CENTER)
+                            local isVert = false
                             if pmKey:sub(1, 4) == "CDM_" then
                                 local rawCdmKey = pmKey:sub(5)
                                 local cdmAddon = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
                                 local cdmBars = cdmAddon and cdmAddon.db and cdmAddon.db.profile and cdmAddon.db.profile.cdmBars
                                 if cdmBars and cdmBars.bars then
                                     for _, bar in ipairs(cdmBars.bars) do
-                                        if bar.key == rawCdmKey then bar.growDirection = nil; break end
+                                        if bar.key == rawCdmKey then
+                                            isVert = bar.verticalOrientation == true
+                                            local map = isVert
+                                                and { TOP = "UP", BOTTOM = "DOWN", LEFT = "CENTER", RIGHT = "CENTER" }
+                                                or  { LEFT = "LEFT", RIGHT = "RIGHT", TOP = "CENTER", BOTTOM = "CENTER" }
+                                            bar.growDirection = map[sideVal] or "CENTER"
+                                            break
+                                        end
                                     end
                                 end
                             else
                                 local eab = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
                                 local abBars = eab and eab.db and eab.db.profile and eab.db.profile.bars
                                 local abCfg = abBars and abBars[pmKey]
-                                if abCfg then abCfg.growDirection = nil end
+                                if abCfg then
+                                    isVert = (abCfg.orientation == "vertical")
+                                    local map = isVert
+                                        and { TOP = "up", BOTTOM = "down", LEFT = "center", RIGHT = "center" }
+                                        or  { LEFT = "left", RIGHT = "right", TOP = "center", BOTTOM = "center" }
+                                    abCfg.growDirection = map[sideVal] or "center"
+                                end
                             end
                             -- Set anchor relationship
                             SetAnchorInfo(pmKey, targetKey, sideVal)
@@ -7640,6 +7774,26 @@ local function SnapshotPositions()
     if hmDB then
         for k, v in pairs(hmDB) do snapshotHeightMatch[k] = v end
     end
+
+    -- Snapshot growth directions so we can revert on discard
+    wipe(snapshotGrowDirs)
+    local cdm = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
+    local cdmBars = cdm and cdm.db and cdm.db.profile and cdm.db.profile.cdmBars
+    if cdmBars and cdmBars.bars then
+        for _, bar in ipairs(cdmBars.bars) do
+            snapshotGrowDirs["CDM_" .. bar.key] = bar.growDirection or false
+        end
+    end
+    local eab = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
+    local abBars = eab and eab.db and eab.db.profile and eab.db.profile.bars
+    if abBars then
+        local abGrowKeys = { MainBar=1, Bar2=1, Bar3=1, Bar4=1, Bar5=1, Bar6=1, Bar7=1, Bar8=1 }
+        for bk, cfg in pairs(abBars) do
+            if abGrowKeys[bk] then
+                snapshotGrowDirs[bk] = cfg.growDirection or false
+            end
+        end
+    end
 end
 
 -- Commit pending positions to SavedVariables
@@ -7687,6 +7841,15 @@ local function CommitPositions()
             end
             break  -- one rebuild is enough, it rebuilds all bars
         end
+    end
+
+    -- Reapply anchor positions for all anchored bars so they move from
+    -- the stale CENTER coords (saved by CommitPositions) to their correct
+    -- anchor-relative position immediately. Without this, anchored bars
+    -- sit at stale coords until a deferred ScheduleAnchorBatch corrects
+    -- them, causing a visible jump on the next resize.
+    if EllesmereUI.ReapplyAllUnlockAnchorsForced then
+        EllesmereUI.ReapplyAllUnlockAnchorsForced()
     end
 
     -- Persist unlock layout into the active profile so it survives reloads
@@ -7773,7 +7936,26 @@ local function RevertPositions()
         for k, v in pairs(snapshotHeightMatch) do hmDB[k] = v end
     end
 
-    -- 5) Rebuild CDM bars so they read the restored DB and position correctly.
+    -- 5) Restore growth directions
+    for key, snapGrow in pairs(snapshotGrowDirs) do
+        local val = snapGrow == false and nil or snapGrow
+        if key:sub(1, 4) == "CDM_" then
+            local rawKey = key:sub(5)
+            local cdmA = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
+            local cdmB = cdmA and cdmA.db and cdmA.db.profile and cdmA.db.profile.cdmBars
+            if cdmB and cdmB.bars then
+                for _, bar in ipairs(cdmB.bars) do
+                    if bar.key == rawKey then bar.growDirection = val; break end
+                end
+            end
+        else
+            local eabA = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
+            local abB = eabA and eabA.db and eabA.db.profile and eabA.db.profile.bars
+            if abB and abB[key] then abB[key].growDirection = val end
+        end
+    end
+
+    -- 6) Rebuild CDM bars so they read the restored DB and position correctly.
     -- Without this, CDM bars revert to wrong positions (CENTER vs edge mismatch).
     local didCDMRebuild = false
     for barKey in pairs(pendingPositions) do
@@ -7917,6 +8099,7 @@ local function DoClose()
     wipe(pendingPositions)
     wipe(snapshotPositions)
     wipe(snapshotAnchors)
+    wipe(snapshotGrowDirs)
     hasChanges = false
 
     -- Clean up pick mode / anchor dropdown state

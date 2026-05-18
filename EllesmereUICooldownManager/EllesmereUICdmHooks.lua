@@ -442,7 +442,15 @@ local function DecorateFrame(frame, barData)
         fd._setPointHooked = true
         hooksecurefunc(frame, "SetPoint", function(_, point, relativeTo)
             local anchor = fd._cdmAnchor
-            if not anchor then return end
+            if not anchor then
+                -- Icon not yet claimed by our bar system. If Blizzard's layout
+                -- is positioning it (post-acquire), re-blank it so it doesn't
+                -- flash at the viewer's position before CollectAndReanchor claims it.
+                if fd.decorated then
+                    frame:SetAlpha(0)
+                end
+                return
+            end
             -- If relativeTo is already our bar container, this is our own
             -- SetPoint call from LayoutCDMBar. Don't intercept.
             if relativeTo == anchor[2] then return end
@@ -522,10 +530,14 @@ local function DecorateFrame(frame, barData)
         local bf = CreateFrame("Frame", nil, frame)
         bf:SetAllPoints(frame)
         fd.borderFrame = bf
-        EllesmereUI.PP.CreateBorder(bf,
+        local textureKey = barData.borderTexture or "solid"
+        EllesmereUI.ApplyBorderStyle(bf,
+            barData.borderSize or 1,
             barData.borderR or 0, barData.borderG or 0,
             barData.borderB or 0, barData.borderA or 1,
-            barData.borderSize or 1, "OVERLAY", 7)
+            textureKey, barData.borderTextureOffset, barData.borderTextureOffsetY,
+            barData.borderTextureShiftX, barData.borderTextureShiftY,
+            "cdm", barData.borderThickness or "thin")
     end
     fd.borderFrame:SetFrameLevel(baseLvl + 13)
 
@@ -1428,19 +1440,8 @@ local function CollectAndReanchor()
                         -------------------------------------------------------
                         -- When the EUI options panel is open, treat hidden
                         -- buff frames as shown so icons populate the bar
-                        -- for preview. Blizzard's "hide when inactive"
-                        -- hides frames for buffs the player doesn't
-                        -- currently have, but we still want them visible
-                        -- while configuring.
-                        if frame:IsShown() or ns._cdmBarsPageOpen then
+                        if frame:IsShown() then
                             local targetBar, displaySID, baseSID = CategorizeFrame(frame, defaultBarKey)
-                            -- When panel is open, hidden frames are included for
-                            -- preview. But only allow them on the default buff
-                            -- bar -- extra bars get wrong/default icons from
-                            -- hidden untalented frames.
-                            if not frame:IsShown() and targetBar ~= "buffs" then
-                                targetBar = nil
-                            end
                             if targetBar and displaySID and displaySID > 0 then
                                 local barSeen = seenSpell[targetBar]
                                 if not barSeen then barSeen = {}; seenSpell[targetBar] = barSeen end
@@ -2637,7 +2638,14 @@ function ns.SetupViewerHooks()
                         -- every cycle. Previously-decorated frames keep their
                         -- current alpha; our SetPoint hook handles positioning.
                         local fd = hookFrameData[itemFrame]
-                        if fd and fd.decorated then return end
+                        if fd and fd.decorated then
+                            -- Recycled frame: briefly hide at Blizzard's position
+                            -- until CollectAndReanchor repositions it into our bar.
+                            -- Without this, the frame flashes at the wrong spot
+                            -- for 1 frame before snapping into place.
+                            itemFrame:SetAlpha(0)
+                            return
+                        end
                         itemFrame:SetAlpha(0)
                         if itemFrame.Cooldown and itemFrame.Cooldown.SetDrawSwipe then
                             itemFrame.Cooldown:SetDrawSwipe(false)

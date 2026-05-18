@@ -2076,8 +2076,8 @@ local function BuildColorPickerPopup()
     local popup = CreateFrame("Frame", "EllesmereUIColorPicker", UIParent)
     popup:SetSize(BASE_W, POPUP_H)
     popup:SetPoint("CENTER")
-    popup:SetFrameStrata("DIALOG")
-    popup:SetFrameLevel(200)
+    popup:SetFrameStrata("FULLSCREEN_DIALOG")
+    popup:SetFrameLevel(400)
     popup:SetClampedToScreen(true)
     popup:SetMovable(true)
     popup:EnableMouse(true)
@@ -3750,7 +3750,7 @@ local function BuildCogPopup(opts)
         -- Create popup frame
         local pf = CreateFrame("Frame", nil, UIParent)
         pf:SetSize(POPUP_W, totalH)
-        pf:SetFrameStrata("DIALOG"); pf:SetFrameLevel(200)
+        pf:SetFrameStrata(opts.frameStrata or "DIALOG"); pf:SetFrameLevel(opts.frameLevel or 200)
         pf:EnableMouse(true); pf:Hide()
 
         -- Match panel scale so cog popup looks identical to scrollable-area widgets
@@ -3760,7 +3760,7 @@ local function BuildCogPopup(opts)
             EllesmereUI._popupFrames[#EllesmereUI._popupFrames + 1] = { popup = pf }
         end
 
-        local bg = SolidTex(pf, "BACKGROUND", 0.06, 0.08, 0.10, 0.95)
+        local bg = SolidTex(pf, "BACKGROUND", 0.06, 0.08, 0.10, opts.bgAlpha or 0.95)
         bg:SetAllPoints()
         MakeBorder(pf, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15, PP)
 
@@ -5742,6 +5742,47 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 hdrLine:SetColorTexture(0.3, 0.3, 0.3, 0.5)
                 _allRows[#_allRows + 1] = { frame = hdr, isHeader = true, label = item.label, height = hdrH }
                 yOff = yOff - hdrH
+            elseif item.isAction then
+                -- Action item: clickable text, no checkbox (for "All Specs", "All Healers", etc.)
+                local row = CreateFrame("Button", nil, itemParent)
+                row:SetHeight(ITEM_H)
+                row:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, yOff)
+                row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, yOff)
+                row:SetFrameLevel(menu:GetFrameLevel() + 2)
+                local lbl = row:CreateFontString(nil, "OVERLAY")
+                lbl:SetFont(fontPath, 13, "")
+                lbl:SetTextColor(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 0.8)
+                lbl:SetPoint("LEFT", row, "LEFT", 10, 0)
+                lbl:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+                lbl:SetJustifyH("LEFT")
+                lbl:SetWordWrap(false)
+                lbl:SetMaxLines(1)
+                lbl:SetText(item.label)
+                local hl = row:CreateTexture(nil, "ARTWORK")
+                hl:SetAllPoints()
+                hl:SetColorTexture(1, 1, 1, 0)
+                local EG_r, EG_g, EG_b = EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b
+                local function UpdateActionLocked()
+                    local isLocked = item.lockedFn and item.lockedFn()
+                    if isLocked then
+                        lbl:SetTextColor(0.4, 0.4, 0.4, 0.4)
+                        row:EnableMouse(false)
+                    else
+                        lbl:SetTextColor(EG_r, EG_g, EG_b, 0.8)
+                        row:EnableMouse(true)
+                    end
+                end
+                row._updateLocked = UpdateActionLocked
+                UpdateActionLocked()
+                row:SetScript("OnEnter", function() lbl:SetTextColor(1, 1, 1, 1); hl:SetColorTexture(1, 1, 1, 0.04) end)
+                row:SetScript("OnLeave", function() UpdateActionLocked(); hl:SetColorTexture(1, 1, 1, 0) end)
+                row:SetScript("OnClick", function()
+                    if item.lockedFn and item.lockedFn() then return end
+                    setFn(item.key, true)
+                    UpdateLabel()
+                end)
+                _allRows[#_allRows + 1] = { frame = row, isHeader = false, isAction = true, label = item.label, height = ITEM_H }
+                yOff = yOff - ITEM_H
             else
 
             local row = CreateFrame("Button", nil, itemParent)
@@ -5797,8 +5838,20 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                     EllesmereUI.HideWidgetTooltip()
                 end
             end)
+            local function UpdateLocked()
+                local isLocked = item.locked or (item.lockedFn and item.lockedFn())
+                if isLocked then
+                    lbl:SetTextColor(0.4, 0.4, 0.4, 0.5)
+                    row:EnableMouse(false)
+                else
+                    lbl:SetTextColor(0.75, 0.75, 0.75, 1)
+                    row:EnableMouse(true)
+                end
+            end
+            row._updateLocked = UpdateLocked
+            UpdateLocked()
             row:SetScript("OnClick", function()
-                if item.locked then return end
+                if item.locked or (item.lockedFn and item.lockedFn()) then return end
                 setFn(item.key, not getFn(item.key))
                 UpdateCheck(); UpdateLabel()
                 if onChanged then
@@ -5878,6 +5931,14 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         end
 
         menu:HookScript("OnShow", UpdateCBThumb)
+
+        -- Refresh all checkbox + locked visuals on show
+        menu:HookScript("OnShow", function()
+            for _, rowInfo in ipairs(_allRows) do
+                if rowInfo.frame._updateCheck then rowInfo.frame._updateCheck() end
+                if rowInfo.frame._updateLocked then rowInfo.frame._updateLocked() end
+            end
+        end)
 
         ddBtn._ddMenu = menu
     end

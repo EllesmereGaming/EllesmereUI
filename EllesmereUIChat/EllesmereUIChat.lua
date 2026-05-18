@@ -74,6 +74,9 @@ local CHAT_DEFAULTS = {
                 showVoice = 3,
                 showSettings = 4,
             },
+            -- Session chat history (see EllesmereUIChat_SessionHistory.lua, SavedVariablesPerCharacter)
+            persistChatHistory = true,
+            persistChatHistoryMaxLines = 100,
         },
     },
 }
@@ -97,7 +100,12 @@ function ECHAT.DB()
     if d and d.profile and d.profile.chat then
         return d.profile.chat
     end
-    return { enabled = true, visibility = "always" }
+    return {
+        enabled = true,
+        visibility = "always",
+        persistChatHistory = true,
+        persistChatHistoryMaxLines = 100,
+    }
 end
 
 local PP = EUI.PP

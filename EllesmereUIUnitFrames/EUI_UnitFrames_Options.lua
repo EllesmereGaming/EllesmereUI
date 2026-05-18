@@ -1566,6 +1566,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Individual textures with PixelUtil sizing render reliably.
         local bdrSize = settings.borderSize or 1
         local bdrColor = settings.borderColor or { r = 0, g = 0, b = 0 }
+        local bdrTexKey = settings.borderTexture or "solid"
         local border = CreateFrame("Frame", nil, pf)
         border:SetPoint("TOPLEFT", barArea, "TOPLEFT", 0, 0)
         border:SetPoint("TOPRIGHT", barArea, "TOPRIGHT", 0, 0)
@@ -1573,8 +1574,8 @@ initFrame:SetScript("OnEvent", function(self)
         local initBdrBtbAtt = (initBdrBtbPos == "top" or initBdrBtbPos == "bottom")
         border:SetHeight(settings.healthHeight + initPpExtra + (settings.bottomTextBar and initBdrBtbAtt and (settings.bottomTextBarHeight or 16) or 0))
         border:SetFrameLevel(barArea:GetFrameLevel() + 5)
-        PP.CreateBorder(border, bdrColor.r, bdrColor.g, bdrColor.b, 1, bdrSize)
-        if bdrSize == 0 then border:Hide() end
+        EllesmereUI.ApplyBorderStyle(border, bdrSize, bdrColor.r, bdrColor.g, bdrColor.b, settings.borderAlpha or 1, bdrTexKey, settings.borderTextureOffset, settings.borderTextureOffsetY, settings.borderTextureShiftX, settings.borderTextureShiftY, "unitframes", bdrSize)
+        if bdrSize == 0 and bdrTexKey == "solid" then border:Hide() end
 
         -- Absorb bar (style-aware preview for player, target, focus)
         local absorbBar
@@ -2240,17 +2241,13 @@ initFrame:SetScript("OnEvent", function(self)
             -- Border size and color (encompasses health+power+BTB+above pips)
             local bs = ds.borderSize or 1
             local bc = ds.borderColor or { r = 0, g = 0, b = 0 }
+            local bTexKey = ds.borderTexture or "solid"
             local borderH = bh2 + (s.bottomTextBar and btbIsAtt and (s.bottomTextBarHeight or 16) or 0)
             border:ClearAllPoints()
             border:SetPoint("TOPLEFT", barArea, "TOPLEFT", 0, 0)
             border:SetPoint("TOPRIGHT", barArea, "TOPRIGHT", 0, 0)
             border:SetHeight(borderH)
-            if bs > 0 then
-                PP.UpdateBorder(border, bs, bc.r, bc.g, bc.b, 1)
-                border:Show()
-            else
-                border:Hide()
-            end
+            EllesmereUI.ApplyBorderStyle(border, bs, bc.r, bc.g, bc.b, ds.borderAlpha or 1, bTexKey, ds.borderTextureOffset, ds.borderTextureOffsetY, ds.borderTextureShiftX, ds.borderTextureShiftY, "unitframes", bs)
 
             -- Class Power Pips update (player only)
             if cpPipContainer and cpPips then
@@ -2610,7 +2607,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- Recalculate border sizes after scale change so they stay pixel-perfect
             if border then
                 local bs2 = ds.borderSize or 1
-                PP.SetBorderSize(border, bs2)
+                local bTex2 = ds.borderTexture or "solid"
+                EllesmereUI.ApplyBorderStyle(border, bs2, (ds.borderColor or {r=0,g=0,b=0}).r, (ds.borderColor or {r=0,g=0,b=0}).g, (ds.borderColor or {r=0,g=0,b=0}).b, ds.borderAlpha or 1, bTex2, ds.borderTextureOffset, ds.borderTextureOffsetY, ds.borderTextureShiftX, ds.borderTextureShiftY, "unitframes", bs2)
             end
             if castbar then
                 if PP.GetBorders(castbar) then PP.SetBorderSize(castbar, 1) end
@@ -2872,8 +2870,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         local borderRow
         borderRow, h = W:DualRow(parent, y,
-            { type = "slider", text = "Border",
-              min = 0, max = 4, step = 1,
+            { type = "slider", text = "Border Size",
+              min = 0, max = 4, step = 1, trackWidth = 120,
               getValue = function() return settingsTable.borderSize or 1 end,
               setValue = function(v)
                   settingsTable.borderSize = v; ReloadAndUpdate()
@@ -3273,25 +3271,188 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Row 2: Border (slider + double inline swatches) | Dark Mode
+        -- Row 2: Bar Texture | Dark Mode
+            _, h = W:DualRow(parent, y,
+                { type="dropdown", text="Bar Texture", values=hbtValues, order=hbtOrder,
+                  getValue=function() return db.profile.healthBarTexture or "none" end,
+                  setValue=function(v)
+                      db.profile.healthBarTexture = v
+                      ReloadAndUpdate(); UpdatePreview()
+                  end },
+                { type="toggle", text="Dark Mode",
+                  getValue=function() return db.profile.darkTheme end,
+                  setValue=function(v)
+                      db.profile.darkTheme = v
+                      ReloadAndUpdate(); UpdatePreview()
+                      EllesmereUI:RefreshPage()
+                  end });  y = y - h
+
+        -- Row 3: Border Style (+ cog) | Border (slider + double inline swatches)
         local sharedScaleBorderRow
+        local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
         sharedScaleBorderRow, h = W:DualRow(parent, y,
-            { type="slider", text="Border",
-              min=0, max=4, step=1,
+            { type="dropdown", text="Border Style",
+              values=texValues, order=texOrder,
+              getValue=function() return SGet("borderTexture") or "solid" end,
+              setValue=function(v)
+                  SSet("borderTexture", v)
+                  SSet("borderTextureOffset", nil)
+                  SSet("borderTextureOffsetY", nil)
+                  SSet("borderTextureShiftX", nil)
+                  SSet("borderTextureShiftY", nil)
+                  if v ~= "solid" then
+                      SSet("borderColor", { r = 1, g = 1, b = 1 })
+                      SSet("borderAlpha", 1)
+                  else
+                      SSet("borderColor", { r = 0, g = 0, b = 0 })
+                      SSet("borderAlpha", 1)
+                  end
+                  local defSz = EllesmereUI.GetBorderDefaultSize("unitframes", v)
+                  if defSz then SSet("borderSize", defSz) end
+                  ReloadAndUpdate()
+              end },
+            { type="slider", text="Border Size",
+              min=0, max=4, step=1, trackWidth=120,
               getValue=function() return SVal("borderSize", 1) end,
               setValue=function(v)
                   SSet("borderSize", v); ReloadAndUpdate()
-              end },
-            { type="toggle", text="Dark Mode",
-              getValue=function() return db.profile.darkTheme end,
-              setValue=function(v)
-                  db.profile.darkTheme = v
-                  ReloadAndUpdate(); UpdatePreview()
-                  EllesmereUI:RefreshPage()
               end });  y = y - h
-        -- Sync icon: Border Size (left)
+        -- Inline cog for border offset (left region)
         do
             local rgn = sharedScaleBorderRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Border Offset",
+                rows = {
+                    { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
+                      get = function()
+                          local v = SGet("borderTextureOffset")
+                          if v then return v end
+                          local tex = SGet("borderTexture") or "solid"
+                          local sz = SVal("borderSize", 1)
+                          local dox = EllesmereUI.GetBorderDefaults("unitframes", tex, sz)
+                          return dox
+                      end,
+                      set = function(v)
+                          SSet("borderTextureOffset", v); ReloadAndUpdate()
+                      end },
+                    { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
+                      get = function()
+                          local v = SGet("borderTextureOffsetY")
+                          if v then return v end
+                          local tex = SGet("borderTexture") or "solid"
+                          local sz = SVal("borderSize", 1)
+                          local _, doy = EllesmereUI.GetBorderDefaults("unitframes", tex, sz)
+                          return doy
+                      end,
+                      set = function(v)
+                          SSet("borderTextureOffsetY", v); ReloadAndUpdate()
+                      end },
+                    { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
+                      get = function()
+                          local v = SGet("borderTextureShiftX")
+                          if v then return v end
+                          local tex = SGet("borderTexture") or "solid"
+                          local sz = SVal("borderSize", 1)
+                          local _, _, dsx = EllesmereUI.GetBorderDefaults("unitframes", tex, sz)
+                          return dsx
+                      end,
+                      set = function(v)
+                          SSet("borderTextureShiftX", v == 0 and nil or v); ReloadAndUpdate()
+                      end },
+                    { type = "slider", label = "Shift Y", min = -10, max = 10, step = 1,
+                      get = function()
+                          local v = SGet("borderTextureShiftY")
+                          if v then return v end
+                          local tex = SGet("borderTexture") or "solid"
+                          local sz = SVal("borderSize", 1)
+                          local _, _, _, dsy = EllesmereUI.GetBorderDefaults("unitframes", tex, sz)
+                          return dsy
+                      end,
+                      set = function(v)
+                          SSet("borderTextureShiftY", v == 0 and nil or v); ReloadAndUpdate()
+                      end },
+                },
+            })
+            local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
+            local function UpdateCogVis()
+                local tex = SGet("borderTexture") or "solid"
+                if tex == "solid" then cogBtn:Hide() else cogBtn:Show() end
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+            UpdateCogVis()
+        end
+        -- Sync icon: Border Style (left region - dropdown)
+        do
+            local bsLeftRgn = sharedScaleBorderRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = bsLeftRgn,
+                tooltip = "Apply Border Style to all Frames",
+                onClick = function()
+                    local bt = SGet("borderTexture") or "solid"
+                    local ox = SGet("borderTextureOffset")
+                    local oy = SGet("borderTextureOffsetY")
+                    local sx = SGet("borderTextureShiftX")
+                    local sy = SGet("borderTextureShiftY")
+                    local bc = SGet("borderColor")
+                    local ba = SGet("borderAlpha")
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then
+                            UNIT_DB_MAP[key]().borderTexture = bt
+                            UNIT_DB_MAP[key]().borderTextureOffset = ox
+                            UNIT_DB_MAP[key]().borderTextureOffsetY = oy
+                            UNIT_DB_MAP[key]().borderTextureShiftX = sx
+                            UNIT_DB_MAP[key]().borderTextureShiftY = sy
+                            if bc then UNIT_DB_MAP[key]().borderColor = { r=bc.r, g=bc.g, b=bc.b } end
+                            UNIT_DB_MAP[key]().borderAlpha = ba
+                        end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local bt = SGet("borderTexture") or "solid"
+                    local ox = SGet("borderTextureOffset")
+                    local oy = SGet("borderTextureOffsetY")
+                    local sx = SGet("borderTextureShiftX")
+                    local sy = SGet("borderTextureShiftY")
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().borderTexture or "solid") ~= bt then return false end
+                        if UNIT_DB_MAP[key]().borderTextureOffset ~= ox then return false end
+                        if UNIT_DB_MAP[key]().borderTextureOffsetY ~= oy then return false end
+                        if UNIT_DB_MAP[key]().borderTextureShiftX ~= sx then return false end
+                        if UNIT_DB_MAP[key]().borderTextureShiftY ~= sy then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { bsLeftRgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local bt = SGet("borderTexture") or "solid"
+                        local ox = SGet("borderTextureOffset")
+                        local oy = SGet("borderTextureOffsetY")
+                        local sx = SGet("borderTextureShiftX")
+                        local sy = SGet("borderTextureShiftY")
+                        local bc = SGet("borderColor")
+                        local ba = SGet("borderAlpha")
+                        for _, key in ipairs(checkedKeys) do
+                            UNIT_DB_MAP[key]().borderTexture = bt
+                            UNIT_DB_MAP[key]().borderTextureOffset = ox
+                            UNIT_DB_MAP[key]().borderTextureOffsetY = oy
+                            UNIT_DB_MAP[key]().borderTextureShiftX = sx
+                            UNIT_DB_MAP[key]().borderTextureShiftY = sy
+                            if bc then UNIT_DB_MAP[key]().borderColor = { r=bc.r, g=bc.g, b=bc.b } end
+                            UNIT_DB_MAP[key]().borderAlpha = ba
+                        end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        -- Sync icon: Border (right region - border slider)
+        do
+            local rgn = sharedScaleBorderRow._rightRegion
             EllesmereUI.BuildSyncIcon({
                 region  = rgn,
                 tooltip = "Apply Border to all Frames",
@@ -3299,13 +3460,19 @@ initFrame:SetScript("OnEvent", function(self)
                     local bs = SVal("borderSize", 1)
                     local bc = SGet("borderColor")
                     local ba = SGet("borderAlpha")
+                    local bt = SGet("borderTexture") or "solid"
                     local hc = SGet("highlightColor")
                     local ha = SGet("highlightAlpha")
+                    local sx = SGet("borderTextureShiftX")
+                    local sy = SGet("borderTextureShiftY")
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
                         if key ~= selectedUnit then
                             UNIT_DB_MAP[key]().borderSize = bs
                             if bc then UNIT_DB_MAP[key]().borderColor = { r=bc.r, g=bc.g, b=bc.b } end
                             if ba then UNIT_DB_MAP[key]().borderAlpha = ba end
+                            UNIT_DB_MAP[key]().borderTexture = bt
+                            UNIT_DB_MAP[key]().borderTextureShiftX = sx
+                            UNIT_DB_MAP[key]().borderTextureShiftY = sy
                             if hc then UNIT_DB_MAP[key]().highlightColor = { r=hc.r, g=hc.g, b=hc.b } end
                             if ha then UNIT_DB_MAP[key]().highlightAlpha = ha end
                         end
@@ -3314,8 +3481,10 @@ initFrame:SetScript("OnEvent", function(self)
                 end,
                 isSynced = function()
                     local bs = SVal("borderSize", 1)
+                    local bt = SGet("borderTexture") or "solid"
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
                         if (UNIT_DB_MAP[key]().borderSize or 1) ~= bs then return false end
+                        if (UNIT_DB_MAP[key]().borderTexture or "solid") ~= bt then return false end
                     end
                     return true
                 end,
@@ -3328,12 +3497,18 @@ initFrame:SetScript("OnEvent", function(self)
                         local bs = SVal("borderSize", 1)
                         local bc = SGet("borderColor")
                         local ba = SGet("borderAlpha")
+                        local bt = SGet("borderTexture") or "solid"
                         local hc = SGet("highlightColor")
                         local ha = SGet("highlightAlpha")
+                        local sx = SGet("borderTextureShiftX")
+                        local sy = SGet("borderTextureShiftY")
                         for _, key in ipairs(checkedKeys) do
                             UNIT_DB_MAP[key]().borderSize = bs
                             if bc then UNIT_DB_MAP[key]().borderColor = { r=bc.r, g=bc.g, b=bc.b } end
                             if ba then UNIT_DB_MAP[key]().borderAlpha = ba end
+                            UNIT_DB_MAP[key]().borderTexture = bt
+                            UNIT_DB_MAP[key]().borderTextureShiftX = sx
+                            UNIT_DB_MAP[key]().borderTextureShiftY = sy
                             if hc then UNIT_DB_MAP[key]().highlightColor = { r=hc.r, g=hc.g, b=hc.b } end
                             if ha then UNIT_DB_MAP[key]().highlightAlpha = ha end
                         end
@@ -3344,7 +3519,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         -- Double inline swatches on Border slider (left region): left = Highlight, right = Border
         do
-            local leftRgn = sharedScaleBorderRow._leftRegion
+            local leftRgn = sharedScaleBorderRow._rightRegion
             local ctrl = leftRgn._control
             local PP = EllesmereUI.PP
 
@@ -3389,17 +3564,8 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch(); updateHlSwatch() end)
         end
 
-        -- Row 3: Bar Texture. Bar texture is a GLOBAL profile setting that
-        -- applies to every unit frame. Per-unit overrides were migrated to
-        -- the global key via v67_bar_texture_global_migration.
-        local sharedTexDarkRow
-        sharedTexDarkRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Bar Texture", values=hbtValues, order=hbtOrder,
-              getValue=function() return db.profile.healthBarTexture or "none" end,
-              setValue=function(v)
-                  db.profile.healthBarTexture = v
-                  ReloadAndUpdate(); UpdatePreview()
-              end },
+        -- Row 4: Show Tooltip | empty
+        _, h = W:DualRow(parent, y,
             { type="toggle", text="Show Tooltip",
               getValue=function() return SVal("showUnitTooltip", true) end,
               setValue=function(v)
@@ -3408,7 +3574,8 @@ initFrame:SetScript("OnEvent", function(self)
                       UNIT_DB_MAP[key]().showUnitTooltip = v
                   end
                   ReloadAndUpdate()
-              end });  y = y - h
+              end },
+            { type="label", text="" });  y = y - h
 
         _, h = W:Spacer(parent, y, 20); y = y - h
 
@@ -3678,65 +3845,63 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   SSet("detachedPortraitShape", v); UpdatePreview()
               end },
-            { type="colorpicker", text="Shape Border",
+            { type="multiSwatch", text="Shape Border",
               disabled=function() return SVal("portraitStyle", "attached") ~= "detached" end,
               disabledTooltip="Only available when Portrait Mode is Detached",
-              getValue=function()
-                  local c = SGet("detachedPortraitBorderColor")
-                  c = c or { r=0, g=0, b=0 }
-                  local a = SGet("detachedPortraitBorderOpacity")
-                  return c.r, c.g, c.b, (a or 100) / 100
-              end,
-              setValue=function(r, g, b, a)
-                  UNIT_DB_MAP[selectedUnit]().detachedPortraitBorderColor = { r=r, g=g, b=b }
-                  UNIT_DB_MAP[selectedUnit]().detachedPortraitBorderOpacity = math.floor(a * 100 + 0.5)
-                  ReloadAndUpdate(); UpdatePreview()
-              end,
-              hasAlpha=true });  y = y - h
-        -- Disabled state for Shape Border swatch
-        do
-            local borderRgn = sharedShapeBorderRow._rightRegion
-            local sw = borderRgn._control
-            local function UpdateSwatchState()
-                local pStyle = SVal("portraitStyle", "attached")
-                if pStyle ~= "detached" then
-                    sw:SetAlpha(0.15); sw:Disable()
-                    sw._disabledTooltip = "Only available when Portrait Mode is Detached"
-                else
-                    local useCC = SVal("detachedPortraitClassColor", true)
-                    if useCC then
-                        sw:SetAlpha(0.25); sw:Disable()
-                        sw._disabledTooltip = "Disabled while Class Color is enabled"
-                    else
-                        sw:SetAlpha(1); sw:Enable()
-                        sw._disabledTooltip = nil
-                    end
-                end
-            end
-            UpdateSwatchState()
-            RegisterWidgetRefresh(UpdateSwatchState)
-            sw:HookScript("OnEnter", function(self)
-                if self._disabledTooltip then
-                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip(self._disabledTooltip))
-                end
-            end)
-            sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        end
+              swatches = {
+                { tooltip = "Custom Color",
+                  hasAlpha = false,
+                  getValue = function()
+                      local c = SGet("detachedPortraitBorderColor")
+                      c = c or { r=0, g=0, b=0 }
+                      return c.r, c.g, c.b
+                  end,
+                  setValue = function(r, g, b)
+                      UNIT_DB_MAP[selectedUnit]().detachedPortraitBorderColor = { r=r, g=g, b=b }
+                      ReloadAndUpdate(); UpdatePreview()
+                  end,
+                  onClick = function(self)
+                      if SVal("detachedPortraitClassColor", true) then
+                          SSet("detachedPortraitClassColor", false)
+                          ReloadAndUpdate(); UpdatePreview()
+                          EllesmereUI:RefreshPage()
+                          return
+                      end
+                      if self._eabOrigClick then self._eabOrigClick(self) end
+                  end,
+                  refreshAlpha = function()
+                      return SVal("detachedPortraitClassColor", true) and 0.3 or 1
+                  end },
+                { tooltip = "Class Colored",
+                  hasAlpha = false,
+                  getValue = function()
+                      local _, ct = UnitClass("player")
+                      if ct and RAID_CLASS_COLORS[ct] then
+                          local cc = RAID_CLASS_COLORS[ct]
+                          return cc.r, cc.g, cc.b
+                      end
+                      return 1, 1, 1
+                  end,
+                  setValue = function() end,
+                  onClick = function()
+                      SSet("detachedPortraitClassColor", true)
+                      ReloadAndUpdate(); UpdatePreview()
+                      EllesmereUI:RefreshPage()
+                  end,
+                  refreshAlpha = function()
+                      return SVal("detachedPortraitClassColor", true) and 1 or 0.3
+                  end },
+              } });  y = y - h
         -- Cog on Shape Border for border settings
         do
             local borderRgn = sharedShapeBorderRow._rightRegion
             local _, detShapeCogShowRaw = EllesmereUI.BuildCogPopup({
                 title = "Shape Border Settings",
                 rows = {
-                    { type="toggle", label="Class Color",
-                      get=function() return SVal("detachedPortraitClassColor", true) end,
-                      set=function(v)
-                          SSet("detachedPortraitClassColor", v); UpdatePreview()
-                      end },
                     { type="slider", label="Size", min=1, max=7, step=1,
                       get=function() return SVal("detachedPortraitBorderSize", 7) end,
                       set=function(v) SSet("detachedPortraitBorderSize", v); UpdatePreview() end },
-                    { type="slider", label="Border", min=0, max=100, step=1,
+                    { type="slider", label="Opacity", min=0, max=100, step=1,
                       get=function() return SVal("detachedPortraitBorderOpacity", 100) end,
                       set=function(v) SSet("detachedPortraitBorderOpacity", v); UpdatePreview() end },
                 },

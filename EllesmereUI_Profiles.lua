@@ -575,6 +575,13 @@ end
 
 --- Trigger live refresh on all loaded addons after a profile apply.
 function EllesmereUI.RefreshAllAddons()
+    -- Suppress stale anchor moves on AB bars during the rebuild phase.
+    -- LayoutBar positions them from the new profile's barPositions; resize
+    -- hooks would reposition them with old-profile offsets (1-frame blink).
+    -- Separate flag from _applyingSavedPositions so CDM's early-return in
+    -- ApplyAnchorPosition (which checks _applyingSavedPositions) isn't
+    -- triggered prematurely by the wider window.
+    EllesmereUI._abAnchorSuppressed = true
     -- ResourceBars (full rebuild)
     if _G._ERB_Apply then _G._ERB_Apply() end
     -- CDM: skip during spec-profile switch. CDM's SPELLS_CHANGED handler
@@ -609,6 +616,8 @@ function EllesmereUI.RefreshAllAddons()
     if _G._EFR_ApplyFriends then _G._EFR_ApplyFriends() end
     -- Mythic Timer
     if _G._EMT_Apply then _G._EMT_Apply() end
+    -- Damage Meters
+    if _G._EDM_Apply then _G._EDM_Apply() end
     -- Dragon Riding HUD
     if _G._EDR_Rebuild then _G._EDR_Rebuild() end
     -- Minimap (flyout button state)

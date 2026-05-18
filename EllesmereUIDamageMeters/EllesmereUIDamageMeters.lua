@@ -117,12 +117,60 @@ local DM_DEFAULTS = {
             hdrMouseoverIcons = false,
             hdrTextUseAccent = true,
             hdrTextColor    = { r = 1, g = 1, b = 1 },
+            borderTexture   = "solid",
+            borderSize      = 0,
+            borderR = 0, borderG = 0, borderB = 0, borderA = 1,
             -- Per-window settings
             windowCount = 1,
             windows = nil,  -- populated at init
         },
     },
 }
+
+-- Per-addon border texture defaults (same as resourcebars/cdm)
+do
+    local function AllSizes(ox, oy, sx, sy)
+        local t = {}
+        for k = 0, 4 do t[k] = { offsetX = ox, offsetY = oy, shiftX = sx, shiftY = sy } end
+        return t
+    end
+    EllesmereUI.RegisterBorderDefaults("damagemeters", {
+        ["glow"] = {
+            defaultSize = 1,
+            sizes = AllSizes(0, 0, 0, 0),
+        },
+        ["blizz"] = {
+            defaultSize = 3,
+            sizes = {
+                [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
+                [1] = { offsetX = 2, offsetY = 1, shiftX = 0, shiftY = 0 },
+                [2] = { offsetX = 3, offsetY = 2, shiftX = 1, shiftY = 0 },
+                [3] = { offsetX = 4, offsetY = 2, shiftX = 1, shiftY = 0 },
+                [4] = { offsetX = 4, offsetY = 2, shiftX = 1, shiftY = 0 },
+            },
+        },
+        ["dialog"] = {
+            defaultSize = 1,
+            sizes = {
+                [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
+                [1] = { offsetX = 3, offsetY = 3, shiftX = 0, shiftY = 0 },
+                [2] = { offsetX = 3, offsetY = 5, shiftX = 0, shiftY = 0 },
+                [3] = { offsetX = 3, offsetY = 5, shiftX = 0, shiftY = 0 },
+                [4] = { offsetX = 5, offsetY = 10, shiftX = 0, shiftY = 0 },
+            },
+        },
+        ["sm:Blizzard Achievement Wood"] = {
+            defaultSize = 1,
+            sizes = {
+                [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
+                [1] = { offsetX = 1, offsetY = 1, shiftX = 0, shiftY = 0 },
+                [2] = { offsetX = 1, offsetY = 1, shiftX = 0, shiftY = 0 },
+                [3] = { offsetX = 1, offsetY = 6, shiftX = 0, shiftY = 0 },
+                [4] = { offsetX = 1, offsetY = 8, shiftX = 0, shiftY = 0 },
+            },
+        },
+    })
+end
 
 local _dmDB
 local function EnsureDB()
@@ -1548,6 +1596,27 @@ local function CreateDMWindow(winIdx)
         bar.classIcon = bar.fill:CreateTexture(nil, "OVERLAY")
         bar.classIcon:SetSize(18, 18); bar.classIcon:SetPoint("LEFT", bar.row, "LEFT", 0, 0)
         bar.classIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92); bar.classIcon:Hide()
+        -- Per-bar border (lazy-created, only when borderSize > 0)
+        function bar.ApplyBorder()
+            local c = DB()
+            local sz = c.borderSize or 0
+            if sz <= 0 then
+                if bar._borderFrame then bar._borderFrame:Hide() end
+                return
+            end
+            if not bar._borderFrame then
+                bar._borderFrame = CreateFrame("Frame", nil, bar.row)
+                bar._borderFrame:SetAllPoints(bar.row)
+                bar._borderFrame:SetFrameLevel(bar.row:GetFrameLevel() + 3)
+            end
+            bar._borderFrame:Show()
+            local tex = c.borderTexture or "solid"
+            EllesmereUI.ApplyBorderStyle(bar._borderFrame, sz,
+                c.borderR or 0, c.borderG or 0, c.borderB or 0, c.borderA or 1,
+                tex, c.borderTextureOffset, c.borderTextureOffsetY,
+                c.borderTextureShiftX, c.borderTextureShiftY, "damagemeters", sz)
+        end
+        bar.ApplyBorder()
         local tf = CreateFrame("Frame", nil, bar.fill)
         tf:SetAllPoints(bar.fill); tf:SetFrameLevel(bar.fill:GetFrameLevel() + 2)
         bar.pos = tf:CreateFontString(nil, "OVERLAY"); bar.pos:SetPoint("LEFT", tf, "LEFT", 3, 0); SetDMFont(bar.pos, 11)
@@ -3563,6 +3632,19 @@ ns.RefreshMeter = function()
     for _, w in ipairs(_windows) do w.Refresh() end
 end
 
+ns.ApplyBorder = function()
+    for _, w in ipairs(_windows) do
+        if w.rowPool then
+            for _, bar in ipairs(w.rowPool) do
+                if bar.ApplyBorder then bar.ApplyBorder() end
+            end
+        end
+        if w.stickyPlayer and w.stickyPlayer.ApplyBorder then
+            w.stickyPlayer.ApplyBorder()
+        end
+    end
+end
+
 ns.ApplyBackground = function()
     local cfg = DB()
     local r, g, b, a = cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75
@@ -4033,5 +4115,47 @@ initFrame:SetScript("OnEvent", function(self)
     end
     _G._EDM_UnlockModeClose = function()
         for _, w in ipairs(_windows) do if w._unlockClose then w._unlockClose() end end
+    end
+
+    -- Profile swap rebuild: tear down all windows and recreate from new profile
+    _G._EDM_Apply = function()
+        -- Destroy existing windows (frame cleanup only, don't touch DB)
+        for i = #_windows, 1, -1 do
+            local w = _windows[i]
+            if w._hoverTicker then w._hoverTicker:Cancel() end
+            if EUI.UnregisterVisibilityUpdater and w.UpdateVisibility then
+                EUI.UnregisterVisibilityUpdater(w.UpdateVisibility)
+            end
+            if w.frame then w.frame:Hide(); w.frame:SetParent(nil) end
+        end
+        wipe(_windows)
+        -- Destroy standalone timer if present
+        if _saTimer then _saTimer:Hide(); _saTimer:SetParent(nil); _saTimer = nil; _saTimerFS = nil end
+        -- Hide tooltip
+        if _ttFrame then _ttFrame:Hide() end
+        _activeRow = nil
+        -- Re-apply keybind from new profile
+        local c = DB()
+        if _G.EllesmereUIDMResetBindBtn then
+            ClearOverrideBindings(_G.EllesmereUIDMResetBindBtn)
+            if c.resetDataKey then
+                SetOverrideBindingClick(_G.EllesmereUIDMResetBindBtn, true, c.resetDataKey, "EllesmereUIDMResetBindBtn")
+            end
+        end
+        -- Recreate windows from new profile
+        if not c.windows then c.windows = {} end
+        local wc = math.max(1, c.windowCount or 1)
+        c.windowCount = wc
+        for i = wc + 1, MAX_WINDOWS do c.windows[i] = nil end
+        for i = 1, wc do
+            _windows[i] = CreateDMWindow(i)
+        end
+        -- Recreate standalone timer if enabled
+        if c.standaloneTimer then CreateSATimer() end
+        -- Update tooltip scale
+        if _ttFrame then
+            local sc = (c.hoverTooltipScale or 100) / 100
+            _ttFrame:SetScale(sc)
+        end
     end
 end)

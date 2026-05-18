@@ -462,7 +462,7 @@ local function RegisterUnlock()
     EllesmereUI:RegisterUnlockElements({
         MK({
             key   = "EUI_BattleRes",
-            label = "BattleRes Icon",
+            label = "Brez",
             group = "Quality of Life",
             order = 600,
             noAnchorTarget = true,  -- icon size changes; nothing should be anchored to it

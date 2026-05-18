@@ -1009,7 +1009,7 @@ initFrame:SetScript("OnEvent", function(self)
         MANA = "Mana", RAGE = "Rage", FOCUS = "Focus", ENERGY = "Energy",
         RUNIC_POWER = "Runic Power", LUNAR_POWER = "Astral Power",
         INSANITY = "Insanity", MAELSTROM = "Maelstrom", FURY = "Fury",
-        PAIN = "Pain",
+        PAIN = "Pain", EBON_MIGHT = "Ebon Might",
     }
     local RESOURCE_LABELS = {
         ComboPoints = "Combo Points", HolyPower = "Holy Power",
@@ -1813,7 +1813,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local POWER_ORDER = {
             "MANA", "RAGE", "FOCUS", "ENERGY", "RUNIC_POWER", "FURY",
-            "LUNAR_POWER", "INSANITY", "MAELSTROM",
+            "LUNAR_POWER", "INSANITY", "MAELSTROM", "EBON_MIGHT",
         }
         local powerItems = {}
         for _, pk in ipairs(POWER_ORDER) do

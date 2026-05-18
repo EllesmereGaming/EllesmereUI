@@ -107,6 +107,11 @@ local BAR_LOOKUP = {}
 for _, info in ipairs(BAR_CONFIG) do BAR_LOOKUP[info.key] = info end
 for _, info in ipairs(EXTRA_BARS) do BAR_LOOKUP[info.key] = info end
 
+-- Expose AB bar keys immediately so the unlock mode's ApplyAnchorPosition can
+-- gate edge logic to CDM/AB without waiting for deferred RegisterWithUnlockMode.
+if not EllesmereUI._abBarKeys then EllesmereUI._abBarKeys = {} end
+for _, info in ipairs(BAR_CONFIG) do EllesmereUI._abBarKeys[info.key] = true end
+
 local BAR_DROPDOWN_VALUES = {}
 local BAR_DROPDOWN_ORDER = {}
 do
@@ -277,6 +282,40 @@ ns.BORDER_THICKNESS_LABELS = { none="None", thin="Thin", normal="Normal", heavy=
 ns.BORDER_THICKNESS_DEFAULT_REGULAR = "thin"
 ns.BORDER_THICKNESS_DEFAULT_SHAPE   = "strong"
 
+-- Per-addon border texture defaults (central registry)
+do
+    local ALL_SIZES = { "none", "thin", "normal", "heavy", "strong" }
+    local function AllSizes(ox, oy, sx, sy)
+        local t = {}
+        for _, k in ipairs(ALL_SIZES) do t[k] = { offsetX = ox, offsetY = oy, shiftX = sx, shiftY = sy } end
+        return t
+    end
+    EllesmereUI.RegisterBorderDefaults("actionbars", {
+        ["glow"] = {
+            defaultSize = "normal",
+            sizes = AllSizes(0, 0, 0, 0),
+        },
+        ["blizz"] = {
+            defaultSize = "heavy",
+            sizes = {
+                none   = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
+                thin   = { offsetX = 2, offsetY = 1, shiftX = 0, shiftY = 0 },
+                normal = { offsetX = 3, offsetY = 2, shiftX = 0, shiftY = 0 },
+                heavy  = { offsetX = 4, offsetY = 2, shiftX = 1, shiftY = 0 },
+                strong = { offsetX = 4, offsetY = 2, shiftX = 2, shiftY = 0 },
+            },
+        },
+        ["dialog"] = {
+            defaultSize = "normal",
+            sizes = AllSizes(4, 4, 0, 0),
+        },
+        ["sm:Blizzard Achievement Wood"] = {
+            defaultSize = "thin",
+            sizes = AllSizes(1, 1, 0, 0),
+        },
+    })
+end
+
 -------------------------------------------------------------------------------
 --  Defaults
 -------------------------------------------------------------------------------
@@ -319,6 +358,7 @@ for _, info in ipairs(BAR_CONFIG) do
         borderColor = { r = 0, g = 0, b = 0, a = 1 },
         borderSize = 1,
         borderClassColor = false,
+        borderTexture = "solid",
         borderThickness = "thin",
         buttonPadding = 2,
         buttonWidth = 0,
@@ -348,6 +388,7 @@ for _, info in ipairs(BAR_CONFIG) do
         overrideNumIcons = nil,
         overrideNumRows  = nil,
         growDirection    = "up",
+        reverseIconOrder = false,
         alwaysShowButtons = true,
         showPagingArrows = false,
         pagingArrowsRight = false,
@@ -2574,24 +2615,7 @@ end
 -- middle can inherit from its parent visually while its DB still holds the old
 -- grow, and bars anchored to it would read that stale value instead of the chain.
 function EAB:ResolveGrowDirectionForLayout(key, s, depth)
-    depth = depth or 0
-    if depth > 12 then
-        return (s.growDirection or "up"):upper()
-    end
-    local own = (s.growDirection or "up"):upper()
-    if not (EllesmereUI and EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(key)) then
-        return own
-    end
-    local adb = _G.EllesmereUIDB and _G.EllesmereUIDB.unlockAnchors
-    local ai = adb and adb[key]
-    local tKey = ai and ai.target
-    if not tKey then return own end
-    local tSettings = self.db.profile.bars and self.db.profile.bars[tKey]
-    if not tSettings then return own end
-    if (tSettings.orientation or "horizontal") ~= (s.orientation or "horizontal") then
-        return own
-    end
-    return self:ResolveGrowDirectionForLayout(tKey, tSettings, depth + 1)
+    return (s.growDirection or "up"):upper()
 end
 
 -- Compute layout for a bar and return a table of per-button data.
@@ -2664,7 +2688,6 @@ local function ComputeBarLayout(key)
             if isVertical then
                 col = floor((i - 1) / stride)
                 row = (i - 1) % stride
-                if growDir == "UP" then row = stride - 1 - row end
             else
                 col = (i - 1) % stride
                 row = floor((i - 1) / stride)
@@ -2673,28 +2696,21 @@ local function ComputeBarLayout(key)
             local thisBtnH = (extraHC > 0 and row < extraHC) and (btnH + onePxC) or btnH
             local extraBeforeW = math.min(col, extraWC) * onePxC
             local extraBeforeH = math.min(row, extraHC) * onePxC
-            local xOff, yOff
-            if growDir == "LEFT" then
-                xOff = -(col * stepW + extraBeforeW)
-                yOff = -(row * stepH + extraBeforeH)
-            elseif growDir == "RIGHT" then
-                xOff = col * stepW + extraBeforeW
-                yOff = -(row * stepH + extraBeforeH)
-            elseif growDir == "DOWN" then
-                xOff = col * stepW + extraBeforeW
-                yOff = -(row * stepH + extraBeforeH)
-            elseif growDir == "UP" then
-                xOff = col * stepW + extraBeforeW
+            if s.reverseIconOrder then
+                if isVertical then
+                    row = stride - 1 - row
+                else
+                    col = stride - 1 - col
+                end
+                extraBeforeW = math.min(col, extraWC) * onePxC
+                extraBeforeH = math.min(row, extraHC) * onePxC
+            end
+            local xOff = col * stepW + extraBeforeW
+            local yOff
+            local rowsUpward = not isVertical and (growDir == "UP" or growDir == "CENTER")
+            if rowsUpward then
                 yOff = row * stepH + extraBeforeH
-            elseif growDir == "CENTER" then
-                local totalCols = isVertical and numRows or stride
-                local totalW = totalCols * stepW - padding + extraWC * onePxC
-                local totalRowsN = isVertical and stride or numRows
-                local totalH = totalRowsN * stepH - padding + extraHC * onePxC
-                xOff = col * stepW + extraBeforeW - totalW / 2
-                yOff = -(row * stepH + extraBeforeH) + totalH / 2
             else
-                xOff = col * stepW + extraBeforeW
                 yOff = -(row * stepH + extraBeforeH)
             end
             local show = true
@@ -2727,6 +2743,11 @@ local function HideSlotArt(btn)
         btn.SlotArt:SetAlpha(0)
     end
 end
+
+-- Declared here (before LayoutBar) so it's in scope as an upvalue.
+-- ApplyAll sets this to true during full rebuilds to prevent LayoutBar's
+-- edge preservation from saving stale positions into the new profile.
+local _isApplyingAll = false
 
 local function LayoutBar(key)
     if InCombatLockdown() then return end
@@ -2815,7 +2836,6 @@ local function LayoutBar(key)
             if isVertical then
                 col = floor((i - 1) / stride)
                 row = (i - 1) % stride
-                if growDir == "UP" then row = stride - 1 - row end
             else
                 col = (i - 1) % stride
                 row = floor((i - 1) / stride)
@@ -2831,33 +2851,27 @@ local function LayoutBar(key)
             local extraBeforeH = math.min(row, extraH) * onePx
 
             btn:ClearAllPoints()
-            local xOff, yOff, anchor
-            if growDir == "LEFT" then
-                xOff = -(col * stepW + extraBeforeW)
-                yOff = -(row * stepH + extraBeforeH)
-                anchor = "TOPRIGHT"
-            elseif growDir == "RIGHT" then
-                xOff = col * stepW + extraBeforeW
-                yOff = -(row * stepH + extraBeforeH)
-                anchor = "TOPLEFT"
-            elseif growDir == "DOWN" then
-                xOff = col * stepW + extraBeforeW
-                yOff = -(row * stepH + extraBeforeH)
-                anchor = "TOPLEFT"
-            elseif growDir == "UP" then
-                xOff = col * stepW + extraBeforeW
+            -- Reverse icon order if enabled (separate from growth direction)
+            if s.reverseIconOrder then
+                if isVertical then
+                    row = stride - 1 - row
+                else
+                    col = stride - 1 - col
+                end
+                -- Recalculate extra-pixel offsets for the reversed position
+                extraBeforeW = math.min(col, extraW) * onePx
+                extraBeforeH = math.min(row, extraH) * onePx
+            end
+            -- Growth direction affects which edge is fixed during resize.
+            -- UP and CENTER on horizontal bars stack rows upward (2nd row
+            -- above 1st) matching the original default behavior.
+            local xOff = col * stepW + extraBeforeW
+            local yOff, anchor
+            local rowsUpward = not isVertical and (growDir == "UP" or growDir == "CENTER")
+            if rowsUpward then
                 yOff = row * stepH + extraBeforeH
                 anchor = "BOTTOMLEFT"
-            elseif growDir == "CENTER" then
-                local totalCols = isVertical and numRows or stride
-                local totalW = totalCols * stepW - padding + extraW * onePx
-                local totalRowsN = isVertical and stride or numRows
-                local totalH = totalRowsN * stepH - padding + extraH * onePx
-                xOff = col * stepW + extraBeforeW - totalW / 2
-                yOff = -(row * stepH + extraBeforeH) + totalH / 2
-                anchor = "CENTER"
             else
-                xOff = col * stepW + extraBeforeW
                 yOff = -(row * stepH + extraBeforeH)
                 anchor = "TOPLEFT"
             end
@@ -2959,45 +2973,101 @@ local function LayoutBar(key)
     local frameW = totalCols * btnW + (totalCols - 1) * padding + extraW * onePx
     local frameH = totalRows * btnH + (totalRows - 1) * padding + extraH * onePx
 
-    -- Capture the fixed edge position BEFORE SetSize changes the frame bounds.
-    -- When the frame is anchored at CENTER, SetSize expands both sides equally.
-    -- We need to preserve the fixed edge so only the grow side expands.
-    -- Only do this for non-default grow directions (UP is the default for
-    -- action bars and behaves as centered growth).
-    local preEdgeX, preEdgeY, preGrowAnchor
-    local hasCustomGrow = (growDir == "LEFT" or growDir == "RIGHT" or growDir == "DOWN")
-    if hasCustomGrow and not (EllesmereUI and EllesmereUI._unlockActive) then
-        local fL = frame:GetLeft()
-        local fR = frame:GetRight()
-        local fT = frame:GetTop()
-        local fB = frame:GetBottom()
-        if fL and fR and fT and fB then
-            local uiS = UIParent:GetEffectiveScale()
-            local fS = frame:GetEffectiveScale()
-            local ratio = fS / uiS
-            local uiW, uiH = UIParent:GetSize()
-            if growDir == "RIGHT" then
-                preGrowAnchor = "LEFT"
-                preEdgeX = fL * ratio - uiW / 2
-                preEdgeY = ((fT + fB) / 2) * ratio - uiH / 2
-            elseif growDir == "LEFT" then
-                preGrowAnchor = "RIGHT"
-                preEdgeX = fR * ratio - uiW / 2
-                preEdgeY = ((fT + fB) / 2) * ratio - uiH / 2
-            elseif growDir == "DOWN" then
-                preGrowAnchor = "TOP"
-                preEdgeX = ((fL + fR) / 2) * ratio - uiW / 2
-                preEdgeY = fT * ratio - uiH / 2
+    -- Sync frame anchor with barPositions before SetSize so the frame grows
+    -- from the correct edge (or center). Skip anchored bars: their position
+    -- is owned by the anchor chain, not barPositions.
+    local isAnchored = EllesmereUI.IsUnlockAnchored
+        and EllesmereUI.IsUnlockAnchored(key)
+    if not isAnchored then
+        local curPt = ({frame:GetPoint(1)})[1]
+        local pos = EAB.db.profile.barPositions and EAB.db.profile.barPositions[key]
+        if pos and pos.point and pos.relPoint == "CENTER" and curPt ~= pos.point then
+            local PPa = EllesmereUI and EllesmereUI.PP
+            local px, py = pos.x or 0, pos.y or 0
+            if pos.point == "CENTER" and curPt and curPt ~= "CENTER" then
+                -- Switching from edge to CENTER: read live center so the bar
+                -- stays at its current visual position. Stored CENTER coords
+                -- may be from a different width (stale after resize).
+                local fCx, fCy = frame:GetCenter()
+                if fCx and fCy then
+                    local uiS = UIParent:GetEffectiveScale()
+                    local fS = frame:GetEffectiveScale()
+                    local ratio = fS / uiS
+                    local uiW, uiH = UIParent:GetSize()
+                    px = fCx * ratio - uiW / 2
+                    py = fCy * ratio - uiH / 2
+                end
+                if PPa and PPa.SnapCenterForDim then
+                    local es = frame:GetEffectiveScale()
+                    px = PPa.SnapCenterForDim(px, frame:GetWidth() or 0, es)
+                    py = PPa.SnapCenterForDim(py, frame:GetHeight() or 0, es)
+                end
+            elseif PPa and PPa.SnapForES then
+                local es = frame:GetEffectiveScale()
+                px = PPa.SnapForES(px, es)
+                py = PPa.SnapForES(py, es)
+            end
+            frame:ClearAllPoints()
+            frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, px, py)
+        end
+    end
+    EllesmereUI._layoutBarResizing = key
+    frame:SetSize(max(frameW, 1), max(frameH, 1))
+    EllesmereUI._layoutBarResizing = nil
+    -- Anchor offset maintenance: for anchored growth-direction bars on
+    -- Anchor offset maintenance: when a growth-direction bar resizes, the
+    -- center shifts by delta/2 but the fixed edge stays put. Adjust the
+    -- center-based anchor offset so the relationship stays consistent.
+    -- Use _eabPrevLayout* to distinguish real resizes from init/reload sizing.
+    do
+        local newW = max(frameW, 1)
+        local newH = max(frameH, 1)
+        local prevW = frame._eabPrevLayoutW
+        local prevH = frame._eabPrevLayoutH
+        frame._eabPrevLayoutW = newW
+        frame._eabPrevLayoutH = newH
+        if (prevW or prevH)
+           and not EllesmereUI._unlockActive
+           and not EllesmereUI._abAnchorSuppressed
+           and not _isApplyingAll then
+            local s = EAB.db.profile.bars[key]
+            local grow = s and s.growDirection
+            if grow then
+                grow = grow:upper()
+                if grow ~= "CENTER" then
+                    local adb = EllesmereUIDB and EllesmereUIDB.unlockAnchors
+                    local ai = adb and adb[key]
+                    if ai then
+                        local side = ai.side
+                        local PPo = EllesmereUI and EllesmereUI.PP
+                        local uiES = PPo and UIParent:GetEffectiveScale()
+                        -- Horizontal growth (LEFT/RIGHT): adjust offsetX on TOP/BOTTOM anchors
+                        if prevW and math.abs(newW - prevW) > 0.1
+                           and (side == "TOP" or side == "BOTTOM") then
+                            local dw = newW - prevW
+                            if grow == "RIGHT" then
+                                ai.offsetX = ai.offsetX + dw / 2
+                            elseif grow == "LEFT" then
+                                ai.offsetX = ai.offsetX - dw / 2
+                            end
+                            if PPo and uiES then ai.offsetX = PPo.SnapForES(ai.offsetX, uiES) end
+                        end
+                        -- Vertical growth (UP/DOWN): adjust offsetY on LEFT/RIGHT anchors
+                        if prevH and math.abs(newH - prevH) > 0.1
+                           and (side == "LEFT" or side == "RIGHT") then
+                            local dh = newH - prevH
+                            if grow == "DOWN" then
+                                ai.offsetY = ai.offsetY - dh / 2
+                            elseif grow == "UP" then
+                                ai.offsetY = ai.offsetY + dh / 2
+                            end
+                            if PPo and uiES then ai.offsetY = PPo.SnapForES(ai.offsetY, uiES) end
+                        end
+                    end
+                end
             end
         end
     end
-
-    -- Tell NotifyElementResized to skip during our resize + re-anchor
-    if preGrowAnchor then
-        EllesmereUI._layoutBarResizing = key
-    end
-
-    frame:SetSize(max(frameW, 1), max(frameH, 1))
 
     -- Set flyoutDirection on every button based on bar orientation and actual
     -- screen position. Divide the screen into thirds on each axis and pick the
@@ -3045,40 +3115,25 @@ local function LayoutBar(key)
         end
     end
 
-    -- Re-anchor from the fixed edge captured BEFORE SetSize.
-    -- This prevents the frame from expanding equally on both sides.
-    if preGrowAnchor and preEdgeX and preEdgeY then
-        pcall(function()
-            frame:ClearAllPoints()
-            frame:SetPoint(preGrowAnchor, UIParent, "CENTER", preEdgeX, preEdgeY)
-        end)
-        -- Save the updated position (converted to CENTER/CENTER) so
-        -- NotifyElementResized reads the correct center offset.
-        if EllesmereUI and EllesmereUI.SaveBarPosition then
-            local pt, _, rpt, ox, oy = frame:GetPoint(1)
-            if pt then
-                EllesmereUI.SaveBarPosition(key, pt, rpt, ox, oy)
-            end
+    -- Notify the position system for width/height match propagation and
+    -- anchor chains. For anchored bars with growth direction, skip the
+    -- explicit notify/propagate (which would queue a deferred
+    -- ApplyAnchorPosition that overrides edge positioning). The
+    -- OnSizeChanged hook handles propagation to dependents automatically.
+    local skipNotify = EllesmereUI.IsUnlockAnchored
+        and EllesmereUI.IsUnlockAnchored(key)
+        and growDir ~= "CENTER" and growDir ~= "UP"
+    if not skipNotify then
+        if EllesmereUI and EllesmereUI.NotifyElementResized then
+            EllesmereUI.NotifyElementResized(key)
         end
     end
+    EllesmereUI._layoutBarResizing = nil
 
-    -- Notify the position system for width/height match propagation and anchor chains.
-    -- Keep _layoutBarResizing set so NotifyElementResized skips position
-    -- re-application (LayoutBar already positioned the bar from the captured
-    -- edge). Clearing after prevents CENTER->edge->CENTER round-trip drift
-    -- caused by double PP-snapping on each combat exit.
-    if EllesmereUI and EllesmereUI.NotifyElementResized then
-        EllesmereUI.NotifyElementResized(key)
-    end
-
-    -- Clear the resize guard after NotifyElementResized is done
-    if EllesmereUI then
-        EllesmereUI._layoutBarResizing = nil
-    end
-
-    -- Propagate anchor chain so anything anchored to this bar follows the resize
-    if EllesmereUI and EllesmereUI.PropagateAnchorChain then
-        EllesmereUI.PropagateAnchorChain(key)
+    if not skipNotify then
+        if EllesmereUI and EllesmereUI.PropagateAnchorChain then
+            EllesmereUI.PropagateAnchorChain(key)
+        end
     end
 
     -- Position paging arrows after MainBar layout
@@ -3429,7 +3484,7 @@ local function EnsureBorders(btn)
     return fd.borders
 end
 
-local function ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom)
+local function ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey, texOffset, texOffsetY, shiftX, shiftY, addonKey, sizeKey)
     MakeButtonSquare(btn)
     local PP = EllesmereUI and EllesmereUI.PP
     local fd = EFD(btn)
@@ -3437,18 +3492,44 @@ local function ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom)
         if fd.borders then
             PP.HideBorder(btn)
         end
+        -- Also hide textured border if present
+        if EllesmereUI._bdBorderData then
+            local bdFrame = EllesmereUI._bdBorderData[btn]
+            if bdFrame then bdFrame:Hide() end
+        end
         fd.borderKey = nil
     else
-        local es = btn:GetEffectiveScale()
-        local stateKey = cr * 1000000 + cg * 10000 + cb * 100 + ca + sz * 0.001 + zoom * 10000000 + es * 0.0001
-        if fd.borderKey == stateKey then return end
-        fd.borderKey = stateKey
-        EnsureBorders(btn)
-        PP.UpdateBorder(btn, sz, cr, cg, cb, ca)
-        local b = fd.borders
-        if b then
-            if not (fd.shapeMask and fd.shapeMask:IsShown()) then
-                PP.ShowBorder(btn)
+        local texKey = textureKey or "solid"
+        if texKey ~= "solid" then
+            -- Textured borders: always apply (cheap SetBackdropBorderColor call)
+            fd.borderKey = nil
+        else
+            -- Solid borders: cache to avoid redundant PP updates
+            local es = btn:GetEffectiveScale()
+            local stateKey = cr * 1000000 + cg * 10000 + cb * 100 + ca + sz * 0.001 + zoom * 10000000 + es * 0.0001
+            if fd.borderKey == stateKey and fd.borderTexKey == texKey then return end
+            fd.borderKey = stateKey
+        end
+        fd.borderTexKey = texKey
+        if texKey == "solid" then
+            EnsureBorders(btn)
+        elseif fd.borders then
+            -- Switching from solid to textured: hide existing PP borders
+            PP.HideBorder(btn)
+            local ppC = PP.GetBorders(btn)
+            if ppC then
+                if ppC._top then ppC._top:SetAlpha(0) end
+                if ppC._bottom then ppC._bottom:SetAlpha(0) end
+                if ppC._left then ppC._left:SetAlpha(0) end
+                if ppC._right then ppC._right:SetAlpha(0) end
+            end
+        end
+        EllesmereUI.ApplyBorderStyle(btn, sz, cr, cg, cb, ca, textureKey, texOffset, texOffsetY, shiftX, shiftY, addonKey, sizeKey)
+        if fd.borders and fd.shapeMask and fd.shapeMask:IsShown() then
+            PP.HideBorder(btn)
+            if EllesmereUI._bdBorderData then
+                local bdFrame = EllesmereUI._bdBorderData[btn]
+                if bdFrame then bdFrame:Hide() end
             end
         end
     end
@@ -3594,9 +3675,24 @@ local function ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brd
         end
         -- Show square borders only if border is enabled
         if fd.borders and brdOn then
-            PP.ShowBorder(btn)
+            -- Re-apply border style to restore correct type (PP or textured)
+            local barKey = fd.barKey
+            local texKey = barKey and EAB.db and EAB.db.profile.bars[barKey] and EAB.db.profile.bars[barKey].borderTexture or "solid"
+            if texKey ~= "solid" then
+                local s = EAB.db.profile.bars[barKey]
+                local c = s and s.borderColor or { r=0, g=0, b=0, a=1 }
+                local sz = ResolveBorderThickness(s)
+                local thKey = s.borderThickness or "thin"
+                EllesmereUI.ApplyBorderStyle(btn, sz, c.r, c.g, c.b, c.a or 1, texKey, s.borderTextureOffset, s.borderTextureOffsetY, s.borderTextureShiftX, s.borderTextureShiftY, "actionbars", thKey)
+            else
+                PP.ShowBorder(btn)
+            end
         elseif fd.borders then
             PP.HideBorder(btn)
+            if EllesmereUI._bdBorderData then
+                local bdFrame = EllesmereUI._bdBorderData[btn]
+                if bdFrame then bdFrame:Hide() end
+            end
         end
         -- Re-enable Blizzard's Border texture (was hidden for custom shapes)
         if btn.Border then
@@ -3733,9 +3829,13 @@ local function ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brd
     local expand = ((1 / visRatio) - 1) * 0.5
     if icon then icon:SetTexCoord(-expand, 1 + expand, -expand, 1 + expand) end
 
-    -- Hide square borders
+    -- Hide square borders (both PP and textured)
     if fd.borders then
         PP.HideBorder(btn)
+        if EllesmereUI._bdBorderData then
+            local bdFrame = EllesmereUI._bdBorderData[btn]
+            if bdFrame then bdFrame:Hide() end
+        end
     end
 
     -- Shape border texture
@@ -3850,13 +3950,19 @@ function EAB:ApplyBordersForBar(barKey)
         end
     end
     local zoom = ((s.iconZoom or self.db.profile.iconZoom or 5.5)) / 100
+    local textureKey = s.borderTexture or "solid"
+    local texOffset = s.borderTextureOffset
+    local texOffsetY = s.borderTextureOffsetY
+    local texShiftX = s.borderTextureShiftX
+    local texShiftY = s.borderTextureShiftY
+    local thicknessKey = s.borderThickness or "thin"
     local buttons = barButtons[barKey]
     if not buttons then return end
     for i = 1, #buttons do
         local btn = buttons[i]
         if btn then
             EFD(btn).barKey = barKey
-            ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom)
+            ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey, texOffset, texOffsetY, texShiftX, texShiftY, "actionbars", thicknessKey)
         end
     end
 end
@@ -3867,6 +3973,7 @@ function EAB:ApplyBorders()
         self:ApplyBordersForBar(info.key)
     end
 end
+
 
 function EAB:ApplyShapesForBar(barKey)
     if InCombatLockdown() then return end
@@ -3957,6 +4064,15 @@ function EAB:SetOrientationForBar(barKey, isHorizontal)
     local s = self.db.profile.bars[barKey]
     if not s then return end
     s.orientation = isHorizontal and "horizontal" or "vertical"
+    -- Reset growth direction to orientation-appropriate default when switching
+    local g = (s.growDirection or "up"):upper()
+    if isHorizontal then
+        -- Switching to horizontal: if current growth is vertical-only, reset
+        if g == "UP" or g == "DOWN" then s.growDirection = "center" end
+    else
+        -- Switching to vertical: if current growth is horizontal-only, reset
+        if g == "LEFT" or g == "RIGHT" then s.growDirection = "up" end
+    end
     LayoutBar(barKey)
     self:LayoutAnchoredBarsFrom(barKey, 0)
 end
@@ -6769,6 +6885,8 @@ end
 --  Apply All orchestrates full visual application
 -------------------------------------------------------------------------------
 local function ApplyAll()
+    _isApplyingAll = true
+
     -- Restore any strata raised during a drag that wasn't cleaned up
     if _dragState.visible then
         _dragState.visible = false
@@ -6825,11 +6943,52 @@ local function ApplyAll()
     EAB:RefreshMouseover()
     EAB:RefreshProcGlows()
     EAB:ApplyRangeColoring()
+
+    _isApplyingAll = false
 end
 
 -------------------------------------------------------------------------------
 --  Position Save/Restore
 -------------------------------------------------------------------------------
+-- Convert CENTER position to edge for non-CENTER-grow bars (same pattern as CDM).
+-- Stored on EAB to avoid consuming local slots (200-local Lua 5.1 cap).
+function EAB:ConvertCenterToEdge(barKey, point, x, y)
+    if point ~= "CENTER" then return point, x, y end
+    local cfg = self.db and self.db.profile and self.db.profile.bars and self.db.profile.bars[barKey]
+    local grow = cfg and cfg.growDirection
+    if not grow then return point, x, y end
+    grow = grow:upper()
+    if grow == "CENTER" then return point, x, y end
+    local frame = barFrames[barKey]
+    if not frame then return point, x, y end
+    local fw = frame:GetWidth() or 0
+    local fh = frame:GetHeight() or 0
+    if grow == "RIGHT" and fw > 0 then return "LEFT", x - fw / 2, y
+    elseif grow == "LEFT" and fw > 0 then return "RIGHT", x + fw / 2, y
+    elseif grow == "DOWN" and fh > 0 then return "TOP", x, y + fh / 2
+    elseif grow == "UP" and fh > 0 then return "BOTTOM", x, y - fh / 2
+    end
+    return point, x, y
+end
+
+function EAB:ConvertEdgeToCenter(barKey, pos)
+    if not pos or not pos.point then return pos end
+    local pt = pos.point
+    if pt == "CENTER" then return pos end
+    if pt ~= "LEFT" and pt ~= "RIGHT" and pt ~= "TOP" and pt ~= "BOTTOM" then return pos end
+    local frame = barFrames[barKey]
+    if not frame then return pos end
+    local fw = frame:GetWidth() or 0
+    local fh = frame:GetHeight() or 0
+    local cx, cy = pos.x or 0, pos.y or 0
+    if pt == "LEFT" then cx = cx + fw / 2
+    elseif pt == "RIGHT" then cx = cx - fw / 2
+    elseif pt == "TOP" then cy = cy - fh / 2
+    elseif pt == "BOTTOM" then cy = cy + fh / 2
+    end
+    return { point = "CENTER", relPoint = pos.relPoint, x = cx, y = cy }
+end
+
 local function SaveBarPosition(barKey)
     local frame = barFrames[barKey]
     if not frame then return end
@@ -6899,6 +7058,8 @@ local function RestoreBarPositions()
             end -- anchored else
         end
     end
+    -- Note: anchored bars are handled later in RegisterWithUnlockMode
+    -- (0.5s deferred) via ReapplyOwnAnchor, after elements are registered.
 end
 
 
@@ -7020,27 +7181,61 @@ local function RegisterWithUnlockMode()
             end,
             savePos = function(_, point, relPoint, x, y)
                 if point and x and y then
+                    local sp, sx, sy = EAB:ConvertCenterToEdge(info.key, point, x, y)
                     EAB.db.profile.barPositions[info.key] = {
-                        point = point, relPoint = relPoint or point, x = x, y = y,
+                        point = sp, relPoint = relPoint or point, x = sx, y = sy,
                     }
                 else
                     SaveBarPosition(info.key)
                 end
             end,
             loadPos = function()
-                local pos = EAB.db.profile.barPositions[info.key]
-                if not pos then return nil end
-                local pt = pos.point
-                return { point = pt, relPoint = pos.relPoint or pt, x = pos.x, y = pos.y }
+                return EAB:ConvertEdgeToCenter(info.key, EAB.db.profile.barPositions[info.key])
             end,
             clearPos = function()
                 EAB.db.profile.barPositions[info.key] = nil
             end,
             applyPos = function()
                 EAB:RecalcFlyoutDirection(info.key)
-                -- Skip bars owned by the unlock anchor system
+                -- Anchored bars: position owned by anchor system. But bars
+                -- with growth direction need edge bounds applied first so the
+                -- live-edge reading in ApplyAnchorPosition has correct data.
                 if EllesmereUI and EllesmereUI.IsUnlockAnchored
-                   and EllesmereUI.IsUnlockAnchored(info.key) then return end
+                   and EllesmereUI.IsUnlockAnchored(info.key) then
+                    local s = EAB.db.profile.bars[info.key]
+                    local gd = s and (s.growDirection or "up"):upper()
+                    if gd and gd ~= "CENTER" and gd ~= "UP" then
+                        local pos = EAB.db.profile.barPositions[info.key]
+                        local frame = barFrames[info.key]
+                        if pos and frame then
+                            local pt = pos.point or "CENTER"
+                            local px, py = pos.x or 0, pos.y or 0
+                            -- Convert CENTER to edge (like CDM's ApplyBarPositionCentered)
+                            if pt == "CENTER" then
+                                local fw = frame:GetWidth() or 0
+                                local fh = frame:GetHeight() or 0
+                                if gd == "RIGHT" and fw > 0 then
+                                    pt = "LEFT"; px = px - fw / 2
+                                elseif gd == "LEFT" and fw > 0 then
+                                    pt = "RIGHT"; px = px + fw / 2
+                                elseif gd == "DOWN" and fh > 0 then
+                                    pt = "TOP"; py = py + fh / 2
+                                end
+                            end
+                            if pt ~= "CENTER" then
+                                local PPa = EllesmereUI and EllesmereUI.PP
+                                if PPa and PPa.SnapForES then
+                                    local es = frame:GetEffectiveScale()
+                                    px = PPa.SnapForES(px, es)
+                                    py = PPa.SnapForES(py, es)
+                                end
+                                frame:ClearAllPoints()
+                                frame:SetPoint(pt, UIParent, pos.relPoint or "CENTER", px, py)
+                            end
+                        end
+                    end
+                    return
+                end
                 local pos = EAB.db.profile.barPositions[info.key]
                 local frame = barFrames[info.key]
                 if pos and frame then
@@ -7139,6 +7334,23 @@ local function RegisterWithUnlockMode()
 
 
     EllesmereUI:RegisterUnlockElements(elements)
+
+    -- Reapply anchors now that elements are registered. RestoreBarPositions
+    -- ran before registration (too early for ReapplyOwnAnchor to resolve
+    -- frames), so anchored bars are still at their unresolved position.
+    -- Skip bars with growth direction: they're pre-positioned at edge by
+    -- applyPos and the authoritative pass preserves that via live-edge reading.
+    if EllesmereUI.ReapplyOwnAnchor then
+        for _, info in ipairs(BAR_CONFIG) do
+            if EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(info.key) then
+                local s = EAB.db.profile.bars[info.key]
+                local gd = s and (s.growDirection or "up"):upper()
+                if not gd or gd == "CENTER" or gd == "UP" then
+                    EllesmereUI.ReapplyOwnAnchor(info.key)
+                end
+            end
+        end
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -7152,6 +7364,8 @@ function EAB:OnInitialize()
         or (rawDB.profiles and not next(rawDB.profiles))
 
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIActionBarsDB", defaults, true)
+    -- Expose for ApplyAnchorPosition's growth-direction edge read.
+    EllesmereUI._abBarPositions = self.db.profile.barPositions
 
     -- Mark whether we need to capture Blizzard layout on first install.
     -- The actual capture is deferred to PLAYER_ENTERING_WORLD when

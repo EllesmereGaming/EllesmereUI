@@ -469,6 +469,7 @@ do
         if not C_Bank.CanWithdrawMoney(Enum.BankType.Account) then return end
         ShowMoneyPopup("Withdraw from Warbank", function(copper)
             C_Bank.WithdrawMoney(Enum.BankType.Account, copper)
+            if EUI_Bags and EUI_Bags.CaptureWarbandGold then EUI_Bags.CaptureWarbandGold() end
         end)
     end)
     depositMoneyBtn:SetScript("OnClick", function()
@@ -476,6 +477,7 @@ do
         if not C_Bank.CanDepositMoney(Enum.BankType.Account) then return end
         ShowMoneyPopup("Deposit to Warbank", function(copper)
             C_Bank.DepositMoney(Enum.BankType.Account, copper)
+            if EUI_Bags and EUI_Bags.CaptureWarbandGold then EUI_Bags.CaptureWarbandGold() end
         end)
     end)
 
@@ -1927,6 +1929,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
             DiscoverBankTabs()
             EUI_Bank:RefreshBank()
             EUI_Bank:UpdateFooterGold()
+            if EUI_Bags and EUI_Bags.CaptureWarbandGold then EUI_Bags.CaptureWarbandGold() end
         end)
 
     elseif event == "BANKFRAME_CLOSED" then

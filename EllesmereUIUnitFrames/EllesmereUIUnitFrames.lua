@@ -6,6 +6,47 @@ local string_format = string.format
 
 local oUF = ns.oUF or oUF
 local PP = EllesmereUI.PP
+
+-- Per-addon border texture defaults (size key = borderSize 0-4)
+do
+    local ALL_SIZES = { [0] = true, [1] = true, [2] = true, [3] = true, [4] = true }
+    local function AllSizes(ox, oy, sx, sy)
+        local t = {}
+        for k in pairs(ALL_SIZES) do t[k] = { offsetX = ox, offsetY = oy, shiftX = sx, shiftY = sy } end
+        return t
+    end
+    EllesmereUI.RegisterBorderDefaults("unitframes", {
+        ["glow"] = {
+            defaultSize = 1,
+            sizes = AllSizes(0, 0, 0, 0),
+        },
+        ["blizz"] = {
+            defaultSize = 4,
+            sizes = {
+                [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
+                [1] = { offsetX = 2, offsetY = 1, shiftX = 0, shiftY = 0 },
+                [2] = { offsetX = 3, offsetY = 1, shiftX = 1, shiftY = 0 },
+                [3] = { offsetX = 4, offsetY = 2, shiftX = 2, shiftY = 0 },
+                [4] = { offsetX = 5, offsetY = 3, shiftX = 2, shiftY = 0 },
+            },
+        },
+        ["dialog"] = {
+            defaultSize = 2,
+            sizes = {
+                [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
+                [1] = { offsetX = 2, offsetY = 2, shiftX = 0, shiftY = 0 },
+                [2] = { offsetX = 2, offsetY = 2, shiftX = 0, shiftY = 0 },
+                [3] = { offsetX = 4, offsetY = 4, shiftX = 0, shiftY = 0 },
+                [4] = { offsetX = 8, offsetY = 8, shiftX = 0, shiftY = 0 },
+            },
+        },
+        ["sm:Blizzard Achievement Wood"] = {
+            defaultSize = 1,
+            sizes = AllSizes(1, 1, 0, 0),
+        },
+    })
+end
+
 if not oUF then
     error("EllesmereUIUnitFrames: oUF library not found! Please install oUF to Libraries\\oUF\\ folder.")
     return
@@ -166,6 +207,7 @@ local defaults = {
             classPowerEmptyColor = { r = 0.2, g = 0.2, b = 0.2, a = 1.0 },
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
+            borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             textSize = 12,
             combatIndicatorStyle = "class",
@@ -318,6 +360,7 @@ local defaults = {
             powerBarOpacity = 100,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
+            borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             textSize = 12,
             showInRaid = true,
@@ -405,6 +448,7 @@ local defaults = {
             centerTextX = 0, centerTextY = 0,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
+            borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             powerPosition = "none",
             healthReverseFill = false,
@@ -433,6 +477,7 @@ local defaults = {
             centerTextX = 0, centerTextY = 0,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
+            borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             powerPosition = "none",
             healthReverseFill = false,
@@ -559,6 +604,7 @@ local defaults = {
             textSize = 12,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
+            borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             showInRaid = true,
             showInParty = true,
@@ -652,6 +698,7 @@ local defaults = {
             centerTextX = 0, centerTextY = 0,
             borderSize = 1,
             borderColor = { r = 0, g = 0, b = 0 },
+            borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
             raidMarkerEnabled = true,
             raidMarkerSize = 28,
@@ -1732,7 +1779,9 @@ local function UpdateBordersForScale(frame, unit)
 
     -- 1) Main frame border textures
     if frame.unifiedBorder then
-        PP.SetBorderSize(frame.unifiedBorder, borderSize)
+        local bc = settings.borderColor or { r = 0, g = 0, b = 0 }
+        local textureKey = settings.borderTexture or "solid"
+        EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, borderSize, bc.r, bc.g, bc.b, settings.borderAlpha or 1, textureKey, settings.borderTextureOffset, settings.borderTextureOffsetY, settings.borderTextureShiftX, settings.borderTextureShiftY, "unitframes", borderSize)
     end
 
     -- 2) Gather layout info
@@ -3093,24 +3142,22 @@ end
 
 
 local function FrameBorderEnter(self)
-    if self.unifiedBorder and PP.GetBorders(self.unifiedBorder) then
-        local unit = self.unit or "player"
-        local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget" or (unit and unit:match("^boss%d$")))
-        local settings = isMini and GetMiniDonorSettings() or GetSettingsForUnit(unit)
-        local hc = settings.highlightColor or { r = 1, g = 1, b = 1 }
-        local ha = settings.highlightAlpha or 1
-        PP.SetBorderColor(self.unifiedBorder, hc.r, hc.g, hc.b, ha)
-    end
+    if not self.unifiedBorder then return end
+    local unit = self.unit or "player"
+    local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget" or (unit and unit:match("^boss%d$")))
+    local settings = isMini and GetMiniDonorSettings() or GetSettingsForUnit(unit)
+    local hc = settings.highlightColor or { r = 1, g = 1, b = 1 }
+    local ha = settings.highlightAlpha or 1
+    EllesmereUI.SetBorderStyleColor(self.unifiedBorder, hc.r, hc.g, hc.b, ha)
 end
 local function FrameBorderLeave(self)
-    if self.unifiedBorder and PP.GetBorders(self.unifiedBorder) then
-        local unit = self.unit or "player"
-        local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget" or (unit and unit:match("^boss%d$")))
-        local settings = isMini and GetMiniDonorSettings() or GetSettingsForUnit(unit)
-        local bc = settings.borderColor or { r = 0, g = 0, b = 0 }
-        local ba = settings.borderAlpha or 1
-        PP.SetBorderColor(self.unifiedBorder, bc.r, bc.g, bc.b, ba)
-    end
+    if not self.unifiedBorder then return end
+    local unit = self.unit or "player"
+    local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget" or (unit and unit:match("^boss%d$")))
+    local settings = isMini and GetMiniDonorSettings() or GetSettingsForUnit(unit)
+    local bc = settings.borderColor or { r = 0, g = 0, b = 0 }
+    local ba = settings.borderAlpha or 1
+    EllesmereUI.SetBorderStyleColor(self.unifiedBorder, bc.r, bc.g, bc.b, ba)
 end
 
 -- Unified border for unit frames using the PP border system
@@ -3118,13 +3165,14 @@ local function CreateUnifiedBorder(frame, unit)
     local settings = GetSettingsForUnit(unit or "player")
     local size = settings.borderSize or 1
     local bc = settings.borderColor or { r = 0, g = 0, b = 0 }
+    local textureKey = settings.borderTexture or "solid"
 
     local border = CreateFrame("Frame", nil, frame)
     PP.Point(border, "TOPLEFT", frame, "TOPLEFT", 0, 0)
     PP.Point(border, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
     border:SetFrameLevel(frame:GetFrameLevel() + 10)
 
-    PP.CreateBorder(border, bc.r, bc.g, bc.b, 1, size)
+    EllesmereUI.ApplyBorderStyle(border, size, bc.r, bc.g, bc.b, settings.borderAlpha or 1, textureKey, settings.borderTextureOffset, settings.borderTextureOffsetY, settings.borderTextureShiftX, settings.borderTextureShiftY, "unitframes", size)
 
     frame.unifiedBorder = border
 
@@ -6727,14 +6775,10 @@ local function ReloadFrames()
                 frame.unifiedBorder:ClearAllPoints()
                 local bs = donorSettings.borderSize or 1
                 local bc = donorSettings.borderColor or { r = 0, g = 0, b = 0 }
-                if bs == 0 then
-                    frame.unifiedBorder:Hide()
-                else
-                    PP.Point(frame.unifiedBorder, "TOPLEFT", frame, "TOPLEFT", 0, 0)
-                    PP.Point(frame.unifiedBorder, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
-                    PP.UpdateBorder(frame.unifiedBorder, bs, bc.r, bc.g, bc.b, 1)
-                    frame.unifiedBorder:Show()
-                end
+                local btex = donorSettings.borderTexture or "solid"
+                PP.Point(frame.unifiedBorder, "TOPLEFT", frame, "TOPLEFT", 0, 0)
+                PP.Point(frame.unifiedBorder, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+                EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, bs, bc.r, bc.g, bc.b, donorSettings.borderAlpha or 1, btex, donorSettings.borderTextureOffset, donorSettings.borderTextureOffsetY, donorSettings.borderTextureShiftX, donorSettings.borderTextureShiftY, "unitframes", bs)
             end
 
             -- Helper: set font on a FontString, using donor font for mini frames

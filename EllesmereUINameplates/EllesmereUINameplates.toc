@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Custom Nameplate Design
 ## Author: Ellesmere
-## Version: 7.7.2
+## Version: 7.7.5
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUINameplatesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga

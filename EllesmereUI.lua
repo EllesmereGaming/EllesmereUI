@@ -67,6 +67,9 @@ end
 
 -- EllesmereUIDB is initialized from SavedVariables at ADDON_LOADED time.
 -- Do NOT create it here -- that would overwrite saved data.
+-- Save a reference so child addons can detect if their stale saved variables
+-- file overwrote EllesmereUIDB (see Bags TOC SavedVariables fix, session 94).
+EllesmereUI._parentDBRef = EllesmereUIDB
 
 -- Panel background
 local PANEL_BG_R, PANEL_BG_G, PANEL_BG_B     = 0.05, 0.07, 0.09
@@ -1526,6 +1529,314 @@ end
 local PanelPP = EllesmereUI.PanelPP
 
 -------------------------------------------------------------------------------
+--  BORDER TEXTURE SYSTEM
+--
+--  Extends the PP border system with BackdropTemplate-based textured borders.
+--  When borderTexture = "solid" (default), the existing PP 4-strip system is
+--  used with zero behavior change. When borderTexture is any other key, a
+--  BackdropTemplate child frame is created with the resolved edge texture and
+--  the PP strips are hidden.
+--
+--  API:
+--    EllesmereUI.GetBorderTextureList()       -- sorted {key,name} array
+--    EllesmereUI.GetBorderTextureDropdown()    -- values + order for W:DualRow
+--    EllesmereUI.ResolveBorderTexture(key)     -- key -> edgeFile path (nil for solid)
+--    EllesmereUI.ApplyBorderStyle(frame, sz, r,g,b,a, textureKey)
+--    EllesmereUI.SetBorderStyleColor(frame, r,g,b,a)
+-------------------------------------------------------------------------------
+do
+    local _bdBorderData = setmetatable({}, { __mode = "k" })
+    EllesmereUI._bdBorderData = _bdBorderData
+
+    -- Per-addon border defaults registry.
+    -- Each addon registers a table keyed by texture key. Each texture entry has:
+    --   defaultSize: the size key to auto-set when this texture is selected
+    --   sizes: table keyed by size key (addon-specific format), each with:
+    --     offsetX, offsetY, shiftX, shiftY (all default to 0 if omitted)
+    -- Addons register via EllesmereUI.RegisterBorderDefaults(addonKey, table).
+    -- Lookup via EllesmereUI.GetBorderDefaults(addonKey, textureKey, sizeKey).
+    local _borderDefaults = {}
+
+    function EllesmereUI.RegisterBorderDefaults(addonKey, defaults)
+        _borderDefaults[addonKey] = defaults
+    end
+
+    --- Get per-addon border defaults for a texture+size combo.
+    --- Returns offsetX, offsetY, shiftX, shiftY (all 0 if not registered).
+    function EllesmereUI.GetBorderDefaults(addonKey, textureKey, sizeKey)
+        local addon = _borderDefaults[addonKey]
+        if not addon then return 0, 0, 0, 0 end
+        local tex = addon[textureKey]
+        if not tex or not tex.sizes then return 0, 0, 0, 0 end
+        local s = tex.sizes[sizeKey]
+        if not s then return 0, 0, 0, 0 end
+        return s.offsetX or 0, s.offsetY or 0, s.shiftX or 0, s.shiftY or 0
+    end
+
+    --- Get the default size key for a texture in a specific addon.
+    --- Returns nil if not registered (caller keeps current size).
+    function EllesmereUI.GetBorderDefaultSize(addonKey, textureKey)
+        local addon = _borderDefaults[addonKey]
+        if not addon then return nil end
+        local tex = addon[textureKey]
+        return tex and tex.defaultSize or nil
+    end
+
+    -- Built-in border textures (always available, no SharedMedia required)
+    -- defaultOffset: how far outward the backdrop frame extends from the content
+    -- edge. Each texture has different internal padding, so this is tuned per-texture.
+    EllesmereUI._builtinBorderTextures = {
+        { key = "solid",   name = "Solid" },
+        { key = "glow",    name = "Glow",            path = "Interface\\AddOns\\EllesmereUI\\media\\borders\\glow-border",  defaultOffset = 0, defaultOffsetY = 0, scaleOffset = true, defaultThickness = "normal" },
+        { key = "blizz",   name = "Blizzard",        path = "Interface\\AddOns\\EllesmereUI\\media\\borders\\blizz-border", defaultOffset = 3, defaultOffsetY = 2, scaleOffset = true, defaultThickness = "heavy" },
+        { key = "dialog",  name = "Blizzard Dialog",  path = "Interface\\DialogFrame\\UI-DialogBox-Border",                 defaultOffset = 4, defaultOffsetY = 4, defaultThickness = "normal" },
+    }
+    local DEFAULT_LSM_OFFSET = 0
+
+    --- Build a sorted list of border texture entries for dropdown widgets.
+    function EllesmereUI.GetBorderTextureList()
+        local list = {}
+        local seen = {}
+        for _, entry in ipairs(EllesmereUI._builtinBorderTextures) do
+            list[#list + 1] = { key = entry.key, name = entry.name }
+            seen[entry.name] = true
+        end
+        local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+        if LSM then
+            local smBorders = LSM:HashTable("border")
+            if smBorders then
+                local LSM_BLACKLIST = {
+                    ["Blizzard Tooltip"] = true,
+                    ["Blizzard Chat Bubble"] = true,
+                    ["Blizzard Dialog Gold"] = true,
+                    ["Blizzard Party"] = true,
+                    ["None"] = true,
+                }
+                local sorted = {}
+                for name in pairs(smBorders) do
+                    if not seen[name] and not LSM_BLACKLIST[name] then
+                        sorted[#sorted + 1] = name
+                    end
+                end
+                table.sort(sorted)
+                local LSM_RENAME = {
+                    ["Blizzard Achievement Wood"] = "Blizzard Wood",
+                }
+                for _, name in ipairs(sorted) do
+                    list[#list + 1] = { key = "sm:" .. name, name = LSM_RENAME[name] or name }
+                end
+            end
+        end
+        return list
+    end
+
+    --- Build dropdown values/order tables from the texture list.
+    function EllesmereUI.GetBorderTextureDropdown()
+        local texList = EllesmereUI.GetBorderTextureList()
+        local values, order = {}, {}
+        for _, entry in ipairs(texList) do
+            values[entry.key] = entry.name
+            order[#order + 1] = entry.key
+        end
+        return values, order
+    end
+
+    -- Per-LSM-texture defaults (keyed by original LSM name)
+    local LSM_DEFAULT_OFFSETS = {
+        ["Blizzard Achievement Wood"] = { x = 1, y = 1, thickness = "thin" },
+    }
+
+    --- Get the default border thickness for a texture key.
+    function EllesmereUI.GetBorderTextureDefaultThickness(key)
+        if not key or key == "" or key == "solid" then return nil end
+        for _, entry in ipairs(EllesmereUI._builtinBorderTextures) do
+            if entry.key == key then return entry.defaultThickness end
+        end
+        local smName = key:match("^sm:(.+)")
+        if smName and LSM_DEFAULT_OFFSETS[smName] then return LSM_DEFAULT_OFFSETS[smName].thickness end
+        return nil
+    end
+
+    --- Get the default X offset for a border texture key.
+    function EllesmereUI.GetBorderTextureDefaultOffset(key)
+        if not key or key == "" or key == "solid" then return 0 end
+        for _, entry in ipairs(EllesmereUI._builtinBorderTextures) do
+            if entry.key == key then return entry.defaultOffset or DEFAULT_LSM_OFFSET end
+        end
+        local smName = key:match("^sm:(.+)")
+        if smName and LSM_DEFAULT_OFFSETS[smName] then return LSM_DEFAULT_OFFSETS[smName].x end
+        return DEFAULT_LSM_OFFSET
+    end
+
+    --- Get the default Y offset for a border texture key.
+    function EllesmereUI.GetBorderTextureDefaultOffsetY(key)
+        if not key or key == "" or key == "solid" then return 0 end
+        for _, entry in ipairs(EllesmereUI._builtinBorderTextures) do
+            if entry.key == key then return entry.defaultOffsetY or entry.defaultOffset or DEFAULT_LSM_OFFSET end
+        end
+        local smName = key:match("^sm:(.+)")
+        if smName and LSM_DEFAULT_OFFSETS[smName] then return LSM_DEFAULT_OFFSETS[smName].y end
+        return DEFAULT_LSM_OFFSET
+    end
+
+    --- Check if a border texture uses scaled offset (edgeSize/2 base).
+    function EllesmereUI.BorderTextureUsesScaleOffset(key)
+        if not key or key == "" or key == "solid" then return false end
+        for _, entry in ipairs(EllesmereUI._builtinBorderTextures) do
+            if entry.key == key then return entry.scaleOffset == true end
+        end
+        return false
+    end
+
+    --- Resolve a border texture key to a file path.
+    --- Returns nil for "solid" (meaning use PP system).
+    function EllesmereUI.ResolveBorderTexture(key)
+        if not key or key == "" or key == "solid" then return nil end
+        for _, entry in ipairs(EllesmereUI._builtinBorderTextures) do
+            if entry.key == key then return entry.path end
+        end
+        local smName = key:match("^sm:(.+)")
+        if smName then
+            local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+            if LSM then
+                local path = LSM:Fetch("border", smName)
+                if path and path ~= "" then return path end
+            end
+        end
+        if key:find("\\") or key:find("/") then return key end
+        return nil
+    end
+
+    --- Apply border style to a border frame, managing PP vs BackdropTemplate.
+    --- borderFrame must be a frame we own (not a Blizzard frame).
+    --- size: border thickness in PP pixels (solid) or mapped to edgeSize (textured).
+    --- textureKey: "solid"/nil for PP, anything else for BackdropTemplate.
+    --- offsetOverride/offsetYOverride: optional user override (nil = use per-addon or global default).
+    --- shiftX/shiftY: optional user override (nil = use per-addon default or 0).
+    --- addonKey/sizeKey: optional per-addon registry lookup key pair for defaults.
+    function EllesmereUI.ApplyBorderStyle(borderFrame, size, r, g, b, a, textureKey, offsetOverride, offsetYOverride, shiftX, shiftY, addonKey, sizeKey)
+        local PP = EllesmereUI.PP
+        if not PP or not borderFrame then return end
+        a = a or 1
+
+        local isSolid = not textureKey or textureKey == "" or textureKey == "solid"
+
+        if isSolid then
+            -- Hide BackdropTemplate border if present
+            local bdFrame = _bdBorderData[borderFrame]
+            if bdFrame then bdFrame:Hide() end
+            -- Use PP system (existing behavior, zero change)
+            if size > 0 then
+                if PP.GetBorders(borderFrame) then
+                    PP.UpdateBorder(borderFrame, size, r, g, b, a)
+                    PP.ShowBorder(borderFrame)
+                    -- Restore alpha in case textured mode zeroed it
+                    local ppC = PP.GetBorders(borderFrame)
+                    if ppC then
+                        if ppC._top then ppC._top:SetAlpha(1) end
+                        if ppC._bottom then ppC._bottom:SetAlpha(1) end
+                        if ppC._left then ppC._left:SetAlpha(1) end
+                        if ppC._right then ppC._right:SetAlpha(1) end
+                    end
+                else
+                    PP.CreateBorder(borderFrame, r, g, b, a, size, "OVERLAY", 7)
+                end
+                borderFrame:Show()
+            else
+                if PP.GetBorders(borderFrame) then PP.HideBorder(borderFrame) end
+                borderFrame:Hide()
+            end
+        else
+            -- Textured border via BackdropTemplate
+            local texPath = EllesmereUI.ResolveBorderTexture(textureKey)
+            if not texPath or size <= 0 then
+                local bdFrame = _bdBorderData[borderFrame]
+                if bdFrame then bdFrame:Hide() end
+                if PP.GetBorders(borderFrame) then PP.HideBorder(borderFrame) end
+                if size <= 0 then borderFrame:Hide() end
+                return
+            end
+            -- Hide PP borders and zero their alpha so they can't flash
+            if PP.GetBorders(borderFrame) then
+                PP.HideBorder(borderFrame)
+                local ppC = PP.GetBorders(borderFrame)
+                if ppC then
+                    if ppC._top then ppC._top:SetAlpha(0) end
+                    if ppC._bottom then ppC._bottom:SetAlpha(0) end
+                    if ppC._left then ppC._left:SetAlpha(0) end
+                    if ppC._right then ppC._right:SetAlpha(0) end
+                end
+            end
+            -- Create or reuse BackdropTemplate frame
+            local bdFrame = _bdBorderData[borderFrame]
+            if not bdFrame then
+                bdFrame = CreateFrame("Frame", nil, borderFrame, "BackdropTemplate")
+                bdFrame:EnableMouse(false)
+                _bdBorderData[borderFrame] = bdFrame
+            end
+            bdFrame:SetFrameLevel(borderFrame:GetFrameLevel())
+            local EDGE_MAP = { 12, 16, 24, 32 }
+            local edgeSize = EDGE_MAP[size] or 12
+            -- Resolve offset/shift defaults: per-addon registry first, then global fallback.
+            local adjX, adjY, sx, sy
+            if addonKey and sizeKey then
+                local dox, doy, dsx, dsy = EllesmereUI.GetBorderDefaults(addonKey, textureKey, sizeKey)
+                adjX = offsetOverride or dox
+                adjY = offsetYOverride or doy
+                sx   = shiftX or dsx
+                sy   = shiftY or dsy
+            else
+                adjX = offsetOverride or EllesmereUI.GetBorderTextureDefaultOffset(textureKey)
+                adjY = offsetYOverride or EllesmereUI.GetBorderTextureDefaultOffsetY(textureKey)
+                sx   = shiftX or 0
+                sy   = shiftY or 0
+            end
+            -- Custom textures (scaleOffset): base = edgeSize/2 so border tracks
+            -- the edge at any size, plus a small fine-tune adjustment.
+            -- Other textures: absolute offset (no edgeSize base).
+            local offsetX, offsetY
+            if EllesmereUI.BorderTextureUsesScaleOffset(textureKey) then
+                offsetX = (edgeSize / 2) + adjX
+                offsetY = (edgeSize / 2) + adjY
+            else
+                offsetX = adjX
+                offsetY = adjY
+            end
+            bdFrame:ClearAllPoints()
+            bdFrame:SetPoint("TOPLEFT", borderFrame, "TOPLEFT", -offsetX + sx, offsetY + sy)
+            bdFrame:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMRIGHT", offsetX + sx, -offsetY + sy)
+            bdFrame:SetBackdrop({
+                edgeFile = texPath,
+                edgeSize = edgeSize,
+                insets = { left = 0, right = 0, top = 0, bottom = 0 },
+            })
+            bdFrame:SetBackdropBorderColor(r, g, b, a)
+            bdFrame:Show()
+            borderFrame:Show()
+        end
+    end
+
+    --- Set border color on whichever system is currently active (PP or backdrop).
+    --- Used for hover highlights and other dynamic color changes.
+    function EllesmereUI.SetBorderStyleColor(borderFrame, r, g, b, a)
+        local PP = EllesmereUI.PP
+        if not PP or not borderFrame then return end
+        a = a or 1
+        -- Check PP first
+        local ppContainer = PP.GetBorders(borderFrame)
+        if ppContainer and ppContainer:IsShown() then
+            PP.SetBorderColor(borderFrame, r, g, b, a)
+            return
+        end
+        -- Check BackdropTemplate
+        local bdFrame = _bdBorderData[borderFrame]
+        if bdFrame and bdFrame:IsShown() then
+            bdFrame:SetBackdropBorderColor(r, g, b, a)
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Global Color System
 --  Central source of truth for class, power, and resource colors.
 --  Stored in EllesmereUIDB.customColors; falls back to WoW defaults.
@@ -1544,6 +1855,7 @@ EllesmereUI.DEFAULT_POWER_COLORS = {
     MAELSTROM    = { r = 0x00/255, g = 0x70/255, b = 0xDE/255 },
     FURY         = { r = 0xA3/255, g = 0x30/255, b = 0xC9/255 },
     PAIN         = { r = 1.000, g = 0.612, b = 0.000 },
+    EBON_MIGHT   = { r = 0xE6/255, g = 0x8C/255, b = 0x4D/255 },
 }
 
 -- Default resource colors (class-specific resource pips)
@@ -2404,6 +2716,7 @@ do
         if (instanceType == "pvp" or instanceType == "arena") and InCombatLockdown() then return true end
         return false
     end
+    EllesmereUI.InProtectedInstance = InProtectedInstance
 
     -- Check if a toy/item hearthstone is on cooldown.
     -- Skips in M+/raid combat to avoid secret value errors.
@@ -7326,7 +7639,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "7.7.2"
+EllesmereUI.VERSION = "7.7.5"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

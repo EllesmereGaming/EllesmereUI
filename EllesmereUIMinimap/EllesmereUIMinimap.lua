@@ -277,6 +277,11 @@ local function IsUngrouped(btn)
     return name and mp.ungroupedButtons[name]
 end
 
+local function GetMinimapButtonLabel(btn)
+    local name = btn:GetName() or ""
+    return name:gsub("^LibDBIcon10_", ""):gsub("^Lib_GPI_Minimap_", ""):gsub("MinimapButton$", ""):gsub("_MinimapButton$", "")
+end
+
 local function CollectFlyoutButtons()
     -- Return only buttons the addon wants visible and not ungrouped
     local collected = {}
@@ -285,6 +290,9 @@ local function CollectFlyoutButtons()
             collected[#collected + 1] = btn
         end
     end
+    table.sort(collected, function(a, b)
+        return GetMinimapButtonLabel(a):lower() < GetMinimapButtonLabel(b):lower()
+    end)
     return collected
 end
 

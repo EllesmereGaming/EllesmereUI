@@ -3968,6 +3968,27 @@ local function SkinCharacterSheet()
         end
     end
 
+    local function CharSheetGemsActive()
+        if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return false end
+        if EllesmereUIDB and EllesmereUIDB.showGems == false then return false end
+        return true
+    end
+
+    local _equippedItemIDs = {}
+    local function RefreshEquippedItemIDs()
+        wipe(_equippedItemIDs)
+        for _, slotName in ipairs(itemSlots) do
+            local sl = _G[slotName]
+            if sl and sl.GetID then
+                local iid = GetInventoryItemID("player", sl:GetID())
+                if iid and iid > 0 then
+                    _equippedItemIDs[iid] = true
+                end
+            end
+        end
+    end
+    RefreshEquippedItemIDs()
+
     -- Equipment / item-load hooks: trailing debounce so bursts of
     -- GET_ITEM_INFO_RECEIVED schedule one refresh after data settles (a
     -- leading debounce can fire once on stale links right after /reload).
@@ -3986,15 +4007,23 @@ local function SkinCharacterSheet()
     end
 
     local socketWatcher = CreateFrame("Frame")
-    -- Low-frequency events: always registered (equip changes, login).
     socketWatcher:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
     socketWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
-    -- High-frequency events (TOOLTIP_DATA_UPDATE, GET_ITEM_INFO_RECEIVED,
-    -- UNIT_INVENTORY_CHANGED, SOCKET_INFO_UPDATE) are registered in OnShow
-    -- and unregistered in OnHide so they cost zero when the sheet is closed.
+    -- Hydration (2 global): must hear item load while Character is closed after
+    -- /reload. UNIT_INVENTORY_CHANGED + SOCKET_INFO_UPDATE (2 OnShow-only) below.
+    if CharSheetGemsActive() then
+        socketWatcher:RegisterEvent("TOOLTIP_DATA_UPDATE")
+        socketWatcher:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+    end
     socketWatcher:SetScript("OnEvent", function(_, event, arg1)
-        if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+        if not CharSheetGemsActive() then return end
         if event == "UNIT_INVENTORY_CHANGED" and arg1 ~= "player" then return end
+        if event == "PLAYER_EQUIPMENT_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
+            RefreshEquippedItemIDs()
+        end
+        if event == "GET_ITEM_INFO_RECEIVED" and (not arg1 or not _equippedItemIDs[arg1]) then
+            return
+        end
         -- Clear stale gem art for the slot that just changed BEFORE the
         -- debounced refresh runs. Without this, the old item's gem icons
         -- can remain visible until /reload if the refresh path somehow
@@ -4003,21 +4032,23 @@ local function SkinCharacterSheet()
             local slotName = _invSlotToName[arg1]
             if slotName then ClearSlotGems(_G[slotName]) end
         end
-        if frame:IsShown() and (frame.selectedTab or 1) == 1 then
-            QueueSocketRefresh()
+        -- No refresh work while the sheet is closed (handler still runs for
+        -- equipped-item cache / clear-slot above).
+        if not frame:IsShown() or (frame.selectedTab or 1) ~= 1 then
+            return
         end
+        QueueSocketRefresh()
     end)
 
     -- Hook frame show/hide
     frame:HookScript("OnShow", function()
-        -- Register high-frequency events only while the sheet is visible.
-        socketWatcher:RegisterEvent("TOOLTIP_DATA_UPDATE")
-        socketWatcher:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+        -- Non-hydration high-frequency events: only while the sheet is visible.
         socketWatcher:RegisterEvent("UNIT_INVENTORY_CHANGED")
         socketWatcher:RegisterEvent("SOCKET_INFO_UPDATE")
         -- Only refresh sockets and show container if on character tab
         local isCharacterTab = (frame.selectedTab or 1) == 1
         if isCharacterTab then
+            RefreshEquippedItemIDs()
             RefreshAllSocketIcons()
             QueueSocketRefresh()
             globalSocketContainer:Show()
@@ -4041,9 +4072,6 @@ local function SkinCharacterSheet()
     end)
 
     frame:HookScript("OnHide", function()
-        -- Unregister high-frequency events so they cost zero while closed.
-        socketWatcher:UnregisterEvent("TOOLTIP_DATA_UPDATE")
-        socketWatcher:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
         socketWatcher:UnregisterEvent("UNIT_INVENTORY_CHANGED")
         socketWatcher:UnregisterEvent("SOCKET_INFO_UPDATE")
         if _socketRefreshTimer then

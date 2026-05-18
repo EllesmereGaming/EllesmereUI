@@ -554,7 +554,7 @@ initFrame:SetScript("OnEvent", function(self)
         onReset = function()
             if not EllesmereUIDB then return end
             -- Wipe all bag* and bank* prefixed keys + non-prefixed bags keys
-            local extraKeys = { enableGoldTracking = true, itemlevelFontSize = true, detachReagentBag = true, goldData = true }
+            local extraKeys = { enableGoldTracking = true, itemlevelFontSize = true, detachReagentBag = true, goldData = true, warbandGold = true }
             for k in pairs(EllesmereUIDB) do
                 if type(k) == "string" then
                     if k:sub(1, 3) == "bag" or k:sub(1, 4) == "bank" or extraKeys[k] then

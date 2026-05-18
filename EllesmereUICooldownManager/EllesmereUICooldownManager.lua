@@ -111,6 +111,40 @@ do
     end
 end
 
+-- Per-addon border texture defaults (same as Action Bars -- same size system)
+do
+    local ALL_SIZES = { "none", "thin", "normal", "heavy", "strong" }
+    local function AllSizes(ox, oy, sx, sy)
+        local t = {}
+        for _, k in ipairs(ALL_SIZES) do t[k] = { offsetX = ox, offsetY = oy, shiftX = sx, shiftY = sy } end
+        return t
+    end
+    EllesmereUI.RegisterBorderDefaults("cdm", {
+        ["glow"] = {
+            defaultSize = "normal",
+            sizes = AllSizes(0, 0, 0, 0),
+        },
+        ["blizz"] = {
+            defaultSize = "heavy",
+            sizes = {
+                none   = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
+                thin   = { offsetX = 2, offsetY = 1, shiftX = 0, shiftY = 0 },
+                normal = { offsetX = 3, offsetY = 2, shiftX = 0, shiftY = 0 },
+                heavy  = { offsetX = 4, offsetY = 2, shiftX = 1, shiftY = 0 },
+                strong = { offsetX = 4, offsetY = 2, shiftX = 2, shiftY = 0 },
+            },
+        },
+        ["dialog"] = {
+            defaultSize = "normal",
+            sizes = AllSizes(4, 4, 0, 0),
+        },
+        ["sm:Blizzard Achievement Wood"] = {
+            defaultSize = "thin",
+            sizes = AllSizes(1, 1, 0, 0),
+        },
+    })
+end
+
 local ECME = EllesmereUI.Lite.NewAddon("EllesmereUICooldownManager")
 ns.ECME = ECME
 
@@ -179,6 +213,7 @@ local StartNativeGlow, StopNativeGlow
 local _cdmKeybindCache       = {}   -- [spellID] -> formatted key string
 local _keybindRebuildPending = false
 local _keybindCacheReady     = false  -- true after first successful build
+local _keybindDebounceTimer  = nil   -- cancellable timer for debounced keybind updates
 
 -- Combat state tracked via events (InCombatLockdown() can lag behind PLAYER_REGEN_DISABLED)
 local _inCombat = false
@@ -379,7 +414,7 @@ local DEFAULTS = {
                     barType = "cooldowns",
                     iconSize = 42, numRows = 1, spacing = 2,
                     borderSize = 1, borderR = 0, borderG = 0, borderB = 0, borderA = 1,
-                    borderClassColor = false,
+                    borderClassColor = false, borderTexture = "solid",
                     bgR = 0.08, bgG = 0.08, bgB = 0.08, bgA = 0.6,
                     iconZoom = 0.08, iconShape = "none",
                     verticalOrientation = false, barBgEnabled = false,                    barBgR = 0, barBgG = 0, barBgB = 0,
@@ -398,7 +433,7 @@ local DEFAULTS = {
                     barType = "utility",
                     iconSize = 36, numRows = 1, spacing = 2,
                     borderSize = 1, borderR = 0, borderG = 0, borderB = 0, borderA = 1,
-                    borderClassColor = false,
+                    borderClassColor = false, borderTexture = "solid",
                     bgR = 0.08, bgG = 0.08, bgB = 0.08, bgA = 0.6,
                     iconZoom = 0.08, iconShape = "none",
                     verticalOrientation = false, barBgEnabled = false,                    barBgR = 0, barBgG = 0, barBgB = 0,
@@ -417,7 +452,7 @@ local DEFAULTS = {
                     barType = "buffs",
                     iconSize = 32, numRows = 1, spacing = 2,
                     borderSize = 1, borderR = 0, borderG = 0, borderB = 0, borderA = 1,
-                    borderClassColor = false,
+                    borderClassColor = false, borderTexture = "solid",
                     bgR = 0.08, bgG = 0.08, bgB = 0.08, bgA = 0.6,
                     iconZoom = 0.08, iconShape = "none",
                     verticalOrientation = false, barBgEnabled = false,                    barBgR = 0, barBgG = 0, barBgB = 0,
@@ -1658,9 +1693,11 @@ local function EnforceCooldownViewerEditModeSettings()
     if type(layoutInfo) ~= "table" or type(layoutInfo.layouts) ~= "table" then return end
 
     -- Merge preset layouts so activeLayout index resolves correctly
+    local numPresets = 0
     if EditModePresetLayoutManager and EditModePresetLayoutManager.GetCopyOfPresetLayouts then
         local presets = EditModePresetLayoutManager:GetCopyOfPresetLayouts()
         if type(presets) == "table" then
+            numPresets = #presets
             tAppendAll(presets, layoutInfo.layouts)
             layoutInfo.layouts = presets
         end
@@ -1669,6 +1706,34 @@ local function EnforceCooldownViewerEditModeSettings()
     local activeLayout = type(layoutInfo.activeLayout) == "number"
         and layoutInfo.layouts[layoutInfo.activeLayout]
     if not activeLayout or type(activeLayout.systems) ~= "table" then return end
+
+    -- Preset layouts are read-only: SaveLayouts won't persist changes to
+    -- them, causing an infinite enforce -> save -> reload loop because the
+    -- preset resets on next login. Skip enforcement for presets and warn
+    -- the user once per session.
+    if numPresets > 0 and type(layoutInfo.activeLayout) == "number" and layoutInfo.activeLayout <= numPresets then
+        _editModePolicyApplied = true
+        -- Only warn about preset layouts when Always Show Buffs is enabled,
+        -- since that's the only setting that requires modifying the layout.
+        local p = ECME.db and ECME.db.profile
+        if not _suppressPolicyPopup and p and p.cdmBars and p.cdmBars.showInactiveBuffIcons then
+            C_Timer.After(0, function()
+                if not EllesmereUI or not EllesmereUI.ShowConfirmPopup then return end
+                EllesmereUI:ShowConfirmPopup({
+                    title = "Edit Mode Layout",
+                    message = "Your Edit Mode layout is a Blizzard preset which cannot be modified by addons. Please switch to a custom Edit Mode layout so EllesmereUI can manage your CDM settings.\n\nOpen Edit Mode to create or select a custom layout.",
+                    confirmText = "Open Edit Mode",
+                    cancelText = "Close",
+                    onConfirm = function()
+                        if not InCombatLockdown() and EditModeManagerFrame and EditModeManagerFrame.Show then
+                            EditModeManagerFrame:Show()
+                        end
+                    end,
+                })
+            end)
+        end
+        return
+    end
 
     local changed = false
     local cooldownSystem = Enum.EditModeSystem.CooldownViewer
@@ -1879,40 +1944,32 @@ local function ApplyBarPositionCentered(frame, pos, barKey)
     local px, py = pos.x or 0, pos.y or 0
     local anchor = pos.point
 
-    -- If stored as CENTER/CENTER, convert to grow-direction-aware anchor
-    -- so the fixed edge stays put when bar width changes across specs.
-    -- Skip conversion for dynamic bars (buffs/custom_buff) whose icon count
-    -- varies at runtime -- using frame:GetWidth() would produce a different
-    -- offset every time the count changes, causing the bar to jump.
-    if pos.point == "CENTER" and (pos.relPoint == "CENTER" or not pos.relPoint) then
-        local bd = barKey and barDataByKey[barKey]
-        local isDynamic = bd and (bd.barType == "buffs" or barKey == "buffs" or bd.barType == "custom_buff")
+    -- Runtime conversion: if a non-CENTER-grow bar still has a CENTER position
+    -- (legacy data, Blizzard import, or dev migration gap), convert to edge
+    -- format for SetPoint so the bar grows from the correct edge.
+    -- No persistence: positions are only saved by unlock mode's Save & Exit.
+    if anchor == "CENTER" and barKey then
+        local bd = barDataByKey[barKey]
         local grow = bd and bd.growDirection or "CENTER"
-        local fw = frame:GetWidth() or 0
-        local fh = frame:GetHeight() or 0
-        -- Use raw fw/2 and fh/2 (not floor) so odd-pixel-height/width bars
-        -- with integer + 0.5 center coords reverse exactly to integer pixel
-        -- edges. floor() loses the .5 and causes a 1px drift on save & exit.
-        if not isDynamic and grow == "RIGHT" then
-            anchor = "LEFT"
-            px = px - fw / 2
-        elseif not isDynamic and grow == "LEFT" then
-            anchor = "RIGHT"
-            px = px + fw / 2
-        elseif grow == "DOWN" then
-            anchor = "TOP"
-            py = py + fh / 2
-        elseif grow == "UP" then
-            anchor = "BOTTOM"
-            py = py - fh / 2
+        if grow ~= "CENTER" then
+            local fw = frame:GetWidth() or 0
+            local fh = frame:GetHeight() or 0
+            if grow == "RIGHT" and fw > 0 then
+                anchor = "LEFT"; px = px - fw / 2
+            elseif grow == "LEFT" and fw > 0 then
+                anchor = "RIGHT"; px = px + fw / 2
+            elseif grow == "DOWN" and fh > 0 then
+                anchor = "TOP"; py = py + fh / 2
+            elseif grow == "UP" and fh > 0 then
+                anchor = "BOTTOM"; py = py - fh / 2
+            end
         end
     end
 
-    -- Snap to physical pixel grid. For CENTER anchor (when growDir didn't
-    -- convert to an edge anchor), use SnapCenterForDim to preserve the
-    -- +0.5 offset that odd-pixel-dim frames need so their edges land on
-    -- whole pixels. For edge anchors (LEFT/RIGHT/TOP/BOTTOM), the offset
-    -- already represents an edge position and SnapForES is correct.
+    -- Snap to physical pixel grid. For CENTER anchor, use SnapCenterForDim
+    -- to preserve the +0.5 offset that odd-pixel-dim frames need so their
+    -- edges land on whole pixels. For edge anchors (LEFT/RIGHT/TOP/BOTTOM),
+    -- the offset already represents an edge position and SnapForES is correct.
     local PPa = EllesmereUI and EllesmereUI.PP
     if PPa then
         local es = frame:GetEffectiveScale()
@@ -1942,14 +1999,11 @@ local function SaveCDMBarPosition(barKey, frame)
 
     -- Determine anchor point from grow direction so the bar's fixed edge
     -- stays put when icon count changes (spec swaps, combat buff churn).
-    -- Dynamic bars (buffs/custom_buff) use edge anchoring only for UP/DOWN;
-    -- LEFT/RIGHT stays CENTER to avoid horizontal drift from icon count changes.
     local bd = barDataByKey[barKey]
-    local isDynamic = bd and (bd.barType == "buffs" or barKey == "buffs" or bd.barType == "custom_buff")
     local grow = bd and bd.growDirection or "CENTER"
     local pt
-    if not isDynamic and grow == "RIGHT" then pt = "LEFT"
-    elseif not isDynamic and grow == "LEFT"  then pt = "RIGHT"
+    if grow == "RIGHT" then pt = "LEFT"
+    elseif grow == "LEFT"  then pt = "RIGHT"
     elseif grow == "DOWN"  then pt = "TOP"
     elseif grow == "UP"    then pt = "BOTTOM"
     elseif grow == "CENTER" then pt = "CENTER"
@@ -2466,7 +2520,7 @@ LayoutCDMBar = function(barKey)
     local grow = frame._mouseGrow or barData.growDirection or "CENTER"
     local numRows = barData.numRows or 1
     if numRows < 1 then numRows = 1 end
-    local isHoriz = (grow == "RIGHT" or grow == "LEFT" or grow == "CENTER")
+    local isHoriz = (grow == "RIGHT" or grow == "LEFT" or (grow == "CENTER" and not barData.verticalOrientation))
     -- spacing is a raw coord value; the per-frame pixel conversion below
     -- (spacingPx = floor(spacing / onePx + 0.5)) rounds to nearest whole
     -- physical pixel. Do NOT pre-snap with SnapForScale: PP.Scale truncates,
@@ -2630,11 +2684,15 @@ LayoutCDMBar = function(barKey)
     local totalW = totalWPx * onePx
     local totalH = totalHPx * onePx
 
-    -- Just resize the container. Never re-anchor, save position, or
-    -- propagate here. Bar position is set by BuildCDMBar / unlock mode.
-    -- LayoutCDMBar's job is ONLY: resize container + position icons inside.
-    -- pcall: suppresses rare taint noise from hook execution context.
-    pcall(frame.SetSize, frame, totalW, totalH)
+    -- Growth-direction edge handling around SetSize.
+    -- SetSize is deferred to AFTER icon positioning (below) so that icons
+    -- and bar resize both take effect on the same rendered frame. Positioning
+    -- icons first is safe: they use computed absolute offsets from TOPLEFT,
+    -- not the frame's current dimensions.
+    local unlockKey = "CDM_" .. barKey
+    -- Freeze buff-family bar size during unlock mode so the mover overlay
+    -- stays in sync (overlay doesn't dynamically resize with buff count).
+    local skipResize = EllesmereUI._unlockActive and ns.IsBarBuffFamily(barData)
 
 
     -- Bar background
@@ -2760,47 +2818,26 @@ LayoutCDMBar = function(barKey)
         -- this frame was on) and snaps the icon back to the wrong place.
         -- This was the source of the "icon offset by ~50px" bug when
         -- moving a spell from utility to cooldowns.
+        -- All growth directions use the same TOPLEFT icon layout.
+        -- Growth direction only affects which edge of the FRAME is fixed
+        -- during resize (handled by edge preservation). Icon order never
+        -- changes with growth direction.
         local anchorPt, anchorRelPt, anchorX, anchorY
-        if grow == "RIGHT" then
-            local rowOffset = 0
+        local rowOffset = 0
+        if isHoriz then
             if rowHasLess then
                 rowOffset = math.floor((stride - rowCount) * stepW / 2 + 0.5)
             end
             anchorPt, anchorRelPt = "TOPLEFT", "TOPLEFT"
             anchorX = (posX + rowOffset) * iS
             anchorY = -(posY + extraBeforeR) * iS
-        elseif grow == "LEFT" then
-            local rowOffset = 0
-            if rowHasLess then
-                rowOffset = math.floor((stride - rowCount) * stepW / 2 + 0.5)
-            end
-            anchorPt, anchorRelPt = "TOPRIGHT", "TOPRIGHT"
-            anchorX = -(posX + rowOffset) * iS
-            anchorY = -(posY + extraBeforeR) * iS
-        elseif grow == "DOWN" then
-            local rowOffset = 0
+        else
             if rowHasLess then
                 rowOffset = math.floor((stride - rowCount) * stepH / 2 + 0.5)
             end
             anchorPt, anchorRelPt = "TOPLEFT", "TOPLEFT"
             anchorX = (row * stepW + extraBeforeR) * iS
             anchorY = -(col * stepH + extraBefore + rowOffset) * iS
-        elseif grow == "UP" then
-            local rowOffset = 0
-            if rowHasLess then
-                rowOffset = math.floor((stride - rowCount) * stepH / 2 + 0.5)
-            end
-            anchorPt, anchorRelPt = "BOTTOMLEFT", "BOTTOMLEFT"
-            anchorX = (row * stepW + extraBeforeR) * iS
-            anchorY = (col * stepH + extraBefore + rowOffset) * iS
-        elseif grow == "CENTER" then
-            local rowOffset = 0
-            if rowHasLess then
-                rowOffset = math.floor((stride - rowCount) * stepW / 2 + 0.5)
-            end
-            anchorPt, anchorRelPt = "TOPLEFT", "CENTER"
-            anchorX = (posX + rowOffset - totalW / 2) * iS
-            anchorY = (-(posY + extraBeforeR) + totalH / 2) * iS
         end
 
         if anchorPt then
@@ -2812,6 +2849,54 @@ LayoutCDMBar = function(barKey)
                 fd._cdmAnchor = { anchorPt, frame, anchorRelPt, anchorX, anchorY }
             end
             icon:SetPoint(anchorPt, frame, anchorRelPt, anchorX, anchorY)
+        end
+    end
+
+    -- SetSize AFTER icon positioning: ensures bar resize and icon placement
+    -- both take effect on the same rendered frame (no 1-frame size mismatch).
+    if not skipResize then
+        local oldW = frame:GetWidth() or 0
+        local oldH = frame:GetHeight() or 0
+        EllesmereUI._layoutBarResizing = unlockKey
+        pcall(frame.SetSize, frame, totalW, totalH)
+        EllesmereUI._layoutBarResizing = nil
+        -- Anchor offset maintenance: when a growth-direction bar resizes,
+        -- the center shifts by delta/2 but the fixed edge stays put.
+        -- Adjust the center-based anchor offset so the relationship stays
+        -- consistent on /reload.
+        -- This is NOT a position write (positions are only saved by Save & Exit).
+        local grow = barData.growDirection
+        if grow and grow ~= "CENTER"
+           and not EllesmereUI._unlockActive
+           and not EllesmereUI._abAnchorSuppressed
+           and (oldW >= 1 or oldH >= 1) then
+            local adb = EllesmereUIDB and EllesmereUIDB.unlockAnchors
+            local ai = adb and adb[unlockKey]
+            if ai then
+                local side = ai.side
+                local PPo = EllesmereUI and EllesmereUI.PP
+                local uiES = PPo and UIParent:GetEffectiveScale()
+                -- Horizontal growth (LEFT/RIGHT): adjust offsetX on TOP/BOTTOM anchors
+                local dw = totalW - oldW
+                if math.abs(dw) > 0.1 and (side == "TOP" or side == "BOTTOM") then
+                    if grow == "RIGHT" then
+                        ai.offsetX = ai.offsetX + dw / 2
+                    elseif grow == "LEFT" then
+                        ai.offsetX = ai.offsetX - dw / 2
+                    end
+                    if PPo and uiES then ai.offsetX = PPo.SnapForES(ai.offsetX, uiES) end
+                end
+                -- Vertical growth (UP/DOWN): adjust offsetY on LEFT/RIGHT anchors
+                local dh = totalH - oldH
+                if math.abs(dh) > 0.1 and (side == "LEFT" or side == "RIGHT") then
+                    if grow == "DOWN" then
+                        ai.offsetY = ai.offsetY - dh / 2
+                    elseif grow == "UP" then
+                        ai.offsetY = ai.offsetY + dh / 2
+                    end
+                    if PPo and uiES then ai.offsetY = PPo.SnapForES(ai.offsetY, uiES) end
+                end
+            end
         end
     end
 
@@ -2917,14 +3002,14 @@ ApplyShapeToCDMIcon = function(icon, shape, barData)
         ifc.shapeApplied = nil
         ifc.shapeName = nil
 
-        -- Restore square borders (pixel-perfect via PP)
+        -- Restore square borders (PP or textured via ApplyBorderStyle)
         -- Border lives on fd.borderFrame (child of icon) to avoid tainting
         -- Blizzard's secure frames. Fall back to PP.GetBorders(icon) for
         -- CDM-owned frames that don't go through DecorateFrame's child wrapper.
         local bdrTarget = (fd and fd.borderFrame) or icon
         if fd and fd.borderFrame or EllesmereUI.PP.GetBorders(icon) then
-            EllesmereUI.PP.ShowBorder(bdrTarget)
-            EllesmereUI.PP.UpdateBorder(bdrTarget, borderSz, brdR, brdG, brdB, brdA)
+            local texKey = barData.borderTexture or "solid"
+            EllesmereUI.ApplyBorderStyle(bdrTarget, borderSz, brdR, brdG, brdB, brdA, texKey, barData.borderTextureOffset, barData.borderTextureOffsetY, barData.borderTextureShiftX, barData.borderTextureShiftY, "cdm", barData.borderThickness or "thin")
         end
 
         -- Restore icon texture -- fill the entire frame. The border renders
@@ -3012,10 +3097,14 @@ ApplyShapeToCDMIcon = function(icon, shape, barData)
     local expand = ((1 / visRatio) - 1) * 0.5
     if tex then tex:SetTexCoord(-expand, 1 + expand, -expand, 1 + expand) end
 
-    -- Hide square borders (pixel-perfect via PP)
+    -- Hide square borders (both PP and textured)
     local bdrTarget2 = (fd and fd.borderFrame) or icon
     if fd and fd.borderFrame or EllesmereUI.PP.GetBorders(icon) then
         EllesmereUI.PP.HideBorder(bdrTarget2)
+        if EllesmereUI._bdBorderData then
+            local bdFrame = EllesmereUI._bdBorderData[bdrTarget2]
+            if bdFrame then bdFrame:Hide() end
+        end
     end
 
     -- Shape border texture (on a dedicated frame above the cooldown swipe)
@@ -3131,10 +3220,11 @@ local function RefreshCDMIconAppearance(barKey)
                 end
             end
         end
-        -- Update border (pixel-perfect via PP)
+        -- Update border (PP or textured via ApplyBorderStyle)
         local bdrTgt = (fd and fd.borderFrame) or icon
         if fd and fd.borderFrame or EllesmereUI.PP.GetBorders(icon) then
-            EllesmereUI.PP.UpdateBorder(bdrTgt, borderSize, barData.borderR or 0, barData.borderG or 0, barData.borderB or 0, barData.borderA or 1)
+            local textureKey = barData.borderTexture or "solid"
+            EllesmereUI.ApplyBorderStyle(bdrTgt, borderSize, barData.borderR or 0, barData.borderG or 0, barData.borderB or 0, barData.borderA or 1, textureKey, barData.borderTextureOffset, barData.borderTextureOffsetY, barData.borderTextureShiftX, barData.borderTextureShiftY, "cdm", barData.borderThickness or "thin")
         end
         -- Update background
         if bg then
@@ -3364,7 +3454,7 @@ local function EnsureFocusKickBar()
         enabled = true,
         iconSize = 28, numRows = 1, spacing = 2,
         borderSize = 1, borderR = 0, borderG = 0, borderB = 0, borderA = 1,
-        borderClassColor = false, borderThickness = "thin",
+        borderClassColor = false, borderTexture = "solid", borderThickness = "thin",
         bgR = 0.08, bgG = 0.08, bgB = 0.08, bgA = 0.6,
         iconZoom = 0.08, iconShape = "none",
         verticalOrientation = false, barBgEnabled = false,
@@ -4453,8 +4543,9 @@ BuildAllCDMBars = function()
         if EllesmereUI then EllesmereUI._cdmRebuilding = nil end
     end
     -- Re-apply saved positions now that LayoutCDMBar has set correct frame
-    -- sizes. The initial BuildCDMBar call used stale dimensions for the
-    -- grow-direction anchor conversion, causing position drift.
+    -- sizes. Positions are stored using the edge anchor directly (LEFT for
+    -- RIGHT-grow, etc.), so SetPoint places the frame at its fixed edge and
+    -- subsequent SetSize calls grow naturally from that edge.
     for _, barData in ipairs(p.cdmBars.bars) do
         if barData.enabled then
             local ak = barData.anchorTo
@@ -4462,7 +4553,6 @@ BuildAllCDMBars = function()
                 local frame = cdmBarFrames[barData.key]
                 local pos = p.cdmBarPositions[barData.key]
                 if frame and pos and pos.point then
-                    -- Skip for unlock-anchored bars (anchor system is authority)
                     local unlockKey = "CDM_" .. barData.key
                     local anchored = EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(unlockKey)
                     if not anchored or not frame:GetLeft() then
@@ -4912,8 +5002,33 @@ RegisterCDMUnlockElements = function()
                 end,
                 savePos = function(_, point, relPoint, x, y)
                     local p = ECME.db.profile
-                    -- Centralized system already converts to CENTER/CENTER
-                    p.cdmBarPositions[key] = { point = point, relPoint = relPoint, x = x, y = y }
+                    -- Store the position using the growth-edge anchor directly.
+                    -- The unlock mode always provides CENTER coords; for non-CENTER
+                    -- grow bars, convert to edge so the frame can be anchored at
+                    -- its fixed edge (SetSize then grows naturally from that edge
+                    -- without any post-resize re-anchoring).
+                    local storePoint, storeX, storeY = point, x, y
+                    local bd2 = barDataByKey[key]
+                    local grow = bd2 and bd2.growDirection
+                    local frame = cdmBarFrames[key]
+                    if grow and grow ~= "CENTER" and frame then
+                        local fw = frame:GetWidth() or 0
+                        local fh = frame:GetHeight() or 0
+                        if grow == "RIGHT" and fw > 0 then
+                            storePoint = "LEFT"
+                            storeX = x - fw / 2
+                        elseif grow == "LEFT" and fw > 0 then
+                            storePoint = "RIGHT"
+                            storeX = x + fw / 2
+                        elseif grow == "DOWN" and fh > 0 then
+                            storePoint = "TOP"
+                            storeY = y + fh / 2
+                        elseif grow == "UP" and fh > 0 then
+                            storePoint = "BOTTOM"
+                            storeY = y - fh / 2
+                        end
+                    end
+                    p.cdmBarPositions[key] = { point = storePoint, relPoint = relPoint, x = storeX, y = storeY }
                     -- Skip rebuild when called from anchor propagation or while
                     -- unlock mode is active (unlock mode owns positioning then).
                     if not EllesmereUI._propagatingSave and not EllesmereUI._unlockActive then
@@ -4921,7 +5036,30 @@ RegisterCDMUnlockElements = function()
                     end
                 end,
                 loadPos = function()
-                    return ECME.db.profile.cdmBarPositions[key]
+                    local pos = ECME.db.profile.cdmBarPositions[key]
+                    if not pos or not pos.point then return pos end
+                    -- Convert edge-stored positions back to CENTER for the
+                    -- unlock mode system (it always works with CENTER coords).
+                    local pt = pos.point
+                    if pt == "LEFT" or pt == "RIGHT" or pt == "TOP" or pt == "BOTTOM" then
+                        local frame = cdmBarFrames[key]
+                        if frame then
+                            local fw = frame:GetWidth() or 0
+                            local fh = frame:GetHeight() or 0
+                            local cx, cy = pos.x or 0, pos.y or 0
+                            if pt == "LEFT" then
+                                cx = cx + fw / 2
+                            elseif pt == "RIGHT" then
+                                cx = cx - fw / 2
+                            elseif pt == "TOP" then
+                                cy = cy - fh / 2
+                            elseif pt == "BOTTOM" then
+                                cy = cy + fh / 2
+                            end
+                            return { point = "CENTER", relPoint = pos.relPoint, x = cx, y = cy }
+                        end
+                    end
+                    return pos
                 end,
                 clearPos = function()
                     ECME.db.profile.cdmBarPositions[key] = nil
@@ -4946,6 +5084,9 @@ RegisterCDMUnlockElements = function()
     if #elements > 0 then
         EllesmereUI:RegisterUnlockElements(elements)
     end
+    -- Expose for ApplyAnchorPosition's growth-direction edge read.
+    -- Width-independent: stores edge anchor directly (LEFT/RIGHT/TOP).
+    EllesmereUI._cdmBarPositions = ECME.db.profile.cdmBarPositions
 end
 ns.RegisterCDMUnlockElements = RegisterCDMUnlockElements
 _G._ECME_RegisterUnlock = RegisterCDMUnlockElements
@@ -5177,7 +5318,7 @@ function ECME:CDMFinishSetup()
                             local numRows = barData.numRows or 1
                             if numRows < 1 then numRows = 1 end
                             local stride = ComputeTopRowStride(barData, cachedCount)
-                            local isHoriz = (grow == "RIGHT" or grow == "LEFT" or grow == "CENTER")
+                            local isHoriz = (grow == "RIGHT" or grow == "LEFT" or (grow == "CENTER" and not barData.verticalOrientation))
                             -- Compute total in integer phys px to avoid PP.Scale floor
                             -- losing 1 px to floating-point dust on the multiply.
                             local PPpc = EllesmereUI and EllesmereUI.PP
@@ -5602,7 +5743,14 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     if event == "UPDATE_BINDINGS" or event == "ACTIONBAR_SLOT_CHANGED"
        or event == "ACTIONBAR_PAGE_CHANGED" or event == "UPDATE_BONUS_ACTIONBAR"
        or event == "UPDATE_OVERRIDE_ACTIONBAR" or event == "UPDATE_VEHICLE_ACTIONBAR" then
-        C_Timer.After(0.5, UpdateCDMKeybinds)  -- defer so action slots are fully populated
+        -- Debounce: one-button rotation addons fire ACTIONBAR_SLOT_CHANGED
+        -- on every GCD. Cancel the previous timer so rapid-fire events
+        -- coalesce into a single update 0.5s after the last event.
+        if _keybindDebounceTimer then _keybindDebounceTimer:Cancel() end
+        _keybindDebounceTimer = C_Timer.NewTimer(0.5, function()
+            _keybindDebounceTimer = nil
+            UpdateCDMKeybinds()
+        end)
         return
     end
     if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" then
@@ -5635,8 +5783,15 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         if ns.QueueReanchor then ns.QueueReanchor() end
         return
     end
-    if event == "PLAYER_MOUNT_DISPLAY_CHANGED" or event == "PLAYER_TARGET_CHANGED" then
+    if event == "PLAYER_TARGET_CHANGED" then
         _CDMApplyVisibility()
+        return
+    end
+    if event == "PLAYER_MOUNT_DISPLAY_CHANGED" then
+        -- Defer to a clean execution context: the event handler chain can
+        -- carry taint from other addons, which propagates into LayoutCDMBar
+        -- when a bar transitions from hidden to visible (visHideMounted).
+        C_Timer.After(0, _CDMApplyVisibility)
         return
     end
     if event == "UPDATE_SHAPESHIFT_FORM" then

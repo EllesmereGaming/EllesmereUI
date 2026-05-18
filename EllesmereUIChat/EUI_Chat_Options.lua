@@ -412,7 +412,47 @@ initFrame:SetScript("OnEvent", function(self)
         -- -- EXTRAS ------------------------------------------------------------
         _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
 
-        -- Row 1: Hide Tooltip on Hover | (empty)
+        -- Row 1: Remember Last Chat Lines (+ cog: Max Lines) | Hide Tooltip on Hover
+        -- Disabled: session history not yet shipped. Uncomment to re-enable.
+        --[[ local histRow
+        histRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Remember Last Chat Lines",
+              tooltip="Saves the most recent lines per chat tab (per character), except Blizzard's combat log window, so they reappear after /reload or relog. Stored separately from layout profiles.",
+              getValue=function() return Cfg("persistChatHistory") ~= false end,
+              setValue=function(v)
+                  Set("persistChatHistory", v)
+                  if ECHAT.InitChatSessionHistory then ECHAT.InitChatSessionHistory() end
+              end },
+            { type="toggle", text="Hide Tooltip on Hover",
+              getValue=function() return Cfg("hideTooltipOnHover") or false end,
+              setValue=function(v) Set("hideTooltipOnHover", v) end })
+        do
+            local lrgn = histRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Session History",
+                rows = {
+                    { type="slider", label="Max Lines to Keep",
+                      min = 20, max = 300, step = 10,
+                      get=function() return Cfg("persistChatHistoryMaxLines") or 100 end,
+                      set=function(v) Set("persistChatHistoryMaxLines", v) end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, lrgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
+            lrgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(lrgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
+        end
+        y = y - h --]]
+
+        -- Row 1 (active): Hide Tooltip on Hover | (empty)
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Hide Tooltip on Hover",
               getValue=function() return Cfg("hideTooltipOnHover") or false end,

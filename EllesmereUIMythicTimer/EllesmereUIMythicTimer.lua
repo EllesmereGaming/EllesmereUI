@@ -762,13 +762,24 @@ local function GetAccentColor()
     return 0.05, 0.83, 0.62
 end
 
+local function StripDefeated(name)
+    if not name then return name end
+    name = name:gsub("[Dd]efeated", "")
+    return name:match("^%s*(.-)%s*$") or name
+end
+
 local objRows = {}
 local function GetObjRow(parent, idx)
     if objRows[idx] then return objRows[idx] end
-    local fs = parent:CreateFontString(nil, "OVERLAY")
-    fs:SetWordWrap(false)
-    objRows[idx] = fs
-    return fs
+    local nameFS = parent:CreateFontString(nil, "OVERLAY")
+    nameFS:SetWordWrap(false)
+    nameFS:SetNonSpaceWrap(false)
+    local timeFS = parent:CreateFontString(nil, "OVERLAY")
+    timeFS:SetWordWrap(false)
+    timeFS:SetNonSpaceWrap(false)
+    local entry = { name = nameFS, time = timeFS }
+    objRows[idx] = entry
+    return entry
 end
 
 local function CreateStandaloneFrame()
@@ -1273,7 +1284,7 @@ local function RenderStandalone()
     -- Timer text (with optional inline detail rendered as one combined block)
     if not p.timerInBar then
         local timerAlign = _ra(p.timerAlign or "CENTER")
-        SetFS(f._timerFS, 20)
+        SetFS(f._timerFS, p.timerTextSize or 20)
         ApplyShadow(f._timerFS)
         f._timerFS:SetTextColor(tR, tG, tB)
         SetTextDiff(f._timerFS, timerText)
@@ -1285,9 +1296,11 @@ local function RenderStandalone()
         f._timerFS:ClearAllPoints()
         -- Fixed-width once per format change: MM:SS is always 5 chars, so
         -- width only re-measures when the string length changes (e.g. mode swap).
-        local _mainLen = #(timerText or "")
-        if f._timerFS._lastLen ~= _mainLen then
-            f._timerFS._lastLen = _mainLen
+        local _timerSz = p.timerTextSize or 20
+        local _fScale = f:GetEffectiveScale() or 1
+        local _mainKey = #(timerText or "") .. "|" .. _timerSz .. "|" .. string.format("%.3f", _fScale)
+        if f._timerFS._lastLen ~= _mainKey then
+            f._timerFS._lastLen = _mainKey
             -- Measure with worst-case digits so SetWidth never clips the live text.
             local templ = (timerText or ""):gsub("%d", "9")
             f._timerFS:SetText(templ)
@@ -1470,18 +1483,22 @@ local function RenderStandalone()
         for i, obj in ipairs(run.objectives) do
             if not obj.isWeighted then
                 objIdx = objIdx + 1
-                local row = GetObjRow(f, objIdx)
-                SetFS(row, p.objectivesSize or 12)
-                ApplyShadow(row)
+                local entry = GetObjRow(f, objIdx)
+                local nameFS, timeFS = entry.name, entry.time
+                local objSize = p.objectivesSize or 12
+                SetFS(nameFS, objSize)
+                ApplyShadow(nameFS)
+                SetFS(timeFS, objSize)
+                ApplyShadow(timeFS)
 
-                local displayName = obj.name or ("Objective " .. i)
+                local displayName = StripDefeated(obj.name) or ("Objective " .. i)
                 if obj.totalQuantity and obj.totalQuantity > 1 then
                     displayName = format("%d/%d %s", obj.quantity or 0, obj.totalQuantity, displayName)
                 end
                 if obj.completed then
-                    row:SetTextColor(GetColor(p.objectiveCompletedColor, 0.3, 0.8, 0.3))
+                    nameFS:SetTextColor(GetColor(p.objectiveCompletedColor, 0.3, 0.8, 0.3))
                 else
-                    row:SetTextColor(GetColor(p.objectiveTextColor, 0.9, 0.9, 0.9))
+                    nameFS:SetTextColor(GetColor(p.objectiveTextColor, 0.9, 0.9, 0.9))
                 end
                 local timeStr = ""
                 if p.showObjectiveTimes ~= false and obj.completed and obj.elapsed and obj.elapsed > 0 then
@@ -1498,27 +1515,53 @@ local function RenderStandalone()
                         compareSuffix = "  |cff888888PB " .. FormatTime(target) .. "|r"
                     end
                 end
-                row:SetText(displayName .. (timeStr ~= "" and ("  " .. timeStr) or "") .. compareSuffix)
-                row:SetJustifyH(objAlign)
-                row:ClearAllPoints()
+                -- Timer/split text on the right FontString (never truncated).
+                -- Boss name on the left FontString (truncated with "..." by
+                -- WoW's engine if it exceeds the remaining width). No string
+                -- reads required -- SetWidth + SetWordWrap(false) handles
+                -- truncation at the C++ level, safe for secret values.
+                local rightText = (timeStr ~= "" and ("  " .. timeStr) or "") .. compareSuffix
                 local oInnerW = frameW - oPad * 2
-                local objBlockW = oInnerW
-                if objAlign == "RIGHT" then
-                    row:SetPoint("TOPRIGHT", f, "TOPRIGHT", -oPad, y)
-                elseif objAlign == "CENTER" then
-                    row:SetPoint("TOP", f, "TOP", 0, y)
+                nameFS:ClearAllPoints()
+                timeFS:ClearAllPoints()
+                if rightText ~= "" then
+                    timeFS:SetText(rightText)
+                    timeFS:SetTextColor(1, 1, 1, 1)
+                    timeFS:SetWidth(0)
+                    local timeW = timeFS:GetStringWidth() or 0
+                    if objAlign == "RIGHT" then
+                        timeFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -oPad, y)
+                        nameFS:SetPoint("TOPRIGHT", timeFS, "TOPLEFT", 0, 0)
+                    else
+                        timeFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -oPad, y)
+                        nameFS:SetPoint("TOPLEFT", f, "TOPLEFT", oPad, y)
+                    end
+                    local nameMaxW = oInnerW - timeW
+                    if nameMaxW < 20 then nameMaxW = 20 end
+                    nameFS:SetWidth(nameMaxW)
+                    timeFS:Show()
                 else
-                    row:SetPoint("TOPLEFT", f, "TOPLEFT", oPad, y)
+                    timeFS:Hide()
+                    if objAlign == "RIGHT" then
+                        nameFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -oPad, y)
+                    elseif objAlign == "CENTER" then
+                        nameFS:SetPoint("TOP", f, "TOP", 0, y)
+                    else
+                        nameFS:SetPoint("TOPLEFT", f, "TOPLEFT", oPad, y)
+                    end
+                    nameFS:SetWidth(oInnerW)
                 end
-                row:SetWidth(objBlockW)
-                row:Show()
-                y = y - (row:GetStringHeight() or 12) - OBJ_GAP
+                nameFS:SetText(displayName)
+                nameFS:SetJustifyH(objAlign)
+                nameFS:Show()
+                y = y - (nameFS:GetStringHeight() or 12) - OBJ_GAP
             end
         end
     end
 
     for i = objIdx + 1, #objRows do
-        objRows[i]:Hide()
+        local e = objRows[i]
+        if e then e.name:Hide(); e.time:Hide() end
     end
 
     if not underBarMode then
