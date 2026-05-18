@@ -237,6 +237,19 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Mythic Keystone Reminder",
+              tooltip="After a Mythic+ dungeon completion, remind you to swap to a swappable key in your bags.",
+              getValue=function()
+                  return not (EllesmereUIDB and EllesmereUIDB.mythicKeyReminder == false)
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.mythicKeyReminder = v
+              end },
+            { type="label", text="" }
+        );  y = y - h
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         ---------------------------------------------------------------------------

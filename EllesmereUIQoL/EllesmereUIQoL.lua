@@ -300,6 +300,252 @@ qolFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
+    --  Mythic Keystone Swap Reminder
+    ---------------------------------------------------------------------------
+    do
+        local reminderActive = false
+        local reminderCompleted = false
+        local reminderShown = false
+        local reminderReadyToShow = false
+        local reminderMapID = nil
+        local reminderLevel = nil
+
+        local function IsEnabled()
+            return not (EllesmereUIDB and EllesmereUIDB.mythicKeyReminder == false)
+        end
+
+        local function IsDungeonComplete()
+            local numCriteria = select(3, C_Scenario.GetStepInfo()) or 0
+            if numCriteria == 0 then return false end
+
+            local seenAny = false
+            for i = 1, numCriteria do
+                local info = C_ScenarioInfo.GetCriteriaInfo(i)
+                if info then
+                    seenAny = true
+                    if not info.completed then
+                        return false
+                    end
+                end
+            end
+
+            return seenAny
+        end
+
+        local function _isInChallengeMode()
+            if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
+               and C_ChallengeMode.IsChallengeModeActive() then
+                return true
+            end
+            local _, instanceType, difficulty = GetInstanceInfo()
+            return instanceType == "party" and difficulty == 8
+        end
+
+        local function CanSwapKeyInBags(mapID, runLevel)
+            if not mapID or not runLevel then return false end
+            local function IsDebugEnabled()
+                return (_G.EUI_MythicReminderDebug == true) or (EllesmereUIDB and EllesmereUIDB.mythicKeyReminderDebug)
+            end
+            local foundAnyKeystone = false
+            local foundMatchingKeystone = false
+            for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
+                local slots = C_Container.GetContainerNumSlots(bag)
+                for slot = 1, slots do
+                    local link = C_Container.GetContainerItemLink(bag, slot)
+                    if link and link:find("|Hkeystone:") then
+                        foundAnyKeystone = true
+                        local ksMap, ksLevel = link:match("keystone:(%d+):(%d+)")
+                        ksMap = tonumber(ksMap)
+                        ksLevel = tonumber(ksLevel)
+                        if ksMap and ksLevel then
+                            if IsDebugEnabled() then
+                                print(string.format("[MythicReminder][debug] found keystone in bag: link=%s map=%s level=%s", tostring(link), tostring(ksMap), tostring(ksLevel)))
+                            end
+                            if ksMap == mapID then
+                                if runLevel >= ksLevel then
+                                    return true
+                                end
+                                if IsDebugEnabled() then
+                                    print(string.format("[MythicReminder][debug] keystone matches map but is too high level: runLevel=%s keyLevel=%s", tostring(runLevel), tostring(ksLevel)))
+                                end
+                            else
+                                if IsDebugEnabled() then
+                                    print(string.format("[MythicReminder][debug] keystone map mismatch: expected=%s got=%s", tostring(mapID), tostring(ksMap)))
+                                end
+                            end
+                        elseif IsDebugEnabled() then
+                            print("[MythicReminder][debug] failed to parse keystone link: " .. tostring(link))
+                        end
+                    end
+                end
+            end
+            if IsDebugEnabled() then
+                if not foundAnyKeystone then
+                    print("[MythicReminder][debug] no keystone found in bags")
+                else
+                    print("[MythicReminder][debug] no swappable keystone found in bags for map=" .. tostring(mapID) .. " runLevel=" .. tostring(runLevel))
+                end
+            end
+            return false
+        end
+
+        local function ShowReminder(force)
+            if reminderShown or not IsEnabled() then return false end
+            if not reminderMapID or not reminderLevel then return false end
+            if not force and not CanSwapKeyInBags(reminderMapID, reminderLevel) then
+                if (_G.EUI_MythicReminderDebug == true) or (EllesmereUIDB and EllesmereUIDB.mythicKeyReminderDebug) then
+                    print("[MythicReminder][debug] ShowReminder blocked: no swappable keystone for map=" .. tostring(reminderMapID) .. " level=" .. tostring(reminderLevel))
+                end
+                return false
+            end
+
+            reminderShown = true
+            local msg = "|cff00ff00[Mythic Reminder]|r Did you change your key? You have a swappable key for this dungeon in your bags."
+            print(msg)
+            if UIErrorsFrame and UIErrorsFrame.AddMessage then
+                UIErrorsFrame:AddMessage("Mythic Reminder: Did you change your key?", 0.0, 1.0, 0.0, 1.0)
+            end
+            PlaySound(8960, "Master")
+            if (_G.EUI_MythicReminderDebug == true) or (EllesmereUIDB and EllesmereUIDB.mythicKeyReminderDebug) then
+                print("[MythicReminder][debug] ShowReminder shown for map=" .. tostring(reminderMapID) .. " level=" .. tostring(reminderLevel))
+            end
+            return true
+        end
+
+        local function ResetReminder()
+            reminderActive = false
+            reminderCompleted = false
+            reminderReadyToShow = false
+            reminderShown = false
+            reminderMapID = nil
+            reminderLevel = nil
+        end
+
+        local function StartReminder()
+            if not C_ChallengeMode or not C_ChallengeMode.GetActiveChallengeMapID
+               or not C_ChallengeMode.GetActiveKeystoneInfo then
+                return
+            end
+            local mapID = C_ChallengeMode.GetActiveChallengeMapID()
+            local level = select(1, C_ChallengeMode.GetActiveKeystoneInfo())
+            if not mapID or not level then return end
+            reminderActive = true
+            reminderCompleted = false
+            reminderReadyToShow = false
+            reminderShown = false
+            reminderMapID = mapID
+            reminderLevel = level
+            -- Debug: log start state for troubleshooting
+            if EllesmereUI and EllesmereUI.Debug then
+                EllesmereUI:Debug("MythicReminder Start: mapID=" .. tostring(mapID) .. " level=" .. tostring(level))
+            else
+                print("[MythicReminder] Start: mapID=" .. tostring(mapID) .. " level=" .. tostring(level))
+            end
+            -- If debug is enabled, dump keystones currently in bags for troubleshooting
+            if (_G.EUI_MythicReminderDebug == true) or (EllesmereUIDB and EllesmereUIDB.mythicKeyReminderDebug) then
+                for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
+                    local slots = C_Container.GetContainerNumSlots(bag)
+                    for slot = 1, slots do
+                        local link = C_Container.GetContainerItemLink(bag, slot)
+                        if link and link:find("|Hkeystone:") then
+                            print("[MythicReminder][debug] bag keystone: " .. tostring(link))
+                        end
+                    end
+                end
+            end
+        end
+
+        local function UpdateReminder(event)
+            if not IsEnabled() then return end
+            if (_G.EUI_MythicReminderDebug == true) or (EllesmereUIDB and EllesmereUIDB.mythicKeyReminderDebug) then
+                print("[MythicReminder][debug] UpdateReminder event=" .. tostring(event) .. " reminderActive=" .. tostring(reminderActive) .. " reminderCompleted=" .. tostring(reminderCompleted) .. " reminderMapID=" .. tostring(reminderMapID) .. " reminderLevel=" .. tostring(reminderLevel))
+            end
+
+            if event == "CHALLENGE_MODE_COMPLETED" then
+                if reminderActive and not reminderCompleted then
+                    if (_G.EUI_MythicReminderDebug == true) or (EllesmereUIDB and EllesmereUIDB.mythicKeyReminderDebug) then
+                        print("[MythicReminder][debug] CHALLENGE_MODE_COMPLETED triggered, attempting to show reminder")
+                    end
+                    if ShowReminder() then
+                        reminderCompleted = true
+                    end
+                end
+                return
+            end
+
+            local activeMapID = C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID and C_ChallengeMode.GetActiveChallengeMapID()
+            if activeMapID then
+                if not reminderActive then
+                    StartReminder()
+                end
+                return
+            end
+
+            if event == "CHALLENGE_MODE_COMPLETED" then
+                if reminderActive and not reminderCompleted then
+                    reminderReadyToShow = true
+                    if ShowReminder() then
+                        reminderCompleted = true
+                    end
+                end
+                return
+            end
+
+            if (reminderActive or reminderCompleted) and not _isInChallengeMode() then
+                if reminderActive and reminderReadyToShow then
+                    if ShowReminder() then
+                        reminderCompleted = true
+                    end
+                else
+                    if reminderActive then
+                        if EllesmereUI and EllesmereUI.Debug then
+                            EllesmereUI:Debug("MythicReminder: leaving challenge mode but dungeon not complete")
+                        else
+                            print("[MythicReminder] leaving challenge mode but dungeon not complete")
+                        end
+                    end
+                    ResetReminder()
+                end
+            end
+        end
+
+        local reminderFrame = CreateFrame("Frame")
+        reminderFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+        reminderFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+        reminderFrame:RegisterEvent("CHALLENGE_MODE_START")
+        reminderFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
+        reminderFrame:RegisterEvent("SCENARIO_CRITERIA_UPDATE")
+        reminderFrame:SetScript("OnEvent", function(self, event)
+            UpdateReminder(event)
+        end)
+
+        -- Test hook / slash command to exercise the reminder without running a full key.
+        _G.EUI_TestMythicReminder = function()
+            StartReminder()
+            ShowReminder()
+        end
+        SLASH_EUI_MYTHICREM1 = "/euimr"
+        SlashCmdList["EUI_MYTHICREM"] = function(msg)
+            msg = (msg or ""):lower()
+            if msg:match("^%s*debug%s*$") then
+                _G.EUI_MythicReminderDebug = not _G.EUI_MythicReminderDebug
+                print("[EUI] MythicReminder debug=" .. tostring(_G.EUI_MythicReminderDebug))
+                return
+            end
+            if not IsEnabled() then print("Mythic Reminder disabled in QoL options") return end
+            StartReminder()
+            if msg:match("force") then
+                -- Force display regardless of bag contents
+                ShowReminder(true)
+                print("[EUI] Mythic Reminder forced (bypass check).")
+            else
+                ShowReminder()
+                print("[EUI] Mythic Reminder test executed.")
+            end
+        end
+    end
+
+    ---------------------------------------------------------------------------
     --  Train All Button
     ---------------------------------------------------------------------------
     do
