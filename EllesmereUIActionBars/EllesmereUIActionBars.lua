@@ -772,6 +772,14 @@ do
                 hooksecurefunc(frame, "Show", function(self)
                     if not InCombatLockdown() then self:Hide() end
                 end)
+                -- Disable mouse on MainActionBar so it never eats clicks.
+                -- During combat, Blizzard can Show() this frame (mount/dismount
+                -- transitions) and our hook can't re-hide it. At alpha 0 and
+                -- frame level 50 it would invisibly intercept all clicks above
+                -- our EABButtons.
+                frame:EnableMouse(false)
+                if frame.EnableMouseClicks then frame:EnableMouseClicks(false) end
+                if frame.EnableMouseMotion then frame:EnableMouseMotion(false) end
                 -- Hide Edit Mode selection/mover frame
                 if frame.Selection then frame.Selection:Hide(); frame.Selection:SetAlpha(0) end
                 -- Hide artwork children (gryphons/endcaps/border)
@@ -6763,7 +6771,7 @@ do
             end
             if unit and unit ~= "player" then return end
             -- Protected instances (M+/raid) block SetShown during combat
-            if InCombatLockdown() and IsInProtectedInstance and IsInProtectedInstance() then return end
+            if InCombatLockdown() and EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance() then return end
             local show = CanExitVehicle and CanExitVehicle()
             btn:SetShown(show or false)
         end)
@@ -7630,18 +7638,24 @@ local function SyncEditModeIconCounts()
     local ICON_COUNT_SETTING = 2
     local changed = false
 
+    -- HideBarArt setting: force to 1 (hidden) on all action bar layouts
+    local HIDE_BAR_ART_SETTING = Enum and Enum.EditModeActionBarSetting
+        and Enum.EditModeActionBarSetting.HideBarArt
+
     -- Check ALL layouts so switching never reverts to fewer icons.
     for _, layout in ipairs(layoutInfo.layouts) do
         if type(layout.systems) == "table" then
             for _, sysInfo in ipairs(layout.systems) do
                 if sysInfo.system == 0 and sysInfo.systemIndex and type(sysInfo.settings) == "table" then
                     local want = desired[sysInfo.systemIndex]
-                    if want then
-                        for _, s in ipairs(sysInfo.settings) do
-                            if s.setting == ICON_COUNT_SETTING and s.value < want then
-                                s.value = want
-                                changed = true
-                            end
+                    for _, s in ipairs(sysInfo.settings) do
+                        if want and s.setting == ICON_COUNT_SETTING and s.value < want then
+                            s.value = want
+                            changed = true
+                        end
+                        if HIDE_BAR_ART_SETTING and s.setting == HIDE_BAR_ART_SETTING and s.value ~= 1 then
+                            s.value = 1
+                            changed = true
                         end
                     end
                 end
@@ -7651,10 +7665,6 @@ local function SyncEditModeIconCounts()
 
     if changed then
         C_EditMode.SaveLayouts(layoutInfo)
-        -- Force Blizzard to re-apply the saved layout so numButtonsShowable
-        -- gets set natively (untainted).
-        pcall(ShowUIPanel, EditModeManagerFrame)
-        pcall(HideUIPanel, EditModeManagerFrame)
     end
 
     _editModeIconSyncDone = true
@@ -8312,6 +8322,32 @@ function EAB:FinishSetup()
     self:RegisterEvent("GROUP_ROSTER_UPDATE", function()
         self:UpdateHousingVisibility()
     end)
+    -- Combat exit: synchronously restore all visHideNoTarget bar state drivers.
+    -- During combat, ImmediateSoftTargetCheck and UpdateHousingVisibility are
+    -- blocked by InCombatLockdown. If a bar's driver was overridden to "hide"
+    -- (soft-target override) before combat started, it stays stuck the entire
+    -- fight. The shared visibility dispatcher uses a double-deferred path that
+    -- can miss rapid combat re-entry. This handler runs at the exact frame
+    -- lockdown lifts, with no deferral, guaranteeing restoration.
+    do
+        local regenFrame = CreateFrame("Frame")
+        regenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        regenFrame:SetScript("OnEvent", function()
+            for _, info in ipairs(ALL_BARS) do
+                local s = self.db.profile.bars[info.key]
+                if s and s.visHideNoTarget then
+                    local frame = barFrames[info.key]
+                    if frame then
+                        local newStr = BuildVisibilityString(info, s)
+                        if frame._eabLastVisStr ~= newStr then
+                            frame._eabLastVisStr = newStr
+                            RegisterAttributeDriver(frame, "state-visibility", newStr)
+                        end
+                    end
+                end
+            end
+        end)
+    end
 
     -- Grid hide: restore empty slot visibility
     local function OnGridHide()
@@ -10495,4 +10531,33 @@ _qkbHookFrame:SetScript("OnEvent", function(self, event)
         end
     end
 end)
+
+-------------------------------------------------------------------------------
+--  Swiftmend Brightness Fix (action bar scan)
+--  Scans all EABButton slots for Swiftmend by matching icon file ID.
+--  Re-scans on slot changes so bar rearrangement is covered.
+-------------------------------------------------------------------------------
+;(function()
+    local function ScanABSwiftmend()
+        local _, cls = UnitClass("player")
+        if cls ~= "DRUID" then return end
+        local hook   = EllesmereUI and EllesmereUI._HookSwiftmendIcon
+        local iconID = EllesmereUI and EllesmereUI._SWIFTMEND_ICON
+        if not hook or not iconID then return end
+        for slot = 1, 180 do
+            local btn = _G["EABButton" .. slot]
+            if btn and btn.icon then
+                local t = btn.icon:GetTexture()
+                if not issecretvalue(t) and t == iconID then hook(btn.icon) end
+            end
+        end
+    end
+    _G._EAB_ScanSwiftmend = ScanABSwiftmend
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    f:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+    f:SetScript("OnEvent", function()
+        C_Timer.After(0.5, ScanABSwiftmend)
+    end)
+end)()
 

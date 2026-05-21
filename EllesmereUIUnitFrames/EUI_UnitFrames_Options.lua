@@ -7,6 +7,7 @@ local ADDON_NAME, ns = ...
 
 local PAGE_DISPLAY   = "Frame Display"
 local PAGE_MINI      = "Mini Frame Edit"
+local PAGE_AURAS     = "Player Buffs & Debuffs"
 local PAGE_UNLOCK    = "Unlock Mode"
 
 local initFrame = CreateFrame("Frame")
@@ -7075,7 +7076,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end
                   ReloadAndUpdate(); UpdatePreview()
               end },
-            { type="slider", text="Buff Size", min=10, max=40, step=1,
+            { type="slider", text="Buff Size", min=10, max=50, step=1,
               getValue=function() return SValSupported("buffSize", 22) end,
               setValue=function(v) SSetSupported("buffSize", v) end });  y = y - h
         SApplySupport(sharedAddRow2._leftRegion, "showBuffs")
@@ -7140,6 +7141,12 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Max Count", min=1, max=20, step=1,
                       get=function() return SValSupported("maxBuffs", 4) end,
                       set=function(v) SSetSupported("maxBuffs", v) end },
+                    { type="toggle", label="Show Cooldown Text",
+                      get=function() return SValSupported("buffShowCooldownText", false) end,
+                      set=function(v) SSetSupported("buffShowCooldownText", v) end },
+                    { type="slider", label="Text Size", min=6, max=18, step=1,
+                      get=function() return SValSupported("buffCooldownTextSize", 10) end,
+                      set=function(v) SSetSupported("buffCooldownTextSize", v) end },
                 },
             })
             MakeCogBtn(leftRgn, buffCogShow)
@@ -7172,7 +7179,7 @@ initFrame:SetScript("OnEvent", function(self)
                   SwapAuraSlot(UNIT_DB_MAP[selectedUnit](), "debuffAnchor", v)
                   ReloadAndUpdate(); UpdatePreview()
               end },
-            { type="slider", text="Debuff Size", min=10, max=40, step=1,
+            { type="slider", text="Debuff Size", min=10, max=50, step=1,
               getValue=function() return SValSupported("debuffSize", 22) end,
               setValue=function(v) SSetSupported("debuffSize", v) end });  y = y - h
         -- Cog on Debuffs Location (Growth + Max Count + Show Own Only)
@@ -7190,6 +7197,12 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="toggle", label="Show Own Only",
                       get=function() return SValSupported("onlyPlayerDebuffs", false) end,
                       set=function(v) SSetSupported("onlyPlayerDebuffs", v) end },
+                    { type="toggle", label="Show Cooldown Text",
+                      get=function() return SValSupported("debuffShowCooldownText", false) end,
+                      set=function(v) SSetSupported("debuffShowCooldownText", v) end },
+                    { type="slider", label="Text Size", min=6, max=18, step=1,
+                      get=function() return SValSupported("debuffCooldownTextSize", 10) end,
+                      set=function(v) SSetSupported("debuffCooldownTextSize", v) end },
                 },
             })
             MakeCogBtn(leftRgn, debuffCogShow)
@@ -8296,6 +8309,23 @@ initFrame:SetScript("OnEvent", function(self)
                       ReloadAndUpdate()
                   end });  yy = yy - hh
 
+            -- Cog on Simple Debuff Display (cooldown text for large debuff icons)
+            do
+                local leftRgn = simpleRow._leftRegion
+                local _, simpleDbCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Simple Debuff Text",
+                    rows = {
+                        { type="toggle", label="Show Cooldown Text",
+                          get=function() return db.profile.boss.simpleDebuffShowCooldownText end,
+                          set=function(v) db.profile.boss.simpleDebuffShowCooldownText = v; ReloadAndUpdate() end },
+                        { type="slider", label="Text Size", min=6, max=24, step=1,
+                          get=function() return db.profile.boss.simpleDebuffCooldownTextSize or 14 end,
+                          set=function(v) db.profile.boss.simpleDebuffCooldownTextSize = v; ReloadAndUpdate() end },
+                    },
+                })
+                BossCogBtn(leftRgn, simpleDbCogShow)
+            end
+
             local bossAuraRow
             bossAuraRow, hh = Ww:DualRow(pp, yy,
                 { type="dropdown", text="Buffs Location", values=buffAnchorValues, order=buffAnchorOrder,
@@ -8338,6 +8368,12 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Max Count", min=1, max=20, step=1,
                           get=function() return db.profile.boss.maxBuffs or 4 end,
                           set=function(v) db.profile.boss.maxBuffs = v; ReloadAndUpdate() end },
+                        { type="toggle", label="Show Cooldown Text",
+                          get=function() return db.profile.boss.buffShowCooldownText end,
+                          set=function(v) db.profile.boss.buffShowCooldownText = v; ReloadAndUpdate() end },
+                        { type="slider", label="Text Size", min=6, max=18, step=1,
+                          get=function() return db.profile.boss.buffCooldownTextSize or 10 end,
+                          set=function(v) db.profile.boss.buffCooldownTextSize = v; ReloadAndUpdate() end },
                     },
                 })
                 BossCogBtn(leftRgn, bBuffCogShowRaw)
@@ -8398,6 +8434,12 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="toggle", label="Show Own Only",
                           get=function() return db.profile.boss.onlyPlayerDebuffs or false end,
                           set=function(v) db.profile.boss.onlyPlayerDebuffs = v; ReloadAndUpdate() end },
+                        { type="toggle", label="Show Cooldown Text",
+                          get=function() return db.profile.boss.debuffShowCooldownText end,
+                          set=function(v) db.profile.boss.debuffShowCooldownText = v; ReloadAndUpdate() end },
+                        { type="slider", label="Text Size", min=6, max=18, step=1,
+                          get=function() return db.profile.boss.debuffCooldownTextSize or 10 end,
+                          set=function(v) db.profile.boss.debuffCooldownTextSize = v; ReloadAndUpdate() end },
                     },
                 })
                 local cogBtn = BossCogBtn(rightRgn, bDebuffCogShowRaw)
@@ -8671,6 +8713,8 @@ initFrame:SetScript("OnEvent", function(self)
     local ufSearchTerms = {}
     for _, label in pairs(unitLabels) do ufSearchTerms[#ufSearchTerms + 1] = label end
     for _, label in pairs(miniUnitLabels) do ufSearchTerms[#ufSearchTerms + 1] = label end
+    local _paTerms = { "buff", "debuff", "aura", "player buffs", "player debuffs" }
+    for _, t in ipairs(_paTerms) do ufSearchTerms[#ufSearchTerms + 1] = t end
 
     -- Rebuild preview when spec changes (class resource pips may appear/disappear)
     local ufOptSpecFrame = CreateFrame("Frame")
@@ -8688,10 +8732,114 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end)
 
+    ---------------------------------------------------------------------------
+    --  Player Buffs & Debuffs page
+    ---------------------------------------------------------------------------
+    local function BuildPlayerAurasPage(pageName, parent, yOffset)
+        local W = EllesmereUI.Widgets
+        local y = yOffset
+        local _, h
+
+        local function PAGet(key)
+            local p = db and db.profile and db.profile.playerAuras
+            return p and p[key]
+        end
+        local function PASet(key, v)
+            if not db or not db.profile then return end
+            if not db.profile.playerAuras then db.profile.playerAuras = {} end
+            db.profile.playerAuras[key] = v
+            if ns.RefreshPlayerAuras then ns.RefreshPlayerAuras() end
+            if ns.ApplyPlayerAuraScale then ns.ApplyPlayerAuraScale() end
+        end
+
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+        _, h = W:SectionHeader(parent, "PLAYER BUFFS & DEBUFFS", y);  y = y - h
+
+        parent._showRowDivider = true
+
+        -- Row 1: Enable Styled Buffs & Debuffs | Icon Size
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Enable Styled Buffs & Debuffs",
+              getValue = function() return PAGet("enabled") or false end,
+              setValue = function(v)
+                  PASet("enabled", v)
+                  EllesmereUI:ShowConfirmPopup({
+                      title   = "Reload Required",
+                      message = "This change requires a UI reload to take effect.",
+                      confirmText = "Reload Now",
+                      cancelText  = "Later",
+                      onConfirm = function() ReloadUI() end,
+                  })
+              end },
+            { type = "slider", text = "Icon Size", min = 16, max = 60, step = 1,
+              getValue = function() return PAGet("iconSize") or 32 end,
+              setValue = function(v) PASet("iconSize", v) end }
+        );  y = y - h
+
+        -- Row 2: Show Text | Text Size
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Show Text",
+              tooltip = "Show duration and stack count text on buff and debuff icons.",
+              getValue = function() return PAGet("showText") ~= false end,
+              setValue = function(v) PASet("showText", v) end },
+            { type = "slider", text = "Text Size", min = 6, max = 24, step = 1,
+              getValue = function() return PAGet("textSize") or 11 end,
+              setValue = function(v) PASet("textSize", v) end }
+        );  y = y - h
+
+        -- Row 3: Border Size (+ inline color swatch) | (empty)
+        do
+            local bsRow
+            bsRow, h = W:DualRow(parent, y,
+                { type = "slider", text = "Border Size", min = 0, max = 4, step = 1,
+                  getValue = function() return PAGet("borderSize") or 1 end,
+                  setValue = function(v) PASet("borderSize", v) end },
+                { type = "toggle", text = "No Border on Debuffs",
+                  tooltip = "When enabled, debuff icons keep Blizzard's colored border instead of using the custom border.",
+                  getValue = function() return PAGet("noBorderDebuffs") ~= false end,
+                  setValue = function(v) PASet("noBorderDebuffs", v) end }
+            );  y = y - h
+
+            -- Inline border color swatch on Border Size slider
+            do
+                local rgn = bsRow._leftRegion
+                local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
+                    rgn, bsRow:GetFrameLevel() + 3,
+                    function()
+                        return (PAGet("borderR") or 0), (PAGet("borderG") or 0),
+                               (PAGet("borderB") or 0), (PAGet("borderA") or 1)
+                    end,
+                    function(r, g, b, a)
+                        PASet("borderR", r); PASet("borderG", g); PASet("borderB", b); PASet("borderA", a)
+                    end,
+                    true, 20)
+                PP.Point(borderSwatch, "RIGHT", rgn._control, "LEFT", -8, 0)
+                -- Disable swatch when border size is 0
+                local borderSwatchBlock = CreateFrame("Frame", nil, borderSwatch)
+                borderSwatchBlock:SetAllPoints()
+                borderSwatchBlock:SetFrameLevel(borderSwatch:GetFrameLevel() + 10)
+                borderSwatchBlock:EnableMouse(true)
+                borderSwatchBlock:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(borderSwatch, EllesmereUI.DisabledTooltip("Set Border above 0"))
+                end)
+                borderSwatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdateBorderSwatchState()
+                    local noBorder = (PAGet("borderSize") or 0) == 0
+                    if noBorder then borderSwatch:SetAlpha(0.3); borderSwatchBlock:Show()
+                    else borderSwatch:SetAlpha(1); borderSwatchBlock:Hide() end
+                end
+                EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch(); UpdateBorderSwatchState() end)
+                UpdateBorderSwatchState()
+            end
+        end
+
+        return math.abs(y)
+    end
+
     EllesmereUI:RegisterModule("EllesmereUIUnitFrames", {
         title       = "Unit Frames",
         description = "Configure unit frame appearance and behavior.",
-        pages       = { PAGE_DISPLAY, PAGE_MINI },
+        pages       = { PAGE_DISPLAY, PAGE_MINI, PAGE_AURAS },
         searchTerms = ufSearchTerms,
         buildPage   = function(pageName, parent, yOffset)
             -- Randomize preview creature IDs on every tab switch
@@ -8700,6 +8848,8 @@ initFrame:SetScript("OnEvent", function(self)
                 return BuildFrameDisplayPage(pageName, parent, yOffset)
             elseif pageName == PAGE_MINI then
                 return BuildMiniPage(pageName, parent, yOffset)
+            elseif pageName == PAGE_AURAS then
+                return BuildPlayerAurasPage(pageName, parent, yOffset)
             end
         end,
         getHeaderBuilder = function(pageName)

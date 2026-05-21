@@ -139,6 +139,7 @@ local defaults = {
     friendlyHealthBarHeight = 17,
     friendlyHealthBarWidth = 150,
     showFriendlyNPCs = false,
+    showNPCTitles = true,
     showFriendlyPlayers = true,
     friendlyShowDefaultNames = false,
     classColorFriendly = true,
@@ -2902,6 +2903,7 @@ questCacheWatcher:SetScript("OnEvent", function()
             ns._questDirty = false
             for _, plate in pairs(ns.plates) do
                 plate:UpdateHealthColor()
+                plate:UpdateClassification()
             end
         end)
     end
@@ -4009,24 +4011,28 @@ function NameplateFrame:UpdateClassification()
     if not self.unit then return end
     local slot = GetClassificationSlot()
     local _, iType = GetInstanceInfo()
-    local inMPlusOrRaid = (iType == "raid")
-        or (iType == "party" and C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive())
-    if slot == "none" or inMPlusOrRaid then
+    local inInstance = (iType == "party" or iType == "raid" or iType == "pvp" or iType == "arena")
+    if slot == "none" or inInstance then
         self.classFrame:Hide()
         self:UpdateNameWidth()
         return
     end
-    local c = UnitClassification(self.unit)
-    if c == "elite" or c == "worldboss" then
-        self.class:SetAtlas("nameplates-icon-elite-gold")
-    elseif c == "rareelite" then
-        self.class:SetAtlas("nameplates-icon-elite-silver")
-    elseif c == "rare" then
-        self.class:SetAtlas("nameplates-icon-rareelite")
+    -- Quest mob indicator takes priority over elite/rare
+    if ns.IsQuestMob and ns.IsQuestMob(self.unit) then
+        self.class:SetAtlas("Crosshair_Quest_64")
     else
-        self.classFrame:Hide()
-        self:UpdateNameWidth()
-        return
+        local c = UnitClassification(self.unit)
+        if c == "elite" or c == "worldboss" then
+            self.class:SetAtlas("nameplates-icon-elite-gold")
+        elseif c == "rareelite" then
+            self.class:SetAtlas("nameplates-icon-elite-silver")
+        elseif c == "rare" then
+            self.class:SetAtlas("nameplates-icon-rareelite")
+        else
+            self.classFrame:Hide()
+            self:UpdateNameWidth()
+            return
+        end
     end
     local cpPush = GetClassPowerTopPush(self)
     local cxOff, cyOff = GetAuraSlotOffsets("classification")

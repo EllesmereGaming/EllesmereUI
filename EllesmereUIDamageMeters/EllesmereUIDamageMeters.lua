@@ -274,6 +274,8 @@ end
 --  Shared state
 -------------------------------------------------------------------------------
 local _inCombat = false
+local _inEncounter = false       -- true between ENCOUNTER_START and ENCOUNTER_END
+local _encounterStartTime = 0    -- GetTime() at ENCOUNTER_START
 local _playerGUID
 local _windows = {}  -- array of active window tables
 ns._windows = _windows
@@ -378,14 +380,19 @@ instanceFrame:SetScript("OnEvent", function(_, event)
             w.Refresh()
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
-        -- Zone transition (hearth, teleport, etc.): if player is out of combat,
-        -- force-end the combat state. Covers the case where the player leaves
-        -- an instance mid-combat (hearthing out of a dungeon).
-        if not InCombatLockdown() and (_inCombat or _needsFinalRefresh) then
+        -- Zone transition (load screen): force-end all timers unconditionally.
+        -- Covers hearthing out mid-combat, instance teleports, etc.
+        _inEncounter = false
+        _encounterStartTime = 0
+        if _inCombat or _needsFinalRefresh then
             _combatEndTime = GetTime()
             _inCombat = false
             _needsFinalRefresh = false
             StopSharedTicker()
+        end
+        -- Hide standalone timer immediately on zone change
+        if _saTimer and _saTimer:IsShown() and not _saTimerPreview then
+            _saTimer:Hide()
         end
         -- Refresh after zone-in to pick up visibility/data changes
         for _, w in ipairs(_windows) do
@@ -440,10 +447,8 @@ end
 --  Accent color helper
 -------------------------------------------------------------------------------
 local function GetAccentRGB()
-    if EUI.ResolveThemeColor then
-        local db = EllesmereUIDB or {}
-        return EUI.ResolveThemeColor(db.activeTheme or "EllesmereUI")
-    end
+    local EG = EUI.ELLESMERE_GREEN
+    if EG then return EG.r, EG.g, EG.b end
     return EUI.DEFAULT_ACCENT_R or 12/255,
            EUI.DEFAULT_ACCENT_G or 210/255,
            EUI.DEFAULT_ACCENT_B or 157/255
@@ -887,7 +892,7 @@ local TT_BAR_SP = 1
 local TT_WIDTH = 275
 local function TT_MAX()
     local cfg = DB and DB()
-    return (cfg and cfg.showAllBreakdownSpells == false) and TT_DEFAULT_MAX or 50
+    return (cfg and cfg.showAllBreakdownSpells == false) and TT_DEFAULT_MAX or 15
 end
 
 local _ttFrame, _ttBars, _ttVisible = nil, {}, false
@@ -2172,7 +2177,7 @@ local function CreateDMWindow(winIdx)
 
     header:SetScript("OnMouseDown", function(_, button)
         if button ~= "LeftButton" or W.windowLocked then return end
-        if IsInProtectedInstance and IsInProtectedInstance() then return end
+        if EUI.InProtectedInstance and EUI.InProtectedInstance() then return end
         local cx, cy = GetCursorPosition(); local es = frame:GetEffectiveScale()
         dragStartCX = cx/es; dragStartCY = cy/es
         dragStartLeft = frame:GetLeft(); dragStartTop = frame:GetTop()
@@ -2406,7 +2411,7 @@ local function CreateDMWindow(winIdx)
 
     W.resizeGrip:SetScript("OnMouseDown", function(_, button)
         if button ~= "LeftButton" or W.windowLocked then return end
-        if IsInProtectedInstance and IsInProtectedInstance() then return end
+        if EUI.InProtectedInstance and EUI.InProtectedInstance() then return end
         local left, top = frame:GetLeft(), frame:GetTop()
         if left and top then frame:ClearAllPoints(); frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top) end
         resizeAnchorLeft = left; resizeAnchorTop = top
@@ -2917,7 +2922,8 @@ local function CreateDMWindow(winIdx)
             end
         end
         local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
-        if not isOverall and dur and type(dur) == "number" and dur > 0 then
+        -- Hide timer when segment has no data (count == 0) or is Overall
+        if not isOverall and dur and type(dur) == "number" and dur > 0 and count > 0 then
             W.timerText:SetText("(" .. FormatTimer(dur) .. ")")
         else
             W.timerText:SetText("")
@@ -3751,14 +3757,22 @@ UpdateSATimerText = function()
     if not _saTimer or not _saTimerFS then return end
     local cfg = DB()
     if not cfg.standaloneTimer then return end
-    -- Only visible during group combat (or options preview)
-    if not _inCombat then
-        if not _saTimerPreview and _saTimer:IsShown() then _saTimer:Hide() end
-        return
+    -- In encounter: show encounter timer. In combat (no encounter): show
+    -- player combat timer. Out of combat: hide and clear.
+    if _inEncounter then
+        if not _saTimer:IsShown() and not _saTimerPreview then _saTimer:Show() end
+        local elapsed = GetTime() - _encounterStartTime
+        _saTimerFS:SetText(FormatTimer(elapsed > 0 and elapsed or 0))
+    elseif _inCombat then
+        if not _saTimer:IsShown() and not _saTimerPreview then _saTimer:Show() end
+        local elapsed = GetCombatElapsed()
+        _saTimerFS:SetText(FormatTimer(elapsed > 0 and elapsed or 0))
+    else
+        if not _saTimerPreview then
+            if _saTimer:IsShown() then _saTimer:Hide() end
+            _saTimerFS:SetText("")
+        end
     end
-    if not _saTimer:IsShown() then _saTimer:Show() end
-    local elapsed = GetCombatElapsed()
-    _saTimerFS:SetText(FormatTimer(elapsed > 0 and elapsed or 0))
 end
 
 local function RepositionSATimer()
@@ -3961,7 +3975,9 @@ local combatFrame = CreateFrame("Frame")
 combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 combatFrame:RegisterEvent("UNIT_FLAGS")
-combatFrame:SetScript("OnEvent", function(_, event)
+combatFrame:RegisterEvent("ENCOUNTER_START")
+combatFrame:RegisterEvent("ENCOUNTER_END")
+combatFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "UNIT_FLAGS" then
         -- Group member entered combat before us: start polling so bars populate
         if not _inCombat and not _sharedTicker and IsGroupInCombat() then
@@ -3972,6 +3988,29 @@ combatFrame:SetScript("OnEvent", function(_, event)
                 _combatStartTime = GetTime() - apiDur
             end
             StartSharedTicker()
+        end
+        return
+    end
+    if event == "ENCOUNTER_START" then
+        _inEncounter = true
+        _encounterStartTime = GetTime()
+        return
+    end
+    if event == "ENCOUNTER_END" then
+        _inEncounter = false
+        -- Boss kill/wipe: immediately end combat like Details does.
+        -- PLAYER_REGEN_ENABLED may lag several seconds behind ENCOUNTER_END,
+        -- leaving the timer running after the boss is dead.
+        if _inCombat or _needsFinalRefresh then
+            -- Short delay: let Blizzard finalize the session data first
+            C_Timer.After(0.5, function()
+                if _combatEndTime > 0 then return end  -- already ended
+                _combatEndTime = GetTime()
+                _inCombat = false
+                _needsFinalRefresh = false
+                for _, w in ipairs(_windows) do w.Refresh() end
+                C_Timer.After(0.5, function() StopSharedTicker() end)
+            end)
         end
         return
     end

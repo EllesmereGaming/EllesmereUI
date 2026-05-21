@@ -68,6 +68,34 @@ local function IsFriendlyNPCEnabled()
     return fp and (fp.showFriendlyNPCs == true)
 end
 
+local function ShowNPCTitles()
+    local fp = FP()
+    return fp and (fp.showNPCTitles ~= false)
+end
+
+-- Extract the NPC subtitle (e.g. "Innkeeper", "Flight Master") from tooltip
+-- line 2 via the safe C_TooltipInfo API. Returns nil if none found.
+local LEVEL_PATTERN
+do
+    local tpl = UNIT_LEVEL_TEMPLATE or "Level %d"
+    LEVEL_PATTERN = tpl:lower():gsub("%%d", "(.+)")
+end
+
+local function GetNPCTitle(unit)
+    if not C_TooltipInfo or not C_TooltipInfo.GetUnit then return nil end
+    local data = C_TooltipInfo.GetUnit(unit)
+    if not data or not data.lines then return nil end
+    local cbMode = tonumber(GetCVar("colorblindMode")) or 0
+    local line = data.lines[2 + cbMode]
+    if not line then return nil end
+    local text = line.leftText
+    if not text or text == "" then return nil end
+    if issecretvalue and issecretvalue(text) then return nil end
+    -- Filter out level strings (e.g. "Level 70 Humanoid")
+    if text:lower():match(LEVEL_PATTERN) then return nil end
+    return text
+end
+
 -- Friendly NPC color: #00ff00
 local NPC_COLOR_R, NPC_COLOR_G, NPC_COLOR_B = 0, 1, 0
 
@@ -207,6 +235,8 @@ local function GetNPCNameColor(unit)
     return NPC_COLOR_R, NPC_COLOR_G, NPC_COLOR_B
 end
 
+local NPC_TITLE_FONT_SIZE = 10
+
 local function AcquireOverlay()
     local overlay = table.remove(npcOverlayPool)
     if overlay then return overlay end
@@ -223,6 +253,19 @@ local function AcquireOverlay()
     if overlay.name.SetTexelSnappingBias then
         overlay.name:SetTexelSnappingBias(0)
     end
+    -- Title FontString (below name)
+    overlay.title = overlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(overlay.title, 9, "")
+    overlay.title:SetPoint("TOP", overlay.name, "BOTTOM", 0, -1)
+    overlay.title:SetShadowOffset(1, -1)
+    overlay.title:SetShadowColor(0, 0, 0, 1)
+    if overlay.title.SetSnapToPixelGrid then
+        overlay.title:SetSnapToPixelGrid(false)
+    end
+    if overlay.title.SetTexelSnappingBias then
+        overlay.title:SetTexelSnappingBias(0)
+    end
+    overlay.title:Hide()
     return overlay
 end
 
@@ -241,10 +284,10 @@ local function ShowNPCOverlay(nameplate, unit)
     -- Set name text
     local unitName = UnitName(unit) or ""
     overlay.name:SetText(unitName)
-    overlay.name:SetWidth(NPC_OVERLAY_WIDTH)
-    overlay.name:SetWordWrap(true)
+    overlay.name:SetWidth(0)
+    overlay.name:SetWordWrap(false)
     overlay.name:SetNonSpaceWrap(false)
-    overlay.name:SetMaxLines(0)
+    overlay.name:SetMaxLines(1)
     -- Apply our font
     local font = GetFont()
     overlay.name:SetFont(font, NPC_OVERLAY_FONT_SIZE, GetNPOutline())
@@ -261,6 +304,25 @@ local function ShowNPCOverlay(nameplate, unit)
     -- Color based on reaction
     local r, g, b = GetNPCNameColor(unit)
     overlay.name:SetTextColor(r, g, b)
+    -- NPC title (e.g. "Innkeeper", "Flight Master")
+    if ShowNPCTitles() then
+        local titleText = GetNPCTitle(unit)
+        if titleText then
+            local font = GetFont()
+            overlay.title:SetFont(font, NPC_TITLE_FONT_SIZE, GetNPOutline())
+            if GetNPUseShadow() then
+                overlay.title:SetShadowOffset(1, -1)
+                overlay.title:SetShadowColor(0, 0, 0, 1)
+            end
+            overlay.title:SetText("<" .. titleText .. ">")
+            overlay.title:SetTextColor(r, g, b, 0.7)
+            overlay.title:Show()
+        else
+            overlay.title:Hide()
+        end
+    else
+        overlay.title:Hide()
+    end
     overlay.unit = unit
     -- Listen for name updates (server may not have sent the name yet)
     overlay:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
@@ -278,12 +340,29 @@ local function HideNPCOverlay(nameplate)
     if not overlay then return end
     overlay:UnregisterAllEvents()
     overlay:Hide()
+    overlay.title:Hide()
     overlay:SetParent(UIParent)
     overlay:ClearAllPoints()
     overlay.unit = nil
     npcOverlays[nameplate] = nil
     table.insert(npcOverlayPool, overlay)
 end
+
+-- Refresh all visible NPC overlays (called when Show NPC Titles is toggled)
+local function RefreshAllNPCOverlays()
+    -- Snapshot first since Hide/Show modifies npcOverlays
+    local snap = {}
+    for nameplate, overlay in pairs(npcOverlays) do
+        if overlay.unit then
+            snap[#snap + 1] = { np = nameplate, unit = overlay.unit }
+        end
+    end
+    for _, entry in ipairs(snap) do
+        HideNPCOverlay(entry.np)
+        ShowNPCOverlay(entry.np, entry.unit)
+    end
+end
+ns.RefreshAllNPCOverlays = RefreshAllNPCOverlays
 
 -------------------------------------------------------------------------------
 --  Hidden frame — Blizzard sub-frames reparented here become invisible
@@ -953,6 +1032,9 @@ function ns.UpdateFriendlyNameplateSystem()
     local nameOnly     = IsNameOnlyMode()           -- name-only mode
 
     -- In follower dungeons, force-hide friendly nameplates via CVars.
+    -- In instances (dungeons/raids/scenarios/arenas/PvP), force-hide
+    -- friendly NPC nameplates because GetNamePlateForUnit returns nil
+    -- for protected frames and our suppression can't run.
     -- SetCVar for nameplate CVars is protected in combat; skip to avoid taint.
     -- Friendly player CVars are only touched when the user has EUI managing
     -- friendly player nameplates. When disabled we leave those CVars alone
@@ -961,6 +1043,8 @@ function ns.UpdateFriendlyNameplateSystem()
     if not InCombatLockdown() and SetCVar then
         local fp = FP()
         local euiManagesPlayers = fp and (fp.showFriendlyPlayers ~= false)
+        local _, iType = GetInstanceInfo()
+        local inInstance = (iType == "party" or iType == "raid" or iType == "scenario" or iType == "arena" or iType == "pvp")
         if IsInFollowerDungeon() then
             if euiManagesPlayers then
                 pcall(SetCVar, "nameplateShowFriendlyPlayers", 0)
@@ -968,13 +1052,21 @@ function ns.UpdateFriendlyNameplateSystem()
             end
             pcall(SetCVar, "nameplateShowFriendlyNPCs", 0)
             pcall(SetCVar, "nameplateShowFriendlyNpcs", 0)
+        elseif inInstance then
+            -- NPC plates only: force off in instances since our frame
+            -- suppression doesn't work on protected nameplate frames.
+            -- Player CVars are unaffected.
+            pcall(SetCVar, "nameplateShowFriendlyNPCs", 0)
+            pcall(SetCVar, "nameplateShowFriendlyNpcs", 0)
         else
             -- Restore user's preferred friendly CVar state
             if fp then
                 local showNPCs = (fp.showFriendlyNPCs == true)
                 if euiManagesPlayers then
+                    local nameOnlyVal = (fp.friendlyNameOnly ~= false) and 1 or 0
                     pcall(SetCVar, "nameplateShowFriendlyPlayers", 1)
                     pcall(SetCVar, "nameplateShowFriends", 1)
+                    pcall(SetCVar, "nameplateShowOnlyNameForFriendlyPlayerUnits", nameOnlyVal)
                 end
                 pcall(SetCVar, "nameplateShowFriendlyNPCs", showNPCs and 1 or 0)
                 pcall(SetCVar, "nameplateShowFriendlyNpcs", showNPCs and 1 or 0)

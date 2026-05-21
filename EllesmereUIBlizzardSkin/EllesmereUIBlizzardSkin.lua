@@ -55,7 +55,7 @@ end
         GetFFD(tt).bg:Show()
     end
 
-    local function _ttFonts(tt)
+    local function _ttFonts(tt, startFrom)
         if not tt or tt:IsForbidden() or not _enabled() then return end
         local fp = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
         local ol = EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("blizzardSkin") or ""
@@ -65,7 +65,7 @@ end
         local name = tt.GetName and tt:GetName()
         if not name then return end
         local nLines = tt.NumLines and tt:NumLines() or 30
-        for i = 1, nLines do
+        for i = (startFrom or 1), nLines do
             local left = _G[name .. "TextLeft" .. i]
             if not left then break end
             left:SetFont(fp, (i == 1) and titleSize or bodySize, ol)
@@ -86,8 +86,14 @@ end
         return EllesmereUIDB and EllesmereUIDB.accentReskinElements
     end
 
+    -- Item level cache: guid -> { ilvl = number, time = GetTime() }
+    local _ilvlCache = {}
+    local ILVL_CACHE_TTL = 120  -- seconds
+    local _lastInspectGUID = nil
+
     local function _ttUnitColor(tt)
         if tt ~= _GameTooltip or tt:IsForbidden() then return end
+        local nLinesBefore = tt.NumLines and tt:NumLines() or 0
         local ok, _, unit = pcall(tt.GetUnit, tt)
         if not ok then return end
         if not unit then
@@ -130,6 +136,44 @@ end
                 tt:AddDoubleLine("M+ Score:", score, 1, 1, 1, r, g, b)
             end
         end
+        -- Item Level (cached inspect approach)
+        if EllesmereUIDB and EllesmereUIDB.tooltipItemLevel ~= false then
+            local ilvl
+            if UnitIsUnit(unit, "player") then
+                local _, equipped = GetAverageItemLevel()
+                if equipped and equipped > 0 then
+                    ilvl = math.floor(equipped)
+                end
+            else
+                local guid = UnitGUID(unit)
+                if guid and not (_isSecret and _isSecret(guid)) then
+                    -- Check cache first
+                    local cached = _ilvlCache[guid]
+                    if cached and (GetTime() - cached.time) < ILVL_CACHE_TTL then
+                        ilvl = cached.ilvl
+                    else
+                        -- Try already-available inspect data
+                        if C_PaperDollInfo and C_PaperDollInfo.GetInspectItemLevel then
+                            local val = C_PaperDollInfo.GetInspectItemLevel(unit)
+                            if val and val > 0 then
+                                ilvl = math.floor(val)
+                                _ilvlCache[guid] = { ilvl = ilvl, time = GetTime() }
+                            end
+                        end
+                        -- Request inspect if we don't have data yet
+                        if not ilvl and CanInspect(unit) and not InCombatLockdown() then
+                            _lastInspectGUID = guid
+                            NotifyInspect(unit)
+                        end
+                    end
+                end
+            end
+            if ilvl then
+                tt:AddDoubleLine("Item Level:", ilvl, 1, 1, 1, 1, 1, 1)
+            end
+        end
+        -- Apply our font to lines added after the OnShow pass
+        _ttFonts(tt, nLinesBefore)
     end
 
     local function _ttInit()
@@ -178,6 +222,43 @@ end
         else
             _GameTooltip:HookScript("OnTooltipSetUnit", _ttUnitColor)
             _GameTooltip:HookScript("OnTooltipSetSpell", _ttAccentTitle)
+        end
+        -- INSPECT_READY: cache the ilvl and update tooltip if still hovering
+        do
+            local inspFrame = CreateFrame("Frame")
+            inspFrame:RegisterEvent("INSPECT_READY")
+            inspFrame:SetScript("OnEvent", function(_, _, guid)
+                if not (EllesmereUIDB and EllesmereUIDB.tooltipItemLevel ~= false) then return end
+                if not guid or (_isSecret and _isSecret(guid)) then return end
+                -- Read ilvl from the inspect data
+                local unit
+                if UnitExists("mouseover") then
+                    local moGUID = UnitGUID("mouseover")
+                    if moGUID and not (_isSecret and _isSecret(moGUID)) and moGUID == guid then
+                        unit = "mouseover"
+                    end
+                end
+                if not unit then return end
+                if not C_PaperDollInfo or not C_PaperDollInfo.GetInspectItemLevel then return end
+                local val = C_PaperDollInfo.GetInspectItemLevel(unit)
+                if not val or val <= 0 then return end
+                local ilvl = math.floor(val)
+                _ilvlCache[guid] = { ilvl = ilvl, time = GetTime() }
+                -- Update the visible tooltip if still showing for this unit
+                if _GameTooltip:IsShown() then
+                    local ok2, _, ttUnit = pcall(_GameTooltip.GetUnit, _GameTooltip)
+                    if not ok2 or not ttUnit then
+                        if UnitExists("mouseover") then ttUnit = "mouseover" end
+                    end
+                    local ttGUID = ttUnit and UnitGUID(ttUnit)
+                    if ttGUID and not (_isSecret and _isSecret(ttGUID)) and ttGUID == guid then
+                        local before = _GameTooltip:NumLines() or 0
+                        _GameTooltip:AddDoubleLine("Item Level:", ilvl, 1, 1, 1, 1, 1, 1)
+                        _ttFonts(_GameTooltip, before + 1)
+                        _GameTooltip:Show()
+                    end
+                end
+            end)
         end
     end
 

@@ -1327,14 +1327,7 @@ local function CreateGreatVaultBtn(parent)
 
     btn:SetScript("OnEnter", function(self)
         self._whole:SetVertexColor(1, 1, 1, 1)
-        local minimapCfg = EBS and EBS.db and EBS.db.profile and EBS.db.profile.minimap
-        if minimapCfg and minimapCfg.greatVaultExtraInfo == false then
-            if EllesmereUI.ShowWidgetTooltip then
-                EllesmereUI.ShowWidgetTooltip(self, "Great Vault", { anchor = "left" })
-            end
-        else
-            ShowVaultTooltip(self)
-        end
+        ShowVaultTooltip(self)
     end)
     btn:SetScript("OnLeave", function(self)
         self._whole:SetVertexColor(0.85, 0.85, 0.85, 1)

@@ -614,6 +614,80 @@ local function CreateHeader()
         local sfxWas = GetCVar("Sound_EnableSFX")
         SetCVar("Sound_EnableSFX", "0")
 
+        -----------------------------------------------------------------------
+        --  Phase 1: Consolidate partial stacks before sorting.
+        --  Merges smallest partial onto largest partial of the same itemID.
+        --  Blizzard's engine handles the actual stack combine.
+        -----------------------------------------------------------------------
+        local function ConsolidateStacks(onDone)
+            local function DoOnePass()
+                local stacks = {}  -- itemID -> { {bag,slot,count}, ... }
+                for bag = 0, 4 do
+                    local numSlots = C_Container.GetContainerNumSlots(bag)
+                    for slot = 1, numSlots do
+                        local info = C_Container.GetContainerItemInfo(bag, slot)
+                        if info and info.itemID and info.stackCount then
+                            local maxStack = info.stackCount
+                            local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
+                            if C_Item.DoesItemExist(loc) then
+                                maxStack = select(8, C_Item.GetItemInfo(info.itemID)) or 1
+                            end
+                            if maxStack > 1 and info.stackCount < maxStack then
+                                if not stacks[info.itemID] then stacks[info.itemID] = {} end
+                                stacks[info.itemID][#stacks[info.itemID] + 1] = {
+                                    bag = bag, slot = slot, count = info.stackCount,
+                                }
+                            end
+                        end
+                    end
+                end
+                -- Find a pair to merge: smallest partial -> largest partial
+                local merged = false
+                for _, partials in pairs(stacks) do
+                    if #partials >= 2 then
+                        table.sort(partials, function(a, b) return a.count < b.count end)
+                        local src = partials[1]
+                        local dst = partials[#partials]
+                        local srcLoc = ItemLocation:CreateFromBagAndSlot(src.bag, src.slot)
+                        local dstLoc = ItemLocation:CreateFromBagAndSlot(dst.bag, dst.slot)
+                        if not C_Item.IsLocked(srcLoc) and not C_Item.IsLocked(dstLoc) then
+                            C_Container.PickupContainerItem(src.bag, src.slot)
+                            C_Container.PickupContainerItem(dst.bag, dst.slot)
+                            ClearCursor()
+                            merged = true
+                            break  -- one merge per pass, wait for BAG_UPDATE
+                        end
+                    end
+                end
+                return merged
+            end
+
+            if not DoOnePass() then
+                onDone()
+                return
+            end
+
+            local consolidateRetry = 0
+            local consolidateFrame = CreateFrame("Frame")
+            consolidateFrame:RegisterEvent("BAG_UPDATE")
+            consolidateFrame:SetScript("OnEvent", function(self)
+                self:UnregisterAllEvents()
+                consolidateRetry = consolidateRetry + 1
+                C_Timer.After(0.15, function()
+                    if consolidateRetry < 30 and DoOnePass() then
+                        self:RegisterEvent("BAG_UPDATE")
+                    else
+                        self:SetScript("OnEvent", nil)
+                        onDone()
+                    end
+                end)
+            end)
+        end
+
+        -----------------------------------------------------------------------
+        --  Phase 2: Sort (existing logic)
+        -----------------------------------------------------------------------
+
         -- Scan bags, compute sorted order, and execute all moves in one pass.
         -- Re-scans on every call so retries always work from fresh state.
         local function ComputeAndExecute()
@@ -709,30 +783,31 @@ local function CreateHeader()
             return #moves > 0
         end
 
-        local moved = ComputeAndExecute()
+        local function RunSort()
+            local moved = ComputeAndExecute()
 
-        if not moved then
-            SetCVar("Sound_EnableSFX", sfxWas)
-            EUI_Bags.refreshEnabled = true
-            EUI_Bags:RefreshInventory()
-            C_Timer.After(3, UnlockSort)
-            return
-        end
+            if not moved then
+                SetCVar("Sound_EnableSFX", sfxWas)
+                EUI_Bags.refreshEnabled = true
+                EUI_Bags:RefreshInventory()
+                C_Timer.After(3, UnlockSort)
+                return
+            end
 
-        local retryCount = 0
-        local retryFrame = CreateFrame("Frame")
-        retryFrame:RegisterEvent("BAG_UPDATE")
-        retryFrame:SetScript("OnEvent", function(self)
-            self:UnregisterAllEvents()
-            retryCount = retryCount + 1
-            C_Timer.After(0.15, function()
-                local moved = ComputeAndExecute()
-                if moved and retryCount < 15 then
-                    self:RegisterEvent("BAG_UPDATE")
-                else
-                    self:SetScript("OnEvent", nil)
-                    SetCVar("Sound_EnableSFX", sfxWas)
-                    C_Timer.After(0.3, function()
+            local retryCount = 0
+            local retryFrame = CreateFrame("Frame")
+            retryFrame:RegisterEvent("BAG_UPDATE")
+            retryFrame:SetScript("OnEvent", function(self)
+                self:UnregisterAllEvents()
+                retryCount = retryCount + 1
+                C_Timer.After(0.15, function()
+                    local moved = ComputeAndExecute()
+                    if moved and retryCount < 15 then
+                        self:RegisterEvent("BAG_UPDATE")
+                    else
+                        self:SetScript("OnEvent", nil)
+                        SetCVar("Sound_EnableSFX", sfxWas)
+                        C_Timer.After(0.3, function()
                         EUI_Bags.refreshEnabled = true
                         EUI_Bags:RefreshInventory()
                         C_Timer.After(3, UnlockSort)
@@ -740,6 +815,10 @@ local function CreateHeader()
                 end
             end)
         end)
+        end  -- end RunSort
+
+        -- Consolidate partial stacks first, then sort
+        ConsolidateStacks(RunSort)
     end
 
     DoVisualSort = function()
@@ -1695,6 +1774,13 @@ local function GetOrCreateSlot(idx)
         if not bagID or not slotID or slotID == 0 then return end
         local info = C_Container.GetContainerItemInfo(bagID, slotID)
         if not info or not info.itemID then return end
+        -- If this item has a custom category assignment, middle-click unassigns it
+        local assignments = EllesmereUIDB and EllesmereUIDB.bagItemAssignments
+        if assignments and assignments[info.itemID] then
+            EUI_CategoryManager:UnassignItem(info.itemID)
+            if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
+            return
+        end
         if not EllesmereUIDB then EllesmereUIDB = {} end
         if not EllesmereUIDB.bagPinnedItems then EllesmereUIDB.bagPinnedItems = {} end
         local pinned = EllesmereUIDB.bagPinnedItems
@@ -1718,6 +1804,29 @@ local function GetOrCreateSlot(idx)
             end
         end
         if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
+    end)
+
+    -- Shift-click split hint: when the user shift-clicks an item while
+    -- viewing a category (not OneBag), show a brief tooltip that stacks
+    -- auto-merge in categories and splitting should be done in OneBag.
+    btn:HookScript("PostClick", function(self, button)
+        if button ~= "LeftButton" then return end
+        if not IsShiftKeyDown() then return end
+        if selectedCategoryIndex == -1 then return end
+        local bagID = self:GetParent():GetID()
+        local slotID = self:GetID()
+        if not bagID or not slotID or slotID == 0 then return end
+        local itemInfo = C_Container.GetContainerItemInfo(bagID, slotID)
+        if not itemInfo or not itemInfo.stackCount or itemInfo.stackCount <= 1 then return end
+        if not EUI.ShowWidgetTooltip then return end
+        EUI.ShowWidgetTooltip(self,
+            "Items in categories auto-merge,\nsplit stacks in OneBag", { anchor = "TOP", scale = 1.25 })
+        -- Cancel any previous auto-hide timer
+        if EUI_Bags._splitHintTimer then EUI_Bags._splitHintTimer:Cancel() end
+        EUI_Bags._splitHintTimer = C_Timer.NewTimer(4, function()
+            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+            EUI_Bags._splitHintTimer = nil
+        end)
     end)
 
     -- Hide template decorations via methods only (never write properties onto
@@ -2013,7 +2122,9 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         btn:SetItemButtonCount(data._mergedCount or data.info.stackCount)
         btn._isMerged = data._mergedCount and true or nil
         SetItemButtonDesaturated(btn, data.info.isLocked)
-        btn:SetAlpha(data.info.isFiltered and 0.2 or 1)
+        local filtered = data.info.isFiltered
+        btn:SetAlpha(filtered and 0.2 or 1)
+        if btn._textOverlay then btn._textOverlay:SetAlpha(filtered and 0.2 or 1) end
 
         local iType = data._giType
 
@@ -2154,6 +2265,7 @@ end
 -------------------------------------------------------------------------------
 local EnterPinSelectMode  -- forward declaration
 local ExitPinSelectMode   -- forward declaration
+local EnterAssignSelectMode  -- forward declaration
 
 -- Pin "+" overlay: a click-catcher frame placed over a regular empty slot
 local function GetOrCreatePinOverlay()
@@ -2215,6 +2327,62 @@ local function GetOrCreatePinOverlay()
     return ov
 end
 
+-- Assign "+" overlay: click or drag an item to assign it to a category.
+-- Pooled so multiple sections can show one simultaneously.
+local _assignOverlays = {}
+local _assignOverlayIdx = 0
+
+local function GetOrCreateAssignOverlay()
+    _assignOverlayIdx = _assignOverlayIdx + 1
+    if _assignOverlays[_assignOverlayIdx] then return _assignOverlays[_assignOverlayIdx] end
+    local ov = CreateFrame("Button", nil, EUI_Bags)
+    ov:SetSize(SLOT_SIZE, SLOT_SIZE)
+    ov:SetFrameLevel(100)
+    ov.bg = ov:CreateTexture(nil, "BACKGROUND")
+    ov.bg:SetAllPoints()
+    ov.bg:SetColorTexture(0, 0, 0, 0.4)
+    ov.plus = ov:CreateFontString(nil, "OVERLAY")
+    ov.plus:SetFont(GetFont(), 18, "OUTLINE")
+    ov.plus:SetPoint("CENTER", 0, 0)
+    ov.plus:SetText("+")
+    ov.plus:SetTextColor(1, 1, 1, 0.5)
+    ov:SetScript("OnEnter", function(self)
+        self.plus:SetTextColor(1, 1, 1, 1)
+        if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Assign an item to this category") end
+    end)
+    ov:SetScript("OnLeave", function(self)
+        self.plus:SetTextColor(1, 1, 1, 0.5)
+        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+    end)
+    local function DoAssign(self)
+        local cursorType, itemID = GetCursorInfo()
+        if cursorType == "item" and itemID and self._assignCatKey then
+            EUI_CategoryManager:AssignItem(itemID, self._assignCatKey)
+            ClearCursor()
+            if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
+            return
+        end
+        -- No cursor item: enter assign select mode (like pin select)
+        if self._assignCatKey then
+            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+            EnterAssignSelectMode(self._assignCatKey)
+        end
+    end
+    ov:RegisterForDrag("LeftButton")
+    ov:SetScript("OnReceiveDrag", DoAssign)
+    ov:SetScript("OnClick", DoAssign)
+    ov:Hide()
+    _assignOverlays[_assignOverlayIdx] = ov
+    return ov
+end
+
+local function ResetAssignOverlays()
+    for i = 1, _assignOverlayIdx do
+        _assignOverlays[i]:Hide()
+    end
+    _assignOverlayIdx = 0
+end
+
 ExitPinSelectMode = function()
     EUI_Bags._pinSelectMode = false
     if EUI_Bags._pinCatcher then EUI_Bags._pinCatcher:Hide() end
@@ -2233,6 +2401,171 @@ ExitPinSelectMode = function()
     -- Restore scroll frame strata
     local sf = EUI_Bags._scrollFrame
     if sf then sf:SetFrameStrata("HIGH") end
+end
+
+-------------------------------------------------------------------------------
+--  Assign Selection Mode (mirrors Pin Selection Mode)
+--  Dims the screen and lets the user click an item to assign it to a category.
+-------------------------------------------------------------------------------
+local _assignSelectCatKey = nil
+
+local function ExitAssignSelectMode()
+    EUI_Bags._assignSelectMode = false
+    _assignSelectCatKey = nil
+    if EUI_Bags._assignCatcher then EUI_Bags._assignCatcher:Hide() end
+    local ov = EUI_Bags._assignOverlay
+    if ov then
+        ov:EnableMouse(false)
+        if not ov._fadeOut then
+            local fg = ov:CreateAnimationGroup()
+            local a = fg:CreateAnimation("Alpha")
+            a:SetFromAlpha(1); a:SetToAlpha(0); a:SetDuration(0.15)
+            fg:SetScript("OnFinished", function() ov:Hide(); ov:SetAlpha(1) end)
+            ov._fadeOut = fg
+        end
+        ov._fadeOut:Play()
+    end
+    local sf = EUI_Bags._scrollFrame
+    if sf then sf:SetFrameStrata("HIGH") end
+end
+
+EnterAssignSelectMode = function(catKey)
+    EUI_Bags._assignSelectMode = true
+    _assignSelectCatKey = catKey
+
+    -- Dark overlay
+    if not EUI_Bags._assignOverlay then
+        local ov = CreateFrame("Frame", nil, UIParent)
+        ov:SetFrameStrata("FULLSCREEN_DIALOG")
+        ov:SetFrameLevel(0)
+        ov:SetAllPoints(UIParent)
+        ov:EnableMouse(true)
+        ov.bg = ov:CreateTexture(nil, "BACKGROUND")
+        ov.bg:SetAllPoints()
+        ov.bg:SetColorTexture(0, 0, 0, 0.6)
+        ov:SetScript("OnMouseDown", function() ExitAssignSelectMode() end)
+        ov:SetScript("OnKeyDown", function(self, key)
+            if key == "ESCAPE" then
+                self:SetPropagateKeyboardInput(false)
+                ExitAssignSelectMode()
+            else
+                self:SetPropagateKeyboardInput(true)
+            end
+        end)
+        EUI_Bags._assignOverlay = ov
+    end
+    local ov = EUI_Bags._assignOverlay
+    ov:SetAlpha(0)
+    ov:Show()
+    if not ov._fadeIn then
+        local fg = ov:CreateAnimationGroup()
+        local a = fg:CreateAnimation("Alpha")
+        a:SetFromAlpha(0); a:SetToAlpha(1); a:SetDuration(0.15)
+        fg:SetScript("OnFinished", function() ov:SetAlpha(1) end)
+        ov._fadeIn = fg
+    end
+    ov._fadeIn:Play()
+
+    -- Raise scroll frame above overlay
+    local sf = EUI_Bags._scrollFrame
+    if sf then sf:SetFrameStrata("FULLSCREEN_DIALOG") end
+
+    -- Hit-test: find item button under cursor
+    local function FindBtnUnderCursor()
+        local scale = UIParent:GetEffectiveScale()
+        local cx, cy = GetCursorPosition()
+        cx, cy = cx / scale, cy / scale
+        for _, btn in pairs(itemSlots) do
+            if btn:IsShown() and btn:GetParent():IsShown() then
+                local l, b, w, h = btn:GetRect()
+                if l and b and w and h and cx >= l and cx <= l + w and cy >= b and cy <= b + h then
+                    return btn
+                end
+            end
+        end
+        return nil
+    end
+
+    -- Click catcher with hover highlight
+    if not EUI_Bags._assignCatcher then
+        local cf = CreateFrame("Frame", nil, UIParent)
+        cf:SetFrameStrata("FULLSCREEN_DIALOG")
+        cf:SetFrameLevel(500)
+        cf:EnableMouse(true)
+
+        local hoverOv = cf:CreateTexture(nil, "OVERLAY")
+        hoverOv:SetColorTexture(1, 1, 1, 0.4)
+        hoverOv:Hide()
+        local hoveredBtn = nil
+        local savedR, savedG, savedB, savedA, savedBrdSize
+
+        local function ClearHover()
+            if hoveredBtn then
+                if savedR then SetInsetBorderColor(hoveredBtn, savedR, savedG, savedB, savedA) end
+                if savedBrdSize and hoveredBtn._brdT then
+                    hoveredBtn._brdT:SetHeight(savedBrdSize)
+                    hoveredBtn._brdB:SetHeight(savedBrdSize)
+                    hoveredBtn._brdL:SetWidth(savedBrdSize)
+                    hoveredBtn._brdR:SetWidth(savedBrdSize)
+                end
+            end
+            hoveredBtn = nil
+            savedR = nil
+            savedBrdSize = nil
+            hoverOv:ClearAllPoints()
+            hoverOv:Hide()
+        end
+
+        cf:SetScript("OnUpdate", function()
+            local btn = FindBtnUnderCursor()
+            if btn == hoveredBtn then return end
+            ClearHover()
+            if btn and btn.icon and btn.icon:IsShown() then
+                if btn._brdT then
+                    savedR, savedG, savedB, savedA = btn._brdT:GetVertexColor()
+                    savedBrdSize = btn._brdT:GetHeight()
+                    local ar, ag, ab = GetAccentRGB()
+                    SetInsetBorderColor(btn, ar, ag, ab, 1)
+                    local PP = EUI and EUI.PP
+                    local px2 = ((PP and PP.mult) or 1) * 2
+                    btn._brdT:SetHeight(px2)
+                    btn._brdB:SetHeight(px2)
+                    btn._brdL:SetWidth(px2)
+                    btn._brdR:SetWidth(px2)
+                end
+                hoverOv:ClearAllPoints()
+                hoverOv:SetAllPoints(btn)
+                hoverOv:Show()
+                hoveredBtn = btn
+            end
+        end)
+
+        cf:SetScript("OnMouseDown", function(_, button)
+            if button == "RightButton" then ClearHover(); ExitAssignSelectMode(); return end
+            local btn = FindBtnUnderCursor()
+            if btn then
+                local bagID = btn:GetParent():GetID()
+                local slotID = btn:GetID()
+                if bagID and slotID and slotID > 0 then
+                    local info = C_Container.GetContainerItemInfo(bagID, slotID)
+                    if info and info.itemID and _assignSelectCatKey then
+                        EUI_CategoryManager:AssignItem(info.itemID, _assignSelectCatKey)
+                        ClearHover()
+                        ExitAssignSelectMode()
+                        EUI_Bags:RefreshInventory()
+                        return
+                    end
+                end
+            end
+            ClearHover()
+            ExitAssignSelectMode()
+        end)
+
+        cf:SetAllPoints(UIParent)
+        cf:Hide()
+        EUI_Bags._assignCatcher = cf
+    end
+    EUI_Bags._assignCatcher:Show()
 end
 
 EnterPinSelectMode = function()
@@ -3316,9 +3649,15 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                 local firstCat = cats[members[1]]
                 local groupIcon = firstCat and firstCat.icon or 134400
                 local groupIsAtlas = firstCat and firstCat.isAtlas
+                -- Check if any member is user-created (keep group visible if so)
+                local groupHasUserCreated = false
+                for _, mi in ipairs(members) do
+                    if cats[mi] and cats[mi].isUserCreated then groupHasUserCreated = true; break end
+                end
                 displayList[#displayList + 1] = {
                     catIdx = members[1], name = cat.groupName, icon = groupIcon, isAtlas = groupIsAtlas,
                     count = groupCount, isGroupHeader = true, groupName = cat.groupName,
+                    isUserCreated = groupHasUserCreated,
                 }
                 -- Indented members (hidden when collapsed)
                 if not collapsed then
@@ -3328,6 +3667,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                             catIdx = mi, name = mc.name, icon = mc.icon or 134400, isAtlas = mc.isAtlas,
                             count = categoryCounts and categoryCounts[mi] or 0,
                             indent = true, groupName = cat.groupName, isGroupMember = true,
+                            isUserCreated = mc.isUserCreated,
                         }
                     end
                 end
@@ -3341,7 +3681,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             elseif cat.isRecent and EllesmereUIDB and EllesmereUIDB.bagShowRecentItems == false then
                 -- skip
             else
-                displayList[#displayList + 1] = { catIdx = ci, name = cat.name, icon = cat.icon or 134400, isAtlas = cat.isAtlas, count = count, noMove = cat.noMove, isPinned = cat.isPinned, isRecent = cat.isRecent }
+                displayList[#displayList + 1] = { catIdx = ci, name = cat.name, icon = cat.icon or 134400, isAtlas = cat.isAtlas, count = count, noMove = cat.noMove, isPinned = cat.isPinned, isRecent = cat.isRecent, isUserCreated = cat.isUserCreated }
             end
         end
     end
@@ -3353,8 +3693,8 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         for _, entry in ipairs(displayList) do
             local keep = true
             if entry.count == 0 then
-                -- Always keep: All Items, OneBag, noMove (Pinned/Recent)
-                if entry.catIdx >= 1 and not entry.noMove then
+                -- Always keep: All Items, OneBag, noMove (Pinned/Recent), user-created
+                if entry.catIdx >= 1 and not entry.noMove and not entry.isUserCreated then
                     if entry.isGroupHeader then
                         -- Hide group header if all members are 0
                         keep = false
@@ -3419,6 +3759,22 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                 if button == "RightButton" then
                     if self._catIdx > 0 then ShowCategoryContextMenu(self, self._catIdx, self._isGroupHeader, self._isGroupMember) end
                     return
+                end
+                -- Drag-to-sidebar: if the cursor holds an item, assign it to this category
+                if self._catIdx and self._catIdx > 0 then
+                    local cursorType, cursorItemID = GetCursorInfo()
+                    if cursorType == "item" and cursorItemID then
+                        if EUI_CategoryManager and EUI_CategoryManager:CanAssignToCategory(self._catIdx) then
+                            local cats = EUI_CategoryManager:GetCategories()
+                            local cat = cats[self._catIdx]
+                            if cat then
+                                EUI_CategoryManager:AssignItem(cursorItemID, cat._defaultName)
+                                ClearCursor()
+                                EUI_Bags:RefreshInventory()
+                                return
+                            end
+                        end
+                    end
                 end
                 if self._didDrag then self._didDrag = false; return end
                 if self._isGroupHeader and self._groupName then
@@ -3562,6 +3918,338 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             div:Show()
             y = y - (div:GetHeight() or 1) - 4  -- spacing below line
         end
+    end
+
+    -- "+Add Category" button at the bottom of the sidebar
+    local hideAddCat = EllesmereUIDB and EllesmereUIDB.bagHideAddCategory
+    if not collapsed and not hideAddCat then
+        if not sidebar._addCatBtn then
+            local btn = CreateFrame("Button", nil, sidebarChild or sidebar)
+            btn:SetHeight(SIDEBAR_BTN_H)
+            btn._bg = btn:CreateTexture(nil, "BACKGROUND", nil, 2)
+            btn._bg:SetAllPoints()
+            btn._bg:SetColorTexture(1, 1, 1, 0)
+            btn._icon = btn:CreateTexture(nil, "ARTWORK")
+            btn._icon:SetSize(SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE)
+            btn._icon:SetPoint("LEFT", btn, "LEFT", 8, 0)
+            btn._icon:SetTexture(134400)
+            btn._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            btn._icon:SetAlpha(0.5)
+            btn._label = btn:CreateFontString(nil, "OVERLAY")
+            SetBagFont(btn._label, 11)
+            btn._label:SetJustifyH("LEFT")
+            btn._label:SetWordWrap(false)
+            btn._label:SetPoint("LEFT", btn._icon, "RIGHT", 6, 0)
+            btn._label:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
+            btn._label:SetText("Add Category")
+            btn._label:SetTextColor(1, 1, 1, 0.4)
+            btn:SetScript("OnEnter", function(self)
+                self._bg:SetColorTexture(1, 1, 1, 0.06)
+                self._label:SetTextColor(1, 1, 1, 0.8)
+                self._icon:SetAlpha(0.8)
+            end)
+            btn:SetScript("OnLeave", function(self)
+                self._bg:SetColorTexture(1, 1, 1, 0)
+                self._label:SetTextColor(1, 1, 1, 0.4)
+                self._icon:SetAlpha(0.5)
+            end)
+            btn:SetScript("OnClick", function(self)
+                local popup = EUI_Bags._newCatPopup
+                if popup and popup:IsShown() then popup:Hide(); return end
+                if not popup then
+                    popup = CreateFrame("Frame", nil, EUI_Bags)
+                    popup:SetFrameStrata("DIALOG")
+                    popup:SetSize(240, 230)
+                    popup:EnableMouse(true)
+                    local bg = popup:CreateTexture(nil, "BACKGROUND")
+                    bg:SetAllPoints()
+                    bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
+                    local PP = EUI and EUI.PP
+                    if PP and PP.CreateBorder then PP.CreateBorder(popup, 0.2, 0.2, 0.2, 1) end
+
+                    -- Title
+                    local title = popup:CreateFontString(nil, "OVERLAY")
+                    SetBagFont(title, 13)
+                    title:SetPoint("TOPLEFT", popup, "TOPLEFT", 10, -10)
+                    title:SetTextColor(1, 1, 1, 0.9)
+                    title:SetText("New Custom Category")
+
+                    -- Name editbox
+                    local eb = CreateFrame("EditBox", nil, popup)
+                    eb:SetSize(220, 22)
+                    eb:SetPoint("TOPLEFT", popup, "TOPLEFT", 10, -30)
+                    eb:SetAutoFocus(false)
+                    eb:SetFont(GetFont(), 12, "")
+                    eb:SetTextColor(1, 1, 1, 1)
+                    eb:SetTextInsets(6, 6, 0, 0)
+                    eb:SetMaxLetters(30)
+                    local ebBg = eb:CreateTexture(nil, "BACKGROUND")
+                    ebBg:SetAllPoints()
+                    ebBg:SetColorTexture(0.1, 0.1, 0.1, 1)
+                    if PP and PP.CreateBorder then PP.CreateBorder(eb, 0.15, 0.15, 0.15, 1) end
+                    eb:SetScript("OnEscapePressed", function(s) s:ClearFocus() end)
+                    eb:SetScript("OnEnterPressed", function(s) s:ClearFocus() end)
+                    popup._nameEB = eb
+
+                    -- Icon label
+                    local iconLbl = popup:CreateFontString(nil, "OVERLAY")
+                    SetBagFont(iconLbl, 11)
+                    iconLbl:SetPoint("TOPLEFT", eb, "BOTTOMLEFT", 0, -8)
+                    iconLbl:SetTextColor(0.7, 0.7, 0.7, 1)
+                    iconLbl:SetText("Icon:")
+
+                    -- Icon grid (placeholder IDs -- replace with real set)
+                    local ICON_IDS = {
+                        7514178, 7548926, 7427980, 7548966, 2143125,
+                        6025441, 7451177, 7548901, 7501337, 7704166,
+                        7549083, 7549010, 7136579, 7549012,
+                    }
+                    popup._iconIDs = ICON_IDS
+                    local ICON_SZ = 28
+                    local ICON_PAD = 4
+                    local ICONS_PER_ROW = 7
+                    local iconBtns = {}
+                    popup._selectedIcon = ICON_IDS[1]
+                    popup._customMode = false
+
+                    local ar, ag, ab = GetAccentRGB()
+                    local bPx = (PP and PP.mult or 1) * 2
+
+                    -- Helper: update selection highlight across grid + custom
+                    local function UpdateSelection()
+                        for _, ob in ipairs(iconBtns) do ob._border:Hide() end
+                        if popup._customBorder then popup._customBorder:Hide() end
+                        if popup._customMode then
+                            if popup._customBorder then popup._customBorder:Show() end
+                        else
+                            for _, ob in ipairs(iconBtns) do
+                                if ob._iconID == popup._selectedIcon then
+                                    ob._border:Show(); break
+                                end
+                            end
+                        end
+                    end
+                    popup._updateSelection = UpdateSelection
+
+                    for idx, iconID in ipairs(ICON_IDS) do
+                        local ib = CreateFrame("Button", nil, popup)
+                        ib:SetSize(ICON_SZ, ICON_SZ)
+                        local col = (idx - 1) % ICONS_PER_ROW
+                        local row = math.floor((idx - 1) / ICONS_PER_ROW)
+                        ib:SetPoint("TOPLEFT", iconLbl, "BOTTOMLEFT", col * (ICON_SZ + ICON_PAD), -(4 + row * (ICON_SZ + ICON_PAD)))
+                        local tex = ib:CreateTexture(nil, "ARTWORK")
+                        tex:SetAllPoints()
+                        tex:SetTexture(iconID)
+                        tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                        ib._tex = tex
+                        ib._iconID = iconID
+                        -- Accent-colored 2px border for selection
+                        local border = CreateFrame("Frame", nil, ib)
+                        border:SetPoint("TOPLEFT", -bPx, bPx)
+                        border:SetPoint("BOTTOMRIGHT", bPx, -bPx)
+                        border:SetFrameLevel(ib:GetFrameLevel() + 2)
+                        local bTop = border:CreateTexture(nil, "OVERLAY"); bTop:SetColorTexture(ar, ag, ab, 1)
+                        bTop:SetPoint("TOPLEFT"); bTop:SetPoint("TOPRIGHT"); bTop:SetHeight(bPx)
+                        local bBot = border:CreateTexture(nil, "OVERLAY"); bBot:SetColorTexture(ar, ag, ab, 1)
+                        bBot:SetPoint("BOTTOMLEFT"); bBot:SetPoint("BOTTOMRIGHT"); bBot:SetHeight(bPx)
+                        local bLeft = border:CreateTexture(nil, "OVERLAY"); bLeft:SetColorTexture(ar, ag, ab, 1)
+                        bLeft:SetPoint("TOPLEFT"); bLeft:SetPoint("BOTTOMLEFT"); bLeft:SetWidth(bPx)
+                        local bRight = border:CreateTexture(nil, "OVERLAY"); bRight:SetColorTexture(ar, ag, ab, 1)
+                        bRight:SetPoint("TOPRIGHT"); bRight:SetPoint("BOTTOMRIGHT"); bRight:SetWidth(bPx)
+                        border:Hide()
+                        ib._border = border
+                        ib:SetScript("OnClick", function(s)
+                            popup._selectedIcon = s._iconID
+                            popup._customMode = false
+                            popup._prevTex:SetTexture(s._iconID)
+                            UpdateSelection()
+                        end)
+                        ib:SetScript("OnEnter", function(s) s._tex:SetAlpha(1) end)
+                        ib:SetScript("OnLeave", function(s) s._tex:SetAlpha(0.85) end)
+                        ib._tex:SetAlpha(0.85)
+                        iconBtns[idx] = ib
+                    end
+                    popup._iconBtns = iconBtns
+
+                    -- Custom icon ID label + preview + editbox
+                    local lastRow = math.ceil(#ICON_IDS / ICONS_PER_ROW)
+                    local customLbl = popup:CreateFontString(nil, "OVERLAY")
+                    SetBagFont(customLbl, 11)
+                    customLbl:SetPoint("TOPLEFT", iconLbl, "BOTTOMLEFT", 0, -(4 + lastRow * (ICON_SZ + ICON_PAD) + 6))
+                    customLbl:SetTextColor(0.7, 0.7, 0.7, 1)
+                    customLbl:SetText("Custom Icon ID:")
+
+                    -- Preview icon to the left of the editbox
+                    local preview = CreateFrame("Frame", nil, popup)
+                    preview:SetSize(22, 22)
+                    preview:SetPoint("TOPLEFT", customLbl, "BOTTOMLEFT", 0, -4)
+                    local prevTex = preview:CreateTexture(nil, "ARTWORK")
+                    prevTex:SetAllPoints()
+                    prevTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                    prevTex:SetTexture(ICON_IDS[1])
+                    popup._prevTex = prevTex
+                    -- Accent border on the preview (for custom mode)
+                    local cBorder = CreateFrame("Frame", nil, preview)
+                    cBorder:SetPoint("TOPLEFT", -bPx, bPx)
+                    cBorder:SetPoint("BOTTOMRIGHT", bPx, -bPx)
+                    cBorder:SetFrameLevel(preview:GetFrameLevel() + 2)
+                    local cbTop = cBorder:CreateTexture(nil, "OVERLAY"); cbTop:SetColorTexture(ar, ag, ab, 1)
+                    cbTop:SetPoint("TOPLEFT"); cbTop:SetPoint("TOPRIGHT"); cbTop:SetHeight(bPx)
+                    local cbBot = cBorder:CreateTexture(nil, "OVERLAY"); cbBot:SetColorTexture(ar, ag, ab, 1)
+                    cbBot:SetPoint("BOTTOMLEFT"); cbBot:SetPoint("BOTTOMRIGHT"); cbBot:SetHeight(bPx)
+                    local cbLeft = cBorder:CreateTexture(nil, "OVERLAY"); cbLeft:SetColorTexture(ar, ag, ab, 1)
+                    cbLeft:SetPoint("TOPLEFT"); cbLeft:SetPoint("BOTTOMLEFT"); cbLeft:SetWidth(bPx)
+                    local cbRight = cBorder:CreateTexture(nil, "OVERLAY"); cbRight:SetColorTexture(ar, ag, ab, 1)
+                    cbRight:SetPoint("TOPRIGHT"); cbRight:SetPoint("BOTTOMRIGHT"); cbRight:SetWidth(bPx)
+                    cBorder:Hide()
+                    popup._customBorder = cBorder
+
+                    local customEB = CreateFrame("EditBox", nil, popup)
+                    customEB:SetSize(80, 22)
+                    customEB:SetPoint("LEFT", preview, "RIGHT", 8, 0)
+                    customEB:SetAutoFocus(false)
+                    customEB:SetFont(GetFont(), 11, "")
+                    customEB:SetTextColor(1, 1, 1, 1)
+                    customEB:SetTextInsets(4, 4, 0, 0)
+                    customEB:SetNumeric(true)
+                    local cBg = customEB:CreateTexture(nil, "BACKGROUND")
+                    cBg:SetAllPoints()
+                    cBg:SetColorTexture(0.1, 0.1, 0.1, 1)
+                    if PP and PP.CreateBorder then PP.CreateBorder(customEB, 0.15, 0.15, 0.15, 1) end
+                    customEB:SetScript("OnEscapePressed", function(s) s:ClearFocus() end)
+                    customEB:SetScript("OnEnterPressed", function(s) s:ClearFocus() end)
+                    customEB:SetScript("OnTextChanged", function(s)
+                        local txt = s:GetText()
+                        local id = tonumber(txt)
+                        if txt and txt ~= "" and id and id > 0 then
+                            popup._selectedIcon = id
+                            popup._customMode = true
+                            prevTex:SetTexture(id)
+                        else
+                            popup._customMode = false
+                        end
+                        UpdateSelection()
+                    end)
+                    popup._customEB = customEB
+
+                    -- Create button
+                    local createBtn = CreateFrame("Button", nil, popup)
+                    createBtn:SetSize(220, 26)
+                    createBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOMLEFT", 10, 10)
+                    local cBtnBg = createBtn:CreateTexture(nil, "BACKGROUND")
+                    cBtnBg:SetAllPoints()
+                    cBtnBg:SetColorTexture(0.15, 0.15, 0.15, 1)
+                    if PP and PP.CreateBorder then PP.CreateBorder(createBtn, 0.25, 0.25, 0.25, 1) end
+                    local cBtnLbl = createBtn:CreateFontString(nil, "OVERLAY")
+                    SetBagFont(cBtnLbl, 12)
+                    cBtnLbl:SetPoint("CENTER")
+                    cBtnLbl:SetTextColor(1, 1, 1, 0.9)
+                    cBtnLbl:SetText("Create")
+                    createBtn:SetScript("OnEnter", function() cBtnBg:SetColorTexture(0.2, 0.2, 0.2, 1) end)
+                    createBtn:SetScript("OnLeave", function() cBtnBg:SetColorTexture(0.15, 0.15, 0.15, 1) end)
+                    -- Red flash validation for empty fields
+                    local function MakeFlashBorder(parent)
+                        local fb = CreateFrame("Frame", nil, parent)
+                        fb:SetPoint("TOPLEFT", -1, 1)
+                        fb:SetPoint("BOTTOMRIGHT", 1, -1)
+                        fb:SetFrameLevel(parent:GetFrameLevel() + 5)
+                        local edges = {}
+                        local function MakeEdge(p1, p2, isHoriz)
+                            local t = fb:CreateTexture(nil, "OVERLAY")
+                            t:SetColorTexture(0.9, 0.15, 0.15, 0)
+                            if isHoriz then
+                                t:SetPoint(p1); t:SetPoint(p2); t:SetHeight(1)
+                            else
+                                t:SetPoint(p1); t:SetPoint(p2); t:SetWidth(1)
+                            end
+                            edges[#edges + 1] = t
+                        end
+                        MakeEdge("TOPLEFT", "TOPRIGHT", true)
+                        MakeEdge("BOTTOMLEFT", "BOTTOMRIGHT", true)
+                        MakeEdge("TOPLEFT", "BOTTOMLEFT", false)
+                        MakeEdge("TOPRIGHT", "BOTTOMRIGHT", false)
+                        fb._edges = edges
+                        fb._elapsed = 0
+                        fb._active = false
+                        fb:SetScript("OnUpdate", function(self, dt)
+                            if not self._active then self:Hide(); return end
+                            self._elapsed = self._elapsed + dt
+                            if self._elapsed >= 0.7 then
+                                self._active = false
+                                for _, e in ipairs(self._edges) do e:SetColorTexture(0.9, 0.15, 0.15, 0) end
+                                self:Hide()
+                                return
+                            end
+                            local t = self._elapsed / 0.7
+                            local a = 0.7 * (1 - t)
+                            for _, e in ipairs(self._edges) do e:SetColorTexture(0.9, 0.15, 0.15, a) end
+                        end)
+                        fb:Hide()
+                        fb.Flash = function(self)
+                            self._elapsed = 0
+                            self._active = true
+                            for _, e in ipairs(self._edges) do e:SetColorTexture(0.9, 0.15, 0.15, 0.7) end
+                            self:Show()
+                        end
+                        return fb
+                    end
+                    local nameFlash = MakeFlashBorder(eb)
+                    popup._nameFlash = nameFlash
+
+                    createBtn:SetScript("OnClick", function()
+                        local name = popup._nameEB:GetText()
+                        if not name or name == "" then
+                            popup._nameFlash:Flash()
+                            popup._nameEB:SetFocus()
+                            return
+                        end
+                        local icon = popup._selectedIcon or 134400
+                        local idx = EUI_CategoryManager:AddCustomCategory(name)
+                        if idx then
+                            -- Store the chosen icon on the category
+                            local cats = EUI_CategoryManager:GetCategories()
+                            if cats[idx] then
+                                cats[idx].icon = icon
+                                cats[idx].isAtlas = nil
+                            end
+                            EUI_CategoryManager:SaveState()
+                        end
+                        popup:Hide()
+                        EUI_Bags:RefreshInventory()
+                    end)
+
+                    -- Close on Escape
+                    popup:SetScript("OnKeyDown", function(s, key)
+                        if key == "ESCAPE" then s:Hide(); s:SetPropagateKeyboardInput(false)
+                        else s:SetPropagateKeyboardInput(true) end
+                    end)
+                    popup:EnableKeyboard(true)
+
+                    EUI_Bags._newCatPopup = popup
+                end
+                -- Reset state
+                popup._nameEB:SetText("")
+                popup._customEB:SetText("")
+                popup._selectedIcon = popup._iconIDs[1]
+                popup._customMode = false
+                popup._prevTex:SetTexture(popup._iconIDs[1])
+                popup._updateSelection()
+                popup:ClearAllPoints()
+                popup:SetPoint("BOTTOMLEFT", self, "BOTTOMRIGHT", 4, 0)
+                popup:Show()
+                popup._nameEB:SetFocus()
+            end)
+            sidebar._addCatBtn = btn
+        end
+        local addBtn = sidebar._addCatBtn
+        addBtn:SetParent(sidebarChild or sidebar)
+        addBtn:ClearAllPoints()
+        addBtn:SetPoint("TOPLEFT", sidebarChild or sidebar, "TOPLEFT", 0, y - 4)
+        addBtn:SetWidth(sidebarW)
+        addBtn:Show()
+        y = y - SIDEBAR_BTN_H - 4
+    elseif sidebar._addCatBtn then
+        sidebar._addCatBtn:Hide()
     end
 
     -- Set scroll child height to content height
@@ -3999,6 +4687,7 @@ function EUI_Bags:RefreshInventory()
         SetBagFont(hdr._hint, catTitleSize - 1)
     end
     if EUI_Bags._pinOverlayBtn then EUI_Bags._pinOverlayBtn:Hide() end
+    ResetAssignOverlays()
     if EUI_Bags._oneBagWarning then EUI_Bags._oneBagWarning:Hide() end
 
     local columns = GetColumns()
@@ -4349,7 +5038,7 @@ function EUI_Bags:RefreshInventory()
         local renderedGroups = {}
         local headerIdx = 0
 
-        local function RenderSection(sectionName, sectionItems, isUserCreated, showPinAdd, alwaysShow)
+        local function RenderSection(sectionName, sectionItems, isUserCreated, showPinAdd, alwaysShow, assignCatIdx)
             local itemCount = #sectionItems
             if itemCount == 0 and not isUserCreated and not showPinAdd and not alwaysShow then return end
 
@@ -4437,6 +5126,29 @@ function EUI_Bags:RefreshInventory()
                 itemCount = itemCount + 1
             end
 
+            -- Assign "+" button: for categories that accept item assignments
+            if assignCatIdx and EUI_CategoryManager
+               and EUI_CategoryManager:CanAssignToCategory(assignCatIdx) then
+                local cats = EUI_CategoryManager:GetCategories()
+                local aCat = cats[assignCatIdx]
+                if aCat then
+                    local aIdx = itemCount + 1
+                    slotIdx = slotIdx + 1
+                    local aSlot = GetOrCreateSlot(slotIdx)
+                    aSlot:GetParent():SetParent(child)
+                    local col = (aIdx - 1) % columns
+                    local row = math.floor((aIdx - 1) / columns)
+                    RenderButton(aSlot, { bag = 0, slot = 0 }, slotIdx, col, row, startX, curY, columns)
+                    local aOv = GetOrCreateAssignOverlay()
+                    aOv._assignCatKey = aCat._defaultName
+                    aOv:SetParent(child)
+                    aOv:ClearAllPoints()
+                    aOv:SetAllPoints(aSlot)
+                    aOv:Show()
+                    itemCount = itemCount + 1
+                end
+            end
+
             local remainder = itemCount % columns
             local padCount
             if itemCount == 0 then
@@ -4499,14 +5211,14 @@ function EUI_Bags:RefreshInventory()
                         if #merged > 0 then
                             ApplySavedOrder(cat.groupName, merged)
                         end
-                        RenderSection(cat.groupName, merged, false)
+                        RenderSection(cat.groupName, merged, false, nil, nil, members[1])
                     end
                 end
             else
                 if not hiddenSet[cat._defaultName] then
                     local catItems = itemsByCat[ci] or {}
-                    local isUserCreated = not cat.isCatchAll and (not cat.types or #cat.types == 0)
-                    RenderSection(cat.name, catItems, isUserCreated, cat.isPinned, cat.isRecent)
+                    local isUserCreated = cat.isUserCreated
+                    RenderSection(cat.name, catItems, isUserCreated, cat.isPinned, cat.isRecent, ci)
                 end
             end
         end
@@ -4560,17 +5272,36 @@ function EUI_Bags:RefreshInventory()
                     ProfEnd("RenderButton", _t0RB)
                 end
 
-                local remainder = #memberItems % columns
+                -- Assign "+" per member sub-section in group view
+                local memberItemCount = #memberItems
+                if EUI_CategoryManager and EUI_CategoryManager:CanAssignToCategory(mi) then
+                    local aIdx = memberItemCount + 1
+                    slotIdx = slotIdx + 1
+                    local aSlot = GetOrCreateSlot(slotIdx)
+                    aSlot:GetParent():SetParent(child)
+                    local col = (aIdx - 1) % columns
+                    local row = math.floor((aIdx - 1) / columns)
+                    RenderButton(aSlot, { bag = 0, slot = 0 }, slotIdx, col, row, startX, curY, columns)
+                    local aOv = GetOrCreateAssignOverlay()
+                    aOv._assignCatKey = memberCat._defaultName
+                    aOv:SetParent(child)
+                    aOv:ClearAllPoints()
+                    aOv:SetAllPoints(aSlot)
+                    aOv:Show()
+                    memberItemCount = memberItemCount + 1
+                end
+
+                local remainder = memberItemCount % columns
                 local padCount
-                if #memberItems == 0 then padCount = columns
+                if memberItemCount == 0 then padCount = columns
                 elseif remainder == 0 then padCount = 0
                 else padCount = columns - remainder end
                 padCount = math.min(padCount, #emptySlots - emptyIdx)
                 if padCount > 0 then
-                    RenderEmptyPad(#memberItems, padCount)
+                    RenderEmptyPad(memberItemCount, padCount)
                 end
 
-                local totalInSection = #memberItems + math.max(padCount, 0)
+                local totalInSection = memberItemCount + math.max(padCount, 0)
                 local sectionRows = math.ceil(totalInSection / columns)
                 curY = curY - (sectionRows * (SLOT_SIZE + SPACING)) - 6
 
@@ -4591,6 +5322,101 @@ function EUI_Bags:RefreshInventory()
             if headerName then
                 local headerIdx = 1
                 local hdr = GetOrCreateCatHeader(headerIdx)
+
+                -- "Edit | Delete" links for user-created categories
+                if not hdr._editDeleteFrame then
+                    local ef = CreateFrame("Frame", nil, child)
+                    ef:SetHeight(16)
+                    ef:SetFrameLevel((hdr:GetFrameLevel() or 1) + 1)
+
+                    local delBtn = CreateFrame("Button", nil, ef)
+                    delBtn:SetHeight(20)
+                    delBtn._fs = delBtn:CreateFontString(nil, "OVERLAY")
+                    SetBagFont(delBtn._fs, 10)
+                    delBtn._fs:SetPoint("RIGHT", ef, "RIGHT", 0, 0)
+                    delBtn._fs:SetText("Delete")
+                    delBtn._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                    delBtn:SetWidth(delBtn._fs:GetStringWidth() + 4)
+                    delBtn:SetAllPoints(delBtn._fs)
+                    delBtn:SetScript("OnEnter", function(s) s._fs:SetTextColor(1, 0.3, 0.3, 1) end)
+                    delBtn:SetScript("OnLeave", function(s) s._fs:SetTextColor(0.5, 0.5, 0.5, 0.7) end)
+                    delBtn:SetScript("OnClick", function()
+                        local ci = selectedCategoryIndex
+                        if ci and ci > 0 and EUI_CategoryManager then
+                            EUI:ShowConfirmPopup({
+                                title = "Delete Category",
+                                message = "Are you sure you want to delete this category? All item assignments will be removed.",
+                                confirmText = "Delete",
+                                cancelText = "Cancel",
+                                onConfirm = function()
+                                    EUI_CategoryManager:RemoveCustomCategory(ci)
+                                    selectedCategoryIndex = 0
+                                    selectedGroupName = nil
+                                    EUI_Bags:RefreshInventory()
+                                end,
+                            })
+                        end
+                    end)
+                    ef._delBtn = delBtn
+
+                    local divider = ef:CreateFontString(nil, "OVERLAY")
+                    SetBagFont(divider, 10)
+                    divider:SetPoint("RIGHT", delBtn._fs, "LEFT", -6, 0)
+                    divider:SetText("|")
+                    divider:SetTextColor(0.3, 0.3, 0.3, 0.7)
+                    ef._divider = divider
+
+                    local editBtn = CreateFrame("Button", nil, ef)
+                    editBtn:SetHeight(20)
+                    editBtn._fs = editBtn:CreateFontString(nil, "OVERLAY")
+                    SetBagFont(editBtn._fs, 10)
+                    editBtn._fs:SetPoint("RIGHT", divider, "LEFT", -6, 0)
+                    editBtn._fs:SetText("Edit")
+                    editBtn._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+                    editBtn:SetWidth(editBtn._fs:GetStringWidth() + 4)
+                    editBtn:SetAllPoints(editBtn._fs)
+                    editBtn:SetScript("OnEnter", function(s) s._fs:SetTextColor(1, 1, 1, 1) end)
+                    editBtn:SetScript("OnLeave", function(s) s._fs:SetTextColor(0.5, 0.5, 0.5, 0.7) end)
+                    editBtn:SetScript("OnClick", function()
+                        local ci = selectedCategoryIndex
+                        if ci and ci > 0 and EUI_CategoryManager and EUI then
+                            local cats2 = EUI_CategoryManager:GetCategories()
+                            local cat2 = cats2[ci]
+                            if not cat2 then return end
+                            EUI:ShowInputPopup({
+                                title = "Rename Category",
+                                message = "Enter a new name:",
+                                placeholder = cat2.name,
+                                confirmText = "Rename",
+                                cancelText = "Cancel",
+                                onConfirm = function(text)
+                                    if text and text ~= "" then
+                                        EUI_CategoryManager:RenameCategory(ci, text)
+                                        EUI_Bags:RefreshInventory()
+                                    end
+                                end,
+                            })
+                        end
+                    end)
+                    ef._editBtn = editBtn
+
+                    ef:SetWidth(60)
+                    hdr._editDeleteFrame = ef
+                end
+
+                -- Position Edit | Delete above the header, then the header below
+                if selCat and selCat.isUserCreated then
+                    local ef = hdr._editDeleteFrame
+                    ef:SetParent(child)
+                    ef:ClearAllPoints()
+                    ef:SetPoint("TOPRIGHT", child, "TOPLEFT", startX + gridW, curY)
+                    ef:SetWidth(gridW)
+                    ef:Show()
+                    curY = curY - 18
+                elseif hdr._editDeleteFrame then
+                    hdr._editDeleteFrame:Hide()
+                end
+
                 hdr:SetParent(child)
                 hdr:ClearAllPoints()
                 hdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
@@ -4621,7 +5447,6 @@ function EUI_Bags:RefreshInventory()
                 RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
                 ProfEnd("RenderButton", _t0RB)
             end
-
 
             local remainder = itemCount % columns
             local padCount
@@ -4730,7 +5555,9 @@ function EUI_BagsReagent:RefreshInventory()
             btn:SetItemButtonTexture(data.info.iconFileID)
             btn:SetItemButtonCount(data.info.stackCount)
             SetItemButtonDesaturated(btn, data.info.isLocked)
-            btn:SetAlpha(data.info.isFiltered and 0.2 or 1)
+            local filtered = data.info.isFiltered
+            btn:SetAlpha(filtered and 0.2 or 1)
+            if btn._textOverlay then btn._textOverlay:SetAlpha(filtered and 0.2 or 1) end
 
             if btn.ItemLevelText and data.info.itemID then
                 local showItemlevel = not EllesmereUIDB or EllesmereUIDB.showItemlevelInBags ~= false
@@ -4918,7 +5745,7 @@ local function StartAddon()
 
     EUI_Bags.bg = EUI_Bags:CreateTexture(nil, "BACKGROUND", nil, 0)
     EUI_Bags.bg:SetAllPoints()
-    EUI_Bags.bg:SetAtlas("housing-basic-panel--stone-background")
+    EUI_Bags.bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
     EUI_Bags.bg:SetTexCoord(0, 1, 0, 1)
 
     -- Dark overlay on top of the atlas (25% black)

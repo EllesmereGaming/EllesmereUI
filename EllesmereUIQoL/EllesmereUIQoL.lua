@@ -902,6 +902,51 @@ qolFrame:SetScript("OnEvent", function(self)
         end)
     end
 
+    ---------------------------------------------------------------------------
+    --  24-Hour Clock Fix (Blizzard bug: CVar resets to 12h on every login)
+    --  We save the user's preference when they toggle the checkbox, then
+    --  restore it on login if Blizzard's bug reset it.
+    ---------------------------------------------------------------------------
+    do
+        local saved = EllesmereUIDB and EllesmereUIDB.clockFormat24h
+        -- Restore: only if user previously chose 24h and the CVar got reset
+        if saved and GetCVar("timeMgrUseMilitaryTime") ~= "1" then
+            C_Timer.After(0.5, function()
+                if not TimeManagerFrame then
+                    if TimeManager_LoadUI then TimeManager_LoadUI() end
+                end
+                local cb = TimeManagerMilitaryTimeCheck
+                if cb then
+                    cb:SetChecked(true)
+                    local fn = cb:GetScript("OnClick")
+                    if fn then fn(cb) end
+                end
+            end)
+        end
+        -- Track: hook the checkbox so we remember whenever the user changes it
+        local function HookClockCheckbox()
+            local cb = TimeManagerMilitaryTimeCheck
+            if not cb then return end
+            cb:HookScript("OnClick", function(self)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.clockFormat24h = self:GetChecked() and true or nil
+            end)
+        end
+        -- The TimeManager may not be loaded yet; hook when it appears
+        if TimeManagerMilitaryTimeCheck then
+            HookClockCheckbox()
+        else
+            local hookFrame = CreateFrame("Frame")
+            hookFrame:RegisterEvent("ADDON_LOADED")
+            hookFrame:SetScript("OnEvent", function(self, _, addon)
+                if addon == "Blizzard_TimeManager" then
+                    self:UnregisterEvent("ADDON_LOADED")
+                    HookClockCheckbox()
+                end
+            end)
+        end
+    end
+
 end)
 
 -------------------------------------------------------------------------------

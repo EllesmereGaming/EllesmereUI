@@ -2514,7 +2514,8 @@ local function ApplySavedPositions()
     local inCombat = InCombatLockdown()
 
     -- Action bars: apply from barPositions DB with lazy migration
-    -- Skip during combat (action bar frames are protected)
+    -- Skip during combat (action bar frames use SecureHandlerStateTemplate
+    -- and are genuinely protected -- SetPoint is blocked by combat lockdown).
     local db = GetPositionDB()
     if db and not inCombat then
         for barKey, pos in pairs(db) do
@@ -3854,6 +3855,8 @@ local BLIZZ_OWNED_OVERLAY_DEFS = {
     { label = "Micro Menu",    frame = function() return _G.MicroMenuContainer end },
     { label = "Bags",          frame = function() return _G.BagsBar end },
     { label = "Encounter Bar", frame = function() return _G.PlayerPowerBarAlt end, showAlways = true, fallbackW = 240, fallbackH = 36, yOffset = 44 },
+    { label = "Buffs",         frame = function() return _G.BuffFrame end },
+    { label = "Debuffs",       frame = function() return _G.DebuffFrame end },
 }
 
 local function CreateBlizzOwnedOverlay(def, parent)
@@ -7163,8 +7166,8 @@ local function CreateHUD(parent)
     local uiScale = GetScreenWidth() / physW
 
     hudFrame = CreateFrame("Frame", nil, parent)
-    hudFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-    hudFrame:SetFrameLevel(500)
+    hudFrame:SetFrameStrata("TOOLTIP")
+    hudFrame:SetFrameLevel(900)
     hudFrame:SetSize(BANNER_PX_W, BANNER_PX_H)
     hudFrame:SetScale(uiScale)
     hudFrame:EnableMouse(false)  -- background only, clicks pass through

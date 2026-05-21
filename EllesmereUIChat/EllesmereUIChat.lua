@@ -74,7 +74,7 @@ local CHAT_DEFAULTS = {
                 showVoice = 3,
                 showSettings = 4,
             },
-            -- Session chat history (see EllesmereUIChat_SessionHistory.lua, SavedVariablesPerCharacter)
+            -- Session chat history (EllesmereUIChat_SessionHistory.lua, SavedVariablesPerCharacter)
             persistChatHistory = true,
             persistChatHistoryMaxLines = 100,
         },
@@ -1055,7 +1055,7 @@ function ECHAT.ApplyInputPosition()
             local bg = CFD(cf).bg
             local div = CFD(cf).inputDiv
             local fsc = cf.FontStringContainer
-            local track = CFD(cf).scrollTrack
+            local bar = cf.ScrollBar
 
             if eb then
                 eb:ClearAllPoints()
@@ -1099,14 +1099,14 @@ function ECHAT.ApplyInputPosition()
                 fsc:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 0, 0)
             end
 
-            if track then
-                track:ClearAllPoints()
+            if bar then
+                bar:ClearAllPoints()
                 if onTop then
-                    track:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, -22)
+                    bar:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, -22)
                 else
-                    track:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, -2)
+                    bar:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, -2)
                 end
-                track:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 5, 2)
+                bar:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 5, 2)
             end
         end
     end
@@ -1125,7 +1125,6 @@ local function _BuildAlphaCache()
                 cf = cf,
                 eb = _G["ChatFrame" .. i .. "EditBox"],
                 bg = cfd.bg,
-                scrollTrack = cfd.scrollTrack,
                 resizeGrip = cfd.resizeGrip,
             }
         end
@@ -2475,198 +2474,45 @@ local function SkinChatFrame(cf)
         if inMPlus or inRaidCombat or inPvP then return end
     end
 
-    -- Kill Blizzard's ScrollBar
-    if cf.ScrollBar then
-        cf.ScrollBar:UnregisterAllEvents()
-        cf.ScrollBar:SetParent(_hiddenParent)
-        cf.ScrollBar:Hide()
-    end
-
-    -- Thin scrollbar: reads scroll state from Blizzard's own ScrollBar.
-    -- Clickable + draggable. Parented to our bg frame.
-    if not CFD(cf).scrollTrack and cf.ScrollBar then
-        local blizSB = cf.ScrollBar
-        local track = CreateFrame("Button", nil, CFD(cf).bg)
-        track:SetFrameLevel(CFD(cf).bg:GetFrameLevel() + 10)
-        track:SetWidth(8)
-        track:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, -2)
-        track:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 5, 2)
-        track:SetClipsChildren(true)
-        track:EnableMouse(true)
-        track:RegisterForClicks("AnyUp")
-
-        local thumb = track:CreateTexture(nil, "ARTWORK")
-        thumb:SetColorTexture(1, 1, 1, 0.25)
-        thumb:SetWidth(3)
-        thumb:Hide()
-
-        -- Only show scrollbar when hovering the chat area.
-        -- Scrollbar fade in/out with hover + drag awareness.
-        -- Track stays visible (for OnUpdate) but alpha controls visibility.
-        local _hovered = false
-        local _dragging = false
-        local _dragOffsetY = 0
-        local _trackAlpha = 0
-        local _trackTarget = 0
-        local _lastPct, _lastExt = -1, -1
-        local FADE_SPEED = 1 / 0.25  -- full fade in 0.25s
-
-        local function ShowTrack() _trackTarget = 1; _lastPct = -1; _lastExt = -1; track:Show() end
-        local function HideTrack() _trackTarget = 0 end
-
-        local function CheckHover()
-            local ok, over = pcall(function()
-                return _dragging or CFD(cf).bg:IsMouseOver() or track:IsMouseOver()
-            end)
-            if ok and over then
-                _hovered = true; ShowTrack()
-            else
-                _hovered = false; HideTrack()
-            end
+    -- Reskin Blizzard's ScrollBar in-place. Keeps the bar in its native
+    -- position in the frame hierarchy so Blizzard's secure display-refresh
+    -- chain (CallOnDisplayRefreshed -> RefreshDisplay -> trackExtent math)
+    -- never encounters a broken parent chain. Taint introduced by other
+    -- addons (DBM, Plumber, etc.) stays invisible instead of surfacing as
+    -- "secret number value" errors on trackExtent.
+    if cf.ScrollBar and not CFD(cf).scrollBarSkinned then
+        local bar = cf.ScrollBar
+        if bar.Background then bar.Background:Hide() end
+        -- Collapse arrow buttons so track fills the full length
+        if bar.Back then bar.Back:SetAlpha(0); bar.Back:SetSize(1, 0.001) end
+        if bar.Forward then bar.Forward:SetAlpha(0); bar.Forward:SetSize(1, 0.001) end
+        -- Strip track artwork
+        local track = bar.Track
+        if track then
+            track:DisableDrawLayer("ARTWORK")
+            track:DisableDrawLayer("BACKGROUND")
+            track:ClearAllPoints()
+            track:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+            track:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0)
         end
-
-        CFD(cf).bg:EnableMouse(false)
-        -- bg OnEnter/OnLeave removed -- hover detection is in the polling ticker
-        track._showTrack = ShowTrack
-        track._hideTrack = HideTrack
-        track._isHovered = function() return _hovered end
-        track._isDragging = function() return _dragging end
-        track._setHovered = function(v) _hovered = v end
-        track:HookScript("OnEnter", function() _hovered = true; ShowTrack() end)
-        track:HookScript("OnLeave", function()
-            if not _dragging then
-                _hovered = false; HideTrack()
-            end
-        end)
-        track:SetAlpha(0)
-        track:Hide()
-
-        local function GetThumbState()
-            local pct = blizSB.GetScrollPercentage and blizSB:GetScrollPercentage()
-            local ext = blizSB.GetVisibleExtentPercentage and blizSB:GetVisibleExtentPercentage()
-            if not pct or not ext or ext >= 1 then return nil end
-            local trackH = track:GetHeight()
-            if trackH <= 0 then return nil end
-            local thumbH = max(20, trackH * ext)
-            return pct, ext, trackH, thumbH
+        -- Thin 3px thumb
+        local thumb = bar.GetThumb and bar:GetThumb()
+        if thumb then
+            thumb:DisableDrawLayer("ARTWORK")
+            thumb:DisableDrawLayer("BACKGROUND")
+            local thumbTex = thumb:CreateTexture(nil, "OVERLAY")
+            thumbTex:SetColorTexture(1, 1, 1, 0.4)
+            thumbTex:SetWidth(3)
+            thumbTex:SetPoint("TOP", thumb, "TOP", 0, 0)
+            thumbTex:SetPoint("BOTTOM", thumb, "BOTTOM", 0, 0)
+            thumbTex:SetPoint("RIGHT", thumb, "RIGHT", 0, 0)
         end
-
-        local function UpdateThumb()
-            local pct, ext, trackH, thumbH = GetThumbState()
-            if not pct or (not _hovered and not _dragging) then thumb:Hide(); return end
-            local yOff = (trackH - thumbH) * pct
-            thumb:SetHeight(thumbH)
-            thumb:ClearAllPoints()
-            thumb:SetPoint("TOPRIGHT", track, "TOPRIGHT", 0, -yOff)
-            thumb:Show()
-        end
-
-        local function SetScrollFromY(cursorY)
-            local pct, ext, trackH, thumbH = GetThumbState()
-            if not pct then return end
-            local _, trackTop = track:GetCenter()
-            trackTop = select(2, track:GetRect()) + trackH
-            local localY = trackTop - cursorY - _dragOffsetY
-            local scrollRange = trackH - thumbH
-            if scrollRange <= 0 then return end
-            local newPct = max(0, min(1, localY / scrollRange))
-            if blizSB.SetScrollPercentage then
-                blizSB:SetScrollPercentage(newPct)
-            end
-        end
-
-        -- Click on track: jump to that position
-        track:SetScript("OnClick", function(self, button)
-            local pct, ext, trackH, thumbH = GetThumbState()
-            if not pct then return end
-            local _, cursorY = GetCursorPosition()
-            cursorY = cursorY / self:GetEffectiveScale()
-            local trackBottom = select(2, track:GetRect())
-            local localY = cursorY - trackBottom
-            local scrollRange = trackH - thumbH
-            if scrollRange <= 0 then return end
-            local newPct = max(0, min(1, 1 - (localY - thumbH / 2) / scrollRange))
-            if blizSB.SetScrollPercentage then
-                blizSB:SetScrollPercentage(newPct)
-            end
-            UpdateThumb()
-        end)
-
-        -- Drag: mousedown on track starts drag, mouseup ends
-        track:SetScript("OnMouseDown", function(self, button)
-            if button ~= "LeftButton" then return end
-            local pct, ext, trackH, thumbH = GetThumbState()
-            if not pct then return end
-            local _, cursorY = GetCursorPosition()
-            cursorY = cursorY / self:GetEffectiveScale()
-            -- Calculate offset from thumb top so dragging feels anchored
-            local trackBottom = select(2, track:GetRect())
-            local thumbTop = trackBottom + trackH - (trackH - thumbH) * pct
-            _dragOffsetY = cursorY - thumbTop + thumbH
-            _dragging = true
-        end)
-
-        track:SetScript("OnMouseUp", function()
-            _dragging = false
-            C_Timer.After(0, CheckHover)
-        end)
-
-        track:SetScript("OnUpdate", function(self, dt)
-            -- Fade alpha toward target
-            if _trackAlpha ~= _trackTarget then
-                local step = FADE_SPEED * dt
-                if _trackTarget > _trackAlpha then
-                    _trackAlpha = min(_trackTarget, _trackAlpha + step)
-                else
-                    _trackAlpha = max(_trackTarget, _trackAlpha - step)
-                end
-                self:SetAlpha(_trackAlpha)
-                if _trackAlpha <= 0 and _trackTarget <= 0 then
-                    self:Hide()
-                    return
-                end
-            end
-
-            if _dragging then
-                if not IsMouseButtonDown("LeftButton") then
-                    _dragging = false
-                    CheckHover()
-                    return
-                end
-                local _, cursorY = GetCursorPosition()
-                cursorY = cursorY / self:GetEffectiveScale()
-                local pct, ext, trackH, thumbH = GetThumbState()
-                if pct then
-                    local trackBottom = select(2, track:GetRect())
-                    local localY = cursorY - trackBottom - _dragOffsetY
-                    local scrollRange = trackH - thumbH
-                    if scrollRange > 0 then
-                        local visualPct = max(0, min(1, 1 - localY / scrollRange))
-                        local yOff = (trackH - thumbH) * visualPct
-                        thumb:ClearAllPoints()
-                        thumb:SetHeight(thumbH)
-                        thumb:SetPoint("TOPRIGHT", track, "TOPRIGHT", 0, -yOff)
-                        thumb:Show()
-                        if blizSB.SetScrollPercentage then
-                            blizSB:SetScrollPercentage(visualPct)
-                        end
-                    end
-                end
-            else
-                self._elapsed = (self._elapsed or 0) + dt
-                if self._elapsed < 0.15 then return end
-                self._elapsed = 0
-                local pct = blizSB.GetScrollPercentage and blizSB:GetScrollPercentage()
-                local ext = blizSB.GetVisibleExtentPercentage and blizSB:GetVisibleExtentPercentage()
-                if pct == _lastPct and ext == _lastExt then
-                    return
-                end
-                _lastPct, _lastExt = pct, ext
-                UpdateThumb()
-            end
-        end)
-
-        CFD(cf).scrollTrack = track
+        -- Narrow the bar and position to match our chat bg edge
+        bar:SetWidth(4)
+        bar:ClearAllPoints()
+        bar:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, -2)
+        bar:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 5, 2)
+        CFD(cf).scrollBarSkinned = true
     end
 end
 
@@ -3050,20 +2896,10 @@ initFrame:SetScript("OnEvent", function(self)
         local function OnChatEnter(cf)
             _hoverCount = _hoverCount + 1
             UpdateHoverState()
-            local track = CFD(cf).scrollTrack
-            if track and track._setHovered then
-                track._setHovered(true)
-                track._showTrack()
-            end
         end
         local function OnChatLeave(cf)
             _hoverCount = max(0, _hoverCount - 1)
             UpdateHoverState()
-            local track = CFD(cf).scrollTrack
-            if track and track._setHovered and not track._isDragging() then
-                track._setHovered(false)
-                track._hideTrack()
-            end
         end
 
         -- Single invisible overlay covering tabs + bg + sidebar.
@@ -3083,28 +2919,10 @@ initFrame:SetScript("OnEvent", function(self)
                 overlay:SetScript("OnEnter", function()
                     _hoverCount = _hoverCount + 1
                     UpdateHoverState()
-                    local sel = GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow
-                        and FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK)
-                    if sel then
-                        local track = CFD(sel).scrollTrack
-                        if track and track._setHovered then
-                            track._setHovered(true)
-                            track._showTrack()
-                        end
-                    end
                 end)
                 overlay:SetScript("OnLeave", function()
                     _hoverCount = max(0, _hoverCount - 1)
                     UpdateHoverState()
-                    local sel = GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow
-                        and FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK)
-                    if sel then
-                        local track = CFD(sel).scrollTrack
-                        if track and track._setHovered and not track._isDragging() then
-                            track._setHovered(false)
-                            track._hideTrack()
-                        end
-                    end
                 end)
             end
         end

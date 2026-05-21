@@ -533,7 +533,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
             end
 
-            -- Show Pinned & Recent Tips
+            -- Show Pinned & Recent Tips | Hide 'Add Category' Tab
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Show Pinned & Recent Tips",
                   tooltip="Show helpful tip text on Pinned Items and Recent Items category headers.",
@@ -542,7 +542,14 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUIDB.bagShowPinRecentTips = v
                       if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                   end },
-                { type="label", text="" }
+                { type="toggle", text="Hide 'Add Category' Tab",
+                  tooltip="Hides the Add Category button at the bottom of the bag sidebar.",
+                  getValue=function() return EllesmereUIDB and EllesmereUIDB.bagHideAddCategory or false end,
+                  setValue=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.bagHideAddCategory = v
+                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                  end }
             ); y = y - h
 
             _, h = W:Spacer(parent, y, 20); y = y - h

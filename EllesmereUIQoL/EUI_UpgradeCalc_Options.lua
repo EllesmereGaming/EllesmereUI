@@ -91,20 +91,12 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
     ---------------------------------------------------------------------------
     _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
 
-    -- Row 1: Open with Character Sheet | Open with Crest Upgrader
+    -- Row 1: Open with Character Sheet | Window Scale
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Open with Character Sheet",
           tooltip = "Automatically opens and closes the Upgrade Calculator when the Character Sheet is opened or closed.",
           getValue = function() return GetAddonDB().openWithCharSheet or false end,
           setValue = function(v) GetAddonDB().openWithCharSheet = v end },
-        { type = "toggle", text = "Open with Crest Upgrader",
-          tooltip = "Automatically opens the Upgrade Calculator when the Crest Upgrade NPC window is opened.",
-          getValue = function() return GetAddonDB().openWithUpgrader or false end,
-          setValue = function(v) GetAddonDB().openWithUpgrader = v end }
-    ); y = y - h
-
-    -- Row 2: Window Scale
-    _, h = W:DualRow(parent, y,
         { type = "slider", text = "Window Scale", min = 50, max = 150, step = 5,
           getValue = function() return GetAddonDB().uiScale or 100 end,
           setValue = function(v)
@@ -115,7 +107,7 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
           end }
     ); y = y - h
 
-    -- Row 3: Show Fully-Upgraded Items | Hide Crafted Items
+    -- Row 2: Show Fully-Upgraded Items | Hide Crafted Items
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Show Fully-Upgraded Items",
           tooltip = "Show gear tiles for items already at their maximum item level.",
@@ -211,33 +203,6 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
           setValue = function(v) GetAddonDB().showWeeklyRemaining = v; LiveRefresh() end }
     ); y = y - h
 
-    _, h = W:Spacer(parent, y, 20); y = y - h
-
-    parent:SetHeight(math.abs(y - yOffset))
-
-    return math.abs(y)
-end
-
--- Open/close with Character Sheet hook
-local _charSheetHooked = false
-local function HookCharacterSheet()
-    if _charSheetHooked then return end
-    if not CharacterFrame then return end
-    _charSheetHooked = true
-    CharacterFrame:HookScript("OnShow", function()
-        if GetAddonDB().openWithCharSheet then
-            local fr = _G["EUIUpgCalcFrame"]
-            if fr and not fr:IsShown() then fr:Show() end
-        end
-    end)
-    CharacterFrame:HookScript("OnHide", function()
-        if GetAddonDB().openWithCharSheet then
-            local fr = _G["EUIUpgCalcFrame"]
-            if fr and fr:IsShown() then fr:Hide() end
-        end
-    end)
-end
-
 -- Open/close with Crest Upgrader.
 -- Primary:  PLAYER_INTERACTION_MANAGER_FRAME_SHOW/HIDE fire the moment any NPC
 --           interaction panel opens or closes; filtered to ItemUpgrade via enum.
@@ -282,12 +247,31 @@ local function RegisterUpgraderHook()
     end)
 end
 
+-- Open/close with Character Sheet hook
+local _charSheetHooked = false
+local function HookCharacterSheet()
+    if _charSheetHooked then return end
+    if not CharacterFrame then return end
+    _charSheetHooked = true
+    CharacterFrame:HookScript("OnShow", function()
+        if GetAddonDB().openWithCharSheet then
+            local fr = _G["EUIUpgCalcFrame"]
+            if fr and not fr:IsShown() then fr:Show() end
+        end
+    end)
+    CharacterFrame:HookScript("OnHide", function()
+        if GetAddonDB().openWithCharSheet then
+            local fr = _G["EUIUpgCalcFrame"]
+            if fr and fr:IsShown() then fr:Hide() end
+        end
+    end)
+end
+
 local loginFrame = CreateFrame("Frame")
 loginFrame:RegisterEvent("PLAYER_LOGIN")
 loginFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
     HookCharacterSheet()
-    RegisterUpgraderHook()
 end)
 
 -- Expose page builder for EUI_QoL_Options.lua

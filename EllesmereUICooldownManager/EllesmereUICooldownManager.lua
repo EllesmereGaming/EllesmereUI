@@ -1537,7 +1537,7 @@ local CDM_BAR_CATEGORIES = {
 }
 
 -- Maximum number of custom bars a user can create
-local MAX_CUSTOM_BARS = 10
+local MAX_CUSTOM_BARS = 20
 
 -- Cached player info (set once at PLAYER_LOGIN)
 local _playerRace, _playerClass
@@ -4167,14 +4167,16 @@ _CDMApplyVisibility = function()
                 frame._visHidden = true
                 -- Hide this bar's icons individually. The viewer may stay
                 -- at alpha 1 (other bars need it), so icon alpha must be
-                -- managed per-bar.
+                -- managed per-bar. EnableMouse is protected on Blizzard CDM
+                -- frames; gate on combat lockdown to avoid ADDON_ACTION_BLOCKED.
                 local icons = cdmBarIcons[barData.key]
+                local icCombat = InCombatLockdown()
                 if icons then
                     for ii = 1, #icons do
                         local ic = icons[ii]
                         if ic then
                             ic:SetAlpha(0)
-                            ic:EnableMouse(false)
+                            if not icCombat then ic:EnableMouse(false) end
                         end
                     end
                 end
@@ -4196,12 +4198,18 @@ _CDMApplyVisibility = function()
                 -- fresh loads where wasHidden is false).
                 local visAlpha = barData.barOpacity or 1
                 local icons = cdmBarIcons[barData.key]
+                local icCombat2 = InCombatLockdown()
                 if icons then
                     for ii = 1, #icons do
                         local ic = icons[ii]
                         if ic then
-                            ic:EnableMouse(false)
-                            if ic.EnableMouseMotion then ic:EnableMouseMotion(true) end
+                            -- EnableMouse/EnableMouseMotion are protected on
+                            -- Blizzard CDM frames; skip during combat to avoid
+                            -- ADDON_ACTION_BLOCKED when dismounting mid-combat.
+                            if not icCombat2 then
+                                ic:EnableMouse(false)
+                                if ic.EnableMouseMotion then ic:EnableMouseMotion(true) end
+                            end
                             local icfc = _ecmeFC[ic]
                             if not (icfc and icfc._cdStateHidden) then
                                 ic:SetAlpha(visAlpha)

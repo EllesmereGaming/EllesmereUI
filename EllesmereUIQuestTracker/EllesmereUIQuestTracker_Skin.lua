@@ -901,12 +901,14 @@ local function HookTracker(tracker)
     if _hookedTrackers[tracker] then return end
     _hookedTrackers[tracker] = true
 
-    -- ScenarioObjectiveTracker: only skin the header. Its child frames
-    -- (blocks, progress bars, widget containers) share Blizzard's widget
-    -- pool with tooltip/AreaPOI widgets. ANY method call on those frames
-    -- taints the pool, causing secret-value arithmetic errors when
-    -- GameTooltip processes widget sets later.
-    if tracker == _G.ScenarioObjectiveTracker then
+    -- ScenarioObjectiveTracker and UIWidgetObjectiveTracker: only skin the
+    -- header. Their child frames (blocks, progress bars, widget containers)
+    -- share Blizzard's widget pool with tooltip/AreaPOI widgets. ANY method
+    -- call on those frames taints the pool, causing secret-value arithmetic
+    -- errors when GameTooltip processes widget sets later (LayoutFrame.lua
+    -- "attempt to compare a secret number value" via GameTooltip_ClearWidgetSet).
+    if tracker == _G.ScenarioObjectiveTracker
+       or tracker == _G.UIWidgetObjectiveTracker then
         if tracker.Header then SkinHeader(tracker.Header) end
         if tracker.Update then
             hooksecurefunc(tracker, "Update", function(self)

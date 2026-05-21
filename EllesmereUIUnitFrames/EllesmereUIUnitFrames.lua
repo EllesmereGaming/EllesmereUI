@@ -64,6 +64,15 @@ EllesmereUI._ufPortraitSide = EllesmereUI._ufPortraitSide or setmetatable({}, { 
 local db
 local defaults = {
     profile = {
+        playerAuras = {
+            enabled       = false,
+            iconSize      = 32,
+            showText      = true,
+            textSize      = 11,
+            borderSize    = 1,
+            borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
+            noBorderDebuffs = true,
+        },
         castbarOpacity = 1.0,
         castbarColor = { r = 0.114, g = 0.655, b = 0.514 },
         portraitMode = "2d",
@@ -96,12 +105,16 @@ local defaults = {
             buffSize = 22,
             buffOffsetX = 0,
             buffOffsetY = 0,
+            buffShowCooldownText = false,
+            buffCooldownTextSize = 10,
             debuffAnchor = "none",
             debuffGrowth = "auto",
             maxDebuffs = 10,
             debuffSize = 22,
             debuffOffsetX = 0,
             debuffOffsetY = 0,
+            debuffShowCooldownText = false,
+            debuffCooldownTextSize = 10,
             namePosition = "left",
             healthTextPosition = "right",
             leftTextContent = "name",
@@ -291,9 +304,13 @@ local defaults = {
             buffSize = 22,
             buffOffsetX = 0,
             buffOffsetY = 0,
+            buffShowCooldownText = false,
+            buffCooldownTextSize = 10,
             debuffSize = 22,
             debuffOffsetX = 0,
             debuffOffsetY = 0,
+            debuffShowCooldownText = false,
+            debuffCooldownTextSize = 10,
             namePosition = "left",
             healthTextPosition = "right",
             leftTextContent = "name",
@@ -405,9 +422,13 @@ local defaults = {
             buffSize = 22,
             buffOffsetX = 0,
             buffOffsetY = 0,
+            buffShowCooldownText = false,
+            buffCooldownTextSize = 10,
             debuffSize = 22,
             debuffOffsetX = 0,
             debuffOffsetY = 0,
+            debuffShowCooldownText = false,
+            debuffCooldownTextSize = 10,
             healthDisplay = "both",
             showBuffs = true,
             onlyPlayerDebuffs = false,
@@ -682,6 +703,12 @@ local defaults = {
             debuffSize = 22,
             debuffOffsetX = 0,
             debuffOffsetY = 0,
+            buffShowCooldownText = false,
+            buffCooldownTextSize = 10,
+            debuffShowCooldownText = false,
+            debuffCooldownTextSize = 10,
+            simpleDebuffShowCooldownText = false,
+            simpleDebuffCooldownTextSize = 14,
             simpleDebuffs = true,  -- forces Left anchor + frame-height-matched debuff size
             textSize = 12,
             leftTextContent = "name",
@@ -2178,6 +2205,20 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed)
         fw:SetPoint("TOPLEFT",    hpTex, "TOPRIGHT",    0, 0)
         fw:SetPoint("BOTTOMLEFT", hpTex, "BOTTOMRIGHT", 0, 0)
     end
+
+    -- Heal absorb bar follows the same reverse-fill logic as the backfill bar
+    local ha = ab._healAbsorb
+    if ha then
+        ha:ClearAllPoints()
+        ha:SetReverseFill(not isReversed)
+        if isReversed then
+            ha:SetPoint("TOPLEFT",    hpBar, "TOPLEFT",    0, 0)
+            ha:SetPoint("BOTTOMLEFT", hpBar, "BOTTOMLEFT", 0, 0)
+        else
+            ha:SetPoint("TOPRIGHT",    hpBar, "TOPRIGHT",    0, 0)
+            ha:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+        end
+    end
 end
 
 local function CreateAbsorbBar(frame, unit, settings)
@@ -2266,9 +2307,31 @@ local function CreateAbsorbBar(frame, unit, settings)
         end
     end
 
+    -- Heal absorb bar: overlays the filled-health area in red.
+    -- Uses curClip so it's clipped to the filled portion of the health bar.
+    -- Reverse-fills from the health texture edge inward (eats into green).
+    local healAbsorbBar = CreateFrame("StatusBar", nil, curClip)
+    healAbsorbBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    local haFill = healAbsorbBar:GetStatusBarTexture()
+    if haFill then haFill:SetDrawLayer("ARTWORK", 2); haFill:AddMaskTexture(absorbMask) end
+    healAbsorbBar:SetStatusBarColor(0.8, 0.15, 0.15, 0.65)
+    healAbsorbBar:SetReverseFill(not isReversed)
+    if isReversed then
+        healAbsorbBar:SetPoint("TOPLEFT",    hpBar, "TOPLEFT",    0, 0)
+        healAbsorbBar:SetPoint("BOTTOMLEFT", hpBar, "BOTTOMLEFT", 0, 0)
+    else
+        healAbsorbBar:SetPoint("TOPRIGHT",    hpBar, "TOPRIGHT",    0, 0)
+        healAbsorbBar:SetPoint("BOTTOMRIGHT", hpBar, "BOTTOMRIGHT", 0, 0)
+    end
+    healAbsorbBar:SetWidth(hpBar:GetWidth())
+    healAbsorbBar:SetHeight(hpBar:GetHeight())
+    healAbsorbBar:SetFrameLevel(hpBar:GetFrameLevel() + 1)
+    healAbsorbBar:Hide()
+
     -- Attach extras to the main bar (backfill) so anything that references
     -- HealthPrediction.damageAbsorb can hide/show both segments together.
     backfillBar._forward      = forwardBar
+    backfillBar._healAbsorb   = healAbsorbBar
     backfillBar._hpBar        = hpBar
     backfillBar._hpCalculator = hpCalc
     backfillBar._curClip      = curClip
@@ -2283,6 +2346,7 @@ local function CreateAbsorbBar(frame, unit, settings)
 
     backfillBar:HookScript("OnHide", function()
         forwardBar:Hide()
+        healAbsorbBar:Hide()
     end)
 
     frame.HealthPrediction = {
@@ -2302,9 +2366,11 @@ local function CreateAbsorbBar(frame, unit, settings)
             -- and skip the update when absorbs are "none". Without this,
             -- every unit event would re-Show() them after ReloadFrames hid them.
             local s = GetSettingsForUnit(updUnit)
+            local ha = ab._healAbsorb
             if s and (not s.showPlayerAbsorb or s.showPlayerAbsorb == "none") then
                 ab:Hide()
                 if fw then fw:Hide() end
+                if ha then ha:Hide() end
                 return
             end
 
@@ -2346,6 +2412,18 @@ local function CreateAbsorbBar(frame, unit, settings)
                 fw:SetValue(absorbAmt)
                 fw:Show()
             end
+
+            -- Heal absorb: red overlay eating into filled health.
+            -- The value can be a secret number in 12.0+, so never compare
+            -- it in Lua. Feed it directly to StatusBar:SetValue and let the
+            -- bar render zero width when the value is 0.
+            if ha then
+                local healAbsorbAmt = UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(updUnit) or 0
+                ha:SetWidth(hpW); ha:SetHeight(hpH)
+                ha:SetMinMaxValues(0, maxHealth)
+                ha:SetValue(healAbsorbAmt)
+                ha:Show()
+            end
         end,
     }
 
@@ -2356,10 +2434,17 @@ local function CreatePowerBar(frame, unit, settings)
     local powerPos = settings.powerPosition or "below"
 
     local power = CreateFrame("StatusBar", nil, frame)
-    power:SetFrameStrata(frame:GetFrameStrata())
-    power:SetFrameLevel(frame:GetFrameLevel() + 3)
-    local pw = settings.frameWidth
     local isDetached = (powerPos == "detached_top" or powerPos == "detached_bottom")
+    if isDetached then
+        -- Bump strata so the detached power bar renders above the border
+        -- regardless of frame level. Frame level within the same strata is
+        -- fragile (oUF and absorb bar code can reset it).
+        power:SetFrameStrata("MEDIUM")
+    else
+        power:SetFrameStrata(frame:GetFrameStrata())
+    end
+    power:SetFrameLevel(frame:GetFrameLevel() + (isDetached and 12 or 3))
+    local pw = settings.frameWidth
     if isDetached and (settings.powerWidth or 0) > 0 then
         pw = settings.powerWidth
     end
@@ -3186,8 +3271,26 @@ local function CreateUnifiedBorder(frame, unit)
 end
 
 
+-- Apply cooldown text settings to all existing buttons in an aura container.
+-- Called from ReloadFrames to live-update without /reload.
+local function ApplyAuraCooldownText(container, showCD, cdSize)
+    if not container then return end
+    for i = 1, (container.createdButtons or 0) do
+        local btn = container[i]
+        if btn and btn.Cooldown then
+            btn.Cooldown:SetHideCountdownNumbers(not showCD)
+            if showCD then
+                local cdText = btn.Cooldown:GetRegions()
+                if cdText and cdText.SetFont then
+                    cdText:SetFont(cachedFontPath, cdSize, "OUTLINE")
+                end
+            end
+        end
+    end
+end
+
 local function CreateTargetAuras(frame, unit)
-    local function SetupAuraIcon(_, button)
+    local function SetupAuraIcon(container, button)
         if not button then return end
 
         if button.Icon then
@@ -3197,7 +3300,28 @@ local function CreateTargetAuras(frame, unit)
         if button.Cooldown then
             button.Cooldown:SetDrawEdge(false)
             button.Cooldown:SetReverse(true)
-            button.Cooldown:SetHideCountdownNumbers(true)
+            -- Read settings fresh (the `settings` local is declared below this
+            -- closure in the function body, so it's not captured as an upvalue).
+            local isBuff = container and container.filter == "HELPFUL"
+            local s = GetSettingsForUnit(unit or "target")
+            local showText, textSize
+            if isBuff then
+                showText = s and s.buffShowCooldownText
+                textSize = s and s.buffCooldownTextSize or 10
+            elseif s and s.simpleDebuffs ~= false and unit and unit:match("^boss") then
+                showText = s and s.simpleDebuffShowCooldownText
+                textSize = s and s.simpleDebuffCooldownTextSize or 14
+            else
+                showText = s and s.debuffShowCooldownText
+                textSize = s and s.debuffCooldownTextSize or 10
+            end
+            button.Cooldown:SetHideCountdownNumbers(not showText)
+            if showText then
+                local cdText = button.Cooldown:GetRegions()
+                if cdText and cdText.SetFont then
+                    cdText:SetFont(cachedFontPath, textSize, "OUTLINE")
+                end
+            end
         end
 
         if not button.Border then
@@ -5599,6 +5723,7 @@ local function ReloadFrames()
                                     frame.Buffs:ForceUpdate()
                                 end
                             end
+                            ApplyAuraCooldownText(frame.Buffs, settings.buffShowCooldownText, settings.buffCooldownTextSize or 10)
                         else
                             if frame:IsElementEnabled("Buffs") then
                                 frame:DisableElement("Buffs")
@@ -5644,6 +5769,7 @@ local function ReloadFrames()
                                     frame.Debuffs:ForceUpdate()
                                 end
                             end
+                            ApplyAuraCooldownText(frame.Debuffs, settings.debuffShowCooldownText, settings.debuffCooldownTextSize or 10)
                         end
                     end
 
@@ -6006,6 +6132,7 @@ local function ReloadFrames()
                             frame.Buffs:Hide()
                             frame.Buffs.num = 0
                         end
+                        ApplyAuraCooldownText(frame.Buffs, settings.buffShowCooldownText, settings.buffCooldownTextSize or 10)
                     end
 
                     -- Debuffs
@@ -6048,6 +6175,7 @@ local function ReloadFrames()
                                 end
                             end
                         end
+                        ApplyAuraCooldownText(frame.Debuffs, settings.debuffShowCooldownText, settings.debuffCooldownTextSize or 10)
                     end
 
                     UpdateBordersForScale(frame, unit)
@@ -6347,6 +6475,7 @@ local function ReloadFrames()
                                 frame.Debuffs:ForceUpdate()
                             end
                         end
+                        ApplyAuraCooldownText(frame.Debuffs, settings.debuffShowCooldownText, settings.debuffCooldownTextSize or 10)
                     end
                 end
 
@@ -6392,6 +6521,7 @@ local function ReloadFrames()
                         frame.Buffs:Hide()
                         frame.Buffs.num = 0
                     end
+                    ApplyAuraCooldownText(frame.Buffs, settings.buffShowCooldownText, settings.buffCooldownTextSize or 10)
                 end
 
                 UpdateBordersForScale(frame, unit)
@@ -6676,6 +6806,13 @@ local function ReloadFrames()
                             end
                         end
                     end
+                    -- Use simple debuff cooldown text settings when simple display
+                    -- is active, regular debuff settings otherwise.
+                    if settings.simpleDebuffs ~= false then
+                        ApplyAuraCooldownText(frame.Debuffs, settings.simpleDebuffShowCooldownText, settings.simpleDebuffCooldownTextSize or 14)
+                    else
+                        ApplyAuraCooldownText(frame.Debuffs, settings.debuffShowCooldownText, settings.debuffCooldownTextSize or 10)
+                    end
                 end
 
                 -- Buffs (boss)
@@ -6720,6 +6857,7 @@ local function ReloadFrames()
                         frame.Buffs:Hide()
                         frame.Buffs.num = 0
                     end
+                    ApplyAuraCooldownText(frame.Buffs, settings.buffShowCooldownText, settings.buffCooldownTextSize or 10)
                 end
 
                 UpdateBordersForScale(frame, unit)

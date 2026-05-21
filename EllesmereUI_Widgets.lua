@@ -1398,7 +1398,7 @@ end
 ShowWidgetTooltip = function(label, text, opts)
     -- Suppress tooltips in M+/raid/PvP combat -- frame APIs return secret
     -- values in tainted execution and tooltips aren't useful mid-pull.
-    do
+    if not (opts and opts.force) then
         local _, iType = IsInInstance()
         if iType == "party" and C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
            and C_ChallengeMode.IsChallengeModeActive() then return end
@@ -1427,7 +1427,10 @@ ShowWidgetTooltip = function(label, text, opts)
     end
     tt.text:SetText(text)
     tt:ClearAllPoints()
-    if opts and opts.anchor == "cursor" then
+    if opts and opts.anchorPoint then
+        -- Custom anchor: opts.anchorPoint on tooltip -> opts.anchorTo on label
+        tt:SetPoint(opts.anchorPoint, label, opts.anchorTo or opts.anchorPoint, opts.anchorX or 0, opts.anchorY or 0)
+    elseif opts and opts.anchor == "cursor" then
         local scale = tt:GetEffectiveScale()
         local cx, cy = GetCursorPosition()
         tt:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", cx / scale, cy / scale + 4)
@@ -1440,6 +1443,8 @@ ShowWidgetTooltip = function(label, text, opts)
     else
         tt:SetPoint("BOTTOM", label, "TOP", 0, 4)
     end
+    -- Apply scale override (reset in HideWidgetTooltip)
+    tt:SetScale(opts and opts.scale or 1)
     -- Show at alpha 0 BEFORE measuring so WoW computes font geometry
     -- on a visible frame (GetStringHeight returns wrong values on hidden frames).
     tt:SetAlpha(0)
@@ -1515,6 +1520,7 @@ end
 HideWidgetTooltip = function(instant)
     local tt = GetTooltipFrame()
     if not tt:IsShown() then return end
+    tt:SetScale(1)
     if tt._fadeOutAG then tt._fadeOutAG:Stop() end
     if tt._fadeAG then tt._fadeAG:Stop() end
     if instant then
@@ -5587,7 +5593,8 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         end
         local SEARCH_H = searchable and 26 or 0
         local needsScroll = maxVisibleItems and checkableCount > maxVisibleItems
-        local menuH = (needsScroll and (4 + maxVisibleItems * ITEM_H + 4) or contentH) + SEARCH_H
+        -- +2 accounts for scroll frame 1px top + 1px bottom insets so non-scrolling menus don't scroll
+        local menuH = (needsScroll and (4 + maxVisibleItems * ITEM_H + 4) or (contentH + 4)) + SEARCH_H
         menu = CreateFrame("Frame", nil, UIParent)
         menu:SetFrameStrata("FULLSCREEN_DIALOG")
         menu:SetFrameLevel(200)

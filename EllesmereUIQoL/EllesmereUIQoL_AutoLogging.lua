@@ -99,6 +99,8 @@ local function ZoneShouldBeLogged()
     return false
 end
 
+local STOP_DELAY_SECONDS = 30
+
 local wasLogging = false
 local _stopTimer  = nil
 
@@ -116,9 +118,9 @@ local function ApplyLoggingState()
         local c = Cfg()
         local delay = GetTrigger(c, "delaystop")
         if delay and not _stopTimer then
-            _stopTimer = C_Timer.NewTimer(30, function()
+            _stopTimer = C_Timer.NewTimer(STOP_DELAY_SECONDS, function()
                 _stopTimer = nil
-                LoggingCombat(false)
+                if LoggingCombat() then LoggingCombat(false) end
             end)
         elseif not delay then
             LoggingCombat(false)

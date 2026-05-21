@@ -1723,7 +1723,8 @@ if inInstance or au.showNonInstanced then
             -- Handled by standalone system, skip
         elseif au.enabled[aura.key] and (aura.class == playerClass) and Known(aura.castSpell)
            and not (aura.notIfKnown and Known(aura.notIfKnown))
-           and not (aura.requireTalent and not Known(aura.requireTalent)) then
+           and not (aura.requireTalent and not Known(aura.requireTalent))
+           and not (aura.noPvP and InPvPInstance()) then
             -- Spec check
             local specOk = true
             if aura.specs then

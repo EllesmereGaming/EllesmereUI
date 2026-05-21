@@ -193,7 +193,7 @@ EUI_Bank:Hide()
 -- Background: atlas matching bags module (full alpha, covers entire window)
 local bgAtlas = EUI_Bank:CreateTexture(nil, "BACKGROUND")
 bgAtlas:SetAllPoints()
-bgAtlas:SetAtlas("housing-basic-panel--stone-background")
+bgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
 local bgOverlay = EUI_Bank:CreateTexture(nil, "BACKGROUND", nil, 1)
 bgOverlay:SetAllPoints()
 bgOverlay:SetColorTexture(0, 0, 0, 0.25)
@@ -455,6 +455,7 @@ do
             placeholder = "1137",
             confirmText = ACCEPT,
             cancelText = CANCEL,
+            modernBlizz = true,
             onConfirm = function(text)
                 local gold = tonumber(text)
                 if gold and gold > 0 then
@@ -1186,7 +1187,11 @@ function EUI_Bank:RefreshBank()
     -- BANKFRAME_OPENED; BAG_UPDATE fires shortly after with real slot counts).
     if #_allTabs == 0 then
         DiscoverBankTabs()
-        if #_allTabs == 0 then return end
+        if #_allTabs == 0 then
+            -- Still build sidebar so purchase buttons are visible
+            BuildBankSidebar()
+            return
+        end
     end
 
 

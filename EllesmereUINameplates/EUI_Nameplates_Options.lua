@@ -2385,7 +2385,8 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end
 
-        _, h = W:DualRow(parent, y,
+        local npcRow
+        npcRow, h = W:DualRow(parent, y,
             { type="toggle", text="Show Friendly NPC Nameplates",
               getValue=function() return DBVal("showFriendlyNPCs") == true end,
               setValue=function(v)
@@ -2395,6 +2396,7 @@ initFrame:SetScript("OnEvent", function(self)
                     pcall(SetCVar, "nameplateShowFriendlyNpcs", v and 1 or 0)
                 end
                 if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
+                EllesmereUI:RefreshPage()
               end },
             { type="toggle", text="Show Enemy Pet Nameplates",
               getValue=function() return DBVal("showEnemyPets") == true end,
@@ -2403,6 +2405,150 @@ initFrame:SetScript("OnEvent", function(self)
                 if SetCVar then pcall(SetCVar, "nameplateShowEnemyPets", v and 1 or 0) end
               end,
               tooltip="Toggle visibility of enemy pet nameplates." });  y = y - h
+
+        -- Cog popup for NPC nameplate settings (Show NPC Titles)
+        do
+            local npcCogPopup, npcCogPopupOwner
+            local function npcOff() return DBVal("showFriendlyNPCs") ~= true end
+
+            local function ShowNPCCogPopup(anchorBtn)
+                if not npcCogPopup then
+                    local SolidTex   = EllesmereUI.SolidTex
+                    local MakeBorder = EllesmereUI.MakeBorder
+                    local MakeFont   = EllesmereUI.MakeFont
+                    local BORDER_COLOR = EllesmereUI.BORDER_COLOR
+
+                    local SIDE_PAD = 14; local TOP_PAD = 14
+                    local TITLE_H = 11; local TITLE_GAP = 10; local GAP = 10
+                    local TOGGLE_ROW_H = 28
+                    local TG_W, TG_H, KNOB_SZ, KNOB_PAD = 32, 16, 12, 2
+
+                    local totalH = TOP_PAD + TITLE_H + TITLE_GAP + GAP + TOGGLE_ROW_H + TOP_PAD
+
+                    local pf = CreateFrame("Frame", nil, UIParent)
+                    pf:SetSize(220, totalH)
+                    pf:SetFrameStrata("DIALOG"); pf:SetFrameLevel(200)
+                    pf:EnableMouse(true); pf:Hide()
+
+                    local bg = SolidTex(pf, "BACKGROUND", 0.06, 0.08, 0.10, 0.95)
+                    bg:SetAllPoints()
+                    MakeBorder(pf, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15)
+
+                    local titleFS = MakeFont(pf, 11, "", 1, 1, 1)
+                    titleFS:SetAlpha(0.7)
+                    titleFS:SetPoint("TOP", pf, "TOP", 0, -TOP_PAD)
+                    titleFS:SetText("Friendly NPC Settings")
+
+                    -- Row 1: Show NPC Titles toggle
+                    local r1Y = -(TOP_PAD + TITLE_H + TITLE_GAP + GAP)
+                    local lbl1 = MakeFont(pf, 11, nil, 1, 1, 1); lbl1:SetAlpha(0.6)
+                    lbl1:SetText("Show NPC Titles"); lbl1:SetPoint("TOPLEFT", pf, "TOPLEFT", SIDE_PAD, r1Y)
+
+                    local tgBtn = CreateFrame("Button", nil, pf)
+                    tgBtn:SetSize(TG_W, TG_H)
+                    tgBtn:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -SIDE_PAD, r1Y)
+
+                    local tgBg = SolidTex(tgBtn, "BACKGROUND", 0.18, 0.18, 0.18, 0.85)
+                    tgBg:SetAllPoints()
+                    local tgKnob = tgBtn:CreateTexture(nil, "ARTWORK")
+                    tgKnob:SetColorTexture(0.55, 0.55, 0.55, 1)
+                    tgKnob:SetSize(KNOB_SZ, KNOB_SZ)
+
+                    local function UpdateToggle()
+                        local on = (DBVal("showNPCTitles") ~= false)
+                        if on then
+                            local g = EllesmereUI.ELLESMERE_GREEN
+                            tgBg:SetColorTexture(g.r, g.g, g.b, 0.45)
+                            tgKnob:SetColorTexture(1, 1, 1, 0.95)
+                            tgKnob:ClearAllPoints(); tgKnob:SetPoint("RIGHT", tgBtn, "RIGHT", -KNOB_PAD, 0)
+                        else
+                            tgBg:SetColorTexture(0.18, 0.18, 0.18, 0.85)
+                            tgKnob:SetColorTexture(0.55, 0.55, 0.55, 1)
+                            tgKnob:ClearAllPoints(); tgKnob:SetPoint("LEFT", tgBtn, "LEFT", KNOB_PAD, 0)
+                        end
+                    end
+                    UpdateToggle()
+                    tgBtn:SetScript("OnClick", function()
+                        local cur = DBVal("showNPCTitles")
+                        if cur == nil then cur = true end
+                        DB().showNPCTitles = not cur
+                        if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
+                        UpdateToggle()
+                    end)
+                    pf._updateToggle = UpdateToggle
+
+                    -- Close on click outside
+                    local wasDown = false
+                    pf:SetScript("OnHide", function(self)
+                        self:SetScript("OnUpdate", nil)
+                        if npcCogPopupOwner then npcCogPopupOwner:SetAlpha(0.4) end
+                        npcCogPopupOwner = nil
+                    end)
+                    pf._clickOutside = function(self, dt)
+                        local down = IsMouseButtonDown("LeftButton")
+                        if down and not wasDown then
+                            if not self:IsMouseOver() and not (npcCogPopupOwner and npcCogPopupOwner:IsMouseOver()) then
+                                self:Hide()
+                            end
+                        end
+                        wasDown = down
+                    end
+
+                    if EllesmereUI._mainFrame then
+                        EllesmereUI._mainFrame:HookScript("OnHide", function()
+                            if pf:IsShown() then pf:Hide() end
+                        end)
+                    end
+
+                    npcCogPopup = pf
+                end
+
+                if npcCogPopupOwner == anchorBtn and npcCogPopup:IsShown() then
+                    npcCogPopup:Hide(); return
+                end
+                npcCogPopupOwner = anchorBtn
+                if npcCogPopup._updateToggle then npcCogPopup._updateToggle() end
+
+                npcCogPopup:ClearAllPoints()
+                npcCogPopup:SetPoint("BOTTOM", anchorBtn, "TOP", 0, 6)
+                npcCogPopup:SetAlpha(0)
+                npcCogPopup:Show()
+                local elapsed = 0
+                npcCogPopup:SetScript("OnUpdate", function(self, dt)
+                    elapsed = elapsed + dt
+                    local t = math.min(elapsed / 0.15, 1)
+                    self:SetAlpha(t)
+                    self:ClearAllPoints()
+                    self:SetPoint("BOTTOM", anchorBtn, "TOP", 0, 6 + (-8 * (1 - t)))
+                    if t >= 1 then self:SetScript("OnUpdate", self._clickOutside) end
+                end)
+            end
+
+            local rgn = npcRow._leftRegion
+            local btn = CreateFrame("Button", nil, rgn)
+            btn:SetSize(26, 26)
+            btn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+            btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            btn:SetAlpha(npcOff() and 0.15 or 0.4)
+            local tex = btn:CreateTexture(nil, "OVERLAY")
+            tex:SetAllPoints(); tex:SetTexture(COGS_ICON)
+            btn:SetScript("OnEnter", function(self)
+                if npcOff() then
+                    EllesmereUI.ShowWidgetTooltip(self, "Requires Show Friendly NPC Nameplates to be enabled")
+                else self:SetAlpha(0.7) end
+            end)
+            btn:SetScript("OnLeave", function(self)
+                EllesmereUI.HideWidgetTooltip()
+                if npcCogPopupOwner ~= self then self:SetAlpha(npcOff() and 0.15 or 0.4) end
+            end)
+            btn:SetScript("OnClick", function(self)
+                if npcOff() then return end
+                ShowNPCCogPopup(self)
+            end)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if npcCogPopupOwner ~= btn then btn:SetAlpha(npcOff() and 0.15 or 0.4) end
+            end)
+        end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -3513,7 +3659,7 @@ initFrame:SetScript("OnEvent", function(self)
             buffs          = "Buffs",
             ccs            = "CCs",
             raidmarker     = "Raid Marker",
-            classification = "Elite/Rare Indicator",
+            classification = "Rare/Quest Indicator",
             none           = "None",
         }
         local coreElementOrder = { "debuffs", "buffs", "ccs", "raidmarker", "classification", "none" }
@@ -4037,7 +4183,7 @@ initFrame:SetScript("OnEvent", function(self)
             _refreshRaidMarkerEyePos()
         end
 
-        -- Eye icon that follows whichever Core Positions dropdown has "Elite/Rare Indicator"
+        -- Eye icon that follows whichever Core Positions dropdown has "Rare/Quest Indicator"
         do
             local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
             local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
@@ -4118,18 +4264,12 @@ initFrame:SetScript("OnEvent", function(self)
 
         local function TextSlotSetValue(slotKey, v)
             SetTextElementAtSlot(slotKey, v)
-            for _, plate in pairs(plates) do
-                plate:RefreshNamePosition()
-                plate:UpdateHealthValues()
-            end
+            ns.RefreshAllSettings()
             UpdatePreview(); EllesmereUI:RefreshPage()
         end
 
         local function TextOffsetRefresh()
-            for _, plate in pairs(plates) do
-                plate:RefreshNamePosition()
-                plate:UpdateHealthValues()
-            end
+            ns.RefreshAllSettings()
             UpdatePreview()
         end
 
@@ -4208,10 +4348,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local function setColor(r, g, b)
                 DB()[colorKey] = { r = r, g = g, b = b }
-                for _, plate in pairs(plates) do
-                    plate:RefreshNamePosition()
-                    plate:UpdateHealthValues()
-                end
+                ns.RefreshAllSettings()
                 UpdatePreview()
             end
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, getColor, setColor, nil, 20)

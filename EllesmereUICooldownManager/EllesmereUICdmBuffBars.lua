@@ -374,8 +374,9 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     wrapFrame._gradClip = nil
     wrapFrame._gradTex  = nil
 
-    -- Text overlay (above fill + gradient)
-    local textOverlay = CreateFrame("Frame", nil, bar)
+    -- Text overlay: parented to wrapFrame (not bar) so bar's SetClipsChildren
+    -- doesn't chop text when font size exceeds bar height.
+    local textOverlay = CreateFrame("Frame", nil, wrapFrame)
     textOverlay:SetAllPoints(bar)
     textOverlay:SetFrameLevel(bar:GetFrameLevel() + 3)
     wrapFrame._textOverlay = textOverlay

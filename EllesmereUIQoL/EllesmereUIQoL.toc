@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Quality of Life features and Cursor skinning
 ## Author: Ellesmere
-## Version: 7.7.7
+## Version: 7.8.3
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIQoLDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -14,6 +14,8 @@ EllesmereUIQoL.lua
 EllesmereUIQoL_Cursor.lua
 EllesmereUIQoL_BattleRes.lua
 EllesmereUIQoL_AutoLogging.lua
+EllesmereUIQoL_Keys.lua
+EllesmereUIQoL_Shifter.lua
 EUI_UpgradeCalc.lua
 
 # Options
@@ -21,4 +23,5 @@ EUI_QoL_Options.lua
 EUI_QoL_Cursor_Options.lua
 EUI_QoL_BattleRes_Options.lua
 EUI_QoL_AutoLogging_Options.lua
+EUI_QoL_Shifter_Options.lua
 EUI_UpgradeCalc_Options.lua

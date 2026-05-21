@@ -100,6 +100,19 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Item Level",
+              tooltip="Displays a player's equipped item level on their unit tooltip.",
+              getValue=function()
+                  return not EllesmereUIDB or EllesmereUIDB.tooltipItemLevel ~= false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.tooltipItemLevel = v
+              end },
+            { type="label", text="" }
+        );  y = y - h
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         _, h = W:SectionHeader(parent, "GROUP FINDER QUEUE", y);  y = y - h

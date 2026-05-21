@@ -127,9 +127,8 @@ local function GetBarTexturePath()
 end
 
 local function GetAccentRGB()
-    if EUI.ResolveThemeColor then
-        return EUI.ResolveThemeColor((EllesmereUIDB or {}).activeTheme or "EllesmereUI")
-    end
+    local EG = EUI.ELLESMERE_GREEN
+    if EG then return EG.r, EG.g, EG.b end
     return EUI.DEFAULT_ACCENT_R or 12/255, EUI.DEFAULT_ACCENT_G or 210/255, EUI.DEFAULT_ACCENT_B or 157/255
 end
 
@@ -909,6 +908,12 @@ local function BuildBarWindow()
             end
         )
         frame._lockBtn = lockBtnHdr
+        lockBtnHdr:SetScript("OnEnter", function()
+            lockBtnHdr._icon:SetVertexColor(1, 1, 1, ICON_HA)
+            if EUI.ShowWidgetTooltip then
+                EUI.ShowWidgetTooltip(lockBtnHdr, frame._locked and "Locked" or "Unlocked")
+            end
+        end)
 
         -- Btn 3: Resize (width drag)
         local resizeBtnHdr = MakeHdrBtn(MEDIA .. "dm_width_resize.png", -(btnSize * 2 + btnPad * 3 + 2), "Resize Width", function() end)

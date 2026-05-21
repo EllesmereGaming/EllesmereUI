@@ -379,6 +379,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   Set("freeMoveIcons", v)
                   if ECHAT.ApplySidebarIcons then ECHAT.ApplySidebarIcons() end
+                  EllesmereUI:RefreshPage()
               end })
         do
             local lrgn = sizeRow._leftRegion
@@ -407,21 +408,49 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
             cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
+        -- "Reset" label next to the Free Move Icons toggle (only visible when enabled)
+        do
+            local rgn = sizeRow._rightRegion
+            local resetFS = rgn:CreateFontString(nil, "OVERLAY")
+            resetFS:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 12, "")
+            resetFS:SetTextColor(1, 1, 1, 0.8)
+            resetFS:SetText("Reset")
+            resetFS:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+            local hitBtn = CreateFrame("Button", nil, rgn)
+            hitBtn:SetAllPoints(resetFS)
+            hitBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            hitBtn:SetScript("OnEnter", function() resetFS:SetTextColor(1, 0.3, 0.3, 1) end)
+            hitBtn:SetScript("OnLeave", function() resetFS:SetTextColor(1, 1, 1, 0.8) end)
+            hitBtn:SetScript("OnClick", function()
+                Set("iconPositions", {})
+                if ECHAT.ApplySidebarIcons then ECHAT.ApplySidebarIcons() end
+            end)
+            local function UpdateResetVis()
+                local on = Cfg("freeMoveIcons")
+                resetFS:SetShown(on)
+                hitBtn:SetShown(on)
+            end
+            UpdateResetVis()
+            EllesmereUI.RegisterWidgetRefresh(UpdateResetVis)
+        end
         y = y - h
 
         -- -- EXTRAS ------------------------------------------------------------
         _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
 
         -- Row 1: Remember Last Chat Lines (+ cog: Max Lines) | Hide Tooltip on Hover
-        -- Disabled: session history not yet shipped. Uncomment to re-enable.
-        --[[ local histRow
+        local histRow
         histRow, h = W:DualRow(parent, y,
             { type="toggle", text="Remember Last Chat Lines",
               tooltip="Saves the most recent lines per chat tab (per character), except Blizzard's combat log window, so they reappear after /reload or relog. Stored separately from layout profiles.",
               getValue=function() return Cfg("persistChatHistory") ~= false end,
               setValue=function(v)
                   Set("persistChatHistory", v)
-                  if ECHAT.InitChatSessionHistory then ECHAT.InitChatSessionHistory() end
+                  if ECHAT.OnSessionHistoryToggled then
+                      ECHAT.OnSessionHistoryToggled(v)
+                  elseif ECHAT.InitChatSessionHistory then
+                      ECHAT.InitChatSessionHistory()
+                  end
               end },
             { type="toggle", text="Hide Tooltip on Hover",
               getValue=function() return Cfg("hideTooltipOnHover") or false end,
@@ -450,14 +479,6 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
             cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
-        y = y - h --]]
-
-        -- Row 1 (active): Hide Tooltip on Hover | (empty)
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Hide Tooltip on Hover",
-              getValue=function() return Cfg("hideTooltipOnHover") or false end,
-              setValue=function(v) Set("hideTooltipOnHover", v) end },
-            { type="label", text="" })
         y = y - h
 
         -- Row 2: Hide Borders | Input on Top

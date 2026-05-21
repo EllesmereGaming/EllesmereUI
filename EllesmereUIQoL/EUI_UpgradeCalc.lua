@@ -1092,16 +1092,16 @@ local CC_OWN_X,  CC_OWN_W  = 185,  65
 local CC_EARN_X, CC_EARN_W = 255, 100
 local CC_REM_X,  CC_REM_W  = 360,  90
 local CC_BTN_W             = 40
-local CC_MINUS_X           = TILE_ROW_W - CC_BTN_W * 2 - 5  -- 474
-local CC_PLUS_X            = TILE_ROW_W - CC_BTN_W           -- 519
+local CC_MINUS_X           = TILE_ROW_W - CC_BTN_W * 2 - 5
+local CC_PLUS_X            = TILE_ROW_W - CC_BTN_W
 
 local crestTblHdr = CreateFrame("Frame", nil, crestSection)
 PP.Size(crestTblHdr, TILE_ROW_W, CROW_H)
 local cHdrBg = SolidTex(crestTblHdr, "BACKGROUND", 0, 0, 0, 0.35)
 cHdrBg:SetAllPoints()
 local function MakeCHdr(parent, text, x, w, align)
-    local lbl = MFont(parent, 10, "OUTLINE", G.r, G.g, G.b, 1)
-    PP.Point(lbl, "TOPLEFT", parent, "TOPLEFT", x + 4, -3)
+    local lbl = MFont(parent, 10, "OUTLINE", 1, 1, 1, 0.9)
+    PP.Point(lbl, "LEFT", parent, "TOPLEFT", x + 4, -CROW_H / 2)
     PP.Width(lbl, w - 8)
     lbl:SetJustifyH(align or "LEFT")
     lbl:SetText(text)

@@ -2282,11 +2282,45 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateChargedCogDis)
             UpdateChargedCogDis()
         end
-        -- Inline cog (RESIZE) on Resource Text for size + position
+        -- Inline color swatch on Resource Text
         do
-            local rgn = classColorRow._rightRegion
+            local rgn = classColorRow._leftRegion
+            local ctrl = rgn._control
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, classColorRow:GetFrameLevel() + 3,
+                function()
+                    local p = DB()
+                    if not p then return 1, 1, 1, 1 end
+                    return p.secondary.textR or 1, p.secondary.textG or 1, p.secondary.textB or 1, 1
+                end,
+                function(r, g, b)
+                    local p = DB(); if not p then return end
+                    p.secondary.textR, p.secondary.textG, p.secondary.textB = r, g, b
+                    RefreshClass()
+                end,
+                false, 20)
+            PP.Point(swatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+            local swatchDis = CreateFrame("Frame", nil, swatch)
+            swatchDis:SetAllPoints(); swatchDis:SetFrameLevel(swatch:GetFrameLevel() + 10); swatchDis:EnableMouse(true)
+            swatchDis:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Enable Resource Text"))
+            end)
+            swatchDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function UpdateSwatchDis()
+                updateSwatch()
+                local p = DB()
+                local off = not p or not p.secondary.enabled or not p.secondary.showText
+                if off then swatch:SetAlpha(0.3); swatchDis:Show() else swatch:SetAlpha(1); swatchDis:Hide() end
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateSwatchDis)
+            UpdateSwatchDis()
+        end
+        -- Inline cog on Resource Text for size + position
+        do
+            local rgn = classColorRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Resource Count",
+                title = "Resource Text",
                 rows = {
                     { type = "slider", label = "Size", min = 8, max = 24, step = 1,
                       get = function() local p = DB(); return p and p.secondary.textSize or 11 end,
@@ -2309,18 +2343,19 @@ initFrame:SetScript("OnEvent", function(self)
                 },
                 footer = false,
             })
-            local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
+            local cogBtn = MakeCogBtn(rgn, cogShow)
             local cogDis = CreateFrame("Frame", nil, rgn)
             cogDis:SetAllPoints(cogBtn)
             cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
             cogDis:EnableMouse(true)
             cogDis:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Enable Class Resource"))
+                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Enable Resource Text"))
             end)
             cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateCogDisCount()
                 local p = DB()
-                if p and not p.secondary.enabled then cogDis:Show() else cogDis:Hide() end
+                local off = not p or not p.secondary.enabled or not p.secondary.showText
+                if off then cogDis:Show(); cogBtn:SetAlpha(0.15) else cogDis:Hide(); cogBtn:SetAlpha(0.4) end
             end
             cogBtn:HookScript("OnShow", UpdateCogDisCount)
             EllesmereUI.RegisterWidgetRefresh(UpdateCogDisCount)

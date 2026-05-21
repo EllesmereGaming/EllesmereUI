@@ -2236,12 +2236,11 @@ local function SkinCharacterSheet()
                 -- the row and physical-pixel-perfect.
                 do
                     local divider = sectionContainer:CreateTexture(nil, "OVERLAY")
-                    divider:SetColorTexture(0.1, 0.1, 0.1, 0.5)
-                    if EllesmereUI and EllesmereUI.PanelPP then
-                        if EllesmereUI.PanelPP.DisablePixelSnap then
-                            EllesmereUI.PanelPP.DisablePixelSnap(divider)
-                        end
-                        divider:SetHeight(EllesmereUI.PanelPP.mult or 1)
+                    divider:SetColorTexture(1, 1, 1, 0.06)
+                    local PP = EllesmereUI and EllesmereUI.PP
+                    if PP then
+                        if PP.DisablePixelSnap then PP.DisablePixelSnap(divider) end
+                        divider:SetHeight(PP.mult or 1)
                     else
                         divider:SetHeight(1)
                     end

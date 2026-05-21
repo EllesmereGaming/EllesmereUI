@@ -710,6 +710,27 @@ initFrame:SetScript("OnEvent", function(self)
             if dmgOff() then dmgCogBlock:Show() else dmgCogBlock:Hide() end
         end
 
+        -- Swiftmend Brightness Fix (Druid only)
+        local _, playerClass = UnitClass("player")
+        if playerClass == "DRUID" then
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Prevent Swiftmend Icon Dim",
+                  tooltip="Prevents Blizzard from dimming Swiftmend on action bars and CDM based on Efflorescence state.",
+                  getValue=function()
+                      return not EllesmereUIDB or EllesmereUIDB.brightenSwiftmend ~= false
+                  end,
+                  setValue=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.brightenSwiftmend = v
+                      if v then
+                          if _G._EAB_ScanSwiftmend then _G._EAB_ScanSwiftmend() end
+                          if _G._ECDM_ScanSwiftmend then _G._ECDM_ScanSwiftmend() end
+                      end
+                  end },
+                { type="label", text="" }
+            ); y = y - h
+        end
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -------------------------------------------------------------------

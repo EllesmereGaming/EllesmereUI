@@ -127,6 +127,58 @@ local currentRun = {
     objectives    = {},
 }
 
+-- Per-player death tracking (reset each key).
+-- Midnight removed CLEU, so we detect deaths by comparing the API death
+-- count each tick and scanning the party for who is newly dead.
+local playerDeaths = {}
+local _prevDeathCount = 0
+local _partyAlive = {}  -- [name] = true while alive, removed on death detection
+
+local function ScanPartyAlive()
+    wipe(_partyAlive)
+    local prefix = IsInRaid() and "raid" or "party"
+    local count = GetNumGroupMembers()
+    for i = 1, count do
+        local unit = (prefix == "party" and i == count) and "player" or (prefix .. i)
+        local name = UnitName(unit)
+        if name and not UnitIsDeadOrGhost(unit) then
+            _partyAlive[name] = true
+        end
+    end
+    if prefix == "party" then
+        local name = UnitName("player")
+        if name and not UnitIsDeadOrGhost("player") then
+            _partyAlive[name] = true
+        end
+    end
+end
+
+local function CheckForNewDeaths(newDeathCount)
+    if newDeathCount <= _prevDeathCount then
+        _prevDeathCount = newDeathCount
+        return
+    end
+    -- Death count went up -- find who is now dead that was alive last tick
+    local prefix = IsInRaid() and "raid" or "party"
+    local count = GetNumGroupMembers()
+    for i = 1, count do
+        local unit = (prefix == "party" and i == count) and "player" or (prefix .. i)
+        local name = UnitName(unit)
+        if name and _partyAlive[name] and UnitIsDeadOrGhost(unit) then
+            playerDeaths[name] = (playerDeaths[name] or 0) + 1
+            _partyAlive[name] = nil
+        end
+    end
+    if prefix == "party" then
+        local name = UnitName("player")
+        if name and _partyAlive[name] and UnitIsDeadOrGhost("player") then
+            playerDeaths[name] = (playerDeaths[name] or 0) + 1
+            _partyAlive[name] = nil
+        end
+    end
+    _prevDeathCount = newDeathCount
+end
+
 -- Helpers
 local function FormatTime(seconds, withMilliseconds)
     if not seconds or seconds < 0 then seconds = 0 end
@@ -435,6 +487,10 @@ local function OnTimerTick()
     currentRun.deaths = deathCount or 0
     currentRun.deathTimeLost = timeLost or 0
 
+    -- Detect per-player deaths, then refresh alive snapshot for next tick
+    CheckForNewDeaths(deathCount or 0)
+    ScanPartyAlive()
+
     UpdateObjectives()
     NotifyRefresh()
 end
@@ -546,6 +602,9 @@ local function StartRun()
     currentRun.elapsed       = 0
     currentRun.deaths        = 0
     currentRun.deathTimeLost = 0
+    wipe(playerDeaths)
+    _prevDeathCount = 0
+    ScanPartyAlive()
     currentRun.affixes       = affixes or {}
     -- Cache affix names ONCE at run start. They never change mid-run, but
     -- RenderStandalone was previously calling C_ChallengeMode.GetAffixInfo
@@ -606,6 +665,9 @@ local function ResetRun()
     currentRun.elapsed   = 0
     currentRun.deaths    = 0
     currentRun.deathTimeLost = 0
+    wipe(playerDeaths)
+    _prevDeathCount = 0
+    wipe(_partyAlive)
     currentRun.preciseStart = nil
     currentRun.preciseCompletedElapsed = nil
     currentRun._lastDungeonComplete = false
@@ -836,6 +898,111 @@ local function CreateStandaloneFrame()
     f._threshFS2:SetWordWrap(false)
     f._deathFS = f:CreateFontString(nil, "OVERLAY")
     f._deathFS:SetWordWrap(false)
+    f._deathHit = CreateFrame("Frame", nil, f)
+    f._deathHit:SetFrameLevel(f:GetFrameLevel() + 5)
+    f._deathHit:EnableMouse(true)
+
+    -- Custom two-column death tooltip
+    local deathTT = CreateFrame("Frame", nil, UIParent)
+    deathTT:SetFrameStrata("TOOLTIP")
+    deathTT:SetFrameLevel(200)
+    deathTT:Hide()
+    local ttBg = deathTT:CreateTexture(nil, "BACKGROUND")
+    ttBg:SetAllPoints()
+    ttBg:SetColorTexture(0.067, 0.067, 0.067, 0.90)
+    EllesmereUI.MakeBorder(deathTT, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
+    deathTT._rows = {}
+
+    local TT_PAD   = 8
+    local TT_ROW_H = 14
+    local TT_GAP   = 3
+    local TT_FONT  = EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
+
+    local function EnsureRows(n)
+        for i = #deathTT._rows + 1, n do
+            local nameFS = deathTT:CreateFontString(nil, "OVERLAY")
+            nameFS:SetFont(TT_FONT, 10, "")
+            nameFS:SetJustifyH("LEFT")
+            local countFS = deathTT:CreateFontString(nil, "OVERLAY")
+            countFS:SetFont(TT_FONT, 10, "")
+            countFS:SetJustifyH("RIGHT")
+            deathTT._rows[i] = { name = nameFS, count = countFS }
+        end
+    end
+
+    f._deathHit:SetScript("OnEnter", function(self)
+        local deaths = playerDeaths
+        if not next(deaths) and currentRun.deaths and currentRun.deaths > 0 then
+            deaths = { [UnitName("player") or "You"] = currentRun.deaths }
+        end
+        if not next(deaths) then return end
+
+        local list = {}
+        for name, count in pairs(deaths) do
+            list[#list + 1] = { name = name, count = count }
+        end
+        table.sort(list, function(a, b)
+            if a.count ~= b.count then return a.count > b.count end
+            return a.name < b.name
+        end)
+
+        EnsureRows(#list)
+
+        -- Hide all rows first
+        for i = 1, #deathTT._rows do
+            deathTT._rows[i].name:Hide()
+            deathTT._rows[i].count:Hide()
+        end
+
+        -- Measure max name width for tooltip sizing
+        local maxNameW = 0
+        local maxCountW = 0
+        for i, entry in ipairs(list) do
+            local row = deathTT._rows[i]
+            local classFile = select(2, UnitClass(entry.name))
+            local color = classFile and (RAID_CLASS_COLORS[classFile] or RAID_CLASS_COLORS["PRIEST"])
+            local short = Ambiguate and Ambiguate(entry.name, "short") or entry.name
+            local colored = color and color:WrapTextInColorCode(short) or short
+            row.name:SetText(colored)
+            row.name:SetTextColor(1, 1, 1, 0.80)
+            row.count:SetText(entry.count)
+            row.count:SetTextColor(1, 1, 1, 0.80)
+            local nw = row.name:GetStringWidth() or 0
+            local cw = row.count:GetStringWidth() or 0
+            if nw > maxNameW then maxNameW = nw end
+            if cw > maxCountW then maxCountW = cw end
+        end
+
+        local ttW = TT_PAD + maxNameW + 12 + maxCountW + TT_PAD
+        local ttH = TT_PAD + #list * TT_ROW_H + (#list - 1) * TT_GAP + TT_PAD
+
+        deathTT:SetSize(ttW, ttH)
+
+        -- Position rows
+        for i, entry in ipairs(list) do
+            local row = deathTT._rows[i]
+            local yOff = -TT_PAD - (i - 1) * (TT_ROW_H + TT_GAP)
+            row.name:ClearAllPoints()
+            row.name:SetPoint("TOPLEFT", deathTT, "TOPLEFT", TT_PAD, yOff)
+            row.count:ClearAllPoints()
+            row.count:SetPoint("TOPRIGHT", deathTT, "TOPRIGHT", -TT_PAD, yOff)
+            row.name:Show()
+            row.count:Show()
+        end
+
+        -- Anchor tooltip above the death text
+        local right = (self._align or "LEFT") == "RIGHT"
+        deathTT:ClearAllPoints()
+        if right then
+            deathTT:SetPoint("BOTTOMRIGHT", self, "TOPRIGHT", 0, 4)
+        else
+            deathTT:SetPoint("BOTTOMLEFT", self, "TOPLEFT", 0, 4)
+        end
+        deathTT:Show()
+    end)
+    f._deathHit:SetScript("OnLeave", function()
+        deathTT:Hide()
+    end)
     f._enemyFS = f:CreateFontString(nil, "OVERLAY")
     f._enemyFS:SetWordWrap(false)
     f._enemyBarBg = f:CreateTexture(nil, "BACKGROUND", nil, 1)
@@ -1018,9 +1185,22 @@ local function RenderStandalone()
         f._deathFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -dPad, y - 5)
         f._deathFS:SetJustifyH(deathAlign)
         f._deathFS:Show()
+        -- Position hit frame over the actual text, not the full row
+        local textW = f._deathFS:GetStringWidth() or 0
+        local textH = f._deathFS:GetStringHeight() or 12
+        f._deathHit:ClearAllPoints()
+        f._deathHit:SetSize(textW, textH)
+        if deathAlign == "RIGHT" then
+            f._deathHit:SetPoint("TOPRIGHT", f._deathFS, "TOPRIGHT", 0, 0)
+        else
+            f._deathHit:SetPoint("TOPLEFT", f._deathFS, "TOPLEFT", 0, 0)
+        end
+        f._deathHit._align = deathAlign
+        f._deathHit:Show()
         y = y - (f._deathFS:GetStringHeight() or 12) - ROW_GAP - 5
     else
         f._deathFS:Hide()
+        f._deathHit:Hide()
     end
 
     -- Timer colours

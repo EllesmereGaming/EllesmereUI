@@ -387,7 +387,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Free Move Buttons | Button Backgrounds
-        _, h = W:DualRow(parent, y,
+        local fmRow
+        fmRow, h = W:DualRow(parent, y,
             { type="toggle", text="Free Move Buttons",
               tooltip="When enabled, Shift+Click any minimap button (mail, calendar, tracking, addon buttons) to drag it to a custom position.",
               getValue=function() local m = MinimapDB(); return m and m.freeMoveBtns end,
@@ -398,6 +399,7 @@ initFrame:SetScript("OnEvent", function(self)
                     m.btnPositions = {}
                 end
                 RefreshMinimap()
+                EllesmereUI:RefreshPage()
               end },
             { type="toggle", text="Button Backgrounds",
               tooltip="Show black backgrounds behind minimap indicator buttons (tracking, calendar, mail, crafting, addon buttons, flyout toggle).",
@@ -409,7 +411,35 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Hide Great Vault Button | Great Vault Extra Info
+        -- "Reset" label next to the Free Move toggle (only visible when enabled)
+        do
+            local rgn = fmRow._leftRegion
+            local resetFS = rgn:CreateFontString(nil, "OVERLAY")
+            resetFS:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 12, "")
+            resetFS:SetTextColor(1, 1, 1, 0.8)
+            resetFS:SetText("Reset")
+            resetFS:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+            local hitBtn = CreateFrame("Button", nil, rgn)
+            hitBtn:SetAllPoints(resetFS)
+            hitBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            hitBtn:SetScript("OnEnter", function() resetFS:SetTextColor(1, 0.3, 0.3, 1) end)
+            hitBtn:SetScript("OnLeave", function() resetFS:SetTextColor(1, 1, 1, 0.8) end)
+            hitBtn:SetScript("OnClick", function()
+                local m = MinimapDB(); if not m then return end
+                m.btnPositions = {}
+                RefreshMinimap()
+            end)
+            local function UpdateResetVis()
+                local m = MinimapDB()
+                local on = m and m.freeMoveBtns
+                resetFS:SetShown(on)
+                hitBtn:SetShown(on)
+            end
+            UpdateResetVis()
+            EllesmereUI.RegisterWidgetRefresh(UpdateResetVis)
+        end
+
+        -- Hide Great Vault Button | Hide M+ Portals Button
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Hide Great Vault Button",
               tooltip="Hides the Great Vault shortcut button from the minimap button stack.",
@@ -419,21 +449,6 @@ initFrame:SetScript("OnEvent", function(self)
                 m.hideGreatVault = v
                 RefreshMinimap()
               end },
-            { type="toggle", text="Great Vault Extra Info",
-              tooltip="Shows a compact weekly progress summary in the Great Vault minimap button tooltip.",
-              getValue=function()
-                local m = MinimapDB()
-                return not m or m.greatVaultExtraInfo ~= false
-              end,
-              setValue=function(v)
-                local m = MinimapDB(); if not m then return end
-                m.greatVaultExtraInfo = v
-                EllesmereUI:RefreshPage()
-              end }
-        );  y = y - h
-
-        -- Hide M+ Portals Button
-        _, h = W:DualRow(parent, y,
             { type="toggle", text="Hide M+ Portals Button",
               tooltip="Hides the M+ Portals shortcut button from the minimap button stack.",
               getValue=function() local m = MinimapDB(); return m and m.hidePortals end,
@@ -441,8 +456,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local m = MinimapDB(); if not m then return end
                 m.hidePortals = v
                 RefreshMinimap()
-              end },
-            { type="label", text="" }
+              end }
         );  y = y - h
 
         y = y - 10
