@@ -302,13 +302,44 @@ local function PreSkinCharacterSheet()
             region:SetAlpha(0)
         end
     end
-    GetFFD(frame).bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
-    GetFFD(frame).bg:SetAtlas("housing-basic-panel--stone-background")
-    GetFFD(frame).bg:SetAllPoints(frame)
-    GetFFD(frame).bg:SetAlpha(1)
+    -- Background scales proportionally to fill the frame without distorting.
+    -- Native aspect ratio: 561x433. On resize, compute the size that covers
+    -- the full frame (like CSS "cover") and center it, clipping overflow via
+    -- adjusted tex coords.
+    local BG_ASPECT = 561 / 433
+    local bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
+    bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
+    bg:SetAllPoints(frame)
+    GetFFD(frame).bg = bg
+    bg:SetAlpha(1)
     GetFFD(frame).bgOverlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-    GetFFD(frame).bgOverlay:SetColorTexture(0, 0, 0, 0.7)
+    GetFFD(frame).bgOverlay:SetColorTexture(0, 0, 0, 0.55)
     GetFFD(frame).bgOverlay:SetAllPoints(frame)
+
+    -- Recompute tex coords on resize to maintain aspect ratio (cover mode)
+    local BASE_L, BASE_R, BASE_T, BASE_B = 0.25, 1, 0, 0.75
+    local BASE_U = BASE_R - BASE_L  -- 0.75
+    local BASE_V = BASE_B - BASE_T  -- 0.75
+    local function UpdateBgTexCoords()
+        local fw, fh = frame:GetSize()
+        if fw == 0 or fh == 0 then return end
+        local frameAspect = fw / fh
+        if frameAspect > BG_ASPECT then
+            -- Frame is wider: crop top/bottom
+            local visV = BASE_V * (BG_ASPECT / frameAspect)
+            local trimV = (BASE_V - visV) / 2
+            bg:SetTexCoord(BASE_L, BASE_R, BASE_T + trimV, BASE_B - trimV)
+        else
+            -- Frame is taller: crop left/right
+            local visU = BASE_U * (frameAspect / BG_ASPECT)
+            local trimU = (BASE_U - visU) / 2
+            bg:SetTexCoord(BASE_L + trimU, BASE_R - trimU, BASE_T, BASE_B)
+        end
+    end
+    hooksecurefunc(frame, "SetSize", UpdateBgTexCoords)
+    hooksecurefunc(frame, "SetWidth", UpdateBgTexCoords)
+    hooksecurefunc(frame, "SetHeight", UpdateBgTexCoords)
+    UpdateBgTexCoords()
     if EllesmereUI and EllesmereUI.PanelPP then
         EllesmereUI.PanelPP.CreateBorder(frame, 0.2, 0.2, 0.2, 1, 1, "OVERLAY", 7)
     end
@@ -333,41 +364,18 @@ local function PreSkinCharacterSheet()
         myModel:EnableMouse(true)
         myModel:EnableMouseWheel(true)
 
+        -- Custom model background (our frame, no taint risk)
         local bgFrame = CreateFrame("Frame", nil, frame)
         bgFrame:SetFrameLevel(math.max(1, myModel:GetFrameLevel() - 1))
-        bgFrame:SetAllPoints(myModel)
+        bgFrame:SetPoint("TOPLEFT", CharacterHeadSlot, "TOPLEFT", -8, 10)
+        bgFrame:SetPoint("BOTTOMRIGHT", myModel, "BOTTOMRIGHT", 0, -18)
         local bgTex = bgFrame:CreateTexture(nil, "BACKGROUND")
         bgTex:SetAllPoints(bgFrame)
-        bgTex:SetAtlas("transmog-locationBG")
-        bgTex:SetAlpha(0.5)
-
-        local GLOW_HEIGHT_RATIO = 386 / 860
-        local bgGlowTex = bgFrame:CreateTexture(nil, "BORDER")
-        bgGlowTex:SetAtlas("transmog-locationBG-glow")
-        bgGlowTex:SetPoint("BOTTOMLEFT",  bgFrame, "BOTTOMLEFT",  0, 0)
-        bgGlowTex:SetPoint("BOTTOMRIGHT", bgFrame, "BOTTOMRIGHT", 0, 0)
-        bgGlowTex:SetHeight(math.max(1, (bgFrame:GetHeight() or 0) * GLOW_HEIGHT_RATIO))
-        bgGlowTex:SetAlpha(0.5)
-        bgFrame:HookScript("OnSizeChanged", function(_, _, h)
-            bgGlowTex:SetHeight(math.max(1, (h or 0) * GLOW_HEIGHT_RATIO))
-        end)
-
-        -- Top fade: gradient overlay ABOVE the model that blends into the frame bg
-        local fadeFrame = CreateFrame("Frame", nil, frame)
-        fadeFrame:SetFrameLevel(myModel:GetFrameLevel() + 1)
-        fadeFrame:SetAllPoints(myModel)
-        local topFade = fadeFrame:CreateTexture(nil, "ARTWORK")
-        topFade:SetTexture("Interface\\AddOns\\EllesmereUIBlizzardSkin\\Media\\top-gradient-mask.tga")
-        topFade:SetPoint("TOPLEFT", fadeFrame, "TOPLEFT", 0, 0)
-        topFade:SetPoint("TOPRIGHT", fadeFrame, "TOPRIGHT", 0, 0)
-        topFade:SetHeight(60)
-        topFade:SetAlpha(0.5)
-        fadeFrame:EnableMouse(false)
+        bgTex:SetTexture("Interface\\AddOns\\EllesmereUIBlizzardSkin\\Media\\character-bg.png")
+        bgTex:SetAlpha(1)
 
         GetFFD(frame).modelBg      = bgTex
-        GetFFD(frame).modelBgGlow  = bgGlowTex
         GetFFD(frame).modelBgFrame = bgFrame
-        GetFFD(frame).modelTopFade = fadeFrame
 
         myModel:SetUnit("player")
         local zoomLevel = 0  -- 0 = full body, 1 = tight portrait
@@ -445,34 +453,6 @@ local function PreSkinCharacterSheet()
             myModel:SetPortraitZoom(zoomLevel)
         end)
 
-        -- Hover glow fades between 0.5 (idle) and 1.0 (hover).
-        local GLOW_FADE_DURATION = 1.0
-        local GLOW_IDLE, GLOW_HOVER = 0.5, 1.0
-        local glowTarget = GLOW_IDLE
-        local glowFader = CreateFrame("Frame")
-        glowFader:Hide()
-        glowFader:SetScript("OnUpdate", function(self, elapsed)
-            local tex = GetFFD(frame).modelBgGlow
-            if not tex then self:Hide(); return end
-            local cur = tex:GetAlpha() or GLOW_IDLE
-            local diff = glowTarget - cur
-            if math.abs(diff) < 0.005 then
-                tex:SetAlpha(glowTarget); self:Hide(); return
-            end
-            local step = (GLOW_HOVER - GLOW_IDLE) * (elapsed / GLOW_FADE_DURATION)
-            if diff > 0 then
-                tex:SetAlpha(math.min(glowTarget, cur + step))
-            else
-                tex:SetAlpha(math.max(glowTarget, cur - step))
-            end
-        end)
-
-        mouseOverlay:SetScript("OnEnter", function()
-            glowTarget = GLOW_HOVER; glowFader:Show()
-        end)
-        mouseOverlay:SetScript("OnLeave", function()
-            glowTarget = GLOW_IDLE; glowFader:Show()
-        end)
 
         -- SetUnit handles form transitions natively; re-bind on equipment
         -- changes so newly-equipped gear shows up on the model.
@@ -784,7 +764,7 @@ local function SkinCharacterSheet()
             if not GetFFD(tab).bg then
                 GetFFD(tab).bg = tab:CreateTexture(nil, "BACKGROUND")
                 GetFFD(tab).bg:SetAllPoints()
-                GetFFD(tab).bg:SetColorTexture(0.043, 0.031, 0.027, 1)
+                GetFFD(tab).bg:SetColorTexture(0.068, 0.056, 0.052, 1)
             end
 
             if not GetFFD(tab).activeHL then
@@ -929,15 +909,15 @@ local function SkinCharacterSheet()
             end
         end
 
-        for _, btnName in ipairs({"EUI_CharSheet_Stats", "EUI_CharSheet_Titles", "EUI_CharSheet_Equipment"}) do
+        for _, btnName in ipairs({"EUI_CharSheet_Stats", "EUI_CharSheet_Titles", "EUI_CharSheet_Equipment", "EUI_CharSheet_CalcToggle"}) do
             local btn = _G[btnName]
             if btn then btn:SetShown(isCharacterTab) end
         end
 
-        if GetFFD(frame).modelTopFade     then GetFFD(frame).modelTopFade:SetShown(isCharacterTab)     end
+        if GetFFD(frame).modelBgFrame     then GetFFD(frame).modelBgFrame:SetShown(isCharacterTab)     end
         if GetFFD(frame).statsPanel       then GetFFD(frame).statsPanel:SetShown(isCharacterTab)       end
         if GetFFD(frame).iLvlText         then GetFFD(frame).iLvlText:SetShown(isCharacterTab)         end
-        if GetFFD(frame).statsBg          then GetFFD(frame).statsBg:SetShown(isCharacterTab)          end
+        if GetFFD(frame).sidebarBgFrame   then GetFFD(frame).sidebarBgFrame:SetShown(isCharacterTab)   end
         if GetFFD(frame).scrollFrame      then GetFFD(frame).scrollFrame:SetShown(isCharacterTab)      end
         if GetFFD(frame).scrollBar        then GetFFD(frame).scrollBar:SetShown(isCharacterTab)        end
         if GetFFD(frame).socketContainer  then GetFFD(frame).socketContainer:SetShown(isCharacterTab)  end
@@ -982,11 +962,17 @@ local function SkinCharacterSheet()
     statsPanel:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 345,  40)
     statsPanel:SetFrameLevel(50)
 
-    -- Stats panel background: fills the whole panel.
-    local statsBg = statsPanel:CreateTexture(nil, "BACKGROUND")
-    statsBg:SetColorTexture(0, 0, 0, 0)
-    statsBg:SetAllPoints(statsPanel)
+    -- Sidebar background: lives on frame (not statsPanel) so it stays visible
+    -- when switching between Character / Titles / Equipment panels.
+    local sidebarBgFrame = CreateFrame("Frame", nil, frame)
+    sidebarBgFrame:SetFrameLevel(statsPanel:GetFrameLevel() - 1)
+    sidebarBgFrame:SetPoint("TOPLEFT", statsPanel, "TOPLEFT", -51, 10)
+    sidebarBgFrame:SetPoint("BOTTOMRIGHT", statsPanel, "BOTTOMRIGHT", 0, -10)
+    local statsBg = sidebarBgFrame:CreateTexture(nil, "BACKGROUND")
+    statsBg:SetColorTexture(0, 0, 0, 0.2)
+    statsBg:SetAllPoints()
     GetFFD(frame).statsBg = statsBg
+    GetFFD(frame).sidebarBgFrame = sidebarBgFrame
 
     -- Map INVTYPE to inventory slot numbers and display names
     local INVTYPE_TO_SLOT = {
@@ -1439,6 +1425,7 @@ local function SkinCharacterSheet()
     -- scrollbar (8px wide + a couple px breathing room).
     -- Header height = buttonHeight(25) + iLvl(18) + M+(12) + gaps(~14) = ~70.
     local HEADER_H = 75
+
     local scrollFrame = CreateFrame("ScrollFrame", "EUI_CharSheet_ScrollFrame", statsPanel)
     scrollFrame:SetPoint("TOPLEFT", statsPanel, "TOPLEFT", 0, -HEADER_H)
     scrollFrame:SetPoint("BOTTOMRIGHT", statsPanel, "BOTTOMRIGHT", -12, 2)
@@ -2624,10 +2611,7 @@ local function SkinCharacterSheet()
     titlesPanel:Hide()
     GetFFD(frame).titlesPanel = titlesPanel  -- Store reference on frame
 
-    -- Titles panel background
-    local titlesBg = titlesPanel:CreateTexture(nil, "BACKGROUND")
-    titlesBg:SetColorTexture(0.03, 0.045, 0.05, 0.95)
-    titlesBg:SetAllPoints()
+    -- Titles panel background (removed -- uses shared statsBg backdrop)
 
     -- Search box for titles
     local titlesSearchBox = CreateFrame("EditBox", "EUI_CharSheet_TitlesSearchBox", titlesPanel)
@@ -2637,7 +2621,7 @@ local function SkinCharacterSheet()
     titlesSearchBox:SetMaxLetters(20)
 
     local searchBg = titlesSearchBox:CreateTexture(nil, "BACKGROUND")
-    searchBg:SetColorTexture(0.1, 0.12, 0.14, 0.9)
+    searchBg:SetColorTexture(0, 0, 0, 0.5)
     searchBg:SetAllPoints()
 
     titlesSearchBox:SetTextColor(1, 1, 1, 1)
@@ -2700,7 +2684,7 @@ local function SkinCharacterSheet()
         if prev ~= nil then
             local oldData = titleButtons[prev]
             if oldData and oldData.bg then
-                oldData.bg:SetColorTexture(0.05, 0.07, 0.08, 0.8)
+                oldData.bg:SetColorTexture(1, 1, 1, 0.04)
             end
             local newData = titleButtons[newIndex]
             if newData and newData.bg then
@@ -2711,7 +2695,7 @@ local function SkinCharacterSheet()
                 if idx == newIndex then
                     btnData.bg:SetColorTexture(EG.r, EG.g, EG.b, 0.5)
                 else
-                    btnData.bg:SetColorTexture(0.05, 0.07, 0.08, 0.8)
+                    btnData.bg:SetColorTexture(1, 1, 1, 0.04)
                 end
             end
         end
@@ -2734,11 +2718,11 @@ local function SkinCharacterSheet()
         btn:SetHeight(TILES_TILE_H)
 
         btn._bg = btn:CreateTexture(nil, "BACKGROUND")
-        btn._bg:SetColorTexture(0.05, 0.07, 0.08, 0.8)
+        btn._bg:SetColorTexture(1, 1, 1, 0.05)
         btn._bg:SetAllPoints()
 
         btn._hover = btn:CreateTexture(nil, "ARTWORK")
-        btn._hover:SetColorTexture(1, 1, 1, 0.15)
+        btn._hover:SetColorTexture(1, 1, 1, 0.1)
         btn._hover:SetAllPoints()
         btn._hover:Hide()
 
@@ -2907,9 +2891,7 @@ local function SkinCharacterSheet()
     GetFFD(frame).equipPanel = equipPanel
 
     -- Equipment panel background
-    local equipBg = equipPanel:CreateTexture(nil, "BACKGROUND")
-    equipBg:SetColorTexture(0.03, 0.045, 0.05, 0.95)
-    equipBg:SetAllPoints()
+    -- Equipment panel background (removed -- uses shared statsBg backdrop)
 
     -- Create scroll frame for equipment (flush-left to match titles sidebar)
     local equipScrollFrame = CreateFrame("ScrollFrame", "EUI_CharSheet_EquipScrollFrame", equipPanel)
@@ -3345,7 +3327,7 @@ local function SkinCharacterSheet()
             if activeEquipmentSetID == setData.id then
                 tile._bg:SetColorTexture(EG_EQ.r, EG_EQ.g, EG_EQ.b, 0.5)
             else
-                tile._bg:SetColorTexture(0.05, 0.07, 0.08, 0.8)
+                tile._bg:SetColorTexture(1, 1, 1, 0.05)
             end
             if tile._selection then
                 if selectedSetID == setData.id then
@@ -3416,7 +3398,7 @@ local function SkinCharacterSheet()
                     if tile._setID and tile._setID == newActiveID then
                         tile._bg:SetColorTexture(EG_EQ.r, EG_EQ.g, EG_EQ.b, 0.5)
                     else
-                        tile._bg:SetColorTexture(0.05, 0.07, 0.08, 0.8)
+                        tile._bg:SetColorTexture(1, 1, 1, 0.05)
                     end
                 end
                 if tile._selection then
@@ -3516,6 +3498,60 @@ local function SkinCharacterSheet()
 
     -- Character tab is the default active view
     SetActiveTopButton(characterBtn)
+
+    -- Calc toggle button: floats just above the Equipment tab so it doesn't
+    -- overlap the tab row.  Turns green while the calculator window is open.
+    do
+        local equipBtn = _G["EUI_CharSheet_Equipment"]
+        local calcBtn = CreateFrame("Button", "EUI_CharSheet_CalcToggle", frame)
+        calcBtn:SetSize(buttonWidth, 16)
+        if equipBtn then
+            calcBtn:SetPoint("BOTTOMLEFT", equipBtn, "TOPLEFT", 0, 4)
+        else
+            calcBtn:SetPoint("TOPLEFT", statsPanel, "TOPLEFT", 2 * (buttonWidth + buttonSpacing), -(buttonHeight + 4))
+        end
+        calcBtn:SetFrameLevel(statsPanel:GetFrameLevel() + 2)
+        calcBtn:EnableMouse(true)
+
+        local calcBtnText = calcBtn:CreateFontString(nil, "OVERLAY")
+        calcBtnText:SetFont(fontPath, 10, "")
+        calcBtnText:SetPoint("CENTER", calcBtn, "CENTER", 0, 0)
+        calcBtnText:SetText("Calc")
+
+        local function _refreshCalcBtnColor()
+            local fr = _G["EUIUpgCalcFrame"]
+            if fr and fr:IsShown() then
+                local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.51, g = 0.784, b = 1 }
+                calcBtnText:SetTextColor(EG.r, EG.g, EG.b, 1)
+            else
+                calcBtnText:SetTextColor(1, 1, 1, 0.6)
+            end
+        end
+        _refreshCalcBtnColor()
+
+        calcBtn:SetScript("OnEnter", function()
+            calcBtnText:SetTextColor(1, 1, 1, 1)
+            GameTooltip:SetOwner(calcBtn, "ANCHOR_BOTTOM")
+            GameTooltip:AddLine("Upgrade Calculator", 1, 1, 1, 1)
+            GameTooltip:AddLine("Toggle the gear upgrade planner.", 0.7, 0.7, 0.7, true)
+            GameTooltip:Show()
+        end)
+        calcBtn:SetScript("OnLeave", function()
+            GameTooltip:Hide()
+            _refreshCalcBtnColor()
+        end)
+        calcBtn:SetScript("OnClick", function()
+            local fr = _G["EUIUpgCalcFrame"]
+            if fr then
+                if fr:IsShown() then fr:Hide() else fr:Show() end
+                _refreshCalcBtnColor()
+            end
+        end)
+
+        frame:HookScript("OnShow", _refreshCalcBtnColor)
+        GetFFD(frame).calcToggleBtn      = calcBtn
+        GetFFD(frame).updateCalcBtnColor = _refreshCalcBtnColor
+    end
 
     -- Left column slots (show itemlevel on right)
     local leftColumnSlots = {
