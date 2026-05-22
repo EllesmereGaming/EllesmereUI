@@ -319,8 +319,21 @@ end
 -------------------------------------------------------------------------------
 --  Expansion nesting (All Items view): C_Item.GetItemInfo expansionID + labels
 -------------------------------------------------------------------------------
+local KEYSTONE_ITEM_ID = 180653
+local MIDNIGHT_EXPANSION_ID = (Enum.ExpansionLevel and Enum.ExpansionLevel.Midnight) or 11
+
+local function IsKeystoneItemLink(itemLink)
+    if not itemLink then return false end
+    if itemLink:find("keystone:", 1, true) then return true end
+    local itemID = GetItemInfoInstant(itemLink)
+    return itemID == KEYSTONE_ITEM_ID
+end
+
 local function GetItemExpansionIDFromLink(itemLink)
     if not itemLink then return nil end
+    if IsKeystoneItemLink(itemLink) then
+        return MIDNIGHT_EXPANSION_ID
+    end
     if C_Item and C_Item.GetItemInfo then
         local _, _, _, _, _, _, _, _, _, _, _, _, _, _, expID = C_Item.GetItemInfo(itemLink)
         return expID
