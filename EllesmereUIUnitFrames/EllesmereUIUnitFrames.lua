@@ -1789,16 +1789,58 @@ local function ReparentBarsToClip(frame, powerPosition)
             if frame.Power:GetParent() == clip then
                 frame.Power:SetParent(frame)
             end
+            -- Detached power renders outside the frame, on top of the unified
+            -- border (frame level + 10, same inherited strata). SetParent
+            -- resets frame level, so re-assert above the border after every
+            -- reparent. This is the path that previously dropped the bar below
+            -- the border (it forced hpLevel+2 = frame+4 here too).
+            frame.Power:SetFrameLevel(frame:GetFrameLevel() + 12)
         else
             if frame.Power:GetParent() ~= clip then
                 frame.Power:SetParent(clip)
             end
+            -- Power bar must render above absorb overlay (health level + 1).
+            -- SetParent resets frame level, so re-assert after every reparent.
+            local hpLevel = frame.Health and frame.Health:GetFrameLevel() or clip:GetFrameLevel()
+            frame.Power:SetFrameLevel(hpLevel + 2)
         end
-        -- Power bar must render above absorb overlay (health level + 1).
-        -- SetParent resets frame level, so re-assert after every reparent.
-        local hpLevel = frame.Health and frame.Health:GetFrameLevel() or clip:GetFrameLevel()
-        frame.Power:SetFrameLevel(hpLevel + 2)
     end
+end
+
+-- Detached power bars get their own border so they don't float "naked" next to
+-- the framed health bar. The border is fixed at size 1 but inherits the main
+-- frame's border type (texture), color and alpha so it matches visually. It is
+-- a child of the power bar (anchored to its edges, one level above the fill),
+-- so it inherits the power bar's strata and moves/clips with it automatically.
+-- Idempotent: reuses the existing border on refresh, and hides it when the bar
+-- is not detached.
+local function ApplyDetachedPowerBorder(power, isDetached, settings)
+    if not power or not settings then return end
+    if not isDetached then
+        if power._detachedBorder then
+            EllesmereUI.ApplyBorderStyle(power._detachedBorder, 0, 0, 0, 0, 1, "solid", nil, nil, nil, nil, "unitframes", 1)
+            power._detachedBorder:Hide()
+        end
+        return
+    end
+
+    local border = power._detachedBorder
+    if not border then
+        border = CreateFrame("Frame", nil, power)
+        PP.Point(border, "TOPLEFT", power, "TOPLEFT", 0, 0)
+        PP.Point(border, "BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
+        border:SetFrameLevel(power:GetFrameLevel() + 1)
+        power._detachedBorder = border
+    end
+
+    local bc = settings.borderColor or { r = 0, g = 0, b = 0 }
+    local textureKey = settings.borderTexture or "solid"
+    -- Size is hardcoded to 1, but the texture defaults (offset/shift) are keyed
+    -- on the size, so pass sizeKey = 1 too.
+    EllesmereUI.ApplyBorderStyle(border, 1, bc.r, bc.g, bc.b, settings.borderAlpha or 1, textureKey,
+        settings.borderTextureOffset, settings.borderTextureOffsetY,
+        settings.borderTextureShiftX, settings.borderTextureShiftY, "unitframes", 1)
+    border:Show()
 end
 
 -- Recalculate all element sizes after frame scale changes so everything remains
@@ -1823,6 +1865,11 @@ local function UpdateBordersForScale(frame, unit)
     local ppPos = settings.powerPosition or "below"
     local ppIsAtt = (ppPos == "below" or ppPos == "above")
     local ppIsDet = (ppPos == "detached_top" or ppPos == "detached_bottom")
+
+    -- Keep the detached power bar's border in sync with the frame's border
+    -- style and re-snap it after scale changes.
+    ApplyDetachedPowerBorder(frame.Power, ppIsDet, settings)
+
     local ph = settings.powerHeight or 6
     -- Simple frames (pet/tot/focustarget) have no power bar ? skip power height
     local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget")
@@ -2444,14 +2491,15 @@ local function CreatePowerBar(frame, unit, settings)
 
     local power = CreateFrame("StatusBar", nil, frame)
     local isDetached = (powerPos == "detached_top" or powerPos == "detached_bottom")
-    if isDetached then
-        -- Bump strata so the detached power bar renders above the border
-        -- regardless of frame level. Frame level within the same strata is
-        -- fragile (oUF and absorb bar code can reset it).
-        power:SetFrameStrata("MEDIUM")
-    else
-        power:SetFrameStrata(frame:GetFrameStrata())
-    end
+    -- Leave the power bar's strata to inherit from its parent frame, exactly
+    -- like the unified border (see CreateUnifiedBorder, which never sets a
+    -- strata either). Inheriting keeps the bar, the border and the power text
+    -- in the SAME strata even when the user changes frameStrata, so the only
+    -- thing deciding their order is frame level within that shared strata:
+    -- a detached bar sits ABOVE the border (frame+10), an attached bar below.
+    -- The old hardcoded SetFrameStrata("MEDIUM") broke this whenever
+    -- frameStrata was higher than MEDIUM (bar dropped under the border) and
+    -- desynced the bar from its own text overlay (which inherits frame strata).
     power:SetFrameLevel(frame:GetFrameLevel() + (isDetached and 12 or 3))
     local pw = settings.frameWidth
     if isDetached and (settings.powerWidth or 0) > 0 then
@@ -2537,6 +2585,36 @@ local function CreatePowerBar(frame, unit, settings)
     power._ppFS = ppFS
     power._ppTextOvr = ppTextOvr
 
+    -- Apply only the percent-text COLOR. Split out from ApplyPowerPercentText
+    -- because the "power colored" mode must be re-resolved on power-type changes:
+    -- at build/reload time the unit's power type isn't ready yet (loading screen),
+    -- so a one-shot resolve sticks on the wrong color. The power PostUpdate calls
+    -- this again once the real power type is known, so it self-corrects.
+    -- Uses EllesmereUI.GetPowerColor(token) (same source as the options preview,
+    -- and honours custom power colors) instead of the raw Blizzard PowerBarColor.
+    local function ApplyPowerPercentColor(s)
+        if not (s and ppFS) then return end
+        if s.powerPercentTextPowerColor then
+            local _, pToken = UnitPowerType(unit)
+            -- Skip redundant work: only recolor when the token actually changes.
+            if pToken == power._ppColorToken then return end
+            power._ppColorToken = pToken
+            local info = (pToken and EllesmereUI.GetPowerColor(pToken))
+                or (pToken and PowerBarColor and PowerBarColor[pToken])
+            if info then ppFS:SetTextColor(info.r, info.g, info.b)
+            else ppFS:SetTextColor(1, 1, 1) end
+        else
+            power._ppColorToken = nil
+            if s.powerTextColor then
+                local tc = s.powerTextColor
+                ppFS:SetTextColor(tc.r, tc.g, tc.b, tc.a or 1)
+            else
+                ppFS:SetTextColor(1, 1, 1)
+            end
+        end
+    end
+    power._refreshPPColor = ApplyPowerPercentColor
+
     local function ApplyPowerPercentText(s)
         local pos = s.powerPercentText or "none"
         local sz  = s.powerPercentSize or 9
@@ -2583,18 +2661,11 @@ local function CreatePowerBar(frame, unit, settings)
         frame:Tag(ppFS, tag); ppFS._curTag = tag
         if frame.UpdateTags then frame:UpdateTags() end
 
-        -- Text color: power-colored > custom color > white
-        if s.powerPercentTextPowerColor then
-            local pType = UnitPowerType(unit)
-            local info = PowerBarColor[pType]
-            if info then ppFS:SetTextColor(info.r, info.g, info.b)
-            else ppFS:SetTextColor(1, 1, 1) end
-        elseif s.powerTextColor then
-            local tc = s.powerTextColor
-            ppFS:SetTextColor(tc.r, tc.g, tc.b, tc.a or 1)
-        else
-            ppFS:SetTextColor(1, 1, 1)
-        end
+        -- Text color: power-colored > custom color > white.
+        -- Force a recolor by clearing the cached token so the same-token early
+        -- return in ApplyPowerPercentColor doesn't skip this explicit apply.
+        power._ppColorToken = nil
+        ApplyPowerPercentColor(s)
         ppFS:Show()
     end
 
@@ -2609,6 +2680,15 @@ local function CreatePowerBar(frame, unit, settings)
     power.PostUpdate = function(self, u, cur, min, max)
         local s = GetSettingsForUnit(u)
         if not s then return end
+
+        -- Power-colored percent text resolves its color from the unit's power
+        -- type, which isn't ready at build time after a reload/relog/loading
+        -- screen. Re-resolve here (cheap; token-cached) so it self-corrects on
+        -- the first real power update. Runs for every position, incl. detached
+        -- (which returns early below).
+        if s.powerPercentTextPowerColor then
+            ApplyPowerPercentColor(s)
+        end
 
         local pp = s.powerPosition or "below"
         if pp == "none" or pp == "detached_top" or pp == "detached_bottom" then return end
@@ -2690,6 +2770,9 @@ local function CreatePowerBar(frame, unit, settings)
             end
         end
     end
+
+    -- Detached power bars carry a size-1 border matching the frame's style.
+    ApplyDetachedPowerBorder(power, isDetached, settings)
 
     return power
 end
