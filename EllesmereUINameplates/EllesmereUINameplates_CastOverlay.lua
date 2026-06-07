@@ -704,6 +704,11 @@ local function ConfigureOverlay(ov, plate)
     ov.bar:SetMinMaxValues(0, 1)
     local sbt = ov.bar:GetStatusBarTexture()
     if sbt then
+        -- SetStatusBarTexture above can mint a fresh inner texture (snap ON by
+        -- default). The bar itself is already cached, so the global hook
+        -- short-circuits on it; disable snap on the new inner texture directly
+        -- so the fill stays pixel-perfect after pool-churn re-asserts.
+        if PP then PP.DisablePixelSnap(sbt) end
         sbt:SetAlpha(1)
         sbt:SetVertexColor(cr, cg, cb)
         -- Bar fill is confirmed valid: NOW show the bg. This is the sole

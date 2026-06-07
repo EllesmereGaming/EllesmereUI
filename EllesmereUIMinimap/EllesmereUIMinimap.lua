@@ -381,6 +381,9 @@ local function LayoutFlyoutButtons()
             icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 2, -2)
             icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -2, 2)
             pcall(icon.SetTexCoord, icon, 0.05, 0.95, 0.05, 0.95)
+            -- Foreign button icon: SetTexCoord was its only snap trigger and
+            -- that hook is no longer global, so disable snap on it once here.
+            if EllesmereUI.PP then EllesmereUI.PP.DisablePixelSnap(icon) end
         end
         -- Add atlas ring border overlay
         if not GetFFD(btn).flyoutRing then
@@ -2573,6 +2576,9 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
                     icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 3, -3)
                     icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -3, 3)
                     pcall(icon.SetTexCoord, icon, 0.05, 0.95, 0.05, 0.95)
+                    -- Foreign button icon: SetTexCoord was its only snap trigger
+                    -- and that hook is no longer global, so disable snap once here.
+                    if EllesmereUI.PP then EllesmereUI.PP.DisablePixelSnap(icon) end
                 end
                 -- Black square background
                 if not GetFFD(btn).ungroupBg then

@@ -195,8 +195,6 @@ local RAID_CLASS_COLORS     = RAID_CLASS_COLORS
 -- Private aura container API (12.0.5+)
 local C_UnitAuras_AddPrivateAuraAnchor    = C_UnitAuras and C_UnitAuras.AddPrivateAuraAnchor
 local C_UnitAuras_RemovePrivateAuraAnchor = C_UnitAuras and C_UnitAuras.RemovePrivateAuraAnchor
-local C_UnitAuras_AddBlockedAura          = C_UnitAuras and C_UnitAuras.AddBlockedAura
-local C_UnitAuras_ClearBlockedAuras       = C_UnitAuras and C_UnitAuras.ClearBlockedAuras
 
 -- Strata bump for private aura container frames (workaround for 12.0.5
 -- bug where container icons render behind the parent frame)
@@ -254,8 +252,11 @@ local ROLE_ICON_STYLES = {
     },
 }
 
-local function ApplyRoleIcon(texture, role)
-    local style = db and db.profile.roleIconStyle or "modern"
+local function ApplyRoleIcon(texture, role, style)
+    -- style is supplied by the caller from its own settings context (the party
+    -- proxy / preview override), so party frames honor their unsynced
+    -- roleIconStyle. Fall back to the raid profile only if a caller omits it.
+    style = style or (db and db.profile.roleIconStyle) or "modern"
     local map = ROLE_ICON_STYLES[style]
     if not map then return false end
     local icon = map[role]
@@ -1130,12 +1131,34 @@ local function GetHealthColor(unit, s)
         return c.r, c.g, c.b
     else -- "class"
         local _, classToken = UnitClass(unit)
-        if classToken then
+        -- Secret-safe: a secret classToken would throw on GetClassColor's table index.
+        if classToken and not issecretvalue(classToken) then
             local cc = EllesmereUI.GetClassColor(classToken)
             if cc then return cc.r, cc.g, cc.b end
         end
         return 0.5, 0.5, 0.5
     end
+end
+
+-- Resolve the display name for a unit. When Northern Sky Raid Tools (NSAPI) is
+-- present, returns the NSRT nickname; otherwise the short character name. We pass
+-- our addon key "EUI" (NSRT added a dedicated per-addon setting + EUI_NICKNAME_TOGGLE
+-- callback for us): NSAPI:GetName self-gates on NSRT's Global Nicknames AND its EUI
+-- checkbox, so the user controls nicknames entirely through NSRT (no EUI-side toggle).
+-- GetName returns the short name when no nickname is set and guards secret values
+-- itself, so the plain UnitName path (with Ambiguate) only runs as a fallback. pcall
+-- keeps a misbehaving external API from ever breaking name rendering.
+local function ResolveDisplayName(unit)
+    local name = UnitName(unit) or ""
+    if NSAPI and NSAPI.GetName then
+        local ok, dn = pcall(NSAPI.GetName, NSAPI, name, "EUI")
+        if ok and type(dn) == "string"
+           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" then
+            return dn
+        end
+    end
+    if Ambiguate then name = Ambiguate(name, "short") end
+    return name
 end
 
 local function GetNameColor(unit, s)
@@ -1156,6 +1179,23 @@ local function GetNameColor(unit, s)
         end
         return 1, 1, 1
     end
+end
+
+-- Live name refresh for every raid + party button. Fired by the NSRT nickname
+-- callback so added/removed nicknames apply instantly without a /reload.
+function ns.RefreshAllNames()
+    local s = db and db.profile
+    if not s then return end
+    local function refresh(unit, btn)
+        local d = GetFFD(btn)
+        if d and d.nameText then
+            d.nameText:SetText(ResolveDisplayName(unit))
+            local nr, ng, nb = GetNameColor(unit, s)
+            d.nameText:SetTextColor(nr, ng, nb)
+        end
+    end
+    for unit, btn in pairs(unitToButton) do refresh(unit, btn) end
+    for unit, btn in pairs(ns._partyUnitToButton) do refresh(unit, btn) end
 end
 
 -- Health text color (mirrors GetNameColor). Default mode "custom" with white
@@ -2380,10 +2420,21 @@ local function StyleButton(button)
     -- header's own attribute handlers; the helpers are referenced through ns
     -- because they are defined later in the file.
     button:HookScript("OnAttributeChanged", function(self, name)
-        if name ~= "unit" or not C_UnitAuras_AddPrivateAuraAnchor then return end
+        if name ~= "unit" then return end
         local u = self:GetAttribute("unit")
         if u and UnitExists(u) then
-            if ns._RegisterPrivateAuras then ns._RegisterPrivateAuras(self, u) end
+            -- Repaint + remap the instant the secure header (re)assigns this
+            -- button. OnAttributeChanged is the reliable per-button signal
+            -- (RebuildUnitMap is not -- see above), so a late assignment that
+            -- lands after the roster-timer rebuild already read the buttons can
+            -- never leave this one blank, nor route its live events to a stale
+            -- button, until the next roster change. Only fires for buttons whose
+            -- unit actually changed, so it stays bounded to the units that moved.
+            local d = GetFFD(self)
+            if d._isParty then ns._partyUnitToButton[u] = self else unitToButton[u] = self end
+            if ns._RefreshAssignedButton then ns._RefreshAssignedButton(self, u) end
+            if ns._UpdateButtonRange then ns._UpdateButtonRange(u, self) end
+            if C_UnitAuras_AddPrivateAuraAnchor and ns._RegisterPrivateAuras then ns._RegisterPrivateAuras(self, u) end
         elseif ns._UnregisterPrivateAuras then
             ns._UnregisterPrivateAuras(self)
         end
@@ -2497,9 +2548,14 @@ local function UpdateButton(button)
             d.bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
             d.bg:SetColorTexture(DARK_BG_R, DARK_BG_G, DARK_BG_B, 1)
         else
-            -- Full bar background
+            -- BG only covers the missing-health portion (anchored to the fill's
+            -- right edge), never behind the fill. A full-width bg behind the fill
+            -- bleeds through when the range fade's secret alpha under-renders the
+            -- fill -> the OOR "blend". This matches EUI's Dark mode and ouF based
+            -- Unit Frame addons so behavior is familiar to users.
             d.bg:ClearAllPoints()
-            d.bg:SetAllPoints()
+            d.bg:SetPoint("TOPLEFT", health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+            d.bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
             local bgc = s.customBgColor
             d.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
         end
@@ -2566,9 +2622,7 @@ local function UpdateButton(button)
 
     -- Name
     if d.nameText then
-        local name = UnitName(unit) or ""
-        if Ambiguate then name = Ambiguate(name, "short") end
-        d.nameText:SetText(name)
+        d.nameText:SetText(ResolveDisplayName(unit))
         local nr, ng, nb = GetNameColor(unit, s)
         d.nameText:SetTextColor(nr, ng, nb)
     end
@@ -2576,7 +2630,13 @@ local function UpdateButton(button)
     -- Health text
     if d.healthText then
         local mode = s.healthTextMode or "none"
-        if mode == "percent" then
+        -- Hide the health %/value while the unit is dead or offline -- the status
+        -- text shows DEAD/OFFLINE there instead. UnitIsDeadOrGhost/UnitIsConnected
+        -- return clean booleans for group units in Midnight (only UnitIsAFK can be secret),
+        -- so they're safe in a conditional with no issecretvalue guard.
+        if UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit) then
+            d.healthText:SetText("")
+        elseif mode == "percent" then
             local pct = GetSafeHealthPercent(unit)
             d.healthText:SetFormattedText("%.0f%%", pct)
             local htr, htg, htb = GetHealthTextColor(unit, s)
@@ -2652,7 +2712,7 @@ local function UpdateButton(button)
                 local showForRole = (role == "TANK" and s.showRoleForTank)
                     or (role == "HEALER" and s.showRoleForHealer)
                     or (role == "DAMAGER" and s.showRoleForDPS)
-                if showForRole and ApplyRoleIcon(d.roleIcon, role) then
+                if showForRole and ApplyRoleIcon(d.roleIcon, role, style) then
                     d.roleIcon:Show()
                 else
                     d.roleIcon:Hide()
@@ -2756,31 +2816,6 @@ end
 -------------------------------------------------------------------------------
 local C_UnitAuras_GetAuraDataByAuraInstanceID = C_UnitAuras.GetAuraDataByAuraInstanceID
 local C_UnitAuras_IsAuraFilteredOutByInstanceID = C_UnitAuras.IsAuraFilteredOutByInstanceID
-
--------------------------------------------------------------------------------
---  AddBlockedAura deduplication (12.0.5+)
---  When our frames are showing debuffs/buffs, block those aura instances
---  from Blizzard's default frames to prevent duplicate display.
---  Defined here (before RenderDebuffs) to avoid forward-reference errors.
--------------------------------------------------------------------------------
-local blockedAuraUnits = {}  -- [unit] = { [instanceID] = true }
-
-local function BlockAuraOnDefaultFrames(unit, auraInstanceID)
-    if not C_UnitAuras_AddBlockedAura then return end
-    if not auraInstanceID or issecretvalue(auraInstanceID) then return end
-    if auraInstanceID > 2147483647 or auraInstanceID < -2147483648 then return end
-    C_UnitAuras_AddBlockedAura(unit, auraInstanceID)
-    if not blockedAuraUnits[unit] then blockedAuraUnits[unit] = {} end
-    blockedAuraUnits[unit][auraInstanceID] = true
-end
-
-local function ClearBlockedAurasForUnit(unit)
-    if not C_UnitAuras_ClearBlockedAuras then return end
-    if blockedAuraUnits[unit] then
-        C_UnitAuras_ClearBlockedAuras(unit)
-        wipe(blockedAuraUnits[unit])
-    end
-end
 
 -- Sated/Exhaustion spell IDs (lust debuff variants)
 local SATED_DEBUFFS = {
@@ -2932,9 +2967,6 @@ local function RenderDebuffs(d, s, unit)
         end
     end
 
-    -- Clear previous blocks for this unit before re-blocking visible ones
-    ClearBlockedAurasForUnit(unit)
-
     if debuffCache then
         for _, auraData in ipairs(debuffCache) do
             if shown >= cap then break end
@@ -2942,8 +2974,6 @@ local function RenderDebuffs(d, s, unit)
             local icon = d.debuffIcons[shown]
             if icon then
                 ApplyDebuffIcon(icon, auraData, unit, s)
-                -- Block this aura from Blizzard default frames (deduplication)
-                BlockAuraOnDefaultFrames(unit, auraData.auraInstanceID)
             end
         end
     end
@@ -3668,7 +3698,6 @@ local function UpdateDispelBorder(button, unit, updateInfo)
             d.dispelIcon:Hide()
         end
         UpdateDispelContainerVisibility(button)
-        BlockAuraOnDefaultFrames(unit, auraData.auraInstanceID)
     end
 
     -- Scan HARMFUL auras for the dispel highlight/icon.
@@ -3799,6 +3828,22 @@ local function UpdateAllButtons()
     ns.ProfEnd("UpdateAllButtons", t0)
 end
 
+-- Full per-button refresh for a freshly (re)assigned unit. Mirrors the
+-- per-button work in UpdateAllButtons. Exposed on ns so the per-button
+-- OnAttributeChanged("unit") watch in StyleButton (created before these locals
+-- exist) can repaint a button the instant the secure header assigns it.
+ns._RefreshAssignedButton = function(button, unit)
+    if not GetFFD(button).styled then return end  -- not built yet; init paint handles it
+    UpdateButton(button)
+    UpdateDebuffs(button, unit)
+    UpdateDefensives(button, unit)
+    UpdateDispelBorder(button, unit)
+    UpdateReadyCheck(button, unit)
+    if ns.BM_UpdateIndicators then
+        ns.BM_UpdateIndicators(button, unit, db)
+    end
+end
+
 function ERF:UpdateAllFrames()
     UpdateAllButtons()
 end
@@ -3889,7 +3934,10 @@ ns._UpdateButtonHealth = function(button)
     -- Health text
     if d.healthText then
         local mode = s.healthTextMode or "none"
-        if mode == "percent" then
+        -- Hide health text while dead/offline (see UpdateButton; matches preview).
+        if UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit) then
+            d.healthText:SetText("")
+        elseif mode == "percent" then
             d.healthText:SetFormattedText("%.0f%%", pct)
             local htr, htg, htb = GetHealthTextColor(unit, s)
             d.healthText:SetTextColor(htr, htg, htb, 0.9)
@@ -4855,7 +4903,11 @@ end
 -- UNIT_IN_RANGE_UPDATE event, the refiner poll, the seed pass, and roster
 -- assignment. Standard living units take the secret-safe UnitInRange path.
 local function UpdateButtonRange(unit, btn)
-    local oorAlpha = db.profile.oorAlpha or 0.4
+    -- Read oorAlpha through the party-aware proxy so a custom party_oorAlpha
+    -- actually applies to party frames (was reading the raid value directly).
+    local rd = GetFFD(btn)
+    local rs = rd._isParty and ns._scaledPartyProxy or ns._scaledProfile
+    local oorAlpha = rs.oorAlpha or 0.4
     if UnitIsUnit(unit, "player") or not UnitExists(unit) then
         ApplyRangeAlpha(btn, 1)
     elseif UnitPhaseReason and UnitPhaseReason(unit) then
@@ -4869,23 +4921,24 @@ local function UpdateButtonRange(unit, btn)
         ApplyRangeAlphaSecret(btn, UnitInRange(unit), 1, oorAlpha)
     elseif usesSpellRange then
         local r = C_Spell_IsSpellInRange(playerFriendlySpell, unit)
-        local d = GetFFD(btn)
         if r == true then
-            ApplyRangeAlpha(btn, 1); d._rangeResolvedOnce = true
+            ApplyRangeAlpha(btn, 1)
         elseif r == false then
-            ApplyRangeAlpha(btn, oorAlpha); d._rangeResolvedOnce = true
-        elseif not d._rangeResolvedOnce then
-            -- First-ever eval is indeterminate (unit briefly untargetable / LOS,
-            -- or a client build where this spell can't be range-probed). Resolve
-            -- ONCE via the secret-safe ~40yd UnitInRange so the frame can never
-            -- strand at its seeded full alpha when the spell check never returns a
-            -- usable boolean.
-            d._rangeResolvedOnce = true
+            ApplyRangeAlpha(btn, oorAlpha)
+        else
+            -- r == nil: the friendly spell has NO range relationship to this unit.
+            -- Because this spell is unit-targeted, a same-zone out-of-range target
+            -- still returns false (handled above), so nil means the unit is
+            -- genuinely unreachable -- almost always a DIFFERENT ZONE (or a brief
+            -- untargetable / LOS blip). Resolve it via the secret-safe ~40yd
+            -- UnitInRange (false for a different-zone unit -> faded) instead of
+            -- holding the last alpha: holding left a unit that moved to another
+            -- zone stuck at the in-range alpha it had before leaving. This cannot
+            -- reintroduce the 25-vs-40yd boundary flicker -- that needed the spell
+            -- check to return nil AT the boundary, which it does not for a valid
+            -- same-zone target (UnitInRange here is stable because the unit is far).
             ApplyRangeAlphaSecret(btn, UnitInRange(unit), 1, oorAlpha)
         end
-        -- r == nil after a prior resolution: hold the last alpha rather than
-        -- re-consulting the wider ~40yd UnitInRange every tick, which would
-        -- contradict the spell range and flip the alpha (the old flicker source).
     else
         ApplyRangeAlphaSecret(btn, UnitInRange(unit), 1, oorAlpha)
     end
@@ -4906,7 +4959,6 @@ local function RefineButtonRange(unit, btn)
         UpdateButtonRange(unit, btn)
     elseif d._rangeWasDead then
         d._rangeWasDead = nil
-        d._rangeResolvedOnce = nil   -- re-resolve cleanly after a revive
         UpdateButtonRange(unit, btn)
     elseif usesSpellRange then
         UpdateButtonRange(unit, btn)
@@ -4989,7 +5041,6 @@ local function GhostAuraCheck()
                 if ns.BM_ClearIndicators then
                     ns.BM_ClearIndicators(btn)
                 end
-                ClearBlockedAurasForUnit(unit)
             end
         else
             if d.ghostCleared then
@@ -5054,13 +5105,24 @@ local function UpdateVisibility()
     else
         visible = s.showWhenSolo
     end
+    local wasVisible = framesVisible
     framesVisible = visible
 
-    -- Update showSolo attribute on all headers
+    -- Update showSolo attribute on all headers, but ONLY when it actually
+    -- differs from the header's current value. Re-setting a SecureGroupHeader
+    -- attribute re-triggers Blizzard's full child re-process (re-sort/re-assign)
+    -- even when unchanged, so doing it every combat exit / visibility recompute
+    -- was a large needless secure-header spike. showWhenSolo is a static setting;
+    -- mirrors the needsHideShow guard in ApplySortToHeaders.
+    local wantSolo = s.showWhenSolo or false
     for _, hdr in ipairs(separatedHdrs) do
-        if hdr then hdr:SetAttribute("showSolo", s.showWhenSolo) end
+        if hdr and hdr:GetAttribute("showSolo") ~= wantSolo then
+            hdr:SetAttribute("showSolo", wantSolo)
+        end
     end
-    if ns._flatHeader then ns._flatHeader:SetAttribute("showSolo", s.showWhenSolo) end
+    if ns._flatHeader and ns._flatHeader:GetAttribute("showSolo") ~= wantSolo then
+        ns._flatHeader:SetAttribute("showSolo", wantSolo)
+    end
 
     if visible then
         containerFrame:Show()
@@ -5072,9 +5134,17 @@ local function UpdateVisibility()
         -- Per-unit events (UNIT_HEALTH, UNIT_AURA, etc.) kept buttons in
         -- sync during combat, so a full rebuild is only needed when the
         -- roster changed or we transition from hidden to visible.
-        local lightweight = ns._regenLightweight
-        ns._regenLightweight = nil
-        if not lightweight then
+        -- Heavy content rebuild ONLY when it could actually be stale: a real
+        -- hidden->visible transition (unitToButton was wiped on hide) or a
+        -- caller that flagged a roster/size change. Re-checking visibility while
+        -- already shown and unchanged skips the 40-button rebuild -- the live
+        -- per-unit events kept every button current the whole time. This
+        -- generalizes the old combat-exit "lightweight" skip to every caller
+        -- (preview restore, EnsureRealFramesRestored, etc.) so a redundant
+        -- visibility recompute can never trigger a full refresh spike.
+        local forceRebuild = ns._visForceRebuild
+        ns._visForceRebuild = nil
+        if (not wasVisible) or forceRebuild then
             RebuildUnitMap()
             if ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration() end
             UpdateAllButtons()
@@ -5087,15 +5157,59 @@ local function UpdateVisibility()
         containerFrame:Hide()
         StopRangeTicker()
         StopGhostTicker()
-        -- Clean up private aura anchors + blocked auras when hiding
+        -- Clean up private aura anchors when hiding
         for unit, btn in pairs(unitToButton) do
             UnregisterPrivateAuras(btn)
-            ClearBlockedAurasForUnit(unit)
         end
         wipe(unitToButton)
     end
 end
 ns.UpdateVisibility = UpdateVisibility
+
+-------------------------------------------------------------------------------
+--  Aura-storm throttle (UNIT_AURA only). Steady-state events process
+--  immediately; only a genuine single-frame flood (the pull-start/-end aura
+--  storm or a raid-wide aura event) spills the overflow into a drain ticker
+--  that processes a bounded number of units per frame, draining ~40 units in
+--  ~4 frames. The deferred path does a FULL current-state rescan (nil
+--  updateInfo), so it never replays a stale delta -- nothing is ever wrong or
+--  dropped, only shown a few frames later. Health, power, and the dispel
+--  border are NEVER throttled (own immediate paths), so death and dispel
+--  signals stay instant; only informational aura icons can briefly lag. State
+--  lives on ns (not file locals) to respect this file's Lua 5.1 local cap.
+-------------------------------------------------------------------------------
+ns._auraBudget = 10       -- units processed immediately per frame before spilling
+ns._auraFrameStamp = 0    -- GetTime() of the frame the immediate budget last reset
+ns._auraFrameN = 0        -- units processed immediately this frame
+ns._auraDirty = {}        -- [unit] = true: deferred, awaiting a full rescan
+ns._auraDirtyN = 0
+
+-- Full current-state aura refresh for one unit (deferred drain path; lossless
+-- because nil updateInfo forces each consumer's full-scan branch).
+ns._FlushUnitAuras = function(unit)
+    local btn = unitToButton[unit] or ns._partyUnitToButton[unit]
+    if not btn then return end
+    UpdateDebuffs(btn, unit)
+    UpdateDefensives(btn, unit)
+    UpdateAbsorb(btn, unit)
+    if ns.BM_UpdateIndicators then ns.BM_UpdateIndicators(btn, unit, db) end
+end
+
+ns._auraDrainFrame = CreateFrame("Frame")
+ns._auraDrainFrame:Hide()
+ns._auraDrainFrame:SetScript("OnUpdate", function(self)
+    local n = 0
+    for unit in pairs(ns._auraDirty) do
+        ns._auraDirty[unit] = nil
+        ns._auraDirtyN = ns._auraDirtyN - 1
+        ns._FlushUnitAuras(unit)
+        n = n + 1
+        if n >= ns._auraBudget then break end
+    end
+    -- Authoritative empty check (not the counter) so the OnUpdate always hides
+    -- when the backlog is drained, even if the count ever drifts.
+    if next(ns._auraDirty) == nil then ns._auraDirtyN = 0; self:Hide() end
+end)
 
 -------------------------------------------------------------------------------
 --  Event handlers
@@ -5126,9 +5240,11 @@ local function OnEvent(self, event, arg1, ...)
         end
         local rosterDirty = ns._rosterDirtyInCombat
         local sizeTierDirty = ns._sizeTierDirtyInCombat
-        -- Skip heavy refresh if roster didn't change during combat
-        if not rosterDirty and not sizeTierDirty then
-            ns._regenLightweight = true
+        -- Force the heavy refresh ONLY if the roster/size changed during combat.
+        -- Otherwise the live per-unit events kept buttons current and the
+        -- transition gate in UpdateVisibility skips the rebuild.
+        if rosterDirty or sizeTierDirty then
+            ns._visForceRebuild = true
         end
         ns._rosterDirtyInCombat = nil
         ns._sizeTierDirtyInCombat = nil
@@ -5232,17 +5348,39 @@ local function OnEvent(self, event, arg1, ...)
         end
         ns._rosterUpdateTimer = C_Timer.NewTimer(0, function()
             ns._rosterUpdateTimer = nil
+            -- Roster changed (out of combat). We never force UpdateVisibility's
+            -- full 40-button rebuild here. The per-button OnAttributeChanged hook
+            -- already fully repainted (incl. auras) every button whose unit was
+            -- (re)assigned, so a blanket aura re-scan x40 is redundant. React 
+            -- per-unit instead of rebuilding all. We still UpdateButton each visible
+            -- button (no aura rescan) so leader/role/marker/health for
+            -- UNCHANGED-token units stay correct -- e.g. a new leader after the
+            -- old one left, which keeps its token so the hook won't fire.
+            local numMembers = GetNumGroupMembers()
+            local newW, newH = ns._GetRaidSizeFrameDimensions(numMembers > 0 and numMembers or 1)
+            local tierChanged = (newW ~= ns._activeSizeW or newH ~= ns._activeSizeH)
+            local wasVis = framesVisible
+            ns._visForceRebuild = nil
             local t0 = ns.ProfBegin("Visibility:ROSTER"); UpdateVisibility(); ns.ProfEnd("Visibility:ROSTER", t0)
             ns._UpdatePartyVisibility()
             if framesVisible then
-                -- Check if group size crossed a tier boundary requiring resize
-                local numMembers = GetNumGroupMembers()
-                local newW, newH = ns._GetRaidSizeFrameDimensions(numMembers > 0 and numMembers or 1)
-                local oldW, oldH = ns._activeSizeW, ns._activeSizeH
-                if newW ~= oldW or newH ~= oldH then
-                    -- Tier changed: full reload (recalculates _activeSizeW/H)
+                if tierChanged then
+                    -- Tier changed: full reload (recalculates _activeSizeW/H, restyles).
                     ReloadFrames()
+                    if ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration() end
+                elseif not wasVis then
+                    -- Hidden->visible transition: UpdateVisibility already ran the
+                    -- full rebuild (RebuildUnitMap + UpdateAllButtons); just lay out.
+                    t0 = ns.ProfBegin("LayoutGroups:ROSTER"); LayoutGroups(); ns.ProfEnd("LayoutGroups:ROSTER", t0)
                 else
+                    -- Already visible, same tier: light refresh only. Aura
+                    -- full-rescans are intentionally skipped (hook + UNIT_AURA
+                    -- keep them current); UpdateButton keeps leader/role/health.
+                    RebuildUnitMap()
+                    if ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration() end
+                    for _, btn in ipairs(allButtons) do
+                        if btn:IsVisible() and btn:GetAttribute("unit") then UpdateButton(btn) end
+                    end
                     t0 = ns.ProfBegin("LayoutGroups:ROSTER"); LayoutGroups(); ns.ProfEnd("LayoutGroups:ROSTER", t0)
                 end
             end
@@ -5287,12 +5425,26 @@ local function OnEvent(self, event, arg1, ...)
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn then
             local updateInfo = ...
-            local t0 = ns.ProfBegin("UpdateDebuffs"); UpdateDebuffs(btn, arg1, updateInfo); ns.ProfEnd("UpdateDebuffs", t0)
-            t0 = ns.ProfBegin("UpdateDefensives"); UpdateDefensives(btn, arg1, updateInfo); ns.ProfEnd("UpdateDefensives", t0)
-            t0 = ns.ProfBegin("UpdateDispelBorder"); UpdateDispelBorder(btn, arg1, updateInfo); ns.ProfEnd("UpdateDispelBorder", t0)
-            t0 = ns.ProfBegin("UpdateAbsorb:AURA"); UpdateAbsorb(btn, arg1); ns.ProfEnd("UpdateAbsorb:AURA", t0)
-            if ns.BM_UpdateIndicators then
-                t0 = ns.ProfBegin("BM_UpdateIndicators"); ns.BM_UpdateIndicators(btn, arg1, db, updateInfo); ns.ProfEnd("BM_UpdateIndicators", t0)
+            -- Dispel border is the dispel signal: never throttled, always now.
+            local t0 = ns.ProfBegin("UpdateDispelBorder"); UpdateDispelBorder(btn, arg1, updateInfo); ns.ProfEnd("UpdateDispelBorder", t0)
+            -- Informational aura icons: immediate under the per-frame budget; a
+            -- single-frame flood spills the overflow to the drain ticker, which
+            -- full-rescans current state a few frames later (lossless).
+            local now = GetTime()
+            if now ~= ns._auraFrameStamp then ns._auraFrameStamp = now; ns._auraFrameN = 0 end
+            if ns._auraFrameN < ns._auraBudget then
+                ns._auraFrameN = ns._auraFrameN + 1
+                if ns._auraDirty[arg1] then ns._auraDirty[arg1] = nil; ns._auraDirtyN = ns._auraDirtyN - 1 end
+                t0 = ns.ProfBegin("UpdateDebuffs"); UpdateDebuffs(btn, arg1, updateInfo); ns.ProfEnd("UpdateDebuffs", t0)
+                t0 = ns.ProfBegin("UpdateDefensives"); UpdateDefensives(btn, arg1, updateInfo); ns.ProfEnd("UpdateDefensives", t0)
+                t0 = ns.ProfBegin("UpdateAbsorb:AURA"); UpdateAbsorb(btn, arg1); ns.ProfEnd("UpdateAbsorb:AURA", t0)
+                if ns.BM_UpdateIndicators then
+                    t0 = ns.ProfBegin("BM_UpdateIndicators"); ns.BM_UpdateIndicators(btn, arg1, db, updateInfo); ns.ProfEnd("BM_UpdateIndicators", t0)
+                end
+            elseif not ns._auraDirty[arg1] then
+                ns._auraDirty[arg1] = true
+                ns._auraDirtyN = ns._auraDirtyN + 1
+                ns._auraDrainFrame:Show()
             end
         end
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" or event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
@@ -5840,7 +5992,7 @@ ns._LayoutPartyFrames = function()
         local wantSortMethod = sortByRole and "NAME" or "INDEX"
         local wantGroupingOrder = ""
         if sortByRole then
-            local ro = s.roleOrder or { "TANK", "HEALER", "DAMAGER" }
+            local ro = s.partyRoleOrder or s.roleOrder or { "TANK", "HEALER", "DAMAGER" }
             wantGroupingOrder = table.concat(ro, ",") .. ",NONE"
         end
         -- showPlayer is false when the self button owns the player (useSelf) or
@@ -5924,8 +6076,13 @@ ns._UpdatePartyVisibility = function()
     ns._partyFramesVisible = visible
     if ns._NotifyTrackerProviders then ns._NotifyTrackerProviders() end
 
-    -- Update showSolo attribute
-    ns._partyHeader:SetAttribute("showSolo", s.partyShowWhenSolo or false)
+    -- Update showSolo attribute, but only when it changed -- re-setting a
+    -- SecureGroupHeader attribute re-triggers a full child re-process even when
+    -- unchanged (see UpdateVisibility's showSolo guard).
+    local wantPartySolo = s.partyShowWhenSolo or false
+    if ns._partyHeader and ns._partyHeader:GetAttribute("showSolo") ~= wantPartySolo then
+        ns._partyHeader:SetAttribute("showSolo", wantPartySolo)
+    end
 
     if visible then
         ns._partyHeader:Show()
@@ -5956,7 +6113,6 @@ ns._UpdatePartyVisibility = function()
 
         for unit, btn in pairs(ns._partyUnitToButton) do
             UnregisterPrivateAuras(btn)
-            ClearBlockedAurasForUnit(unit)
         end
         wipe(ns._partyUnitToButton)
     end
@@ -7824,8 +7980,12 @@ local function ApplyPreviewData(f, index)
             f._bg:SetPoint("BOTTOMRIGHT", f._health, "BOTTOMRIGHT", 0, 0)
             f._bg:SetColorTexture(DARK_BG_R, DARK_BG_G, DARK_BG_B, 1)
         else
+            -- BG covers the missing-health portion only (never behind the fill),
+            -- matching the real-frame themed branch + Dark mode. Keeps the preview
+            -- a 1:1 replica for reduced-fill-opacity setups.
             f._bg:ClearAllPoints()
-            f._bg:SetAllPoints()
+            f._bg:SetPoint("TOPLEFT", f._health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+            f._bg:SetPoint("BOTTOMRIGHT", f._health, "BOTTOMRIGHT", 0, 0)
             local bgc = s.customBgColor
             f._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
         end
@@ -8396,6 +8556,9 @@ local function ApplyPreviewData(f, index)
     -- Dead/offline/AFK states (only when indicators eyeball is on)
     local isDead    = indVis and index == previewRoles._deadSlot
     local isOffline = indVis and index == previewRoles._offlineSlot
+    -- Mark dead/offline preview frames so the animated-preview ticker skips them
+    -- (their health bar is emptied and health text hidden -- never animated).
+    f._pvHideHealthText = (isDead or isOffline) or nil
     local isAfk     = indVis and index == previewRoles._afkSlot
 
     -- Health text
@@ -8456,24 +8619,24 @@ local function ApplyPreviewData(f, index)
             local c = s.healthTextCustomColor
             if c then htr, htg, htb = c.r, c.g, c.b end
         end
-        if mode == "percent" and not isDead then
+        if mode == "percent" and not isDead and not isOffline then
             f._healthText:SetFormattedText("%d%%", healthPct)
             f._healthText:SetTextColor(htr, htg, htb, 0.9)
-        elseif mode == "percentNoSign" and not isDead then
+        elseif mode == "percentNoSign" and not isDead and not isOffline then
             f._healthText:SetFormattedText("%d", healthPct)
             f._healthText:SetTextColor(htr, htg, htb, 0.9)
-        elseif mode == "number" and not isDead then
+        elseif mode == "number" and not isDead and not isOffline then
             local fakeHP = healthPct * 12000
             if AbbreviateNumbers then
                 f._healthText:SetText(AbbreviateNumbers(fakeHP))
             end
             f._healthText:SetTextColor(htr, htg, htb, 0.9)
-        elseif mode == "numberPercent" and not isDead then
+        elseif mode == "numberPercent" and not isDead and not isOffline then
             local fakeHP = healthPct * 12000
             local numStr = AbbreviateNumbers and AbbreviateNumbers(fakeHP) or tostring(fakeHP)
             f._healthText:SetFormattedText("%s | %d%%", numStr, healthPct)
             f._healthText:SetTextColor(htr, htg, htb, 0.9)
-        elseif mode == "percentNumber" and not isDead then
+        elseif mode == "percentNumber" and not isDead and not isOffline then
             local fakeHP = healthPct * 12000
             local numStr = AbbreviateNumbers and AbbreviateNumbers(fakeHP) or tostring(fakeHP)
             f._healthText:SetFormattedText("%d%% | %s", healthPct, numStr)
@@ -8553,7 +8716,7 @@ local function ApplyPreviewData(f, index)
             local showForRole = (role == "TANK" and s.showRoleForTank)
                 or (role == "HEALER" and s.showRoleForHealer)
                 or (role == "DAMAGER" and s.showRoleForDPS)
-            if showForRole ~= false and ApplyRoleIcon(f._roleIcon, role) then
+            if showForRole ~= false and ApplyRoleIcon(f._roleIcon, role, style) then
                 local riSz = PixelSnap(s.roleIconSize or 14)
                 f._roleIcon:SetSize(riSz, riSz)
                 f._roleIcon:ClearAllPoints()
@@ -9385,7 +9548,7 @@ ns._ShowSizePreview = function(tier)
             local showForRole = (role == "TANK" and showRoleTank)
                 or (role == "HEALER" and showRoleHealer)
                 or (role == "DAMAGER" and showRoleDPS)
-            if riStyle ~= "none" and showForRole and ApplyRoleIcon(f._roleIcon, role) then
+            if riStyle ~= "none" and showForRole and ApplyRoleIcon(f._roleIcon, role, riStyle) then
                 f._roleIcon:SetSize(riSize, riSize)
                 f._roleIcon:ClearAllPoints()
                 f._roleIcon:SetPoint(riPos:upper(), f._health, riPos:upper(), 0, 0)
@@ -9528,7 +9691,7 @@ local function BuildPartyPreviewRoles()
             }
         end
         if sortMode == "ROLE" then
-            local roleOrder = db.profile.roleOrder or { "TANK", "HEALER", "DAMAGER" }
+            local roleOrder = db.profile.partyRoleOrder or db.profile.roleOrder or { "TANK", "HEALER", "DAMAGER" }
             local tmpGroup = {}
             for _, role in ipairs(roleOrder) do
                 for _, entry in ipairs(group) do
@@ -10239,6 +10402,32 @@ function ERF:OnEnable()
             ns._LayoutPartyFrames()
         end
     end)
+
+    -- Northern Sky Raid Tools (NSRT) nickname integration. When NSAPI is present
+    -- the raid + party names use NSRT nicknames (see ResolveDisplayName). Two
+    -- callbacks refresh names instantly without a /reload: NSRT_NICKNAME_UPDATED
+    -- fires when a nickname is added/removed, and EUI_NICKNAME_TOGGLE fires when the
+    -- user flips NSRT's dedicated EllesmereUI nicknames checkbox. NSRT may load after
+    -- us, so registration retries on PLAYER_LOGIN / PLAYER_ENTERING_WORLD until it sticks.
+    local function RegisterNSRTNicknames()
+        if ns._nsrtNickHooked then return true end
+        if NSAPI and NSAPI.RegisterCallback then
+            local function onChange() if ns.RefreshAllNames then ns.RefreshAllNames() end end
+            NSAPI:RegisterCallback("NSRT_NICKNAME_UPDATED", onChange, "EllesmereUI")
+            NSAPI:RegisterCallback("EUI_NICKNAME_TOGGLE", onChange, "EllesmereUI")
+            ns._nsrtNickHooked = true
+            return true
+        end
+        return false
+    end
+    if not RegisterNSRTNicknames() then
+        local nsrtFrame = CreateFrame("Frame")
+        nsrtFrame:RegisterEvent("PLAYER_LOGIN")
+        nsrtFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+        nsrtFrame:SetScript("OnEvent", function(self)
+            if RegisterNSRTNicknames() then self:UnregisterAllEvents() end
+        end)
+    end
 
     -- Init options module if it loaded before us
     if ns._InitEUIModule then

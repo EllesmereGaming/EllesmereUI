@@ -68,10 +68,14 @@ local ACTION_ICONS = {
 local DISPEL_SPELLS = {
     { id = 240166, name = "Purify",        class = "PRIEST" },
     { id = 218164, name = "Detox",         class = "MONK" },
-    { id = 4987,   name = "Cleanse",       class = "PALADIN" },
-    { id = 88423,  name = "Nature's Cure", class = "DRUID" },
-    { id = 254420, name = "Purify Spirit", class = "SHAMAN" },
-    { id = 360823, name = "Naturalize",    class = "EVOKER" },
+    { id = 4987,   name = "Cleanse",       class = "PALADIN" },  -- Holy
+    { id = 213644, name = "Cleanse Toxins", class = "PALADIN" }, -- Prot & Ret (Cleanse is Holy-only)
+    { id = 88423,  name = "Nature's Cure", class = "DRUID" },  -- Resto
+    { id = 2782,   name = "Remove Corruption", class = "DRUID" }, -- Guardian, Feral & Balance
+    { id = 254420, name = "Purify Spirit", class = "SHAMAN" },  -- Resto
+    { id = 51886,  name = "Cleanse Spirit", class = "SHAMAN" }, -- Ele & Enh
+    { id = 360823, name = "Naturalize",    class = "EVOKER" },  -- Pres
+    { id = 365585, name = "Expunge",       class = "EVOKER" },  -- Aug & Dev
     { id = 89808,  name = "Singe Magic",   class = "WARLOCK" },
 }
 
@@ -222,6 +226,12 @@ local function GetModifierPrefix()
     if IsShiftKeyDown() then p = p .. "SHIFT-" end
     return p
 end
+-- Exposed so the keybind-capture button reuses this SAME canonical modifier
+-- order (ALT-CTRL-SHIFT -- the order WoW matches bindings/clicks in). The button
+-- previously built its own SHIFT-CTRL-ALT prefix, which never matched for a
+-- double-modifier bind (e.g. Ctrl+Shift+click) -> the click fell through to the
+-- default (target). Single modifier worked because order is irrelevant with one.
+ns.CC_GetModifierPrefix = GetModifierPrefix
 
 function ns.CC_CaptureKey(rawKey)
     if MODIFIER_KEYS[rawKey] or rawKey == "ESCAPE" or rawKey == "UNKNOWN" then return nil end
@@ -229,13 +239,29 @@ function ns.CC_CaptureKey(rawKey)
     return GetModifierPrefix() .. key
 end
 
+-- Parse a key string ("ALT-CTRL-SHIFT-KEY") into modifiers + key. Modifiers are
+-- peeled from the FRONT as known prefixes instead of splitting on "-", because
+-- the key itself can BE "-" (the minus key). The old split-on-"-" produced no
+-- parts for "-" and left key nil -> "attempt to index local 'key'" crash when a
+-- user tried to bind the minus key (or any modified form like CTRL--).
 local function ParseKeyString(keyStr)
-    if not keyStr then return { modifiers = "", key = "", isMouseButton = false, buttonNum = nil, full = "" } end
-    local parts = {}
-    for p in keyStr:gmatch("([^-]+)") do parts[#parts + 1] = p end
-    local key = parts[#parts]
-    local mods = ""
-    for i = 1, #parts - 1 do mods = mods .. parts[i] .. "-" end
+    if not keyStr or keyStr == "" then
+        return { modifiers = "", key = "", isMouseButton = false, buttonNum = nil, full = keyStr or "" }
+    end
+    local rest, mods = keyStr, ""
+    while true do
+        local pre = (rest:sub(1, 4) == "ALT-" and "ALT-")
+                 or (rest:sub(1, 5) == "CTRL-" and "CTRL-")
+                 or (rest:sub(1, 6) == "SHIFT-" and "SHIFT-")
+                 or (rest:sub(1, 5) == "META-" and "META-")
+        if pre and #rest > #pre then
+            mods = mods .. pre
+            rest = rest:sub(#pre + 1)
+        else
+            break
+        end
+    end
+    local key = rest
     local isMouse = key:match("^BUTTON%d+$") or key == "MOUSEWHEELUP" or key == "MOUSEWHEELDOWN"
     local btnNum = key:match("^BUTTON(%d+)$")
     return { modifiers = mods, key = key, isMouseButton = isMouse ~= nil,
@@ -243,18 +269,54 @@ local function ParseKeyString(keyStr)
 end
 
 function ns.CC_FormatKey(keyStr)
-    if not keyStr then return "" end
-    local parts = {}
-    for p in keyStr:gmatch("([^-]+)") do parts[#parts + 1] = p end
+    if not keyStr or keyStr == "" then return "" end
+    -- Parse via ParseKeyString so the key part can be "-" (the minus key);
+    -- modifiers is a run of "MOD-" tokens (never contains a bare "-").
+    local parsed = ParseKeyString(keyStr)
     local display = {}
-    for i = 1, #parts - 1 do
-        local m = parts[i]
+    for m in parsed.modifiers:gmatch("([^-]+)") do
         display[#display + 1] = m == "SHIFT" and "Shift" or m == "CTRL" and "Ctrl" or m == "ALT" and "Alt" or m
     end
-    display[#display + 1] = KEY_DISPLAY[parts[#parts]] or parts[#parts]
+    display[#display + 1] = KEY_DISPLAY[parsed.key] or parsed.key
     return table.concat(display, " + ")
 end
 ns.CC_ParseKeyString = ParseKeyString
+
+-- Heal saved binding keys whose modifiers are in a non-canonical order. Older
+-- builds' keybind button emitted SHIFT-CTRL-ALT, but WoW matches bindings/clicks
+-- in ALT-CTRL-SHIFT order, so a double-modifier bind saved that way silently
+-- failed (just targeted the frame). Rewrites the key in place -- the DB binding
+-- tables are referenced directly -- so old binds start working without the user
+-- re-binding. Called once at the top of CC_ApplyBindings, which only fires on
+-- load / binding change / spec change / profile swap (never per-frame or in
+-- combat); it is a no-op once every key is already canonical, so there is no
+-- steady-state cost.
+local function NormalizeSavedBindingKeys()
+    local cc = GetClickCastDB()
+    if not cc then return end
+    local function canon(b)
+        if not b.key or b.key == "" then return end
+        local parsed = ParseKeyString(b.key)
+        if parsed.modifiers == "" then return end  -- no modifiers -> nothing to reorder
+        local p = ""
+        if parsed.modifiers:find("ALT-",   1, true) then p = p .. "ALT-"   end
+        if parsed.modifiers:find("CTRL-",  1, true) then p = p .. "CTRL-"  end
+        if parsed.modifiers:find("SHIFT-", 1, true) then p = p .. "SHIFT-" end
+        if parsed.modifiers:find("META-",  1, true) then p = p .. "META-"  end
+        local canonical = p .. parsed.key
+        if canonical ~= b.key then b.key = canonical end
+    end
+    if cc.specs then
+        for _, list in pairs(cc.specs) do
+            if type(list) == "table" then
+                for _, b in ipairs(list) do canon(b) end
+            end
+        end
+    end
+    if cc.globals then
+        for _, b in ipairs(cc.globals) do canon(b) end
+    end
+end
 
 -------------------------------------------------------------------------------
 --  Macro / spell helpers
@@ -797,9 +859,22 @@ local function DoRegisterFrame(frame)
     if not wrappedFrames[frame] then
         wrappedFrames[frame] = true
         header:WrapScript(frame, "OnEnter", [[
+            -- Record the hovered EUI frame (the state-driver clear guard reads it),
+            -- run the per-frame keyboard setup, then SET the hover override binding
+            -- right now if it isn't already active -- so a keypress on arrival can
+            -- never lose the race against the binding being set.
+            eui_hoverframe = self
             control:RunFor(self, control:GetAttribute("eui_setup_onenter"))
+            if not eui_hoveractive then
+                control:RunAttribute("eui_hover_set")
+                eui_hoveractive = true
+            end
         ]])
         header:WrapScript(frame, "OnLeave", [[
+            -- Forget the hovered frame (so the guard stops protecting it) and run
+            -- the per-frame keyboard teardown. The hover binding itself is left to
+            -- the guarded state driver so moving onto a non-EUI frame keeps it.
+            if eui_hoverframe == self then eui_hoverframe = nil end
             control:RunFor(self, control:GetAttribute("eui_setup_onleave"))
         ]])
     end
@@ -975,6 +1050,10 @@ function ns.CC_ApplyBindings()
     if not ccInitialized then pendingApply = true; return end
     if InCombatLockdown() then pendingApply = true; return end
 
+    -- Self-heal any legacy non-canonical modifier-order keys before reading the
+    -- active set (so GetActiveBindings' key de-dup also sees canonical keys).
+    NormalizeSavedBindingKeys()
+
     local bindings = GetActiveBindings()
 
     -- Split into frame-based and hovercast
@@ -1034,39 +1113,41 @@ function ns.CC_ApplyBindings()
     header:SetAttribute("eui_setup_onenter", enterScript)
     header:SetAttribute("eui_setup_onleave", leaveScript)
 
-    -- State driver failsafe: if OnLeave fails to fire (rapid combat
-    -- transitions, frame reparenting), this clears frame-based keyboard
-    -- bindings when the mouseover unit disappears.
-    -- Uses self:ClearBinding (self = header in state driver context).
-    UnregisterStateDriver(header, "eui_fbs")
-    if #kbClearLines > 0 then
-        local failsafeClear = table.concat(kbClearLines, "\n")
-        header:SetAttribute("_onstate-eui_fbs", [[
-            if newstate == "0" then
-                ]] .. failsafeClear .. [[
-
-            end
-        ]])
-        RegisterStateDriver(header, "eui_fbs", "[@mouseover,exists] 1; 0")
-    end
-
     ---------------------------------------------------------------
-    -- Hovercast bindings (global button, state-driven)
-    -- Bindings are set/cleared by a state driver reacting to
-    -- [@mouseover,exists]. When no mouseover unit exists, bindings
-    -- are cleared and keypresses pass through to action bars.
+    -- Hovercast + frame-based keyboard failsafe, unified on ONE header state
+    -- driver (eui_cc) reacting to [@mouseover,exists].
+    --
+    --  * The hover override binding is SET the instant you hover an EUI frame, in
+    --    the frame's secure OnEnter (eui_hover_set), so a keypress on arrival can
+    --    never lose the race against the binding being set. (This is the part the
+    --    old design lacked: it relied solely on the state driver to set, which
+    --    lags on arrival and -- worse -- could stay stuck cleared.)
+    --  * The state driver also SETS on "1", covering NON-EUI mouseover targets
+    --    (nameplates / Blizzard frames that have no OnEnter wrap), and on "0"
+    --    CLEARS the hover bindings AND runs the frame-based keyboard failsafe.
+    --  * The "0" clear is GUARDED: skipped while the last-hovered EUI frame is
+    --    still physically under the cursor, so a transient [@mouseover,exists]==0
+    --    (a churning unit token -- common in follower dungeons) cannot strand the
+    --    binding cleared (the "stuck until I re-mouseover" report).
+    --  * eui_hoveractive gates the SetBindingClick work to the become-active edge
+    --    only, so sweeping the mouse across frames does zero extra binding writes
+    --    (same cadence as before -- no per-hover cost).
+    -- globalBtn stays the @mouseover click target; its macro re-evaluates at cast
+    -- time, so a press always fires on whatever the cursor is actually over.
     ---------------------------------------------------------------
-    -- Clear old state driver + bindings
-    UnregisterStateDriver(globalBtn, "eui_mo")
-    if globalBtn._clearScript and globalBtn._clearScript ~= "" then
-        pcall(function() globalBtn:Execute(globalBtn._clearScript) end)
+    -- Retire the previous driver(s) and wipe the override bindings the prior
+    -- build owned (the teardown script also resets eui_hoveractive), then rebuild.
+    UnregisterStateDriver(header, "eui_cc")
+    UnregisterStateDriver(header, "eui_fbs")     -- legacy: split failsafe driver
+    UnregisterStateDriver(globalBtn, "eui_mo")   -- legacy: globalBtn hover driver
+    if header._ccClearScript then
+        pcall(function() header:Execute(header._ccClearScript) end)
     end
     ClearHoverAttrs(globalBtn, lastHoverCount)
 
-    -- Build setup + clear scripts for hovercast bindings
-    local setupLines = {}
-    local clearLines = {}
-    local btnName = globalBtn:GetName()
+    local hoverSetLines = {}
+    local hoverClearLines = {}
+    local gbName = globalBtn:GetName()
 
     for hi, hb in ipairs(hoverBindings) do
         local suffix = "eui_hc_" .. hi
@@ -1085,10 +1166,10 @@ function ns.CC_ApplyBindings()
             if mt then
                 globalBtn:SetAttribute("type-" .. suffix, "macro")
                 globalBtn:SetAttribute("macrotext-" .. suffix, mt)
-                setupLines[#setupLines + 1] = string.format(
+                hoverSetLines[#hoverSetLines + 1] = string.format(
                     [[self:SetBindingClick(true, %q, %q, %q)]],
-                    hb.b.key, btnName, suffix)
-                clearLines[#clearLines + 1] = string.format(
+                    hb.b.key, gbName, suffix)
+                hoverClearLines[#hoverClearLines + 1] = string.format(
                     [[self:ClearBinding(%q)]], hb.b.key)
             else
                 globalBtn:SetAttribute("type-" .. suffix, aType)
@@ -1097,24 +1178,36 @@ function ns.CC_ApplyBindings()
         end
     end
 
-    -- Store scripts for state driver to execute
-    local setupScript = table.concat(setupLines, "\n")
-    local clearScript = table.concat(clearLines, "\n")
-    globalBtn._clearScript = clearScript
+    -- Hover set/clear bodies. Stored as header attributes and invoked via
+    -- RunAttribute from both the OnEnter wrap and the state driver, so they
+    -- always run with self = header (the owner of the override bindings).
+    header:SetAttribute("eui_hover_set", table.concat(hoverSetLines, "\n"))
+    header:SetAttribute("eui_hover_clear", table.concat(hoverClearLines, "\n"))
 
-    if #hoverBindings > 0 then
-        -- State handler: set bindings when mouseover exists, clear when gone
-        globalBtn:SetAttribute("_onstate-eui_mo", [[
+    -- Teardown executed on the NEXT rebuild: drop every override binding this
+    -- build owns (hover keys + frame-based keys) and reset the active flag.
+    local teardown = {}
+    for _, line in ipairs(hoverClearLines) do teardown[#teardown + 1] = line end
+    for _, line in ipairs(kbClearLines) do teardown[#teardown + 1] = line end
+    teardown[#teardown + 1] = "eui_hoveractive = false"
+    header._ccClearScript = table.concat(teardown, "\n")
+
+    if #hoverSetLines > 0 or #kbClearLines > 0 then
+        local fbFailsafe = table.concat(kbClearLines, "\n")
+        header:SetAttribute("_onstate-eui_cc", [[
             if newstate == "1" then
-                ]] .. setupScript .. [[
-
-            else
-                ]] .. clearScript .. [[
+                if not eui_hoveractive then
+                    self:RunAttribute("eui_hover_set")
+                    eui_hoveractive = true
+                end
+            elseif not (eui_hoverframe and eui_hoverframe:IsUnderMouse()) then
+                self:RunAttribute("eui_hover_clear")
+                eui_hoveractive = false
+                ]] .. fbFailsafe .. [[
 
             end
         ]])
-        -- State driver: "1" when mouseover unit exists, "0" otherwise
-        RegisterStateDriver(globalBtn, "eui_mo", "[@mouseover,exists] 1; 0")
+        RegisterStateDriver(header, "eui_cc", "[@mouseover,exists] 1; 0")
     end
 
     -- Store for next cleanup
@@ -1378,6 +1471,8 @@ function ns.CC_Init()
 
     header:SetAttribute("eui_setup_onenter", "")
     header:SetAttribute("eui_setup_onleave", "")
+    header:SetAttribute("eui_hover_set", "")
+    header:SetAttribute("eui_hover_clear", "")
 
     ccEventFrame = CreateFrame("Frame")
     ccEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -1569,12 +1664,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 end
                 return
             end
-            -- While listening, any click is a binding (including bare left-click)
-            local hasModifier = IsShiftKeyDown() or IsControlKeyDown() or IsAltKeyDown()
-            local mods = ""
-            if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-            if IsControlKeyDown() then mods = mods .. "CTRL-" end
-            if IsAltKeyDown() then mods = mods .. "ALT-" end
+            -- While listening, any click is a binding (including bare left-click).
+            local mods = ns.CC_GetModifierPrefix()
             local normalized = MOUSE_BUTTON_MAP[button] or ("BUTTON" .. (button:match("%d+") or button))
             if onKeySet then onKeySet(mods .. normalized) end
             StopListening()
@@ -1590,10 +1681,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             if key == "ESCAPE" then
                 StopListening(); return
             end
-            local mods = ""
-            if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-            if IsControlKeyDown() then mods = mods .. "CTRL-" end
-            if IsAltKeyDown() then mods = mods .. "ALT-" end
+            local mods = ns.CC_GetModifierPrefix()
             if onKeySet then onKeySet(mods .. key) end
             StopListening()
         end)
@@ -1604,10 +1692,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         -- (SetBindingClick), same as keyboard keys.
         kbBtn:SetScript("OnMouseWheel", function(self, delta)
             if not listening then return end
-            local mods = ""
-            if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-            if IsControlKeyDown() then mods = mods .. "CTRL-" end
-            if IsAltKeyDown() then mods = mods .. "ALT-" end
+            local mods = ns.CC_GetModifierPrefix()
             local wheel = delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN"
             if onKeySet then onKeySet(mods .. wheel) end
             StopListening()

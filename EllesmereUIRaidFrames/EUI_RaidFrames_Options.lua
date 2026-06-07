@@ -101,6 +101,329 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
+    --  Shared custom "Sort By" control: a Group/Role radio plus drag-to-reorder
+    --  role rows. Installed into a DualRow half-region (replacing the region's
+    --  placeholder dropdown). The raid LAYOUT tab and the party FRAMES tab both
+    --  use this so the two controls are identical; the caller supplies opts to
+    --  wire it to its own keys + reload path:
+    --      opts.readMode()    -> "INDEX" | "ROLE"
+    --      opts.writeMode(v)  -- persist the sort mode + trigger reload/preview
+    --      opts.readRoles()   -> { role, role, role }  (read-only)
+    --      opts.writeRoles(t) -- persist the role order + trigger reload/preview
+    ---------------------------------------------------------------------------
+    local function BuildSortByControl(rgn, opts)
+        if rgn._control then rgn._control:Hide() end
+
+        local sortBtn = CreateFrame("Button", nil, rgn)
+        sortBtn:SetSize(170, 30)
+        PP.Point(sortBtn, "RIGHT", rgn, "RIGHT", -20, 0)
+        sortBtn:SetFrameLevel(rgn:GetFrameLevel() + 2)
+
+        local sBg = sortBtn:CreateTexture(nil, "BACKGROUND")
+        sBg:SetAllPoints()
+        sBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+        local sBrd = EllesmereUI.MakeBorder(sortBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+
+        local sLabel = EllesmereUI.MakeFont(sortBtn, 13, nil, 1, 1, 1)
+        sLabel:SetAlpha(EllesmereUI.DD_TXT_A)
+        sLabel:SetJustifyH("LEFT")
+        sLabel:SetWordWrap(false)
+        sLabel:SetMaxLines(1)
+        sLabel:SetPoint("LEFT", sortBtn, "LEFT", 8, 0)
+        local sArrow = EllesmereUI.MakeDropdownArrow(sortBtn, 12, PP)
+        sLabel:SetPoint("RIGHT", sArrow, "LEFT", -5, 0)
+
+        local function UpdateSortLabel()
+            local mode = opts.readMode()
+            sLabel:SetText(mode == "ROLE" and EllesmereUI.L("Role") or EllesmereUI.L("Group"))
+        end
+        UpdateSortLabel()
+
+        sortBtn:SetScript("OnEnter", function()
+            sBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+            sBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_HA)
+            sLabel:SetAlpha(EllesmereUI.DD_TXT_HA)
+        end)
+        sortBtn:SetScript("OnLeave", function()
+            sBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+            sBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
+            sLabel:SetAlpha(EllesmereUI.DD_TXT_A)
+        end)
+
+        -- Build the sort menu
+        local MH = 26       -- row height
+        local DH = 16       -- divider height
+        local EG = EllesmereUI.ACCENT_COLOR or { r = 0.05, g = 0.82, b = 0.62 }
+
+        local menuFrame = CreateFrame("Frame", nil, UIParent)
+        menuFrame:SetFrameStrata("FULLSCREEN_DIALOG")
+        menuFrame:SetFrameLevel(200)
+        menuFrame:SetClampedToScreen(true)
+        menuFrame:SetWidth(170)
+        menuFrame:Hide()
+
+        local mBg = menuFrame:CreateTexture(nil, "BACKGROUND")
+        mBg:SetAllPoints()
+        mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.98)
+        EllesmereUI.MakeBorder(menuFrame, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+
+        menuFrame:SetScript("OnShow", function(self)
+            local sc = sortBtn:GetEffectiveScale() / UIParent:GetEffectiveScale()
+            self:SetScale(sc)
+            self:SetScript("OnUpdate", function(m)
+                if not sortBtn:IsMouseOver() and not m:IsMouseOver() then
+                    if IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton") then m:Hide() end
+                end
+            end)
+        end)
+        menuFrame:SetScript("OnHide", function(self) self:SetScript("OnUpdate", nil) end)
+        menuFrame:SetPoint("TOPLEFT", sortBtn, "BOTTOMLEFT", 0, -2)
+
+        local mY = -2
+        local FONT = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+
+        -- Radio items: Group, Role
+        local radioItems = {
+            { key = "INDEX", label = "Group" },
+            { key = "ROLE",  label = "Role" },
+        }
+        local SEL_A = EllesmereUI.DD_ITEM_SEL_A
+        local HL_A  = EllesmereUI.DD_ITEM_HL_A
+        local itemDimA = EllesmereUI.TEXT_DIM_A or 0.53
+        local radioRows = {}
+        for _, ri in ipairs(radioItems) do
+            local rr = CreateFrame("Button", nil, menuFrame)
+            rr:SetHeight(MH)
+            rr:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
+            rr:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, mY)
+            rr:SetFrameLevel(menuFrame:GetFrameLevel() + 1)
+
+            local rl = rr:CreateFontString(nil, "OVERLAY")
+            rl:SetFont(FONT, 13, "")
+            rl:SetPoint("LEFT", rr, "LEFT", 10, 0)
+            rl:SetJustifyH("LEFT")
+
+            local rHL = rr:CreateTexture(nil, "ARTWORK")
+            rHL:SetAllPoints(); rHL:SetColorTexture(1, 1, 1, 1); rHL:SetAlpha(0)
+
+            local function UpdateRadio()
+                local isSel = opts.readMode() == ri.key
+                rl:SetTextColor(1, 1, 1, itemDimA)
+                rHL:SetAlpha(isSel and SEL_A or 0)
+            end
+            UpdateRadio()
+            rr._updateRadio = UpdateRadio
+
+            rr:SetScript("OnEnter", function() rHL:SetAlpha(HL_A) end)
+            rr:SetScript("OnLeave", function() UpdateRadio() end)
+            rr:SetScript("OnClick", function()
+                opts.writeMode(ri.key)
+                UpdateSortLabel()
+                for _, r2 in ipairs(radioRows) do r2._updateRadio() end
+                menuFrame:Hide()
+            end)
+
+            rl:SetText(ri.label)
+            radioRows[#radioRows + 1] = rr
+            mY = mY - MH
+        end
+
+        -- Divider
+        local dv = CreateFrame("Frame", nil, menuFrame)
+        dv:SetHeight(DH)
+        dv:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 0, mY)
+        dv:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", 0, mY)
+        local dl = dv:CreateTexture(nil, "ARTWORK")
+        dl:SetHeight(1)
+        dl:SetPoint("LEFT", dv, "LEFT", 10, 0)
+        dl:SetPoint("RIGHT", dv, "RIGHT", -10, 0)
+        dl:SetColorTexture(1, 1, 1, 0.08)
+        mY = mY - DH
+
+        -- Hint text
+        local ht = CreateFrame("Frame", nil, menuFrame)
+        ht:SetHeight(18)
+        ht:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 0, mY)
+        ht:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", 0, mY)
+        local hfs = ht:CreateFontString(nil, "OVERLAY")
+        hfs:SetFont(FONT, 10, "")
+        hfs:SetPoint("LEFT", ht, "LEFT", 10, 0)
+        hfs:SetTextColor(1, 1, 1, 0.25)
+        hfs:SetText(EllesmereUI.L("Drag to Reorder Roles"))
+        mY = mY - 18
+
+        -- Draggable role rows
+        local roleLabels = { TANK = "Tank", HEALER = "Healer", DAMAGER = "DPS" }
+        local roleItems = {}
+        local roleOrder = opts.readRoles()
+        -- Ensure we have a valid table
+        if type(roleOrder) ~= "table" or #roleOrder < 3 then
+            roleOrder = { "TANK", "HEALER", "DAMAGER" }
+        end
+        for i, rk in ipairs(roleOrder) do
+            roleItems[i] = { key = rk, label = roleLabels[rk] or rk }
+        end
+
+        local cbBaseY = mY
+        local rowFrames = {}
+        local insLine = menuFrame:CreateTexture(nil, "OVERLAY", nil, 7)
+        insLine:SetHeight(2)
+        insLine:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
+        insLine:Hide()
+
+        local dragRow = nil   -- which row is being dragged
+        local dsY = nil       -- cursor Y at drag start
+        local isDragging = false
+
+        for ci, cb in ipairs(roleItems) do
+            local row = CreateFrame("Button", nil, menuFrame)
+            row:SetHeight(MH)
+            row._baseY = mY
+            row._cbIndex = ci
+            row._cb = cb
+            row:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
+            row:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, mY)
+            row:SetFrameLevel(menuFrame:GetFrameLevel() + 2)
+
+            local rl = row:CreateFontString(nil, "OVERLAY")
+            rl:SetFont(FONT, 13, "")
+            rl:SetPoint("LEFT", row, "LEFT", 20, 0)
+            rl:SetJustifyH("LEFT")
+            rl:SetText(cb.label)
+            rl:SetTextColor(0.75, 0.75, 0.75, 1)
+            row._lbl = rl
+
+            -- Drag handle dots
+            local grip = row:CreateFontString(nil, "OVERLAY")
+            grip:SetFont(FONT, 10, "")
+            grip:SetPoint("LEFT", row, "LEFT", 8, 0)
+            grip:SetText("=")
+            grip:SetTextColor(1, 1, 1, 0.2)
+
+            local rHL = row:CreateTexture(nil, "ARTWORK")
+            rHL:SetAllPoints(); rHL:SetColorTexture(1, 1, 1, 0)
+
+            row:SetScript("OnEnter", function()
+                if isDragging then return end
+                rl:SetTextColor(1, 1, 1, 1); rHL:SetColorTexture(1, 1, 1, 0.04)
+            end)
+            row:SetScript("OnLeave", function()
+                if isDragging then return end
+                rl:SetTextColor(0.75, 0.75, 0.75, 1); rHL:SetColorTexture(1, 1, 1, 0)
+            end)
+
+            row:SetScript("OnMouseDown", function(self, b)
+                if b ~= "LeftButton" then return end
+                local _, cy = GetCursorPosition()
+                dsY = cy
+                dragRow = self
+            end)
+
+            row:SetScript("OnUpdate", function(self)
+                if dragRow ~= self then return end
+                if not dsY then return end
+                local _, cy = GetCursorPosition()
+                if not isDragging then
+                    if math.abs(cy - dsY) < 3 then return end
+                    isDragging = true
+                    self:SetFrameLevel(menuFrame:GetFrameLevel() + 10)
+                    self:SetAlpha(0.8)
+                    for _, rf in ipairs(rowFrames) do
+                        if rf._lbl then rf._lbl:SetTextColor(0.75, 0.75, 0.75, 1) end
+                    end
+                end
+                -- Position insertion line
+                local sc = menuFrame:GetEffectiveScale()
+                local cY = cy / sc
+                local mT = menuFrame:GetTop() or 0
+                local iI = #roleItems
+                for ri, rf in ipairs(rowFrames) do
+                    if rf ~= self and rf._baseY then
+                        local rm = mT + rf._baseY - MH / 2
+                        if cY > rm then iI = ri; break end
+                        iI = ri + 1
+                    end
+                end
+                iI = math.max(1, math.min(iI, #roleItems + 1))
+                local lnY = (iI <= 1) and (cbBaseY + 1) or (cbBaseY - (iI - 1) * MH + 1)
+                insLine:ClearAllPoints()
+                insLine:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 8, lnY)
+                insLine:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -8, lnY)
+                insLine:Show()
+
+                -- Move the dragged row with cursor
+                self:ClearAllPoints()
+                self:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, cY - mT)
+                self:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, cY - mT)
+            end)
+
+            row:SetScript("OnMouseUp", function(self, b)
+                if b ~= "LeftButton" then return end
+                if dragRow ~= self then return end
+                dsY = nil
+                dragRow = nil
+                if not isDragging then return end
+                isDragging = false; insLine:Hide()
+                self:SetFrameLevel(menuFrame:GetFrameLevel() + 2); self:SetAlpha(1)
+
+                local _, cy = GetCursorPosition()
+                local sc = menuFrame:GetEffectiveScale(); cy = cy / sc
+                local mT = menuFrame:GetTop() or 0
+                local from = self._cbIndex
+                -- Same logic as insertion line: skip the dragged row
+                local iI = #roleItems
+                for ri, rf in ipairs(rowFrames) do
+                    if rf ~= self and rf._baseY then
+                        local rm = mT + rf._baseY - MH / 2
+                        if cy > rm then iI = ri; break end
+                        iI = ri + 1
+                    end
+                end
+                iI = math.max(1, math.min(iI, #roleItems + 1))
+                -- Adjust for index shift from table.remove
+                if from < iI then iI = iI - 1 end
+                local to = math.max(1, math.min(iI, #roleItems))
+
+                if from ~= to then
+                    -- Reorder the display items, then persist the new order as a
+                    -- fresh table (never mutate the source table in place -- when
+                    -- party falls back to the raid order this would corrupt it).
+                    local mvItem = table.remove(roleItems, from)
+                    table.insert(roleItems, to, mvItem)
+                    local ro = {}
+                    for _, it in ipairs(roleItems) do ro[#ro + 1] = it.key end
+                    opts.writeRoles(ro)
+                end
+
+                -- Reposition all rows
+                for ri = 1, #rowFrames do
+                    local rf = rowFrames[ri]
+                    rf._cbIndex = ri
+                    rf._cb = roleItems[ri]
+                    rf._lbl:SetText(roleItems[ri].label)
+                    local ry = cbBaseY - (ri - 1) * MH
+                    rf._baseY = ry
+                    rf:ClearAllPoints()
+                    rf:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, ry)
+                    rf:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, ry)
+                end
+            end)
+
+            rowFrames[#rowFrames + 1] = row
+            mY = mY - MH
+        end
+
+        menuFrame:SetHeight(math.abs(mY) + 4)
+
+        sortBtn:SetScript("OnClick", function()
+            if menuFrame:IsShown() then menuFrame:Hide() else menuFrame:Show() end
+        end)
+
+        rgn._control = sortBtn
+        rgn._lastInline = nil
+    end
+
+    ---------------------------------------------------------------------------
     --  Health bar texture dropdown
     ---------------------------------------------------------------------------
     -- Re-append SharedMedia textures now (post-login) so the dropdown includes
@@ -340,7 +663,7 @@ initFrame:SetScript("OnEvent", function(self)
 
                     for i, st in ipairs(ns._healthAnimState) do
                         local f = st.frame
-                        if f and f._health then
+                        if f and f._health and not f._pvHideHealthText then
                             -- Per-unit staggered timer (same cadence for smooth and non-smooth)
                             st.snapTimer = st.snapTimer + 0.1
                             if st.snapTimer < st.nextSnap then
@@ -1868,7 +2191,13 @@ initFrame:SetScript("OnEvent", function(self)
         row, h = W:DualRow(parent, y,
             { type="slider", text="Out of Range Alpha", min=10, max=100, step=1,
               getValue=function() return floor((SVal("oorAlpha", 0.4)) * 100) end,
-              setValue=function(v) SSet("oorAlpha", v / 100) end },
+              setValue=function(v)
+                  SSet("oorAlpha", v / 100)
+                  -- Re-apply range alpha live: SetAlphaFromBoolean bakes the value
+                  -- in at call time, so already-OOR units keep the old alpha until
+                  -- a range re-eval. Seed all buttons so the slider takes effect now.
+                  if ns._RangeSeedAll then ns._RangeSeedAll() end
+              end },
             { type="toggle", text="Show Tooltip",
               getValue=function() return SVal("showTooltip", true) end,
               setValue=function(v) SSet("showTooltip", v) end });  y = y - h
@@ -2522,325 +2851,15 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI:RefreshPage()
                   end });  y = y - h
 
-            -- Replace the left dropdown with a custom sort menu
-            local rgn = sortRow._leftRegion
-            if rgn._control then rgn._control:Hide() end
-
-            local sortBtn = CreateFrame("Button", nil, rgn)
-            sortBtn:SetSize(170, 30)
-            PP.Point(sortBtn, "RIGHT", rgn, "RIGHT", -20, 0)
-            sortBtn:SetFrameLevel(rgn:GetFrameLevel() + 2)
-
-            local sBg = sortBtn:CreateTexture(nil, "BACKGROUND")
-            sBg:SetAllPoints()
-            sBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-            local sBrd = EllesmereUI.MakeBorder(sortBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
-
-            local sLabel = EllesmereUI.MakeFont(sortBtn, 13, nil, 1, 1, 1)
-            sLabel:SetAlpha(EllesmereUI.DD_TXT_A)
-            sLabel:SetJustifyH("LEFT")
-            sLabel:SetWordWrap(false)
-            sLabel:SetMaxLines(1)
-            sLabel:SetPoint("LEFT", sortBtn, "LEFT", 8, 0)
-            local sArrow = EllesmereUI.MakeDropdownArrow(sortBtn, 12, PP)
-            sLabel:SetPoint("RIGHT", sArrow, "LEFT", -5, 0)
-
-            local function UpdateSortLabel()
-                local mode = SVal("sortMode", "INDEX")
-                sLabel:SetText(mode == "ROLE" and EllesmereUI.L("Role") or EllesmereUI.L("Group"))
-            end
-            UpdateSortLabel()
-
-            sortBtn:SetScript("OnEnter", function()
-                sBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
-                sBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_HA)
-                sLabel:SetAlpha(EllesmereUI.DD_TXT_HA)
-            end)
-            sortBtn:SetScript("OnLeave", function()
-                sBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-                sBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
-                sLabel:SetAlpha(EllesmereUI.DD_TXT_A)
-            end)
-
-            -- Build the sort menu
-            local MH = 26       -- row height
-            local DH = 16       -- divider height
-            local EG = EllesmereUI.ACCENT_COLOR or { r = 0.05, g = 0.82, b = 0.62 }
-
-            local menuFrame = CreateFrame("Frame", nil, UIParent)
-            menuFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-            menuFrame:SetFrameLevel(200)
-            menuFrame:SetClampedToScreen(true)
-            menuFrame:SetWidth(170)
-            menuFrame:Hide()
-
-            local mBg = menuFrame:CreateTexture(nil, "BACKGROUND")
-            mBg:SetAllPoints()
-            mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.98)
-            EllesmereUI.MakeBorder(menuFrame, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
-
-            menuFrame:SetScript("OnShow", function(self)
-                local sc = sortBtn:GetEffectiveScale() / UIParent:GetEffectiveScale()
-                self:SetScale(sc)
-                self:SetScript("OnUpdate", function(m)
-                    if not sortBtn:IsMouseOver() and not m:IsMouseOver() then
-                        if IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton") then m:Hide() end
-                    end
-                end)
-            end)
-            menuFrame:SetScript("OnHide", function(self) self:SetScript("OnUpdate", nil) end)
-            menuFrame:SetPoint("TOPLEFT", sortBtn, "BOTTOMLEFT", 0, -2)
-
-            local mY = -2
-            local FONT = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
-            local dimA = EllesmereUI.TEXT_DIM_A or 0.7
-
-            -- Radio items: Group, Role
-            local radioItems = {
-                { key = "INDEX", label = "Group" },
-                { key = "ROLE",  label = "Role" },
-            }
-            local SEL_A = EllesmereUI.DD_ITEM_SEL_A
-            local HL_A  = EllesmereUI.DD_ITEM_HL_A
-            local itemDimA = EllesmereUI.TEXT_DIM_A or 0.53
-            local radioRows = {}
-            for _, ri in ipairs(radioItems) do
-                local rr = CreateFrame("Button", nil, menuFrame)
-                rr:SetHeight(MH)
-                rr:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
-                rr:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, mY)
-                rr:SetFrameLevel(menuFrame:GetFrameLevel() + 1)
-
-                local rl = rr:CreateFontString(nil, "OVERLAY")
-                rl:SetFont(FONT, 13, "")
-                rl:SetPoint("LEFT", rr, "LEFT", 10, 0)
-                rl:SetJustifyH("LEFT")
-
-                local rHL = rr:CreateTexture(nil, "ARTWORK")
-                rHL:SetAllPoints(); rHL:SetColorTexture(1, 1, 1, 1); rHL:SetAlpha(0)
-
-                local function UpdateRadio()
-                    local isSel = SVal("sortMode", "INDEX") == ri.key
-                    rl:SetTextColor(1, 1, 1, itemDimA)
-                    rHL:SetAlpha(isSel and SEL_A or 0)
-                end
-                UpdateRadio()
-                rr._updateRadio = UpdateRadio
-
-                rr:SetScript("OnEnter", function() rHL:SetAlpha(HL_A) end)
-                rr:SetScript("OnLeave", function() UpdateRadio() end)
-                rr:SetScript("OnClick", function()
-                    SSet("sortMode", ri.key)
-                    UpdateSortLabel()
-                    for _, r2 in ipairs(radioRows) do r2._updateRadio() end
-                    menuFrame:Hide()
-                end)
-
-                rl:SetText(ri.label)
-                radioRows[#radioRows + 1] = rr
-                mY = mY - MH
-            end
-
-            -- Divider
-            local dv = CreateFrame("Frame", nil, menuFrame)
-            dv:SetHeight(DH)
-            dv:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 0, mY)
-            dv:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", 0, mY)
-            local dl = dv:CreateTexture(nil, "ARTWORK")
-            dl:SetHeight(1)
-            dl:SetPoint("LEFT", dv, "LEFT", 10, 0)
-            dl:SetPoint("RIGHT", dv, "RIGHT", -10, 0)
-            dl:SetColorTexture(1, 1, 1, 0.08)
-            mY = mY - DH
-
-            -- Hint text
-            local ht = CreateFrame("Frame", nil, menuFrame)
-            ht:SetHeight(18)
-            ht:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 0, mY)
-            ht:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", 0, mY)
-            local hfs = ht:CreateFontString(nil, "OVERLAY")
-            hfs:SetFont(FONT, 10, "")
-            hfs:SetPoint("LEFT", ht, "LEFT", 10, 0)
-            hfs:SetTextColor(1, 1, 1, 0.25)
-            hfs:SetText(EllesmereUI.L("Drag to Reorder Roles"))
-            mY = mY - 18
-
-            -- Draggable role rows
-            local roleLabels = { TANK = "Tank", HEALER = "Healer", DAMAGER = "DPS" }
-            local roleItems = {}
-            local roleOrder = SVal("roleOrder", { "TANK", "HEALER", "DAMAGER" })
-            -- Ensure we have a valid table
-            if type(roleOrder) ~= "table" or #roleOrder < 3 then
-                roleOrder = { "TANK", "HEALER", "DAMAGER" }
-            end
-            for i, rk in ipairs(roleOrder) do
-                roleItems[i] = { key = rk, label = roleLabels[rk] or rk }
-            end
-
-            local cbBaseY = mY
-            local rowFrames = {}
-            local insLine = menuFrame:CreateTexture(nil, "OVERLAY", nil, 7)
-            insLine:SetHeight(2)
-            insLine:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
-            insLine:Hide()
-
-            local dragRow = nil   -- which row is being dragged
-            local dsY = nil       -- cursor Y at drag start
-            local isDragging = false
-
-            for ci, cb in ipairs(roleItems) do
-                local row = CreateFrame("Button", nil, menuFrame)
-                row:SetHeight(MH)
-                row._baseY = mY
-                row._cbIndex = ci
-                row._cb = cb
-                row:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
-                row:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, mY)
-                row:SetFrameLevel(menuFrame:GetFrameLevel() + 2)
-
-                local rl = row:CreateFontString(nil, "OVERLAY")
-                rl:SetFont(FONT, 13, "")
-                rl:SetPoint("LEFT", row, "LEFT", 20, 0)
-                rl:SetJustifyH("LEFT")
-                rl:SetText(cb.label)
-                rl:SetTextColor(0.75, 0.75, 0.75, 1)
-                row._lbl = rl
-
-                -- Drag handle dots
-                local grip = row:CreateFontString(nil, "OVERLAY")
-                grip:SetFont(FONT, 10, "")
-                grip:SetPoint("LEFT", row, "LEFT", 8, 0)
-                grip:SetText("=")
-                grip:SetTextColor(1, 1, 1, 0.2)
-
-                local rHL = row:CreateTexture(nil, "ARTWORK")
-                rHL:SetAllPoints(); rHL:SetColorTexture(1, 1, 1, 0)
-
-                row:SetScript("OnEnter", function()
-                    if isDragging then return end
-                    rl:SetTextColor(1, 1, 1, 1); rHL:SetColorTexture(1, 1, 1, 0.04)
-                end)
-                row:SetScript("OnLeave", function()
-                    if isDragging then return end
-                    rl:SetTextColor(0.75, 0.75, 0.75, 1); rHL:SetColorTexture(1, 1, 1, 0)
-                end)
-
-                row:SetScript("OnMouseDown", function(self, b)
-                    if b ~= "LeftButton" then return end
-                    local _, cy = GetCursorPosition()
-                    dsY = cy
-                    dragRow = self
-                end)
-
-                row:SetScript("OnUpdate", function(self)
-                    if dragRow ~= self then return end
-                    if not dsY then return end
-                    local _, cy = GetCursorPosition()
-                    if not isDragging then
-                        if math.abs(cy - dsY) < 3 then return end
-                        isDragging = true
-                        self:SetFrameLevel(menuFrame:GetFrameLevel() + 10)
-                        self:SetAlpha(0.8)
-                        for _, rf in ipairs(rowFrames) do
-                            if rf._lbl then rf._lbl:SetTextColor(0.75, 0.75, 0.75, 1) end
-                        end
-                    end
-                    -- Position insertion line
-                    local sc = menuFrame:GetEffectiveScale()
-                    local cY = cy / sc
-                    local mT = menuFrame:GetTop() or 0
-                    local iI = #roleItems
-                    for ri, rf in ipairs(rowFrames) do
-                        if rf ~= self and rf._baseY then
-                            local rm = mT + rf._baseY - MH / 2
-                            if cY > rm then iI = ri; break end
-                            iI = ri + 1
-                        end
-                    end
-                    iI = math.max(1, math.min(iI, #roleItems + 1))
-                    local lnY = (iI <= 1) and (cbBaseY + 1) or (cbBaseY - (iI - 1) * MH + 1)
-                    insLine:ClearAllPoints()
-                    insLine:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 8, lnY)
-                    insLine:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -8, lnY)
-                    insLine:Show()
-
-                    -- Move the dragged row with cursor
-                    self:ClearAllPoints()
-                    self:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, cY - mT)
-                    self:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, cY - mT)
-                end)
-
-                row:SetScript("OnMouseUp", function(self, b)
-                    if b ~= "LeftButton" then return end
-                    if dragRow ~= self then return end
-                    dsY = nil
-                    dragRow = nil
-                    if not isDragging then return end
-                    isDragging = false; insLine:Hide()
-                    self:SetFrameLevel(menuFrame:GetFrameLevel() + 2); self:SetAlpha(1)
-
-                    local _, cy = GetCursorPosition()
-                    local sc = menuFrame:GetEffectiveScale(); cy = cy / sc
-                    local mT = menuFrame:GetTop() or 0
-                    local from = self._cbIndex
-                    -- Same logic as insertion line: skip the dragged row
-                    local iI = #roleItems
-                    for ri, rf in ipairs(rowFrames) do
-                        if rf ~= self and rf._baseY then
-                            local rm = mT + rf._baseY - MH / 2
-                            if cy > rm then iI = ri; break end
-                            iI = ri + 1
-                        end
-                    end
-                    iI = math.max(1, math.min(iI, #roleItems + 1))
-                    -- Adjust for index shift from table.remove
-                    if from < iI then iI = iI - 1 end
-                    local to = math.max(1, math.min(iI, #roleItems))
-
-                    if from ~= to then
-                        -- Update roleOrder in DB
-                        local ro = db.profile.roleOrder
-                        if not ro or #ro < 3 then
-                            ro = { "TANK", "HEALER", "DAMAGER" }
-                        end
-                        local mv = table.remove(ro, from)
-                        table.insert(ro, to, mv)
-                        db.profile.roleOrder = ro
-
-                        -- Update local items
-                        local mvItem = table.remove(roleItems, from)
-                        table.insert(roleItems, to, mvItem)
-                    end
-
-                    -- Reposition all rows
-                    for ri = 1, #rowFrames do
-                        local rf = rowFrames[ri]
-                        rf._cbIndex = ri
-                        rf._cb = roleItems[ri]
-                        rf._lbl:SetText(roleItems[ri].label)
-                        local ry = cbBaseY - (ri - 1) * MH
-                        rf._baseY = ry
-                        rf:ClearAllPoints()
-                        rf:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, ry)
-                        rf:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, ry)
-                    end
-
-                    -- Apply sort to headers
-                    ReloadAndUpdate()
-                end)
-
-                rowFrames[#rowFrames + 1] = row
-                mY = mY - MH
-            end
-
-            menuFrame:SetHeight(math.abs(mY) + 4)
-
-            sortBtn:SetScript("OnClick", function()
-                if menuFrame:IsShown() then menuFrame:Hide() else menuFrame:Show() end
-            end)
-
-            rgn._control = sortBtn
-            rgn._lastInline = nil
+            -- Replace the placeholder left dropdown with the shared custom Sort
+            -- By control (Group/Role radio + drag-to-reorder roles), wired to the
+            -- raid keys.
+            BuildSortByControl(sortRow._leftRegion, {
+                readMode   = function() return SVal("sortMode", "INDEX") end,
+                writeMode  = function(v) SSet("sortMode", v) end,
+                readRoles  = function() return SVal("roleOrder", { "TANK", "HEALER", "DAMAGER" }) end,
+                writeRoles = function(ro) db.profile.roleOrder = ro; ReloadAndUpdate() end,
+            })
         end
 
         -- Row 3: Show Groups (checkbox dropdown) | Merge Groups
@@ -3107,16 +3126,24 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("partyFrameHeight", 60) end,
               setValue=function(v) PSSet("partyFrameHeight", v) end });  y = y - h
 
-        -- Row 3: Horizontal Frames | Sort By
-        _, h = W:DualRow(parent, y,
+        -- Row 3: Horizontal Frames | Sort By (custom dropdown with drag-to-reorder
+        -- roles -- identical control to the raid LAYOUT tab, wired to party keys)
+        local pSortRow
+        pSortRow, h = W:DualRow(parent, y,
             { type="toggle", text="Horizontal Frames",
               getValue=function() return db.profile.partyHorizontal end,
               setValue=function(v) db.profile.partyHorizontal = v; PartyReloadAndUpdate() end },
             { type="dropdown", text="Sort By",
-              values={ INDEX = "Group", ROLE = "Role" },
-              order={ "INDEX", "ROLE" },
-              getValue=function() return SVal("partySortMode", "ROLE") end,
-              setValue=function(v) PSSet("partySortMode", v) end });  y = y - h
+              values={ __placeholder = "Group" }, order={ "__placeholder" },
+              getValue=function() return "__placeholder" end,
+              setValue=function() end });  y = y - h
+
+        BuildSortByControl(pSortRow._rightRegion, {
+            readMode   = function() return SVal("partySortMode", "ROLE") end,
+            writeMode  = function(v) PSSet("partySortMode", v) end,
+            readRoles  = function() return db.profile.partyRoleOrder or db.profile.roleOrder or { "TANK", "HEALER", "DAMAGER" } end,
+            writeRoles = function(ro) db.profile.partyRoleOrder = ro; PartyReloadAndUpdate() end,
+        })
 
         -- Row 4: Self Position | Hide Self
         _, h = W:DualRow(parent, y,

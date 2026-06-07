@@ -1674,12 +1674,26 @@ do
     ---------------------------------------------------------------------------
     --  Global Pixel Snap Prevention
     --
-    --  WoW re-enables pixel snapping whenever a texture's properties change
-    --  (SetTexture, SetColorTexture, SetVertexColor, SetTexCoord, etc.).
-    --  This hooks the widget metatables so that every texture/statusbar in
-    --  the game automatically has pixel snapping disabled after any property
-    --  change. Without this, manual DisablePixelSnap calls get undone by
-    --  Blizzard's code on spell swaps, page changes, combat transitions, etc.
+    --  Pixel-snap is a persistent property of each texture OBJECT. A texture is
+    --  only in the default snap-ON state when it is first created, when a
+    --  brand-new inner texture is minted (SetStatusBarTexture with a path), or
+    --  when foreign code calls SetSnapToPixelGrid(true) on it. Setting its image
+    --  (SetTexture / SetColorTexture / SetAtlas) does NOT reset snap, and tint
+    --  or UV changes (SetVertexColor / SetTexCoord) never reset it either.
+    --
+    --  So we hook only the image setters as a one-time first-touch trigger that
+    --  disables snap once per texture, plus SetStatusBarTexture for fill swaps,
+    --  and SetSnapToPixelGrid (WatchPixelSnap) to re-catch Blizzard re-enabling
+    --  snap on textures we skin. We deliberately do NOT hook SetVertexColor or
+    --  SetTexCoord: they fire constantly (nameplate recolor churn) yet can never
+    --  blur a texture, so dropping them is the CPU win. PP.DisablePixelSnap
+    --  caches into _pixelSnapDisabled so the snap C-calls run once per texture.
+    --
+    --  INVARIANT for runtime fill swaps: the cache keys on the StatusBar object,
+    --  so re-calling SetStatusBarTexture on an already-cached bar does NOT
+    --  re-disable snap on the freshly-minted inner texture. Any code that swaps
+    --  a bar fill at runtime MUST call PP.DisablePixelSnap on the new
+    --  GetStatusBarTexture() itself (see the cast overlay and unit-frame bars).
     ---------------------------------------------------------------------------
     local function WatchPixelSnap(frame, snap)
         if issecrettable and issecrettable(frame) then return end
@@ -1696,13 +1710,21 @@ do
         if not mk or _hookedMetatables[mk] then return end
 
         if mk.SetSnapToPixelGrid or mk.SetStatusBarTexture or mk.SetColorTexture
-           or mk.SetVertexColor or mk.CreateTexture or mk.SetTexCoord or mk.SetTexture then
+           or mk.SetAtlas or mk.SetTexture then
+            -- Hook only the methods that can put a texture into the default
+            -- snap-ON state: the image setters SetTexture / SetColorTexture /
+            -- SetAtlas (a one-time first-touch trigger that disables snap once
+            -- per texture for its whole lifetime), and SetStatusBarTexture
+            -- (which mints a NEW inner texture when given a path/atlas). We do
+            -- NOT hook SetVertexColor or SetTexCoord: tint and UV changes never
+            -- reset snap yet fire constantly (nameplate recolor churn), so
+            -- dropping them is the CPU win and blurs nothing. CreateTexture is
+            -- NOT hooked either: hooksecurefunc passes the parent frame, not the
+            -- created texture, so that hook never disabled anything (no-op).
             if mk.SetSnapToPixelGrid then hooksecurefunc(mk, "SetSnapToPixelGrid", WatchPixelSnap) end
             if mk.SetStatusBarTexture then hooksecurefunc(mk, "SetStatusBarTexture", PP.DisablePixelSnap) end
             if mk.SetColorTexture then hooksecurefunc(mk, "SetColorTexture", PP.DisablePixelSnap) end
-            if mk.SetVertexColor then hooksecurefunc(mk, "SetVertexColor", PP.DisablePixelSnap) end
-            if mk.CreateTexture then hooksecurefunc(mk, "CreateTexture", PP.DisablePixelSnap) end
-            if mk.SetTexCoord then hooksecurefunc(mk, "SetTexCoord", PP.DisablePixelSnap) end
+            if mk.SetAtlas then hooksecurefunc(mk, "SetAtlas", PP.DisablePixelSnap) end
             if mk.SetTexture then hooksecurefunc(mk, "SetTexture", PP.DisablePixelSnap) end
             _hookedMetatables[mk] = true
         end
@@ -8179,7 +8201,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.0.4"
+EllesmereUI.VERSION = "8.0.7"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
