@@ -2354,6 +2354,8 @@ local function StyleButton(button)
         local fd = GetFFD(self)
         fd._hovered = true
         if fd.ApplyBorderColor then fd.ApplyBorderColor() end
+        local s = fd._isParty and ns._scaledPartyProxy or ns._scaledProfile
+        if not s.showTooltip then return end
         ns._auraTooltipHovered = self
         ns._resetAuraTT()
         ns._auraTTFrame:Show()
