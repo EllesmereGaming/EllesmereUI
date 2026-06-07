@@ -1120,7 +1120,8 @@ local function ApplyDarkTheme(health)
                     local u = unit or self.unit or uKey
                     if u then
                         local _, ct = UnitClass(u)
-                        local cc = ct and EllesmereUI.GetClassColor(ct)
+                        -- ct can be a secret value (out-of-range/uninspectable units); skip if so.
+                        local cc = ct and not issecretvalue(ct) and EllesmereUI.GetClassColor(ct)
                         if cc then bgClassR, bgClassG, bgClassB = cc.r, cc.g, cc.b end
                     end
                 end
@@ -1152,7 +1153,8 @@ local function ApplyDarkTheme(health)
                 local u = unitKey or (health.__owner and health.__owner.unit)
                 if u then
                     local _, ct = UnitClass(u)
-                    local cc = ct and EllesmereUI.GetClassColor(ct)
+                    -- ct can be a secret value (out-of-range/uninspectable units); skip if so.
+                    local cc = ct and not issecretvalue(ct) and EllesmereUI.GetClassColor(ct)
                     if cc then bgClassR, bgClassG, bgClassB = cc.r, cc.g, cc.b end
                 end
             end
