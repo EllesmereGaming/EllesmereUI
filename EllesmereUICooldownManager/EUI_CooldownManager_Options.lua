@@ -5708,6 +5708,158 @@ initFrame:SetScript("OnEvent", function(self)
                 mH = mH + ITEM_H
             end
 
+            -- "Engineer Tinkers" flyout subnav (after Trinket Slots)
+            local _engSub
+            menu._engSub = nil  -- reference for OnUpdate close-check
+            local enchPresets = ns.CDM_ENCHANT_PRESETS
+            if enchPresets and #enchPresets > 0 then
+                local engItem = CreateFrame("Button", nil, inner)
+                engItem:SetHeight(ITEM_H)
+                engItem:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                engItem:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                engItem:SetFrameLevel(menu:GetFrameLevel() + 2)
+
+                local engHl = engItem:CreateTexture(nil, "ARTWORK")
+                engHl:SetAllPoints(); engHl:SetColorTexture(1, 1, 1, 0); engHl:SetAlpha(0)
+
+                local engLbl = engItem:CreateFontString(nil, "OVERLAY")
+                engLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                engLbl:SetPoint("LEFT", 10, 0)
+                engLbl:SetJustifyH("LEFT")
+                engLbl:SetText(EllesmereUI.L("Engineer Tinkers"))
+                engLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+
+                local engArrow = engItem:CreateTexture(nil, "ARTWORK")
+                engArrow:SetSize(10, 10)
+                engArrow:SetPoint("RIGHT", engItem, "RIGHT", -8, 0)
+                engArrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.png")
+                engArrow:SetAlpha(0.7)
+
+                local function ShowEngSub()
+                    if not _engSub then
+                        _engSub = CreateFrame("Frame", nil, menu)
+                        menu._engSub = _engSub
+                        _engSub:SetFrameStrata("FULLSCREEN_DIALOG")
+                        _engSub:SetFrameLevel(menu:GetFrameLevel() + 5)
+                        _engSub:SetClampedToScreen(true)
+                        _engSub:EnableMouse(true)
+                    elseif _engSub:IsShown() then
+                        return
+                    else
+                        for _, child in ipairs({_engSub:GetChildren()}) do
+                            child:Hide(); child:SetParent(nil)
+                        end
+                        for _, rgn in ipairs({_engSub:GetRegions()}) do
+                            if rgn.Hide then rgn:Hide() end
+                        end
+                    end
+
+                    local subW = 220
+                    local SUB_ITEM_H = 26
+                    _engSub:SetSize(subW, 10)
+                    _engSub:ClearAllPoints()
+                    _engSub:SetPoint("TOPLEFT", engItem, "TOPRIGHT", 2, 0)
+
+                    local subBg = _engSub:CreateTexture(nil, "BACKGROUND")
+                    subBg:SetAllPoints()
+                    subBg:SetColorTexture(mBgR, mBgG, mBgB, mBgA)
+                    EllesmereUI.MakeBorder(_engSub, 1, 1, 1, mBrdA, EllesmereUI.PP)
+
+                    local subInner = CreateFrame("Frame", nil, _engSub)
+                    subInner:SetWidth(subW)
+                    subInner:SetPoint("TOPLEFT")
+
+                    local subH = 4
+                    for _, preset in ipairs(enchPresets) do
+                        local pID = preset.presetSID
+                        local isAdded = alreadyOnBar[pID]
+                        local pOtherBar = not isAdded and usedOnOtherBar[pID]
+                        local pIsDisabled = isAdded or pOtherBar
+
+                        local si = CreateFrame("Button", nil, subInner)
+                        si:SetHeight(SUB_ITEM_H)
+                        si:SetPoint("TOPLEFT", subInner, "TOPLEFT", 1, -subH)
+                        si:SetPoint("TOPRIGHT", subInner, "TOPRIGHT", -1, -subH)
+                        si:SetFrameLevel(_engSub:GetFrameLevel() + 2)
+                        si:RegisterForClicks("AnyUp")
+
+                        local sIco = si:CreateTexture(nil, "ARTWORK")
+                        local icoSz = SUB_ITEM_H - 2
+                        sIco:SetSize(icoSz, icoSz)
+                        sIco:SetPoint("RIGHT", si, "RIGHT", -6, 0)
+                        sIco:SetTexture(preset.icon or (preset.spellID and C_Spell.GetSpellTexture(preset.spellID)))
+                        sIco:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+                        local sLbl = si:CreateFontString(nil, "OVERLAY")
+                        sLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                        sLbl:SetPoint("LEFT", si, "LEFT", 10, 0)
+                        sLbl:SetPoint("RIGHT", sIco, "LEFT", -5, 0)
+                        sLbl:SetJustifyH("LEFT")
+                        sLbl:SetWordWrap(false)
+                        sLbl:SetMaxLines(1)
+                        sLbl:SetText(preset.name)
+
+                        local sHl = si:CreateTexture(nil, "ARTWORK")
+                        sHl:SetAllPoints()
+                        sHl:SetColorTexture(1, 1, 1, 0); sHl:SetAlpha(0)
+
+                        if pIsDisabled then
+                            sLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA * 0.4)
+                            sIco:SetDesaturated(true)
+                            sIco:SetAlpha(0.4)
+                            local pTooltipName = isAdded and (bd and (bd.name or bd.key) or barKey) or pOtherBar
+                            si:SetScript("OnEnter", function()
+                                EllesmereUI.ShowWidgetTooltip(si, "Already on " .. pTooltipName)
+                            end)
+                            si:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                        else
+                            sLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                            si:SetScript("OnEnter", function()
+                                sLbl:SetTextColor(1, 1, 1, 1)
+                                sHl:SetColorTexture(1, 1, 1, hlA); sHl:SetAlpha(1)
+                            end)
+                            si:SetScript("OnLeave", function()
+                                sLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                                sHl:SetAlpha(0)
+                            end)
+                            si:SetScript("OnClick", function()
+                                _engSub:Hide()
+                                menu:Hide()
+                                EnsureAssignedSpells(barKey)
+                                ns.AddTrackedSpell(barKey, pID)
+                                RefreshCDPreview()
+                            end)
+                        end
+                        subH = subH + SUB_ITEM_H
+                    end
+
+                    local totalSubH = subH + 4
+                    subInner:SetHeight(totalSubH)
+                    _engSub:SetHeight(totalSubH)
+                    subInner:SetParent(_engSub)
+                    subInner:SetPoint("TOPLEFT")
+                    _engSub:Show()
+                end
+
+                engItem:SetScript("OnEnter", function()
+                    engLbl:SetTextColor(1, 1, 1, 1)
+                    engHl:SetColorTexture(1, 1, 1, hlA); engHl:SetAlpha(1)
+                    ShowEngSub()
+                end)
+                engItem:SetScript("OnLeave", function()
+                    engLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                    engHl:SetAlpha(0)
+                    C_Timer.After(0.3, function()
+                        if _engSub and _engSub:IsShown() and not _engSub:IsMouseOver() and not engItem:IsMouseOver() then
+                            _engSub:Hide()
+                        end
+                    end)
+                end)
+
+                allItems[#allItems + 1] = engItem
+                mH = mH + ITEM_H
+            end
+
             -- Racial abilities
             local _pRace = ns._playerRace
             local _pClass = ns._playerClass
@@ -6205,6 +6357,7 @@ initFrame:SetScript("OnEvent", function(self)
         menu:SetScript("OnUpdate", function(m)
             local overSub = (_customTrackingSub and _customTrackingSub:IsShown() and _customTrackingSub:IsMouseOver())
                 or (m._potionsSub and m._potionsSub:IsShown() and m._potionsSub:IsMouseOver())
+                or (m._engSub and m._engSub:IsShown() and m._engSub:IsMouseOver())
             if not m:IsMouseOver() and not anchorFrame:IsMouseOver() and not overSub and IsMouseButtonDown("LeftButton") then
                 m:Hide()
             end
