@@ -97,6 +97,7 @@ local defaults = {
             powerPercentTextPowerColor = false,
             healthClassColored = true,
             customBgColor = { r = 0.067, g = 0.067, b = 0.067 },
+            bgClassColored = false,
             healthDisplay = "both",
             showBuffs = false,
             maxBuffs = 4,
@@ -271,6 +272,7 @@ local defaults = {
             powerPercentTextPowerColor = false,
             healthClassColored = true,
             customBgColor = { r = 0.067, g = 0.067, b = 0.067 },
+            bgClassColored = false,
             castbarHeight = 14,
             castbarWidth = 181,
             showCastbar = true,
@@ -452,6 +454,7 @@ local defaults = {
             healthHeight = 25,
             healthClassColored = false,
             customBgColor = { r = 0.067, g = 0.067, b = 0.067 },
+            bgClassColored = false,
             showPortrait = false,
             portraitSide = "left",
             portraitMode = "2d",
@@ -485,6 +488,7 @@ local defaults = {
             healthHeight = 25,
             healthClassColored = false,
             customBgColor = { r = 0.067, g = 0.067, b = 0.067 },
+            bgClassColored = false,
             showPortrait = false,
             portraitSide = "left",
             portraitMode = "2d",
@@ -514,6 +518,7 @@ local defaults = {
             healthHeight = 25,
             healthClassColored = false,
             customBgColor = { r = 0.067, g = 0.067, b = 0.067 },
+            bgClassColored = false,
             showPortrait = false,
             portraitSide = "left",
             portraitMode = "2d",
@@ -556,6 +561,7 @@ local defaults = {
             powerPercentTextPowerColor = false,
             healthClassColored = true,
             customBgColor = { r = 0.067, g = 0.067, b = 0.067 },
+            bgClassColored = false,
             castbarHeight = 14,
             castbarWidth = 160,
             showCastbar = true,
@@ -698,6 +704,7 @@ local defaults = {
             powerPercentTextPowerColor = false,
             healthClassColored = true,
             customBgColor = { r = 0.067, g = 0.067, b = 0.067 },
+            bgClassColored = false,
             castbarHeight = 14,
             showCastbar = true,
             showCastIcon = true,
@@ -1079,12 +1086,13 @@ local function ApplyDarkTheme(health)
         -- Tint bg to 20% of the class/reaction color, or use custom bg color.
         -- Alpha is NOT re-applied ? SetStatusBarColor(r,g,b) preserves
         -- existing texture alpha through oUF recolors.
-        health.PostUpdateColor = function(self, _, color)
+        health.PostUpdateColor = function(self, unit, color)
             local uKey = self._euiUnitKey
             local uSettings = uKey and db.profile[uKey]
             local cFill = uSettings and uSettings.customFillColor
             local cBg   = uSettings and uSettings.customBgColor
             local classColored = uSettings and uSettings.healthClassColored
+            local bgClassColored = uSettings and uSettings.bgClassColored
             -- Resolve base fill color (custom, or oUF's class/reaction color), then apply
             -- gradient additively when enabled; otherwise the existing flat behavior.
             local bR, bG, bB
@@ -1106,7 +1114,20 @@ local function ApplyDarkTheme(health)
                 self:SetStatusBarColor(cFill.r, cFill.g, cFill.b)
             end
             if self.bg then
-                if cBg then
+                local bgClassR, bgClassG, bgClassB
+                -- Class bg is inhibited when the fill is class colored (same color).
+                if bgClassColored and not classColored then
+                    local u = unit or self.unit or uKey
+                    if u then
+                        local _, ct = UnitClass(u)
+                        local cc = ct and EllesmereUI.GetClassColor(ct)
+                        if cc then bgClassR, bgClassG, bgClassB = cc.r, cc.g, cc.b end
+                    end
+                end
+                if bgClassR then
+                    -- Full class color; opacity is controlled by customBgAlpha (SetAlpha).
+                    self.bg:SetColorTexture(bgClassR, bgClassG, bgClassB, 1)
+                elseif cBg then
                     self.bg:SetColorTexture(cBg.r, cBg.g, cBg.b, 1)
                 elseif cFill and not classColored then
                     self.bg:SetColorTexture(cFill.r * 0.2, cFill.g * 0.2, cFill.b * 0.2, 1)
@@ -1124,7 +1145,21 @@ local function ApplyDarkTheme(health)
             health.bg:ClearAllPoints()
             PP.Point(health.bg, "TOPLEFT", health, "TOPLEFT", 0, 0)
             PP.Point(health.bg, "BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
-            if customBg then
+            local bgClassColored = unitSettings and unitSettings.bgClassColored
+            local bgClassR, bgClassG, bgClassB
+            -- Class bg is inhibited when the fill is class colored (same color).
+            if bgClassColored and not (unitSettings and unitSettings.healthClassColored) then
+                local u = unitKey or (health.__owner and health.__owner.unit)
+                if u then
+                    local _, ct = UnitClass(u)
+                    local cc = ct and EllesmereUI.GetClassColor(ct)
+                    if cc then bgClassR, bgClassG, bgClassB = cc.r, cc.g, cc.b end
+                end
+            end
+            if bgClassR then
+                -- Full class color; PostUpdateColor keeps it correct on updates.
+                health.bg:SetColorTexture(bgClassR, bgClassG, bgClassB, 1)
+            elseif customBg then
                 health.bg:SetColorTexture(customBg.r, customBg.g, customBg.b, 1)
             elseif customFill then
                 health.bg:SetColorTexture(customFill.r * 0.2, customFill.g * 0.2, customFill.b * 0.2, 1)

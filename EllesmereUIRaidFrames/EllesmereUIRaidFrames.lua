@@ -360,6 +360,7 @@ local defaults = {
         healthColorMode  = "class",  -- "class", "dark", "classic", "custom"
         customFillColor  = { r = 37/255, g = 193/255, b = 29/255 },
         customBgColor    = { r = 17/255, g = 17/255, b = 17/255 },
+        bgClassColored   = false,
         bgDarkness       = 50,
 
         -- Power bar (on when any powerShowFor* role is true)
@@ -1048,6 +1049,25 @@ local function ResolveDisplayName(unit)
     end
     if Ambiguate then name = Ambiguate(name, "short") end
     return name
+end
+
+-- Background color: class color when bgClassColored, else the custom bg color.
+-- Returns r, g, b, a (alpha = bgDarkness). Mirrors the health-fill class option.
+function ns.GetBgColor(unit, s)
+    s = s or db.profile
+    local a = (s.bgDarkness or 50) / 100
+    if s.bgClassColored and unit and UnitExists(unit) then
+        local _, classToken = UnitClass(unit)
+        -- classToken can be a secret value (out-of-range/uninspectable units);
+        -- indexing GetClassColor's tables with a secret throws "table index is
+        -- secret". Guard it and fall back to the custom bg color when secret/nil.
+        if classToken and not issecretvalue(classToken) then
+            local cc = EllesmereUI.GetClassColor(classToken)
+            if cc then return cc.r, cc.g, cc.b, a end
+        end
+    end
+    local c = s.customBgColor
+    return c.r, c.g, c.b, a
 end
 
 local function GetNameColor(unit, s)
@@ -2488,8 +2508,7 @@ local function UpdateButton(button)
             d.bg:ClearAllPoints()
             d.bg:SetPoint("TOPLEFT", health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
             d.bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
-            local bgc = s.customBgColor
-            d.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
+            d.bg:SetColorTexture(ns.GetBgColor(unit, s))
         end
     end
 
@@ -3826,7 +3845,7 @@ ns._UpdateButtonHealth = function(button)
     local s = d._isParty and ns._scaledPartyProxy or ns._scaledProfile
 
     local health = d.health
-    local pct = GetSafeHealthPercent(unit)
+    local pct = GetSafeHealthPercent(unit)  -- for the health TEXT below
 
     -- Health bar
     if health then
@@ -4544,8 +4563,7 @@ local function ReloadFrames()
 
         -- Background
         if d.bg then
-            local bgc = s.customBgColor
-            d.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
+            d.bg:SetColorTexture(ns.GetBgColor(btn:GetAttribute("unit"), s))
         end
 
         -- Health bar
@@ -5553,7 +5571,7 @@ do
     local map = {
         healthBar = {
             "healthBarTexture", "healthBarOpacity", "healthColorMode",
-            "customFillColor", "customBgColor", "bgDarkness", "smoothBars",
+            "customFillColor", "customBgColor", "bgClassColored", "bgDarkness", "smoothBars",
             "absorbStyle", "absorbOpacity", "absorbColor", "absorbFromRightEdge",
             "healAbsorbStyle", "healAbsorbOpacity", "healAbsorbColor",
             "healPrediction", "healPredOpacity", "healPredColor",
@@ -7907,8 +7925,14 @@ local function ApplyPreviewData(f, index)
             f._bg:ClearAllPoints()
             f._bg:SetPoint("TOPLEFT", f._health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
             f._bg:SetPoint("BOTTOMRIGHT", f._health, "BOTTOMRIGHT", 0, 0)
-            local bgc = s.customBgColor
-            f._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
+            local bgA = (s.bgDarkness or 50) / 100
+            local cc = s.bgClassColored and classToken and EllesmereUI.GetClassColor(classToken)
+            if cc then
+                f._bg:SetColorTexture(cc.r, cc.g, cc.b, bgA)
+            else
+                local bgc = s.customBgColor
+                f._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bgA)
+            end
         end
     end
 
@@ -9413,9 +9437,14 @@ ns._ShowSizePreview = function(tier)
         local cc = EllesmereUI.GetClassColor(ct)
         if cc then f._health:SetStatusBarColor(cc.r, cc.g, cc.b) end
 
-        -- Background
-        local bgc = s.customBgColor or { r = 17/255, g = 17/255, b = 17/255 }
-        f._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
+        -- Background (class-colored when enabled, using this sample's class)
+        local bgA = (s.bgDarkness or 50) / 100
+        if s.bgClassColored and cc then
+            f._bg:SetColorTexture(cc.r, cc.g, cc.b, bgA)
+        else
+            local bgc = s.customBgColor or { r = 17/255, g = 17/255, b = 17/255 }
+            f._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bgA)
+        end
 
         -- Power bar with class-accurate color
         if f._power then

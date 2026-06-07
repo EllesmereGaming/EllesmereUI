@@ -911,9 +911,33 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateSwatchVis)
             UpdateSwatchVis()
         end
-        -- Inline swatch for custom bg color
+        -- Inline swatches for background: Custom + Class pair. Clicking either
+        -- toggles bgClassColored; the inactive one dims (mirrors the fill picker).
         do
             local rgn = row._rightRegion
+            -- Class-colored background swatch (player class color; not editable).
+            local bgClassSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, row:GetFrameLevel() + 3,
+                function()
+                    local _, ct = UnitClass("player")
+                    local cc = ct and EllesmereUI.GetClassColor(ct)
+                    if cc then return cc.r, cc.g, cc.b, 1 end
+                    return 1, 1, 1, 1
+                end,
+                function() end, false, 20)
+            bgClassSwatch:SetScript("OnClick", function()
+                SSet("bgClassColored", true)
+                ReloadAndUpdate(); EllesmereUI:RefreshPage()
+            end)
+            bgClassSwatch:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgClassSwatch, "Class Colored Background") end)
+            bgClassSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            bgClassSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = bgClassSwatch
+            EllesmereUI.RegisterWidgetRefresh(function()
+                bgClassSwatch:SetAlpha(SVal("bgClassColored", false) and 1 or 0.3)
+            end)
+
+            -- Custom background color swatch.
             local bgSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, row:GetFrameLevel() + 3,
                 function()
@@ -925,8 +949,22 @@ initFrame:SetScript("OnEvent", function(self)
                     SWrite("customBgColor", { r=r, g=g, b=b })
                     ReloadAndUpdate()
                 end, false, 20)
+            bgSwatch._eabOrigClick = bgSwatch:GetScript("OnClick")
+            bgSwatch:SetScript("OnClick", function(self)
+                if SVal("bgClassColored", false) then
+                    SSet("bgClassColored", false)
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    return
+                end
+                if self._eabOrigClick then self._eabOrigClick(self) end
+            end)
+            bgSwatch:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgSwatch, "Custom Background Color") end)
+            bgSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             bgSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = bgSwatch
+            EllesmereUI.RegisterWidgetRefresh(function()
+                bgSwatch:SetAlpha(SVal("bgClassColored", false) and 0.3 or 1)
+            end)
         end
 
         ns._editTargets = ns._editTargets or {}

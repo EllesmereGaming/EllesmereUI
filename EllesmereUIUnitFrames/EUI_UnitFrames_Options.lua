@@ -985,12 +985,22 @@ initFrame:SetScript("OnEvent", function(self)
             else
                 hR, hG, hB = 0.8, 0.2, 0.2
             end
-            -- Check for custom background color
-            local cBg = settings.customBgColor
-            if cBg then
-                bgR, bgG, bgB = cBg.r, cBg.g, cBg.b
+            -- Class-colored background (designer shows the player's class), else custom.
+            -- Inhibited when the fill is class colored (same color).
+            local bgClassCC
+            if settings.bgClassColored and not settings.healthClassColored then
+                local _, ct = UnitClass("player")
+                bgClassCC = ct and EllesmereUI.GetClassColor(ct)
+            end
+            if bgClassCC then
+                bgR, bgG, bgB = bgClassCC.r, bgClassCC.g, bgClassCC.b
             else
-                bgR, bgG, bgB = 17/255, 17/255, 17/255
+                local cBg = settings.customBgColor
+                if cBg then
+                    bgR, bgG, bgB = cBg.r, cBg.g, cBg.b
+                else
+                    bgR, bgG, bgB = 17/255, 17/255, 17/255
+                end
             end
             bgA = (settings.customBgAlpha or 100) / 100
         end
@@ -1990,12 +2000,22 @@ initFrame:SetScript("OnEvent", function(self)
                     else
                         uHR, uHG, uHB = 0.8, 0.2, 0.2
                     end
-                    -- Check for custom background color
-                    local cBg = s.customBgColor
-                    if cBg then
-                        uBgR, uBgG, uBgB = cBg.r, cBg.g, cBg.b
+                    -- Class-colored background (designer shows the player's class), else custom.
+                    -- Inhibited when the fill is class colored (same color).
+                    local uBgClassCC
+                    if s.bgClassColored and not s.healthClassColored then
+                        local _, ct = UnitClass("player")
+                        uBgClassCC = ct and EllesmereUI.GetClassColor(ct)
+                    end
+                    if uBgClassCC then
+                        uBgR, uBgG, uBgB = uBgClassCC.r, uBgClassCC.g, uBgClassCC.b
                     else
-                        uBgR, uBgG, uBgB = 17/255, 17/255, 17/255
+                        local cBg = s.customBgColor
+                        if cBg then
+                            uBgR, uBgG, uBgB = cBg.r, cBg.g, cBg.b
+                        else
+                            uBgR, uBgG, uBgB = 17/255, 17/255, 17/255
+                        end
                     end
                 end
                 healthFill:SetColorTexture(uHR, uHG, uHB, 1)
@@ -4410,6 +4430,9 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue = function() end,
                   onClick = function()
                       SSet("healthClassColored", true)
+                      -- Class fill and class bg would be the same color; turning on
+                      -- class fill inhibits class bg.
+                      SSet("bgClassColored", false)
                       UpdatePreview()
                       EllesmereUI:RefreshPage()
                   end,
@@ -4420,9 +4443,48 @@ initFrame:SetScript("OnEvent", function(self)
             { type="slider", text="Bar Background", min=0, max=100, step=1,
               getValue=function() return SVal("customBgAlpha", 100) end,
               setValue=function(v) SSet("customBgAlpha", v); ReloadAndUpdate(); UpdatePreview() end });  y = y - h
-        -- Inline color swatch on Bar Background (right region)
+        -- Inline color swatches on Bar Background (right region): a Custom + Class
+        -- pair mirroring the Bar Color picker. Clicking either toggles bgClassColored;
+        -- the inactive one dims to 0.3 (matches the fill swatch behavior).
         do
             local rgn = sharedHealthColorRow._rightRegion
+            -- Class-colored background swatch (shows player class color; not editable).
+            local bgClassGet = function()
+                local _, ct = UnitClass("player")
+                local cc = ct and RAID_CLASS_COLORS[ct]
+                if cc then return cc.r, cc.g, cc.b end
+                return 1, 1, 1
+            end
+            -- Class bg conflicts with class fill (same color), so it is inhibited
+            -- while the Bar Color is class colored.
+            local function bgClassInhibited() return SVal("healthClassColored", true) end
+            local bgClassSw, bgClassUpdate = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, bgClassGet, function() end, false, 20)
+            bgClassSw._eabOrigClick = bgClassSw:GetScript("OnClick")
+            bgClassSw:SetScript("OnClick", function()
+                if bgClassInhibited() then return end
+                SSet("bgClassColored", true)
+                ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
+            end)
+            bgClassSw:HookScript("OnEnter", function()
+                if bgClassInhibited() then
+                    EllesmereUI.ShowWidgetTooltip(bgClassSw, "Unavailable while Bar Color is class colored")
+                else
+                    EllesmereUI.ShowWidgetTooltip(bgClassSw, "Class Colored Background")
+                end
+            end)
+            bgClassSw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            PP.Point(bgClassSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = bgClassSw
+            RegisterWidgetRefresh(function()
+                bgClassUpdate()
+                if bgClassInhibited() then
+                    bgClassSw:SetAlpha(0.3)
+                else
+                    bgClassSw:SetAlpha(SVal("bgClassColored", false) and 1 or 0.3)
+                end
+            end)
+
+            -- Custom background color swatch.
             local bgSwGet = function()
                 local c = SGet("customBgColor")
                 if c then return c.r, c.g, c.b end
@@ -4433,9 +4495,23 @@ initFrame:SetScript("OnEvent", function(self)
                 ReloadAndUpdate(); UpdatePreview()
             end
             local bgSw, bgSwUpdate = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, bgSwGet, bgSwSet, false, 20)
+            bgSw._eabOrigClick = bgSw:GetScript("OnClick")
+            bgSw:SetScript("OnClick", function(self)
+                if SVal("bgClassColored", false) then
+                    SSet("bgClassColored", false)
+                    ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
+                    return
+                end
+                if self._eabOrigClick then self._eabOrigClick(self) end
+            end)
+            bgSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgSw, "Custom Background Color") end)
+            bgSw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             PP.Point(bgSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = bgSw
-            RegisterWidgetRefresh(function() bgSwUpdate() end)
+            RegisterWidgetRefresh(function()
+                bgSwUpdate()
+                bgSw:SetAlpha(SVal("bgClassColored", false) and 0.3 or 1)
+            end)
         end
         -- Sync icon: Bar Background (right) -- background color + opacity
         do
@@ -4444,11 +4520,13 @@ initFrame:SetScript("OnEvent", function(self)
                 local src = UNIT_DB_MAP[selectedUnit]()
                 local bc = src.customBgColor or { r=17/255, g=17/255, b=17/255 }
                 local bgA = src.customBgAlpha or 100
+                local bgClass = src.bgClassColored or false
                 for _, key in ipairs(keys) do
                     if key ~= selectedUnit then
                         local d = UNIT_DB_MAP[key]()
                         d.customBgColor = { r=bc.r, g=bc.g, b=bc.b }
                         d.customBgAlpha = bgA
+                        d.bgClassColored = bgClass
                     end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -4468,6 +4546,7 @@ initFrame:SetScript("OnEvent", function(self)
                         local d = UNIT_DB_MAP[key]()
                         if not colEq(d.customBgColor, src.customBgColor) then return false end
                         if (d.customBgAlpha or 100) ~= (src.customBgAlpha or 100) then return false end
+                        if (d.bgClassColored or false) ~= (src.bgClassColored or false) then return false end
                     end
                     return true
                 end,
