@@ -248,6 +248,10 @@ local defaults = {
     bgColor = { r = 0.12, g = 0.12, b = 0.12 },
     hoverColor = { r = 1, g = 1, b = 1 },
     hoverAlpha = 0.3,
+    hoverStyle = "highlight",  -- "highlight" (bar fill) | "border"
+    hoverBorderSize = 2,
+    hoverBorderColor = { r = 1, g = 1, b = 1 },
+    hoverBorderClassColored = false,
     castBgAlpha = 0.9,
     castBgColor = { r = 0.1, g = 0.1, b = 0.1 },
     hashLineEnabled = false,
@@ -1614,6 +1618,19 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     local _ha = (p and p.hoverAlpha) or defaults.hoverAlpha
     plate.highlight:SetColorTexture(_hc.r, _hc.g, _hc.b, _ha)
     plate.highlight:Hide()
+    -- Hover border (alternative hover style): its own child frame overlaying the
+    -- health bar, since PP.CreateBorder caches one border per frame and the static
+    -- border already owns plate.health.
+    if PP and PP.CreateBorder then
+        local hbFrame = CreateFrame("Frame", nil, plate.health)
+        hbFrame:SetAllPoints(plate.health)
+        hbFrame:SetFrameLevel(plate.health:GetFrameLevel() + 2)
+        local _hbc = (p and p.hoverBorderColor) or defaults.hoverBorderColor
+        local _hbs = (p and p.hoverBorderSize) or defaults.hoverBorderSize
+        PP.CreateBorder(hbFrame, _hbc.r, _hbc.g, _hbc.b, 1, _hbs, "OVERLAY", 7)
+        hbFrame:Hide()
+        plate.hoverBorder = hbFrame
+    end
     -- Top text overlay: renders above health bar + borders so top-slot text is never hidden
     plate.topTextFrame = CreateFrame("Frame", nil, plate)
     plate.topTextFrame:SetAllPoints(plate.health)
@@ -2068,20 +2085,63 @@ function ns.RefreshAllSettings()
     if ns.ApplyClassPowerSetting then ns.ApplyClassPowerSetting() end
 end
 
--- Recolor the mouseover highlight on every live plate (enemy + friendly).
+-- Show/hide the active hover element on a plate, honoring the hoverStyle setting.
+-- Routes every mouseover show/hide so the call sites stay style-agnostic.
+-- Hover border color: the player's OWN class color when class-coloring is on,
+-- else the configured custom border color. (PLAYER_CLASS is cached at file load.)
+local function HoverBorderRGB()
+    local bc = (p and p.hoverBorderColor) or defaults.hoverBorderColor
+    if p and p.hoverBorderClassColored then
+        local cc = PLAYER_CLASS and EllesmereUI.GetClassColor and EllesmereUI.GetClassColor(PLAYER_CLASS)
+        if cc then return cc.r, cc.g, cc.b end
+    end
+    return bc.r, bc.g, bc.b
+end
+
+function ns.ShowPlateHover(plate, shown)
+    if not plate then return end
+    local style = (p and p.hoverStyle) or defaults.hoverStyle
+    if style == "border" then
+        if plate.highlight then plate.highlight:Hide() end
+        if plate.hoverBorder then
+            -- Resolve color at show time so a class-colored border picks up the
+            -- plate's current unit (which changes as plates recycle).
+            if shown and PP and PP.SetBorderColor then
+                local hr, hg, hb = HoverBorderRGB()
+                PP.SetBorderColor(plate.hoverBorder, hr, hg, hb, 1)
+            end
+            plate.hoverBorder:SetShown(shown and true or false)
+        end
+    else
+        if plate.hoverBorder then plate.hoverBorder:Hide() end
+        if plate.highlight then plate.highlight:SetShown(shown and true or false) end
+    end
+end
+
+-- Recolor/resize the hover effect on every live plate (enemy + friendly), and
+-- hide whichever element the current style doesn't use so a style switch applies
+-- immediately without a reload.
 function ns.RefreshHoverEffect()
     local c = (p and p.hoverColor) or defaults.hoverColor
     local a = (p and p.hoverAlpha) or defaults.hoverAlpha
-    for _, plate in pairs(ns.plates) do
+    local bs = (p and p.hoverBorderSize) or defaults.hoverBorderSize
+    local style = (p and p.hoverStyle) or defaults.hoverStyle
+    local function apply(plate)
         if plate.highlight then
             plate.highlight:SetColorTexture(c.r, c.g, c.b, a)
+            if style == "border" then plate.highlight:Hide() end
+        end
+        if plate.hoverBorder and PP then
+            if PP.SetBorderColor then
+                local hr, hg, hb = HoverBorderRGB()
+                PP.SetBorderColor(plate.hoverBorder, hr, hg, hb, 1)
+            end
+            if PP.SetBorderSize then PP.SetBorderSize(plate.hoverBorder, bs) end
+            if style ~= "border" then plate.hoverBorder:Hide() end
         end
     end
-    for _, plate in pairs(ns.friendlyPlates or {}) do
-        if plate.highlight then
-            plate.highlight:SetColorTexture(c.r, c.g, c.b, a)
-        end
-    end
+    for _, plate in pairs(ns.plates) do apply(plate) end
+    for _, plate in pairs(ns.friendlyPlates or {}) do apply(plate) end
 end
 
 local kickWatcher = CreateFrame("Frame")
@@ -3852,7 +3912,7 @@ function NameplateFrame:ClearUnit()
     end
     self._interrupted = nil
     if self.glow then self.glow:Hide() end
-    self.highlight:Hide()
+    ns.ShowPlateHover(self, false)
     self.raidFrame:Hide()
     self.classFrame:Hide()
     if self.leftArrow then self.leftArrow:Hide() end
@@ -4338,10 +4398,10 @@ end
 function NameplateFrame:ApplyMouseover()
     if not self.unit then return end
     if UnitExists("mouseover") and UnitIsUnit(self.unit, "mouseover") then
-        self.highlight:Show()
+        ns.ShowPlateHover(self, true)
         currentMouseoverPlate = self
     else
-        self.highlight:Hide()
+        ns.ShowPlateHover(self, false)
     end
 end
 function NameplateFrame:UpdateAuras(updateInfo)
@@ -5475,13 +5535,13 @@ factionFrame:SetScript("OnEvent", function(_, event, unit)
 end)
 local function UpdateMouseover()
     if currentMouseoverPlate then
-        currentMouseoverPlate.highlight:Hide()
+        ns.ShowPlateHover(currentMouseoverPlate, false)
         currentMouseoverPlate = nil
     end
     if UnitExists("mouseover") then
         for _, plate in pairs(ns.plates) do
             if plate.unit and UnitIsUnit(plate.unit, "mouseover") then
-                plate.highlight:Show()
+                ns.ShowPlateHover(plate, true)
                 currentMouseoverPlate = plate
                 break
             end
@@ -5801,6 +5861,7 @@ do
     -- per-function constant limit.
     ns._displayPresetKeys = {
         "showBorder", "borderSize", "borderColor", "targetGlowStyle", "showTargetArrows",
+        "hoverStyle", "hoverBorderSize", "hoverBorderColor", "hoverBorderClassColored",
         "showClassPower", "classPowerPos", "classPowerYOffset", "classPowerXOffset", "classPowerScale",
         "classPowerClassColors", "classPowerCustomColor", "classPowerGap",
         "textSlotTop", "textSlotRight", "textSlotLeft", "textSlotCenter",
