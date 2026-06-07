@@ -777,6 +777,117 @@ local function GetFFD(frame)
     return d
 end
 
+do
+    -------------------------------------------------------------------------------
+    --  Unit tooltip helper -- shared by button OnEnter and the aura tracker
+    -------------------------------------------------------------------------------
+    local function ShowUnitTooltip(button)
+        local fd = GetFFD(button)
+        local s = fd._isParty and ns._scaledPartyProxy or ns._scaledProfile
+        if not s.showTooltip then return end
+        if inCombat and not s.tooltipInCombat then return end
+        local u = button:GetAttribute("unit")
+        if not u or not UnitExists(u) then return end
+        GameTooltip_SetDefaultAnchor(GameTooltip, button)
+        local tip, g = u, UnitGUID(u)
+        if g and not (issecretvalue and issecretvalue(g)) then
+            if UnitGUID("player") == g then
+                tip = "player"
+            elseif IsInRaid() then
+                for i = 1, GetNumGroupMembers() do
+                    local tk = "raid" .. i
+                    local tg = UnitGUID(tk)
+                    if tg and not (issecretvalue and issecretvalue(tg)) and tg == g then tip = tk; break end
+                end
+            else
+                for i = 1, GetNumSubgroupMembers() do
+                    local tk = "party" .. i
+                    local tg = UnitGUID(tk)
+                    if tg and not (issecretvalue and issecretvalue(tg)) and tg == g then tip = tk; break end
+                end
+            end
+        end
+        GameTooltip:SetUnit(tip)
+        if _G.RaiderIO and _G.RaiderIO.ShowProfile then
+            local _, ttUnit = GameTooltip:GetUnit()
+            if not ttUnit or (issecretvalue and issecretvalue(ttUnit)) then
+                _G.RaiderIO.ShowProfile(GameTooltip, tip)
+            end
+        end
+        GameTooltip:Show()
+    end
+
+    -------------------------------------------------------------------------------
+    --  Aura tooltip tracker: a single global OnUpdate that detects which aura
+    --  icon the cursor is over and shows the spell tooltip. This avoids putting
+    --  OnEnter/OnLeave scripts on non-secure child frames of secure buttons,
+    --  which would block click-through to the secure parent.
+    -------------------------------------------------------------------------------
+    local auraTTElapsed  = 0
+    local auraTTLastIcon  = nil  -- icon whose spell tooltip is currently showing
+
+    local function checkIcons(icons, cx, cy)
+        if not icons then return nil end
+        for _, icon in ipairs(icons) do
+            if icon:IsVisible() and icon._spellId then
+                local l, r = icon:GetLeft(), icon:GetRight()
+                local b, t = icon:GetBottom(), icon:GetTop()
+                if l and cx >= l and cx <= r and cy >= b and cy <= t then
+                    return icon
+                end
+            end
+        end
+    end
+
+    local auraTTFrame = CreateFrame("Frame")
+    auraTTFrame:Hide()
+    auraTTFrame:SetScript("OnUpdate", function(self, elapsed)
+        auraTTElapsed = auraTTElapsed + elapsed
+        if auraTTElapsed < 0.06 then return end  -- throttle to ~16 checks/sec
+        auraTTElapsed = 0
+        local button = ns._auraTooltipHovered
+        if not button then self:Hide(); return end
+        local fd = GetFFD(button)
+        if not fd or not fd._hovered then self:Hide(); return end
+        local s = fd._isParty and ns._scaledPartyProxy or ns._scaledProfile
+        local scale = button:GetEffectiveScale()
+        local cx, cy = GetCursorPosition()
+        cx, cy = cx / scale, cy / scale
+        local icon = checkIcons(fd.debuffIcons, cx, cy)
+            or checkIcons(fd.defIcons, cx, cy)
+            or checkIcons(fd.bmIconPool, cx, cy)
+            or checkIcons(fd.bmSimpleIcons, cx, cy)
+        if icon then
+            if inCombat and not s.tooltipInCombat then
+                GameTooltip:Hide()
+                auraTTLastIcon = nil
+                return
+            end
+            -- Only update GameTooltip when the icon under the cursor changed
+            if icon ~= auraTTLastIcon then
+                local sid = icon._spellId
+                if sid and not issecretvalue(sid) then
+                    auraTTLastIcon = icon
+                    GameTooltip_SetDefaultAnchor(GameTooltip, icon)
+                    GameTooltip:SetSpellByID(sid)
+                    GameTooltip:Show()
+                end
+            end
+        elseif auraTTLastIcon then
+            -- Cursor left the icon area but is still over the button.
+            -- Restore the unit tooltip that was overwritten by the spell tooltip.
+            auraTTLastIcon = nil
+            ShowUnitTooltip(button)
+        end
+    end)
+
+    local function resetAuraTT() auraTTLastIcon = nil end
+
+    ns._ShowUnitTooltip = ShowUnitTooltip
+    ns._resetAuraTT     = resetAuraTT
+    ns._auraTTFrame     = auraTTFrame
+end
+
 -------------------------------------------------------------------------------
 --  Physical pixel snapping
 --  PP.Scale uses PanelPP.mult which can be 1 even when the frame's effective
@@ -2237,67 +2348,22 @@ local function StyleButton(button)
     UpdatePowerBorder()
     d.UpdatePowerBorder = UpdatePowerBorder
 
-    -- Tooltip handlers
+    -- Tooltip handlers (unit tooltip by default; aura spell tooltips are
+    -- overlaid by the global auraTTFrame tracker when the cursor is over an icon)
     button:HookScript("OnEnter", function(self)
         local fd = GetFFD(self)
         fd._hovered = true
         if fd.ApplyBorderColor then fd.ApplyBorderColor() end
-        -- Read through the party-aware proxy (like every other render path), not
-        -- raw db.profile -- otherwise party_<key> overrides written by a custom
-        -- party "Range & Tooltip" section are never seen and the toggle (and its
-        -- in-combat sub-toggle) appear to do nothing on party frames.
-        local s = fd._isParty and ns._scaledPartyProxy or ns._scaledProfile
-        if not s.showTooltip then return end
-        if inCombat and not s.tooltipInCombat then return end
-        local u = self:GetAttribute("unit")
-        if u and UnitExists(u) then
-            GameTooltip_SetDefaultAnchor(GameTooltip, self)
-            -- Populate with a freshly-built clean literal token (matched by GUID)
-            -- rather than the secure unit attribute. A literal "raidN"/"partyN"/
-            -- "player" string we construct here does not carry the secure-frame
-            -- origin that makes GameTooltip:GetUnit() return a secret value, so
-            -- external tooltip addons (which read GetUnit) can resolve the unit
-            -- and add their lines. GUID-matched, so never the wrong person; falls
-            -- back to the attribute when no clean token can be derived.
-            local tip, g = u, UnitGUID(u)
-            if g and not (issecretvalue and issecretvalue(g)) then
-                if UnitGUID("player") == g then
-                    tip = "player"
-                elseif IsInRaid() then
-                    for i = 1, GetNumGroupMembers() do
-                        local tk = "raid" .. i
-                        local tg = UnitGUID(tk)
-                        if tg and not (issecretvalue and issecretvalue(tg)) and tg == g then tip = tk; break end
-                    end
-                else
-                    for i = 1, GetNumSubgroupMembers() do
-                        local tk = "party" .. i
-                        local tg = UnitGUID(tk)
-                        if tg and not (issecretvalue and issecretvalue(tg)) and tg == g then tip = tk; break end
-                    end
-                end
-            end
-            GameTooltip:SetUnit(tip)
-            -- RaiderIO (and similar) resolve the tooltip unit via
-            -- UnitTokenFromGUID(data.guid), which returns a SECRET token on our
-            -- secure header frames, so their own handler bails before drawing.
-            -- When the tooltip unit is still secret, hand RaiderIO our clean
-            -- GUID-matched token through its public API so the score lines show.
-            -- Gated on a secret/absent GetUnit() so we never double-draw when
-            -- its normal path already succeeded (e.g. for the player's target).
-            if _G.RaiderIO and _G.RaiderIO.ShowProfile then
-                local _, ttUnit = GameTooltip:GetUnit()
-                if not ttUnit or (issecretvalue and issecretvalue(ttUnit)) then
-                    _G.RaiderIO.ShowProfile(GameTooltip, tip)
-                end
-            end
-            GameTooltip:Show()
-        end
+        ns._auraTooltipHovered = self
+        ns._resetAuraTT()
+        ns._auraTTFrame:Show()
+        ns._ShowUnitTooltip(self)
     end)
     button:HookScript("OnLeave", function(self)
         local fd = GetFFD(self)
         fd._hovered = false
         if fd.ApplyBorderColor then fd.ApplyBorderColor() end
+        if ns._auraTooltipHovered == self then ns._auraTooltipHovered = nil end
         GameTooltip:Hide()
     end)
 
@@ -2837,6 +2903,10 @@ local function ApplyDebuffIcon(icon, auraData, unit, s)
         end
     end
 
+    -- Store aura identity for tooltip on hover
+    icon._spellId       = auraData.spellId
+    icon._auraInstanceID = auraData.auraInstanceID
+
     icon:Show()
 end
 
@@ -3111,6 +3181,10 @@ local function UpdateDefensives(button, unit, updateInfo)
 
                 -- Block on Blizzard default frames
                 BlockAuraOnDefaultFrames(unit, iid)
+
+                -- Store aura identity for tooltip on hover
+                icon._spellId        = auraData.spellId
+                icon._auraInstanceID = iid
 
                 icon:Show()
             end
