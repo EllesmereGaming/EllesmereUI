@@ -2104,8 +2104,8 @@ function ns.ShowPlateHover(plate, shown)
     if style == "border" then
         if plate.highlight then plate.highlight:Hide() end
         if plate.hoverBorder then
-            -- Resolve color at show time so a class-colored border picks up the
-            -- plate's current unit (which changes as plates recycle).
+            -- Resolve color at show time so a setting change (custom color or the
+            -- class-color toggle) applies on the next hover without a reload.
             if shown and PP and PP.SetBorderColor then
                 local hr, hg, hb = HoverBorderRGB()
                 PP.SetBorderColor(plate.hoverBorder, hr, hg, hb, 1)
