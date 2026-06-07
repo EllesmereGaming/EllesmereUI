@@ -9884,7 +9884,10 @@ initFrame:SetScript("OnEvent", function(self)
                   tooltip="Hide the brief GCD swipe that flashes when you cast any spell. The actual ability cooldown swipe still shows.",
                   getValue=function() return BD().suppressGCD == true end,
                   setValue=function(v) BD().suppressGCD = v and true or false; Refresh() end },
-                { type="label", text="" });  y = y - h
+                { type="toggle", text="Hide Empty Healthstone",
+                  tooltip="Hide the Healthstone icon entirely when you have none in your bags, instead of showing it desaturated. Updates out of combat.",
+                  getValue=function() return BD().hideEmptyHealthstone == true end,
+                  setValue=function(v) BD().hideEmptyHealthstone = v and true or false; ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview() end });  y = y - h
         end
         end
 

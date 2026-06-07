@@ -1292,6 +1292,20 @@ end
 ns._ProcessPresetCooldowns = ProcessPresetCooldowns
 ns._isPresetCdDirty = function() return _presetCdDirty end
 
+-- True if any enabled bar wants empty healthstones hidden. Cheap module-scope
+-- scan so the BAG_UPDATE rebuild only fires for users who turned the option on.
+local function _AnyBarHidesEmptyHealthstone()
+    if not barDataByKey then return false end
+    for _, bd in pairs(barDataByKey) do
+        if bd and bd.enabled and bd.hideEmptyHealthstone then return true end
+    end
+    return false
+end
+
+-- Set when a bag change lands mid-combat while a bar hides empty healthstones;
+-- the deferred rebuild runs on PLAYER_REGEN_ENABLED (layout is combat-locked).
+local _healthstoneRebuildPending = false
+
 _racialCdListener:SetScript("OnEvent", function(_, event, unit, _, spellID)
     -- Infrequent events: handle immediately and return
     if event == "ENCOUNTER_END" or event == "CHALLENGE_MODE_START" then
@@ -1328,9 +1342,25 @@ _racialCdListener:SetScript("OnEvent", function(_, event, unit, _, spellID)
                 f._inCombatLockout = nil
             end
         end
+        -- A bag change during combat deferred the healthstone rebuild; run it now.
+        if _healthstoneRebuildPending then
+            _healthstoneRebuildPending = false
+            if ns.QueueReanchor then ns.QueueReanchor() end
+        end
         _presetCdDirty = true  -- refresh desaturation on combat end
         return
     end
+    -- Bag contents changed: if a bar hides empty healthstones, the icon's
+    -- presence depends on bag count, so rebuild. Layout changes are combat-locked,
+    -- so a mid-combat change is deferred to PLAYER_REGEN_ENABLED via the pending flag.
+    if event == "BAG_UPDATE_DELAYED" and _AnyBarHidesEmptyHealthstone() then
+        if InCombatLockdown() then
+            _healthstoneRebuildPending = true
+        elseif ns.QueueReanchor then
+            ns.QueueReanchor()
+        end
+    end
+
     -- High-frequency events: just set dirty flag for BuffTicker to process
     _presetCdDirty = true
 end)
@@ -1818,7 +1848,26 @@ local function CollectAndReanchor()
                                     _presetFrames[fkey] = f
                                 end
                             end
-                            if f then
+                            -- Optional: drop healthstone icons entirely when the
+                            -- player has none in bags (per-bar hideEmptyHealthstone).
+                            -- Gated at injection so the layout reflows out of combat;
+                            -- in combat the icon simply stays desaturated until the
+                            -- next rebuild. Count is queried fresh (rebuild-time only).
+                            local skipEmpty = false
+                            if f and barData and barData.hideEmptyHealthstone
+                                and f._presetData and f._presetData.key
+                                and (f._presetData.key == "healthstone" or f._presetData.key == "demonic_healthstone") then
+                                local cnt = C_Item.GetItemCount(itemID, false, true) or 0
+                                if cnt == 0 and f._presetData.altItemIDs then
+                                    for _, altID in ipairs(f._presetData.altItemIDs) do
+                                        cnt = cnt + (C_Item.GetItemCount(altID, false, true) or 0)
+                                    end
+                                end
+                                if cnt == 0 then skipEmpty = true end
+                            end
+                            if f and skipEmpty then
+                                f:Hide()
+                            elseif f then
                                 -- CD state is maintained by ProcessPresetCooldowns
                                 -- at 10Hz. Here we just re-apply cached visuals
                                 -- (no API queries needed per reanchor).
