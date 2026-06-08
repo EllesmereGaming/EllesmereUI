@@ -464,6 +464,7 @@ local defaults = {
         dispelOverlayOpacity = 100,
         dispelShowAll        = true,   -- true = highlight any dispellable debuff; false = only player-dispellable
         showDispelIcons  = false,
+        dispelIconSize     = 16,
         dispelIconPosition = "right",
         dispelIconOffsetX  = 0,
         dispelIconOffsetY  = 0,
@@ -1600,7 +1601,8 @@ local function StyleButton(button)
     -- Dispel type icon
     local dispelIcon = CreateFrame("Frame", nil, button)
     dispelIcon:SetFrameLevel(button:GetFrameLevel() + ns.LVL_AURA)
-    dispelIcon:SetSize(16, 16)
+    local diSz = PixelSnap(s.dispelIconSize or 16)
+    dispelIcon:SetSize(diSz, diSz)
     dispelIcon:Hide()
     d.dispelIcon = dispelIcon
     -- One overlapping atlas texture per dispellable type. We can't read the
@@ -4635,8 +4637,12 @@ local function ReloadFrames()
             if d.AnchorDefensives then d.AnchorDefensives() end
         end
 
-        -- Dispel icon position
-        if d.AnchorDispelIcon then d.AnchorDispelIcon() end
+        -- Dispel icon size + position
+        if d.dispelIcon then
+          local diSz = PixelSnap(s.dispelIconSize or 16)
+          d.dispelIcon:SetSize(diSz, diSz)
+          if d.AnchorDispelIcon then d.AnchorDispelIcon() end
+        end
 
         -- Private aura per-slot frames (re-anchor for changed debuff settings)
         if d.privateAuraFrames then
@@ -5584,7 +5590,7 @@ do
         },
         dispels = {
             "dispelBorderSize", "dispelOverlay", "dispelOverlayOpacity", "dispelShowAll",
-            "showDispelIcons", "dispelIconPosition", "dispelIconOffsetX", "dispelIconOffsetY",
+            "showDispelIcons", "dispelIconSize", "dispelIconPosition", "dispelIconOffsetX", "dispelIconOffsetY",
             "dispelColorMagic", "dispelColorCurse", "dispelColorDisease",
             "dispelColorPoison", "dispelColorBleed",
         },
@@ -5655,7 +5661,7 @@ for _, k in ipairs({
     "debuffStacksTextSize", "debuffDurTextSize", "defDurTextSize",
     -- Icon sizes
     "roleIconSize", "leaderIconSize", "raidMarkerSize",
-    "debuffSize", "defSize", "paSize",
+    "debuffSize", "defSize", "paSize", "dispelIconSize",
     -- Offsets
     "nameOffsetX", "nameOffsetY",
     "healthTextOffsetX", "healthTextOffsetY",
@@ -6178,7 +6184,11 @@ ns.ReloadPartyFrames = function()
         end
 
         -- Dispel icon
-        if d.AnchorDispelIcon then d.AnchorDispelIcon() end
+        if d.dispelIcon then
+            local diSz = PixelSnap(raw.dispelIconSize or 16)
+            d.dispelIcon:SetSize(diSz, diSz)
+            if d.AnchorDispelIcon then d.AnchorDispelIcon() end
+        end
 
         -- Private aura frames
         if d.privateAuraFrames then
@@ -7481,7 +7491,8 @@ local function CreatePreviewFrame(index)
     -- Dispel type icon
     local dispelIconFrame = CreateFrame("Frame", nil, f)
     dispelIconFrame:SetFrameLevel(f:GetFrameLevel() + ns.LVL_AURA)
-    dispelIconFrame:SetSize(16, 16)
+    local diSz = PixelSnap(s.dispelIconSize or 16)
+    dispelIconFrame:SetSize(diSz, diSz)
     dispelIconFrame:SetPoint("CENTER", health, "CENTER", 0, 0)
     dispelIconFrame:Hide()
     local dispelIconTex = dispelIconFrame:CreateTexture(nil, "ARTWORK")
@@ -8240,6 +8251,8 @@ local function ApplyPreviewData(f, index)
         if s.showDispelIcons and f._dispelIcon and f._dispelIconTex then
             local atlas = DISPEL_ICON_ATLAS[dispelType]
             if atlas then f._dispelIconTex:SetAtlas(atlas) end
+            local diSz = PixelSnap(s.dispelIconSize or 16)
+            f._dispelIcon:SetSize(diSz, diSz)
             f._dispelIcon:ClearAllPoints()
             local diPos = s.dispelIconPosition or "center"
             local diOX = s.dispelIconOffsetX or 0
