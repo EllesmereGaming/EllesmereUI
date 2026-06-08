@@ -1956,26 +1956,67 @@ local function EnsureBarClip(frame)
     return clip
 end
 
-local function ReparentBarsToClip(frame, powerPosition)
+-- Create / refresh the detached power bar's border. The border frame is created
+-- lazily so a power bar that was spawned "attached" still gets a border the
+-- moment the user switches it to "detached" (no /reload needed). The border's
+-- frame level is always re-derived from the power bar's current level so it
+-- tracks the bar even after a reparent changes that level.
+local function ApplyPowerBarBorder(power, settings)
+    if not power or not settings then return end
+    local ppPos = settings.powerPosition or "below"
+    local isDetached = (ppPos == "detached_top" or ppPos == "detached_bottom")
+    -- Border only exists for detached power bars.
+    local pbSize = (isDetached and settings.powerBorderSize) or 0
+
+    local pbBorder = power._pbBorder
+    if not pbBorder then
+        -- Nothing to create when there's no border to show.
+        if pbSize == 0 then return end
+        pbBorder = CreateFrame("Frame", nil, power)
+        PP.Point(pbBorder, "TOPLEFT", power, "TOPLEFT", 0, 0)
+        PP.Point(pbBorder, "BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
+        power._pbBorder = pbBorder
+    end
+
+    local pbBehind = settings.powerBorderBehind
+    pbBorder:SetFrameLevel(pbBehind and math.max(0, power:GetFrameLevel() - 1) or (power:GetFrameLevel() + 5))
+
+    local pbColor = settings.powerBorderColor or { r = 0, g = 0, b = 0 }
+    -- ApplyBorderStyle hides the border (and any backdrop edge) when size is 0.
+    EllesmereUI.ApplyBorderStyle(pbBorder, pbSize, pbColor.r, pbColor.g, pbColor.b,
+        settings.powerBorderAlpha or 1, settings.powerBorderStyle or "solid",
+        settings.powerBorderOffsetX, settings.powerBorderOffsetY,
+        settings.powerBorderShiftX, settings.powerBorderShiftY, "unitframes", pbSize)
+end
+
+local function ReparentBarsToClip(frame, settings)
     local clip = EnsureBarClip(frame)
     if frame.Health and frame.Health:GetParent() ~= clip then
         frame.Health:SetParent(clip)
     end
     if frame.Power then
+        local powerPosition = (settings and settings.powerPosition) or "below"
         local detached = (powerPosition == "detached_top" or powerPosition == "detached_bottom")
         if detached then
             if frame.Power:GetParent() == clip then
                 frame.Power:SetParent(frame)
             end
+            -- A detached power bar floats outside the health bar and can overlap
+            -- the unit frame's unified border (which sits at frame level + 10).
+            -- Render it above that border so the border never shows through the
+            -- power bar. SetParent resets the level, so re-assert it here.
+            frame.Power:SetFrameLevel(frame:GetFrameLevel() + 12)
         else
             if frame.Power:GetParent() ~= clip then
                 frame.Power:SetParent(clip)
             end
+            -- Attached power must render above the absorb overlay (health level + 1).
+            -- SetParent resets frame level, so re-assert after every reparent.
+            local hpLevel = frame.Health and frame.Health:GetFrameLevel() or clip:GetFrameLevel()
+            frame.Power:SetFrameLevel(hpLevel + 2)
         end
-        -- Power bar must render above absorb overlay (health level + 1).
-        -- SetParent resets frame level, so re-assert after every reparent.
-        local hpLevel = frame.Health and frame.Health:GetFrameLevel() or clip:GetFrameLevel()
-        frame.Power:SetFrameLevel(hpLevel + 2)
+        -- Keep the power border locked to the bar's (possibly just-changed) level.
+        ApplyPowerBarBorder(frame.Power, settings)
     end
 end
 
@@ -2894,23 +2935,9 @@ local function CreatePowerBar(frame, unit, settings)
         end
     end
 
-    -- Power bar border (only when detached)
-    if isDetached then
-        local pbBorder = CreateFrame("Frame", nil, power)
-        PP.Point(pbBorder, "TOPLEFT", power, "TOPLEFT", 0, 0)
-        PP.Point(pbBorder, "BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
-        local pbBehind = settings.powerBorderBehind
-        pbBorder:SetFrameLevel(pbBehind and math.max(0, power:GetFrameLevel() - 1) or (power:GetFrameLevel() + 5))
-        local pbTexKey = settings.powerBorderStyle or "solid"
-        local pbSize = settings.powerBorderSize or 0
-        local pbColor = settings.powerBorderColor or { r = 0, g = 0, b = 0 }
-        local pbAlpha = settings.powerBorderAlpha or 1
-        EllesmereUI.ApplyBorderStyle(pbBorder, pbSize, pbColor.r, pbColor.g, pbColor.b, pbAlpha,
-            pbTexKey, settings.powerBorderOffsetX, settings.powerBorderOffsetY,
-            settings.powerBorderShiftX, settings.powerBorderShiftY, "unitframes", pbSize)
-        if pbSize == 0 then pbBorder:Hide() end
-        power._pbBorder = pbBorder
-    end
+    -- Power bar border (detached only). Centralized so it is also created on a
+    -- live attached -> detached switch (see ApplyPowerBarBorder).
+    ApplyPowerBarBorder(power, settings)
 
     return power
 end
@@ -3841,7 +3868,7 @@ local function StyleFullFrame(frame, unit)
 
     CreateUnifiedBorder(frame, unit)
     UpdateBordersForScale(frame, unit)
-    ReparentBarsToClip(frame, settings.powerPosition)
+    ReparentBarsToClip(frame, settings)
 
     -- Raid target marker icon -- oUF's RaidTargetIndicator element manages
     -- visibility via RAID_TARGET_UPDATE. We only assign the element when
@@ -4078,7 +4105,7 @@ local function StyleFocusFrame(frame, unit)
 
     CreateUnifiedBorder(frame, unit)
     UpdateBordersForScale(frame, unit)
-    ReparentBarsToClip(frame, settings.powerPosition)
+    ReparentBarsToClip(frame, settings)
 
     -- Raid target marker icon
     do
@@ -4311,7 +4338,7 @@ local function StyleSimpleFrame(frame, unit)
 
     CreateUnifiedBorder(frame, unit)
     UpdateBordersForScale(frame, unit)
-    ReparentBarsToClip(frame, settings.powerPosition)
+    ReparentBarsToClip(frame, settings)
 
     -- Text overlay frame (parented to frame, not health, to avoid clipping)
     local textOverlay = CreateFrame("Frame", nil, frame)
@@ -4499,7 +4526,7 @@ local function StylePetFrame(frame, unit)
 
     CreateUnifiedBorder(frame, unit)
     UpdateBordersForScale(frame, unit)
-    ReparentBarsToClip(frame, settings.powerPosition)
+    ReparentBarsToClip(frame, settings)
 
     -- Text overlay frame (parented to frame, not health, to avoid clipping)
     local textOverlay = CreateFrame("Frame", nil, frame)
@@ -4663,7 +4690,7 @@ local function StyleBossFrame(frame, unit)
 
     CreateUnifiedBorder(frame, unit)
     UpdateBordersForScale(frame, unit)
-    ReparentBarsToClip(frame, settings.powerPosition)
+    ReparentBarsToClip(frame, settings)
 
     -- Raid target marker icon (boss frames) -- anchored outside the LEFT edge
     do
@@ -5886,24 +5913,10 @@ local function ReloadFrames()
                         end
                         if frame.Power._applyPowerPercentText then frame.Power._applyPowerPercentText(settings) end
 
-                        -- Update power bar border (detached only)
-                        if frame.Power._pbBorder then
-                            local pbTexKey = settings.powerBorderStyle or "solid"
-                            local pbSize = settings.powerBorderSize or 0
-                            local pbColor = settings.powerBorderColor or { r = 0, g = 0, b = 0 }
-                            local pbAlpha = settings.powerBorderAlpha or 1
-                            EllesmereUI.ApplyBorderStyle(frame.Power._pbBorder, pbSize,
-                                pbColor.r, pbColor.g, pbColor.b, pbAlpha,
-                                pbTexKey, settings.powerBorderOffsetX, settings.powerBorderOffsetY,
-                                settings.powerBorderShiftX, settings.powerBorderShiftY, "unitframes", pbSize)
-                            local pbBehind = settings.powerBorderBehind
-                            frame.Power._pbBorder:SetFrameLevel(pbBehind and math.max(0, frame.Power:GetFrameLevel() - 1) or (frame.Power:GetFrameLevel() + 5))
-                            if pbSize > 0 and ppIsDetached then
-                                frame.Power._pbBorder:Show()
-                            else
-                                frame.Power._pbBorder:Hide()
-                            end
-                        end
+                        -- Update power bar border (detached only). The frame
+                        -- level is re-asserted from the bar's final level by the
+                        -- ReparentBarsToClip call at the end of this branch.
+                        ApplyPowerBarBorder(frame.Power, settings)
 
                         -- Gray out power bar background for generic melee NPCs
                         if ppPos ~= "none" and (ppPos == "below" or ppPos == "above") then
@@ -6180,7 +6193,7 @@ local function ReloadFrames()
                     end
 
                     UpdateBordersForScale(frame, unit)
-                    ReparentBarsToClip(frame, settings.powerPosition)
+                    ReparentBarsToClip(frame, settings)
 
                 elseif unit == "target" then
                     local pSide = settings.portraitSide or "right"
@@ -6280,24 +6293,10 @@ local function ReloadFrames()
                         end
                         if frame.Power._applyPowerPercentText then frame.Power._applyPowerPercentText(settings) end
 
-                        -- Update power bar border (detached only)
-                        if frame.Power._pbBorder then
-                            local pbTexKey = settings.powerBorderStyle or "solid"
-                            local pbSize = settings.powerBorderSize or 0
-                            local pbColor = settings.powerBorderColor or { r = 0, g = 0, b = 0 }
-                            local pbAlpha = settings.powerBorderAlpha or 1
-                            EllesmereUI.ApplyBorderStyle(frame.Power._pbBorder, pbSize,
-                                pbColor.r, pbColor.g, pbColor.b, pbAlpha,
-                                pbTexKey, settings.powerBorderOffsetX, settings.powerBorderOffsetY,
-                                settings.powerBorderShiftX, settings.powerBorderShiftY, "unitframes", pbSize)
-                            local pbBehind = settings.powerBorderBehind
-                            frame.Power._pbBorder:SetFrameLevel(pbBehind and math.max(0, frame.Power:GetFrameLevel() - 1) or (frame.Power:GetFrameLevel() + 5))
-                            if pbSize > 0 and ppIsDetached then
-                                frame.Power._pbBorder:Show()
-                            else
-                                frame.Power._pbBorder:Hide()
-                            end
-                        end
+                        -- Update power bar border (detached only). The frame
+                        -- level is re-asserted from the bar's final level by the
+                        -- ReparentBarsToClip call at the end of this branch.
+                        ApplyPowerBarBorder(frame.Power, settings)
 
                         -- Gray out power bar background for generic melee NPCs
                         if ppPos ~= "none" and (ppPos == "below" or ppPos == "above") then
@@ -6549,7 +6548,7 @@ local function ReloadFrames()
                     end
 
                     UpdateBordersForScale(frame, unit)
-                    ReparentBarsToClip(frame, settings.powerPosition)
+                    ReparentBarsToClip(frame, settings)
                 end
 
                 -- (health tag re-tagging now handled by _applyTextTags above)
@@ -6896,7 +6895,7 @@ local function ReloadFrames()
                 end
 
                 UpdateBordersForScale(frame, unit)
-                ReparentBarsToClip(frame, settings.powerPosition)
+                ReparentBarsToClip(frame, settings)
 
             elseif unit == "pet" or unit == "targettarget" or unit == "focustarget" then
                 -- Pet, ToT and FoT all share the same simple-frame layout:
@@ -6930,7 +6929,7 @@ local function ReloadFrames()
                 end
 
                 UpdateBordersForScale(frame, unit)
-                ReparentBarsToClip(frame, settings.powerPosition)
+                ReparentBarsToClip(frame, settings)
 
             elseif unit:match("^boss%d$") then
                 local bPpPos = settings.powerPosition or "below"
@@ -7233,7 +7232,7 @@ local function ReloadFrames()
                 end
 
                 UpdateBordersForScale(frame, unit)
-                ReparentBarsToClip(frame, settings.powerPosition)
+                ReparentBarsToClip(frame, settings)
             end
 
             -- Determine if this is a mini frame that inherits border/texture/font
