@@ -2094,7 +2094,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSet("dispelOverlayOpacity", v) end });  y = y - h
 
 
-        -- Row 2: Dispel Border Size | Dispel Icon Position (includes "None" to disable)
+        -- Row 2: Dispel Border Size
         row, h = W:DualRow(parent, y,
             { type="slider", text="Dispel Border", min=0, max=4, step=1,
               getValue=function() return SVal("dispelBorderSize", 2) end,
