@@ -4301,7 +4301,18 @@ _CDMApplyVisibility = function()
                             -- ADDON_ACTION_BLOCKED when dismounting mid-combat.
                             if not icCombat2 then
                                 ic:EnableMouse(false)
-                                if ic.EnableMouseMotion then ic:EnableMouseMotion(true) end
+                                -- Cursor-tracked bars must stay fully click-AND-
+                                -- motion-through. An icon riding at the cursor on
+                                -- the TOOLTIP strata that still receives mouse
+                                -- MOTION becomes the mouseover-focus frame; with no
+                                -- unit of its own it steals focus from whatever unit
+                                -- frame is underneath, so [@mouseover] resolves to
+                                -- nothing and hovercast keys fall through to the
+                                -- action bar (and stay stuck until you re-mouseover).
+                                -- Mirror the frame-level _mouseTrack guard above.
+                                if ic.EnableMouseMotion then
+                                    ic:EnableMouseMotion(not frame._mouseTrack)
+                                end
                             end
                             local icfc = _ecmeFC[ic]
                             if not (icfc and icfc._cdStateHidden) then
@@ -5199,7 +5210,7 @@ RegisterCDMUnlockElements = function()
     end
 
     if #elements > 0 then
-        EllesmereUI:RegisterUnlockElements(elements)
+        EllesmereUI:RegisterUnlockElements(elements, "EllesmereUICooldownManager")
     end
     -- Expose for ApplyAnchorPosition's growth-direction edge read.
     -- Width-independent: stores edge anchor directly (LEFT/RIGHT/TOP).

@@ -79,6 +79,9 @@ local defaults = {
         portraitStyle = "attached",
         healthBarTexture = "none",
         darkTheme = false,
+        -- Custom enemy reaction colors (empty = use Blizzard FACTION_BAR_COLORS).
+        -- Keys: hostile (reactions 1-3), neutral (4), friendly (5-8), tapped.
+        enemyColors = {},
         player = {
             frameWidth = 181,
             healthHeight = 46,
@@ -1569,7 +1572,11 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
             else
                 local reaction = UnitReaction(unitToken, "player")
                 if reaction then
-                    local c = FACTION_BAR_COLORS[reaction]
+                    -- Prefer oUF's reaction table (carries the custom Enemy Colors
+                    -- override) so the border matches the health bar; fall back to
+                    -- the Blizzard default.
+                    local c = (oUF.colors and oUF.colors.reaction and oUF.colors.reaction[reaction])
+                        or FACTION_BAR_COLORS[reaction]
                     if c then bR, bG, bB = c.r, c.g, c.b end
                 end
             end
@@ -3559,6 +3566,18 @@ local function ApplyAuraCooldownText(container, showCD, cdSize)
     end
 end
 
+-- Compose an oUF aura filter string from the per-unit filter toggles. Mirrors
+-- the Blizzard filter-token model (Own Only = PLAYER, Raid Frames = RAID,
+-- Important = IMPORTANT). Multiple checked options AND together server-side via
+-- C_UnitAuras.GetAuraSlots, narrowing the set. On ns (not a local) to stay clear
+-- of the main-chunk 200-local cap.
+function ns.ComposeAuraFilter(base, ownOnly, raidFrames, important)
+    if ownOnly    then base = base .. "|PLAYER" end
+    if raidFrames then base = base .. "|RAID" end
+    if important  then base = base .. "|IMPORTANT" end
+    return base
+end
+
 local function CreateTargetAuras(frame, unit)
     local function SetupAuraIcon(container, button)
         if not button then return end
@@ -5488,11 +5507,41 @@ local function CreateCustomClassPower(playerFrame, style)
     return container
 end
 
+-- Custom enemy reaction colors: override oUF's shared reaction/tapped color table
+-- from db.profile.enemyColors, then repaint live frames. Each entry defaults to the
+-- Blizzard FACTION_BAR_COLORS value when unset, so this is idempotent and reset-safe
+-- (and re-applies the active profile's colors on profile swap). Hostile = reactions
+-- 1-3, Neutral = 4, Friendly = 5-8.
+local function ApplyEnemyColors()
+    if not (oUF and oUF.colors and oUF.colors.reaction and FACTION_BAR_COLORS) then return end
+    local ec = (db and db.profile and db.profile.enemyColors) or {}
+    local function setIdx(idx, custom)
+        local f = FACTION_BAR_COLORS[idx]
+        local r = (custom and custom.r) or (f and f.r) or 1
+        local g = (custom and custom.g) or (f and f.g) or 1
+        local b = (custom and custom.b) or (f and f.b) or 1
+        oUF.colors.reaction[idx] = oUF:CreateColor(r, g, b)
+    end
+    for i = 1, 3 do setIdx(i, ec.hostile)  end
+    setIdx(4, ec.neutral)
+    for i = 5, 8 do setIdx(i, ec.friendly) end
+    local tc = ec.tapped
+    oUF.colors.tapped = oUF:CreateColor((tc and tc.r) or 0.6, (tc and tc.g) or 0.6, (tc and tc.b) or 0.6)
+    if oUF.objects then
+        for _, obj in next, oUF.objects do
+            if obj.UpdateAllElements then obj:UpdateAllElements("OnShow") end
+        end
+    end
+end
+ns.ApplyEnemyColors = ApplyEnemyColors
+
 local function ReloadFrames()
     ResolveFontPath()
     if InCombatLockdown() then
         return
     end
+
+    ApplyEnemyColors()
 
     -- Reset cached settings map so it rebuilds with fresh DB references
     unitSettingsMap = nil
@@ -6059,9 +6108,11 @@ local function ReloadFrames()
                                 buffCbOff = -cbH
                             end
                             -- Only reanchor + ForceUpdate when layout actually changed
-                            local buffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, buffCbOff, bgx or 0, bgy or 0, settings.maxBuffs or 4, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0)
+                            local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings.onlyPlayerBuffs, settings.buffRaid, settings.buffImportant)
+                            local buffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, buffCbOff, bgx or 0, bgy or 0, settings.maxBuffs or 4, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. buffFilter
                             if frame.Buffs._lastBuffKey ~= buffKey then
                                 frame.Buffs._lastBuffKey = buffKey
+                                frame.Buffs.filter = buffFilter
                                 frame.Buffs.size = settings.buffSize or 22
                                 frame.Buffs:ClearAllPoints()
                                 frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + (settings.buffOffsetX or 0), boy * 1 + buffCbOff + (settings.buffOffsetY or 0))
@@ -6105,9 +6156,12 @@ local function ReloadFrames()
                                 if cbH <= 0 then cbH = 14 end
                                 debuffCbOff = -cbH
                             end
-                            local debuffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, debuffCbOff, dgx or 0, dgy or 0, settings.maxDebuffs or 10, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0)
+                            local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings.onlyPlayerDebuffs, settings.debuffRaid, settings.debuffImportant)
+                            local debuffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, debuffCbOff, dgx or 0, dgy or 0, settings.maxDebuffs or 10, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0) .. debuffFilter
                             if frame.Debuffs._lastDebuffKey ~= debuffKey then
                                 frame.Debuffs._lastDebuffKey = debuffKey
+                                frame.Debuffs.filter = debuffFilter
+                                frame.Debuffs.onlyShowPlayer = nil
                                 frame.Debuffs.size = settings.debuffSize or 22
                                 frame.Debuffs:ClearAllPoints()
                                 frame.Debuffs:SetPoint(dia, frame, dfp, dox * 1 + (settings.debuffOffsetX or 0), doy * 1 + debuffCbOff + (settings.debuffOffsetY or 0))
@@ -6481,9 +6535,11 @@ local function ReloadFrames()
                                     liveCbOff = -cbH
                                 end
                             end
-                            local buffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, bgx or 0, bgy or 0, settings.maxBuffs or 20, liveCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0)
+                            local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings.onlyPlayerBuffs, settings.buffRaid, settings.buffImportant)
+                            local buffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, bgx or 0, bgy or 0, settings.maxBuffs or 20, liveCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. buffFilter
                             if frame.Buffs._lastBuffKey ~= buffKey then
                                 frame.Buffs._lastBuffKey = buffKey
+                                frame.Buffs.filter = buffFilter
                                 frame.Buffs.size = settings.buffSize or 22
                                 frame.Buffs:ClearAllPoints()
                                 frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + (settings.buffOffsetX or 0), boy * 1 + liveCbOff + (settings.buffOffsetY or 0))
@@ -6520,7 +6576,6 @@ local function ReloadFrames()
                             end
                             frame.Debuffs:Show()
                             frame.Debuffs.num = settings.maxDebuffs or 20
-                            frame.Debuffs.onlyShowPlayer = settings.onlyPlayerDebuffs and true or nil
                             local dfp, dia, dgx, dgy, dox, doy = ResolveBuffLayout(dAnc, settings.debuffGrowth or "auto")
                             local liveDbCbOff = 0
                             if settings.showCastbar ~= false then
@@ -6530,9 +6585,12 @@ local function ReloadFrames()
                                     liveDbCbOff = -cbH
                                 end
                             end
-                            local debuffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, dgx or 0, dgy or 0, settings.maxDebuffs or 20, liveDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0)
+                            local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings.onlyPlayerDebuffs, settings.debuffRaid, settings.debuffImportant)
+                            local debuffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, dgx or 0, dgy or 0, settings.maxDebuffs or 20, liveDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. debuffFilter
                             if frame.Debuffs._lastDebuffKey ~= debuffKey then
                                 frame.Debuffs._lastDebuffKey = debuffKey
+                                frame.Debuffs.filter = debuffFilter
+                                frame.Debuffs.onlyShowPlayer = nil
                                 frame.Debuffs.size = settings.debuffSize or 22
                                 frame.Debuffs:ClearAllPoints()
                                 frame.Debuffs:SetPoint(dia, frame, dfp, dox * 1 + (settings.debuffOffsetX or 0), doy * 1 + liveDbCbOff + (settings.debuffOffsetY or 0))
@@ -6822,7 +6880,6 @@ local function ReloadFrames()
                         end
                         frame.Debuffs:Show()
                         frame.Debuffs.num = settings.maxDebuffs or 10
-                        frame.Debuffs.onlyShowPlayer = settings.onlyPlayerDebuffs and true or nil
                         local dfp, dia, dgx, dgy, dox, doy = ResolveBuffLayout(dAnc, settings.debuffGrowth or "auto")
                         local focusDbCbOff = 0
                         if settings.showCastbar ~= false then
@@ -6832,9 +6889,12 @@ local function ReloadFrames()
                                 focusDbCbOff = -cbH
                             end
                         end
-                        local debuffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, dgx or 0, dgy or 0, settings.maxDebuffs or 10, focusDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0)
+                        local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings.onlyPlayerDebuffs, settings.debuffRaid, settings.debuffImportant)
+                        local debuffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, dgx or 0, dgy or 0, settings.maxDebuffs or 10, focusDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. debuffFilter
                         if frame.Debuffs._lastDebuffKey ~= debuffKey then
                             frame.Debuffs._lastDebuffKey = debuffKey
+                            frame.Debuffs.filter = debuffFilter
+                            frame.Debuffs.onlyShowPlayer = nil
                             frame.Debuffs.size = settings.debuffSize or 22
                             frame.Debuffs:ClearAllPoints()
                             frame.Debuffs:SetPoint(dia, frame, dfp, dox * 1 + (settings.debuffOffsetX or 0), doy * 1 + focusDbCbOff + (settings.debuffOffsetY or 0))
@@ -6871,9 +6931,11 @@ local function ReloadFrames()
                                 focusBfCbOff = -cbH
                             end
                         end
-                        local buffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, bgx or 0, bgy or 0, settings.maxBuffs or 4, focusBfCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0)
+                        local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings.onlyPlayerBuffs, settings.buffRaid, settings.buffImportant)
+                        local buffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, bgx or 0, bgy or 0, settings.maxBuffs or 4, focusBfCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. buffFilter
                         if frame.Buffs._lastBuffKey ~= buffKey then
                             frame.Buffs._lastBuffKey = buffKey
+                            frame.Buffs.filter = buffFilter
                             frame.Buffs.size = settings.buffSize or 22
                             frame.Buffs:ClearAllPoints()
                             frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + (settings.buffOffsetX or 0), boy * 1 + focusBfCbOff + (settings.buffOffsetY or 0))
@@ -7138,9 +7200,6 @@ local function ReloadFrames()
                         end
                         frame.Debuffs:Show()
                         frame.Debuffs.num = settings.maxDebuffs or 10
-                        frame.Debuffs.onlyShowPlayer = settings.onlyPlayerDebuffs and true or nil
-                        -- Boss frames: only show important debuffs unless the
-                        -- user explicitly enabled onlyPlayerDebuffs.
                         local dfp, dia, dgx, dgy, dox, doy = ResolveBuffLayout(dAnc, settings.debuffGrowth or "auto")
                         local liveDbCbOff = 0
                         if settings.showCastbar ~= false then
@@ -7163,9 +7222,12 @@ local function ReloadFrames()
                             liveDbCbOff = 0
                             simpleAnchorParent = frame.Health or frame
                         end
-                        local debuffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, dgx or 0, dgy or 0, settings.maxDebuffs or 10, liveDbCbOff, effectiveDebuffSize, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0)
+                        local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings.onlyPlayerDebuffs, settings.debuffRaid, settings.debuffImportant)
+                        local debuffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, dgx or 0, dgy or 0, settings.maxDebuffs or 10, liveDbCbOff, effectiveDebuffSize, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. debuffFilter
                         if frame.Debuffs._lastDebuffKey ~= debuffKey then
                             frame.Debuffs._lastDebuffKey = debuffKey
+                            frame.Debuffs.filter = debuffFilter
+                            frame.Debuffs.onlyShowPlayer = nil
                             frame.Debuffs.size = effectiveDebuffSize
                             frame.Debuffs:ClearAllPoints()
                             frame.Debuffs:SetPoint(dia, simpleAnchorParent, dfp, dox * 1 + (settings.debuffOffsetX or 0), doy * 1 + liveDbCbOff + (settings.debuffOffsetY or 0))
@@ -7208,9 +7270,11 @@ local function ReloadFrames()
                                 bossBfCbOff = -cbH
                             end
                         end
-                        local buffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, bgx or 0, bgy or 0, settings.maxBuffs or 4, bossBfCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0)
+                        local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings.onlyPlayerBuffs, settings.buffRaid, settings.buffImportant)
+                        local buffKey = string.format("%s%s%d%d%d%d%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, bgx or 0, bgy or 0, settings.maxBuffs or 4, bossBfCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. buffFilter
                         if frame.Buffs._lastBuffKey ~= buffKey then
                             frame.Buffs._lastBuffKey = buffKey
+                            frame.Buffs.filter = buffFilter
                             frame.Buffs.size = settings.buffSize or 22
                             frame.Buffs:ClearAllPoints()
                             frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + (settings.buffOffsetX or 0), boy * 1 + bossBfCbOff + (settings.buffOffsetY or 0))
@@ -8168,7 +8232,13 @@ function InitializeFrames()
         local function _setupLeaderIndicator(uf, settings)
             if not (uf and uf.Health and settings) then return end
             if not uf._leaderIndicator then
-                local leaderTex = uf:CreateTexture(nil, "OVERLAY", nil, 7)
+                -- Parent to the health-bar text overlay (same frame level as the
+                -- health text) on a higher OVERLAY sublevel than the text strings
+                -- (which are sublevel 0), so the crown draws just above the text
+                -- instead of beneath it. Falls back to the frame if the text
+                -- overlay isn't present.
+                local leaderParent = uf._textOverlay or uf
+                local leaderTex = leaderParent:CreateTexture(nil, "OVERLAY", nil, 7)
                 leaderTex:Hide()
                 uf._leaderIndicator = leaderTex
                 _leaderUnits[#_leaderUnits + 1] = uf
@@ -9191,7 +9261,7 @@ function SetupOptionsPanel()
         elements[#elements + 1] = MakeCastBarElement("targetCastbar", "target", 11)
         elements[#elements + 1] = MakeCastBarElement("focusCastbar", "focus", 12)
 
-        EllesmereUI:RegisterUnlockElements(elements)
+        EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIUnitFrames")
 
         -- Seed default anchor + width-match for castbars so they start
         -- anchored to their parent frame with matched width out of the box.

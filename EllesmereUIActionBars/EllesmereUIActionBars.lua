@@ -769,15 +769,24 @@ do
             if frameName ~= "MainActionBar" then
                 frame:SetParent(hiddenParent)
             else
-                -- Prevent Blizzard from re-showing MainActionBar (spec/zone change)
+                -- Keep MainActionBar invisible when Blizzard re-shows it on
+                -- spec / zone / vehicle / bonus-bar transitions WITHOUT touching
+                -- its protected shown state. Calling Hide() (or any *Base shown
+                -- setter) from this insecure hook taints MainActionBar, and
+                -- Blizzard's ValidateActionBarTransition then hits
+                -- ADDON_ACTION_BLOCKED on MainActionBar:SetShownBase the next time
+                -- it shows the bar in combat. (Repro: a quest bonus bar in Azshara
+                -- shows the frame out of combat -> the old Hide() tainted it ->
+                -- one-shotting a mob triggered a brief combat transition that then
+                -- blocked SetShownBase.) SetAlpha is unprotected, inherits to all
+                -- children, and works in combat, so the bar stays hidden taint-free.
                 hooksecurefunc(frame, "Show", function(self)
-                    if not InCombatLockdown() then self:Hide() end
+                    self:SetAlpha(0)
                 end)
                 -- Disable mouse on MainActionBar so it never eats clicks.
                 -- During combat, Blizzard can Show() this frame (mount/dismount
-                -- transitions) and our hook can't re-hide it. At alpha 0 and
-                -- frame level 50 it would invisibly intercept all clicks above
-                -- our EABButtons.
+                -- transitions). At alpha 0 and frame level 50 it would invisibly
+                -- intercept all clicks above our EABButtons.
                 frame:EnableMouse(false)
                 if frame.EnableMouseClicks then frame:EnableMouseClicks(false) end
                 if frame.EnableMouseMotion then frame:EnableMouseMotion(false) end
@@ -7471,7 +7480,7 @@ local function RegisterWithUnlockMode()
     end
 
 
-    EllesmereUI:RegisterUnlockElements(elements)
+    EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIActionBars")
 
     -- Reapply anchors now that elements are registered. RestoreBarPositions
     -- ran before registration (too early for ReapplyOwnAnchor to resolve
@@ -9164,7 +9173,7 @@ local function RegisterDataBarsWithUnlockMode()
             })
         end
     end
-    EllesmereUI:RegisterUnlockElements(elements)
+    EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIActionBars")
 end
 
 function EAB_VTABLE.ExtraBars.CreateManagedDataBarFrames()
@@ -10173,7 +10182,7 @@ local function RegisterExtraBarsWithUnlockMode()
             end -- else (not MicroBar/BagBar)
         end
     end
-    EllesmereUI:RegisterUnlockElements(elements)
+    EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIActionBars")
 end
 
 

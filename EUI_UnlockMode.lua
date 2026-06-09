@@ -27,13 +27,19 @@ if not EllesmereUI.RegisterUnlockElements then
         clearPos     = "clearPosition",
         applyPos     = "applyPosition",
     }
-    function EllesmereUI:RegisterUnlockElements(elements)
+    function EllesmereUI:RegisterUnlockElements(elements, folder)
         for _, elem in ipairs(elements) do
             for short, long in pairs(FIELD_ALIASES) do
                 if elem[short] and not elem[long] then
                     elem[long] = elem[short]
                 end
             end
+            -- Stamp the owning addon folder (canonical/suite folder name). Used by
+            -- the profile export/import system to attribute each unlock element --
+            -- and the anchor/size-match relationships keyed by element -- to a
+            -- module, so layout can be exported per-module. A per-element folder
+            -- (if a call ever sets one) wins; otherwise the call-site folder is used.
+            if folder and not elem.folder then elem.folder = folder end
             self._unlockRegisteredElements[elem.key] = elem
         end
         self._unlockRegistrationDirty = true
@@ -1552,8 +1558,8 @@ end
 -- hooks installed automatically (handles late registrations like CDM bars).
 do
     local origRegister = EllesmereUI.RegisterUnlockElements
-    function EllesmereUI:RegisterUnlockElements(elements)
-        origRegister(self, elements)
+    function EllesmereUI:RegisterUnlockElements(elements, folder)
+        origRegister(self, elements, folder)
         -- Defer hook installation so the frame has time to be created/sized
         C_Timer.After(0.1, function()
             for _, elem in ipairs(elements) do
@@ -7297,8 +7303,8 @@ end
 -- mode is already open when they call in.
 do
     local _origRegister = EllesmereUI.RegisterUnlockElements
-    function EllesmereUI:RegisterUnlockElements(elements)
-        _origRegister(self, elements)
+    function EllesmereUI:RegisterUnlockElements(elements, folder)
+        _origRegister(self, elements, folder)
         if not isUnlocked then return end
         -- Unlock mode is open -- spawn movers for any newly registered keys,
         -- and hide existing movers whose element is now intentionally hidden.

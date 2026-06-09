@@ -480,6 +480,22 @@ initFrame:SetScript("OnEvent", function(self)
     }
     local namePositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
 
+    -- Name Position offers an extra "None" (hides the name entirely). Health Text
+    -- Position reuses the base tables above, so keep "None" out of the shared set.
+    local namePositionValuesName = {
+        ["topleft"]    = "Top Left",
+        ["top"]        = "Top",
+        ["topright"]   = "Top Right",
+        ["left"]       = "Left",
+        ["center"]     = "Center",
+        ["right"]      = "Right",
+        ["bottomleft"] = "Bottom Left",
+        ["bottom"]     = "Bottom",
+        ["bottomright"] = "Bottom Right",
+        ["none"]       = "None",
+    }
+    local namePositionOrderName = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright", "none" }
+
     local healthTextValues = {
         ["none"]          = "None",
         ["percent"]       = "Percent",
@@ -1359,7 +1375,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Row 1: Name Size | Name Color (triple swatch: custom / class / accent)
         row, h = W:DualRow(parent, y,
-            { type="slider", text="Name Size", min=6, max=18, step=1,
+            { type="slider", text="Name Size", min=6, max=26, step=1,
               getValue=function() return SVal("nameSize", 10) end,
               setValue=function(v) SSet("nameSize", v) end },
             { type="multiSwatch", text="Name Color",
@@ -1421,7 +1437,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Row 2: Name Position (+ cog for X/Y) | Health Text
         row, h = W:DualRow(parent, y,
-            { type="dropdown", text="Name Position", values=namePositionValues, order=namePositionOrder,
+            { type="dropdown", text="Name Position", values=namePositionValuesName, order=namePositionOrderName,
               getValue=function() return SVal("namePosition", "center") end,
               setValue=function(v) SSet("namePosition", v) end },
             { type="dropdown", text="Health Text", values=healthTextValues, order=healthTextOrder,
@@ -1523,7 +1539,7 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip="Health Text",
               getValue=function() return SVal("healthTextPosition", "center") end,
               setValue=function(v) SSet("healthTextPosition", v) end },
-            { type="slider", text="Health Text Size", min=6, max=18, step=1,
+            { type="slider", text="Health Text Size", min=6, max=26, step=1,
               disabled=function() return SVal("healthTextMode", "none") == "none" end,
               disabledTooltip="Health Text",
               getValue=function() return SVal("healthTextSize", 9) end,
@@ -2190,11 +2206,152 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return not SVal("dispelShowAll", true) end,
               setValue=function(v) SSet("dispelShowAll", not v) end });  y = y - h
 
-        -- Debuffs section moved to PAGE_DEBUFFS tab
+        if onSection then onSection("dispels", _secY, y) end; _secY = y
+
+        -------------------------------------------------------------------
+        --  TOP NAME BAR
+        -------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "TOP NAME BAR", y); y = y - h
+
+        local function TNBOff() return not SVal("topNameBarEnabled", false) end
+
+        -- Row 1: Enable Top Name Bar | Height
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Enable Top Name Bar",
+              getValue=function() return SVal("topNameBarEnabled", false) end,
+              setValue=function(v) SSet("topNameBarEnabled", v); EllesmereUI:RefreshPage() end },
+            { type="slider", text="Height", min=8, max=40, step=1,
+              disabled=TNBOff,
+              getValue=function() return SVal("topNameBarHeight", 20) end,
+              setValue=function(v) SSet("topNameBarHeight", v) end });  y = y - h
+
+        -- Row 2: Background (+ bg color swatch) | Text Size (+ text swatch + offset cog)
+        local tnbRow2
+        tnbRow2, h = W:DualRow(parent, y,
+            { type="slider", text="Background", min=0, max=100, step=1,
+              disabled=TNBOff,
+              getValue=function() return SVal("topNameBarBgOpacity", 80) end,
+              setValue=function(v) SSet("topNameBarBgOpacity", v) end },
+            { type="slider", text="Text Size", min=6, max=24, step=1,
+              disabled=TNBOff,
+              getValue=function() return SVal("topNameBarTextSize", 11) end,
+              setValue=function(v) SSet("topNameBarTextSize", v) end });  y = y - h
+        -- Inline bg color swatch (left region)
+        do
+            local rgn = tnbRow2._leftRegion
+            local bgSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, tnbRow2:GetFrameLevel() + 3,
+                function()
+                    local c = SGet("topNameBarBgColor")
+                    if c then return c.r, c.g, c.b, 1 end
+                    return 17/255, 17/255, 17/255, 1
+                end,
+                function(r, g, b)
+                    SWrite("topNameBarBgColor", { r=r, g=g, b=b })
+                    ReloadAndUpdate()
+                end, false, 20)
+            bgSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = bgSwatch
+            local function UpdateVis() bgSwatch:SetAlpha(TNBOff() and 0.3 or 1) end
+            EllesmereUI.RegisterWidgetRefresh(UpdateVis); UpdateVis()
+        end
+        -- Inline text offset cog (DIRECTIONS) in the Text Size slot
+        do
+            local rgn = tnbRow2._rightRegion
+            -- Offset X/Y cog with the DIRECTIONS icon
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Text Offset",
+                rows = {
+                    { type="slider", label="Offset X", min=-50, max=50, step=1,
+                      get=function() return SVal("topNameBarTextOffsetX", 0) end,
+                      set=function(v) SSet("topNameBarTextOffsetX", v) end },
+                    { type="slider", label="Offset Y", min=-50, max=50, step=1,
+                      get=function() return SVal("topNameBarTextOffsetY", 0) end,
+                      set=function(v) SSet("topNameBarTextOffsetY", v) end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+        end
+
+        -- Row 3: Alignment & Color -- the text align dropdown plus a custom/class
+        -- double inline swatch (the swatches double as the color-mode selector,
+        -- mirroring the Health Text color swatches). Defaults to class color.
+        local tnbRow3
+        tnbRow3, h = W:DualRow(parent, y,
+            { type="dropdown", text="Alignment & Color",
+              values={ center="Center", left="Left", right="Right" },
+              order={ "center", "left", "right" },
+              disabled=TNBOff,
+              getValue=function() return SVal("topNameBarTextAlign", "center") end,
+              setValue=function(v) SSet("topNameBarTextAlign", v) end },
+            { type="label", text="" });  y = y - h
+        -- Inline color swatches (custom rightmost = opens picker, class leftmost).
+        -- Clicking a swatch switches topNameBarTextColorMode; each dims when not
+        -- the active mode. Added custom-first so it sits next to the dropdown.
+        do
+            local rgn = tnbRow3._leftRegion
+            local function AddTNBSwatch(getColor, setColor, mode, opensPicker, tooltip)
+                local sw = EllesmereUI.BuildColorSwatch(
+                    rgn, tnbRow3:GetFrameLevel() + 3, getColor, setColor, false, 20)
+                sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                rgn._lastInline = sw
+                sw._eabOrigClick = sw:GetScript("OnClick")
+                sw:SetScript("OnClick", function(self)
+                    if SVal("topNameBarTextColorMode", "class") ~= mode then
+                        SSet("topNameBarTextColorMode", mode)
+                        EllesmereUI:RefreshPage()
+                        return
+                    end
+                    if opensPicker and self._eabOrigClick then self._eabOrigClick(self) end
+                end)
+                if tooltip then
+                    sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, tooltip) end)
+                    sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                end
+                local function vis()
+                    sw:SetAlpha((not TNBOff() and SVal("topNameBarTextColorMode", "class") == mode) and 1 or 0.3)
+                end
+                EllesmereUI.RegisterWidgetRefresh(vis); vis()
+            end
+            -- Custom (rightmost): editable, opens the picker when active.
+            AddTNBSwatch(
+                function()
+                    local c = SGet("topNameBarTextColor")
+                    if c then return c.r, c.g, c.b, 1 end
+                    return 1, 1, 1, 1
+                end,
+                function(r, g, b)
+                    SWrite("topNameBarTextColor", { r=r, g=g, b=b })
+                    ReloadAndUpdate()
+                end, "custom", true, "Custom Color")
+            -- Class color (leftmost).
+            AddTNBSwatch(
+                function()
+                    local _, ct = UnitClass("player")
+                    if ct and RAID_CLASS_COLORS[ct] then
+                        local cc = RAID_CLASS_COLORS[ct]
+                        return cc.r, cc.g, cc.b, 1
+                    end
+                    return 1, 1, 1, 1
+                end,
+                function() end, "class", false, "Class Color")
+        end
+
+        if onSection then onSection("topNameBar", _secY, y) end; _secY = y
+
         -------------------------------------------------------------------
         --  RANGE & TOOLTIP
         -------------------------------------------------------------------
-        if onSection then onSection("dispels", _secY, y) end; _secY = y
         _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
 
         -- Row 1: OOR Alpha | Show Tooltip (+ cog for Tooltip in Combat)
@@ -2258,7 +2415,15 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI._applyHideBlizzardPartyFrame()
                   end
               end },
-            { type="label", text="" });  y = y - h
+            { type="multiSwatch", text="Status Colors",
+              swatches = {
+                { tooltip = "Offline", hasAlpha = false,
+                  getValue = function() local c = SGet("statusColorOffline"); if c then return c.r, c.g, c.b end return 0x66/255, 0x66/255, 0x66/255 end,
+                  setValue = function(r, g, b) SWrite("statusColorOffline", { r=r, g=g, b=b }); ReloadAndUpdate() end },
+                { tooltip = "Dead", hasAlpha = false,
+                  getValue = function() local c = SGet("statusColorDead"); if c then return c.r, c.g, c.b end return 0x6D/255, 0x31/255, 0x31/255 end,
+                  setValue = function(r, g, b) SWrite("statusColorDead", { r=r, g=g, b=b }); ReloadAndUpdate() end },
+              } });  y = y - h
 
         if onSection then onSection("rangeTooltip", _secY, y) end
         return y
@@ -3475,7 +3640,7 @@ initFrame:SetScript("OnEvent", function(self)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Duration Text",
                 rows = {
-                    { type="slider", label="Text Size", min=6, max=18, step=1,
+                    { type="slider", label="Text Size", min=6, max=26, step=1,
                       get=function() return SVal("defDurTextSize", 8) end,
                       set=function(v) SSet("defDurTextSize", v) end },
                     { type="slider", label="Offset X", min=-20, max=20, step=1,
@@ -3870,7 +4035,7 @@ initFrame:SetScript("OnEvent", function(self)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Stacks Text",
                 rows = {
-                    { type="slider", label="Text Size", min=6, max=18, step=1,
+                    { type="slider", label="Text Size", min=6, max=26, step=1,
                       get=function() return SVal("debuffStacksTextSize", 8) end,
                       set=function(v) SSet("debuffStacksTextSize", v) end },
                     { type="slider", label="Offset X", min=-20, max=20, step=1,
@@ -3927,7 +4092,7 @@ initFrame:SetScript("OnEvent", function(self)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Duration Text",
                 rows = {
-                    { type="slider", label="Text Size", min=6, max=18, step=1,
+                    { type="slider", label="Text Size", min=6, max=26, step=1,
                       get=function() return SVal("debuffDurTextSize", 8) end,
                       set=function(v) SSet("debuffDurTextSize", v) end },
                     { type="slider", label="Offset X", min=-20, max=20, step=1,
@@ -4729,6 +4894,7 @@ initFrame:SetScript("OnEvent", function(self)
         ["TEXT DISPLAY"]           = "textDisplay",
         ["INDICATORS"]             = "indicators",
         ["DISPELS"]                = "dispels",
+        ["TOP NAME BAR"]           = "topNameBar",
         ["EXTRAS"]                 = "rangeTooltip",
         ["DEFENSIVES & EXTERNALS"] = "defensives",
         ["PRIVATE AURAS"]          = "privateAuras",

@@ -182,6 +182,10 @@ local UnitInRange           = UnitInRange
 local UnitGetTotalAbsorbs   = UnitGetTotalAbsorbs
 local UnitGetTotalHealAbsorbs = UnitGetTotalHealAbsorbs
 local GetReadyCheckStatus   = GetReadyCheckStatus
+local C_IncomingSummon      = C_IncomingSummon
+local SUMMON_STATUS_PENDING  = Enum.SummonStatus and Enum.SummonStatus.Pending or 1
+local SUMMON_STATUS_ACCEPTED = Enum.SummonStatus and Enum.SummonStatus.Accepted or 2
+local SUMMON_STATUS_DECLINED = Enum.SummonStatus and Enum.SummonStatus.Declined or 3
 local GetRaidTargetIndex    = GetRaidTargetIndex
 local IsInRaid              = IsInRaid
 local IsInGroup             = IsInGroup
@@ -375,6 +379,20 @@ local defaults = {
         powerShowForTank   = true,
         powerShowForDPS    = false,
 
+        -- Top Name Bar (reserves height from the TOP of the frame, the way the
+        -- power bar reserves from the bottom; shows the unit name in a dedicated
+        -- band. When enabled it suppresses the in-frame Name.)
+        topNameBarEnabled       = false,
+        topNameBarHeight        = 20,
+        topNameBarBgColor       = { r = 17/255, g = 17/255, b = 17/255 },
+        topNameBarBgOpacity     = 80,
+        topNameBarTextSize      = 11,
+        topNameBarTextColorMode = "class",  -- "class" or "custom"
+        topNameBarTextColor     = { r = 1, g = 1, b = 1 },
+        topNameBarTextOffsetX   = 0,
+        topNameBarTextOffsetY   = 0,
+        topNameBarTextAlign     = "center", -- "center", "left", "right"
+
         -- Text
         nameSize         = 10,
         nameColorMode    = "custom",  -- "class", "accent", "custom"
@@ -475,6 +493,9 @@ local defaults = {
         dispelColorDisease = { r = 0.671, g = 0.384, b = 0.098 },
         dispelColorPoison  = { r = 0.0,   g = 0.706, b = 0.286 },
         dispelColorBleed   = { r = 0.75,  g = 0.15,  b = 0.15 },
+        -- Health background status tint (Status Colors swatch in Extras).
+        statusColorOffline = { r = 0x66/255, g = 0x66/255, b = 0x66/255 },  -- #666666
+        statusColorDead    = { r = 0x6D/255, g = 0x31/255, b = 0x31/255 },  -- #6D3131
 
         -- Buff Manager (indicator-centric model)
         bmIndicators      = {},  -- { [specKey] = { indicator1, indicator2, ... } }
@@ -1003,6 +1024,48 @@ local DARK_FILL_R, DARK_FILL_G, DARK_FILL_B = 0x11/255, 0x11/255, 0x11/255  -- #
 local DARK_FILL_A = 0.9
 local DARK_BG_R, DARK_BG_G, DARK_BG_B = 0x4f/255, 0x4f/255, 0x4f/255        -- #4f4f4f
 
+-- Paints the health-bar background (and dims the fill) for the unit's life and
+-- connection state. Dead/offline: the bg covers the FULL bar so the tint reads
+-- even at full last-known health, and the fill dims. Alive/online: the normal
+-- background covers only the missing-health portion (anchored to the fill's
+-- right edge) so it never bleeds behind the fill during the OOR range fade.
+-- Centralized so the full update and the lightweight UNIT_HEALTH update (which
+-- owns death/resurrect transitions) stay in lockstep -- otherwise a resurrect
+-- arriving only via UNIT_HEALTH would strand the tint. Defaults: offline = dark
+-- gray, dead = dark red (overridable via the Status Colors swatch in Extras);
+-- the inline fallbacks only allocate if the DB key is missing. On ns (not a
+-- local) to stay under the main-chunk 200-local cap.
+function ns._ApplyHealthBg(d, health, s, unit)
+    local bg = d.bg
+    if UnitIsDeadOrGhost(unit) then
+        if bg then
+            local c = s.statusColorDead or { r = 0x6D/255, g = 0x31/255, b = 0x31/255 }
+            bg:ClearAllPoints(); bg:SetAllPoints(health)
+            bg:SetColorTexture(c.r, c.g, c.b, 1)
+        end
+        if health then health:SetStatusBarColor(0.3, 0.3, 0.3, 0.5) end
+        return
+    elseif not UnitIsConnected(unit) then
+        if bg then
+            local c = s.statusColorOffline or { r = 0x66/255, g = 0x66/255, b = 0x66/255 }
+            bg:ClearAllPoints(); bg:SetAllPoints(health)
+            bg:SetColorTexture(c.r, c.g, c.b, 1)
+        end
+        if health then health:SetStatusBarColor(0.3, 0.3, 0.3, 0.3) end
+        return
+    end
+    if not bg then return end
+    bg:ClearAllPoints()
+    bg:SetPoint("TOPLEFT", health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+    if s.healthColorMode == "dark" then
+        bg:SetColorTexture(DARK_BG_R, DARK_BG_G, DARK_BG_B, 1)
+    else
+        local bgc = s.customBgColor
+        bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
+    end
+end
+
 local function GetHealthColor(unit, s)
     s = s or db.profile
     local mode = s.healthColorMode or "class"
@@ -1071,6 +1134,69 @@ local function GetNameColor(unit, s)
     end
 end
 
+-- Class/custom color resolution for the Top Name Bar text (no accent mode).
+local function GetTopNameBarColor(unit, s)
+    s = s or db.profile
+    if (s.topNameBarTextColorMode or "class") == "custom" then
+        local c = s.topNameBarTextColor or { r = 1, g = 1, b = 1 }
+        return c.r, c.g, c.b
+    end
+    local _, classToken = UnitClass(unit)
+    if classToken then
+        local cc = EllesmereUI.GetClassColor(classToken)
+        if cc then return cc.r, cc.g, cc.b end
+    end
+    return 1, 1, 1
+end
+
+-- Reserve the Top Name Bar's height from the TOP of a frame (the way the power
+-- bar reserves from the bottom) and style the bar. Shared by the real buttons
+-- and every preview surface so they never drift. Sets layout + appearance only;
+-- the caller sets the unit-name text + color. Returns the reserved height (0 when
+-- disabled). When disabled the health re-anchors flush to the top (offset 0), so
+-- existing (top-bar-off) profiles are byte-identical to before.
+local function LayoutTopNameBar(s, baseH, powerH, healthBar, tnb, tnbBg, tnbText)
+    local enabled = s.topNameBarEnabled
+    local topBarH = enabled and PixelSnap(s.topNameBarHeight or 20) or 0
+    if healthBar then
+        local parent = healthBar:GetParent()
+        healthBar:ClearAllPoints()
+        healthBar:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -topBarH)
+        healthBar:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, -topBarH)
+        healthBar:SetHeight(PixelSnap(baseH - powerH - topBarH))
+    end
+    if not tnb then return topBarH end
+    if not enabled then
+        tnb:Hide()
+        return topBarH
+    end
+    tnb:SetHeight(topBarH)
+    if tnbBg then
+        local bgc = s.topNameBarBgColor or {}
+        tnbBg:SetColorTexture(bgc.r or 17/255, bgc.g or 17/255, bgc.b or 17/255, (s.topNameBarBgOpacity or 80) / 100)
+    end
+    if tnbText then
+        ApplyFont(tnbText, s.topNameBarTextSize or 11)
+        local align = s.topNameBarTextAlign or "center"
+        local ox = s.topNameBarTextOffsetX or 0
+        local oy = s.topNameBarTextOffsetY or 0
+        tnbText:ClearAllPoints()
+        if align == "left" then
+            tnbText:SetPoint("LEFT", tnb, "LEFT", 4 + ox, oy); tnbText:SetJustifyH("LEFT")
+        elseif align == "right" then
+            tnbText:SetPoint("RIGHT", tnb, "RIGHT", -4 + ox, oy); tnbText:SetJustifyH("RIGHT")
+        else
+            tnbText:SetPoint("CENTER", tnb, "CENTER", ox, oy); tnbText:SetJustifyH("CENTER")
+        end
+        tnbText:SetJustifyV("MIDDLE")
+        -- Force re-layout on a JustifyH change (WoW doesn't relayout otherwise)
+        local cur = tnbText:GetText()
+        if cur then tnbText:SetText(""); tnbText:SetText(cur) end
+    end
+    tnb:Show()
+    return topBarH
+end
+
 -- Live name refresh for every raid + party button. Fired by the NSRT nickname
 -- callback so added/removed nicknames apply instantly without a /reload.
 function ns.RefreshAllNames()
@@ -1082,6 +1208,11 @@ function ns.RefreshAllNames()
             d.nameText:SetText(ResolveDisplayName(unit))
             local nr, ng, nb = GetNameColor(unit, s)
             d.nameText:SetTextColor(nr, ng, nb)
+        end
+        if d and d.topNameBarText and s.topNameBarEnabled then
+            d.topNameBarText:SetText(ResolveDisplayName(unit))
+            local tr, tg, tb = GetTopNameBarColor(unit, s)
+            d.topNameBarText:SetTextColor(tr, tg, tb)
         end
     end
     for unit, btn in pairs(unitToButton) do refresh(unit, btn) end
@@ -1558,6 +1689,27 @@ local function StyleButton(button)
         -- plain-snaps the first fill, preserving the existing interpolation fix).
         power:Hide()
         pwBdrFrame:Hide()
+    end
+
+    -- Top Name Bar (ALWAYS created, hidden). The layout/refresh pass sizes it,
+    -- reserves its height from the top of the health area, and shows it from the
+    -- saved settings. The unit-name text is set in UpdateButton.
+    do
+        local tnb = CreateFrame("Frame", nil, button)
+        tnb:SetFrameLevel(button:GetFrameLevel() + 4)
+        tnb:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
+        tnb:SetPoint("TOPRIGHT", button, "TOPRIGHT", 0, 0)
+        tnb:SetHeight(PixelSnap(s.topNameBarHeight or 20))
+        local tnbBg = tnb:CreateTexture(nil, "BACKGROUND")
+        tnbBg:SetAllPoints()
+        if PP then PP.DisablePixelSnap(tnbBg) end
+        local tnbText = tnb:CreateFontString(nil, "OVERLAY")
+        ApplyFont(tnbText, s.topNameBarTextSize or 11)
+        tnbText:SetWordWrap(false)
+        d.topNameBar = tnb
+        d.topNameBarBg = tnbBg
+        d.topNameBarText = tnbText
+        tnb:Hide()
     end
 
     -- Absorb shields
@@ -2126,6 +2278,13 @@ local function StyleButton(button)
     local function AnchorNameText()
         nameFS:ClearAllPoints()
         local pos = s.namePosition or "center"
+        -- The Top Name Bar shows the unit name in its own band, so suppress the
+        -- in-frame name entirely while it is enabled.
+        if pos == "none" or s.topNameBarEnabled then
+            nameFS:Hide()
+            return
+        end
+        nameFS:Show()
         local ox = s.nameOffsetX or 0
         local oy = s.nameOffsetY or 0
         nameFS:SetWidth((s.frameWidth or 72) * 0.75)
@@ -2473,27 +2632,9 @@ local function UpdateButton(button)
         end
     end
 
-    -- Background
-    if d.bg then
-        if s.healthColorMode == "dark" then
-            -- BG only covers missing health portion, matching UF dark mode
-            d.bg:ClearAllPoints()
-            d.bg:SetPoint("TOPLEFT", health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-            d.bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
-            d.bg:SetColorTexture(DARK_BG_R, DARK_BG_G, DARK_BG_B, 1)
-        else
-            -- BG only covers the missing-health portion (anchored to the fill's
-            -- right edge), never behind the fill. A full-width bg behind the fill
-            -- bleeds through when the range fade's secret alpha under-renders the
-            -- fill -> the OOR "blend". This matches EUI's Dark mode and ouF based
-            -- Unit Frame addons so behavior is familiar to users.
-            d.bg:ClearAllPoints()
-            d.bg:SetPoint("TOPLEFT", health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-            d.bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
-            local bgc = s.customBgColor
-            d.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
-        end
-    end
+    -- Background (+ dead/offline status tint). Centralized in ns._ApplyHealthBg
+    -- so the lightweight UNIT_HEALTH path stays in lockstep on death/resurrect.
+    ns._ApplyHealthBg(d, health, s, unit)
 
     -- Power (filtered by role + hide if unit has no power)
     local power = d.power
@@ -2510,18 +2651,22 @@ local function UpdateButton(button)
         local cleanNoPower = (not issecretvalue(pmx)) and (not pmx or pmx == 0)
         local hidePower = not showForRole or cleanNoPower
 
+        -- The Top Name Bar always reserves its height from the top (its anchor is
+        -- set by LayoutTopNameBar); subtract it here so this per-unit power
+        -- show/hide doesn't expand health back over the bar.
+        local tnbH = (s.topNameBarEnabled and PixelSnap(s.topNameBarHeight or 20)) or 0
         if hidePower then
             power:Hide()
             if d.powerBorderFrame then d.powerBorderFrame:Hide() end
-            -- Expand health bar to full frame height
+            -- Expand health bar to full frame height (minus the Top Name Bar)
             if d.health then
-                d.health:SetHeight(PixelSnap(s.frameHeight or 46))
+                d.health:SetHeight(PixelSnap((s.frameHeight or 46) - tnbH))
             end
         else
-            -- Restore health bar height with power bar space
+            -- Restore health bar height with power bar space (and Top Name Bar)
             local powerH = PixelSnap(s.powerHeight or 4)
             if d.health then
-                d.health:SetHeight(PixelSnap((s.frameHeight or 46) - powerH))
+                d.health:SetHeight(PixelSnap((s.frameHeight or 46) - powerH - tnbH))
             end
             -- Was the bar already visible before this update? Smooth
             -- interpolation only animates correctly on a bar that was already
@@ -2554,11 +2699,20 @@ local function UpdateButton(button)
     -- Absorb
     UpdateAbsorb(button, unit)
 
-    -- Name
+    -- Name (visibility owned by AnchorNameText, which hides it when the Top Name
+    -- Bar is enabled; setting text/color on a hidden FS is harmless)
     if d.nameText then
         d.nameText:SetText(ResolveDisplayName(unit))
         local nr, ng, nb = GetNameColor(unit, s)
         d.nameText:SetTextColor(nr, ng, nb)
+    end
+
+    -- Top Name Bar text (unit name + class/custom color). The bar's
+    -- size/anchor/visibility are handled by LayoutTopNameBar.
+    if d.topNameBarText and s.topNameBarEnabled then
+        d.topNameBarText:SetText(ResolveDisplayName(unit))
+        local tr, tg, tb = GetTopNameBarColor(unit, s)
+        d.topNameBarText:SetTextColor(tr, tg, tb)
     end
 
     -- Health text
@@ -2628,13 +2782,6 @@ local function UpdateButton(button)
         else
             d.statusText:Hide()
         end
-    end
-
-    -- Dead/DC overlay
-    if UnitIsDeadOrGhost(unit) then
-        if health then health:SetStatusBarColor(0.3, 0.3, 0.3, 0.5) end
-    elseif not UnitIsConnected(unit) then
-        if health then health:SetStatusBarColor(0.3, 0.3, 0.3, 0.3) end
     end
 
     -- Role icon
@@ -3078,6 +3225,18 @@ local function UpdateDefensives(button, unit, updateInfo)
         local iid = auraData.auraInstanceID
         if iid and C_UnitAuras_IsAuraFilteredOutByInstanceID then
             local isExternal = not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "HELPFUL|EXTERNAL_DEFENSIVE")
+            -- Blizzard's EXTERNAL_DEFENSIVE filter omits Blessing of Freedom (a
+            -- movement utility, not a damage defensive), and Freedom is a secret
+            -- aura so its spellId can't be read directly. Identify the player's
+            -- OWN Freedom via the spec-scoped fingerprint and treat it as an
+            -- external. Gated on Paladin class (only caster of Freedom) so other
+            -- viewers never run the fingerprint; only a Holy Paladin viewing
+            -- their own Freedom ever resolves to 1044.
+            if not isExternal and playerClassToken == "PALADIN"
+                and ns.BM_IdentifySecretAura
+                and ns.BM_IdentifySecretAura(unit, iid) == 1044 then
+                isExternal = true
+            end
             local isBigDef   = not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "HELPFUL|BIG_DEFENSIVE")
             local isSelfDef  = isBigDef and not isExternal
 
@@ -3675,27 +3834,60 @@ end
 -------------------------------------------------------------------------------
 local readyCheckActive = false
 
+-- The d.readyCheck texture is shared between the ready-check and incoming-summon
+-- indicators (they almost never overlap). Ready check takes priority while a check
+-- is active; otherwise the summon status is shown.
 local function UpdateReadyCheck(button, unit)
     local d = GetFFD(button)
-    if not d.readyCheck then return end
-    if not db.profile.showReadyCheck or not readyCheckActive then
-        d.readyCheck:Hide()
-        return
+    local tex = d.readyCheck
+    if not tex then return end
+
+    -- Ready check (priority)
+    if db.profile.showReadyCheck and readyCheckActive then
+        local status = GetReadyCheckStatus(unit)
+        if status == "ready" then
+            tex:SetSize(18, 18)
+            tex:SetTexCoord(0, 1, 0, 1)
+            tex:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
+            tex:Show()
+            return
+        elseif status == "notready" then
+            tex:SetSize(18, 18)
+            tex:SetTexCoord(0, 1, 0, 1)
+            tex:SetTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
+            tex:Show()
+            return
+        elseif status == "waiting" then
+            tex:SetSize(18, 18)
+            tex:SetTexCoord(0, 1, 0, 1)
+            tex:SetTexture("Interface\\RaidFrame\\ReadyCheck-Waiting")
+            tex:Show()
+            return
+        end
     end
 
-    local status = GetReadyCheckStatus(unit)
-    if status == "ready" then
-        d.readyCheck:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
-        d.readyCheck:Show()
-    elseif status == "notready" then
-        d.readyCheck:SetTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
-        d.readyCheck:Show()
-    elseif status == "waiting" then
-        d.readyCheck:SetTexture("Interface\\RaidFrame\\ReadyCheck-Waiting")
-        d.readyCheck:Show()
-    else
-        d.readyCheck:Hide()
+    -- Incoming summon
+    if db.profile.showSummonPending and unit and C_IncomingSummon.HasIncomingSummon(unit) then
+        local sStatus = C_IncomingSummon.IncomingSummonStatus(unit)
+        if sStatus == SUMMON_STATUS_PENDING then
+            tex:SetSize(20, 20)
+            tex:SetAtlas("RaidFrame-Icon-SummonPending")
+            tex:Show()
+            return
+        elseif sStatus == SUMMON_STATUS_ACCEPTED then
+            tex:SetSize(20, 20)
+            tex:SetAtlas("RaidFrame-Icon-SummonAccepted")
+            tex:Show()
+            return
+        elseif sStatus == SUMMON_STATUS_DECLINED then
+            tex:SetSize(20, 20)
+            tex:SetAtlas("RaidFrame-Icon-SummonDeclined")
+            tex:Show()
+            return
+        end
     end
+
+    tex:Hide()
 end
 
 -------------------------------------------------------------------------------
@@ -3916,12 +4108,9 @@ ns._UpdateButtonHealth = function(button)
         end
     end
 
-    -- Dead/DC overlay
-    if UnitIsDeadOrGhost(unit) then
-        if health then health:SetStatusBarColor(0.3, 0.3, 0.3, 0.5) end
-    elseif not UnitIsConnected(unit) then
-        if health then health:SetStatusBarColor(0.3, 0.3, 0.3, 0.3) end
-    end
+    -- Background + dead/offline status tint. This path owns death/resurrect
+    -- transitions arriving via UNIT_HEALTH, so it restores the bg when alive.
+    ns._ApplyHealthBg(d, health, s, unit)
 end
 
 -------------------------------------------------------------------------------
@@ -4550,9 +4739,10 @@ local function ReloadFrames()
             d.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
         end
 
-        -- Health bar
+        -- Health bar height/anchor + Top Name Bar. The helper reserves the top
+        -- bar's height from the top of the health area and styles the bar.
+        LayoutTopNameBar(s, bh, powerH, d.health, d.topNameBar, d.topNameBarBg, d.topNameBarText)
         if d.health then
-            d.health:SetHeight(healthH)
             d.health:SetStatusBarTexture(texPath)
             d.health:GetStatusBarTexture():SetHorizTile(false)
             -- Re-anchor absorb clips to the new fill texture object
@@ -4685,15 +4875,18 @@ ns._ResizeButtons = function(w, h)
     local s = db.profile
     local powerH = IsPowerBarEnabled(s) and PixelSnap(s.powerHeight or 4) or 0
     local healthH = PixelSnap(bh - powerH)
+    local topBarH = (s.topNameBarEnabled and PixelSnap(s.topNameBarHeight or 20)) or 0
     for _, btn in ipairs(allButtons) do
         local d = GetFFD(btn)
         if d.styled then
             btn:SetSize(bw, bh)
             -- Full height when the power bar is hidden for this button's role
             -- (mirrors _ResizePartyButtons); avoids a dark strip on OFF-role units
-            -- now that d.power always exists.
+            -- now that d.power always exists. Top Name Bar always reserves its
+            -- height from the top (the health top anchor is kept at -topBarH by the
+            -- full refresh, so here we only correct the height).
             if d.health then
-                d.health:SetHeight((d.power and d.power:IsShown()) and healthH or bh)
+                d.health:SetHeight(((d.power and d.power:IsShown()) and healthH or bh) - topBarH)
             end
             if d.nameText then d.nameText:SetWidth(bw * 0.75) end
         end
@@ -4713,6 +4906,7 @@ ns._ResizePartyButtons = function(w, h)
     local s = db.profile
     local powerH = IsPowerBarEnabled(s) and PixelSnap(s.powerHeight or 4) or 0
     local healthH = PixelSnap(bh - powerH)
+    local topBarH = (s.topNameBarEnabled and PixelSnap(s.topNameBarHeight or 20)) or 0
     -- Auto Resize scale depends on frame size; recompute on this lightweight
     -- width/height slider path (which skips the full reload).
     if ns._UpdatePartyIndicatorScale then ns._UpdatePartyIndicatorScale() end
@@ -4721,9 +4915,10 @@ ns._ResizePartyButtons = function(w, h)
         local d = GetFFD(btn)
         if d.styled then
             btn:SetSize(bw, bh)
-            -- Use full height if power bar is hidden for this button's role
+            -- Use full height if power bar is hidden for this button's role; the
+            -- Top Name Bar always reserves topBarH from the top.
             if d.health then
-                local hh = (d.power and d.power:IsShown()) and healthH or bh
+                local hh = ((d.power and d.power:IsShown()) and healthH or bh) - topBarH
                 d.health:SetHeight(hh)
             end
             if d.nameText then d.nameText:SetWidth(bw * 0.75) end
@@ -4837,6 +5032,11 @@ local function UpdateButtonRange(unit, btn)
     local oorAlpha = rs.oorAlpha or 0.4
     if UnitIsUnit(unit, "player") or not UnitExists(unit) then
         ApplyRangeAlpha(btn, 1)
+    elseif not UnitIsConnected(unit) then
+        -- Offline units take a fixed 80% alpha, never the out-of-range fade --
+        -- an offline player isn't "out of range", and a steady alpha reads
+        -- better alongside the offline status tint. Overrides oorAlpha entirely.
+        ApplyRangeAlpha(btn, 0.8)
     elseif UnitPhaseReason and UnitPhaseReason(unit) then
         ApplyRangeAlpha(btn, oorAlpha)
     elseif UnitIsDeadOrGhost(unit) then
@@ -5404,7 +5604,13 @@ local function OnEvent(self, event, arg1, ...)
         end
     elseif event == "PLAYER_FLAGS_CHANGED" or event == "UNIT_CONNECTION" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
-        if btn then UpdateButton(btn) end
+        if btn then
+            UpdateButton(btn)
+            -- Connection changes don't fire UNIT_IN_RANGE_UPDATE; re-evaluate
+            -- range so offline units take their fixed alpha and reconnecting
+            -- units return to the normal out-of-range fade.
+            if event == "UNIT_CONNECTION" then ns._UpdateButtonRange(arg1, btn) end
+        end
     elseif event == "PARTY_MEMBER_ENABLE" or event == "PARTY_MEMBER_DISABLE" then
         -- Only status text / health color changes (online/offline)
         local t0 = ns.ProfBegin("UpdateAll:PARTY_MEMBER")
@@ -5444,16 +5650,28 @@ local function OnEvent(self, event, arg1, ...)
         readyCheckActive = false
         C_Timer.After(5, function()
             if not readyCheckActive then
+                -- Re-evaluate rather than force-hide: a unit may have an incoming
+                -- summon active that shares the same texture.
                 for _, btn in ipairs(allButtons) do
-                    local d = GetFFD(btn)
-                    if d.readyCheck then d.readyCheck:Hide() end
+                    local u = btn:GetAttribute("unit")
+                    if u and btn:IsVisible() then UpdateReadyCheck(btn, u) end
                 end
                 for _, btn in ipairs(ns._partyAllButtons) do
-                    local d = GetFFD(btn)
-                    if d.readyCheck then d.readyCheck:Hide() end
+                    local u = btn:GetAttribute("unit")
+                    if u and btn:IsVisible() then UpdateReadyCheck(btn, u) end
                 end
             end
         end)
+    elseif event == "INCOMING_SUMMON_CHANGED" then
+        -- Broadcast event (no unit payload); re-evaluate every visible button.
+        for _, btn in ipairs(allButtons) do
+            local u = btn:GetAttribute("unit")
+            if u and btn:IsVisible() then UpdateReadyCheck(btn, u) end
+        end
+        for _, btn in ipairs(ns._partyAllButtons) do
+            local u = btn:GetAttribute("unit")
+            if u and btn:IsVisible() then UpdateReadyCheck(btn, u) end
+        end
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         if ns.BM_RebuildLookup then ns.BM_RebuildLookup(db) end
         -- BM_RebuildLookup only rebuilds the global spell-lookup tables for the
@@ -5539,7 +5757,7 @@ ns._PARTY_KEY_SECTION = {}
 ns._PARTY_OVERRIDE_KEYS = {}
 
 ns._PARTY_SECTION_ORDER = {
-    "healthBar", "powerBar", "textDisplay", "indicators", "dispels",
+    "healthBar", "powerBar", "textDisplay", "indicators", "dispels", "topNameBar",
     "rangeTooltip", "defensives", "privateAuras", "debuffDisplay", "debuffStyle",
 }
 ns._PARTY_SECTION_LABELS = {
@@ -5548,6 +5766,7 @@ ns._PARTY_SECTION_LABELS = {
     textDisplay   = "Text Display",
     indicators    = "Indicators",
     dispels       = "Dispels",
+    topNameBar    = "Top Name Bar",
     rangeTooltip  = "Range & Tooltip",
     defensives    = "Defensives & Externals",
     privateAuras  = "Private Auras",
@@ -5593,6 +5812,12 @@ do
             "showDispelIcons", "dispelIconSize", "dispelIconPosition", "dispelIconOffsetX", "dispelIconOffsetY",
             "dispelColorMagic", "dispelColorCurse", "dispelColorDisease",
             "dispelColorPoison", "dispelColorBleed",
+        },
+        topNameBar = {
+            "topNameBarEnabled", "topNameBarHeight",
+            "topNameBarBgColor", "topNameBarBgOpacity",
+            "topNameBarTextSize", "topNameBarTextColorMode", "topNameBarTextColor",
+            "topNameBarTextOffsetX", "topNameBarTextOffsetY", "topNameBarTextAlign",
         },
         rangeTooltip = {
             "oorAlpha", "showTooltip", "tooltipInCombat",
@@ -6095,9 +6320,9 @@ ns.ReloadPartyFrames = function()
             d.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (raw.bgDarkness or 50) / 100)
         end
 
-        -- Health bar
+        -- Health bar height/anchor + Top Name Bar (reads party-resolved `raw`)
+        LayoutTopNameBar(raw, bh, powerH, d.health, d.topNameBar, d.topNameBarBg, d.topNameBarText)
         if d.health then
-            d.health:SetHeight(healthH)
             d.health:SetStatusBarTexture(texPath)
             d.health:GetStatusBarTexture():SetHorizTile(false)
             if d.ReanchorAbsorbToFill then d.ReanchorAbsorbToFill() end
@@ -7248,7 +7473,7 @@ local function CreatePreviewFrame(index)
 
     local f = CreateFrame("Frame", nil, previewContainer or containerFrame)
     f:SetSize(w, h)
-    f:SetFrameStrata("LOW")
+    f:SetFrameStrata("HIGH")
     f:Hide()
 
     -- Background
@@ -7560,6 +7785,20 @@ local function CreatePreviewFrame(index)
     leaderIcon:SetPoint(liPos, health, liPos, s.leaderIconOffsetX or 0, s.leaderIconOffsetY or 0)
     leaderIcon:Hide()
 
+    -- Top Name Bar (preview; sized/styled by ApplyPreviewData)
+    local tnb = CreateFrame("Frame", nil, f)
+    tnb:SetFrameLevel(f:GetFrameLevel() + 4)
+    tnb:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+    tnb:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
+    tnb:SetHeight(PixelSnap(s.topNameBarHeight or 20))
+    local tnbBg = tnb:CreateTexture(nil, "BACKGROUND")
+    tnbBg:SetAllPoints()
+    if PP then PP.DisablePixelSnap(tnbBg) end
+    local tnbText = tnb:CreateFontString(nil, "OVERLAY")
+    ApplyFont(tnbText, s.topNameBarTextSize or 11)
+    tnbText:SetWordWrap(false)
+    tnb:Hide()
+
     -- Store references
     f._bg = bg
     f._health = health
@@ -7574,6 +7813,9 @@ local function CreatePreviewFrame(index)
     f._raidMarker = raidMarker
     f._readyCheck = readyCheck
     f._nameText = nameFS
+    f._topNameBar = tnb
+    f._topNameBarBg = tnbBg
+    f._topNameBarText = tnbText
     f._healthText = healthFS
     f._statusText = statusFS
     f._roleIcon = roleIcon
@@ -7869,12 +8111,16 @@ local function ApplyPreviewData(f, index)
     local h = PixelSnap(s.frameHeight or 46)
     local powerH = IsPowerBarEnabled(s) and PixelSnap(s.powerHeight or 4) or 0
     local healthH = PixelSnap(h - powerH)
+    local topBarH = (s.topNameBarEnabled and PixelSnap(s.topNameBarHeight or 20)) or 0
 
     f:SetSize(w, h)
 
+    -- Health bar height/anchor + Top Name Bar (helper re-anchors health top to
+    -- -topBarH; the per-unit power block below re-sets only the height)
+    LayoutTopNameBar(s, h, powerH, f._health, f._topNameBar, f._topNameBarBg, f._topNameBarText)
+
     -- Health bar
     if f._health then
-        f._health:SetHeight(healthH)
         f._health:SetStatusBarTexture(ResolveHealthTexture())
         f._health:GetStatusBarTexture():SetHorizTile(false)
         f._health:SetMinMaxValues(0, 100)
@@ -7901,6 +8147,19 @@ local function ApplyPreviewData(f, index)
             if fillTex then fillTex:SetAlpha(1) end
             local cc = EllesmereUI.GetClassColor(classToken)
             if cc then f._health:SetStatusBarColor(cc.r, cc.g, cc.b, (s.healthBarOpacity or 100) / 100) end
+        end
+    end
+
+    -- Top Name Bar text (preview unit name + class/custom color)
+    if f._topNameBarText and s.topNameBarEnabled then
+        f._topNameBarText:SetText(name)
+        if (s.topNameBarTextColorMode or "class") == "custom" then
+            local c = s.topNameBarTextColor or { r = 1, g = 1, b = 1 }
+            f._topNameBarText:SetTextColor(c.r, c.g, c.b)
+        else
+            local cc = EllesmereUI.GetClassColor(classToken)
+            if cc then f._topNameBarText:SetTextColor(cc.r, cc.g, cc.b)
+            else f._topNameBarText:SetTextColor(1, 1, 1) end
         end
     end
 
@@ -8113,12 +8372,13 @@ local function ApplyPreviewData(f, index)
         end
     end
 
-    -- Expand health to full frame when power is hidden
+    -- Expand health to full frame when power is hidden (still reserving the Top
+    -- Name Bar's height from the top; its anchor was set by LayoutTopNameBar)
     if f._health then
         if hidePower then
-            f._health:SetHeight(h)
+            f._health:SetHeight(h - topBarH)
         else
-            f._health:SetHeight(healthH)
+            f._health:SetHeight(healthH - topBarH)
         end
     end
 
@@ -8436,6 +8696,10 @@ local function ApplyPreviewData(f, index)
     if f._nameText then
         f._nameText:ClearAllPoints()
         local pos = s.namePosition or "center"
+        if pos == "none" or s.topNameBarEnabled then
+            f._nameText:Hide()
+        else
+        f._nameText:Show()
         local ox = s.nameOffsetX or 0
         local oy = s.nameOffsetY or 0
         f._nameText:SetWidth((s.frameWidth or 72) * 0.75)
@@ -8485,6 +8749,7 @@ local function ApplyPreviewData(f, index)
             if cc then f._nameText:SetTextColor(cc.r, cc.g, cc.b)
             else f._nameText:SetTextColor(1, 1, 1) end
         end
+        end -- pos ~= "none"
     end
 
     -- Dead/offline/AFK states (only when indicators eyeball is on)
@@ -8622,12 +8887,17 @@ local function ApplyPreviewData(f, index)
         end
     end
 
-    -- Dead/DC overlay
+    -- Dead/DC overlay (mirror the live-frame status tint: full-cover bg)
     if isDead then
         if f._health then
             f._health:SetValue(0)
             local ft = f._health:GetStatusBarTexture()
             if ft then ft:SetAlpha(0) end
+        end
+        if f._bg then
+            local c = s.statusColorDead or { r = 0x6D/255, g = 0x31/255, b = 0x31/255 }
+            f._bg:ClearAllPoints(); f._bg:SetAllPoints(f._health)
+            f._bg:SetColorTexture(c.r, c.g, c.b, 1)
         end
         -- Hide shield on dead players
         if f._absorbBar then
@@ -8639,6 +8909,11 @@ local function ApplyPreviewData(f, index)
             f._health:SetValue(0)
             local ft = f._health:GetStatusBarTexture()
             if ft then ft:SetAlpha(0) end
+        end
+        if f._bg then
+            local c = s.statusColorOffline or { r = 0x66/255, g = 0x66/255, b = 0x66/255 }
+            f._bg:ClearAllPoints(); f._bg:SetAllPoints(f._health)
+            f._bg:SetColorTexture(c.r, c.g, c.b, 1)
         end
     end
 
@@ -9045,10 +9320,22 @@ do
     end
     ns._SetPreviewMouseBlock = setBlock
     function ns._SetRealFramesPreviewHidden(on)
-        local a = on and 0 or 1
-        if containerFrame then containerFrame:SetAlpha(a) end
-        if ns._partyContainerFrame then ns._partyContainerFrame:SetAlpha(a) end
-        setBlock(on)
+        -- Overlay preview is a separate docked panel, so the real frames are NOT
+        -- under it: leave them faintly visible (alpha 0.2) and DON'T mouse-block
+        -- them. Real preview replaces the frames in place, so keep the original
+        -- behavior there: hide fully (alpha 0) + block clicks.
+        local isOverlay = (db.profile.previewMode == "overlay") or ns._testMode
+        if isOverlay then
+            local a = on and 0.2 or 1
+            if containerFrame then containerFrame:SetAlpha(a) end
+            if ns._partyContainerFrame then ns._partyContainerFrame:SetAlpha(a) end
+            setBlock(false)
+        else
+            local a = on and 0 or 1
+            if containerFrame then containerFrame:SetAlpha(a) end
+            if ns._partyContainerFrame then ns._partyContainerFrame:SetAlpha(a) end
+            setBlock(on)
+        end
     end
 end
 
@@ -9077,7 +9364,7 @@ local function ShowPreview()
     -- Preview container
     if not previewContainer then
         previewContainer = CreateFrame("Frame", nil, UIParent)
-        previewContainer:SetFrameStrata("LOW")
+        previewContainer:SetFrameStrata("HIGH")
     end
     local pos = db.profile.unlockPos
     previewContainer:ClearAllPoints()
@@ -9155,6 +9442,10 @@ local function ApplyPreviewMode()
     if not isOverlay and overlayContainer then
         overlayContainer:Hide()
     end
+    -- Re-apply the real-frame hide state for the (possibly just-changed) mode so a
+    -- live Real<->Overlay switch updates alpha + mouse-block: overlay shows the
+    -- real frames faintly with NO block; real hides them fully + blocks.
+    ns._SetRealFramesPreviewHidden(true)
     -- RefreshPreview handles reparenting, anchoring, and overlay sizing
     RefreshPreview()
 end
@@ -9236,6 +9527,7 @@ ns._ShowSizePreview = function(tier)
     local texPath = ResolveHealthTexture()
     local powerH = IsPowerBarEnabled(s) and PixelSnap(s.powerHeight or 4) or 0
     local healthH = PixelSnap(bh - powerH)
+    local topBarH = (s.topNameBarEnabled and PixelSnap(s.topNameBarHeight or 20)) or 0
 
     -- Group bounding box (same logic as LayoutGroups)
     local groupW, groupH
@@ -9296,7 +9588,7 @@ ns._ShowSizePreview = function(tier)
     local pad = 0
     container:SetSize(totalW, totalH)
     if container._bg then container._bg:Hide() end
-    container:SetFrameStrata("LOW")
+    container:SetFrameStrata("HIGH")
     container:ClearAllPoints()
     local unlockPos = s.unlockPos
     if unlockPos then
@@ -9406,6 +9698,21 @@ ns._ShowSizePreview = function(tier)
             nameFS:SetWordWrap(false)
             f._nameText = nameFS
 
+            -- Top Name Bar
+            local tnb = CreateFrame("Frame", nil, f)
+            tnb:SetFrameLevel(f:GetFrameLevel() + 4)
+            tnb:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+            tnb:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
+            local tnbBg = tnb:CreateTexture(nil, "BACKGROUND")
+            tnbBg:SetAllPoints()
+            if PP then PP.DisablePixelSnap(tnbBg) end
+            local tnbText = tnb:CreateFontString(nil, "OVERLAY")
+            tnbText:SetWordWrap(false)
+            tnb:Hide()
+            f._topNameBar = tnb
+            f._topNameBarBg = tnbBg
+            f._topNameBarText = tnbText
+
             -- Role icon
             local roleIcon = health:CreateTexture(nil, "OVERLAY")
             roleIcon:Hide()
@@ -9416,7 +9723,8 @@ ns._ShowSizePreview = function(tier)
 
         f:SetParent(container)
         f:SetSize(bw, bh)
-        f._health:SetHeight(healthH)
+        -- Health top anchor + Top Name Bar (per-power block below re-sets height)
+        LayoutTopNameBar(s, bh, powerH, f._health, f._topNameBar, f._topNameBarBg, f._topNameBarText)
         f._health:SetStatusBarTexture(texPath)
         f._health:GetStatusBarTexture():SetHorizTile(false)
         f._health:SetValue(100)
@@ -9444,17 +9752,20 @@ ns._ShowSizePreview = function(tier)
                 local pr, pg, pb = GetPowerColorByToken(pwToken)
                 f._power:SetStatusBarColor(pr, pg, pb)
                 f._power:Show()
-                -- Adjust health height for power bar
-                f._health:SetHeight(healthH)
+                -- Adjust health height for power bar (and Top Name Bar)
+                f._health:SetHeight(healthH - topBarH)
             else
                 f._power:Hide()
-                -- Expand health to full frame height
-                f._health:SetHeight(bh)
+                -- Expand health to full frame height (still reserving the top bar)
+                f._health:SetHeight(bh - topBarH)
             end
         end
 
         -- Name text
         if f._nameText then
+            if s.namePosition == "none" or s.topNameBarEnabled then
+                f._nameText:Hide()
+            else
             local name = NAMES[((i - 1) % #NAMES) + 1]
             f._nameText:SetFont(fontPath, nameSize, GetOutline())
             if GetOutline() == "" and GetUseShadow() then
@@ -9474,6 +9785,27 @@ ns._ShowSizePreview = function(tier)
             f._nameText:ClearAllPoints()
             f._nameText:SetPoint("CENTER", f._health, "CENTER", 0, 0)
             f._nameText:Show()
+            end -- namePosition ~= "none"
+        end
+
+        -- Top Name Bar text (size/anchor/align/visibility set by LayoutTopNameBar)
+        if f._topNameBarText and s.topNameBarEnabled then
+            f._topNameBarText:SetFont(fontPath, s.topNameBarTextSize or 11, GetOutline())
+            if GetOutline() == "" and GetUseShadow() then
+                f._topNameBarText:SetShadowOffset(1, -1)
+                f._topNameBarText:SetShadowColor(0, 0, 0, 1)
+            else
+                f._topNameBarText:SetShadowOffset(0, 0)
+            end
+            f._topNameBarText:SetText(NAMES[((i - 1) % #NAMES) + 1])
+            if (s.topNameBarTextColorMode or "class") == "custom" then
+                local c = s.topNameBarTextColor or { r = 1, g = 1, b = 1 }
+                f._topNameBarText:SetTextColor(c.r, c.g, c.b)
+            elseif cc then
+                f._topNameBarText:SetTextColor(cc.r, cc.g, cc.b)
+            else
+                f._topNameBarText:SetTextColor(1, 1, 1)
+            end
         end
 
         -- Role icon
@@ -9874,7 +10206,7 @@ local function RefreshPartyPreview()
             f:Hide()
         else
             if f:GetParent() ~= parentFrame then f:SetParent(parentFrame) end
-            f:SetFrameStrata(isOverlay and "FULLSCREEN_DIALOG" or "LOW")
+            f:SetFrameStrata(isOverlay and "FULLSCREEN_DIALOG" or "HIGH")
             f:ClearAllPoints()
             if isVert then
                 local yOff = slot * (h + spacing)
@@ -10267,6 +10599,7 @@ function ERF:OnEnable()
     eventFrame:RegisterEvent("READY_CHECK")
     eventFrame:RegisterEvent("READY_CHECK_CONFIRM")
     eventFrame:RegisterEvent("READY_CHECK_FINISHED")
+    eventFrame:RegisterEvent("INCOMING_SUMMON_CHANGED")
     eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")

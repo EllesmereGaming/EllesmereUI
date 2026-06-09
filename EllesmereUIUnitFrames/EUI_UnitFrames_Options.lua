@@ -3409,13 +3409,17 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Row 2: Bar Texture | Dark Mode
-            _, h = W:DualRow(parent, y,
+        -- Row 2: Bar Texture (per-unit + sync) | Dark Mode
+        -- healthBarTexture is per-unit (drives health/power/cast/absorb). The global
+        -- db.profile.healthBarTexture remains as the inherited fallback for any unit
+        -- that hasn't set its own, so existing setups are unchanged until overridden.
+        local barTexRow
+        barTexRow, h = W:DualRow(parent, y,
                 { type="dropdown", text="Bar Texture", values=hbtValues, order=hbtOrder,
-                  getValue=function() return db.profile.healthBarTexture or "none" end,
+                  getValue=function() return SVal("healthBarTexture", db.profile.healthBarTexture or "none") end,
                   setValue=function(v)
-                      db.profile.healthBarTexture = v
-                      ReloadAndUpdate(); UpdatePreview()
+                      SSet("healthBarTexture", v)
+                      UpdatePreview(); EllesmereUI:RefreshPage()
                   end },
                 { type="toggle", text="Dark Mode",
                   getValue=function() return db.profile.darkTheme end,
@@ -3424,6 +3428,40 @@ initFrame:SetScript("OnEvent", function(self)
                       ReloadAndUpdate(); UpdatePreview()
                       EllesmereUI:RefreshPage()
                   end });  y = y - h
+        -- Sync icon: Bar Texture (left region) -- pushes this unit's texture to frames
+        do
+            local rgn = barTexRow._leftRegion
+            local function ApplyTexTo(keys)
+                local src = UNIT_DB_MAP[selectedUnit]()
+                local tex = src.healthBarTexture or db.profile.healthBarTexture or "none"
+                for _, key in ipairs(keys) do
+                    if key ~= selectedUnit then
+                        UNIT_DB_MAP[key]().healthBarTexture = tex
+                    end
+                end
+                ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
+            end
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Bar Texture to all Frames",
+                onClick = function() ApplyTexTo(GROUP_UNIT_ORDER) end,
+                isSynced = function()
+                    local g = db.profile.healthBarTexture or "none"
+                    local srcTex = UNIT_DB_MAP[selectedUnit]().healthBarTexture or g
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().healthBarTexture or g) ~= srcTex then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys) ApplyTexTo(checkedKeys) end,
+                },
+            })
+        end
 
         -- Row 3: Border Style (+ cog) | Border (slider + double inline swatches)
         local sharedScaleBorderRow
@@ -7506,6 +7544,226 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:Spacer(parent, y, 20); y = y - h
 
+        local sharedBuffDebuffHeader
+        -------------------------------------------------------------------
+        --  BUFFS AND DEBUFFS
+        -------------------------------------------------------------------
+        sharedBuffDebuffHeader, h = W:SectionHeader(parent, "BUFFS AND DEBUFFS", y); y = y - h
+
+        -- Buffs: Location | Icon Size + inline directions cog (X/Y)
+        local sharedAddRow2
+        sharedAddRow2, h = W:DualRow(parent, y,
+            { type="dropdown", text="Buff Display", values=buffAnchorValues, order=buffAnchorOrder,
+              getValue=function()
+                  local s = UNIT_DB_MAP[selectedUnit]()
+                  if s.showBuffs == false then return "none" end
+                  return SValSupported("buffAnchor", "topleft")
+              end,
+              setValue=function(v)
+                  local s = UNIT_DB_MAP[selectedUnit]()
+                  if v == "none" then
+                      s.showBuffs = false
+                  else
+                      s.showBuffs = true
+                      SwapAuraSlot(s, "buffAnchor", v)
+                  end
+                  ReloadAndUpdate(); UpdatePreview()
+              end },
+            { type="slider", text="Buff Size", min=10, max=70, step=1,
+              getValue=function() return SValSupported("buffSize", 22) end,
+              setValue=function(v) SSetSupported("buffSize", v) end });  y = y - h
+        SApplySupport(sharedAddRow2._leftRegion, "showBuffs")
+        -- Sync icon: Buffs Location (left)
+        do
+            local rgn = sharedAddRow2._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Buffs Location to all Frames",
+                onClick = function()
+                    local s = UNIT_DB_MAP[selectedUnit]()
+                    local showV = s.showBuffs
+                    if showV == nil then showV = true end
+                    local anchorV = s.buffAnchor or "topleft"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        UNIT_DB_MAP[key]().showBuffs = showV
+                        if showV then UNIT_DB_MAP[key]().buffAnchor = anchorV end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local s = UNIT_DB_MAP[selectedUnit]()
+                    local showV = s.showBuffs
+                    if showV == nil then showV = true end
+                    local anchorV = s.buffAnchor or "topleft"
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        local os = UNIT_DB_MAP[key]()
+                        local ov = os.showBuffs; if ov == nil then ov = true end
+                        if ov ~= showV then return false end
+                        if showV and (os.buffAnchor or "topleft") ~= anchorV then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local s = UNIT_DB_MAP[selectedUnit]()
+                        local showV = s.showBuffs
+                        if showV == nil then showV = true end
+                        local anchorV = s.buffAnchor or "topleft"
+                        for _, key in ipairs(checkedKeys) do
+                            UNIT_DB_MAP[key]().showBuffs = showV
+                            if showV then UNIT_DB_MAP[key]().buffAnchor = anchorV end
+                        end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+        -- Cog on Buffs Location (Growth + Max Count)
+        do
+            local leftRgn = sharedAddRow2._leftRegion
+            local _, buffCogShow = EllesmereUI.BuildCogPopup({
+                title = "Buff Settings",
+                rows = {
+                    { type="dropdown", label="Growth Direction", values=buffGrowthValues, order=buffGrowthOrder,
+                      get=function() return SValSupported("buffGrowth", "auto") end,
+                      set=function(v) SSetSupported("buffGrowth", v) end },
+                    { type="slider", label="Max Count", min=1, max=20, step=1,
+                      get=function() return SValSupported("maxBuffs", 4) end,
+                      set=function(v) SSetSupported("maxBuffs", v) end },
+                    { type="toggle", label="Show Cooldown Text",
+                      get=function() return SValSupported("buffShowCooldownText", false) end,
+                      set=function(v) SSetSupported("buffShowCooldownText", v) end },
+                    { type="slider", label="Text Size", min=6, max=18, step=1,
+                      get=function() return SValSupported("buffCooldownTextSize", 10) end,
+                      set=function(v) SSetSupported("buffCooldownTextSize", v) end },
+                },
+            })
+            MakeCogBtn(leftRgn, buffCogShow)
+        end
+        -- Directions cog on Buff Icon Size (X/Y offsets)
+        do
+            local rightRgn = sharedAddRow2._rightRegion
+            local _, buffPosCogShow = EllesmereUI.BuildCogPopup({
+                title = "Buff Position",
+                rows = {
+                    { type="slider", label="Offset X", min=-100, max=100, step=1,
+                      get=function() return SValSupported("buffOffsetX", 0) end,
+                      set=function(v) SSetSupported("buffOffsetX", v) end },
+                    { type="slider", label="Offset Y", min=-100, max=100, step=1,
+                      get=function() return SValSupported("buffOffsetY", 0) end,
+                      set=function(v) SSetSupported("buffOffsetY", v) end },
+                },
+            })
+            MakeCogBtn(rightRgn, buffPosCogShow, nil, EllesmereUI.DIRECTIONS_ICON)
+        end
+
+        -- Debuffs: Location | Icon Size + inline directions cog (X/Y)
+        local sharedAddRow3
+        sharedAddRow3, h = W:DualRow(parent, y,
+            { type="dropdown", text="Debuff Display", values=buffAnchorValues, order=buffAnchorOrder,
+              getValue=function()
+                  return SValSupported("debuffAnchor", "bottomleft")
+              end,
+              setValue=function(v)
+                  SwapAuraSlot(UNIT_DB_MAP[selectedUnit](), "debuffAnchor", v)
+                  ReloadAndUpdate(); UpdatePreview()
+              end },
+            { type="slider", text="Debuff Size", min=10, max=70, step=1,
+              getValue=function() return SValSupported("debuffSize", 22) end,
+              setValue=function(v) SSetSupported("debuffSize", v) end });  y = y - h
+        -- Cog on Debuffs Location (Growth + Max Count)
+        do
+            local leftRgn = sharedAddRow3._leftRegion
+            local _, debuffCogShow = EllesmereUI.BuildCogPopup({
+                title = "Debuff Settings",
+                rows = {
+                    { type="dropdown", label="Growth Direction", values=buffGrowthValues, order=buffGrowthOrder,
+                      get=function() return SValSupported("debuffGrowth", "auto") end,
+                      set=function(v) SSetSupported("debuffGrowth", v) end },
+                    { type="slider", label="Max Count", min=1, max=20, step=1,
+                      get=function() return SValSupported("maxDebuffs", 20) end,
+                      set=function(v) SSetSupported("maxDebuffs", v) end },
+                    { type="toggle", label="Show Cooldown Text",
+                      get=function() return SValSupported("debuffShowCooldownText", false) end,
+                      set=function(v) SSetSupported("debuffShowCooldownText", v) end },
+                    { type="slider", label="Text Size", min=6, max=18, step=1,
+                      get=function() return SValSupported("debuffCooldownTextSize", 10) end,
+                      set=function(v) SSetSupported("debuffCooldownTextSize", v) end },
+                },
+            })
+            MakeCogBtn(leftRgn, debuffCogShow)
+        end
+        -- Directions cog on Debuff Icon Size (X/Y offsets)
+        do
+            local rightRgn = sharedAddRow3._rightRegion
+            local _, debuffPosCogShow = EllesmereUI.BuildCogPopup({
+                title = "Debuff Position",
+                rows = {
+                    { type="slider", label="Offset X", min=-100, max=100, step=1,
+                      get=function() return SValSupported("debuffOffsetX", 0) end,
+                      set=function(v) SSetSupported("debuffOffsetX", v) end },
+                    { type="slider", label="Offset Y", min=-100, max=100, step=1,
+                      get=function() return SValSupported("debuffOffsetY", 0) end,
+                      set=function(v) SSetSupported("debuffOffsetY", v) end },
+                },
+            })
+            MakeCogBtn(rightRgn, debuffPosCogShow, nil, EllesmereUI.DIRECTIONS_ICON)
+        end
+
+        -- Per-unit aura filters (NOT synced). Labels track the selected section
+        -- (Player/Target/Focus). Each is a multi-select checkbox dropdown; checked
+        -- options AND together into one Blizzard aura-filter string at runtime
+        -- (Own Only = PLAYER, Raid Frames = RAID, Important = IMPORTANT). "Own Only"
+        -- reuses the legacy onlyPlayerDebuffs key so existing settings carry over.
+        do
+            local filterItems = {
+                { key = "important",  label = "Important",   tooltip = "Shows only the spells Blizzard flags as Important" },
+                { key = "ownOnly",    label = "Own Only",    tooltip = "Shows only the Buffs/Debuffs you apply" },
+                { key = "raidFrames", label = "Raid Frames", tooltip = "Shows only the Buffs/Debuffs that appear on Raid Frames" },
+            }
+            local BUFF_FILTER_KEYS   = { ownOnly = "onlyPlayerBuffs",   important = "buffImportant",   raidFrames = "buffRaid" }
+            local DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", important = "debuffImportant", raidFrames = "debuffRaid" }
+            local unitLabel = UNIT_LABELS_SUP[selectedUnit] or "Player"
+            local filterRow
+            filterRow, h = W:DualRow(parent, y,
+                { type="dropdown", text=unitLabel.." Buff Filter",
+                  values={ __placeholder="..." }, order={ "__placeholder" },
+                  getValue=function() return "__placeholder" end, setValue=function() end },
+                { type="dropdown", text=unitLabel.." Debuff Filter",
+                  values={ __placeholder="..." }, order={ "__placeholder" },
+                  getValue=function() return "__placeholder" end, setValue=function() end });  y = y - h
+            -- Left slot: Buff Filter
+            do
+                local rgn = filterRow._leftRegion
+                if rgn._control then rgn._control:Hide() end
+                local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    rgn, 210, rgn:GetFrameLevel() + 2, filterItems,
+                    function(k) return SValSupported(BUFF_FILTER_KEYS[k], false) end,
+                    function(k, v) SSetSupported(BUFF_FILTER_KEYS[k], v) end)
+                PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+                rgn._control = cbDD; rgn._lastInline = nil
+                RegisterWidgetRefresh(cbRefresh)
+            end
+            -- Right slot: Debuff Filter
+            do
+                local rgn = filterRow._rightRegion
+                if rgn._control then rgn._control:Hide() end
+                local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    rgn, 210, rgn:GetFrameLevel() + 2, filterItems,
+                    function(k) return SValSupported(DEBUFF_FILTER_KEYS[k], false) end,
+                    function(k, v) SSetSupported(DEBUFF_FILTER_KEYS[k], v) end)
+                PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+                rgn._control = cbDD; rgn._lastInline = nil
+                RegisterWidgetRefresh(cbRefresh)
+            end
+        end
+
+        _, h = W:Spacer(parent, y, 20); y = y - h
+
         local sharedAddHeader
         -------------------------------------------------------------------
         --  ADDITIONAL SETTINGS
@@ -7719,173 +7977,6 @@ initFrame:SetScript("OnEvent", function(self)
         end
         end -- _showAbsorbsCombat
 
-        -- Row 2: Buffs Location | Icon Size + inline directions cog (X/Y)
-        local sharedAddRow2
-        sharedAddRow2, h = W:DualRow(parent, y,
-            { type="dropdown", text="Buff Display", values=buffAnchorValues, order=buffAnchorOrder,
-              getValue=function()
-                  local s = UNIT_DB_MAP[selectedUnit]()
-                  if s.showBuffs == false then return "none" end
-                  return SValSupported("buffAnchor", "topleft")
-              end,
-              setValue=function(v)
-                  local s = UNIT_DB_MAP[selectedUnit]()
-                  if v == "none" then
-                      s.showBuffs = false
-                  else
-                      s.showBuffs = true
-                      SwapAuraSlot(s, "buffAnchor", v)
-                  end
-                  ReloadAndUpdate(); UpdatePreview()
-              end },
-            { type="slider", text="Buff Size", min=10, max=50, step=1,
-              getValue=function() return SValSupported("buffSize", 22) end,
-              setValue=function(v) SSetSupported("buffSize", v) end });  y = y - h
-        SApplySupport(sharedAddRow2._leftRegion, "showBuffs")
-        -- Sync icon: Buffs Location (left)
-        do
-            local rgn = sharedAddRow2._leftRegion
-            EllesmereUI.BuildSyncIcon({
-                region  = rgn,
-                tooltip = "Apply Buffs Location to all Frames",
-                onClick = function()
-                    local s = UNIT_DB_MAP[selectedUnit]()
-                    local showV = s.showBuffs
-                    if showV == nil then showV = true end
-                    local anchorV = s.buffAnchor or "topleft"
-                    for _, key in ipairs(GROUP_UNIT_ORDER) do
-                        UNIT_DB_MAP[key]().showBuffs = showV
-                        if showV then UNIT_DB_MAP[key]().buffAnchor = anchorV end
-                    end
-                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
-                end,
-                isSynced = function()
-                    local s = UNIT_DB_MAP[selectedUnit]()
-                    local showV = s.showBuffs
-                    if showV == nil then showV = true end
-                    local anchorV = s.buffAnchor or "topleft"
-                    for _, key in ipairs(GROUP_UNIT_ORDER) do
-                        local os = UNIT_DB_MAP[key]()
-                        local ov = os.showBuffs; if ov == nil then ov = true end
-                        if ov ~= showV then return false end
-                        if showV and (os.buffAnchor or "topleft") ~= anchorV then return false end
-                    end
-                    return true
-                end,
-                flashTargets = function() return { rgn } end,
-                multiApply = {
-                    elementKeys   = GROUP_UNIT_ORDER,
-                    elementLabels = SHORT_LABELS,
-                    getCurrentKey = function() return selectedUnit end,
-                    onApply       = function(checkedKeys)
-                        local s = UNIT_DB_MAP[selectedUnit]()
-                        local showV = s.showBuffs
-                        if showV == nil then showV = true end
-                        local anchorV = s.buffAnchor or "topleft"
-                        for _, key in ipairs(checkedKeys) do
-                            UNIT_DB_MAP[key]().showBuffs = showV
-                            if showV then UNIT_DB_MAP[key]().buffAnchor = anchorV end
-                        end
-                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
-                    end,
-                },
-            })
-        end
-        -- Cog on Buffs Location (Growth + Max Count)
-        do
-            local leftRgn = sharedAddRow2._leftRegion
-            local _, buffCogShow = EllesmereUI.BuildCogPopup({
-                title = "Buff Settings",
-                rows = {
-                    { type="dropdown", label="Growth Direction", values=buffGrowthValues, order=buffGrowthOrder,
-                      get=function() return SValSupported("buffGrowth", "auto") end,
-                      set=function(v) SSetSupported("buffGrowth", v) end },
-                    { type="slider", label="Max Count", min=1, max=20, step=1,
-                      get=function() return SValSupported("maxBuffs", 4) end,
-                      set=function(v) SSetSupported("maxBuffs", v) end },
-                    { type="toggle", label="Show Cooldown Text",
-                      get=function() return SValSupported("buffShowCooldownText", false) end,
-                      set=function(v) SSetSupported("buffShowCooldownText", v) end },
-                    { type="slider", label="Text Size", min=6, max=18, step=1,
-                      get=function() return SValSupported("buffCooldownTextSize", 10) end,
-                      set=function(v) SSetSupported("buffCooldownTextSize", v) end },
-                },
-            })
-            MakeCogBtn(leftRgn, buffCogShow)
-        end
-        -- Directions cog on Buff Icon Size (X/Y offsets)
-        do
-            local rightRgn = sharedAddRow2._rightRegion
-            local _, buffPosCogShow = EllesmereUI.BuildCogPopup({
-                title = "Buff Position",
-                rows = {
-                    { type="slider", label="Offset X", min=-100, max=100, step=1,
-                      get=function() return SValSupported("buffOffsetX", 0) end,
-                      set=function(v) SSetSupported("buffOffsetX", v) end },
-                    { type="slider", label="Offset Y", min=-100, max=100, step=1,
-                      get=function() return SValSupported("buffOffsetY", 0) end,
-                      set=function(v) SSetSupported("buffOffsetY", v) end },
-                },
-            })
-            MakeCogBtn(rightRgn, buffPosCogShow, nil, EllesmereUI.DIRECTIONS_ICON)
-        end
-
-        -- Row 3: Debuffs Location | Icon Size + inline directions cog (X/Y)
-        local sharedAddRow3
-        sharedAddRow3, h = W:DualRow(parent, y,
-            { type="dropdown", text="Debuff Display", values=buffAnchorValues, order=buffAnchorOrder,
-              getValue=function()
-                  return SValSupported("debuffAnchor", "bottomleft")
-              end,
-              setValue=function(v)
-                  SwapAuraSlot(UNIT_DB_MAP[selectedUnit](), "debuffAnchor", v)
-                  ReloadAndUpdate(); UpdatePreview()
-              end },
-            { type="slider", text="Debuff Size", min=10, max=50, step=1,
-              getValue=function() return SValSupported("debuffSize", 22) end,
-              setValue=function(v) SSetSupported("debuffSize", v) end });  y = y - h
-        -- Cog on Debuffs Location (Growth + Max Count + Show Own Only)
-        do
-            local leftRgn = sharedAddRow3._leftRegion
-            local _, debuffCogShow = EllesmereUI.BuildCogPopup({
-                title = "Debuff Settings",
-                rows = {
-                    { type="dropdown", label="Growth Direction", values=buffGrowthValues, order=buffGrowthOrder,
-                      get=function() return SValSupported("debuffGrowth", "auto") end,
-                      set=function(v) SSetSupported("debuffGrowth", v) end },
-                    { type="slider", label="Max Count", min=1, max=20, step=1,
-                      get=function() return SValSupported("maxDebuffs", 20) end,
-                      set=function(v) SSetSupported("maxDebuffs", v) end },
-                    { type="toggle", label="Show Own Only",
-                      get=function() return SValSupported("onlyPlayerDebuffs", false) end,
-                      set=function(v) SSetSupported("onlyPlayerDebuffs", v) end },
-                    { type="toggle", label="Show Cooldown Text",
-                      get=function() return SValSupported("debuffShowCooldownText", false) end,
-                      set=function(v) SSetSupported("debuffShowCooldownText", v) end },
-                    { type="slider", label="Text Size", min=6, max=18, step=1,
-                      get=function() return SValSupported("debuffCooldownTextSize", 10) end,
-                      set=function(v) SSetSupported("debuffCooldownTextSize", v) end },
-                },
-            })
-            MakeCogBtn(leftRgn, debuffCogShow)
-        end
-        -- Directions cog on Debuff Icon Size (X/Y offsets)
-        do
-            local rightRgn = sharedAddRow3._rightRegion
-            local _, debuffPosCogShow = EllesmereUI.BuildCogPopup({
-                title = "Debuff Position",
-                rows = {
-                    { type="slider", label="Offset X", min=-100, max=100, step=1,
-                      get=function() return SValSupported("debuffOffsetX", 0) end,
-                      set=function(v) SSetSupported("debuffOffsetX", v) end },
-                    { type="slider", label="Offset Y", min=-100, max=100, step=1,
-                      get=function() return SValSupported("debuffOffsetY", 0) end,
-                      set=function(v) SSetSupported("debuffOffsetY", v) end },
-                },
-            })
-            MakeCogBtn(rightRgn, debuffPosCogShow, nil, EllesmereUI.DIRECTIONS_ICON)
-        end
-
         -- Row 4: Raid Marker toggle | Icon Size slider + inline directions cog (X/Y)
         local function raidMarkerOff()
             return SValSupported("raidMarkerEnabled", false) == false
@@ -7904,9 +7995,14 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSetSupported("raidMarkerSize", v) end });  y = y - h
         do
             local rgn = sharedAddRow4._rightRegion
+            local rmPosValues = { ["left"]="Left", ["center"]="Center", ["right"]="Right" }
+            local rmPosOrder  = { "left", "center", "right" }
             local _, rmCogShow = EllesmereUI.BuildCogPopup({
-                title = "Raid Marker Position",
+                title = "Raid Marker Settings",
                 rows = {
+                    { type="dropdown", label="Position", values=rmPosValues, order=rmPosOrder,
+                      get=function() return SValSupported("raidMarkerAlign", "right") end,
+                      set=function(v) SSetSupported("raidMarkerAlign", v) end },
                     { type="slider", label="X Offset", min=-200, max=200, step=1,
                       get=function() return SValSupported("raidMarkerX", 0) end,
                       set=function(v) SSetSupported("raidMarkerX", v) end },
@@ -8077,6 +8173,38 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
+        -- Enemy Colors: custom reaction colors for non-player units. Global (one
+        -- set shared by all frames); empty entries fall back to Blizzard defaults.
+        do
+            local function enemySwatch(key, defIdx, dr, dg, dbb, tip)
+                return {
+                    tooltip = tip,
+                    getValue = function()
+                        local ec = db.profile.enemyColors or {}
+                        local c = ec[key]
+                        if c then return c.r, c.g, c.b end
+                        local f = defIdx and FACTION_BAR_COLORS[defIdx]
+                        if f then return f.r, f.g, f.b end
+                        return dr, dg, dbb
+                    end,
+                    setValue = function(r, g, b)
+                        db.profile.enemyColors = db.profile.enemyColors or {}
+                        db.profile.enemyColors[key] = { r = r, g = g, b = b }
+                        if ns.ApplyEnemyColors then ns.ApplyEnemyColors() end
+                    end,
+                }
+            end
+            local _, eh = W:DualRow(parent, y,
+                { type = "multiSwatch", text = "Enemy Colors",
+                  swatches = {
+                      enemySwatch("hostile",  2,   0.78, 0.25, 0.25, "Hostile"),
+                      enemySwatch("neutral",  4,   0.85, 0.77, 0.36, "Neutral"),
+                      enemySwatch("friendly", 5,   0.29, 0.68, 0.30, "Friendly NPC"),
+                      enemySwatch("tapped",   nil, 0.6,  0.6,  0.6,  "Tapped"),
+                  } },
+                { type = "label", text = "" });  y = y - eh
+        end
+
         -------------------------------------------------------------------
         --  Return click mapping targets + total height
         -------------------------------------------------------------------
@@ -8095,8 +8223,8 @@ initFrame:SetScript("OnEvent", function(self)
             btbCenterText= { section = sharedBtbHeader,      target = sharedBtbCenterRow, slotSide = "left" },
             btbClassIcon = { section = sharedBtbHeader,      target = sharedBtbCenterRow, slotSide = "right" },
             combatIndicator = { section = sharedAddHeader, target = sharedAddRow1, slotSide = "right" },
-            buffIcon     = { section = sharedAddHeader,      target = sharedAddRow2, slotSide = "left" },
-            debuffIcon   = { section = sharedAddHeader,      target = sharedAddRow3, slotSide = "left" },
+            buffIcon     = { section = sharedBuffDebuffHeader, target = sharedAddRow2, slotSide = "left" },
+            debuffIcon   = { section = sharedBuffDebuffHeader, target = sharedAddRow3, slotSide = "left" },
             raidMarker   = { section = sharedAddHeader,      target = sharedAddRow4, slotSide = "left" },
             leaderIndicator = { section = sharedAddHeader,   target = sharedAddRow5, slotSide = "left" },
             castBar      = { section = sharedCastHeader,     target = sharedCastRow1 },
@@ -9035,6 +9163,52 @@ initFrame:SetScript("OnEvent", function(self)
                       ReloadAndUpdate()
                   end });  yy = yy - hh
 
+            -- Per-unit aura filters for boss frames (NOT synced). Multi-select
+            -- checkbox dropdowns; checked options AND together into one Blizzard
+            -- aura-filter string at runtime (Own Only = PLAYER, Raid Frames = RAID,
+            -- Important = IMPORTANT). "Own Only" reuses the legacy onlyPlayerDebuffs
+            -- key so existing boss settings carry over.
+            do
+                local PP = EllesmereUI.PanelPP
+                local filterItems = {
+                    { key = "important",  label = "Important",   tooltip = "Shows only the spells Blizzard flags as Important" },
+                    { key = "ownOnly",    label = "Own Only",    tooltip = "Shows only the Buffs/Debuffs you apply" },
+                    { key = "raidFrames", label = "Raid Frames", tooltip = "Shows only the Buffs/Debuffs that appear on Raid Frames" },
+                }
+                local BUFF_FILTER_KEYS   = { ownOnly = "onlyPlayerBuffs",   important = "buffImportant",   raidFrames = "buffRaid" }
+                local DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", important = "debuffImportant", raidFrames = "debuffRaid" }
+                local filterRow
+                filterRow, hh = Ww:DualRow(pp, yy,
+                    { type="dropdown", text="Boss Buff Filter",
+                      values={ __placeholder="..." }, order={ "__placeholder" },
+                      getValue=function() return "__placeholder" end, setValue=function() end },
+                    { type="dropdown", text="Boss Debuff Filter",
+                      values={ __placeholder="..." }, order={ "__placeholder" },
+                      getValue=function() return "__placeholder" end, setValue=function() end });  yy = yy - hh
+                do
+                    local rgn = filterRow._leftRegion
+                    if rgn._control then rgn._control:Hide() end
+                    local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                        rgn, 210, rgn:GetFrameLevel() + 2, filterItems,
+                        function(k) return db.profile.boss[BUFF_FILTER_KEYS[k]] or false end,
+                        function(k, v) db.profile.boss[BUFF_FILTER_KEYS[k]] = v; ReloadAndUpdate() end)
+                    PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+                    rgn._control = cbDD; rgn._lastInline = nil
+                    EllesmereUI.RegisterWidgetRefresh(cbRefresh)
+                end
+                do
+                    local rgn = filterRow._rightRegion
+                    if rgn._control then rgn._control:Hide() end
+                    local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                        rgn, 210, rgn:GetFrameLevel() + 2, filterItems,
+                        function(k) return db.profile.boss[DEBUFF_FILTER_KEYS[k]] or false end,
+                        function(k, v) db.profile.boss[DEBUFF_FILTER_KEYS[k]] = v; ReloadAndUpdate() end)
+                    PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+                    rgn._control = cbDD; rgn._lastInline = nil
+                    EllesmereUI.RegisterWidgetRefresh(cbRefresh)
+                end
+            end
+
             -- Cogwheel on Buffs Location
             do
                 local leftRgn = bossAuraRow._leftRegion
@@ -9110,9 +9284,6 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Max Count", min=1, max=20, step=1,
                           get=function() return db.profile.boss.maxDebuffs or 10 end,
                           set=function(v) db.profile.boss.maxDebuffs = v; ReloadAndUpdate() end },
-                        { type="toggle", label="Show Own Only",
-                          get=function() return db.profile.boss.onlyPlayerDebuffs or false end,
-                          set=function(v) db.profile.boss.onlyPlayerDebuffs = v; ReloadAndUpdate() end },
                         { type="toggle", label="Show Cooldown Text",
                           get=function() return db.profile.boss.debuffShowCooldownText end,
                           set=function(v) db.profile.boss.debuffShowCooldownText = v; ReloadAndUpdate() end },

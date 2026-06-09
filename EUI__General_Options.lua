@@ -421,8 +421,8 @@ initFrame:SetScript("OnEvent", function(self)
                 end
               end },
             { type="dropdown", text="EUI Options Scale",
-              values={ ["Tiny (75%)"]="Tiny (75%)", ["Small (90%)"]="Small (90%)", ["Normal (100%)"]="Normal (100%)", ["Large (110%)"]="Large (110%)", ["Huge (125%)"]="Huge (125%)", ["Massive (150%)"]="Massive (150%)" },
-              order={ "Tiny (75%)", "Small (90%)", "Normal (100%)", "Large (110%)", "Huge (125%)", "Massive (150%)" },
+              values={ ["Tiny (75%)"]="Tiny (75%)", ["Small (90%)"]="Small (90%)", ["Normal (100%)"]="Normal (100%)", ["Large (110%)"]="Large (110%)", ["Huge (125%)"]="Huge (125%)", ["Giant (150%)"]="Giant (150%)", ["Massive (200%)"]="Massive (200%)" },
+              order={ "Tiny (75%)", "Small (90%)", "Normal (100%)", "Large (110%)", "Huge (125%)", "Giant (150%)", "Massive (200%)" },
               getValue=function()
                 local raw = (EllesmereUIDB and EllesmereUIDB.panelScale) or 1.0
                 local pct = floor(raw * 100 + 0.5)
@@ -430,7 +430,8 @@ initFrame:SetScript("OnEvent", function(self)
                 if pct == 90  then return "Small (90%)"   end
                 if pct == 110 then return "Large (110%)"  end
                 if pct == 125 then return "Huge (125%)"   end
-                if pct == 150 then return "Massive (150%)" end
+                if pct == 150 then return "Giant (150%)"  end
+                if pct == 200 then return "Massive (200%)" end
                 return "Normal (100%)"
               end,
               setValue=function(v)
@@ -439,7 +440,8 @@ initFrame:SetScript("OnEvent", function(self)
                 elseif v == "Small (90%)"    then scale = 0.90
                 elseif v == "Large (110%)"  then scale = 1.10
                 elseif v == "Huge (125%)"   then scale = 1.25
-                elseif v == "Massive (150%)" then scale = 1.50 end
+                elseif v == "Giant (150%)"  then scale = 1.50
+                elseif v == "Massive (200%)" then scale = 2.00 end
                 if EllesmereUI.SetPanelScale then
                     EllesmereUI:SetPanelScale(scale)
                 end
@@ -2599,8 +2601,12 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Import Addons section (mirrors per-addon export layout)
             local selectedImports = {}
+            local includeLayoutImport = true     -- "Include layout" toggle (default on)
             local importVisuals = {}
             local importCountFs
+            local importComponents   -- canon folder -> { component member set }, set below
+            local importCanImport = {}
+            local CANON_DISPLAY = {}  -- canon folder -> display name (for the linked tooltip)
 
             local addonItems = {}
             for _, entry in ipairs(ADDON_DB_MAP_LOCAL) do
@@ -2613,17 +2619,42 @@ initFrame:SetScript("OnEvent", function(self)
                 local loaded = C_AddOns.IsAddOnLoaded(folder)
                 local inPayload = includedAddons[canon] or false
                 local canImport = loaded and inPayload
+                importCanImport[canon] = canImport
+                CANON_DISPLAY[canon] = entry.display
                 addonItems[#addonItems + 1] = {
                     folder    = folder,
+                    canon     = canon,
                     display   = entry.display,
                     desc      = ADDON_DESCS[folder] or "",
                     loaded    = loaded,
                     inPayload = inPayload,
                     canImport = canImport,
                     getVal    = function() return selectedImports[canon] or false end,
-                    setVal    = function(v) selectedImports[canon] = v or nil end,
+                    -- Hard-couple: checking/unchecking a module sets its whole
+                    -- connected component together (modules linked by anchor/size-
+                    -- match relationships), gated to importable members.
+                    setVal    = function(v)
+                        local members = importComponents and importComponents[canon]
+                        if members then
+                            for f in pairs(members) do
+                                if importCanImport[f] then selectedImports[f] = v or nil end
+                            end
+                        else
+                            selectedImports[canon] = v or nil
+                        end
+                    end,
                 }
                 if canImport then selectedImports[canon] = true end
+            end
+
+            -- Module connectivity from the payload's layout + meta (both CANONICAL,
+            -- matching selectedImports' keyspace). Drives the hard-couple above and
+            -- the "linked" row affordance. stale={} -- sender already pruned dead edges.
+            do
+                local ul   = payload and payload.data and payload.data.unlockLayout
+                local meta = payload and payload.data and payload.data.unlockLayoutMeta
+                importComponents = EllesmereUI.BuildModuleComponents(
+                    ul, EllesmereUI.BuildImportKeyToFolder(ul, meta and meta.keyToFolder))
             end
 
             local function RefreshImportCount()
@@ -2897,10 +2928,27 @@ initFrame:SetScript("OnEvent", function(self)
                     clickBtn:SetScript("OnEnter", function()
                         hoverTex:Show()
                         if not item.getVal() then nameFs:SetAlpha(0.75) end
+                        -- Linked-modules tooltip so the co-toggle isn't mysterious.
+                        local members = importComponents and importComponents[item.canon]
+                        if members then
+                            local names = {}
+                            for f in pairs(members) do
+                                if f ~= item.canon then
+                                    names[#names + 1] = (CANON_DISPLAY[f] or f)
+                                end
+                            end
+                            if #names > 0 then
+                                table.sort(names)
+                                EllesmereUI.ShowWidgetTooltip(rowFrame,
+                                    "Linked by Anchor/Width/Height Matching to: " .. table.concat(names, ", ")
+                                    .. ". These import together.")
+                            end
+                        end
                     end)
                     clickBtn:SetScript("OnLeave", function()
                         hoverTex:Hide()
                         if not item.getVal() then nameFs:SetAlpha(0.50) end
+                        EllesmereUI.HideWidgetTooltip()
                     end)
                 else
                     local blockFrame = CreateFrame("Frame", nil, rowFrame)
@@ -2933,6 +2981,34 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(importCountFs, "LEFT", footerFrame, "LEFT", SIDE_PAD, 0)
             importCountFs:SetJustifyH("LEFT")
             RefreshImportCount()
+
+            -- "Include layout" toggle: off = don't import any anchor/size-match
+            -- relationships (your existing layout is left untouched).
+            do
+                local ilBtn = CreateFrame("Button", nil, footerFrame)
+                ilBtn:SetSize(150, 24)
+                PP.Point(ilBtn, "LEFT", importCountFs, "RIGHT", 24, 0)
+                local box = CreateFrame("Frame", nil, ilBtn)
+                box:SetSize(CHK_SZ, CHK_SZ)
+                box:SetPoint("LEFT", ilBtn, "LEFT", 0, 0)
+                local bg = box:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints()
+                bg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                EllesmereUI.MakeBorder(box, 0.25, 0.25, 0.28, 0.6, PP)
+                local mark = box:CreateTexture(nil, "ARTWORK")
+                mark:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
+                mark:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
+                mark:SetColorTexture(EG.r, EG.g, EG.b, 1)
+                local lbl = EllesmereUI.MakeFont(ilBtn, 12, nil, 1, 1, 1, 0.6)
+                lbl:SetPoint("LEFT", box, "RIGHT", 6, 0)
+                lbl:SetText(EllesmereUI.L("Include layout"))
+                local function vis() mark:SetShown(includeLayoutImport) end
+                vis()
+                ilBtn:SetScript("OnClick", function() includeLayoutImport = not includeLayoutImport; vis() end)
+                ilBtn:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(ilBtn, "Import the anchor & size-match relationships from this profile. Off = keep your own layout; only the selected modules' own positions/settings come in.")
+                end)
+                ilBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            end
 
             local IMP_BTN_W = 180
             local IMP_BTN_H = 30
@@ -3002,17 +3078,33 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     end
                 end
-                -- Cross-cutting data is NOT per-addon, so the module checkboxes
-                -- cannot gate it. unlockLayout holds the anchor graph plus
-                -- width/height matches plus phantom bounds, keyed by element keys
-                -- that span every addon. fonts, customColors, and euiAccent are
-                -- profile-global appearance. On a partial import (any module left
-                -- unchecked) keep the base profile's values by dropping these from
-                -- the payload. ImportProfile only overlays each field when present,
-                -- so a nil leaves the base copy intact. Only a full all-modules
-                -- import carries them across.
+                -- Layout relationships: keep only the anchor/size-match
+                -- relationships whose BOTH endpoints are in the selected modules
+                -- (per-element graph filter), using the payload's keyToFolder meta.
+                -- selectedImports and the meta values are both CANONICAL, so they
+                -- compare directly. stale={} because the sender already pruned dead
+                -- edges at export and the recipient's registry is irrelevant here.
+                -- The "Include layout" toggle (includeLayoutImport) drops it wholesale.
+                if filteredPayload and filteredPayload.data then
+                    local ul = filteredPayload.data.unlockLayout
+                    if ul and includeLayoutImport then
+                        local meta = filteredPayload.data.unlockLayoutMeta
+                        -- payload meta wins; static resolver fills any gaps (and ALL
+                        -- keys for an old, meta-less string) so we never drop the
+                        -- whole layout for lack of classification.
+                        local k2f = EllesmereUI.BuildImportKeyToFolder(ul, meta and meta.keyToFolder)
+                        filteredPayload.data.unlockLayout =
+                            EllesmereUI.FilterLayoutToFolders(ul, selectedImports, k2f)
+                    else
+                        filteredPayload.data.unlockLayout = nil
+                    end
+                    -- Meta is transient -- never overlay/persist it into the profile.
+                    filteredPayload.data.unlockLayoutMeta = nil
+                end
+                -- fonts, customColors, euiAccent are profile-global appearance the
+                -- module checkboxes can't gate. On a partial import keep the
+                -- recipient's by dropping them (a nil leaves the base copy intact).
                 if isPartialImport and filteredPayload and filteredPayload.data then
-                    filteredPayload.data.unlockLayout = nil
                     filteredPayload.data.fonts        = nil
                     filteredPayload.data.customColors = nil
                     filteredPayload.data.euiAccent    = nil
@@ -4403,9 +4495,19 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Build addon item list
             local selectedAddons = {}
+            local includeLayoutExport = true     -- "Include layout" toggle (default on)
             local addonItems = {}
             local addonVisuals = {}
             local footerCountFs
+            -- Module connectivity from the LIVE active-profile layout (LOCAL folders,
+            -- matching selectedAddons' keyspace). Drives the hard-couple + affordance.
+            local exportComponents = EllesmereUI.BuildModuleComponents({
+                anchors     = EllesmereUIDB and EllesmereUIDB.unlockAnchors,
+                widthMatch  = EllesmereUIDB and EllesmereUIDB.unlockWidthMatch,
+                heightMatch = EllesmereUIDB and EllesmereUIDB.unlockHeightMatch,
+            })
+            local FOLDER_DISPLAY = {}
+            for _, e in ipairs(ADDON_DB_MAP_LOCAL) do FOLDER_DISPLAY[e.folder] = e.display end
 
             for _, entry in ipairs(ADDON_DB_MAP_LOCAL) do
                 local loaded = C_AddOns.IsAddOnLoaded(entry.folder)
@@ -4416,7 +4518,19 @@ initFrame:SetScript("OnEvent", function(self)
                     desc    = ADDON_DESCS[folder] or "",
                     loaded  = loaded,
                     getVal  = function() return selectedAddons[folder] or false end,
-                    setVal  = function(v) selectedAddons[folder] = v or nil end,
+                    -- Hard-couple: checking/unchecking a module sets its whole
+                    -- connected component together, gated to loaded (exportable)
+                    -- members.
+                    setVal  = function(v)
+                        local members = exportComponents and exportComponents[folder]
+                        if members then
+                            for f in pairs(members) do
+                                if C_AddOns.IsAddOnLoaded(f) then selectedAddons[f] = v or nil end
+                            end
+                        else
+                            selectedAddons[folder] = v or nil
+                        end
+                    end,
                 }
                 if loaded then selectedAddons[folder] = true end
             end
@@ -4650,16 +4764,35 @@ initFrame:SetScript("OnEvent", function(self)
                     clickBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
                     clickBtn:SetScript("OnClick", function()
                         item.setVal(not item.getVal())
-                        ApplyRowVisual()
-                        RefreshFooterCount()
+                        -- Hard-couple co-toggles a whole connected component, so
+                        -- repaint EVERY row (not just this one) -- the sibling
+                        -- checkboxes lighting up together is the "linked" affordance.
+                        RefreshAllAddonVisuals()
                     end)
                     clickBtn:SetScript("OnEnter", function()
                         hoverTex:Show()
                         if not item.getVal() then nameFs:SetAlpha(0.75) end
+                        -- Linked-modules tooltip so the co-toggle isn't mysterious.
+                        local members = exportComponents and exportComponents[item.folder]
+                        if members then
+                            local names = {}
+                            for f in pairs(members) do
+                                if f ~= item.folder then
+                                    names[#names + 1] = (FOLDER_DISPLAY[f] or f)
+                                end
+                            end
+                            if #names > 0 then
+                                table.sort(names)
+                                EllesmereUI.ShowWidgetTooltip(rowFrame,
+                                    "Linked by Anchor/Width/Height Matching to: " .. table.concat(names, ", ")
+                                    .. ". These export together.")
+                            end
+                        end
                     end)
                     clickBtn:SetScript("OnLeave", function()
                         hoverTex:Hide()
                         if not item.getVal() then nameFs:SetAlpha(0.50) end
+                        EllesmereUI.HideWidgetTooltip()
                     end)
                 else
                     local blockFrame = CreateFrame("Frame", nil, rowFrame)
@@ -4699,6 +4832,34 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(footerCountFs, "LEFT", footerFrame, "LEFT", SIDE_PAD, 0)
             footerCountFs:SetJustifyH("LEFT")
             RefreshFooterCount()
+
+            -- "Include layout" toggle: off = no anchor/size-match relationships are
+            -- exported (each module lands at its own saved position, untied).
+            do
+                local ilBtn = CreateFrame("Button", nil, footerFrame)
+                ilBtn:SetSize(150, 24)
+                PP.Point(ilBtn, "LEFT", footerCountFs, "RIGHT", 24, 0)
+                local box = CreateFrame("Frame", nil, ilBtn)
+                box:SetSize(CHK_SZ, CHK_SZ)
+                box:SetPoint("LEFT", ilBtn, "LEFT", 0, 0)
+                local bg = box:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints()
+                bg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                EllesmereUI.MakeBorder(box, 0.25, 0.25, 0.28, 0.6, PP)
+                local mark = box:CreateTexture(nil, "ARTWORK")
+                mark:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
+                mark:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
+                mark:SetColorTexture(EG.r, EG.g, EG.b, 1)
+                local lbl = EllesmereUI.MakeFont(ilBtn, 12, nil, 1, 1, 1, 0.6)
+                lbl:SetPoint("LEFT", box, "RIGHT", 6, 0)
+                lbl:SetText(EllesmereUI.L("Include layout"))
+                local function vis() mark:SetShown(includeLayoutExport) end
+                vis()
+                ilBtn:SetScript("OnClick", function() includeLayoutExport = not includeLayoutExport; vis() end)
+                ilBtn:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(ilBtn, "Include the anchor & size-match relationships between modules. Off = export each module's own positions only, with no cross-module tying.")
+                end)
+                ilBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            end
 
             local EXPORT_BTN_W = 180
             local EXPORT_BTN_H = 30
@@ -4746,7 +4907,7 @@ initFrame:SetScript("OnEvent", function(self)
                     return
                 end
                 local activeName = EllesmereUI.GetActiveProfileName()
-                local str = EllesmereUI.ExportProfile(activeName, folders)
+                local str = EllesmereUI.ExportProfile(activeName, folders, includeLayoutExport)
                 if str then EllesmereUI:ShowExportPopup(str) end
             end)
             exportSelBtn._flashError = BuildErrorFlash(exportSelBtn, eaBrd)

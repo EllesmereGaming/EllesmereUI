@@ -409,6 +409,21 @@ local function MatchSecretAuraSimple(unit, instanceID)
     return nil
 end
 
+-- Raw spec-scoped identify: returns the matched secret spellID for the player's
+-- active spec, WITHOUT the indicator-config gate that MatchSecretAura applies.
+-- Lets other modules recognize a specific player-cast secret aura regardless of
+-- Buff Manager setup (e.g. the defensives display treating the player's own
+-- Blessing of Freedom as an external). Player-cast only and spec-scoped by
+-- construction (the four-filter signature uses PLAYER filters and the lookup is
+-- keyed to the active spec), so it never reports another player's aura and never
+-- collides across classes.
+function ns.BM_IdentifySecretAura(unit, instanceID)
+    if not activeSpecKey_BM then return nil end
+    local sig = MakeSignature(unit, instanceID)
+    if not sig then return nil end
+    return GetSpecSignatures(activeSpecKey_BM)[sig]
+end
+
 -- Fallback icon textures for secret auras (icon field is also secret)
 local SECRET_SPELL_ICONS = {
     [102342] = 136097,   -- Ironbark
@@ -2213,7 +2228,8 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY)
     bg:SetAllPoints()
 
     local rawPowerH = (s.powerShowForHealer or s.powerShowForTank or s.powerShowForDPS) and (s.powerHeight or 4) or 0
-    local healthH = rawH - rawPowerH
+    local rawTopBarH = s.topNameBarEnabled and (s.topNameBarHeight or 20) or 0
+    local healthH = rawH - rawPowerH - rawTopBarH
 
     -- Health bar (matches the custom preview build exactly)
     local texKey = s.healthBarTexture or "atrocity"
@@ -2222,8 +2238,8 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY)
         or "Interface\\Buttons\\WHITE8X8"
     local health = CreateFrame("StatusBar", nil, pvFrame)
     health:SetFrameLevel(pvFrame:GetFrameLevel() + 2)
-    health:SetPoint("TOPLEFT", pvFrame, "TOPLEFT", 0, 0)
-    health:SetPoint("TOPRIGHT", pvFrame, "TOPRIGHT", 0, 0)
+    health:SetPoint("TOPLEFT", pvFrame, "TOPLEFT", 0, -rawTopBarH)
+    health:SetPoint("TOPRIGHT", pvFrame, "TOPRIGHT", 0, -rawTopBarH)
     health:SetHeight(healthH)
     health:SetStatusBarTexture(texPath)
     health:GetStatusBarTexture():SetHorizTile(false)
@@ -2333,6 +2349,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY)
     end
     nameFS:SetWordWrap(false)
     local npos = s.namePosition or "center"
+    nameFS:SetShown(npos ~= "none" and not s.topNameBarEnabled)
     local nox = s.nameOffsetX or 0
     local noy = s.nameOffsetY or 0
     nameFS:SetPoint("LEFT", health, "LEFT", 2 + nox, 0)
@@ -2366,6 +2383,42 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY)
         nameFS:SetTextColor(c.r, c.g, c.b)
     else
         if cc then nameFS:SetTextColor(cc.r, cc.g, cc.b) else nameFS:SetTextColor(1, 1, 1) end
+    end
+
+    -- Top Name Bar band (preview replica)
+    if s.topNameBarEnabled then
+        local tnb = CreateFrame("Frame", nil, pvFrame)
+        tnb:SetFrameLevel(pvFrame:GetFrameLevel() + 4)
+        tnb:SetPoint("TOPLEFT", pvFrame, "TOPLEFT", 0, 0)
+        tnb:SetPoint("TOPRIGHT", pvFrame, "TOPRIGHT", 0, 0)
+        tnb:SetHeight(rawTopBarH)
+        local tnbBg = tnb:CreateTexture(nil, "BACKGROUND")
+        tnbBg:SetAllPoints()
+        local tbgc = s.topNameBarBgColor or { r=17/255, g=17/255, b=17/255 }
+        tnbBg:SetColorTexture(tbgc.r, tbgc.g, tbgc.b, (s.topNameBarBgOpacity or 80) / 100)
+        local tnbText = tnb:CreateFontString(nil, "OVERLAY")
+        tnbText:SetFont(fontPath, s.topNameBarTextSize or 11, outline)
+        tnbText:SetWordWrap(false)
+        tnbText:SetText(playerName)
+        local talign = s.topNameBarTextAlign or "center"
+        local tox = s.topNameBarTextOffsetX or 0
+        local toy = s.topNameBarTextOffsetY or 0
+        if talign == "left" then
+            tnbText:SetPoint("LEFT", tnb, "LEFT", 4 + tox, toy); tnbText:SetJustifyH("LEFT")
+        elseif talign == "right" then
+            tnbText:SetPoint("RIGHT", tnb, "RIGHT", -4 + tox, toy); tnbText:SetJustifyH("RIGHT")
+        else
+            tnbText:SetPoint("CENTER", tnb, "CENTER", tox, toy); tnbText:SetJustifyH("CENTER")
+        end
+        tnbText:SetJustifyV("MIDDLE")
+        if (s.topNameBarTextColorMode or "class") == "custom" then
+            local c = s.topNameBarTextColor or { r=1, g=1, b=1 }
+            tnbText:SetTextColor(c.r, c.g, c.b)
+        elseif cc then
+            tnbText:SetTextColor(cc.r, cc.g, cc.b)
+        else
+            tnbText:SetTextColor(1, 1, 1)
+        end
     end
 
     -- Health text
@@ -2803,7 +2856,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Duration Text",
                 rows = {
-                    { type="slider", label="Text Size", min=6, max=18, step=1,
+                    { type="slider", label="Text Size", min=6, max=26, step=1,
                       get=function() return BVal("durTextSize", 8) end, set=function(v) BSet("durTextSize", v) end },
                     { type="slider", label="Offset X", min=-20, max=20, step=1,
                       get=function() return BVal("durTextOffsetX", 0) end, set=function(v) BSet("durTextOffsetX", v) end },
@@ -3450,7 +3503,8 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
         -- Health bar sizing (real sizes, not scaled)
         local rawPowerH = (s.powerShowForHealer or s.powerShowForTank or s.powerShowForDPS) and (s.powerHeight or 4) or 0
-        local healthH = rawH - rawPowerH
+        local rawTopBarH = s.topNameBarEnabled and (s.topNameBarHeight or 20) or 0
+        local healthH = rawH - rawPowerH - rawTopBarH
 
         -- Health bar
         local texKey = s.healthBarTexture or "atrocity"
@@ -3459,8 +3513,8 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             or "Interface\\Buttons\\WHITE8X8"
         local health = CreateFrame("StatusBar", nil, pvFrame)
         health:SetFrameLevel(pvFrame:GetFrameLevel() + 2)
-        health:SetPoint("TOPLEFT", pvFrame, "TOPLEFT", 0, 0)
-        health:SetPoint("TOPRIGHT", pvFrame, "TOPRIGHT", 0, 0)
+        health:SetPoint("TOPLEFT", pvFrame, "TOPLEFT", 0, -rawTopBarH)
+        health:SetPoint("TOPRIGHT", pvFrame, "TOPRIGHT", 0, -rawTopBarH)
         health:SetHeight(healthH)
         health:SetStatusBarTexture(texPath)
         health:GetStatusBarTexture():SetHorizTile(false)
@@ -3581,6 +3635,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
         -- Name position (exact match of AnchorNameText logic)
         local pos = s.namePosition or "center"
+        nameFS:SetShown(pos ~= "none" and not s.topNameBarEnabled)
         local ox = s.nameOffsetX or 0
         local oy = s.nameOffsetY or 0
         nameFS:SetPoint("LEFT", health, "LEFT", 2 + ox, 0)
@@ -3626,6 +3681,42 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         else -- class
             if cc then nameFS:SetTextColor(cc.r, cc.g, cc.b)
             else nameFS:SetTextColor(1, 1, 1) end
+        end
+
+        -- Top Name Bar band (preview replica)
+        if s.topNameBarEnabled then
+            local tnb = CreateFrame("Frame", nil, pvFrame)
+            tnb:SetFrameLevel(pvFrame:GetFrameLevel() + 4)
+            tnb:SetPoint("TOPLEFT", pvFrame, "TOPLEFT", 0, 0)
+            tnb:SetPoint("TOPRIGHT", pvFrame, "TOPRIGHT", 0, 0)
+            tnb:SetHeight(rawTopBarH)
+            local tnbBg = tnb:CreateTexture(nil, "BACKGROUND")
+            tnbBg:SetAllPoints()
+            local tbgc = s.topNameBarBgColor or { r=17/255, g=17/255, b=17/255 }
+            tnbBg:SetColorTexture(tbgc.r, tbgc.g, tbgc.b, (s.topNameBarBgOpacity or 80) / 100)
+            local tnbText = tnb:CreateFontString(nil, "OVERLAY")
+            tnbText:SetFont(fontPath, s.topNameBarTextSize or 11, outline)
+            tnbText:SetWordWrap(false)
+            tnbText:SetText(playerName)
+            local talign = s.topNameBarTextAlign or "center"
+            local tox = s.topNameBarTextOffsetX or 0
+            local toy = s.topNameBarTextOffsetY or 0
+            if talign == "left" then
+                tnbText:SetPoint("LEFT", tnb, "LEFT", 4 + tox, toy); tnbText:SetJustifyH("LEFT")
+            elseif talign == "right" then
+                tnbText:SetPoint("RIGHT", tnb, "RIGHT", -4 + tox, toy); tnbText:SetJustifyH("RIGHT")
+            else
+                tnbText:SetPoint("CENTER", tnb, "CENTER", tox, toy); tnbText:SetJustifyH("CENTER")
+            end
+            tnbText:SetJustifyV("MIDDLE")
+            if (s.topNameBarTextColorMode or "class") == "custom" then
+                local c = s.topNameBarTextColor or { r=1, g=1, b=1 }
+                tnbText:SetTextColor(c.r, c.g, c.b)
+            elseif cc then
+                tnbText:SetTextColor(cc.r, cc.g, cc.b)
+            else
+                tnbText:SetTextColor(1, 1, 1)
+            end
         end
 
         -- Health text
@@ -4194,7 +4285,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Duration Text",
                     rows = {
-                        { type="slider", label="Text Size", min=6, max=18, step=1,
+                        { type="slider", label="Text Size", min=6, max=26, step=1,
                           get=function() return ind.durationTextSize or 8 end,
                           set=function(v) ind.durationTextSize = v; ReloadAndUpdate() end },
                         { type="slider", label="Offset X", min=-20, max=20, step=1,
@@ -4249,7 +4340,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Stacks Text",
                     rows = {
-                        { type="slider", label="Text Size", min=6, max=18, step=1,
+                        { type="slider", label="Text Size", min=6, max=26, step=1,
                           get=function() return ind.stacksTextSize or 8 end,
                           set=function(v) ind.stacksTextSize = v; ReloadAndUpdate() end },
                         { type="slider", label="Offset X", min=-20, max=20, step=1,

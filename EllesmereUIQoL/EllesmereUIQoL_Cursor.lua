@@ -988,7 +988,7 @@ local function RegisterUnlockElements()
     end
 
     if #elements > 0 then
-        EllesmereUI:RegisterUnlockElements(elements)
+        EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIQoL")
     end
 end
 

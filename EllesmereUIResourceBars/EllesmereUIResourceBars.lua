@@ -1414,7 +1414,7 @@ local function RegisterUnlockElements()
         })
     end
 
-    EllesmereUI:RegisterUnlockElements(elements)
+    EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIResourceBars")
 end
 
 _G._ERB_ApplyUnlock = function()
@@ -2753,10 +2753,16 @@ local function UpdatePrimaryBar()
         local _ppPartial = _ppTsEntry.thresholdPartialOnly
         if _ppPartial == nil then _ppPartial = pp.thresholdPartialOnly end
         local curve
+        -- Default for a power resource: fill color BELOW the threshold, threshold
+        -- color AT/ABOVE it -- matching the segmented-resource path (Holy Power,
+        -- combo points, runes), where reaching the threshold count turns the
+        -- resource the threshold color. The "Reverse Threshold Fill Color" toggle
+        -- (thresholdPartialOnly) flips it so the threshold color shows BELOW the
+        -- threshold instead.
         if _ppPartial then
-            curve = GetBarThresholdCurve(tR, tG, tB, baseR, baseG, baseB, tPct)
-        else
             curve = GetBarThresholdCurve(baseR, baseG, baseB, tR, tG, tB, tPct)
+        else
+            curve = GetBarThresholdCurve(tR, tG, tB, baseR, baseG, baseB, tPct)
         end
         if curve then
             local ok, colorResult = pcall(UnitPowerPercent, "player", cachedPrimary, false, curve)

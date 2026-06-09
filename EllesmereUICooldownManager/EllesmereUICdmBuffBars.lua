@@ -1764,7 +1764,7 @@ function ns.RegisterTBBUnlockElements()
     end
 
     if #elements > 0 then
-        EllesmereUI:RegisterUnlockElements(elements)
+        EllesmereUI:RegisterUnlockElements(elements, "EllesmereUICooldownManager")
     end
 end
 _G._ECME_RegisterTBBUnlock = ns.RegisterTBBUnlockElements

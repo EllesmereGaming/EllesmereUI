@@ -125,6 +125,77 @@ local function CanonToLocal(addons)
 end
 
 -------------------------------------------------------------------------------
+--  Unlock-element key -> owning module (LOCAL folder) resolver
+--
+--  The selective-layout export/import attributes each anchor / size-match
+--  relationship (keyed by unlock-element key) to a module so layout can be
+--  exported per-module. Authoritative source is a passed-in folder (elem.folder
+--  stamped at registration, or a payload keyToFolder value); this static
+--  prefix/bare-word resolver is the fallback that covers every key in use today
+--  (verified) plus any future key the authoritative source misses.
+--
+--  Returns a LOCAL folder name: the literals below contain "EllesmereUI", which
+--  the standalone packager renames to the build token, so on each build this
+--  matches the local selectedAddons keyspace and the stamped elem.folder. (Only
+--  the payload keyToFolder is canonicalized -- see ExportProfile.) nil = unknown.
+-------------------------------------------------------------------------------
+local KEY_PREFIX_FOLDER = {
+    ["CDM_"]   = "EllesmereUICooldownManager",
+    ["TBB_"]   = "EllesmereUICooldownManager",
+    ["ERB_"]   = "EllesmereUIResourceBars",
+    ["ECHAT_"] = "EllesmereUIChat",
+    ["EBS_"]   = "EllesmereUIMinimap",
+    ["EDR_"]   = "EllesmereUIBlizzardSkin",
+    ["EMT_"]   = "EllesmereUIMythicTimer",
+    ["EABR_"]  = "EllesmereUIAuraBuffReminders",
+    ["RF_"]    = "EllesmereUIRaidFrames",
+    ["ECL_"]   = "EllesmereUIQoL",
+    ["EUI_"]   = "EllesmereUIQoL",
+}
+-- Bare-word (un-prefixed) keys, by owning module. These appear as anchor TARGETS
+-- (e.g. a castbar anchored to "player", a bar anchored to "Bar4") even when the
+-- child carries a stamped folder, so the resolver must know them.
+local AB_BAREWORD = {
+    MainBar=true, Bar2=true, Bar3=true, Bar4=true, Bar5=true, Bar6=true,
+    Bar7=true, Bar8=true, StanceBar=true, PetBar=true, XPBar=true, RepBar=true,
+    ExtraActionButton=true, EncounterBar=true, QueueStatus=true,
+    MicroBar=true, BagBar=true,
+}
+local UF_BAREWORD = {
+    player=true, target=true, focus=true, pet=true, targettarget=true,
+    focustarget=true, boss=true, classPower=true,
+    playerCastbar=true, targetCastbar=true, focusCastbar=true,
+}
+-- providedFolder (already a local folder: elem.folder, or a payload value that
+-- has been CanonToLocal'd) wins; the static resolution is the fallback.
+local function ResolveKeyToFolder(key, providedFolder)
+    if providedFolder then return providedFolder end
+    if type(key) ~= "string" then return nil end
+    for prefix, folder in pairs(KEY_PREFIX_FOLDER) do
+        if key:sub(1, #prefix) == prefix then return folder end
+    end
+    if AB_BAREWORD[key] then return "EllesmereUIActionBars" end
+    if UF_BAREWORD[key] then return "EllesmereUIUnitFrames" end
+    return nil
+end
+EllesmereUI.ResolveKeyToFolder = ResolveKeyToFolder
+
+-- Set of folders that have NO import/export checkbox (not in ADDON_DB_MAP), so
+-- their anchor/match edges are never exported -- the element keeps its own saved
+-- absolute position on import (decision: always export them unanchored). Today
+-- this is only EllesmereUIBlizzardSkin (the Dragon Riding cluster).
+local NO_CHECKBOX_FOLDER = {}
+do
+    local has = {}
+    for _, entry in ipairs(ADDON_DB_MAP) do has[entry.folder] = true end
+    -- Any folder the resolver can return that isn't a checkbox module:
+    for _, folder in pairs(KEY_PREFIX_FOLDER) do
+        if not has[folder] then NO_CHECKBOX_FOLDER[folder] = true end
+    end
+end
+EllesmereUI._NoCheckboxFolder = NO_CHECKBOX_FOLDER
+
+-------------------------------------------------------------------------------
 --  Serializer: Lua table <-> string (no AceSerializer dependency)
 --  Handles: string, number, boolean, nil, table (nested), color tables
 -------------------------------------------------------------------------------
@@ -262,6 +333,229 @@ end
 
 EllesmereUI._DeepCopy = DeepCopy
 
+-------------------------------------------------------------------------------
+--  Selective-layout core helpers (shared by export, import, and the
+--  connectivity-aware checkbox UI). All operate on an unlockLayout table
+--  { anchors, widthMatch, heightMatch, phantomBounds } and LOCAL folder keys.
+-------------------------------------------------------------------------------
+
+-- Build { [key] = localFolder } for every key referenced in an unlockLayout
+-- (anchor children + targets, width/height-match children + values), using the
+-- live registry's elem.folder first, then the static resolver. Also returns a
+-- `stale` set of keys NOT in the live registry (deleted/other-spec bars) so the
+-- caller can prune dead edges. Use at EXPORT time (needs the exporter registry).
+function EllesmereUI.BuildLayoutKeyToFolder(ul)
+    local reg = EllesmereUI._unlockRegisteredElements or {}
+    local k2f, stale = {}, {}
+    local function add(key)
+        if type(key) ~= "string" or k2f[key] ~= nil then return end
+        local elem = reg[key]
+        local folder = ResolveKeyToFolder(key, elem and elem.folder)
+        if folder then k2f[key] = folder end
+        if not elem then stale[key] = true end
+    end
+    if type(ul) == "table" then
+        if type(ul.anchors) == "table" then
+            for child, info in pairs(ul.anchors) do
+                add(child)
+                if type(info) == "table" then add(info.target) end
+            end
+        end
+        if type(ul.widthMatch) == "table" then
+            for child, target in pairs(ul.widthMatch) do add(child); add(target) end
+        end
+        if type(ul.heightMatch) == "table" then
+            for child, target in pairs(ul.heightMatch) do add(child); add(target) end
+        end
+    end
+    return k2f, stale
+end
+
+-- Return a NEW unlockLayout keeping only entries whose BOTH endpoints resolve to
+-- a folder in `folderSet` (set of LOCAL folders), with both endpoints live (not
+-- stale), known, and NOT in a no-checkbox folder. This is the per-entry filter
+-- that guarantees no retained relationship references an excluded module.
+-- k2f/stale may be passed (e.g. import-side, built from payload meta) or omitted
+-- (export-side, built from the live registry).
+function EllesmereUI.FilterLayoutToFolders(ul, folderSet, k2f)
+    if type(ul) ~= "table" then return ul end
+    if not k2f then k2f = EllesmereUI.BuildLayoutKeyToFolder(ul) end
+    -- Classification is by the static resolver (registry-independent) so this can
+    -- never over-drop just because the unlock registry isn't fully populated yet.
+    -- An edge survives only if BOTH endpoints classify to a folder in folderSet and
+    -- neither is a no-checkbox module. (A dead/deleted-bar edge that happens to
+    -- survive is harmless: its missing child frame just no-ops on apply.)
+    local function endpointOK(key)
+        if type(key) ~= "string" then return false end
+        local f = k2f[key]
+        if not f then return false end                     -- unclassifiable -> drop
+        if NO_CHECKBOX_FOLDER[f] then return false end     -- never export no-checkbox edges
+        return folderSet[f] == true                        -- both endpoints in S
+    end
+    local out = { anchors = {}, widthMatch = {}, heightMatch = {}, phantomBounds = {} }
+    if type(ul.anchors) == "table" then
+        for child, info in pairs(ul.anchors) do
+            if type(info) == "table" and endpointOK(child) and endpointOK(info.target) then
+                out.anchors[child] = DeepCopy(info)
+            end
+        end
+    end
+    if type(ul.widthMatch) == "table" then
+        for child, target in pairs(ul.widthMatch) do
+            if endpointOK(child) and endpointOK(target) then out.widthMatch[child] = target end
+        end
+    end
+    if type(ul.heightMatch) == "table" then
+        for child, target in pairs(ul.heightMatch) do
+            if endpointOK(child) and endpointOK(target) then out.heightMatch[child] = target end
+        end
+    end
+    return out
+end
+
+-- Union-find over modules: two folders share a component if any LIVE, non-no-
+-- checkbox anchor/match edge connects them. Returns folderToMembers where
+-- folderToMembers[folder] = { set of folders in folder's component }. A folder
+-- with no cross-module edge is absent (treat as a singleton: just itself).
+-- Drives the hard-couple checkbox auto-toggle. k2f/stale may be passed in.
+function EllesmereUI.BuildModuleComponents(ul, k2f)
+    if not k2f then k2f = EllesmereUI.BuildLayoutKeyToFolder(ul) end
+    local parent = {}
+    local function find(x)
+        while parent[x] and parent[x] ~= x do x = parent[x] end
+        return x
+    end
+    local function union(a, b)
+        if not parent[a] then parent[a] = a end
+        if not parent[b] then parent[b] = b end
+        local ra, rb = find(a), find(b)
+        if ra ~= rb then parent[ra] = rb end
+    end
+    local function edge(c, t)
+        if type(c) ~= "string" or type(t) ~= "string" then return end
+        local fc, ft = k2f[c], k2f[t]
+        if not fc or not ft then return end
+        if NO_CHECKBOX_FOLDER[fc] or NO_CHECKBOX_FOLDER[ft] then return end
+        if fc ~= ft then union(fc, ft) end
+    end
+    if type(ul) == "table" then
+        if type(ul.anchors) == "table" then
+            for c, i in pairs(ul.anchors) do if type(i) == "table" then edge(c, i.target) end end
+        end
+        if type(ul.widthMatch) == "table" then for c, t in pairs(ul.widthMatch) do edge(c, t) end end
+        if type(ul.heightMatch) == "table" then for c, t in pairs(ul.heightMatch) do edge(c, t) end end
+    end
+    local rootMembers = {}
+    for f in pairs(parent) do
+        local r = find(f)
+        rootMembers[r] = rootMembers[r] or {}
+        rootMembers[r][f] = true
+    end
+    local folderToMembers = {}
+    for _, members in pairs(rootMembers) do
+        for f in pairs(members) do folderToMembers[f] = members end
+    end
+    return folderToMembers
+end
+
+-- IMPORT side: build { [key] = CANON folder } for every key in an imported
+-- unlockLayout. The payload's keyToFolder meta wins (already canonical); for any
+-- key it lacks -- including ALL keys when importing an OLD string with no meta --
+-- fall back to the static resolver (LOCAL) re-canonicalized via FOLDER_TO_CANON.
+-- This is what keeps a meta-less string from classifying nothing and dropping the
+-- whole layout. Matches selectedImports' CANON keyspace.
+function EllesmereUI.BuildImportKeyToFolder(ul, metaK2F)
+    metaK2F = metaK2F or {}
+    local k2f = {}
+    local function add(key)
+        if type(key) ~= "string" or k2f[key] ~= nil then return end
+        local f = metaK2F[key]
+        if not f then
+            local localF = ResolveKeyToFolder(key, nil)
+            if localF then f = FOLDER_TO_CANON[localF] or localF end
+        end
+        if f then k2f[key] = f end
+    end
+    if type(ul) == "table" then
+        if type(ul.anchors) == "table" then
+            for c, i in pairs(ul.anchors) do add(c); if type(i) == "table" then add(i.target) end end
+        end
+        if type(ul.widthMatch) == "table" then for c, t in pairs(ul.widthMatch) do add(c); add(t) end end
+        if type(ul.heightMatch) == "table" then for c, t in pairs(ul.heightMatch) do add(c); add(t) end end
+    end
+    return k2f
+end
+
+-- IMPORT merge: build the new profile's unlockLayout by merging the imported
+-- (already module-filtered) relationships INTO the base (current-profile) layout,
+-- PER MODULE. The new profile keeps the base's relationships for modules NOT
+-- imported, and takes the imported relationships for modules that ARE imported.
+-- Ownership is by the CHILD key's module (an anchor/match entry positions/sizes
+-- its child). importedFolders = set of LOCAL folders being imported. For a full
+-- import (every module) this reduces to "replace with imported" (every child is
+-- owned by an imported module). LOCAL keyspace throughout.
+function EllesmereUI.MergeImportedLayout(base, imported, importedFolders)
+    base = (type(base) == "table") and base or {}
+    imported = (type(imported) == "table") and imported or {}
+    importedFolders = importedFolders or {}
+    local out = {
+        anchors       = DeepCopy(base.anchors       or {}),
+        widthMatch    = DeepCopy(base.widthMatch    or {}),
+        heightMatch   = DeepCopy(base.heightMatch   or {}),
+        phantomBounds = DeepCopy(base.phantomBounds  or {}),
+    }
+    -- 1) Drop base entries OWNED by an imported module (child in importedFolders),
+    --    so the imported module's layout fully replaces the base's for that module.
+    --    Classify the BASE children via the live (recipient) registry + static
+    --    resolver, since these are the recipient's own profile keys.
+    local baseK2F = EllesmereUI.BuildLayoutKeyToFolder(base)
+    local function childImported(child)
+        local f = baseK2F[child]
+        return f ~= nil and importedFolders[f] == true
+    end
+    for child in pairs(out.anchors)     do if childImported(child) then out.anchors[child]     = nil end end
+    for child in pairs(out.widthMatch)  do if childImported(child) then out.widthMatch[child]  = nil end end
+    for child in pairs(out.heightMatch) do if childImported(child) then out.heightMatch[child] = nil end end
+    -- 2) Overlay the imported entries (already filtered to the imported modules).
+    if type(imported.anchors) == "table" then
+        for child, info in pairs(imported.anchors) do out.anchors[child] = DeepCopy(info) end
+    end
+    if type(imported.widthMatch) == "table" then
+        for child, t in pairs(imported.widthMatch) do out.widthMatch[child] = t end
+    end
+    if type(imported.heightMatch) == "table" then
+        for child, t in pairs(imported.heightMatch) do out.heightMatch[child] = t end
+    end
+    return out
+end
+
+-- Build the (filtered) unlockLayout + canonical keyToFolder meta to embed in an
+-- export string, honoring the "Include layout" toggle and the selected modules.
+--   unlockLayout : the profile's live layout (active profile == EllesmereUIDB.*)
+--   includeLayout: false -> returns (nil, nil); no relationships embedded
+--   folderSet    : set of LOCAL folders to keep (subset export); nil -> all
+--                  checkbox modules (full export, still drops no-checkbox edges)
+-- Returns (filteredUnlockLayout, meta) where meta.keyToFolder is CANONICAL.
+function EllesmereUI.BuildExportUnlockLayout(unlockLayout, includeLayout, folderSet)
+    if not includeLayout or type(unlockLayout) ~= "table" then return nil, nil end
+    if not folderSet then
+        folderSet = {}
+        for _, entry in ipairs(ADDON_DB_MAP) do folderSet[entry.folder] = true end
+    end
+    local k2f = EllesmereUI.BuildLayoutKeyToFolder(unlockLayout)
+    local filtered = EllesmereUI.FilterLayoutToFolders(unlockLayout, folderSet, k2f)
+    local meta = { keyToFolder = {} }
+    local function addMeta(key)
+        if type(key) == "string" and meta.keyToFolder[key] == nil then
+            local localF = k2f[key]
+            if localF then meta.keyToFolder[key] = FOLDER_TO_CANON[localF] or localF end
+        end
+    end
+    for c, i in pairs(filtered.anchors)     do addMeta(c); if type(i) == "table" then addMeta(i.target) end end
+    for c, t in pairs(filtered.widthMatch)  do addMeta(c); addMeta(t) end
+    for c, t in pairs(filtered.heightMatch) do addMeta(c); addMeta(t) end
+    return filtered, meta
+end
 
 
 
@@ -950,7 +1244,8 @@ end
 -------------------------------------------------------------------------------
 local EXPORT_PREFIX = "!EUI_"
 
-function EllesmereUI.ExportProfile(profileName, includedFolders)
+function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout)
+    if includeLayout == nil then includeLayout = true end  -- default ON
     local db = GetProfilesDB()
     local profileData = db.profiles[profileName]
     if not profileData then return nil end
@@ -997,6 +1292,24 @@ function EllesmereUI.ExportProfile(profileName, includedFolders)
     -- so importing someone else's profile must never overwrite the user's own
     -- click-cast setup. Strip defensively in case a payload ever carries it.
     exportData.clickCast = nil
+    -- fonts/customColors/euiAccent are profile-GLOBAL appearance and are not
+    -- separable per-addon, so a subset export must not carry them (they'd clobber
+    -- the recipient's). Only a full-profile export carries them.
+    if includedFolders then
+        exportData.fonts        = nil
+        exportData.customColors = nil
+        exportData.euiAccent    = nil
+    end
+    -- Layout relationships (unlockLayout) are governed by the "Include layout"
+    -- toggle and FILTERED per-module: only relationships whose both endpoints are
+    -- in the selected modules survive (subset export), and no-checkbox-module
+    -- (Dragon Riding) + stale (deleted-bar) edges are always dropped. A canonical
+    -- keyToFolder meta rides along so the importer can attribute each edge. Full
+    -- export (no includedFolders) keeps all checkbox-module relationships.
+    local fLayout, layoutMeta = EllesmereUI.BuildExportUnlockLayout(
+        exportData.unlockLayout, includeLayout, includedFolders)
+    exportData.unlockLayout     = fLayout      -- nil when includeLayout is off
+    exportData.unlockLayoutMeta = layoutMeta   -- nil when includeLayout is off
     -- Normalize local db.folder keys -> canonical (suite) keys so the string
     -- imports correctly into any build. No-op in the suite (canon == folder).
     exportData.addons = AddonsToCanon(exportData.addons)
@@ -1189,13 +1502,21 @@ do
     end
 end
 
-function EllesmereUI.ExportCurrentProfile()
+function EllesmereUI.ExportCurrentProfile(includeLayout)
+    if includeLayout == nil then includeLayout = true end  -- default ON
     local profileData = EllesmereUI.SnapshotAllAddons()
     -- CDM spell assignments are NOT exported -- users share spell layouts
     -- via Blizzard's built-in CDM sharing system instead.
     profileData.spellAssignments = nil
     -- HoverCast (click-cast) bindings are account-global, not per-profile; never export.
     profileData.clickCast = nil
+    -- Layout: honor the "Include layout" toggle, and even on a full export drop the
+    -- no-checkbox-module (Dragon Riding) + stale (deleted-bar) edges. folderSet=nil
+    -- keeps all checkbox modules. Attach the canonical keyToFolder meta.
+    local fLayout, layoutMeta = EllesmereUI.BuildExportUnlockLayout(
+        profileData.unlockLayout, includeLayout, nil)
+    profileData.unlockLayout     = fLayout
+    profileData.unlockLayoutMeta = layoutMeta
     local sw, sh = GetPhysicalScreenSize()
     -- Use EllesmereUI's own stored scale (UIParent scale), not Blizzard's CVar
     local euiScale = EllesmereUIDB and EllesmereUIDB.ppUIScale or (UIParent and UIParent:GetScale()) or 1
@@ -1327,10 +1648,47 @@ function EllesmereUI.ImportProfile(importStr, profileName)
                 merged.addons[folder] = DeepCopy(snap)
             end
         end
-        -- Take fonts/colors/layout from import if present
+        -- Take fonts/colors from import if present (the partial-import OnClick nils
+        -- these so a subset import keeps the base profile's appearance).
         if imported.fonts then merged.fonts = DeepCopy(imported.fonts) end
         if imported.customColors then merged.customColors = DeepCopy(imported.customColors) end
-        if imported.unlockLayout then merged.unlockLayout = DeepCopy(imported.unlockLayout) end
+        -- Layout: the new profile's unlockLayout is the active profile's CURRENT
+        -- layout, with the imported relationships merged in PER MODULE.
+        --
+        -- Build the base UNCONDITIONALLY (even when the import carries no layout):
+        -- the user's anchors frequently live ONLY in the live EllesmereUIDB.unlock*
+        -- tables -- the stored profile.unlockLayout snapshot lags until a switch/
+        -- export, and EllesmereUIDB.unlockAnchors itself can be absent. So fold the
+        -- live tables onto the stored copy here; otherwise a "Include layout = off"
+        -- (or layout-less) import would drop the current profile's live anchors.
+        do
+            local baseUL = merged.unlockLayout or {}
+            baseUL.anchors       = baseUL.anchors       or {}
+            baseUL.widthMatch    = baseUL.widthMatch    or {}
+            baseUL.heightMatch   = baseUL.heightMatch   or {}
+            baseUL.phantomBounds = baseUL.phantomBounds or {}
+            local function overlayLive(dst, live)
+                if type(live) == "table" then for k, v in pairs(live) do dst[k] = DeepCopy(v) end end
+            end
+            if EllesmereUIDB then
+                overlayLive(baseUL.anchors,     EllesmereUIDB.unlockAnchors)
+                overlayLive(baseUL.widthMatch,  EllesmereUIDB.unlockWidthMatch)
+                overlayLive(baseUL.heightMatch, EllesmereUIDB.unlockHeightMatch)
+            end
+            merged.unlockLayout = baseUL  -- current full layout (kept when no import layout)
+
+            -- Per-module merge of the imported relationships: keep base for modules
+            -- NOT imported (e.g. ActionBars self-anchors); take imported for those
+            -- that ARE. imported.addons keys = imported modules (LOCAL).
+            if imported.unlockLayout then
+                local importedFolders = {}
+                if imported.addons then
+                    for folder in pairs(imported.addons) do importedFolders[folder] = true end
+                end
+                merged.unlockLayout = EllesmereUI.MergeImportedLayout(
+                    baseUL, imported.unlockLayout, importedFolders)
+            end
+        end
         -- UI accent color travels with the profile. A new-format string always
         -- carries euiAccent, so the imported value wins; an old string leaves
         -- merged.euiAccent inherited from the current profile (correct fallback).
@@ -1371,7 +1729,16 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         -- Make it the active profile and re-point db references
         db.activeProfile = profileName
         RepointAllDBs(profileName)
-        -- Apply imported data into the live db.profile tables
+        -- Apply imported data into the live db.profile tables. We MUST pass
+        -- payload.data here (a SEPARATE table) and NOT merged: RepointAllDBs already
+        -- pointed db.profile INTO merged.addons, and ApplyProfileData clears db.profile
+        -- before copying the snapshot in -- passing merged would clear-then-copy the
+        -- same table and wipe every addon. payload.data.addons only holds the imported
+        -- modules, so non-imported modules keep their (base) live data untouched.
+        -- BUT the live unlock layout must be the per-module-MERGED one, otherwise the
+        -- filtered import wipes the live anchors of non-imported modules (e.g.
+        -- ActionBars self-anchors). Override it before applying.
+        payload.data.unlockLayout = merged.unlockLayout
         EllesmereUI.ApplyProfileData(payload.data)
         FixupImportedClassColors()
         -- Don't ReloadUI() here: the caller (options panel import flow)
