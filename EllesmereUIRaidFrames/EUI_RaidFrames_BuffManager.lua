@@ -504,7 +504,13 @@ local function NewIndicator(indType, spells)
         ind.barBgColor = { r = 0, g = 0, b = 0 }
     elseif indType == "healthcolor" then
         ind.ownOnly          = true
+        ind.colorMode = "solid"
         ind.color    = { r = 0, g = 1, b = 0 }
+        ind.colorFull = { r = 0, g = 1, b = 0 }
+        ind.colorWarn = { r = 1, g = 1, b = 0 }
+        ind.colorExpire = { r = 1, g = 0, b = 0 }
+        ind.warnPercent = 50
+        ind.expireSeconds = 3
         ind.opacity  = 100
         ind.showWhen = "present"
     elseif indType == "border" then
@@ -965,6 +971,59 @@ ns.RegisterDurText = RegisterDurText
 ns.UnregisterDurText = UnregisterDurText
 
 -------------------------------------------------------------------------------
+--  Health color ticker
+-------------------------------------------------------------------------------
+local hcActive = {} -- [button] = unit
+local hcTicker = CreateFrame("Frame")
+hcTicker:Hide()
+local hcElapsed = 0
+hcTicker:SetScript("OnUpdate", function(_, dt)
+    hcElapsed = hcElapsed + dt
+    if hcElapsed < 1 then
+        return
+    end
+    hcElapsed = 0
+    local anyActive = false
+    for button, unit in pairs(hcActive) do
+        if button
+            and unit
+            and button:IsVisible()
+            and UnitExists(unit)
+        then
+            anyActive = true
+            if ns.BM_UpdateIndicators then
+                ns.BM_UpdateIndicators(button, unit, ns.db)
+            end
+        else
+            hcActive[button] = nil
+        end
+    end
+    if not anyActive then
+        hcTicker:Hide()
+    end
+end)
+
+local function RegisterHealthColor(button, unit)
+    hcActive[button] = unit
+    hcTicker:Show()
+end
+
+local function UnregisterHealthColor(button)
+    hcActive[button] = nil
+end
+
+local function IsTimedAura(aura)
+    return aura
+        and aura.duration
+        and aura.expirationTime
+        and not issecretvalue(aura.duration)
+        and not issecretvalue(aura.expirationTime)
+        and aura.duration > 0
+end
+ns.RegisterHealthColor = RegisterHealthColor
+ns.UnregisterHealthColor = UnregisterHealthColor
+
+-------------------------------------------------------------------------------
 --  Update all buff indicators for a single button (called on UNIT_AURA)
 -------------------------------------------------------------------------------
 -- Reusable tables (allocate once, wipe per call -- zero-alloc pattern)
@@ -983,7 +1042,10 @@ function ns.BM_ClearIndicators(button)
         f:Hide()
     end
     for _, b in ipairs(d.bmBarPool) do ClearBarDrain(b); b:Hide() end
-    if d.bmHCOverlay then d.bmHCOverlay:Hide() end
+    if d.bmHCOverlay then
+        d.bmHCOverlay:Hide()
+        UnregisterHealthColor(button)
+    end
     if d.bmEffectBorder then d.bmEffectBorder:Hide() end
     if d.bmSimpleIcons then
         for _, f in ipairs(d.bmSimpleIcons) do
@@ -1245,7 +1307,10 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
     if db and db.profile and db.profile.bmDisplayMode == "simple" then
         for _, f in ipairs(d.bmIconPool) do f:Hide() end
         if d.bmBarPool then for _, b in ipairs(d.bmBarPool) do ClearBarDrain(b); b:Hide() end end
-        if d.bmHCOverlay then d.bmHCOverlay:Hide() end
+        if d.bmHCOverlay then
+            d.bmHCOverlay:Hide()
+            UnregisterHealthColor(button)
+        end
         if d.bmEffectBorder then d.bmEffectBorder:Hide() end
         d.bmActiveInstanceIDs = nil
         -- Clear any leftover custom frame-alpha dim so it can't persist in simple
@@ -1328,7 +1393,10 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
         f:Hide()
     end
     for _, b in ipairs(d.bmBarPool) do ClearBarDrain(b); b:Hide() end
-    if d.bmHCOverlay then d.bmHCOverlay:Hide() end
+    if d.bmHCOverlay then
+        d.bmHCOverlay:Hide()
+        UnregisterHealthColor(button)
+    end
     if d.bmEffectBorder then d.bmEffectBorder:Hide() end
     button._bmSavedAlpha = nil
     local GetFFD2 = ns.GetFFD
@@ -1650,7 +1718,30 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
             if shouldShow then
                 if indType == "healthcolor" then
                     if d.bmHCOverlay then
-                        local c = ind.color or { r=0, g=1, b=0 }
+                        local c
+                        if (ind.colorMode or "solid") == "solid" then
+                            c = ind.color or { r=0, g=1, b=0 }
+                            UnregisterHealthColor(button)
+                        else
+                            local aura
+                            for _, sid in ipairs(ind.spells) do
+                                aura = GetAura(sid)
+                                if aura then break end
+                            end
+                            c = ind.colorFull or { r=0, g=1, b=0 }
+                            if IsTimedAura(aura) then
+                                local remaining = aura.expirationTime - GetTime()
+                                local percentRemaining = (remaining / aura.duration) * 100
+                                if remaining <= (ind.expireSeconds or 3) then
+                                    c = ind.colorExpire or { r=1, g=0, b=0 }
+                                elseif percentRemaining <= (ind.warnPercent or 50) then
+                                    c = ind.colorWarn or { r=1, g=1, b=0 }
+                                end
+                                RegisterHealthColor(button, unit)
+                            else
+                                UnregisterHealthColor(button)
+                            end
+                        end
                         d.bmHCOverlay:SetColorTexture(c.r, c.g, c.b, (ind.opacity or 100) / 100)
                         d.bmHCOverlay:Show()
                     end
@@ -4759,20 +4850,85 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 -----------------------------------------------------------
                 _, h = W:SectionHeader(leftFrame, "DISPLAY", sy); sy = sy - h
 
-                -- Row 1: Color | Opacity
+                -- Color mode
                 SettingsRow(
-                    { type="colorpicker", text="Color", hasAlpha=false,
-                      getValue=function()
-                          local c = ind.color or { r=0x0C/255, g=0xD2/255, b=0x9D/255 }
-                          return c.r, c.g, c.b
+                    { type="dropdown",
+                      text="Color Mode",
+                      values = {
+                          solid = "Solid",
+                          overtime = "Change Over Time",
+                      },
+                      order = { "solid", "overtime" },
+                      getValue = function()
+                          return ind.colorMode or "solid"
                       end,
-                      setValue=function(r, g, b)
-                          ind.color = { r=r, g=g, b=b }
+                      setValue = function(v)
+                          ind.colorMode = v
                           ReloadAndUpdate()
-                      end },
+                          EllesmereUI:RefreshPage(true)
+                      end
+                    },
                     { type="slider", text="Opacity", min=5, max=100, step=1,
                       getValue=function() return ind.opacity or 100 end,
                       setValue=function(v) ind.opacity = v; ReloadAndUpdate() end })
+
+                if (ind.colorMode or "solid") == "solid" then
+                  -- Solid
+                  SettingsRow(
+                      { type="colorpicker", text="Color", hasAlpha=false,
+                        getValue=function()
+                            local c = ind.color or { r=0x0C/255, g=0xD2/255, b=0x0C/255 }
+                            return c.r, c.g, c.b
+                        end,
+                        setValue=function(r, g, b)
+                            ind.color = { r=r, g=g, b=b }
+                            ReloadAndUpdate()
+                        end },
+                      { type="label", text="" })
+                else
+                  -- Change over time
+                  SettingsRow(
+                      { type="colorpicker", text="Buff Active",
+                        getValue=function()
+                            local c = ind.colorFull  or { r=0x0C/255, g=0xD2/255, b=0x0C/255 }
+                            return c.r,c.g,c.b
+                        end,
+                        setValue=function(r,g,b)
+                            ind.colorFull = {r=r,g=g,b=b}
+                            ReloadAndUpdate()
+                        end },
+                      { type="label", text="" })
+
+                  SettingsRow(
+                      { type="colorpicker", text="Below 50%",
+                        getValue=function()
+                            local c = ind.colorWarn  or { r=0xD2/255, g=0xD2/255, b=0x0C/255 }
+                            return c.r,c.g,c.b
+                        end,
+                        setValue=function(r,g,b)
+                            ind.colorWarn = {r=r,g=g,b=b}
+                            ReloadAndUpdate()
+                        end },
+                      { type="label", text="" })
+
+                  SettingsRow(
+                      { type="colorpicker", text="Below Seconds",
+                        getValue=function()
+                            local c = ind.colorExpire  or { r=0xD2/255, g=0x0C/255, b=0x0C/255 }
+                            return c.r,c.g,c.b
+                        end,
+                        setValue=function(r,g,b)
+                            ind.colorExpire = {r=r,g=g,b=b}
+                            ReloadAndUpdate()
+                        end },
+                      { type="slider", text="Seconds",
+                        min=1, max=5, step=1,
+                        getValue=function() return ind.expireSeconds or 3 end,
+                        setValue=function(v)
+                            ind.expireSeconds = v
+                            ReloadAndUpdate()
+                        end })
+              end
 
             else
                 -- framealpha
