@@ -590,6 +590,25 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end
 
+        -- Row 2: Show Durability on FPS Counter (left) | helper label (right)
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Durability on FPS Counter",
+              tooltip="Shows lowest equipped-item durability % on the FPS counter.",
+              disabled=function()
+                return not (EllesmereUIDB and EllesmereUIDB.showFPS)
+              end,
+              disabledTooltip="Show FPS Counter",
+              getValue=function()
+                return EllesmereUIDB and EllesmereUIDB.fpsShowDurability or false
+              end,
+              setValue=function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.fpsShowDurability = v
+                if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+              end },
+            { type="label", text="Requires FPS Counter" }
+        );  y = y - h
+
         -- Row 3: Low Durability Warning (left, with cog+eye+swatch) | Disable Right Click Targeting (right)
         local durWarnRow
         durWarnRow, h = W:DualRow(parent, y,
