@@ -650,6 +650,18 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
     local _ha = (FP() and FP().hoverAlpha) or ns.defaults.hoverAlpha
     plate.highlight:SetColorTexture(_hc.r, _hc.g, _hc.b, _ha)
     plate.highlight:Hide()
+    -- Hover border (alternative hover style), mirrors the enemy plate setup.
+    local _PP = EllesmereUI and EllesmereUI.PP
+    if _PP and _PP.CreateBorder then
+        local hbFrame = CreateFrame("Frame", nil, plate.health)
+        hbFrame:SetAllPoints(plate.health)
+        hbFrame:SetFrameLevel(plate.health:GetFrameLevel() + 2)
+        local _hbc = (FP() and FP().hoverBorderColor) or ns.defaults.hoverBorderColor
+        local _hbs = (FP() and FP().hoverBorderSize) or ns.defaults.hoverBorderSize
+        _PP.CreateBorder(hbFrame, _hbc.r, _hbc.g, _hbc.b, 1, _hbs, "OVERLAY", 7)
+        hbFrame:Hide()
+        plate.hoverBorder = hbFrame
+    end
 
     plate.name = plate:CreateFontString(nil, "OVERLAY")
     SetFSFont(plate.name, 12, "OUTLINE")
@@ -754,7 +766,7 @@ function FriendlyFrame:ClearUnit()
     self.unit = nil
     self.nameplate = nil
     self.glow:Hide()
-    self.highlight:Hide()
+    ns.ShowPlateHover(self, false)
     self.raidFrame:Hide()
     self.leftArrow:Hide()
     self.rightArrow:Hide()
@@ -927,7 +939,7 @@ function ns.RemoveFriendlyPlateNoRestore(unit)
     plate.unit = nil
     plate.nameplate = nil
     plate.glow:Hide()
-    plate.highlight:Hide()
+    ns.ShowPlateHover(plate, false)
     plate.raidFrame:Hide()
     plate.leftArrow:Hide()
     plate.rightArrow:Hide()
@@ -972,13 +984,13 @@ friendlyManager:SetScript("OnEvent", function(self, event)
         end
     elseif event == "UPDATE_MOUSEOVER_UNIT" then
         if friendlyMouseoverPlate then
-            friendlyMouseoverPlate.highlight:Hide()
+            ns.ShowPlateHover(friendlyMouseoverPlate, false)
             friendlyMouseoverPlate = nil
         end
         if UnitExists("mouseover") then
             for _, plate in pairs(friendlyPlates) do
                 if plate.unit and UnitIsUnit(plate.unit, "mouseover") then
-                    plate.highlight:Show()
+                    ns.ShowPlateHover(plate, true)
                     friendlyMouseoverPlate = plate
                     break
                 end

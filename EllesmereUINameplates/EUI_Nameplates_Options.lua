@@ -3567,7 +3567,7 @@ initFrame:SetScript("OnEvent", function(self)
             swatch:EnableMouse(not off)
         end
 
-        -- Row 2: Background (+ inline color swatch) | Hover Effect (+ inline color swatch)
+        -- Row 2: Background (+ inline color swatch) | Hover Style (dropdown + cog)
         local bgHoverRow
         bgHoverRow, h = W:DualRow(parent, y,
             { type="slider", text="Background", min=0, max=100, step=1,
@@ -3582,15 +3582,16 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 UpdatePreview()
               end },
-            { type="slider", text="Hover Effect", min=0, max=100, step=1,
-              tooltip="Controls the highlight shown over a nameplate when you mouse over it. Set to 0 to disable.",
-              getValue=function()
-                return math.floor(((DBVal("hoverAlpha") or defaults.hoverAlpha) * 100) + 0.5)
-              end,
+            { type="dropdown", text="Hover Style",
+              tooltip="How a nameplate is highlighted on mouseover: a fill over the health bar, or a border around the plate. Use the cog for its options.",
+              values={ highlight = "Health Bar Highlight", border = "Border" },
+              order={ "highlight", "border" },
+              getValue=function() return DBVal("hoverStyle") or defaults.hoverStyle end,
               setValue=function(v)
-                DB().hoverAlpha = v / 100
+                DB().hoverStyle = v
                 ns.RefreshHoverEffect()
                 UpdatePreview()
+                C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
               end })
         y = y - h
         -- Inline color swatch on Background (left region)
@@ -3613,22 +3614,59 @@ initFrame:SetScript("OnEvent", function(self)
             leftRgn._lastInline = cbSwatch
             EllesmereUI.RegisterWidgetRefresh(function() cbUpdateSwatch() end)
         end
-        -- Inline color swatch on Hover Effect (right region)
+        -- Context-sensitive cog on the Hover Style region (right). Highlight ->
+        -- opacity + color; Border -> thickness + color + class color. The cog is
+        -- always enabled and shows the popup that matches the selected style.
         do
-            local rightRgn = bgHoverRow._rightRegion
-            local hvColorGet = function()
-                local c = (DB() and DB().hoverColor) or defaults.hoverColor
-                return c.r, c.g, c.b
-            end
-            local hvColorSet = function(r, g, b)
-                DB().hoverColor = { r = r, g = g, b = b }
-                ns.RefreshHoverEffect()
-                UpdatePreview()
-            end
-            local hvSwatch, hvUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, hvColorGet, hvColorSet, nil, 20)
-            PP.Point(hvSwatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
-            rightRgn._lastInline = hvSwatch
-            EllesmereUI.RegisterWidgetRefresh(function() hvUpdateSwatch() end)
+            local function isBorder() return (DBVal("hoverStyle") or defaults.hoverStyle) == "border" end
+            -- Highlight popup: opacity + color (the old "Hover Effect" controls).
+            local _, hlCogShow = EllesmereUI.BuildCogPopup({
+                title = "Hover Highlight",
+                rows = {
+                    { type="slider", label="Opacity", min=0, max=100, step=1,
+                      get=function() return math.floor(((DBVal("hoverAlpha") or defaults.hoverAlpha) * 100) + 0.5) end,
+                      set=function(v) DB().hoverAlpha = v / 100; ns.RefreshHoverEffect(); UpdatePreview() end },
+                    { type="colorpicker", label="Color",
+                      get=function()
+                        local c = (DB() and DB().hoverColor) or defaults.hoverColor
+                        return c.r, c.g, c.b
+                      end,
+                      set=function(r, g, b) DB().hoverColor = { r = r, g = g, b = b }; ns.RefreshHoverEffect(); UpdatePreview() end },
+                },
+            })
+            -- Border popup: thickness + color + class color (color dims when class).
+            local _, brCogShow = EllesmereUI.BuildCogPopup({
+                title = "Hover Border",
+                rows = {
+                    { type="slider", label="Thickness", min=1, max=4, step=1,
+                      get=function() return DBVal("hoverBorderSize") or defaults.hoverBorderSize end,
+                      set=function(v) DB().hoverBorderSize = v; ns.RefreshHoverEffect(); UpdatePreview() end },
+                    { type="colorpicker", label="Color",
+                      disabled=function() return DBVal("hoverBorderClassColored") and true or false end,
+                      get=function()
+                        local c = (DB() and DB().hoverBorderColor) or defaults.hoverBorderColor
+                        return c.r, c.g, c.b
+                      end,
+                      set=function(r, g, b) DB().hoverBorderColor = { r = r, g = g, b = b }; ns.RefreshHoverEffect(); UpdatePreview() end },
+                    { type="toggle", label="Class Color",
+                      tooltip="Color the hover border with your own class color.",
+                      get=function() return DBVal("hoverBorderClassColored") and true or false end,
+                      set=function(v) DB().hoverBorderClassColored = v and true or false; ns.RefreshHoverEffect(); UpdatePreview() end },
+                },
+            })
+            local rgn = bgHoverRow._rightRegion
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self)
+                if isBorder() then brCogShow(self) else hlCogShow(self) end
+            end)
+            cogBtn:SetAlpha(0.4)
         end
 
         -- Row 3: Bar Texture | Absorb Style
