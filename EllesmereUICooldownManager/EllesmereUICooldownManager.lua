@@ -399,6 +399,28 @@ local CDM_ITEM_PRESETS = {
 }
 ns.CDM_ITEM_PRESETS = CDM_ITEM_PRESETS
 
+-- Equipped-slot enchant presets (engineering tinkers). Tracked like trinkets via
+-- GetInventoryItemCooldown on a fixed inventory slot -- NOT a bag item, so they
+-- have no itemID/GetItemCount. presetSID is a stable negative handle in the
+-- reserved enchant range (-50..-59) that can't collide with trinket (-13/-14) or
+-- item (<= -100) handles. Icon resolved from the spell at load.
+local CDM_ENCHANT_PRESETS = {
+    {
+        key       = "nitro_boosts",
+        name      = "Nitro Boosts",
+        spellID   = 55016,
+        slot      = INVSLOT_WAIST or 6,  -- belt tinker
+        presetSID = -50,
+        icon      = (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(55016)) or 136243,
+    },
+}
+ns.CDM_ENCHANT_PRESETS = CDM_ENCHANT_PRESETS
+
+-- Lookup: presetSID -> entry (for fast injection-time resolution).
+local ENCHANT_BY_SID = {}
+for _, e in ipairs(CDM_ENCHANT_PRESETS) do ENCHANT_BY_SID[e.presetSID] = e end
+ns.ENCHANT_BY_SID = ENCHANT_BY_SID
+
 
 local BuildAllCDMBars
 local RegisterCDMUnlockElements

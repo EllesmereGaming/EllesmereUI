@@ -1075,6 +1075,101 @@ local function UpdateTrinketCooldown(slotID)
     end
 end
 
+-------------------------------------------------------------------------------
+--  Enchant presets (engineering tinkers, e.g. Nitro Boosts on the belt).
+--  Cloned from the trinket mechanism: cooldown comes from the equipped slot via
+--  GetInventoryItemCooldown, NOT a bag item. Presence is detected by the slot
+--  having a usable on-use effect (enable == 1).
+-------------------------------------------------------------------------------
+local _enchantFrames = {}  -- [presetSID] = frame
+
+-- The slot has the tinker if GetInventoryItemCooldown reports a usable on-use
+-- (enable == 1) AND the equipped item's tooltip names the tinker spell -- a belt
+-- with some *other* on-use effect would otherwise false-positive. Matching the
+-- localized spell name against tooltip text keeps it locale-independent (both
+-- come from the client). Falls back to the on-use check alone when the name or
+-- tooltip data isn't available yet, so we never over-hide on missing data.
+local function EnchantPresent(slot, spellID)
+    local _, _, enable = GetInventoryItemCooldown("player", slot)
+    if enable ~= 1 then return false end
+    local name = spellID and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
+    if not name then return true end
+    local data = C_TooltipInfo and C_TooltipInfo.GetInventoryItem
+        and C_TooltipInfo.GetInventoryItem("player", slot)
+    if not data or not data.lines then return true end
+    for _, line in ipairs(data.lines) do
+        local lt = line.leftText
+        if lt and lt:find(name, 1, true) then return true end
+    end
+    return false
+end
+
+local function GetOrCreateEnchantFrame(entry)
+    local sid = entry.presetSID
+    local f = _enchantFrames[sid]
+    if f then return f end
+
+    f = CreateFrame("Frame", nil, UIParent)
+    f:SetSize(36, 36)
+    f:Hide()
+    f:EnableMouse(false)
+
+    local tex = f:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints()
+    tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    if entry.icon then tex:SetTexture(entry.icon) end
+    f.Icon = tex
+    f._tex = tex
+
+    local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+    cd:SetAllPoints()
+    cd:SetDrawEdge(false)
+    cd:SetDrawBling(false)
+    cd:SetHideCountdownNumbers(true)
+    cd:EnableMouse(false)
+    if cd.SetMouseClickEnabled then cd:SetMouseClickEnabled(false) end
+    if cd.SetMouseMotionEnabled then cd:SetMouseMotionEnabled(false) end
+    f.Cooldown = cd
+    f._cooldown = cd
+
+    f._isEnchantFrame = true
+    f._enchantSlot = entry.slot
+    f._enchantSpellID = entry.spellID
+    f._enchantSID = sid
+    f.cooldownID = nil
+    f.cooldownInfo = nil
+    f.layoutIndex = 99992
+    f.cooldownDuration = 0
+
+    f:EnableMouse(true)
+    if f.SetMouseClickEnabled then f:SetMouseClickEnabled(false) end
+    f:SetScript("OnEnter", function(self)
+        local ffc = _ecmeFC[self]
+        local bd2 = ffc and ffc.barKey and barDataByKey[ffc.barKey]
+        if not bd2 or not bd2.showTooltip then return end
+        GameTooltip_SetDefaultAnchor(GameTooltip, self)
+        GameTooltip:SetInventoryItem("player", self._enchantSlot)
+    end)
+    f:SetScript("OnLeave", GameTooltip_Hide)
+
+    _enchantFrames[sid] = f
+    return f
+end
+
+local function UpdateEnchantCooldown(f)
+    if not f then return false end
+    local start, dur, enable = GetInventoryItemCooldown("player", f._enchantSlot)
+    if start and dur and dur > 1.5 and enable == 1 then
+        f._cooldown:SetCooldown(start, dur)
+        if f._tex then f._tex:SetDesaturated(true) end
+        return true
+    else
+        f._cooldown:Clear()
+        if f._tex then f._tex:SetDesaturated(false) end
+        return false
+    end
+end
+
 local _trinketEventFrame = CreateFrame("Frame")
 _trinketEventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 _trinketEventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
@@ -1092,6 +1187,11 @@ _trinketEventFrame:SetScript("OnEvent", function(_, event, arg1)
                     if ns.QueueReanchor then ns.QueueReanchor() end
                 end)
             end
+        end
+        -- Enchant slot changed (e.g. belt re-enchant): a tinker may have been
+        -- added or removed, so re-evaluate presence via a rebuild.
+        for _, e in ipairs(ns.CDM_ENCHANT_PRESETS or {}) do
+            if e.slot == arg1 and ns.QueueReanchor then ns.QueueReanchor(); break end
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
         UpdateTrinketFrame(13)
@@ -1118,6 +1218,10 @@ _trinketEventFrame:SetScript("OnEvent", function(_, event, arg1)
             if _trinketFrames[slot] and _trinketFrames[slot]._trinketIsOnUse then
                 UpdateTrinketCooldown(slot)
             end
+        end
+        -- Enchant cooldowns (Nitro shares the potion CD) tick here too.
+        for _, f in pairs(_enchantFrames) do
+            if f:IsShown() then UpdateEnchantCooldown(f) end
         end
     end
 end)
@@ -1758,6 +1862,20 @@ local function CollectAndReanchor()
                                 fc.barKey = barKey; fc.spellID = sid
                             else
                                 tf:Hide()
+                            end
+                        elseif sid and ns.ENCHANT_BY_SID and ns.ENCHANT_BY_SID[sid] then
+                            -- Enchant preset (engineering tinker, e.g. Nitro Boosts).
+                            -- Only inject when the slot actually has the tinker, so the
+                            -- icon never shows on a character/belt without it.
+                            local entry = ns.ENCHANT_BY_SID[sid]
+                            local ef = GetOrCreateEnchantFrame(entry)
+                            if EnchantPresent(entry.slot, entry.spellID) then
+                                UpdateEnchantCooldown(ef)
+                                frames[#frames + 1] = ef
+                                local fc = FC(ef)
+                                fc.barKey = barKey; fc.spellID = sid
+                            else
+                                ef:Hide()
                             end
                         elseif sid and sid <= -100 then
                             -- Item preset (potions, healthstone, etc.)
