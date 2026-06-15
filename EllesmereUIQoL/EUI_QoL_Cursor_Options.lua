@@ -252,16 +252,16 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Only Show in Instances ---- Cursor Trail
+        -- Circle Opacity ---- Cursor Trail
         _, h = W:DualRow(parent, y,
-            { type="toggle", text="Only Show in Instances",
+            { type="slider", text="Circle Opacity", min=0, max=100, step=1,
               disabled=function() local p = DB(); return p and p.enabled == false end,
               disabledTooltip="Cursor Circle",
-              getValue=function() local p = DB(); return p and p.instanceOnly end,
+              getValue=function() local p = DB(); return p and (p.alpha or 100) end,
               setValue=function(v)
                 local p = DB(); if not p then return end
-                p.instanceOnly = v
-                if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
+                p.alpha = v
+                RefreshAddon()
               end },
             { type="toggle", text="Cursor Trail",
               disabled=function() local p = DB(); return p and p.enabled == false end,
@@ -272,6 +272,20 @@ initFrame:SetScript("OnEvent", function(self)
                 p.trail = v
                 if _G._ECL_ApplyTrail then _G._ECL_ApplyTrail() end
               end }
+        );  y = y - h
+
+        -- Only Show in Instances
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Only Show in Instances",
+              disabled=function() local p = DB(); return p and p.enabled == false end,
+              disabledTooltip="Cursor Circle",
+              getValue=function() local p = DB(); return p and p.instanceOnly end,
+              setValue=function(v)
+                local p = DB(); if not p then return end
+                p.instanceOnly = v
+                if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
+              end },
+            { type="label", text="" }
         );  y = y - h
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -293,16 +307,15 @@ initFrame:SetScript("OnEvent", function(self)
             { type="multiSwatch", text="Color",
               swatches = {
                 { tooltip = "Custom Color",
-                  hasAlpha = true,
+                  hasAlpha = false,
                   getValue = function()
                       local g = GCD_DB()
                       local r, ng, b = HexToRGB(g.hex)
-                      return r, ng, b, (g.alpha or 80) / 100
+                      return r, ng, b
                   end,
-                  setValue = function(r, g, b, a)
+                  setValue = function(r, g, b)
                       local gd = GCD_DB()
                       gd.hex = RGBToHex(r, g, b)
-                      if a then gd.alpha = floor(a * 100 + 0.5) end
                       RefreshGCD()
                   end,
                   onClick = function(self)
@@ -393,16 +406,14 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) GCD_DB().radius = v; RefreshGCD() end }
         );  y = y - h
 
-        -- Only Show in Instances ---- Attach to Cursor
+        -- Circle Opacity ---- Attach to Cursor
         _, h = W:DualRow(parent, y,
-            { type="toggle", text="Only Show in Instances",
+            { type="slider", text="Circle Opacity", min=0, max=100, step=1,
               disabled=function() return not GCD_DB().enabled end,
               disabledTooltip="GCD Circle",
-              getValue=function() return GCD_DB().instanceOnly or false end,
-              setValue=function(v)
-                GCD_DB().instanceOnly = v
-                if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
-              end },
+              getValue=function() return GCD_DB().alpha or 80 end,
+              setValue=function(v) GCD_DB().alpha = v; RefreshGCD() end },
+
             { type="toggle", text="Attach to Cursor",
               disabled=function() return not GCD_DB().enabled end,
               disabledTooltip="GCD Circle",
@@ -412,6 +423,19 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshGCD()
                 EllesmereUI:RefreshPage()
               end }
+        );  y = y - h
+
+        -- Only Show in Instances
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Only Show in Instances",
+              disabled=function() return not GCD_DB().enabled end,
+              disabledTooltip="GCD Circle",
+              getValue=function() return GCD_DB().instanceOnly or false end,
+              setValue=function(v)
+                GCD_DB().instanceOnly = v
+                if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
+              end },
+            { type="label", text="" }
         );  y = y - h
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -433,16 +457,15 @@ initFrame:SetScript("OnEvent", function(self)
             { type="multiSwatch", text="Color",
               swatches = {
                 { tooltip = "Custom Color",
-                  hasAlpha = true,
+                  hasAlpha = false,
                   getValue = function()
                       local c = Cast_DB()
                       local r, ng, b = HexToRGB(c.hex)
-                      return r, ng, b, (c.alpha or 80) / 100
+                      return r, ng, b
                   end,
-                  setValue = function(r, g, b, a)
+                  setValue = function(r, g, b)
                       local cd = Cast_DB()
                       cd.hex = RGBToHex(r, g, b)
-                      if a then cd.alpha = floor(a * 100 + 0.5) end
                       RefreshCast()
                   end,
                   onClick = function(self)
@@ -566,16 +589,14 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Cast_DB().radius = v; RefreshCast() end }
         );  y = y - h
 
-        -- Only Show in Instances ---- Attach to Cursor
+        -- Circle Opacity ---- Attach to Cursor
         row, h = W:DualRow(parent, y,
-            { type="toggle", text="Only Show in Instances",
+            { type="slider", text="Circle Opacity", min=0, max=100, step=1,
               disabled=function() return not Cast_DB().enabled end,
               disabledTooltip="Cast Bar Circle",
-              getValue=function() return Cast_DB().instanceOnly or false end,
-              setValue=function(v)
-                Cast_DB().instanceOnly = v
-                if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
-              end },
+              getValue=function() return Cast_DB().alpha or 80 end,
+              setValue=function(v) Cast_DB().alpha = v; RefreshCast() end },
+
             { type="toggle", text="Attach to Cursor",
               disabled=function() return not Cast_DB().enabled end,
               disabledTooltip="Cast Bar Circle",
@@ -585,6 +606,19 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshCast()
                 EllesmereUI:RefreshPage()
               end }
+        );  y = y - h
+
+        -- Only Show in Instances
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Only Show in Instances",
+              disabled=function() return not Cast_DB().enabled end,
+              disabledTooltip="Cast Bar Circle",
+              getValue=function() return Cast_DB().instanceOnly or false end,
+              setValue=function(v)
+                Cast_DB().instanceOnly = v
+                if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
+              end },
+            { type="label", text="" }
         );  y = y - h
 
         return math.abs(y)

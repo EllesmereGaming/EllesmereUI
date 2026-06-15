@@ -429,8 +429,7 @@ end
 --- regardless of assignedSpells, so the old visual already matches the new
 --- model. Ghost buff bar cleanup is handled by EnsureGhostBars.
 function ns.MigrateSpecToBarFilterModelV6()
-    local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
-    local sp = sa and sa.specProfiles
+    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     if not sp then return end
 
     local specKey = ns.GetActiveSpecKey()
@@ -589,8 +588,7 @@ end
 --- in at their saved positions. After this runs, sd.dormantSpells is wiped.
 --- Flagged per-spec via prof._dormantMerged so it only runs once.
 function ns.MergeDormantSpellsIntoAssigned()
-    local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
-    local sp = sa and sa.specProfiles
+    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     if not sp then return end
 
     local specKey = ns.GetActiveSpecKey()
@@ -1145,13 +1143,17 @@ function ns.RemoveCDMBar(key)
             p.cdmBarPositions[key] = nil
             table.remove(p.cdmBars.bars, i)
 
-            -- Custom bar deletion: free all spells (don't ghost them).
-            -- Just delete the bar's spell data from all spec profiles.
-            local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
-            local sp = sa and sa.specProfiles
+            -- Custom bar deletion: free all spells (don't ghost them). Delete
+            -- the bar's spell data from every spec of the ACTIVE profile only.
+            -- Other profiles own independent spell stores and must keep their
+            -- copy of this bar's spells (this is the fix for deleting a copied
+            -- profile's bar wiping the origin). Custom bar definitions are
+            -- per-profile but spec-independent, so clear all of THIS profile's
+            -- specs to avoid orphaned spell data.
+            local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
             if sp then
                 for _, specData in pairs(sp) do
-                    if specData.barSpells and specData.barSpells[key] then
+                    if type(specData) == "table" and specData.barSpells and specData.barSpells[key] then
                         specData.barSpells[key] = nil
                     end
                 end

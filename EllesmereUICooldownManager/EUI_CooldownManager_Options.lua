@@ -7493,7 +7493,7 @@ initFrame:SetScript("OnEvent", function(self)
                         local scB = bd.stackCountB or 1
                         local scX = bd.stackCountX or 0
                         local scY = (bd.stackCountY or 0) + 2
-                        slot._stackText:SetFont(scFont, scSize, "OUTLINE")
+                        slot._stackText:SetFont(scFont, scSize, "OUTLINE, SLUG")
                         slot._stackText:SetShadowOffset(0, 0)
                         slot._stackText:SetTextColor(scR, scG, scB)
                         slot._stackText:ClearAllPoints()
@@ -7512,11 +7512,20 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
 
-                -- Keybind text preview
+                -- Keybind text preview (mirror live: our CDM font + outline,slug)
                 if slot._keybindText then
-                    SetPVFont(slot._keybindText, FONT_PATH, bd.keybindSize or 10)
+                    slot._keybindText:SetFont(FONT_PATH, bd.keybindSize or 10, "OUTLINE, SLUG")
+                    slot._keybindText:SetShadowOffset(0, 0)
                     slot._keybindText:ClearAllPoints()
-                    slot._keybindText:SetPoint("TOPLEFT", slot, "TOPLEFT", bd.keybindOffsetX or 2, bd.keybindOffsetY or -2)
+                    local kx = bd.keybindOffsetX or 2
+                    local ky = bd.keybindOffsetY or -2
+                    if bd.keybindAlign == "right" then
+                        slot._keybindText:SetJustifyH("RIGHT")
+                        slot._keybindText:SetPoint("TOPRIGHT", slot, "TOPRIGHT", -kx, ky)
+                    else
+                        slot._keybindText:SetJustifyH("LEFT")
+                        slot._keybindText:SetPoint("TOPLEFT", slot, "TOPLEFT", kx, ky)
+                    end
                     slot._keybindText:SetTextColor(bd.keybindR or 1, bd.keybindG or 1, bd.keybindB or 1, bd.keybindA or 0.9)
                     local sid = slot._previewSpellID
                     if bd.showKeybind and sid then
@@ -9909,11 +9918,24 @@ initFrame:SetScript("OnEvent", function(self)
                   ns.ApplyCDMTooltipState(BD().key)
                   Refresh()
               end },
-            { type="toggle", text="Show Keybind",
-              getValue=function() return BD().showKeybind == true end,
+            { type="dropdown", text="Show Keybind",
+              values = { none = "None", left = "Left Aligned", right = "Right Aligned" },
+              order = { "none", "left", "right" },
+              getValue=function()
+                  local b = BD()
+                  if not b.showKeybind then return "none" end
+                  return (b.keybindAlign == "right") and "right" or "left"
+              end,
               setValue=function(v)
-                  BD().showKeybind = v
-                  ns.RefreshCDMIconAppearance(BD().key); ns.ApplyCachedKeybinds(); UpdateCDMPreview(); EllesmereUI:RefreshPage()
+                  local b = BD()
+                  if v == "none" then
+                      b.showKeybind = false
+                  elseif v == "right" then
+                      b.showKeybind = true; b.keybindAlign = "right"
+                  else
+                      b.showKeybind = true; b.keybindAlign = "left"
+                  end
+                  ns.RefreshCDMIconAppearance(b.key); ns.ApplyCachedKeybinds(); UpdateCDMPreview(); EllesmereUI:RefreshPage()
               end }
         );  y = y - h
 
@@ -10327,14 +10349,14 @@ initFrame:SetScript("OnEvent", function(self)
             end
             -- Wipe spell assignments for the current spec so the init
             -- snapshot re-populates from Blizzard's CDM. Spell data lives
-            -- in EllesmereUIDB, not the AceDB profile, so ResetProfile
-            -- doesn't touch it. Only clear current spec to preserve other
-            -- specs' customizations.
-            if EllesmereUIDB and EllesmereUIDB.spellAssignments
-               and EllesmereUIDB.spellAssignments.specProfiles then
-                local specKey = ns and ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-                if specKey and specKey ~= "0" then
-                    EllesmereUIDB.spellAssignments.specProfiles[specKey] = nil
+            -- in EllesmereUIDB (per-profile store), not the AceDB profile, so
+            -- ResetProfile doesn't touch it. Only clear the ACTIVE profile's
+            -- current spec to preserve other specs and other profiles.
+            if ns and ns.GetActiveSpecProfiles then
+                local sp = ns.GetActiveSpecProfiles()
+                local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+                if sp and specKey and specKey ~= "0" then
+                    sp[specKey] = nil
                 end
             end
             ReloadUI()

@@ -502,7 +502,8 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["pet"]          = { module = "EllesmereUIUnitFrames",       page = "Mini Frames",   sectionName = "HEALTH BAR",       preSelectFn = EllesmereUI._SelectMiniUnit("pet"),          highlightText = "Bar Height" },
     ["targettarget"] = { module = "EllesmereUIUnitFrames",       page = "Mini Frames",   sectionName = "HEALTH BAR",       preSelectFn = EllesmereUI._SelectMiniUnit("targettarget"), highlightText = "Bar Height" },
     ["focustarget"]  = { module = "EllesmereUIUnitFrames",       page = "Mini Frames",   sectionName = "HEALTH BAR",       preSelectFn = EllesmereUI._SelectMiniUnit("focustarget"),  highlightText = "Bar Height" },
-    ["boss"]         = { module = "EllesmereUIUnitFrames",       page = "Mini Frames",   sectionName = "HEALTH BAR",       preSelectFn = EllesmereUI._SelectMiniUnit("boss"),         highlightText = "Bar Height" },
+    -- Boss frames live on their own "Boss Frames" page (no unit dropdown).
+    ["boss"]         = { module = "EllesmereUIUnitFrames",       page = "Boss Frames",   sectionName = "HEALTH BAR",       highlightText = "Bar Height" },
     ["classPower"]   = { module = "EllesmereUIUnitFrames",       page = "Main Frames",   sectionName = "CLASS RESOURCE",   preSelectFn = SelectUnitFrame("player"),                   highlightText = "Enable Class Resource" },
 
     -- Unit-frame cast bars (configured on the Main Frames page, CAST BAR section, per selected unit)
@@ -4522,17 +4523,21 @@ local function CreateMover(barKey)
             local s = b:GetEffectiveScale()
             local uiS = UIParent:GetEffectiveScale()
             local elemScale = s / uiS
-            -- Update size from bar
+            -- Update size from bar (+ any below-frame extra, e.g. boss castbar).
+            local elem = registeredElements[bk]
+            local extra = (elem and elem.getBottomExtra and (elem.getBottomExtra(bk) or 0) or 0) * elemScale
             local w = (b:GetWidth() or 50) * elemScale
-            local h = (b:GetHeight() or 50) * elemScale
+            local h = (b:GetHeight() or 50) * elemScale + extra
             if w > 10 then baseW = w end
             if h > 10 then baseH = h end
             self2:SetSize(baseW, baseH)
-            -- Recompute moverCX/moverCY from bar's current center
+            -- Recompute moverCX/moverCY from bar's current center. Shift the
+            -- stored center DOWN by half the extra so the box stays top-pinned
+            -- to the frame and grows downward over the extra region.
             local bcx, bcy = b:GetCenter()
             if bcx and bcy then
                 moverCX = bcx * elemScale
-                moverCY = bcy * elemScale - UIParent:GetHeight()
+                moverCY = bcy * elemScale - UIParent:GetHeight() - extra * 0.5
             end
             -- Anchor mover to bar TOPLEFT for pixel-perfect overlay
             self2:ClearAllPoints()
@@ -5363,6 +5368,12 @@ local function CreateMover(barKey)
                 w, h = gw, gh
                 centerYOff = gyOff or 0
             end
+        end
+        -- Extend the overlay downward to wrap an element's below-frame extra
+        -- (e.g. the boss castbar). Inflating h here flows into SetSize and the
+        -- center math below, keeping the top pinned and growing the box down.
+        if elem and elem.getBottomExtra then
+            h = h + (elem.getBottomExtra(bk) or 0) * elemScale
         end
         baseW, baseH = w, h
         self:SetSize(w, h)

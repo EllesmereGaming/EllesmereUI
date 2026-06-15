@@ -4239,7 +4239,14 @@ initFrame:SetScript("OnEvent", function(self)
                                         onConfirm   = function() ReloadUI() end,
                                     })
                                 else
-                                    EllesmereUI:RefreshPage()
+                                    -- Invalidate cached option pages so per-profile
+                                    -- lists (e.g. the CDM bar dropdown) rebuild from
+                                    -- the new profile on next view. A live swap only
+                                    -- re-points db.profile; without this the cached
+                                    -- pages keep showing the old profile's bars until
+                                    -- a /reload. Matches the delete/rename handlers.
+                                    EllesmereUI:InvalidatePageCache()
+                                    EllesmereUI:RefreshPage(true)
                                 end
                             end)
                             iXBtn:SetScript("OnClick", function()

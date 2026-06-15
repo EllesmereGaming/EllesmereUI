@@ -1988,13 +1988,16 @@ local function CollectAndReanchor()
                         if frame:GetParent() ~= container then
                             frame:SetParent(container)
                         end
-                        -- Enable mouse motion (OnEnter/OnLeave) for tooltips
-                        -- but keep clicks pass-through. Skip for cursor-
-                        -- anchored bars: re-enabling mouse here would undo
-                        -- the click-through set by SetFrameClickThrough and
-                        -- cause the bar to block hover interactions.
+                        -- Mouse motion (OnEnter/OnLeave) only while this bar's
+                        -- tooltips are on -- a motion-enabled icon steals
+                        -- mouseover focus from unit frames underneath (raid
+                        -- frame hover highlight, [@mouseover] casts). Clicks
+                        -- always pass through. Cursor-anchored bars stay fully
+                        -- mouse-through: re-enabling mouse here would undo the
+                        -- click-through set by SetFrameClickThrough.
                         local isCursorBar = container and container._mouseTrack
-                        if not isCursorBar then
+                        local bdHover = barDataByKey and barDataByKey[barKey]
+                        if bdHover and bdHover.showTooltip and not isCursorBar then
                             frame:EnableMouse(true)
                             if frame.SetMouseClickEnabled then frame:SetMouseClickEnabled(false) end
                             if frame.EnableMouseMotion then frame:EnableMouseMotion(true) end
@@ -2011,6 +2014,18 @@ local function CollectAndReanchor()
                                 frame.Cooldown:SetMouseMotionEnabled(false)
                             end
                         end
+                    end
+                    -- Cursor-anchored bars must stay fully mouse-through on
+                    -- EVERY icon, native viewer icons included -- the branch
+                    -- above only re-asserts our own custom frames, but the
+                    -- same Decorate/Show/SetParent/Cooldown path can re-enable
+                    -- mouse on native icons. A mouse-enabled icon riding the
+                    -- cursor intermittently kills [@mouseover] hovercast keys
+                    -- while frame focus still looks correct.
+                    if container and container._mouseTrack then
+                        frame:EnableMouse(false)
+                        if frame.EnableMouseMotion then frame:EnableMouseMotion(false) end
+                        if frame.Cooldown then frame.Cooldown:EnableMouse(false) end
                     end
                     -- Active state hooks handled in DecorateFrame (SetSwipeColor
                     -- hook on every frame, forces our color always).
@@ -2220,8 +2235,8 @@ local function CollectAndReanchor()
     -- moved out of the default bars).
     if ns.MigrateSpecToBarFilterModelV6 then
         local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-        local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
-        local prof = sa and sa.specProfiles and specKey and sa.specProfiles[specKey]
+        local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
+        local prof = sp and specKey and sp[specKey]
         local needsMigration = prof and not prof._barFilterModelV6
         if needsMigration then
             local added = ns.MigrateSpecToBarFilterModelV6()
@@ -2240,8 +2255,8 @@ local function CollectAndReanchor()
     -- the revived entries become diversions.
     if ns.MergeDormantSpellsIntoAssigned then
         local specKey2 = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-        local sa2 = EllesmereUIDB and EllesmereUIDB.spellAssignments
-        local prof2 = sa2 and sa2.specProfiles and specKey2 and sa2.specProfiles[specKey2]
+        local sp2 = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
+        local prof2 = sp2 and specKey2 and sp2[specKey2]
         if prof2 and not prof2._dormantMerged then
             ns.MergeDormantSpellsIntoAssigned()
             if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end

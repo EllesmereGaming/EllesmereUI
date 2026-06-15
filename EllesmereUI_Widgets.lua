@@ -507,6 +507,12 @@ local function DDResolveLabel(values, order, curKey)
             end
         end
     end
+    -- SharedMedia keys ("sm:<name>") whose provider addon isn't loaded won't be
+    -- in `values`; still show the clean media name, never the raw "sm:" key.
+    if type(curKey) == 'string' then
+        local smName = curKey:match('^sm:(.+)')
+        if smName then return smName end
+    end
     return tostring(curKey)
 end
 local function DDFont(v)
@@ -1001,6 +1007,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         ddThumb:SetScript("OnMouseDown", function(self, button)
             if button ~= "LeftButton" then return end
             ddDragging = true
+            menu._ddThumbDragging = true  -- suppress click-away dismiss while dragging the scrollbar
             ddSmoothing = false
             ddSmoothFrame:Hide()
             local _, cursorY = GetCursorPosition()
@@ -1009,6 +1016,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
             self:SetScript("OnUpdate", function(self2)
                 if not IsMouseButtonDown("LeftButton") then
                     ddDragging = false
+                    menu._ddThumbDragging = false
                     self2:SetScript("OnUpdate", nil)
                     return
                 end
@@ -1029,6 +1037,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         ddThumb:SetScript("OnMouseUp", function(self, button)
             if button ~= "LeftButton" then return end
             ddDragging = false
+            menu._ddThumbDragging = false
             self:SetScript("OnUpdate", nil)
         end)
 
@@ -1123,7 +1132,7 @@ local function WireDropdownScripts(ddBtn, ddLbl, bg, brd, menu, refresh, s)
         refresh()
         self:SetScript("OnUpdate", function(m)
             local flyoverFlyout = false; if m._flyouts then for _, fo in ipairs(m._flyouts) do if fo:IsShown() and fo:IsMouseOver() then flyoverFlyout = true; break end end end
-            if not m:IsMouseOver() and not ddBtn:IsMouseOver() and not flyoverFlyout and IsMouseButtonDown("LeftButton") then m:Hide(); return end
+            if not m:IsMouseOver() and not ddBtn:IsMouseOver() and not flyoverFlyout and not m._ddThumbDragging and IsMouseButtonDown("LeftButton") then m:Hide(); return end
             -- Close when the bottom edge of the dropdown button leaves the visible scroll area.
             -- Skip for buttons NOT inside the scroll child (e.g. content header dropdowns).
             local scrollFrame = EllesmereUI._scrollFrame
@@ -2849,6 +2858,11 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
     local function BuildHalf(region, cfg)
         if not cfg then return end
         local t = cfg.type
+        -- Empty half-space placeholder for dual/third rows.
+        if t == "spacer" then
+            region._control = nil
+            return
+        end
         -- Label (all types have one)
         local label = MakeFont(region, 14, nil, TEXT_WHITE_R, TEXT_WHITE_G, TEXT_WHITE_B)
         PP.Point(label, "LEFT", region, "LEFT", SIDE_PAD, 0)
@@ -3866,7 +3880,7 @@ local function BuildCogPopup(opts)
             if i > 1 then totalH = totalH + GAP end
             if row.type == "toggle" then
                 totalH = totalH + TOGGLE_ROW_H
-            elseif row.type == "dropdown" then
+            elseif row.type == "dropdown" or row.type == "reorder" then
                 totalH = totalH + DROPDOWN_ROW_H
             elseif row.type == "button" then
                 totalH = totalH + ROW_H + 4
@@ -4192,6 +4206,233 @@ local function BuildCogPopup(opts)
                 end)
                 rowWidgets[#rowWidgets + 1] = { type = 'button' }
                 curY = curY - BTN_ROW_H
+
+            elseif row.type == 'reorder' then
+                -- Full-width dropdown button that opens a drag-to-reorder menu,
+                -- matching the raid/party "Sort By" reorder section (hint label +
+                -- draggable rows). Used for the party Class Order list.
+                local RR_W = POPUP_W - SIDE_PAD * 2
+                local ddBtn = CreateFrame("Button", nil, pf)
+                ddBtn:SetSize(RR_W, DROPDOWN_ROW_H - 2)
+                ddBtn:SetPoint("TOP", pf, "TOPLEFT", POPUP_W / 2, curY - 1)
+                ddBtn:SetFrameLevel(pf:GetFrameLevel() + 2)
+                local rBg = SolidTex(ddBtn, "BACKGROUND", EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+                rBg:SetAllPoints()
+                local rBrd = MakeBorder(ddBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+                local rLbl = MakeFont(ddBtn, 12, nil, 1, 1, 1)
+                rLbl:SetAlpha(EllesmereUI.DD_TXT_A)
+                rLbl:SetJustifyH("LEFT"); rLbl:SetWordWrap(false); rLbl:SetMaxLines(1)
+                rLbl:SetPoint("LEFT", ddBtn, "LEFT", 8, 0)
+                rLbl:SetText(EllesmereUI.L(row.label))
+                local rArrow = MakeDropdownArrow(ddBtn, 12, PP)
+                rLbl:SetPoint("RIGHT", rArrow, "LEFT", -5, 0)
+                ddBtn:SetScript("OnEnter", function()
+                    rBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+                    rBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_HA)
+                    rLbl:SetAlpha(EllesmereUI.DD_TXT_HA)
+                end)
+                ddBtn:SetScript("OnLeave", function()
+                    rBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+                    rBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
+                    rLbl:SetAlpha(EllesmereUI.DD_TXT_A)
+                end)
+
+                -- Drag-to-reorder menu (FULLSCREEN_DIALOG so it floats above the popup)
+                local MH = 26
+                local FONT = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+                local menu = CreateFrame("Frame", nil, UIParent)
+                menu:SetFrameStrata("FULLSCREEN_DIALOG")
+                menu:SetFrameLevel(220)
+                menu:SetClampedToScreen(true)
+                menu:SetWidth(RR_W)
+                menu:Hide()
+                local mBg2 = SolidTex(menu, "BACKGROUND", EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.98)
+                mBg2:SetAllPoints()
+                MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+                menu:SetPoint("TOPLEFT", ddBtn, "BOTTOMLEFT", 0, -2)
+                ddBtn._ddMenu = menu  -- popup click-outside ignores menu interaction
+
+                -- Declared before OnShow so its OnUpdate can suppress the
+                -- click-away dismiss while a row is actively being dragged.
+                local dragRow, dsY, isDragging = nil, nil, false
+
+                menu:SetScript("OnShow", function(self)
+                    self:SetScale(ddBtn:GetEffectiveScale() / UIParent:GetEffectiveScale())
+                    self:SetScript("OnUpdate", function(m)
+                        if isDragging then return end  -- never dismiss mid-drag
+                        if not ddBtn:IsMouseOver() and not m:IsMouseOver() then
+                            if IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton") then m:Hide() end
+                        end
+                    end)
+                end)
+                menu:SetScript("OnHide", function(self) self:SetScript("OnUpdate", nil) end)
+
+                local mY = -2
+                local ht = menu:CreateFontString(nil, "OVERLAY")
+                ht:SetFont(FONT, 10, "")
+                ht:SetPoint("TOPLEFT", menu, "TOPLEFT", 10, mY - 4)
+                ht:SetTextColor(1, 1, 1, 0.25)
+                ht:SetText(EllesmereUI.L(row.hint or "Drag to Reorder"))
+                mY = mY - 18
+
+                local items = (row.items and row.items()) or {}
+                local cbBaseY = mY
+                local rowFrames = {}
+                local insLine = menu:CreateTexture(nil, "OVERLAY", nil, 7)
+                insLine:SetHeight(2)
+                local EG2 = EllesmereUI.ACCENT_COLOR or { r = 0.05, g = 0.82, b = 0.62 }
+                insLine:SetColorTexture(EG2.r, EG2.g, EG2.b, 0.9)
+                insLine:Hide()
+
+                local function PersistOrder()
+                    local keys = {}
+                    for _, rf in ipairs(rowFrames) do keys[#keys + 1] = rf._key end
+                    if row.set then row.set(keys) end
+                end
+
+                for ci, it in ipairs(items) do
+                    local rf = CreateFrame("Button", nil, menu)
+                    rf:SetHeight(MH)
+                    rf._baseY = mY
+                    rf._cbIndex = ci
+                    rf._key = it.key
+                    rf:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, mY)
+                    rf:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, mY)
+                    rf:SetFrameLevel(menu:GetFrameLevel() + 2)
+
+                    local rl = rf:CreateFontString(nil, "OVERLAY")
+                    rl:SetFont(FONT, 13, "")
+                    rl:SetPoint("LEFT", rf, "LEFT", 20, 0)
+                    rl:SetJustifyH("LEFT")
+                    rl:SetText(it.label)
+                    rl:SetTextColor(0.75, 0.75, 0.75, 1)
+                    rf._lbl = rl
+
+                    local grip = rf:CreateFontString(nil, "OVERLAY")
+                    grip:SetFont(FONT, 10, "")
+                    grip:SetPoint("LEFT", rf, "LEFT", 8, 0)
+                    grip:SetText("=")
+                    grip:SetTextColor(1, 1, 1, 0.2)
+
+                    local rHL = rf:CreateTexture(nil, "ARTWORK")
+                    rHL:SetAllPoints(); rHL:SetColorTexture(1, 1, 1, 0)
+
+                    rf:SetScript("OnEnter", function()
+                        if isDragging then return end
+                        rl:SetTextColor(1, 1, 1, 1); rHL:SetColorTexture(1, 1, 1, 0.04)
+                    end)
+                    rf:SetScript("OnLeave", function()
+                        if isDragging then return end
+                        rl:SetTextColor(0.75, 0.75, 0.75, 1); rHL:SetColorTexture(1, 1, 1, 0)
+                    end)
+
+                    rf:SetScript("OnMouseDown", function(self, b)
+                        if b ~= "LeftButton" then return end
+                        local _, cy = GetCursorPosition()
+                        dsY = cy; dragRow = self
+                    end)
+
+                    rf:SetScript("OnUpdate", function(self)
+                        if dragRow ~= self or not dsY then return end
+                        local _, cy = GetCursorPosition()
+                        if not isDragging then
+                            if math.abs(cy - dsY) < 3 then return end
+                            isDragging = true
+                            self:SetFrameLevel(menu:GetFrameLevel() + 10); self:SetAlpha(0.8)
+                            for _, r2 in ipairs(rowFrames) do
+                                if r2._lbl then r2._lbl:SetTextColor(0.75, 0.75, 0.75, 1) end
+                            end
+                        end
+                        local sc = menu:GetEffectiveScale()
+                        local cY = cy / sc
+                        local mT = menu:GetTop() or 0
+                        local iI = #rowFrames
+                        for ri, r2 in ipairs(rowFrames) do
+                            if r2 ~= self and r2._baseY then
+                                local rm = mT + r2._baseY - MH / 2
+                                if cY > rm then iI = ri; break end
+                                iI = ri + 1
+                            end
+                        end
+                        iI = math.max(1, math.min(iI, #rowFrames + 1))
+                        local lnY = (iI <= 1) and (cbBaseY + 1) or (cbBaseY - (iI - 1) * MH + 1)
+                        insLine:ClearAllPoints()
+                        insLine:SetPoint("TOPLEFT", menu, "TOPLEFT", 8, lnY)
+                        insLine:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -8, lnY)
+                        insLine:Show()
+                        self:ClearAllPoints()
+                        self:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, cY - mT)
+                        self:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, cY - mT)
+                    end)
+
+                    rf:SetScript("OnMouseUp", function(self, b)
+                        if b ~= "LeftButton" or dragRow ~= self then return end
+                        dsY = nil; dragRow = nil
+                        if not isDragging then return end
+                        isDragging = false; insLine:Hide()
+                        self:SetFrameLevel(menu:GetFrameLevel() + 2); self:SetAlpha(1)
+                        local _, cy = GetCursorPosition()
+                        local sc = menu:GetEffectiveScale(); cy = cy / sc
+                        local mT = menu:GetTop() or 0
+                        local from = self._cbIndex
+                        local iI = #rowFrames
+                        for ri, r2 in ipairs(rowFrames) do
+                            if r2 ~= self and r2._baseY then
+                                local rm = mT + r2._baseY - MH / 2
+                                if cy > rm then iI = ri; break end
+                                iI = ri + 1
+                            end
+                        end
+                        iI = math.max(1, math.min(iI, #rowFrames + 1))
+                        if from < iI then iI = iI - 1 end
+                        local to = math.max(1, math.min(iI, #rowFrames))
+                        if from ~= to then
+                            local mv = table.remove(rowFrames, from)
+                            table.insert(rowFrames, to, mv)
+                            PersistOrder()
+                        end
+                        for ri = 1, #rowFrames do
+                            local r2 = rowFrames[ri]
+                            r2._cbIndex = ri
+                            local ry = cbBaseY - (ri - 1) * MH
+                            r2._baseY = ry
+                            r2:ClearAllPoints()
+                            r2:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, ry)
+                            r2:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, ry)
+                        end
+                    end)
+
+                    rowFrames[#rowFrames + 1] = rf
+                    mY = mY - MH
+                end
+                menu:SetHeight(math.abs(mY) + 4)
+
+                ddBtn:SetScript("OnClick", function()
+                    if menu:IsShown() then menu:Hide() else menu:Show() end
+                end)
+
+                -- Disabled overlay (dim + block + hide menu)
+                local reorderDis
+                if row.disabled then
+                    reorderDis = CreateFrame("Frame", nil, pf)
+                    reorderDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 0, curY)
+                    reorderDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", 0, curY)
+                    reorderDis:SetHeight(DROPDOWN_ROW_H)
+                    reorderDis:SetFrameLevel(pf:GetFrameLevel() + 12)
+                    reorderDis:EnableMouse(true)
+                    local disTex = SolidTex(reorderDis, "OVERLAY", 0.06, 0.08, 0.10, 0.70)
+                    disTex:SetAllPoints()
+                    reorderDis:SetScript("OnEnter", function(self)
+                        local tip = ResolveDisabledTip(row)
+                        if tip and EllesmereUI.ShowWidgetTooltip then EllesmereUI.ShowWidgetTooltip(self, tip) end
+                    end)
+                    reorderDis:SetScript("OnLeave", function() if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end end)
+                    local initDis = type(row.disabled) == "function" and row.disabled() or row.disabled
+                    if initDis then reorderDis:Show() else reorderDis:Hide() end
+                end
+
+                rowWidgets[#rowWidgets + 1] = { type = 'reorder', btn = ddBtn, menu = menu, disOverlay = reorderDis, disCheck = row.disabled }
+                curY = curY - DROPDOWN_ROW_H
             end
         end
 
@@ -4276,6 +4517,17 @@ local function BuildCogPopup(opts)
                     if rw.saveBg then
                         rw.saveBg:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 0.85)
                     end
+                elseif rw.type == 'reorder' then
+                    if rw.disOverlay and rw.disCheck then
+                        local dis
+                        if type(rw.disCheck) == "function" then dis = rw.disCheck() else dis = rw.disCheck end
+                        if dis then
+                            rw.disOverlay:Show()
+                            if rw.menu then rw.menu:Hide() end
+                        else
+                            rw.disOverlay:Hide()
+                        end
+                    end
                 end
             end
         end
@@ -4285,7 +4537,7 @@ local function BuildCogPopup(opts)
         pf._clickOutside = function(self)
             local down = IsMouseButtonDown("LeftButton")
             if down and not wasDown then
-                local ddOpen = false; for _, rw in ipairs(rowWidgets) do if rw.type == 'dropdown' and rw.btn and rw.btn._ddMenu and rw.btn._ddMenu:IsShown() and rw.btn._ddMenu:IsMouseOver() then ddOpen = true; break end end; if not self:IsMouseOver() and not (popupOwner and popupOwner:IsMouseOver()) and not ddOpen then
+                local ddOpen = false; for _, rw in ipairs(rowWidgets) do if (rw.type == 'dropdown' or rw.type == 'reorder') and rw.btn and rw.btn._ddMenu and rw.btn._ddMenu:IsShown() and rw.btn._ddMenu:IsMouseOver() then ddOpen = true; break end end; if not self:IsMouseOver() and not (popupOwner and popupOwner:IsMouseOver()) and not ddOpen then
                     self:Hide()
                 end
             end
@@ -5392,10 +5644,32 @@ local function BuildSyncIcon(opts)
     return applyBtn
 end
 
+-- Inline toggle: a small toggle placed inline inside a DualRow half-region,
+-- chaining left of the control (slider/dropdown) like the sync icon / cog. Used
+-- to gate the row's control (e.g. enable/disable the duration text). The toggle
+-- itself is never disabled. opts: region, getValue, setValue, onToggle, sizeRatio.
+local function BuildInlineToggle(opts)
+    local region = opts.region
+    if not region then return nil end
+    local toggle, _, tgSnap = BuildToggleControl(region, region:GetFrameLevel() + 5,
+        opts.getValue,
+        function(v)
+            if opts.setValue then opts.setValue(v) end
+            if opts.onToggle then opts.onToggle(v) end
+        end,
+        { sizeRatio = opts.sizeRatio or 0.8 })
+    toggle:ClearAllPoints()
+    toggle:SetPoint("RIGHT", region._lastInline or region._control, "LEFT", -8, 0)
+    region._lastInline = toggle
+    RegisterWidgetRefresh(tgSnap)
+    return toggle
+end
+
 EllesmereUI.BuildSliderCore     = BuildSliderCore
 EllesmereUI.BuildDropdownControl = BuildDropdownControl
 EllesmereUI.BuildColorSwatch    = BuildColorSwatch
 EllesmereUI.BuildToggleControl   = BuildToggleControl
+EllesmereUI.BuildInlineToggle    = BuildInlineToggle
 EllesmereUI.BuildCheckboxControl = BuildCheckboxControl
 EllesmereUI.BuildCogPopup       = BuildCogPopup
 EllesmereUI.BuildSyncIcon       = BuildSyncIcon

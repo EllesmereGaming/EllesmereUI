@@ -1782,19 +1782,6 @@ local function SkinTab(cf)
         tab.conversationIcon:SetParent(_hiddenParent)
     end
 
-    -- Hook SetAlpha: enforce our alpha after Blizzard sets it.
-    -- Second arg acts as skip flag to prevent recursion.
-    -- Cache chat frame reference to avoid string concat per SetAlpha call
-    local _tabCF = _G["ChatFrame" .. tab:GetID()]
-    hooksecurefunc(tab, "SetAlpha", function(self, alpha, skip)
-        if skip then return end
-        if not _tabCF then return end
-        local sel = _G.GeneralDockManager and _G.GeneralDockManager.selected
-        local isActive = (not _tabCF.isDocked or _tabCF == sel)
-        if self.alerting then return end
-        self:SetAlpha(isActive and 1 or 0.5, true)
-    end)
-
     -- Hook SetPoint: zero out Blizzard's y=-1 on LEFT/LEFT anchors
     -- (tabs anchored to ScrollFrameChild). Skip tabs 1-2.
     if tab:GetID() >= 3 then

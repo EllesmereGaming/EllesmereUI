@@ -117,7 +117,7 @@ initFrame:SetScript("OnEvent", function(self)
         local bgRow
         bgRow, h = W:DualRow(parent, y,
             { type="slider", text="Background Opacity",
-              min = 0, max = 1, step = 0.05,
+              min = 0, max = 1, step = 0.01,
               getValue = function() return Cfg("bgAlpha") or 0.75 end,
               setValue = function(v) Set("bgAlpha", v); if ns.ApplyBackground then ns.ApplyBackground() end end },
             { type="toggle", text="Always Show Player",
@@ -300,7 +300,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return Cfg("hdrHeight") or 22 end,
               setValue = function(v) Set("hdrHeight", v); ApplyHdr(); Refresh() end },
             { type="slider", text="Opacity",
-              min = 0, max = 1, step = 0.05,
+              min = 0, max = 1, step = 0.01,
               getValue = function() return Cfg("hdrBgAlpha") or 1 end,
               setValue = function(v) Set("hdrBgAlpha", v); ApplyHdr() end })
         -- Inline color swatch on Opacity
@@ -585,14 +585,14 @@ initFrame:SetScript("OnEvent", function(self)
                     end },
               } },
             { type="slider", text="Opacity",
-              min = 0, max = 1, step = 0.05,
+              min = 0, max = 1, step = 0.01,
               getValue = function() return Cfg("barFillAlpha") or 1 end,
               setValue = function(v) Set("barFillAlpha", v); Refresh() end })
         y = y - h
 
         -- Bar Spacing | Icon Style
         _, h = W:DualRow(parent, y,
-            { type="slider", text="Spacing", min = 0, max = 10, step = 1,
+            { type="slider", text="Spacing", min = -1, max = 10, step = 1,
               getValue = function() return Cfg("barSpacing") or 2 end,
               setValue = function(v) Set("barSpacing", v); Refresh() end },
             { type="dropdown", text="Icon Style",
@@ -631,7 +631,7 @@ initFrame:SetScript("OnEvent", function(self)
                   ApplyBrd(); EllesmereUI:RefreshPage()
               end },
             { type="slider", text="Border Size",
-              min=0, max=4, step=1, trackWidth=120,
+              min=0, max=4, step=1,
               getValue=function() return Cfg("borderSize") or 1 end,
               setValue=function(v) Set("borderSize", v); ApplyBrd() end })
         y = y - h
@@ -723,21 +723,42 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(function() updateSwatch() end)
         end
 
-        -- Show Breakdown on Hover (+ inline cog) | Breakdown Bar Texture
+        -- Show Breakdown on Hover (+ inline cog) | Background (opacity + swatch)
         local bdRow
         bdRow, h = W:DualRow(parent, y,
             { type="toggle", text="Show Breakdown on Hover",
               getValue = function() return Cfg("showHoverTooltip") ~= false end,
               setValue = function(v) Set("showHoverTooltip", v) end },
-            { type="dropdown", text="Hover Breakdown Texture",
-              values = matchTexValues, order = matchTexOrder,
-              getValue = function() return Cfg("breakdownBarTexture") or "match" end,
-              setValue = function(v) Set("breakdownBarTexture", v); Refresh() end })
+            { type="slider", text="Background",
+              min = 0, max = 1, step = 0.01,
+              getValue = function() return Cfg("barBgAlpha") or 0 end,
+              setValue = function(v) Set("barBgAlpha", v); if ns.ApplyBarBg then ns.ApplyBarBg() end end })
+        -- Inline color swatch on Background (right region)
+        do
+            local rgn = bdRow._rightRegion
+            local ctrl = rgn._control
+            local barBgSwatch, barBgSwatchRefresh = EllesmereUI.BuildColorSwatch(
+                rgn, bdRow:GetFrameLevel() + 3,
+                function()
+                    return (Cfg("barBgR") or 0), (Cfg("barBgG") or 0), (Cfg("barBgB") or 0)
+                end,
+                function(r, g, b)
+                    Set("barBgR", r); Set("barBgG", g); Set("barBgB", b)
+                    if ns.ApplyBarBg then ns.ApplyBarBg() end
+                end,
+                false, 20)
+            PP.Point(barBgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            EllesmereUI.RegisterWidgetRefresh(function() barBgSwatchRefresh() end)
+        end
         do
             local rgn = bdRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Breakdown Settings",
                 rows = {
+                    { type = "dropdown", label = "Bar Texture",
+                      values = matchTexValues, order = matchTexOrder,
+                      get = function() return Cfg("breakdownBarTexture") or "match" end,
+                      set = function(v) Set("breakdownBarTexture", v); Refresh() end },
                     { type = "slider", label = "Scale", min = 80, max = 150, step = 1,
                       get = function() return (Cfg("hoverTooltipScale") or 100) end,
                       set = function(v) Set("hoverTooltipScale", v) end },
@@ -772,8 +793,8 @@ initFrame:SetScript("OnEvent", function(self)
         local hnRow
         hnRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Number Format",
-              values = { [0] = "DPS", [1] = "Damage", [2] = "Damage (DPS)" },
-              order = { 0, 1, 2 },
+              values = { [0] = "DPS", [1] = "Damage", [2] = "Damage (DPS)", [3] = "Damage | DPS" },
+              order = { 0, 1, 2, 3 },
               getValue = function() return Cfg("numberFormat") or 2 end,
               setValue = function(v) Set("numberFormat", v); Refresh() end },
             { type="toggle", text="Hide Rank Numbers",
@@ -1160,7 +1181,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return SHDB().iconSpacing or 1 end,
               setValue = function(v) SHDB().iconSpacing = v; RefreshSH() end },
             { type = "slider", text = "Opacity",
-              min = 0.1, max = 1, step = 0.05,
+              min = 0.1, max = 1, step = 0.01,
               disabled = iconOff, disabledTooltip = "Icon History",
               getValue = function() return SHDB().iconOpacity or 1 end,
               setValue = function(v) SHDB().iconOpacity = v; RefreshSH() end }
@@ -1226,7 +1247,7 @@ initFrame:SetScript("OnEvent", function(self)
         local bgRow
         bgRow, h = W:DualRow(parent, y,
             { type = "slider", text = "Background Opacity",
-              min = 0, max = 1, step = 0.05,
+              min = 0, max = 1, step = 0.01,
               disabled = barOff, disabledTooltip = "Bar History",
               getValue = function() return SHDB().bgAlpha or 0.25 end,
               setValue = function(v) SHDB().bgAlpha = v; RefreshSH() end },
@@ -1356,7 +1377,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end },
               } },
             { type = "slider", text = "Opacity",
-              min = 0.1, max = 1, step = 0.05,
+              min = 0.1, max = 1, step = 0.01,
               disabled = barOff, disabledTooltip = "Bar History",
               getValue = function() return SHDB().barOpacity or 1 end,
               setValue = function(v) SHDB().barOpacity = v; RefreshSH() end }

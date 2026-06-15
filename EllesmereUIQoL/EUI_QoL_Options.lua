@@ -1165,7 +1165,7 @@ initFrame:SetScript("OnEvent", function(self)
         local quickSignupRow
         quickSignupRow, h = W:DualRow(parent, y,
             { type="toggle", text="Quick Signup",
-              tooltip="Double-click a group listing to instantly sign up without pressing the Sign Up button.",
+              tooltip="Double-click a group listing to instantly sign up without pressing the Sign Up button. Hold Shift to keep the dialog open, e.g. to type a signup note.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.quickSignup or false
               end,

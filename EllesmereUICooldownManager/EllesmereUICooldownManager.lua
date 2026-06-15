@@ -264,7 +264,7 @@ local RACE_RACIALS = {
     Human              = { 59752 },
     DarkIronDwarf      = { 265221 },
     Gnome              = { 20589 },
-    HighmountainTauren = { 69041 },
+    HighmountainTauren = { 255654 },  -- Bull Rush
     Worgen             = { 68992 },
     Goblin             = { 69070 },
     Pandaren           = { 107079 },
@@ -282,7 +282,7 @@ local RACE_RACIALS = {
     -- so it is omitted from this list entirely.
     Dracthyr           = { { 357214, notClass = "EVOKER" } },
     EarthenDwarf       = { 436344 },
-    Haranir            = { 1287685 },
+    Haranir            = { 1237885 },  -- Thorn Bloom
 }
 ns.RACE_RACIALS = RACE_RACIALS
 
@@ -439,7 +439,7 @@ local DEFAULTS = {
                     visHideHousing = true, visOnlyInstances = false,
                     visHideMounted = false, visHideNoTarget = false, visHideNoEnemy = false,
                     showCooldownText = true, showItemCount = true, showTooltip = false, showKeybind = false,
-                    keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2,
+                    keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
                     keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
                 },
                 {
@@ -458,7 +458,7 @@ local DEFAULTS = {
                     visHideHousing = true, visOnlyInstances = false,
                     visHideMounted = false, visHideNoTarget = false, visHideNoEnemy = false,
                     showCooldownText = true, showItemCount = true, showTooltip = false, showKeybind = false,
-                    keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2,
+                    keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
                     keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
                 },
                 {
@@ -477,7 +477,7 @@ local DEFAULTS = {
                     visHideHousing = true, visOnlyInstances = false,
                     visHideMounted = false, visHideNoTarget = false, visHideNoEnemy = false,
                     showCooldownText = true, showItemCount = true, showTooltip = false, showKeybind = false,
-                    keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2,
+                    keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
                     keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
                 },
             },
@@ -489,7 +489,12 @@ local DEFAULTS = {
 
 -------------------------------------------------------------------------------
 --  Dedicated spell assignment store helpers
---  Lives at EllesmereUIDB.spellAssignments, completely separate from profiles.
+--  Lives at EllesmereUIDB.spellAssignments. The spell/bar-content data is
+--  per-profile: spellAssignments.profiles[name].specProfiles[specKey]. It sits
+--  at the top level (NOT inside the profile blob), so it never travels with
+--  profile export or module sync, but it IS forked/dropped/moved alongside the
+--  profile itself (copy/delete/rename in EllesmereUI_Profiles.lua). The active
+--  profile's bucket is resolved live via ns.GetActiveSpecProfiles().
 --  Consolidated into a single local table to stay within Lua 5.1's 200 local
 --  variable limit for the main chunk.
 -------------------------------------------------------------------------------
@@ -498,13 +503,51 @@ local SpellStore = {}
 function SpellStore.Get()
     if not EllesmereUIDB then EllesmereUIDB = {} end
     if not EllesmereUIDB.spellAssignments then
-        EllesmereUIDB.spellAssignments = { specProfiles = {} }
+        EllesmereUIDB.spellAssignments = { profiles = {} }
     end
     return EllesmereUIDB.spellAssignments
 end
 
+-- Active profile name for the per-profile spell store. Read live so a profile
+-- switch auto-follows on the next CDM rebuild with no repoint step.
+function ns.GetActiveProfileName()
+    return (EllesmereUIDB and EllesmereUIDB.activeProfile) or "Default"
+end
+
+-- Per-profile spell store. Spell/bar-content data is owned by each profile, so
+-- copying a profile forks its CDM and deleting a bar never crosses profiles. It
+-- lives at spellAssignments.profiles[name].specProfiles -- OUTSIDE the profile
+-- blob and the export payload, so module sync and profile export never carry it
+-- (both operate on the profile's addons blob, not this store).
+--
+-- A one-time migration (cdm_per_profile_spell_store_v1) seeds every existing
+-- profile from the legacy shared spellAssignments.specProfiles. Until that
+-- completes (_perProfileSeeded), fork the legacy data on first access so a
+-- profile never reads empty during the early window (e.g. if the migration
+-- body errored and is retrying next session).
+function ns.GetSpecProfilesForProfile(profileName)
+    local sa = SpellStore.Get()
+    if not sa.profiles then sa.profiles = {} end
+    local bucket = sa.profiles[profileName]
+    if not bucket then
+        bucket = { specProfiles = {} }
+        if not sa._perProfileSeeded and type(sa.specProfiles) == "table" and next(sa.specProfiles) then
+            local DeepCopy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
+            if DeepCopy then bucket.specProfiles = DeepCopy(sa.specProfiles) end
+        end
+        sa.profiles[profileName] = bucket
+    end
+    if not bucket.specProfiles then bucket.specProfiles = {} end
+    return bucket.specProfiles
+end
+
+-- specProfiles table for the active profile (the live CDM bucket).
+function ns.GetActiveSpecProfiles()
+    return ns.GetSpecProfilesForProfile(ns.GetActiveProfileName())
+end
+
 function SpellStore.GetSpecProfiles()
-    return SpellStore.Get().specProfiles
+    return ns.GetActiveSpecProfiles()
 end
 
 -- (SpellStore.GetBarGlows removed -- Bar Glows disabled pending rewrite)
@@ -837,9 +880,9 @@ local function SaveCurrentSpecProfile()
     if not specProfiles[specKey] then specProfiles[specKey] = { barSpells = {} } end
     local prof = specProfiles[specKey]
 
-    -- Bar Glows and Tracked Buff Bars are stored directly in
-    -- specProfiles[specKey] (not in profile). No copying needed --
-    -- GetBarGlows() and GetTrackedBuffBars() read/write there directly.
+    -- Bar Glows and Tracked Buff Bars are stored in the active profile's
+    -- specProfiles[specKey] bucket. GetBarGlows() and GetTrackedBuffBars()
+    -- read/write there directly, so nothing extra to copy here.
 
     -- Snapshot visible icon counts for pre-sizing on next login
     ns.SaveCachedBarSizes()
@@ -1525,11 +1568,11 @@ local function GetCDMFont()
     return CDM_FONT_FALLBACK
 end
 local function GetCDMOutline()
-    return "OUTLINE"
+    return "OUTLINE, SLUG"
 end
 local function SetBlizzCDMFont(fs, font, size, r, g, b)
     if not (fs and fs.SetFont) then return end
-    fs:SetFont(font, size, "OUTLINE")
+    fs:SetFont(font, size, "OUTLINE, SLUG")
     fs:SetShadowOffset(0, 0)
     if r then fs:SetTextColor(r, g, b) end
 end
@@ -2142,7 +2185,11 @@ BuildCDMBar = function(barIndex)
         if frame.SetSnapToPixelGrid then frame:SetSnapToPixelGrid(false) end
         if frame.SetTexelSnappingBias then frame:SetTexelSnappingBias(0) end
         if frame.EnableMouseClicks then frame:EnableMouseClicks(false) end
-        if frame.EnableMouseMotion then frame:EnableMouseMotion(true) end
+        -- Containers never capture mouse motion: the rect spans the bar's
+        -- full layout area and a motion-enabled frame with no unit steals
+        -- mouseover focus from unit frames underneath. Icon hover is managed
+        -- per-icon, gated on the bar's tooltip setting.
+        if frame.EnableMouseMotion then frame:EnableMouseMotion(false) end
         frame._barKey = key
         frame._barIndex = barIndex
         cdmBarFrames[key] = frame
@@ -2158,7 +2205,7 @@ BuildCDMBar = function(barIndex)
             end
             frame._preMousePos = nil
             SetFrameClickThrough(frame, false)
-            if frame.EnableMouseMotion then frame:EnableMouseMotion(true) end
+            if frame.EnableMouseMotion then frame:EnableMouseMotion(false) end
         end
         EllesmereUI.SetElementVisibility(frame, false)
         return
@@ -2187,7 +2234,7 @@ BuildCDMBar = function(barIndex)
         frame:SetFrameLevel(5)
         -- Restore mouse on frame and all children
         SetFrameClickThrough(frame, false)
-        if frame.EnableMouseMotion then frame:EnableMouseMotion(true) end
+        if frame.EnableMouseMotion then frame:EnableMouseMotion(false) end
     end
     frame._mouseGrow = nil
 
@@ -2248,6 +2295,7 @@ BuildCDMBar = function(barIndex)
         -- Make frame and all children fully click-through while following cursor
         SetFrameClickThrough(frame, true)
         local lastMX, lastMY
+        local mouseAssertTick = 0
         frame:ClearAllPoints()
         frame:SetPoint(pointFrom, UIParent, "BOTTOMLEFT", 0, 0)
         frame._mouseTrack = true
@@ -2283,6 +2331,26 @@ BuildCDMBar = function(barIndex)
                     end
                 end
                 _CDMApplyVisibility()
+            end
+            -- Throttled mouse-through re-assert: the Decorate/Show/Cooldown
+            -- path can re-enable mouse on icons mid-session, and an icon
+            -- riding the cursor with mouse enabled intermittently kills
+            -- [@mouseover] hovercast keys. Cheap no-op when state is clean.
+            mouseAssertTick = mouseAssertTick + 1
+            if mouseAssertTick >= 30 then
+                mouseAssertTick = 0
+                local icons = cdmBarIcons[key]
+                if icons then
+                    for ii = 1, #icons do
+                        local ic = icons[ii]
+                        if ic then
+                            if ic:IsMouseEnabled() then ic:EnableMouse(false) end
+                            if ic.IsMouseMotionEnabled and ic:IsMouseMotionEnabled() then
+                                ic:EnableMouseMotion(false)
+                            end
+                        end
+                    end
+                end
             end
             local s = UIParent:GetEffectiveScale()
             local cx, cy = GetCursorPosition()
@@ -3047,6 +3115,27 @@ local function ApplyCDMTooltipState(barKey)
             end
         end
     end
+    -- Mouse-motion follows the tooltip setting. A motion-enabled icon with
+    -- no unit becomes the mouseover-focus frame and steals hover from unit
+    -- frames underneath (raid frame hover highlight and [@mouseover] casts
+    -- die wherever a bar overlaps them), so icons may only capture the mouse
+    -- when tooltips are actually on. Cursor-anchored bars stay fully mouse-
+    -- through (SetFrameClickThrough owns their state); vis-hidden bars stay
+    -- inert. Mouse calls on Blizzard CDM frames are blocked in combat.
+    if not InCombatLockdown() then
+        local frame = cdmBarFrames[barKey]
+        local wantHover = (enabled and frame and not frame._mouseTrack
+            and not frame._visHidden) and true or false
+        local icons = cdmBarIcons[barKey]
+        if icons then
+            for i = 1, #icons do
+                local ic = icons[i]
+                if ic and ic.EnableMouseMotion then
+                    ic:EnableMouseMotion(wantHover)
+                end
+            end
+        end
+    end
     -- Show/hide the global tooltip frame based on whether any bar wants tooltips
     if next(_tooltipBars) then
         _tooltipFrame:Show()
@@ -3302,7 +3391,7 @@ local function RefreshCDMIconAppearance(barKey)
                 -- Find Blizzard's countdown text FontString on the Cooldown widget
                 for _, rgn in pairs({ cd:GetRegions() }) do
                     if rgn and rgn.GetObjectType and rgn:GetObjectType() == "FontString" then
-                        rgn:SetFont(cdFont, cdSize, "OUTLINE")
+                        rgn:SetFont(cdFont, cdSize, "OUTLINE, SLUG")
                         rgn:SetShadowOffset(0, 0)
                         rgn:SetTextColor(cdR, cdG, cdB)
                         if cdX ~= 0 or cdY ~= 0 then
@@ -3369,14 +3458,21 @@ local function RefreshCDMIconAppearance(barKey)
 
         -- Update keybind text style
         if kbText then
-            kbText:SetFont(GetCDMFont(), (barData.keybindSize or 10) * fontScale, "OUTLINE")
+            kbText:SetFont(GetCDMFont(), (barData.keybindSize or 10) * fontScale, "OUTLINE, SLUG")
             kbText:SetShadowOffset(0, 0)
             kbText:ClearAllPoints()
             -- Scale-compensate the offset so it's visually consistent
             -- across icons with different Blizzard-assigned scales.
             local kbX = (barData.keybindOffsetX or 2) * fontScale
             local kbY = (barData.keybindOffsetY or -2) * fontScale
-            kbText:SetPoint("TOPLEFT", txOverlay, "TOPLEFT", kbX, kbY)
+            -- "right" alignment: anchor top-right and grow left (offset mirrored).
+            if barData.keybindAlign == "right" then
+                kbText:SetJustifyH("RIGHT")
+                kbText:SetPoint("TOPRIGHT", txOverlay, "TOPRIGHT", -kbX, kbY)
+            else
+                kbText:SetJustifyH("LEFT")
+                kbText:SetPoint("TOPLEFT", txOverlay, "TOPLEFT", kbX, kbY)
+            end
             kbText:SetTextColor(barData.keybindR or 1, barData.keybindG or 1, barData.keybindB or 1, barData.keybindA or 0.9)
         end
 
@@ -3607,7 +3703,9 @@ local function SetFocusKickAlpha(a)
     if frame then
         frame:SetAlpha(a)
         if frame.EnableMouseMotion and not InCombatLockdown() then
-            frame:EnableMouseMotion(a > 0)
+            -- Container never captures motion (steals hover from frames
+            -- underneath); icon hover is owned by the tooltip setting.
+            frame:EnableMouseMotion(false)
         end
         frame._visHidden = (a == 0)
     end
@@ -4224,8 +4322,10 @@ _CDMApplyVisibility = function()
             -- Ghost bar stays hidden even in unlock mode
             elseif unlockActive and not barData.isGhostBar then
                 frame:SetAlpha(1)
-                if frame.EnableMouseMotion and not InCombatLockdown() and not frame._mouseTrack then
-                    frame:EnableMouseMotion(true)
+                -- Container stays motion-through even in unlock mode; drag
+                -- handling lives on the unlock overlay frames, not the bar.
+                if frame.EnableMouseMotion and not InCombatLockdown() then
+                    frame:EnableMouseMotion(false)
                 end
                 frame._visHidden = false
             else
@@ -4279,12 +4379,15 @@ _CDMApplyVisibility = function()
                 -- Custom injected icons are parented to the bar frame, so
                 -- frame alpha would double-apply with icon alpha.
                 frame:SetAlpha(1)
-                -- Don't re-enable mouse motion on cursor-tracked bars;
-                -- SetFrameClickThrough disabled it for click-through and
-                -- re-enabling here on every visibility pass was the source
-                -- of the intermittent hover-blocking bug.
-                if frame.EnableMouseMotion and not InCombatLockdown() and not frame._mouseTrack then
-                    frame:EnableMouseMotion(true)
+                -- The container never captures mouse motion: its rect spans
+                -- the bar's full layout area (mostly empty space on dynamic
+                -- bars like buffs), and a motion-enabled frame with no unit
+                -- steals mouseover focus from unit frames underneath -- raid
+                -- frame hover highlights and [@mouseover] casts died wherever
+                -- the bar overlapped them. Icon hover is handled per-icon
+                -- below, gated on the bar's tooltip setting.
+                if frame.EnableMouseMotion and not InCombatLockdown() then
+                    frame:EnableMouseMotion(false)
                 end
                 frame._visHidden = false
                 -- Apply opacity to icons every pass (idempotent, handles
@@ -4301,17 +4404,16 @@ _CDMApplyVisibility = function()
                             -- ADDON_ACTION_BLOCKED when dismounting mid-combat.
                             if not icCombat2 then
                                 ic:EnableMouse(false)
-                                -- Cursor-tracked bars must stay fully click-AND-
-                                -- motion-through. An icon riding at the cursor on
-                                -- the TOOLTIP strata that still receives mouse
-                                -- MOTION becomes the mouseover-focus frame; with no
-                                -- unit of its own it steals focus from whatever unit
-                                -- frame is underneath, so [@mouseover] resolves to
-                                -- nothing and hovercast keys fall through to the
-                                -- action bar (and stay stuck until you re-mouseover).
-                                -- Mirror the frame-level _mouseTrack guard above.
+                                -- An icon that receives mouse MOTION becomes the
+                                -- mouseover-focus frame; with no unit of its own it
+                                -- steals focus from whatever unit frame is underneath,
+                                -- so [@mouseover] resolves to nothing and the unit
+                                -- frame's hover highlight never fires. Icons may only
+                                -- capture the mouse when this bar's tooltips are on,
+                                -- and never on cursor-tracked bars (those must stay
+                                -- fully click-AND-motion-through).
                                 if ic.EnableMouseMotion then
-                                    ic:EnableMouseMotion(not frame._mouseTrack)
+                                    ic:EnableMouseMotion((barData.showTooltip and not frame._mouseTrack) and true or false)
                                 end
                             end
                             local icfc = _ecmeFC[ic]
@@ -5428,7 +5530,9 @@ function ECME:CDMFinishSetup()
                                 if frame.SetSnapToPixelGrid then frame:SetSnapToPixelGrid(false) end
                                 if frame.SetTexelSnappingBias then frame:SetTexelSnappingBias(0) end
                                 if frame.EnableMouseClicks then frame:EnableMouseClicks(false) end
-                                if frame.EnableMouseMotion then frame:EnableMouseMotion(true) end
+                                -- Containers never capture mouse motion (see
+                                -- BuildCDMBar creation block).
+                                if frame.EnableMouseMotion then frame:EnableMouseMotion(false) end
                                 frame._barKey = key
                                 frame._barIndex = i
                                 cdmBarFrames[key] = frame
@@ -5759,6 +5863,7 @@ eventFrame:RegisterEvent("UPDATE_VEHICLE_ACTIONBAR")
 -- Hero talent / loadout change events
 eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
 eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+eventFrame:RegisterEvent("PLAYER_PVP_TALENT_UPDATE")
 eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 -- Cinematic/cutscene end: Blizzard restores hidden frames, so re-hide ours
 eventFrame:RegisterEvent("CINEMATIC_STOP")
@@ -5884,8 +5989,13 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         end)
         return
     end
-    if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED" then
-        -- Hero talent or loadout change ΓÇö debounced rebuild
+    if event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_TALENT_UPDATE" or event == "ACTIVE_TALENT_GROUP_CHANGED"
+        or event == "PLAYER_PVP_TALENT_UPDATE" then
+        -- Hero talent, loadout, or PvP talent context change -- debounced
+        -- rebuild. PvP talents (de)activating on arena enter/exit makes
+        -- Blizzard re-evaluate the viewer's tracked cooldown set; without a
+        -- rebuild the new pool frames are never re-claimed and the
+        -- unclaimed-frame cleanup blanks them (arena-exit empty-CDM bug).
         ScheduleTalentRebuild()
         return
     end
@@ -5980,6 +6090,19 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     end
     if event == "PLAYER_ENTERING_WORLD" then
         _inCombat = InCombatLockdown and InCombatLockdown() or false
+        -- Arena exit backstop: leaving an arena reverts PvP talents and
+        -- spell overrides, and Blizzard re-evaluates the viewer's tracked
+        -- cooldown set. If PLAYER_PVP_TALENT_UPDATE did not fire across the
+        -- zone-out, nothing re-claims the new pool frames and the
+        -- unclaimed-frame cleanup blanks them (arena-exit empty-CDM bug).
+        -- Schedule the same debounced rebuild a talent change gets; the
+        -- token debounce collapses this with the event-driven trigger when
+        -- both fire, so at most one rebuild runs.
+        local _, instType = IsInInstance()
+        if ns._cdmWasInArena and instType ~= "arena" then
+            ScheduleTalentRebuild()
+        end
+        ns._cdmWasInArena = (instType == "arena") or nil
         -- Install rotation helper hook after CDM frames have been built
         C_Timer.After(1, function()
             InstallRotationHook()
@@ -6188,9 +6311,9 @@ SlashCmdList.CDMDBG = function()
         end
     end
     -- Check all currently assigned spells in cooldowns + utility + ghost
-    local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
+    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
     local sk = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
-    local prof = sa and sa.specProfiles and sk and sa.specProfiles[sk]
+    local prof = sp and sk and sp[sk]
     if prof and prof.barSpells then
         for barKey, bs in pairs(prof.barSpells) do
             if bs and bs.assignedSpells then

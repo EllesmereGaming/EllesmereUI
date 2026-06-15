@@ -664,11 +664,11 @@ qolFrame:SetScript("OnEvent", function(self)
             end
         end)
 
-        -- Auto-accept role check for Quick Signup
+        -- Auto-accept role check for Quick Signup. Holding Shift skips the
+        -- auto-accept so the dialog stays open (e.g. to type a signup note).
         LFGListApplicationDialog:HookScript("OnShow", function(self)
             if not (EllesmereUIDB and EllesmereUIDB.quickSignup) then return end
-            local shiftBypass = EllesmereUIDB.quickSignupAutoRoleShift and IsShiftKeyDown()
-            if self.SignUpButton:IsEnabled() and not shiftBypass then
+            if self.SignUpButton:IsEnabled() and not IsShiftKeyDown() then
                 self.SignUpButton:Click()
             end
         end)
@@ -679,8 +679,8 @@ qolFrame:SetScript("OnEvent", function(self)
         roleFrame:SetScript("OnEvent", function()
             if not (EllesmereUIDB and EllesmereUIDB.quickSignup) then return end
             if not UnitInParty("player") then return end
-            -- Skip if Shift is held and shift-bypass is enabled
-            if EllesmereUIDB.quickSignupAutoRoleShift and IsShiftKeyDown() then return end
+            -- Holding Shift skips the auto role-check accept
+            if IsShiftKeyDown() then return end
             local leader, tank, healer, dps = GetLFGRoles()
             if LFDRoleCheckPopupRoleButtonTank.checkButton:IsEnabled() then
                 LFDRoleCheckPopupRoleButtonTank.checkButton:SetChecked(tank)
@@ -1633,7 +1633,8 @@ do
     local function CreateCrosshair()
         if crosshairFrame then return end
         crosshairFrame = CreateFrame("Frame", "EUI_CharacterCrosshair", UIParent)
-        crosshairFrame:SetFrameStrata("HIGH")
+        -- MEDIUM sits above gameplay HUD but below DIALOG/HIGH panels (talents, character, etc.).
+        crosshairFrame:SetFrameStrata("MEDIUM")
         crosshairFrame:SetFrameLevel(100)
         crosshairFrame:EnableMouse(false)
         crosshairFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)

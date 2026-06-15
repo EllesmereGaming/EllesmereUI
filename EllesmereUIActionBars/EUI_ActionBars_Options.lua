@@ -699,7 +699,11 @@ initFrame:SetScript("OnEvent", function(self)
             self._gridH      = gridH
 
             local startY = -Snap(10)  -- top padding
-            local growUp = (settings.growDirection or "up") == "up"
+            -- Match live layout: rows grow upward for "up" OR "center" (live
+            -- lumps center with up for the icon grid; horizontal bars only ever
+            -- store left/right/center, so a plain == "up" check never fired).
+            local _gd = settings.growDirection or "up"
+            local growUp = (_gd == "up" or _gd == "center")
             for i = 1, maxBtns do
                 local entry = buttons[i]
                 local bf    = entry.frame

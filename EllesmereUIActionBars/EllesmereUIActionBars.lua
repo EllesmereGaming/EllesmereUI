@@ -1942,12 +1942,51 @@ LayoutPagingFrame = function()
 end
 ns.LayoutPagingFrame = LayoutPagingFrame
 
+-- Secure snippet appended to each button's _childupdate-eab-page handler (and
+-- reused as the _childupdate-eab-empower handler): after the action attr changes
+-- on a page swap, re-evaluate pressAndHoldAction/typerelease for empowered /
+-- hold-release spells. IsPressHoldReleaseSpell and GetActionInfo are available
+-- in the restricted environment even though they are gone from _G.
+-- Stored on ns (not a file local) to stay clear of Lua's 200-local chunk cap.
+ns._eabEmpowerSnippet = [[
+    local slot = self:GetAttribute('action')
+    if slot and IsPressHoldReleaseSpell then
+        local actionType, id, subType = GetActionInfo(slot)
+        local spellID = nil
+        if actionType == 'spell' then
+            spellID = id
+        elseif actionType == 'macro' and subType == 'spell' then
+            spellID = id
+        end
+        if spellID and IsPressHoldReleaseSpell(spellID) then
+            self:SetAttribute('pressAndHoldAction', true)
+            self:SetAttribute('typerelease', 'actionrelease')
+        else
+            self:SetAttribute('pressAndHoldAction', false)
+            if self:GetAttribute('typerelease') then
+                self:SetAttribute('typerelease', nil)
+            end
+        end
+    end
+]]
+
+-- Build the _childupdate-eab-page snippet for a button at the given 1-based bar
+-- index. On a page change: action = baseIndex + (page-1)*12, then re-check
+-- hold-release. ALL install sites (SetupBar, RebuildBarPaging) call this so the
+-- handler is byte-identical everywhere -- the page change rewrites the secure
+-- "action" attribute (our buttons are ID=0, so actionpage is never consulted).
+function ns._eabBuildPageChildSnippet(baseIndex)
+    return ("local page = tonumber(message) or 1; self:SetAttribute('action', %d + (page - 1) * 12)"):format(baseIndex) .. ns._eabEmpowerSnippet
+end
+
 -------------------------------------------------------------------------------
 --  Secure Bar Frame Creation
---  Each bar gets a SecureHandlerStateTemplate frame. Bars 2-8 set a fixed
---  actionpage on the frame; MainBar sets actionpage via a _onstate-page
---  handler. Buttons derive their action via CalculateAction path 1
---  (ID + (page-1)*12) with native IDs.
+--  Each bar gets a SecureHandlerStateTemplate frame. Our buttons are created
+--  with SetID(0) + an explicit "action" attribute, so CalculateAction resolves
+--  the slot from that attribute (path 2), NOT from actionpage. Paging works by
+--  the bar's _onstate-page handler doing ChildUpdate("eab-page", page), and each
+--  button's _childupdate-eab-page snippet rewriting its "action" attribute. The
+--  frame "actionpage" attribute is kept only for insecure range-check reads.
 -------------------------------------------------------------------------------
 local function CreateBarFrame(info)
     local key = info.key
@@ -2106,15 +2145,16 @@ function ns.RebuildBarPaging(barKey)
                     self:ChildUpdate("eab-page", page)
                 ]])
                 frame._eabPagingInstalled = true
-                -- Install button handlers for ChildUpdate
+                -- Install button handlers for ChildUpdate. Must set the secure
+                -- "action" attr (our buttons are ID=0, so "actionpage" is never
+                -- consulted by CalculateAction). Same builder as SetupBar so a
+                -- bar that gets paging added live behaves identically to one
+                -- configured at login -- no /reload needed.
                 local btns = barButtons[barKey]
                 if btns then
-                    for _, btn in ipairs(btns) do
+                    for idx, btn in ipairs(btns) do
                         if not btn:GetAttribute("_childupdate-eab-page") then
-                            btn:SetAttributeNoHandler("_childupdate-eab-page", [[
-                                local page = tonumber(message) or 1
-                                self:SetAttribute("actionpage", page)
-                            ]])
+                            btn:SetAttributeNoHandler("_childupdate-eab-page", ns._eabBuildPageChildSnippet(idx))
                         end
                     end
                 end
@@ -2244,44 +2284,20 @@ local function SetupBar(info, skipProtected)
                 end
                 -- Install childupdate so the action attr recalculates on
                 -- page changes. Base index baked into the snippet.
-                -- Empowered spell snippet: runs after the action attr updates
-                -- so pressAndHoldAction/typerelease match the new action.
-                -- IsPressHoldReleaseSpell and GetActionInfo are available in
-                -- the restricted environment even though they're gone from _G.
-                local empowerSnippet = [[
-                    local slot = self:GetAttribute('action')
-                    if slot and IsPressHoldReleaseSpell then
-                        local actionType, id, subType = GetActionInfo(slot)
-                        local spellID = nil
-                        if actionType == 'spell' then
-                            spellID = id
-                        elseif actionType == 'macro' and subType == 'spell' then
-                            spellID = id
-                        end
-                        if spellID and IsPressHoldReleaseSpell(spellID) then
-                            self:SetAttribute('pressAndHoldAction', true)
-                            self:SetAttribute('typerelease', 'actionrelease')
-                        else
-                            self:SetAttribute('pressAndHoldAction', false)
-                            if self:GetAttribute('typerelease') then
-                                self:SetAttribute('typerelease', nil)
-                            end
-                        end
-                    end
-                ]]
+                -- Page child-update: rewrites the secure "action" attr on a page
+                -- change, then re-checks hold-release. Shared builder so SetupBar
+                -- and RebuildBarPaging install byte-identical handlers.
                 if key == "MainBar" and not btn:GetAttribute("_childupdate-eab-page") then
-                    btn:SetAttributeNoHandler("_childupdate-eab-page",
-                        ("local page = tonumber(message) or 1; self:SetAttribute('action', %d + (page - 1) * 12)"):format(i) .. empowerSnippet)
+                    btn:SetAttributeNoHandler("_childupdate-eab-page", ns._eabBuildPageChildSnippet(i))
                 elseif frame._eabPagingInstalled
                        and not btn:GetAttribute("_childupdate-eab-page") then
-                    btn:SetAttributeNoHandler("_childupdate-eab-page",
-                        ("local page = tonumber(message) or 1; self:SetAttribute('action', %d + (page - 1) * 12)"):format(i) .. empowerSnippet)
+                    btn:SetAttributeNoHandler("_childupdate-eab-page", ns._eabBuildPageChildSnippet(i))
                 end
                 -- Empower re-check on slot change (spec swap, drag, etc.)
                 -- The bar header's _onattributechanged dispatches ChildUpdate
                 -- when addon code sets "eab-empower-trigger" on slot change.
                 if not btn:GetAttribute("_childupdate-eab-empower") then
-                    btn:SetAttributeNoHandler("_childupdate-eab-empower", empowerSnippet)
+                    btn:SetAttributeNoHandler("_childupdate-eab-empower", ns._eabEmpowerSnippet)
                 end
                 buttons[i] = btn
                 buttonToBar[btn] = { barKey = key, index = i }
@@ -3559,9 +3575,17 @@ local function EnsureBorders(btn)
     if PP then
         PP.CreateBorder(btn, 0, 0, 0, 1, 1, "OVERLAY", 2)
         fd.borders = PP.GetBorders(btn)
-        -- Reparent the flyout arrow to the border frame so it renders above it
+        -- Reparent the flyout arrow INTO the border frame and lift it above the
+        -- border strips. The strips sit at OVERLAY sublevel 2 (the PP.CreateBorder
+        -- call above); sharing the frame isn't enough -- without a higher sublevel
+        -- the arrow still draws underneath them.
         if btn.Arrow then
             btn.Arrow:SetParent(fd.borders)
+            if btn.Arrow.SetDrawLayer then
+                btn.Arrow:SetDrawLayer("OVERLAY", 7)
+            elseif btn.Arrow.SetFrameLevel then
+                btn.Arrow:SetFrameLevel(fd.borders:GetFrameLevel() + 1)
+            end
         end
     end
     return fd.borders
@@ -6736,6 +6760,17 @@ local function UpdateKeybinds()
         local prefix = BINDING_MAP[info.key]
         local btns = barButtons[info.key]
         if prefix and btns then
+            -- Custom modifier/form paging lives only in our private secure
+            -- state driver, which never moves Blizzard's GetActionBarPage().
+            -- Native engine commands (ACTIONBUTTONn / MULTIACTIONBARxBUTTONn)
+            -- resolve against Blizzard's page, so on a custom-paged bar the
+            -- keybind would fire the un-paged slot while the icon (our explicit
+            -- "action" attr) repages. Route those bars' keybinds through the
+            -- button (SetOverrideBindingClick) so the keypress reads our paged
+            -- "action" attr -- exactly what empower/flyout already do, and what
+            -- ElvUI/Bartender do for every button via LibActionButton.
+            local bs = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars[info.key]
+            local barHasCustomPaging = (bs and bs.paging and next(bs.paging) ~= nil) and true or false
             for i, btn in ipairs(btns) do
                 if btn then
                     local cmd = prefix .. i
@@ -6743,9 +6778,11 @@ local function UpdateKeybinds()
                     -- Empower spells need SetOverrideBindingClick so our
                     -- button's pressAndHoldAction/typerelease handle the
                     -- hold-and-release. Non-empower spells use native
-                    -- SetOverrideBinding for press-and-hold repeat casting.
+                    -- SetOverrideBinding for press-and-hold repeat casting --
+                    -- EXCEPT on custom-paged bars (see above), which must also
+                    -- route through the button so the keybind tracks the page.
                     local slot = btn:GetAttribute("action")
-                    local useClick = false
+                    local useClick = barHasCustomPaging
                     if slot and HasAction(slot) then
                         local actionType, id, subType = GetActionInfo(slot)
                         if actionType == "flyout" then

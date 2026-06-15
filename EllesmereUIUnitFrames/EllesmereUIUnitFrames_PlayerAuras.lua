@@ -100,14 +100,10 @@ local function SkinAuraButton(btn, isDebuff)
     end
     if countFS and countFS.SetFont then
         local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath() or STANDARD_TEXT_FONT
-        local outline = EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag() or "OUTLINE"
-        countFS:SetFont(fontPath, cfg.textSize or 11, outline)
-        if outline == "" then
-            countFS:SetShadowOffset(1, -1)
-            countFS:SetShadowColor(0, 0, 0, 1)
-        else
-            countFS:SetShadowOffset(0, 0)
-        end
+        -- Stack count always uses a forced OUTLINE, SLUG flag (keeps the digits
+        -- crisp regardless of the user's global font-outline setting).
+        countFS:SetFont(fontPath, cfg.textSize or 11, "OUTLINE, SLUG")
+        countFS:SetShadowOffset(0, 0)
     end
 
     -- Pixel-perfect border using raw texture edges. No BackdropTemplate,

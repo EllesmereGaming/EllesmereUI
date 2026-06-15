@@ -6,9 +6,9 @@
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
-local PAGE_MAIN = "Raid"
+local PAGE_MAIN = "Frames"
 local PAGE_PARTY = "Party"
-local PAGE_DEBUFFS = "Defense & Debuffs"
+local PAGE_DEBUFFS = "Auras"
 local PAGE_BUFFS = "Buff Manager"
 local PAGE_CLICKCAST = "HoverCast"
 
@@ -167,10 +167,15 @@ initFrame:SetScript("OnEvent", function(self)
         mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.98)
         EllesmereUI.MakeBorder(menuFrame, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
 
+        -- Drag state (declared before OnShow so its OnUpdate can suppress the
+        -- click-away dismiss while a row is actively being dragged).
+        local dragRow, dsY, isDragging = nil, nil, false
+
         menuFrame:SetScript("OnShow", function(self)
             local sc = sortBtn:GetEffectiveScale() / UIParent:GetEffectiveScale()
             self:SetScale(sc)
             self:SetScript("OnUpdate", function(m)
+                if isDragging then return end  -- never dismiss mid-drag
                 if not sortBtn:IsMouseOver() and not m:IsMouseOver() then
                     if IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton") then m:Hide() end
                 end
@@ -270,10 +275,6 @@ initFrame:SetScript("OnEvent", function(self)
         insLine:SetHeight(2)
         insLine:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
         insLine:Hide()
-
-        local dragRow = nil   -- which row is being dragged
-        local dsY = nil       -- cursor Y at drag start
-        local isDragging = false
 
         for ci, cb in ipairs(roleItems) do
             local row = CreateFrame("Button", nil, menuFrame)
@@ -507,12 +508,13 @@ initFrame:SetScript("OnEvent", function(self)
     local healthTextOrder = { "none", "percent", "percentNoSign", "number", "numberPercent", "percentNumber" }
 
     local absorbStyleValues = {
-        ["none"]     = "None",
-        ["striped"]  = "Striped",
-        ["clean"]    = "Clean (Flat)",
-        ["blizzard"] = "Blizzard",
+        ["none"]            = "None",
+        ["striped"]         = "Striped",
+        ["stripedReversed"] = "Striped Reversed",
+        ["clean"]           = "Clean (Flat)",
+        ["blizzard"]        = "Blizzard",
     }
-    local absorbStyleOrder = { "none", "striped", "clean", "blizzard" }
+    local absorbStyleOrder = { "none", "striped", "stripedReversed", "clean", "blizzard" }
 
     local growthValues = {
         DOWN  = "Down",
@@ -947,7 +949,126 @@ initFrame:SetScript("OnEvent", function(self)
 
         ns._editTargets = ns._editTargets or {}
 
-        -- Row 3: Absorb Style (+ color swatch) | Absorb Opacity
+        -- Row 3: Heal Prediction (+ color swatch) | Prediction Opacity
+        local healPredRow
+        healPredRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Heal Prediction",
+              getValue=function() return SVal("healPrediction", false) end,
+              setValue=function(v) SSet("healPrediction", v); EllesmereUI:RefreshPage() end },
+            { type="slider", text="Prediction Opacity", min=5, max=100, step=1,
+              disabled=function() return not SVal("healPrediction", false) end,
+              disabledTooltip="Heal Prediction",
+              getValue=function() return SVal("healPredOpacity", 75) end,
+              setValue=function(v) SSet("healPredOpacity", v) end });  y = y - h
+        ns._editTargets.healPrediction = healPredRow
+        -- Inline color swatch for heal prediction color
+        do
+            local rgn = healPredRow._leftRegion
+            local swatch = EllesmereUI.BuildColorSwatch(
+                rgn, healPredRow:GetFrameLevel() + 3,
+                function()
+                    local c = SGet("healPredColor")
+                    if c then return c.r, c.g, c.b, 1 end
+                    return 102/255, 243/255, 102/255, 1
+                end,
+                function(r, g, b)
+                    SWrite("healPredColor", { r=r, g=g, b=b })
+                    ReloadAndUpdate()
+                end, false, 20)
+            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+            local function UpdateHealPredSwatchVis()
+                swatch:SetAlpha(SVal("healPrediction", false) and 1 or 0.3)
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateHealPredSwatchVis)
+            UpdateHealPredSwatchVis()
+        end
+
+        -- Row 4: Smooth Bars | Threat Borders
+        local smoothThreatRow
+        smoothThreatRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Smooth Health Bars",
+              getValue=function() return SVal("smoothBars", true) end,
+              setValue=function(v) SSet("smoothBars", v) end },
+            { type="slider", text="Threat Borders", min=0, max=4, step=1,
+              getValue=function() return SVal("threatBorderSize", 2) end,
+              setValue=function(v) SSet("threatBorderSize", v) end });  y = y - h
+        ns._editTargets.threat = smoothThreatRow
+        ns._editTargets.animateBars = smoothThreatRow
+
+        -------------------------------------------------------------------
+        --  ABSORBS
+        --  Own party-sync section ("absorbs"). Pre-split profiles inherit
+        --  the Health Bar sync state via ns._NormalizePartySyncSections.
+        -------------------------------------------------------------------
+        local absorbsHeader
+        if onSection then onSection("healthBar", _secY, y) end; _secY = y
+        absorbsHeader, h = W:SectionHeader(parent, "ABSORBS", y); y = y - h
+
+        -- Eyeball: toggle shield/heal-absorb effects on the preview frames.
+        do
+            local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
+            local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+
+            -- Find the section label FontString
+            local abLabel
+            for _, rgn in ipairs({ absorbsHeader:GetRegions() }) do
+                if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "ABSORBS" then
+                    abLabel = rgn; break
+                end
+            end
+            local eyeBtn = CreateFrame("Button", nil, absorbsHeader)
+            eyeBtn:SetSize(24, 24)
+            if abLabel then
+                eyeBtn:SetPoint("LEFT", abLabel, "RIGHT", 5, 0)
+            else
+                eyeBtn:SetPoint("LEFT", absorbsHeader, "BOTTOMLEFT", 85, 8)
+            end
+            eyeBtn:SetFrameLevel(absorbsHeader:GetFrameLevel() + 5)
+            eyeBtn:SetAlpha(0.4)
+            local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+            eyeTex:SetAllPoints()
+
+            -- State stored on ns so the preview renderer can read it
+            if ns._absorbsPreviewVisible == nil then ns._absorbsPreviewVisible = false end
+
+            local function RefreshAbsorbEye()
+                if IsPreviewOff() then
+                    eyeTex:SetTexture(EYE_VISIBLE)
+                    eyeBtn:SetAlpha(0.15)
+                    return
+                end
+                eyeTex:SetTexture(ns._absorbsPreviewVisible and EYE_INVISIBLE or EYE_VISIBLE)
+                eyeBtn:SetAlpha(0.4)
+            end
+            EYE.refreshAbsorbEye = RefreshAbsorbEye
+            RefreshAbsorbEye()
+            eyeBtn:SetScript("OnClick", function()
+                if IsPreviewOff() then return end
+                ns._absorbsPreviewVisible = not ns._absorbsPreviewVisible
+                -- Turn off indicators if active (they suppress bar effects)
+                if ns._absorbsPreviewVisible and ns._indicatorsVisible then
+                    ns._indicatorsVisible = false
+                    if EYE.refreshIndicatorEye then EYE.refreshIndicatorEye() end
+                end
+                RefreshAbsorbEye()
+                if ns.PvRefresh then ns.PvRefresh() end
+            end)
+            eyeBtn:SetScript("OnEnter", function(self)
+                if IsPreviewOff() then
+                    EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
+                    return
+                end
+                self:SetAlpha(0.7)
+                EllesmereUI.ShowWidgetTooltip(self, ns._absorbsPreviewVisible and "Hide shield effects on preview" or "Show shield effects on preview")
+            end)
+            eyeBtn:SetScript("OnLeave", function(self)
+                if not IsPreviewOff() then self:SetAlpha(0.4) end
+                EllesmereUI.HideWidgetTooltip()
+            end)
+        end  -- close do (absorbs eyeball)
+
+        -- Row 1: Absorb Style (+ color swatch) | Absorb Opacity
         local absorbRow
         absorbRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Absorb Style", values=absorbStyleValues, order=absorbStyleOrder,
@@ -989,15 +1110,17 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateAbsorbSwatchVis)
             UpdateAbsorbSwatchVis()
         end
-        -- Inline cog: right-edge absorb rendering
+        -- Inline cog: absorb placement (overlay / right edge / left edge)
         do
             local rgn = absorbRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Absorb Rendering",
                 rows = {
-                    { type="toggle", label="Show Absorbs from Right Edge",
-                      get=function() return SVal("absorbFromRightEdge", false) end,
-                      set=function(v) SSet("absorbFromRightEdge", v) end },
+                    { type="dropdown", label="Placement",
+                      values = { overlay = "Overlay", right = "From Right Edge", left = "From Left Edge" },
+                      order = { "overlay", "right", "left" },
+                      get=function() return SVal("absorbEdgeMode", "overlay") end,
+                      set=function(v) SSet("absorbEdgeMode", v) end },
                 },
             })
             local cogBtn = CreateFrame("Button", nil, rgn)
@@ -1014,7 +1137,41 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
 
-        -- Row 4: Heal Absorb Style (+ color swatch) | Heal Absorb Opacity
+        -- Row 2: Absorb Bar | Bar Height (+ inline color swatch)
+        local absorbBarRow
+        absorbBarRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Absorb Bar",
+              getValue=function() return SVal("absorbBarEnabled", false) end,
+              setValue=function(v) SSet("absorbBarEnabled", v); EllesmereUI:RefreshPage() end },
+            { type="slider", text="Bar Height", min=1, max=20, step=1,
+              disabled=function() return not SVal("absorbBarEnabled", false) end,
+              disabledTooltip="Absorb Bar",
+              getValue=function() return SVal("absorbBarHeight", 4) end,
+              setValue=function(v) SSet("absorbBarHeight", v) end });  y = y - h
+        -- Inline color swatch for the absorb bar color
+        do
+            local rgn = absorbBarRow._rightRegion
+            local swatch = EllesmereUI.BuildColorSwatch(
+                rgn, absorbBarRow:GetFrameLevel() + 3,
+                function()
+                    local c = SGet("absorbBarColor")
+                    if c then return c.r, c.g, c.b, 1 end
+                    return 1, 1, 1, 1
+                end,
+                function(r, g, b)
+                    SWrite("absorbBarColor", { r=r, g=g, b=b })
+                    ReloadAndUpdate()
+                end, false, 20)
+            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+            local function UpdateAbsorbBarSwatchVis()
+                swatch:SetAlpha(SVal("absorbBarEnabled", false) and 1 or 0.3)
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateAbsorbBarSwatchVis)
+            UpdateAbsorbBarSwatchVis()
+        end
+
+        -- Row 3: Heal Absorb Style (+ color swatch) | Heal Absorb Opacity
         local healAbsorbRow
         healAbsorbRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Heal Absorb Style", values=absorbStyleValues, order=absorbStyleOrder,
@@ -1056,59 +1213,38 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateHealAbsorbSwatchVis)
             UpdateHealAbsorbSwatchVis()
         end
-
-        -- Row 5: Heal Prediction (+ color swatch) | Prediction Opacity
-        local healPredRow
-        healPredRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Heal Prediction",
-              getValue=function() return SVal("healPrediction", false) end,
-              setValue=function(v) SSet("healPrediction", v); EllesmereUI:RefreshPage() end },
-            { type="slider", text="Prediction Opacity", min=5, max=100, step=1,
-              disabled=function() return not SVal("healPrediction", false) end,
-              disabledTooltip="Heal Prediction",
-              getValue=function() return SVal("healPredOpacity", 75) end,
-              setValue=function(v) SSet("healPredOpacity", v) end });  y = y - h
-        ns._editTargets.healPrediction = healPredRow
-        -- Inline color swatch for heal prediction color
+        -- Inline cog: heal absorb placement (independent of shield absorb)
         do
-            local rgn = healPredRow._leftRegion
-            local swatch = EllesmereUI.BuildColorSwatch(
-                rgn, healPredRow:GetFrameLevel() + 3,
-                function()
-                    local c = SGet("healPredColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 102/255, 243/255, 102/255, 1
-                end,
-                function(r, g, b)
-                    SWrite("healPredColor", { r=r, g=g, b=b })
-                    ReloadAndUpdate()
-                end, false, 20)
-            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = swatch
-            local function UpdateHealPredSwatchVis()
-                swatch:SetAlpha(SVal("healPrediction", false) and 1 or 0.3)
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdateHealPredSwatchVis)
-            UpdateHealPredSwatchVis()
+            local rgn = healAbsorbRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Heal Absorb Rendering",
+                rows = {
+                    { type="dropdown", label="Placement",
+                      values = { overlay = "Overlay", right = "From Right Edge", left = "From Left Edge" },
+                      order = { "overlay", "right", "left" },
+                      get=function() return SVal("healAbsorbEdgeMode", "overlay") end,
+                      set=function(v) SSet("healAbsorbEdgeMode", v) end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
-
-        -- Row 6: Smooth Bars | Threat Borders
-        local smoothThreatRow
-        smoothThreatRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Smooth Health Bars",
-              getValue=function() return SVal("smoothBars", true) end,
-              setValue=function(v) SSet("smoothBars", v) end },
-            { type="slider", text="Threat Borders", min=0, max=4, step=1,
-              getValue=function() return SVal("threatBorderSize", 2) end,
-              setValue=function(v) SSet("threatBorderSize", v) end });  y = y - h
-        ns._editTargets.threat = smoothThreatRow
-        ns._editTargets.animateBars = smoothThreatRow
 
         -------------------------------------------------------------------
         --  POWER BAR
         -------------------------------------------------------------------
         local powerHeader
-        if onSection then onSection("healthBar", _secY, y) end; _secY = y
+        if onSection then onSection("absorbs", _secY, y) end; _secY = y
         powerHeader, h = W:SectionHeader(parent, "POWER BAR", y); y = y - h
 
         -- Power bar animation (same pattern as health; serves raid + party).
@@ -1723,6 +1859,31 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
             rightRgn._control = cbDD
             rightRgn._lastInline = nil
+        end
+        -- Inline cog on the Role Icons dropdown: Hide In Combat toggle
+        do
+            local rgn = row._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Role Icons",
+                rows = {
+                    { type="toggle", label="Hide In Combat",
+                      tooltip="Hide role icons while you are in combat.",
+                      get=function() return SVal("roleIconHideInCombat", false) end,
+                      set=function(v) SSet("roleIconHideInCombat", v); if ns._UpdateRoleIcons then ns._UpdateRoleIcons() end end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
         -- Row 2: Role Position (+ cog for X/Y) | Role Icon Size
         local rolePositionValues = {
@@ -2348,6 +2509,653 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         if onSection then onSection("topNameBar", _secY, y) end; _secY = y
+
+        -------------------------------------------------------------------
+        --  FRIENDLY BOSS FRAMES (raid tab only)
+        -------------------------------------------------------------------
+        if not _partyCtx then
+            _, h = W:SectionHeader(parent, "FRIENDLY BOSS FRAMES", y); y = y - h
+
+            local function FBSet()
+                local p = db.profile
+                if not p.friendlyBoss then
+                    p.friendlyBoss = { display = "never", position = "right" }
+                end
+                return p.friendlyBoss
+            end
+            -- Everything below the display dropdown is inert while "Never"
+            local function FBEnabled()
+                return (FBSet().display or "never") ~= "never"
+            end
+            local FB_DISABLED_TIP = "This option requires Add Friendly Boss Group to be set to Healers or Always."
+
+            row, h = W:DualRow(parent, y,
+                { type="dropdown", text="Add Friendly Boss Group",
+                  values = { never="Never", healers="Healers", always="Always" },
+                  order  = { "never", "healers", "always" },
+                  getValue = function() return FBSet().display or "never" end,
+                  setValue = function(v)
+                      FBSet().display = v
+                      if ns.FB_Apply then ns.FB_Apply() end
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="dropdown", text="Position",
+                  values = { left="Before First Group", right="After Last Group", free="Free Move" },
+                  order  = { "left", "right", "free" },
+                  disabled = function() return not FBEnabled() end,
+                  disabledTooltip = FB_DISABLED_TIP,
+                  getValue = function() return FBSet().position or "right" end,
+                  setValue = function(v)
+                      FBSet().position = v
+                      if v ~= "free" and ns.FB_SetMoverShown then ns.FB_SetMoverShown(false) end
+                      if ns.FB_Apply then ns.FB_Apply() end
+                      EllesmereUI:RefreshPage()
+                  end }); y = y - h
+            -- Free Move Position: label left, Move Frames button right (standard
+            -- setting layout; Free Move only). Right slot: Boss Health Color.
+            row, h = W:DualRow(parent, y,
+                { type="label", text="Free Move Position" },
+                { type="label", text="Boss Health Color" }); y = y - h
+            do
+                local btn = CreateFrame("Button", nil, row)
+                btn:SetSize(140, 26)
+                btn:SetPoint("RIGHT", row._leftRegion, "RIGHT", -20, 0)
+                btn:SetFrameLevel(row:GetFrameLevel() + 5)
+                local bbg = btn:CreateTexture(nil, "BACKGROUND")
+                bbg:SetAllPoints()
+                bbg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+                if EllesmereUI.MakeBorder then
+                    EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.25)
+                end
+                local lbl = btn:CreateFontString(nil, "OVERLAY")
+                lbl:SetFont(EllesmereUI.GetFontPath(), 13, GetOutline())
+                if GetUseShadow() then
+                    lbl:SetShadowOffset(1, -1); lbl:SetShadowColor(0, 0, 0, 0.8)
+                else
+                    lbl:SetShadowOffset(0, 0)
+                end
+                lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
+                lbl:SetText("Move Frames")
+
+                -- Inline cog: Free Move layout options (created before
+                -- UpdateMoveBtn so its closure captures the local)
+                local _, fmCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Free Move Options",
+                    rows = {
+                        { type="toggle", label="Horizontal Frames",
+                          get=function() return FBSet().freeHorizontal == true end,
+                          set=function(v)
+                              FBSet().freeHorizontal = v
+                              if ns.FB_Apply then ns.FB_Apply() end
+                              -- Resize/reposition the drag overlay if it is up
+                              if ns.FB_IsMoverShown and ns.FB_IsMoverShown()
+                                 and ns.FB_SetMoverShown then
+                                  ns.FB_SetMoverShown(true)
+                              end
+                          end },
+                    },
+                })
+                local cogBtn = CreateFrame("Button", nil, row)
+                cogBtn:SetSize(26, 26)
+                cogBtn:SetPoint("RIGHT", btn, "LEFT", -8, 0)
+                cogBtn:SetFrameLevel(row:GetFrameLevel() + 5)
+                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                cogTex:SetAllPoints()
+                cogTex:SetTexture(EllesmereUI.COGS_ICON)
+                cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+                cogBtn:SetScript("OnLeave", function(self)
+                    self:SetAlpha(FBSet().position == "free" and 0.4 or 0.15)
+                end)
+                cogBtn:SetScript("OnClick", function(self) fmCogShow(self) end)
+
+                -- Capture the region now: the shared `row` local is reused by
+                -- later rows, so closures must not read it at refresh time.
+                local fmRegion = row._leftRegion
+                local function MoveAllowed()
+                    return FBEnabled() and (FBSet().position == "free")
+                        and not InCombatLockdown()
+                end
+                local function UpdateMoveBtn()
+                    local active = ns.FB_IsMoverShown and ns.FB_IsMoverShown()
+                    lbl:SetText(active and "Stop Moving" or "Move Frames")
+                    btn:SetAlpha(MoveAllowed() and 1 or 0.35)
+                    local freeOn = FBEnabled() and FBSet().position == "free"
+                    cogBtn:SetAlpha(freeOn and 0.4 or 0.15)
+                    cogBtn:EnableMouse(freeOn)
+                    -- Plain-label slots have no native disabled handling
+                    if fmRegion._label then
+                        fmRegion._label:SetAlpha(FBEnabled() and 1 or 0.3)
+                    end
+                end
+                btn:SetScript("OnEnter", function(self)
+                    if not FBEnabled() then
+                        EllesmereUI.ShowWidgetTooltip(self, FB_DISABLED_TIP)
+                    elseif not MoveAllowed() then
+                        EllesmereUI.ShowWidgetTooltip(self,
+                            EllesmereUI.DisabledTooltip("Position must be set to Free Move"))
+                    else
+                        EllesmereUI.ShowWidgetTooltip(self,
+                            "Drag the overlay to position the frames, then click again to lock")
+                    end
+                end)
+                btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                btn:SetScript("OnClick", function()
+                    if not MoveAllowed() then return end
+                    local active = ns.FB_IsMoverShown and ns.FB_IsMoverShown()
+                    if ns.FB_SetMoverShown then ns.FB_SetMoverShown(not active) end
+                    UpdateMoveBtn()
+                end)
+                EllesmereUI.RegisterWidgetRefresh(UpdateMoveBtn)
+                UpdateMoveBtn()
+            end
+            -- Boss Health Color swatch (right slot of the same row)
+            do
+                local rgn = row._rightRegion
+                local swatch = EllesmereUI.BuildColorSwatch(
+                    rgn, row:GetFrameLevel() + 3,
+                    function()
+                        local c = FBSet().healthColor
+                        if c then return c.r, c.g, c.b, 1 end
+                        return 23/255, 172/255, 49/255, 1
+                    end,
+                    function(r, g, b)
+                        FBSet().healthColor = { r=r, g=g, b=b }
+                        if ns.FB_Apply then ns.FB_Apply() end
+                    end, false, 20)
+                swatch:SetPoint("RIGHT", rgn, "RIGHT", -20, 0)
+                rgn._lastInline = swatch
+                -- Blocking overlay: the dim alone left the swatch clickable
+                local swatchBlock = CreateFrame("Frame", nil, swatch)
+                swatchBlock:SetAllPoints()
+                swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
+                swatchBlock:EnableMouse(true)
+                swatchBlock:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(swatch, FB_DISABLED_TIP)
+                end)
+                swatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdateFBSwatch()
+                    local on = FBEnabled()
+                    swatch:SetAlpha(on and 1 or 0.3)
+                    swatchBlock:SetShown(not on)
+                    if rgn._label then rgn._label:SetAlpha(on and 1 or 0.3) end
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateFBSwatch)
+                UpdateFBSwatch()
+            end
+
+            -- Row 3: size offset on top of the shared raid frame size
+            row, h = W:DualRow(parent, y,
+                { type="slider", text="Extra Width", min=-50, max=100, step=1,
+                  tooltip="Widens or narrows the boss frames relative to the raid frame size.",
+                  disabled = function() return not FBEnabled() end,
+                  disabledTooltip = FB_DISABLED_TIP,
+                  getValue = function() return FBSet().extraWidth or 0 end,
+                  setValue = function(v)
+                      FBSet().extraWidth = v
+                      if ns.FB_Apply then ns.FB_Apply() end
+                      if ns.FB_IsMoverShown and ns.FB_IsMoverShown()
+                         and ns.FB_SetMoverShown then
+                          ns.FB_SetMoverShown(true)
+                      end
+                  end },
+                { type="slider", text="Extra Height", min=-50, max=100, step=1,
+                  tooltip="Makes the boss frames taller or shorter relative to the raid frame size.",
+                  disabled = function() return not FBEnabled() end,
+                  disabledTooltip = FB_DISABLED_TIP,
+                  getValue = function() return FBSet().extraHeight or 0 end,
+                  setValue = function(v)
+                      FBSet().extraHeight = v
+                      if ns.FB_Apply then ns.FB_Apply() end
+                      if ns.FB_IsMoverShown and ns.FB_IsMoverShown()
+                         and ns.FB_SetMoverShown then
+                          ns.FB_SetMoverShown(true)
+                      end
+                  end }); y = y - h
+
+            if onSection then onSection("friendlyBossFrames", _secY, y) end; _secY = y
+
+            -------------------------------------------------------------------
+            --  EXTRA FRAMES (raid tab only)
+            -------------------------------------------------------------------
+            _, h = W:SectionHeader(parent, "EXTRA FRAMES", y); y = y - h
+
+            local function XFSet()
+                local p = db.profile
+                if not p.extraFrames then
+                    p.extraFrames = { showTanks = false, position = "right", players = {} }
+                end
+                return p.extraFrames
+            end
+            -- Position settings only matter once something can feed the
+            -- group: the tanks toggle or a bound hotkey.
+            local function XFConfigured()
+                return XFSet().showTanks == true
+                    or (EllesmereUIDB and EllesmereUIDB.extraFramesKey) ~= nil
+            end
+            local XF_DISABLED_TIP = "This option requires Show Tanks in Extra Group or a bound hotkey."
+
+            -- Row 1: Show Tanks toggle | Add to Extra Group Hotkey (capture)
+            row, h = W:DualRow(parent, y,
+                { type="toggle", text="Show Tanks in Extra Group",
+                  tooltip="Automatically duplicates the raid's tanks into the Extra Frames group. Shares the 5-frame cap with hotkey picks.",
+                  getValue = function() return XFSet().showTanks == true end,
+                  setValue = function(v)
+                      XFSet().showTanks = v
+                      if ns.XF_Apply then ns.XF_Apply() end
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="label", text="Add to Extra Group Hotkey" }); y = y - h
+            do
+                local rgn = row._rightRegion
+                local kbBtn = CreateFrame("Button", nil, row)
+                kbBtn:SetSize(140, 26)
+                kbBtn:SetPoint("RIGHT", rgn, "RIGHT", -20, 0)
+                kbBtn:SetFrameLevel(row:GetFrameLevel() + 5)
+                kbBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+                local kbBg = kbBtn:CreateTexture(nil, "BACKGROUND")
+                kbBg:SetAllPoints()
+                kbBg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+                if EllesmereUI.MakeBorder then
+                    EllesmereUI.MakeBorder(kbBtn, 1, 1, 1, 0.25)
+                end
+                local kbLbl = kbBtn:CreateFontString(nil, "OVERLAY")
+                kbLbl:SetFont(EllesmereUI.GetFontPath(), 13, GetOutline())
+                if GetUseShadow() then
+                    kbLbl:SetShadowOffset(1, -1); kbLbl:SetShadowColor(0, 0, 0, 0.8)
+                else
+                    kbLbl:SetShadowOffset(0, 0)
+                end
+                kbLbl:SetPoint("CENTER")
+
+                local function FormatKey(key)
+                    if not key then return "Not Bound" end
+                    local parts = {}
+                    for mod in key:gmatch("(%u+)%-") do
+                        parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
+                    end
+                    local actualKey = key:match("[^%-]+$") or key
+                    parts[#parts + 1] = actualKey
+                    return table.concat(parts, " + ")
+                end
+
+                local function RefreshLabel()
+                    kbLbl:SetText(FormatKey(EllesmereUIDB and EllesmereUIDB.extraFramesKey))
+                end
+                RefreshLabel()
+
+                local listening = false
+
+                kbBtn:SetScript("OnClick", function(self, button)
+                    if button == "RightButton" then
+                        if listening then
+                            listening = false
+                            self:EnableKeyboard(false)
+                        end
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        if EllesmereUIDB.extraFramesKey and _G["ERFExtraFramesBindBtn"] then
+                            ClearOverrideBindings(_G["ERFExtraFramesBindBtn"])
+                        end
+                        EllesmereUIDB.extraFramesKey = nil
+                        RefreshLabel()
+                        -- Position settings gate on tanks-toggle/hotkey; the
+                        -- mover can't stay up if the feature just went dark.
+                        if not XFConfigured() and ns.XF_SetMoverShown then
+                            ns.XF_SetMoverShown(false)
+                        end
+                        EllesmereUI:RefreshPage()
+                        return
+                    end
+                    if listening then return end
+                    listening = true
+                    kbLbl:SetText(EllesmereUI.L("Press a key..."))
+                    kbBtn:EnableKeyboard(true)
+                end)
+
+                kbBtn:SetScript("OnKeyDown", function(self, key)
+                    if not listening then
+                        self:SetPropagateKeyboardInput(true)
+                        return
+                    end
+                    if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
+                       or key == "LALT" or key == "RALT" then
+                        self:SetPropagateKeyboardInput(true)
+                        return
+                    end
+                    self:SetPropagateKeyboardInput(false)
+                    if key == "ESCAPE" then
+                        listening = false
+                        self:EnableKeyboard(false)
+                        RefreshLabel()
+                        return
+                    end
+                    local mods = ""
+                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
+                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
+                    if IsAltKeyDown() then mods = mods .. "ALT-" end
+                    local fullKey = mods .. key
+
+                    if not EllesmereUIDB then EllesmereUIDB = {} end
+                    local bindBtn = _G["ERFExtraFramesBindBtn"]
+                    if bindBtn then
+                        if InCombatLockdown() then
+                            listening = false
+                            self:EnableKeyboard(false)
+                            RefreshLabel()
+                            return
+                        end
+                        ClearOverrideBindings(bindBtn)
+                        SetOverrideBindingClick(bindBtn, true, fullKey, "ERFExtraFramesBindBtn")
+                    end
+                    EllesmereUIDB.extraFramesKey = fullKey
+
+                    listening = false
+                    self:EnableKeyboard(false)
+                    RefreshLabel()
+                    EllesmereUI:RefreshPage()
+                end)
+
+                kbBtn:SetScript("OnEnter", function(self)
+                    EllesmereUI.ShowWidgetTooltip(self,
+                        "Left-click to set a keybind. Right-click to unbind.\nPress the key while hovering a raid frame to add or remove that player from the Extra Frames group.")
+                end)
+                kbBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+                EllesmereUI.RegisterWidgetRefresh(RefreshLabel)
+
+                rgn:SetScript("OnHide", function()
+                    if listening then
+                        listening = false
+                        kbBtn:EnableKeyboard(false)
+                        RefreshLabel()
+                    end
+                end)
+            end
+
+            -- Row 2: Position | Free Move Position (Move Frames + cog)
+            row, h = W:DualRow(parent, y,
+                { type="dropdown", text="Position",
+                  values = { left="Before First Group", right="After Last Group", free="Free Move" },
+                  order  = { "left", "right", "free" },
+                  disabled = function() return not XFConfigured() end,
+                  disabledTooltip = XF_DISABLED_TIP,
+                  getValue = function() return XFSet().position or "right" end,
+                  setValue = function(v)
+                      XFSet().position = v
+                      if v ~= "free" and ns.XF_SetMoverShown then ns.XF_SetMoverShown(false) end
+                      if ns.XF_Apply then ns.XF_Apply() end
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="label", text="Free Move Position" }); y = y - h
+            do
+                local rgn = row._rightRegion
+                local btn = CreateFrame("Button", nil, row)
+                btn:SetSize(140, 26)
+                btn:SetPoint("RIGHT", rgn, "RIGHT", -20, 0)
+                btn:SetFrameLevel(row:GetFrameLevel() + 5)
+                local bbg = btn:CreateTexture(nil, "BACKGROUND")
+                bbg:SetAllPoints()
+                bbg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+                if EllesmereUI.MakeBorder then
+                    EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.25)
+                end
+                local lbl = btn:CreateFontString(nil, "OVERLAY")
+                lbl:SetFont(EllesmereUI.GetFontPath(), 13, GetOutline())
+                if GetUseShadow() then
+                    lbl:SetShadowOffset(1, -1); lbl:SetShadowColor(0, 0, 0, 0.8)
+                else
+                    lbl:SetShadowOffset(0, 0)
+                end
+                lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
+                lbl:SetText("Move Frames")
+
+                -- Inline cog: Free Move layout options (created before
+                -- UpdateMoveBtn so its closure captures the local)
+                local _, xfCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Free Move Options",
+                    rows = {
+                        { type="toggle", label="Horizontal Frames",
+                          get=function() return XFSet().freeHorizontal == true end,
+                          set=function(v)
+                              XFSet().freeHorizontal = v
+                              if ns.XF_Apply then ns.XF_Apply() end
+                              -- Resize/reposition the drag overlay if it is up
+                              if ns.XF_IsMoverShown and ns.XF_IsMoverShown()
+                                 and ns.XF_SetMoverShown then
+                                  ns.XF_SetMoverShown(true)
+                              end
+                          end },
+                    },
+                })
+                local cogBtn = CreateFrame("Button", nil, row)
+                cogBtn:SetSize(26, 26)
+                cogBtn:SetPoint("RIGHT", btn, "LEFT", -8, 0)
+                cogBtn:SetFrameLevel(row:GetFrameLevel() + 5)
+                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                cogTex:SetAllPoints()
+                cogTex:SetTexture(EllesmereUI.COGS_ICON)
+                cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+                cogBtn:SetScript("OnLeave", function(self)
+                    self:SetAlpha(XFSet().position == "free" and 0.4 or 0.15)
+                end)
+                cogBtn:SetScript("OnClick", function(self) xfCogShow(self) end)
+
+                local function MoveAllowed()
+                    return XFConfigured() and (XFSet().position == "free")
+                        and not InCombatLockdown()
+                end
+                local function UpdateMoveBtn()
+                    local active = ns.XF_IsMoverShown and ns.XF_IsMoverShown()
+                    lbl:SetText(active and "Stop Moving" or "Move Frames")
+                    btn:SetAlpha(MoveAllowed() and 1 or 0.35)
+                    local freeOn = XFConfigured() and XFSet().position == "free"
+                    cogBtn:SetAlpha(freeOn and 0.4 or 0.15)
+                    cogBtn:EnableMouse(freeOn)
+                    -- Plain-label slots have no native disabled handling; dim
+                    -- the "Free Move Position" label with the rest of the row
+                    if rgn._label then
+                        rgn._label:SetAlpha(XFConfigured() and 1 or 0.3)
+                    end
+                end
+                btn:SetScript("OnEnter", function(self)
+                    if not XFConfigured() then
+                        EllesmereUI.ShowWidgetTooltip(self, XF_DISABLED_TIP)
+                    elseif not MoveAllowed() then
+                        EllesmereUI.ShowWidgetTooltip(self,
+                            EllesmereUI.DisabledTooltip("Position must be set to Free Move"))
+                    else
+                        EllesmereUI.ShowWidgetTooltip(self,
+                            "Drag the overlay to position the frames, then click again to lock")
+                    end
+                end)
+                btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                btn:SetScript("OnClick", function()
+                    if not MoveAllowed() then return end
+                    local active = ns.XF_IsMoverShown and ns.XF_IsMoverShown()
+                    if ns.XF_SetMoverShown then ns.XF_SetMoverShown(not active) end
+                    UpdateMoveBtn()
+                end)
+                EllesmereUI.RegisterWidgetRefresh(UpdateMoveBtn)
+                UpdateMoveBtn()
+            end
+
+            -- Row 3: size offset on top of the shared raid frame size
+            row, h = W:DualRow(parent, y,
+                { type="slider", text="Extra Width", min=-50, max=100, step=1,
+                  tooltip="Widens or narrows the extra frames relative to the raid frame size.",
+                  disabled = function() return not XFConfigured() end,
+                  disabledTooltip = XF_DISABLED_TIP,
+                  getValue = function() return XFSet().extraWidth or 0 end,
+                  setValue = function(v)
+                      XFSet().extraWidth = v
+                      if ns.XF_Apply then ns.XF_Apply() end
+                      if ns.XF_IsMoverShown and ns.XF_IsMoverShown()
+                         and ns.XF_SetMoverShown then
+                          ns.XF_SetMoverShown(true)
+                      end
+                  end },
+                { type="slider", text="Extra Height", min=-50, max=100, step=1,
+                  tooltip="Makes the extra frames taller or shorter relative to the raid frame size.",
+                  disabled = function() return not XFConfigured() end,
+                  disabledTooltip = XF_DISABLED_TIP,
+                  getValue = function() return XFSet().extraHeight or 0 end,
+                  setValue = function(v)
+                      XFSet().extraHeight = v
+                      if ns.XF_Apply then ns.XF_Apply() end
+                      if ns.XF_IsMoverShown and ns.XF_IsMoverShown()
+                         and ns.XF_SetMoverShown then
+                          ns.XF_SetMoverShown(true)
+                      end
+                  end }); y = y - h
+
+            if onSection then onSection("extraFrames", _secY, y) end; _secY = y
+        end
+
+        -------------------------------------------------------------------
+        --  TARGETED SPELLS (raid only -- the party page builds its own
+        --  section with the ts* keys; these are tsRaid* and deliberately
+        --  OUTSIDE the party section-sync system, so no onSection call)
+        -------------------------------------------------------------------
+        if not _partyCtx then
+            local tsHeader
+            tsHeader, h = W:SectionHeader(parent, "TARGETED SPELLS", y); y = y - h
+
+            local function TSApply()
+                if ns.TS_ApplySettings then ns.TS_ApplySettings() end
+            end
+
+            -- Eyeball: toggle targeted spells visibility on the raid preview
+            do
+                local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
+                local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+                local tsLabel
+                for _, rgn in ipairs({ tsHeader:GetRegions() }) do
+                    if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "TARGETED SPELLS" then
+                        tsLabel = rgn; break
+                    end
+                end
+                local eyeBtn = CreateFrame("Button", nil, tsHeader)
+                eyeBtn:SetSize(24, 24)
+                if tsLabel then
+                    eyeBtn:SetPoint("LEFT", tsLabel, "RIGHT", 5, 0)
+                else
+                    eyeBtn:SetPoint("LEFT", tsHeader, "BOTTOMLEFT", 85, 8)
+                end
+                eyeBtn:SetFrameLevel(tsHeader:GetFrameLevel() + 5)
+                eyeBtn:SetAlpha(0.4)
+                local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+                eyeTex:SetAllPoints()
+
+                if ns._tsRaidPreviewVisible == nil then ns._tsRaidPreviewVisible = false end
+                local function RefreshTsEye()
+                    if IsPreviewOff() then
+                        eyeTex:SetTexture(EYE_VISIBLE)
+                        eyeBtn:SetAlpha(0.15)
+                        return
+                    end
+                    eyeTex:SetTexture(ns._tsRaidPreviewVisible and EYE_INVISIBLE or EYE_VISIBLE)
+                    eyeBtn:SetAlpha(0.4)
+                end
+                RefreshTsEye()
+                eyeBtn:SetScript("OnClick", function()
+                    if IsPreviewOff() then return end
+                    ns._tsRaidPreviewVisible = not ns._tsRaidPreviewVisible
+                    RefreshTsEye()
+                    if ns.TS_RefreshRaidPreview then ns.TS_RefreshRaidPreview() end
+                end)
+                eyeBtn:SetScript("OnEnter", function(self)
+                    if IsPreviewOff() then
+                        EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
+                        return
+                    end
+                    self:SetAlpha(0.7)
+                    EllesmereUI.ShowWidgetTooltip(self, ns._tsRaidPreviewVisible and "Hide targeted spells on preview" or "Show targeted spells on preview")
+                end)
+                eyeBtn:SetScript("OnLeave", function(self)
+                    if not IsPreviewOff() then self:SetAlpha(0.4) end
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+            end  -- close do (eyeball)
+
+            row, h = W:DualRow(parent, y,
+                { type="toggle", text="Enable Targeted Spells",
+                  getValue=function() return SVal("tsRaidEnabled", true) end,
+                  setValue=function(v) SSet("tsRaidEnabled", v); TSApply(); EllesmereUI:RefreshPage() end },
+                { type="slider", text="Icon Size", min=12, max=48, step=1,
+                  disabled=function() return not SVal("tsRaidEnabled", true) end,
+                  disabledTooltip="Enable Targeted Spells",
+                  getValue=function() return SVal("tsRaidIconSize", 24) end,
+                  setValue=function(v) SSet("tsRaidIconSize", v); TSApply() end });  y = y - h
+
+            -- Row 2: Icon Position (+ cog for X/Y) | Growth Direction
+            local tsPositionValues = {
+                topleft     = "Top Left",
+                top         = "Top",
+                topright    = "Top Right",
+                left        = "Left",
+                center      = "Center",
+                right       = "Right",
+                bottomleft  = "Bottom Left",
+                bottom      = "Bottom",
+                bottomright = "Bottom Right",
+            }
+            local tsPositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+
+            local tsGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
+            local tsGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
+
+            local function GetDefaultTSGrow(pos)
+                if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
+                if pos == "left" or pos == "topleft" or pos == "bottomleft" then return "RIGHT" end
+                if pos == "top" then return "DOWN" end
+                if pos == "bottom" then return "UP" end
+                return "CENTER"
+            end
+
+            row, h = W:DualRow(parent, y,
+                { type="dropdown", text="Icon Position", values=tsPositionValues, order=tsPositionOrder,
+                  disabled=function() return not SVal("tsRaidEnabled", true) end,
+                  disabledTooltip="Enable Targeted Spells",
+                  getValue=function() return string.lower(SVal("tsRaidPosition", "center")) end,
+                  setValue=function(v)
+                      SSet("tsRaidPosition", v)
+                      SSet("tsRaidGrowDirection", GetDefaultTSGrow(v))
+                      TSApply()
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="dropdown", text="Growth Direction", values=tsGrowValues, order=tsGrowOrder,
+                  disabled=function() return not SVal("tsRaidEnabled", true) end,
+                  disabledTooltip="Enable Targeted Spells",
+                  getValue=function() return SVal("tsRaidGrowDirection", "CENTER") end,
+                  setValue=function(v) SSet("tsRaidGrowDirection", v); TSApply() end });  y = y - h
+            -- Cog for targeted spells offset X/Y
+            do
+                local rgn = row._leftRegion
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Targeted Spells Offset",
+                    rows = {
+                        { type="slider", label="Offset X", min=-50, max=50, step=1,
+                          get=function() return SVal("tsRaidOffsetX", 0) end,
+                          set=function(v) SSet("tsRaidOffsetX", v); TSApply() end },
+                        { type="slider", label="Offset Y", min=-50, max=50, step=1,
+                          get=function() return SVal("tsRaidOffsetY", 0) end,
+                          set=function(v) SSet("tsRaidOffsetY", v); TSApply() end },
+                    },
+                })
+                local cogBtn = CreateFrame("Button", nil, rgn)
+                cogBtn:SetSize(26, 26)
+                cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                rgn._lastInline = cogBtn
+                cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+                cogBtn:SetAlpha(SVal("tsRaidEnabled", true) and 0.4 or 0.15)
+                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+                cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(SVal("tsRaidEnabled", true) and 0.4 or 0.15) end)
+                cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            end
+
+            _secY = y
+        end
 
         -------------------------------------------------------------------
         --  RANGE & TOOLTIP
@@ -3120,6 +3928,22 @@ initFrame:SetScript("OnEvent", function(self)
             if ns.partyPvActive and ns.partyPvActive() and ns.ShowPartyPreview then
                 ns.ShowPartyPreview()
             end
+            -- The container resize is deferred off the hot path (container
+            -- SetSize re-processes the secure header = blink), so run the full
+            -- reload the moment the drag releases -- via the slider system's
+            -- end-of-drag callback set -- so the frames snap to their final
+            -- position immediately instead of on options close.
+            if EllesmereUI._sliderDragging then
+                EllesmereUI._deferredDriftChecks = EllesmereUI._deferredDriftChecks or {}
+                EllesmereUI._deferredDriftChecks[PartyReloadAndUpdate] = true
+            else
+                -- Direct set (input box / final post-release commit): finalize
+                -- now and drop any pending registration so it runs once.
+                if EllesmereUI._deferredDriftChecks then
+                    EllesmereUI._deferredDriftChecks[PartyReloadAndUpdate] = nil
+                end
+                PartyReloadAndUpdate()
+            end
             return
         end
         PartyReloadAndUpdate()
@@ -3320,6 +4144,53 @@ initFrame:SetScript("OnEvent", function(self)
             writeRoles = function(ro) db.profile.partyRoleOrder = ro; PartyReloadAndUpdate() end,
         })
 
+        -- Inline cog next to Sort By: Prioritize Class toggle + drag-to-reorder
+        -- Class Order list (party only). The toggle disables the order list.
+        do
+            local rgn = pSortRow._rightRegion
+            -- Build the class list in saved order, always covering all 13 classes
+            -- (appends any missing/new classes from the default alphabetical order).
+            local function GetClassItems()
+                local def = ns._GetDefaultClassOrder()  -- also populates ns._classNameByToken
+                local names = ns._classNameByToken or {}
+                local saved = db.profile.partyClassOrder
+                local order, seen = {}, {}
+                if saved then
+                    for _, t in ipairs(saved) do
+                        if names[t] and not seen[t] then order[#order + 1] = t; seen[t] = true end
+                    end
+                end
+                for _, t in ipairs(def) do if not seen[t] then order[#order + 1] = t; seen[t] = true end end
+                local out = {}
+                for _, t in ipairs(order) do out[#out + 1] = { key = t, label = names[t] or t } end
+                return out
+            end
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Class Sorting",
+                rows = {
+                    { type = "toggle", label = "Prioritize Class",
+                      tooltip = "This will not override sorting by role",
+                      get = function() return db.profile.partyPrioritizeClass end,
+                      set = function(v) db.profile.partyPrioritizeClass = v; PartyReloadAndUpdate() end },
+                    { type = "reorder", label = "Class Order", hint = "Drag to Reorder Classes",
+                      items = GetClassItems,
+                      set = function(keys) db.profile.partyClassOrder = keys; PartyReloadAndUpdate() end,
+                      disabled = function() return not db.profile.partyPrioritizeClass end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
+        end
+
         -- Row 4: Self Position | Hide Self
         _, h = W:DualRow(parent, y,
             { type="dropdown", text="Self Position",
@@ -3346,6 +4217,158 @@ initFrame:SetScript("OnEvent", function(self)
             { type="slider", text="Frame Spacing", min=-1, max=15, step=1,
               getValue=function() return SVal("partyCellSpacing", db.profile.cellSpacing or 2) end,
               setValue=function(v) PSSet("partyCellSpacing", v) end });  y = y - h
+
+        -- Row 6: Flip Frame Growth
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Flip Frame Growth",
+              tooltip="Flips the direction the frames grow in: vertical frames grow up instead of down, horizontal frames grow left instead of right.",
+              getValue=function() return db.profile.partyFlipGrowth or false end,
+              setValue=function(v) db.profile.partyFlipGrowth = v; PartyReloadAndUpdate() end },
+            { type="label", text="" });  y = y - h
+
+        -------------------------------------------------------------------
+        --  TARGETED SPELLS (party; the raid Frames tab builds its own
+        --  section with independent tsRaid* keys)
+        -------------------------------------------------------------------
+        do
+            local tsHeader
+            tsHeader, h = W:SectionHeader(parent, "TARGETED SPELLS", y); y = y - h
+
+            local function TSApply()
+                if ns.TS_ApplySettings then ns.TS_ApplySettings() end
+            end
+
+            -- Eyeball: toggle targeted spells visibility on the party preview
+            do
+                local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
+                local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+                local tsLabel
+                for _, rgn in ipairs({ tsHeader:GetRegions() }) do
+                    if rgn.GetText and EllesmereUI.EnKey(rgn:GetText()) == "TARGETED SPELLS" then
+                        tsLabel = rgn; break
+                    end
+                end
+                local eyeBtn = CreateFrame("Button", nil, tsHeader)
+                eyeBtn:SetSize(24, 24)
+                if tsLabel then
+                    eyeBtn:SetPoint("LEFT", tsLabel, "RIGHT", 5, 0)
+                else
+                    eyeBtn:SetPoint("LEFT", tsHeader, "BOTTOMLEFT", 85, 8)
+                end
+                eyeBtn:SetFrameLevel(tsHeader:GetFrameLevel() + 5)
+                eyeBtn:SetAlpha(0.4)
+                local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+                eyeTex:SetAllPoints()
+
+                if ns._tsPreviewVisible == nil then ns._tsPreviewVisible = false end
+                local function RefreshTsEye()
+                    if IsPreviewOff() then
+                        eyeTex:SetTexture(EYE_VISIBLE)
+                        eyeBtn:SetAlpha(0.15)
+                        return
+                    end
+                    eyeTex:SetTexture(ns._tsPreviewVisible and EYE_INVISIBLE or EYE_VISIBLE)
+                    eyeBtn:SetAlpha(0.4)
+                end
+                RefreshTsEye()
+                eyeBtn:SetScript("OnClick", function()
+                    if IsPreviewOff() then return end
+                    ns._tsPreviewVisible = not ns._tsPreviewVisible
+                    RefreshTsEye()
+                    if ns.TS_RefreshPreview then ns.TS_RefreshPreview() end
+                end)
+                eyeBtn:SetScript("OnEnter", function(self)
+                    if IsPreviewOff() then
+                        EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
+                        return
+                    end
+                    self:SetAlpha(0.7)
+                    EllesmereUI.ShowWidgetTooltip(self, ns._tsPreviewVisible and "Hide targeted spells on preview" or "Show targeted spells on preview")
+                end)
+                eyeBtn:SetScript("OnLeave", function(self)
+                    if not IsPreviewOff() then self:SetAlpha(0.4) end
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+            end  -- close do (eyeball)
+
+            row, h = W:DualRow(parent, y,
+                { type="toggle", text="Enable Targeted Spells",
+                  getValue=function() return SVal("tsEnabled", true) end,
+                  setValue=function(v) SSet("tsEnabled", v); TSApply(); EllesmereUI:RefreshPage() end },
+                { type="slider", text="Icon Size", min=12, max=48, step=1,
+                  disabled=function() return not SVal("tsEnabled", true) end,
+                  disabledTooltip="Enable Targeted Spells",
+                  getValue=function() return SVal("tsIconSize", 24) end,
+                  setValue=function(v) SSet("tsIconSize", v); TSApply() end });  y = y - h
+
+            -- Row 2: Icon Position (+ cog for X/Y) | Growth Direction
+            local tsPositionValues = {
+                topleft     = "Top Left",
+                top         = "Top",
+                topright    = "Top Right",
+                left        = "Left",
+                center      = "Center",
+                right       = "Right",
+                bottomleft  = "Bottom Left",
+                bottom      = "Bottom",
+                bottomright = "Bottom Right",
+            }
+            local tsPositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+
+            local tsGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
+            local tsGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
+
+            local function GetDefaultTSGrow(pos)
+                if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
+                if pos == "left" or pos == "topleft" or pos == "bottomleft" then return "RIGHT" end
+                if pos == "top" then return "DOWN" end
+                if pos == "bottom" then return "UP" end
+                return "CENTER"
+            end
+
+            row, h = W:DualRow(parent, y,
+                { type="dropdown", text="Icon Position", values=tsPositionValues, order=tsPositionOrder,
+                  disabled=function() return not SVal("tsEnabled", true) end,
+                  disabledTooltip="Enable Targeted Spells",
+                  getValue=function() return string.lower(SVal("tsPosition", "center")) end,
+                  setValue=function(v)
+                      SSet("tsPosition", v)
+                      SSet("tsGrowDirection", GetDefaultTSGrow(v))
+                      TSApply()
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="dropdown", text="Growth Direction", values=tsGrowValues, order=tsGrowOrder,
+                  disabled=function() return not SVal("tsEnabled", true) end,
+                  disabledTooltip="Enable Targeted Spells",
+                  getValue=function() return SVal("tsGrowDirection", "CENTER") end,
+                  setValue=function(v) SSet("tsGrowDirection", v); TSApply() end });  y = y - h
+            -- Cog for targeted spells offset X/Y
+            do
+                local rgn = row._leftRegion
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Targeted Spells Offset",
+                    rows = {
+                        { type="slider", label="Offset X", min=-50, max=50, step=1,
+                          get=function() return SVal("tsOffsetX", 0) end,
+                          set=function(v) SSet("tsOffsetX", v); TSApply() end },
+                        { type="slider", label="Offset Y", min=-50, max=50, step=1,
+                          get=function() return SVal("tsOffsetY", 0) end,
+                          set=function(v) SSet("tsOffsetY", v); TSApply() end },
+                    },
+                })
+                local cogBtn = CreateFrame("Button", nil, rgn)
+                cogBtn:SetSize(26, 26)
+                cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                rgn._lastInline = cogBtn
+                cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+                cogBtn:SetAlpha(SVal("tsEnabled", true) and 0.4 or 0.15)
+                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+                cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(SVal("tsEnabled", true) and 0.4 or 0.15) end)
+                cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            end
+        end
 
         -------------------------------------------------------------------
         --  ALL VISUAL SECTIONS
@@ -3804,7 +4827,9 @@ initFrame:SetScript("OnEvent", function(self)
             { type="toggle", text="Show Countdown Text",
               getValue=function() return SVal("paShowCountdown", false) end,
               setValue=function(v) SSet("paShowCountdown", v) end },
-            { type="label", text="" });  y = y - h
+            { type="toggle", text="Hide Tooltips",
+              getValue=function() return SVal("paHideTooltip", true) end,
+              setValue=function(v) SSet("paHideTooltip", v) end });  y = y - h
 
         -------------------------------------------------------------------
         --  DEBUFFS
@@ -3953,14 +4978,18 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
 
-        -- Row 3: Max Debuffs | (empty)
+        -- Row 3: Max Debuffs | Hide Tooltips
         _, h = W:DualRow(parent, y,
             { type="slider", text="Max Debuffs", min=1, max=8, step=1,
               disabled=function() return SVal("debuffFilter", "all") == "none" end,
               disabledTooltip="Show Debuffs",
               getValue=function() return SVal("debuffCap", 3) end,
               setValue=function(v) SSet("debuffCap", v) end },
-            { type="label", text="" });  y = y - h
+            { type="toggle", text="Hide Tooltips",
+              disabled=function() return SVal("debuffFilter", "all") == "none" end,
+              disabledTooltip="Show Debuffs",
+              getValue=function() return SVal("debuffHideTooltips", true) end,
+              setValue=function(v) SSet("debuffHideTooltips", v) end });  y = y - h
 
         -------------------------------------------------------------------
         --  DEBUFF STYLE
@@ -4668,7 +5697,7 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUIRaidFrames", {
         title       = "Raid Frames",
         description = "Configure raid frame appearance and behavior.",
-        pages       = { PAGE_MAIN, PAGE_PARTY, PAGE_DEBUFFS, PAGE_BUFFS, PAGE_CLICKCAST },
+        pages       = { PAGE_MAIN, PAGE_DEBUFFS, PAGE_PARTY, PAGE_BUFFS, PAGE_CLICKCAST },
         searchTerms = rfSearchTerms,
         buildPage   = function(pageName, parent, yOffset)
             -- Clean up Buff Manager root when switching away
@@ -4890,6 +5919,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- names in the section builders and ns._PARTY_SECTION_ORDER.
     ns._PARTY_SEARCH_SECTION_KEY = {
         ["HEALTH BAR"]             = "healthBar",
+        ["ABSORBS"]                = "absorbs",
         ["POWER BAR"]              = "powerBar",
         ["TEXT DISPLAY"]           = "textDisplay",
         ["INDICATORS"]             = "indicators",
@@ -4956,6 +5986,11 @@ initFrame:SetScript("OnEvent", function(self)
             ns._defensivesPreviewVisible = false
             ns._debuffsPreviewVisible = false
             ns._privateAurasPreviewVisible = false
+            ns._absorbsPreviewVisible = false
+            ns._tsPreviewVisible = false
+            if ns.TS_RefreshPreview then ns.TS_RefreshPreview() end
+            ns._tsRaidPreviewVisible = false
+            if ns.TS_RefreshRaidPreview then ns.TS_RefreshRaidPreview() end
             -- Reset + cancel the shared health/power animation tickers (they are
             -- on ns now so a single cancel covers whichever preview built them).
             ns._healthAnimActive = false

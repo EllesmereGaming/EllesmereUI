@@ -204,6 +204,7 @@ local DM_DEFAULTS = {
             rightTextUseClassColor = false,
             rightTextColor  = { r = 1, g = 1, b = 1 },
             bgR = 0, bgG = 0, bgB = 0, bgAlpha = 0.75,
+            barBgR = 0, barBgG = 0, barBgB = 0, barBgAlpha = 0,
             standaloneTimer       = false,
             standaloneTimerSize   = 26,
             standaloneTimerUseAccent = false,
@@ -768,6 +769,9 @@ local function FormatBarValue(amt, perSec, numFmt)
     end
     if numFmt == 2 and perSec then
         return format("%s (%s)", AbbrevNumber(amt), AbbrevNumber(perSec))
+    end
+    if numFmt == 3 and perSec then
+        return format("%s | %s", AbbrevNumber(amt), AbbrevNumber(perSec))
     end
     return AbbrevNumber(amt)
 end
@@ -1716,6 +1720,14 @@ local function CreateDMWindow(winIdx)
                 c.borderTextureShiftX, c.borderTextureShiftY, "damagemeters", sz)
         end
         bar.ApplyBorder()
+        -- Per-bar track background (behind the fill). Default alpha 0 = invisible.
+        bar._bg = bar.row:CreateTexture(nil, "BACKGROUND", nil, -8)
+        bar._bg:SetAllPoints(bar.row)
+        function bar.ApplyBg()
+            local c = DB()
+            bar._bg:SetColorTexture(c.barBgR or 0, c.barBgG or 0, c.barBgB or 0, c.barBgAlpha or 0)
+        end
+        bar.ApplyBg()
         local tf = CreateFrame("Frame", nil, bar.fill)
         tf:SetAllPoints(bar.fill); tf:SetFrameLevel(bar.fill:GetFrameLevel() + 2)
         bar.pos = tf:CreateFontString(nil, "OVERLAY"); bar.pos:SetPoint("LEFT", tf, "LEFT", 3, 0); SetDMFont(bar.pos, 11)
@@ -1875,6 +1887,7 @@ local function CreateDMWindow(winIdx)
         else local tc = cfg.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
         W.titleText:SetTextColor(tR, tG, tB, 1)
     end
+    W._fullTitle = "Damage Done"
     W.titleText:SetText("Damage Done")
 
     W.timerText = header:CreateFontString(nil, "OVERLAY"); SetDMFont(W.timerText, hdrFS)
@@ -2137,6 +2150,31 @@ local function CreateDMWindow(winIdx)
 
     -- Ordered list of header buttons for live resize/reposition
     W.hdrBtns = { W.settingsBtn, W.segmentBtn, W.modeBtn, W.resetBtn, W.winActionBtn }
+
+    -- Truncate the header title so it never runs under the right-side header
+    -- icons. Mirrors the icon layout math (N buttons of hdrIconSize spaced by
+    -- btnPad, anchored from the right) so it stays correct on resize and icon-
+    -- size changes without relying on GetLeft (which can lag a SetPoint).
+    function W.FitTitle()
+        local fs = W.titleText
+        local full = W._fullTitle
+        if not fs or not full then return end
+        fs:SetText(full)
+        local c = DB()
+        local iconSz = c.hdrIconSize or 22
+        local n = (W.hdrBtns and #W.hdrBtns) or 5
+        local headerW = frame:GetWidth() or (wdb.width or 300)
+        local btnLeft = headerW - (iconSz * n) - (btnPad * n) - 2
+        local avail = btnLeft - (6 + (c.hdrTextOffX or 0)) - 6
+        if avail < 1 then avail = 1 end
+        if fs:GetStringWidth() <= avail then return end
+        local s = full
+        while #s > 1 do
+            s = string.sub(s, 1, #s - 1)
+            fs:SetText(s .. "...")
+            if fs:GetStringWidth() <= avail then break end
+        end
+    end
 
     -- Option: hide header icons until the title bar is hovered
     ApplyHeaderButtonsHoverVisibility(W, cfg)
@@ -3052,7 +3090,8 @@ local function CreateDMWindow(winIdx)
             W.timerText:SetText("")
         end
         local titlePrefix = isOverall and "Overall " or ""
-        W.titleText:SetText(titlePrefix .. (DM_TYPE_NAMES[W.curDMType] or "Damage Done"))
+        W._fullTitle = titlePrefix .. (DM_TYPE_NAMES[W.curDMType] or "Damage Done")
+        W.FitTitle()
         if winIdx == 1 then UpdateSATimerText() end
 
         if W.sourceOpen then
@@ -3759,6 +3798,19 @@ ns.ApplyBorder = function()
     end
 end
 
+ns.ApplyBarBg = function()
+    for _, w in ipairs(_windows) do
+        if w.rowPool then
+            for _, bar in ipairs(w.rowPool) do
+                if bar.ApplyBg then bar.ApplyBg() end
+            end
+        end
+        if w.stickyPlayer and w.stickyPlayer.ApplyBg then
+            w.stickyPlayer.ApplyBg()
+        end
+    end
+end
+
 ns.ApplyBackground = function()
     local cfg = DB()
     local r, g, b, a = cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75
@@ -3815,6 +3867,7 @@ ns.ApplyHeader = function()
         end
 
         ApplyHeaderButtonsHoverVisibility(w, cfg)
+        if w.FitTitle then w.FitTitle() end
     end
 end
 

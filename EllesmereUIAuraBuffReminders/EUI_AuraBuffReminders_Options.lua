@@ -1004,13 +1004,14 @@ initFrame:SetScript("OnEvent", function(self)
         local raidBufHdr
         raidBufHdr, h = W:SectionHeader(parent, SECTION_RAID_BUFFS, y);  y = y - h
 
-        -- Show Others Missing | Show Buffs Outside Instances
+        -- Show Others Missing | Show Buffs In Open World
         local raidBufFirstRow
         raidBufFirstRow, h = W:DualRow(parent, y,
             { type="toggle", text="Show Others Missing",
               getValue=function() local r = RDB(); return r and r.showOthersMissing end,
               setValue=function(v) local r = RDB(); if r then r.showOthersMissing = v; if _G._EABR_UpdateGroupAuraRegistration then _G._EABR_UpdateGroupAuraRegistration() end; RefreshAll() end end },
-            { type="toggle", text="Show Buffs Outside Instances",
+            { type="toggle", text="Show Buffs In Open World",
+              tooltip="Reminders are always hidden in rested areas (cities and inns).",
               getValue=function() local r = RDB(); return r and r.showNonInstanced end,
               setValue=function(v) local r = RDB(); if r then r.showNonInstanced = v; RefreshAll() end end }
         );  y = y - h
@@ -1040,13 +1041,15 @@ initFrame:SetScript("OnEvent", function(self)
         local auraHdr
         auraHdr, h = W:SectionHeader(parent, SECTION_AURAS, y);  y = y - h
 
-        -- Show Auras Outside Instances | Show Specials Outside Instances
+        -- Show Auras In Open World | Show Specials In Open World
         local auraFirstRow
         auraFirstRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Auras Outside Instances",
+            { type="toggle", text="Show Auras In Open World",
+              tooltip="Reminders are always hidden in rested areas (cities and inns).",
               getValue=function() local a = ADB(); return a and a.showNonInstanced end,
               setValue=function(v) local a = ADB(); if a then a.showNonInstanced = v; RefreshAll() end end },
-            { type="toggle", text="Show Specials Outside Instances",
+            { type="toggle", text="Show Specials In Open World",
+              tooltip="Show special reminders while out in the open world.\nReminders are always hidden in rested areas (cities and inns).",
               getValue=function() local c = CDB(); return c and c.showSpecialsNonInstanced end,
               setValue=function(v) local c = CDB(); if c then c.showSpecialsNonInstanced = v; RefreshAll() end end }
         );  y = y - h

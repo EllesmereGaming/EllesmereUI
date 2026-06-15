@@ -63,14 +63,12 @@ end
 function ns.GetBarGlows()
     local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
     if not specKey then return { enabled = true, selectedBar = "cooldowns", assignments = {} } end
-    if not EllesmereUIDB then return { enabled = true, selectedBar = "cooldowns", assignments = {} } end
-    if not EllesmereUIDB.spellAssignments then
-        EllesmereUIDB.spellAssignments = { specProfiles = {} }
-    end
-    local sa = EllesmereUIDB.spellAssignments
-    if not sa.specProfiles then sa.specProfiles = {} end
-    if not sa.specProfiles[specKey] then sa.specProfiles[specKey] = { barSpells = {} } end
-    local prof = sa.specProfiles[specKey]
+    -- Bar glows are spec-specific and per-profile: specProfiles[specKey].barGlows
+    -- under the active profile's bucket (ns.GetActiveSpecProfiles).
+    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
+    if not sp then return { enabled = true, selectedBar = "cooldowns", assignments = {} } end
+    if not sp[specKey] then sp[specKey] = { barSpells = {} } end
+    local prof = sp[specKey]
     if not prof.barGlows or not next(prof.barGlows) then
         prof.barGlows = {
             enabled = true,

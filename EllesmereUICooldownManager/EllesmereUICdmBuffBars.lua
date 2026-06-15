@@ -232,17 +232,14 @@ ns.TBB_DEFAULT_BAR = TBB_DEFAULT_BAR
 --  Data Access
 -------------------------------------------------------------------------------
 function ns.GetTrackedBuffBars()
-    -- TBB is fully spec-specific, stored in specProfiles[specKey]
+    -- TBB is spec-specific and per-profile: specProfiles[specKey] under the
+    -- active profile's bucket (ns.GetActiveSpecProfiles).
     local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
     if not specKey then return { selectedBar = 1, bars = {} } end
-    if not EllesmereUIDB then return { selectedBar = 1, bars = {} } end
-    if not EllesmereUIDB.spellAssignments then
-        EllesmereUIDB.spellAssignments = { specProfiles = {} }
-    end
-    local sa = EllesmereUIDB.spellAssignments
-    if not sa.specProfiles then sa.specProfiles = {} end
-    if not sa.specProfiles[specKey] then sa.specProfiles[specKey] = { barSpells = {} } end
-    local prof = sa.specProfiles[specKey]
+    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
+    if not sp then return { selectedBar = 1, bars = {} } end
+    if not sp[specKey] then sp[specKey] = { barSpells = {} } end
+    local prof = sp[specKey]
     if not prof.trackedBuffBars then
         prof.trackedBuffBars = { selectedBar = 1, bars = {} }
     end
@@ -250,13 +247,13 @@ function ns.GetTrackedBuffBars()
 end
 
 function ns.GetTBBPositions()
-    -- TBB positions are spec-specific, stored alongside trackedBuffBars
+    -- TBB positions are spec-specific, stored alongside trackedBuffBars in the
+    -- active profile's per-spec bucket.
     local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
     if not specKey then return {} end
-    if not EllesmereUIDB or not EllesmereUIDB.spellAssignments then return {} end
-    local sa = EllesmereUIDB.spellAssignments
-    if not sa.specProfiles or not sa.specProfiles[specKey] then return {} end
-    local prof = sa.specProfiles[specKey]
+    local sp = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
+    if not sp or not sp[specKey] then return {} end
+    local prof = sp[specKey]
     if not prof.tbbPositions then prof.tbbPositions = {} end
     return prof.tbbPositions
 end

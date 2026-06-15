@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Incredibly light performance, modern raid frames with endless flexibility.
 ## Author: Ellesmere
-## Version: 8.0.8
+## Version: 8.1.6
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIRaidFramesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -17,6 +17,9 @@ EUI_RaidFrames_ClickCast.lua
 
 # Buff Manager
 EUI_RaidFrames_BuffManager.lua
+
+# Targeted Spells (party)
+EUI_RF_TargetedSpells.lua
 
 # Options
 EUI_RaidFrames_Options.lua

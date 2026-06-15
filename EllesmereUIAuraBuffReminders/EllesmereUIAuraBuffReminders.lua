@@ -515,13 +515,27 @@ local function PlayerHasSelfCastAuraByID(spellIDs)
     return false
 end
 
--- OOC range check (~28 yd). Returns true in combat (CheckInteractDistance is protected).
+-- Group-member range check, mirroring the raid frames' range path:
+-- UnitInRange (~40 yd helpful range, works in combat, not protected) is the
+-- primary check. The raid frames never BRANCH on it though -- they feed the
+-- result into SetAlphaFromBoolean because it can be a SECRET value in
+-- instances, and Lua cannot branch on secrets. When that happens here we
+-- fall back to UnitIsVisible (~100 yd, same phase/zone), which the raid
+-- frames' ghost-aura sweep branches on in plain Lua -- proven clean in
+-- instances. That still excludes the practical false-positive cases
+-- (members parked in another wing, cross-zone, other phase), it is just
+-- coarser than true cast range.
 local function _unitInRange(u)
     if UnitIsUnit(u, "player") then return true end
     if not UnitExists(u) then return false end
-    if InCombat() then return true end  -- CheckInteractDistance is protected in combat
-    local ok, result = pcall(CheckInteractDistance, u, 4)
-    return ok and result == true
+    local inRange, checked = UnitInRange(u)
+    if not (isSecret(inRange) or isSecret(checked)) and checked then
+        return inRange == true
+    end
+    -- Secret or uncheckable: visibility fallback
+    local vis = UnitIsVisible(u)
+    if isSecret(vis) then return true end
+    return vis == true
 end
 
 -- Returns true if any in-range group member is missing the buff.
@@ -2457,13 +2471,40 @@ local function Refresh()
     HideAllIcons()
 
     if #missing > 0 then
-        local iconIdx = 0
+        -- Cursor attach applies OOC too (it only routed in the combat path
+        -- before, which read as "works only in combat"). Cursor icons are
+        -- visual-only: an important buff routed here trades its secure
+        -- click-to-cast for the at-cursor placement, same as in combat.
+        local useCursor = db.profile.display.cursorAttach and cursorAnchor
+        local iconIdx, cursorIdx = 0, 0
         for _, m in ipairs(missing) do
             local dk = m.dismissKey or (m.data and m.data.key and (m.cat .. ":" .. m.data.key)) or nil
             if not dk or not _dismissedUntilLoad[dk] then
-                iconIdx = iconIdx + 1
-                ShowIcon(iconIdx, m)
+                if useCursor and IsImportantBuff(m) then
+                    local spellID = m.data and m.data.castSpell
+                    local texture = m.texture or (spellID and Tex(spellID)) or 134400
+                    local label = m.label or (m.data and ShortLabel(m.data.name)) or ""
+                    cursorIdx = cursorIdx + 1
+                    ShowCursorIcon(cursorIdx, spellID, texture, label)
+                    local f = cursorActiveIcons[#cursorActiveIcons]
+                    if f then
+                        RemoveGlow(f)
+                        local p = db.profile.display
+                        local gc = p.glowColor or DEFAULT_GLOW_COLOR
+                        local baseScale = p.scale or 1.0
+                        local sz = floor(ICON_SIZE * baseScale + 0.5)
+                        ApplyGlow(f, p.glowType or 0, gc.r, gc.g, gc.b, sz)
+                    end
+                else
+                    iconIdx = iconIdx + 1
+                    ShowIcon(iconIdx, m)
+                end
             end
+        end
+        if cursorIdx > 0 then
+            cursorAnchor:Show()
+            EllesmereUI.SetElementVisibility(cursorAnchor, true)
+            LayoutCursorIcons()
         end
         if iconIdx > 0 then
             LayoutIcons()
@@ -3175,7 +3216,9 @@ function EABR:OnEnable()
     end
 
     ---------------------------------------------------------------------------
-    --  Range polling (OOC, 0.5s throttle)
+    --  Range polling (0.5s throttle). Runs in combat too: UnitInRange is not
+    --  protected, and the group-buff reminders gate on member range, so a
+    --  member walking in or out of range mid-fight must retrigger evaluation.
     ---------------------------------------------------------------------------
     local _lastRangeSet = {}   -- [unitToken] = true/false (last known in-range state)
     local _rangeAccum   = 0    -- seconds since last poll
@@ -3204,8 +3247,9 @@ function EABR:OnEnable()
     end
 
     rangeFrame:SetScript("OnUpdate", function(_, elapsed)
-        -- Only poll OOC and when in a group (avoids all taint risk in combat).
-        if InCombat() or not IsInGroup() then
+        -- Only poll while in a group. The poll just reads UnitInRange and
+        -- requests our own (insecure) refresh, so combat is safe.
+        if not IsInGroup() then
             _rangeAccum = 0
             return
         end

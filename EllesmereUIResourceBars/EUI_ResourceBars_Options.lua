@@ -92,6 +92,7 @@ initFrame:SetScript("OnEvent", function(self)
         local gsr = _G._ERB_GetSecondaryResource
         local info = gsr and gsr()
         if info and info.power == "IRONFUR_BAR" then return true end -- Guardian Ironfur bar
+        if info and info.power == "IGNOREPAIN_BAR" then return true end -- Prot Warrior Ignore Pain bar
         if cf == "DRUID" and spec == 1 then return true end -- Balance (Astral Power bar)
         if cf == "SHAMAN" and spec == 1 then return true end -- Elemental
         if cf == "PRIEST" and spec == 3 then return true end -- Shadow
@@ -520,7 +521,8 @@ initFrame:SetScript("OnEvent", function(self)
                 pc._countText:ClearAllPoints()
                 pc._countText:SetPoint("CENTER", pc, "CENTER", sp.textXOffset or 0, sp.textYOffset or 0)
                 if isBar then
-                    pc._countText:SetText(tostring(_previewBarFillPct))
+                    local percentSuffix = (sp.showPercent == false) and "" or "%"
+                    pc._countText:SetText(tostring(_previewBarFillPct) .. percentSuffix)
                 else
                     local _pvTsE3 = _G._ERB_ResolveThresholdSpecEntry and _G._ERB_ResolveThresholdSpecEntry(sp) or nil
                     local _pvE3Enabled = _pvTsE3 and (_pvTsE3.thresholdEnabled ~= false) or false
@@ -1971,6 +1973,54 @@ initFrame:SetScript("OnEvent", function(self)
             );  y = y - hh
         end
 
+        -- Protection Warrior Ignore Pain bar: total absorbs against the IP cap
+        -- (30% max health), plus a moving duration hash line that resets on
+        -- cast. Only surfaced when the player is currently a Protection Warrior.
+        local function _IsProtWarrior()
+            local _, cf = UnitClass("player")
+            if cf ~= "WARRIOR" then return false end
+            local s = GetSpecialization()
+            local sid = s and GetSpecializationInfo(s)
+            return sid == 73
+        end
+        if _IsProtWarrior() then
+            local ipBarTip = "Creates a class resource bar for Ignore Pain tracking. To see stack text, you must have Ignore Pain tracked in your Blizzard CDM \"Tracked Buffs\" or \"Tracked Bars\" section."
+            local ipHashTip = "Draws a hash line that resets to the right edge when you cast Ignore Pain and slides left as the buff runs out."
+            local ipRow
+            ipRow, h = W:DualRow(parent, y,
+                { type = "toggle", text = "Prot Warrior Ignore Pain Bar",
+                  tooltip = ipBarTip,
+                  getValue = function() local p = DB(); return p and p.secondary.protIgnorePainBar end,
+                  setValue = function(v)
+                      local p = DB(); if not p then return end
+                      p.secondary.protIgnorePainBar = v; RebuildClass()
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type = "toggle", text = "Show Hash Line",
+                  tooltip = ipHashTip,
+                  disabled = function() local p = DB(); return not (p and p.secondary.protIgnorePainBar) end,
+                  disabledTooltip = "Prot Warrior Ignore Pain Bar",
+                  getValue = function() local p = DB(); return p and p.secondary.protIgnorePainHashLine ~= false end,
+                  setValue = function(v)
+                      local p = DB(); if not p then return end
+                      p.secondary.protIgnorePainHashLine = v
+                      EllesmereUI:RefreshPage()
+                  end }
+            );  y = y - h
+            -- The widget factory only shows tooltips on the LABEL hit area;
+            -- mirror them onto the toggle controls themselves.
+            local function IPControlTip(rgn, tip)
+                local c = rgn and rgn._control
+                if not c or not c.HookScript then return end
+                c:HookScript("OnEnter", function(self)
+                    EllesmereUI.ShowWidgetTooltip(self, tip)
+                end)
+                c:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            end
+            IPControlTip(ipRow._leftRegion, ipBarTip)
+            IPControlTip(ipRow._rightRegion, ipHashTip)
+        end
+
         -- Row 1: Show Class Resource (inline cog: Spacing) | Orientation
         local classEnableRow
         classEnableRow, h = W:DualRow(parent, y,
@@ -2454,28 +2504,56 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline cog on Resource Text for size + position
         do
             local rgn = classColorRow._leftRegion
+            local resTextRows = {
+                { type = "toggle", label = "Show %",
+                  get = function()
+                      local p = DB()
+                      return (not p) or p.secondary.showPercent ~= false
+                  end,
+                  set = function(v)
+                      local p = DB(); if not p then return end
+                      p.secondary.showPercent = v; RefreshClass()
+                  end },
+                { type = "slider", label = "Size", min = 8, max = 24, step = 1,
+                  get = function() local p = DB(); return p and p.secondary.textSize or 11 end,
+                  set = function(v)
+                      local p = DB(); if not p then return end
+                      p.secondary.textSize = v; RefreshClass()
+                  end },
+                { type = "slider", label = "X Offset", min = -50, max = 50, step = 1,
+                  get = function() local p = DB(); return p and p.secondary.textXOffset or 0 end,
+                  set = function(v)
+                      local p = DB(); if not p then return end
+                      p.secondary.textXOffset = v; RefreshClass()
+                  end },
+                { type = "slider", label = "Y Offset", min = -50, max = 50, step = 1,
+                  get = function() local p = DB(); return p and p.secondary.textYOffset or 0 end,
+                  set = function(v)
+                      local p = DB(); if not p then return end
+                      p.secondary.textYOffset = v; RefreshClass()
+                  end },
+            }
+            -- Devourer (DH soul fragments) only: option to hide the "/ max"
+            -- suffix on the count text. Inserted above "Show %".
+            do
+                local gsr = _G._ERB_GetSecondaryResource
+                local secInfo = gsr and gsr()
+                if secInfo and secInfo.power == "SOUL_FRAGMENTS_DEVOURER" then
+                    table.insert(resTextRows, 1, {
+                        type = "toggle", label = "Show Max Stacks",
+                        get = function()
+                            local p = DB()
+                            return (not p) or p.secondary.showMaxStacks ~= false
+                        end,
+                        set = function(v)
+                            local p = DB(); if not p then return end
+                            p.secondary.showMaxStacks = v; RefreshClass()
+                        end })
+                end
+            end
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Resource Text",
-                rows = {
-                    { type = "slider", label = "Size", min = 8, max = 24, step = 1,
-                      get = function() local p = DB(); return p and p.secondary.textSize or 11 end,
-                      set = function(v)
-                          local p = DB(); if not p then return end
-                          p.secondary.textSize = v; RefreshClass()
-                      end },
-                    { type = "slider", label = "X Offset", min = -50, max = 50, step = 1,
-                      get = function() local p = DB(); return p and p.secondary.textXOffset or 0 end,
-                      set = function(v)
-                          local p = DB(); if not p then return end
-                          p.secondary.textXOffset = v; RefreshClass()
-                      end },
-                    { type = "slider", label = "Y Offset", min = -50, max = 50, step = 1,
-                      get = function() local p = DB(); return p and p.secondary.textYOffset or 0 end,
-                      set = function(v)
-                          local p = DB(); if not p then return end
-                          p.secondary.textYOffset = v; RefreshClass()
-                      end },
-                },
+                rows = resTextRows,
                 footer = false,
             })
             local cogBtn = MakeCogBtn(rgn, cogShow)
