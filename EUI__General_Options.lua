@@ -607,8 +607,8 @@ initFrame:SetScript("OnEvent", function(self)
                 ["ptBR"] = { text = "Portugues (BR)" },
                 ["ruRU"] = { text = "Russian" },
                 ["koKR"] = { text = "Korean" },
-                ["zhCN"] = { text = "Chinese (Simplified)" },
-                ["zhTW"] = { text = "Chinese (Traditional)" },
+                ["zhCN"] = { text = "简体中文" },
+                ["zhTW"] = { text = "繁體中文" },
             }
             local langOrder = { "auto", "enUS", "deDE", "frFR", "esES", "esMX", "itIT", "ptBR", "ruRU", "koKR", "zhCN", "zhTW" }
 
