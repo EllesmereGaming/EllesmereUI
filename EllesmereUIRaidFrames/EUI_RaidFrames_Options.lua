@@ -2356,7 +2356,15 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSet("dispelOverlayOpacity", v) end });  y = y - h
 
 
-        -- Row 2: Dispel Border Size | Dispel Icon Position (includes "None" to disable)
+        -- Row 2: Dispel Border Size
+        row, h = W:DualRow(parent, y,
+            { type="slider", text="Dispel Border", min=0, max=4, step=1,
+              getValue=function() return SVal("dispelBorderSize", 2) end,
+              setValue=function(v) SSet("dispelBorderSize", v) end },
+            { type="label", text="" });  y = y - h
+
+            
+        -- Row 3: Dispel Icon Position (includes "None" to disable) | Dispel Icon Size
         local dispelIconPositionValues = {
             none        = "None",
             topleft     = "Top Left",
@@ -2371,9 +2379,6 @@ initFrame:SetScript("OnEvent", function(self)
         }
         local dispelIconPositionOrder = { "none", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
         row, h = W:DualRow(parent, y,
-            { type="slider", text="Dispel Border", min=0, max=4, step=1,
-              getValue=function() return SVal("dispelBorderSize", 2) end,
-              setValue=function(v) SSet("dispelBorderSize", v) end },
             { type="dropdown", text="Dispel Icon Position", values=dispelIconPositionValues, order=dispelIconPositionOrder,
               getValue=function()
                   if not SVal("showDispelIcons", false) then return "none" end
@@ -2387,10 +2392,15 @@ initFrame:SetScript("OnEvent", function(self)
                       SSet("dispelIconPosition", v)
                   end
                   EllesmereUI:RefreshPage()
-              end });  y = y - h
+              end },
+            { type="slider", text="Dispel Icon Size", min=8, max=24, step=1,
+              disabled=function() return SVal("dispelIconPosition", "none") == "none" end,
+              disabledTooltip="Dispel Icon",
+              getValue=function() return SVal("dispelIconSize", 16) end,
+              setValue=function(v) SSet("dispelIconSize", v) end });  y = y - h
         -- Cog for dispel icon offset X/Y
         do
-            local rgn = row._rightRegion
+            local lgn = row._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Dispel Icon Offset",
                 rows = {
@@ -2402,11 +2412,11 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) SSet("dispelIconOffsetY", v) end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
+            local cogBtn = CreateFrame("Button", nil, lgn)
             cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetPoint("RIGHT", lgn._lastInline or lgn._control, "LEFT", -8, 0)
+            lgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(lgn:GetFrameLevel() + 5)
             cogBtn:SetAlpha(SVal("showDispelIcons", false) and 0.4 or 0.15)
             local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
             cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
