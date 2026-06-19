@@ -5603,6 +5603,22 @@ function EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s, isHovered)
     return not (#modes == 1 and modes[1] == "never")
 end
 
+-- Mouseover bars must stay shown (alpha 0) so hover hooks can reveal them.
+function EAB_VTABLE.ExtraBars.ShouldKeepManagedNonSecureBarPresent(s)
+    if not s then return false end
+    EAB.VisibilityCompat.Normalize(s)
+    if C_PetBattles and C_PetBattles.IsInBattle and C_PetBattles.IsInBattle() then
+        return false
+    end
+    if s.enabled == false or s.alwaysHidden then return false end
+    if EllesmereUI and EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(s) then
+        return false
+    end
+    local modes = EAB.VisibilityCompat.GetModes(s)
+    if #modes == 1 and modes[1] == "never" then return false end
+    return s.mouseoverEnabled == true
+end
+
 function EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(frame, reason, suppressed)
     if not frame then return end
 
@@ -5647,24 +5663,38 @@ function EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s, shouldS
     end
 end
 
-function EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, blizzOwnedVisibility, s, shouldShow)
+function EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, blizzOwnedVisibility, s, shouldShow, keepPresent)
     if not frame or not s then return end
 
     shouldShow = (shouldShow ~= false)
-    -- Blizzard-owned frames (QueueStatusButton) manage their own mouse
-    -- state; overriding it disables clicking/hovering after every
-    -- visibility refresh.
+    keepPresent = (keepPresent ~= false)
+    -- Blizzard-owned frames (MicroMenu, QueueStatus) manage their own mouse
+    -- state; overriding it disables clicking/hovering after every refresh.
     if blizzOwnedVisibility then
         return
-    elseif s.mouseoverEnabled and s.clickThrough then
-        SafeEnableMouseMotionOnly(frame, shouldShow)
+    elseif s.mouseoverEnabled then
+        if s.clickThrough then
+            SafeEnableMouseMotionOnly(frame, keepPresent)
+        else
+            SafeEnableMouse(frame, keepPresent and not s.clickThrough)
+        end
     else
         SafeEnableMouse(frame, shouldShow and not s.clickThrough)
     end
 end
 
-function EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, shouldShow, allowShow)
+function EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, shouldShow, allowShow, forceKeepPresent)
     if not frame or not s then return end
+
+    local keepPresent
+    if forceKeepPresent ~= nil then
+        keepPresent = forceKeepPresent
+    else
+        keepPresent = shouldShow
+        if not keepPresent and s.mouseoverEnabled then
+            keepPresent = EAB_VTABLE.ExtraBars.ShouldKeepManagedNonSecureBarPresent(s)
+        end
+    end
 
     -- Show/hide the holder BEFORE the Blizzard frame so the parent has
     -- valid screen coordinates when the child's Show() triggers Blizzard
@@ -5672,13 +5702,13 @@ function EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, 
     if not info.isDataBar then
         local holder = extraBarHolders[info.key]
         if holder then
-            if shouldShow then holder:Show() else holder:Hide() end
+            if keepPresent then holder:Show() else holder:Hide() end
         end
     end
 
     if info.blizzOwnedVisibility then
-        EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(frame, "visibility", not shouldShow)
-    elseif shouldShow then
+        EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(frame, "visibility", not keepPresent)
+    elseif keepPresent then
         if allowShow ~= false then
             frame:Show()
         end
@@ -5686,10 +5716,10 @@ function EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, 
         frame:Hide()
     end
 
-    if shouldShow then
+    if keepPresent then
         EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s, shouldShow)
     end
-    EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, info.blizzOwnedVisibility, s, shouldShow)
+    EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, info.blizzOwnedVisibility, s, shouldShow, keepPresent)
 end
 
 function EAB_VTABLE.ExtraBars.ApplyManagedNonSecureVisibility(info)
@@ -9121,7 +9151,7 @@ function EAB_VTABLE.ExtraBars.BeginManagedDataBarUpdate(barKey)
     local info = BAR_LOOKUP[barKey]
     if EAB.db.profile.useBlizzardDataBars then
         if info then
-            EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, EAB.db.profile.bars[barKey], false, true)
+            EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, EAB.db.profile.bars[barKey], false, true, false)
         else
             frame:Hide()
         end
@@ -9130,9 +9160,14 @@ function EAB_VTABLE.ExtraBars.BeginManagedDataBarUpdate(barKey)
 
     local s = EAB.db.profile.bars[barKey]
     if not s then return nil, nil end
-    if s.alwaysHidden or not EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s) then
+    local hstate = hoverStates[barKey]
+    local shouldShow = EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(
+        s, hstate and hstate.isHovered
+    )
+    local keepPresent = EAB_VTABLE.ExtraBars.ShouldKeepManagedNonSecureBarPresent(s)
+    if s.alwaysHidden or (not shouldShow and not keepPresent) then
         if info then
-            EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, false, true)
+            EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, false, true, false)
         else
             frame:Hide()
         end
@@ -9147,7 +9182,11 @@ function EAB_VTABLE.ExtraBars.FinishManagedDataBarUpdate(barKey, frame, s)
 
     local info = BAR_LOOKUP[barKey]
     if info then
-        EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, true, true)
+        local hstate = hoverStates[barKey]
+        local shouldShow = EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(
+            s, hstate and hstate.isHovered
+        )
+        EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, shouldShow, true)
     else
         frame:Show()
     end
@@ -9166,7 +9205,7 @@ local function UpdateXPBar()
     -- Hide at max level (or XP disabled)
     if (IsLevelAtEffectiveMaxLevel and IsLevelAtEffectiveMaxLevel(UnitLevel("player")))
         or (IsXPUserDisabled and IsXPUserDisabled()) then
-        EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(BAR_LOOKUP["XPBar"], frame, s, false, true)
+        EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(BAR_LOOKUP["XPBar"], frame, s, false, true, false)
         return
     end
 
@@ -9271,7 +9310,7 @@ local function UpdateRepBar()
 
     local data = C_Reputation and C_Reputation.GetWatchedFactionData and C_Reputation.GetWatchedFactionData()
     if not data or not data.name then
-        EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(BAR_LOOKUP["RepBar"], frame, s, false, true)
+        EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(BAR_LOOKUP["RepBar"], frame, s, false, true, false)
         return
     end
 
@@ -9316,7 +9355,7 @@ local function UpdateRepBar()
         if majorData then
             local hasMax = C_MajorFactions.HasMaximumRenown and C_MajorFactions.HasMaximumRenown(factionID)
             if hasMax then
-                EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(BAR_LOOKUP["RepBar"], frame, s, false, true)
+                EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(BAR_LOOKUP["RepBar"], frame, s, false, true, false)
                 return
             end
             reaction = 10
@@ -9336,7 +9375,7 @@ local function UpdateRepBar()
 
     -- Hide capped / maxed factions (Exalted with no paragon, max friendship, etc.)
     if nextReactionThreshold == math.huge or currentReactionThreshold == nextReactionThreshold then
-        EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(BAR_LOOKUP["RepBar"], frame, s, false, true)
+        EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(BAR_LOOKUP["RepBar"], frame, s, false, true, false)
         return
     end
 
