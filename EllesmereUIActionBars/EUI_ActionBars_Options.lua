@@ -1094,27 +1094,22 @@ initFrame:SetScript("OnEvent", function(self)
         RepBar   = "Rep",
     }
 
-    -- Keep the legacy boolean flags and the newer visibility-mode dropdown in
-    -- sync. The runtime still reads both shapes in different code paths.
-    local function GetVisibilityKey(s)
-        if not VisibilityCompat then
-            return s.barVisibility or "always"
-        end
-        return VisibilityCompat.Normalize(s)
+    -- Multi-select visibility modes; legacy single-mode fields stay derived.
+    local function GetVisibilityModes(s)
+        return EllesmereUI.GetVisibilityModes(s)
     end
 
-    local function ApplyVisibilityKey(s, v)
+    local function ApplyVisibilityModes(s, modes)
         if VisibilityCompat then
-            VisibilityCompat.ApplyMode(s, v)
+            VisibilityCompat.ApplyModes(s, modes)
             return
         end
-
-        s.barVisibility = v
-        s.alwaysHidden = (v == "never")
-
+        s.barVisibilityModes = modes
+        s.barVisibility = modes[1] or "always"
+        s.alwaysHidden = (#modes == 1 and modes[1] == "never")
         local wasMouseover = s.mouseoverEnabled
-        s.mouseoverEnabled = (v == "mouseover")
-        if v == "mouseover" then
+        s.mouseoverEnabled = EllesmereUI.VisibilityModesContains(modes, "mouseover")
+        if s.mouseoverEnabled then
             if not wasMouseover then
                 s._savedBarAlpha = s.mouseoverAlpha or 1
             end
@@ -1123,9 +1118,36 @@ initFrame:SetScript("OnEvent", function(self)
             s.mouseoverAlpha = s._savedBarAlpha
             s._savedBarAlpha = nil
         end
+        s.combatHideEnabled = EllesmereUI.VisibilityModesContains(modes, "out_of_combat")
+        s.combatShowEnabled = EllesmereUI.VisibilityModesContains(modes, "in_combat")
+    end
 
-        s.combatHideEnabled = (v == "out_of_combat")
-        s.combatShowEnabled = (v == "in_combat")
+    local function ToggleVisibilityMode(s, mode, on)
+        local modes = GetVisibilityModes(s)
+        local new = {}
+        if on then
+            if mode == "never" then
+                new = { "never" }
+            elseif mode == "always" then
+                new = { "always" }
+            else
+                for i = 1, #modes do
+                    local m = modes[i]
+                    if m ~= "never" and m ~= "always" then
+                        new[#new + 1] = m
+                    end
+                end
+                if not EllesmereUI.VisibilityModesContains(new, mode) then
+                    new[#new + 1] = mode
+                end
+            end
+        else
+            for i = 1, #modes do
+                if modes[i] ~= mode then new[#new + 1] = modes[i] end
+            end
+            if #new == 0 then new = { "always" } end
+        end
+        ApplyVisibilityModes(s, new)
     end
 
     local function CopyVisibilitySettings(dst, src)
@@ -1133,15 +1155,40 @@ initFrame:SetScript("OnEvent", function(self)
             VisibilityCompat.Copy(dst, src)
             return
         end
-
-        local v = src.barVisibility or "always"
-        dst.barVisibility = v
-        dst.alwaysHidden = src.alwaysHidden
-        dst.mouseoverEnabled = src.mouseoverEnabled
+        local srcModes = GetVisibilityModes(src)
+        local modes = {}
+        for i = 1, #srcModes do modes[i] = srcModes[i] end
+        ApplyVisibilityModes(dst, modes)
         dst.mouseoverAlpha = src.mouseoverAlpha
         dst._savedBarAlpha = src._savedBarAlpha
-        dst.combatHideEnabled = src.combatHideEnabled
-        dst.combatShowEnabled = src.combatShowEnabled
+    end
+
+    local function RefreshVisibilityRuntime()
+        EAB:RefreshRuntimeVisibility()
+        EAB:RefreshMouseover()
+        EAB:ApplyCombatVisibility()
+    end
+
+    local function InstallVisibilityModesDropdown(region, getSettings, disabledFn)
+        if region._control then region._control:Hide() end
+        local PP = EllesmereUI.PanelPP
+        local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+            region, 210, region:GetFrameLevel() + 2,
+            EllesmereUI.VIS_MODE_ITEMS,
+            function(mode)
+                local s = getSettings()
+                return s and EllesmereUI.VisibilityModesContains(GetVisibilityModes(s), mode) or false
+            end,
+            function(mode, on)
+                ToggleVisibilityMode(getSettings(), mode, on)
+                RefreshVisibilityRuntime()
+                EllesmereUI:RefreshPage()
+            end)
+        PP.Point(cbDD, "RIGHT", region, "RIGHT", -20, 0)
+        region._control = cbDD
+        region._lastInline = nil
+        EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+        return cbDD
     end
 
 
@@ -1165,24 +1212,22 @@ initFrame:SetScript("OnEvent", function(self)
         local BLIZZ_DIS_TIP = "This option does not work with Blizzard Bars. Please use Blizzard Edit Mode."
         local function _blizzDis() return EAB.db.profile.useBlizzardDataBars end
 
-        -- Shared visibility row: left vis dropdown + right "Visibility Options" checkbox dropdown
+        -- Shared visibility row: left vis modes + right "Visibility Options" checkbox dropdown
         local function BuildVisRow(barKey, leftLabel, disabledFn, disTip)
             local visRow, visH = W:DualRow(parent, y,
                 { type="dropdown", text=leftLabel,
-                  values=EllesmereUI.VIS_VALUES, order=EllesmereUI.VIS_ORDER,
+                  values={ __placeholder = "..." }, order={ "__placeholder" },
                   disabled=disabledFn, disabledTooltip=disTip, rawTooltip=disTip and true or nil,
-                  getValue=function() return GetVisibilityKey(EAB.db.profile.bars[barKey]) end,
-                  setValue=function(v)
-                      ApplyVisibilityKey(EAB.db.profile.bars[barKey], v)
-                      EAB:RefreshRuntimeVisibility()
-                      EAB:RefreshMouseover()
-                      EAB:ApplyCombatVisibility()
-                      EllesmereUI:RefreshPage()
-                  end },
+                  getValue=function() return "__placeholder" end,
+                  setValue=function() end },
                 { type="dropdown", text="Visibility Options",
                   values={ __placeholder = "..." }, order={ "__placeholder" },
                   getValue=function() return "__placeholder" end,
                   setValue=function() end });  y = y - visH
+
+            InstallVisibilityModesDropdown(visRow._leftRegion, function()
+                return EAB.db.profile.bars[barKey]
+            end, disabledFn)
 
             -- Replace the dummy right dropdown with checkbox dropdown
             local rightRgn = visRow._rightRegion
@@ -1383,7 +1428,7 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         _, h = W:SectionHeader(parent, SECTION_VISIBILITY, y);  y = y - h
 
-        -- Row 1: Bar Visibility (dropdown) | Visibility Options
+        -- Row 1: Bar Visibility (multi-select) | Visibility Options
         do
             local _visBlizzDis
             local _VIS_BLIZZ_TIP = "This option does not work with Blizzard Bars. Please use Blizzard Edit Mode."
@@ -1394,22 +1439,16 @@ initFrame:SetScript("OnEvent", function(self)
             local visRow1
             visRow1, h = W:DualRow(parent, y,
                 { type="dropdown", text="Visibility",
-                  values=EllesmereUI.VIS_VALUES, order=EllesmereUI.VIS_ORDER,
+                  values={ __placeholder = "..." }, order={ "__placeholder" },
                   disabled=_visBlizzDis, disabledTooltip=_visBlizzDis and _VIS_BLIZZ_TIP or nil, rawTooltip=true,
-                  getValue=function()
-                      return GetVisibilityKey(SB())
-                  end,
-                  setValue=function(v)
-                      ApplyVisibilityKey(SB(), v)
-                      EAB:RefreshRuntimeVisibility()
-                      EAB:RefreshMouseover()
-                      EAB:ApplyCombatVisibility()
-                      EllesmereUI:RefreshPage()
-                  end },
+                  getValue=function() return "__placeholder" end,
+                  setValue=function() end },
                 { type="dropdown", text="Visibility Options",
                   values={ __placeholder = "..." }, order={ "__placeholder" },
                   getValue=function() return "__placeholder" end,
                   setValue=function() end });  y = y - h
+
+            InstallVisibilityModesDropdown(visRow1._leftRegion, function() return SB() end, _visBlizzDis)
 
             -- Replace the dummy right dropdown with checkbox dropdown
             do
@@ -1442,15 +1481,17 @@ initFrame:SetScript("OnEvent", function(self)
                             local dst = EAB.db.profile.bars[key]
                             CopyVisibilitySettings(dst, src)
                         end
-                        EAB:RefreshRuntimeVisibility()
-                        EAB:RefreshMouseover()
-                        EAB:ApplyCombatVisibility()
+                        RefreshVisibilityRuntime()
                         EllesmereUI:RefreshPage()
                     end,
                     isSynced = function()
-                        local v = SB().barVisibility or "always"
+                        local srcModes = GetVisibilityModes(SB())
                         for _, key in ipairs(GROUP_BAR_ORDER) do
-                            if (EAB.db.profile.bars[key].barVisibility or "always") ~= v then return false end
+                            if not EllesmereUI.VisibilityModesEqual(
+                                GetVisibilityModes(EAB.db.profile.bars[key]), srcModes
+                            ) then
+                                return false
+                            end
                         end
                         return true
                     end,
@@ -1465,9 +1506,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 local dst = EAB.db.profile.bars[key]
                                 CopyVisibilitySettings(dst, src)
                             end
-                            EAB:RefreshRuntimeVisibility()
-                            EAB:RefreshMouseover()
-                            EAB:ApplyCombatVisibility()
+                            RefreshVisibilityRuntime()
                             EllesmereUI:RefreshPage()
                         end,
                     },

@@ -1334,6 +1334,30 @@ EllesmereUI.ADDON_ROSTER = ADDON_ROSTER
 EllesmereUI.LOCALE_FONT_FALLBACK = LOCALE_FONT_FALLBACK
 EllesmereUI.EXPRESSWAY = LOCALE_FONT_FALLBACK or EXPRESSWAY
 
+-- Weak-keyed per-frame state (defined early -- used by PLAYER_LOGIN init below).
+EllesmereUI._FFD = EllesmereUI._FFD or setmetatable({}, { __mode = "k" })
+function EllesmereUI._GetFFD(frame)
+    local d = EllesmereUI._FFD[frame]
+    if not d then d = {}; EllesmereUI._FFD[frame] = d end
+    return d
+end
+
+-- Alpha-zero visibility for anchor-participating frames (defined early for child addons).
+function EllesmereUI.SetElementVisibility(frame, visible)
+    if not frame then return end
+    if visible then
+        frame:SetAlpha(EllesmereUI._GetFFD(frame).restoreAlpha or 1)
+        frame:EnableMouse(EllesmereUI._GetFFD(frame).restoreMouse or false)
+    else
+        if frame:GetAlpha() > 0 then
+            EllesmereUI._GetFFD(frame).restoreAlpha = frame:GetAlpha()
+        end
+        EllesmereUI._GetFFD(frame).restoreMouse = frame:IsMouseEnabled()
+        frame:SetAlpha(0)
+        frame:EnableMouse(false)
+    end
+end
+
 -- Taint-safe print. Uses AddMessage instead of the global print(), which
 -- routes through Blizzard's C-side handler and taints the chat frame
 -- execution context. Silently drops the message inside protected instances
@@ -9972,6 +9996,14 @@ initFrame:SetScript("OnEvent", function(self, event)
     end
 end)
 
+-- Re-bind after PLAYER_LOGIN init closure: tail-of-file visibility/cast-bar code
+-- can compile outside the main local EllesmereUI scope when the chunk nears the
+-- Lua 200-local limit, so ensure the global/table reference exists here.
+if not EllesmereUI then
+    EllesmereUI = _G.EllesmereUI or {}
+end
+_G.EllesmereUI = EllesmereUI
+
 -------------------------------------------------------------------------------
 --  Shared Visibility System
 --  Unified visibility dropdown values, checkbox dropdown items, and runtime
@@ -9990,6 +10022,17 @@ EllesmereUI.VIS_VALUES = {
     solo       = "Solo",
 }
 EllesmereUI.VIS_ORDER = { "never", "always", "mouseover", "in_combat", "out_of_combat", "---", "in_raid", "in_party", "solo" }
+
+-- Checkbox dropdown items for multi-select visibility modes (action bars).
+EllesmereUI.VIS_MODE_ITEMS = {}
+for _, key in ipairs(EllesmereUI.VIS_ORDER) do
+    if key ~= "---" then
+        EllesmereUI.VIS_MODE_ITEMS[#EllesmereUI.VIS_MODE_ITEMS + 1] = {
+            key = key,
+            label = EllesmereUI.VIS_VALUES[key],
+        }
+    end
+end
 
 -- CDM variant (no mouseover -- CDM bars don't support mouseover visibility)
 EllesmereUI.VIS_VALUES_CDM = {
@@ -10124,36 +10167,99 @@ function EllesmereUI.CheckVisibilityMode(mode, state)
     return true
 end
 
--------------------------------------------------------------------------------
---  External weak-keyed lookup table for frame state (prevents tainting Blizzard
---  frames). Stored on EllesmereUI to avoid the 200-local cap in this file.
--------------------------------------------------------------------------------
-EllesmereUI._FFD = EllesmereUI._FFD or setmetatable({}, { __mode = "k" })
-function EllesmereUI._GetFFD(frame)
-    local d = EllesmereUI._FFD[frame]
-    if not d then d = {}; EllesmereUI._FFD[frame] = d end
-    return d
+function EllesmereUI.VisibilityModesContains(modes, mode)
+    if not modes or not mode then return false end
+    for i = 1, #modes do
+        if modes[i] == mode then return true end
+    end
+    return false
 end
 
--------------------------------------------------------------------------------
---  Alpha-Zero Visibility Helper
---  For anchor-participating container frames: use alpha 0 + EnableMouse(false)
---  instead of :Hide() so the frame stays in the layout engine with valid bounds.
---  Sub-widgets (icons, text, glows) inside these frames still use :Hide()/:Show().
--------------------------------------------------------------------------------
-function EllesmereUI.SetElementVisibility(frame, visible)
-    if not frame then return end
-    if visible then
-        frame:SetAlpha(EllesmereUI._GetFFD(frame).restoreAlpha or 1)
-        frame:EnableMouse(EllesmereUI._GetFFD(frame).restoreMouse or false)
-    else
-        if frame:GetAlpha() > 0 then
-            EllesmereUI._GetFFD(frame).restoreAlpha = frame:GetAlpha()
-        end
-        EllesmereUI._GetFFD(frame).restoreMouse = frame:IsMouseEnabled()
-        frame:SetAlpha(0)
-        frame:EnableMouse(false)
+function EllesmereUI.VisibilityModesEqual(a, b)
+    if not a or not b then return false end
+    if #a ~= #b then return false end
+    for i = 1, #a do
+        if a[i] ~= b[i] then return false end
     end
+    return true
+end
+
+-- Read visibility modes from settings; falls back to legacy single-string field.
+function EllesmereUI.GetVisibilityModes(settings, modesKey, legacyKey)
+    modesKey = modesKey or "barVisibilityModes"
+    legacyKey = legacyKey or "barVisibility"
+    if settings then
+        local modes = settings[modesKey]
+        if type(modes) == "table" and #modes > 0 then
+            return modes
+        end
+        local legacy = settings[legacyKey] or settings.visibility
+        if legacy and legacy ~= "" then
+            return { legacy }
+        end
+    end
+    return { "always" }
+end
+
+-- OR evaluation: returns true when any selected mode matches.
+function EllesmereUI.CheckVisibilityModes(modes, state, opts)
+    opts = opts or {}
+    if not modes or #modes == 0 then return true end
+    if EllesmereUI.VisibilityModesContains(modes, "never") then return false end
+    if EllesmereUI.VisibilityModesContains(modes, "always") then return true end
+    -- Macro/state modes take precedence over mouseover.
+    for i = 1, #modes do
+        local mode = modes[i]
+        if mode ~= "mouseover" and mode ~= "always" and mode ~= "never" then
+            if EllesmereUI.CheckVisibilityMode(mode, state) then return true end
+        end
+    end
+    if EllesmereUI.VisibilityModesContains(modes, "mouseover") and opts.isHovered then
+        return true
+    end
+    return false
+end
+
+function EllesmereUI.ModeToMacroClause(mode)
+    if mode == "in_combat" then return "[combat] show"
+    elseif mode == "out_of_combat" then return "[nocombat] show"
+    elseif mode == "in_raid" then return "[group:raid] show"
+    elseif mode == "in_party" then return "[group:party] show; [group:raid] show"
+    elseif mode == "solo" then return "[nogroup] show"
+    end
+    return nil
+end
+
+-- Build the macro suffix for OR-combined visibility modes.
+function EllesmereUI.BuildMacroVisibilitySuffix(modes)
+    if not modes or #modes == 0 then return "show" end
+    if EllesmereUI.VisibilityModesContains(modes, "never") then return "hide" end
+    if EllesmereUI.VisibilityModesContains(modes, "always") then return "show" end
+    if EllesmereUI.VisibilityModesContains(modes, "mouseover") then return "show" end
+    local parts = {}
+    for i = 1, #modes do
+        local clause = EllesmereUI.ModeToMacroClause(modes[i])
+        if clause then parts[#parts + 1] = clause end
+    end
+    if #parts == 0 then return "show" end
+    parts[#parts + 1] = "hide"
+    return table.concat(parts, "; ")
+end
+
+function EllesmereUI.VisibilityModesHasMacroCondition(modes)
+    for i = 1, #modes do
+        local m = modes[i]
+        if m ~= "always" and m ~= "never" and m ~= "mouseover" then
+            return true
+        end
+    end
+    return false
+end
+
+function EllesmereUI.VisibilityModesHasCondition(modes)
+    if not modes or #modes == 0 then return false end
+    if #modes == 1 and modes[1] == "always" then return false end
+    return true
 end
 
 -------------------------------------------------------------------------------

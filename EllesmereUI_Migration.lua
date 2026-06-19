@@ -2228,6 +2228,36 @@ EllesmereUI.RegisterMigration({
 })
 
 EllesmereUI.RegisterMigration({
+    id          = "ab_bar_visibility_to_modes_v1",
+    scope       = "profile",
+    description = "Migrate action bar barVisibility string to barVisibilityModes array.",
+    body = function(ctx)
+        local ab = ctx.profile.addons and ctx.profile.addons.EllesmereUIActionBars
+        local abBars = ab and ab.bars
+        if not abBars then return end
+        for _, cfg in pairs(abBars) do
+            if type(cfg) == "table" and (not cfg.barVisibilityModes or #cfg.barVisibilityModes == 0) then
+                local mode = cfg.barVisibility
+                if not mode or mode == "" then
+                    if cfg.alwaysHidden then
+                        mode = "never"
+                    elseif cfg.mouseoverEnabled then
+                        mode = "mouseover"
+                    elseif cfg.combatShowEnabled then
+                        mode = "in_combat"
+                    elseif cfg.combatHideEnabled then
+                        mode = "out_of_combat"
+                    else
+                        mode = "always"
+                    end
+                end
+                cfg.barVisibilityModes = { mode }
+            end
+        end
+    end,
+})
+
+EllesmereUI.RegisterMigration({
     id          = "ab_default_grow_to_center_v1",
     scope       = "profile",
     description = "Convert AB bars with default UP growth to CENTER (UP now has real edge preservation).",

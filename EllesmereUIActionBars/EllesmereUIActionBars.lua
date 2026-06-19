@@ -154,16 +154,22 @@ ns.BAR_LOOKUP          = BAR_LOOKUP
 ns.ALL_BARS            = ALL_BARS
 ns.EXTRA_BARS          = EXTRA_BARS
 
-function EAB.VisibilityCompat.ApplyMode(settings, mode)
-    if not settings then return "always" end
+function EAB.VisibilityCompat.ApplyModes(settings, modes)
+    if not settings then return { "always" } end
 
-    mode = mode or "always"
-    settings.barVisibility = mode
-    settings.alwaysHidden = (mode == "never")
+    if not modes or #modes == 0 then
+        modes = { "always" }
+    end
+
+    settings.barVisibilityModes = modes
+    settings.barVisibility = modes[1] or "always"
+    settings.alwaysHidden = (#modes == 1 and modes[1] == "never")
 
     local wasMouseover = settings.mouseoverEnabled
-    settings.mouseoverEnabled = (mode == "mouseover")
-    if mode == "mouseover" then
+    local hasMouseover = EllesmereUI and EllesmereUI.VisibilityModesContains(modes, "mouseover")
+    settings.mouseoverEnabled = hasMouseover or false
+
+    if hasMouseover then
         if not settings._savedBarAlpha then
             settings._savedBarAlpha = settings.mouseoverAlpha or 1
         end
@@ -173,44 +179,124 @@ function EAB.VisibilityCompat.ApplyMode(settings, mode)
         settings._savedBarAlpha = nil
     end
 
-    settings.combatHideEnabled = (mode == "out_of_combat")
-    settings.combatShowEnabled = (mode == "in_combat")
-    return mode
+    settings.combatHideEnabled = EllesmereUI and EllesmereUI.VisibilityModesContains(modes, "out_of_combat")
+    settings.combatShowEnabled = EllesmereUI and EllesmereUI.VisibilityModesContains(modes, "in_combat")
+    return modes
+end
+
+function EAB.VisibilityCompat.ApplyMode(settings, mode)
+    return EAB.VisibilityCompat.ApplyModes(settings, { mode or "always" })
 end
 
 function EAB.VisibilityCompat.Normalize(settings)
-    if not settings then return "always" end
+    if not settings then return { "always" } end
+    if settings.barVisibilityModes and #settings.barVisibilityModes > 0 then
+        return EAB.VisibilityCompat.ApplyModes(settings, settings.barVisibilityModes)
+    end
     if settings.barVisibility then
-        return EAB.VisibilityCompat.ApplyMode(settings, settings.barVisibility)
+        return EAB.VisibilityCompat.ApplyModes(settings, { settings.barVisibility })
     end
     if settings.alwaysHidden then
-        return EAB.VisibilityCompat.ApplyMode(settings, "never")
+        return EAB.VisibilityCompat.ApplyModes(settings, { "never" })
     end
     if settings.mouseoverEnabled then
-        return EAB.VisibilityCompat.ApplyMode(settings, "mouseover")
+        return EAB.VisibilityCompat.ApplyModes(settings, { "mouseover" })
     end
     if settings.combatShowEnabled then
-        return EAB.VisibilityCompat.ApplyMode(settings, "in_combat")
+        return EAB.VisibilityCompat.ApplyModes(settings, { "in_combat" })
     end
     if settings.combatHideEnabled then
-        return EAB.VisibilityCompat.ApplyMode(settings, "out_of_combat")
+        return EAB.VisibilityCompat.ApplyModes(settings, { "out_of_combat" })
     end
-    return EAB.VisibilityCompat.ApplyMode(settings, "always")
+    return EAB.VisibilityCompat.ApplyModes(settings, { "always" })
 end
 
 function EAB.VisibilityCompat.Copy(dst, src)
     if not dst or not src then return end
 
-    local mode = EAB.VisibilityCompat.Normalize(src)
-    EAB.VisibilityCompat.ApplyMode(dst, mode)
+    local srcModes = EllesmereUI and EllesmereUI.GetVisibilityModes(src) or { "always" }
+    local modes = {}
+    for i = 1, #srcModes do modes[i] = srcModes[i] end
+    EAB.VisibilityCompat.ApplyModes(dst, modes)
 
-    if mode == "mouseover" then
+    if EllesmereUI and EllesmereUI.VisibilityModesContains(modes, "mouseover") then
         dst._savedBarAlpha = src._savedBarAlpha or src.mouseoverAlpha or 1
         dst.mouseoverAlpha = 0
     else
         dst.mouseoverAlpha = src.mouseoverAlpha
         dst._savedBarAlpha = nil
     end
+end
+
+function EAB.VisibilityCompat.GetBarVisibilityState()
+    local inCombat = EAB_VTABLE.ExtraBars._managedNonSecureInCombat
+    if inCombat == nil then
+        inCombat = InCombatLockdown()
+    end
+    local inRaid = IsInRaid and IsInRaid() or false
+    local inGroup = IsInGroup and IsInGroup() or false
+    return {
+        inCombat = inCombat,
+        inRaid = inRaid,
+        inParty = inGroup and not inRaid,
+    }
+end
+
+function EAB.VisibilityCompat.HasMacroCondition(modes)
+    if not modes then return false end
+    for i = 1, #modes do
+        local m = modes[i]
+        if m ~= "always" and m ~= "never" and m ~= "mouseover" then return true end
+    end
+    return false
+end
+
+function EAB.VisibilityCompat.HasCondition(modes)
+    if not modes or #modes == 0 then return false end
+    if #modes == 1 and modes[1] == "always" then return false end
+    return true
+end
+
+function EAB.VisibilityCompat.GetModes(s)
+    if EllesmereUI and EllesmereUI.GetVisibilityModes then
+        return EllesmereUI.GetVisibilityModes(s)
+    end
+    return { s and s.barVisibility or "always" }
+end
+
+function EAB.VisibilityCompat.ModesContains(modes, mode)
+    if EllesmereUI and EllesmereUI.VisibilityModesContains then
+        return EllesmereUI.VisibilityModesContains(modes, mode)
+    end
+    for i = 1, #modes do
+        if modes[i] == mode then return true end
+    end
+    return false
+end
+
+function EAB.VisibilityCompat.BuildMacroSuffix(modes)
+    if EllesmereUI and EllesmereUI.BuildMacroVisibilitySuffix then
+        return EllesmereUI.BuildMacroVisibilitySuffix(modes)
+    end
+    if not modes or #modes == 0 then return "show" end
+    if EAB.VisibilityCompat.ModesContains(modes, "never") then return "hide" end
+    if EAB.VisibilityCompat.ModesContains(modes, "always") then return "show" end
+    if EAB.VisibilityCompat.ModesContains(modes, "mouseover") then return "show" end
+    local clauses = {
+        in_combat = "[combat] show",
+        out_of_combat = "[nocombat] show",
+        in_raid = "[group:raid] show",
+        in_party = "[group:party] show; [group:raid] show",
+        solo = "[nogroup] show",
+    }
+    local parts = {}
+    for i = 1, #modes do
+        local clause = clauses[modes[i]]
+        if clause then parts[#parts + 1] = clause end
+    end
+    if #parts == 0 then return "show" end
+    parts[#parts + 1] = "hide"
+    return table.concat(parts, "; ")
 end
 
 -------------------------------------------------------------------------------
@@ -382,6 +468,7 @@ for _, info in ipairs(BAR_CONFIG) do
         combatHideEnabled = false,
         housingHideEnabled = false,
         barVisibility = "always",
+        barVisibilityModes = { "always" },
         visHideHousing = false,
         visOnlyInstances = false,
         visHideMounted = false,
@@ -444,6 +531,7 @@ for _, k in ipairs({ "Bar9", "Bar10" }) do
     local b = defaults.profile.bars[k]
     if b then
         b.barVisibility = "never"
+        b.barVisibilityModes = { "never" }
         b.alwaysHidden  = true
     end
 end
@@ -548,8 +636,8 @@ local function ShouldQuickKeybindSurfaceBar(s)
 
     -- QuickKeybind should surface bars hidden by transient runtime rules,
     -- but explicit "Never" visibility remains authoritative.
-    local vis = s.barVisibility or "always"
-    return not s.alwaysHidden and vis ~= "never"
+    local modes = EAB.VisibilityCompat.GetModes(s)
+    return not s.alwaysHidden and not (#modes == 1 and modes[1] == "never")
 end
 
 local function FadeTo(frame, toAlpha, duration)
@@ -5176,6 +5264,9 @@ function EAB_VTABLE.Hover.FadeOut(barKey, state)
     if _gridState.shown then return end  -- keep bars visible during spell drag
     local s = EAB_VTABLE.Hover.GetSettings(barKey)
     if s and s.mouseoverEnabled and state and state.fadeDir ~= "out" then
+        if EAB.VisibilityCompat.IsMacroModeActive(s) then
+            return
+        end
 
         state.fadeDir = "out"
         StopFade(state.frame)
@@ -5339,11 +5430,16 @@ function EAB:RefreshMouseover()
                     if info.visibilityOnly and not info.isDataBar and not info.isBlizzardMovable then
                         AttachExtraBarHoverHooks(info)
                     end
-                    StopFade(frame)
-                    frame:SetAlpha(0)
-                    local state = hoverStates[key]
-                    if state then state.fadeDir = "out" end
-                    if key == "MainBar" then SyncPagingAlpha(0) end
+                    local modes = EAB.VisibilityCompat.GetModes(s)
+                    if EAB.VisibilityCompat.HasMacroCondition(modes) then
+                        EAB.VisibilityCompat.ApplyBarPresentation(key, s, frame, hoverStates[key])
+                    else
+                        StopFade(frame)
+                        frame:SetAlpha(0)
+                        local state = hoverStates[key]
+                        if state then state.fadeDir = "out" end
+                        if key == "MainBar" then SyncPagingAlpha(0) end
+                    end
                 else
                     StopFade(frame)
                     frame:SetAlpha(s.mouseoverAlpha or 1)
@@ -5370,9 +5466,65 @@ end
 --    PetBar:           Hide during pet battle.  Only show when the player has
 --                      a pet and is not in a vehicle/override/possess state.
 -------------------------------------------------------------------------------
-local function BuildVisibilityString(info, s)
+function EAB.VisibilityCompat.IsMacroModeActive(s)
+    if not s then return false end
+    local modes = EAB.VisibilityCompat.GetModes(s)
+    if not EAB.VisibilityCompat.HasMacroCondition(modes) then return false end
+    local state = EAB.VisibilityCompat.GetBarVisibilityState()
+    for i = 1, #modes do
+        local mode = modes[i]
+        if mode ~= "mouseover" and mode ~= "always" and mode ~= "never" then
+            if EllesmereUI and EllesmereUI.CheckVisibilityMode and EllesmereUI.CheckVisibilityMode(mode, state) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+function EAB.VisibilityCompat.ShouldShowBar(s, hoverState)
+    if not s or s.enabled == false then return false end
+    if s.alwaysHidden then return false end
+    local modes = EAB.VisibilityCompat.GetModes(s)
+    if #modes == 1 and modes[1] == "never" then return false end
+    if EllesmereUI and EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(s) then
+        return false
+    end
+    if EllesmereUI and EllesmereUI.CheckVisibilityModes then
+        return EllesmereUI.CheckVisibilityModes(
+            modes,
+            EAB.VisibilityCompat.GetBarVisibilityState(),
+            { isHovered = hoverState and hoverState.isHovered }
+        )
+    end
+    return EAB.VisibilityCompat.IsMacroModeActive(s)
+        or (EAB.VisibilityCompat.ModesContains(modes, "mouseover") and hoverState and hoverState.isHovered)
+end
+
+function EAB.VisibilityCompat.ApplyBarPresentation(key, s, frame, hoverState)
+    if not frame or not s then return end
+    local modes = EAB.VisibilityCompat.GetModes(s)
+    if not EAB.VisibilityCompat.ModesContains(modes, "mouseover") then return end
+    if not EAB.VisibilityCompat.HasMacroCondition(modes) then return end
+
+    local shouldShow = EAB.VisibilityCompat.ShouldShowBar(s, hoverState)
+    local targetAlpha = shouldShow and (s._savedBarAlpha or 1) or 0
+
+    StopFade(frame)
+    frame:SetAlpha(targetAlpha)
+    if key == "MainBar" then SyncPagingAlpha(targetAlpha) end
+    if hoverState then
+        hoverState.fadeDir = shouldShow and "in" or "out"
+    end
+
+    if barFrames[key] and frame == barFrames[key] then
+        SafeEnableMouseMotionOnly(frame, (shouldShow or s.mouseoverEnabled) and (not s.clickThrough or s.mouseoverEnabled))
+    end
+end
+
+function EAB.VisibilityCompat.BuildVisibilityString(info, s)
     local key = info.key
-    local vis = s.barVisibility or "always"
+    local modes = EAB.VisibilityCompat.GetModes(s)
 
     -- Build visibility-option hide clauses that can be expressed as macro
     -- conditionals. These run inside the secure state driver so they work
@@ -5385,18 +5537,7 @@ local function BuildVisibilityString(info, s)
     -- Pet bar has unique logic: it only shows when a pet is active and
     -- the player is not in a vehicle/override/possess state.
     if info.isPetBar then
-        local petShow
-        if vis == "in_combat" then
-            petShow = "[combat] show; hide"
-        elseif vis == "out_of_combat" then
-            petShow = "[nocombat] show; hide"
-        elseif s.combatShowEnabled then
-            petShow = "[combat] show; hide"
-        elseif s.combatHideEnabled then
-            petShow = "[combat] hide; show"
-        else
-            petShow = "show"
-        end
+        local petShow = EAB.VisibilityCompat.BuildMacroSuffix(modes)
         return "[petbattle] hide; " .. visOptHide .. "[novehicleui,pet,nooverridebar,nopossessbar] " .. petShow .. "; hide"
     end
 
@@ -5413,21 +5554,7 @@ local function BuildVisibilityString(info, s)
     -- Inject visibility-option hide clauses after the standard hide-prefix
     hidePrefix = hidePrefix .. visOptHide
 
-    -- Append visibility mode conditions
-    if vis == "never" then
-        return hidePrefix .. "hide"
-    elseif vis == "in_combat" then
-        return hidePrefix .. "[combat] show; hide"
-    elseif vis == "out_of_combat" then
-        return hidePrefix .. "[nocombat] show; hide"
-    elseif vis == "in_raid" then
-        return hidePrefix .. "[group:raid] show; hide"
-    elseif vis == "in_party" then
-        return hidePrefix .. "[group:party] show; [group:raid] show; hide"
-    elseif vis == "solo" then
-        return hidePrefix .. "[nogroup] show; hide"
-    end
-    return hidePrefix .. "show"
+    return hidePrefix .. EAB.VisibilityCompat.BuildMacroSuffix(modes)
 end
 
 -------------------------------------------------------------------------------
@@ -5451,22 +5578,12 @@ function EAB_VTABLE.ExtraBars.GetManagedNonSecureFrame(info)
 end
 
 function EAB_VTABLE.ExtraBars.GetManagedNonSecureVisibilityState()
-    local inCombat = EAB_VTABLE.ExtraBars._managedNonSecureInCombat
-    if inCombat == nil then
-        inCombat = InCombatLockdown()
-    end
-    local inRaid = IsInRaid and IsInRaid() or false
-    local inGroup = IsInGroup and IsInGroup() or false
-    return {
-        inCombat = inCombat,
-        inRaid = inRaid,
-        inParty = inGroup and not inRaid,
-    }
+    return EAB.VisibilityCompat.GetBarVisibilityState()
 end
 
-function EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s)
+function EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s, isHovered)
     if not s then return false end
-    local vis = EAB.VisibilityCompat.Normalize(s)
+    EAB.VisibilityCompat.Normalize(s)
     if C_PetBattles and C_PetBattles.IsInBattle and C_PetBattles.IsInBattle() then
         return false
     end
@@ -5474,13 +5591,16 @@ function EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s)
     if EllesmereUI and EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(s) then
         return false
     end
-    if EllesmereUI and EllesmereUI.CheckVisibilityMode then
-        return EllesmereUI.CheckVisibilityMode(
-            vis,
-            EAB_VTABLE.ExtraBars.GetManagedNonSecureVisibilityState()
+    local modes = EAB.VisibilityCompat.GetModes(s)
+    if #modes == 1 and modes[1] == "never" then return false end
+    if EllesmereUI and EllesmereUI.CheckVisibilityModes then
+        return EllesmereUI.CheckVisibilityModes(
+            modes,
+            EAB.VisibilityCompat.GetBarVisibilityState(),
+            { isHovered = isHovered }
         )
     end
-    return vis ~= "never"
+    return not (#modes == 1 and modes[1] == "never")
 end
 
 function EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(frame, reason, suppressed)
@@ -5509,14 +5629,14 @@ function EAB_VTABLE.ExtraBars.SetManagedBlizzOwnedSuppressed(frame, reason, supp
     end
 end
 
-function EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s)
+function EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s, shouldShow)
     if not frame or not s or not frame:IsShown() then return end
 
     local hstate = hoverStates[info.key]
     if s.mouseoverEnabled then
-        if hstate and hstate.isHovered then
-            frame:SetAlpha(1)
-            hstate.fadeDir = "in"
+        if shouldShow ~= false then
+            frame:SetAlpha(s._savedBarAlpha or 1)
+            if hstate then hstate.fadeDir = "in" end
         else
             frame:SetAlpha(0)
             if hstate then hstate.fadeDir = "out" end
@@ -5567,7 +5687,7 @@ function EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, 
     end
 
     if shouldShow then
-        EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s)
+        EAB_VTABLE.ExtraBars.ApplyManagedNonSecureAlpha(info, frame, s, shouldShow)
     end
     EAB_VTABLE.ExtraBars.ApplyManagedMouse(frame, info.blizzOwnedVisibility, s, shouldShow)
 end
@@ -5579,7 +5699,10 @@ function EAB_VTABLE.ExtraBars.ApplyManagedNonSecureVisibility(info)
     local frame = EAB_VTABLE.ExtraBars.GetManagedNonSecureFrame(info)
     if not s or not frame then return false, frame, s end
 
-    local shouldShow = EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s)
+    local hstate = hoverStates[info.key]
+    local shouldShow = EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(
+        s, hstate and hstate.isHovered
+    )
 
     if shouldShow and info.isDataBar and frame._updateFunc then
         frame._updateFunc()
@@ -5660,6 +5783,20 @@ end
 
 --  Combat Show/Hide, Runtime Visibility, Click-Through, Housing
 -------------------------------------------------------------------------------
+function EAB.VisibilityCompat.RefreshMixedModePresentation()
+    for _, info in ipairs(ALL_BARS) do
+        local key = info.key
+        local s = EAB.db and EAB.db.profile and EAB.db.profile.bars and EAB.db.profile.bars[key]
+        local frame = barFrames[key]
+        if s and frame then
+            local modes = EAB.VisibilityCompat.GetModes(s)
+            if s.mouseoverEnabled and EAB.VisibilityCompat.HasMacroCondition(modes) then
+                EAB.VisibilityCompat.ApplyBarPresentation(key, s, frame, hoverStates[key])
+            end
+        end
+    end
+end
+
 function EAB:ApplyCombatVisibility()
     if InCombatLockdown() then return end
     for _, info in ipairs(ALL_BARS) do
@@ -5674,7 +5811,7 @@ function EAB:ApplyCombatVisibility()
                 elseif EllesmereUI.CheckVisibilityOptionsNonMacro and EllesmereUI.CheckVisibilityOptionsNonMacro(s) then
                     newStr = "hide"
                 else
-                    newStr = BuildVisibilityString(info, s)
+                    newStr = EAB.VisibilityCompat.BuildVisibilityString(info, s)
                 end
                 -- Skip re-registration if driver string is unchanged (avoids blink from re-evaluation)
                 if frame._eabLastVisStr ~= newStr then
@@ -5689,6 +5826,7 @@ function EAB:ApplyCombatVisibility()
     -- data bars).  These use a dedicated secure proxy since they are not
     -- SecureHandlerStateTemplate frames themselves.
     self:ApplyExtraBarVisibility()
+    EAB.VisibilityCompat.RefreshMixedModePresentation()
 end
 
 function EAB:RefreshRuntimeVisibility()
@@ -5701,8 +5839,8 @@ function EAB:RefreshRuntimeVisibility()
         else
         local frame = barFrames[key] or (info.isDataBar and dataBarFrames[key]) or (info.isBlizzardMovable and blizzMovableHolders[key]) or (extraBarHolders[key]) or (info.visibilityOnly and _G[info.frameName])
         if frame then
-            local vis = s.barVisibility or "always"
-            local isHidden = (vis == "never") or s.alwaysHidden
+            local modes = EAB.VisibilityCompat.GetModes(s)
+            local isHidden = s.alwaysHidden or (#modes == 1 and modes[1] == "never")
             if ShouldQuickKeybindSurfaceBar(s) and barFrames[key] and frame == barFrames[key] then
                 if not InCombatLockdown() then
                     RegisterAttributeDriver(frame, "state-visibility", "show")
@@ -5738,7 +5876,7 @@ function EAB:RefreshRuntimeVisibility()
                     if EllesmereUI.CheckVisibilityOptionsNonMacro and EllesmereUI.CheckVisibilityOptionsNonMacro(s) then
                         newStr = "hide"
                     else
-                        newStr = BuildVisibilityString(info, s)
+                        newStr = EAB.VisibilityCompat.BuildVisibilityString(info, s)
                     end
                     if frame._eabLastVisStr ~= newStr then
 
@@ -5747,7 +5885,8 @@ function EAB:RefreshRuntimeVisibility()
                     end
                 end
                 if not InCombatLockdown() then
-                    if vis ~= "in_combat" and vis ~= "out_of_combat" and not s.combatShowEnabled then
+                    local hasMacroModes = EAB.VisibilityCompat.HasMacroCondition(modes)
+                    if not hasMacroModes then
                         -- Only Show frames without a state-visibility driver.
                         -- Frames with a driver (any _eabLastVisStr) are managed by the driver.
                         if not info.isBlizzardMovable and not info.blizzOwnedVisibility and not frame._eabLastVisStr then
@@ -5763,6 +5902,9 @@ function EAB:RefreshRuntimeVisibility()
                     else
                         SafeEnableMouse(frame, not s.clickThrough)
                     end
+                end
+                if barFrames[key] and frame == barFrames[key] then
+                    EAB.VisibilityCompat.ApplyBarPresentation(key, s, frame, hoverStates[key])
                 end
                 if info.isDataBar and frame._updateFunc then
                     frame._updateFunc()
@@ -5897,6 +6039,7 @@ function EAB:UpdateHousingVisibility()
                 else
                     local frame = barFrames[key] or (info.isDataBar and dataBarFrames[key]) or (info.isBlizzardMovable and blizzMovableHolders[key]) or (extraBarHolders[key]) or (info.visibilityOnly and _G[info.frameName])
                 if frame then
+                    local modes = EAB.VisibilityCompat.GetModes(s)
                     -- Secure action bar frames use the state driver for
                     -- target/enemy options; mounted-like druid forms are
                     -- additionally handled in ShouldHideNonMacro().
@@ -5920,9 +6063,9 @@ function EAB:UpdateHousingVisibility()
                         else
                             frame:Hide()
                         end
-                    elseif not s.alwaysHidden and (s.barVisibility or "always") ~= "never" then
+                    elseif not s.alwaysHidden and not (#modes == 1 and modes[1] == "never") then
                         if isSecure then
-                            local newStr = BuildVisibilityString(info, s)
+                            local newStr = EAB.VisibilityCompat.BuildVisibilityString(info, s)
                             if frame._eabLastVisStr ~= newStr then
 
                                 frame._eabLastVisStr = newStr
@@ -8132,9 +8275,9 @@ function EAB:FinishSetup()
             local s = EAB.db.profile.bars[key]
             local frame = barFrames[key]
             if info and s and frame then
-                local vis = s.barVisibility or "always"
-                if vis ~= "always" and vis ~= "never" then
-                    RegisterAttributeDriver(frame, "state-visibility", BuildVisibilityString(info, s))
+                local modes = EAB.VisibilityCompat.GetModes(s)
+                if EAB.VisibilityCompat.HasCondition(modes) then
+                    RegisterAttributeDriver(frame, "state-visibility", EAB.VisibilityCompat.BuildVisibilityString(info, s))
                 end
                 if s.mouseoverEnabled then
                     -- The drag has fully ended (cursor cleared, checked above). If
@@ -8148,9 +8291,8 @@ function EAB:FinishSetup()
                         frame:SetAlpha(s._savedBarAlpha or 1)
                         if key == "MainBar" then SyncPagingAlpha(s._savedBarAlpha or 1) end
                     else
-                        if state then state.isHovered = false; state.fadeDir = "out" end
-                        frame:SetAlpha(0)
-                        if key == "MainBar" then SyncPagingAlpha(0) end
+                        if state then state.isHovered = false end
+                        EAB.VisibilityCompat.ApplyBarPresentation(key, s, frame, state)
                     end
                 end
             end
@@ -8172,8 +8314,8 @@ function EAB:FinishSetup()
                         local s = EAB.db.profile.bars[info.key]
                         local frame = barFrames[info.key]
                         if s and frame and not s.alwaysHidden then
-                            local vis = s.barVisibility or "always"
-                            local hasCondition = vis ~= "always" and vis ~= "never"
+                            local modes = EAB.VisibilityCompat.GetModes(s)
+                            local hasCondition = EAB.VisibilityCompat.HasCondition(modes)
                                 or s.visHideNoTarget or s.visHideNoEnemy
                                 or s.visHideMounted or s.visOnlyInstances
                             if hasCondition then
@@ -8446,6 +8588,7 @@ function EAB:FinishSetup()
     end)
 
     self:RegisterEvent("PLAYER_REGEN_ENABLED", function()
+        EAB_VTABLE.ExtraBars._managedNonSecureInCombat = false
         -- Re-apply anything that was deferred during combat
         ApplyAll()
         -- Restore any strata changes that couldn't be done in combat
@@ -8455,7 +8598,9 @@ function EAB:FinishSetup()
     end)
 
     self:RegisterEvent("PLAYER_REGEN_DISABLED", function()
+        EAB_VTABLE.ExtraBars._managedNonSecureInCombat = true
         _quickKeybindState.ReassertButtonsAfterCombatChange()
+        EAB.VisibilityCompat.RefreshMixedModePresentation()
     end)
 
     self:RegisterEvent("PLAYER_ENTERING_WORLD", function()
@@ -8557,7 +8702,7 @@ function EAB:FinishSetup()
                             RegisterAttributeDriver(frame, "state-visibility", "hide")
                         end
                     else
-                        local newStr = BuildVisibilityString(info, s)
+                        local newStr = EAB.VisibilityCompat.BuildVisibilityString(info, s)
                         if frame._eabLastVisStr ~= newStr then
                             frame._eabLastVisStr = newStr
                             RegisterAttributeDriver(frame, "state-visibility", newStr)
@@ -8593,7 +8738,7 @@ function EAB:FinishSetup()
                 if s and s.visHideNoTarget then
                     local frame = barFrames[info.key]
                     if frame then
-                        local newStr = BuildVisibilityString(info, s)
+                        local newStr = EAB.VisibilityCompat.BuildVisibilityString(info, s)
                         if frame._eabLastVisStr ~= newStr then
                             frame._eabLastVisStr = newStr
                             RegisterAttributeDriver(frame, "state-visibility", newStr)
@@ -8807,7 +8952,7 @@ function EAB:FinishSetup()
             local petFrame = barFrames["PetBar"]
             local petS = self.db.profile.bars["PetBar"]
             if petInfo and petFrame and petS and not petS.alwaysHidden then
-                RegisterAttributeDriver(petFrame, "state-visibility", BuildVisibilityString(petInfo, petS))
+                RegisterAttributeDriver(petFrame, "state-visibility", EAB.VisibilityCompat.BuildVisibilityString(petInfo, petS))
             end
         end)
     end
