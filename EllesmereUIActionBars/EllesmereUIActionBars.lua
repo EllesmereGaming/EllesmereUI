@@ -8101,11 +8101,6 @@ function EAB:FinishSetup()
                 end
             end
             RestoreBarPositions()
-            local vBtn = MainMenuBarVehicleLeaveButton
-            if vBtn and barFrames["MainBar"] then
-                vBtn:ClearAllPoints()
-                vBtn:SetPoint("BOTTOM", barFrames["MainBar"], "TOPRIGHT", -15, 2)
-            end
         else
             -- Combat reload: non-protected setup only; secure handler does the rest.
             -- Stock bar disposal (including ActionBarParent) already happened at
