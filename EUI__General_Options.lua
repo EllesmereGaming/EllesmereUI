@@ -274,6 +274,64 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "8.2.6",
+        heroes = {
+            {
+                module = "Cooldown Manager",
+                title = "Per-Icon Buff Customization",
+                desc  = "Right-click any buff icon to give it its own glow, glow color, duration text, charge and stack text, and visibility, independent of the rest of the bar.",
+                nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars",
+                    preSelect = function()
+                        if EllesmereUI._setCDMBar then EllesmereUI._setCDMBar("buffs") end
+                    end },
+            },
+            {
+                module = "Cooldown Manager",
+                title = "Add Any Buff to a Buff Bar",
+                desc  = "Buff bars now accept preset consumables and custom spell IDs directly. The separate Auras bar type has been merged in, and existing Auras bars convert to buff bars automatically.",
+                nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars",
+                    preSelect = function()
+                        if EllesmereUI._setCDMBar then EllesmereUI._setCDMBar("buffs") end
+                    end },
+            },
+            {
+                title = "Performance Optimizations (Glows)",
+                desc  = "Every glow effect across the suite now shares a single update driver and uses lighter texture-based animation, noticeably lowering CPU use when many glows are on screen at once.",
+                -- No nav: suite-wide automatic improvement, not a single setting.
+            },
+            {
+                module = "Aura Buff Reminders",
+                title = "Performance Optimizations",
+                desc  = "Aura Buff Reminders now scans your bags once and updates from game events instead of constant polling, lowering CPU use and making consumable and range reminders react instantly.",
+                -- No nav: automatic improvement.
+            },
+        },
+        features = {
+            {
+                module = "Unit Frames",
+                title = "Smooth Health Bars",
+                desc  = "Health bars can now animate smoothly when health changes instead of snapping, with a per-frame toggle.",
+                nav   = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "HEALTH BAR", highlight = "Smooth Health Bars",
+                    preSelect = function()
+                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
+                        EllesmereUI._pendingUnitSelect = "player"
+                    end },
+            },
+            {
+                module = "Damage Meters",
+                title = "DPS in Breakdowns",
+                desc  = "Per-target and per-source breakdown views now show DPS next to total damage, following your Number Format setting.",
+                nav   = { module = "EllesmereUIDamageMeters", page = "Damage Meters", section = "BAR TEXT", highlight = "Number Format" },
+            },
+        },
+        fixes = {
+            { module = "Cooldown Manager", text = "Custom glow type and color now apply to abilities that proc into a second ability, such as a Demon Hunter's Eradicate becoming Reap or a Death Knight's Festering Strike becoming Festering Scythe, instead of falling back to the default glow." },
+            { module = "Cooldown Manager", text = "Tracking bar fills now animate smoothly instead of jumping between values." },
+            { module = "Resource Bars", text = "Vengeance Demon Hunter Soul Fragment pips show the threshold color again once the configured fragment count is reached." },
+            { module = "Unit Frames", text = "Health bar backgrounds no longer turn transparent when Reverse Fill is enabled and the unit takes damage." },
+        },
+    },
+    {
         version = "8.2.4",
         heroes = {
             {

@@ -3686,6 +3686,9 @@ local function UpdateSecondaryResource()
             -- The StatusBar accepts the secret number natively; when the
             -- value falls within [i-1, i] the bar fills proportionally,
             -- giving us a binary active/inactive look for integer counts.
+            -- Threshold coloring via a second, threshold-colored
+            -- StatusBar overlay per pip.
+            local _useThresh = _tsEntry and _tsThreshCount and _tsThreshCount > 0
             for i = 1, maxC do
                 local pip = pips[i]
                 if pip and pip:IsShown() then
@@ -3706,6 +3709,31 @@ local function UpdateSecondaryResource()
                     pip._secretBar:SetValue(cur)
                     pip._secretBar:SetStatusBarColor(r, g, b, a)
                     pip._secretBar:Show()
+
+                    -- Threshold overlay (drawn on top of the base fill)
+                    -- Partial-only: pips below the threshold index never recolor.
+                    local showThresh = _useThresh and not (_tsPartialOnly and i < _tsThreshCount)
+                    if showThresh then
+                        if not pip._secretThreshBar then
+                            local tb = CreateFrame("StatusBar", nil, pip)
+                            tb:SetAllPoints(pip._fill)
+                            tb:SetStatusBarTexture(texPath)
+                            tb:SetFrameLevel(pip:GetFrameLevel() + 1)
+                            pip._secretThreshBar = tb
+                        else
+                            pip._secretThreshBar:SetStatusBarTexture(texPath)
+                        end
+                        -- Fills only when cur >= max(i, threshCount): the pip is
+                        -- active AND the threshold has been reached.
+                        local tlo = (i > _tsThreshCount) and i or _tsThreshCount
+                        pip._secretThreshBar:SetMinMaxValues(tlo - 1, tlo)
+                        pip._secretThreshBar:SetValue(cur)
+                        pip._secretThreshBar:SetStatusBarColor(_tsR or 1, _tsG or 0.2, _tsB or 0.2, a)
+                        pip._secretThreshBar:Show()
+                    elseif pip._secretThreshBar then
+                        pip._secretThreshBar:Hide()
+                    end
+
                     -- Hide the normal fill; the StatusBar replaces it
                     pip._fill:Hide()
                 end

@@ -1468,26 +1468,14 @@ local function ShowProcGlow(icon, cr, cg, cb)
     if sid then
         local bk = fc and fc.barKey
         local sd = bk and ns.GetBarSpellData(bk)
-        local ss = sd and sd.spellSettings and sd.spellSettings[sid]
-        -- Fallback: sid may be a base/override variant while settings
-        -- are stored under the assigned spell ID.
-        if not ss and sd and sd.spellSettings and sd.assignedSpells then
-            if fc.linkedSpellIDs then
-                for _, lid in ipairs(fc.linkedSpellIDs) do
-                    if sd.spellSettings[lid] then ss = sd.spellSettings[lid]; break end
-                end
-            end
-            if not ss and C_SpellBook and C_SpellBook.FindSpellOverrideByID then
-                for _, asid in ipairs(sd.assignedSpells) do
-                    if asid and asid > 0 and asid ~= sid
-                       and sd.spellSettings[asid] then
-                        if C_SpellBook.FindSpellOverrideByID(asid) == sid then
-                            ss = sd.spellSettings[asid]; break
-                        end
-                    end
-                end
-            end
-        end
+        -- Shared resolver: matches the stored key against the frame's FULL
+        -- identity set (canon, resolvedSid, baseSpellID, linkedSpellIDs, and
+        -- GetBaseSpell) so a setting on the base spell resolves on its talent
+        -- "proc into a second ability" override form (e.g. Reap -> base 344862).
+        -- The old assignedSpells-only fallback missed this on default Essential/
+        -- Utility bars, whose assignedSpells list is empty.
+        local ss = (ns.ResolveSpellSettings and ns.ResolveSpellSettings(icon, sid, sd))
+            or (sd and sd.spellSettings and sd.spellSettings[sid])
         if ss then
             -- Custom shapes are locked to Shape Glow: ignore the per-spell glow type
             -- (including "None") so a custom-shaped icon always shows Shape Glow. The
@@ -1947,6 +1935,28 @@ function ns.MigrateAlwaysShowBuffsToPerBar()
         if bd.barType == "buffs" then
             if oldOn ~= nil then bd.showInactiveBuffIcons = oldOn and true or false end
             if oldDesat ~= nil then bd.desaturateInactiveBuffs = oldDesat end
+        end
+    end
+end
+
+-- One-time per-profile migration: the custom_buff ("Auras") bar type was merged
+-- into the buff-family bars. Convert every custom_buff bar to a "buffs" bar in
+-- place -- its key, assignedSpells, spellDurations, customSpellIDs, position and
+-- all visual settings carry over unchanged. The buff phase now injects its
+-- cast-timer custom buffs (the same own-frames the Auras renderer built), so a
+-- converted bar looks and behaves identically, just as an extra buff-family bar
+-- (its key is custom_*, never "buffs"). Runs once per profile (flag on cdmBars);
+-- re-runs on swap to a pre-migration profile because that profile carries no flag.
+-- Runs AFTER MigrateAlwaysShowBuffsToPerBar so the old global Always-Show value
+-- only lands on original buff bars, not on converted Auras bars.
+function ns.MigrateCustomBuffBarsToBuffBars()
+    local p = ECME.db and ECME.db.profile
+    if not p or not p.cdmBars or p.cdmBars._customBuffMergedV1 then return end
+    p.cdmBars._customBuffMergedV1 = true
+    if type(p.cdmBars.bars) ~= "table" then return end
+    for _, bd in ipairs(p.cdmBars.bars) do
+        if bd.barType == "custom_buff" then
+            bd.barType = "buffs"
         end
     end
 end
@@ -3409,6 +3419,56 @@ local function RefreshCDMIconAppearance(barKey)
         local iconScale = icon:GetScale() or 1
         if iconScale < 0.01 then iconScale = 1 end
         local fontScale = 1 / iconScale
+        -- Per-icon override settings (buff-family bars only). Resolve once and
+        -- reuse for Buff Glow + Duration Text + Charge/Stack below. nil => inherit
+        -- the bar's value. Variant-aware: a setting stored under any spell in the
+        -- icon's family (base / talent-override) resolves here -- the options side
+        -- keys off the live/canonical id, which may differ from fc.spellID.
+        local ssb
+        local isBuffFamilyBar = (barData.barType == "buffs" or barKey == "buffs")
+        if isBuffFamilyBar then
+            local fcb = _ecmeFC[icon]
+            -- Resolve by the DISPLAYED spell first (GetCanonicalSpellIDForFrame --
+            -- the same id the options menu writes settings under) rather than
+            -- fc.spellID (the cooldownInfo base). For buffs whose cooldownInfo base
+            -- is a generic spec spell shared across icons (e.g. Consecration's
+            -- standing-in aura -> Prot Paladin 137028), keying off the base both
+            -- misses the real buff and lets one icon's setting shadow another's.
+            -- Passing canon as the primary id makes settings[canon] the fast-path
+            -- hit. Own placeholder/custom frames have no live spell -> fc.spellID.
+            local sidb = (ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(icon))
+                or (fcb and fcb.spellID)
+            if sidb then
+                local sdb = ns.GetBarSpellData(barKey)
+                if sdb and sdb.spellSettings then
+                    -- Shared resolver: matches the key against the frame's full
+                    -- identity set (canon first, then resolvedSid / baseSpellID).
+                    ssb = (ns.ResolveSpellSettings and ns.ResolveSpellSettings(icon, sidb, sdb))
+                        or sdb.spellSettings[sidb]
+                end
+            end
+            -- Stash the effective Buff Glow on fd so the BuffTicker hot path reads
+            -- it without a per-tick lookup. Only restart the live glow when the
+            -- effective value actually changed (no flicker on no-op rebuilds).
+            local nT = ssb and ssb.buffGlow           -- nil = inherit, number = override (0 = None)
+            local nColor = ssb and ssb.buffGlowColor  -- nil / "class" / "custom"
+            local nR, nG, nB
+            if nColor == "custom" and ssb then
+                nR, nG, nB = ssb.buffGlowColorR, ssb.buffGlowColorG, ssb.buffGlowColorB
+            end
+            if fd then
+                if fd._bgT ~= nT or fd._bgColor ~= nColor
+                   or fd._bgR ~= nR or fd._bgG ~= nG or fd._bgB ~= nB then
+                    fd._bgT = nT; fd._bgColor = nColor; fd._bgR = nR; fd._bgG = nG; fd._bgB = nB
+                    if fd.buffGlowActive and fd.buffGlowOverlay then
+                        StopNativeGlow(fd.buffGlowOverlay)
+                        fd.buffGlowActive = false
+                    end
+                end
+                -- Per-icon Desaturate Inactive override, read by the BuffTicker.
+                fd._desatOverride = (ssb and ssb.desatInactive) or nil
+            end
+        end
         -- Update texture -- fill the entire frame. The border renders on
         -- top via PP.CreateBorder so no inset is needed.
         if tex then
@@ -3428,17 +3488,20 @@ local function RefreshCDMIconAppearance(barKey)
             cd:SetAllPoints(icon)
             -- Above the border (icon+13); still below glow (icon+16) / text (icon+23).
             pcall(cd.SetFrameLevel, cd, icon:GetFrameLevel() + 14)
+            -- Per-icon Duration Text override (ssb) falls back to the bar's values.
+            local showCD = barData.showCooldownText
+            if ssb and ssb.showCooldownText ~= nil then showCD = ssb.showCooldownText end
             cd:SetSwipeColor(0, 0, 0, barData.swipeAlpha or 0.7)
-            cd:SetHideCountdownNumbers(not barData.showCooldownText)
+            cd:SetHideCountdownNumbers(not showCD)
             -- Apply cooldown text font directly (old tick loop is gone)
-            if barData.showCooldownText then
+            if showCD then
                 local cdFont = GetCDMFont()
-                local cdSize = (barData.cooldownFontSize or 12) * fontScale
-                local cdR = barData.cooldownTextR or 1
-                local cdG = barData.cooldownTextG or 1
-                local cdB = barData.cooldownTextB or 1
-                local cdX = barData.cooldownTextX or 0
-                local cdY = barData.cooldownTextY or 0
+                local cdSize = ((ssb and ssb.cooldownFontSize) or barData.cooldownFontSize or 12) * fontScale
+                local cdR = (ssb and ssb.cooldownTextR) or barData.cooldownTextR or 1
+                local cdG = (ssb and ssb.cooldownTextG) or barData.cooldownTextG or 1
+                local cdB = (ssb and ssb.cooldownTextB) or barData.cooldownTextB or 1
+                local cdX = (ssb and ssb.cooldownTextX) or barData.cooldownTextX or 0
+                local cdY = (ssb and ssb.cooldownTextY) or barData.cooldownTextY or 0
                 -- Find Blizzard's countdown text FontString on the Cooldown widget.
                 -- Keep it on the Cooldown widget (anchored to cd) so the user's
                 -- X/Y offset works -- reparenting it makes Blizzard's engine
@@ -3468,20 +3531,25 @@ local function RefreshCDMIconAppearance(barKey)
         -- Raise Blizzard's text sub-frames above our border frame (+5)
         -- by bumping their frame level. Safe because these are Blizzard's
         -- own children of the icon, and they follow frame reuse naturally.
+        -- Per-icon Charge/Stack override (ssb) falls back to the bar's values.
         local scFont = GetCDMFont()
-        local scSize = (barData.stackCountSize or 11) * fontScale
-        local scR, scG, scB = barData.stackCountR or 1, barData.stackCountG or 1, barData.stackCountB or 1
-        local scX, scY = barData.stackCountX or 0, barData.stackCountY or 0
+        local scSize = ((ssb and ssb.stackCountSize) or barData.stackCountSize or 11) * fontScale
+        local scR = (ssb and ssb.stackCountR) or barData.stackCountR or 1
+        local scG = (ssb and ssb.stackCountG) or barData.stackCountG or 1
+        local scB = (ssb and ssb.stackCountB) or barData.stackCountB or 1
+        local scX = (ssb and ssb.stackCountX) or barData.stackCountX or 0
+        local scY = (ssb and ssb.stackCountY) or barData.stackCountY or 0
         -- Stack/charge/item-count text anchor. Default bottom-right keeps the
         -- historical +2 vertical nudge so existing bars stay pixel-identical;
         -- top and center positions sit flush with no baseline nudge.
-        local scPoint = barData.stackCountPosition or "bottomright"
+        local scPoint = (ssb and ssb.stackCountPosition) or barData.stackCountPosition or "bottomright"
         if scPoint == "bottomleft" then scPoint = "BOTTOMLEFT"; scY = scY + 2
         elseif scPoint == "topright" then scPoint = "TOPRIGHT"
         elseif scPoint == "topleft" then scPoint = "TOPLEFT"
         elseif scPoint == "center" then scPoint = "CENTER"
         else scPoint = "BOTTOMRIGHT"; scY = scY + 2 end
         local showItemCount = barData.showItemCount ~= false
+        if ssb and ssb.showItemCount ~= nil then showItemCount = ssb.showItemCount end
         -- Text must render above borders. Levels are relative to the
         -- icon's own frame level (CdmHooks: border +13, text +23).
         local textLvl = icon:GetFrameLevel() + 23
@@ -4783,6 +4851,8 @@ BuildAllCDMBars = function()
     -- Migrate the old global Always Show Buffs settings to per-bar before
     -- anything reads them (placeholder injection / desaturate ticker).
     if ns.MigrateAlwaysShowBuffsToPerBar then ns.MigrateAlwaysShowBuffsToPerBar() end
+    -- Then merge legacy custom_buff (Auras) bars into the buff-family bars.
+    if ns.MigrateCustomBuffBarsToBuffBars then ns.MigrateCustomBuffBarsToBuffBars() end
 
     -- Force Blizzard's EditMode CooldownViewer to "Always Visible" so
     -- hideWhenInactive and other viewer settings don't fight with CDM.

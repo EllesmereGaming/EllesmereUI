@@ -46,127 +46,238 @@ local SHINE_COORDS = { 0.8115234375, 0.9169921875, 0.8798828125, 0.9853515625 }
 local SPARKLE_LAYER_SIZES = { 7, 6, 5, 4 }
 
 -------------------------------------------------------------------------------
---  Procedural Ants Engine
---  N small rectangles orbit the perimeter of a frame each OnUpdate.
---  Each ant uses 2 textures: primary + overflow for corner wrapping.
+--  Central Glow Driver
+--  One OnUpdate (on a frame we own) animates every active glow. Each animated
+--  engine registers its wrapper tagged by kind; this driver gates the WHOLE
+--  dispatch loop at ~60fps and routes each registered wrapper to its update
+--  function. FlipBook glows are C-driven (AnimationGroup) and never register
+--  here. The driver hides itself when no glow is registered (zero idle cost)
+--  and re-arms when the first glow registers.
 -------------------------------------------------------------------------------
-local function _EdgeAndOffset(dist, w, h)
-    if dist < w then return 0, dist end
-    dist = dist - w
-    if dist < h then return 1, dist end
-    dist = dist - h
-    if dist < w then return 2, dist end
-    return 3, dist - w
-end
+local DRIVER_GATE = 0.016  -- ~60fps ceiling for the entire dispatch loop
 
-local function _PlaceOnEdge(tex, parent, edge, startOff, endOff, w, h, sTh, onePixel)
-    local len = endOff - startOff
-    if len < 0.5 then tex:Hide(); return end
-    -- Snap length and offset to physical pixels (onePixel and sTh precomputed by caller)
-    local sLen = floor(len / onePixel + 0.5) * onePixel
-    if sLen < onePixel then tex:Hide(); return end
-    local sOff = floor(startOff / onePixel + 0.5) * onePixel
-    tex:ClearAllPoints()
-    if edge == 0 then
-        tex:SetSize(sLen, sTh); tex:SetPoint("TOPLEFT", parent, "TOPLEFT", sOff, 0)
-    elseif edge == 1 then
-        tex:SetSize(sTh, sLen); tex:SetPoint("TOPLEFT", parent, "TOPLEFT", w - sTh, -sOff)
-    elseif edge == 2 then
-        local sEnd = floor(endOff / onePixel + 0.5) * onePixel
-        tex:SetSize(sLen, sTh); tex:SetPoint("TOPLEFT", parent, "TOPLEFT", w - sEnd, -(h - sTh))
-    else
-        local sEnd = floor(endOff / onePixel + 0.5) * onePixel
-        tex:SetSize(sTh, sLen); tex:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(h - sEnd))
+-- Array-based registry for cheap churn. _reg is a dense 1..N array of wrapper
+-- frames; _regFn the parallel array of their engine update functions (called
+-- directly in the hot loop, so dispatch is pure array access with no kind->fn
+-- lookup); _regIndex maps wrapper -> its slot in _reg (for O(1) swap-remove);
+-- _regKind maps wrapper -> its kind tag, read only by Unregister (cold path).
+-- _regCount is the live entry count.
+local _reg      = {}
+local _regFn    = {}
+local _regIndex = {}
+local _regKind  = {}
+local _regCount = 0
+local _driver
+local _driverAccum = 0
+
+-- Glow profiler state (toggle with /euiglowprof; profiler block at file end).
+-- _glowProf is read once per driver tick; when false the only added hot-path
+-- cost is that single branch.
+local dps         = debugprofilestop
+local _glowProf   = false
+local _gpTicks    = 0    -- driver ticks measured while profiling
+local _gpTotalMs  = 0    -- summed driver-tick milliseconds
+local _gpPeakMs   = 0    -- worst single driver-tick milliseconds
+local _gpMaxGlows = 0    -- peak simultaneous registered glows seen
+
+local function _DriverOnUpdate(self, elapsed)
+    -- Gate the WHOLE loop at ~60fps: accumulate raw elapsed and only run a
+    -- dispatch pass once the accumulator reaches the gate. The accumulated dt
+    -- is handed to every engine and the accumulator resets to 0 (not minus the
+    -- gate), so the sum of dispatched dt equals real elapsed exactly --
+    -- animation speed is identical to a per-frame OnUpdate.
+    local dt = _driverAccum + elapsed
+    if dt < DRIVER_GATE then
+        _driverAccum = dt
+        return
     end
-    tex:Show()
+    _driverAccum = 0
+    local _gp0, _gpN
+    if _glowProf then _gp0 = dps(); _gpN = _regCount end
+    -- Walk the dense array by index. An engine may unregister itself (or
+    -- another wrapper) from inside its own update via Stop*, which swap-removes
+    -- and shrinks _regCount; re-read _regCount each step and, when the current
+    -- slot was swapped, re-test the same slot instead of advancing.
+    local i = 1
+    while i <= _regCount do
+        local wrapper = _reg[i]
+        -- Visibility gate: a per-wrapper OnUpdate used to stop for free when
+        -- the frame OR any ancestor was hidden. IsVisible() reproduces that
+        -- (own shown flag AND every ancestor shown). It reads only boolean
+        -- shown flags, never alpha, so it is safe on the secret-alpha overlays
+        -- (important-cast, RaidFrames threshold) whose alpha is a secret value.
+        -- A wrapper that is shown but alpha-0 stays IsVisible()==true and keeps
+        -- animating exactly as it did under its own OnUpdate; only Hide()-d or
+        -- hidden-ancestor wrappers are skipped, and they resume automatically.
+        if (not wrapper.IsVisible) or wrapper:IsVisible() then
+            local fn = _regFn[i]
+            if fn then fn(wrapper, dt) end
+        end
+        if _reg[i] == wrapper then
+            i = i + 1
+        end
+    end
+    if _gp0 then
+        local ms = dps() - _gp0
+        _gpTicks = _gpTicks + 1
+        _gpTotalMs = _gpTotalMs + ms
+        if ms > _gpPeakMs then _gpPeakMs = ms end
+        if _gpN > _gpMaxGlows then _gpMaxGlows = _gpN end
+    end
+    if _regCount == 0 then
+        self:Hide()
+    end
 end
 
-local function _EdgeLen(edge, w, h)
-    return (edge == 0 or edge == 2) and w or h
+local function _Arm()
+    if not _driver then
+        _driver = CreateFrame("Frame")
+        _driver:Hide()
+        _driver:SetScript("OnUpdate", _DriverOnUpdate)
+    end
+    _driverAccum = 0          -- avoid a stale-dt spike after an idle period
+    _driver:Show()
 end
+
+-- Register a wrapper under the given kind. Idempotent: a second Start on the
+-- same wrapper does not duplicate the entry or move the count; it only refreshes
+-- the kind tag (so a style switch is robust even without a Stop first). Arms the
+-- driver on the 0 -> 1 transition.
+local function _Register(wrapper, fn, kind)
+    local i = _regIndex[wrapper]
+    if i then
+        _regFn[i] = fn
+        _regKind[wrapper] = kind
+        return
+    end
+    _regCount = _regCount + 1
+    _reg[_regCount] = wrapper
+    _regFn[_regCount] = fn
+    _regIndex[wrapper] = _regCount
+    _regKind[wrapper] = kind
+    if _regCount == 1 then _Arm() end
+end
+
+-- Unregister a wrapper. Safe no-op when the wrapper was never registered (Stop
+-- without Start), so calling every Stop* in StopAllGlows is fine. When a kind is
+-- passed it must match the wrapper's current registration: this makes a lone
+-- cross-kind Stop* (e.g. StopButtonGlow on an "ants"-registered wrapper) a no-op
+-- instead of tearing down the still-active engine. A nil kind stays kind-agnostic.
+-- Swap-removes the entry so churn stays O(1); hides the driver when empty.
+local function _Unregister(wrapper, kind)
+    local idx = _regIndex[wrapper]
+    if not idx then return end
+    if kind and _regKind[wrapper] ~= kind then return end
+    local last = _reg[_regCount]
+    _reg[idx] = last
+    _regFn[idx] = _regFn[_regCount]
+    _regIndex[last] = idx
+    _reg[_regCount] = nil
+    _regFn[_regCount] = nil
+    _regCount = _regCount - 1
+    _regIndex[wrapper] = nil
+    _regKind[wrapper] = nil
+    if _regCount == 0 and _driver then _driver:Hide() end
+end
+
+-------------------------------------------------------------------------------
+--  Procedural Ants Engine (texcoord-scroll)
+--  4 fixed edge textures whose dashes march by scrolling a tileable strip via
+--  SetTexCoord -- no per-frame SetPoint/SetSize, so it is FlipBook-cheap. The
+--  N (line count) / thickness / speed / color are all configurable; the dash
+--  LENGTH is the texture's duty cycle rather than a runtime segment length.
+-------------------------------------------------------------------------------
+local DASH_H = [[Interface\AddOns\EllesmereUI\media\glow-dash-h.tga]]
+local DASH_V = [[Interface\AddOns\EllesmereUI\media\glow-dash-v.tga]]
 
 local function _AntsOnUpdate(self, elapsed)
-    local d = self._euiAntsData
+    local d = self._euiScrollData
     if not d then return end
     d.timer = d.timer + elapsed
     if d.timer >= d.period then d.timer = d.timer - d.period end
-    d._accum = (d._accum or 0) + elapsed
-    if d._accum < 0.016 then return end
-    d._accum = 0
     local w, h = d.w, d.h
-    local onePixel = d.onePixel
     if w * h == 0 then
         w, h = self:GetSize()
-        -- Strip taint from size values (reparented buttons can return
-        -- "secret number" tainted dimensions from GetSize).
+        -- Same taint-strip as the ants engine (reparented frames can return
+        -- secret-number sizes).
         w = tonumber(tostring(w)) or 0
         h = tonumber(tostring(h)) or 0
-        -- Fallback to the w/h passed at start time (SetAllPoints wrappers
-        -- may return 0 before layout resolves)
         if w * h == 0 and d.fallbackW and d.fallbackW > 0 then
             w = d.fallbackW; h = d.fallbackH or d.fallbackW
         end
         if w * h == 0 then return end
+        -- Snap dimensions AND thickness to physical pixels so every edge renders
+        -- the same whole-pixel thickness (unsnapped SetHeight/SetWidth lets some
+        -- sides round thicker than others at fractional effective scale).
         local PP = EllesmereUI.PP
-        local es = self:GetEffectiveScale()
-        onePixel = PP.perfect / es
-        -- Snap dimensions to physical pixels
+        local onePixel = PP.perfect / self:GetEffectiveScale()
         w = floor(w / onePixel + 0.5) * onePixel
         h = floor(h / onePixel + 0.5) * onePixel
-        -- Snap thickness once (constant while glow is active)
         local sTh = floor(d.th / onePixel + 0.5) * onePixel
         if sTh < onePixel then sTh = onePixel end
-        d.w = w; d.h = h; d.onePixel = onePixel; d.sTh = sTh
+        d.top:SetHeight(sTh); d.bottom:SetHeight(sTh)
+        d.left:SetWidth(sTh); d.right:SetWidth(sTh)
+        d.w = w; d.h = h
+        -- Precompute the per-edge phase endpoints; they are invariant until the
+        -- next resize/restart, so only the scroll offset o changes per tick.
+        -- ph(P) = P * N / perim is the perimeter position in dash-period units;
+        -- the four edges share it so dashes stay continuous around every corner.
+        local k = d.N / (2 * (w + h))
+        d.wk   = w * k
+        d.whk  = (w + h) * k
+        d.wwhk = (2 * w + h) * k
     end
-    local perim = 2 * (w + h)
-    if perim <= 0 then return end
-    local progress = d.timer / d.period
-    local step = 1 / d.N
-    local sTh = d.sTh
-    for i = 1, d.N do
-        local headDist = ((progress + (i - 1) * step) % 1) * perim
-        local tailDist = headDist - d.lineLen
-        if tailDist < 0 then tailDist = tailDist + perim end
-        local headEdge, headOff = _EdgeAndOffset(headDist, w, h)
-        local tailEdge, tailOff = _EdgeAndOffset(tailDist, w, h)
-        local primary  = d.lines[i]
-        local overflow = d.lines[i + d.N]
-        if headEdge == tailEdge then
-            _PlaceOnEdge(primary, self, headEdge, tailOff, headOff, w, h, sTh, onePixel)
-            overflow:Hide()
-        else
-            _PlaceOnEdge(primary,  self, headEdge, 0,       headOff,                      w, h, sTh, onePixel)
-            _PlaceOnEdge(overflow, self, tailEdge, tailOff, _EdgeLen(tailEdge, w, h), w, h, sTh, onePixel)
-        end
-    end
+    local N = d.N
+    local o = (d.timer / d.period) * N   -- scroll offset (N integer -> seamless wrap)
+    -- Direction is clockwise; the bottom/left edges flip their coords to match.
+    local wk, whk, wwhk = d.wk, d.whk, d.wwhk
+    d.top:SetTexCoord(-o, wk - o, 0, 1)
+    d.right:SetTexCoord(0, 1, wk - o, whk - o)
+    d.bottom:SetTexCoord(wwhk - o, whk - o, 0, 1)
+    d.left:SetTexCoord(0, 1, N - o, wwhk - o)
 end
 
+-- lineLen is accepted for call-signature compatibility but unused: the dash
+-- length is the texture's duty cycle, not a runtime segment length.
 local function StartProceduralAnts(wrapper, N, th, period, lineLen, cr, cg, cb, szOrW, szH)
-    if not wrapper._euiAntsData then
-        wrapper._euiAntsData = { lines = {}, N = 0, timer = 0, w = 0, h = 0 }
-    end
-    local d = wrapper._euiAntsData
-    d.N = N; d.th = th; d.period = period; d.lineLen = lineLen
-    d.w = 0; d.h = 0; d.onePixel = nil
-    d.fallbackW = szOrW or 0; d.fallbackH = szH or szOrW or 0
-    local totalTex = N * 2
-    for i = 1, totalTex do
-        if not d.lines[i] then
-            local tex = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
-            tex:SetColorTexture(1, 1, 1, 1)
-            d.lines[i] = tex
+    if not wrapper._euiScrollData then
+        local function mk(p1, p1f, p2, p2f)
+            local t = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
+            t:SetPoint(p1, wrapper, p1f)
+            t:SetPoint(p2, wrapper, p2f)
+            return t
         end
-        d.lines[i]:SetVertexColor(cr, cg, cb, 1)
-        d.lines[i]:Show()
+        wrapper._euiScrollData = {
+            top    = mk("TOPLEFT", "TOPLEFT", "TOPRIGHT", "TOPRIGHT"),
+            bottom = mk("BOTTOMLEFT", "BOTTOMLEFT", "BOTTOMRIGHT", "BOTTOMRIGHT"),
+            left   = mk("TOPLEFT", "TOPLEFT", "BOTTOMLEFT", "BOTTOMLEFT"),
+            right  = mk("TOPRIGHT", "TOPRIGHT", "BOTTOMRIGHT", "BOTTOMRIGHT"),
+            timer = 0, w = 0, h = 0,
+        }
     end
-    for i = totalTex + 1, #d.lines do d.lines[i]:Hide() end
-    wrapper:SetScript("OnUpdate", _AntsOnUpdate)
+    local d = wrapper._euiScrollData
+    d.N = (N and N > 0) and N or 8
+    d.period = period or 4
+    d.w = 0; d.h = 0
+    d.fallbackW = szOrW or 0; d.fallbackH = szH or szOrW or 0
+    th = th or 2
+    d.th = th
+    d.top:SetTexture(DASH_H, "REPEAT", "REPEAT");    d.top:SetHeight(th)
+    d.bottom:SetTexture(DASH_H, "REPEAT", "REPEAT"); d.bottom:SetHeight(th)
+    d.left:SetTexture(DASH_V, "REPEAT", "REPEAT");   d.left:SetWidth(th)
+    d.right:SetTexture(DASH_V, "REPEAT", "REPEAT");  d.right:SetWidth(th)
+    d.top:SetVertexColor(cr, cg, cb, 1);    d.top:Show()
+    d.bottom:SetVertexColor(cr, cg, cb, 1); d.bottom:Show()
+    d.left:SetVertexColor(cr, cg, cb, 1);   d.left:Show()
+    d.right:SetVertexColor(cr, cg, cb, 1);  d.right:Show()
+    _Register(wrapper, _AntsOnUpdate, "ants")
 end
 
 local function StopProceduralAnts(wrapper)
-    wrapper:SetScript("OnUpdate", nil)
-    if wrapper._euiAntsData then
-        for _, tex in ipairs(wrapper._euiAntsData.lines) do tex:Hide() end
+    _Unregister(wrapper, "ants")
+    local d = wrapper._euiScrollData
+    if d then
+        d.top:Hide(); d.bottom:Hide(); d.left:Hide(); d.right:Hide()
     end
 end
 
@@ -207,11 +318,11 @@ local function StartButtonGlow(wrapper, szOrW, cr, cg, cb, scale, szH)
     d.ants:SetSize(antsW, antsH)
     d.ants:SetDesaturated(true); d.ants:SetVertexColor(cr, cg, cb, 1)
     d.ants:SetAlpha(1); d.ants:Show()
-    wrapper:SetScript("OnUpdate", _ButtonGlowOnUpdate)
+    _Register(wrapper, _ButtonGlowOnUpdate, "button")
 end
 
 local function StopButtonGlow(wrapper)
-    wrapper:SetScript("OnUpdate", nil)
+    _Unregister(wrapper, "button")
     if wrapper._euiBgData then
         wrapper._euiBgData.ants:Hide()
         wrapper._euiBgData.glow:Hide()
@@ -321,11 +432,11 @@ local function StartAutoCastShine(wrapper, szOrW, cr, cg, cb, scale, szH)
     end
     for idx = totalDots + 1, #d.sparkles do d.sparkles[idx]:Hide() end
     d.w = 0; d.h = 0; d.fallbackW = szOrW or 0; d.fallbackH = szH or szOrW or 0
-    wrapper:SetScript("OnUpdate", _AutoCastOnUpdate)
+    _Register(wrapper, _AutoCastOnUpdate, "autocast")
 end
 
 local function StopAutoCastShine(wrapper)
-    wrapper:SetScript("OnUpdate", nil)
+    _Unregister(wrapper, "autocast")
     if wrapper._euiAcData then
         for _, dot in ipairs(wrapper._euiAcData.sparkles) do dot:Hide() end
     end
@@ -409,11 +520,11 @@ local function StartShapeGlow(wrapper, sz, cr, cg, cb, scale, opts)
         pcall(d.glow.RemoveMaskTexture, d.glow, shapeMask)
         pcall(d.glow.AddMaskTexture, d.glow, shapeMask)
     end
-    wrapper:SetScript("OnUpdate", _ShapeGlowOnUpdate)
+    _Register(wrapper, _ShapeGlowOnUpdate, "shape")
 end
 
 local function StopShapeGlow(wrapper)
-    wrapper:SetScript("OnUpdate", nil)
+    _Unregister(wrapper, "shape")
     if wrapper._euiSgData then
         wrapper._euiSgData.glow:Hide()
         wrapper._euiSgData.edge:Hide()
@@ -514,6 +625,10 @@ local function StopAllGlows(wrapper)
     StopAutoCastShine(wrapper)
     StopShapeGlow(wrapper)
     StopFlipBookGlow(wrapper)
+    -- Defensive scrub: the central driver owns the only OnUpdate now, so the
+    -- five Stop* calls above already unregistered this wrapper from the driver.
+    -- This clears any stale OnUpdate a pre-migration build may have left on the
+    -- wrapper itself (harmless on our own frame; never touches the driver).
     wrapper:SetScript("OnUpdate", nil)
 end
 
@@ -600,3 +715,61 @@ EllesmereUI.Glows = {
     StopFlipBookGlow    = StopFlipBookGlow,
     StopAllGlows        = StopAllGlows,
 }
+
+-------------------------------------------------------------------------------
+--  Glow profiler: zero cost when off, /euiglowprof to toggle.
+--  Times the central driver tick directly (the true glow render cost, avg +
+--  peak per dispatch pass) and samples whole-addon CPU for the parent addon
+--  (where the driver runs) and AuraBuff Reminders, so glow cost can be read
+--  against both addon metrics. Matches the /erfprof profiler pattern.
+-------------------------------------------------------------------------------
+do
+    local _names = { "EllesmereUI", "EllesmereUIAuraBuffReminders" }
+    local _frames = 0
+    local _addonTotal, _addonPeak = {}, {}
+
+    local function Reset()
+        _gpTicks, _gpTotalMs, _gpPeakMs, _gpMaxGlows = 0, 0, 0, 0
+        _frames = 0
+        wipe(_addonTotal); wipe(_addonPeak)
+    end
+
+    local sampler = CreateFrame("Frame")
+    sampler:Hide()
+    sampler:SetScript("OnUpdate", function()
+        if not _glowProf then sampler:Hide(); return end
+        if not C_AddOnProfiler or not C_AddOnProfiler.GetAddOnMetric then return end
+        _frames = _frames + 1
+        for _, name in ipairs(_names) do
+            local ms = C_AddOnProfiler.GetAddOnMetric(name, Enum.AddOnProfilerMetric.LastTime) or 0
+            _addonTotal[name] = (_addonTotal[name] or 0) + ms
+            if ms > (_addonPeak[name] or 0) then _addonPeak[name] = ms end
+        end
+    end)
+
+    SLASH_EUIGLOWPROF1 = "/euiglowprof"
+    SlashCmdList["EUIGLOWPROF"] = function(msg)
+        if msg == "reset" then
+            Reset()
+            print("|cff00ccffGlowProf:|r data cleared")
+            return
+        end
+        _glowProf = not _glowProf
+        if _glowProf then
+            Reset()
+            sampler:Show()
+            print("|cff00ccffGlowProf:|r ON -- run /euiglowprof again to stop")
+        else
+            sampler:Hide()
+            local avgTick = _gpTicks > 0 and (_gpTotalMs / _gpTicks) or 0
+            print(format("|cff00ccffGlowProf Report:|r  %d driver ticks, peak %d simultaneous glows",
+                _gpTicks, _gpMaxGlows))
+            print(format("  |cff00ccffDriver tick:|r          avg %.4f ms   peak %.4f ms", avgTick, _gpPeakMs))
+            for _, name in ipairs(_names) do
+                local avg = _frames > 0 and ((_addonTotal[name] or 0) / _frames) or 0
+                print(format("  |cff00ccff%-22s|r avg %.4f ms   peak %.4f ms",
+                    name .. ":", avg, _addonPeak[name] or 0))
+            end
+        end
+    end
+end

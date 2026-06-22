@@ -345,6 +345,7 @@ function ns.RemoveSpellFromBar(barKey, spellID)
     ns._spellOrderDirty = true
     -- Clean up auxiliary per-spell metadata for the removed entry
     if sd.customSpellDurations then sd.customSpellDurations[removed] = nil end
+    if sd.spellDurations       then sd.spellDurations[removed]       = nil end
     if sd.customSpellIDs       then sd.customSpellIDs[removed]       = nil end
     if sd.customSpellGroups then
         for variantID, primaryID in pairs(sd.customSpellGroups) do
@@ -896,9 +897,11 @@ function ns.AddPresetToBar(barKey, preset)
     if not sd.assignedSpells then sd.assignedSpells = {} end
     local spellList = sd.assignedSpells
 
-    -- Check bar type
+    -- Check bar type. Buff-family bars use the same cast-timer custom-buff path
+    -- as custom_buff (Auras) bars: store the primary spellID + a hardcoded
+    -- duration; the buff phase injects an own-frame and the buff tick drives it.
     local bd = barDataByKey[barKey]
-    local isCustomBuff = bd and bd.barType == "custom_buff"
+    local isCustomBuff = bd and (bd.barType == "custom_buff" or bd.barType == "buffs")
 
     if isCustomBuff then
         if preset.glowBased then
@@ -1028,6 +1031,7 @@ function ns.RemoveTrackedSpell(barKey, idx)
     -- side effects RemoveSpellFromBar does for symmetry with index-based
     -- removal).
     if removedID and sd.customSpellDurations then sd.customSpellDurations[removedID] = nil end
+    if removedID and sd.spellDurations       then sd.spellDurations[removedID]       = nil end
     if removedID and sd.customSpellIDs       then sd.customSpellIDs[removedID]       = nil end
     if removedID and sd.customSpellGroups then
         for variantID, primaryID in pairs(sd.customSpellGroups) do

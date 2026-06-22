@@ -5097,9 +5097,12 @@ initFrame:SetScript("OnEvent", function(self)
         AddDarkModeBlock(sharedHealthColorRow._leftRegion)
         AddDarkModeBlock(sharedHealthColorRow._rightRegion)
 
-        -- Row 3: Bar Opacity + Left Text
-        local sharedTextRow
-        sharedTextRow, h = W:DualRow(parent, y,
+        -- Row 3: Smooth Health Bars + Bar Opacity
+        local sharedOpacityRow
+        sharedOpacityRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Smooth Health Bars",
+              getValue=function() return SVal("smoothBars", false) end,
+              setValue=function(v) SSet("smoothBars", v) end },
             { type="slider", text="Bar Opacity", min=10, max=100, step=1,
               disabled=function() return db.profile.darkTheme end,
               disabledTooltip="Dark Mode", requireState="disabled",
@@ -5107,21 +5110,10 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   SSet("healthBarOpacity", v)
                   UpdatePreview()
-              end },
-            { type="dropdown", text="Left Text", values=healthTextValues, order=selectedUnit == "player" and healthTextOrderPlayer or healthTextOrder,
-              getValue=function() return SVal("leftTextContent", "name") end,
-              setValue=function(v)
-                  SSet("leftTextContent", v)
-                  if v ~= "none" then
-                      if SGet("rightTextContent") == v then SSet("rightTextContent", "none") end
-                      if SGet("centerTextContent") == v then SSet("centerTextContent", "none") end
-                  end
-                  UpdatePreview(); EllesmereUI:RefreshPage()
-              end,
-            });  y = y - h
-        -- Sync icon: Bar Opacity (left)
+              end });  y = y - h
+        -- Sync icon: Bar Opacity (right)
         do
-            local rgn = sharedTextRow._leftRegion
+            local rgn = sharedOpacityRow._rightRegion
             EllesmereUI.BuildSyncIcon({
                 region  = rgn,
                 tooltip = "Apply Bar Opacity to all Frames",
@@ -5152,9 +5144,35 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
-        -- Sync icon: Left Text (right)
+
+        -- Row 4: Left Text + Right Text
+        local sharedTextRow
+        sharedTextRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Left Text", values=healthTextValues, order=selectedUnit == "player" and healthTextOrderPlayer or healthTextOrder,
+              getValue=function() return SVal("leftTextContent", "name") end,
+              setValue=function(v)
+                  SSet("leftTextContent", v)
+                  if v ~= "none" then
+                      if SGet("rightTextContent") == v then SSet("rightTextContent", "none") end
+                      if SGet("centerTextContent") == v then SSet("centerTextContent", "none") end
+                  end
+                  UpdatePreview(); EllesmereUI:RefreshPage()
+              end,
+            },
+            { type="dropdown", text="Right Text", values=healthTextValues, order=selectedUnit == "player" and healthTextOrderPlayer or healthTextOrder,
+              getValue=function() return SVal("rightTextContent", "both") end,
+              setValue=function(v)
+                  SSet("rightTextContent", v)
+                  if v ~= "none" then
+                      if SGet("leftTextContent") == v then SSet("leftTextContent", "none") end
+                      if SGet("centerTextContent") == v then SSet("centerTextContent", "none") end
+                  end
+                  UpdatePreview(); EllesmereUI:RefreshPage()
+              end,
+            });  y = y - h
+        -- Sync icon: Left Text (left)
         do
-            local rgn = sharedTextRow._rightRegion
+            local rgn = sharedTextRow._leftRegion
             local function ApplyLeftTextTo(keys)
                 local src = UNIT_DB_MAP[selectedUnit]()
                 local v = src.leftTextContent or "name"
@@ -5200,11 +5218,11 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
-        -- Inline color swatches on Left Text (right region): Custom + Class, mirroring
+        -- Inline color swatches on Left Text (left region): Custom + Class, mirroring
         -- the CDM Border Size double-swatch. The class swatch sets leftTextClassColor;
         -- the custom swatch opens the picker (and switches back from class when active).
         do
-            local leftRgn = sharedTextRow._rightRegion
+            local leftRgn = sharedTextRow._leftRegion
             local ltAnchor = leftRgn._lastInline or leftRgn._control
             -- Class Colored swatch (nearest the control): shows the player's class color.
             local ltClassSwatch, ltUpdateClassSwatch = EllesmereUI.BuildColorSwatch(
@@ -5253,9 +5271,9 @@ initFrame:SetScript("OnEvent", function(self)
             RegisterWidgetRefresh(function() ltUpdateSwatch(); ltUpdateClassSwatch(); UpdateLtSwatches() end)
             UpdateLtSwatches()
         end
-        -- Cogwheel on Left Text (right region)
+        -- Cogwheel on Left Text (left region)
         do
-            local leftRgn = sharedTextRow._rightRegion
+            local leftRgn = sharedTextRow._leftRegion
             local _, leftCogShowRaw = EllesmereUI.BuildCogPopup({
                 title = "Left Text Settings",
                 rows = {
@@ -5287,29 +5305,9 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateLeftCogState()
             RegisterWidgetRefresh(UpdateLeftCogState)
         end
-        -- Row 4: Right Text + Center Text
-        local sharedCenterTextRow
-        sharedCenterTextRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Right Text", values=healthTextValues, order=selectedUnit == "player" and healthTextOrderPlayer or healthTextOrder,
-              getValue=function() return SVal("rightTextContent", "both") end,
-              setValue=function(v)
-                  SSet("rightTextContent", v)
-                  if v ~= "none" then
-                      if SGet("leftTextContent") == v then SSet("leftTextContent", "none") end
-                      if SGet("centerTextContent") == v then SSet("centerTextContent", "none") end
-                  end
-                  UpdatePreview(); EllesmereUI:RefreshPage()
-              end,
-            },
-            { type="dropdown", text="Center Text", values=healthTextValues, order=selectedUnit == "player" and healthTextOrderPlayer or healthTextOrder,
-              getValue=function() return SVal("centerTextContent", "none") end,
-              setValue=function(v)
-                  SSet("centerTextContent", v)
-                  ReloadAndUpdate(); UpdatePreview()
-              end });  y = y - h
-        -- Sync icon: Right Text (left)
+        -- Sync icon: Right Text (right)
         do
-            local rgn = sharedCenterTextRow._leftRegion
+            local rgn = sharedTextRow._rightRegion
             local function ApplyRightTextTo(keys)
                 local src = UNIT_DB_MAP[selectedUnit]()
                 local v = src.rightTextContent or "both"
@@ -5355,11 +5353,11 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
-        -- Inline color swatches on Right Text (left region): Custom + Class (CDM Border
+        -- Inline color swatches on Right Text (right region): Custom + Class (CDM Border
         -- Size double-swatch pattern). Class swatch sets rightTextClassColor; custom
         -- swatch opens the picker (and switches back from class when active).
         do
-            local rightRgn = sharedCenterTextRow._leftRegion
+            local rightRgn = sharedTextRow._rightRegion
             local rtAnchor = rightRgn._lastInline or rightRgn._control
             local rtClassSwatch, rtUpdateClassSwatch = EllesmereUI.BuildColorSwatch(
                 rightRgn, rightRgn:GetFrameLevel() + 5,
@@ -5406,9 +5404,9 @@ initFrame:SetScript("OnEvent", function(self)
             RegisterWidgetRefresh(function() rtUpdateSwatch(); rtUpdateClassSwatch(); UpdateRtSwatches() end)
             UpdateRtSwatches()
         end
-        -- Cogwheel on Right Text (left region)
+        -- Cogwheel on Right Text (right region)
         do
-            local rightRgn = sharedCenterTextRow._leftRegion
+            local rightRgn = sharedTextRow._rightRegion
             local _, rightCogShowRaw = EllesmereUI.BuildCogPopup({
                 title = "Right Text Settings",
                 rows = {
@@ -5440,9 +5438,20 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateRightCogState()
             RegisterWidgetRefresh(UpdateRightCogState)
         end
-        -- Sync icon: Center Text (right)
+
+        -- Row 5: Center Text
+        local sharedCenterTextRow
+        sharedCenterTextRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Center Text", values=healthTextValues, order=selectedUnit == "player" and healthTextOrderPlayer or healthTextOrder,
+              getValue=function() return SVal("centerTextContent", "none") end,
+              setValue=function(v)
+                  SSet("centerTextContent", v)
+                  ReloadAndUpdate(); UpdatePreview()
+              end },
+            { type="label", text="" });  y = y - h
+        -- Sync icon: Center Text (left)
         do
-            local rgn = sharedCenterTextRow._rightRegion
+            local rgn = sharedCenterTextRow._leftRegion
             local function ApplyCenterTextTo(keys)
                 local src = UNIT_DB_MAP[selectedUnit]()
                 local v = src.centerTextContent or "none"
@@ -5488,11 +5497,11 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
-        -- Inline color swatches on Center Text (right region): Custom + Class (CDM Border
+        -- Inline color swatches on Center Text (left region): Custom + Class (CDM Border
         -- Size double-swatch pattern). Class swatch sets centerTextClassColor; custom
         -- swatch opens the picker (and switches back from class when active).
         do
-            local ctrRgn = sharedCenterTextRow._rightRegion
+            local ctrRgn = sharedCenterTextRow._leftRegion
             local ctAnchor = ctrRgn._lastInline or ctrRgn._control
             local ctClassSwatch, ctUpdateClassSwatch = EllesmereUI.BuildColorSwatch(
                 ctrRgn, ctrRgn:GetFrameLevel() + 5,
@@ -5539,9 +5548,9 @@ initFrame:SetScript("OnEvent", function(self)
             RegisterWidgetRefresh(function() ctUpdateSwatch(); ctUpdateClassSwatch(); UpdateCtSwatches() end)
             UpdateCtSwatches()
         end
-        -- Cogwheel on Center Text
+        -- Cogwheel on Center Text (left region)
         do
-            local ctrRgn = sharedCenterTextRow._rightRegion
+            local ctrRgn = sharedCenterTextRow._leftRegion
             local _, centerCogShowRaw = EllesmereUI.BuildCogPopup({
                 title = "Center Text Settings",
                 rows = {
@@ -9965,6 +9974,16 @@ initFrame:SetScript("OnEvent", function(self)
             AddDarkModeBlock(colorRow._leftRegion)
         end
 
+        -- Smooth Health Bars + Reverse Fill
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Smooth Health Bars",
+              getValue=function() return MVal("smoothBars", false) end,
+              setValue=function(v) MSet("smoothBars", v) end },
+            { type="toggle", text="Reverse Fill",
+              getValue=function() return settingsTable.healthReverseFill end,
+              setValue=function(v) settingsTable.healthReverseFill = v; ReloadAndUpdate() end }
+        );  y = y - h
+
         -- Row 3: Left Text + Right Text (with inline swatches + cogs)
         local textRow
         textRow, h = W:DualRow(parent, y,
@@ -10143,7 +10162,7 @@ initFrame:SetScript("OnEvent", function(self)
             UpdCog(); RegisterWidgetRefresh(UpdCog)
         end
 
-        -- Row 4: Center Text + Reverse Fill (with inline swatch + cog on Center)
+        -- Row 4: Center Text (with inline swatch + cog)
         local centerRow
         centerRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Center Text", values=healthTextValues, order=healthTextOrder,
@@ -10152,9 +10171,7 @@ initFrame:SetScript("OnEvent", function(self)
                 settingsTable.centerTextContent = v
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="Reverse Fill",
-              getValue=function() return settingsTable.healthReverseFill end,
-              setValue=function(v) settingsTable.healthReverseFill = v; ReloadAndUpdate() end });  y = y - h
+            { type="label", text="" });  y = y - h
         -- Inline color swatches + cog on Center Text: Custom + Class (CDM Border Size pattern)
         do
             local rgn = centerRow._leftRegion
