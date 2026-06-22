@@ -88,7 +88,7 @@ L["Auras"] = "오라"
 L["Auras, Buffs & Consumables"] = "오라, 강화 효과 및 소모품"
 L["Auto"] = "자동"
 L["Auto-Cast Shine"] = "자동 시전 반짝임"
-L["Back"] = "등"
+L["Back"] = "뒤로"
 L["Background Color"] = "배경 색상"
 L["Background Opacity"] = "배경 투명도"
 L["Bags"] = "가방"
@@ -211,6 +211,7 @@ L["Fade"] = "페이드"
 L["Fade Right"] = "오른쪽 페이드"
 L["Feet"] = "발"
 L["Focus"] = "주시"
+L["HunterFocus"] = "집중"
 L["Focus Text Reminders"] = "주시 글자 알림"
 L["FocusKick"] = "주시 차단"
 L["Font changed. A UI reload is needed to apply the new font."] = "글꼴이 변경되었습니다. 새 글꼴을 적용하려면 UI를 다시 불러와야 합니다."
@@ -312,6 +313,7 @@ L["Micro Menu"] = "게임 메뉴"
 L["Midnight"] = "한밤"
 L["Mini Frames"] = "미니 프레임"
 L["Modern"] = "모던"
+L["Modern Light"] = "모던 라이트"
 L["Modern WoW Glow"] = "모던 WoW 반짝임"
 L["Monk"] = "수도사"
 L["Mouseover"] = "마우스 오버"
@@ -326,6 +328,9 @@ L["Not Bound"] = "미설정"
 L["Number"] = "숫자"
 L["Number of Rows"] = "행 개수"
 L["Off Hand"] = "보조장비"
+-- 엔진 remap 전용(무기 알람 축약 "Off"/"Main" 이 미터기 "Off"와 충돌 → 별도 키로 분리)
+L["OffHandSlot"]  = "보조장비"
+L["MainHandSlot"] = "주장비"
 L["Offline"] = "오프라인"
 L["Only Show in Instances"] = "인스턴스에서만 표시"
 L["Other"] = "기타"
@@ -434,6 +439,7 @@ L["Standard"] = "표준"
 L["Stealth"] = "은신"
 L["Striped"] = "줄무늬"
 L["Striped Reversed"] = "줄무늬 반전"
+L["System Default"] = "기본값"
 L["Classic WoW"] = "고전 와우"
 L["Default Blizz Frames"] = "블리자드 기본 프레임"
 L["Hide Empty Groups"] = "빈 그룹 숨김"
@@ -891,6 +897,7 @@ L["Devourer"] = "포식"
 L["Dim the Lights While Active"] = "활성 중 화면 어둡게"
 L["Disable Raid Frames"] = "공격대 프레임 비활성화"
 L["Disable Sync Icons"] = "동기화 아이콘 비활성화"
+L["Disable Slug Outline"] = "Slug 외곽선 비활성화"
 L["Discipline"] = "수양"
 L["Disco lights overlay for celebrations."] = "축하 효과용 디스코 조명 오버레이."
 L["Dispel, defensive and private aura tracking"] = "해제, 생존기, 비공개 오라 추적"
@@ -1224,6 +1231,7 @@ L["Sets the accent color used across all EllesmereUI elements (tabs, glows, high
 L["Sets the scale of the entire game UI. Lower values make everything smaller, higher values make everything larger."] = "전체 게임 UI의 크기를 설정합니다. 값이 낮을수록 작아지고, 높을수록 커집니다."
 L["Sets the UI scale to the exact pixel-perfect value used by other addons. EllesmereUI does not require this to be pixel perfect."] = "UI 배율을 다른 애드온이 쓰는 정확한 픽셀-퍼펙트 값으로 설정합니다. EllesmereUI 는 픽셀-퍼펙트가 필수는 아닙니다."
 L["Show Combat Damage Text"] = "전투 피해 글자 표시"
+L["Slug outline renders higher quality outlines compared to the base WoW outline mode but may make outline effects appear slightly thicker."] = "Slug 외곽선은 기본 와우(WoW) 외곽선 모드에 비해 더 높은 품질의 외곽선을 표현하지만, 외곽선 효과가 약간 더 두껍게 보일 수 있습니다."
 L["Spirit Mend"] = "영혼의 치유"
 L["Swatch 1"] = "색상 견본 1"
 L["Swatch 2"] = "색상 견본 2"
@@ -1431,6 +1439,12 @@ L["Hide Enemy Name While Casting"] = "시전 중 적 이름 숨김"
 L["Focus Letter"] = "주시 글자"
 L["Experimental: Cast Lockout as CC Icon"] = "실험적: 시전 차단을 군중 제어 아이콘으로"
 L["Line of Sight Opacity"] = "시야 차단 불투명도"
+L["Debuff Duration"] = "약화 효과 지속시간"
+L["Buff Duration"] = "강화 효과 지속시간"
+L["CC Duration"] = "군중 제어 지속시간"
+L["Debuff Duration Settings"] = "약화 효과 지속시간 설정"
+L["Buff Duration Settings"] = "강화 효과 지속시간 설정"
+L["CC Duration Settings"] = "군중 제어 지속시간 설정"
 L["(one per slot)"] = "(슬롯당 하나)"
 L["(Percent)"] = "(퍼센트)"
 L["Arrow Scale"] = "화살표 비율"
@@ -1555,6 +1569,10 @@ L["Wide Stripes"] = "넓은 줄무늬"
 -- add 이름표 툴팁 (Nameplates Tooltip)
 L["Uses the Hover Effect color and opacity. Set to None for the flat hover highlight."] = "마우스오버 효과의 색상과 불투명도를 사용합니다. 평면 마우스오버 강조는 '없음'으로 설정하세요."
 L["Hide the enemy name text while that nameplate's cast bar is visible."] = "해당 이름표의 시전 바가 보이는 동안 적 이름 글자를 숨깁니다."
+L["Draws a white letter F on your current focus target's nameplate."] = "현재 주시 대상의 이름표에 흰색 글자 F를 그립니다."
+L["Nameplates opacity for units that are out of line of sight. 0 = fully transparent, 1 = fully opaque."] = "시야 밖에 있는 유닛의 이름표 불투명도. 0 = 완전 투명, 1 = 완전 불투명."
+L["On quest mobs in the open world, replaces the quest icon with the objective progress (ex: kill quests show 0/6, percentage objectives show 50%)."] = "야외의 퀘스트 몹에서 퀘스트 아이콘을 목표 진행도로 대체합니다 (예: 처치 퀘스트는 0/6, 퍼센트 목표는 50% 표시)."
+L["Show successful interrupt lockouts in the crowd-control icon slot.\n\nDue to addon restrictions, the duration shown is a generic 4 seconds for all classes, so it is not 100% accurate."] = "성공한 시전 차단을 군중 제어 아이콘 칸에 표시합니다.\n\n애드온 제약으로 표시되는 지속시간은 모든 직업에 일률적인 4초라 100% 정확하지는 않습니다."
 L["Adjusts the vertical spacing between stacked nameplates. 100% = default, lower = tighter, higher = more spread."] = "겹침 이름표 사이의 세로 간격을 조정합니다. 100%는 기본값이며, 낮을수록 촘촘하고 높을수록 넓어집니다."
 L["Colors enemy nameplates for quest mobs you still need to kill."] = "아직 처치해야 하는 퀘스트 몹의 적 이름표 색상을 변경합니다."
 L["Controls the highlight shown over a nameplate when you mouse over it. Set to 0 to disable."] = "이름표에 마우스를 올렸을 때 표시되는 강조 효과를 조절합니다. 0으로 설정하면 비활성화됩니다."
@@ -1618,6 +1636,7 @@ L["Buff Position"] = "강화 효과 위치"
 L["Buff Settings"] = "강화 효과 설정"
 L["Buff Size"] = "강화 효과 크기"
 L["Cast Icon"] = "시전 아이콘"
+L["Cast Text"] = "시전 글자"
 L["Center Text Settings"] = "중앙 글자 설정"
 L["Class Icon Settings"] = "직업 아이콘 설정"
 L["Class Resource Position"] = "직업 자원 위치"
@@ -1633,6 +1652,9 @@ L["Detached"] = "분리"
 L["Detached Bar Stratas"] = "분리된 막대 단계"
 L["Detached Position Offsets"] = "분리 위치"
 L["Duration"] = "지속시간"
+L["Duration & Stack"] = "지속시간 및 중첩"
+L["Duration X"] = "지속시간 가로 위치"
+L["Duration Y"] = "지속시간 세로 위치"
 L["Ellesmere Unit Frames setting changed. Reload UI to apply?"] = "Ellesmere 유닛 프레임 설정이 변경되었습니다. 적용하려면 UI를 리로드할까요?"
 L["Enable Boss Frames"] = "우두머리 프레임 활성화"
 L["Enable Focus Target"] = "주시 대상 활성화"
@@ -1661,6 +1683,10 @@ L["Max Count"] = "최대 개수"
 L["No Border on Debuffs"] = "약화 효과 테두리 없음"
 L["Percent Only"] = "백분율만"
 L["Show % Decimal"] = "% 소수점 표시"
+L["Stack Position"] = "중첩 위치"
+L["Stack Size"] = "중첩 크기"
+L["Stack X"] = "중첩 가로 위치"
+L["Stack Y"] = "중첩 세로 위치"
 L["Player Frame Mini Cast Bar"] = "플레이어 프레임 미니 시전 바"
 L["Portrait on Right"] = "초상화 오른쪽"
 L["Portrait Position Offsets"] = "초상화 위치 위치"
@@ -1696,11 +1722,14 @@ L["Vertical Spacing"] = "세로 간격"
 L["Above Health Bar"] = "생명력 바 위"
 L["Art Style"] = "아트 스타일"
 L["Bar Position"] = "바 위치"
+L["Big Defensive"] = "주요 생존기"
 L["Below Health Bar"] = "생명력 바 아래"
 L["Boss Buff Filter"] = "우두머리 강화 효과 필터"
 L["Boss Debuff Filter"] = "우두머리 약화 효과 필터"
 L["Buffs Location"] = "강화 효과 위치"
 L["Class Icon"] = "직업 아이콘"
+L["Crowd Control"] = "군중 제어"
+L["External Defensive"] = "외부 생존기"
 L["Combat Indicator"] = "전투 표시"
 L["Debuffs Location"] = "약화 효과 위치"
 L["Detached Bottom"] = "분리 - 아래"
@@ -1774,6 +1803,7 @@ L["Custom Colored Fill"] = "사용자 지정 색상 채우기"
 L["Custom Text Color"] = "사용자 지정 글자 색상"
 L["Empty Bar Color"] = "빈 바 색상"
 L["Force debuffs to the Left of the frame and size them to match the frame height (excluding cast bar). Overrides the Debuffs Location and debuff size settings while enabled."] = "약화 효과를 프레임 왼쪽으로 강제 배치하고 프레임 높이에 맞게 크기를 조정합니다(시전 바 제외). 활성화 시 약화 효과 위치/크기 설정을 재정의합니다."
+L["Fades boss frames when the boss is out of range of your spells. Set to 100% to disable the fade."] = "우두머리가 주문 사정거리에서 벗어나면 우두머리 프레임을 흐리게 표시합니다. 흐림 효과를 비활성화하려면 100%로 설정하세요."
 L["Hide combat indicator preview"] = "전투 표시기 미리보기 숨기기"
 L["Leader Indicator"] = "파티장 표시기"
 L["None shape requires 3D Art Style"] = "없음 모양은 3D 아트 스타일이 필요합니다"
@@ -1789,7 +1819,11 @@ L["Show the name of who the boss is casting on."] = "우두머리가 시전 중�
 L["Shows only the Buffs/Debuffs that appear on Raid Frames"] = "공격대 프레임에 표시되는 강화/약화 효과만 보임"
 L["Shows only the Buffs/Debuffs you apply"] = "내가 적용한 강화/약화 효과만 보임"
 L["Shows only the spells Blizzard flags as Important"] = "블리자드가 중요로 표시한 주문만 보임"
+L["Shows only crowd-control auras"] = "군중 제어 효과만 표시합니다"
+L["Shows only major defensive cooldowns"] = "주요 생존기 재사용 대기시간만 표시합니다"
+L["Shows only external defensive cooldowns cast on the unit"] = "해당 대상에게 시전된 외부 생존기 재사용 대기시간만 표시합니다"
 L["Shows the raid target marker icon on boss frames."] = "우두머리 프레임에 공격대 징표 아이콘을 표시합니다."
+L["Show Duration (Inside Cog)"] = "지속시간 표시 (톱니 아이콘)"
 L["Simple Debuff Display"] = "단순 약화 효과 표시"
 L["Simple Buff Display"] = "단순 강화 효과 표시"
 L["Simple Debuff Position"] = "단순 약화 효과 위치"
@@ -2208,6 +2242,7 @@ L["Icon Glow"]            = "아이콘 반짝임"
 L["Hide In Combat"]       = "전투 중 숨김"
 
 -- == add 쿨다운매니저 (CooldownManager) =============================================
+L["Add Custom Glows and Active State Effects by right clicking on icons in the preview"] = "미리보기에서 아이콘을 우클릭하여 사용자 정의 반짝임 및 활성화 상태 효과를 추가합니다"
 L["Charge/Stack Size"] = "충전/중첩 크기"
 L["Charge/Stack Text"] = "충전/중첩 글자"
 L["Pixel Glow Thickness"] = "픽셀 반짝임 두께"
@@ -2313,6 +2348,7 @@ L["Use Blizzard CDM Bars"] = "블리자드 CDM 바 사용"
 L["Vertical Gradient"] = "세로 그라데이션"
 L["Wrong Bar Type"] = "잘못된 바 유형"
 -- add 쿨다운매니저 드롭다운 (CooldownManager Dropdown)
+L["Always Show Buff"] = "강화 효과 항상 표시"
 L["Non Active State"] = "비활성 상태"
 L["Desaturate When Not Active"] = "비활성 시 흑백"
 L["Left Aligned"] = "왼쪽 정렬"
@@ -2322,7 +2358,12 @@ L["Buff Active"] = "강화 효과 활성"
 L["Buff Glow"] = "강화 효과 반짝임"
 L["Buff Missing"] = "강화 효과 누락"
 L["Custom Icon Shape"] = "사용자 지정 아이콘 모양"
+L["Delete Spell"] = "주문 삭제"
+L["Desaturate Inactive"] = "비활성화 시 흑백 전환"
+L["Desaturate"] = "흑백으로 표시"
 L["Focus Cast Sound"] = "주시 시전 소리"
+L["Hide Swipe (Charges)"] = "회전 효과 숨김 (충전 중)"
+L["Full Color"] = "전체 색상 표시"
 L["Glow When"] = "반짝임 조건"
 L["Grouped Grow Direction"] = "그룹 확장 방향"
 L["Interrupt Spell"] = "차단 주문"
@@ -2413,6 +2454,7 @@ L["Enable Tick Markers"] = "표시점 활성화"
 L["Enabled Classes"] = "활성화된 직업"
 L["Enhance 5 Bar Style"] = "고양 주술사 5칸 스타일"
 L["Expand Power Bar if No Resource"] = "자원 없을 때 자원 바 확장"
+L["Extra Y Offset"] = "추가 세로 위치 조정"
 L["Hash Color"] = "기준선 색상"
 L["Hash Line Style"] = "기준선 스타일"
 L["Hash Width"] = "기준선 너비"
@@ -2427,6 +2469,7 @@ L["Creates a class resource bar for Ignore Pain tracking. To see stack text, you
 L["Reset Positions"] = "위치 초기화"
 L["Reverse Threshold Fill Color"] = "임계값 채우기 색상 반전"
 L["Select a Spec..."] = "전문화 선택..."
+L["Shift Offset"] = "위치 미세 조정"
 L["Show Focus as Power Bar (BM/MM)"] = "집중을 기본 자원 바로 표시 (BM/MM)"
 L["Show Hash Lines"] = "눈금선 표시"
 L["Show Hash Line"] = "눈금선 표시"
@@ -2616,7 +2659,7 @@ L["Nagrand Arena"] = "나그란드 투기장"
 L["No talent reminders configured"] = "설정된 특성 알림이 없습니다"
 L["Null and Void Plate"] = "무위와 공허 접시"
 L["Numbing Poison"] = "마취 독"
-L["Off"] = "보조장비"   -- ShortLabel 이 "Off Hand" 첫 단어만 렌더 → 무기 마부 알림 라벨 (EUI 전 모듈 standalone "Off" 용례 0 확인)
+L["Off"] = "끔"   -- ShortLabel 이 "Off Hand" 첫 단어만 렌더 → 무기 마부 알림 라벨 (EUI 전 모듈 standalone "Off" 용례 0 확인)
 L["Oil of Beledar's Grace"] = "벨레다르의 은혜의 기름"
 L["Oil of Dawn"] = "여명의 기름"
 L["Oil of Deep Toxins"] = "깊은 독소의 기름"
@@ -2727,6 +2770,7 @@ L["Allies In Combat"] = "전투 중 아군"
 L["Announce Instance Reset"] = "인스턴스 초기화 알림"
 L["Archaeology"] = "고고학"
 L["Armour"] = "방어구"
+L["ArmorBack"] = "등"
 L["Artifact"] = "유물"
 L["Attach to Cursor"] = "커서에 부착"
 L["Auction House"] = "경매장"
@@ -3610,6 +3654,7 @@ L["Enter amount in gold:"] = "골드 금액을 입력하세요:"
 L["OneBag sorting will physically reorganize items in your bags. The changes persist even if you disable EllesmereUI Bags."] = "통합 가방 정렬은 가방 안 아이템을 실제로 재배치합니다. EllesmereUI Bags 를 꺼도 변경은 유지됩니다."
 L["This will physically scatter items to random positions in your bags. The changes persist even if you disable EllesmereUI Bags."] = "가방 안 아이템을 무작위 위치로 실제로 흩뜨립니다. EllesmereUI Bags 를 꺼도 변경은 유지됩니다."
 -- add 가방 포맷 (Bags Format)
+L["ArmorBag"] = "방어구"
 L["All Items (%d)"] = "모든 아이템 (%d)"
 L["Adventure Prep (%d)"] = "모험 준비 (%d)"
 L["Bank Tab %d"] = "은행 탭 %d"
@@ -4018,3 +4063,501 @@ L["What we change:"] = "변경 항목:"
 L["World Map"] = "지도"
 L["Wrist |cff888888+%d|r"] = "손목 |cff888888+%d|r"
 L["You can revert all changes at any time by clicking \"Restore My Settings\" which will appear after optimizing."] = "최적화 후 나타나는 \"내 설정 복원\"을 클릭하면 언제든지 모든 변경을 되돌릴 수 있습니다."
+
+--------------------------------------------------------------------------------
+--  Korean render hook -- extends the core L() engine for koKR only.
+--
+--  EllesmereUI_Locale.lua translates at the builder boundary: only where the
+--  shared widgets explicitly call L(). Text set directly via :SetText, drawn
+--  before the catalog activates, built from a format string, or pushed into a
+--  tooltip line pool or an EUI popup never passes that boundary and stays
+--  English on a koKR client. This block hooks the render primitives to fill the
+--  gap. It re-uses the core API (L / LOCALE / RegisterLocale) and adds only what
+--  the core lacks. Inert unless EllesmereUI.LOCALE == "koKR".
+--------------------------------------------------------------------------------
+local ADDON = ...
+if type(_G.EllesmereUI) ~= "table" then return end
+local EUI = _G.EllesmereUI
+
+local issecretvalue = issecretvalue
+local hooksecurefunc = hooksecurefunc
+local type, tonumber, pairs, ipairs = type, tonumber, pairs, ipairs
+
+-- on = koKR active; tpl = compiled format keys. Exact lookup, locale resolution
+-- and the keep-English sentinel all stay with the core engine.
+local S = { on = false, tpl = {} }
+local KO = "koKR"
+
+local function secret(v) return issecretvalue and issecretvalue(v) end
+
+-- A translatable string: non-empty, not secret, not a bare number, has a letter.
+local function candidate(s)
+    if type(s) ~= "string" or s == "" then return false end
+    if secret(s) then return false end           -- guard before any compare/index
+    if tonumber(s) ~= nil then return false end
+    return s:find("%a") ~= nil
+end
+
+--------------------------------------------------------------------------------
+--  Format-key templates
+--  "%d Items" compiles to a pattern that recaptures the numbers and substrings
+--  from an already-rendered string ("96 Items"), so the Korean value can be
+--  rebuilt. This is the one lookup the core L() cannot do.
+--------------------------------------------------------------------------------
+local NUMS   = "%%[%-+ #0-9%.]*[diouxXeEfgG]"
+local ANYS   = "%%[%-+ #0-9%.]*[diouxXeEfgGs]"
+local HEXCAP = "(|c%x%x%x%x%x%x%x%x)"
+local MIN_LIT = 6
+local MAGIC   = "^$()%.[]*+-?"
+
+local function escLit(ch)
+    if MAGIC:find(ch, 1, true) then return "%" .. ch end
+    return ch
+end
+
+-- A number spec captures a number; %s captures a colour code when it precedes a
+-- number, otherwise a lazy substring. A loose (.-)-only key is too greedy, so it
+-- is kept only when its literal text is long enough to stay distinctive.
+local function compileKey(key, val, out)
+    local i, n, lit, hasDigit, hasLoose, parts = 1, #key, 0, false, false, {}
+    while i <= n do
+        local b = key:byte(i)
+        if b == 37 then                              -- '%'
+            if key:byte(i + 1) == 37 then            -- '%%'
+                parts[#parts + 1] = "%%"; i = i + 2; lit = lit + 1
+            else
+                local spec = key:match("^" .. ANYS, i)
+                if not spec then return end          -- malformed
+                if spec:byte(-1) == 115 then         -- '%s'
+                    if key:match("^" .. NUMS, i + #spec) then
+                        parts[#parts + 1] = HEXCAP   -- colour code paired with a number
+                    else
+                        parts[#parts + 1] = "(.-)"; hasLoose = true
+                    end
+                else
+                    parts[#parts + 1] = "(%-?%d+%.?%d*)"; hasDigit = true
+                end
+                i = i + #spec
+            end
+        else
+            parts[#parts + 1] = escLit(key:sub(i, i)); i = i + 1; lit = lit + 1
+        end
+    end
+    if not (hasDigit or hasLoose) then return end
+    if hasLoose and not hasDigit and lit < MIN_LIT then return end
+    out[#out + 1] = { pat = "^" .. table.concat(parts) .. "$", val = val, digit = hasDigit }
+end
+
+-- Splice the captures into the Korean value in order. An %s slot is re-translated
+-- (so a captured option label renders in Korean too). %% -> %.
+local Translate  -- forward
+local function fill(val, caps)
+    local idx = 0
+    local s = val:gsub("%%%%", "\1")
+    s = s:gsub(ANYS, function(spec)
+        idx = idx + 1
+        local c = caps[idx] or ""
+        if spec:byte(-1) == 115 then
+            if spec:match("%.0+s$") then return "" end   -- %.0s eats an unused plural arg
+            local t = Translate(c)
+            return (type(t) == "string") and t or c
+        end
+        return c
+    end)
+    return (s:gsub("\1", "%%"))
+end
+
+--------------------------------------------------------------------------------
+--  Translator: returns the Korean string, or nil when nothing matched.
+--------------------------------------------------------------------------------
+Translate = function(s)
+    if not S.on or not candidate(s) then return nil end
+
+    local hit = EUI.L(s)   -- core exact lookup (catalog + sentinel + guards)
+    if type(hit) == "string" and hit ~= s then return hit end
+
+    local hasNum = s:find("%d") ~= nil
+    local tpl = S.tpl
+    for k = 1, #tpl do
+        local e = tpl[k]
+        if (not e.digit) or hasNum then
+            local caps = { s:match(e.pat) }
+            if caps[1] ~= nil then return fill(e.val, caps) end
+        end
+    end
+
+    -- Colour wrap: |cAARRGGBB...|r
+    local hex, body = s:match("^(|c%x%x%x%x%x%x%x%x)(.-)|r$")
+    if hex and body ~= "" then
+        local r = Translate(body)
+        if r then return hex .. r .. "|r" end
+    end
+
+    -- Paren wrap: (...)
+    local inner = s:match("^%((.-)%)$")
+    if inner and inner ~= "" then
+        local r = Translate(inner)
+        if r then return "(" .. r .. ")" end
+    end
+
+    -- Comma list "A, B" -- only when every item translates.
+    if s:find(", ", 1, true) then
+        local parts, m, all = {}, 0, true
+        for piece in (s .. ", "):gmatch("(.-), ") do
+            m = m + 1
+            local r = Translate(piece)
+            if r then parts[m] = r else parts[m] = piece; all = false end
+        end
+        if all and m >= 2 then return table.concat(parts, ", ") end
+    end
+    return nil
+end
+
+-- Whole string first, then line by line (multi-line widget tooltips).
+local function TranslateBlock(s)
+    local r = Translate(s)
+    if r then return r end
+    if type(s) == "string" and s:find("\n", 1, true) then
+        local moved = false
+        local out = s:gsub("[^\n]+", function(line)
+            local lr = Translate(line)
+            if lr then moved = true; return lr end
+            return line
+        end)
+        if moved then return out end
+    end
+    return nil
+end
+
+--------------------------------------------------------------------------------
+--  Build -- compile the format keys; the locale is whatever the core resolved.
+--------------------------------------------------------------------------------
+local function build()
+    local cat = EUI.RegisterLocale and EUI.RegisterLocale(KO) or nil
+    S.on = (EUI.LOCALE == KO) and (cat ~= nil)
+    EUI._koKRActive = S.on
+    S.tpl = {}
+    if not S.on then return end
+    for k, v in pairs(cat) do
+        if type(k) == "string" and type(v) == "string" and k:find("%%") and k:find("%a") then
+            compileKey(k, v, S.tpl)
+        end
+    end
+end
+
+do
+    local ev = CreateFrame("Frame")
+    ev:RegisterEvent("ADDON_LOADED")
+    ev:RegisterEvent("PLAYER_LOGIN")
+    ev:SetScript("OnEvent", function(self, e, who)
+        if e == "ADDON_LOADED" and who == ADDON then
+            build()
+        elseif e == "PLAYER_LOGIN" then
+            build()
+            self:UnregisterAllEvents()
+        end
+    end)
+    build()   -- preliminary; the override is confirmed by the events above
+end
+
+--------------------------------------------------------------------------------
+--  Render hooks
+--------------------------------------------------------------------------------
+if EUI._localeRenderHook then
+    EUI._koKRLocale1 = "deferred"   -- an equivalent hook is already installed
+    return
+end
+
+do
+    local fsMeta  = getmetatable(UIParent:CreateFontString(nil, "BACKGROUND")).__index
+    local fsRaw   = fsMeta.SetText
+    local btnMeta = getmetatable(CreateFrame("Button")).__index
+    local btnRaw  = btnMeta.SetText
+    local guard   = setmetatable({}, { __mode = "k" })   -- re-entrancy
+
+    -- Never touch a protected/secure region. IsProtected can return a secret in a
+    -- restricted context, so look at IsForbidden and the name only.
+    local function shielded(region)
+        local r = region
+        for _ = 1, 6 do
+            if not r then return false end
+            if r.IsForbidden and r:IsForbidden() then return true end
+            local nm = r.GetName and r:GetName()
+            if type(nm) == "string" and (nm:find("StaticPopup") or nm:find("DropDownList")) then
+                return true
+            end
+            r = r.GetParent and r:GetParent() or nil
+        end
+        return false
+    end
+
+    -- Translate frames owned by the EllesmereUI family only, so plain English
+    -- keys (Hero, Damage) never bleed into unrelated addons. Family addons use
+    -- these name prefixes; add new ones here.
+    local FAMILY_PREFIX = { "Ellesmere", "EUI", "ECME", "ERF", "ERB", "EAB", "ECL" }
+    local function nameIsFamily(nm)
+        if type(nm) ~= "string" then return false end
+        for i = 1, #FAMILY_PREFIX do
+            if nm:find(FAMILY_PREFIX[i], 1, true) == 1 then return true end
+        end
+        return false
+    end
+    local _euiCache = setmetatable({}, { __mode = "k" })
+    local function isEUI(region)
+        if type(region) ~= "table" then return false end
+        local c = _euiCache[region]
+        if c ~= nil then return c end
+        local res, r = false, region
+        for _ = 1, 10 do
+            if not r then break end
+            local okN, nm = pcall(r.GetName, r)
+            if okN and nameIsFamily(nm) then res = true; break end
+            local okP, p = pcall(r.GetParent, r)
+            if not okP then break end
+            r = p
+        end
+        _euiCache[region] = res
+        return res
+    end
+    -- Fallback ownership by call stack: family folders are all "EllesmereUI*", so
+    -- if the code calling SetText lives in one, the frame is ours. This catches
+    -- unnamed popups (e.g. meter context menus). Strip our own folder first.
+    local function callerIsFamily()
+        local ok, s = pcall(debugstack, 2, 20, 0)
+        if not ok or type(s) ~= "string" then return false end
+        if secret(s) then return false end   -- debugstack can be secret when tainted
+        local okR, res = pcall(function()
+            return s:gsub("EllesmereUI_koKR", ""):find("EllesmereUI", 1, true) ~= nil
+        end)
+        return okR and res or false
+    end
+    -- Per-module homonym fix: when one English word needs different Korean in
+    -- different modules, route the conflicting module's text to its own key.
+    -- ["English"] = { ["module folder or file.lua"] = "altKey" }, matched in the
+    -- caller stack; the alt key must exist in the catalog.
+    local AMBIG = {
+        Off   = { EllesmereUIAuraBuffReminders = "OffHandSlot"  },
+        Main  = { EllesmereUIAuraBuffReminders = "MainHandSlot" },
+        Armor = { EllesmereUIBags = "ArmorBag" },
+        Focus = { ["EUI__General_Options.lua"] = "HunterFocus" }, 
+        Back  = { ["EUI_UpgradeCalc.lua"] = "ArmorBack" },
+    }
+    -- Live ownership. Cache true permanently; never cache false -- a frame may be
+    -- written by Blizzard then by EUI in turn (e.g. nameplate cast text), and a
+    -- cached false would block the later EUI write for good.
+    local _liveCache = setmetatable({}, { __mode = "k" })
+    local function liveOwned(self)
+        if type(self) ~= "table" then return false end
+        if _liveCache[self] then return true end
+        if isEUI(self) then _liveCache[self] = true; return true end
+        if callerIsFamily() then _liveCache[self] = true; return true end
+        return false
+    end
+    -- Write Korean back with the raw method so the hook does not re-fire.
+    local function apply(fs, text)
+        if not S.on or guard[fs] then return end
+        if type(text) ~= "string" or secret(text) then return end
+        local t
+        local amb = AMBIG[text]
+        if amb then
+            local ok, st = pcall(debugstack, 2, 20, 0)
+            if ok and type(st) == "string" and not secret(st) then
+                st = st:gsub("EllesmereUI_koKR", "")
+                for matchStr, key in pairs(amb) do
+                    if st:find(matchStr, 1, true) then t = TranslateBlock(key); break end
+                end
+            end
+        end
+        if not t then t = TranslateBlock(text) end
+        if type(t) ~= "string" or t == text then return end
+        if shielded(fs) then return end
+        guard[fs] = true
+        fsRaw(fs, t)
+        guard[fs] = nil
+    end
+
+    hooksecurefunc(fsMeta, "SetText", function(self, text)
+        if S.on and liveOwned(self) then pcall(apply, self, text) end
+    end)
+
+    -- SetFormattedText is a separate C method; read the result back and apply.
+    hooksecurefunc(fsMeta, "SetFormattedText", function(self)
+        if not S.on or guard[self] or not liveOwned(self) then return end
+        local ok, cur = pcall(self.GetText, self)
+        if ok and type(cur) == "string" then pcall(apply, self, cur) end
+    end)
+
+    -- Button:SetText is its own method, invisible to the FontString hook.
+    hooksecurefunc(btnMeta, "SetText", function(self, text)
+        if not S.on or not liveOwned(self) then return end
+        pcall(function()
+            if guard[self] then return end
+            if type(text) ~= "string" or secret(text) then return end
+            local t = Translate(text)
+            if type(t) ~= "string" or t == text then return end
+            if shielded(self) then return end
+            guard[self] = true
+            btnRaw(self, t)
+            guard[self] = nil
+        end)
+    end)
+
+    -- Tooltip line pools: AddLine/AddDoubleLine often bypass the SetText hook, so
+    -- walk the left/right lines on Show. EUI-owned tooltips only.
+    do
+        local function scan(tt)
+            local okN, nm = pcall(tt.GetName, tt)
+            if not okN or type(nm) ~= "string" then return end
+            local okO, owner = pcall(tt.GetOwner, tt)
+            if not okO or not isEUI(owner) then return end
+            local lines = (tt.NumLines and tt:NumLines()) or 0
+            for i = 1, lines do
+                local left  = _G[nm .. "TextLeft" .. i]
+                local right = _G[nm .. "TextRight" .. i]
+                for _, fs in ipairs({ left, right }) do
+                    if fs then
+                        local ok, txt = pcall(fs.GetText, fs)
+                        if ok and type(txt) == "string" and not secret(txt) and txt ~= "" then
+                            apply(fs, txt)
+                        end
+                    end
+                end
+            end
+        end
+        for _, tt in ipairs({ _G.GameTooltip, _G.ItemRefTooltip, _G.ShoppingTooltip1, _G.ShoppingTooltip2 }) do
+            if tt and tt.HookScript then
+                hooksecurefunc(tt, "Show", function(self) pcall(scan, self) end)
+            end
+        end
+    end
+
+    -- EUI popups: in 12.0 the text is set on a path/timing the hooks above miss,
+    -- so translate EUI_* dialog text and buttons right after StaticPopup_Show.
+    if _G.StaticPopup_Show then
+        local function trObj(obj)
+            if not (obj and obj.GetText and obj.SetText) then return end
+            local ok, cur = pcall(obj.GetText, obj)
+            if not ok or type(cur) ~= "string" or secret(cur) or cur == "" then return end
+            local t = Translate(cur)
+            if type(t) ~= "string" or t == cur then return end
+            if obj.GetObjectType and obj:GetObjectType() == "FontString" then
+                guard[obj] = true; fsRaw(obj, t); guard[obj] = nil
+            else
+                pcall(obj.SetText, obj, t)
+            end
+        end
+        hooksecurefunc("StaticPopup_Show", function(which)
+            if not S.on or type(which) ~= "string" or not which:find("^EUI_") then return end
+            for i = 1, (_G.STATICPOPUP_NUMDIALOGS or 4) do
+                local d = _G["StaticPopup" .. i]
+                if d and d.which == which then
+                    trObj(d.text or _G["StaticPopup" .. i .. "Text"])
+                    for b = 1, 4 do
+                        trObj(d["button" .. b] or _G["StaticPopup" .. i .. "Button" .. b])
+                    end
+                end
+            end
+        end)
+    end
+
+    -- Login sweep: catch text drawn before these hooks were installed (module
+    -- file-scope SetText calls). Walk the real parent/child tree -- never
+    -- EnumerateFrames, which throws on some addons' fake frame tables.
+    local _swept = setmetatable({}, { __mode = "k" })
+    local function SweepFrame(frame, depth, owned)
+        if depth > 40 or type(frame) ~= "table" or _swept[frame] then return end
+        _swept[frame] = true
+        if not owned then
+            local okN, nm = pcall(frame.GetName, frame)
+            if okN and nameIsFamily(nm) then owned = true end
+        end
+        if owned then
+            local okR, regions = pcall(function() return { frame:GetRegions() } end)
+            if okR then
+                for _, r in ipairs(regions) do
+                    local okT, ot = pcall(r.GetObjectType, r)
+                    if okT and ot == "FontString" then
+                        local okG, txt = pcall(r.GetText, r)
+                        if okG and type(txt) == "string" and not secret(txt) and txt ~= "" then
+                            pcall(apply, r, txt)
+                        end
+                    end
+                end
+            end
+        end
+        local okC, kids = pcall(function() return { frame:GetChildren() } end)
+        if okC then
+            for _, c in ipairs(kids) do SweepFrame(c, depth + 1, owned) end
+        end
+    end
+    local function SweepExisting()
+        if not S.on then return end
+        for k in pairs(_swept) do _swept[k] = nil end   -- fresh each pass
+        pcall(SweepFrame, UIParent, 0)
+    end
+    local sf = CreateFrame("Frame")
+    sf:RegisterEvent("PLAYER_LOGIN")
+    sf:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        SweepExisting()
+        if C_Timer and C_Timer.After then C_Timer.After(2, SweepExisting) end
+    end)
+
+    EUI._koKRLocale1 = true
+    EUI._localeRenderHook = true   -- tells a standalone companion to defer
+end
+
+--------------------------------------------------------------------------------
+--  Upgrade Calculator -- parse the localized "Upgrade Level" tooltip line.
+--  On a koKR client that line is Korean, so the module's English parse fails.
+--  Map the track name back to its English key through the catalog (Lid).
+--------------------------------------------------------------------------------
+local function Lid(s)
+    local t = Translate(s)
+    return (type(t) == "string") and t or s
+end
+local function HookUpgradeCalcLocalizedParse()
+    if not S.on then return true end                 -- English: the module parses itself
+    local C = _G.EUIUpgCalc
+    if type(C) ~= "table" or type(C.GetItemTrackAndRank) ~= "function" then return false end
+    local header = Lid("Upgrade Level")
+    if header == "Upgrade Level" then return false end   -- catalog miss -> retry
+    if C._koLocalizedParseHooked then return true end
+    C._koLocalizedParseHooked = true
+    local orig = C.GetItemTrackAndRank
+    C.GetItemTrackAndRank = function(self, link)
+        local t, r = orig(self, link)
+        if t then return t, r end
+        if not (C_TooltipInfo and type(link) == "string") then return t, r end
+        local data = C_TooltipInfo.GetHyperlink(link)
+        if not (data and data.lines) then return t, r end
+        local tracks = C.Data and C.Data.trackOrder
+        if not tracks then return t, r end
+        for _, line in ipairs(data.lines) do
+            local txt = line.leftText
+            if type(txt) == "string" and not secret(txt) then
+                local _, e = txt:find(header, 1, true)
+                if e then
+                    local name, rk = txt:sub(e + 1):match("[:%s]*(%S+)%s+(%d+)/%d+")
+                    if name then
+                        for _, key in ipairs(tracks) do
+                            if Lid(key) == name then return key, tonumber(rk) end
+                        end
+                    end
+                    break
+                end
+            end
+        end
+        return t, r
+    end
+    return true
+end
+
+if not HookUpgradeCalcLocalizedParse() then
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("ADDON_LOADED")
+    f:RegisterEvent("PLAYER_LOGIN")
+    f:SetScript("OnEvent", function(self, ev)
+        if HookUpgradeCalcLocalizedParse() or ev == "PLAYER_LOGIN" then self:UnregisterAllEvents() end
+    end)
+end
