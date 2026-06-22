@@ -4038,9 +4038,17 @@ local function BuildCogPopup(opts)
                 -- Propagate popup scale (and the dropdown's 10% reduction) to the
                 -- lazily-created menu so the open list matches the shrunk control.
                 ddBtn:HookScript('OnClick', function(self)
-                    if self._ddMenu and not self._ddMenu._cogScaled then
-                        self._ddMenu:SetScale(ppScale * DD_SCALE)
-                        self._ddMenu._cogScaled = true
+                    if self._ddMenu then
+                        if not self._ddMenu._cogScaled then
+                            self._ddMenu:SetScale(ppScale * DD_SCALE)
+                            self._ddMenu._cogScaled = true
+                        end
+                        -- Keep the menu above the cog popup. BuildDropdownMenu
+                        -- creates it at FULLSCREEN_DIALOG 200; when the popup itself
+                        -- is FULLSCREEN_DIALOG (e.g. opened inside another dialog),
+                        -- 200 sits behind it, so raise the menu above the popup.
+                        self._ddMenu:SetFrameStrata(pf:GetFrameStrata())
+                        self._ddMenu:SetFrameLevel(pf:GetFrameLevel() + 30)
                     end
                 end)
 

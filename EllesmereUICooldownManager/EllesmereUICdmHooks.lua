@@ -195,6 +195,9 @@ ns.ResolveFrameSpellID = ResolveFrameSpellID
 local function ResolveSpellSettings(frame, sid2, sd2)
     local settings = sd2 and sd2.spellSettings
     if not settings or not sid2 then return nil end
+    -- No per-spell settings on this bar -> nothing to resolve. Skips the identity
+    -- set + GetBaseSpell work for the common case (keeps the swipe hot path light).
+    if next(settings) == nil then return nil end
 
     -- Fast path: direct hit on the primary id (the common, non-override case).
     -- Returns before building the identity set / addId closure below, so the hot
@@ -211,10 +214,22 @@ local function ResolveSpellSettings(frame, sid2, sd2)
         for i = 1, #ids do if ids[i] == id then return end end
         ids[#ids + 1] = id
     end
-    if ns.GetCanonicalSpellIDForFrame then addId(ns.GetCanonicalSpellIDForFrame(frame)) end
+    local canon2 = ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(frame)
+    if canon2 then addId(canon2) end
     if fc2 then
         addId(fc2.resolvedSid)
         addId(fc2.baseSpellID)
+    end
+    -- Talent "proc into a second ability" forms (e.g. Demon Hunter Reap 1226019 /
+    -- 1225826) share a GetBaseSpell base (344862) with the spell the user actually
+    -- configured -- but that base is NOT the cooldownInfo base (which for these is
+    -- the override id itself), and FindSpellOverrideByID is unreliable because the
+    -- LIVE override may differ from the displayed form. GetBaseSpell of the frame's
+    -- ids is the stable bridge, so a setting stored under the base form resolves on
+    -- the proc'd/override frame.
+    if C_Spell and C_Spell.GetBaseSpell then
+        addId(C_Spell.GetBaseSpell(sid2))
+        if canon2 then addId(C_Spell.GetBaseSpell(canon2)) end
     end
 
     -- 1. Direct hit on any identity id.
@@ -1478,6 +1493,19 @@ local function HideAllPlaceholders()
 end
 ns.HideAllPlaceholders = HideAllPlaceholders
 
+-- Injected custom/preset buff own-frames (buff-family bars). Tracked so the
+-- collect pass can hide them all up front and re-show only the active ones,
+-- exactly like placeholders -- the buff-phase cleanup loops only disable swipe
+-- (correct for Blizzard pool frames, which must never be Hidden), so OUR frames
+-- need their own hide pass or an inactive/expired/orphaned one would linger.
+local _injectedCustomBuffFrames = setmetatable({}, { __mode = "k" })
+local function HideAllInjectedCustomBuffs()
+    for f in pairs(_injectedCustomBuffFrames) do
+        if f:IsShown() then f:Hide() end
+    end
+end
+ns.HideAllInjectedCustomBuffs = HideAllInjectedCustomBuffs
+
 local function GetOrCreatePlaceholderFrame(barKey, spellID, iconID)
     local fkey = barKey .. ":ph:" .. spellID
     local f = _placeholderFrames[fkey]
@@ -1516,6 +1544,43 @@ local function GetOrCreatePlaceholderFrame(barKey, spellID, iconID)
     if iconID then f._tex:SetTexture(iconID) end
     return f
 end
+
+-- Own-frame for a custom/preset buff (cast-timer driven) on a buff-family bar.
+-- Created once per (barKey, spellID); reused across reanchors. Mirrors the frame
+-- the legacy custom_buff renderer builds, but the buff-phase injection drives its
+-- cooldown swipe and lets CollectAndReanchor slot it next to Blizzard buff frames.
+-- OnCooldownDone queues a reanchor so the expired buff drops out of the layout.
+local function GetOrCreateCustomBuffFrame(barKey, sid)
+    local fkey = barKey .. ":custombuff:" .. sid
+    local f = _presetFrames[fkey]
+    if not f then
+        f = CreateFrame("Frame", nil, UIParent)
+        f:SetSize(36, 36); f:Hide()
+        f:EnableMouse(false)
+        local tex = f:CreateTexture(nil, "ARTWORK")
+        tex:SetAllPoints(); tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        f.Icon = tex; f._tex = tex
+        local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+        cd:SetAllPoints(); cd:SetDrawEdge(false); cd:SetDrawBling(false)
+        cd:SetReverse(true)
+        f.Cooldown = cd; f._cooldown = cd
+        f._isCustomSpellFrame = true
+        f._isCustomBuffFrame = true
+        f.cooldownID = nil; f.cooldownInfo = nil
+        cd:HookScript("OnCooldownDone", function()
+            -- Re-lay-out the bar so the expired buff is removed. Also poke the
+            -- legacy custom_buff updater (harmless for buff bars).
+            if ns.QueueCustomBuffUpdate then C_Timer.After(0, ns.QueueCustomBuffUpdate) end
+            if ns.QueueReanchor then C_Timer.After(0, ns.QueueReanchor) end
+        end)
+        local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
+        if spInfo and spInfo.iconID and f._tex then f._tex:SetTexture(spInfo.iconID) end
+        _presetFrames[fkey] = f
+        _injectedCustomBuffFrames[f] = true
+    end
+    return f
+end
+ns.GetOrCreateCustomBuffFrame = GetOrCreateCustomBuffFrame
 
 
 -- Guard: after ENCOUNTER_END clears item-preset caches, subsequent events
@@ -1732,6 +1797,10 @@ end)
 
 -- Custom aura bar cast detection
 local _pendingCastIDs = {}
+-- Cast-timer state for custom/preset buffs, keyed "barKey:spellID". Declared
+-- here (before CollectAndReanchor) so the buff-phase own-frame injection can
+-- read the live timer to decide which custom buffs to render.
+local _customAuraTimers = {}
 local _customBuffDirty = false
 local _customBuffFrame = CreateFrame("Frame")
 _customBuffFrame:Hide()
@@ -1775,7 +1844,7 @@ function ns.AnyCustomAuraLust()
     local p = ECME and ECME.db and ECME.db.profile
     if not (p and p.cdmBars and p.cdmBars.bars) then return false end
     for _, bd in ipairs(p.cdmBars.bars) do
-        if bd.enabled and bd.barType == "custom_buff" then
+        if bd.enabled and (bd.barType == "custom_buff" or bd.barType == "buffs") then
             local sd = ns.GetBarSpellData and ns.GetBarSpellData(bd.key)
             if sd and sd.assignedSpells then
                 for _, sid in ipairs(sd.assignedSpells) do
@@ -1892,6 +1961,10 @@ local function CollectAndReanchor()
     -- re-shows only the placeholders it injects this pass, so stale ones (buff
     -- went active, bar toggled off/disabled, spec swap) end up hidden.
     HideAllPlaceholders()
+    -- Same for injected custom/preset buff own-frames: hide all, then the buff
+    -- phase re-shows only the ones whose cast-timer is currently active (or while
+    -- the CDM options page is open). Without this an expired custom buff lingers.
+    HideAllInjectedCustomBuffs()
 
 
     -- Buff bars: existing entry-based collection (unchanged)
@@ -1963,8 +2036,28 @@ local function CollectAndReanchor()
                                     -- toggle on. We never touch Blizzard's hidden frame, so nothing
                                     -- fights its hide state.
                                     local bd = barDataByKey[targetBar]
+                                    -- Effective Always Show for THIS buff: a per-icon
+                                    -- override (ss.alwaysShow "on"/"off") beats the bar
+                                    -- toggle. Lookup only when per-icon settings exist
+                                    -- on the bar (zero added cost otherwise).
+                                    local showInactive = bd and bd.showInactiveBuffIcons and true or false
+                                    if bd then
+                                        local sdAS = ns.GetBarSpellData(targetBar)
+                                        if sdAS and sdAS.spellSettings then
+                                            -- Shared resolver: matches the stored key
+                                            -- against the frame's full identity set
+                                            -- (incl. GetCanonicalSpellIDForFrame, the
+                                            -- id the picker keys settings by).
+                                            local ssAS = ns.ResolveSpellSettings(frame, realSID, sdAS)
+                                                or sdAS.spellSettings[realSID]
+                                            if ssAS then
+                                                if ssAS.alwaysShow == "on" then showInactive = true
+                                                elseif ssAS.alwaysShow == "off" then showInactive = false end
+                                            end
+                                        end
+                                    end
                                     if bd and bd.enabled and bd.barType == "buffs"
-                                       and bd.showInactiveBuffIcons and targetBar ~= ns.FOCUSKICK_BAR_KEY then
+                                       and showInactive and targetBar ~= ns.FOCUSKICK_BAR_KEY then
                                         -- Two displayed-but-inactive viewer items can resolve to the
                                         -- SAME live spell (split-form talents share one override
                                         -- target). They share one pooled placeholder frame, so guard
@@ -1979,6 +2072,10 @@ local function CollectAndReanchor()
                                             ph.layoutIndex = frame.layoutIndex or 0
                                             ph:Show()
                                             if not barLists[targetBar] then barLists[targetBar] = {} end
+                                            -- realSID is the displayed/clean buff id (== the active
+                                            -- frame's canonical id and the per-icon settings key the
+                                            -- options menu writes), so the placeholder resolves the
+                                            -- same per-icon settings as the live buff.
                                             barLists[targetBar][#barLists[targetBar] + 1] =
                                                 AcquireEntry(ph, realSID, realSID, frame.layoutIndex or 0)
                                         end
@@ -2016,12 +2113,54 @@ local function CollectAndReanchor()
 
 
 
+    -- Inject custom/preset buff own-frames (cast-timer driven) into buff-family
+    -- bars so they sort + lay out beside Blizzard buff frames. The buff tick
+    -- (UpdateCustomBuffBars) owns cast detection + timer lifecycle; here we only
+    -- read the live timer to decide which custom buffs render. Dormant unless a
+    -- buff bar has custom spells (sd.spellDurations set) -- zero cost otherwise.
+    do
+        local nowTime = GetTime()
+        local cdmPageOpen = ns._cdmBarsPageOpen or false
+        for _, bd in ipairs(p.cdmBars.bars) do
+            if bd.enabled and bd.barType == "buffs" then
+                local injKey = bd.key
+                local sdInj = ns.GetBarSpellData(injKey)
+                local spellList = sdInj and sdInj.assignedSpells
+                local durs = sdInj and sdInj.spellDurations
+                if spellList and durs then
+                    for idx, sid in ipairs(spellList) do
+                        if type(sid) == "number" and sid > 0 and (durs[sid] or 0) > 0 then
+                            local timer = _customAuraTimers[injKey .. ":" .. sid]
+                            local isActive = timer and (nowTime - timer.start) < timer.duration
+                            if isActive or cdmPageOpen then
+                                local f = GetOrCreateCustomBuffFrame(injKey, sid)
+                                if isActive then
+                                    f._cooldown:SetCooldown(timer.start, timer.duration)
+                                else
+                                    f._cooldown:Clear()
+                                end
+                                f:Show()
+                                f.layoutIndex = 5000 + idx
+                                local fc = FC(f)
+                                fc.barKey = injKey
+                                fc.spellID = sid
+                                if not barLists[injKey] then barLists[injKey] = {} end
+                                barLists[injKey][#barLists[injKey] + 1] =
+                                    AcquireEntry(f, sid, sid, f.layoutIndex)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     local LayoutCDMBar = ns.LayoutCDMBar
     local RefreshCDMIconAppearance = ns.RefreshCDMIconAppearance
     local ApplyCDMTooltipState = ns.ApplyCDMTooltipState
 
     ---------------------------------------------------------------------------
-    --  PHASE 2: Process BUFF bars (existing flow, completely unchanged)
+    --  PHASE 2: Process BUFF bars (existing flow, plus injected custom frames)
     ---------------------------------------------------------------------------
     for barKey, list in pairs(barLists) do
         local barData = barDataByKey[barKey]
@@ -2118,6 +2257,18 @@ local function CollectAndReanchor()
                     if not container._prevIconRefs then container._prevIconRefs = {} end
                     for idx = 1, count do container._prevIconRefs[idx] = icons[idx] end
                     for idx = count + 1, #container._prevIconRefs do container._prevIconRefs[idx] = nil end
+                else
+                    -- Frames + order unchanged, but if the bar has per-icon overrides
+                    -- a pool frame may have been reused for a different spell (same
+                    -- ref) -- this pass just re-stamped fc.spellID, so re-apply icon
+                    -- appearance (no re-layout) to re-resolve per-icon glow/text
+                    -- against the fresh identity. Without this a per-icon glow stays
+                    -- on the frame it was first stashed on until the next add/remove.
+                    local sdRef = ns.GetBarSpellData and ns.GetBarSpellData(barKey)
+                    if sdRef and sdRef.spellSettings and next(sdRef.spellSettings) ~= nil
+                       and RefreshCDMIconAppearance then
+                        RefreshCDMIconAppearance(barKey)
+                    end
                 end
                 container._prevVisibleCount = count
             end
@@ -2839,8 +2990,9 @@ ns.CollectAndReanchor = CollectAndReanchor
 --  UpdateCustomBuffBars
 --  Custom Aura bars use UNIT_SPELLCAST_SUCCEEDED to detect usage,
 --  then show icon with hardcoded duration (reverse cooldown swipe).
+--  (_customAuraTimers is declared earlier so the buff-phase injection in
+--  CollectAndReanchor can read the same live timers.)
 -------------------------------------------------------------------------------
-local _customAuraTimers = {}
 
 local function UpdateCustomBuffBars()
     -- if CooldownViewerSettings and CooldownViewerSettings:IsShown() then return end
@@ -2949,6 +3101,33 @@ local function UpdateCustomBuffBars()
             end
         end
     end
+
+    -- Buff-family bars: custom/preset buffs are injected + rendered by
+    -- CollectAndReanchor's buff phase. Here we only run cast detection: when a
+    -- pending cast matches a custom buff on a buff bar, (re)start its timer and
+    -- queue a reanchor so the icon appears. Expiry is handled by the frame's
+    -- OnCooldownDone hook (which also reanchors to drop the icon).
+    local needBuffReanchor = false
+    for _, barData in ipairs(p.cdmBars.bars) do
+        if barData.enabled and barData.barType == "buffs" then
+            local sd = ns.GetBarSpellData(barData.key)
+            local spellList = sd and sd.assignedSpells
+            local durs = sd and sd.spellDurations
+            if spellList and durs then
+                for _, sid in ipairs(spellList) do
+                    if type(sid) == "number" and sid > 0
+                       and (durs[sid] or 0) > 0 and _pendingCastIDs[sid] then
+                        _customAuraTimers[barData.key .. ":" .. sid] = {
+                            start = now, duration = durs[sid],
+                        }
+                        needBuffReanchor = true
+                    end
+                end
+            end
+        end
+    end
+    if needBuffReanchor and ns.QueueReanchor then ns.QueueReanchor() end
+
     wipe(_pendingCastIDs)
 end
 ns.UpdateCustomBuffBars = UpdateCustomBuffBars
@@ -3360,6 +3539,20 @@ function ns.SetupViewerHooks()
 
                                 local isActiveBuff = (frame.wasSetFromAura == true
                                     or frame.auraInstanceID ~= nil)
+                                -- Totems and other non-aura buff-viewer items never set
+                                -- wasSetFromAura/auraInstanceID even while up, so the aura
+                                -- check above misses them. But Blizzard only SHOWS a buff
+                                -- frame while it is active (inactive buffs are hidden; our
+                                -- Always-Show injects separate _isPlaceholderFrame frames,
+                                -- and presets are our own _isCustomBuffFrame frames). We're
+                                -- already inside `frame:IsShown()`, so any shown buff-bar
+                                -- frame that is NOT a placeholder is active regardless of
+                                -- aura props -- this is what catches totems and presets
+                                -- (for both the glow and the desaturate-inactive logic).
+                                if not isActiveBuff and isBuff
+                                   and not frame._isPlaceholderFrame then
+                                    isActiveBuff = true
+                                end
 
                                 -- Desaturate inactive buff icons when Always
                                 -- Show Buffs is on and Desaturate Off CD is
@@ -3371,22 +3564,33 @@ function ns.SetupViewerHooks()
                                 -- Desaturate Off CD are on. Per-bar now -- not a
                                 -- global. Active real auras stay full color.
                                 if isBuff and bd.barType ~= "custom_buff" and fd and fd.tex then
-                                    if bd.showInactiveBuffIcons
-                                       and (bd.desaturateInactiveBuffs ~= false)
-                                       and not isActiveBuff then
+                                    -- A shown, inactive buff icon is present only because
+                                    -- Always Show Buffs resolved true for it (bar-level OR
+                                    -- per-icon -> placeholder frame). Per-icon Desaturate
+                                    -- Inactive (fd._desatOverride) beats the bar's
+                                    -- Desaturate Off CD. Active auras stay full color.
+                                    local desatOn = (bd.desaturateInactiveBuffs ~= false)
+                                    if fd._desatOverride == "on" then desatOn = true
+                                    elseif fd._desatOverride == "off" then desatOn = false end
+                                    if (bd.showInactiveBuffIcons or frame._isPlaceholderFrame)
+                                       and desatOn and not isActiveBuff then
                                         fd.tex:SetDesaturated(true)
                                     elseif fd.tex:IsDesaturated() then
                                         fd.tex:SetDesaturated(false)
                                     end
                                 end
 
-                                -- Buff glow (only on active auras).
-                                -- Custom aura bars use their own frames
-                                -- without wasSetFromAura/auraInstanceID;
-                                -- treat shown custom aura frames as active.
+                                -- Buff glow shows on active buffs. isActiveBuff above
+                                -- already counts shown totems and our preset/custom
+                                -- own-frames as active, so this just reads it.
                                 local glowActive = isActiveBuff
                                     or (bd.barType == "custom_buff" and frame:IsShown())
-                                if buffGlowType > 0 and fd and glowActive then
+                                -- Effective Buff Glow = per-icon override (fd._bgT,
+                                -- stashed by RefreshCDMIconAppearance) falling back to
+                                -- the bar's Buff Glow. nil override => inherit; 0 => None.
+                                local effGlowType = buffGlowType
+                                if fd and fd._bgT ~= nil then effGlowType = fd._bgT end
+                                if effGlowType > 0 and fd and glowActive then
                                     if not fd.buffGlowActive then
                                         if not fd.buffGlowOverlay then
                                             local ov = CreateFrame("Frame", nil, frame)
@@ -3396,12 +3600,19 @@ function ns.SetupViewerHooks()
                                             fd.buffGlowOverlay = ov
                                         end
                                         local cr, cg, cb = bd.buffGlowR or 1.0, bd.buffGlowG or 0.776, bd.buffGlowB or 0.376
-                                        if bd.buffGlowClassColor and _cachedClassToken then
+                                        local classColor = bd.buffGlowClassColor
+                                        if fd._bgColor == "class" then
+                                            classColor = true
+                                        elseif fd._bgColor == "custom" then
+                                            classColor = false
+                                            cr, cg, cb = fd._bgR or cr, fd._bgG or cg, fd._bgB or cb
+                                        end
+                                        if classColor and _cachedClassToken then
                                             local cc = RAID_CLASS_COLORS[_cachedClassToken]
                                             if cc then cr, cg, cb = cc.r, cc.g, cc.b end
                                         end
                                         fd.buffGlowOverlay:SetAlpha(1)
-                                        ns.StartNativeGlow(fd.buffGlowOverlay, buffGlowType, cr, cg, cb, {
+                                        ns.StartNativeGlow(fd.buffGlowOverlay, effGlowType, cr, cg, cb, {
                                             N      = bd.buffGlowLines or 8,
                                             th     = bd.buffGlowThickness or 2,
                                             period = bd.buffGlowSpeed or 4,
