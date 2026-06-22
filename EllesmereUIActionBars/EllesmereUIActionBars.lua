@@ -8101,6 +8101,9 @@ function EAB:FinishSetup()
                 end
             end
             RestoreBarPositions()
+            -- Vehicle exit button position/size/restyle + unlock-mode mover live
+            -- in EllesmereUIVehicleLeave.lua (separate file, so locals don't count
+            -- against this chunk's 200-local limit).
         else
             -- Combat reload: non-protected setup only; secure handler does the rest.
             -- Stock bar disposal (including ActionBarParent) already happened at
