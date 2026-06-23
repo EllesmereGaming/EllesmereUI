@@ -1924,7 +1924,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 4: Shift Elements if No Resource | Expand Power Bar if No Resource
         local shiftResRow
         shiftResRow, h = W:DualRow(parent, y,
-            { type = "dropdown", text = "Shift Elements if No Resource",
+            { type = "dropdown", text = "Shift Elements if No Resource", dropdownWidth = 136,
               tooltip = "Shifts any elements anchored to the class resource bar up or down to offset the missing class resource.",
               -- Mutually exclusive with "Expand Power Bar if No Resource": grey this
               -- while expand is on, but only when it is itself OFF (== "None") so a
@@ -2014,7 +2014,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 5: Shift Elements if No Power | (blank)
         local shiftPowRow
         shiftPowRow, h = W:DualRow(parent, y,
-            { type = "dropdown", text = "Shift Elements if No Power",
+            { type = "dropdown", text = "Shift Elements if No Power", dropdownWidth = 136,
               tooltip = "Shifts any elements anchored to the power bar up or down to offset the missing power bar. Applies both when the Power Bar is disabled and for specs that have no power (for example, Beast Mastery and Marksmanship Hunters, whose Focus shows as the class resource bar).",
               -- Intentionally NOT disabled when the Power Bar is off: this setting
               -- is meant to fire precisely when the bar is disabled, so it must

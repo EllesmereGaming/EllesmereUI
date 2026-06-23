@@ -154,7 +154,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Window Scale | Hide Categories with 0 Items
             _, h = W:DualRow(parent, y,
-                { type="slider", text="Window Scale", min=50, max=150, step=5,
+                { type="slider", text="Window Scale", min=50, max=150, step=5, trackWidth = 120,
                   tooltip="Scale of the bag and bank windows.",
                   getValue=function() return math.floor((db.profile.bagScale or 1) * 100 + 0.5) end,
                   setValue=function(v)
@@ -188,7 +188,7 @@ initFrame:SetScript("OnEvent", function(self)
                           if _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                       end
                   end },
-                { type="dropdown", text="Default Bag Type",
+                { type="dropdown", text="Default Bag Type", dropdownWidth = 110,
                   tooltip="Which view bags (and the bank) open to by default. The bank has no MultiBag view, so MultiBag opens the bank to OneBank.",
                   values = { all="All Items", onebag="OneBag", multibag="MultiBag" },
                   order  = { "all", "onebag", "multibag" },
@@ -209,7 +209,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Category Title Size | Show Item Level (+ inline cog: Gear Track Rank)
             local ilvlRow
             ilvlRow, h = W:DualRow(parent, y,
-                { type="slider", text="Category Title Size", min=8, max=16, step=1,
+                { type="slider", text="Category Title Size", min=8, max=16, step=1, trackWidth = 120,
                   tooltip="Font size for category titles in the sidebar and content grid.",
                   getValue=function() return db.profile.bagCatTitleSize or 11 end,
                   setValue=function(v)
@@ -297,7 +297,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if #catItems > 0 then
                     local leftRgn = catCurrRow._leftRegion
                     local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                        leftRgn, 210, leftRgn:GetFrameLevel() + 2,
+                        leftRgn, 110, leftRgn:GetFrameLevel() + 2,
                         catItems,
                         function(defName)
                             local dc = db.profile.bagDisabledCategories
@@ -371,7 +371,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if #currencyItems > 0 then
                     local rightRgn = catCurrRow._rightRegion
                     local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                        rightRgn, 210, rightRgn:GetFrameLevel() + 2,
+                        rightRgn, 110, rightRgn:GetFrameLevel() + 2,
                         currencyItems,
                         function(cID)
                             local co = db.profile.currencyOrder
@@ -404,7 +404,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Item Count Text Size | Item Level Text Size
             _, h = W:DualRow(parent, y,
-                { type="slider", text="Item Count Text Size", min=8, max=16, step=1,
+                { type="slider", text="Item Count Text Size", min=8, max=16, step=1, trackWidth = 120,
                   tooltip="Font size for stack counts, keystone levels, and dungeon abbreviations.",
                   getValue=function() return db.profile.bagCountFontSize or 11 end,
                   setValue=function(v)
@@ -413,7 +413,7 @@ initFrame:SetScript("OnEvent", function(self)
                       local bank = _G.EUI_BankFrame
                       if bank and bank.RefreshTextSizes then bank:RefreshTextSizes() end
                   end },
-                { type="slider", text="Item Level Text Size", min=8, max=16, step=1,
+                { type="slider", text="Item Level Text Size", min=8, max=16, step=1, trackWidth = 120,
                   tooltip="Font size for item level numbers on equipment items.",
                   getValue=function() return db.profile.itemlevelFontSize or 12 end,
                   setValue=function(v)

@@ -2948,7 +2948,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
             controlAnchor = trackFrame
 
         elseif t == "dropdown" then
-            local DD_W = 170
+            local DD_W = cfg.dropdownWidth or 170
             -- Bridge itemDisabled/itemDisabledTooltip into disabledValuesFn for BuildDropdownControl
             local ddDisabledFn = cfg.disabledValues
             if not ddDisabledFn and cfg.itemDisabled then

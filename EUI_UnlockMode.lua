@@ -7600,7 +7600,7 @@ local function CreateHUD(parent)
     gridLabel:SetJustifyH("RIGHT")
     gridLabel:SetPoint("RIGHT", gridTex, "LEFT", -5, 0)
     gridLabel:SetTextColor(1, 1, 1, GridHudAlpha())
-    gridLabel:SetText(GridLabelText())
+    gridLabel:SetText(EllesmereUI.L(GridLabelText()))
     gridBtn._label = gridLabel
 
     -- Size wrapper to fit label + gap + icon
@@ -7614,7 +7614,7 @@ local function CreateHUD(parent)
         local a = GridHudAlpha()
         gridTex:SetAlpha(a)
         gridLabel:SetTextColor(1, 1, 1, a)
-        gridLabel:SetText(GridLabelText())
+        gridLabel:SetText(EllesmereUI.L(GridLabelText()))
         if gridFrame then
             if gridMode ~= "disabled" then
                 gridFrame:Rebuild()

@@ -1154,7 +1154,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end
                   EllesmereUI:RefreshPage()
               end },
-            { type="slider", text="Absorb Opacity", min=5, max=100, step=1,
+            { type="slider", text="Absorb Opacity", min=5, max=100, step=1, trackWidth=100,
               disabled=function()
                   local st = SVal("absorbStyle", "none")
                   return st == "none" or st == "blizzardModern"
@@ -1248,7 +1248,7 @@ initFrame:SetScript("OnEvent", function(self)
                   SSet("absorbBarPosition", v)
                   EllesmereUI:RefreshPage()
               end },
-            { type="slider", text="Bar Height", min=1, max=20, step=1,
+            { type="slider", text="Bar Height", min=1, max=20, step=1, trackWidth=100,
               disabled=function() return CurAbsorbBarPos() == "none" end,
               disabledTooltip="Absorb Bar",
               getValue=function() return SVal("absorbBarHeight", 4) end,
@@ -1290,7 +1290,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end
                   EllesmereUI:RefreshPage()
               end },
-            { type="slider", text="Heal Absorb Opacity", min=5, max=100, step=1,
+            { type="slider", text="Heal Absorb Opacity", min=5, max=100, step=1, trackWidth=100,
               disabled=function() return SVal("healAbsorbStyle", "clean") == "none" end,
               disabledTooltip="Heal Absorb Style",
               getValue=function() return SVal("healAbsorbOpacity", 75) end,
@@ -1370,7 +1370,7 @@ initFrame:SetScript("OnEvent", function(self)
                   order={ "none", "belowAbsorb", "aboveRight", "aboveLeft", "topRight", "topLeft" },
                   getValue=function() return CurHealAbsorbBarPos() end,
                   setValue=function(v) SSet("healAbsorbBarPosition", v); EllesmereUI:RefreshPage() end },
-                { type="slider", text="Bar Height", min=1, max=20, step=1,
+                { type="slider", text="Bar Height", min=1, max=20, step=1, trackWidth=100,
                   disabled=function() return CurHealAbsorbBarPos() == "none" end,
                   disabledTooltip="Heal Absorb Bar",
                   getValue=function() return SVal("healAbsorbBarHeight", 4) end,
@@ -1409,7 +1409,7 @@ initFrame:SetScript("OnEvent", function(self)
                   order={ "none", "maxHealthStripes", "striped", "stripedReversed", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR" },
                   getValue=function() return SVal("maxHealthStyle", "maxHealthStripes") end,
                   setValue=function(v) SSet("maxHealthStyle", v); EllesmereUI:RefreshPage() end },
-                { type="slider", text="Max Health Opacity", min=5, max=100, step=1,
+                { type="slider", text="Max Health Opacity", min=5, max=100, step=1, trackWidth=100,
                   disabled=function() return SVal("maxHealthStyle", "maxHealthStripes") == "none" end,
                   disabledTooltip="Max Health Style",
                   getValue=function() return SVal("maxHealthOpacity", 100) end,
@@ -2690,7 +2690,7 @@ initFrame:SetScript("OnEvent", function(self)
         }
         local dispelOverlayPosOrder = { 0, 1, 2 }
         _, h = W:DualRow(parent, y,
-            { type="dropdown", text="Private Dispel Overlay Position", values=dispelOverlayPosValues, order=dispelOverlayPosOrder,
+            { type="dropdown", text="Private Dispel Overlay Position", dropdownWidth=110, values=dispelOverlayPosValues, order=dispelOverlayPosOrder,
               getValue=function() return SVal("dispelOverlayPosition", 0) end,
               setValue=function(v) SSet("dispelOverlayPosition", v); ReloadAndUpdate() end },
             { type="label", text="" }
@@ -2900,7 +2900,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(lbl, GetUseShadow()) end
                 lbl:SetFont(EllesmereUI.GetFontPath("raidFrames"), 13, GetOutline())
                 lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
-                lbl:SetText("Move Frames")
+                lbl:SetText(EllesmereUI.L("Move Frames"))
 
                 -- Inline cog: Free Move layout options (created before
                 -- UpdateMoveBtn so its closure captures the local)
@@ -2942,7 +2942,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 local function UpdateMoveBtn()
                     local active = ns.FB_IsMoverShown and ns.FB_IsMoverShown()
-                    lbl:SetText(active and "Stop Moving" or "Move Frames")
+                    lbl:SetText(active and EllesmereUI.L("Stop Moving") or EllesmereUI.L("Move Frames"))
                     btn:SetAlpha(MoveAllowed() and 1 or 0.35)
                     local freeOn = FBEnabled() and FBSet().position == "free"
                     cogBtn:SetAlpha(freeOn and 0.4 or 0.15)
@@ -3089,7 +3089,7 @@ initFrame:SetScript("OnEvent", function(self)
                 kbLbl:SetPoint("CENTER")
 
                 local function FormatKey(key)
-                    if not key then return "Not Bound" end
+                    if not key then return EllesmereUI.L("Not Bound") end
                     local parts = {}
                     for mod in key:gmatch("(%u+)%-") do
                         parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
@@ -3223,7 +3223,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(lbl, GetUseShadow()) end
                 lbl:SetFont(EllesmereUI.GetFontPath("raidFrames"), 13, GetOutline())
                 lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
-                lbl:SetText("Move Frames")
+                lbl:SetText(EllesmereUI.L("Move Frames"))
 
                 -- Inline cog: Free Move layout options (created before
                 -- UpdateMoveBtn so its closure captures the local)
@@ -3262,7 +3262,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 local function UpdateMoveBtn()
                     local active = ns.XF_IsMoverShown and ns.XF_IsMoverShown()
-                    lbl:SetText(active and "Stop Moving" or "Move Frames")
+                    lbl:SetText(active and EllesmereUI.L("Stop Moving") or EllesmereUI.L("Move Frames"))
                     btn:SetAlpha(MoveAllowed() and 1 or 0.35)
                     local freeOn = XFConfigured() and XFSet().position == "free"
                     cogBtn:SetAlpha(freeOn and 0.4 or 0.15)
@@ -4893,11 +4893,11 @@ initFrame:SetScript("OnEvent", function(self)
         local defShowKeyMap = { defensives = "showDefensives", externals = "showExternals" }
         local defShowRow
         defShowRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Show Defensives & Externals",
+            { type="dropdown", text="Show Defensives & Externals", dropdownWidth = 110,
               values={ __placeholder = "Both" }, order={ "__placeholder" },
               getValue=function() return "__placeholder" end,
               setValue=function() end },
-            { type="dropdown", text="Position", values=defPosValues, order=defPosOrder,
+            { type="dropdown", text="Position", dropdownWidth = 110, values=defPosValues, order=defPosOrder,
               disabled=DefDisabled, disabledTooltip="Show Defensives & Externals",
               getValue=function() return SVal("defPosition", "center") end,
               setValue=function(v)
@@ -4910,7 +4910,7 @@ initFrame:SetScript("OnEvent", function(self)
             local rgn = defShowRow._leftRegion
             if rgn._control then rgn._control:Hide() end
             local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
-                rgn, 170, rgn:GetFrameLevel() + 2,
+                rgn, 110, rgn:GetFrameLevel() + 2,
                 defShowItems,
                 function(k) return SVal(defShowKeyMap[k], true) end,
                 function(k, v)
@@ -4950,7 +4950,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Row 2: Growth Direction | Size
         _, h = W:DualRow(parent, y,
-            { type="dropdown", text="Growth Direction", values=defGrowValues, order=defGrowOrder,
+            { type="dropdown", text="Growth Direction", dropdownWidth = 110, values=defGrowValues, order=defGrowOrder,
               disabled=DefDisabled, disabledTooltip="Show Defensives & Externals",
               getValue=function() return SVal("defGrowDirection", "CENTER") end,
               setValue=function(v) SSet("defGrowDirection", v) end },
@@ -5130,7 +5130,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 1: Position (+ cog X/Y) | Growth Direction
         local paRow1
         paRow1, h = W:DualRow(parent, y,
-            { type="dropdown", text="Position", values=paPosValues, order=paPosOrder,
+            { type="dropdown", text="Position", dropdownWidth = 110, values=paPosValues, order=paPosOrder,
               getValue=function() return SVal("paPosition", "center") end,
               setValue=function(v)
                   SSet("paPosition", v)
@@ -5140,7 +5140,7 @@ initFrame:SetScript("OnEvent", function(self)
                   -- them on the preview immediately (matches the live frames).
                   if ns.RestartPvAuraTicker then ns.RestartPvAuraTicker() end
               end },
-            { type="dropdown", text="Growth Direction", values=paGrowValues, order=paGrowOrder,
+            { type="dropdown", text="Growth Direction", dropdownWidth = 110, values=paGrowValues, order=paGrowOrder,
               getValue=function() return SVal("paGrowDirection", "RIGHT") end,
               setValue=function(v) SSet("paGrowDirection", v) end });  y = y - h
         ns._editTargets = ns._editTargets or {}

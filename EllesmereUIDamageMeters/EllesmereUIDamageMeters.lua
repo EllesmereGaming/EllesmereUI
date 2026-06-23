@@ -1237,7 +1237,13 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     -- Helper: apply header styling
     local function ApplyTTHeader(playerName, typeName)
         EnsureTooltipFrame()
-        _ttFrame._hdrText:SetText(playerName .. "'s " .. typeName .. " Breakdown")
+        local text
+        if typeName == "Death Recap" then
+            text = EUI.Lf("%s's Death Recap", playerName)
+        else
+            text = EUI.Lf("%s's " .. typeName .. " Breakdown", playerName)
+        end
+        _ttFrame._hdrText:SetText(text)
         local cfg = DB()
         local hc = cfg.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
         _ttFrame._hdrBg:SetColorTexture(hR, hG, hB, cfg.hdrBgAlpha or 1)
@@ -1613,7 +1619,7 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
         if type(item) == "table" and item.text then
             local extra = ""
             if item.timerText then extra = "  " .. item.timerText end
-            menu._mfs:SetText(item.text .. extra); local w = menu._mfs:GetStringWidth() or 0
+            menu._mfs:SetText(EUI.L(item.text) .. extra); local w = menu._mfs:GetStringWidth() or 0
             if w > maxW then maxW = w end
         end
     end
@@ -1632,14 +1638,14 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
         elseif item.isHeader then
             row:SetSize(menuW, CTX_HDR_H); row:ClearAllPoints(); row:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, y)
             row._lbl:SetFont(fontPath, CTX_FONT_SZ, outline); row._lbl:SetPoint("RIGHT", row, "RIGHT", -8, 0)
-            row._lbl:SetText(item.text); row._lbl:SetTextColor(1, 0.82, 0, 1); row:EnableMouse(false)
+            row._lbl:SetText(EUI.L(item.text)); row._lbl:SetTextColor(1, 0.82, 0, 1); row:EnableMouse(false)
             row:SetScript("OnEnter", nil); row:SetScript("OnLeave", nil); row:SetScript("OnClick", nil)
             row:Show(); y = y - CTX_HDR_H
         else
             local rowH = item.compact and (CTX_ITEM_H - 2) or CTX_ITEM_H
             row:SetSize(menuW, rowH); row:ClearAllPoints(); row:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, y)
             row._lbl:SetFont(fontPath, CTX_FONT_SZ, outline)
-            row._lbl:SetText(item.text or ""); row:EnableMouse(true)
+            row._lbl:SetText(EUI.L(item.text or "")); row:EnableMouse(true)
             -- Timer text (accent-colored, right-aligned)
             if item.timerText and row._timer then
                 row._timer:SetFont(fontPath, CTX_FONT_SZ, outline)
@@ -1697,7 +1703,7 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
                 row:SetScript("OnEnter", function(self)
                     self._hl:SetColorTexture(1, 1, 1, hlAlpha)
                     if EG then self._lbl:SetTextColor(EG.r, EG.g, EG.b, 1) end
-                    if itemRef.tooltip and EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, itemRef.tooltip) end
+                    if itemRef.tooltip and EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, EUI.L(itemRef.tooltip)) end
                     if itemRef.children then
                         if not _edmSub then _edmSub = MakeMenuPanel(1) end
                         LayoutMenu(_edmSub, itemRef.children, onDismiss, true)
@@ -1904,7 +1910,7 @@ local function CreateDMWindow(winIdx)
                 if not hasRecap then
                     EnsureTooltipFrame()
                     local playerName = StripRealm(bar._src.name) or "Unknown"
-                    _ttFrame._hdrText:SetText(playerName .. "'s Death Recap")
+                    _ttFrame._hdrText:SetText(EUI.Lf("%s's Death Recap", playerName))
                     local cfg2 = DB()
                     local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
                     _ttFrame._hdrBg:SetColorTexture(hR, hG, hB, cfg2.hdrBgAlpha or 1)
@@ -1913,7 +1919,7 @@ local function CreateDMWindow(winIdx)
                     else local tc = cfg2.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
                     _ttFrame._hdrText:SetTextColor(tR, tG, tB, 1)
                     for bi = 1, #_ttBars do if _ttBars[bi] then _ttBars[bi].row:Hide() end end
-                    _ttFrame._combatMsg:SetText("No death recap available")
+                    _ttFrame._combatMsg:SetText(EUI.L("No death recap available"))
                     _ttFrame._combatMsg:Show()
                     _ttFrame:SetSize(TT_WIDTH, TT_HDR_H + 40)
                     _ttFrame:ClearAllPoints()
@@ -1931,7 +1937,7 @@ local function CreateDMWindow(winIdx)
                 -- Show header with player name + type
                 local playerName = StripRealm(bar._src and bar._src.name) or "Unknown"
                 local typeName = DM_TYPE_NAMES[W.curDMType] or "Damage Done"
-                _ttFrame._hdrText:SetText(playerName .. "'s " .. typeName .. " Breakdown")
+                _ttFrame._hdrText:SetText(EUI.Lf("%s's " .. typeName .. " Breakdown", playerName))
                 local cfg2 = DB()
                 local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
                 _ttFrame._hdrBg:SetColorTexture(hR, hG, hB, cfg2.hdrBgAlpha or 1)
@@ -1941,7 +1947,7 @@ local function CreateDMWindow(winIdx)
                 _ttFrame._hdrText:SetTextColor(tR, tG, tB, 1)
                 -- Hide bars, show combat message
                 for bi = 1, #_ttBars do if _ttBars[bi] then _ttBars[bi].row:Hide() end end
-                _ttFrame._combatMsg:SetText("Detailed information is\nsecret while in combat")
+                _ttFrame._combatMsg:SetText(EUI.L("Detailed information is\nsecret while in combat"))
                 _ttFrame._combatMsg:Show()
                 _ttFrame:SetSize(TT_WIDTH, TT_HDR_H + 40)
                 _ttFrame:ClearAllPoints()
@@ -2101,7 +2107,7 @@ local function CreateDMWindow(winIdx)
             local r, g, b = GetIconColor(); icon:SetVertexColor(r, g, b, ICON_HOVER_ALPHA)
             -- Suppress tooltip while this button's menu is open
             if _edmMenu and _edmMenu:IsShown() and _edmMenuAnchor == self then return end
-            if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, tooltip) end
+            if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, EUI.L(tooltip)) end
         end)
         btn:SetScript("OnLeave", function()
             local r, g, b = GetIconColor(); icon:SetVertexColor(r, g, b, ICON_ALPHA)
@@ -2311,7 +2317,7 @@ local function CreateDMWindow(winIdx)
                 if #_windows >= MAX_WINDOWS then
                     iconTex:SetAlpha(0.2)
                     if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
-                    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "You may only have " .. MAX_WINDOWS .. " windows active") end
+                    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, EUI.Lf("You may only have %d windows active", MAX_WINDOWS)) end
                 end
             end)
         else
@@ -2320,7 +2326,7 @@ local function CreateDMWindow(winIdx)
                     local ir, ig, ib = GetIconColor()
                     iconTex:SetVertexColor(ir, ig, ib, ICON_ALPHA * 0.5)
                     if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
-                    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Unlock Window to Close") end
+                    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, EUI.L("Unlock Window to Close")) end
                 end
             end)
             W.winActionBtn:HookScript("OnLeave", function()
@@ -3298,7 +3304,7 @@ local function CreateDMWindow(winIdx)
             W.timerText:SetText("")
         end
         local titlePrefix = isOverall and "Overall " or ""
-        W._fullTitle = titlePrefix .. (DM_TYPE_NAMES[W.curDMType] or "Damage Done")
+        W._fullTitle = EUI.L(titlePrefix .. (DM_TYPE_NAMES[W.curDMType] or "Damage Done"))
         W.FitTitle()
         if winIdx == 1 then UpdateSATimerText() end
 
@@ -3752,7 +3758,7 @@ local function CreateDMWindow(winIdx)
             -- Visuals
             card._bg:SetColorTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A)
             card._lbl:SetFont(fontPath, CTX_FONT_SZ, outline)
-            card._lbl:SetText(label)
+            card._lbl:SetText(EUI.L(label))
             card._icon:SetTexture(DM_TYPE_ICONS[dmType] or MEDIA .. "dm_home_damage.png")
             card._arrow:Show()
 
@@ -3818,10 +3824,10 @@ local function CreateDMWindow(winIdx)
             homeAddBtn._plus:SetText("+")
             homeAddBtn._plus:SetTextColor(1, 1, 1, 0.3)
             homeAddBtn._lbl:SetFont(fontPath, CTX_FONT_SZ, outline)
-            homeAddBtn._lbl:SetText("ADD NEW")
+            homeAddBtn._lbl:SetText(EUI.L("ADD NEW"))
             homeAddBtn._lbl:SetTextColor(1, 1, 1, 0.3)
             homeAddBtn._hint:SetFont(fontPath, 9, outline)
-            homeAddBtn._hint:SetText("(middle click to remove)")
+            homeAddBtn._hint:SetText(EUI.L("(middle click to remove)"))
             homeAddBtn._hint:SetTextColor(1, 1, 1, 0.3)
             -- Center the group: offset label so plus+label+hint are visually centered
             local plusW = homeAddBtn._plus:GetStringWidth() + 4
@@ -3845,7 +3851,7 @@ local function CreateDMWindow(winIdx)
                 for dt, n in pairs(DM_TYPE_NAMES) do
                     local pinned = false
                     for _, b in ipairs(bookmarks) do if b == dt then pinned = true; break end end
-                    if not pinned then items[#items + 1] = { text = n, onClick = function()
+                    if not pinned then items[#items + 1] = { text = EUI.L(n), onClick = function()
                         bookmarks[#bookmarks + 1] = dt; RefreshHome()
                     end } end
                 end
