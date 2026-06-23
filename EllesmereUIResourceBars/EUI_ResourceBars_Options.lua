@@ -5405,6 +5405,8 @@ initFrame:SetScript("OnEvent", function(self)
     local _castBarPreviewFill = 0.65
     local _castBarPreviewFrames = {}
     local _castBarPreviewScale = 1
+    local _castBarPreviewState = nil  -- nil/"color" = default, "channel", "uninterrupt"
+    local CAST_PREVIEW_H = 126        -- bar centred at 40px; 16px gap; 30px dropdown; 30px bottom (matches bar top margin)
 
     -- Shuffled spell icon pool for cast bar preview (same spells as nameplates)
     local _castBarIconPool = { 136197, 236802, 135808, 136116, 135735, 136048, 135812, 136075 }
@@ -5455,7 +5457,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         pf.container:SetScale(_castBarPreviewScale * fitScale)
 
-        pf.container:ClearAllPoints(); pf.container:SetPoint("CENTER", hdr, "CENTER", 0, 0)
+        pf.container:ClearAllPoints(); pf.container:SetPoint("CENTER", hdr, "TOP", 0, -40)
         -- Bar frame
         pf.barFrame:SetSize(w, h)
         pf.barFrame:ClearAllPoints()
@@ -5500,17 +5502,29 @@ initFrame:SetScript("OnEvent", function(self)
             pf.bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
         end
 
-        -- Bar color / gradient
+        -- Bar color / gradient — resolved via preview state prefix (same logic as ApplyCastFillColor)
         local fillTex = pf.bar:GetStatusBarTexture()
-        local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, cb.fillA
-        if cb.classColored == true then
+        local pfx = _castBarPreviewState
+        local fR, fG, fB, fA   = cb.fillR, cb.fillG, cb.fillB, cb.fillA
+        local gR, gG, gB, gA   = cb.gradientR, cb.gradientG, cb.gradientB, cb.gradientA
+        local classCol          = cb.classColored
+        local gradEnabled       = cb.gradientEnabled
+        local gradDir           = cb.gradientDir
+        if pfx then
+            if cb[pfx.."FillR"]           ~= nil then fR, fG, fB, fA = cb[pfx.."FillR"], cb[pfx.."FillG"], cb[pfx.."FillB"], cb[pfx.."FillA"] end
+            if cb[pfx.."GradientR"]       ~= nil then gR, gG, gB, gA = cb[pfx.."GradientR"], cb[pfx.."GradientG"], cb[pfx.."GradientB"], cb[pfx.."GradientA"] end
+            if cb[pfx.."ClassColored"]    ~= nil then classCol    = cb[pfx.."ClassColored"]   end
+            if cb[pfx.."GradientEnabled"] ~= nil then gradEnabled = cb[pfx.."GradientEnabled"] end
+            if cb[pfx.."GradientDir"]     ~= nil then gradDir     = cb[pfx.."GradientDir"]    end
+        end
+        if classCol then
             local _, cf = UnitClass("player")
             local cc = cf and RAID_CLASS_COLORS and RAID_CLASS_COLORS[cf]
             if cc then fR, fG, fB = cc.r, cc.g, cc.b end
         end
-        if cb.gradientEnabled then
-            local dir = cb.gradientDir or "HORIZONTAL"
-            fillTex:SetGradient(dir, CreateColor(fR, fG, fB, fA), CreateColor(cb.gradientR, cb.gradientG, cb.gradientB, cb.gradientA))
+        if gradEnabled then
+            fillTex:SetVertexColor(1, 1, 1, 1)
+            fillTex:SetGradient(gradDir or "HORIZONTAL", CreateColor(fR, fG, fB, fA), CreateColor(gR, gG, gB, gA))
         else
             fillTex:SetVertexColor(fR, fG, fB, fA)
         end
@@ -5559,7 +5573,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Update header height: 80px preview + optional hint text
         local hintH = (_previewHintFS and _previewHintFS:IsShown()) and 35 or 0
-        EllesmereUI:UpdateContentHeaderHeight(80 + hintH)
+        EllesmereUI:UpdateContentHeaderHeight(CAST_PREVIEW_H + hintH)
     end
 
     local _castBarPreviewBuilder = function(hdr, hdrW)
@@ -5571,7 +5585,7 @@ initFrame:SetScript("OnEvent", function(self)
         _castBarPreviewScale = previewScale
 
         local container = CreateFrame("Frame", nil, hdr)
-        container:SetPoint("CENTER", hdr, "CENTER", 0, 0)
+        container:SetPoint("CENTER", hdr, "TOP", 0, -40)
 
         -- Snap helper: round to the preview container's physical pixel grid
         -- (use previewScale for initial snap; adjusted below if we scale-to-fit)
@@ -5641,13 +5655,6 @@ initFrame:SetScript("OnEvent", function(self)
             bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
         end
 
-        local fillTex = bar:GetStatusBarTexture()
-        if cb.gradientEnabled then
-            local dir = cb.gradientDir or "HORIZONTAL"
-            fillTex:SetGradient(dir, CreateColor(cb.fillR, cb.fillG, cb.fillB, cb.fillA), CreateColor(cb.gradientR, cb.gradientG, cb.gradientB, cb.gradientA))
-        else
-            fillTex:SetVertexColor(cb.fillR, cb.fillG, cb.fillB, cb.fillA)
-        end
         _castBarPreviewFrames.bar = bar
 
         -- Spark
@@ -5716,7 +5723,21 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Hint text
-        local TOTAL_H = 80
+        -- Preview state dropdown (bottom of header: Color / Channeling / Uninterruptible)
+        do
+            local ddValues = { color = "Color", channel = "Channeling", uninterrupt = "Uninterruptible" }
+            local ddOrder  = { "color", "channel", "uninterrupt" }
+            local dd = EllesmereUI.BuildDropdownControl(hdr, 148, hdr:GetFrameLevel() + 3,
+                ddValues, ddOrder,
+                function() return _castBarPreviewState or "color" end,
+                function(v)
+                    _castBarPreviewState = (v == "color") and nil or v
+                    UpdateCastBarPreview()
+                end)
+            dd:SetPoint("BOTTOM", hdr, "BOTTOM", 0, 30)
+        end
+
+        local TOTAL_H = CAST_PREVIEW_H
         _headerBaseH = TOTAL_H
         local hintShown = not IsPreviewHintDismissed()
         if hintShown then
@@ -5730,13 +5751,14 @@ initFrame:SetScript("OnEvent", function(self)
             _previewHintFS:GetParent():SetParent(hdr)
             _previewHintFS:GetParent():Show()
             _previewHintFS:ClearAllPoints()
-            _previewHintFS:SetPoint("BOTTOM", hdr, "BOTTOM", 0, 20)
+            _previewHintFS:SetPoint("BOTTOM", hdr, "BOTTOM", 0, 44)
             _previewHintFS:Show()
             TOTAL_H = TOTAL_H + 35
         elseif _previewHintFS then
             _previewHintFS:Hide()
         end
 
+        UpdateCastBarPreview()
         return TOTAL_H
     end
 
@@ -6055,102 +6077,146 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Row 2: Color (multiSwatch + cog: gradient) | (empty)
-        local castColorRow
-        castColorRow, h = W:DualRow(parent, y,
-            { type = "multiSwatch", text = "Color",
-              disabled = castOff,
-              disabledTooltip = "Player Cast Bar",
-              swatches = {
-                  { tooltip = "Gradient End Color", hasAlpha = true,
-                    getValue = function()
-                        local p = DB()
-                        if not p then return 0.20, 0.20, 0.80, 1 end
-                        return p.castBar.gradientR, p.castBar.gradientG, p.castBar.gradientB, p.castBar.gradientA
-                    end,
-                    setValue = function(r, g, b, a)
-                        local p = DB(); if not p then return end
-                        p.castBar.gradientR, p.castBar.gradientG, p.castBar.gradientB, p.castBar.gradientA = r, g, b, a
-                        RefreshCast()
-                    end },
-                  { tooltip = "Custom Colored", hasAlpha = true,
-                    getValue = function()
-                        local p = DB()
-                        if not p then
-                            local _, cf = UnitClass("player")
-                            local cc = CLASS_COLORS[cf]
-                            return cc and cc[1] or 1, cc and cc[2] or 0.70, cc and cc[3] or 0, 1
-                        end
-                        return p.castBar.fillR, p.castBar.fillG, p.castBar.fillB, p.castBar.fillA
-                    end,
-                    setValue = function(r, g, b, a)
-                        local p = DB(); if not p then return end
-                        p.castBar.fillR, p.castBar.fillG, p.castBar.fillB, p.castBar.fillA = r, g, b, a
-                        if p.castBar.classColored then p.castBar.classColored = false end
-                        RefreshCast(); EllesmereUI:RefreshPage()
-                    end,
-                    onClick = function(self)
-                        local p = DB(); if not p then return end
-                        if p.castBar.classColored then
-                            p.castBar.classColored = false
-                            RefreshCast(); EllesmereUI:RefreshPage()
-                            return
-                        end
-                        if self._eabOrigClick then self._eabOrigClick(self) end
-                    end,
-                    refreshAlpha = function()
-                        local p = DB()
-                        return (p and not p.castBar.classColored) and 1 or 0.3
-                    end },
-                  { tooltip = "Class Colored",
-                    getValue = function()
-                        local _, classFile = UnitClass("player")
-                        local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-                        if cc then return cc.r, cc.g, cc.b, 1 end
-                        return 1, 0.70, 0, 1
-                    end,
-                    setValue = function() end,
-                    onClick = function()
-                        local p = DB(); if not p then return end
-                        p.castBar.classColored = true
-                        RefreshCast(); EllesmereUI:RefreshPage()
-                    end,
-                    refreshAlpha = function()
-                        local p = DB()
-                        return (not p or p.castBar.classColored == true) and 1 or 0.3
-                    end },
-              } },
-            { type = "slider", text = "Background", min = 0, max = 100, step = 1,
-              disabled = castOff,
-              disabledTooltip = "Player Cast Bar",
-              getValue = function()
-                  local p = DB(); return math.floor(((p and p.castBar.bgA or 0.7) * 100) + 0.5)
-              end,
-              setValue = function(v)
-                  local p = DB(); if not p then return end
-                  p.castBar.bgA = v / 100; RefreshCast()
-              end }
-        );  y = y - h
-        -- Inline cog on Color for gradient settings
-        do
-            local rgn = castColorRow._leftRegion
+        -- Helper: builds the 3-swatch multiSwatch config for a given cast state.
+        -- prefix = "channel", "uninterrupt", or nil (default fill keys).
+        -- Key names are derived dynamically: prefix.."FillR", prefix.."GradientR", etc.
+        local function CastStateSwatches(label, prefix)
+            local classKey = prefix and (prefix .. "ClassColored") or "classColored"
+
+            local function fk(c) return prefix and (prefix .. "Fill"     .. c) or ("fill"     .. c) end
+            local function gk(c) return prefix and (prefix .. "Gradient" .. c) or ("gradient" .. c) end
+
+            local function getFill()
+                local p = DB(); if not p then return 1, 0.70, 0, 1 end
+                local cb = p.castBar
+                local r = cb[fk("R")]
+                if r ~= nil then return r, cb[fk("G")], cb[fk("B")], cb[fk("A")] end
+                return cb.fillR, cb.fillG, cb.fillB, cb.fillA
+            end
+
+            local function getGrad()
+                local p = DB(); if not p then return 0.20, 0.20, 0.80, 1 end
+                local cb = p.castBar
+                local r = cb[gk("R")]
+                if r ~= nil then return r, cb[gk("G")], cb[gk("B")], cb[gk("A")] end
+                return cb.gradientR, cb.gradientG, cb.gradientB, cb.gradientA
+            end
+
+            return { type = "multiSwatch", text = label,
+                     disabled = castOff, disabledTooltip = "Player Cast Bar",
+                     swatches = {
+                         { tooltip = "Gradient End Color", hasAlpha = true,
+                           getValue = getGrad,
+                           setValue = function(r, g, b, a)
+                               local p = DB(); if not p then return end
+                               local cb = p.castBar
+                               cb[gk("R")], cb[gk("G")], cb[gk("B")], cb[gk("A")] = r, g, b, a
+                               RefreshCast()
+                           end },
+                         { tooltip = "Custom Colored", hasAlpha = true,
+                           getValue = getFill,
+                           setValue = function(r, g, b, a)
+                               local p = DB(); if not p then return end
+                               local cb = p.castBar
+                               cb[fk("R")], cb[fk("G")], cb[fk("B")], cb[fk("A")] = r, g, b, a
+                               if cb[classKey] then cb[classKey] = false end
+                               RefreshCast(); EllesmereUI:RefreshPage()
+                           end,
+                           onClick = function(self)
+                               local p = DB(); if not p then return end
+                               if p.castBar[classKey] then
+                                   p.castBar[classKey] = false
+                                   RefreshCast(); EllesmereUI:RefreshPage()
+                                   return
+                               end
+                               if self._eabOrigClick then self._eabOrigClick(self) end
+                           end,
+                           refreshAlpha = function()
+                               local p = DB(); if not p then return 1 end
+                               local cb = p.castBar
+                               if cb[classKey] then return 0.3 end
+                               if prefix and cb[fk("R")] == nil then return 0.3 end
+                               return 1
+                           end },
+                         { tooltip = "Class Colored",
+                           getValue = function()
+                               local _, classFile = UnitClass("player")
+                               local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                               if cc then return cc.r, cc.g, cc.b, 1 end
+                               return 1, 0.70, 0, 1
+                           end,
+                           setValue = function() end,
+                           onClick = function()
+                               local p = DB(); if not p then return end
+                               p.castBar[classKey] = true
+                               RefreshCast(); EllesmereUI:RefreshPage()
+                           end,
+                           refreshAlpha = function()
+                               local p = DB()
+                               return (not p or p.castBar[classKey] == true) and 1 or 0.3
+                           end },
+                     } }
+        end
+
+        -- Greys out the gradient end swatch when gradient is effectively disabled for this state.
+        -- prefix = "channel"/"uninterrupt"/nil; nil per-state key falls back to global gradientEnabled.
+        local function RegisterGradientSwatchRefresh(region, prefix)
+            local swatch = region._control
+            local function UpdateGradientSwatch()
+                local p = DB()
+                if not p or not p.castBar.enabled then
+                    swatch:SetAlpha(0.15); swatch:Disable()
+                    swatch._disabledTooltip = "Player Cast Bar"
+                    return
+                end
+                local cb = p.castBar
+                local gradEnabled = prefix and cb[prefix .. "GradientEnabled"]
+                if gradEnabled == nil then gradEnabled = cb.gradientEnabled end
+                if not gradEnabled then
+                    swatch:SetAlpha(0.15); swatch:Disable()
+                    swatch._disabledTooltip = "Gradient"
+                else
+                    swatch:SetAlpha(1); swatch:Enable()
+                    swatch._disabledTooltip = nil
+                end
+            end
+            UpdateGradientSwatch()
+            EllesmereUI.RegisterWidgetRefresh(UpdateGradientSwatch)
+        end
+
+        -- Builds a gradient settings cog on a cast state region.
+        -- prefix = "channel"/"uninterrupt"/nil (nil writes global gradientEnabled/gradientDir).
+        -- Per-state values fall back to the global setting when nil.
+        local function MakeStateCogBtn(rgn, prefix)
+            local gradEnabledKey = prefix and (prefix .. "GradientEnabled") or "gradientEnabled"
+            local gradDirKey     = prefix and (prefix .. "GradientDir")     or "gradientDir"
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Gradient Settings",
                 rows = {
                     { type = "toggle", label = "Enable Gradient",
-                      get = function() local p = DB(); return p and p.castBar.gradientEnabled end,
+                      get = function()
+                          local p = DB(); if not p then return false end
+                          local v = p.castBar[gradEnabledKey]
+                          if prefix and v == nil then v = p.castBar.gradientEnabled end
+                          return v
+                      end,
                       set = function(v)
                           local p = DB(); if not p then return end
-                          p.castBar.gradientEnabled = v; RefreshCast()
+                          p.castBar[gradEnabledKey] = v; RefreshCast()
                           EllesmereUI:RefreshPage()
                       end },
                     { type = "dropdown", label = "Gradient Direction",
                       values = { HORIZONTAL = "Horizontal", VERTICAL = "Vertical" },
                       order = { "HORIZONTAL", "VERTICAL" },
-                      get = function() local p = DB(); return p and p.castBar.gradientDir or "HORIZONTAL" end,
+                      get = function()
+                          local p = DB(); if not p then return "HORIZONTAL" end
+                          local v = p.castBar[gradDirKey]
+                          if prefix and v == nil then v = p.castBar.gradientDir end
+                          return v or "HORIZONTAL"
+                      end,
                       set = function(v)
                           local p = DB(); if not p then return end
-                          p.castBar.gradientDir = v; RefreshCast()
+                          p.castBar[gradDirKey] = v; RefreshCast()
                       end },
                 },
             })
@@ -6163,40 +6229,37 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Player Cast Bar"))
             end)
             cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateCogDisGrad()
+            local function UpdateCogDis()
                 local p = DB()
                 if p and not p.castBar.enabled then cogDis:Show() else cogDis:Hide() end
             end
-            cogBtn:HookScript("OnShow", UpdateCogDisGrad)
-            EllesmereUI.RegisterWidgetRefresh(UpdateCogDisGrad)
-            UpdateCogDisGrad()
+            cogBtn:HookScript("OnShow", UpdateCogDis)
+            EllesmereUI.RegisterWidgetRefresh(UpdateCogDis)
+            UpdateCogDis()
         end
 
-        -- Manual gradient swatch enable/disable (cursor addon pattern)
+        -- Row: Color (left)             | Background opacity slider (right)
+        -- Row: Channeling Color (left)  | Uninterruptible Color (right)
+        local castColorRow, castDefaultRow
+        castDefaultRow, h = W:DualRow(parent, y,
+            CastStateSwatches("Color", nil),
+            { type = "slider", text = "Background", min = 0, max = 100, step = 1,
+              disabled = castOff, disabledTooltip = "Player Cast Bar",
+              getValue = function()
+                  local p = DB(); return math.floor(((p and p.castBar.bgA or 0.7) * 100) + 0.5)
+              end,
+              setValue = function(v)
+                  local p = DB(); if not p then return end
+                  p.castBar.bgA = v / 100; RefreshCast()
+              end });  y = y - h
+        RegisterGradientSwatchRefresh(castDefaultRow._leftRegion, nil)
+        MakeStateCogBtn(castDefaultRow._leftRegion, nil)
+        -- Inline colour swatch on Background (right region of Color row)
         do
-            local swatch = castColorRow._leftRegion._control
-            local function UpdateGradientSwatch()
-                local p = DB()
-                if not p or not p.castBar.enabled then
-                    swatch:SetAlpha(0.15); swatch:Disable()
-                    swatch._disabledTooltip = "Player Cast Bar"
-                elseif not p.castBar.gradientEnabled then
-                    swatch:SetAlpha(0.15); swatch:Disable()
-                    swatch._disabledTooltip = "Gradient"
-                else
-                    swatch:SetAlpha(1); swatch:Enable()
-                    swatch._disabledTooltip = nil
-                end
-            end
-            UpdateGradientSwatch()
-            EllesmereUI.RegisterWidgetRefresh(UpdateGradientSwatch)
-        end
-        -- Inline color swatch on Background (right region)
-        do
-            local rgn = castColorRow._rightRegion
+            local rgn = castDefaultRow._rightRegion
             local ctrl = rgn._control
             local bgSwatch, bgUpdateSwatch = EllesmereUI.BuildColorSwatch(
-                rgn, castColorRow:GetFrameLevel() + 3,
+                rgn, castDefaultRow:GetFrameLevel() + 3,
                 function()
                     local p = DB()
                     return (p and p.castBar.bgR or 0), (p and p.castBar.bgG or 0), (p and p.castBar.bgB or 0)
@@ -6222,6 +6285,14 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateBgSwatch()
             EllesmereUI.RegisterWidgetRefresh(UpdateBgSwatch)
         end
+
+        castColorRow, h = W:DualRow(parent, y,
+            CastStateSwatches("Channeling Color", "channel"),
+            CastStateSwatches("Uninterruptible Color", "uninterrupt"));  y = y - h
+        RegisterGradientSwatchRefresh(castColorRow._leftRegion, "channel")
+        RegisterGradientSwatchRefresh(castColorRow._rightRegion, "uninterrupt")
+        MakeStateCogBtn(castColorRow._leftRegion, "channel")
+        MakeStateCogBtn(castColorRow._rightRegion, "uninterrupt")
 
         -- Row 3: Bar Texture | Spell Text (cog RESIZE: text size + x/y)
         local textRow
