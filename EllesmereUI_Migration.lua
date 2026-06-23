@@ -2228,36 +2228,6 @@ EllesmereUI.RegisterMigration({
 })
 
 EllesmereUI.RegisterMigration({
-    id          = "ab_bar_visibility_to_modes_v1",
-    scope       = "profile",
-    description = "Migrate action bar barVisibility string to barVisibilityModes array.",
-    body = function(ctx)
-        local ab = ctx.profile.addons and ctx.profile.addons.EllesmereUIActionBars
-        local abBars = ab and ab.bars
-        if not abBars then return end
-        for _, cfg in pairs(abBars) do
-            if type(cfg) == "table" and (not cfg.barVisibilityModes or #cfg.barVisibilityModes == 0) then
-                local mode = cfg.barVisibility
-                if not mode or mode == "" then
-                    if cfg.alwaysHidden then
-                        mode = "never"
-                    elseif cfg.mouseoverEnabled then
-                        mode = "mouseover"
-                    elseif cfg.combatShowEnabled then
-                        mode = "in_combat"
-                    elseif cfg.combatHideEnabled then
-                        mode = "out_of_combat"
-                    else
-                        mode = "always"
-                    end
-                end
-                cfg.barVisibilityModes = { mode }
-            end
-        end
-    end,
-})
-
-EllesmereUI.RegisterMigration({
     id          = "ab_default_grow_to_center_v1",
     scope       = "profile",
     description = "Convert AB bars with default UP growth to CENTER (UP now has real edge preservation).",
@@ -2538,6 +2508,58 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+EllesmereUI.RegisterMigration({
+    id          = "ab_bar_visibility_to_modes_v1",
+    scope       = "profile",
+    description = "Convert action bar barVisibility (and legacy boolean flags) to barVisibilityModes arrays.",
+    body = function(ctx)
+        local ab = ctx.profile.addons and ctx.profile.addons.EllesmereUIActionBars
+        local bars = ab and ab.bars
+        if not bars then return end
+
+        local function legacyMode(s)
+            if type(s.barVisibilityModes) == "table" and #s.barVisibilityModes > 0 then
+                return nil
+            end
+            if s.barVisibility then return s.barVisibility end
+            if s.alwaysHidden then return "never" end
+            if s.mouseoverEnabled then return "mouseover" end
+            if s.combatShowEnabled then return "in_combat" end
+            if s.combatHideEnabled then return "out_of_combat" end
+            return "always"
+        end
+
+        local function applyDerivedFields(s, modes)
+            s.barVisibilityModes = modes
+            s.barVisibility = modes[1] or "always"
+
+            local hasNever, hasMouseover, hasInCombat, hasOutOfCombat = false, false, false, false
+            for i = 1, #modes do
+                local mode = modes[i]
+                if mode == "never" then hasNever = true
+                elseif mode == "mouseover" then hasMouseover = true
+                elseif mode == "in_combat" then hasInCombat = true
+                elseif mode == "out_of_combat" then hasOutOfCombat = true
+                end
+            end
+
+            s.alwaysHidden = hasNever
+            s.mouseoverEnabled = hasMouseover
+            s.combatShowEnabled = hasInCombat
+            s.combatHideEnabled = hasOutOfCombat
+        end
+
+        for _, s in pairs(bars) do
+            if type(s) == "table" then
+                local mode = legacyMode(s)
+                if mode then
+                    applyDerivedFields(s, { mode })
+                end
+            end
+        end
+    end,
+})
+
 local migrationFrame = CreateFrame("Frame")
 migrationFrame:RegisterEvent("ADDON_LOADED")
 migrationFrame:SetScript("OnEvent", function(self, event, addonName)
@@ -2597,5 +2619,4 @@ migrationFrame:SetScript("OnEvent", function(self, event, addonName)
             end
         end
     end
-
 end)
