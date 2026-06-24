@@ -1161,6 +1161,23 @@ do
 end
 
 -------------------------------------------------------------------------------
+--  Shared: lowest equipped-item durability %
+-------------------------------------------------------------------------------
+-- Used by both the FPS Counter durability segment and the Low Durability
+-- Warning so both readouts always agree on the value.
+local function GetLowestEquippedDurability()
+    local lowest = 100
+    for slot = 1, 18 do
+        local cur, mx = GetInventoryItemDurability(slot)
+        if cur and mx and mx > 0 then
+            local pct = (cur / mx) * 100
+            if pct < lowest then lowest = pct end
+        end
+    end
+    return lowest
+end
+
+-------------------------------------------------------------------------------
 --  FPS Counter
 -------------------------------------------------------------------------------
 do
@@ -1206,12 +1223,21 @@ do
         local fsWorldLbl = MakeFS(LABEL_SIZE)
         fpsFrame._divWorld = divWorld
         fpsFrame._textWorld = fsWorldVal
+        fpsFrame._lblWorld = fsWorldLbl
 
         local divLocal = MakeDivider()
         local fsLocalVal = MakeFS(FONT_SIZE)
         local fsLocalLbl = MakeFS(LABEL_SIZE)
         fpsFrame._divLocal = divLocal
         fpsFrame._textLocal = fsLocalVal
+        fpsFrame._lblLocal = fsLocalLbl
+
+        local divDur = MakeDivider()
+        local fsDurVal = MakeFS(FONT_SIZE)
+        local fsDurLbl = MakeFS(LABEL_SIZE)
+        fpsFrame._divDur = divDur
+        fpsFrame._textDur = fsDurVal
+        fpsFrame._lblDur = fsDurLbl
 
         local function UpdateFPS(self)
             local db = EllesmereUIDB or {}
@@ -1223,14 +1249,18 @@ do
             fsWorldLbl:SetTextColor(cr, cg, cb, ca * 0.6)
             fsLocalVal:SetTextColor(cr, cg, cb, ca)
             fsLocalLbl:SetTextColor(cr, cg, cb, ca * 0.6)
+            fsDurVal:SetTextColor(cr, cg, cb, ca)
+            fsDurLbl:SetTextColor(cr, cg, cb, ca * 0.6)
             divWorld:SetColorTexture(cr, cg, cb, ca * 0.35)
             divLocal:SetColorTexture(cr, cg, cb, ca * 0.35)
+            divDur:SetColorTexture(cr, cg, cb, ca * 0.35)
 
             local fps = floor(GetFramerate() + 0.5)
             fsFps:SetText(fps .. " fps")
 
             local showWorld = db.fpsShowWorldMS
             local showLocal = (db.fpsShowLocalMS == nil) and true or db.fpsShowLocalMS
+            local showDur   = db.fpsShowDurability
             local _, _, latHome, latWorld = GetNetStats()
 
             fsFps:ClearAllPoints()
@@ -1271,9 +1301,27 @@ do
                 divLocal:Hide(); fsLocalVal:Hide(); fsLocalLbl:Hide()
             end
 
+            if showDur then
+                fsDurVal:SetText(floor(GetLowestEquippedDurability() + 0.5) .. "%")
+                fsDurLbl:SetText("(dur)")
+                divDur:ClearAllPoints()
+                divDur:SetPoint("LEFT", anchor, "RIGHT", DIV_PAD, 0)
+                divDur:Show()
+                fsDurVal:ClearAllPoints()
+                fsDurVal:SetPoint("LEFT", divDur, "RIGHT", DIV_PAD, 0)
+                fsDurVal:Show()
+                fsDurLbl:ClearAllPoints()
+                fsDurLbl:SetPoint("LEFT", fsDurVal, "RIGHT", 3, 0)
+                fsDurLbl:Show()
+                anchor = fsDurLbl
+            else
+                divDur:Hide(); fsDurVal:Hide(); fsDurLbl:Hide()
+            end
+
             local totalW = fsFps:GetStringWidth()
             if showWorld then totalW = totalW + DIV_PAD + DIV_W + DIV_PAD + fsWorldVal:GetStringWidth() + 3 + fsWorldLbl:GetStringWidth() end
             if showLocal then totalW = totalW + DIV_PAD + DIV_W + DIV_PAD + fsLocalVal:GetStringWidth() + 3 + fsLocalLbl:GetStringWidth() end
+            if showDur   then totalW = totalW + DIV_PAD + DIV_W + DIV_PAD + fsDurVal:GetStringWidth()   + 3 + fsDurLbl:GetStringWidth()   end
             self:SetSize(totalW + 4, 20)
         end
 
@@ -1299,8 +1347,10 @@ do
             if fpsFrame._text then fpsFrame._text:SetFont(fp, sz, outF) end
             if fpsFrame._textWorld then fpsFrame._textWorld:SetFont(fp, sz, outF) end
             if fpsFrame._textLocal then fpsFrame._textLocal:SetFont(fp, sz, outF) end
+            if fpsFrame._textDur   then fpsFrame._textDur:SetFont(fp, sz, outF) end
             if fpsFrame._lblWorld then fpsFrame._lblWorld:SetFont(fp, lblSz, outF) end
             if fpsFrame._lblLocal then fpsFrame._lblLocal:SetFont(fp, lblSz, outF) end
+            if fpsFrame._lblDur   then fpsFrame._lblDur:SetFont(fp, lblSz, outF) end
             local pos = EllesmereUIDB and EllesmereUIDB.fpsPos
             if pos and pos.point then
                 if pos.scale then pcall(function() fpsFrame:SetScale(pos.scale) end) end
@@ -1543,14 +1593,7 @@ do
         end
         if InCombatLockdown() then return end
 
-        local lowestDur = 100
-        for slot = 1, 18 do
-            local cur, mx = GetInventoryItemDurability(slot)
-            if cur and mx and mx > 0 then
-                local pct = (cur / mx) * 100
-                if pct < lowestDur then lowestDur = pct end
-            end
-        end
+        local lowestDur = GetLowestEquippedDurability()
 
         if lowestDur < (EllesmereUIDB.durWarnThreshold or 40) then
             CreateDurabilityWarning()
