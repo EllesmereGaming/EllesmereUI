@@ -3121,13 +3121,13 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         local title = card:CreateFontString(nil, "OVERLAY")
         title:SetFont(fontPath, 15, "")
         title:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -16)
-        title:SetText(EllesmereUI.L("Buff Display Mode"))
+        title:SetText("Buff Display Mode")
         title:SetTextColor(1, 1, 1, 0.95)
 
         local desc = card:CreateFontString(nil, "OVERLAY")
         desc:SetFont(fontPath, 12, "")
         desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-        desc:SetText(EllesmereUI.L("Choose how buffs are displayed on raid frames."))
+        desc:SetText("Choose how buffs are displayed on raid frames.")
         desc:SetTextColor(1, 1, 1, 0.5)
 
         -- Segmented two-button toggle (active = green, inactive = dark).
@@ -3139,7 +3139,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         toggleWrap:SetFrameLevel(card:GetFrameLevel() + 1)
         if PP then PP.CreateBorder(toggleWrap, 1, 1, 1, 0.10, 1) end
 
-        local MODES = { { key = "simple", label = EllesmereUI.L("Simple Setup") }, { key = "custom", label = EllesmereUI.L("Custom Buff Display") } }
+        local MODES = { { key = "simple", label = "Simple Setup" }, { key = "custom", label = "Custom Buff Display" } }
         for i, m in ipairs(MODES) do
             local btn = CreateFrame("Button", nil, toggleWrap)
             btn:SetSize(BTN_W, BTN_H)
@@ -3150,7 +3150,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             local lbl = btn:CreateFontString(nil, "OVERLAY")
             lbl:SetFont(fontPath, 13, "")
             lbl:SetPoint("CENTER")
-            lbl:SetText(EllesmereUI.L(m.label))
+            lbl:SetText(m.label)
             if active then
                 bg:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
                 lbl:SetTextColor(1, 1, 1, 1)
@@ -3225,7 +3225,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             { type="toggle", text="Show Buffs",
               getValue=function() return bs.showBuffs ~= false end,
               setValue=function(v) bs.showBuffs = v; BApply(); EllesmereUI:RefreshPage() end },
-            { type="slider", text="Max Buffs", min=1, max=10, step=1, trackWidth=120,
+            { type="slider", text="Max Buffs", min=1, max=10, step=1,
               disabled=BuffsOff, disabledTooltip="Show Buffs",
               getValue=function() return BVal("maxBuffs", 10) end,
               setValue=function(v) BSet("maxBuffs", v) end });  sy = sy - hh
@@ -3235,7 +3235,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         -- Row 1: Icons Per Row | Position (+ offset cog)
         local row1
         row1, hh = W:DualRow(optsFrame, sy,
-            { type="slider", text="Icons Per Row", min=1, max=8, step=1, trackWidth=120,
+            { type="slider", text="Icons Per Row", min=1, max=8, step=1,
               disabled=BuffsOff, disabledTooltip="Show Buffs",
               getValue=function() return BVal("iconsPerRow", 4) end,
               setValue=function(v) BSet("iconsPerRow", v) end },
@@ -3275,11 +3275,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
         -- Row 2: Growth Direction | Size
         _, hh = W:DualRow(optsFrame, sy,
-            { type="dropdown", text="Growth Direction", dropdownWidth=110, values=GROW_VALUES, order=GROW_ORDER,
+            { type="dropdown", text="Growth Direction", values=GROW_VALUES, order=GROW_ORDER,
               disabled=BuffsOff, disabledTooltip="Show Buffs",
               getValue=function() return BVal("growDirection", "LEFT") end,
               setValue=function(v) BSet("growDirection", v) end },
-            { type="slider", text="Size", min=10, max=40, step=1, trackWidth=120,
+            { type="slider", text="Size", min=10, max=40, step=1,
               disabled=BuffsOff, disabledTooltip="Show Buffs",
               getValue=function() return BVal("size", 22) end,
               setValue=function(v) BSet("size", v) end });  sy = sy - hh
@@ -3287,7 +3287,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         -- Row 3: Spacing | Border Size (+ swatch)
         local row3
         row3, hh = W:DualRow(optsFrame, sy,
-            { type="slider", text="Spacing", min=-1, max=10, step=1, trackWidth=120,
+            { type="slider", text="Spacing", min=-1, max=10, step=1,
               disabled=BuffsOff, disabledTooltip="Show Buffs",
               getValue=function() return BVal("spacing", 1) end,
               setValue=function(v) BSet("spacing", v) end },
@@ -3451,7 +3451,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         titleFS:SetFont(fontPath, 13, "")
         titleFS:SetJustifyH("LEFT")
         titleFS:SetWordWrap(false)
-        titleFS:SetText(EllesmereUI.L(typeName))
+        titleFS:SetText(typeName)
         titleFS:SetTextColor(1, 1, 1)
 
         -- Position subtitle (smaller, grayer, inline after type name)
@@ -3464,7 +3464,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             posFS:SetFont(fontPath, 11, "")
             posFS:SetJustifyH("LEFT")
             posFS:SetWordWrap(false)
-            posFS:SetText("(" .. EllesmereUI.L(posText) .. ")")
+            posFS:SetText("(" .. posText .. ")")
             posFS:SetTextColor(0.75, 0.75, 0.75, 0.65)
         end
 
@@ -3482,7 +3482,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             end
             spellFS:SetText(table.concat(names, ", "))
         else
-            spellFS:SetText(EllesmereUI.L("(no spells)"))
+            spellFS:SetText("(no spells)")
         end
         spellFS:SetTextColor(0.4, 0.4, 0.4)
 
@@ -3603,7 +3603,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         local addLabel = addBtn:CreateFontString(nil, "OVERLAY")
         addLabel:SetFont(fontPath, 12, "")
         addLabel:SetPoint("CENTER")
-        addLabel:SetText(EllesmereUI.L("Add New"))
+        addLabel:SetText("Add New")
         addLabel:SetTextColor(1, 1, 1)
 
         addBtn:SetScript("OnEnter", function()
@@ -3676,7 +3676,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local abLbl = popup:CreateFontString(nil, "OVERLAY")
                 abLbl:SetFont(fontPath, 11, "")
                 abLbl:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, py)
-                abLbl:SetText(EllesmereUI.L("Abilities"))
+                abLbl:SetText("Abilities")
                 abLbl:SetTextColor(1, 1, 1, 0.6)
                 py = py - LABEL_H - LBL_GAP
 
@@ -3700,7 +3700,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                             end
                             tinsert(items, 1, {
                                 key = "__all", isAction = true,
-                                labelFn = function() return AllSel() and EllesmereUI.L("None") or EllesmereUI.L("All") end,
+                                labelFn = function() return AllSel() and "None" or "All" end,
                             })
                         end
                     end
@@ -4557,7 +4557,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             -- Row 2: Color | Opacity  (Frame Alpha: single full-width Alpha slider)
             if useAlpha then
                 SettingsRow(
-                    { type="slider", text="Alpha", min=0, max=100, step=1, trackWidth=120,
+                    { type="slider", text="Alpha", min=0, max=100, step=1,
                       disabled=thOff, disabledTooltip="Enable Threshold",
                       getValue=function() return ind.thresholdAlpha or 100 end,
                       setValue=function(v) ind.thresholdAlpha = v; ReloadAndUpdate() end },
@@ -4576,7 +4576,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                           ind.thresholdColor = { r=r, g=g, b=b }
                           ReloadAndUpdate()
                       end },
-                    { type="slider", text="Opacity", min=0, max=100, step=1, trackWidth=120,
+                    { type="slider", text="Opacity", min=0, max=100, step=1,
                       disabled=thOff, disabledTooltip="Enable Threshold",
                       getValue=function() return ind.thresholdColorOpacity or 100 end,
                       setValue=function(v) ind.thresholdColorOpacity = v; ReloadAndUpdate() end })
@@ -4870,7 +4870,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                       ReloadAndUpdate()
                       EllesmereUI:RefreshPage()
                   end },
-                { type="dropdown", text="Growth Direction", dropdownWidth=110, values=GROW_VALUES, order=GROW_ORDER,
+                { type="dropdown", text="Growth Direction", values=GROW_VALUES, order=GROW_ORDER,
                   getValue=function() return ind.growDirection or "RIGHT" end,
                   setValue=function(v) ind.growDirection = v; ReloadAndUpdate() end })
             -- Cog for position offset X/Y
@@ -4910,17 +4910,17 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
             -- Row 1: Size | Spacing
             SettingsRow(
-                { type="slider", text="Size", min=4, max=40, step=1, trackWidth=120,
+                { type="slider", text="Size", min=4, max=40, step=1,
                   getValue=function() return ind.size or 12 end,
                   setValue=function(v) ind.size = v; ReloadAndUpdate() end },
-                { type="slider", text="Spacing", min=-1, max=10, step=1, trackWidth=120,
+                { type="slider", text="Spacing", min=-1, max=10, step=1,
                   getValue=function() return ind.spacing or 1 end,
                   setValue=function(v) ind.spacing = v; ReloadAndUpdate() end })
 
             -- Row 2: Opacity | Border (+ inline color swatch)
             local IconHidden = function() return indType == "icon" and ind.hideIcon == true end
             local bdrRow = SettingsRow(
-                { type="slider", text="Opacity", min=0, max=100, step=1, trackWidth=120,
+                { type="slider", text="Opacity", min=0, max=100, step=1,
                   disabled=IconHidden, disabledTooltip="Hide Icons",
                   getValue=function() return ind.iconOpacity or 100 end,
                   setValue=function(v) ind.iconOpacity = v; ReloadAndUpdate() end },
@@ -5508,7 +5508,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                           ind.color = { r=r, g=g, b=b }
                           ReloadAndUpdate()
                       end },
-                    { type="slider", text="Opacity", min=5, max=100, step=1, trackWidth=120,
+                    { type="slider", text="Opacity", min=5, max=100, step=1,
                       getValue=function() return ind.opacity or 100 end,
                       setValue=function(v) ind.opacity = v; ReloadAndUpdate() end })
 
@@ -5586,7 +5586,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
                 -- Row 1: Alpha | empty
                 SettingsRow(
-                    { type="slider", text="Alpha", min=5, max=100, step=1, trackWidth=120,
+                    { type="slider", text="Alpha", min=5, max=100, step=1,
                       getValue=function() return floor((ind.alpha or 0.4) * 100) end,
                       setValue=function(v) ind.alpha = v / 100; ReloadAndUpdate() end },
                     { type="label", text="" })

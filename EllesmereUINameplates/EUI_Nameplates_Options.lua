@@ -5321,7 +5321,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 4: Cast Background Opacity (+ swatch) | Cast Bar Border (+ swatch)
         local castBgRow
         castBgRow, h = W:DualRow(parent, y,
-            { type="slider", text="Cast Background", min=0, max=100, step=1, trackWidth=100,
+            { type="slider", text="Cast Background", min=0, max=100, step=1,
               getValue=function()
                 return math.floor(((DBVal("castBgAlpha") or defaults.castBgAlpha) * 100) + 0.5)
               end,
@@ -5333,7 +5333,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 UpdatePreview()
               end },
-            { type="slider", text="Cast Bar Border", min=0, max=4, step=1, trackWidth=100,
+            { type="slider", text="Cast Bar Border", min=0, max=4, step=1,
               tooltip="Pixel-perfect border around the cast bar. Set to 0 for no border.",
               getValue=function() return DBVal("castBorderSize") or defaults.castBorderSize end,
               setValue=function(v)

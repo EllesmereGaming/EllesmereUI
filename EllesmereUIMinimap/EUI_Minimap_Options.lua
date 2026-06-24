@@ -81,7 +81,7 @@ initFrame:SetScript("OnEvent", function(self)
     local PP = EllesmereUI.PP
     local function BuildVisibilityRow(W, parent, y, getCfg, refreshFn)
         local visRow, visH = W:DualRow(parent, y,
-            { type="dropdown", text="Visibility", dropdownWidth = 110,
+            { type="dropdown", text="Visibility",
               values = EllesmereUI.VIS_VALUES,
               order  = EllesmereUI.VIS_ORDER,
               getValue=function()
@@ -95,7 +95,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if _G._EBS_UpdateVisibility then _G._EBS_UpdateVisibility() end
                   EllesmereUI:RefreshPage()
               end },
-            { type="dropdown", text="Visibility Options", dropdownWidth = 110,
+            { type="dropdown", text="Visibility Options",
               values={ __placeholder = "..." }, order={ "__placeholder" },
               getValue=function() return "__placeholder" end,
               setValue=function() end })
@@ -103,7 +103,7 @@ initFrame:SetScript("OnEvent", function(self)
             local rightRgn = visRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 110, rightRgn:GetFrameLevel() + 2,
+                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
                 EllesmereUI.VIS_OPT_ITEMS,
                 function(k) local c = getCfg(); return c and c[k] or false end,
                 function(k, v)
@@ -192,7 +192,7 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, SECTION_MINIMAP, y);  y = y - h
 
         _, h = W:DualRow(parent, y,
-            { type="slider", text="Size", min=100, max=600, step=1, trackWidth = 120,
+            { type="slider", text="Size", min=100, max=600, step=1,
               getValue=function() local m = MinimapDB(); return m and m.mapSize or 140 end,
               setValue=function(v)
                 local m = MinimapDB(); if not m then return end
@@ -235,7 +235,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Shape | Border Thickness
         local shapeRow
         shapeRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Shape", dropdownWidth = 110,
+            { type="dropdown", text="Shape",
               values = { square = "Square", circle = "Circle", textured_circle = "Textured Circle" },
               order  = { "square", "circle", "textured_circle" },
               getValue=function() local m = MinimapDB(); return m and m.shape or "square" end,
@@ -244,7 +244,7 @@ initFrame:SetScript("OnEvent", function(self)
                 m.shape = v
                 RefreshMinimap()
               end },
-            { type="slider", text="Border Thickness", min=0, max=5, step=1, trackWidth = 120,
+            { type="slider", text="Border Thickness", min=0, max=5, step=1,
               getValue=function() local m = MinimapDB(); return m and m.borderSize or 1 end,
               setValue=function(v)
                 local m = MinimapDB(); if not m then return end
@@ -291,11 +291,11 @@ initFrame:SetScript("OnEvent", function(self)
         -- Ungroup Minimap Buttons | In-Group Button Size
         local ungroupRow
         ungroupRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Ungroup Minimap Buttons", dropdownWidth = 110,
+            { type="dropdown", text="Ungroup Minimap Buttons",
               values = { __placeholder = "..." }, order = { "__placeholder" },
               getValue = function() return "__placeholder" end,
               setValue = function() end },
-            { type="slider", text="In-Group Button Size", min=14, max=40, step=1, trackWidth = 120,
+            { type="slider", text="In-Group Button Size", min=14, max=40, step=1,
               tooltip="Size of addon minimap buttons in the flyout grid",
               getValue=function() local m = MinimapDB(); return m and m.addonBtnSize or 24 end,
               setValue=function(v)
@@ -327,7 +327,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                leftRgn, 110, leftRgn:GetFrameLevel() + 2,
+                leftRgn, 210, leftRgn:GetFrameLevel() + 2,
                 GetUngroupItems(),
                 function(k)
                     local m = MinimapDB(); if not m then return false end
@@ -357,7 +357,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Interactable Button Size | Outer-Group MM Button Size (toggle + cog)
         local customBtnRow
         customBtnRow, h = W:DualRow(parent, y,
-            { type="slider", text="Interactable Button Size", min=16, max=40, step=1, trackWidth = 120,
+            { type="slider", text="Interactable Button Size", min=16, max=40, step=1,
               tooltip="Size of mail, calendar, tracking, and minimap button group toggle",
               getValue=function() local m = MinimapDB(); return m and m.interactableBtnSize or 21 end,
               setValue=function(v)
@@ -473,7 +473,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Hide Extra Buttons (checkbox dropdown)
         local extraBtnRow
         extraBtnRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Hide Extra Buttons", dropdownWidth = 110,
+            { type="dropdown", text="Hide Extra Buttons",
               values = { __placeholder = "..." }, order = { "__placeholder" },
               getValue = function() return "__placeholder" end,
               setValue = function() end },
@@ -496,7 +496,7 @@ initFrame:SetScript("OnEvent", function(self)
             }
 
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                leftRgn, 110, leftRgn:GetFrameLevel() + 2,
+                leftRgn, 210, leftRgn:GetFrameLevel() + 2,
                 EXTRA_BTN_ITEMS,
                 function(k)
                     local m = MinimapDB(); if not m then return false end
@@ -527,7 +527,7 @@ initFrame:SetScript("OnEvent", function(self)
                   m.showOmniumFolio = v
                   RefreshMinimap()
               end },
-            { type="slider", text="Omnium Folio Scale", min=0.5, max=1.5, step=0.05, trackWidth = 120,
+            { type="slider", text="Omnium Folio Scale", min=0.5, max=1.5, step=0.05,
               getValue=function() local m = MinimapDB(); return (m and m.omniumFolioScale) or 0.75 end,
               setValue=function(v)
                   local m = MinimapDB(); if not m then return end
@@ -578,7 +578,7 @@ initFrame:SetScript("OnEvent", function(self)
         }
         local blizzRow
         blizzRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Show Blizzard Elements", dropdownWidth = 110,
+            { type="dropdown", text="Show Blizzard Elements",
               values={ ["_placeholder"]="..." }, order={ "_placeholder" },
               getValue=function() return "_placeholder" end,
               setValue=function() end },
@@ -593,7 +593,7 @@ initFrame:SetScript("OnEvent", function(self)
             local rgn = blizzRow._leftRegion
             if rgn._control then rgn._control:Hide() end
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rgn, 110, rgn:GetFrameLevel() + 2,
+                rgn, 210, rgn:GetFrameLevel() + 2,
                 blizzElements,
                 function(k)
                     local m = MinimapDB(); if not m then return false end
@@ -636,7 +636,7 @@ initFrame:SetScript("OnEvent", function(self)
                 m.zoneInside = v
                 RefreshMinimap()
               end },
-            { type="slider", text="Location Scale", min=0.5, max=2.0, step=0.01, trackWidth = 120,
+            { type="slider", text="Location Scale", min=0.5, max=2.0, step=0.01,
               disabled=function() local m = MinimapDB(); return m and (m.hideZoneText) end,
               disabledTooltip="Zone in Show Blizzard Elements",
               getValue=function() local m = MinimapDB(); return m and m.locationScale or 1.15 end,
@@ -720,7 +720,7 @@ initFrame:SetScript("OnEvent", function(self)
                 m.clockInside = v
                 RefreshMinimap()
               end },
-            { type="slider", text="Clock Scale", min=0.5, max=2.0, step=0.01, trackWidth = 120,
+            { type="slider", text="Clock Scale", min=0.5, max=2.0, step=0.01,
               disabled=function() local m = MinimapDB(); return m and (not m.showClock) end,
               disabledTooltip="Clock in Show Blizzard Elements",
               getValue=function() local m = MinimapDB(); return m and m.clockScale or 1.15 end,

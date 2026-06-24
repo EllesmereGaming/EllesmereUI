@@ -7,6 +7,7 @@
 local EllesmereUI = _G.EllesmereUI
 EllesmereUI._deferredInits[#EllesmereUI._deferredInits + 1] = function()
 local PP = EllesmereUI.PanelPP
+local isRussian = GetLocale() == "ruRU"
 
 -- Utility functions (used heavily)
 local SolidTex         = EllesmereUI.SolidTex
@@ -2920,7 +2921,8 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
         end
 
         if t == "slider" then
-            local trackFrame, valBox, _, slThumb = BuildSliderCore(region, cfg.trackWidth or 160, 4, 14, 40, 26, 13, SL.INPUT_A,
+            local defaultTrackW = isRussian and 120 or 160
+            local trackFrame, valBox, _, slThumb = BuildSliderCore(region, cfg.trackWidth or defaultTrackW, 4, 14, 40, 26, 13, SL.INPUT_A,
                 cfg.min, cfg.max, cfg.step, cfg.getValue, cfg.setValue, true, cfg.snapPoints)
             PP.Point(valBox, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
             PP.Point(trackFrame, "RIGHT", valBox, "LEFT", -12, 0)
@@ -2948,7 +2950,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
             controlAnchor = trackFrame
 
         elseif t == "dropdown" then
-            local DD_W = cfg.dropdownWidth or 170
+            local DD_W = 170
             -- Bridge itemDisabled/itemDisabledTooltip into disabledValuesFn for BuildDropdownControl
             local ddDisabledFn = cfg.disabledValues
             if not ddDisabledFn and cfg.itemDisabled then
@@ -3269,7 +3271,8 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
         end
 
         if t == "slider" then
-            local trackFrame, valBox, _, slThumb = BuildSliderCore(region, cfg.trackWidth or 130, 4, 14, 40, 26, 13, SL.INPUT_A,
+            local defaultTrackW = isRussian and 100 or 130
+            local trackFrame, valBox, _, slThumb = BuildSliderCore(region, cfg.trackWidth or defaultTrackW, 4, 14, 40, 26, 13, SL.INPUT_A,
                 cfg.min, cfg.max, cfg.step, cfg.getValue, cfg.setValue, true, cfg.snapPoints)
             PP.Point(valBox, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
             PP.Point(trackFrame, "RIGHT", valBox, "LEFT", -12, 0)
