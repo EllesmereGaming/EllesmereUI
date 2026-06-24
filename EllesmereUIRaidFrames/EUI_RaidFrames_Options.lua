@@ -2900,7 +2900,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(lbl, GetUseShadow()) end
                 lbl:SetFont(EllesmereUI.GetFontPath("raidFrames"), 13, GetOutline())
                 lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
-                lbl:SetText("Move Frames")
+                lbl:SetText(EllesmereUI.L("Move Frames"))
 
                 -- Inline cog: Free Move layout options (created before
                 -- UpdateMoveBtn so its closure captures the local)
@@ -2942,7 +2942,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 local function UpdateMoveBtn()
                     local active = ns.FB_IsMoverShown and ns.FB_IsMoverShown()
-                    lbl:SetText(active and "Stop Moving" or "Move Frames")
+                    lbl:SetText(active and EllesmereUI.L("Stop Moving") or EllesmereUI.L("Move Frames"))
                     btn:SetAlpha(MoveAllowed() and 1 or 0.35)
                     local freeOn = FBEnabled() and FBSet().position == "free"
                     cogBtn:SetAlpha(freeOn and 0.4 or 0.15)
@@ -3089,7 +3089,7 @@ initFrame:SetScript("OnEvent", function(self)
                 kbLbl:SetPoint("CENTER")
 
                 local function FormatKey(key)
-                    if not key then return "Not Bound" end
+                    if not key then return EllesmereUI.L("Not Bound") end
                     local parts = {}
                     for mod in key:gmatch("(%u+)%-") do
                         parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
@@ -3223,7 +3223,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(lbl, GetUseShadow()) end
                 lbl:SetFont(EllesmereUI.GetFontPath("raidFrames"), 13, GetOutline())
                 lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
-                lbl:SetText("Move Frames")
+                lbl:SetText(EllesmereUI.L("Move Frames"))
 
                 -- Inline cog: Free Move layout options (created before
                 -- UpdateMoveBtn so its closure captures the local)
@@ -3262,7 +3262,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 local function UpdateMoveBtn()
                     local active = ns.XF_IsMoverShown and ns.XF_IsMoverShown()
-                    lbl:SetText(active and "Stop Moving" or "Move Frames")
+                    lbl:SetText(active and EllesmereUI.L("Stop Moving") or EllesmereUI.L("Move Frames"))
                     btn:SetAlpha(MoveAllowed() and 1 or 0.35)
                     local freeOn = XFConfigured() and XFSet().position == "free"
                     cogBtn:SetAlpha(freeOn and 0.4 or 0.15)

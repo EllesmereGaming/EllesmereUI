@@ -30,7 +30,7 @@ initFrame:SetScript("OnEvent", function(self)
         if ECHAT.RefreshVisibility then ECHAT.RefreshVisibility() end
     end
 
-    local function BuildPage(_, parent, yOffset)
+    local function BuildChatPage(parent, yOffset)
         local W  = EllesmereUI.Widgets
         local PP = EllesmereUI.PP
         local y  = yOffset
@@ -589,23 +589,491 @@ initFrame:SetScript("OnEvent", function(self)
               values=whisperSoundValues, order=whisperSoundOrder,
               getValue=function() return Cfg("whisperSoundKey") or "none" end,
               setValue=function(v) Set("whisperSoundKey", v) end })
+        return math.abs(y)
+    end
+
+    local function BuildChatBarPage(parent, yOffset)
+        local W  = EllesmereUI.Widgets
+        local PP = EllesmereUI.PP
+        local y  = yOffset
+        local h
+
+        if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
+        parent._showRowDivider = true
+
+        local function RefreshChatBar()
+            if ECHAT.ApplyChatBarPosition then ECHAT.ApplyChatBarPosition() end
+            if ECHAT.UpdateButtonLayout then ECHAT.UpdateButtonLayout() end
+        end
+
+        -- Section 1: GENERAL
+        _, h = W:SectionHeader(parent, "GENERAL", y); y = y - h
+
+        -- Row 1: Enable ChatBar | Hide in Combat
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Enable ChatBar",
+              getValue=function() return Cfg("chatBarEnabled") ~= false end,
+              setValue=function(v) Set("chatBarEnabled", v); RefreshChatBar() end },
+            { type="toggle", text="Hide in Combat",
+              getValue=function() return Cfg("chatBarHideInCombat") or false end,
+              setValue=function(v) Set("chatBarHideInCombat", v); RefreshChatBar() end })
         y = y - h
+
+        -- Row 2: Button Style | ChatBar Scale
+        local chatStyles = {
+            text = { text = "Text" },
+            square = { text = "Square" },
+            block = { text = "Block (No Text)" },
+        }
+        local chatStylesOrder = { "text", "square", "block" }
+        local rowStyleBorder
+        rowStyleBorder, h = W:DualRow(parent, y,
+            { type="dropdown", text="Button Style",
+              values=chatStyles, order=chatStylesOrder,
+              getValue=function() return Cfg("chatBarStyle") or "square" end,
+              setValue=function(v) Set("chatBarStyle", v); RefreshChatBar(); EllesmereUI:RefreshPage() end },
+            { type="slider", text="ChatBar Scale",
+              min = 0.5, max = 2.0, step = 0.05,
+              getValue=function() return Cfg("chatBarScale") or 1.0 end,
+              setValue=function(v) Set("chatBarScale", v); RefreshChatBar() end })
+        y = y - h
+
+        -- Row 3: Visible Buttons | Pull Timer Duration
+        local rowScaleVis
+        rowScaleVis, h = W:DualRow(parent, y,
+            { type="dropdown", text="Visible Buttons",
+              values={ __placeholder = "..." }, order={ "__placeholder" },
+              getValue=function() return "__placeholder" end,
+              setValue=function() end },
+            { type="slider", text="Pull Timer Duration",
+              min = 5, max = 10, step = 1,
+              getValue=function() return Cfg("chatBarPullDuration") or 10 end,
+              setValue=function(v) Set("chatBarPullDuration", v) end })
+        y = y - h
+
+        -- Section 2: BUTTON SIZE & SPACING
+        _, h = W:SectionHeader(parent, "BUTTON SIZE & SPACING", y); y = y - h
+
+        -- Row 4: Button Width | Button Height
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Button Width",
+              min = 12, max = 60, step = 1,
+              getValue=function() return Cfg("chatBarButtonWidth") or 24 end,
+              setValue=function(v) Set("chatBarButtonWidth", v); RefreshChatBar() end },
+            { type="slider", text="Button Height",
+              min = 12, max = 60, step = 1,
+              getValue=function() return Cfg("chatBarButtonHeight") or 24 end,
+              setValue=function(v) Set("chatBarButtonHeight", v); RefreshChatBar() end })
+        y = y - h
+
+        -- Row 5: Button Spacing | (empty)
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Button Spacing",
+              min = 0, max = 20, step = 1,
+              getValue=function() return Cfg("chatBarSpacing") or 4 end,
+              setValue=function(v) Set("chatBarSpacing", v); RefreshChatBar() end },
+            { type="label", text="" })
+        y = y - h
+
+        -- Section 3: TEXT & TYPOGRAPHY
+        _, h = W:SectionHeader(parent, "TEXT & TYPOGRAPHY", y); y = y - h
+
+        -- Row 6: Font | Font Size
+        local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
+        local rowText
+        rowText, h = W:DualRow(parent, y,
+            { type="dropdown", text="Font",
+              values=fontValues, order=fontOrder,
+              getValue=function() return Cfg("chatBarFont") or "__global" end,
+              setValue=function(v) Set("chatBarFont", v); RefreshChatBar() end },
+            { type="slider", text="Font Size",
+              min = 8, max = 24, step = 1,
+              getValue=function() return Cfg("chatBarFontSize") or 11 end,
+              setValue=function(v) Set("chatBarFontSize", v); RefreshChatBar() end })
+        y = y - h
+
+        -- Row 7: Text Color Source | (empty)
+        local colorSources = {
+            channel = { text = "Channel Color" },
+            class   = { text = "Class Color" },
+            custom  = { text = "Custom Color" },
+            accent  = { text = "UI Accent" },
+            static  = { text = "Static Default" },
+        }
+        local colorSourcesOrder = { "channel", "class", "custom", "accent", "static" }
+        local rowTextColor
+        rowTextColor, h = W:DualRow(parent, y,
+            { type="dropdown", text="Text Color",
+              values=colorSources, order=colorSourcesOrder,
+              getValue=function() return Cfg("chatBarTextColorSource") or "channel" end,
+              setValue=function(v) Set("chatBarTextColorSource", v); RefreshChatBar(); EllesmereUI:RefreshPage() end },
+            { type="label", text="" })
+        y = y - h
+
+        -- Section 4: BACKGROUND
+        _, h = W:SectionHeader(parent, "BACKGROUND", y); y = y - h
+
+        -- Row 8: Bg Color Source | Background Opacity
+        local rowBg
+        rowBg, h = W:DualRow(parent, y,
+            { type="dropdown", text="Background Color",
+              values=colorSources, order=colorSourcesOrder,
+              getValue=function() return Cfg("chatBarBgColorSource") or "static" end,
+              setValue=function(v) Set("chatBarBgColorSource", v); RefreshChatBar(); EllesmereUI:RefreshPage() end },
+            { type="slider", text="Background Opacity",
+              min = 0, max = 1, step = 0.05,
+              getValue=function() return Cfg("chatBarBgAlpha") or 0.65 end,
+              setValue=function(v) Set("chatBarBgAlpha", v); RefreshChatBar() end })
+        y = y - h
+
+        -- Section 5: BORDER
+        _, h = W:SectionHeader(parent, "BORDER", y); y = y - h
+
+        -- Row 9: Show Border | Border Size
+        local rowBorder
+        rowBorder, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Border",
+              getValue=function() return Cfg("chatBarShowBorder") ~= false end,
+              setValue=function(v) Set("chatBarShowBorder", v); RefreshChatBar(); EllesmereUI:RefreshPage() end },
+            { type="slider", text="Border Size",
+              min = 1, max = 5, step = 1,
+              getValue=function() return Cfg("chatBarBorderWidth") or 1 end,
+              setValue=function(v) Set("chatBarBorderWidth", v); RefreshChatBar() end })
+        y = y - h
+
+        -- Row 10: Border Color Source | (empty)
+        local borderSources = {
+            channel = { text = "Channel Color" },
+            class   = { text = "Class Color" },
+            custom  = { text = "Custom Color" },
+            accent  = { text = "UI Accent" },
+            static  = { text = "Static Default" },
+            none    = { text = "No Border" },
+        }
+        local borderSourcesOrder = { "channel", "class", "custom", "accent", "static", "none" }
+        local rowBorderColor
+        rowBorderColor, h = W:DualRow(parent, y,
+            { type="dropdown", text="Border Color",
+              values=borderSources, order=borderSourcesOrder,
+              getValue=function() return Cfg("chatBarBorderColorSource") or "none" end,
+              setValue=function(v) Set("chatBarBorderColorSource", v); RefreshChatBar(); EllesmereUI:RefreshPage() end },
+            { type="label", text="" })
+        y = y - h
+
+        -- Section 6: GRADIENT OVERLAY
+        _, h = W:SectionHeader(parent, "GRADIENT OVERLAY", y); y = y - h
+
+        -- Row 11: Enable Gradient | Gradient Direction
+        local gradDirs = {
+            LEFT = { text = "Left" },
+            RIGHT = { text = "Right" },
+            UP = { text = "Up" },
+            DOWN = { text = "Down" },
+            RADIAL = { text = "Radial" },
+        }
+        local gradDirsOrder = { "LEFT", "RIGHT", "UP", "DOWN", "RADIAL" }
+        local rowGrad1
+        rowGrad1, h = W:DualRow(parent, y,
+            { type="toggle", text="Enable Gradient",
+              getValue=function() return Cfg("chatBarGradientEnabled") or false end,
+              setValue=function(v) Set("chatBarGradientEnabled", v); RefreshChatBar(); EllesmereUI:RefreshPage() end },
+            { type="dropdown", text="Gradient Direction",
+              values=gradDirs, order=gradDirsOrder,
+              getValue=function() return Cfg("chatBarGradientDir") or "LEFT" end,
+              setValue=function(v) Set("chatBarGradientDir", v); RefreshChatBar() end })
+        y = y - h
+
+        -- Row 12: Gradient Color Source | Gradient Opacity
+        local rowGrad2
+        rowGrad2, h = W:DualRow(parent, y,
+            { type="dropdown", text="Gradient Color",
+              values=colorSources, order=colorSourcesOrder,
+              getValue=function() return Cfg("chatBarGradientColorSource") or "custom" end,
+              setValue=function(v) Set("chatBarGradientColorSource", v); RefreshChatBar(); EllesmereUI:RefreshPage() end },
+            { type="slider", text="Gradient Opacity",
+              min = 0, max = 1, step = 0.05,
+              getValue=function() return Cfg("chatBarGradientAlpha") or 0.5 end,
+              setValue=function(v) Set("chatBarGradientAlpha", v); RefreshChatBar() end })
+        y = y - h
+
+        -- Section 7: DYNAMIC HIDING
+        _, h = W:SectionHeader(parent, "DYNAMIC HIDING", y); y = y - h
+
+        -- Description for DYNAMIC HIDING
+        do
+            local descText = EllesmereUI.L("Automatically hide chat channel buttons when you cannot write to them (e.g., hide the Party button when you are not in a group).")
+            local descRow
+            descRow, h = W:DualRow(parent, y, { type = "label", text = descText }, nil)
+            h = 65
+            descRow:SetHeight(h)
+            if descRow._leftRegion then
+                descRow._leftRegion:SetHeight(h)
+            end
+            local lbl = descRow._leftRegion and descRow._leftRegion._label
+            if lbl then
+                lbl:SetJustifyH("LEFT")
+                lbl:SetWordWrap(true)
+                lbl:SetPoint("RIGHT", descRow._leftRegion, "RIGHT", -20, 0)
+            end
+            y = y - h
+        end
+
+        -- Row 13: Party | Raid
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Party",
+              getValue=function() return Cfg("chatBarHidePartyIfUnavailable") ~= false end,
+              setValue=function(v) Set("chatBarHidePartyIfUnavailable", v); RefreshChatBar() end },
+            { type="toggle", text="Raid",
+              getValue=function() return Cfg("chatBarHideRaidIfUnavailable") ~= false end,
+              setValue=function(v) Set("chatBarHideRaidIfUnavailable", v); RefreshChatBar() end })
+        y = y - h
+
+        -- Row 14: Instance | Raid Warning
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Instance",
+              getValue=function() return Cfg("chatBarHideInstanceIfUnavailable") ~= false end,
+              setValue=function(v) Set("chatBarHideInstanceIfUnavailable", v); RefreshChatBar() end },
+            { type="toggle", text="Raid Warning",
+              getValue=function() return Cfg("chatBarHideRaidWarningIfUnavailable") ~= false end,
+              setValue=function(v) Set("chatBarHideRaidWarningIfUnavailable", v); RefreshChatBar() end })
+        y = y - h
+
+        -- Row 15: Guild | Officer
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Guild",
+              getValue=function() return Cfg("chatBarHideGuildIfUnavailable") ~= false end,
+              setValue=function(v) Set("chatBarHideGuildIfUnavailable", v); RefreshChatBar() end },
+            { type="toggle", text="Officer",
+              getValue=function() return Cfg("chatBarHideOfficerIfUnavailable") ~= false end,
+              setValue=function(v) Set("chatBarHideOfficerIfUnavailable", v); RefreshChatBar() end })
+        y = y - h
+
+        -- Row 16: Battleground | (empty)
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Battleground",
+              getValue=function() return Cfg("chatBarHideBattlegroundIfUnavailable") ~= false end,
+              setValue=function(v) Set("chatBarHideBattlegroundIfUnavailable", v); RefreshChatBar() end },
+            { type="label", text="" })
+        y = y - h
+
+        -- 1. Create Swatches
+        local textSwatch, textSwatchRefresh
+        do
+            local lRgn = rowTextColor._leftRegion
+            local lCtrl = lRgn._control
+            textSwatch, textSwatchRefresh = EllesmereUI.BuildColorSwatch(
+                lRgn, rowTextColor:GetFrameLevel() + 3,
+                function()
+                    return (Cfg("chatBarCustomTextR") or 1), (Cfg("chatBarCustomTextG") or 1), (Cfg("chatBarCustomTextB") or 1)
+                end,
+                function(r, g, b)
+                    Set("chatBarCustomTextR", r); Set("chatBarCustomTextG", g); Set("chatBarCustomTextB", b)
+                    RefreshChatBar()
+                end,
+                false, 20)
+            PP.Point(textSwatch, "RIGHT", lCtrl, "LEFT", -8, 0)
+        end
+
+        local bgSwatch, bgSwatchRefresh
+        do
+            local lRgn = rowBg._leftRegion
+            local lCtrl = lRgn._control
+            bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
+                lRgn, rowBg:GetFrameLevel() + 3,
+                function()
+                    return (Cfg("chatBarCustomBgR") or 0.12), (Cfg("chatBarCustomBgG") or 0.14), (Cfg("chatBarCustomBgB") or 0.18)
+                end,
+                function(r, g, b)
+                    Set("chatBarCustomBgR", r); Set("chatBarCustomBgG", g); Set("chatBarCustomBgB", b)
+                    RefreshChatBar()
+                end,
+                false, 20)
+            PP.Point(bgSwatch, "RIGHT", lCtrl, "LEFT", -8, 0)
+        end
+
+        local borderSwatch, borderSwatchRefresh
+        do
+            local lRgn = rowBorderColor._leftRegion
+            local lCtrl = lRgn._control
+            borderSwatch, borderSwatchRefresh = EllesmereUI.BuildColorSwatch(
+                lRgn, rowBorderColor:GetFrameLevel() + 3,
+                function()
+                    return (Cfg("chatBarCustomBorderR") or 0.5), (Cfg("chatBarCustomBorderG") or 0.5), (Cfg("chatBarCustomBorderB") or 0.5)
+                end,
+                function(r, g, b)
+                    Set("chatBarCustomBorderR", r); Set("chatBarCustomBorderG", g); Set("chatBarCustomBorderB", b)
+                    RefreshChatBar()
+                end,
+                false, 20)
+            PP.Point(borderSwatch, "RIGHT", lCtrl, "LEFT", -8, 0)
+        end
+
+        local gradientSwatch, gradientSwatchRefresh
+        do
+            local lRgn = rowGrad2._leftRegion
+            local lCtrl = lRgn._control
+            gradientSwatch, gradientSwatchRefresh = EllesmereUI.BuildColorSwatch(
+                lRgn, rowGrad2:GetFrameLevel() + 3,
+                function()
+                    return (Cfg("chatBarGradientCustomR") or 1), (Cfg("chatBarGradientCustomG") or 1), (Cfg("chatBarGradientCustomB") or 1)
+                end,
+                function(r, g, b)
+                    Set("chatBarGradientCustomR", r); Set("chatBarGradientCustomG", g); Set("chatBarGradientCustomB", b)
+                    RefreshChatBar()
+                end,
+                false, 20)
+            PP.Point(gradientSwatch, "RIGHT", lCtrl, "LEFT", -8, 0)
+        end
+
+        -- 2. Build Vis Opts Dropdown
+        do
+            local lRgn = rowScaleVis._leftRegion
+            local chatBarButtonsItems = {
+                { key = "chatBarShowSay",           label = "Say" },
+                { key = "chatBarShowYell",          label = "Yell" },
+                { key = "chatBarShowEmote",         label = "Emote" },
+                { key = "chatBarShowWhisper",       label = "Whisper" },
+                { key = "chatBarShowParty",         label = "Party" },
+                { key = "chatBarShowRaid",          label = "Raid" },
+                { key = "chatBarShowRaidWarning",   label = "Raid Warning" },
+                { key = "chatBarShowInstance",      label = "Instance" },
+                { key = "chatBarShowGuild",         label = "Guild" },
+                { key = "chatBarShowOfficer",       label = "Officer" },
+                { key = "chatBarShowBattleground",  label = "Battleground" },
+                { key = "chatBarShowGlobalChannels", label = "Global Channels (1, 2, ...)" },
+                { key = "chatBarShowRoll",          label = "Roll" },
+                { key = "chatBarShowReadyCheck",    label = "Ready Check / Pull" },
+                { key = "chatBarShowReloadUI",      label = "Reload UI" },
+            }
+
+            if lRgn._control then lRgn._control:Hide() end
+            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                lRgn, 210, lRgn:GetFrameLevel() + 2,
+                chatBarButtonsItems,
+                function(k) return Cfg(k) ~= false end,
+                function(k, v)
+                    Set(k, v)
+                    RefreshChatBar()
+                end)
+            PP.Point(cbDD, "RIGHT", lRgn, "RIGHT", -20, 0)
+            lRgn._control = cbDD
+            lRgn._lastInline = nil
+            
+            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+            EllesmereUI.RegisterWidgetRefresh(textSwatchRefresh)
+            EllesmereUI.RegisterWidgetRefresh(bgSwatchRefresh)
+            EllesmereUI.RegisterWidgetRefresh(borderSwatchRefresh)
+            EllesmereUI.RegisterWidgetRefresh(gradientSwatchRefresh)
+        end
+
+        -- 3. Widget Interactivity Update Logic
+        do
+            local function UpdateWidgetStates()
+                local style = Cfg("chatBarStyle") or "square"
+                local showBorder = Cfg("chatBarShowBorder") ~= false
+                local borderSource = Cfg("chatBarBorderColorSource") or "none"
+                local isBorderCustom = borderSource == "custom"
+                
+                local gradEnabled = Cfg("chatBarGradientEnabled") or false
+                local gradSource = Cfg("chatBarGradientColorSource") or "custom"
+                local isGradCustom = gradSource == "custom"
+                
+                local isTextCustom = Cfg("chatBarTextColorSource") == "custom"
+                local isBgCustom = Cfg("chatBarBgColorSource") == "custom"
+                
+                local styleIsBg = (style == "square" or style == "block")
+                local borderActive = styleIsBg and showBorder and borderSource ~= "none"
+                local gradActive = styleIsBg and gradEnabled
+                
+                -- Row 9 left: Show Border
+                rowBorder._leftRegion:SetAlpha(styleIsBg and 1 or 0.3)
+                if rowBorder._leftRegion._control and rowBorder._leftRegion._control.SetEnabled then
+                    rowBorder._leftRegion._control:SetEnabled(styleIsBg)
+                end
+                
+                -- Row 9 right: Border Size
+                rowBorder._rightRegion:SetAlpha(borderActive and 1 or 0.3)
+                if rowBorder._rightRegion._control and rowBorder._rightRegion._control.SetEnabled then
+                    rowBorder._rightRegion._control:SetEnabled(borderActive)
+                end
+                
+                -- Row 8 left: Bg Color Source
+                rowBg._leftRegion:SetAlpha(styleIsBg and 1 or 0.3)
+                if rowBg._leftRegion._control and rowBg._leftRegion._control.SetEnabled then
+                    rowBg._leftRegion._control:SetEnabled(styleIsBg)
+                end
+                
+                -- Text Color Source Custom Swatch
+                textSwatch:SetShown(isTextCustom)
+                
+                -- Row 8 right: Background Opacity
+                rowBg._rightRegion:SetAlpha(styleIsBg and 1 or 0.3)
+                if rowBg._rightRegion._control and rowBg._rightRegion._control.SetEnabled then
+                    rowBg._rightRegion._control:SetEnabled(styleIsBg)
+                end
+                bgSwatch:SetShown(isBgCustom and styleIsBg)
+                
+                -- Border Color Source Dropdown + Custom Swatch
+                local showBorderColor = showBorder and styleIsBg
+                rowBorderColor._leftRegion:SetAlpha(showBorderColor and 1 or 0.3)
+                if rowBorderColor._leftRegion._control and rowBorderColor._leftRegion._control.SetEnabled then
+                    rowBorderColor._leftRegion._control:SetEnabled(showBorderColor)
+                end
+                borderSwatch:SetShown(isBorderCustom and showBorderColor)
+                
+                -- Row Grad 1 left: Enable Gradient
+                rowGrad1._leftRegion:SetAlpha(styleIsBg and 1 or 0.3)
+                if rowGrad1._leftRegion._control and rowGrad1._leftRegion._control.SetEnabled then
+                    rowGrad1._leftRegion._control:SetEnabled(styleIsBg)
+                end
+                
+                -- Row Grad 1 right: Gradient Direction
+                rowGrad1._rightRegion:SetAlpha(gradActive and 1 or 0.3)
+                if rowGrad1._rightRegion._control and rowGrad1._rightRegion._control.SetEnabled then
+                    rowGrad1._rightRegion._control:SetEnabled(gradActive)
+                end
+                
+                -- Row Grad 2 left: Gradient Color Source
+                rowGrad2._leftRegion:SetAlpha(gradActive and 1 or 0.3)
+                if rowGrad2._leftRegion._control and rowGrad2._leftRegion._control.SetEnabled then
+                    rowGrad2._leftRegion._control:SetEnabled(gradActive)
+                end
+                gradientSwatch:SetShown(isGradCustom and gradActive)
+                
+                -- Row Grad 2 right: Gradient Opacity
+                rowGrad2._rightRegion:SetAlpha(gradActive and 1 or 0.3)
+                if rowGrad2._rightRegion._control and rowGrad2._rightRegion._control.SetEnabled then
+                    rowGrad2._rightRegion._control:SetEnabled(gradActive)
+                end
+            end
+            
+            UpdateWidgetStates()
+            EllesmereUI.RegisterWidgetRefresh(UpdateWidgetStates)
+        end
 
         return math.abs(y)
     end
 
-    _G._EBS_BuildChatPage = BuildPage
+    _G._EBS_BuildChatPage = BuildChatPage
 
     EllesmereUI:RegisterModule("EllesmereUIChat", {
         title       = "Chat",
         description = "Chat frame reskin, clickable URLs, copy chat, sidebar icons.",
-        pages       = { "Chat" },
-        buildPage   = function(pageName, p, yOffset) return BuildPage(pageName, p, yOffset) end,
-        searchTerms = "chat url copy whisper sidebar friends voice",
+        pages       = { "Chat", "Chat Bar" },
+        buildPage   = function(pageName, p, yOffset)
+            if pageName == "Chat" then
+                return BuildChatPage(p, yOffset)
+            elseif pageName == "Chat Bar" then
+                return BuildChatBarPage(p, yOffset)
+            end
+        end,
+        searchTerms = "chat url copy whisper sidebar friends voice chatbar",
         onReset = function()
             local d = _G._ECHAT_DB
             if d and d.ResetProfile then d:ResetProfile() end
             RefreshAll()
+            if ECHAT.ApplyChatBarPosition then ECHAT.ApplyChatBarPosition() end
+            if ECHAT.UpdateButtonLayout then ECHAT.UpdateButtonLayout() end
             EllesmereUI:InvalidatePageCache()
         end,
     })

@@ -6480,8 +6480,7 @@ initFrame:SetScript("OnEvent", function(self)
                 math.floor(ar * 255 + 0.5),
                 math.floor(ag * 255 + 0.5),
                 math.floor(ab * 255 + 0.5))
-            local hintText = "For player frame, this provides a simple, mini castbar below player frame. To edit the main player cast bar, "
-                .. accentHex .. "click here|r"
+            local hintText = EllesmereUI.Lf("For player frame, this provides a simple, mini castbar below player frame. To edit the main player cast bar, %sclick here|r", accentHex)
             -- Full-width label (passing nil as the right slot expands the left
             -- region to the whole row) so the text renders via the panel's own
             -- widget path. A transparent button over the row makes the line

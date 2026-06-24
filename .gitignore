@@ -13,3 +13,6 @@ CLAUDE_PATTERNS.md
 
 # Developer scripts
 *.ps1
+
+# Jetbrains
+.idea

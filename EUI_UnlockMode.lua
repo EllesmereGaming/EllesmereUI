@@ -7416,6 +7416,28 @@ local function CreateMover(barKey)
             end)
         end
 
+        if barKey == "ECHAT_ChatBar" then
+            MakeActionItem("Reset Position", function()
+                if InCombatLockdown() then return end
+                if ClearAnchorInfo then ClearAnchorInfo(barKey) end
+                
+                pendingPositions[barKey] = nil
+                local elem = registeredElements[barKey]
+                if elem and elem.clearPosition then
+                    elem.clearPosition()
+                end
+                
+                if elem and elem.applyPosition then
+                    elem.applyPosition()
+                end
+                
+                hasChanges = true
+                if mover.UpdateCoordText then mover:UpdateCoordText() end
+                mover:ReanchorToBar()
+                PropagateAnchorChain(barKey)
+            end)
+        end
+
         cogMenu:SetHeight(-yOff + 4)
         cogMenu:Show()
     end
@@ -7600,7 +7622,7 @@ local function CreateHUD(parent)
     gridLabel:SetJustifyH("RIGHT")
     gridLabel:SetPoint("RIGHT", gridTex, "LEFT", -5, 0)
     gridLabel:SetTextColor(1, 1, 1, GridHudAlpha())
-    gridLabel:SetText(GridLabelText())
+    gridLabel:SetText(EllesmereUI.L(GridLabelText()))
     gridBtn._label = gridLabel
 
     -- Size wrapper to fit label + gap + icon
@@ -7614,7 +7636,7 @@ local function CreateHUD(parent)
         local a = GridHudAlpha()
         gridTex:SetAlpha(a)
         gridLabel:SetTextColor(1, 1, 1, a)
-        gridLabel:SetText(GridLabelText())
+        gridLabel:SetText(EllesmereUI.L(GridLabelText()))
         if gridFrame then
             if gridMode ~= "disabled" then
                 gridFrame:Rebuild()

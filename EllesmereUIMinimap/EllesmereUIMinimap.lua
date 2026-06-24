@@ -1556,7 +1556,7 @@ local function CreateMinimapPortalFlyout()
                     GameTooltip:SetItemByID(self._hsID)
                 end
             elseif self._hsType == "housing" then
-                GameTooltip:AddLine("Housing Dashboard")
+                GameTooltip:AddLine(EllesmereUI.L("Housing Dashboard"))
             end
             GameTooltip:Show()
         end)
@@ -2000,7 +2000,7 @@ local function ShowFriendsTooltip(anchor)
         hdr:SetFont(font, 12, "")
         local ac = EllesmereUI.ELLESMERE_GREEN or EllesmereUI._accentColor
         local acHex = ac and format("%02x%02x%02x", (ac.r or 0.05) * 255, (ac.g or 0.82) * 255, (ac.b or 0.62) * 255) or "0cd29f"
-        hdr:SetText(sec.title .. " (|cff" .. acHex .. #sec.list .. "|r)")
+        hdr:SetText(EllesmereUI.L(sec.title) .. " (|cff" .. acHex .. #sec.list .. "|r)")
         hdr:ClearAllPoints()
         hdr:SetPoint("TOP", tt, "TOP", 0, curY)
         hdr:Show()
