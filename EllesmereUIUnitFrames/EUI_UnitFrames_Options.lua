@@ -3000,11 +3000,11 @@ initFrame:SetScript("OnEvent", function(self)
                     -- uses its own key); other units keep the 1px schematic gap.
                     local debuffGap = (unitKey == "boss") and ns.GetBossDebuffSpacing(s, simpleOn) or 1
                     local dOffX = s.debuffOffsetX or 0
-                    -- Simple mode uses its own X offset (falling back to the regular
-                    -- debuff offset for existing users) to match the live column.
-                    if simpleOn then dOffX = (ns.GetBossSimpleDebuffOffset(s)) end
-                    -- Preview intentionally ignores the Y offset (real frames still honor it).
-                    local dOffY = 0
+                    -- Preview now mirrors the real frame's Y offset too.
+                    local dOffY = s.debuffOffsetY or 0
+                    -- Simple mode uses its own X/Y offsets (falling back to the regular
+                    -- debuff offsets for existing users) to match the live column.
+                    if simpleOn then dOffX, dOffY = ns.GetBossSimpleDebuffOffset(s) end
                     local dg = s.debuffGrowth or "auto"
 
                     local autoGrowth = {
