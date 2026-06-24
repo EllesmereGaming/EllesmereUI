@@ -78,6 +78,54 @@ local CHAT_DEFAULTS = {
             -- Session chat history (EllesmereUIChat_SessionHistory.lua, SavedVariablesPerCharacter)
             persistChatHistory = true,
             persistChatHistoryMaxLines = 100,
+            -- ChatBar defaults
+            chatBarEnabled = true,
+            chatBarStyle = "square",
+            chatBarShowBorder = true,
+            chatBarBorderWidth = 1,
+            chatBarButtonWidth = 24,
+            chatBarButtonHeight = 24,
+            chatBarSpacing = 4,
+            chatBarScale = 1.0,
+            chatBarFont = "__global",
+            chatBarFontSize = 11,
+            chatBarTextColorSource = "channel",
+            chatBarBgColorSource = "static",
+            chatBarBorderColorSource = "none",
+            chatBarCustomTextR = 1, chatBarCustomTextG = 1, chatBarCustomTextB = 1,
+            chatBarCustomBgR = 0.12, chatBarCustomBgG = 0.14, chatBarCustomBgB = 0.18,
+            chatBarCustomBorderR = 0.5, chatBarCustomBorderG = 0.5, chatBarCustomBorderB = 0.5,
+            chatBarBgAlpha = 0.65,
+            chatBarPullDuration = 10,
+            chatBarShowSay = true,
+            chatBarShowYell = true,
+            chatBarShowEmote = true,
+            chatBarShowWhisper = true,
+            chatBarShowParty = true,
+            chatBarShowRaid = true,
+            chatBarShowRaidWarning = true,
+            chatBarShowInstance = true,
+            chatBarShowGuild = true,
+            chatBarShowOfficer = true,
+            chatBarShowBattleground = true,
+            chatBarShowRoll = true,
+            chatBarShowReadyCheck = true,
+            chatBarShowReloadUI = true,
+            chatBarShowGlobalChannels = true,
+            chatBarHideInCombat = false,
+            chatBarPosition = {},
+            chatBarGradientEnabled = false,
+            chatBarGradientDir = "LEFT",
+            chatBarGradientColorSource = "custom",
+            chatBarGradientAlpha = 0.5,
+            chatBarGradientCustomR = 1, chatBarGradientCustomG = 1, chatBarGradientCustomB = 1,
+            chatBarHideGuildIfUnavailable = true,
+            chatBarHideOfficerIfUnavailable = true,
+            chatBarHidePartyIfUnavailable = true,
+            chatBarHideRaidIfUnavailable = true,
+            chatBarHideRaidWarningIfUnavailable = true,
+            chatBarHideInstanceIfUnavailable = true,
+            chatBarHideBattlegroundIfUnavailable = true,
         },
     },
 }
@@ -1238,6 +1286,9 @@ local function _ApplyAlpha(alpha)
     -- Dock manager: once, outside the loop
     if _euiDockStyled and _G.GeneralDockManager then
         _G.GeneralDockManager:SetAlpha(alpha)
+    end
+    if ECHAT.ChatBarFrame then
+        ECHAT.ChatBarFrame:SetAlpha(alpha)
     end
     for i = 1, #_alphaFrames do
         local af = _alphaFrames[i]
@@ -3109,6 +3160,8 @@ initFrame:SetScript("OnEvent", function(self)
         ECHAT.ApplyBackground()
         ECHAT.ApplyFonts()
         ECHAT.ApplyForceOnScreen()
+        if ECHAT.ApplyChatBarPosition then ECHAT.ApplyChatBarPosition() end
+        if ECHAT.UpdateButtonLayout then ECHAT.UpdateButtonLayout() end
         if ECHAT.RefreshVisibility then ECHAT.RefreshVisibility() end
     end
 

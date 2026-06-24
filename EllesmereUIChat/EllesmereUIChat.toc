@@ -12,9 +12,11 @@
 
 # Main Luas
 EllesmereUIChat.lua
+EllesmereUIChat_ChatBar.lua
 
 # Options
 EUI_Chat_Options.lua
 
 # Session scrollback via CHAT_MSG (open world, PushBack restore)
 EllesmereUIChat_SessionHistory.lua
+
