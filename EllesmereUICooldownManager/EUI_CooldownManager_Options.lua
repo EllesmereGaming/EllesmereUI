@@ -8204,7 +8204,7 @@ initFrame:SetScript("OnEvent", function(self)
                             sIco:SetAlpha(0.4)
                             local pTooltipName = isAdded and (bd and (bd.name or bd.key) or barKey) or pOtherBar
                             si:SetScript("OnEnter", function()
-                                EllesmereUI.ShowWidgetTooltip(si, "Already on " .. pTooltipName)
+                                EllesmereUI.ShowWidgetTooltip(si, EllesmereUI.Lf("Already on %1$s", pTooltipName))
                             end)
                             si:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                         else

@@ -1535,6 +1535,14 @@ local function GetTooltipFrame()
     return tooltipFrame
 end
 
+local function LocalizeTooltipText(text)
+    if type(text) ~= "string" then return text end
+    local englishKey = EllesmereUI.EnKey and EllesmereUI.EnKey(text) or text
+    if englishKey ~= text then return text end
+    if text:find("[\128-\255]") then return text end
+    return EllesmereUI.L(englishKey)
+end
+
 -- opts (optional table): { color = {r,g,b}, width = number } to override text color or force width
 ShowWidgetTooltip = function(label, text, opts)
     -- Suppress tooltips in M+/raid/PvP combat -- frame APIs return secret
@@ -1569,7 +1577,7 @@ ShowWidgetTooltip = function(label, text, opts)
     else
         tt.text:SetJustifyH("CENTER")
     end
-    tt.text:SetText(EllesmereUI.L(text))
+    tt.text:SetText(LocalizeTooltipText(text))
     tt:ClearAllPoints()
     if opts and opts.anchorPoint then
         -- Custom anchor: opts.anchorPoint on tooltip -> opts.anchorTo on label
