@@ -1299,7 +1299,9 @@ local function SkinCharacterSheet()
         if #betterItems > 0 then
             GameTooltip:AddLine(" ")
             GameTooltip:AddLine(
-                string.format(L("You have %d better item%s in inventory"), #betterItems, #betterItems == 1 and "" or "s"),
+                #betterItems == 1
+                    and EllesmereUI.Lf("You have %1$d better item in inventory", #betterItems)
+                    or EllesmereUI.Lf("You have %1$d better items in inventory", #betterItems),
                 0.2, 1, 0.2
             )
             GameTooltip:AddLine(" ")
@@ -1308,13 +1310,13 @@ local function SkinCharacterSheet()
             local maxShow = math.min(#betterItems, 10)
             for i = 1, maxShow do
                 local item = betterItems[i]
-                local leftText = string.format("|T%s:16|t  %s (iLvl %d)", item.icon, item.name, item.level)
-                GameTooltip:AddDoubleLine(leftText, item.slot, 1, 1, 1, 0.7, 0.7, 0.7)
+                local leftText = EllesmereUI.Lf("|T%1$s:16|t  %2$s (iLvl %3$d)", item.icon, item.name, item.level)
+                GameTooltip:AddDoubleLine(leftText, EllesmereUI.L(item.slot), 1, 1, 1, 0.7, 0.7, 0.7)
             end
 
             if #betterItems > 10 then
                 GameTooltip:AddLine(
-                    string.format(L("  ... and %d more"), #betterItems - 10),
+                    EllesmereUI.Lf("  ... and %1$d more", #betterItems - 10),
                     0.7, 0.7, 0.7
                 )
             end
@@ -3060,7 +3062,7 @@ local function SkinCharacterSheet()
         local btn = CreateFrame("Button", nil, parent)
         local fs = btn:CreateFontString(nil, "OVERLAY")
         fs:SetFont(fontPath, 10, "")
-        fs:SetText(label)
+        fs:SetText(EllesmereUI.L(label))
         fs:SetTextColor(1, 1, 1, 0.7)
         fs:SetPoint("CENTER", btn, "CENTER", 0, 0)
         btn:SetSize((fs:GetStringWidth() or 30) + 8, 14)
@@ -3749,7 +3751,7 @@ local function SkinCharacterSheet()
         eyeBtn:SetScript("OnEnter", function(self)
             self:SetAlpha(0.8)
             if EllesmereUI.ShowWidgetTooltip then
-                EllesmereUI.ShowWidgetTooltip(self, hidden and "Show Item Text" or "Hide Item Text", { width = 135 })
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(hidden and "Show Item Text" or "Hide Item Text"), { width = 135 })
             end
         end)
         eyeBtn:SetScript("OnLeave", function(self)

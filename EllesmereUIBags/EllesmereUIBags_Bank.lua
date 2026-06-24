@@ -4,6 +4,8 @@
 --  Visually matches the Bags module with sidebar, search, and sorting
 -------------------------------------------------------------------------------
 local EUI = EllesmereUI
+local function L(text) return EUI.L and EUI.L(text) or text end
+local function Lf(text, ...) return EUI.Lf and EUI.Lf(text, ...) or text:format(...) end
 -- Profile access helper (DB created in EUI_Bags_Options.lua, loaded first per TOC)
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
@@ -141,7 +143,7 @@ local function GetCharacterBankTabs()
                 if numSlots > 0 then
                     local icon = td.icon
                     if not icon or icon == 134400 then icon = GetFallbackIcon(bagID) end
-                    tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = td.name or ("Bank Tab " .. i), icon = icon }
+                    tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = td.name or Lf("Bank Tab %1$d", i), icon = icon }
                 end
             end
         end
@@ -149,7 +151,7 @@ local function GetCharacterBankTabs()
         for i, bagID in ipairs(CHARACTER_BANK_BAGS) do
             local numSlots = C_Container.GetContainerNumSlots(bagID)
             if numSlots > 0 then
-                tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = "Bank Tab " .. #tabs + 1, icon = GetFallbackIcon(bagID) }
+                tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = Lf("Bank Tab %1$d", #tabs + 1), icon = GetFallbackIcon(bagID) }
             end
         end
     end
@@ -174,10 +176,10 @@ local function GetWarbandBankTabs()
             if bagID then
                 local numSlots = C_Container.GetContainerNumSlots(bagID)
                 if numSlots > 0 then
-                    local name = td.name or ("Tab " .. i)
+                    local name = td.name or Lf("Tab %1$d", i)
                     local icon = td.icon
                     if not icon or icon == 134400 then icon = GetFallbackIcon(bagID) end
-                    tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = "Warbank " .. name, icon = icon }
+                    tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = Lf("Warbank %1$s", name), icon = icon }
                 end
             end
         end
@@ -185,7 +187,7 @@ local function GetWarbandBankTabs()
         for i, bagID in ipairs(WARBAND_BANK_BAGS) do
             local numSlots = C_Container.GetContainerNumSlots(bagID)
             if numSlots > 0 then
-                tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = "Warbank Tab " .. #tabs + 1, icon = GetFallbackIcon(bagID) }
+                tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = Lf("Warbank Tab %1$d", #tabs + 1), icon = GetFallbackIcon(bagID) }
             end
         end
     end
@@ -226,7 +228,7 @@ local title = header:CreateFontString(nil, "OVERLAY")
 SetBankFont(title, 13)
 title:SetPoint("LEFT", header, "LEFT", 8, 0)
 title:SetTextColor(1, 1, 1)
-title:SetText("Bank")
+title:SetText(L("Bank"))
 
 local itemCount = header:CreateFontString(nil, "OVERLAY")
 SetBankFont(itemCount, 11)
@@ -249,7 +251,7 @@ if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(bankSearch, 0.25, 0.25, 0.2
 local searchPlaceholder = bankSearch:CreateFontString(nil, "OVERLAY")
 SetBankFont(searchPlaceholder, 11)
 searchPlaceholder:SetPoint("LEFT", bankSearch, "LEFT", 5, 0)
-searchPlaceholder:SetText("Search...")
+searchPlaceholder:SetText(L("Search..."))
 searchPlaceholder:SetTextColor(0.4, 0.4, 0.4)
 EUI_Bank._searchBox = bankSearch
 
@@ -306,7 +308,7 @@ end
 
 sortBtn:SetScript("OnEnter", function(self)
     self.icon:SetAlpha(1)
-    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Sort Items") end
+    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, L("Sort Items")) end
 end)
 sortBtn:SetScript("OnLeave", function(self)
     self.icon:SetAlpha(0.9)
@@ -393,7 +395,7 @@ do
     playerHitbox:EnableMouse(true)
     playerHitbox:SetScript("OnEnter", function(self)
         if EUI.ShowWidgetTooltip then
-            EUI.ShowWidgetTooltip(self, "Player Gold")
+            EUI.ShowWidgetTooltip(self, L("Player Gold"))
         end
     end)
     playerHitbox:SetScript("OnLeave", function()
@@ -412,7 +414,7 @@ do
     warbandHitbox:EnableMouse(true)
     warbandHitbox:SetScript("OnEnter", function(self)
         if EUI.ShowWidgetTooltip then
-            EUI.ShowWidgetTooltip(self, "Warband Gold")
+            EUI.ShowWidgetTooltip(self, L("Warband Gold"))
         end
     end)
     warbandHitbox:SetScript("OnLeave", function()
@@ -455,16 +457,16 @@ do
         return btn
     end
 
-    local depositMoneyBtn = MakeStyledFooterBtn("Deposit", "Deposit to Warbank")
+    local depositMoneyBtn = MakeStyledFooterBtn(L("Deposit"), L("Deposit to Warbank"))
     depositMoneyBtn:SetPoint("RIGHT", warbandGold, "LEFT", -14, 0)
-    local withdrawMoneyBtn = MakeStyledFooterBtn("Withdraw", "Withdraw from Warbank")
+    local withdrawMoneyBtn = MakeStyledFooterBtn(L("Withdraw"), L("Withdraw from Warbank"))
     withdrawMoneyBtn:SetPoint("RIGHT", depositMoneyBtn, "LEFT", -8, 0)
 
     local function ShowMoneyPopup(title, onAccept)
         if not EUI.ShowInputPopup then return end
         EUI:ShowInputPopup({
             title = title,
-            message = "Enter amount in gold:",
+            message = L("Enter amount in gold:"),
             placeholder = "1137",
             confirmText = ACCEPT,
             cancelText = CANCEL,
@@ -481,7 +483,7 @@ do
     withdrawMoneyBtn:SetScript("OnClick", function()
         if not C_Bank or not C_Bank.CanWithdrawMoney then return end
         if not C_Bank.CanWithdrawMoney(Enum.BankType.Account) then return end
-        ShowMoneyPopup("Withdraw from Warbank", function(copper)
+        ShowMoneyPopup(L("Withdraw from Warbank"), function(copper)
             C_Bank.WithdrawMoney(Enum.BankType.Account, copper)
             if EUI_Bags and EUI_Bags.CaptureWarbandGold then EUI_Bags.CaptureWarbandGold() end
         end)
@@ -489,7 +491,7 @@ do
     depositMoneyBtn:SetScript("OnClick", function()
         if not C_Bank or not C_Bank.CanDepositMoney then return end
         if not C_Bank.CanDepositMoney(Enum.BankType.Account) then return end
-        ShowMoneyPopup("Deposit to Warbank", function(copper)
+        ShowMoneyPopup(L("Deposit to Warbank"), function(copper)
             C_Bank.DepositMoney(Enum.BankType.Account, copper)
             if EUI_Bags and EUI_Bags.CaptureWarbandGold then EUI_Bags.CaptureWarbandGold() end
         end)
@@ -531,10 +533,10 @@ do
 
     function EUI_Bank:UpdateDepositButton(isWarband)
         if isWarband then
-            depositItemsLabel:SetText("Deposit Warbound Items")
+            depositItemsLabel:SetText(L("Deposit Warbound Items"))
             depositItemsBtn._bankType = Enum.BankType.Account
         else
-            depositItemsLabel:SetText("Deposit Reagents")
+            depositItemsLabel:SetText(L("Deposit Reagents"))
             depositItemsBtn._bankType = Enum.BankType.Character
         end
         local r, g, b = GetAccentRGB()
@@ -623,7 +625,7 @@ sidebarHdr:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", 0, 0)
 sidebarHdr._label = sidebarHdr:CreateFontString(nil, "OVERLAY")
 SetBankFont(sidebarHdr._label, 10)
 sidebarHdr._label:SetPoint("LEFT", sidebarHdr, "LEFT", 8, 0)
-sidebarHdr._label:SetText("Tabs")
+sidebarHdr._label:SetText(L("Tabs"))
 sidebarHdr._label:SetTextColor(0.5, 0.5, 0.5)
 
 local ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.png"
@@ -652,7 +654,7 @@ collapseBtn:SetScript("OnEnter", function(self)
     self._icon:SetAlpha(0.9)
     local collapsed = BP().bankSidebarCollapsed
     if EUI.ShowWidgetTooltip then
-        EUI.ShowWidgetTooltip(self, collapsed and "Expand Sidebar" or "Collapse Sidebar")
+        EUI.ShowWidgetTooltip(self, collapsed and L("Expand Sidebar") or L("Collapse Sidebar"))
     end
 end)
 collapseBtn:SetScript("OnLeave", function(self)
@@ -1320,7 +1322,7 @@ function EUI_Bank:RefreshBank()
                     headerIdx = headerIdx + 1
                     _layout[#_layout + 1] = {
                         isHeader = true, headerIdx = headerIdx,
-                        label = tab.name .. " (" .. used .. ")",
+                        label = Lf("%1$s (%2$d)", tab.name, used),
                         x = startX, y = curY, w = gridW,
                     }
                     curY = curY - 22
@@ -1359,12 +1361,12 @@ function EUI_Bank:RefreshBank()
     if _selectedView == -1 then
         -- OneBank: character bank only, flat with "Bank" header
         local slots, filled = BuildOneView(charTabs)
-        LayoutFlatSlots(slots, "Bank (" .. filled .. " / " .. #slots .. ")")
+        LayoutFlatSlots(slots, Lf("Bank (%1$d / %2$d)", filled, #slots))
 
     elseif _selectedView == -3 then
         -- OneWarbank: warband bank only, flat with "Warband Bank" header
         local slots, filled = BuildOneView(warbTabs)
-        LayoutFlatSlots(slots, "Warband Bank (" .. filled .. " / " .. #slots .. ")")
+        LayoutFlatSlots(slots, Lf("Warband Bank (%1$d / %2$d)", filled, #slots))
 
     elseif _selectedView == -2 then
         -- All Warbank Tabs: per-tab headers for warband only
@@ -1400,7 +1402,7 @@ function EUI_Bank:RefreshBank()
             headerIdx = headerIdx + 1
             _layout[#_layout + 1] = {
                 isHeader = true, headerIdx = headerIdx,
-                label = tab.name .. " (" .. used .. ")",
+                label = Lf("%1$s (%2$d)", tab.name, used),
                 x = startX, y = curY, w = gridW,
             }
             curY = curY - 22
@@ -1569,7 +1571,7 @@ function EUI_Bank:RefreshBank()
                 hdr:ClearAllPoints()
                 hdr:SetPoint("TOPLEFT", child, "TOPLEFT", entry.x, entry.y)
                 hdr:SetWidth(entry.w)
-                hdr._label:SetText(entry.label)
+                hdr._label:SetText(L(entry.label))
                 hdr:Show()
             else
                 slotIdx = slotIdx + 1
@@ -1664,7 +1666,7 @@ function BuildBankSidebar()
         btn:SetScript("OnEnter", function(self)
             if not self._isSelected then self._bg:SetColorTexture(1, 1, 1, 0.06) end
             if (BP().bankSidebarCollapsed) and EUI.ShowWidgetTooltip then
-                EUI.ShowWidgetTooltip(self, (self._entryName or "?") .. " (" .. (self._entryCount or 0) .. ")")
+                EUI.ShowWidgetTooltip(self, Lf("%1$s (%2$d)", self._entryDisplayName or self._entryName or "?", self._entryCount or 0))
             end
         end)
         btn:SetScript("OnLeave", function(self)
@@ -1715,7 +1717,7 @@ function BuildBankSidebar()
             btn._count:Hide()
         else
             btn._label:Show()
-            btn._label:SetText(label)
+            btn._label:SetText(L(label))
             btn._label:SetTextColor(1, 1, 1, 0.6)
             btn._count:Hide()
         end
@@ -1732,13 +1734,14 @@ function BuildBankSidebar()
         y = y - SIDEBAR_BTN_H - SIDEBAR_PAD
     end
 
-    local function RenderSidebarEntry(viewIdx, name, icon, count, isSelected)
+    local function RenderSidebarEntry(viewIdx, name, icon, count, isSelected, displayName)
         btnIdx = btnIdx + 1
         local btn = MakeSidebarBtn(btnIdx)
         btn._viewIdx = viewIdx
         btn._isPurchaseTab = false
         btn._isSelected = isSelected
         btn._entryName = name
+        btn._entryDisplayName = displayName or name
         btn._entryCount = count
         btn:SetAlpha(1)
         btn:SetParent(sidebarChild)
@@ -1759,7 +1762,7 @@ function BuildBankSidebar()
             btn._count:Hide()
         else
             btn._label:Show()
-            btn._label:SetText(name)
+            btn._label:SetText(displayName or name)
             btn._label:SetTextColor(1, 1, 1, isSelected and 1 or 0.75)
             btn._count:Show()
             btn._count:SetText(tostring(count))
@@ -1798,9 +1801,9 @@ function BuildBankSidebar()
     -- Update header item count
     if EUI_Bank._headerItemCount then
         if _warbandOnly then
-            EUI_Bank._headerItemCount:SetText(warbUsed .. " / " .. warbTotal .. " Items")
+            EUI_Bank._headerItemCount:SetText(Lf("%1$d / %2$d Items", warbUsed, warbTotal))
         else
-            EUI_Bank._headerItemCount:SetText((charUsed + warbUsed) .. " / " .. (charTotal + warbTotal) .. " Items")
+            EUI_Bank._headerItemCount:SetText(Lf("%1$d / %2$d Items", charUsed + warbUsed, charTotal + warbTotal))
         end
     end
 
@@ -1810,11 +1813,11 @@ function BuildBankSidebar()
     local defaultOneBag = BankDefaultsToOne()
     if not _warbandOnly then
         if defaultOneBag then
-            RenderSidebarEntry(-1, "OneBank", 1542860, charUsed, _selectedView == -1)
-            RenderSidebarEntry(0, "All Bank Tabs", 413587, charUsed, _selectedView == 0)
+            RenderSidebarEntry(-1, "OneBank", 1542860, charUsed, _selectedView == -1, L("OneBank"))
+            RenderSidebarEntry(0, "All Bank Tabs", 413587, charUsed, _selectedView == 0, L("All Bank Tabs"))
         else
-            RenderSidebarEntry(0, "All Bank Tabs", 413587, charUsed, _selectedView == 0)
-            RenderSidebarEntry(-1, "OneBank", 1542860, charUsed, _selectedView == -1)
+            RenderSidebarEntry(0, "All Bank Tabs", 413587, charUsed, _selectedView == 0, L("All Bank Tabs"))
+            RenderSidebarEntry(-1, "OneBank", 1542860, charUsed, _selectedView == -1, L("OneBank"))
         end
     end
 
@@ -1825,11 +1828,11 @@ function BuildBankSidebar()
     end
     if hasWarband then
         if defaultOneBag then
-            RenderSidebarEntry(-3, "OneWarbank", 1542854, warbUsed, _selectedView == -3)
-            RenderSidebarEntry(-2, "All Warbank Tabs", 1542854, warbUsed, _selectedView == -2)
+            RenderSidebarEntry(-3, "OneWarbank", 1542854, warbUsed, _selectedView == -3, L("OneWarbank"))
+            RenderSidebarEntry(-2, "All Warbank Tabs", 1542854, warbUsed, _selectedView == -2, L("All Warbank Tabs"))
         else
-            RenderSidebarEntry(-2, "All Warbank Tabs", 1542854, warbUsed, _selectedView == -2)
-            RenderSidebarEntry(-3, "OneWarbank", 1542854, warbUsed, _selectedView == -3)
+            RenderSidebarEntry(-2, "All Warbank Tabs", 1542854, warbUsed, _selectedView == -2, L("All Warbank Tabs"))
+            RenderSidebarEntry(-3, "OneWarbank", 1542854, warbUsed, _selectedView == -3, L("OneWarbank"))
         end
     end
 

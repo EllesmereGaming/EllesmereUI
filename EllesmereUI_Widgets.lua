@@ -424,7 +424,7 @@ end
 -- state: "enabled" (default) or "disabled" -- controls the trailing verb so negative
 -- requirements ("disabled because X must be OFF") read "...to be disabled".
 local function DisabledTooltip(requirement, state)
-    if type(requirement) == "string" and requirement:find("^This option") then return requirement end
+    if type(requirement) == "string" and requirement:find("^This option") then return EllesmereUI.L(requirement) end
     local verb = (state == "disabled") and "disabled" or "enabled"
     -- Compose via a positional template so the wrapper sentence, the requirement
     -- noun, and the verb each localize independently (word order is translator

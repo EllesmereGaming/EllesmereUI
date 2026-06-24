@@ -307,7 +307,7 @@ function ns.CC_FormatKey(keyStr)
     for m in parsed.modifiers:gmatch("([^-]+)") do
         display[#display + 1] = m == "SHIFT" and "Shift" or m == "CTRL" and "Ctrl" or m == "ALT" and "Alt" or m
     end
-    display[#display + 1] = KEY_DISPLAY[parsed.key] or parsed.key
+    display[#display + 1] = KEY_DISPLAY[parsed.key] and EllesmereUI.L(KEY_DISPLAY[parsed.key]) or parsed.key
     return table.concat(display, " + ")
 end
 ns.CC_ParseKeyString = ParseKeyString
@@ -3199,7 +3199,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     -- /reload, so this one-time check is authoritative for the whole session.
     do
         local row = MakeRow(centerY)
-        local lbl = RowLabel(row, "Enable Click Casting")
+        local lbl = RowLabel(row, EllesmereUI.L("Enable Click Casting"))
         local pill = RowToggle(row,
             function() return cc.enabled end,
             function(v) ns.CC_SetEnabled(v); EllesmereUI:RefreshPage(true) end)
@@ -3227,7 +3227,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     -- Row 2: Trigger Bindings on Down
     do
         local row = MakeRow(centerY)
-        RowLabel(row, "Trigger Bindings on Down")
+        RowLabel(row, EllesmereUI.L("Trigger Bindings on Down"))
         RowToggle(row,
             function() return cc.downClick end,
             function(v) ns.CC_SetDownClick(v) end)
@@ -3237,8 +3237,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     -- Row 3: Mouseover Frames
     do
         local row = MakeRow(centerY)
-        RowLabel(row, "Mouseover Frames")
-        local mfValues = { all = "All Unit Frames", rf = "EUI Raid Frames" }
+        RowLabel(row, EllesmereUI.L("Mouseover Frames"))
+        local mfValues = { all = EllesmereUI.L("All Unit Frames"), rf = EllesmereUI.L("EUI Raid Frames") }
         local mfOrder = { "all", "rf" }
         local ddCtrl = EllesmereUI.BuildDropdownControl(
             row, 160, row:GetFrameLevel() + 2,
@@ -3275,13 +3275,13 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             titleRow:SetPoint("TOPLEFT", bodyHost, "TOPLEFT", C_PAD, centerY)
 
             -- Type label (smaller, dimmer)
-            local typeStr = "Spell"
-            if selectedBinding.type == "macro" then typeStr = "Macro"
-            elseif selectedBinding.type == "item" then typeStr = "Item"
-            elseif selectedBinding.type == "target" then typeStr = "Action"
-            elseif selectedBinding.type == "menu" then typeStr = "Action"
-            elseif selectedBinding.type == "dispel" then typeStr = "Preset"
-            elseif selectedBinding.type == "external" then typeStr = "Preset"
+            local typeStr = EllesmereUI.L("Spell")
+            if selectedBinding.type == "macro" then typeStr = EllesmereUI.L("Macro")
+            elseif selectedBinding.type == "item" then typeStr = EllesmereUI.L("Item")
+            elseif selectedBinding.type == "target" then typeStr = EllesmereUI.L("Action")
+            elseif selectedBinding.type == "menu" then typeStr = EllesmereUI.L("Action")
+            elseif selectedBinding.type == "dispel" then typeStr = EllesmereUI.L("Preset")
+            elseif selectedBinding.type == "external" then typeStr = EllesmereUI.L("Preset")
             end
             local tType = MakeFont(titleRow, 11, 1, 1, 1, 0.4)
             tType:SetText(EllesmereUI.L(typeStr))
@@ -3317,7 +3317,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         -- Keybind row (Party Mode style button)
         do
             local row = MakeRow(centerY)
-            RowLabel(row, "Keybind")
+            RowLabel(row, EllesmereUI.L("Keybind"))
             local function ApplyKey(newKey)
                 selectedBinding.key = newKey
                 ns.CC_ApplyBindings()
@@ -3331,7 +3331,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     if #conflicts == 0 then ApplyKey(newKey); return end
                     EllesmereUI:ShowConfirmPopup({
                         title = EllesmereUI.L("Duplicate Keybind"),
-                        message = EllesmereUI.Lf("%s is already assigned to:\n%s", ns.CC_FormatKey(newKey), table.concat(conflicts, ", ")),
+                        message = EllesmereUI.Lf("%1$s is already assigned to:\n%2$s", ns.CC_FormatKey(newKey), table.concat(conflicts, ", ")),
                         confirmText = EllesmereUI.L("Okay"),
                         cancelText = EllesmereUI.L("Don't Show Again"),
                         onConfirm = function() ApplyKey(newKey) end,
@@ -3360,7 +3360,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 or t == "trinket1" or t == "trinket2"
             if canSmartRez then
                 local row = MakeRow(centerY)
-                RowLabel(row, "Enable Dynamic Rez")
+                RowLabel(row, EllesmereUI.L("Enable Dynamic Rez"))
                 RowToggle(row,
                     function() return selectedBinding.smartRez end,
                     function(v) selectedBinding.smartRez = v; ns.CC_ApplyBindings() end)
@@ -3379,11 +3379,11 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         -- securely via an attribute driver (see SetGatedType).
         if hasAdvancedOpts or selectedBinding.type == "menu" or selectedBinding.type == "target" then
             local row = MakeRow(centerY)
-            local oocLabel = "Only Cast Out of Combat"
+            local oocLabel = EllesmereUI.L("Only Cast Out of Combat")
             if selectedBinding.type == "menu" then
-                oocLabel = "Only Open Menu Out of Combat"
+                oocLabel = EllesmereUI.L("Only Open Menu Out of Combat")
             elseif selectedBinding.type == "target" then
-                oocLabel = "Only Target Out of Combat"
+                oocLabel = EllesmereUI.L("Only Target Out of Combat")
             end
             RowLabel(row, oocLabel)
             RowToggle(row,
@@ -3397,7 +3397,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             do
                 local row = MakeRow(centerY)
                 local isBareMouseBtn = selectedBinding.key == "BUTTON1" or selectedBinding.key == "BUTTON2"
-                RowLabel(row, "Only Cast on Actual Units (Not Frames)")
+                RowLabel(row, EllesmereUI.L("Only Cast on Actual Units (Not Frames)"))
                 if isBareMouseBtn then
                     -- Force off and show disabled state
                     if selectedBinding.hovercast then
@@ -3432,7 +3432,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 -- Friendly row
                 do
                     local row = MakeRow(centerY)
-                    RowLabel(row, "    Friendly Units")
+                    RowLabel(row, EllesmereUI.L("    Friendly Units"))
                     RowToggle(row,
                         function() return selectedBinding.hoverFriendly ~= false end,
                         function(v)
@@ -3444,7 +3444,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 -- Enemy row
                 do
                     local row = MakeRow(centerY)
-                    RowLabel(row, "    Enemy Units")
+                    RowLabel(row, EllesmereUI.L("    Enemy Units"))
                     RowToggle(row,
                         function() return selectedBinding.hoverEnemy == true end,
                         function(v)

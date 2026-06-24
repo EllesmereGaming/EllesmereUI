@@ -1004,7 +1004,7 @@ do
 
         if #allProfiles <= 1 then
             if EllesmereUI.ShowWidgetTooltip then
-                EllesmereUI.ShowWidgetTooltip(anchorBtn, "No other profiles to sync to")
+                EllesmereUI.ShowWidgetTooltip(anchorBtn, EllesmereUI.L("No other profiles to sync to"))
                 C_Timer.After(1.5, function() EllesmereUI.HideWidgetTooltip() end)
             end
             return
@@ -1261,7 +1261,7 @@ do
 
             if count == 1 then
                 if EllesmereUI.ShowWidgetTooltip then
-                    EllesmereUI.ShowWidgetTooltip(syncBtn, "A sync group needs at least two profiles")
+                    EllesmereUI.ShowWidgetTooltip(syncBtn, EllesmereUI.L("A sync group needs at least two profiles"))
                     C_Timer.After(1.5, function() EllesmereUI.HideWidgetTooltip() end)
                 end
                 return
@@ -6483,7 +6483,7 @@ local function CreateMainFrame()
                     self._tex:SetVertexColor(0.212, 0.824, 0.325, 1)
                 end
                 if EllesmereUI.ShowWidgetTooltip then
-                    EllesmereUI.ShowWidgetTooltip(self, enabled and "Disable " .. self._display or "Enable " .. self._display)
+                    EllesmereUI.ShowWidgetTooltip(self, enabled and EllesmereUI.Lf("Disable %1$s", self._display) or EllesmereUI.Lf("Enable %1$s", self._display))
                 end
             end)
             pwrBtn:SetScript("OnLeave", function(self)
@@ -6592,7 +6592,7 @@ local function CreateMainFrame()
                 if isGlobalOnly then
                     self._tex:SetVertexColor(SYNC_HOVER_R, SYNC_HOVER_G, SYNC_HOVER_B, 1)
                     if EllesmereUI.ShowWidgetTooltip then
-                        EllesmereUI.ShowWidgetTooltip(self, "No Profile Level Customizations")
+                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("No Profile Level Customizations"))
                     end
                     return
                 end
@@ -6604,7 +6604,7 @@ local function CreateMainFrame()
                     self._tex:SetVertexColor(1, 1, 1, 1)
                 end
                 if EllesmereUI.ShowWidgetTooltip then
-                    local tip = activeSynced and "Profile Synced" or "Sync " .. self._display
+                    local tip = activeSynced and EllesmereUI.L("Profile Synced") or EllesmereUI.Lf("Sync %1$s", self._display)
                     EllesmereUI.ShowWidgetTooltip(self, tip)
                 end
             end)
@@ -6647,13 +6647,13 @@ local function CreateMainFrame()
         btn:SetScript("OnEnter", function(self)
             if self._comingSoon then
                 if EllesmereUI.ShowWidgetTooltip then
-                    EllesmereUI.ShowWidgetTooltip(self, "Coming soon")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Coming soon"))
                 end
                 return
             end
             if self._maintenance then
                 if EllesmereUI.ShowWidgetTooltip then
-                    EllesmereUI.ShowWidgetTooltip(self, "In Maintenance")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("In Maintenance"))
                 end
                 return
             end
@@ -6919,13 +6919,13 @@ local function CreateMainFrame()
     resCpuLabel:SetPoint("BOTTOMRIGHT", resCpuText, "TOPRIGHT", 0, 3)
     resCpuLabel:SetJustifyH("RIGHT")
     resCpuLabel:SetAlpha(0.5)
-    resCpuLabel:SetText("CPU Usage:")
+    resCpuLabel:SetText(EllesmereUI.L("CPU Usage:"))
 
     local resPerfLabel = MakeFont(sidebar, 10, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
     resPerfLabel:SetPoint("BOTTOMRIGHT", resCpuLabel, "TOPRIGHT", 0, 11)
     resPerfLabel:SetJustifyH("RIGHT")
     resPerfLabel:SetAlpha(0.5)
-    resPerfLabel:SetText("All EUI Addons")
+    resPerfLabel:SetText(EllesmereUI.L("All EUI Addons"))
 
     local resDivider = sidebar:CreateTexture(nil, "ARTWORK")
     resDivider:SetColorTexture(1, 1, 1, 0.15)
@@ -7613,7 +7613,7 @@ local function CreateMainFrame()
 
                 local hint = MakeFont(linkPopup, 11, nil, TEXT_SECTION.r, TEXT_SECTION.g, TEXT_SECTION.b, TEXT_SECTION.a)
                 hint:SetPoint("TOP", linkPopup, "TOP", 0, -10)
-                hint:SetText("Press Ctrl+C to copy, then Escape to close")
+                hint:SetText(EllesmereUI.L("Press Ctrl+C to copy, then Escape to close"))
 
                 local eb = CreateFrame("EditBox", nil, linkPopup)
                 eb:SetSize(340, 26)
@@ -11027,4 +11027,3 @@ do
     EllesmereUI._SWIFTMEND_SPELL = 18562
     EllesmereUI._SWIFTMEND_ICON  = 134914
 end
-

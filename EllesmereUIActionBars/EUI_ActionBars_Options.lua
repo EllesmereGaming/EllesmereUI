@@ -1715,7 +1715,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
                     if kbBtn._border and kbBtn._border.SetColor then kbBtn._border:SetColor(1, 1, 1, 0.3) end
-                    EllesmereUI.ShowWidgetTooltip(self, "Toggling action bar visibility is only available out of combat\n\nLeft-click to set a keybind.\nRight-click to unbind.")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Toggling action bar visibility is only available out of combat\n\nLeft-click to set a keybind.\nRight-click to unbind."))
                 end)
                 kbBtn:SetScript("OnLeave", function()
                     if listening then return end
@@ -2558,7 +2558,7 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI:RefreshPage()
                 end)
                 classBorderSwatch:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(classBorderSwatch, "Class Colored")
+                    EllesmereUI.ShowWidgetTooltip(classBorderSwatch, EllesmereUI.L("Class Colored"))
                 end)
                 classBorderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
@@ -2583,7 +2583,7 @@ initFrame:SetScript("OnEvent", function(self)
                     false, 20)
                 PP.Point(customSwatch, "RIGHT", classBorderSwatch, "LEFT", -8, 0)
                 customSwatch:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(customSwatch, "Custom Color")
+                    EllesmereUI.ShowWidgetTooltip(customSwatch, EllesmereUI.L("Custom Color"))
                 end)
                 customSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 

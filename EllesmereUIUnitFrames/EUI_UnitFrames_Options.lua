@@ -3641,7 +3641,7 @@ initFrame:SetScript("OnEvent", function(self)
                 true, 20)
             PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             borderSwatch:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(borderSwatch, "Border")
+                EllesmereUI.ShowWidgetTooltip(borderSwatch, EllesmereUI.L("Border"))
             end)
             borderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
@@ -3660,7 +3660,7 @@ initFrame:SetScript("OnEvent", function(self)
                 true, 20)
             PP.Point(hlSwatch, "RIGHT", borderSwatch, "LEFT", -8, 0)
             hlSwatch:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(hlSwatch, "Highlight")
+                EllesmereUI.ShowWidgetTooltip(hlSwatch, EllesmereUI.L("Highlight"))
             end)
             hlSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
@@ -3698,7 +3698,7 @@ initFrame:SetScript("OnEvent", function(self)
         block:SetAllPoints()
         block:SetFrameLevel(rgn:GetFrameLevel() + 50)
         block:EnableMouse(true)
-        block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(block, "Not available in Dark Mode") end)
+        block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(block, EllesmereUI.L("Not available in Dark Mode")) end)
         block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         local function Update()
             if db and db.profile and db.profile.darkTheme then
@@ -4381,11 +4381,30 @@ initFrame:SetScript("OnEvent", function(self)
                 true, 20)
             PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             borderSwatch:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(borderSwatch, "Border")
+                EllesmereUI.ShowWidgetTooltip(borderSwatch, EllesmereUI.L("Border"))
             end)
             borderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
-            EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
+            -- Left swatch: Highlight color (with alpha)
+            local hlSwatch, updateHlSwatch = EllesmereUI.BuildColorSwatch(
+                leftRgn, sharedScaleBorderRow:GetFrameLevel() + 3,
+                function()
+                    local c = SGet("highlightColor") or { r = 1, g = 1, b = 1 }
+                    return c.r, c.g, c.b, SVal("highlightAlpha", 1)
+                end,
+                function(r, g, b, a)
+                    UNIT_DB_MAP[selectedUnit]().highlightColor = { r=r, g=g, b=b }
+                    UNIT_DB_MAP[selectedUnit]().highlightAlpha = a
+                    ReloadAndUpdate()
+                end,
+                true, 20)
+            PP.Point(hlSwatch, "RIGHT", borderSwatch, "LEFT", -8, 0)
+            hlSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(hlSwatch, EllesmereUI.L("Highlight"))
+            end)
+            hlSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch(); updateHlSwatch() end)
         end
 
         -- Row 4: Show Tooltip | Frame Strata
@@ -4670,10 +4689,10 @@ initFrame:SetScript("OnEvent", function(self)
                       local curVal = SVal("portraitMode", "2d")
                       if curVal ~= "3d" and not (EllesmereUIDB and EllesmereUIDB.dismissed3DWarning) then
                           EllesmereUI:ShowConfirmPopup({
-                              title       = "3D Portraits",
-                              message     = "3D portraits may cause a slight loss in performance efficiency. Do you want to enable them?",
-                              confirmText = "Enable",
-                              cancelText  = "Cancel",
+                              title       = EllesmereUI.L("3D Portraits"),
+                              message     = EllesmereUI.L("3D portraits may cause a slight loss in performance efficiency. Do you want to enable them?"),
+                              confirmText = EllesmereUI.L("Enable"),
+                              cancelText  = EllesmereUI.L("Cancel"),
                               onConfirm   = function()
                                   if not EllesmereUIDB then EllesmereUIDB = {} end
                                   EllesmereUIDB.dismissed3DWarning = true
@@ -5312,7 +5331,7 @@ initFrame:SetScript("OnEvent", function(self)
                 SSet("bgClassColored", true)
                 ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
             end)
-            bgClassSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgClassSw, "Class Colored Background") end)
+            bgClassSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgClassSw, EllesmereUI.L("Class Colored Background")) end)
             bgClassSw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             PP.Point(bgClassSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = bgClassSw
@@ -5342,7 +5361,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 if self._eabOrigClick then self._eabOrigClick(self) end
             end)
-            bgSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgSw, "Custom Background Color") end)
+            bgSw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgSw, EllesmereUI.L("Custom Background Color")) end)
             bgSw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             PP.Point(bgSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = bgSw
@@ -5617,7 +5636,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if SVal("leftTextContent", "name") == "none" then return end
                 SSet("leftTextClassColor", true); UpdatePreview(); EllesmereUI:RefreshPage()
             end)
-            ltClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ltClassSwatch, "Class Colored") end)
+            ltClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ltClassSwatch, EllesmereUI.L("Class Colored")) end)
             ltClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             -- Custom Colored swatch (left of the class swatch): opens the color picker.
             local ltSwGet = function()
@@ -5638,7 +5657,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 if ltOrigClick then ltOrigClick(self, ...) end
             end)
-            ltSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ltSwatch, "Custom Colored") end)
+            ltSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ltSwatch, EllesmereUI.L("Custom Colored")) end)
             ltSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateLtSwatches()
                 local isNone = SVal("leftTextContent", "name") == "none"
@@ -5751,7 +5770,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if SVal("rightTextContent", "both") == "none" then return end
                 SSet("rightTextClassColor", true); UpdatePreview(); EllesmereUI:RefreshPage()
             end)
-            rtClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(rtClassSwatch, "Class Colored") end)
+            rtClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(rtClassSwatch, EllesmereUI.L("Class Colored")) end)
             rtClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local rtSwGet = function()
                 return SVal("rightTextColorR", 1), SVal("rightTextColorG", 1), SVal("rightTextColorB", 1)
@@ -5771,7 +5790,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 if rtOrigClick then rtOrigClick(self, ...) end
             end)
-            rtSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(rtSwatch, "Custom Colored") end)
+            rtSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(rtSwatch, EllesmereUI.L("Custom Colored")) end)
             rtSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateRtSwatches()
                 local isNone = SVal("rightTextContent", "both") == "none"
@@ -5900,7 +5919,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if SVal("centerTextContent", "none") == "none" then return end
                 SSet("centerTextClassColor", true); UpdatePreview(); EllesmereUI:RefreshPage()
             end)
-            ctClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ctClassSwatch, "Class Colored") end)
+            ctClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ctClassSwatch, EllesmereUI.L("Class Colored")) end)
             ctClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local ctSwGet = function()
                 return SVal("centerTextColorR", 1), SVal("centerTextColorG", 1), SVal("centerTextColorB", 1)
@@ -5920,7 +5939,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 if ctOrigClick then ctOrigClick(self, ...) end
             end)
-            ctSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ctSwatch, "Custom Colored") end)
+            ctSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ctSwatch, EllesmereUI.L("Custom Colored")) end)
             ctSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateCtSwatches()
                 local isNone = SVal("centerTextContent", "none") == "none"
@@ -6886,7 +6905,7 @@ initFrame:SetScript("OnEvent", function(self)
                 true, 20)
             PP.Point(pbSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             pbSwatch:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(pbSwatch, "Border Color")
+                EllesmereUI.ShowWidgetTooltip(pbSwatch, EllesmereUI.L("Border Color"))
             end)
             pbSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             rightRgn._lastInline = pbSwatch
@@ -7039,7 +7058,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI:NavigateToElementSettings("EllesmereUIResourceBars", "Cast Bar")
             end)
             linkBtn:SetScript("OnEnter", function(self)
-                EllesmereUI.ShowWidgetTooltip(self, "Open Resource & Cast Bars > Cast Bar")
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Open Resource & Cast Bars > Cast Bar"))
             end)
             linkBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             y = y - h
@@ -8079,7 +8098,7 @@ initFrame:SetScript("OnEvent", function(self)
                 SSet("btbLeftClassColor", true); SSet("btbLeftPowerColor", false)
                 UpdatePreview(); EllesmereUI:RefreshPage()
             end)
-            blClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(blClassSwatch, "Class Colored") end)
+            blClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(blClassSwatch, EllesmereUI.L("Class Colored")) end)
             blClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local blSwGet = function()
                 return SVal("btbLeftColorR", 1), SVal("btbLeftColorG", 1), SVal("btbLeftColorB", 1)
@@ -8100,7 +8119,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 if blOrigClick then blOrigClick(self, ...) end
             end)
-            blSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(blSwatch, "Custom Colored") end)
+            blSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(blSwatch, EllesmereUI.L("Custom Colored")) end)
             blSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             -- Power Color swatch: shows the player's current power color; click to
             -- select power-colored mode. Same per-unit power resolution as the power
@@ -8121,7 +8140,7 @@ initFrame:SetScript("OnEvent", function(self)
                 SSet("btbLeftPowerColor", true); SSet("btbLeftClassColor", false)
                 UpdatePreview(); EllesmereUI:RefreshPage()
             end)
-            blPowerSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(blPowerSwatch, "Power Colored") end)
+            blPowerSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(blPowerSwatch, EllesmereUI.L("Power Colored")) end)
             blPowerSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateBlSwatches()
                 local off = blOff()
@@ -8193,7 +8212,7 @@ initFrame:SetScript("OnEvent", function(self)
                 SSet("btbRightClassColor", true); SSet("btbRightPowerColor", false)
                 UpdatePreview(); EllesmereUI:RefreshPage()
             end)
-            brClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(brClassSwatch, "Class Colored") end)
+            brClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(brClassSwatch, EllesmereUI.L("Class Colored")) end)
             brClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local brSwGet = function()
                 return SVal("btbRightColorR", 1), SVal("btbRightColorG", 1), SVal("btbRightColorB", 1)
@@ -8214,7 +8233,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 if brOrigClick then brOrigClick(self, ...) end
             end)
-            brSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(brSwatch, "Custom Colored") end)
+            brSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(brSwatch, EllesmereUI.L("Custom Colored")) end)
             brSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             -- Power Color swatch: shows the player's current power color; click to
             -- select power-colored mode. Same per-unit power resolution as the power
@@ -8235,7 +8254,7 @@ initFrame:SetScript("OnEvent", function(self)
                 SSet("btbRightPowerColor", true); SSet("btbRightClassColor", false)
                 UpdatePreview(); EllesmereUI:RefreshPage()
             end)
-            brPowerSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(brPowerSwatch, "Power Colored") end)
+            brPowerSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(brPowerSwatch, EllesmereUI.L("Power Colored")) end)
             brPowerSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateBrSwatches()
                 local off = brOff()
@@ -8389,7 +8408,7 @@ initFrame:SetScript("OnEvent", function(self)
                 SSet("btbCenterClassColor", true); SSet("btbCenterPowerColor", false)
                 UpdatePreview(); EllesmereUI:RefreshPage()
             end)
-            bcClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bcClassSwatch, "Class Colored") end)
+            bcClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bcClassSwatch, EllesmereUI.L("Class Colored")) end)
             bcClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local bcSwGet = function()
                 return SVal("btbCenterColorR", 1), SVal("btbCenterColorG", 1), SVal("btbCenterColorB", 1)
@@ -8410,7 +8429,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 if bcOrigClick then bcOrigClick(self, ...) end
             end)
-            bcSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bcSwatch, "Custom Colored") end)
+            bcSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bcSwatch, EllesmereUI.L("Custom Colored")) end)
             bcSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             -- Power Color swatch: shows the player's current power color; click to
             -- select power-colored mode. Same per-unit power resolution as the power
@@ -8431,7 +8450,7 @@ initFrame:SetScript("OnEvent", function(self)
                 SSet("btbCenterPowerColor", true); SSet("btbCenterClassColor", false)
                 UpdatePreview(); EllesmereUI:RefreshPage()
             end)
-            bcPowerSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bcPowerSwatch, "Power Colored") end)
+            bcPowerSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bcPowerSwatch, EllesmereUI.L("Power Colored")) end)
             bcPowerSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateBcSwatches()
                 local off = bcOff()
@@ -8688,7 +8707,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if SValSupported("classPowerStyle", "none") ~= "modern" then
                     EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("This option requires Class Resource to be set to Modern."))
                 else
-                    EllesmereUI.ShowWidgetTooltip(self, "Empty Bar Color")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Empty Bar Color"))
                 end
             end)
             emptySwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -9460,7 +9479,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
                 eyeBtn:SetScript("OnEnter", function(self)
                     self:SetAlpha(0.7)
-                    EllesmereUI.ShowWidgetTooltip(self, showDispelOverlayPreview and "Hide dispel overlay preview" or "Show dispel overlay preview")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(showDispelOverlayPreview and "Hide dispel overlay preview" or "Show dispel overlay preview"))
                 end)
                 eyeBtn:SetScript("OnLeave", function(self)
                     self:SetAlpha(0.4)
@@ -9752,7 +9771,7 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             eyeBtn:SetScript("OnEnter", function(self)
                 self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, showHealAbsorbPreview and "Hide heal absorb preview" or "Show heal absorb preview")
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(showHealAbsorbPreview and "Hide heal absorb preview" or "Show heal absorb preview"))
             end)
             eyeBtn:SetScript("OnLeave", function(self)
                 self:SetAlpha(0.4)
@@ -10040,7 +10059,7 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             eyeBtn:SetScript("OnEnter", function(self)
                 self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, showCombatIndicatorPreview and "Hide combat indicator preview" or "Show combat indicator preview")
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(showCombatIndicatorPreview and "Hide combat indicator preview" or "Show combat indicator preview"))
             end)
             eyeBtn:SetScript("OnLeave", function(self)
                 self:SetAlpha(0.4)
@@ -11197,7 +11216,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if MVal("leftTextContent", "name") == "none" then return end
                 MSet("leftTextClassColor", true); EllesmereUI:RefreshPage()
             end)
-            classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
+            classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, EllesmereUI.L("Class Colored")) end)
             classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local swGet = function()
                 return MVal("leftTextColorR", 1), MVal("leftTextColorG", 1), MVal("leftTextColorB", 1)
@@ -11217,7 +11236,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 if origClick then origClick(self, ...) end
             end)
-            sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
+            sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, EllesmereUI.L("Custom Colored")) end)
             sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdSwatches()
                 local isNone = MVal("leftTextContent", "name") == "none"
@@ -11273,7 +11292,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if MVal("rightTextContent", "none") == "none" then return end
                 MSet("rightTextClassColor", true); EllesmereUI:RefreshPage()
             end)
-            classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
+            classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, EllesmereUI.L("Class Colored")) end)
             classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local swGet = function()
                 return MVal("rightTextColorR", 1), MVal("rightTextColorG", 1), MVal("rightTextColorB", 1)
@@ -11293,7 +11312,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 if origClick then origClick(self, ...) end
             end)
-            sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
+            sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, EllesmereUI.L("Custom Colored")) end)
             sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdSwatches()
                 local isNone = MVal("rightTextContent", "none") == "none"
@@ -11361,7 +11380,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if MVal("centerTextContent", "none") == "none" then return end
                 MSet("centerTextClassColor", true); EllesmereUI:RefreshPage()
             end)
-            classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
+            classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, EllesmereUI.L("Class Colored")) end)
             classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local swGet = function()
                 return MVal("centerTextColorR", 1), MVal("centerTextColorG", 1), MVal("centerTextColorB", 1)
@@ -11381,7 +11400,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 if origClick then origClick(self, ...) end
             end)
-            sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
+            sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, EllesmereUI.L("Custom Colored")) end)
             sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdSwatches()
                 local isNone = MVal("centerTextContent", "none") == "none"
@@ -11628,7 +11647,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     if customOrigClick then customOrigClick(self, ...) end
                 end)
-                customSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(customSw, "Custom Text Color") end)
+                customSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(customSw, EllesmereUI.L("Custom Text Color")) end)
                 customSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 local powerSw, powerSwUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
                     function()
@@ -11645,7 +11664,7 @@ initFrame:SetScript("OnEvent", function(self)
                     settingsTable.powerTextColor = nil
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()
                 end)
-                powerSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(powerSw, "Power Colored Text") end)
+                powerSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(powerSw, EllesmereUI.L("Power Colored Text")) end)
                 powerSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 local function UpdSwatches()
                     local isPower = MVal("powerPercentTextPowerColor", false)
@@ -12652,7 +12671,7 @@ initFrame:SetScript("OnEvent", function(self)
                     function() local c = B.castbarFillColor or { r=0.863, g=0.820, b=0.639 }; return c.r, c.g, c.b end,
                     function(r, g, b) B.castbarFillColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
                 sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, "Fill Color") end)
+                sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Fill Color")) end)
                 sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 rgn._lastInline = sw
                 castFillSwatch = sw
@@ -12708,7 +12727,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end,
                     function(r, g, b) B.castBgColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
                 sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, "Cast Background") end)
+                sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Cast Background")) end)
                 sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 rgn._lastInline = sw
             end
@@ -13347,10 +13366,10 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v)
                   PASet("enabled", v)
                   EllesmereUI:ShowConfirmPopup({
-                      title   = "Reload Required",
-                      message = "This change requires a UI reload to take effect.",
-                      confirmText = "Reload Now",
-                      cancelText  = "Later",
+                      title   = EllesmereUI.L("Reload Required"),
+                      message = EllesmereUI.L("This change requires a UI reload to take effect."),
+                      confirmText = EllesmereUI.L("Reload Now"),
+                      cancelText  = EllesmereUI.L("Later"),
                       onConfirm = function() ReloadUI() end,
                   })
               end },

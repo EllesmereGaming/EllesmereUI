@@ -23,6 +23,8 @@
 -------------------------------------------------------------------------------
 local EUI = EllesmereUI
 local PP  = EUI and EUI.PP
+local L = EUI and EUI.L or function(text) return text end
+local Lf = EUI and EUI.Lf or function(text, ...) return text:format(...) end
 local issecretvalue = issecretvalue or function() return false end
 
 -- Settings live on the shared EllesmereUIDB (lazy-init, never re-init at scope).
@@ -147,7 +149,7 @@ BuildPopup = function()
     title:SetPoint("TOPRIGHT", -(PAD + 16), -8)
     title:SetJustifyH("LEFT")
     title:SetWordWrap(false)
-    title:SetText("LFG Reminder")
+    title:SetText(L("LFG Reminder"))
 
     -- Joined dungeon's full name, centered above the teleport button. Set in
     -- ShowPrompt; the name may be a secret string and SetText accepts secrets.
@@ -197,7 +199,7 @@ BuildPopup = function()
     btnLabel:SetPoint("RIGHT", -6, 0)
     btnLabel:SetJustifyH("LEFT")
     btnLabel:SetWordWrap(false)
-    btnLabel:SetText("Teleport")
+    btnLabel:SetText(L("Teleport"))
     secureBtn._label = btnLabel
 
     local hover = secureBtn:CreateTexture(nil, "HIGHLIGHT")
@@ -218,15 +220,15 @@ BuildPopup = function()
         if not sid then return end
         if not IsPlayerSpell(sid) then
             if EUI.ShowWidgetTooltip then
-                EUI.ShowWidgetTooltip(self, "You have not learned this dungeon teleport yet.")
+                EUI.ShowWidgetTooltip(self, L("You have not learned this dungeon teleport yet."))
             end
             return
         end
         local cdInfo = C_Spell and C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(sid)
         if cdInfo and cdInfo.duration and cdInfo.duration > 0 then
-            if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Teleport on Cooldown") end
+            if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, L("Teleport on Cooldown")) end
         elseif EUI.ShowWidgetTooltip then
-            EUI.ShowWidgetTooltip(self, "Teleport to " .. (pendingName or "dungeon"))
+            EUI.ShowWidgetTooltip(self, Lf("Teleport to %1$s", pendingName or L("dungeon")))
         end
     end)
     secureBtn:SetScript("OnLeave", function()
@@ -241,7 +243,7 @@ BuildPopup = function()
     local disableLbl = MakeLabel(disableBtn, 10, 0.6, 0.6, 0.6, 1)
     disableLbl:SetAllPoints()
     disableLbl:SetJustifyH("CENTER")
-    disableLbl:SetText("Disable Feature")
+    disableLbl:SetText(L("Disable Feature"))
     disableBtn:SetScript("OnEnter", function() disableLbl:SetTextColor(1, 0.3, 0.3, 1) end)
     disableBtn:SetScript("OnLeave", function() disableLbl:SetTextColor(0.6, 0.6, 0.6, 1) end)
     disableBtn:SetScript("OnClick", function()

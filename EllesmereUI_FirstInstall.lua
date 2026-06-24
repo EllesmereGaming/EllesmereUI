@@ -14,6 +14,7 @@
 
 local EllesmereUI = _G.EllesmereUI
 if not EllesmereUI then return end
+local L = EllesmereUI.L or function(text) return text end
 
 -- Standalone builds bundle this file too, but the multi-module picker is
 -- meaningless there: its GROUPS reference suite sibling addons (Action Bars,
@@ -165,7 +166,7 @@ local function ShowFirstInstallPopup()
     title:SetFont(FONT, 22, "")
     title:SetTextColor(1, 1, 1, 1)
     PP.Point(title, "TOP", popup, "TOP", 0, -32)
-    title:SetText("Welcome to EllesmereUI")
+    title:SetText(L("Welcome to EllesmereUI"))
 
     -- Subtitle
     local sub = popup:CreateFontString(nil, "OVERLAY")
@@ -175,7 +176,7 @@ local function ShowFirstInstallPopup()
     sub:SetWidth(POPUP_W - 60)
     sub:SetJustifyH("CENTER")
     sub:SetWordWrap(true)
-    sub:SetText("Choose which addons you want enabled. You can change any of these later in the EllesmereUI settings panel.")
+    sub:SetText(L("Choose which addons you want enabled. You can change any of these later in the EllesmereUI settings panel."))
 
     -- Check All / Uncheck All links
     local LINK_Y = -103
@@ -185,7 +186,7 @@ local function ShowFirstInstallPopup()
     checkAllBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
     local checkAllLbl = checkAllBtn:CreateFontString(nil, "OVERLAY")
     checkAllLbl:SetFont(FONT, 14, "")
-    checkAllLbl:SetText("Check All")
+    checkAllLbl:SetText(L("Check All"))
     checkAllLbl:SetTextColor(1, 1, 1, 0.45)
     checkAllLbl:SetPoint("CENTER")
     checkAllBtn:SetSize(checkAllLbl:GetStringWidth() + 4, 20)
@@ -204,7 +205,7 @@ local function ShowFirstInstallPopup()
     uncheckAllBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
     local uncheckAllLbl = uncheckAllBtn:CreateFontString(nil, "OVERLAY")
     uncheckAllLbl:SetFont(FONT, 14, "")
-    uncheckAllLbl:SetText("Uncheck All")
+    uncheckAllLbl:SetText(L("Uncheck All"))
     uncheckAllLbl:SetTextColor(1, 1, 1, 0.45)
     uncheckAllLbl:SetPoint("CENTER")
     uncheckAllBtn:SetSize(uncheckAllLbl:GetStringWidth() + 4, 20)
@@ -231,7 +232,7 @@ local function ShowFirstInstallPopup()
         hdr:SetFont(FONT, 18, "")
         hdr:SetTextColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 0.9)
         PP.Point(hdr, "TOPLEFT", col, "TOPLEFT", 4, -4)
-        hdr:SetText(group.header)
+        hdr:SetText(L(group.header))
 
         local yOff = HEADER_H + HEADER_PAD
 
@@ -260,7 +261,7 @@ local function ShowFirstInstallPopup()
             lbl:SetFont(FONT, 17, "")
             PP.Point(lbl, "LEFT", box, "RIGHT", 8, 0)
             lbl:SetTextColor(1, 1, 1, 0.65)
-            lbl:SetText(entry.label)
+            lbl:SetText(L(entry.label))
 
             -- Initial state resolution:
             --   entry.comingSoon -> disabled, greyed, "Coming soon" tooltip
@@ -312,7 +313,7 @@ local function ShowFirstInstallPopup()
             row:SetScript("OnEnter", function(self)
                 if self._informational then
                     if EllesmereUI.ShowWidgetTooltip then
-                        EllesmereUI.ShowWidgetTooltip(self, "Coming soon")
+                        EllesmereUI.ShowWidgetTooltip(self, L("Coming soon"))
                     end
                     return
                 end
@@ -364,7 +365,7 @@ local function ShowFirstInstallPopup()
     local function RefreshButtonLabel()
         -- Picking addons always ends in a reload so the enable/disable choices
         -- take effect, so the button always reads "Reload UI".
-        doneLbl:SetText("Reload UI")
+        doneLbl:SetText(L("Reload UI"))
     end
     RefreshButtonLabel()
 

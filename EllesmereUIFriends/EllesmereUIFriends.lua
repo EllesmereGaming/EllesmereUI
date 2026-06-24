@@ -2102,7 +2102,7 @@ local function SkinFriendsFrame()
             end)
             orbBtn:SetScript("OnEnter", function(self)
                 if EllesmereUI.ShowWidgetTooltip then
-                    EllesmereUI.ShowWidgetTooltip(self, "Status: " .. GetPlayerStatusName() .. "\nClick to change")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.Lf("Status: %1$s\nClick to change", GetPlayerStatusName()))
                 end
             end)
             orbBtn:SetScript("OnLeave", function()
@@ -2128,7 +2128,7 @@ local function SkinFriendsFrame()
             bcBtn:SetAlpha(0.6)
             bcBtn:SetScript("OnEnter", function(self)
                 if EllesmereUI.ShowWidgetTooltip then
-                    EllesmereUI.ShowWidgetTooltip(self, "Set Status Message")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Set Status Message"))
                 end
             end)
             bcBtn:SetScript("OnLeave", function()

@@ -3677,7 +3677,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         local addLabel = addBtn:CreateFontString(nil, "OVERLAY")
         addLabel:SetFont(fontPath, 12, "")
         addLabel:SetPoint("CENTER")
-        addLabel:SetText("Add New")
+        addLabel:SetText(EllesmereUI.L("Add New"))
         addLabel:SetTextColor(1, 1, 1)
 
         addBtn:SetScript("OnEnter", function()
@@ -3750,7 +3750,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local abLbl = popup:CreateFontString(nil, "OVERLAY")
                 abLbl:SetFont(fontPath, 11, "")
                 abLbl:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, py)
-                abLbl:SetText("Abilities")
+                abLbl:SetText(EllesmereUI.L("Abilities"))
                 abLbl:SetTextColor(1, 1, 1, 0.6)
                 py = py - LABEL_H - LBL_GAP
 
@@ -3774,7 +3774,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                             end
                             tinsert(items, 1, {
                                 key = "__all", isAction = true,
-                                labelFn = function() return AllSel() and "None" or "All" end,
+                                labelFn = function() return EllesmereUI.L(AllSel() and "None" or "All") end,
                             })
                         end
                     end
@@ -4338,7 +4338,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             end)
             eyeBtn:SetScript("OnEnter", function(self)
                 self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, "Toggle All Indicators")
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Toggle All Indicators"))
             end)
             eyeBtn:SetScript("OnLeave", function(self)
                 self:SetAlpha(0.4)

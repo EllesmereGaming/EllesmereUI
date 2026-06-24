@@ -3852,7 +3852,7 @@ do
         if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(warnFS, outline == "" and GetABRUseShadow()) end
         warnFS:SetFont(font, 48, outline)
         warnFS:SetPoint("CENTER")
-        warnFS:SetText("LOW MANA")
+        warnFS:SetText(EllesmereUI.L("LOW MANA"))
         -- Breathe animation: fade between 60% and 100% alpha
         local ag = warnFrame:CreateAnimationGroup()
         local fadeOut = ag:CreateAnimation("Alpha")
@@ -3939,4 +3939,3 @@ do
         warnTimer = C_Timer.NewTimer(10, HideWarning)
     end)
 end
-

@@ -1459,7 +1459,7 @@ initFrame:SetScript("OnEvent", function(self)
             local z = zoneByName[zoneName]
             local name = EllesmereUI.L(zoneName)
             if z and z.type == "raid" then
-                return name .. EllesmereUI.L(" (Raid)")
+                return EllesmereUI.Lf("%1$s (Raid)", name)
             end
             return name
         end

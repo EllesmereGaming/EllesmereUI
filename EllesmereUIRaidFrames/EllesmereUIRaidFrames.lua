@@ -4103,15 +4103,15 @@ local function UpdateButton(button)
         if s.statusTextPosition == "none" then
             d.statusText:Hide()
         elseif UnitIsDeadOrGhost(unit) then
-            d.statusText:SetText("DEAD")
+            d.statusText:SetText(EllesmereUI.L("DEAD"))
             d.statusText:SetTextColor(stc.r, stc.g, stc.b)
             d.statusText:Show()
         elseif not UnitIsConnected(unit) then
-            d.statusText:SetText("OFFLINE")
+            d.statusText:SetText(EllesmereUI.L("OFFLINE"))
             d.statusText:SetTextColor(stc.r, stc.g, stc.b)
             d.statusText:Show()
         elseif s.statusShowAFK and UnitIsAFK and not issecretvalue(UnitIsAFK(unit)) and UnitIsAFK(unit) then
-            d.statusText:SetText("AFK")
+            d.statusText:SetText(EllesmereUI.L("AFK"))
             d.statusText:SetTextColor(stc.r, stc.g, stc.b)
             d.statusText:Show()
         else
@@ -5770,15 +5770,15 @@ ns._UpdateButtonHealth = function(button)
         if s.statusTextPosition == "none" then
             d.statusText:Hide()
         elseif UnitIsDeadOrGhost(unit) then
-            d.statusText:SetText("DEAD")
+            d.statusText:SetText(EllesmereUI.L("DEAD"))
             d.statusText:SetTextColor(stc.r, stc.g, stc.b)
             d.statusText:Show()
         elseif not UnitIsConnected(unit) then
-            d.statusText:SetText("OFFLINE")
+            d.statusText:SetText(EllesmereUI.L("OFFLINE"))
             d.statusText:SetTextColor(stc.r, stc.g, stc.b)
             d.statusText:Show()
         elseif s.statusShowAFK and UnitIsAFK and not issecretvalue(UnitIsAFK(unit)) and UnitIsAFK(unit) then
-            d.statusText:SetText("AFK")
+            d.statusText:SetText(EllesmereUI.L("AFK"))
             d.statusText:SetTextColor(stc.r, stc.g, stc.b)
             d.statusText:Show()
         else
@@ -12815,13 +12815,13 @@ local function ApplyPreviewData(f, index)
             f._statusText:SetPoint("CENTER", f._health, "CENTER", stOX, stOY)
         end
         if isDead then
-            f._statusText:SetText("DEAD")
+            f._statusText:SetText(EllesmereUI.L("DEAD"))
             f._statusText:Show()
         elseif isOffline then
-            f._statusText:SetText("OFFLINE")
+            f._statusText:SetText(EllesmereUI.L("OFFLINE"))
             f._statusText:Show()
         elseif isAfk then
-            f._statusText:SetText("AFK")
+            f._statusText:SetText(EllesmereUI.L("AFK"))
             f._statusText:Show()
         else
             f._statusText:Hide()
@@ -13199,7 +13199,7 @@ local function RefreshPreview()
         overlayContainer:SetSize(totalW + anchorPad * 2, totalH + anchorPad * 2 + topExtra)
         if overlayContainer._title then
             ApplyFont(overlayContainer._title, 13)
-            overlayContainer._title:SetText("Overlay Preview")
+            overlayContainer._title:SetText(EllesmereUI.L("Overlay Preview"))
             overlayContainer._title:SetTextColor(1, 1, 1, 0.9)
             overlayContainer._title:Show()
         end
@@ -14086,7 +14086,7 @@ local function RefreshPartyPreview()
         ns._partyOC:SetFrameLevel(10)
         if ns._partyOC._title then
             ApplyFont(ns._partyOC._title, 13)
-            ns._partyOC._title:SetText("Preview")
+            ns._partyOC._title:SetText(EllesmereUI.L("Preview"))
             ns._partyOC._title:SetTextColor(1, 1, 1, 0.9)
             ns._partyOC._title:Show()
         end

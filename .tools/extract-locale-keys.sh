@@ -21,13 +21,13 @@ cd "$(dirname "$0")/.."
 OUT="Locales/_keys.txt"
 TMP="$(mktemp)"
 
-grep -rhoE 'EllesmereUI\.Lf?\("[^"]*"' \
+grep -rhoE '(EllesmereUI|EUI)\.Lf?\(.*' \
   --include='*.lua' \
   --exclude-dir='Libs' \
   --exclude-dir='Locales' \
   --exclude='EllesmereUI_LocaleDev.lua' \
   . \
-  | sed -E 's/^EllesmereUI\.Lf?\("//; s/"$//' \
+  | perl -ne 'while (/(?:EllesmereUI|EUI)\.Lf?\(\s*(["'\''"])((?:\\.|(?!\1).)*)\1/g) { print "$2\n" }' \
   | sort -u > "$TMP"
 
 COUNT="$(wc -l < "$TMP" | tr -d ' ')"

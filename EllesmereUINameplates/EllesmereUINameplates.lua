@@ -7179,9 +7179,9 @@ function NameplateFrame:ShowInterrupted(interrupterGUID)
                 if hex then sourceText = "|c" .. hex .. interrupterName .. "|r" end
             end
         end
-        self.castName:SetText("Interrupted (" .. sourceText .. ")")
+        self.castName:SetText(EllesmereUI.Lf("Interrupted (%1$s)", sourceText))
     else
-        self.castName:SetText("Interrupted")
+        self.castName:SetText(EllesmereUI.L("Interrupted"))
     end
     self.castTarget:SetText("")
     self.castTarget:Hide()

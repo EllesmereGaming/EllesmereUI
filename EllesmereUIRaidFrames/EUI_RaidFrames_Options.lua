@@ -834,11 +834,11 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             eyeBtn:SetScript("OnEnter", function(self)
                 if IsPreviewOff() then
-                    EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Enable preview to use"))
                     return
                 end
                 self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, ns._healthAnimActive and "Stop health bar effects" or "Preview health bar effects")
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(ns._healthAnimActive and "Stop health bar effects" or "Preview health bar effects"))
             end)
             eyeBtn:SetScript("OnLeave", function(self)
                 if not IsPreviewOff() then self:SetAlpha(0.4) end
@@ -1217,11 +1217,11 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             eyeBtn:SetScript("OnEnter", function(self)
                 if IsPreviewOff() then
-                    EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Enable preview to use"))
                     return
                 end
                 self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, ns._absorbsPreviewVisible and "Hide shield effects on preview" or "Show shield effects on preview")
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(ns._absorbsPreviewVisible and "Hide shield effects on preview" or "Show shield effects on preview"))
             end)
             eyeBtn:SetScript("OnLeave", function(self)
                 if not IsPreviewOff() then self:SetAlpha(0.4) end
@@ -1688,11 +1688,11 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             eyeBtn:SetScript("OnEnter", function(self)
                 if IsPreviewOff() then
-                    EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Enable preview to use"))
                     return
                 end
                 self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, ns._powerAnimActive and "Stop power animation" or "Animate power bars")
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(ns._powerAnimActive and "Stop power animation" or "Animate power bars"))
             end)
             eyeBtn:SetScript("OnLeave", function(self)
                 if not IsPreviewOff() then self:SetAlpha(0.4) end
@@ -2236,11 +2236,11 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             eyeBtn:SetScript("OnEnter", function(self)
                 if IsPreviewOff() then
-                    EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Enable preview to use"))
                     return
                 end
                 self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, ns._indicatorsVisible and "Hide indicators on preview" or "Show indicators on preview")
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(ns._indicatorsVisible and "Hide indicators on preview" or "Show indicators on preview"))
             end)
             eyeBtn:SetScript("OnLeave", function(self)
                 if not IsPreviewOff() then self:SetAlpha(0.4) end
@@ -2765,11 +2765,11 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             eyeBtn:SetScript("OnEnter", function(self)
                 if IsPreviewOff() then
-                    EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Enable preview to use"))
                     return
                 end
                 self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, ns._dispelsVisible and "Hide dispels on preview" or "Show dispels on preview")
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(ns._dispelsVisible and "Hide dispels on preview" or "Show dispels on preview"))
             end)
             eyeBtn:SetScript("OnLeave", function(self)
                 if not IsPreviewOff() then self:SetAlpha(0.4) end
@@ -3680,11 +3680,11 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
                 eyeBtn:SetScript("OnEnter", function(self)
                     if IsPreviewOff() then
-                        EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
+                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Enable preview to use"))
                         return
                     end
                     self:SetAlpha(0.7)
-                    EllesmereUI.ShowWidgetTooltip(self, ns._tsRaidPreviewVisible and "Hide targeted spells on preview" or "Show targeted spells on preview")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(ns._tsRaidPreviewVisible and "Hide targeted spells on preview" or "Show targeted spells on preview"))
                 end)
                 eyeBtn:SetScript("OnLeave", function(self)
                     if not IsPreviewOff() then self:SetAlpha(0.4) end
@@ -3964,7 +3964,7 @@ initFrame:SetScript("OnEvent", function(self)
                         eyeBtn:SetScript("OnEnter", function(self)
                             self:SetAlpha(0.7)
                             local active = ns._sizePreviewTier == tier
-                            EllesmereUI.ShowWidgetTooltip(self, active and "Hide " .. tierLabel .. " preview" or "Preview " .. tierLabel .. " frame size")
+                            EllesmereUI.ShowWidgetTooltip(self, active and EllesmereUI.Lf("Hide %1$s preview", tierLabel) or EllesmereUI.Lf("Preview %1$s frame size", tierLabel))
                         end)
                         eyeBtn:SetScript("OnLeave", function(self)
                             RefreshSizeEye()
@@ -4012,7 +4012,7 @@ initFrame:SetScript("OnEvent", function(self)
                         closeTex:SetTexture(CLOSE_ICON)
                         closeBtn:SetScript("OnEnter", function(self)
                             self:SetAlpha(0.7)
-                            EllesmereUI.ShowWidgetTooltip(self, "Remove " .. tierLabel .. " size")
+                            EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.Lf("Remove %1$s size", tierLabel))
                         end)
                         closeBtn:SetScript("OnLeave", function(self)
                             self:SetAlpha(0.45)
@@ -4967,11 +4967,11 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
                 eyeBtn:SetScript("OnEnter", function(self)
                     if IsPreviewOff() then
-                        EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
+                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Enable preview to use"))
                         return
                     end
                     self:SetAlpha(0.7)
-                    EllesmereUI.ShowWidgetTooltip(self, ns._tsPreviewVisible and "Hide targeted spells on preview" or "Show targeted spells on preview")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(ns._tsPreviewVisible and "Hide targeted spells on preview" or "Show targeted spells on preview"))
                 end)
                 eyeBtn:SetScript("OnLeave", function(self)
                     if not IsPreviewOff() then self:SetAlpha(0.4) end
@@ -5178,11 +5178,11 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             eyeBtn:SetScript("OnEnter", function(self)
                 if IsPreviewOff() then
-                    EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Enable preview to use"))
                     return
                 end
                 self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, ns._defensivesPreviewVisible and "Hide defensives on preview" or "Show defensives on preview")
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(ns._defensivesPreviewVisible and "Hide defensives on preview" or "Show defensives on preview"))
             end)
             eyeBtn:SetScript("OnLeave", function(self)
                 if not IsPreviewOff() then self:SetAlpha(0.4) end
@@ -5425,11 +5425,11 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             eyeBtn:SetScript("OnEnter", function(self)
                 if IsPreviewOff() then
-                    EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Enable preview to use"))
                     return
                 end
                 self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, ns._privateAurasPreviewVisible and "Hide private auras on preview" or "Show private auras on preview")
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(ns._privateAurasPreviewVisible and "Hide private auras on preview" or "Show private auras on preview"))
             end)
             eyeBtn:SetScript("OnLeave", function(self)
                 if not IsPreviewOff() then self:SetAlpha(0.4) end
@@ -5575,11 +5575,11 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             eyeBtn:SetScript("OnEnter", function(self)
                 if IsPreviewOff() then
-                    EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Enable preview to use"))
                     return
                 end
                 self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, ns._debuffsPreviewVisible and "Hide debuffs on preview" or "Show debuffs on preview")
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(ns._debuffsPreviewVisible and "Hide debuffs on preview" or "Show debuffs on preview"))
             end)
             eyeBtn:SetScript("OnLeave", function(self)
                 if not IsPreviewOff() then self:SetAlpha(0.4) end

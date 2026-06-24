@@ -3678,7 +3678,7 @@ initFrame:SetScript("OnEvent", function(self)
 
                     -- Swap the cog: pip specs get "Only Color At/Above Threshold",
                     -- bar specs get "Reverse Threshold Fill Color".
-                    ef._threshLbl:SetText(EllesmereUI.L("Threshold") .. (isBar and " %" or ""))
+                    ef._threshLbl:SetText(EllesmereUI.L(isBar and "Threshold %" or "Threshold"))
                     if ef._cogBtn then ef._cogBtn:SetShown(not isBar) end
                     if ef._cogBtnBar then ef._cogBtnBar:SetShown(isBar) end
 

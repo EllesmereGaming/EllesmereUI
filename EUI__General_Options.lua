@@ -110,7 +110,8 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
 
     -- Display title: "Module: Title" -- the module name is prepended to every entry.
     local function TitleOf(e)
-        return ((e.module and EllesmereUI.L(e.module) .. ": ") or "") .. (EllesmereUI.L(e.title) or "")
+        local title = EllesmereUI.L(e.title) or ""
+        return e.module and EllesmereUI.Lf("%1$s: %2$s", EllesmereUI.L(e.module), title) or title
     end
 
     -- Stable sort by module display name so same-module entries group together
@@ -244,7 +245,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
     if not patches or #patches == 0 then
         local none = MakeFont(parent, 13, nil, 1, 1, 1, 0.5)
         PP.Point(none, "TOPLEFT", parent, "TOPLEFT", PAD, y - 20)
-        none:SetText("No patch notes yet.")
+        none:SetText(EllesmereUI.L("No patch notes yet."))
         return math.abs(y) + 60
     end
 
@@ -253,7 +254,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
     local hint = MakeFont(parent, 14, nil, 1, 1, 1, 0.5)
     PP.Point(hint, "TOP", parent, "TOP", 0, y)
     hint:SetJustifyH("CENTER")
-    hint:SetText("Click any new feature to go directly to the setting")
+    hint:SetText(EllesmereUI.L("Click any new feature to go directly to the setting"))
     y = y - math.ceil(hint:GetStringHeight() or 14) - 20
 
     -- Cap the page to the newest patches (max 10). Older entries may remain in
@@ -310,7 +311,8 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
             local _, sh = W:SectionHeader(parent, "BUG FIXES", y); y = y - sh
             y = y - 10  -- extra spacing below the divider
             for _, fx in ipairs(fixes) do
-                local fh = MakeFixLine(y, ((fx.module and EllesmereUI.L(fx.module) .. ": ") or "") .. (EllesmereUI.L(fx.text) or "")); y = y - fh
+                local text = EllesmereUI.L(fx.text) or ""
+                local fh = MakeFixLine(y, fx.module and EllesmereUI.Lf("%1$s: %2$s", EllesmereUI.L(fx.module), text) or text); y = y - fh
             end
         end
 
@@ -1341,10 +1343,10 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Size(optBtn, OPT_W, 42)
             PP.Point(optBtn, "TOP", gfxFrame, "TOP", 0, 0)
             optBtn:SetFrameLevel(gfxFrame:GetFrameLevel() + 1)
-            EllesmereUI.MakeStyledButton(optBtn, "Optimize My FPS and Graphics", 14,
+            EllesmereUI.MakeStyledButton(optBtn, EllesmereUI.L("Optimize My FPS and Graphics"), 14,
                 EllesmereUI.WB_COLOURS, ApplyOptimizedGfx)
             optBtn:HookScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(optBtn, "Optimizes your graphics settings for maximum FPS and visual clarity.")
+                EllesmereUI.ShowWidgetTooltip(optBtn, EllesmereUI.L("Optimizes your graphics settings for maximum FPS and visual clarity."))
             end)
             optBtn:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
@@ -1521,7 +1523,7 @@ initFrame:SetScript("OnEvent", function(self)
             tcSwatch:EnableMouse(not isCustomColorOff())
             tcSwatch:SetScript("OnEnter", function(self)
                 if isCustomColorOff() then
-                    EllesmereUI.ShowWidgetTooltip(self, "This option is only available for the Custom Color Theme")
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("This option is only available for the Custom Color Theme"))
                 end
             end)
             tcSwatch:SetScript("OnLeave", function()
@@ -1563,10 +1565,10 @@ initFrame:SetScript("OnEvent", function(self)
                         if not EllesmereUI._sliderDragging then
                             EllesmereUI._uiScaleDragVal = nil
                             EllesmereUI:ShowConfirmPopup({
-                                title = "UI Scale Changed",
-                                message = "Blizzard's Edit Mode snapping may not work correctly until you reload your UI.",
-                                confirmText = "Reload Now",
-                                cancelText = "Later",
+                                title = EllesmereUI.L("UI Scale Changed"),
+                                message = EllesmereUI.L("Blizzard's Edit Mode snapping may not work correctly until you reload your UI."),
+                                confirmText = EllesmereUI.L("Reload Now"),
+                                cancelText = EllesmereUI.L("Later"),
                                 onConfirm = function() ReloadUI() end,
                             })
                         end
@@ -1627,10 +1629,10 @@ initFrame:SetScript("OnEvent", function(self)
                                   if newEff > 0 then mf:SetScale(panelScaleBefore / newEff) end
                               end
                               EllesmereUI:ShowConfirmPopup({
-                                  title = "UI Scale Changed",
-                                  message = "UI scale set to 0.5333. A reload is recommended.",
-                                  confirmText = "Reload Now",
-                                  cancelText = "Later",
+                                  title = EllesmereUI.L("UI Scale Changed"),
+                                  message = EllesmereUI.L("UI scale set to 0.5333. A reload is recommended."),
+                                  confirmText = EllesmereUI.L("Reload Now"),
+                                  cancelText = EllesmereUI.L("Later"),
                                   onConfirm = function() ReloadUI() end,
                               })
                           end
@@ -1768,10 +1770,10 @@ initFrame:SetScript("OnEvent", function(self)
 
             local function LanguageReload()
                 EllesmereUI:ShowConfirmPopup({
-                    title       = "Reload Required",
-                    message     = "Changing the language requires a UI reload.",
-                    confirmText = "Reload Now",
-                    cancelText  = "Later",
+                    title       = EllesmereUI.L("Reload Required"),
+                    message     = EllesmereUI.L("Changing the language requires a UI reload."),
+                    confirmText = EllesmereUI.L("Reload Now"),
+                    cancelText  = EllesmereUI.L("Later"),
                     onConfirm   = function() ReloadUI() end,
                 })
             end
@@ -1900,10 +1902,10 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUIDB.fctFont = v
                 end
                 EllesmereUI:ShowConfirmPopup({
-                    title   = "Logout Required",
-                    message = "Combat text font changes require a logout to character select to take effect. This is a WoW engine limitation.",
-                    confirmText = "Okay",
-                    cancelText  = "Later",
+                    title   = EllesmereUI.L("Logout Required"),
+                    message = EllesmereUI.L("Combat text font changes require a logout to character select to take effect. This is a WoW engine limitation."),
+                    confirmText = EllesmereUI.L("Okay"),
+                    cancelText  = EllesmereUI.L("Later"),
                 })
               end });  y = y - h
 
@@ -2076,11 +2078,11 @@ initFrame:SetScript("OnEvent", function(self)
             end
             btn:SetScript("OnClick", function()
                 EllesmereUI:ShowConfirmPopup({
-                    title       = "Reset ALL Settings",
-                    message     = "Are you sure you want to reset ALL EUI addon settings to their defaults? This will reload your UI.",
-                    disclaimer  = "This resets every EUI addon, not just the current one.",
-                    confirmText = "Reset All & Reload",
-                    cancelText  = "Cancel",
+                    title       = EllesmereUI.L("Reset ALL Settings"),
+                    message     = EllesmereUI.L("Are you sure you want to reset ALL EUI addon settings to their defaults? This will reload your UI."),
+                    disclaimer  = EllesmereUI.L("This resets every EUI addon, not just the current one."),
+                    confirmText = EllesmereUI.L("Reset All & Reload"),
+                    cancelText  = EllesmereUI.L("Cancel"),
                     onConfirm   = function()
                         -- Nuclear wipe: same logic as the beta-exit popup
                         local svNames = {
@@ -2431,7 +2433,7 @@ initFrame:SetScript("OnEvent", function(self)
                     undoTex:SetTexture(EllesmereUI.UNDO_ICON)
                     undoBtn:SetScript("OnEnter", function(self)
                         self:SetAlpha(0.6)
-                        EllesmereUI.ShowWidgetTooltip(self, "Reset to default")
+                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Reset to default"))
                     end)
                     undoBtn:SetScript("OnLeave", function(self)
                         self:SetAlpha(0.3)
@@ -2495,10 +2497,10 @@ initFrame:SetScript("OnEvent", function(self)
         -- Reload popup for font changes
         local function FontReload()
             EllesmereUI:ShowConfirmPopup({
-                title       = "Reload Required",
-                message     = "Font changed. A UI reload is needed to apply the new font.",
-                confirmText = "Reload Now",
-                cancelText  = "Later",
+                title       = EllesmereUI.L("Reload Required"),
+                message     = EllesmereUI.L("Font changed. A UI reload is needed to apply the new font."),
+                confirmText = EllesmereUI.L("Reload Now"),
+                cancelText  = EllesmereUI.L("Later"),
                 onConfirm   = function() ReloadUI() end,
             })
         end
@@ -3511,7 +3513,7 @@ initFrame:SetScript("OnEvent", function(self)
             warnings[#warnings + 1] = EllesmereUI.Lf("Resolution Issue: Profile was made at %1$dx%2$d, yours is %3$dx%4$d", expSW, expSH, mySW, mySH)
         end
         if #warnings == 0 then return nil end
-        return EllesmereUI.L("WARNING: Frame positions may be off.") .. "\n" .. table.concat(warnings, "\n")
+        return EllesmereUI.Lf("WARNING: Frame positions may be off.\n%1$s", table.concat(warnings, "\n"))
     end
 
     local function BuildProfilesPage(pageName, parent, yOffset)

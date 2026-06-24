@@ -11,6 +11,8 @@ local Calc = EUIUpgCalc
 local Data = EUIUpgCalc.Data
 local EUI  = EllesmereUI
 local PP   = EUI.PP
+local L    = EUI.L or function(text) return text end
+local Lf   = EUI.Lf or function(text, ...) return text:format(...) end
 
 local function IsLocked()
     return InCombatLockdown() or (EUI.InProtectedInstance and EUI.InProtectedInstance())
@@ -623,7 +625,7 @@ PP.Height(titleBg, 32)
 
 local titleTxt = MFont(f, 13, "OUTLINE", 1, 1, 1, 1)
 PP.Point(titleTxt, "TOPLEFT", f, "TOPLEFT", 10, -10)
-titleTxt:SetText(EUI.L("Upgrade Calculator"))
+titleTxt:SetText(L("Upgrade Calculator"))
 
 local closeBtn = CreateFrame("Button", nil, f)
 PP.Size(closeBtn, 24, 24)
@@ -652,7 +654,7 @@ local function MakeTableHeader(parent, cols, yOffset)
         PP.Point(lbl, "TOPLEFT", parent, "TOPLEFT", col.x + 4, yOffset - 2)
         PP.Width(lbl, col.w)
         lbl:SetJustifyH(col.align)
-        lbl:SetText(EUI.L(col.label))
+        lbl:SetText(L(col.label))
     end
 end
 
@@ -684,7 +686,7 @@ local function MakeButton(parent, label, w, h, yOff, xOff)
     local bb = EUI.MakeBorder(btn, 0.2, 0.2, 0.2, 1)
     if bb.SetColor then bb:SetColor(0.2, 0.2, 0.2, 1) end
     local txt = MFont(btn, 10, "OUTLINE", 1, 1, 1, 0.75)
-    txt:SetAllPoints(); txt:SetJustifyH("CENTER"); txt:SetText(label)
+    txt:SetAllPoints(); txt:SetJustifyH("CENTER"); txt:SetText(L(label))
     btn:SetScript("OnEnter", function() txt:SetTextColor(1, 1, 1, 1) end)
     btn:SetScript("OnLeave", function() txt:SetTextColor(1, 1, 1, 0.75) end)
     return btn, txt
@@ -696,7 +698,7 @@ f.charPane:SetAllPoints(f)
 
 local ilvlStatLbl = MFont(f.charPane, 12, "OUTLINE", 1, 1, 1, 1)
 PP.Point(ilvlStatLbl, "TOPLEFT", f.charPane, "TOPLEFT", 10, tabY - 11)
-ilvlStatLbl:SetText(EUI.L("Current iLvl: -   Max Possible: -"))
+ilvlStatLbl:SetText(L("Current iLvl: -   Max Possible: -"))
 local ilvlEstLbl = MFont(f.charPane, 10, "OUTLINE", 0.53, 0.53, 0.53, 1)
 PP.Point(ilvlEstLbl, "LEFT", ilvlStatLbl, "RIGHT", 4, 0)
 ilvlEstLbl:SetText(EUI.L(""))
@@ -751,7 +753,7 @@ for i = 1, 18 do
     queueOvBg:SetAllPoints()
     local queueOvTxt = MFont(queueOv, 11, "OUTLINE", 1, 1, 1, 0.9)
     queueOvTxt:SetPoint("CENTER", queueOv, "CENTER", 0, 0)
-    queueOvTxt:SetText(EUI.L("In Queue"))
+    queueOvTxt:SetText(L("In Queue"))
     queueOv:Hide()
     btn.selHL = queueOv
     -- Top-left: slot name
@@ -791,9 +793,9 @@ for i = 1, 18 do
         if not e or not EUI.ShowWidgetTooltip then return end
         local lines = {}
         if e.isAtMax then
-            lines[#lines + 1] = EUI.L("|cff20c020At maximum item level|r")
+            lines[#lines + 1] = L("|cff20c020At maximum item level|r")
         elseif e.trackKey == "Crafted" then
-            lines[#lines + 1] = EUI.L("Crafted item — cannot be upgraded here")
+            lines[#lines + 1] = L("Crafted item — cannot be upgraded here")
         elseif e.trackKey then
             local td = Data.tracks[e.trackKey]
             local snap = DB()
@@ -808,10 +810,10 @@ for i = 1, 18 do
                     if cn and amt > 0 then
                         lines[#lines + 1] = amt .. "x  " .. EUI.L(cn)
                     end
-                end
-            elseif (e.crestCost or 0) > 0 then
-                lines[#lines + 1] = "~" .. e.crestCost .. "x  " .. EUI.L(td and td.crestName or "Crest")
-                lines[#lines + 1] = "|cff888888" .. EUI.L("Scan at Upgrader for exact costs") .. "|r"
+            end
+        elseif (e.crestCost or 0) > 0 then
+                lines[#lines + 1] = Lf("~%1$dx  %2$s", e.crestCost, L(td and td.crestName or "Crest"))
+                lines[#lines + 1] = L("|cff888888Scan at Upgrader for exact costs|r")
             end
         end
         if #lines > 0 then
@@ -849,19 +851,19 @@ PP.Point(queuePane, "TOPLEFT", cc, "TOPLEFT", QUEUE_X_OFF, -10)
 
 local qHdrLbl = MFont(queuePane, 11, "OUTLINE", 1, 1, 1, 1)
 PP.Point(qHdrLbl, "TOPLEFT", queuePane, "TOPLEFT", 0, 0)
-qHdrLbl:SetText(EUI.L("Upgrade Queue"))
+qHdrLbl:SetText(L("Upgrade Queue"))
 
 -- Sort-by-crest button sits in the header bar, right-aligned (swaps with qSubLbl)
 local qSortBtn = CreateFrame("Button", nil, queuePane)
 qSortBtn:SetHeight(16)
 local qSortTxt = MFont(qSortBtn, 11, "OUTLINE", 1, 1, 1, 0.75)
 qSortTxt:SetPoint("RIGHT", qSortBtn, "RIGHT", 0, 0)
-qSortTxt:SetText(EUI.L("Sort"))
+qSortTxt:SetText(L("Sort"))
 qSortBtn:SetWidth(qSortTxt:GetStringWidth() + 4)
 PP.Point(qSortBtn, "RIGHT", queuePane, "RIGHT", 0, 0)
 qSortBtn:SetPoint("TOP", queuePane, "TOP", 0, 0)
 qSortBtn:SetScript("OnEnter", function(self)
-    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, EUI.L("Sort queue by crest type (cheapest first)")) end
+    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, L("Sort queue by crest type (cheapest first)")) end
 end)
 qSortBtn:SetScript("OnLeave", function()
     if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
@@ -882,7 +884,7 @@ PP.Point(qEmptyLbl, "TOPLEFT", queuePane, "TOPLEFT", 4, -23)
 PP.Point(qEmptyLbl, "TOPRIGHT", queuePane, "TOPRIGHT", -4, -23)
 qEmptyLbl:SetJustifyH("LEFT")
 qEmptyLbl:SetWordWrap(true)
-qEmptyLbl:SetText(EUI.L("No items queued, click tiles to add an item to queue."))
+qEmptyLbl:SetText(L("No items queued, click tiles to add an item to queue."))
 
 -- 16 pre-created queue entry rows
 local queueEntries = {}
@@ -950,7 +952,7 @@ end
 
 local function UpdateQueueDisplay()
     local n = #queueItems
-    qEmptyLbl:SetText(n == 0 and EUI.L("No items queued, click tiles to add an item to queue.") or "")
+    qEmptyLbl:SetText(n == 0 and L("No items queued, click tiles to add an item to queue.") or "")
     if n > 0 then qSortBtn:Show() else qSortBtn:Hide() end
 
     local totalCrests = {}
@@ -961,16 +963,16 @@ local function UpdateQueueDisplay()
         if entry.trackKey and entry.trackKey ~= "Crafted" then
             local td = Data.tracks[entry.trackKey]
             if td and (entry.crestCost or 0) > 0 then
-                local trackShortName = (td.crestName or entry.trackKey):gsub(" Crest", "")
-                parts[#parts + 1] = entry.crestCost .. " " .. EUI.L(trackShortName)
+                parts[#parts + 1] = Lf("%1$d %2$s", entry.crestCost,
+                    L((td.crestName or entry.trackKey):gsub(" Crest", "")))
                 totalCrests[td.crestName] = (totalCrests[td.crestName] or 0) + entry.crestCost
             end
         end
-        local costStr = #parts > 0 and table.concat(parts, " ") or ("|cff20c020" .. EUI.L("Max") .. "|r")
+        local costStr = #parts > 0 and table.concat(parts, " ") or L("|cff20c020Max|r")
         local gain = (not entry.isAtMax and type(entry.max) == "number" and entry.max > entry.ilvl)
             and (entry.max - entry.ilvl) or nil
-        local slotNameTranslated = EUI.L(entry.slotName)
-        local nameStr = gain and (slotNameTranslated .. " |cff888888+" .. gain .. "|r") or slotNameTranslated
+        local displaySlotName = L(entry.slotName)
+        local nameStr = gain and Lf("%1$s |cff888888+%2$d|r", displaySlotName, gain) or displaySlotName
         qe.nLbl:SetText(nameStr)
         qe.cLbl:SetText(costStr)
     end
@@ -979,10 +981,10 @@ local function UpdateQueueDisplay()
     if n > 0 then
         local parts = {}
         for _, trackName in ipairs(Data.trackOrder) do
-            local td   = Data.tracks[trackName]
-            local ckey = td and td.crestName or trackName
-            local amt  = totalCrests[ckey] or 0
-            if amt > 0 then parts[#parts + 1] = amt .. " " .. EUI.L(ckey:gsub(" Crest", "")) end
+        local td   = Data.tracks[trackName]
+        local ckey = td and td.crestName or trackName
+        local amt  = totalCrests[ckey] or 0
+            if amt > 0 then parts[#parts + 1] = Lf("%1$d %2$s", amt, L(ckey:gsub(" Crest", ""))) end
         end
 
         local sepY = -(23 + n * Q_ROW_STEP + 6)
@@ -995,7 +997,7 @@ local function UpdateQueueDisplay()
         qClearBtn:ClearAllPoints()
         PP.Point(qClearBtn, "TOPLEFT", queuePane, "TOPLEFT", 0, sepY - 28)
 
-        qTotalLbl:SetText(#parts > 0 and table.concat(parts, "  ") or EUI.L("Nothing needed"))
+        qTotalLbl:SetText(#parts > 0 and table.concat(parts, "  ") or L("Nothing needed"))
         qTotalLbl:Show(); qTotalSep:Show(); qClearBtn:Show()
     else
         qTotalLbl:Hide(); qTotalSep:Hide(); qClearBtn:Hide()
@@ -1066,13 +1068,13 @@ local PopulateGear
 local missingLbl = MFont(crestSection, 11, "OUTLINE", 1, 1, 1, 1)
 PP.Point(missingLbl, "TOPLEFT", crestSection, "TOPLEFT", 4, 0)
 missingLbl:SetJustifyH("LEFT")
-missingLbl:SetText(EUI.L("Total Missing Upgrades: -"))
+missingLbl:SetText(L("Total Missing Upgrades: -"))
 
 local crestsLbl = MFont(crestSection, 11, "OUTLINE", 1, 1, 1, 1)
 PP.Point(crestsLbl, "TOPLEFT", missingLbl, "BOTTOMLEFT", 0, -4)
 PP.Width(crestsLbl, TILE_ROW_W)
 crestsLbl:SetJustifyH("LEFT")
-crestsLbl:SetText(EUI.L("Total Crests Needed: -"))
+crestsLbl:SetText(L("Total Crests Needed: -"))
 
 local refreshBtn               = MakeButton(crestSection, EUI.L("Refresh"),            140, 22, 0, 0)
 local scanBtn, scanBtnTxt      = MakeButton(crestSection, EUI.L("Update at Upgrader"), 160, 22, 0, 150)
@@ -1103,11 +1105,11 @@ local function MakeCHdr(parent, text, x, w, align)
     lbl:SetText(EUI.L(text))
     return lbl
 end
-MakeCHdr(crestTblHdr, "Crest",       CC_NAME_X, CC_NAME_W, "LEFT")
-MakeCHdr(crestTblHdr, "Needed",      CC_NEED_X, CC_NEED_W, "RIGHT")
-MakeCHdr(crestTblHdr, "Owned",       CC_OWN_X,  CC_OWN_W,  "RIGHT")
-local cHdrEarn = MakeCHdr(crestTblHdr, "Earned/Cap",  CC_EARN_X, CC_EARN_W, "RIGHT")
-local cHdrRem  = MakeCHdr(crestTblHdr, "Still Avail", CC_REM_X,  CC_REM_W,  "RIGHT")
+MakeCHdr(crestTblHdr, L("Crest"),       CC_NAME_X, CC_NAME_W, "LEFT")
+MakeCHdr(crestTblHdr, L("Needed"),      CC_NEED_X, CC_NEED_W, "RIGHT")
+MakeCHdr(crestTblHdr, L("Owned"),       CC_OWN_X,  CC_OWN_W,  "RIGHT")
+local cHdrEarn = MakeCHdr(crestTblHdr, L("Earned/Cap"),  CC_EARN_X, CC_EARN_W, "RIGHT")
+local cHdrRem  = MakeCHdr(crestTblHdr, L("Still Avail"), CC_REM_X,  CC_REM_W,  "RIGHT")
 crestTblHdr:Hide()
 
 local crestTableRows = {}
@@ -1133,7 +1135,7 @@ for ri, trackName in ipairs(Data.trackOrder) do
     PP.Point(nameLbl, "TOPLEFT", row, "TOPLEFT", CC_NAME_X + 4, -3)
     PP.Width(nameLbl, CC_NAME_W - 8)
     nameLbl:SetJustifyH("LEFT")
-    nameLbl:SetText(hexColor .. trackName .. "|r")
+    nameLbl:SetText(hexColor .. L(trackName) .. "|r")
     local needLbl = MakeCell(CC_NEED_X, CC_NEED_W, "RIGHT")
     local ownLbl  = MakeCell(CC_OWN_X,  CC_OWN_W,  "RIGHT")
     local earnLbl = MakeCell(CC_EARN_X, CC_EARN_W, "RIGHT")
@@ -1357,10 +1359,10 @@ PopulateGear = function()
         tlFill:SetWidth(math.max(1, math.floor(capFrac * trackW)))
     end)
     local acHex = string.format("|cff%02x%02x%02x", G.r * 255, G.g * 255, G.b * 255)
-    ilvlStatLbl:SetText(EUI.Lf(
-        "Current iLvl: %s%.1f|r     Max Possible: %s%.1f|r",
+    ilvlStatLbl:SetText(string.format(
+        L("Current iLvl: %s%.1f|r     Max Possible: %s%.1f|r"),
         acHex, curAvg, acHex, maxAvg))
-    ilvlEstLbl:SetText(EUI.L("(est)"))
+    ilvlEstLbl:SetText(L("(est)"))
 
     -- Section header positions
     local needsCount = 0
@@ -1372,7 +1374,7 @@ PopulateGear = function()
         sHdrNeeds:ClearAllPoints()
         PP.Point(sHdrNeeds, "TOPLEFT", cc, "TOPLEFT", 0, -10)
         local acH = string.format("|cff%02x%02x%02x", G.r * 255, G.g * 255, G.b * 255)
-        sHdrNeeds:SetText(EUI.Lf("Upgradable Items (%s%d|r)", acH, needsCount))
+        sHdrNeeds:SetText(Lf("Upgradable Items (%1$s%2$d|r)", acH, needsCount))
         sHdrNeeds:Show()
     else
         sHdrNeeds:SetText(""); sHdrNeeds:Hide()
@@ -1385,7 +1387,7 @@ PopulateGear = function()
         groupSepLine:Show()
         sHdrMax:ClearAllPoints()
         PP.Point(sHdrMax, "TOPLEFT", cc, "TOPLEFT", 0, atMaxHdrY - 6)
-        sHdrMax:SetText(string.format("At Max (%d)", maxCount))
+        sHdrMax:SetText(Lf("At Max (%1$d)", maxCount))
         sHdrMax:Show()
     else
         groupSepLine:Hide(); sHdrMax:Hide()
@@ -1434,12 +1436,12 @@ PopulateGear = function()
             btn.accentBar:SetColorTexture(rgb[1], rgb[2], rgb[3], 1)
 
             -- Text labels
-            btn.sLbl:SetText(EUI.L(entry.slotName))
+            btn.sLbl:SetText(L(entry.slotName))
             local maxStr = type(entry.max) == "number" and tostring(entry.max) or "-"
             btn.iLbl:SetText(entry.ilvl .. " (" .. maxStr .. ")")
-            btn.tLbl:SetText(EUI.L(entry.trackName))
+            btn.tLbl:SetText(L(entry.trackName))
             btn.tLbl:SetTextColor(rgb[1], rgb[2], rgb[3], 1)
-            btn.rLbl:SetText(EUI.L(entry.upgrade))
+            btn.rLbl:SetText(L(entry.upgrade))
 
             local txtA = entry.isAtMax and 0.45 or 0.9
             btn.sLbl:SetTextColor(txtA, txtA, txtA, 1)
@@ -1469,7 +1471,7 @@ PopulateGear = function()
 
     -- Summary text: Total Missing Upgrades + Total Crests Needed
     local acHex2 = string.format("|cff%02x%02x%02x", G.r * 255, G.g * 255, G.b * 255)
-    missingLbl:SetText(EUI.Lf("Total Missing Upgrades: %s%d|r", acHex2, totalMissing))
+    missingLbl:SetText(Lf("Total Missing Upgrades: %1$s%2$d|r", acHex2, totalMissing))
 
     local crestParts = {}
     -- Reverse order: highest tier first (Myth -> Adventurer)
@@ -1480,16 +1482,13 @@ PopulateGear = function()
         local amt  = crestNeeds[ckey] or 0
         if amt > 0 then
             local hexColor = (td and td.hexColor) or "|cffffffff"
-            local formattedPart = EUI.Lf("%d " .. trackName, amt)
-            crestParts[#crestParts + 1] = hexColor .. formattedPart .. "|r"
+            crestParts[#crestParts + 1] = Lf("%1$s%2$d %3$s|r", hexColor, amt, L(trackName))
         end
     end
-    local crestStr = #crestParts > 0 and table.concat(crestParts, ", ") or "None"
+    local crestStr = #crestParts > 0 and table.concat(crestParts, ", ") or L("None")
     local db = DB()
-    local accuracyTag = db.calibrated
-        and (" |cff20ff20" .. EUI.L("(exact)") .. "|r")
-        or (" |cff888888" .. EUI.L("(est)") .. "|r")
-    crestsLbl:SetText(EUI.L("Total Crests Needed") .. accuracyTag .. ": " .. EUI.L(crestStr))
+    local accuracyTag = db.calibrated and L(" |cff20ff20(exact)|r") or L(" |cff888888(est)|r")
+    crestsLbl:SetText(Lf("Total Crests Needed%1$s: %2$s", accuracyTag, crestStr))
 
     -- Crest breakdown table: populate rows, apply filter and optional columns
     cHdrEarn:SetShown(showEarnedCap or false)
@@ -1567,10 +1566,8 @@ refreshBtn:SetScript("OnClick", PopulateGear)
 Calc.PopulateGear = PopulateGear  -- exposed for options page live-refresh
 refreshBtn:HookScript("OnEnter", function(self)
     if EUI.ShowWidgetTooltip then
-        EUI.ShowWidgetTooltip(self, EUI.L(
-            "Refresh using tooltip scan data.\n"
-            .. "For exact costs, use |cffffffff'Update at Upgrader'|r\n"
-            .. "while at an Item Upgrade NPC."))
+        EUI.ShowWidgetTooltip(self,
+            L("Refresh using tooltip scan data.\nFor exact costs, use |cffffffff'Update at Upgrader'|r\nwhile at an Item Upgrade NPC."))
     end
 end)
 refreshBtn:HookScript("OnLeave", function()
@@ -1579,13 +1576,11 @@ end)
 
 scanBtn:HookScript("OnEnter", function(self)
     if EUI.ShowWidgetTooltip then
-        local tip = "Scan all equipped gear costs at the Item Upgrade NPC.\n"
-                 .. "Scans each slot one at a time — this can take up to 10 seconds.\n"
-                 .. "Requires the Item Upgrade window to be open."
+        local tip = L("Scan all equipped gear costs at the Item Upgrade NPC.\nScans each slot one at a time — this can take up to 10 seconds.\nRequires the Item Upgrade window to be open.")
         if not Calc:IsUpgraderOpen() then
-            tip = tip .. "\n|cffff6060Item Upgrade window is not open.|r"
+            tip = tip .. "\n" .. L("|cffff6060Item Upgrade window is not open.|r")
         end
-        EUI.ShowWidgetTooltip(self, EUI.L(tip))
+        EUI.ShowWidgetTooltip(self, tip)
     end
 end)
 scanBtn:HookScript("OnLeave", function()
@@ -1594,10 +1589,10 @@ end)
 
 scanBtn:SetScript("OnClick", function()
     if Calc._scanning then return end
-    scanBtnTxt:SetText(EUI.L("Scanning..."))
+    scanBtnTxt:SetText(L("Scanning..."))
     scanBtn:SetAlpha(0.5)
     Calc:ScanEquippedAtUpgrader(function(ok)
-        scanBtnTxt:SetText(EUI.L("Update at Upgrader"))
+        scanBtnTxt:SetText(L("Update at Upgrader"))
         scanBtn:SetAlpha(1)
         if ok then
             crestManualAdds["Hero Crest"] = 0

@@ -42,6 +42,13 @@ local BAGS_DEFAULTS = {
 }
 local db = EllesmereUI.Lite.NewDB("EllesmereUIBagsDB", BAGS_DEFAULTS)
 EllesmereUI._bagsDB = db
+local function L(text) return EllesmereUI.L and EllesmereUI.L(text) or text end
+local function DisplayCatName(cat)
+    if not cat then return "?" end
+    if cat.isUserCreated then return cat.name end
+    if cat._defaultName and cat.name ~= cat._defaultName then return cat.name end
+    return L(cat.name)
+end
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -289,7 +296,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local cats = _G.EUI_CategoryManager:GetCategories()
                     for ci, cat in ipairs(cats) do
                         if not cat.isCatchAll and not cat.isPinned and not cat.isRecent and not cat.isReagentBag then
-                            catItems[#catItems + 1] = { key = cat._defaultName, label = cat.name }
+                            catItems[#catItems + 1] = { key = cat._defaultName, label = DisplayCatName(cat) }
                         end
                     end
                 end

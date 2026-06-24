@@ -4,6 +4,7 @@
 --  Uses LibKeystone (BigWigs/DBM) for keystone data exchange.
 -------------------------------------------------------------------------------
 local LibKeystone = LibStub and LibStub("LibKeystone", true)
+local L = EllesmereUI and EllesmereUI.L or function(text) return text end
 
 local myRealm = (GetRealmName():gsub("%s", ""))
 local partyKeys = {}  -- [playerName] = { dungeon = mapID, keyLevel = N, rating = N }
@@ -220,7 +221,7 @@ local function BuildPopup()
     hdrBg:SetPoint("TOPLEFT", 1, -1); hdrBg:SetPoint("TOPRIGHT", -1, 0); hdrBg:SetHeight(TITLE_H)
 
     local title = MakeLabel(popup, 11, "OUTLINE", 1, 1, 1, 1)
-    title:SetPoint("TOPLEFT", PAD, -8); title:SetText("EllesmereUI Keystones")
+    title:SetPoint("TOPLEFT", PAD, -8); title:SetText(L("EllesmereUI Keystones"))
 
     local ICON_SZ = 14
     local ICON_ALPHA = 0.5
@@ -246,7 +247,7 @@ local function BuildPopup()
     refTex:SetAlpha(ICON_ALPHA)
     refBtn:SetScript("OnEnter", function()
         refTex:SetAlpha(1)
-        if EUI and EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(refBtn, "Refresh Data") end
+        if EUI and EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(refBtn, L("Refresh Data")) end
     end)
     refBtn:SetScript("OnLeave", function()
         refTex:SetAlpha(ICON_ALPHA)
@@ -336,7 +337,7 @@ local function AcquireRow(i)
             local cdInfo = C_Spell.GetSpellCooldown(sid)
             if cdInfo and cdInfo.duration and cdInfo.duration > 0 then
                 if EllesmereUI.ShowWidgetTooltip then
-                    EllesmereUI.ShowWidgetTooltip(tpBtn, "Portal on Cooldown")
+                    EllesmereUI.ShowWidgetTooltip(tpBtn, L("Portal on Cooldown"))
                 end
             end
         end
@@ -419,7 +420,7 @@ local function PopulateRow(r, e)
             r._tpBtn:Hide()
         end
     else
-        r._dungeonFS:SetText("No keystone"); r._dungeonFS:SetTextColor(0.5, 0.5, 0.5, 0.7)
+        r._dungeonFS:SetText(L("No keystone")); r._dungeonFS:SetTextColor(0.5, 0.5, 0.5, 0.7)
         r._levelFS:SetText("")
         if r._tpBtn then r._tpBtn:Hide() end
     end
@@ -479,7 +480,7 @@ ShowKeystonePopup = function()
     -- Party section
     hdrIdx = hdrIdx + 1
     local partyHdr = AcquireSecHeader(hdrIdx)
-    partyHdr._label:SetText("PARTY")
+    partyHdr._label:SetText(L("PARTY"))
     partyHdr:ClearAllPoints()
     partyHdr:SetPoint("TOPLEFT", body, "TOPLEFT", 0, curY)
     partyHdr:SetWidth(contentW)
@@ -489,7 +490,7 @@ ShowKeystonePopup = function()
     if #partyEntries == 0 then
         rowIdx = rowIdx + 1
         local r = AcquireRow(rowIdx)
-        r._nameFS:SetText("No keystones found"); r._nameFS:SetWidth(contentW)
+        r._nameFS:SetText(L("No keystones found")); r._nameFS:SetWidth(contentW)
         r._nameFS:SetTextColor(0.5, 0.5, 0.5, 0.7)
         r._ratingFS:SetText(""); r._dungeonFS:SetText(""); r._levelFS:SetText("")
         r:ClearAllPoints()
@@ -515,7 +516,7 @@ ShowKeystonePopup = function()
     curY = curY - SEC_GAP
     hdrIdx = hdrIdx + 1
     local guildHdr = AcquireSecHeader(hdrIdx)
-    guildHdr._label:SetText("GUILD")
+    guildHdr._label:SetText(L("GUILD"))
     guildHdr:ClearAllPoints()
     guildHdr:SetPoint("TOPLEFT", body, "TOPLEFT", 0, curY)
     guildHdr:SetWidth(contentW)
@@ -525,7 +526,7 @@ ShowKeystonePopup = function()
     if #guildEntries == 0 then
         rowIdx = rowIdx + 1
         local r = AcquireRow(rowIdx)
-        r._nameFS:SetText("Waiting for data..."); r._nameFS:SetWidth(contentW)
+        r._nameFS:SetText(L("Waiting for data...")); r._nameFS:SetWidth(contentW)
         r._nameFS:SetTextColor(0.5, 0.5, 0.5, 0.5)
         r._ratingFS:SetText(""); r._dungeonFS:SetText(""); r._levelFS:SetText("")
         r:ClearAllPoints()

@@ -574,7 +574,7 @@ local function CreateFlyoutToggle()
     end)
     btn:SetScript("OnEnter", function(self)
         if not GetFFD(self).freeMoveJustDragged and EllesmereUI.ShowWidgetTooltip then
-            EllesmereUI.ShowWidgetTooltip(self, "Addon Buttons", { anchor = "left" })
+            EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Addon Buttons"), { anchor = "left" })
         end
     end)
     btn:SetScript("OnLeave", function(self)
@@ -1195,7 +1195,7 @@ local function GetVaultTooltip()
     title:SetFont("Fonts\\FRIZQT__.TTF", 11, "")  -- placeholder, updated on show
     title:SetTextColor(0.80, 0.80, 0.80, 1)
     title:SetPoint("TOP", f, "TOP", 0, -VAULT_PAD)
-    title:SetText("Great Vault")
+    title:SetText(EllesmereUI.L("Great Vault"))
     f._title = title
 
     -- 3 data rows x 4 columns (label + 3 tokens)
@@ -1757,7 +1757,7 @@ local function CreatePortalBtn(parent)
     btn:SetScript("OnEnter", function(self)
         self._icon:SetVertexColor(1, 1, 1, 1)
         if _portalFlyout and _portalFlyout:IsShown() then return end
-        if EllesmereUI.ShowWidgetTooltip then EllesmereUI.ShowWidgetTooltip(self, "M+ Portals", { anchor = "left" }) end
+        if EllesmereUI.ShowWidgetTooltip then EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("M+ Portals"), { anchor = "left" }) end
     end)
     btn:SetScript("OnLeave", function(self)
         self._icon:SetVertexColor(0.85, 0.85, 0.85, 1)
@@ -2209,9 +2209,9 @@ function ShowFriendsTooltip(anchor)
     end
 
     local sections = {}
-    if #favorites > 0 then sections[#sections + 1] = { title = "Favorites", list = favorites } end
-    if #guild > 0 then sections[#sections + 1] = { title = "Guild", list = guild } end
-    if #friends > 0 then sections[#sections + 1] = { title = "Friends", list = friends } end
+    if #favorites > 0 then sections[#sections + 1] = { title = EllesmereUI.L("Favorites"), list = favorites, max = FTT_MAX_FAV } end
+    if #guild > 0 then sections[#sections + 1] = { title = EllesmereUI.L("Guild"), list = guild, max = FTT_MAX_GLD } end
+    if #friends > 0 then sections[#sections + 1] = { title = EllesmereUI.L("Friends"), list = friends, max = FTT_MAX_FRD } end
 
     local rowIdx = 0
     local hdrIdx = 0
@@ -2617,7 +2617,7 @@ local function BuildCustomIndicators(minimap)
     _customIndicators.tracking:SetScript("OnEnter", function(self)
         if trackBaseEnter then trackBaseEnter(self) end
         if not GetFFD(self).freeMoveJustDragged and EllesmereUI.ShowWidgetTooltip then
-            EllesmereUI.ShowWidgetTooltip(self, "Tracking", { anchor = "left" })
+            EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Tracking"), { anchor = "left" })
         end
     end)
     _customIndicators.tracking:SetScript("OnLeave", function(self)
@@ -2646,7 +2646,7 @@ local function BuildCustomIndicators(minimap)
         if lockoutEntries then
             ShowCalendarTooltip(self, lockoutEntries)
         elseif EllesmereUI.ShowWidgetTooltip then
-            EllesmereUI.ShowWidgetTooltip(self, "Calendar", { anchor = "left" })
+            EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Calendar"), { anchor = "left" })
         end
     end)
     _customIndicators.calendar:SetScript("OnLeave", function(self)

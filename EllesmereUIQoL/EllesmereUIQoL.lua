@@ -37,6 +37,9 @@ function EllesmereUI.QoLExtrasSet(k, v)
     EllesmereUIDB[k] = v
 end
 
+local L = EllesmereUI.L or function(text) return text end
+local Lf = EllesmereUI.Lf or function(text, ...) return text:format(...) end
+
 local qolFrame = CreateFrame("Frame")
 qolFrame:RegisterEvent("PLAYER_LOGIN")
 qolFrame:SetScript("OnEvent", function(self)
@@ -389,7 +392,7 @@ qolFrame:SetScript("OnEvent", function(self)
             if trainBtn then trainBtn:Show(); RefreshButton(); return end
 
             trainBtn = CreateFrame("Button", "EUI_TrainAllButton", ClassTrainerFrame, "MagicButtonTemplate")
-            trainBtn:SetText("Train All")
+            trainBtn:SetText(L("Train All"))
             trainBtn:SetHeight(ClassTrainerTrainButton:GetHeight() or 22)
             trainBtn:SetWidth(80)
             trainBtn:SetPoint("RIGHT", ClassTrainerTrainButton, "LEFT", -2, 0)
@@ -410,9 +413,9 @@ qolFrame:SetScript("OnEvent", function(self)
             trainBtn:SetScript("OnEnter", function(self)
                 local n, gold = TrainableSummary()
                 if n <= 0 then return end
-                local msg = string.format("Learn %d skill%s for %s",
-                    n, n == 1 and "" or "s",
-                    C_CurrencyInfo.GetCoinTextureString(gold))
+                local msg = n == 1
+                    and Lf("Learn %1$d skill for %2$s", n, C_CurrencyInfo.GetCoinTextureString(gold))
+                    or Lf("Learn %1$d skills for %2$s", n, C_CurrencyInfo.GetCoinTextureString(gold))
                 EllesmereUI.ShowWidgetTooltip(self, msg)
             end)
             trainBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -1010,7 +1013,7 @@ do
             bg:SetColorTexture(0.133, 0.133, 0.133, 1)
             local txt = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
             txt:SetPoint("CENTER")
-            txt:SetText("Click to Show")
+            txt:SetText(L("Click to Show"))
             txt:SetTextColor(0.7, 0.7, 0.7, 1)
             overlay:SetScript("OnClick", function(self)
                 self:Hide()
@@ -1259,7 +1262,7 @@ do
             divLocal:SetColorTexture(cr, cg, cb, ca * 0.35)
 
             local fps = floor(GetFramerate() + 0.5)
-            fsFps:SetText(fps .. " fps")
+            fsFps:SetText(Lf("%1$d fps", fps))
 
             local showWorld = EllesmereUI.QoLExtrasGet("fpsShowWorldMS")
             local _localMS = EllesmereUI.QoLExtrasGet("fpsShowLocalMS")
@@ -1272,7 +1275,7 @@ do
             local anchor = fsFps
 
             if showWorld then
-                fsWorldVal:SetText(latWorld .. " ms")
+                fsWorldVal:SetText(Lf("%1$d ms", latWorld))
                 divWorld:ClearAllPoints()
                 divWorld:SetPoint("LEFT", anchor, "RIGHT", DIV_PAD, 0)
                 divWorld:Show()
@@ -1283,7 +1286,7 @@ do
                     fsWorldLbl:Hide()
                     anchor = fsWorldVal
                 else
-                    fsWorldLbl:SetText("(world)")
+                    fsWorldLbl:SetText(L("(world)"))
                     fsWorldLbl:ClearAllPoints()
                     fsWorldLbl:SetPoint("LEFT", fsWorldVal, "RIGHT", 3, 0)
                     fsWorldLbl:Show()
@@ -1294,7 +1297,7 @@ do
             end
 
             if showLocal then
-                fsLocalVal:SetText(latHome .. " ms")
+                fsLocalVal:SetText(Lf("%1$d ms", latHome))
                 divLocal:ClearAllPoints()
                 divLocal:SetPoint("LEFT", anchor, "RIGHT", DIV_PAD, 0)
                 divLocal:Show()
@@ -1305,7 +1308,7 @@ do
                     fsLocalLbl:Hide()
                     anchor = fsLocalVal
                 else
-                    fsLocalLbl:SetText("(local)")
+                    fsLocalLbl:SetText(L("(local)"))
                     fsLocalLbl:ClearAllPoints()
                     fsLocalLbl:SetPoint("LEFT", fsLocalVal, "RIGHT", 3, 0)
                     fsLocalLbl:Show()
@@ -1504,7 +1507,7 @@ do
         local fs = durWarnOverlay:CreateFontString(nil, "OVERLAY")
         fs:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 18, EllesmereUI.GetFontOutlineFlag("extras"))
         fs:SetPoint("CENTER")
-        fs:SetText("Low Durability")
+        fs:SetText(L("Low Durability"))
         durWarnOverlay._text = fs
 
         local function ApplySettings()
@@ -1546,7 +1549,7 @@ do
 
         durWarnOverlay._show = function(pct)
             ApplySettings()
-            durWarnOverlay._text:SetText("Low Durability (" .. math.floor(pct) .. "%)")
+            durWarnOverlay._text:SetText(Lf("Low Durability (%1$d%%)", math.floor(pct)))
             durWarnOverlay:Show()
             ag:Play()
         end
@@ -1567,7 +1570,7 @@ do
     EllesmereUI._durWarnPreview = function()
         CreateDurabilityWarning()
         durWarnOverlay._show(25)
-        durWarnOverlay._text:SetText("Low Durability (Preview)")
+        durWarnOverlay._text:SetText(L("Low Durability (Preview)"))
     end
 
     EllesmereUI._durWarnHidePreview = function()
@@ -2593,4 +2596,3 @@ do
         end
     end)
 end
-

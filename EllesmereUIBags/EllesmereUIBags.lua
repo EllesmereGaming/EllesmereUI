@@ -27,6 +27,22 @@ local _canUseCache = {}  -- [itemID] = true (usable) | false (unusable), via too
 local _bankRouted = setmetatable({}, { __mode = "k" })
 
 local EUI = EllesmereUI
+local function L(text) return EUI.L and EUI.L(text) or text end
+local function Lf(text, ...) return EUI.Lf and EUI.Lf(text, ...) or text:format(...) end
+local function DisplayCatName(cat)
+    if not cat then return "?" end
+    if cat.isUserCreated then return cat.name end
+    if cat._defaultName and cat.name ~= cat._defaultName then return cat.name end
+    return L(cat.name)
+end
+local function DisplayGroupName(name)
+    if not name then return name end
+    if EUI_CategoryManager and EUI_CategoryManager.IsGroupNameCustom
+       and EUI_CategoryManager:IsGroupNameCustom(name) then
+        return name
+    end
+    return L(name)
+end
 -- Profile access helper (DB created in EUI_Bags_Options.lua, loaded first per TOC)
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
@@ -643,7 +659,7 @@ local function CreateHeader()
     header.title = header:CreateFontString(nil, "OVERLAY")
     SetBagFont(header.title, 13)
     header.title:SetPoint("LEFT", header, "LEFT", 8, 0)
-    header.title:SetText("Inventory")
+    header.title:SetText(L("Inventory"))
     header.title:SetTextColor(1, 1, 1)
 
     -- Item count (updated by RefreshInventory)
@@ -667,7 +683,7 @@ local function CreateHeader()
     local placeholder = search:CreateFontString(nil, "OVERLAY")
     SetBagFont(placeholder, 11)
     placeholder:SetPoint("LEFT", search, "LEFT", 5, 0)
-    placeholder:SetText("Search...")
+    placeholder:SetText(L("Search..."))
     placeholder:SetTextColor(0.4, 0.4, 0.4)
     EUI_Bags._searchBox = search
 
@@ -682,7 +698,7 @@ local function CreateHeader()
 
     sort:SetScript("OnEnter", function(self)
         self.icon:SetAlpha(1)
-        if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Sort Items") end
+        if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, L("Sort Items")) end
     end)
     sort:SetScript("OnLeave", function(self)
         self.icon:SetAlpha(0.9)
@@ -1014,11 +1030,11 @@ local function CreateHeader()
                 DoPhysicalSort()
             else
                 EUI:ShowConfirmPopup({
-                    title       = "OneBag Sort",
-                    message     = "OneBag sorting will physically reorganize items in your bags. The changes persist even if you disable EllesmereUI Bags.",
-                    confirmText = "Sort",
-                    cancelText  = "Cancel",
-                    checkbox    = "Don't show me again",
+                    title       = L("OneBag Sort"),
+                    message     = L("OneBag sorting will physically reorganize items in your bags. The changes persist even if you disable EllesmereUI Bags."),
+                    confirmText = L("Sort"),
+                    cancelText  = L("Cancel"),
+                    checkbox    = L("Don't show me again"),
                     onConfirm   = function(dontShowAgain)
                         if dontShowAgain then
                             if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -1033,11 +1049,11 @@ local function CreateHeader()
                 DoBlizzardSort()
             else
                 EUI:ShowConfirmPopup({
-                    title       = "MultiBag Sort",
-                    message     = "MultiBag uses Blizzard's built-in sorting system, which reorganizes the items in your default Blizzard bags. The changes persist even if you disable EllesmereUI Bags.",
-                    confirmText = "Sort",
-                    cancelText  = "Cancel",
-                    checkbox    = "Don't show me again",
+                    title       = L("MultiBag Sort"),
+                    message     = L("MultiBag uses Blizzard's built-in sorting system, which reorganizes the items in your default Blizzard bags. The changes persist even if you disable EllesmereUI Bags."),
+                    confirmText = L("Sort"),
+                    cancelText  = L("Cancel"),
+                    checkbox    = L("Don't show me again"),
                     onConfirm   = function(dontShowAgain)
                         if dontShowAgain then
                             if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -1068,7 +1084,7 @@ local function CreateHeader()
     dice:SetScript("OnEnter", function(self)
         self.icon:SetVertexColor(0.88, 0.8, 0.7)
         self.icon:SetAlpha(1)
-        if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Randomize") end
+        if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, L("Randomize")) end
     end)
     dice:SetScript("OnLeave", function(self)
         self.icon:SetVertexColor(0.82, 0.7, 0.55)
@@ -1149,11 +1165,11 @@ local function CreateHeader()
             DoRandomize()
         else
             EUI:ShowConfirmPopup({
-                title       = "Randomize Bags",
-                message     = "This will physically scatter items to random positions in your bags. The changes persist even if you disable EllesmereUI Bags.",
-                confirmText = "Randomize",
-                cancelText  = "Cancel",
-                checkbox    = "Don't show me again",
+                title       = L("Randomize Bags"),
+                message     = L("This will physically scatter items to random positions in your bags. The changes persist even if you disable EllesmereUI Bags."),
+                confirmText = L("Randomize"),
+                cancelText  = L("Cancel"),
+                checkbox    = L("Don't show me again"),
                 onConfirm   = function(dontShowAgain)
                     if dontShowAgain then
                         if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -1183,7 +1199,7 @@ local function CreateHeader()
     bagsBtn:SetScript("OnEnter", function(self)
         self.icon:SetAlpha(1)
         if not EUI_BagsWindow:IsVisible() and EUI.ShowWidgetTooltip then
-            EUI.ShowWidgetTooltip(self, "Show Bags")
+            EUI.ShowWidgetTooltip(self, L("Show Bags"))
         end
     end)
     bagsBtn:SetScript("OnLeave", function(self)
@@ -1418,13 +1434,13 @@ local function GetGoldTooltip()
     title:SetFont("Fonts\\FRIZQT__.TTF", 11, "")
     title:SetTextColor(0.80, 0.80, 0.80, 1)
     title:SetPoint("TOP", f, "TOP", 0, -GOLD_PAD)
-    title:SetText("Gold Summary")
+    title:SetText(L("Gold Summary"))
     f._title = title
 
     local hint = f:CreateFontString(nil, "OVERLAY")
     hint:SetFont("Fonts\\FRIZQT__.TTF", 10, "")
     hint:SetTextColor(1, 0.4, 0.4, 1)
-    hint:SetText("Ctrl + Right-Click: Reset all data")
+    hint:SetText(L("Ctrl + Right-Click: Reset all data"))
     f._hint = hint
 
     _goldTT = f
@@ -1508,7 +1524,7 @@ local function ShowGoldTooltip(anchor)
     if warbandGold then
         local nameFS = _goldTTRows[totalRow][0]
         local goldFS = _goldTTRows[totalRow][1]
-        nameFS:SetText("|cffffcc80Warbank|r")
+        nameFS:SetText("|cffffcc80" .. L("Warbank") .. "|r")
         goldFS:SetText(FormatGoldOnly(warbandGold))
         goldFS:SetTextColor(WARBANK_GOLD_R, WARBANK_GOLD_G, WARBANK_GOLD_B, 1)
         nameFS:Show(); goldFS:Show()
@@ -1521,7 +1537,7 @@ local function ShowGoldTooltip(anchor)
 
     local totalNameFS = _goldTTRows[totalRow][0]
     local totalGoldFS = _goldTTRows[totalRow][1]
-    totalNameFS:SetText("|cffffcc80Total|r")
+    totalNameFS:SetText("|cffffcc80" .. L("Total") .. "|r")
     totalGoldFS:SetText(FormatGoldOnly(totalGold))
     totalGoldFS:SetTextColor(1, 1, 0.5, 1)
     totalNameFS:Show(); totalGoldFS:Show()
@@ -1753,7 +1769,7 @@ local function CreateReagentBagUI()
     header.title = header:CreateFontString(nil, "OVERLAY")
     SetBagFont(header.title, 13)
     header.title:SetPoint("LEFT", 15, 0)
-    header.title:SetText("REAGENTS")
+    header.title:SetText(L("REAGENTS"))
     header.title:SetTextColor(1, 1, 1)
     local close = CreateFrame("Button", nil, header)
     close:SetSize(20, 20)
@@ -2512,7 +2528,7 @@ local function GetOrCreatePinOverlay()
     ov.plus:SetTextColor(1, 1, 1, 0.5)
     ov:SetScript("OnEnter", function(self)
         self.plus:SetTextColor(1, 1, 1, 1)
-        if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Pin an Item") end
+        if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, L("Pin an Item")) end
     end)
     ov:SetScript("OnLeave", function(self)
         self.plus:SetTextColor(1, 1, 1, 0.5)
@@ -2577,7 +2593,7 @@ local function GetOrCreateAssignOverlay()
     ov.plus:SetTextColor(1, 1, 1, 0.5)
     ov:SetScript("OnEnter", function(self)
         self.plus:SetTextColor(1, 1, 1, 1)
-        if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Assign an item to this category") end
+        if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, L("Assign an item to this category")) end
     end)
     ov:SetScript("OnLeave", function(self)
         self.plus:SetTextColor(1, 1, 1, 0.5)
@@ -3636,7 +3652,7 @@ local function CreateSidebar()
     sidebarHdr._label = sidebarHdr:CreateFontString(nil, "OVERLAY")
     SetBagFont(sidebarHdr._label, 10)
     sidebarHdr._label:SetPoint("LEFT", sidebarHdr, "LEFT", 8, 0)
-    sidebarHdr._label:SetText("Categories")
+    sidebarHdr._label:SetText(L("Categories"))
     sidebarHdr._label:SetTextColor(0.5, 0.5, 0.5)
 
     local ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.png"
@@ -3665,7 +3681,7 @@ local function CreateSidebar()
         self._icon:SetAlpha(0.9)
         local collapsed = BP().bagSidebarCollapsed
         if EUI.ShowWidgetTooltip then
-            EUI.ShowWidgetTooltip(self, collapsed and "Expand Sidebar" or "Collapse Sidebar")
+            EUI.ShowWidgetTooltip(self, collapsed and L("Expand Sidebar") or L("Collapse Sidebar"))
         end
     end)
     collapseBtn:SetScript("OnLeave", function(self)
@@ -3736,14 +3752,14 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
 
         if isGroupHeader and myGroup then
             -- Group header: Rename + Disband
-            rootDescription:CreateButton("Rename", function()
+            rootDescription:CreateButton(L("Rename"), function()
                 if not EUI.ShowInputPopup then return end
                 EUI:ShowInputPopup({
-                    title = "Rename Group",
-                    message = "Enter a new name for this group:",
+                    title = L("Rename Group"),
+                    message = L("Enter a new name for this group:"),
                     placeholder = myGroup,
-                    confirmText = "Rename",
-                    cancelText = "Cancel",
+                    confirmText = L("Rename"),
+                    cancelText = L("Cancel"),
                     onConfirm = function(newName)
                         newName = newName and strtrim(newName) or ""
                         if newName == "" or newName == myGroup then return end
@@ -3754,27 +3770,27 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                     end,
                 })
             end)
-            rootDescription:CreateButton("Disband Group", function()
+            rootDescription:CreateButton(L("Disband Group"), function()
                 ClearGroupOrder(myGroup)
                 EUI_CategoryManager:DisbandGroup(myGroup)
                 if selectedGroupName == myGroup then selectedGroupName = nil; selectedCategoryIndex = 0 end
                 EUI_Bags:RefreshInventory()
             end)
             local groupHidden = hiddenSet[myGroup]
-            rootDescription:CreateButton(groupHidden and "Show in All Items" or "Hide in All Items", function()
+            rootDescription:CreateButton(groupHidden and L("Show in All Items") or L("Hide in All Items"), function()
                 hiddenSet[myGroup] = not groupHidden or nil
                 EUI_Bags:RefreshInventory()
             end)
         elseif isGroupMember and myGroup then
             -- Group member: Rename + Ungroup
-            rootDescription:CreateButton("Rename", function()
+            rootDescription:CreateButton(L("Rename"), function()
                 if not EUI.ShowInputPopup then return end
                 EUI:ShowInputPopup({
-                    title = "Rename Category",
-                    message = "Enter a new name for \"" .. cat.name .. "\":",
+                    title = L("Rename Category"),
+                    message = Lf("Enter a new name for \"%1$s\":", DisplayCatName(cat)),
                     placeholder = cat.name,
-                    confirmText = "Rename",
-                    cancelText = "Cancel",
+                    confirmText = L("Rename"),
+                    cancelText = L("Cancel"),
                     onConfirm = function(newName)
                         newName = newName and strtrim(newName) or ""
                         if newName == "" or newName == cat.name then return end
@@ -3783,20 +3799,20 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                     end,
                 })
             end)
-            rootDescription:CreateButton("Ungroup " .. cat.name, function()
+            rootDescription:CreateButton(Lf("Ungroup %1$s", DisplayCatName(cat)), function()
                 ClearGroupOrder(myGroup)
                 EUI_CategoryManager:UngroupCategory(catIdx)
                 EUI_Bags:RefreshInventory()
             end)
         else
-            rootDescription:CreateButton("Rename", function()
+            rootDescription:CreateButton(L("Rename"), function()
                 if not EUI.ShowInputPopup then return end
                 EUI:ShowInputPopup({
-                    title = "Rename Category",
-                    message = "Enter a new name for \"" .. cat.name .. "\":",
+                    title = L("Rename Category"),
+                    message = Lf("Enter a new name for \"%1$s\":", DisplayCatName(cat)),
                     placeholder = cat.name,
-                    confirmText = "Rename",
-                    cancelText = "Cancel",
+                    confirmText = L("Rename"),
+                    cancelText = L("Cancel"),
                     onConfirm = function(newName)
                         newName = newName and strtrim(newName) or ""
                         if newName == "" or newName == cat.name then return end
@@ -3808,12 +3824,12 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
 
             if not cat.noGroup then
                 -- "Create Group With" submenu
-                local groupSub = rootDescription:CreateButton("Create Group With")
+                local groupSub = rootDescription:CreateButton(L("Create Group With"))
                 local hasOptions = false
                 for ci, other in ipairs(cats) do
                     if ci ~= catIdx and not other.groupName and not other.noGroup then
                         hasOptions = true
-                        groupSub:CreateButton(other.name, function()
+                        groupSub:CreateButton(DisplayCatName(other), function()
                             EUI_CategoryManager:GroupCategories({ catIdx, ci })
                             EUI_Bags:RefreshInventory()
                         end)
@@ -3823,9 +3839,9 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                 -- "Add to existing group..." if groups exist
                 local groupNames = EUI_CategoryManager:GetGroupNames()
                 if #groupNames > 0 then
-                    local addSub = rootDescription:CreateButton("Add to Group")
+                    local addSub = rootDescription:CreateButton(L("Add to Group"))
                     for _, gn in ipairs(groupNames) do
-                        addSub:CreateButton(gn, function()
+                        addSub:CreateButton(DisplayGroupName(gn), function()
                             EUI_CategoryManager:AddToGroup(catIdx, gn)
                             EUI_Bags:RefreshInventory()
                         end)
@@ -3836,7 +3852,7 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
             if not cat.noMove then
                 local catKey = cat._defaultName
                 local catHidden = hiddenSet[catKey]
-                rootDescription:CreateButton(catHidden and "Show in All Items" or "Hide in All Items", function()
+                rootDescription:CreateButton(catHidden and L("Show in All Items") or L("Hide in All Items"), function()
                     hiddenSet[catKey] = not catHidden or nil
                     EUI_Bags:RefreshInventory()
                 end)
@@ -3897,6 +3913,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                 end
                 displayList[#displayList + 1] = {
                     catIdx = members[1], name = cat.groupName, icon = groupIcon, isAtlas = groupIsAtlas,
+                    displayName = DisplayGroupName(cat.groupName),
                     count = groupCount, isGroupHeader = true, groupName = cat.groupName,
                     isUserCreated = groupHasUserCreated,
                 }
@@ -3906,6 +3923,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                         local mc = cats[mi]
                         displayList[#displayList + 1] = {
                             catIdx = mi, name = mc.name, icon = mc.icon or 134400, isAtlas = mc.isAtlas,
+                            displayName = DisplayCatName(mc),
                             count = categoryCounts and categoryCounts[mi] or 0,
                             indent = true, groupName = cat.groupName, isGroupMember = true,
                             isUserCreated = mc.isUserCreated,
@@ -3922,7 +3940,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             elseif cat.isRecent and BP().bagShowRecentItems == false then
                 -- skip
             else
-                displayList[#displayList + 1] = { catIdx = ci, name = cat.name, icon = cat.icon or 134400, isAtlas = cat.isAtlas, count = count, noMove = cat.noMove, isPinned = cat.isPinned, isRecent = cat.isRecent, isUserCreated = cat.isUserCreated }
+                displayList[#displayList + 1] = { catIdx = ci, name = cat.name, displayName = DisplayCatName(cat), icon = cat.icon or 134400, isAtlas = cat.isAtlas, count = count, noMove = cat.noMove, isPinned = cat.isPinned, isRecent = cat.isRecent, isUserCreated = cat.isUserCreated }
             end
         end
     end
@@ -3986,7 +4004,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     or (not self._isGroupHeader and self._catIdx == selectedCategoryIndex and not selectedGroupName)
                 if not isSel then self._bg:SetColorTexture(1, 1, 1, 0.06) end
                 if (BP().bagSidebarCollapsed) and EUI.ShowWidgetTooltip then
-                    EUI.ShowWidgetTooltip(self, (self._catName or "?") .. " (" .. (self._catCount or 0) .. ")")
+                    EUI.ShowWidgetTooltip(self, Lf("%1$s (%2$d)", self._catDisplayName or L(self._catName or "?"), self._catCount or 0))
                 end
             end)
             btn:SetScript("OnLeave", function(self)
@@ -4084,6 +4102,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
 
         btn._catIdx = entry.catIdx
         btn._catName = entry.name
+        btn._catDisplayName = entry.displayName
         btn._catIcon = entry.icon
         btn._catIsAtlas = entry.isAtlas
         btn._catCount = entry.count
@@ -4125,7 +4144,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             btn._count:Hide()
         else
             btn._label:Show()
-            btn._label:SetText(entry.name)
+            btn._label:SetText(entry.displayName or L(entry.name))
             btn._label:SetTextColor(1, 1, 1, isSelected and 1 or 0.75)
 
             btn._count:Show()
@@ -4182,7 +4201,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             btn._label:SetWordWrap(false)
             btn._label:SetPoint("LEFT", btn._icon, "RIGHT", 6, 0)
             btn._label:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
-            btn._label:SetText("Add Category")
+            btn._label:SetText(L("Add Category"))
             btn._label:SetTextColor(1, 1, 1, 0.4)
             btn:SetScript("OnEnter", function(self)
                 self._bg:SetColorTexture(1, 1, 1, 0.06)
@@ -4213,7 +4232,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     SetBagFont(title, 13)
                     title:SetPoint("TOPLEFT", popup, "TOPLEFT", 10, -10)
                     title:SetTextColor(1, 1, 1, 0.9)
-                    title:SetText("New Custom Category")
+                    title:SetText(L("New Custom Category"))
 
                     -- Name editbox
                     local eb = CreateFrame("EditBox", nil, popup)
@@ -4237,7 +4256,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     SetBagFont(iconLbl, 11)
                     iconLbl:SetPoint("TOPLEFT", eb, "BOTTOMLEFT", 0, -8)
                     iconLbl:SetTextColor(0.7, 0.7, 0.7, 1)
-                    iconLbl:SetText("Icon:")
+                    iconLbl:SetText(L("Icon:"))
 
                     -- Icon grid (placeholder IDs -- replace with real set)
                     local ICON_IDS = {
@@ -4318,7 +4337,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     SetBagFont(customLbl, 11)
                     customLbl:SetPoint("TOPLEFT", iconLbl, "BOTTOMLEFT", 0, -(4 + lastRow * (ICON_SZ + ICON_PAD) + 6))
                     customLbl:SetTextColor(0.7, 0.7, 0.7, 1)
-                    customLbl:SetText("Custom Icon ID:")
+                    customLbl:SetText(L("Custom Icon ID:"))
 
                     -- Preview icon to the left of the editbox
                     local preview = CreateFrame("Frame", nil, popup)
@@ -4385,7 +4404,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     SetBagFont(cBtnLbl, 12)
                     cBtnLbl:SetPoint("CENTER")
                     cBtnLbl:SetTextColor(1, 1, 1, 0.9)
-                    cBtnLbl:SetText("Create")
+                    cBtnLbl:SetText(L("Create"))
                     createBtn:SetScript("OnEnter", function() cBtnBg:SetColorTexture(0.2, 0.2, 0.2, 1) end)
                     createBtn:SetScript("OnLeave", function() cBtnBg:SetColorTexture(0.15, 0.15, 0.15, 1) end)
                     -- Red flash validation for empty fields
@@ -4820,7 +4839,7 @@ function EUI_Bags:RefreshInventory()
     -- Show blocked-swap tooltip in category/group views (not All Items, not OneBag)
     if swapDetected and not isAllItems and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2 then
         if EUI.ShowWidgetTooltip then
-            EUI.ShowWidgetTooltip(EUI_Bags, "Positions can only be changed\nin the All Items, OneBag, or MultiBag views", { anchor = "cursor" })
+            EUI.ShowWidgetTooltip(EUI_Bags, L("Positions can only be changed\nin the All Items, OneBag, or MultiBag views"), { anchor = "cursor" })
             C_Timer.After(3, function()
                 if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
             end)
@@ -5137,19 +5156,19 @@ function EUI_Bags:RefreshInventory()
             pinHdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
             pinHdr:SetWidth(columns * (SLOT_SIZE + SPACING))
             local showTips = BP().bagShowPinRecentTips ~= false
-            pinHdr._label:SetText("Pinned Items")
-            pinHdr._hint:SetText(showTips and "(Middle Click to Add or Remove)" or "")
+            pinHdr._label:SetText(L("Pinned Items"))
+            pinHdr._hint:SetText(showTips and L("(Middle Click to Add or Remove)") or "")
             if not pinHdr._hideBtn then
                 local hb = CreateFrame("Button", nil, pinHdr)
                 hb:SetSize(30, 16)
                 hb._fs = hb:CreateFontString(nil, "OVERLAY")
                 SetBagFont(hb._fs, 9)
                 hb._fs:SetAllPoints()
-                hb._fs:SetText("Hide")
+                hb._fs:SetText(L("Hide"))
                 hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
                 hb:SetScript("OnEnter", function(self)
                     self._fs:SetTextColor(1, 1, 1, 0.9)
-                    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Hides Pinned Items. Re-show in settings.") end
+                    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, L("Hides Pinned Items. Re-show in settings.")) end
                 end)
                 hb:SetScript("OnLeave", function(self)
                     self._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
@@ -5227,19 +5246,19 @@ function EUI_Bags:RefreshInventory()
             recHdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
             recHdr:SetWidth(columns * (SLOT_SIZE + SPACING))
             local showTips = BP().bagShowPinRecentTips ~= false
-            recHdr._label:SetText("Recent Items")
-            recHdr._hint:SetText(showTips and "(Extra quickview display, your items are also in their category)" or "")
+            recHdr._label:SetText(L("Recent Items"))
+            recHdr._hint:SetText(showTips and L("(Extra quickview display, your items are also in their category)") or "")
             if not recHdr._hideBtn then
                 local hb = CreateFrame("Button", nil, recHdr)
                 hb:SetSize(30, 16)
                 hb._fs = hb:CreateFontString(nil, "OVERLAY")
                 SetBagFont(hb._fs, 9)
                 hb._fs:SetAllPoints()
-                hb._fs:SetText("Hide")
+                hb._fs:SetText(L("Hide"))
                 hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
                 hb:SetScript("OnEnter", function(self)
                     self._fs:SetTextColor(1, 1, 1, 0.9)
-                    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Hides Recent Items. Re-show in settings.") end
+                    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, L("Hides Recent Items. Re-show in settings.")) end
                 end)
                 hb:SetScript("OnLeave", function(self)
                     self._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
@@ -5291,7 +5310,7 @@ function EUI_Bags:RefreshInventory()
             hdr:ClearAllPoints()
             hdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
             hdr:SetWidth(columns * (SLOT_SIZE + SPACING))
-            hdr._label:SetText(label)
+            hdr._label:SetText(L(label))
             hdr:Show()
             curY = curY - 22
             for i, data in ipairs(slotList) do
@@ -5324,14 +5343,14 @@ function EUI_Bags:RefreshInventory()
                 if a.bag ~= b.bag then return a.bag < b.bag end
                 return a.slot < b.slot
             end)
-            RenderBagGrid("Main Bags (" .. mainFilled .. " / " .. #mainSlots .. ")", mainSlots)
+            RenderBagGrid(Lf("Main Bags (%1$d / %2$d)", mainFilled, #mainSlots), mainSlots)
         else
             -- MultiBag: one section per equipped bag (0-4)
             local function BagDisplayName(bag)
-                if bag == 0 then return "Backpack" end
+                if bag == 0 then return L("Backpack") end
                 local invID = C_Container.ContainerIDToInventoryID(bag)
                 local link = invID and GetInventoryItemLink("player", invID)
-                return (link and GetItemInfo(link)) or ("Bag " .. bag)
+                return (link and GetItemInfo(link)) or Lf("Bag %1$d", bag)
             end
             for bag = 0, 4 do
                 local bagList = {}
@@ -5344,7 +5363,7 @@ function EUI_Bags:RefreshInventory()
                 end
                 if #bagList > 0 then
                     table.sort(bagList, function(a, b) return a.slot < b.slot end)
-                    RenderBagGrid(BagDisplayName(bag) .. " (" .. bagFilled .. " / " .. #bagList .. ")", bagList)
+                    RenderBagGrid(Lf("%1$s (%2$d / %3$d)", BagDisplayName(bag), bagFilled, #bagList), bagList)
                 end
             end
         end
@@ -5368,7 +5387,7 @@ function EUI_Bags:RefreshInventory()
             reagHdr:SetWidth(columns * (SLOT_SIZE + SPACING))
             local reagFilled = 0
             for _, d in ipairs(reagentSlotList) do if d.info then reagFilled = reagFilled + 1 end end
-            reagHdr._label:SetText("Reagent Bag (" .. reagFilled .. " / " .. #reagentSlotList .. ")")
+            reagHdr._label:SetText(Lf("Reagent Bag (%1$d / %2$d)", reagFilled, #reagentSlotList))
             reagHdr:Show()
             curY = curY - 22
 
@@ -5444,9 +5463,10 @@ function EUI_Bags:RefreshInventory()
             curY = curY - (blockRows * (SLOT_SIZE + SPACING))
         end
 
-        local function RenderSection(sectionName, sectionItems, isUserCreated, showPinAdd, alwaysShow, assignCatIdx, nestByExpansion)
+        local function RenderSection(sectionName, sectionItems, isUserCreated, showPinAdd, alwaysShow, assignCatIdx, nestByExpansion, displaySectionName)
             local itemCount = #sectionItems
             if itemCount == 0 and not isUserCreated and not showPinAdd and not alwaysShow then return end
+            local shownSectionName = displaySectionName or L(sectionName)
 
             local useExpNest = nestByExpansion
                 and BP().bagNestByExpansion
@@ -5462,13 +5482,13 @@ function EUI_Bags:RefreshInventory()
             hdr:SetWidth(gridW)
             local showTips = BP().bagShowPinRecentTips ~= false
             if showPinAdd and showTips then
-                hdr._label:SetText(sectionName)
-                hdr._hint:SetText("(Middle Click to Add or Remove)")
+                hdr._label:SetText(shownSectionName)
+                hdr._hint:SetText(L("(Middle Click to Add or Remove)"))
             elseif alwaysShow and showTips then
-                hdr._label:SetText(sectionName)
-                hdr._hint:SetText("(Extra quickview display, your items are also in their category)")
+                hdr._label:SetText(shownSectionName)
+                hdr._hint:SetText(L("(Extra quickview display, your items are also in their category)"))
             else
-                hdr._label:SetText(sectionName .. " (" .. itemCount .. ")")
+                hdr._label:SetText(Lf("%1$s (%2$d)", shownSectionName, itemCount))
                 hdr._hint:SetText("")
             end
             -- Hide button for Pinned / Recent sections
@@ -5479,7 +5499,7 @@ function EUI_Bags:RefreshInventory()
                     hb._fs = hb:CreateFontString(nil, "OVERLAY")
                     SetBagFont(hb._fs, 9)
                     hb._fs:SetAllPoints()
-                    hb._fs:SetText("Hide")
+                    hb._fs:SetText(L("Hide"))
                     hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
                     hb:SetScript("OnEnter", function(self)
                         self._fs:SetTextColor(1, 1, 1, 0.9)
@@ -5498,7 +5518,7 @@ function EUI_Bags:RefreshInventory()
                     hdr._hideBtn = hb
                 end
                 hdr._hideBtn._dbKey = showPinAdd and "bagShowPinnedItems" or "bagShowRecentItems"
-                hdr._hideBtn._tooltip = showPinAdd and "Hides Pinned Items. Re-show in settings." or "Hides Recent Items. Re-show in settings."
+                hdr._hideBtn._tooltip = showPinAdd and L("Hides Pinned Items. Re-show in settings.") or L("Hides Recent Items. Re-show in settings.")
                 hdr._hideBtn:ClearAllPoints()
                 hdr._hideBtn:SetPoint("RIGHT", hdr, "RIGHT", 0, 0)
                 hdr._hideBtn:Show()
@@ -5523,7 +5543,7 @@ function EUI_Bags:RefreshInventory()
                             sh:ClearAllPoints()
                             sh:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
                             sh:SetWidth(gridW)
-                            sh._label:SetText(buck.label .. " (" .. #buck.items .. ")")
+                            sh._label:SetText(Lf("%1$s (%2$d)", L(buck.label), #buck.items))
                             SetBagFont(sh._label, math.max(8, catTitleSize - 2))
                             sh:Show()
                             curY = curY - 18
@@ -5689,14 +5709,14 @@ function EUI_Bags:RefreshInventory()
                         if #merged > 0 then
                             ApplySavedOrder(cat.groupName, merged)
                         end
-                        RenderSection(cat.groupName, merged, false, nil, nil, members[1], true)
+                        RenderSection(cat.groupName, merged, false, nil, nil, members[1], true, DisplayGroupName(cat.groupName))
                     end
                 end
             else
                 if not hiddenSet[cat._defaultName] then
                     local catItems = itemsByCat[ci] or {}
                     local isUserCreated = cat.isUserCreated
-                    RenderSection(cat.name, catItems, isUserCreated, cat.isPinned, cat.isRecent, ci, true)
+                    RenderSection(cat.name, catItems, isUserCreated, cat.isPinned, cat.isRecent, ci, true, DisplayCatName(cat))
                 end
             end
         end
@@ -5735,7 +5755,7 @@ function EUI_Bags:RefreshInventory()
                 hdr:ClearAllPoints()
                 hdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
                 hdr:SetWidth(gridW)
-                hdr._label:SetText((memberCat and memberCat.name or "?") .. " (" .. #memberItems .. ")")
+                hdr._label:SetText(Lf("%1$s (%2$d)", DisplayCatName(memberCat), #memberItems))
                 hdr:Show()
                 curY = curY - 22
 
@@ -5814,7 +5834,7 @@ function EUI_Bags:RefreshInventory()
                     delBtn._fs = delBtn:CreateFontString(nil, "OVERLAY")
                     SetBagFont(delBtn._fs, 10)
                     delBtn._fs:SetPoint("RIGHT", ef, "RIGHT", 0, 0)
-                    delBtn._fs:SetText("Delete")
+                    delBtn._fs:SetText(L("Delete"))
                     delBtn._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
                     delBtn:SetWidth(delBtn._fs:GetStringWidth() + 4)
                     delBtn:SetAllPoints(delBtn._fs)
@@ -5824,10 +5844,10 @@ function EUI_Bags:RefreshInventory()
                         local ci = selectedCategoryIndex
                         if ci and ci > 0 and EUI_CategoryManager then
                             EUI:ShowConfirmPopup({
-                                title = "Delete Category",
-                                message = "Are you sure you want to delete this category? All item assignments will be removed.",
-                                confirmText = "Delete",
-                                cancelText = "Cancel",
+                                title = L("Delete Category"),
+                                message = L("Are you sure you want to delete this category? All item assignments will be removed."),
+                                confirmText = L("Delete"),
+                                cancelText = L("Cancel"),
                                 onConfirm = function()
                                     EUI_CategoryManager:RemoveCustomCategory(ci)
                                     selectedCategoryIndex = 0
@@ -5851,7 +5871,7 @@ function EUI_Bags:RefreshInventory()
                     editBtn._fs = editBtn:CreateFontString(nil, "OVERLAY")
                     SetBagFont(editBtn._fs, 10)
                     editBtn._fs:SetPoint("RIGHT", divider, "LEFT", -6, 0)
-                    editBtn._fs:SetText("Edit")
+                    editBtn._fs:SetText(L("Edit"))
                     editBtn._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
                     editBtn:SetWidth(editBtn._fs:GetStringWidth() + 4)
                     editBtn:SetAllPoints(editBtn._fs)
@@ -5864,11 +5884,11 @@ function EUI_Bags:RefreshInventory()
                             local cat2 = cats2[ci]
                             if not cat2 then return end
                             EUI:ShowInputPopup({
-                                title = "Rename Category",
-                                message = "Enter a new name:",
+                                title = L("Rename Category"),
+                                message = L("Enter a new name:"),
                                 placeholder = cat2.name,
-                                confirmText = "Rename",
-                                cancelText = "Cancel",
+                                confirmText = L("Rename"),
+                                cancelText = L("Cancel"),
                                 onConfirm = function(text)
                                     if text and text ~= "" then
                                         EUI_CategoryManager:RenameCategory(ci, text)
@@ -5902,14 +5922,15 @@ function EUI_Bags:RefreshInventory()
                 hdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
                 hdr:SetWidth(gridW)
                 local showTips = BP().bagShowPinRecentTips ~= false
+                local displayHeaderName = DisplayCatName(selCat)
                 if selCat and selCat.isPinned and showTips then
-                    hdr._label:SetText(headerName)
-                    hdr._hint:SetText("(Middle Click to Add or Remove)")
+                    hdr._label:SetText(displayHeaderName)
+                    hdr._hint:SetText(L("(Middle Click to Add or Remove)"))
                 elseif selCat and selCat.isRecent and showTips then
-                    hdr._label:SetText(headerName)
-                    hdr._hint:SetText("(Extra quickview display, your items are also in their category)")
+                    hdr._label:SetText(displayHeaderName)
+                    hdr._hint:SetText(L("(Extra quickview display, your items are also in their category)"))
                 else
-                    hdr._label:SetText(headerName .. " (" .. #displayItems .. ")")
+                    hdr._label:SetText(Lf("%1$s (%2$d)", displayHeaderName, #displayItems))
                     hdr._hint:SetText("")
                 end
                 hdr:Show()
@@ -5995,9 +6016,9 @@ function EUI_Bags:RefreshInventory()
     if EUI_Bags.Header and EUI_Bags.Header.itemCount then
         if selectedCategoryIndex == 0 or selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then
             local totalSlots = totalCount + #emptySlots
-            EUI_Bags.Header.itemCount:SetText(totalCount .. " / " .. totalSlots .. " Items")
+            EUI_Bags.Header.itemCount:SetText(Lf("%1$d / %2$d Items", totalCount, totalSlots))
         else
-            EUI_Bags.Header.itemCount:SetText(totalCount .. " Items")
+            EUI_Bags.Header.itemCount:SetText(Lf("%1$d Items", totalCount))
         end
     end
 
@@ -6148,12 +6169,12 @@ function EUI_BagsWindow:RefreshBags()
                 else
                     local bInvID = C_Container.ContainerIDToInventoryID(bagIdx)
                     local bLink = GetInventoryItemLink("player", bInvID)
-                    bName = bLink and GetItemInfo(bLink) or ("Bag " .. bagIdx)
+                    bName = bLink and GetItemInfo(bLink) or Lf("Bag %1$d", bagIdx)
                 end
                 local bTotal = C_Container.GetContainerNumSlots(bagIdx)
                 local bFree = C_Container.GetContainerNumFreeSlots(bagIdx)
                 local tip = bName
-                if bTotal > 0 then tip = tip .. "  (" .. (bTotal - bFree) .. "/" .. bTotal .. ")" end
+                if bTotal > 0 then tip = Lf("%1$s (%2$d / %3$d)", bName, bTotal - bFree, bTotal) end
                 EUI.ShowWidgetTooltip(self, tip)
             end
         end)
