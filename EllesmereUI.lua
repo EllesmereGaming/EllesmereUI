@@ -8363,9 +8363,18 @@ function EllesmereUI:RegisterModule(folderName, config)
         }
         if not ALLOWED[callerFolder] then return end
     end
+    EllesmereUI._RegisterModuleConfig(folderName, config)
+end
+
+-- Internal allowlist-free writer used by both RegisterModule (official path)
+-- and EllesmereUI_ExternalModules.lua (third-party path, which has its own
+-- caller-folder verification in RegisterExternalModule). Defined as a method
+-- on the table (not a local) so it adds zero upvalues to this main chunk
+-- (already at the Lua 5.1 200-upvalue limit).
+function EllesmereUI._RegisterModuleConfig(folderName, config)
     modules[folderName] = config
-    -- If UI is already built, update sidebar button immediately
-    -- Otherwise, RefreshSidebarStates will handle it when the panel first opens
+    -- If UI is already built, update sidebar button immediately.
+    -- Otherwise, RefreshSidebarStates will handle it when the panel first opens.
     local btn = sidebarButtons[folderName]
     if btn then
         btn._loaded = true
@@ -8375,7 +8384,14 @@ function EllesmereUI:RegisterModule(folderName, config)
             btn._icon:SetAlpha(NAV_ENABLED_ICON_A)
         end
     end
-    -- Don't auto-select here; RefreshSidebarStates handles default selection in roster order
+    -- Note: mid-session refresh (when mainFrame is already built and a module
+    -- registers after the user has opened the panel) is NOT triggered here.
+    -- RefreshSidebarStates is a file-local declared further down, so we cannot
+    -- call it from this scope without restructuring forward declarations.
+    -- External modules should register at OnEnable (PLAYER_LOGIN) before the
+    -- panel is first opened, which is the same constraint official modules
+    -- already follow. Don't auto-select; RefreshSidebarStates handles default
+    -- selection in roster order.
 end
 
 --- Reset every registered module's settings and the shared EllesmereUIDB.
