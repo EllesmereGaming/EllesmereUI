@@ -1326,6 +1326,13 @@ EllesmereUI.ADDON_ROSTER = ADDON_ROSTER
 EllesmereUI.LOCALE_FONT_FALLBACK = LOCALE_FONT_FALLBACK
 EllesmereUI.EXPRESSWAY = LOCALE_FONT_FALLBACK or EXPRESSWAY
 
+-- External Module API version. Bumped whenever the RegisterExternalModule
+-- spec schema, buildPage contract, or callback event names change in an
+-- incompatible way. External modules declare the API they targeted via
+-- spec.apiVersion and are rejected/marked on mismatch. See
+-- EllesmereUI_ExternalModules.lua for the full implementation.
+EllesmereUI.API_VERSION = 1
+
 -- Taint-safe print. Uses AddMessage instead of the global print(), which
 -- routes through Blizzard's C-side handler and taints the chat frame
 -- execution context. Silently drops the message inside protected instances
