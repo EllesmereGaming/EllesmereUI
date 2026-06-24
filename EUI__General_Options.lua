@@ -4803,20 +4803,27 @@ initFrame:SetScript("OnEvent", function(self)
             local detailX = IMG_PAD + heroImgW + 28
             local detailW = totalW - 26 - detailX
 
+            local isRussian = GetLocale() == "ruRU"
+            local heroNameY = isRussian and -18 or -22
+            local byLblGap = isRussian and -4 or -7
+            local descGap = isRussian and -6 or -12
+            local descHeight = isRussian and 50 or 32
+            local tagGap = isRussian and -6 or -12
+
             local heroName = EllesmereUI.MakeFont(hero, 20, nil, 1, 1, 1, 0.95)
-            PP.Point(heroName, "TOPLEFT", hero, "TOPLEFT", detailX, -22)
+            PP.Point(heroName, "TOPLEFT", hero, "TOPLEFT", detailX, heroNameY)
             heroName:SetJustifyH("LEFT")
             heroName:SetWordWrap(false)
 
             local heroByLbl = EllesmereUI.MakeFont(hero, 13, nil, 1, 1, 1, 0.40)
-            PP.Point(heroByLbl, "TOPLEFT", heroName, "BOTTOMLEFT", 0, -7)
+            PP.Point(heroByLbl, "TOPLEFT", heroName, "BOTTOMLEFT", 0, byLblGap)
             heroByLbl:SetText(EllesmereUI.L("by"))
             local heroAuthor = EllesmereUI.MakeFont(hero, 13, nil, EG.r, EG.g, EG.b)
             PP.Point(heroAuthor, "LEFT", heroByLbl, "RIGHT", 5, 0)
 
             local heroDesc = EllesmereUI.MakeFont(hero, 12, nil, 1, 1, 1, 0.55)
-            PP.Point(heroDesc, "TOPLEFT", heroByLbl, "BOTTOMLEFT", 0, -12)
-            PP.Size(heroDesc, detailW, 32)
+            PP.Point(heroDesc, "TOPLEFT", heroByLbl, "BOTTOMLEFT", 0, descGap)
+            PP.Size(heroDesc, detailW, descHeight)
             heroDesc:SetJustifyH("LEFT")
             heroDesc:SetJustifyV("TOP")
             heroDesc:SetWordWrap(true)
@@ -4824,20 +4831,25 @@ initFrame:SetScript("OnEvent", function(self)
             -- Tag pills row (rebuilt per selection)
             local tagRow = CreateFrame("Frame", nil, hero)
             PP.Size(tagRow, detailW, 22)
-            PP.Point(tagRow, "TOPLEFT", heroDesc, "BOTTOMLEFT", 0, -12)
+            PP.Point(tagRow, "TOPLEFT", heroDesc, "BOTTOMLEFT", 0, tagGap)
             local tagPills = {}
             local function BuildTagPills(tags)
                 for _, p in ipairs(tagPills) do p:Hide(); p:SetParent(nil) end
                 wipe(tagPills)
                 local tx = 0
+                local ty = 0
                 for _, tag in ipairs(tags or {}) do
                     local pill = CreateFrame("Frame", nil, tagRow)
                     local pf = EllesmereUI.MakeFont(pill, 11, nil, 1, 1, 1, 0.6)
                     pf:SetPoint("CENTER")
                     pf:SetText(EllesmereUI.L(tag))
                     local pw = math.floor(pf:GetStringWidth() + 0.5) + 22
+                    if tx > 0 and tx + pw > detailW then
+                        tx = 0
+                        ty = ty - 28
+                    end
                     PP.Size(pill, pw, 22)
-                    PP.Point(pill, "LEFT", tagRow, "LEFT", tx, 0)
+                    PP.Point(pill, "TOPLEFT", tagRow, "TOPLEFT", tx, ty)
                     local pbg = pill:CreateTexture(nil, "BACKGROUND")
                     pbg:SetAllPoints()
                     pbg:SetColorTexture(0.06, 0.08, 0.10, 0.6)
