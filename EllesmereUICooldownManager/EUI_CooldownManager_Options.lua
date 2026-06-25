@@ -3952,7 +3952,7 @@ initFrame:SetScript("OnEvent", function(self)
                       if tbbPanRow and tbbPanRow._refreshPreview then tbbPanRow._refreshPreview() end
                       C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
                   end,
-                  tooltip = "Show a glow on the bar when the remaining duration is in the pandemic window (last 30%)" },
+                  tooltip = "Show a glow on the bar when the remaining duration is in the pandemic window (last 30%). Doesn't work for secret buff (Lifebloom on tank)" },
                 { type = "label", text = "Pandemic Glow Preview" });  y = y - h
 
             BuildPandemicPreview(tbbPanRow, tbbPandemicOff, SelectedTBB)
@@ -4002,6 +4002,61 @@ initFrame:SetScript("OnEvent", function(self)
                     end,
                 })
             end
+        end
+
+        -- Row 4: Pandemic Mark -- static line at the 30% threshold.
+		-- Lifebloom-only: its pandemic window is 30% of current duration,
+		-- Other auras pandemic off base duration so 30% mark can be inaccurate
+		-- Only really useful for secret buff on another target
+        do
+			local _bd0 = SelectedTBB()
+			local _lbName = C_Spell.GetSpellName(33763)
+			local _curName = _bd0 and _bd0.spellID and C_Spell.GetSpellName(_bd0.spellID)
+			if _lbName and _curName and _lbName == _curName then
+				local markRow
+				markRow, h = W:DualRow(parent, y,
+					{ type = "toggle", text = "Pandemic Mark",
+					getValue = function() local bd = SelectedTBB(); return bd and bd.pandemicMark end,
+					setValue = function(v)
+						local bd = SelectedTBB(); if not bd then return end
+						bd.pandemicMark = v; RefreshTBB(); EllesmereUI:RefreshPage()
+					end,
+					tooltip = "Draw a static line on the bar at the pandemic threshold (30%). Useful for Lifebloom on another target since glow doesn't work." },
+					{ type = "label", text = "" });  y = y - h
+				-- Inline swatch on the Pandemic Mark toggle (disabled when off).
+				do
+					local rgn = markRow._leftRegion
+					local ctrl = rgn._control
+					local markSwatch, updateMarkSwatch = EllesmereUI.BuildColorSwatch(
+						rgn, markRow:GetFrameLevel() + 3,
+						function()
+							local bd = SelectedTBB()
+							if not bd then return 1, 1, 0, 1 end
+							return bd.pandemicMarkR or 1, bd.pandemicMarkG or 1, bd.pandemicMarkB or 0, bd.pandemicMarkA or 1
+						end,
+						function(r, g, b, a)
+							local bd = SelectedTBB(); if not bd then return end
+							bd.pandemicMarkR, bd.pandemicMarkG, bd.pandemicMarkB, bd.pandemicMarkA = r, g, b, a; RefreshTBB()
+						end,
+						true, 20)
+					PP.Point(markSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+					local markBlock = CreateFrame("Frame", nil, markSwatch)
+					markBlock:SetAllPoints(); markBlock:SetFrameLevel(markSwatch:GetFrameLevel() + 10)
+					markBlock:EnableMouse(true)
+					markBlock:SetScript("OnEnter", function()
+						EllesmereUI.ShowWidgetTooltip(markSwatch, EllesmereUI.DisabledTooltip("Pandemic Mark"))
+					end)
+					markBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+					local function UpdateMarkSwatchState()
+						local bd = SelectedTBB()
+						local off = not bd or not bd.pandemicMark
+						if off then markSwatch:SetAlpha(0.3); markBlock:Show()
+						else markSwatch:SetAlpha(1); markBlock:Hide() end
+					end
+					EllesmereUI.RegisterWidgetRefresh(function() updateMarkSwatch(); UpdateMarkSwatchState() end)
+					UpdateMarkSwatchState()
+				end
+			end
         end
 
         -- Ensure bar frames exist before showing placeholders

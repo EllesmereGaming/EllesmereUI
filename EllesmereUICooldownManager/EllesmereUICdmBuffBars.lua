@@ -122,7 +122,36 @@ end
 -------------------------------------------------------------------------------
 local _pandemicState  = {}   -- frame -> true when in pandemic
 local _pandemicHooked = {}   -- frame -> true once hooks are installed
+-- cooldownID: true once Blizzard has ever fired pandemic for that cooldown.
+-- Used to gate the computed fallback so we only compute pandemic for
+-- spells Blizzard's CooldownViewer never flags (e.g. Lifebloom), leaving
+-- Blizzard-handled spells on native behaviour.
+local _blizzPandemicCD = {}
 ns._pandemicState = _pandemicState
+
+-- Pandemic refresh window (fraction of full duration remaining).
+local PANDEMIC_THRESHOLD = 0.3
+
+-- Fallback pandemic detection for auras Blizzard never pandemic-flags. The
+-- player's own buff timing is not a secret value, so the refresh window can be
+-- computed directly.
+--   true  -> in the pandemic window
+--   false -> not in the window (clean read above threshold)
+--   nil   -> indeterminate, change nothing
+local function ComputePandemicFallback(blzChild)
+    local iid  = blzChild.auraInstanceID
+    local unit = blzChild.auraDataUnit
+    if not (iid and unit) then return nil end
+    local ok, ad = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, iid)
+    if not ok or not ad then return nil end
+    local dur = ad.duration
+    local exp = ad.expirationTime
+    if not dur or not exp then return nil end
+    local isSec = issecretvalue
+    if isSec and (isSec(dur) or isSec(exp)) then return nil end
+    if dur <= 0 then return false end  -- permanent / no-duration aura
+    return (exp - GetTime()) <= dur * PANDEMIC_THRESHOLD
+end
 
 function ns.HookPandemicState(frame)
     if not frame or _pandemicHooked[frame] then return end
@@ -130,6 +159,8 @@ function ns.HookPandemicState(frame)
     _pandemicHooked[frame] = true
     hooksecurefunc(frame, "ShowPandemicStateFrame", function(self)
         _pandemicState[self] = true
+        local cd = self.cooldownID
+        if cd then _blizzPandemicCD[cd] = true end
         -- Hide Blizzard's PandemicIcon unless "Blizzard Default" (-1).
         -- Custom glow styles (>0) replace it; None (0/false) suppresses it.
         local fc = ns._ecmeFC and ns._ecmeFC[self]
@@ -626,6 +657,45 @@ local function ApplyTBBTickMarks(sb, cfg, tickCache, isVert, tickParent)
 end
 ns.ApplyTBBTickMarks = ApplyTBBTickMarks
 
+-- Static pandemic-threshold marker. A single line drawn at the pandemic
+-- fraction of the bar's fill axis. Static, no valud read, secret-safe.
+local function ApplyPandemicMark(sb, cfg, bar, isVert)
+    local t = bar._pandemicMark
+    if not cfg.pandemicMark then
+        if t then t:Hide() end
+        return
+    end
+    local parent = bar._tickOverlay or sb
+    if not t then
+        t = parent:CreateTexture(nil, "OVERLAY", nil, 7)
+        t:SetSnapToPixelGrid(false)
+        t:SetTexelSnappingBias(0)
+        bar._pandemicMark = t
+    end
+    t:SetColorTexture(cfg.pandemicMarkR or 1, cfg.pandemicMarkG or 1,
+        cfg.pandemicMarkB or 0, cfg.pandemicMarkA or 1)
+
+    local PP = EllesmereUI and EllesmereUI.PP
+    local barW, barH = sb:GetWidth(), sb:GetHeight()
+    if not barW or barW <= 0 or not barH or barH <= 0 then t:Hide(); return end
+    -- "30% remaining" boundary. reverseFill flips which end the fill drains
+    -- toward, so flip the line position to match.
+    local pos = cfg.reverseFill and (1 - PANDEMIC_THRESHOLD) or PANDEMIC_THRESHOLD
+    local thick = PP and PP.Scale(2) or 2
+    t:ClearAllPoints()
+    if isVert then
+        local off = PP and PP.Scale(barH * pos) or (barH * pos)
+        t:SetSize(barW, thick)
+        t:SetPoint("BOTTOMLEFT", sb, "BOTTOMLEFT", 0, off)
+    else
+        local off = PP and PP.Scale(barW * pos) or (barW * pos)
+        t:SetSize(thick, barH)
+        t:SetPoint("TOPLEFT", sb, "TOPLEFT", off, 0)
+    end
+    t:Show()
+end
+ns.ApplyPandemicMark = ApplyPandemicMark
+
 -------------------------------------------------------------------------------
 --  Apply Visual Settings
 -------------------------------------------------------------------------------
@@ -892,6 +962,7 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         bar._tickOverlay = to
     end
     ApplyTBBTickMarks(sb, cfg, bar._threshTicks, isVert, bar._tickOverlay)
+    ApplyPandemicMark(sb, cfg, bar, isVert)
     bar._ticksDirty = true
 end
 
@@ -1562,6 +1633,23 @@ function ns.UpdateTrackedBuffBarTimers()
                     -- pandemic alerts in Blizzard CDM settings.
                     if _anyPandemic and cfg.pandemicGlow then
                         local inPandemic = blzChild and _pandemicState[blzChild]
+                        -- Fallback for auras Blizzard never pandemic-flags
+                        -- (e.g. Lifebloom): compute the refresh window
+                        -- ourselves
+                        if not inPandemic and blzChild then
+                            local cd = blzChild.cooldownID
+                            if not (cd and _blizzPandemicCD[cd]) then
+                                local fb = ComputePandemicFallback(blzChild)
+                                if fb == true then
+                                    inPandemic = true
+                                elseif fb == nil and bar._pandemicGlowActive then
+                                    -- Indeterminate read - do nothing
+									-- A real expiry is caught
+                                    -- by the isActive=false branch below.
+                                    inPandemic = true
+                                end
+                            end
+                        end
                         -- TBBs always show our glow (including Blizzard Default)
                         -- because Blizzard's native PandemicIcon is on the
                         -- hidden blzChild frame, not our visible TBB bar.
@@ -1594,6 +1682,7 @@ function ns.UpdateTrackedBuffBarTimers()
                     if bw and bw > 0 then
                         ApplyTBBTickMarks(sb, cfg, bar._threshTicks,
                             cfg.verticalOrientation, bar._tickOverlay)
+                        ApplyPandemicMark(sb, cfg, bar, cfg.verticalOrientation)
                         bar._ticksDirty = nil
                     end
                 end
