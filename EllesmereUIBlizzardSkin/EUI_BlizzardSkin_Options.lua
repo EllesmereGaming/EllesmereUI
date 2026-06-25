@@ -124,6 +124,19 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Calendar Lockouts",
+              tooltip="Shows saved instance lockouts with boss kill progress on the minimap calendar button tooltip.",
+              getValue=function()
+                  return not EllesmereUIDB or EllesmereUIDB.calendarLockoutTooltip ~= false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.calendarLockoutTooltip = v
+              end },
+            { type="spacer" }
+        );  y = y - h
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         _, h = W:SectionHeader(parent, "BLIZZARD WINDOW RESKINS", y);  y = y - h
@@ -1063,6 +1076,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.tooltipPlayerTitles = nil
                 EllesmereUIDB.tooltipFontScale = nil
                 EllesmereUIDB.tooltipMythicScore = nil
+                EllesmereUIDB.calendarLockoutTooltip = nil
                 EllesmereUIDB.uberTooltips = nil
                 EllesmereUIDB.uberTooltipsManual = nil
                 EllesmereUIDB.reskinQueuePopup = nil
