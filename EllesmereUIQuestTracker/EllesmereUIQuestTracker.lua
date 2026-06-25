@@ -23,7 +23,7 @@ local QT_DEFAULTS = {
     profile = {
         questTracker = {
             enabled              = true,
-            forceOnScreen        = false,
+            forceOnScreen        = true,
             visibility           = "always",
             visOnlyInstances     = false,
             visHideHousing       = false,
@@ -34,6 +34,9 @@ local QT_DEFAULTS = {
             -- Skin toggles
             skinHeaders          = true,
             accentHeaders        = true,
+            -- Show Blizzard's native quest type icons/buttons (right side)
+            -- instead of our custom classified icons. Off = our icons. Reload-gated.
+            showQuestIcons       = false,
 
             -- Font sizes (single source of truth used by skin code)
             titleFontSize        = 12,

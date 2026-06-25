@@ -1699,6 +1699,11 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
     -- target bounds is safe even if the target is protected (e.g. oUF
     -- unit frames) -- we only call SetPoint on the child, not the target.
     if InCombatLockdown() and childBar:IsProtected() then return end
+    -- Addon owns this element's position (e.g. a grouped Tracking Bar member
+    -- chained to its group anchor) -- never generically reposition it, so its
+    -- relative SetPoint to the anchor is never clobbered (in or out of combat).
+    local cElem = registeredElements[childKey]
+    if cElem and cElem.isAnchored and cElem.isAnchored(childKey) then return end
 
 
     -- If the target frame has no valid screen bounds (hidden / not yet laid out),
@@ -2360,8 +2365,10 @@ EllesmereUI.ReapplyAllUnlockAnchorsForced = function()
         if info and info.target then
             local childBar = GetBarFrame(childKey)
             local targetBar = GetBarFrame(info.target)
+            local rcElem = registeredElements[childKey]
             if childBar and targetBar
-               and not (inCombat and childBar:IsProtected()) then
+               and not (inCombat and childBar:IsProtected())
+               and not (rcElem and rcElem.isAnchored and rcElem.isAnchored(childKey)) then
                 -- AB bars with growth direction: skip entirely. Their position
                 -- is set authoritatively by applyPos from barPositions (edge
                 -- format, width-independent, updated on every LayoutBar).

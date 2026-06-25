@@ -497,6 +497,13 @@ end
 local function ApplyQuestTypeIcon(block)
     if not block then return end
 
+    -- "Show Quest Icons" on: Blizzard's native icons are shown instead, so
+    -- never stamp our own custom icon (hide any we already created).
+    if EQT.Cfg("showQuestIcons") then
+        if _blockIcons[block] then _blockIcons[block]:Hide() end
+        return
+    end
+
     local qID = block.id
     if type(qID) ~= "number" then
         if _blockIcons[block] then _blockIcons[block]:Hide() end
@@ -753,6 +760,10 @@ local _poiHiddenParent = CreateFrame("Frame")
 _poiHiddenParent:Hide()
 
 local function SuppressPOI(block)
+    -- "Show Quest Icons" on: leave Blizzard's native POI button visible and
+    -- skip installing the keep-hidden hook entirely. Reload-gated, so this is
+    -- read fresh per block; no live un-suppression needed.
+    if EQT.Cfg("showQuestIcons") then return end
     local pb = block and block.poiButton
     if not pb or EllesmereUI._GetFFD(pb).suppressed then return end
     EllesmereUI._GetFFD(pb).suppressed = true

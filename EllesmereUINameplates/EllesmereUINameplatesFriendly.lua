@@ -630,18 +630,29 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
 
     function plate:ApplyBorder()
         if not PP then return end
-        if ns.IsBorderEnabled() then
-            local sz = (FP() and FP().borderSize) or ns.defaults.borderSize
-            PP.SetBorderSize(plate.health, sz)
-            PP.ShowBorder(plate.health)
-        else
+        if ns.IsCustomBorderEnabled() then
+            -- Custom border mirrors the enemy custom-border settings 1:1.
             PP.HideBorder(plate.health)
+            ns.ApplyCustomBorderStyle(plate)
+        else
+            ns.HideCustomBorder(plate)
+            if ns.IsBorderEnabled() then
+                local sz = (FP() and FP().borderSize) or ns.defaults.borderSize
+                PP.SetBorderSize(plate.health, sz)
+                PP.ShowBorder(plate.health)
+            else
+                PP.HideBorder(plate.health)
+            end
         end
     end
     function plate:ApplyBorderColor()
         if not PP then return end
-        local cr, cg, cb = ns.GetBorderColor()
-        PP.SetBorderColor(plate.health, cr, cg, cb, 1)
+        if ns.IsCustomBorderEnabled() then
+            ns.ApplyCustomBorderColor(plate)
+        else
+            local cr, cg, cb = ns.GetBorderColor()
+            PP.SetBorderColor(plate.health, cr, cg, cb, 1)
+        end
     end
 
     local GLOW_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\background.png"

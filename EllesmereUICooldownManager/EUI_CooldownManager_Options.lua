@@ -2129,6 +2129,43 @@ initFrame:SetScript("OnEvent", function(self)
 
         for _, sp in ipairs(trackedBars) do MakeSpellItem(sp) end
 
+        -- "Missing Spells?" footer: centered, accent-colored prompt that opens
+        -- Blizzard's CDM and closes EUI options, matching the CD/utility picker.
+        do
+            local fDiv = inner:CreateTexture(nil, "ARTWORK")
+            fDiv:SetHeight(1); fDiv:SetColorTexture(1, 1, 1, 0.10)
+            fDiv:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH - 4)
+            fDiv:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH - 4)
+            mH = mH + 9
+
+            local FOOTER_H = 38
+            local mbItem = CreateFrame("Button", nil, inner)
+            mbItem:SetHeight(FOOTER_H)
+            mbItem:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+            mbItem:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+            mbItem:SetFrameLevel(menu:GetFrameLevel() + 2)
+
+            local mbFS = mbItem:CreateFontString(nil, "OVERLAY")
+            mbFS:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+            mbFS:SetAllPoints()
+            mbFS:SetJustifyH("CENTER")
+            mbFS:SetJustifyV("MIDDLE")
+            local ar, ag, ab = EllesmereUI.GetAccentColor()
+            mbFS:SetTextColor(ar, ag, ab, 1)
+            mbFS:SetText(EllesmereUI.L("Missing Spells?") .. "\n" .. EllesmereUI.L("Add in Blizzard CDM"))
+
+            mbItem:SetScript("OnEnter", function() mbFS:SetTextColor(1, 1, 1, 1) end)
+            mbItem:SetScript("OnLeave", function()
+                local r, g, b = EllesmereUI.GetAccentColor()
+                mbFS:SetTextColor(r, g, b, 1)
+            end)
+            mbItem:SetScript("OnClick", function()
+                menu:Hide()
+                if ns.OpenBlizzardCDMTab then ns.OpenBlizzardCDMTab(true) end
+            end)
+            mH = mH + FOOTER_H
+        end
+
         local totalH = mH + 4
         inner:SetHeight(totalH)
         if totalH > MAX_H then
@@ -2465,9 +2502,31 @@ initFrame:SetScript("OnEvent", function(self)
 
             local TBB_PREVIEW_MAX_H = 200
 
+            -- Vertical headroom: timer/name/stacks text positioned ABOVE/BELOW the
+            -- bar (top/bottom) anchors OUTSIDE the bar's bounds, while left/right/
+            -- center stay inside it. The clip wrapper is sized to the content, so
+            -- without headroom the outside (vertical) text gets chopped. Grow only
+            -- the scroll child + wrapper (NOT pvContent, which the border/highlight
+            -- wrap via SetAllPoints) and push the content down by the top headroom.
+            local function TBPad(side)
+                if not bd then return 0 end
+                local tp = bd.timerPosition or (bd.showTimer and "right" or "none")
+                local sp = bd.stacksPosition or "center"
+                local np = bd.verticalOrientation and "none"
+                    or (bd.namePosition or ((bd.showName ~= false) and "left" or "none"))
+                local p = 0
+                if tp == side then p = math.max(p, bd.timerSize or 11) end
+                if sp == side then p = math.max(p, bd.stacksSize or 11) end
+                if np == side then p = math.max(p, bd.nameSize or 11) end
+                return p > 0 and (p + 8) or 0
+            end
+            local tbTopPad = TBPad("top")
+            local tbBotPad = TBPad("bottom")
+            local CONTENT_H = PREVIEW_H + tbTopPad + tbBotPad
+
             -- Wrapper: clips children, capped height
             local pvWrapper = CreateFrame("Frame", nil, hdr)
-            local visH = math.min(PREVIEW_H, TBB_PREVIEW_MAX_H)
+            local visH = math.min(CONTENT_H, TBB_PREVIEW_MAX_H)
             pvWrapper:SetSize(maxAvailW, visH)
             PP.Point(pvWrapper, "TOP", hdr, "TOP", 0, fy)
             pvWrapper:SetClipsChildren(true)
@@ -2479,12 +2538,12 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Actual preview content frame (scroll child)
             local pvFrame = CreateFrame("Frame", nil, pvSF)
-            pvFrame:SetSize(maxAvailW, PREVIEW_H)
+            pvFrame:SetSize(maxAvailW, CONTENT_H)
             pvSF:SetScrollChild(pvFrame)
 
             -- Scrollbar track + thumb (same pattern as action bar preview)
             local pvTrack, pvThumb
-            if PREVIEW_H > TBB_PREVIEW_MAX_H then
+            if CONTENT_H > TBB_PREVIEW_MAX_H then
                 pvTrack = CreateFrame("Frame", nil, pvWrapper)
                 pvTrack:SetWidth(4)
                 pvTrack:SetPoint("TOPRIGHT", pvWrapper, "TOPRIGHT", -2, -2)
@@ -2604,11 +2663,13 @@ initFrame:SetScript("OnEvent", function(self)
             _tbbPvFrame._wrapper = pvWrapper
 
             if bd then
-                -- Content wrapper: sized to bar+icon, centered in pvFrame.
-                -- Bar, icon, border, and highlight all parent to this.
+                -- Content wrapper: sized to bar+icon (NOT the text headroom, so the
+                -- border/highlight that SetAllPoints it still wrap only the bar).
+                -- Pushed down by the top text headroom so above-bar text lands in
+                -- the scroll child's extra room instead of being clipped.
                 local pvContent = CreateFrame("Frame", nil, pvFrame)
                 pvContent:SetSize(PREVIEW_W, PREVIEW_H)
-                pvContent:SetPoint("TOP", pvFrame, "TOP", 0, 0)
+                pvContent:SetPoint("TOP", pvFrame, "TOP", 0, -tbTopPad)
 
                 local barW = rawW
                 local barH = rawH
@@ -2837,8 +2898,8 @@ initFrame:SetScript("OnEvent", function(self)
                 hint:SetText(EllesmereUI.L("Use the dropdown above to add a new bar"))
             end
 
-            -- Preview visual height = bar height, capped at scroll container max
-            local pvVisH = math.min(PREVIEW_H, TBB_PREVIEW_MAX_H)
+            -- Preview visual height = bar + text headroom, capped at scroll max
+            local pvVisH = math.min(CONTENT_H, TBB_PREVIEW_MAX_H)
 
             fy = fy - pvVisH - 15
             _tbbHeaderFixedH = 20 + DD_H + 15 + 15
@@ -2908,7 +2969,7 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         --  BAR GROUPING (shared across all bars)
         -------------------------------------------------------------------
-        _, h = W:SectionHeader(parent, "Bar Grouping", y);  y = y - h
+        _, h = W:SectionHeader(parent, "BAR GROUPING", y);  y = y - h
 
         -- Group Tracking Bars (per-bar checkbox dropdown) | Grouped Grow Direction
         -- The checkbox dropdown lists every bar; checked bars chain together and
@@ -2991,7 +3052,7 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         --  BAR LAYOUT
         -------------------------------------------------------------------
-        _, h = W:SectionHeader(parent, "Bar Layout", y);  y = y - h
+        _, h = W:SectionHeader(parent, "BAR LAYOUT", y);  y = y - h
 
         -- Height | Width
         -- The whole group shares one width/height, so a grouped member inherits
@@ -3677,7 +3738,7 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         --  EXTRAS
         -----------------------------------------------------------------------
-        _, h = W:SectionHeader(parent, "Extras", y);  y = y - h
+        _, h = W:SectionHeader(parent, "EXTRAS", y);  y = y - h
 
         -- Row 1: Enable Max Stacks (toggle + inline slider) | Ticks at Stacks (label + inline input)
         local function maxStacksOff()
@@ -4361,6 +4422,19 @@ initFrame:SetScript("OnEvent", function(self)
             addBtn:SetScript("OnLeave", function() addLbl:SetTextColor(ar, ag, ab, 0.9) end)
             popup._addBtn = addBtn
 
+            -- Permanent red note: a manually-entered custom spell has no live
+            -- cooldown frame, so charge counts cannot be tracked for it. Shown
+            -- only for CD/utility bars (charges do not apply to custom auras).
+            local chargeWarn = popup:CreateFontString(nil, "OVERLAY")
+            chargeWarn:SetFont(FONT_PATH, 10, GetCDMOptOutline())
+            chargeWarn:SetPoint("LEFT", popup, "LEFT", 16, 0)
+            chargeWarn:SetPoint("RIGHT", popup, "RIGHT", -16, 0)
+            chargeWarn:SetPoint("BOTTOM", addBtn, "TOP", 0, 17)
+            chargeWarn:SetJustifyH("CENTER")
+            chargeWarn:SetTextColor(0.9, 0.3, 0.3, 1)
+            chargeWarn:SetText(EllesmereUI.L("Custom spells cannot track charges."))
+            popup._chargeWarn = chargeWarn
+
             local cancelBtn = CreateFrame("Button", nil, popup)
             cancelBtn:SetSize(80, 28)
             cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 16)
@@ -4479,10 +4553,12 @@ initFrame:SetScript("OnEvent", function(self)
             popup._durLabel:Show()
             popup._durBox:Show()
             popup._durBox:SetText("")
+            if popup._chargeWarn then popup._chargeWarn:Hide() end
         else
-            popup:SetHeight(160)
+            popup:SetHeight(164)
             popup._durLabel:Hide()
             popup._durBox:Hide()
+            if popup._chargeWarn then popup._chargeWarn:Show() end
         end
         popup._dimmer:Show()
         popup._editBox:SetFocus()
@@ -4586,9 +4662,49 @@ initFrame:SetScript("OnEvent", function(self)
             return item
         end
 
+        -- Custom Spell ID (with duration) entry -- add an arbitrary buff by spell
+        -- ID, rendered as a cast-timer custom buff. Its own section at the top,
+        -- matching the CD/utility picker.
+        do
+            local csItem = CreateFrame("Button", nil, inner)
+            csItem:SetHeight(ITEM_H)
+            csItem:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+            csItem:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+            csItem:SetFrameLevel(menu:GetFrameLevel() + 2)
+            local csHl = csItem:CreateTexture(nil, "ARTWORK")
+            csHl:SetAllPoints(); csHl:SetColorTexture(1, 1, 1, 0); csHl:SetAlpha(0)
+            local csLbl = csItem:CreateFontString(nil, "OVERLAY")
+            csLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+            csLbl:SetPoint("LEFT", 10, 0); csLbl:SetJustifyH("LEFT")
+            csLbl:SetText(EllesmereUI.L("Custom Spell ID"))
+            csLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+            csItem:SetScript("OnEnter", function() csLbl:SetTextColor(1, 1, 1, 1); csHl:SetColorTexture(1, 1, 1, hlA); csHl:SetAlpha(1) end)
+            csItem:SetScript("OnLeave", function() csLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); csHl:SetAlpha(0) end)
+            csItem:SetScript("OnClick", function()
+                menu:Hide()
+                ShowCustomSpellIDPopup(targetBarKey, true, function(sid)
+                    ns.AddTrackedSpell(targetBarKey, sid)
+                    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+                    if ns.UpdateLustListener then ns.UpdateLustListener() end
+                    if ns.QueueReanchor then ns.QueueReanchor() end
+                    RefreshCDPreview()
+                end)
+            end)
+            mH = mH + ITEM_H
+        end
+
+        -- Divider below Custom Spell ID, separating it from the presets/list.
+        do
+            local csDiv = inner:CreateTexture(nil, "ARTWORK")
+            csDiv:SetHeight(1); csDiv:SetColorTexture(1, 1, 1, 0.10)
+            csDiv:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH - 4)
+            csDiv:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH - 4)
+            mH = mH + 9
+        end
+
         -- Preset buffs (potions, consumables, Bloodlust, etc.) added as cast-timer
         -- custom buffs via AddPresetToBar; the buff phase injects an own-frame so
-        -- they render alongside Blizzard-tracked buffs. Shown at the top.
+        -- they render alongside Blizzard-tracked buffs.
         do
             local alreadyTracked = {}
             local sdPS = ns.GetBarSpellData(targetBarKey)
@@ -4638,36 +4754,6 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
 
-            -- Custom Spell ID (with duration) entry -- add an arbitrary buff by
-            -- spell ID, rendered as a cast-timer custom buff like the presets.
-            do
-                local csItem = CreateFrame("Button", nil, inner)
-                csItem:SetHeight(ITEM_H)
-                csItem:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
-                csItem:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
-                csItem:SetFrameLevel(menu:GetFrameLevel() + 2)
-                local csHl = csItem:CreateTexture(nil, "ARTWORK")
-                csHl:SetAllPoints(); csHl:SetColorTexture(1, 1, 1, 0); csHl:SetAlpha(0)
-                local csLbl = csItem:CreateFontString(nil, "OVERLAY")
-                csLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
-                csLbl:SetPoint("LEFT", 10, 0); csLbl:SetJustifyH("LEFT")
-                csLbl:SetText(EllesmereUI.L("Custom Spell ID"))
-                csLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
-                csItem:SetScript("OnEnter", function() csLbl:SetTextColor(1, 1, 1, 1); csHl:SetColorTexture(1, 1, 1, hlA); csHl:SetAlpha(1) end)
-                csItem:SetScript("OnLeave", function() csLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); csHl:SetAlpha(0) end)
-                csItem:SetScript("OnClick", function()
-                    menu:Hide()
-                    ShowCustomSpellIDPopup(targetBarKey, true, function(sid)
-                        ns.AddTrackedSpell(targetBarKey, sid)
-                        if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
-                        if ns.UpdateLustListener then ns.UpdateLustListener() end
-                        if ns.QueueReanchor then ns.QueueReanchor() end
-                        RefreshCDPreview()
-                    end)
-                end)
-                mH = mH + ITEM_H
-            end
-
             -- Divider between presets and the Blizzard-tracked buff list
             if #knownSpells > 0 then
                 local pDiv = inner:CreateTexture(nil, "ARTWORK")
@@ -4684,6 +4770,43 @@ initFrame:SetScript("OnEvent", function(self)
                 menu:Hide()
                 if onChanged then onChanged(sp.spellID) end
             end)
+        end
+
+        -- "Missing Spells?" footer: centered, accent-colored prompt that opens
+        -- Blizzard's CDM and closes EUI options, matching the CD/utility picker.
+        do
+            local fDiv = inner:CreateTexture(nil, "ARTWORK")
+            fDiv:SetHeight(1); fDiv:SetColorTexture(1, 1, 1, 0.10)
+            fDiv:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH - 4)
+            fDiv:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH - 4)
+            mH = mH + 9
+
+            local FOOTER_H = 38
+            local mbItem = CreateFrame("Button", nil, inner)
+            mbItem:SetHeight(FOOTER_H)
+            mbItem:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+            mbItem:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+            mbItem:SetFrameLevel(menu:GetFrameLevel() + 2)
+
+            local mbFS = mbItem:CreateFontString(nil, "OVERLAY")
+            mbFS:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+            mbFS:SetAllPoints()
+            mbFS:SetJustifyH("CENTER")
+            mbFS:SetJustifyV("MIDDLE")
+            local ar, ag, ab = EllesmereUI.GetAccentColor()
+            mbFS:SetTextColor(ar, ag, ab, 1)
+            mbFS:SetText(EllesmereUI.L("Missing Spells?") .. "\n" .. EllesmereUI.L("Add in Blizzard CDM"))
+
+            mbItem:SetScript("OnEnter", function() mbFS:SetTextColor(1, 1, 1, 1) end)
+            mbItem:SetScript("OnLeave", function()
+                local r, g, b = EllesmereUI.GetAccentColor()
+                mbFS:SetTextColor(r, g, b, 1)
+            end)
+            mbItem:SetScript("OnClick", function()
+                menu:Hide()
+                if ns.OpenBlizzardCDMTab then ns.OpenBlizzardCDMTab(true) end
+            end)
+            mH = mH + FOOTER_H
         end
 
         inner:SetHeight(mH + 4)
@@ -5044,6 +5167,8 @@ initFrame:SetScript("OnEvent", function(self)
                         -- single-select cdStateEffect below). Handled as a toggle in the
                         -- item loop (item.charge names the ss key).
                         { charge = "chargeHideSwipe", label = "Hide Swipe (Charges)" },
+                        { charge = "hideRechargeEdge", label = "Hide Recharge Edge" },
+                        { charge = "chargeHideCdText", label = "Hide Duration (Charges > 0)" },
                         { val = "hiddenOnCD",      label = "Hidden (On CD)" },
                         { val = "hiddenReady",     label = "Hidden (CD Ready)" },
                         { val = "pixelGlowReady",  label = "Pixel Glow (CD Ready)" },
@@ -5177,7 +5302,11 @@ initFrame:SetScript("OnEvent", function(self)
                                         if isSelected then
                                             local acR, acG, acB = EllesmereUI.GetAccentColor()
                                             sLbl:SetTextColor(acR, acG, acB, 1)
-                                            ns._cdmAnyChargeStyle = true
+                                            if item.charge == "chargeHideCdText" then
+                                                ns._cdmAnyChargeHideCdText = true
+                                            else
+                                                ns._cdmAnyChargeStyle = true
+                                            end
                                         else
                                             sLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
                                         end
@@ -5264,8 +5393,11 @@ initFrame:SetScript("OnEvent", function(self)
                                                 os.activeGlowR = ss.activeGlowR
                                                 os.activeGlowG = ss.activeGlowG
                                                 os.activeGlowB = ss.activeGlowB
+                                                os.maxStacksGlow = ss.maxStacksGlow
                                                 os.cdStateEffect = ss.cdStateEffect
                                                 os.chargeHideSwipe = ss.chargeHideSwipe
+                                                os.hideRechargeEdge = ss.hideRechargeEdge
+                                                os.chargeHideCdText = ss.chargeHideCdText
                                                 os.glowColor = ss.glowColor
                                                 os.glowColorR = ss.glowColorR
                                                 os.glowColorG = ss.glowColorG
@@ -5284,8 +5416,49 @@ initFrame:SetScript("OnEvent", function(self)
                                 subH = subH + ITEM_H
                             end
 
-                            subInner:SetHeight(subH + 4)
-                            sub:SetSize(subW, subH + 4)
+                            -- Cap height + scroll for long lists (e.g. the Audio Effect
+                            -- sound list), matching the Focus Cast Sound dropdown and the
+                            -- Custom Tracking subnav. Mouse-wheel + smooth scroll; short
+                            -- subnavs fall through to the unchanged fixed-height path.
+                            local totalSubH = subH + 4
+                            subInner:SetHeight(totalSubH)
+                            -- 200 == the dropdown's DD_MAX_HEIGHT (Focus Cast Sound).
+                            local FLYOUT_MAX_H = 200
+                            if totalSubH > FLYOUT_MAX_H then
+                                sub:SetSize(subW, FLYOUT_MAX_H)
+                                subInner:ClearAllPoints()
+                                local sf = CreateFrame("ScrollFrame", nil, sub)
+                                sf:SetPoint("TOPLEFT"); sf:SetPoint("BOTTOMRIGHT")
+                                sf:SetFrameLevel(sub:GetFrameLevel() + 1)
+                                sf:EnableMouseWheel(true)
+                                sf:SetScrollChild(subInner)
+                                subInner:SetWidth(subW)
+                                local scrollTarget = 0
+                                local maxScroll = totalSubH - FLYOUT_MAX_H
+                                local SCROLL_STEP = 40
+                                local SMOOTH_SPEED = 12
+                                local smoothFrame = CreateFrame("Frame")
+                                smoothFrame:Hide()
+                                smoothFrame:SetScript("OnUpdate", function(_, elapsed)
+                                    local cur = sf:GetVerticalScroll()
+                                    scrollTarget = math.max(0, math.min(maxScroll, scrollTarget))
+                                    local diff = scrollTarget - cur
+                                    if math.abs(diff) < 0.3 then
+                                        sf:SetVerticalScroll(scrollTarget)
+                                        smoothFrame:Hide()
+                                        return
+                                    end
+                                    sf:SetVerticalScroll(cur + diff * math.min(1, SMOOTH_SPEED * elapsed))
+                                end)
+                                sf:SetScript("OnMouseWheel", function(_, delta)
+                                    if maxScroll <= 0 then return end
+                                    local base = smoothFrame:IsShown() and scrollTarget or sf:GetVerticalScroll()
+                                    scrollTarget = math.max(0, math.min(maxScroll, base - delta * SCROLL_STEP))
+                                    smoothFrame:Show()
+                                end)
+                            else
+                                sub:SetSize(subW, totalSubH)
+                            end
                             sub:Show()
                             menu._openSub = sub
                         end
@@ -5540,6 +5713,30 @@ initFrame:SetScript("OnEvent", function(self)
                             })
                         end)
 
+                        -- Border: per-icon override of the bar's border SIZE +
+                        -- COLOR (never style). Mirrors the Charge/Stack Text cog
+                        -- exactly; the render side reads (ssb and ssb.border*) or
+                        -- the bar value in ApplyShapeToCDMIcon.
+                        MakeCogRow("Border", function()
+                            local b = cdmBd
+                            return valChanged(ss.borderSize, (b and b.borderSize) or 1)
+                                or colChanged(ss.borderR, ss.borderG, ss.borderB,
+                                    (b and b.borderR) or 0, (b and b.borderG) or 0, (b and b.borderB) or 0)
+                        end, function(row)
+                            return EllesmereUI.BuildCogPopup({
+                                title = "Border", noOwnerDim = true,
+                                frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,
+                                rows = {
+                                    { type="slider", label="Size", min=0, max=8, step=1,
+                                      get=function() return ss.borderSize or (cdmBd and cdmBd.borderSize) or 1 end,
+                                      set=function(v) EnsureSS(); ss.borderSize = v; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
+                                    { type="colorpicker", label="Color",
+                                      get=function() return ss.borderR or (cdmBd and cdmBd.borderR) or 0, ss.borderG or (cdmBd and cdmBd.borderG) or 0, ss.borderB or (cdmBd and cdmBd.borderB) or 0 end,
+                                      set=function(r, g, b) EnsureSS(); ss.borderR = r; ss.borderG = g; ss.borderB = b; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
+                                },
+                            })
+                        end)
+
                         -- Always Show Buffs + Desaturate Inactive apply only to
                         -- Blizzard-tracked buffs (inactive placeholders); they are
                         -- omitted entirely for injected custom/preset buffs.
@@ -5570,6 +5767,50 @@ initFrame:SetScript("OnEvent", function(self)
                                 function() return ss.desatInactive end,
                                 function(v) EnsureSS(); ss.desatInactive = v end,
                                 function() return ss.desatInactive == nil end)
+
+                            -- Audio Effect: play a sound when this buff becomes active.
+                            -- Sound list + speaker preview mirror the Focus Cast Sound
+                            -- dropdown (shared ns.FOCUSKICK_SOUND_* tables). Stored
+                            -- per-icon as ss.buffActiveSoundKey ("none"/nil = silent);
+                            -- the apply-edge hook (EnsureBuffSoundHook) fires it live.
+                            local AUDIO_ITEMS = {}
+                            for _, key in ipairs(ns.FOCUSKICK_SOUND_ORDER or { "none" }) do
+                                AUDIO_ITEMS[#AUDIO_ITEMS + 1] = {
+                                    val   = key,
+                                    label = (ns.FOCUSKICK_SOUND_NAMES and ns.FOCUSKICK_SOUND_NAMES[key]) or key,
+                                }
+                            end
+                            MakeSubnavRow("Audio Effect", AUDIO_ITEMS,
+                                function() return ss.buffActiveSoundKey or "none" end,
+                                function(v)
+                                    EnsureSS()
+                                    ss.buffActiveSoundKey = (v ~= "none" and v) or nil
+                                    -- Flip the 0-cost gate live so the apply-edge hook
+                                    -- starts attaching on the next refresh.
+                                    if ss.buffActiveSoundKey then ns._cdmAnyBuffSound = true end
+                                end,
+                                function() return ss.buffActiveSoundKey == nil end,
+                                function(si, item)
+                                    -- Speaker preview button: plays the sound without
+                                    -- selecting it (mirrors the dropdown's preview icon).
+                                    if item.val and item.val ~= "none" then
+                                        local play = CreateFrame("Button", nil, si)
+                                        play:SetSize(16, 16)
+                                        play:SetPoint("RIGHT", si, "RIGHT", -8, 0)
+                                        play:SetFrameLevel(si:GetFrameLevel() + 2)
+                                        play:SetNormalAtlas("common-icon-sound")
+                                        play:SetPushedAtlas("common-icon-sound-pressed")
+                                        play:SetScript("OnClick", function()
+                                            local paths = ns.FOCUSKICK_SOUND_PATHS
+                                            local path = paths and paths[item.val]
+                                            if path then PlaySoundFile(path, "Master") end
+                                        end)
+                                        play:SetScript("OnEnter", function()
+                                            EllesmereUI.ShowWidgetTooltip(play, "Preview Sound")
+                                        end)
+                                        play:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                                    end
+                                end)
                         end
                     else
                     local isCustomInjected = spellID < 0
@@ -5812,6 +6053,25 @@ initFrame:SetScript("OnEvent", function(self)
                         end)
                     end
 
+                    -- 3a. Max Stacks Glow (default = nil / none). 1:1 with Active
+                    -- State Glow; glows the icon while a charge spell is at max
+                    -- charges. Shares the unified Glow Effect Color below.
+                    local maxStacksGlowRow = MakeSubnavRow("Max Stacks Glow", ACTIVE_GLOW_ITEMS,
+                        function() return ss.maxStacksGlow end,
+                        function(v) EnsureSS(); ss.maxStacksGlow = v; if v and v > 0 then ns._cdmAnyMaxStacksGlow = true end end,
+                        function() return ss.maxStacksGlow == nil end)
+                    if isCustomInjected and maxStacksGlowRow then
+                        maxStacksGlowRow:SetAlpha(0.35)
+                        maxStacksGlowRow:SetScript("OnEnter", function()
+                            if EllesmereUI.ShowWidgetTooltip then
+                                EllesmereUI.ShowWidgetTooltip(maxStacksGlowRow, customDisabledTip)
+                            end
+                        end)
+                        maxStacksGlowRow:SetScript("OnLeave", function()
+                            if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+                        end)
+                    end
+
                     -- 3b. Non Active State (default = nil / none). Desaturates the
                     -- icon when its active-state is NOT active -- the mirror of the
                     -- runtime's active-branch SetDesaturated(false).
@@ -5842,7 +6102,7 @@ initFrame:SetScript("OnEvent", function(self)
                             EnsureSS(); ss.cdStateEffect = v
                             if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
                         end,
-                        function() return ss.cdStateEffect == nil and not ss.chargeHideSwipe end,
+                        function() return ss.cdStateEffect == nil and not ss.chargeHideSwipe and not ss.hideRechargeEdge and not ss.chargeHideCdText end,
                         function(si, item)
                             local isGlow = (item.val == "pixelGlowReady" or item.val == "buttonGlowReady")
                             if isGlow and ss.procGlow and ss.procGlow > 0 then
@@ -6031,8 +6291,11 @@ initFrame:SetScript("OnEvent", function(self)
                                     os.activeGlowR = ss.activeGlowR
                                     os.activeGlowG = ss.activeGlowG
                                     os.activeGlowB = ss.activeGlowB
+                                    os.maxStacksGlow = ss.maxStacksGlow
                                     os.cdStateEffect = ss.cdStateEffect
                                     os.chargeHideSwipe = ss.chargeHideSwipe
+                                    os.hideRechargeEdge = ss.hideRechargeEdge
+                                    os.chargeHideCdText = ss.chargeHideCdText
                                     os.glowColor = ss.glowColor
                                     os.glowColorR = ss.glowColorR
                                     os.glowColorG = ss.glowColorG
@@ -6060,7 +6323,14 @@ initFrame:SetScript("OnEvent", function(self)
             menu._openSub = nil  -- track open subnav for close checks
             menu:SetScript("OnUpdate", function(m)
                 local overMenu = m:IsMouseOver() or anchorFrame:IsMouseOver()
-                local overSub = m._openSub and m._openSub:IsShown() and m._openSub:IsMouseOver()
+                -- A cog flyout (Duration / Charge-Stack) drives itself through this
+                -- menu, so also treat "mouse over the flyout's open dropdown menu"
+                -- as over-the-sub. Without this, picking a Position option whose
+                -- list extends below the flyout reads as an outside click and closes
+                -- the whole menu.
+                local sub = m._openSub
+                local overSub = sub and sub:IsShown()
+                    and (sub:IsMouseOver() or (sub._anyDropdownHovered and sub._anyDropdownHovered()))
                 -- Keep the menu open while the shared color picker is up: it's a
                 -- separate popup, so interacting with it must not dismiss the
                 -- menu (and its cog/subnav flyout).
@@ -6193,6 +6463,19 @@ initFrame:SetScript("OnEvent", function(self)
                     addBtn:SetScript("OnLeave", function() addLbl:SetTextColor(ar, ag, ab, 0.9) end)
                     popup._addBtn = addBtn
 
+                    -- Permanent red note: a manually-entered custom spell has no
+                    -- live cooldown frame, so charge counts cannot be tracked.
+                    -- Shown only for CD/utility bars (not custom aura bars).
+                    local chargeWarn = popup:CreateFontString(nil, "OVERLAY")
+                    chargeWarn:SetFont(FONT_PATH, 10, GetCDMOptOutline())
+                    chargeWarn:SetPoint("LEFT", popup, "LEFT", 16, 0)
+                    chargeWarn:SetPoint("RIGHT", popup, "RIGHT", -16, 0)
+                    chargeWarn:SetPoint("BOTTOM", addBtn, "TOP", 0, 17)
+                    chargeWarn:SetJustifyH("CENTER")
+                    chargeWarn:SetTextColor(0.9, 0.3, 0.3, 1)
+                    chargeWarn:SetText(EllesmereUI.L("Custom spells cannot track charges."))
+                    popup._chargeWarn = chargeWarn
+
                     local cancelBtn = CreateFrame("Button", nil, popup)
                     cancelBtn:SetSize(80, 28)
                     cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 16)
@@ -6317,10 +6600,12 @@ initFrame:SetScript("OnEvent", function(self)
                     popup._durLabel:Show()
                     popup._durBox:Show()
                     popup._durBox:SetText("")
+                    if popup._chargeWarn then popup._chargeWarn:Hide() end
                 else
-                    popup:SetHeight(160)
+                    popup:SetHeight(164)
                     popup._durLabel:Hide()
                     popup._durBox:Hide()
+                    if popup._chargeWarn then popup._chargeWarn:Show() end
                 end
                 popup._dimmer:Show()
                 popup._editBox:SetFocus()
@@ -7186,6 +7471,44 @@ initFrame:SetScript("OnEvent", function(self)
             for _, sp in ipairs(itemsExtra) do MakeItem(sp, false) end
         end
 
+        -- "Missing Spells?" footer: a centered, accent-colored prompt at the end
+        -- of the real CDM spell sections. Clicking it opens Blizzard's CDM and
+        -- closes EUI options -- the exact action of the link under the buff bar
+        -- preview. Shown for bars that list Blizzard CDM spells (CD/utility and
+        -- buff bars); skipped for custom-buff bars (Custom Spell ID only, no CDM
+        -- list) so it never lands under the custom-spell-id / presets section.
+        if not isCustomBuff then
+            MakeDivider()
+            local FOOTER_H = 38
+            local mbItem = CreateFrame("Button", nil, inner)
+            mbItem:SetHeight(FOOTER_H)
+            mbItem:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+            mbItem:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+            mbItem:SetFrameLevel(menu:GetFrameLevel() + 2)
+
+            local mbFS = mbItem:CreateFontString(nil, "OVERLAY")
+            mbFS:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+            mbFS:SetAllPoints()
+            mbFS:SetJustifyH("CENTER")
+            mbFS:SetJustifyV("MIDDLE")
+            local ar, ag, ab = EllesmereUI.GetAccentColor()
+            mbFS:SetTextColor(ar, ag, ab, 1)
+            mbFS:SetText(EllesmereUI.L("Missing Spells?") .. "\n" .. EllesmereUI.L("Add in Blizzard CDM"))
+
+            mbItem:SetScript("OnEnter", function() mbFS:SetTextColor(1, 1, 1, 1) end)
+            mbItem:SetScript("OnLeave", function()
+                local r, g, b = EllesmereUI.GetAccentColor()
+                mbFS:SetTextColor(r, g, b, 1)
+            end)
+            mbItem:SetScript("OnClick", function()
+                menu:Hide()
+                if ns.OpenBlizzardCDMTab then ns.OpenBlizzardCDMTab(true) end
+            end)
+
+            allItems[#allItems + 1] = mbItem
+            mH = mH + FOOTER_H
+        end
+
         local totalH = mH + 4
         inner:SetHeight(totalH)
 
@@ -8009,16 +8332,34 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     end
 
+                    -- Default buffs bar reorders a dedicated display-order array
+                    -- (canon ids) instead of assignedSpells, which it shares with
+                    -- routing/custom injection. Seed it from the rendered order on
+                    -- the first drag so index-based moves line up with the preview.
+                    local isDefBuffs = (bd.key == "buffs")
+                    if isDefBuffs then
+                        local sdBuf = ns.GetBarSpellData("buffs")
+                        if sdBuf and not (sdBuf.buffDisplayOrder and #sdBuf.buffDisplayOrder > 0) then
+                            local snap = pf._buffTrackedOrder
+                            if snap and #snap > 0 then
+                                local copy = {}
+                                for i = 1, #snap do copy[i] = snap[i] end
+                                sdBuf.buffDisplayOrder = copy
+                            end
+                        end
+                    end
                     if dragMode == "swap" then
                         if insertIdx ~= dragIdx then
-                            ns.SwapTrackedSpells(bd.key, dragIdx, insertIdx)
+                            if isDefBuffs then ns.SwapBuffDisplayOrder(dragIdx, insertIdx)
+                            else ns.SwapTrackedSpells(bd.key, dragIdx, insertIdx) end
                             didChange = true
                         end
                     else
                         local toIdx = insertIdx
                         if toIdx > dragIdx then toIdx = toIdx - 1 end
                         if toIdx ~= dragIdx then
-                            ns.MoveTrackedSpell(bd.key, dragIdx, toIdx)
+                            if isDefBuffs then ns.MoveBuffDisplayOrder(dragIdx, toIdx)
+                            else ns.MoveTrackedSpell(bd.key, dragIdx, toIdx) end
                             didChange = true
                         end
                     end
@@ -8098,9 +8439,17 @@ initFrame:SetScript("OnEvent", function(self)
                 local bd = SelectedCDMBar()
                 if not bd then return end
                 local sdDrag = ns.GetBarSpellData(bd.key)
-                local t = sdDrag and sdDrag.assignedSpells or {}
                 local si = self._slotIdx
-                if not t[si] or t[si] == 0 then return end
+                if bd.key == "buffs" then
+                    -- Default bar: order lives in buffDisplayOrder (seeded on drop).
+                    -- A slot is draggable if it shows a spell (_previewSpellID set)
+                    -- or already maps to a stored order entry.
+                    local order = sdDrag and sdDrag.buffDisplayOrder
+                    if not self._previewSpellID and not (order and order[si]) then return end
+                else
+                    local t = sdDrag and sdDrag.assignedSpells or {}
+                    if not t[si] or t[si] == 0 then return end
+                end
                 dragSlot = self; dragIdx = si
                 -- Clear hover highlight on the dragged slot
                 if self._shapeBorder and self._shapeBorder:IsShown() then
@@ -8150,7 +8499,9 @@ initFrame:SetScript("OnEvent", function(self)
                     local tCount = 0
                     if tBd then
                         local sdT = ns.GetBarSpellData(tBd.key)
-                        if sdT and sdT.assignedSpells then
+                        if tBd.key == "buffs" then
+                            if sdT and sdT.buffDisplayOrder then tCount = #sdT.buffDisplayOrder end
+                        elseif sdT and sdT.assignedSpells then
                             tCount = #sdT.assignedSpells
                         end
                     end
@@ -8180,9 +8531,13 @@ initFrame:SetScript("OnEvent", function(self)
 
             slot:SetScript("OnMouseDown", function(self, button)
                 if button ~= "LeftButton" then return end
-                -- No drag reordering on buff bars (Blizzard controls order)
+                -- Buff-family drag-reorder: extra/custom buff bars reorder via
+                -- assignedSpells (1:1 preview), the default buffs bar via its
+                -- dedicated buffDisplayOrder (stable cooldownID-keyed, reconciled
+                -- from the live viewer pool). Only FocusKick stays locked -- its
+                -- icon order is driven by nameplate state, not user order.
                 local bdDrag = SelectedCDMBar()
-                if bdDrag and ns.IsBarBuffFamily(bdDrag) then return end
+                if bdDrag and bdDrag.key == ns.FOCUSKICK_BAR_KEY then return end
                 local cx, cy = GetCursorPosition()
                 pendingDragSlot = self
                 pendingStartX = cx
@@ -8383,6 +8738,67 @@ initFrame:SetScript("OnEvent", function(self)
             else
                 local sdUpd = EnsureAssignedSpells(bd.key)
                 tracked = sdUpd and sdUpd.assignedSpells or {}
+            end
+            -- Default buffs bar: apply the persisted display order. Order lives in
+            -- a dedicated buffDisplayOrder array of STABLE keys ("c"..cooldownID /
+            -- "s"..spellID) decoupled from routing. Only active once the user has
+            -- reordered -- until then buffDisplayOrder is nil and the bar keeps
+            -- Blizzard's natural order. Reconcile each build: keep stored order for
+            -- keys still tracked, append newly-tracked keys, drop keys no longer
+            -- present. Then stash the rendered order so the first drag can seed
+            -- buffDisplayOrder from exactly what the user sees.
+            if bd.key == "buffs" then
+                local sdBuf = ns.GetBarSpellData("buffs")
+                local order = sdBuf and sdBuf.buffDisplayOrder
+                -- Drop the pre-stable-key format (raw spellID numbers) so it
+                -- re-seeds cleanly into "c"..cooldownID / "s"..spellID keys.
+                if order and type(order[1]) == "number" then
+                    sdBuf.buffDisplayOrder = nil
+                    order = nil
+                end
+                -- Map each preview slot to a STABLE key (cooldownID for Blizzard
+                -- buffs, spellID for customs) and remember its sid/cd so we can
+                -- rebuild the rendered arrays after reordering. cooldownID is stable
+                -- across active/inactive; the canonical spellID is not.
+                local present, keyByIdx = {}, {}
+                for k = 1, #tracked do
+                    local sid, cd = tracked[k], trackedCd[k]
+                    local key = (cd ~= nil) and ("c" .. cd) or ("s" .. sid)
+                    keyByIdx[k] = key
+                    if present[key] == nil then present[key] = { sid = sid, cd = cd } end
+                end
+                local finalKeys
+                if order and #order > 0 then
+                    local newOrder, seen = {}, {}
+                    for _, key in ipairs(order) do
+                        if present[key] ~= nil and not seen[key] then
+                            seen[key] = true
+                            newOrder[#newOrder + 1] = key
+                        end
+                    end
+                    for k = 1, #tracked do
+                        local key = keyByIdx[k]
+                        if not seen[key] then
+                            seen[key] = true
+                            newOrder[#newOrder + 1] = key
+                        end
+                    end
+                    sdBuf.buffDisplayOrder = newOrder
+                    local nt, ntc = {}, {}
+                    for i = 1, #newOrder do
+                        local e = present[newOrder[i]]
+                        nt[i] = e.sid
+                        ntc[i] = e.cd
+                    end
+                    tracked, trackedCd = nt, ntc
+                    finalKeys = newOrder
+                else
+                    finalKeys = keyByIdx
+                end
+                -- Stash the rendered order (stable keys) for the first-drag seed.
+                local snap = {}
+                for i = 1, #finalKeys do snap[i] = finalKeys[i] end
+                pf._buffTrackedOrder = snap
             end
             local count = #tracked
 
@@ -8699,46 +9115,42 @@ initFrame:SetScript("OnEvent", function(self)
                 infoFS:SetWordWrap(true)
                 infoFS:SetTextColor(0.6, 0.6, 0.6, 0.9)
                 self._buffInfoText = infoFS
-
-                local clickBtn = CreateFrame("Button", nil, self)
-                clickBtn:SetHeight(14)
-                clickBtn:SetScript("OnClick", function()
-                    if ns.OpenBlizzardCDMTab then ns.OpenBlizzardCDMTab(true) end
-                end)
-                local clickFS = clickBtn:CreateFontString(nil, "OVERLAY")
-                clickFS:SetFont(FONT_PATH, 11, GetCDMOptOutline())
-                clickFS:SetAllPoints()
-                clickFS:SetJustifyH("CENTER")
-                local ar, ag, ab = EllesmereUI.GetAccentColor()
-                clickFS:SetTextColor(ar, ag, ab, 1)
-                clickFS:SetText(EllesmereUI.L("Manage shown buffs through Blizzard CDM Settings"))
-                clickBtn._fs = clickFS
-                clickBtn:SetScript("OnEnter", function() clickFS:SetTextColor(1, 1, 1, 1) end)
-                clickBtn:SetScript("OnLeave", function()
-                    local r, g, b = EllesmereUI.GetAccentColor()
-                    clickFS:SetTextColor(r, g, b, 1)
-                end)
-                self._buffInfoClick = clickBtn
             end
+            -- Reorder / per-icon hint shown directly below the preview icons.
+            -- Buff bars and CD/utility bars get different wording; FocusKick has
+            -- its own info text instead and is not user-reorderable.
+            if not self._reorderHintText then
+                local rh = self:CreateFontString(nil, "OVERLAY")
+                rh:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                rh:SetJustifyH("CENTER")
+                rh:SetWordWrap(true)
+                rh:SetTextColor(0.62, 0.62, 0.62, 0.9)
+                self._reorderHintText = rh
+            end
+            local function ShowReorderHint(text)
+                local rh = self._reorderHintText
+                rh:SetText(EllesmereUI.L(text))
+                rh:ClearAllPoints()
+                rh:SetPoint("TOP", self, "TOPLEFT", self:GetWidth() / 2, -(totalH + 14))
+                rh:SetWidth(self:GetWidth() - 20)
+                rh:Show()
+                self:SetHeight(totalH + 10 + rh:GetStringHeight() + 20)
+            end
+
             if isBuffBar then
                 if self._buffInfoText then self._buffInfoText:Hide() end
-                local clickBtn = self._buffInfoClick
-                clickBtn:ClearAllPoints()
-                clickBtn:SetPoint("TOP", self, "TOPLEFT", self:GetWidth() / 2, -(totalH + 14))
-                local fs = clickBtn._fs
-                local textW = fs and fs:GetStringWidth() or 0
-                clickBtn:SetWidth(math.max(textW + 4, 30))
-                clickBtn:Show()
+                if self._buffInfoClick then self._buffInfoClick:Hide() end
                 -- Clean up hidden rows from previous implementation
                 if self._hiddenRows then
                     for _, hr in ipairs(self._hiddenRows) do hr:Hide() end
                 end
                 if self._hiddenHeader then self._hiddenHeader:Hide() end
                 if self._focusKickInfoText then self._focusKickInfoText:Hide() end
-                self:SetHeight(totalH + 10 + 14 + 20)
+                ShowReorderHint("Drag to Reorder. Click to override display settings and add custom effects per icon")
             elseif isFocusKick then
                 if self._buffInfoText then self._buffInfoText:Hide() end
                 if self._buffInfoClick then self._buffInfoClick:Hide() end
+                if self._reorderHintText then self._reorderHintText:Hide() end
                 if not self._focusKickInfoText then
                     local fkFS = self:CreateFontString(nil, "OVERLAY")
                     fkFS:SetFont(FONT_PATH, 11, GetCDMOptOutline())
@@ -8758,7 +9170,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if self._buffInfoText then self._buffInfoText:Hide() end
                 if self._buffInfoClick then self._buffInfoClick:Hide() end
                 if self._focusKickInfoText then self._focusKickInfoText:Hide() end
-                self:SetHeight(totalH + 10)
+                ShowReorderHint("Drag to Reorder. Click to add custom glows, active/cooldown state effects and more.")
             end
 
             -- Resize wrapper to min(content, max) and toggle scrollbar
@@ -9288,7 +9700,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         if not isFocusKick then
-        _, h = W:SectionHeader(parent, "Bar Layout", y);  y = y - h
+        _, h = W:SectionHeader(parent, "BAR LAYOUT", y);  y = y - h
 
         -- Row 1: (Sync) Visibility | Visibility Options (checkbox dropdown)
         local visRow, visH = W:DualRow(parent, y,
@@ -9541,6 +9953,25 @@ initFrame:SetScript("OnEvent", function(self)
         if ns.IsBarBuffFamily(barData) then
             local prof = ns.ECME and ns.ECME.db and ns.ECME.db.profile
             -- Hide Buffs When Inactive toggle removed: always forced ON.
+        end
+
+        -- Keep Buffs in Same Place (native buff bars): reserves every tracked buff's
+        -- slot so active buffs never reposition; inactive slots are invisible. Reuses
+        -- the Always-Show placeholder path internally (placeholders injected, then
+        -- rendered alpha 0). Mutually exclusive with Always Show Buffs -- disabled
+        -- while that is on.
+        if isBuffBar then
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Keep Buffs in Same Place",
+                  disabled=function() return BD().showInactiveBuffIcons == true end,
+                  disabledTooltip="Disabled while Always Show Buffs is enabled", rawTooltip=true,
+                  getValue=function() return BD().hidePlaceholderIcon == true end,
+                  setValue=function(v)
+                      BD().hidePlaceholderIcon = v
+                      ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="label", text="" }); y = y - h
         end
 
         end -- not isFocusKick (Bar Layout section)
@@ -9855,24 +10286,9 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         --  ICON DISPLAY
         -------------------------------------------------------------------
-        -- Centered hint: per-icon overrides are reached by right-clicking a
-        -- preview icon. Buff bars expose display overrides (Buff Glow, Duration
-        -- Text, Charge/Stack, ...); CD/utility bars expose glows + active-state
-        -- effects. One hint per bar type so both never show together.
-        do
-            local hintText = isBuffBar
-                and "Override display settings per icon by right clicking on icons in the preview"
-                or "Add Custom Glows and Active State Effects by right clicking on icons in the preview"
-            local hint = parent:CreateFontString(nil, "OVERLAY")
-            hint:SetFont(FONT_PATH, 13, GetCDMOptOutline())
-            hint:SetJustifyH("CENTER")
-            hint:SetWidth(parent:GetWidth() - 60)
-            hint:SetPoint("TOP", parent, "TOP", 0, y - 20)
-            hint:SetText(EllesmereUI.L(hintText))
-            hint:SetTextColor(0.62, 0.62, 0.62, 0.9)
-            y = y - 32
-        end
-        _, h = W:SectionHeader(parent, "Icon Display", y);  y = y - h
+        -- (The per-icon hint now lives directly below the preview icons -- see
+        -- the reorder hint in BuildCDMLivePreview's pf.Update.)
+        _, h = W:SectionHeader(parent, "ICON DISPLAY", y);  y = y - h
 
         -- Active State Animation dropdown values
         local ACTIVE_ANIM_VALUES = {
@@ -9932,6 +10348,12 @@ initFrame:SetScript("OnEvent", function(self)
             local row1Left
             if isBuffBar then
                 row1Left = { type="toggle", text="Always Show Buffs",
+                    -- Mutually exclusive with "Keep Buffs in Same Place" (Bar Layout).
+                    -- Disabled while that is the active choice. The extra
+                    -- "and showInactiveBuffIcons ~= true" keeps a legacy both-on profile
+                    -- unlockable: this toggle stays enabled so it can be turned off.
+                    disabled=function() local b=BD(); return b.hidePlaceholderIcon == true and b.showInactiveBuffIcons ~= true end,
+                    disabledTooltip="Disabled while Keep Buffs in Same Place is enabled", rawTooltip=true,
                     getValue=function() return BD().showInactiveBuffIcons == true end,
                     setValue=function(v)
                         BD().showInactiveBuffIcons = v
@@ -11070,7 +11492,7 @@ initFrame:SetScript("OnEvent", function(self)
         local isCustomBuffBar = (barData.barType == "custom_buff")
         local isAnyBuffBar = isBuffGlowBar  -- buffs or custom_buff
         if not isCustomBuffBar and not isFocusKick then
-        _, h = W:SectionHeader(parent, "Extras", y);  y = y - h
+        _, h = W:SectionHeader(parent, "EXTRAS", y);  y = y - h
 
         -- Show Tooltip | Show Keybind (not for buff bars)
         if not isAnyBuffBar then

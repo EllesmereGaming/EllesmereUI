@@ -30,7 +30,10 @@ local GLOW_STYLES = {
       atlas = "UI-HUD-ActionBar-Proc-Loop-Flipbook", texPadding = 1.4 },
     { name = "Classic WoW Glow",
       texture = "Interface\\SpellActivationOverlay\\IconAlertAnts",
-      rows = 5, columns = 5, frames = 25, duration = 0.3,
+      -- 5x5 grid = 25 cells, but only the first 22 are real ant frames; the last
+      -- 3 are blank. Playing all 25 flashed an empty gap each loop that read as a
+      -- backwards stutter. 22 matches what the Action Button Glow uses.
+      rows = 5, columns = 5, frames = 22, duration = 0.3,
       frameW = 48, frameH = 48, texPadding = 1.25 },
 }
 
@@ -285,10 +288,42 @@ end
 --  Action Button Glow Engine
 --  Outer glow (soft border from IconAlert) + animated marching ants.
 -------------------------------------------------------------------------------
+-- Marching-ants sprite cycler. Replaces a Blizzard SharedXML global that was
+-- removed in 12.0 (present on live, nil on the PTR -> the glow OnUpdate erroring
+-- out). Framerate-independent: it advances by however many cells the elapsed
+-- time covers and carries the remainder, so the march speed is identical whether
+-- the glow driver ticks at 60fps or faster, and it does not inherit the original
+-- global's framerate-dependent quirks. ANTS_FRAME_TIME (seconds per cell) is the
+-- single knob for the speed. State lives on our own ants texture.
+local ANTS_FRAME_TIME = 0.017  -- ~59 cells/sec -> ~0.37s per 22-frame loop
+local function _AnimateTexCoords(tex, sheetW, sheetH, cellW, cellH, numFrames, elapsed)
+    if not tex._euiAnimCols then
+        tex._euiAnimCols  = floor(sheetW / cellW)
+        tex._euiAnimColW  = cellW / sheetW
+        tex._euiAnimRowH  = cellH / sheetH
+        tex._euiAnimFrame = 0
+        tex._euiAnimAccum = 0
+    end
+    tex._euiAnimAccum = tex._euiAnimAccum + elapsed
+    if tex._euiAnimAccum < ANTS_FRAME_TIME then return end
+
+    local advance = floor(tex._euiAnimAccum / ANTS_FRAME_TIME)
+    tex._euiAnimAccum = tex._euiAnimAccum - advance * ANTS_FRAME_TIME
+    local frame = (tex._euiAnimFrame + advance) % numFrames
+    tex._euiAnimFrame = frame
+
+    local cols = tex._euiAnimCols
+    local colW = tex._euiAnimColW
+    local rowH = tex._euiAnimRowH
+    local left = (frame % cols) * colW
+    local top  = floor(frame / cols) * rowH
+    tex:SetTexCoord(left, left + colW, top, top + rowH)
+end
+
 local function _ButtonGlowOnUpdate(self, elapsed)
     local d = self._euiBgData
     if not d then return end
-    AnimateTexCoords(d.ants, 256, 256, 48, 48, 22, elapsed, 0.01)
+    _AnimateTexCoords(d.ants, 256, 256, 48, 48, 22, elapsed)
 end
 
 local function StartButtonGlow(wrapper, szOrW, cr, cg, cb, scale, szH)

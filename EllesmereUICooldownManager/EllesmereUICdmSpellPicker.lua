@@ -674,11 +674,22 @@ local function EnsureBarOrderSeeded(barKey, sd)
     local icons = cdmBarIcons and cdmBarIcons[barKey]
     if not icons then return end
     local fcCache = ns._ecmeFC
+    -- Buff-family bars seed by the DISPLAYED / canonical id (the same id the
+    -- per-icon settings and options preview key off), not fc.spellID -- which for
+    -- buffs is the cooldownInfo base / a shared ability id. CD/utility keep
+    -- fc.spellID (their icon IS the ability, so the two ids coincide).
+    local isBuff = ns.IsBarBuffFamily and ns.IsBarBuffFamily(barKey)
     for i = 1, #icons do
         local icon = icons[i]
         if icon then
             local fc = fcCache and fcCache[icon]
-            local sid = fc and fc.spellID
+            local sid
+            if isBuff then
+                sid = (ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(icon))
+                    or (fc and fc.spellID)
+            else
+                sid = fc and fc.spellID
+            end
             if type(sid) == "number" and sid > 0 then
                 sd.assignedSpells[#sd.assignedSpells + 1] = sid
             end
@@ -719,6 +730,48 @@ function ns.MoveTrackedSpell(barKey, fromIdx, toIdx)
     while #t > 0 and (t[#t] == 0 or t[#t] == nil) do t[#t] = nil end
     ns._spellOrderDirty = true
     local frame = cdmBarFrames[barKey]
+    if frame then frame._blizzCache = nil end
+    if ns.QueueReanchor then ns.QueueReanchor() end
+    return true
+end
+
+--- Default buffs bar DISPLAY-ORDER reorder helpers.
+---
+--- The default "buffs" bar's assignedSpells is shared with routing + custom
+--- injection (RebuildSpellRouteMap Pass 4 diverts it at highest priority), so it
+--- CANNOT carry the full buff order without clobbering buffs the user diverted to
+--- other bars. Instead the display order lives in a dedicated buffDisplayOrder
+--- array of STABLE keys ("c"..cooldownID for Blizzard buffs, "s"..spellID for
+--- customs) that only the sort + preview + drag read -- routing never touches it.
+--- cooldownID is used (not the canonical spellID) because a buff's canonical id
+--- flips between ability/aura form across active<->inactive. The array is always
+--- the full visible set (seeded + reconciled by the options preview build), so
+--- reorders are plain index ops with no zero-padding and no route-map rebuild.
+function ns.SwapBuffDisplayOrder(idx1, idx2)
+    local sd = ns.GetBarSpellData("buffs")
+    local t = sd and sd.buffDisplayOrder
+    if not t then return false end
+    if idx1 < 1 or idx2 < 1 or idx1 > #t or idx2 > #t then return false end
+    t[idx1], t[idx2] = t[idx2], t[idx1]
+    ns._spellOrderDirty = true
+    local frame = cdmBarFrames["buffs"]
+    if frame then frame._blizzCache = nil end
+    if ns.QueueReanchor then ns.QueueReanchor() end
+    return true
+end
+
+function ns.MoveBuffDisplayOrder(fromIdx, toIdx)
+    if fromIdx == toIdx then return false end
+    local sd = ns.GetBarSpellData("buffs")
+    local t = sd and sd.buffDisplayOrder
+    if not t then return false end
+    if fromIdx < 1 or fromIdx > #t then return false end
+    if toIdx < 1 then toIdx = 1 end
+    if toIdx > #t then toIdx = #t end
+    local val = table.remove(t, fromIdx)
+    table.insert(t, toIdx, val)
+    ns._spellOrderDirty = true
+    local frame = cdmBarFrames["buffs"]
     if frame then frame._blizzCache = nil end
     if ns.QueueReanchor then ns.QueueReanchor() end
     return true

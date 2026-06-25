@@ -1433,7 +1433,7 @@ initFrame:SetScript("OnEvent", function(self)
             local visRow1
             visRow1, h = W:DualRow(parent, y,
                 { type="dropdown", text="Visibility",
-                  values=EllesmereUI.VIS_VALUES, order=EllesmereUI.VIS_ORDER,
+                  values=EllesmereUI.VIS_VALUES_AB, order=EllesmereUI.VIS_ORDER_AB,
                   disabled=_visBlizzDis, disabledTooltip=_visBlizzDis and _VIS_BLIZZ_TIP or nil, rawTooltip=true,
                   getValue=function()
                       return GetVisibilityKey(SB())
@@ -1792,7 +1792,7 @@ initFrame:SetScript("OnEvent", function(self)
                       local target = wt or ht
                       if target then
                           local name = (EllesmereUI.GetBarLabel and EllesmereUI.GetBarLabel(target)) or target
-                          return "Size matched to " .. name .. ". Unmatch in Unlock Mode to edit."
+                          return EllesmereUI.Lf("Size matched to %1$s. Unmatch in Unlock Mode to edit.", name)
                       end
                       return BLIZZ_DIS_TIP
                   end,
@@ -2891,7 +2891,12 @@ initFrame:SetScript("OnEvent", function(self)
                 })
             end
 
-            -- Row 3: Show Blizzard Icon Background (+ cog) | empty
+            -- Row 3: Show Blizzard Icon Background (+ cog) | Show Cooldown Numbers
+            -- "Show Cooldown Numbers" is a LIVE toggle of Blizzard's
+            -- countdownForCooldowns CVar -- it is never stored in our DB. getValue
+            -- reads the CVar; setValue writes it. We only touch the CVar when the
+            -- user actively flips the toggle (same approach as the global-settings
+            -- CVar controls, e.g. Lag Tolerance).
             local zoomIbgRow
             zoomIbgRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Show Blizzard Icon Background",
@@ -2904,7 +2909,15 @@ initFrame:SetScript("OnEvent", function(self)
                       end
                       EllesmereUI:RefreshPage()
                   end },
-                { type="label", text="" });  y = y - h
+                { type="toggle", text="Show Cooldown Numbers",
+                  tooltip="Toggles Blizzard's Show Numbers for Cooldowns setting, which will show number text on any spells that are on cooldown on your action bars.",
+                  getValue=function() return GetCVarBool("countdownForCooldowns") end,
+                  setValue=function(v)
+                      if InCombatLockdown() then return end
+                      SetCVar("countdownForCooldowns", v and "1" or "0")
+                      -- Refresh so the inline cog dims/undims with the CVar state.
+                      EllesmereUI:RefreshPage()
+                  end });  y = y - h
             -- Inline cog: Icon Background Opacity (left region)
             do
                 local rgn = zoomIbgRow._leftRegion
@@ -2943,6 +2956,46 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
                 EllesmereUI.RegisterWidgetRefresh(function()
                     ibgCogBtn:SetAlpha(IbgOff() and 0.15 or 0.4)
+                end)
+            end
+            -- Inline cog: Show Cooldown Numbers (right region). Holds the optional
+            -- charge-spell recharge-number toggle (our feature, saved to the DB).
+            -- Dimmed when the parent CVar is off (no cooldown numbers show at all).
+            do
+                local rgn = zoomIbgRow._rightRegion
+                local _, cdnCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Cooldown Numbers",
+                    rows = {
+                        { type="toggle", label="Charge Recharge Numbers",
+                          tooltip="Show the recharge countdown on charge spells while a charge is still banked. When off, the recharge timer only appears at 0 charges (Blizzard default).",
+                          get=function() return EAB.db.profile.showChargeRechargeNumbers ~= false end,
+                          set=function(v)
+                              EAB.db.profile.showChargeRechargeNumbers = v
+                              EAB:RefreshChargeRechargeNumbers()
+                          end },
+                    },
+                })
+                local cdnCtrl = rgn._control
+                local cdnCogBtn = MakeCogBtn(rgn, cdnCogShow, cdnCtrl, EllesmereUI.COGS_ICON)
+                local function CdnOff() return not GetCVarBool("countdownForCooldowns") end
+                cdnCogBtn:SetAlpha(CdnOff() and 0.15 or 0.4)
+                cdnCogBtn:SetScript("OnEnter", function(self)
+                    if CdnOff() then
+                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Show Cooldown Numbers"))
+                    else
+                        self:SetAlpha(0.7)
+                    end
+                end)
+                cdnCogBtn:SetScript("OnLeave", function(self)
+                    EllesmereUI.HideWidgetTooltip()
+                    self:SetAlpha(CdnOff() and 0.15 or 0.4)
+                end)
+                cdnCogBtn:SetScript("OnClick", function(self)
+                    if CdnOff() then return end
+                    cdnCogShow(self)
+                end)
+                EllesmereUI.RegisterWidgetRefresh(function()
+                    cdnCogBtn:SetAlpha(CdnOff() and 0.15 or 0.4)
                 end)
             end
             -------------------------------------------------------------------
@@ -4665,7 +4718,14 @@ initFrame:SetScript("OnEvent", function(self)
                   -- ActionBarActionEventsFrame is killed at file-load time.
                   -- Casting animation visibility is handled by ApplySettings.
               end },
-            { type="label", text="" });  y = y - h
+            { type="toggle", text="Show Highlight on Spell Cast",
+              tooltip="The highlight overlay that appears on a spell button while it is the active/current action. Disable to hide it.",
+              rawTooltip=true,
+              getValue=function() return p.showCastHighlight ~= false end,
+              setValue=function(v)
+                  p.showCastHighlight = v
+                  EAB:ApplyCheckedTextures()
+              end });  y = y - h
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 

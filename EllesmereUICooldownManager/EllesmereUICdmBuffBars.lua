@@ -464,10 +464,13 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     wrapFrame._gradTex  = nil
 
     -- Text overlay: parented to wrapFrame (not bar) so bar's SetClipsChildren
-    -- doesn't chop text when font size exceeds bar height.
+    -- doesn't chop text when font size exceeds bar height. Level sits ABOVE the
+    -- border (set to bar +5 in ApplySettings) and the pandemic glow (wrapFrame
+    -- +6) so the timer/name/stacks text renders on top of the border instead of
+    -- beneath it. Keyed off bar (like the border) so the two track together.
     local textOverlay = CreateFrame("Frame", nil, wrapFrame)
     textOverlay:SetAllPoints(bar)
-    textOverlay:SetFrameLevel(bar:GetFrameLevel() + 3)
+    textOverlay:SetFrameLevel(bar:GetFrameLevel() + 6)
     wrapFrame._textOverlay = textOverlay
 
     -- Timer text
@@ -1886,6 +1889,19 @@ function ns.RegisterTBBUnlockElements()
                     -- OR disabled (a disabled member re-enables straight into the
                     -- chain, so its own mover would be a phantom). When no checked
                     -- bar is enabled the anchor is nil and all are hidden.
+                    return idx ~= ns.TBBGroupAnchorIndex()
+                end,
+                -- Grouped non-anchor members are positioned by the relative
+                -- SetPoint chain in BuildTrackedBuffBars. Report them as
+                -- addon-owned so the generic anchor system never repositions
+                -- them -- otherwise a cascade/override SetPoint severs the chain
+                -- (e.g. in combat via a stale per-member anchor link). The group
+                -- ANCHOR returns false, so it stays fully element-anchorable.
+                isAnchored = function()
+                    local t = ns.GetTrackedBuffBars()
+                    local b = t and t.bars
+                    local c = b and b[idx]
+                    if not c or not ns.TBBBarGrouped(c) then return false end
                     return idx ~= ns.TBBGroupAnchorIndex()
                 end,
                 getFrame = function() return tbbFrames[idx] end,

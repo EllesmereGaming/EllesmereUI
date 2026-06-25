@@ -707,8 +707,6 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUIMythicTimer", {
         title       = "Mythic+ Timer",
         description = "Track Mythic+ run time, key thresholds, and dungeon objectives.",
-        icon_on  = "Interface\\AddOns\\EllesmereUI\\media\\icons\\sidebar\\mplus-ig-on.png",
-        icon_off = "Interface\\AddOns\\EllesmereUI\\media\\icons\\sidebar\\mplus-ig.png",
         pages    = { PAGE_DISPLAY },
         buildPage = BuildPage,
         onReset  = function()

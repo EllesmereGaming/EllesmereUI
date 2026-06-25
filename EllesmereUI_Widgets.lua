@@ -2019,6 +2019,48 @@ local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue
     return ddBtn, ddLbl
 end
 
+-- Long row labels would otherwise run straight into their control (or off the
+-- row, for checkboxes). Bound the label between its left inset and the control
+-- so overflow truncates with a trailing ellipsis instead of overlapping. When
+-- truncation happens the full label is surfaced on hover: folded into the
+-- existing description tooltip when there is one, or shown on its own when there
+-- isn't. Short labels are detected as non-truncating and keep their exact prior
+-- look. Returns the hover text to show (nil if none) and whether it truncated.
+local function ClampRowLabel(label, rightFrame, rightPoint, gap, text, tooltip)
+    label:SetJustifyH("LEFT")
+    label:SetWordWrap(false)
+    label:SetMaxLines(1)
+    label:SetPoint("RIGHT", rightFrame, rightPoint, -(gap or 12), 0)
+
+    local truncated = false
+    local nw, bw = label:GetStringWidth(), label:GetWidth()
+    if not (issecretvalue and (issecretvalue(nw) or issecretvalue(bw))) then
+        truncated = (nw or 0) > (bw or 0) + 0.5
+    end
+
+    if truncated and tooltip then
+        -- Both parts pre-localized; the composite is not a catalog key, so the
+        -- L() inside ShowWidgetTooltip leaves it untouched.
+        return EllesmereUI.L(text) .. "\n" .. EllesmereUI.L(tooltip), true
+    elseif truncated then
+        return text, true
+    end
+    return tooltip, false
+end
+
+-- Standard label hover region (mouse motion only, clicks pass through). Created
+-- only when there is something to show.
+local function AttachLabelHover(parent, label, hoverText)
+    if not hoverText then return end
+    local hit = CreateFrame("Frame", nil, parent)
+    hit:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
+    hit:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 5, -5)
+    hit:SetScript("OnEnter", function() ShowWidgetTooltip(label, hoverText) end)
+    hit:SetScript("OnLeave", function() HideWidgetTooltip() end)
+    hit:SetMouseClickEnabled(false)
+    return hit
+end
+
 -- Toggle switch  (pill-shaped, teal when ON, dark when OFF, animated)
 function WidgetFactory:Toggle(parent, text, yOffset, getValue, setValue, tooltip)
     local ROW_H = 50
@@ -2031,18 +2073,11 @@ function WidgetFactory:Toggle(parent, text, yOffset, getValue, setValue, tooltip
     label:SetPoint("LEFT", frame, "LEFT", 20, 0)
     label:SetText(EllesmereUI.L(text))
 
-    if tooltip then
-        local hitFrame = CreateFrame("Frame", nil, frame)
-        hitFrame:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
-        hitFrame:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 5, -5)
-        hitFrame:SetScript("OnEnter", function() ShowWidgetTooltip(label, tooltip) end)
-        hitFrame:SetScript("OnLeave", function() HideWidgetTooltip() end)
-        hitFrame:SetMouseClickEnabled(false)
-    end
-
     -- Toggle button
     local toggle, _, tgSnap = BuildToggleControl(frame, frame:GetFrameLevel() + 1, getValue, setValue)
     toggle:SetPoint("RIGHT", frame, "RIGHT", -20, 0)
+
+    AttachLabelHover(frame, label, (ClampRowLabel(label, toggle, "LEFT", 12, text, tooltip)))
 
     RegisterWidgetRefresh(tgSnap)
 
@@ -2060,17 +2095,10 @@ function WidgetFactory:Slider(parent, text, yOffset, minVal, maxVal, step, getVa
     local label = MakeFont(frame, 14, nil, TEXT_WHITE_R, TEXT_WHITE_G, TEXT_WHITE_B)
     PP.Point(label, "LEFT", frame, "LEFT", 20, 0)
     label:SetText(EllesmereUI.L(text))
-    if tooltip then
-        local hitFrame = CreateFrame("Frame", nil, frame)
-        hitFrame:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
-        hitFrame:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 5, -5)
-        hitFrame:SetScript("OnEnter", function() ShowWidgetTooltip(label, tooltip) end)
-        hitFrame:SetScript("OnLeave", function() HideWidgetTooltip() end)
-        hitFrame:SetMouseClickEnabled(false)
-    end
     local trackFrame, valBox = BuildSliderCore(frame, 320, 4, 14, 40, 26, 13, SL.INPUT_A, minVal, maxVal, step, getValue, setValue)
     PP.Point(valBox, "RIGHT", frame, "RIGHT", -20, 0)
     PP.Point(trackFrame, "RIGHT", valBox, "LEFT", -16, 0)
+    AttachLabelHover(frame, label, (ClampRowLabel(label, trackFrame, "LEFT", 12, text, tooltip)))
     return frame, ROW_H
 end
 
@@ -2087,20 +2115,21 @@ function WidgetFactory:Dropdown(parent, text, yOffset, values, getValue, setValu
     PP.Point(label, "LEFT", frame, "LEFT", 20, 0)
     label:SetText(EllesmereUI.L(text))
     local ddBtn, ddLbl = BuildDropdownControl(frame, 200, frame:GetFrameLevel() + 1, values, order, getValue, setValue)
-    if tooltip then
+    PP.Point(ddBtn, "RIGHT", frame, "RIGHT", -20, 0)
+    local hoverText = ClampRowLabel(label, ddBtn, "LEFT", 12, text, tooltip)
+    if hoverText then
         local hitFrame = CreateFrame("Frame", nil, frame)
         hitFrame:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
         hitFrame:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 5, -5)
         hitFrame:SetScript("OnEnter", function()
             if not (ddBtn._ddMenu and ddBtn._ddMenu:IsShown()) then
-                ShowWidgetTooltip(label, tooltip)
+                ShowWidgetTooltip(label, hoverText)
             end
         end)
         hitFrame:SetScript("OnLeave", function() HideWidgetTooltip() end)
         hitFrame:SetMouseClickEnabled(false)
-        ddBtn._ttText = tooltip
+        ddBtn._ttText = hoverText
     end
-    PP.Point(ddBtn, "RIGHT", frame, "RIGHT", -20, 0)
     RegisterWidgetRefresh(function()
         ddLbl:SetText(DDResolveLabel(values, order, getValue()))
     end)
@@ -2129,14 +2158,7 @@ function WidgetFactory:Checkbox(parent, text, yOffset, getValue, setValue, toolt
     label:SetPoint("LEFT", box, "RIGHT", 10, 0)
     label:SetText(EllesmereUI.L(text))
 
-    if tooltip then
-        local hitFrame = CreateFrame("Frame", nil, btn)
-        hitFrame:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
-        hitFrame:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 5, -5)
-        hitFrame:SetScript("OnEnter", function() ShowWidgetTooltip(label, tooltip) end)
-        hitFrame:SetScript("OnLeave", function() HideWidgetTooltip() end)
-        hitFrame:SetMouseClickEnabled(false)
-    end
+    AttachLabelHover(btn, label, (ClampRowLabel(label, btn, "RIGHT", 20, text, tooltip)))
 
     local isHovering = false
 
@@ -4565,12 +4587,27 @@ local function BuildCogPopup(opts)
             end
         end
 
+        -- True while any dropdown menu opened from inside this popup is shown and
+        -- moused over. Exposed on the popup so external close-logic (e.g. a parent
+        -- menu that drives this popup as a flyout with its own _clickOutside
+        -- disabled) can stay open when the user clicks a dropdown option whose list
+        -- extends below the popup's own rect.
+        pf._anyDropdownHovered = function()
+            for _, rw in ipairs(rowWidgets) do
+                if (rw.type == 'dropdown' or rw.type == 'reorder') and rw.btn and rw.btn._ddMenu
+                   and rw.btn._ddMenu:IsShown() and rw.btn._ddMenu:IsMouseOver() then
+                    return true
+                end
+            end
+            return false
+        end
+
         -- Click-outside-to-close handler (also closes when scrolled out of view)
         local wasDown = false
         pf._clickOutside = function(self)
             local down = IsMouseButtonDown("LeftButton")
             if down and not wasDown then
-                local ddOpen = false; for _, rw in ipairs(rowWidgets) do if (rw.type == 'dropdown' or rw.type == 'reorder') and rw.btn and rw.btn._ddMenu and rw.btn._ddMenu:IsShown() and rw.btn._ddMenu:IsMouseOver() then ddOpen = true; break end end; if not self:IsMouseOver() and not (popupOwner and popupOwner:IsMouseOver()) and not ddOpen then
+                if not self:IsMouseOver() and not (popupOwner and popupOwner:IsMouseOver()) and not pf._anyDropdownHovered() then
                     self:Hide()
                 end
             end

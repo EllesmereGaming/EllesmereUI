@@ -126,7 +126,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
-        _, h = W:SectionHeader(parent, "GROUP FINDER QUEUE", y);  y = y - h
+        _, h = W:SectionHeader(parent, "BLIZZARD WINDOW RESKINS", y);  y = y - h
 
         local _eqolLoaded = C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("EnhanceQoL")
         local queueRow
@@ -187,10 +187,6 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        _, h = W:Spacer(parent, y, 20);  y = y - h
-
-        _, h = W:SectionHeader(parent, "GAME PAUSE MENU", y);  y = y - h
-
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Reskin Pause Menu",
               tooltip="Reskins the ESC / Game Menu with the EUI dark style, matching fonts, and accent-colored title.",
@@ -214,14 +210,7 @@ initFrame:SetScript("OnEvent", function(self)
                       })
                   end
               end },
-            { type="label", text="" }
-        );  y = y - h
-
-        _, h = W:Spacer(parent, y, 20); y = y - h
-        _, h = W:SectionHeader(parent, "THE GREAT VAULT", y);  y = y - h
-
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Enable Great Vault Skin",
+            { type="toggle", text="Reskin Great Vault",
               tooltip="Reskins the Great Vault window with custom tile backgrounds, progress colors, and completion states.",
               getValue=function()
                   if not EllesmereUIDB then return false end
@@ -242,9 +231,66 @@ initFrame:SetScript("OnEvent", function(self)
                           onConfirm   = function() ReloadUI() end,
                       })
                   end
+              end }
+        );  y = y - h
+
+        -- TEMP DISABLED: Group Finder reskin + QoL toggles. The feature file is
+        -- also commented out of EllesmereUIBlizzardSkin.toc. Revert both by
+        -- removing the --[[ and --]] markers here and uncommenting the TOC line.
+        --[[
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Reskin LFG Menu",
+              tooltip="Reskins the Group Finder / Premade Groups window with the EUI dark style.",
+              getValue=function()
+                  if not EllesmereUIDB then return false end
+                  -- Seed the default ONCE on first read: enabled only if both
+                  -- Reskin Blizzard Elements (customTooltips) and Reskin Queue
+                  -- Popup are enabled at that moment; stored thereafter so it
+                  -- stays fixed regardless of later changes to those toggles.
+                  if EllesmereUIDB.reskinLFGMenu == nil then
+                      EllesmereUIDB.reskinLFGMenu = (EllesmereUIDB.customTooltips ~= false) and (EllesmereUIDB.reskinQueuePopup ~= false)
+                  end
+                  return EllesmereUIDB.reskinLFGMenu
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.reskinLFGMenu = v
+                  if EllesmereUI.ShowConfirmPopup then
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Reload Required",
+                          message     = "Changing the Group Finder reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
+                          confirmText = "Reload Now",
+                          cancelText  = "Later",
+                          onConfirm   = function() ReloadUI() end,
+                      })
+                  end
+              end },
+            { type="toggle", text="Auto-Refresh Group Search",
+              tooltip="Automatically refreshes the Premade Groups list every few seconds while you are browsing, so newly posted groups appear without clicking Refresh.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.lfgAutoRefresh == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.lfgAutoRefresh = v
+                  if EllesmereUI._GroupFinder_RefreshQoL then EllesmereUI._GroupFinder_RefreshQoL() end
+              end }
+        );  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Remember Sign-Up Roles",
+              tooltip="Remembers the Tank/Healer/DPS roles you last applied with and restores them the next time you sign up to a premade group (limited to roles your current spec can fill).",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.lfgRememberRoles == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.lfgRememberRoles = v
+                  if EllesmereUI._GroupFinder_RefreshQoL then EllesmereUI._GroupFinder_RefreshQoL() end
               end },
             { type="label", text="" }
         );  y = y - h
+        --]]
 
         return math.abs(y)
     end
@@ -434,6 +480,9 @@ initFrame:SetScript("OnEvent", function(self)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.showEnchants = v
                   if EllesmereUI._refreshEnchantsVisibility then EllesmereUI._refreshEnchantsVisibility() end
+                  -- Refresh so the inline Enchant Settings cog updates its
+                  -- disabled state in lockstep with this toggle.
+                  EllesmereUI:RefreshPage()
               end },
             { type="toggle", text="Show Gems",
               tooltip="Toggle visibility of gem icons inside equipment slots.",
@@ -445,6 +494,51 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
         AttachDisabledOverlay(enchGemRow)
+
+        -- Inline cog on the Enchants toggle: "Show Enchant Names". Disabled
+        -- (grayed, non-interactive) while Enchants are hidden, since the name
+        -- only replaces the enchant icon when enchants are shown.
+        do
+            local rgn = enchGemRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Enchant Settings",
+                rows = {
+                    { type="toggle", label="Show Enchant Names",
+                      tooltip="Show each enchant's name as text (colored to match that item's item level) instead of its icon. The name normally appears only when hovering the icon.",
+                      get=function() return EllesmereUIDB and EllesmereUIDB.charSheetEnchantNames or false end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.charSheetEnchantNames = v
+                          if EllesmereUI._refreshCharSheetSlotLabels then EllesmereUI._refreshCharSheetSlotLabels() end
+                      end },
+                    { type="slider", label="Text Size", min=6, max=20, step=1,
+                      disabled=function() return not (EllesmereUIDB and EllesmereUIDB.charSheetEnchantNames) end,
+                      disabledTooltip="Show Enchant Names",
+                      get=function() return (EllesmereUIDB and EllesmereUIDB.charSheetEnchantSize) or 9 end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.charSheetEnchantSize = v
+                          if EllesmereUI._refreshCharSheetSlotLabels then EllesmereUI._refreshCharSheetSlotLabels() end
+                      end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY"); cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            local function enchantsOn() return EllesmereUIDB and EllesmereUIDB.showEnchants ~= false end
+            cogBtn:SetScript("OnEnter", function(s) if enchantsOn() then s:SetAlpha(0.7) end end)
+            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(enchantsOn() and 0.4 or 0.15) end)
+            cogBtn:SetScript("OnClick", function(s) if enchantsOn() then cogShow(s) end end)
+            local function cogState()
+                local on = enchantsOn()
+                cogBtn:SetAlpha(on and 0.4 or 0.15)
+                cogBtn:EnableMouse(on)
+            end
+            EllesmereUI.RegisterWidgetRefresh(cogState); cogState()
+        end
 
         local pvpRow
         pvpRow, h = W:DualRow(parent, y,

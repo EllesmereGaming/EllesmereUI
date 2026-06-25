@@ -461,12 +461,13 @@ initFrame:SetScript("OnEvent", function(self)
     --  Value tables for dropdowns
     ---------------------------------------------------------------------------
     local healthColorValues = {
-        ["class"]    = "Class Color",
-        ["dark"]     = "Dark Mode",
-        ["classic"]  = "Classic",
-        ["custom"]   = "Custom Color",
+        ["class"]         = "Class Color",
+        ["dark"]          = "Dark Mode",
+        ["classic"]       = "Classic",
+        ["custom"]        = "Custom Color",
+        ["customDynamic"] = "Custom Dynamic Colors",
     }
-    local healthColorOrder = { "class", "dark", "classic", "custom" }
+    local healthColorOrder = { "class", "dark", "classic", "custom", "customDynamic" }
 
     local namePositionValues = {
         ["topleft"]    = "Top Left",
@@ -735,6 +736,9 @@ initFrame:SetScript("OnEvent", function(self)
                                     local r = pct < 0.5 and 1 or (1 - (pct - 0.5) * 2)
                                     local g = pct > 0.5 and 1 or (pct * 2)
                                     f._health:SetStatusBarColor(r, g, 0, (s.healthBarOpacity or 100) / 100)
+                                elseif s.healthColorMode == "customDynamic" then
+                                    local r, g, b = ns.ResolveDynamicColor(s, st.current / 100)
+                                    f._health:SetStatusBarColor(r, g, b, (s.healthBarOpacity or 100) / 100)
                                 end
                             end -- snapTimer ready
                         end
@@ -906,6 +910,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 2: Fill Color | Background
         row, h = W:DualRow(parent, y,
             { type="dropdown", text="Fill Color", values=healthColorValues, order=healthColorOrder,
+              tooltip="Custom Dynamic Colors: the health bar smoothly blends between three colors you pick -- one for full health (100%), one for half (50%), and one for empty (0%) -- shifting through them as the unit takes damage or is healed.",
               getValue=function() return SVal("healthColorMode", "class") end,
               setValue=function(v)
                   SSet("healthColorMode", v)
@@ -916,9 +921,13 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip="Not available in Dark Mode", rawTooltip=true,
               getValue=function() return SVal("bgDarkness", 50) end,
               setValue=function(v) SSet("bgDarkness", v) end });  y = y - h
-        -- Inline color swatch for custom fill color
+        -- Inline color swatch for custom fill color, plus the three Custom Dynamic
+        -- Colors stop swatches (100% / 50% / 0%). Only one set is interactive at a
+        -- time depending on the Fill Color mode; they share the same inline slot.
         do
             local rgn = row._leftRegion
+
+            -- Single custom-color swatch (Custom Color mode)
             local swatch = EllesmereUI.BuildColorSwatch(
                 rgn, row:GetFrameLevel() + 3,
                 function()
@@ -939,9 +948,52 @@ initFrame:SetScript("OnEvent", function(self)
             block:EnableMouse(true)
             block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, "Only available with Custom fill color") end)
             block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Custom Dynamic Colors: three gradient-stop swatches, built right-to-left
+            -- from the dropdown control so the visual order reads 100% | 50% | 0%.
+            -- The percentage is conveyed via each swatch's tooltip.
+            local dynDefs = {
+                { key = "dynamicColor100", def = { r = 0, g = 1, b = 0 }, label = "100%", tip = "Health bar color at full (100%) health" },
+                { key = "dynamicColor50",  def = { r = 1, g = 1, b = 0 }, label = "50%",  tip = "Health bar color at half (50%) health" },
+                { key = "dynamicColor0",   def = { r = 1, g = 0, b = 0 }, label = "0%",   tip = "Health bar color at empty (0%) health" },
+            }
+            local dynSwatches = {}
+            local prevAnchor = rgn._control
+            for i = #dynDefs, 1, -1 do
+                local dd = dynDefs[i]
+                local sw = EllesmereUI.BuildColorSwatch(
+                    rgn, row:GetFrameLevel() + 3,
+                    function()
+                        local c = SGet(dd.key) or dd.def
+                        return c.r, c.g, c.b, 1
+                    end,
+                    function(r, g, b)
+                        SWrite(dd.key, { r=r, g=g, b=b })
+                        ReloadAndUpdate()
+                    end, false, 18)
+                sw:SetPoint("RIGHT", prevAnchor, "LEFT", (prevAnchor == rgn._control) and -8 or -6, 0)
+                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, dd.tip) end)
+                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                dynSwatches[i] = sw
+                prevAnchor = sw
+            end
+
             local function UpdateSwatchVis()
-                local enabled = SVal("healthColorMode", "class") == "custom"
-                if enabled then swatch:SetAlpha(1); block:Hide() else swatch:SetAlpha(0.3); block:Show() end
+                local mode = SVal("healthColorMode", "class")
+                local isDynamic = mode == "customDynamic"
+                -- Single custom swatch: active only in Custom mode; dimmed + blocked in
+                -- other modes (existing behavior), but fully hidden in Dynamic mode so
+                -- it does not sit behind the three dynamic swatches.
+                if isDynamic then
+                    swatch:Hide(); block:Hide()
+                else
+                    swatch:Show()
+                    if mode == "custom" then swatch:SetAlpha(1); block:Hide()
+                    else swatch:SetAlpha(0.3); block:Show() end
+                end
+                for _, sw in ipairs(dynSwatches) do
+                    if isDynamic then sw:Show() else sw:Hide() end
+                end
             end
             EllesmereUI.RegisterWidgetRefresh(UpdateSwatchVis)
             UpdateSwatchVis()
@@ -1211,6 +1263,10 @@ initFrame:SetScript("OnEvent", function(self)
                       rawTooltip = true,
                       get=function() return SVal("absorbEdgeMode", "overlay") end,
                       set=function(v) SSet("absorbEdgeMode", v) end },
+                    { type="toggle", label="Show Overshield",
+                      tooltip="Show the part of an absorb that exceeds your empty health and backfills over your current health. When off, absorbs only fill the empty part of the health bar; on Default Blizz Frames the glow line stays pinned at the right edge.",
+                      get=function() return SVal("showOvershield", true) end,
+                      set=function(v) SSet("showOvershield", v) end },
                 },
             })
             local cogBtn = CreateFrame("Button", nil, rgn)
@@ -2253,6 +2309,61 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
 
+        -- Ready Check / Summon icon position + size (the two indicators share a
+        -- single texture, so one set of controls drives both).
+        local readyCheckPositionValues = {
+            topleft     = "Top Left",
+            top         = "Top",
+            topright    = "Top Right",
+            left        = "Left",
+            center      = "Center",
+            right       = "Right",
+            bottomleft  = "Bottom Left",
+            bottom      = "Bottom",
+            bottomright = "Bottom Right",
+        }
+        local readyCheckPositionOrder = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+        local rcRow
+        rcRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Ready Check & Summon", values=readyCheckPositionValues, order=readyCheckPositionOrder,
+              getValue=function() return SVal("readyCheckPosition", "center") end,
+              setValue=function(v) SSet("readyCheckPosition", v) end },
+            { type="slider", text="Icon Size", min=8, max=40, step=1,
+              getValue=function() return SVal("readyCheckSize", 20) end,
+              setValue=function(v) SSet("readyCheckSize", v) end });  y = y - h
+        -- Cog for ready check / summon toggles + offset X/Y
+        do
+            local rgn = rcRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Ready Check / Summon",
+                rows = {
+                    { type="toggle", label="Show Ready Check",
+                      get=function() return SVal("showReadyCheck", true) end,
+                      set=function(v) SSet("showReadyCheck", v) end },
+                    { type="toggle", label="Show Incoming Summon",
+                      get=function() return SVal("showSummonPending", true) end,
+                      set=function(v) SSet("showSummonPending", v) end },
+                    { type="slider", label="Offset X", min=-50, max=50, step=1,
+                      get=function() return SVal("readyCheckOffsetX", 0) end,
+                      set=function(v) SSet("readyCheckOffsetX", v) end },
+                    { type="slider", label="Offset Y", min=-50, max=50, step=1,
+                      get=function() return SVal("readyCheckOffsetY", 0) end,
+                      set=function(v) SSet("readyCheckOffsetY", v) end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+        end
+
         -- Status Text Position (+ cog for X/Y) | Text Size (+ inline color swatch)
         local statusTextPositionValues = {
             none        = "None",
@@ -2360,8 +2471,12 @@ initFrame:SetScript("OnEvent", function(self)
         do
             local rgn = row._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Leader Icon Offset",
+                title = "Leader Icon",
                 rows = {
+                    { type="toggle", label="Show In Combat",
+                      tooltip="Show the leader/assistant icon while you are in combat. Disable to hide it during combat.",
+                      get=function() return SVal("showLeaderIconInCombat", true) end,
+                      set=function(v) SSet("showLeaderIconInCombat", v); if ns._UpdateLeaderIcons then ns._UpdateLeaderIcons() end end },
                     { type="slider", label="Offset X", min=-50, max=50, step=1,
                       get=function() return SVal("leaderIconOffsetX", 0) end,
                       set=function(v) SSet("leaderIconOffsetX", v) end },
@@ -2566,8 +2681,11 @@ initFrame:SetScript("OnEvent", function(self)
         do
             local rgn = row._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Dispel Icon Offset",
+                title = "Dispel Icon",
                 rows = {
+                    { type="slider", label="Icon Size", min=8, max=48, step=1,
+                      get=function() return SVal("dispelIconSize", 16) end,
+                      set=function(v) SSet("dispelIconSize", v) end },
                     { type="slider", label="Offset X", min=-50, max=50, step=1,
                       get=function() return SVal("dispelIconOffsetX", 0) end,
                       set=function(v) SSet("dispelIconOffsetX", v) end },
@@ -2583,10 +2701,10 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
             cogBtn:SetAlpha(SVal("showDispelIcons", false) and 0.4 or 0.15)
             local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
+            cogBtn:SetScript("OnEnter", function(self) if SVal("showDispelIcons", false) then self:SetAlpha(0.7) end end)
             cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(SVal("showDispelIcons", false) and 0.4 or 0.15) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            cogBtn:SetScript("OnClick", function(self) if SVal("showDispelIcons", false) then cogShow(self) end end)
         end
 
         -- Row 3: Dispel Colors -- five always-active swatches, one per dispel type.
@@ -4154,6 +4272,10 @@ initFrame:SetScript("OnEvent", function(self)
                       tooltip="Collapse subgroups that have no members so the remaining groups close ranks. For example, if only groups 1, 2, 3 and 6 have players, they show with no gaps instead of leaving empty space where groups 4 and 5 would be. Real raid frames only.",
                       get=function() return SVal("hideEmptyGroups", true) end,
                       set=function(v) SSet("hideEmptyGroups", v) end },
+                    { type="toggle", label="Exclude Hidden from Size",
+                      tooltip="When using custom raid sizes, don't count members in hidden groups toward the raid-size breakpoint. For example, if you hide groups 7 and 8, a full 40-man raid is sized as if it were 24-man instead of jumping to the 30-man frame size. Has no effect unless you have custom raid sizes set up.",
+                      get=function() return SVal("excludeHiddenGroupsFromSize", true) end,
+                      set=function(v) SSet("excludeHiddenGroupsFromSize", v) end },
                 },
             })
             local cogBtn = CreateFrame("Button", nil, rgn)

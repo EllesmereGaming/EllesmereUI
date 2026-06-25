@@ -31,8 +31,6 @@ local EUI_HOST_ADDON = ...
 local IS_STANDALONE = type(EUI_HOST_ADDON) == "string" and EUI_HOST_ADDON:find("Standalone") ~= nil
 if IS_STANDALONE then return end
 
-local PAGE_PATCHNOTES = "Patch Notes"
-
 local PP = EllesmereUI.PanelPP
 local MakeBorder = EllesmereUI.MakeBorder
 local ELLESMERE_GREEN = EllesmereUI.ELLESMERE_GREEN
@@ -196,8 +194,12 @@ local function ShowPatchNotesPopup()
                 EllesmereUI.Print("|cffff6060[EllesmereUI]|r Cannot open options during combat. Use /eui to view Patch Notes.")
                 return
             end
-            if EllesmereUI.NavigateToElementSettings then
-                EllesmereUI:NavigateToElementSettings(EllesmereUI.GLOBAL_KEY or "_EUIGlobal", PAGE_PATCHNOTES, nil, nil, nil)
+            -- Patch Notes is its own sidebar module now (_EUIPatchNotes), not a
+            -- page under Global Settings. Select that module directly so the
+            -- sidebar highlights Patch Notes (mirrors the sidebar button OnClick).
+            if EllesmereUI.SelectModule then
+                EllesmereUI:Show()
+                EllesmereUI:SelectModule("_EUIPatchNotes")
             end
         end
     end
@@ -246,7 +248,7 @@ local function ShowPatchNotesPopup()
     footnote:SetWidth(POPUP_W - 80)
     footnote:SetJustifyH("CENTER")
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 16)
-    footnote:SetText("Open it anytime from Global Settings > Patch Notes.")
+    footnote:SetText("Open it anytime from the EUI Options Sidebar.")
 
     -- Escape = Maybe Later (the non-committal default). Consume Escape, propagate
     -- other keys so chat/UI shortcuts still work behind the dimmer.

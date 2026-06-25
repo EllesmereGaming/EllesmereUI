@@ -177,7 +177,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("objectiveFontSize", v); RefreshAll() end })
         y = y - h
 
-        -- Row 4: Font | (empty)
+        -- Row 4: Font | Show Quest Icons
         do
             local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
             _, h = W:DualRow(parent, y,
@@ -194,7 +194,19 @@ initFrame:SetScript("OnEvent", function(self)
                           onConfirm   = function() ReloadUI() end,
                       })
                   end },
-                { type="label", text="" })
+                { type="toggle", text="Show Quest Icons",
+                  tooltip="Show Blizzard's native quest type icons/buttons on the right instead of EllesmereUI's custom icons. Requires a UI reload.",
+                  getValue=function() return Cfg("showQuestIcons") or false end,
+                  setValue=function(v)
+                      Set("showQuestIcons", v)
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Reload Required",
+                          message     = "Changing quest icons requires a UI reload to apply.",
+                          confirmText = "Reload Now",
+                          cancelText  = "Later",
+                          onConfirm   = function() ReloadUI() end,
+                      })
+                  end })
         end
         y = y - h
 

@@ -1405,6 +1405,21 @@ initFrame:SetScript("OnEvent", function(self)
         -- Zone data
         local zones = _G._EABR_TALENT_REMINDER_ZONES or {}
 
+        local zoneByName = {}
+        for _, z in ipairs(zones) do
+            if z.name then zoneByName[z.name] = z end
+        end
+
+        local function GetZoneDisplayName(zoneName)
+            if not zoneName or zoneName == "" then return EllesmereUI.L("Unknown") end
+            local z = zoneByName[zoneName]
+            local name = EllesmereUI.L(zoneName)
+            if z and z.type == "raid" then
+                return name .. EllesmereUI.L(" (Raid)")
+            end
+            return name
+        end
+
         -----------------------------------------------------------------------
         --  Talent enumeration helpers (live from C_Traits)
         -----------------------------------------------------------------------
@@ -1454,7 +1469,7 @@ initFrame:SetScript("OnEvent", function(self)
             for idx in pairs(selectedZoneMap) do
                 if selectedZoneMap[idx] then
                     local z = zones[idx]
-                    if z then names[#names + 1] = z.name end
+                    if z then names[#names + 1] = GetZoneDisplayName(z.name) end
                 end
             end
             if #names == 0 then return "Select Dungeon/Raid/PvP Zone" end
@@ -1686,7 +1701,7 @@ initFrame:SetScript("OnEvent", function(self)
             lbl:SetPoint("RIGHT", item, "RIGHT", -8, 0)
             lbl:SetJustifyH("LEFT")
             lbl:SetWordWrap(false)
-            lbl:SetText(z.name .. (z.type == "raid" and EllesmereUI.L(" (Raid)") or ""))
+            lbl:SetText(GetZoneDisplayName(z.name))
 
             local function UpdateCheck()
                 cbCheck:SetShown(selectedZoneMap[i] == true)
@@ -2248,9 +2263,13 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Zone name (after delete icon, truncated to fit left portion)
                 local zoneStr
                 if reminder.zoneNames and #reminder.zoneNames > 0 then
-                    zoneStr = table.concat(reminder.zoneNames, ", ")
+                    local names = {}
+                    for _, zoneName in ipairs(reminder.zoneNames) do
+                        names[#names + 1] = GetZoneDisplayName(zoneName)
+                    end
+                    zoneStr = table.concat(names, ", ")
                 else
-                    zoneStr = reminder.zoneName or "Unknown"
+                    zoneStr = GetZoneDisplayName(reminder.zoneName)
                 end
                 local zoneFS = row:CreateFontString(nil, "OVERLAY")
                 zoneFS:SetFont(fontPath, 14, GetABROptOutline())

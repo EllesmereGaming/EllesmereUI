@@ -573,15 +573,24 @@ function ECHAT.ApplySidebarIconScale()
     local BASE_ICON = 22
     local BASE_FONT = 9
 
+    -- _freeMoveH mirrors each icon's height from these known size constants so
+    -- the free-move natural-position walk (TopYFromSidebarTop) never has to call
+    -- GetHeight() -- a geometry resolve that can taint the Edit-Mode ChatFrame1.
+    -- These are our own frames, so writing the field is safe.
     for _, key in ipairs({ "copyBtn", "portalBtn", "voiceBtn", "settingsBtn", "scrollBtn" }) do
         local btn = CFD(cf1)[key]
-        if btn then btn:SetSize(BASE_ICON * scale, BASE_ICON * scale) end
+        if btn then
+            btn:SetSize(BASE_ICON * scale, BASE_ICON * scale)
+            btn._freeMoveH = BASE_ICON * scale
+        end
     end
     if CFD(cf1).friendsBtn then
         CFD(cf1).friendsBtn:SetSize(BASE_FRIEND * scale, BASE_FRIEND * scale)
+        CFD(cf1).friendsBtn._freeMoveH = BASE_FRIEND * scale
     end
     if CFD(cf1).friendsCount then
         CFD(cf1).friendsCount:SetFont(GetFont(), max(7, BASE_FONT * scale), "")
+        CFD(cf1).friendsCount._freeMoveH = max(7, BASE_FONT * scale)
     end
 end
 
@@ -602,21 +611,61 @@ local function SaveIconOffset(key, x, y)
     cfg.iconPositions[key] = { x = x, y = y }
 end
 
+-- Y offset of `frame`'s TOP edge below the SIDEBAR's TOP edge, computed from
+-- GetPoint (stored anchor data, no geometry resolve) plus each frame's STORED
+-- height (_freeMoveH, written from known size constants in ApplySidebarIconScale).
+--
+-- CRITICAL: this deliberately never calls GetHeight()/GetWidth()/GetCenter() or
+-- any geometry-RESOLVING getter. Those resolve a frame's rect by walking its
+-- anchor chain, which for our icons runs icon -> sidebar -> chat bg -> ChatFrame1.
+-- ChatFrame1 is Edit-Mode-secured; forcing its layout to resolve from our
+-- insecure code TAINTS it, and the next BN whisper then errors in HistoryKeeper /
+-- FCFManager. GetHeight here used to taint ChatFrame1 whenever its geometry was
+-- still unresolved at the moment of the walk (login timing / saved chat layout) --
+-- which is why it only hit some users. Reading the pre-stored _freeMoveH removes
+-- the resolve entirely while keeping the math identical.
+local function TopYFromSidebarTop(frame, sb, depth)
+    if frame == sb or (depth or 0) > 12 then return 0 end
+    local point, relTo, relPoint, _, dy = frame:GetPoint(1)
+    if not point or not relTo then return 0 end
+    local relTopY = TopYFromSidebarTop(relTo, sb, (depth or 0) + 1)
+    local relH = (relTo ~= sb) and (relTo._freeMoveH or 0) or 0
+    local relEdgeY = relTopY
+    if relPoint and relPoint:find("BOTTOM") then
+        relEdgeY = relTopY - relH
+    elseif relPoint == "CENTER" or relPoint == "LEFT" or relPoint == "RIGHT" then
+        relEdgeY = relTopY - relH / 2
+    end
+    local edgeY = relEdgeY + (dy or 0)
+    if point:find("TOP") then return edgeY end
+    if point:find("BOTTOM") then return edgeY + (frame._freeMoveH or 0) end
+    return edgeY + (frame._freeMoveH or 0) / 2
+end
+
+-- Capture each icon's natural position as an offset from a sidebar EDGE (TOP for
+-- the top-stacked icons, BOTTOM for the scroll button), computed taint-safely.
+-- Stored once; re-applying never reads live geometry, so offsets never compound.
+local function CaptureNatural(btn, sb)
+    if btn._freeMoveNat then return end
+    local point = btn:GetPoint(1)
+    if not point then return end
+    if point:find("BOTTOM") then
+        local _, _, _, _, dy = btn:GetPoint(1)
+        btn._freeMoveNat = { edge = "BOTTOM", y = dy or 0 }
+    else
+        btn._freeMoveNat = { edge = "TOP", y = TopYFromSidebarTop(btn, sb, 0) }
+    end
+end
+
+-- Re-anchor an icon DIRECTLY to its sidebar edge at natural + saved offset, so
+-- each icon moves independently (no chain, no compounding).
 local function ApplyIconOffset(btn, sb)
     if not btn or not sb or not btn:IsShown() then return end
-    local key = btn._freeMoveKey
-    if not key then return end
-    -- Break the chain for ALL icons: re-anchor directly to sidebar so moving
-    -- one does not drag the rest. The position is derived from the icon's
-    -- CAPTURED natural chain position (_freeMoveNat*) plus the saved offset, so
-    -- re-applying is idempotent. Reading the live center here instead would
-    -- compound the offset on every reload/refresh (the icon's current center
-    -- already includes the previous offset), which made icons fly around.
-    local natX, natY = btn._freeMoveNatX, btn._freeMoveNatY
-    if not natX then return end
-    local ox, oy = GetIconOffset(key)
+    local nat = btn._freeMoveNat
+    if not nat then return end
+    local ox, oy = GetIconOffset(btn._freeMoveKey)
     btn:ClearAllPoints()
-    btn:SetPoint("CENTER", sb, "CENTER", natX + ox, natY + oy)
+    btn:SetPoint(nat.edge, sb, nat.edge, ox, nat.y + oy)
 end
 
 local function EnableIconFreeMove(btn)
@@ -637,58 +686,42 @@ local function EnableIconFreeMove(btn)
         end)
     end
 
-    local isDragging = false
-    local startX, startY, origOffX, origOffY
-    local origPoint, origRel, origRelPoint, origX, origY
+    local startX, startY, baseOX, baseOY
 
+    -- Drag re-anchors to the icon's own sidebar edge at natural + (offset+delta).
+    -- GetEffectiveScale walks the PARENT chain (button->sidebar->UIParent), not
+    -- the anchor chain to ChatFrame1, so it is taint-safe. GetParent() == sidebar.
     local function FreeMoveOnUpdate(self)
         if not IsMouseButtonDown("LeftButton") then
-            isDragging = false
             self:SetScript("OnUpdate", nil)
             C_Timer.After(0, function() self._freeMoveJustDragged = nil end)
-            local es = self:GetEffectiveScale()
-            local cx, cy = GetCursorPosition()
-            cx, cy = cx / es, cy / es
-            local dx, dy = cx - startX, cy - startY
-            SaveIconOffset(key, origOffX + dx, origOffY + dy)
             return
         end
+        local nat = self._freeMoveNat
+        if not nat then return end
         local es = self:GetEffectiveScale()
         local cx, cy = GetCursorPosition()
-        cx, cy = cx / es, cy / es
-        local dx, dy = cx - startX, cy - startY
-        if origPoint then
-            self:ClearAllPoints()
-            self:SetPoint(origPoint, origRel, origRelPoint, origX + origOffX + dx, origY + origOffY + dy)
-        end
+        local nx = baseOX + (cx / es - startX)
+        local ny = baseOY + (cy / es - startY)
+        self:ClearAllPoints()
+        self:SetPoint(nat.edge, self:GetParent(), nat.edge, nx, nat.y + ny)
+        SaveIconOffset(key, nx, ny)
     end
 
     btn:HookScript("OnMouseDown", function(self, button)
-        if button ~= "LeftButton" then return end
-        if not IsShiftKeyDown() then return end
+        if button ~= "LeftButton" or not IsShiftKeyDown() then return end
         local cfg = ECHAT.DB()
-        if not cfg.freeMoveIcons then return end
-        isDragging = true
+        if not cfg.freeMoveIcons or not self._freeMoveNat then return end
         self._freeMoveJustDragged = true
         local es = self:GetEffectiveScale()
         startX, startY = GetCursorPosition()
         startX, startY = startX / es, startY / es
-        origOffX, origOffY = GetIconOffset(key)
-        origPoint, origRel, origRelPoint, origX, origY = self:GetPoint(1)
-        origX = (origX or 0) - origOffX
-        origY = (origY or 0) - origOffY
+        baseOX, baseOY = GetIconOffset(key)
         self:SetScript("OnUpdate", FreeMoveOnUpdate)
     end)
 
-    btn:HookScript("OnMouseUp", function(self, button)
-        if button ~= "LeftButton" or not isDragging then return end
-        isDragging = false
+    btn:HookScript("OnMouseUp", function(self)
         self:SetScript("OnUpdate", nil)
-        local es = self:GetEffectiveScale()
-        local cx, cy = GetCursorPosition()
-        cx, cy = cx / es, cy / es
-        local dx, dy = cx - startX, cy - startY
-        SaveIconOffset(key, origOffX + dx, origOffY + dy)
         C_Timer.After(0, function() self._freeMoveJustDragged = nil end)
     end)
 end
@@ -699,6 +732,18 @@ function ECHAT.ApplyIconFreeMove()
     local sb = cf1 and CFD(cf1).sidebar
     if not sb then return end
 
+    -- Free move is opt-in. When it is OFF (the common case) we do NOTHING here:
+    -- no anchor-chain capture, no drag-hook install, no offsets. This guard is
+    -- the actual fix for the on-some-profiles taint -- CaptureNatural walks the
+    -- icon anchor chain, and running that walk while the feature is disabled was
+    -- pure cost that, for users whose chat geometry was still unresolved at
+    -- login, resolved up to and tainted the Edit-Mode ChatFrame1. The setting
+    -- previously gated only the offset APPLY; the capture ran unconditionally.
+    -- Enabling the toggle re-runs ApplySidebarIcons -> ApplyIconFreeMove, so the
+    -- hooks install the moment the feature is turned on. Icons left untouched
+    -- here simply keep their natural chain layout, which is exactly what we want.
+    if not cfg.freeMoveIcons then return end
+
     local btns = {
         { ref = "friendsBtn", key = "friends" },
         { ref = "copyBtn",    key = "copy" },
@@ -708,38 +753,28 @@ function ECHAT.ApplyIconFreeMove()
         { ref = "scrollBtn",  key = "scroll" },
     }
 
-    -- Phase 1: enable drag hooks and capture each icon's natural (chain-layout)
-    -- center delta from the sidebar. We only (re)capture for icons still sitting
-    -- in the chain (anchor point ~= "CENTER"); once an icon has been re-anchored
-    -- to CENTER by a previous pass its live center already includes the saved
-    -- offset, so we keep the stored natural instead of re-reading it. This phase
-    -- only READS positions (no SetPoint), so processing order cannot let one
-    -- icon's offset contaminate the next icon's captured natural.
-    local sx, sy = sb:GetCenter()
+    -- PHASE 1 -- capture every icon's natural anchor (GetPoint anchor data +
+    -- stored heights, never a geometry-resolving getter; see TopYFromSidebarTop)
+    -- and install the drag hooks. This MUST complete for ALL icons before any
+    -- icon is re-anchored in Phase 2. The capture walks each icon's anchor chain,
+    -- so if Phase 2 ran interleaved, a later icon's walk would read an earlier
+    -- icon's already-applied offset and bake it into its "natural" position --
+    -- making icons drift on every reload. Two phases keep the chain pristine
+    -- throughout capture.
     for _, info in ipairs(btns) do
         local btn = CFD(cf1)[info.ref]
         if btn then
             btn._freeMoveKey = info.key
+            CaptureNatural(btn, sb)
             EnableIconFreeMove(btn)
-            if sx and btn:IsShown() then
-                local pt = btn:GetPoint(1)
-                if pt and pt ~= "CENTER" then
-                    local bx, by = btn:GetCenter()
-                    if bx then
-                        btn._freeMoveNatX = bx - sx
-                        btn._freeMoveNatY = by - sy
-                    end
-                end
-            end
         end
     end
 
-    -- Phase 2: apply saved offsets from the stable captured naturals.
-    if cfg.freeMoveIcons then
-        for _, info in ipairs(btns) do
-            local btn = CFD(cf1)[info.ref]
-            if btn then ApplyIconOffset(btn, sb) end
-        end
+    -- PHASE 2 -- re-anchor each icon to its sidebar edge at natural + saved
+    -- offset, so the icons move independently of one another.
+    for _, info in ipairs(btns) do
+        local btn = CFD(cf1)[info.ref]
+        if btn then ApplyIconOffset(btn, sb) end
     end
 end
 
@@ -1696,7 +1731,13 @@ end)
 -------------------------------------------------------------------------------
 local _skinned = {}
 
--- Chat message events that indicate real player/NPC chat (not system).
+-- Chat events that count as real PLAYER chat activity (used ONLY to reset the
+-- idle-fade timer). MONSTER_SAY / MONSTER_YELL are deliberately EXCLUDED: in a
+-- party their sender (chanSender) is a SECRET value, and registering this
+-- insecure frame for those events taints Blizzard's HistoryKeeper when it
+-- string-converts the secret sender -> "tainted by EllesmereUIChat" spam on every
+-- monster line. Ambient NPC chat is not user activity, so excluding it is also
+-- correct for the feature. All sender names below are plain visible player names.
 local CHAT_MSG_EVENTS = {
     CHAT_MSG_SAY = true, CHAT_MSG_YELL = true,
     CHAT_MSG_PARTY = true, CHAT_MSG_PARTY_LEADER = true,
@@ -1706,7 +1747,6 @@ local CHAT_MSG_EVENTS = {
     CHAT_MSG_WHISPER = true, CHAT_MSG_WHISPER_INFORM = true,
     CHAT_MSG_BN_WHISPER = true, CHAT_MSG_BN_WHISPER_INFORM = true,
     CHAT_MSG_CHANNEL = true,
-    CHAT_MSG_MONSTER_SAY = true, CHAT_MSG_MONSTER_YELL = true,
 }
 
 -------------------------------------------------------------------------------
@@ -1943,6 +1983,16 @@ local function SkinEditBox(cf)
         end
     end
     ApplyEditBoxHeaderFont(eb)
+
+    -- Edit box HOOKS (not the plain setters above) taint a temp whisper
+    -- window's execution context. When that conversation's secure code later
+    -- touches its secret tellTarget (e.g. a BN_WHISPER presence ID) it poisons
+    -- the shared ChatHistory access tables, after which EVERY chat message
+    -- errors in HistoryKeeper for the rest of the session. Only the permanent
+    -- docked frames (1-10) are safe to hook; temp windows (11+) get visual
+    -- skinning only. (This matches the function header's stated intent and the
+    -- 1-10 header-font gate in ECHAT.ApplyFonts.)
+    if idx <= 10 then
     eb:HookScript("OnEditFocusGained", function(self) ApplyEditBoxHeaderFont(self) end)
 
     eb:SetAltArrowKeyMode(false)
@@ -1995,6 +2045,7 @@ local function SkinEditBox(cf)
                 CFD(self).histIdx = 0
             end)
         end
+    end
 end
 
 local function SkinChatFrame(cf)
@@ -2826,7 +2877,11 @@ initFrame:SetScript("OnEvent", function(self)
         end
         idleEventFrame:SetScript("OnEvent", OnActiveMessage)
 
-        for i = 1, 20 do
+        -- Permanent docked frames only (1-10). Hooking a temp whisper edit box
+        -- (11+) taints its execution context and poisons HistoryKeeper on
+        -- BN_WHISPER. Temp windows do not exist at login, but a /reload with a
+        -- conversation window open could expose them here, so gate it.
+        for i = 1, 10 do
             local eb = _G["ChatFrame" .. i .. "EditBox"]
             if eb then
                 eb:HookScript("OnEditFocusGained", OnActiveMessage)

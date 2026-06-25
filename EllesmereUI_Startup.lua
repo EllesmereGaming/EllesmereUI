@@ -200,45 +200,20 @@ do
     end)
 end
 
--- Override WoW's default font objects so Blizzard elements
--- inherit our font without per-frame SetFont calls (taint-safe)
-
-do
-    local MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\"
-    local FONT_FILES = {
-        ["Expressway"]          = "Expressway.TTF",
-        ["Avant Garde"]         = "AvantGarde.TTF",
-        ["Arial Bold"]          = "arialbd.ttf",
-        ["Poppins"]             = "Poppins-Medium.ttf",
-        ["Fira Sans Medium"]    = "FiraSans-Medium.ttf",
-    }
-
-    local function ApplyGlobalFont()
-        if not EllesmereUIDB then return end
-        -- Master "Reskin Blizzard Elements" toggle (customTooltips key)
-        if EllesmereUIDB.customTooltips == false then return end
-        local globalName = EllesmereUIDB.fontSettings
-            and EllesmereUIDB.fontSettings.global
-            or "Expressway"
-        local file = FONT_FILES[globalName]
-        if file then
-            _G.STANDARD_TEXT_FONT = MEDIA .. file
-        end
-    end
-
-    ApplyGlobalFont()
-
-    local f = CreateFrame("Frame")
-    f:RegisterEvent("ADDON_LOADED")
-    f:RegisterEvent("PLAYER_LOGIN")
-    f:SetScript("OnEvent", function(self, event, addonName)
-        if event == "ADDON_LOADED" and addonName ~= ADDON_NAME then return end
-        ApplyGlobalFont()
-        if event == "PLAYER_LOGIN" then
-            self:UnregisterAllEvents()
-        end
-    end)
-end
+-- NOTE: the global _G.STANDARD_TEXT_FONT override that used to live here was
+-- removed. It was gated on the "Reskin Blizzard Elements" (customTooltips) toggle
+-- and read a dead legacy key (EllesmereUIDB.fontSettings.global), so it always
+-- forced STANDARD_TEXT_FONT to the bundled Expressway.TTF -- a Latin-only face --
+-- regardless of the user's actual font choice. In CJK/Cyrillic locales that broke
+-- glyphs across the whole Blizzard UI AND other addons (square boxes), because it
+-- bypassed the locale-aware ResolveFontName fallback.
+--
+-- Changing the global game-text font is now handled exclusively by the opt-in,
+-- locale-aware EllesmereUI.ApplyGlobalFontToGameText() ("Apply to All Game Text"),
+-- which runs once at PLAYER_LOGIN. Reskinned Blizzard elements still pick up the
+-- EllesmereUI font on their own via per-element, locale-aware SetFont calls
+-- (EllesmereUI.GetFontPath("blizzardSkin")), so reskinning no longer touches the
+-- global font and never affects other addons.
 
 -------------------------------------------------------------------------------
 --  Auto-disable EllesmereUIBags when a dedicated bag addon is present.

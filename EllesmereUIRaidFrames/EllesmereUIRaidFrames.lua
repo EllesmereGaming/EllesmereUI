@@ -30,25 +30,25 @@ ns.NICK_ADDON = ADDON_NAME:find("Standalone") and ADDON_NAME or "EllesmereUI"
 --  Kept on `ns` (not file-scope locals) to avoid the Lua 5.1 local cap in this
 --  large file, and shared with EUI_RaidFrames_BuffManager.lua.
 -------------------------------------------------------------------------------
+ns.LVL_DISPEL_OVERLAY = 7  -- Blizzard private-aura dispel gradient: below the border (+8) and name/health text (+12) so it renders BEHIND them (like the regular dispel overlay), but above the health bar so it stays visible. Per-slot private-aura icons stay above at LVL_AURA.
 ns.LVL_AURA   = 13   -- base level for every aura icon/bar (children at +1..+5); sits ONE above the name/health text (+12) so auras draw over text
 ns.LVL_RAISE  = 20   -- main border while hovered/targeted (PP container at +1)
 ns.LVL_MARKER = 22   -- raid marker icon (always on top)
 
 -------------------------------------------------------------------------------
---  Chat-strata host: lowers a frame onto the chat frame's strata, one level
---  above it, so its contents render on the SAME layer as chat (just above chat
---  on that layer) instead of the marker carrier's always-on-top layer. Used by
---  the leader/assistant icon host. Re-applied on reload so it tracks the chat
---  frame's current strata/level (and recovers if a container SetFrameStrata
---  cascade reset it). Mirrors the chat sidebar's own strata match.
+--  Leader-icon host strata: keeps the leader/assistant icon host on the
+--  button's own strata, in the above-border/below-aura band (ns.LVL_AURA - 1,
+--  same as the name/health text) so the crown clears the GENERAL border while
+--  auras still draw over it. The hover/target border raise (+ns.LVL_RAISE)
+--  intentionally covers it. Re-applied on reload so it recovers if a container
+--  SetFrameStrata cascade reset it. (Previously this lowered the host onto the
+--  chat strata, which left the icon drawing BENEATH the border entirely.)
 -------------------------------------------------------------------------------
-function ns.ApplyChatStrata(frame)
-    local cf = DEFAULT_CHAT_FRAME
-    if cf and cf.GetFrameStrata then
-        frame:SetFrameStrata(cf:GetFrameStrata())
-        frame:SetFrameLevel((cf:GetFrameLevel() or 0) + 1)
-    else
-        frame:SetFrameStrata("LOW")
+function ns.ApplyLeaderStrata(frame)
+    local parent = frame:GetParent()
+    if parent then
+        frame:SetFrameStrata(parent:GetFrameStrata())
+        frame:SetFrameLevel(parent:GetFrameLevel() + (ns.LVL_AURA - 1))
     end
 end
 
@@ -210,8 +210,10 @@ local RAID_CLASS_COLORS     = RAID_CLASS_COLORS
 local C_UnitAuras_AddPrivateAuraAnchor    = C_UnitAuras and C_UnitAuras.AddPrivateAuraAnchor
 local C_UnitAuras_RemovePrivateAuraAnchor = C_UnitAuras and C_UnitAuras.RemovePrivateAuraAnchor
 
--- Strata bump for private aura container frames (workaround for 12.0.5
--- bug where container icons render behind the parent frame)
+-- Strata bump for the per-slot private aura ICON frames (workaround for 12.0.5
+-- bug where private aura icons render behind the parent frame). The dispel
+-- OVERLAY container does NOT use this -- it stays on the button's own strata at
+-- a below-text frame level so it renders behind the text (see RegisterDispelContainer).
 local PA_STRATA_FIX = {
     BACKGROUND = "LOW", LOW = "MEDIUM", MEDIUM = "HIGH", HIGH = "DIALOG",
 }
@@ -373,6 +375,7 @@ local defaults = {
         mergeGroups      = false,
         visibleGroups    = { true, true, true, true, true, true, false, false },
         hideEmptyGroups  = true,     -- collapse subgroups with no members (raid only, real frames)
+        excludeHiddenGroupsFromSize = true, -- hidden Show Groups don't count toward the raid-size breakpoint
 
         -- Visibility
         showWhenSolo     = false,
@@ -407,8 +410,13 @@ local defaults = {
         -- Health bar
         healthBarTexture = "atrocity",
         healthBarOpacity = 100,
-        healthColorMode  = "class",  -- "class", "dark", "classic", "custom"
+        healthColorMode  = "class",  -- "class", "dark", "classic", "custom", "customDynamic"
         customFillColor  = { r = 37/255, g = 193/255, b = 29/255 },
+        -- Custom Dynamic Colors: user-chosen health-percent gradient stops. Defaults
+        -- match the Classic curve so switching from Classic looks identical at first.
+        dynamicColor100  = { r = 0, g = 1, b = 0 },   -- full health
+        dynamicColor50   = { r = 1, g = 1, b = 0 },   -- half health
+        dynamicColor0    = { r = 1, g = 0, b = 0 },   -- empty health
         customBgColor    = { r = 17/255, g = 17/255, b = 17/255 },
         bgClassColored   = false,
         bgDarkness       = 50,
@@ -472,6 +480,11 @@ local defaults = {
         absorbStyle      = "striped",   -- "none", "striped", "clean", "blizzard"
         absorbOpacity    = 90,
         absorbColor      = { r = 1, g = 1, b = 1 },
+        -- Show the "overshield" -- the part of an absorb that exceeds the empty
+        -- health and backfills over your current health. When off, absorbs only
+        -- fill the empty part of the health bar (and on Default Blizz Frames the
+        -- glow line stays pinned at the right edge during overshields).
+        showOvershield   = true,
         healAbsorbStyle  = "clean",
         healAbsorbOpacity = 75,
         healAbsorbColor  = { r = 0.8, g = 0.15, b = 0.15 },
@@ -519,8 +532,13 @@ local defaults = {
         raidMarkerOffsetY  = 0,
         showReadyCheck   = true,
         showSummonPending = true,
+        readyCheckSize   = 20,
+        readyCheckPosition = "center",  -- "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom"
+        readyCheckOffsetX  = 0,
+        readyCheckOffsetY  = 0,
         threatBorderSize = 2,    -- aggro warning border thickness; 0 = off
         showLeaderIcon   = false,
+        showLeaderIconInCombat = true,  -- "Show In Combat" cog; off = hide in combat
         leaderIconPosition = "top",
         leaderIconSize   = 14,
         leaderIconOffsetX  = 0,
@@ -557,6 +575,7 @@ local defaults = {
         dispelIconPosition = "right",
         dispelIconOffsetX  = 0,
         dispelIconOffsetY  = 0,
+        dispelIconSize     = 16,
         -- Per-dispel-type colors (defaults mirror DISPEL_COLORS). "Bleed" is the
         -- no-dispelName/physical type (stored under the "" key in DISPEL_COLORS).
         dispelColorMagic   = { r = 0.349, g = 0.475, b = 1.0 },
@@ -1118,6 +1137,40 @@ ns._GetRaidSizeFrameDimensions = function(groupSize)
     return baseW, baseH
 end
 
+-- Effective raid head count for size-breakpoint determination. By default (and
+-- when "Exclude Hidden Groups from Size" is on) members sitting in subgroups
+-- hidden via Show Groups are not counted while in a raid. This lets a user hide
+-- groups 7/8 (or any groups) and have the raid-size breakpoint reflect only the
+-- members they actually see, instead of the full roster bumping them into a
+-- smaller-frame tier. Explicitly turned off: returns GetNumGroupMembers()
+-- verbatim (counts the full roster).
+ns._GetEffectiveRaidSize = function()
+    local n = GetNumGroupMembers() or 0
+    if n == 0 then return n end
+    local s = db.profile
+    if s.excludeHiddenGroupsFromSize == false then return n end
+    -- Subgroups only exist in a raid; party/solo has nothing to exclude.
+    if not IsInRaid() then return n end
+    local vg = s.visibleGroups
+    if not vg then return n end
+    -- Skip the roster walk entirely when no group is actually hidden.
+    local anyHidden = false
+    for g = 1, 8 do
+        if vg[g] == false then anyHidden = true; break end
+    end
+    if not anyHidden then return n end
+    local count = 0
+    for ri = 1, n do
+        local _, _, sub = GetRaidRosterInfo(ri)
+        if sub and vg[sub] ~= false then count = count + 1 end
+    end
+    -- Degenerate guard: if every populated group is hidden the filter excludes
+    -- everyone. Fall back to the raw count so we never size for a 0-man raid
+    -- (nothing is shown in that case anyway).
+    if count == 0 then return n end
+    return count
+end
+
 -- Track current active tier so we know when to re-layout
 ns._currentSizeTier = 20
 
@@ -1142,6 +1195,60 @@ local function GetClassicHealthCurve()
     curve:AddPoint(1, CreateColor(0, 1, 0, 1))     -- green at 100%
     classicHealthCurve = curve
     return curve
+end
+
+-- Custom Dynamic Colors: like Classic, but the three gradient stops (full / half /
+-- empty health) are user-chosen. Live frames feed a C_CurveUtil curve to
+-- UnitHealthPercent (secret-value safe, identical to the Classic path); the curve
+-- is cached and rebuilt only when one of the three colors changes. Wrapped in a
+-- do-block so the cache state does not consume main-chunk local slots (this file
+-- is at the Lua 5.1 200-local cap).
+do
+    local DEF100 = { r = 0, g = 1, b = 0 }
+    local DEF50  = { r = 1, g = 1, b = 0 }
+    local DEF0   = { r = 1, g = 0, b = 0 }
+    local dynCurve
+    local r0, g0, b0, r50, g50, b50, r100, g100, b100
+    function ns.GetCustomDynamicCurve(s)
+        s = s or db.profile
+        local c0   = s.dynamicColor0   or DEF0
+        local c50  = s.dynamicColor50  or DEF50
+        local c100 = s.dynamicColor100 or DEF100
+        if not (dynCurve
+            and r0   == c0.r   and g0   == c0.g   and b0   == c0.b
+            and r50  == c50.r  and g50  == c50.g  and b50  == c50.b
+            and r100 == c100.r and g100 == c100.g and b100 == c100.b) then
+            dynCurve = C_CurveUtil.CreateColorCurve()
+            dynCurve:SetType(Enum.LuaCurveType.Linear)
+            dynCurve:AddPoint(0,   CreateColor(c0.r,   c0.g,   c0.b,   1))
+            dynCurve:AddPoint(0.5, CreateColor(c50.r,  c50.g,  c50.b,  1))
+            dynCurve:AddPoint(1,   CreateColor(c100.r, c100.g, c100.b, 1))
+            r0, g0, b0       = c0.r, c0.g, c0.b
+            r50, g50, b50    = c50.r, c50.g, c50.b
+            r100, g100, b100 = c100.r, c100.g, c100.b
+        end
+        return dynCurve
+    end
+
+    -- Clean-number interpolation matching the curve above, for preview surfaces
+    -- where the health percent is a known fake value (0-1). Linear between the
+    -- 0%/50% stops below half, and the 50%/100% stops at or above half.
+    function ns.ResolveDynamicColor(s, pct01)
+        s = s or db.profile
+        local c0   = s.dynamicColor0   or DEF0
+        local c50  = s.dynamicColor50  or DEF50
+        local c100 = s.dynamicColor100 or DEF100
+        if pct01 >= 0.5 then
+            local t = (pct01 - 0.5) * 2
+            return c50.r + (c100.r - c50.r) * t,
+                   c50.g + (c100.g - c50.g) * t,
+                   c50.b + (c100.b - c50.b) * t
+        end
+        local t = pct01 * 2
+        return c0.r + (c50.r - c0.r) * t,
+               c0.g + (c50.g - c0.g) * t,
+               c0.b + (c50.b - c0.b) * t
+    end
 end
 
 -- Dark mode colors (must match UnitFrames exactly)
@@ -1207,6 +1314,13 @@ local function GetHealthColor(unit, s)
             return color:GetRGB()
         end
         return 0, 1, 0
+    elseif mode == "customDynamic" then
+        -- User-customizable gradient via the same secret-safe curve path as Classic
+        local color = UnitHealthPercent(unit, true, ns.GetCustomDynamicCurve(s))
+        if color and color.GetRGB then
+            return color:GetRGB()
+        end
+        return 0, 1, 0
     elseif mode == "custom" then
         local c = s.customFillColor
         return c.r, c.g, c.b
@@ -1248,14 +1362,22 @@ function ns.CapName(display)
     return display
 end
 
+-- Fraction of the frame width the NAME text may fill before it auto-truncates.
+-- 1.0 = the full frame width (names truncate only at 100%). Every name-width
+-- SetWidth routes through this single knob; health text keeps its own inline
+-- budget. On ns (not a file-scope local) to stay clear of the 200-local cap.
+ns.RF_NAME_WIDTH_FRACTION = 1.0
+
 -- Resolve the display name for a unit. Nickname sources are consulted in order:
 -- Northern Sky Raid Tools (NSAPI) first, then Timeline Reminders (TimelineReminders),
--- falling back to the short character name. For NSRT we pass our addon key "EUI"
--- (NSRT added a dedicated per-addon setting + EUI_NICKNAME_TOGGLE callback for us):
--- NSAPI:GetName self-gates on NSRT's Global Nicknames AND its EUI checkbox, so the
--- user controls nicknames entirely through NSRT (no EUI-side toggle). GetName returns
--- the short name when no nickname is set, which falls through to the next source.
--- pcall keeps a misbehaving external API from ever breaking name rendering.
+-- then the Liquid addon (LiquidAPI), falling back to the short character name. For
+-- NSRT we pass our addon key "EUI" (NSRT added a dedicated per-addon setting +
+-- EUI_NICKNAME_TOGGLE callback for us): NSAPI:GetName self-gates on NSRT's Global
+-- Nicknames AND its EUI checkbox, so the user controls nicknames entirely through
+-- NSRT (no EUI-side toggle). GetName returns the short name when no nickname is set,
+-- which falls through to the next source. Each source is gated entirely by its own
+-- addon (no EUI-side toggle), and pcall keeps a misbehaving external API from ever
+-- breaking name rendering.
 local function ResolveDisplayName(unit, applyCap)
     local name = UnitName(unit) or ""
     local display
@@ -1285,6 +1407,19 @@ local function ResolveDisplayName(unit, applyCap)
                     end
                 end
             end
+        end
+    end
+    -- Liquid addon nicknames (consulted when NSRT and TR did not produce one).
+    -- LiquidAPI.GetNicknameForEllesmereUI takes the raw UnitName string and returns
+    -- a nickname string, or nil for: no nickname set, nicknames disabled in the
+    -- Liquid addon, a secret name, or an empty name. It does all of that gating
+    -- itself, so we just pcall-wrap it (dot call, single arg -- not a method) and
+    -- re-check the result is a clean, non-empty string as defense in depth.
+    if not display and LiquidAPI and LiquidAPI.GetNicknameForEllesmereUI then
+        local ok, dn = pcall(LiquidAPI.GetNicknameForEllesmereUI, name)
+        if ok and type(dn) == "string"
+           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" then
+            display = dn
         end
     end
     if not display then
@@ -2140,10 +2275,23 @@ local function UpdateAbsorb(button, unit)
         ApplyAbsorbStyle(ab, absStyle, s)
     end
 
+    -- Show Overshield (opt-in, default ON). The "overshield" is the absorb that
+    -- exceeds the empty health and backfills over current health -- drawn by the
+    -- backfill bar (ab) in overlay + Default-Blizz modes. When the toggle is OFF
+    -- we feed the backfill 0 so only the empty health fills; the forward bar (fw,
+    -- clipped to the missing-health region) still caps exactly at the health-bar
+    -- right edge. The right/left edge modes draw the WHOLE absorb through ab (fw
+    -- is hidden below), so they are left untouched -- overshield is meaningless
+    -- there. With the toggle ON this is byte-for-byte the previous behavior.
+    local overshieldOn = s.showOvershield ~= false
+    local overlayLike = absStyle == "blizzardModern" or (s.absorbEdgeMode or "overlay") == "overlay"
+    local abValue = absorbAmt
+    if not overshieldOn and overlayLike then abValue = 0 end
+
     -- Both bars get the raw absorb value and maxHealth.
     -- Clip frames do the visual math so we never compare secret values.
     ab:SetMinMaxValues(0, maxHealth)
-    ab:SetValue(absorbAmt)
+    ab:SetValue(abValue)
     ab:Show()
 
     if fw then
@@ -2174,12 +2322,20 @@ local function UpdateAbsorb(button, unit)
                 if sp.SetAlphaFromBoolean then sp:SetAlphaFromBoolean(isClamped, 0, 1) else sp:SetAlpha(1) end
                 sp:Show()
             end
-            -- Overshield spark: ride the backfill's left edge; shown only while overshielding.
+            -- Overshield spark: normally rides the backfill's LEFT edge (slides
+            -- left over the health fill as the overshield grows). With Show
+            -- Overshield OFF the backfill is suppressed, so pin the glow to the
+            -- health-bar RIGHT edge (ab spans the health bar) -- it stays put
+            -- instead of sliding over the fill. Shown only while overshielding.
             local bsp = fw._bfSpark
             if bsp then
                 bsp:SetSize(16, hpH)
                 bsp:ClearAllPoints()
-                bsp:SetPoint("CENTER", ab:GetStatusBarTexture(), "LEFT", -1, 0)
+                if overshieldOn then
+                    bsp:SetPoint("CENTER", ab:GetStatusBarTexture(), "LEFT", -1, 0)
+                else
+                    bsp:SetPoint("CENTER", ab, "RIGHT", -1, 0)
+                end
                 if bsp.SetAlphaFromBoolean then bsp:SetAlphaFromBoolean(isClamped, 1, 0) else bsp:SetAlpha(0) end
                 bsp:Show()
             end
@@ -2553,10 +2709,13 @@ local function StyleButton(button)
     -- dispellable debuffs). Only way to show dispel info for re-privated
     -- auras in 12.0.5+. Uses alpha gating: our custom overlay wins for
     -- normal debuffs, container catches private ones we can't see.
+    -- Frame level sits BELOW the name/health text (LVL_DISPEL_OVERLAY = +7,
+    -- text = +12) so the gradient renders behind text. RegisterDispelContainer
+    -- re-applies this level and forces Blizzard to re-read it (no strata bump).
     if C_UnitAuras_AddPrivateAuraAnchor then
         local dcWrapper = CreateFrame("Frame", nil, button)
         dcWrapper:SetAllPoints(health)
-        dcWrapper:SetFrameLevel(button:GetFrameLevel() + ns.LVL_AURA)
+        dcWrapper:SetFrameLevel(button:GetFrameLevel() + ns.LVL_DISPEL_OVERLAY)
         dcWrapper:EnableMouse(false)
         if dcWrapper.SetMouseClickEnabled then dcWrapper:SetMouseClickEnabled(false) end
         -- Set all required attributes BEFORE AddPrivateAuraAnchor
@@ -2609,6 +2768,8 @@ local function StyleButton(button)
 
     local function AnchorDispelIcon()
         dispelIcon:ClearAllPoints()
+        local sz = s.dispelIconSize or 16
+        dispelIcon:SetSize(sz, sz)
         local pos = s.dispelIconPosition or "center"
         local ox = s.dispelIconOffsetX or 0
         local oy = s.dispelIconOffsetY or 0
@@ -2736,10 +2897,13 @@ local function StyleButton(button)
     AnchorStatusText()
     d.AnchorStatusText = AnchorStatusText
 
-    -- Role icon (carrier frame above power bar + its border so icon renders on top)
+    -- Role icon. Carrier sits just BELOW the aura band (ns.LVL_AURA) and above
+    -- the base/threat/dispel borders (same band as the name/health text), so the
+    -- icon clears the general border while auras still draw over it. The
+    -- hover/target border raise (+ns.LVL_RAISE) intentionally covers it.
     local roleCarrier = CreateFrame("Frame", nil, button)
     roleCarrier:SetAllPoints(health)
-    roleCarrier:SetFrameLevel(button:GetFrameLevel() + 5)
+    roleCarrier:SetFrameLevel(button:GetFrameLevel() + (ns.LVL_AURA - 1))
     local roleIcon = roleCarrier:CreateTexture(nil, "OVERLAY")
     local riSz = PixelSnap(s.roleIconSize or 14)
     roleIcon:SetSize(riSz, riSz)
@@ -2773,7 +2937,7 @@ local function StyleButton(button)
     -- bar as before. Strata/level are re-asserted on reload (chat-relative).
     d.leaderHost = CreateFrame("Frame", nil, button)
     d.leaderHost:SetAllPoints(health)
-    ns.ApplyChatStrata(d.leaderHost)
+    ns.ApplyLeaderStrata(d.leaderHost)
 
     local leaderIcon = d.leaderHost:CreateTexture(nil, "OVERLAY")
     local liSz = PixelSnap(s.leaderIconSize or 14)
@@ -2819,12 +2983,39 @@ local function StyleButton(button)
     AnchorRaidMarker()
     d.AnchorRaidMarker = AnchorRaidMarker
 
-    -- Ready check icon
+    -- Ready check icon (shared with the incoming-summon indicator)
     local readyCheck = health:CreateTexture(nil, "OVERLAY", nil, 3)
-    readyCheck:SetSize(18, 18)
-    readyCheck:SetPoint("CENTER", health, "CENTER", 0, 0)
+    readyCheck:SetSize(PixelSnap(s.readyCheckSize or 20), PixelSnap(s.readyCheckSize or 20))
     readyCheck:Hide()
     d.readyCheck = readyCheck
+
+    local function AnchorReadyCheck()
+        readyCheck:ClearAllPoints()
+        local pos = s.readyCheckPosition or "center"
+        local ox = s.readyCheckOffsetX or 0
+        local oy = s.readyCheckOffsetY or 0
+        if pos == "topleft" then
+            readyCheck:SetPoint("TOPLEFT", health, "TOPLEFT", 2 + ox, -2 + oy)
+        elseif pos == "top" then
+            readyCheck:SetPoint("TOP", health, "TOP", ox, -2 + oy)
+        elseif pos == "topright" then
+            readyCheck:SetPoint("TOPRIGHT", health, "TOPRIGHT", -2 + ox, -2 + oy)
+        elseif pos == "left" then
+            readyCheck:SetPoint("LEFT", health, "LEFT", 2 + ox, oy)
+        elseif pos == "right" then
+            readyCheck:SetPoint("RIGHT", health, "RIGHT", -2 + ox, oy)
+        elseif pos == "bottomleft" then
+            readyCheck:SetPoint("BOTTOMLEFT", health, "BOTTOMLEFT", 2 + ox, 2 + oy)
+        elseif pos == "bottom" then
+            readyCheck:SetPoint("BOTTOM", health, "BOTTOM", ox, 2 + oy)
+        elseif pos == "bottomright" then
+            readyCheck:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", -2 + ox, 2 + oy)
+        else -- center
+            readyCheck:SetPoint("CENTER", health, "CENTER", ox, oy)
+        end
+    end
+    AnchorReadyCheck()
+    d.AnchorReadyCheck = AnchorReadyCheck
 
     -- Debuff icons (pre-created, anchored dynamically)
     d.debuffIcons = {}
@@ -3051,7 +3242,7 @@ local function StyleButton(button)
         nameFS:Show()
         local ox = s.nameOffsetX or 0
         local oy = s.nameOffsetY or 0
-        nameFS:SetWidth((s.frameWidth or 72) * 0.75)
+        nameFS:SetWidth((s.frameWidth or 72) * ns.RF_NAME_WIDTH_FRACTION)
         nameFS:SetHeight(0)
         if pos == "topleft" then
             nameFS:SetPoint("TOPLEFT", health, "TOPLEFT", 2 + ox, -2 + oy)
@@ -3403,6 +3594,34 @@ ns._UpdateRoleIcon = function(d, s, unit)
 end
 
 -------------------------------------------------------------------------------
+--  Leader/assistant icon show/hide decision. Shared by UpdateButton and the
+--  lightweight ns._UpdateLeaderIcons combat-transition updater so both stay in
+--  lockstep. Honors the per-row "Show In Combat" cog (default on): when off,
+--  the icon is suppressed for the duration of combat and restored on
+--  PLAYER_REGEN_ENABLED. (Lives on ns, not a file local, to respect the chunk
+--  local cap.)
+-------------------------------------------------------------------------------
+ns._UpdateLeaderIcon = function(d, s, unit)
+    local leaderIcon = d.leaderIcon
+    if not leaderIcon then return end
+    if not s.showLeaderIcon then leaderIcon:Hide(); return end
+    if s.showLeaderIconInCombat == false and inCombat then leaderIcon:Hide(); return end
+    local isLeader = UnitIsGroupLeader(unit)
+    local isAssist = UnitIsGroupAssistant(unit)
+    if isLeader and not issecretvalue(isLeader) then
+        leaderIcon:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
+        leaderIcon:SetTexCoord(0, 1, 0, 1)
+        leaderIcon:Show()
+    elseif isAssist and not issecretvalue(isAssist) then
+        leaderIcon:SetTexture("Interface\\GroupFrame\\UI-Group-AssistantIcon")
+        leaderIcon:SetTexCoord(0, 1, 0, 1)
+        leaderIcon:Show()
+    else
+        leaderIcon:Hide()
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Update all visual elements for a single button
 -------------------------------------------------------------------------------
 local function UpdateButton(button)
@@ -3611,26 +3830,8 @@ local function UpdateButton(button)
     -- Role icon
     ns._UpdateRoleIcon(d, s, unit)
 
-    -- Leader/assistant icon
-    if d.leaderIcon then
-        if s.showLeaderIcon then
-            local isLeader = UnitIsGroupLeader(unit)
-            local isAssist = UnitIsGroupAssistant(unit)
-            if isLeader and not issecretvalue(isLeader) then
-                d.leaderIcon:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
-                d.leaderIcon:SetTexCoord(0, 1, 0, 1)
-                d.leaderIcon:Show()
-            elseif isAssist and not issecretvalue(isAssist) then
-                d.leaderIcon:SetTexture("Interface\\GroupFrame\\UI-Group-AssistantIcon")
-                d.leaderIcon:SetTexCoord(0, 1, 0, 1)
-                d.leaderIcon:Show()
-            else
-                d.leaderIcon:Hide()
-            end
-        else
-            d.leaderIcon:Hide()
-        end
-    end
+    -- Leader/assistant icon (honors the "Show In Combat" cog)
+    ns._UpdateLeaderIcon(d, s, unit)
 
     -- Raid marker
     if d.raidMarker then
@@ -4327,9 +4528,11 @@ local function RegisterDispelContainer(button, unit)
     wrapper:SetAttribute("aura-organization-type", s and s.dispelOverlayPosition or 0)   -- 0=Top, 1=Bottom, 2=Left
     wrapper:SetAttribute("update-settings", true)
 
-    -- Apply strata fix (12.0.5 container rendering workaround)
-    local parentStrata = button:GetFrameStrata()
-    wrapper:SetFrameStrata(PA_STRATA_FIX[parentStrata] or "DIALOG")
+    -- Pin to the button's OWN strata + a below-text frame level (NO strata bump)
+    -- so the overlay renders BEHIND the name/health text. Re-applied here (not
+    -- only at creation) so it survives any button-level change before register.
+    wrapper:SetFrameStrata(button:GetFrameStrata())
+    wrapper:SetFrameLevel(button:GetFrameLevel() + ns.LVL_DISPEL_OVERLAY)
 
     local ok, anchorID = pcall(function()
         return C_UnitAuras_AddPrivateAuraAnchor({
@@ -4343,6 +4546,13 @@ local function RegisterDispelContainer(button, unit)
     end)
     if ok and anchorID then
         d.dispelContainerAnchorID = anchorID
+        -- AddPrivateAuraAnchor caches the parent's frame level on first register
+        -- and ignores later changes; toggling to 0 and back forces Blizzard to
+        -- re-read it on the next paint so our below-text level actually applies
+        -- (without this the overlay can render behind the whole frame).
+        local lvl = wrapper:GetFrameLevel()
+        wrapper:SetFrameLevel(0)
+        wrapper:SetFrameLevel(lvl)
     end
     d.dispelContainerUnit = unit
 end
@@ -4782,23 +4992,23 @@ local function UpdateReadyCheck(button, unit)
     local tex = d.readyCheck
     if not tex then return end
 
+    local sz = PixelSnap(db.profile.readyCheckSize or 20)
+    tex:SetSize(sz, sz)
+
     -- Ready check (priority)
     if db.profile.showReadyCheck and readyCheckActive then
         local status = GetReadyCheckStatus(unit)
         if status == "ready" then
-            tex:SetSize(18, 18)
             tex:SetTexCoord(0, 1, 0, 1)
             tex:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
             tex:Show()
             return
         elseif status == "notready" then
-            tex:SetSize(18, 18)
             tex:SetTexCoord(0, 1, 0, 1)
             tex:SetTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
             tex:Show()
             return
         elseif status == "waiting" then
-            tex:SetSize(18, 18)
             tex:SetTexCoord(0, 1, 0, 1)
             tex:SetTexture("Interface\\RaidFrame\\ReadyCheck-Waiting")
             tex:Show()
@@ -4810,17 +5020,14 @@ local function UpdateReadyCheck(button, unit)
     if db.profile.showSummonPending and unit and C_IncomingSummon.HasIncomingSummon(unit) then
         local sStatus = C_IncomingSummon.IncomingSummonStatus(unit)
         if sStatus == SUMMON_STATUS_PENDING then
-            tex:SetSize(20, 20)
             tex:SetAtlas("RaidFrame-Icon-SummonPending")
             tex:Show()
             return
         elseif sStatus == SUMMON_STATUS_ACCEPTED then
-            tex:SetSize(20, 20)
             tex:SetAtlas("RaidFrame-Icon-SummonAccepted")
             tex:Show()
             return
         elseif sStatus == SUMMON_STATUS_DECLINED then
-            tex:SetSize(20, 20)
             tex:SetAtlas("RaidFrame-Icon-SummonDeclined")
             tex:Show()
             return
@@ -4968,6 +5175,21 @@ ns._UpdateRoleIcons = function()
     for unit, btn in pairs(unitToButton) do updateRole(unit, btn) end
     for unit, btn in pairs(ns._partyUnitToButton) do updateRole(unit, btn) end
     for unit, btn in pairs(ns._xfUnitToButton) do updateRole(unit, btn) end
+end
+
+-- Lightweight: only refresh leader/assistant icons on each button. Driven by
+-- combat transitions so the "Show In Combat" cog can suppress/restore the icon
+-- without a full per-button repaint. Texture Show/Hide is combat-legal.
+ns._UpdateLeaderIcons = function()
+    local function updateLeader(unit, btn)
+        local d = GetFFD(btn)
+        if not d.leaderIcon then return end
+        local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
+        ns._UpdateLeaderIcon(d, s, unit)
+    end
+    for unit, btn in pairs(unitToButton) do updateLeader(unit, btn) end
+    for unit, btn in pairs(ns._partyUnitToButton) do updateLeader(unit, btn) end
+    for unit, btn in pairs(ns._xfUnitToButton) do updateLeader(unit, btn) end
 end
 
 -- Lightweight: health-only update for UNIT_HEALTH / UNIT_MAXHEALTH.
@@ -5535,7 +5757,7 @@ FB.ApplyStyle = function(owner)
 
         ApplyFont(b._nameText, s.nameSize or 10)
         ApplyFont(b._healthText, s.healthTextSize or 9)
-        b._nameText:SetWidth(w * 0.75)
+        b._nameText:SetWidth(w * ns.RF_NAME_WIDTH_FRACTION)
         b._nameText:SetHeight(0)
         b._healthText:SetWidth(w * 0.75)
         b._healthText:SetHeight(0)
@@ -5992,7 +6214,7 @@ XF.Layout = function()
             if d.AnchorNameText then d.AnchorNameText() end
             -- AnchorNameText derives width from the BASE frame width; the
             -- offset width is authoritative here.
-            d.nameText:SetWidth(w * 0.75)
+            d.nameText:SetWidth(w * ns.RF_NAME_WIDTH_FRACTION)
         end
         if d.healthText then
             ApplyFont(d.healthText, xs.healthTextSize or 9)
@@ -6018,6 +6240,11 @@ XF.Layout = function()
             local rmSz = PixelSnap(xs.raidMarkerSize or 16)
             d.raidMarker:SetSize(rmSz, rmSz)
             if d.AnchorRaidMarker then d.AnchorRaidMarker() end
+        end
+        if d.readyCheck then
+            local rcSz = PixelSnap(xs.readyCheckSize or 20)
+            d.readyCheck:SetSize(rcSz, rcSz)
+            if d.AnchorReadyCheck then d.AnchorReadyCheck() end
         end
         if d.debuffIcons then
             for _, icon in ipairs(d.debuffIcons) do
@@ -6637,9 +6864,16 @@ local function CreateHeaders()
     -- via relative anchoring (no SetPoint is ever issued on the secure headers).
     -- Shown only when showGroupNumbers is on (see ns._UpdateGroupNumbers).
     if not ns._groupNumberLabels then
+        -- Overlay host kept at a high frame level so the labels draw ABOVE the
+        -- raid buttons. The buttons are descendants of containerFrame, so labels
+        -- parented straight to the container render BENEATH the bars; a high
+        -- frame level within the same (LOW) strata lifts them on top.
+        ns._groupNumberOverlay = CreateFrame("Frame", nil, containerFrame)
+        ns._groupNumberOverlay:SetAllPoints(containerFrame)
+        ns._groupNumberOverlay:SetFrameLevel(9000)
         ns._groupNumberLabels = {}
         for gi = 1, 8 do
-            local lbl = containerFrame:CreateFontString(nil, "OVERLAY")
+            local lbl = ns._groupNumberOverlay:CreateFontString(nil, "OVERLAY")
             lbl:Hide()
             ns._groupNumberLabels[gi] = lbl
         end
@@ -7017,7 +7251,7 @@ local function ReloadFrames()
     -- Rebuild dispel-color curves so custom-color edits take effect immediately.
     if ns._RebuildDispelCurves then ns._RebuildDispelCurves() end
     -- Recalculate active tier from current group size + overrides
-    local numMembers = GetNumGroupMembers()
+    local numMembers = ns._GetEffectiveRaidSize()
     local prevW, prevH = ns._activeSizeW, ns._activeSizeH
     if numMembers > 0 then
         ns._activeSizeW, ns._activeSizeH = ns._GetRaidSizeFrameDimensions(numMembers)
@@ -7131,8 +7365,8 @@ local function ReloadFrames()
             d.leaderIcon:ClearAllPoints()
             local liPos = (s.leaderIconPosition or "top"):upper()
             d.leaderIcon:SetPoint(liPos, d.health, liPos, s.leaderIconOffsetX or 0, s.leaderIconOffsetY or 0)
-            -- Keep the leader-icon host on the chat frame's current strata/level
-            if d.leaderHost then ns.ApplyChatStrata(d.leaderHost) end
+            -- Re-assert the host's strata/level above the border
+            if d.leaderHost then ns.ApplyLeaderStrata(d.leaderHost) end
         end
 
         -- Raid marker size + position
@@ -7140,6 +7374,13 @@ local function ReloadFrames()
             local rmSz = PixelSnap(s.raidMarkerSize or 16)
             d.raidMarker:SetSize(rmSz, rmSz)
             if d.AnchorRaidMarker then d.AnchorRaidMarker() end
+        end
+
+        -- Ready check / summon size + position
+        if d.readyCheck then
+            local rcSz = PixelSnap(s.readyCheckSize or 20)
+            d.readyCheck:SetSize(rcSz, rcSz)
+            if d.AnchorReadyCheck then d.AnchorReadyCheck() end
         end
 
         -- Border
@@ -7233,7 +7474,7 @@ ns._ResizeButtons = function(w, h)
             if d.health then
                 d.health:SetHeight(((d.power and d.power:IsShown()) and xhealthH or xbh) - topBarH)
             end
-            if d.nameText then d.nameText:SetWidth(xbw * 0.75) end
+            if d.nameText then d.nameText:SetWidth(xbw * ns.RF_NAME_WIDTH_FRACTION) end
         end
     end
     ns._activeSizeW = w
@@ -7266,7 +7507,7 @@ ns._ResizePartyButtons = function(w, h)
                 local hh = ((d.power and d.power:IsShown()) and healthH or bh) - topBarH
                 d.health:SetHeight(hh)
             end
-            if d.nameText then d.nameText:SetWidth(bw * 0.75) end
+            if d.nameText then d.nameText:SetWidth(bw * ns.RF_NAME_WIDTH_FRACTION) end
             -- Live-rescale indicators/auras. No-op for hidden buttons / no unit
             -- (e.g. options menu while not grouped), so cheap there.
             if autoResize then
@@ -7417,7 +7658,7 @@ ns._ApplyTierOffset = function()
     local pos = db.profile.unlockPos
     if not pos then return end
     local ox, oy = 0, 0
-    local numMembers = GetNumGroupMembers()
+    local numMembers = ns._GetEffectiveRaidSize()
     if numMembers > 0 then
         local s = db.profile
         local overrides = s.raidSizeOverrides
@@ -7888,12 +8129,14 @@ local function OnEvent(self, event, arg1, ...)
             if ns._HideSizePreview then ns._HideSizePreview() end
         end
         if ns.EnsureRealFramesRestored then ns.EnsureRealFramesRestored() end
-        -- Combat starting: hide role icons on frames using the "Hide In Combat" cog.
+        -- Combat starting: hide role/leader icons on frames using the in-combat cogs.
         if ns._UpdateRoleIcons then ns._UpdateRoleIcons() end
+        if ns._UpdateLeaderIcons then ns._UpdateLeaderIcons() end
     elseif event == "PLAYER_REGEN_ENABLED" then
         inCombat = false
-        -- Combat ended: restore any role icons suppressed by "Hide In Combat".
+        -- Combat ended: restore any role/leader icons suppressed during combat.
         if ns._UpdateRoleIcons then ns._UpdateRoleIcons() end
+        if ns._UpdateLeaderIcons then ns._UpdateLeaderIcons() end
         -- Complete any container reparent that was blocked during combat (e.g.
         -- the options panel was closed mid-combat while a preview was active).
         -- Without this, a combat auto-close can leave the real frames orphaned
@@ -7946,7 +8189,7 @@ local function OnEvent(self, event, arg1, ...)
         if inCombat then
             ns._rosterDirtyInCombat = true
             -- Check if size tier changed during combat (deferred to REGEN)
-            local numMembers = GetNumGroupMembers()
+            local numMembers = ns._GetEffectiveRaidSize()
             if numMembers > 0 then
                 local newW, newH = ns._GetRaidSizeFrameDimensions(numMembers)
                 if newW ~= ns._activeSizeW or newH ~= ns._activeSizeH then
@@ -8029,7 +8272,7 @@ local function OnEvent(self, event, arg1, ...)
             -- button (no aura rescan) so leader/role/marker/health for
             -- UNCHANGED-token units stay correct -- e.g. a new leader after the
             -- old one left, which keeps its token so the hook won't fire.
-            local numMembers = GetNumGroupMembers()
+            local numMembers = ns._GetEffectiveRaidSize()
             local newW, newH = ns._GetRaidSizeFrameDimensions(numMembers > 0 and numMembers or 1)
             local tierChanged = (newW ~= ns._activeSizeW or newH ~= ns._activeSizeH)
             local wasVis = framesVisible
@@ -8360,11 +8603,12 @@ do
     local map = {
         healthBar = {
             "healthBarTexture", "healthBarOpacity", "healthColorMode",
-            "customFillColor", "customBgColor", "bgClassColored", "bgDarkness", "smoothBars",
+            "customFillColor", "dynamicColor100", "dynamicColor50", "dynamicColor0",
+            "customBgColor", "bgClassColored", "bgDarkness", "smoothBars",
             "healPrediction", "healPredOpacity", "healPredColor",
         },
         absorbs = {
-            "absorbStyle", "absorbOpacity", "absorbColor", "absorbEdgeMode",
+            "absorbStyle", "absorbOpacity", "absorbColor", "absorbEdgeMode", "showOvershield",
             "absorbBarEnabled", "absorbBarPosition", "absorbBarHeight", "absorbBarColor",
             "healAbsorbBarPosition", "healAbsorbBarHeight", "healAbsorbBarColor",
             "healAbsorbStyle", "healAbsorbOpacity", "healAbsorbColor", "healAbsorbEdgeMode",
@@ -8387,8 +8631,9 @@ do
             "showRoleForTank", "showRoleForHealer", "showRoleForDPS",
             "showRaidMarker", "raidMarkerSize", "raidMarkerPosition", "raidMarkerOffsetX", "raidMarkerOffsetY",
             "showReadyCheck", "showSummonPending",
+            "readyCheckSize", "readyCheckPosition", "readyCheckOffsetX", "readyCheckOffsetY",
             "statusTextPosition", "statusTextOffsetX", "statusTextOffsetY", "statusTextSize", "statusTextColor",
-            "showLeaderIcon", "leaderIconPosition", "leaderIconSize", "leaderIconOffsetX", "leaderIconOffsetY",
+            "showLeaderIcon", "showLeaderIconInCombat", "leaderIconPosition", "leaderIconSize", "leaderIconOffsetX", "leaderIconOffsetY",
             "borderSize", "borderColor", "borderAlpha", "borderTexture",
             "borderBehind", "borderTextureOffset", "borderTextureOffsetY",
             "borderTextureShiftX", "borderTextureShiftY",
@@ -8397,7 +8642,7 @@ do
         },
         dispels = {
             "dispelBorderSize", "dispelOverlay", "dispelOverlayOpacity", "dispelShowAll",
-            "showDispelIcons", "dispelIconPosition", "dispelIconOffsetX", "dispelIconOffsetY",
+            "showDispelIcons", "dispelIconPosition", "dispelIconOffsetX", "dispelIconOffsetY", "dispelIconSize",
             "dispelColorMagic", "dispelColorCurse", "dispelColorDisease",
             "dispelColorPoison", "dispelColorBleed",
         },
@@ -9068,7 +9313,7 @@ ns.ReloadPartyFrames = function()
             ApplyFont(d.nameText, pp.nameSize or 10)
             if d.AnchorNameText then d.AnchorNameText() end
             -- Override width constraint for party button dimensions
-            d.nameText:SetWidth(bw * 0.75)
+            d.nameText:SetWidth(bw * ns.RF_NAME_WIDTH_FRACTION)
         end
 
         -- Health text
@@ -9099,8 +9344,8 @@ ns.ReloadPartyFrames = function()
             d.leaderIcon:ClearAllPoints()
             local liPos = (raw.leaderIconPosition or "top"):upper()
             d.leaderIcon:SetPoint(liPos, d.health, liPos, pp.leaderIconOffsetX or 0, pp.leaderIconOffsetY or 0)
-            -- Keep the leader-icon host on the chat frame's current strata/level
-            if d.leaderHost then ns.ApplyChatStrata(d.leaderHost) end
+            -- Re-assert the host's strata/level above the border
+            if d.leaderHost then ns.ApplyLeaderStrata(d.leaderHost) end
         end
 
         -- Raid marker
@@ -9108,6 +9353,13 @@ ns.ReloadPartyFrames = function()
             local rmSz = PixelSnap(pp.raidMarkerSize or 16)
             d.raidMarker:SetSize(rmSz, rmSz)
             if d.AnchorRaidMarker then d.AnchorRaidMarker() end
+        end
+
+        -- Ready check / summon
+        if d.readyCheck then
+            local rcSz = PixelSnap(pp.readyCheckSize or 20)
+            d.readyCheck:SetSize(rcSz, rcSz)
+            if d.AnchorReadyCheck then d.AnchorReadyCheck() end
         end
 
         -- Border
@@ -10589,9 +10841,9 @@ local function CreatePreviewFrame(index)
     raidMarker:SetSize(rmSz, rmSz)
     raidMarker:Hide()
 
-    -- Ready check icon
+    -- Ready check icon (position/size re-applied in the preview indicator pass)
     local readyCheck = health:CreateTexture(nil, "OVERLAY", nil, 3)
-    readyCheck:SetSize(18, 18)
+    readyCheck:SetSize(PixelSnap(s.readyCheckSize or 20), PixelSnap(s.readyCheckSize or 20))
     readyCheck:SetPoint("CENTER", health, "CENTER", 0, 0)
     readyCheck:Hide()
 
@@ -10622,16 +10874,20 @@ local function CreatePreviewFrame(index)
     statusFS:SetTextColor(pvStc.r, pvStc.g, pvStc.b)
     statusFS:Hide()
 
-    -- Role icon (carrier frame above power bar + its border)
+    -- Role icon. Carrier sits just BELOW the aura band and above the base border
+    -- (mirrors the real frames): clears the general border while auras draw over
+    -- it; the hover/target border raise intentionally covers it.
     local roleCarrier = CreateFrame("Frame", nil, f)
     roleCarrier:SetAllPoints(health)
-    roleCarrier:SetFrameLevel(f:GetFrameLevel() + 5)
+    roleCarrier:SetFrameLevel(f:GetFrameLevel() + (ns.LVL_AURA - 1))
     local roleIcon = roleCarrier:CreateTexture(nil, "OVERLAY")
     local riSz = PixelSnap(s.roleIconSize or 14)
     roleIcon:SetSize(riSz, riSz)
 
-    -- Leader icon (on marker carrier, above the border)
-    local leaderIcon = markerCarrier:CreateTexture(nil, "OVERLAY")
+    -- Leader icon: on the text carrier band (above the general border, below the
+    -- aura layer) to mirror the real frames -- the hover/target raise covers it,
+    -- the general border does not.
+    local leaderIcon = textCarrier:CreateTexture(nil, "OVERLAY")
     local liSz = PixelSnap(s.leaderIconSize or 14)
     leaderIcon:SetSize(liSz, liSz)
     local liPos = (s.leaderIconPosition or "top"):upper()
@@ -10993,6 +11249,10 @@ local function ApplyPreviewData(f, index)
             local r = pct < 0.5 and 1 or (1 - (pct - 0.5) * 2)
             local g = pct > 0.5 and 1 or (pct * 2)
             f._health:SetStatusBarColor(r, g, 0, (s.healthBarOpacity or 100) / 100)
+        elseif mode == "customDynamic" then
+            if fillTex then fillTex:SetAlpha(1) end
+            local r, g, b = ns.ResolveDynamicColor(s, healthPct / 100)
+            f._health:SetStatusBarColor(r, g, b, (s.healthBarOpacity or 100) / 100)
         elseif mode == "custom" then
             if fillTex then fillTex:SetAlpha(1) end
             local c = s.customFillColor
@@ -11153,9 +11413,14 @@ local function ApplyPreviewData(f, index)
                 end
             end
 
-            -- Feed both bars with the same absorb value; clip frames do the visual math
+            -- Feed both bars with the same absorb value; clip frames do the visual math.
+            -- Mirror the live Show Overshield gate: when off (overlay-like modes) feed
+            -- the backfill 0 so the overshield does not render in the preview.
+            local pvOvershieldOn = s.showOvershield ~= false
+            local pvOverlayLike = modern or (s.absorbEdgeMode or "overlay") == "overlay"
+            local pvAbValue = (not pvOvershieldOn and pvOverlayLike) and 0 or absorbAmt
             f._absorbBar:SetMinMaxValues(0, 100)
-            f._absorbBar:SetValue(absorbAmt)
+            f._absorbBar:SetValue(pvAbValue)
             f._absorbBar:Show()
             if fw then
                 fw:SetMinMaxValues(0, 100)
@@ -11182,7 +11447,11 @@ local function ApplyPreviewData(f, index)
                     if bsp then
                         bsp:SetSize(16, hpH)
                         bsp:ClearAllPoints()
-                        bsp:SetPoint("CENTER", f._absorbBar:GetStatusBarTexture(), "LEFT", -1, 0)
+                        if pvOvershieldOn then
+                            bsp:SetPoint("CENTER", f._absorbBar:GetStatusBarTexture(), "LEFT", -1, 0)
+                        else
+                            bsp:SetPoint("CENTER", f._absorbBar, "RIGHT", -1, 0)
+                        end
                         bsp:SetAlpha(previewOver and 1 or 0)
                         bsp:Show()
                     end
@@ -11521,6 +11790,8 @@ local function ApplyPreviewData(f, index)
             local atlas = DISPEL_ICON_ATLAS[dispelType]
             if atlas then f._dispelIconTex:SetAtlas(atlas) end
             f._dispelIcon:ClearAllPoints()
+            local diSz = s.dispelIconSize or 16
+            f._dispelIcon:SetSize(diSz, diSz)
             local diPos = s.dispelIconPosition or "center"
             local diOX = s.dispelIconOffsetX or 0
             local diOY = s.dispelIconOffsetY or 0
@@ -11664,7 +11935,6 @@ local function ApplyPreviewData(f, index)
     -- Ready check icon
     if f._readyCheck then
         local rcStatuses = previewRoles._readyCheck
-        local rcStatuses = previewRoles._readyCheck
         local rcStatus = rcStatuses and rcStatuses[index]
         local isSummon = rcStatus and rcStatus:sub(1, 6) == "summon"
         local showRC = indVis and rcStatus and (
@@ -11672,10 +11942,31 @@ local function ApplyPreviewData(f, index)
             (isSummon and s.showSummonPending)
         )
         if showRC then
-            if isSummon then
-                f._readyCheck:SetSize(20, 20)
-            else
-                f._readyCheck:SetSize(18, 18)
+            local rcSz = PixelSnap(s.readyCheckSize or 20)
+            f._readyCheck:SetSize(rcSz, rcSz)
+            -- Anchor based on ready-check position setting
+            f._readyCheck:ClearAllPoints()
+            local pos = s.readyCheckPosition or "center"
+            local ox = s.readyCheckOffsetX or 0
+            local oy = s.readyCheckOffsetY or 0
+            if pos == "topleft" then
+                f._readyCheck:SetPoint("TOPLEFT", f._health, "TOPLEFT", 2 + ox, -2 + oy)
+            elseif pos == "top" then
+                f._readyCheck:SetPoint("TOP", f._health, "TOP", ox, -2 + oy)
+            elseif pos == "topright" then
+                f._readyCheck:SetPoint("TOPRIGHT", f._health, "TOPRIGHT", -2 + ox, -2 + oy)
+            elseif pos == "left" then
+                f._readyCheck:SetPoint("LEFT", f._health, "LEFT", 2 + ox, oy)
+            elseif pos == "right" then
+                f._readyCheck:SetPoint("RIGHT", f._health, "RIGHT", -2 + ox, oy)
+            elseif pos == "bottomleft" then
+                f._readyCheck:SetPoint("BOTTOMLEFT", f._health, "BOTTOMLEFT", 2 + ox, 2 + oy)
+            elseif pos == "bottom" then
+                f._readyCheck:SetPoint("BOTTOM", f._health, "BOTTOM", ox, 2 + oy)
+            elseif pos == "bottomright" then
+                f._readyCheck:SetPoint("BOTTOMRIGHT", f._health, "BOTTOMRIGHT", -2 + ox, 2 + oy)
+            else -- center
+                f._readyCheck:SetPoint("CENTER", f._health, "CENTER", ox, oy)
             end
             if rcStatus == "ready" then
                 f._readyCheck:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
@@ -11709,7 +12000,7 @@ local function ApplyPreviewData(f, index)
         f._nameText:Show()
         local ox = s.nameOffsetX or 0
         local oy = s.nameOffsetY or 0
-        f._nameText:SetWidth((s.frameWidth or 72) * 0.75)
+        f._nameText:SetWidth((s.frameWidth or 72) * ns.RF_NAME_WIDTH_FRACTION)
         f._nameText:SetHeight(0)
         if pos == "topleft" then
             f._nameText:SetPoint("TOPLEFT", f._health, "TOPLEFT", 2 + ox, -2 + oy)
@@ -12209,7 +12500,17 @@ local function RefreshPreview()
     -- Reparent after all frames are created (first load creates them in the loop above)
     local reparentTo = isOverlay and overlayContainer or (previewContainer or containerFrame)
     for _, f in ipairs(previewFrames) do f:SetParent(reparentTo) end
-    for _, lbl in ipairs(previewGroupLabels) do lbl:SetParent(reparentTo) end
+    -- Group-number labels go on a high-level overlay child of the same container
+    -- so they draw ABOVE the preview bars (which are descendants of reparentTo);
+    -- parenting them straight to reparentTo leaves them beneath the bars.
+    if not ns._previewGroupNumberOverlay then
+        ns._previewGroupNumberOverlay = CreateFrame("Frame", nil, reparentTo)
+    end
+    ns._previewGroupNumberOverlay:SetParent(reparentTo)
+    ns._previewGroupNumberOverlay:SetAllPoints(reparentTo)
+    ns._previewGroupNumberOverlay:SetFrameLevel(9000)
+    ns._previewGroupNumberOverlay:Show()
+    for _, lbl in ipairs(previewGroupLabels) do lbl:SetParent(ns._previewGroupNumberOverlay) end
 
     -- Container size (4 groups)
     local totalW, totalH

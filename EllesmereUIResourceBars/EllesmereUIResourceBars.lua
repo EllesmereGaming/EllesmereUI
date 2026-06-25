@@ -110,6 +110,40 @@ local function SetRBFont(fs, font, size)
     fs:SetFont(font, size, f)
 end
 
+-- Cast-bar text side anchoring (mirrors the nameplate / unit-frame cast text system).
+-- The cast bar text line holds spell text + duration; the duration reserves a slot on
+-- its side and pushes the spell text inward when they share a side. Center is never
+-- pushed. Defined on ns (not a file local) to respect this file's local-variable cap.
+--   side    : "left" | "right" | "center"
+--   pushed  : true when the duration occupies this same side and the element moves inward
+--   reserve : duration reserved width (only consumed when pushed)
+-- Returns: point (anchor), xOff (base, before the user X offset), justify
+function ns.GetCastTextAnchor(side, pushed, reserve)
+    if side == "center" then
+        return "CENTER", 0, "CENTER"
+    elseif side == "left" then
+        local base = 4
+        if pushed then base = base + reserve end
+        return "LEFT", base, "LEFT"
+    else -- "right"
+        local base = -4
+        if pushed then base = base - reserve end
+        return "RIGHT", base, "RIGHT"
+    end
+end
+
+-- WoW does not visually re-lay-out a FontString when only its SetJustifyH changes; a
+-- fresh build does. Clearing then re-setting the text forces the new alignment, and it
+-- MUST be a real change -- re-setting the identical string is deduped and skips the
+-- re-layout. GetText may return a secret cast name; SetText accepts secrets and the
+-- value is never inspected, so the round-trip is safe.
+function ns.ReflowFontString(fs)
+    if not fs then return end
+    local t = fs:GetText()
+    fs:SetText("")
+    fs:SetText(t or "")
+end
+
 -- PowerType enum values (Enum.PowerType)
 local PT = {
     MANA        = 0,
@@ -510,6 +544,52 @@ local function GetSecondaryResource()
 end
 
 -------------------------------------------------------------------------------
+--  "Class Resource Color" fill resolver. Maps the current spec's secondary
+--  resource to a color: discrete class resources -> Class Resource Colors;
+--  power-type bar secondaries -> Power Colors. Returns nil for resources with
+--  no dedicated color (DK runes, Ironfur, Ignore Pain, Stagger) so callers fall
+--  back to the class color. Attached to ERB (no new file-scope local -- this
+--  file is at the Lua 200-local cap) plus a global alias for the options preview.
+-------------------------------------------------------------------------------
+do
+    local RKEY = {
+        [PT.COMBO]       = "ComboPoints",
+        [PT.RUNES]       = "Runes",
+        [PT.HOLY_POWER]  = "HolyPower",
+        [PT.CHI]         = "Chi",
+        [PT.SOUL_SHARDS] = "SoulShards",
+        [PT.ARCANE]      = "ArcaneCharges",
+        [PT.ESSENCE]     = "Essence",
+        ["ICICLES"]                  = "Icicles",
+        ["SOUL_FRAGMENTS_VENGEANCE"] = "SoulFragments",
+        ["SOUL_FRAGMENTS_DEVOURER"]  = "SoulFragments",
+        ["MAELSTROM_WEAPON"]         = "MaelstromWeapon",
+        ["TIP_OF_THE_SPEAR"]         = "TipOfTheSpear",
+        ["WHIRLWIND_STACKS"]         = "WhirlwindStacks",
+    }
+    local PKEY = {
+        ["LUNAR_POWER_BAR"] = "LUNAR_POWER",
+        ["MAELSTROM_BAR"]   = "MAELSTROM",
+        ["INSANITY_BAR"]    = "INSANITY",
+        ["FOCUS_BAR"]       = "FOCUS",
+    }
+    function ERB.ResolveSecondaryResourceColor(powerKey)
+        local rk = RKEY[powerKey]
+        if rk and EllesmereUI.GetClassResourceColor then
+            local c = EllesmereUI.GetClassResourceColor(rk)
+            if c then return c.r, c.g, c.b end
+        end
+        local pk = PKEY[powerKey]
+        if pk and EllesmereUI.GetPowerColor then
+            local c = EllesmereUI.GetPowerColor(pk)
+            if c then return c.r, c.g, c.b end
+        end
+        return nil
+    end
+    _G._ERB_ResolveSecondaryResourceColor = ERB.ResolveSecondaryResourceColor
+end
+
+-------------------------------------------------------------------------------
 --  Bar-type spec lookup: maps specID -> true for specs that use a bar-type
 --  secondary resource (Astral Power, Maelstrom, Insanity, Stagger, Focus,
 --  Devourer Soul Fragments). Built once at init; exposed for options panel.
@@ -623,6 +703,7 @@ local DEFAULTS = {
     profile = {
         health = {
             enabled     = false,
+            smoothBars  = false,
             width       = 214,
             height      = 16,
             borderSize  = 0,
@@ -658,6 +739,7 @@ local DEFAULTS = {
         },
         primary = {
             enabled     = true,
+            smoothBars  = false,
             width       = 214,
             height      = 14,
             borderSize  = 1,
@@ -700,6 +782,7 @@ local DEFAULTS = {
         },
         secondary = {
             enabled     = true,
+            smoothBars  = false,
             pipWidth    = 214,
             pipHeight   = 20,
             pipSpacing  = 1,
@@ -709,6 +792,7 @@ local DEFAULTS = {
             borderTexture = "solid",
             darkTheme   = false,
             classColored = true,
+            resourceColored = false,  -- "Class Resource Color" fill mode (per-spec resource/power color); takes precedence over classColored when on
             fillR       = 0.95, fillG = 0.90, fillB = 0.60, fillA = 1,
             bgR         = 1, bgG = 1, bgB = 1, bgA = 0.1,
             showText    = true,
@@ -719,6 +803,11 @@ local DEFAULTS = {
             textXOffset = 0,
             textYOffset = 0,
             barBgR      = 0, barBgG = 0, barBgB = 0, barBgA = 0.5,
+            -- Opt-in gap color (color of the spacing between pips). Off by
+            -- default -> the gap-fill layer is never drawn and the bar is
+            -- unchanged. Only consulted when gapColorEnabled is true.
+            gapColorEnabled = false,
+            gapR        = 0, gapG = 0, gapB = 0, gapA = 1,
             barAlpha    = 1.0,
             thresholdEnabled = false,
             thresholdCount   = 3,
@@ -732,6 +821,8 @@ local DEFAULTS = {
             protIgnorePainBar = true,      -- Prot Warrior: show Ignore Pain bar (total absorbs vs the IP cap = 30% max health; aura stacks are secret). New-user default; existing profiles pinned off via migration "resourcebars_protwar_ignorepain_existing_off_v1".
             protIgnorePainHashLine = true, -- Prot Ignore Pain: draw the moving duration hash line (resets on cast)
             runesSimple = false,  -- DK: treat runes as flat pips (no recharge animation/timer)
+            runesCustomRecharge = false,  -- DK: use a custom color for recharging runes instead of a dimmed version of the rune color
+            runesRechargeR = 0.5, runesRechargeG = 0.5, runesRechargeB = 0.5, runesRechargeA = 1,
             chargedR = 0.44, chargedG = 0.77, chargedB = 1.00, chargedA = 1,
             enhanceFiveBar = true,  -- Enhance Shaman: show 5 pips with overflow coloring
             enhanceOverflowR = 1, enhanceOverflowG = 0.6, enhanceOverflowB = 0.2,
@@ -751,6 +842,7 @@ local DEFAULTS = {
         castBar = {
             enabled       = true,
             showIcon      = true,
+            iconOnRight   = false,  -- attach the spell icon to the right of the bar instead of the left
             width         = 220,
             height        = 20,
             anchorX       = 0,
@@ -770,10 +862,12 @@ local DEFAULTS = {
             timerSize     = 11,
             timerX        = 0,
             timerY        = 0,
+            timerSide     = "right",  -- "left" | "right" (duration position; "None" = showTimer false)
             showSpellText = true,
             spellTextSize = 11,
             spellTextX    = 0,
             spellTextY    = 0,
+            spellTextSide = "left",   -- "left" | "right" | "center" (spell text position; "None" = showSpellText false)
             unlockPos     = nil,
             showChannelTicks  = true,
             showTickMarks     = true,
@@ -793,6 +887,7 @@ local DEFAULTS = {
             spacing       = 2,
             showTimer     = true,
             timerSize     = 11,
+            orientation   = "HORIZONTAL",  -- "HORIZONTAL" or "VERTICAL"
             borderSize    = 1,
             borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
             borderTexture = "solid",
@@ -1047,7 +1142,16 @@ local function CreateStatusBar(parent, name, w, h, borderSize, borderR, borderG,
 
     -- Forward StatusBar methods to the inner bar so callers don't change
     bar.SetMinMaxValues = function(_, ...) sb:SetMinMaxValues(...) end
-    bar.SetValue = function(_, ...) sb:SetValue(...) end
+    bar.SetValue = function(_, ...)
+        -- Native StatusBar interpolation (opt-in "Smooth Bars"). _smoothing is
+        -- set only on health/power/class-resource bars whose toggle is on; nil
+        -- everywhere else, so this is a plain SetValue with zero added cost.
+        if bar._smoothing then
+            sb:SetValue((...), bar._smoothing)
+        else
+            sb:SetValue(...)
+        end
+    end
     bar.GetValue = function(_) return sb:GetValue() end
     bar.SetStatusBarTexture = function(_, ...) sb:SetStatusBarTexture(...) end
     bar.GetStatusBarTexture = function(_) return sb:GetStatusBarTexture() end
@@ -1143,6 +1247,57 @@ local function CreatePip(parent, w, h, idx, borderSize, borderR, borderG, border
     end
 
     return pip
+end
+
+-------------------------------------------------------------------------------
+--  Optional gap-fill layer ("Bar Spacing" color). Opt-in: when disabled,
+--  nothing is drawn and the bar renders exactly as before (the gaps keep
+--  showing the full-bar background). When enabled, one texture is placed in
+--  each inter-pip gap so the spacing can be colored independently of the bar
+--  background. It only READS the already-computed pip slot positions; it never
+--  changes pip sizing or spacing geometry.
+-------------------------------------------------------------------------------
+-- Attached to ERB (not a new file-scope local) -- this file is at the Lua 200-local cap.
+function ERB.ApplyGapFills(frame, slots, count, isVertical, isReversed, sp)
+    local fills = frame._gapFills
+    if not (sp.gapColorEnabled and slots and count and count > 1) then
+        if fills then for i = 1, #fills do fills[i]:Hide() end end
+        return
+    end
+    if not fills then fills = {}; frame._gapFills = fills end
+    local r, g, b, a = sp.gapR or 0, sp.gapG or 0, sp.gapB or 0, sp.gapA or 1
+    local n = 0
+    for i = 1, count - 1 do
+        local x1 = slots[i].x1          -- trailing edge of pip i
+        local x0 = slots[i + 1].x0      -- leading edge of pip i+1
+        local gapLen = x0 - x1
+        if gapLen and gapLen > 0 then
+            n = n + 1
+            local tex = fills[n]
+            if not tex then
+                tex = frame:CreateTexture(nil, "BACKGROUND", nil, 0)  -- above _barBg (sublevel -1)
+                fills[n] = tex
+            end
+            tex:SetColorTexture(r, g, b, a)
+            tex:ClearAllPoints()
+            if isVertical then
+                if isReversed then
+                    tex:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, x1)
+                    tex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, x1)
+                else
+                    tex:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -x1)
+                    tex:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -x1)
+                end
+                tex:SetHeight(gapLen)
+            else
+                tex:SetPoint("TOPLEFT", frame, "TOPLEFT", x1, 0)
+                tex:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", x1, 0)
+                tex:SetWidth(gapLen)
+            end
+            tex:Show()
+        end
+    end
+    for i = n + 1, #fills do fills[i]:Hide() end
 end
 
 
@@ -1346,6 +1501,7 @@ local function RegisterUnlockElements()
                 Rebuild()
             end,
             setHeight = function(_, h) S().pipHeight = PP.Snap(h); Rebuild() end,
+            isHidden = function() return IsSpecDisabled(S()) end,
             isAnchored = function() local s = S(); return s.anchorTo and s.anchorTo ~= "none" end,
             onLiveMove = LiveMove,
             savePos = save, loadPos = load, clearPos = clear, applyPos = apply,
@@ -1445,8 +1601,12 @@ local function RegisterUnlockElements()
                 local tb = S()
                 local iconSz = tb.iconSize or 30
                 local spacing = tb.spacing or 2
-                -- Estimate width based on max 5 totems
-                return iconSz * 5 + spacing * 4, iconSz
+                -- Estimate extent based on max 5 totems; swap W/H when vertical
+                local maxDim = iconSz * 5 + spacing * 4
+                if tb.orientation == "VERTICAL" then
+                    return iconSz, maxDim
+                end
+                return maxDim, iconSz
             end,
             savePos = totemSave, loadPos = totemLoad, clearPos = totemClear, applyPos = totemApply,
         })
@@ -2193,7 +2353,7 @@ local function BuildBars()
         secondaryFrame:SetFrameStrata(g.frameStrata or "MEDIUM")
         secondaryFrame:SetFrameLevel(10)
     end
-    if sp.enabled ~= false and cachedSecondary then
+    if sp.enabled ~= false and not IsSpecDisabled(sp) and cachedSecondary then
 
         local maxPts = cachedSecondary.max or 5
         if cachedSecondary.type == "custom" and EllesmereUI then
@@ -2302,12 +2462,15 @@ local function BuildBars()
             for i = 1, #pips do if pips[i] then pips[i]:Hide() end end
             for i = 1, #runeFrames do if runeFrames[i] then runeFrames[i]:Hide() end end
             for i = 1, #secondaryPipTicks do secondaryPipTicks[i]:Hide() end
+            ERB.ApplyGapFills(secondaryFrame, nil, 0, isVertical, isReversed, sp)  -- no pips -> hide any gap fills
 
             if not secondaryBar then
                 secondaryBar = CreateStatusBar(secondaryFrame, "ERB_SecondaryBar", totalW, pipH,
                     0, 0, 0, 0, 0)
                 secondaryBar:SetMinMaxValues(0, maxPts)
                 secondaryBar:SetValue(0)
+                -- Apply the Smooth Bars setting to the freshly created bar.
+                if ERB.ApplySmoothing then ERB:ApplySmoothing() end
             else
                 -- For existing bars, only update min/max if needed (don't reset value to 0)
                 local actualMax = maxPts
@@ -2346,6 +2509,15 @@ local function BuildBars()
                 -- Brewmaster Stagger: always use threshold colors (green/yellow/red), start with green
                 secondaryBar:GetStatusBarTexture():SetVertexColor(0.2, 0.8, 0.2, 1)
                 secondaryBar._lastStaggerR, secondaryBar._lastStaggerG, secondaryBar._lastStaggerB = 0.2, 0.8, 0.2
+                secondaryBar._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
+            elseif sp.resourceColored then
+                -- Per-spec resource/power color; falls back to class color.
+                local rr, rg, rb = ERB.ResolveSecondaryResourceColor(cachedSecondary.power)
+                if not rr then
+                    local cc = CLASS_COLORS[cachedClass]
+                    if cc then rr, rg, rb = cc[1], cc[2], cc[3] else rr, rg, rb = 1, 1, 1 end
+                end
+                secondaryBar:GetStatusBarTexture():SetVertexColor(rr, rg, rb, sp.fillA or 1)
                 secondaryBar._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
             elseif sp.classColored ~= false then
                 -- Power types in secondary slot use power color; class resources use class color
@@ -2391,7 +2563,19 @@ local function BuildBars()
                 if not runeFrames[i] then
                     runeFrames[i] = CreatePip(secondaryFrame, 20, pipH, i,
                         0, 0, 0, 0, 0)
-                    local cdText = runeFrames[i]:CreateFontString(nil, "OVERLAY")
+                    -- Countdown number on its own overlay frame ABOVE the bar
+                    -- border so the recharge number renders on top of the border
+                    -- instead of beneath it. Rune pips are built with per-pip
+                    -- border size 0 (see args above), so the VISIBLE border is
+                    -- the outer secondaryFrame._barBorder at secondaryFrame
+                    -- level +5 -- the number must clear that, not just the pip.
+                    -- Stays below the count/value text overlay (level 25). The
+                    -- recharge fill stays framed by the border (matches the
+                    -- ready-rune fill).
+                    local cdOverlay = CreateFrame("Frame", nil, runeFrames[i])
+                    cdOverlay:SetAllPoints(runeFrames[i])
+                    cdOverlay:SetFrameLevel(secondaryFrame:GetFrameLevel() + 10)
+                    local cdText = cdOverlay:CreateFontString(nil, "OVERLAY")
                     runeFrames[i]._cdText = cdText
                 end
                 -- Re-apply font size, color, and offsets every rebuild so textSize,
@@ -2453,6 +2637,7 @@ local function BuildBars()
             local _runeHB = _runeTsEntry and _runeTsEntry.hashColorB or 1
             local _runeHA = _runeTsEntry and _runeTsEntry.hashColorA or 0.7
             ApplyResourceBarTicks(secondaryFrame, 6, _runeTickStr, secondaryPipTicks, _runeHW, _runeHR, _runeHG, _runeHB, _runeHA)
+            ERB.ApplyGapFills(secondaryFrame, slots, numPips, isVertical, isReversed, sp)
         else
             -- Frame size already set above with the SAME _crEs. Slot
             -- positions are computed within that fixed frame; no resize.
@@ -2500,6 +2685,7 @@ local function BuildBars()
                 pips[i]:Show()
             end
             for i = maxPts + 1, #pips do if pips[i] then pips[i]:Hide() end end
+            ERB.ApplyGapFills(secondaryFrame, slots, maxPts, isVertical, isReversed, sp)
             for i = 1, #runeFrames do if runeFrames[i] then runeFrames[i]:Hide() end end
             if secondaryBar then secondaryBar:Hide() end
             for i = 1, #secondaryBarTicks do secondaryBarTicks[i]:Hide() end
@@ -3224,6 +3410,15 @@ local function UpdateSecondaryResource()
     -- Color: dark theme > class colored > custom fill color
     if sp.darkTheme then
         r, g, b = DARK_FILL_R, DARK_FILL_G, DARK_FILL_B
+    elseif sp.resourceColored then
+        -- Per-spec resource/power color; falls back to class color.
+        local rr, rg, rb = ERB.ResolveSecondaryResourceColor(powerType)
+        if rr then r, g, b = rr, rg, rb
+        else
+            local cc = CLASS_COLORS[cachedClass]
+            if cc then r, g, b = cc[1], cc[2], cc[3] end
+        end
+        a = sp.fillA or 1
     elseif sp.classColored ~= false then
         -- Power types in secondary slot use power color; class resources use class color
         local pc = POWER_COLORS[powerType]
@@ -3402,8 +3597,11 @@ local function UpdateSecondaryResource()
                             frac = max(0, min(1, elapsed / rDur))
                         end
                         rf._rechargeBar:SetValue(frac)
-                        -- 75% brightness while recharging (subtle dim), matching threshold color when active
-                        if runeUseThresh then
+                        -- Recharge color: custom color when enabled, otherwise 75%
+                        -- brightness (subtle dim), matching threshold color when active
+                        if sp.runesCustomRecharge then
+                            rf._rechargeBar:SetStatusBarColor(sp.runesRechargeR or 0.5, sp.runesRechargeG or 0.5, sp.runesRechargeB or 0.5, sp.runesRechargeA or 1)
+                        elseif runeUseThresh then
                             rf._rechargeBar:SetStatusBarColor(tr * 0.75, tg * 0.75, tb * 0.75, a)
                         else
                             rf._rechargeBar:SetStatusBarColor(r * 0.75, g * 0.75, b * 0.75, a)
@@ -3669,8 +3867,11 @@ local function UpdateSecondaryResource()
             cur = GetIcicleCount()
             maxC = 5
         end
-        -- For pips using class color, prefer the per-class resource color
-        if sp.classColored ~= false and not sp.darkTheme then
+        -- For pips using class/resource color, prefer the per-spec resource color
+        if sp.resourceColored and not sp.darkTheme then
+            local rr, rg, rb = ERB.ResolveSecondaryResourceColor(powerType)
+            if rr then r, g, b = rr, rg, rb end
+        elseif sp.classColored ~= false and not sp.darkTheme then
             local pc2 = POWER_COLORS[powerType]
             if pc2 then
                 r, g, b = pc2[1], pc2[2], pc2[3]
@@ -3997,7 +4198,7 @@ local function UpdateVisibility()
     -- Secondary resource visibility + ooc alpha
     if secondaryFrame then
         local sp = ERB.db.profile.secondary
-        if sp and sp.enabled ~= false and cachedSecondary and ShouldShowSecondary() and not inVehicle then
+        if sp and sp.enabled ~= false and not IsSpecDisabled(sp) and cachedSecondary and ShouldShowSecondary() and not inVehicle then
             secondaryFrame:Show()
             EllesmereUI.SetElementVisibility(secondaryFrame, true)
             local base = sp.barAlpha or 1
@@ -4350,6 +4551,11 @@ BuildCastBar = function()
         bar:SetMinMaxValues(0, 1)
         bar:SetValue(0)
         castBarFrame._bar = bar
+        -- Smooth the per-frame fill with the same native interpolation the
+        -- resource bars' "Smooth Bars" uses -- always on for the cast bar (no
+        -- toggle). Resets and the finish snap stay instant (plain SetValue) so a
+        -- new cast starts clean instead of easing down from the previous fill.
+        bar._castInterp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
 
         -- Spark (in its own child frame inside clip so it gets clipped)
         local sparkFrame = CreateFrame("Frame", nil, clipFrame)
@@ -4459,24 +4665,29 @@ BuildCastBar = function()
             cb.borderTextureShiftX, cb.borderTextureShiftY, "resourcebars", bs)
     end
 
-    -- Icon: left side, full height, no inset
+    -- Icon: left or right side (iconOnRight), full height, no inset
     local iconFrame = castBarFrame._iconFrame
+    local iconOnRight = hasIcon and cb.iconOnRight
     if hasIcon then
         iconFrame:SetSize(h, h)
         iconFrame:ClearAllPoints()
-        iconFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", 0, 0)
+        if iconOnRight then
+            iconFrame:SetPoint("TOPRIGHT", castBarFrame, "TOPRIGHT", 0, 0)
+        else
+            iconFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", 0, 0)
+        end
         iconFrame:Show()
     else
         iconFrame:Hide()
     end
 
-    -- Clip frame + bar: right of icon (or full width), full height
+    -- Clip frame + bar: beside the icon (or full width), full height
     local clipFrame = castBarFrame._barClip
     local bar = castBarFrame._bar
     local bdrInset = (PP and PP.mult) or 1
     clipFrame:ClearAllPoints()
-    clipFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", (hasIcon and h or 0) + bdrInset, -bdrInset)
-    clipFrame:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", -bdrInset, bdrInset)
+    clipFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", ((hasIcon and not iconOnRight) and h or 0) + bdrInset, -bdrInset)
+    clipFrame:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", -((iconOnRight and h or 0)) - bdrInset, bdrInset)
     clipFrame:SetFrameLevel(castBarFrame:GetFrameLevel() + 1)
     bar:ClearAllPoints()
     bar:SetAllPoints(clipFrame)
@@ -4591,12 +4802,22 @@ end
     local barW = bar:GetWidth()
     if not barW or barW < 10 then barW = cb.width end
 
-    -- Timer text
+    -- Cast text side-aware layout (mirrors nameplates / unit frames). The duration
+    -- reserves a slot on its side and pushes the spell text inward when they share a
+    -- side; center is never pushed. Visibility stays governed by showTimer / showSpellText
+    -- (the dropdown "None" sets those flags false).
+    local timerW   = (cb.timerSize or 11) * 2.2
+    local durSide   = cb.timerSide or "right"
+    local spellSide = cb.spellTextSide or "left"
+
+    -- Timer / duration text (auto-sized, anchored to its side)
     local timerText = castBarFrame._timerText
     if cb.showTimer then
         SetRBFont(timerText, GetRBFont(), cb.timerSize or 11)
+        local pt, xb, jh = ns.GetCastTextAnchor(durSide, false, timerW)
         timerText:ClearAllPoints()
-        timerText:SetPoint("RIGHT", bar, "RIGHT", -4 + (cb.timerX or 0), cb.timerY or 0)
+        timerText:SetJustifyH(jh)
+        timerText:SetPoint(pt, bar, pt, xb + (cb.timerX or 0), cb.timerY or 0)
         timerText:Show()
     else
         timerText:Hide()
@@ -4606,13 +4827,22 @@ end
     local nameText = castBarFrame._nameText
     if cb.showSpellText then
         SetRBFont(nameText, GetRBFont(), cb.spellTextSize or 11)
+        local pt, xb, jh = ns.GetCastTextAnchor(spellSide, cb.showTimer and durSide == spellSide, timerW)
         nameText:ClearAllPoints()
-        nameText:SetPoint("LEFT", bar, "LEFT", 4 + (cb.spellTextX or 0), cb.spellTextY or 0)
-        nameText:SetWidth(barW * (cb.showTimer and 0.88 or 0.95))
+        nameText:SetJustifyH(jh)
+        nameText:SetPoint(pt, bar, pt, xb + (cb.spellTextX or 0), cb.spellTextY or 0)
+        if spellSide == "center" then
+            nameText:SetWidth(barW * 0.6)
+        else
+            nameText:SetWidth(barW - 8 - (cb.showTimer and timerW or 0))
+        end
         nameText:Show()
     else
         nameText:Hide()
     end
+    -- Re-flow so a live JustifyH change takes effect on already-rendered text.
+    ns.ReflowFontString(timerText)
+    ns.ReflowFontString(nameText)
 
     -- Hide pips when not empowering
     if castBarFrame._pips then
@@ -4773,7 +5003,7 @@ UpdateCastBar = function(dt)
         local castDur = castBarFrame._endTime - castBarFrame._startTime
         local progress = (castDur > 0) and ((now - castBarFrame._startTime) / castDur) or 0
         progress = min(max(progress, 0), 1)
-        bar:SetValue(progress)
+        bar:SetValue(progress, bar._castInterp)
         -- Size the gradient clip frame to match the fill width
         if castBarFrame._gradientFullBar and castBarFrame._gradClip then
             castBarFrame._gradClip:SetWidth(max(0.01, bar:GetWidth() * progress))
@@ -4815,7 +5045,7 @@ UpdateCastBar = function(dt)
         local chanDur = castBarFrame._endTime - castBarFrame._startTime
         local progress = (chanDur > 0) and ((castBarFrame._endTime - now) / chanDur) or 0
         progress = min(max(progress, 0), 1)
-        bar:SetValue(progress)
+        bar:SetValue(progress, bar._castInterp)
         -- Size the gradient clip frame to match the fill width
         if castBarFrame._gradientFullBar and castBarFrame._gradClip then
             castBarFrame._gradClip:SetWidth(max(0.01, bar:GetWidth() * progress))
@@ -5230,6 +5460,20 @@ end
 local _totemLayoutCache = {}
 local _totemActiveSet = {}  -- reusable set for O(1) cleanup lookups
 
+-- The icon cooldown's native countdown number is a C-rendered, secret-safe
+-- FontString. We restyle that FontString (font/size/color) but never read its
+-- value, giving a clean number with no "s" suffix in place of Blizzard's "Xs"
+-- Duration text (which is a protected secret value we cannot read or rewrite).
+local function GetCooldownNumberFS(cd)
+    if not (cd and cd.GetRegions) then return nil end
+    for _, region in ipairs({ cd:GetRegions() }) do
+        if region.GetObjectType and region:GetObjectType() == "FontString" then
+            return region
+        end
+    end
+    return nil
+end
+
 local function LayoutTotemBar()
     if not totemBarFrame or not TotemFrame then return end
     local tb = GetTotemSettings()
@@ -5239,6 +5483,7 @@ local function LayoutTotemBar()
     local PP = EllesmereUI and EllesmereUI.PP
     if PP and PP.Snap then spacing = PP.Snap(spacing) end
     local iconSize = tb.iconSize or 30
+    local vertical = (tb.orientation == "VERTICAL")
 
     -- Use SetScale on TotemFrame rather than SetSize on individual buttons.
     -- Buttons keep their native template size; scale controls visual size.
@@ -5249,7 +5494,7 @@ local function LayoutTotemBar()
     TotemFrame:SetParent(totemBarFrame)
     TotemFrame:SetFrameStrata("HIGH")
     TotemFrame:ClearAllPoints()
-    TotemFrame:SetPoint("LEFT", totemBarFrame, "LEFT", 0, 0)
+    TotemFrame:SetPoint(vertical and "TOP" or "LEFT", totemBarFrame, vertical and "TOP" or "LEFT", 0, 0)
     TotemFrame:Show()
 
     -- Only re-apply scale when setting changed
@@ -5285,7 +5530,9 @@ local function LayoutTotemBar()
 
         btn:ClearAllPoints()
         if i == 1 then
-            btn:SetPoint("LEFT", TotemFrame, "LEFT", 0, 0)
+            btn:SetPoint(vertical and "TOP" or "LEFT", TotemFrame, vertical and "TOP" or "LEFT", 0, 0)
+        elseif vertical then
+            btn:SetPoint("TOP", buttons[i - 1], "BOTTOM", 0, -scaledSpacing)
         else
             btn:SetPoint("LEFT", buttons[i - 1], "RIGHT", scaledSpacing, 0)
         end
@@ -5313,19 +5560,23 @@ local function LayoutTotemBar()
             btn.Icon.Texture:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
         end
 
-        -- Timer text
+        -- Timer: show the icon cooldown's native countdown number instead of
+        -- Blizzard's "Xs" Duration string. The number is C-rendered from the
+        -- cooldown (secret-safe, no "s" suffix); we restyle only its FontString
+        -- region, so nothing reads the protected duration value.
         if btn.Duration then
+            btn.Duration:SetTextColor(0, 0, 0, 0)  -- hide the "Xs" text
+        end
+        local cd = btn.Icon and btn.Icon.Cooldown
+        if cd and cd.SetHideCountdownNumbers then
+            cd:SetHideCountdownNumbers(not tb.showTimer)
             if tb.showTimer then
-                btn.Duration:SetTextColor(1, 1, 1, 1)
-            else
-                btn.Duration:SetTextColor(0, 0, 0, 0)
+                local cdText = GetCooldownNumberFS(cd)
+                if cdText then
+                    cdText:SetFont(fontPath, scaledTimerSize, outlineMode)
+                    cdText:SetTextColor(1, 1, 1, 1)
+                end
             end
-            btn.Duration:SetFont(fontPath, scaledTimerSize, outlineMode)
-            btn.Duration:SetDrawLayer("OVERLAY", 7)
-            btn.Duration:ClearAllPoints()
-            btn.Duration:SetPoint("CENTER", btn, "CENTER", 0, 0)
-            btn.Duration:SetJustifyH("CENTER")
-            btn.Duration:SetJustifyV("MIDDLE")
         end
 
         -- Border overlay (our own frame in the button's scale space)
@@ -5354,8 +5605,12 @@ local function LayoutTotemBar()
 
     -- Size container
     local maxButtons = 5
-    local maxW = iconSize * maxButtons + spacing * (maxButtons - 1)
-    totemBarFrame:SetSize(maxW, iconSize)
+    local maxDim = iconSize * maxButtons + spacing * (maxButtons - 1)
+    if vertical then
+        totemBarFrame:SetSize(iconSize, maxDim)
+    else
+        totemBarFrame:SetSize(maxDim, iconSize)
+    end
 end
 
 local function BuildTotemBar()
@@ -5450,6 +5705,22 @@ end
 -------------------------------------------------------------------------------
 --  Master Apply
 -------------------------------------------------------------------------------
+-- Native StatusBar fill smoothing (opt-in per bar; default off). Mirrors the
+-- Unit Frames approach: store the interpolation mode on the bar and let the
+-- CreateStatusBar SetValue wrapper pass it to Blizzard's C-side interpolation.
+-- nil = no interpolation = zero added cost (a plain SetValue). Only the three
+-- main bars are toggled here (pips never smooth). The cast bar smooths its fill
+-- unconditionally via its own bar._castInterp set at creation -- not _smoothing,
+-- and not driven by this toggle.
+function ERB:ApplySmoothing()
+    local interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
+    local p = ERB.db and ERB.db.profile
+    if not (interp and p) then return end
+    if healthBar    then healthBar._smoothing    = (p.health    and p.health.smoothBars)    and interp or nil end
+    if primaryBar   then primaryBar._smoothing   = (p.primary   and p.primary.smoothBars)   and interp or nil end
+    if secondaryBar then secondaryBar._smoothing = (p.secondary and p.secondary.smoothBars) and interp or nil end
+end
+
 function ERB:ApplyAll()
     local _, classFile = UnitClass("player")
     cachedClass = classFile
@@ -5476,6 +5747,7 @@ function ERB:ApplyAll()
     UpdatePrimaryBar()
     UpdateSecondaryResource()
     UpdateVisibility()
+    self:ApplySmoothing()
 
     -- Vehicle proxy: hide resource bars during full vehicle UI ([vehicleui] condition)
     -- Secure frame creation + RegisterStateDriver both need to happen outside combat
@@ -5715,6 +5987,7 @@ function ERB:OnInitialize()
 
     _G._ERB_AceDB = self.db
     _G._ERB_Apply = function() ERB:ApplyAll() end
+    _G._ERB_ApplySmoothing = function() ERB:ApplySmoothing() end
     -- Unlock mode / EUI options panel: temporarily render the power bar at its
     -- true stored height (no expand) so movers and getSize see the real size.
     -- RUNTIME-ONLY suppression via EllesmereUI._erbExpandSuppressed -- it NEVER
@@ -5757,7 +6030,10 @@ function ERB:OnInitialize()
         if not sp or not sp.enabled then return 0 end
         local mode = sp.shiftElementsIfNoResource
         if mode ~= "Up" and mode ~= "Down" then return 0 end
-        if GetSecondaryResource() then return 0 end
+        -- Fires whenever the class resource bar leaves an empty slot: disabled
+        -- for the CURRENT spec via the spec picker, or the spec has no class
+        -- resource. (Master-disabled returns 0 above -- no frame to anchor to.)
+        if not IsSpecDisabled(sp) and GetSecondaryResource() then return 0 end
         return (mode == "Up") and 1 or -1
     end
     local function ResolveShiftDirPower()

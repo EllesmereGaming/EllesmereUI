@@ -76,7 +76,8 @@ local DISPEL_SPELLS = {
     { id = 51886,  name = "Cleanse Spirit", class = "SHAMAN" }, -- Ele & Enh
     { id = 360823, name = "Naturalize",    class = "EVOKER" },  -- Pres
     { id = 365585, name = "Expunge",       class = "EVOKER" },  -- Aug & Dev
-    { id = 89808,  name = "Singe Magic",   class = "WARLOCK" },
+    { id = 89808,  name = "Singe Magic",   class = "WARLOCK" }, -- Warlock
+    { id = 475,    name = "Remove Curse",  class = "MAGE" },  -- All specs (Curse only)
 }
 
 -- External defensive spells by class
@@ -147,6 +148,12 @@ local bindProxy          = nil   -- SecureActionButtonTemplate (unnamed frame fa
 local globalBtn        = nil   -- SecureActionButtonTemplate (hovercast bindings)
 local registeredFrames = {}
 local ownedFrames      = {}
+-- Native left-click target attrs (type1 / *type1) captured the first time a frame
+-- is registered, so DoUnregisterFrame restores EXACTLY what the frame had: raid
+-- frames target on left-click, EUI unit frames don't. Without this, disabling
+-- click-cast would force the raid default (left-click targets) onto unit frames.
+-- Weak-keyed so dead frames drop out.
+local originalTargetAttrs = setmetatable({}, { __mode = "k" })
 local regQueue         = {}
 local unregQueue       = {}
 local pendingApply     = false
@@ -985,6 +992,37 @@ local function GetClickDirection()
     return (cc and cc.enabled and cc.downClick) and "AnyDown" or "AnyUp"
 end
 
+-- After a frame's click-cast bindings are applied, neutralize the no-click-cast
+-- defaults so an UNBOUND left/right click does nothing. A unit button is created
+-- with type1/*type1 = "target" and the menu wildcard *type2 = "click" (+
+-- *clickbutton2). Clearing the wildcards is not enough on its own:
+--   * The creation-time SPECIFIC type1 = "target" survives, and even if it were
+--     cleared, plain left-click still targets via Blizzard's native ClickBindings
+--     interaction -- which a nil type1 falls through to. So when nothing is bound
+--     to plain left-click we write an inert type1 = "none": a non-nil,
+--     unrecognized action the secure handler performs (i.e. nothing), which also
+--     suppresses the wildcard / native-interaction fallback.
+--   * Same idea for the menu on type2.
+-- A button the user DID bind already wrote its own type<N> via SetClickAttr, so
+-- we leave those alone. Own secure frame, only ever reached out of combat -> no taint.
+local function NeutralizeDefaultClicks(frame, bindings)
+    local b1, b2 = false, false
+    for _, b in ipairs(bindings) do
+        if not b.hovercast and b.key then
+            local parsed = ParseKeyString(b.key)
+            if parsed.isMouseButton and parsed.modifiers == "" then
+                if parsed.buttonNum == 1 then b1 = true
+                elseif parsed.buttonNum == 2 then b2 = true end
+            end
+        end
+    end
+    frame:SetAttribute("*type1", nil)
+    frame:SetAttribute("*type2", nil)
+    frame:SetAttribute("*clickbutton2", nil)
+    if not b1 then frame:SetAttribute("type1", "none") end
+    if not b2 then frame:SetAttribute("type2", "none") end
+end
+
 local function DoRegisterFrame(frame)
     if registeredFrames[frame] then return end
     if not frame or not frame.RegisterForClicks then return end
@@ -996,6 +1034,15 @@ local function DoRegisterFrame(frame)
     local cc = GetClickCastDB()
     if not (cc and cc.enabled) then return end
     registeredFrames[frame] = true
+    -- Capture the frame's native left-click target attrs once, before we touch
+    -- anything, so DoUnregisterFrame restores them exactly (raid -> target, EUI
+    -- unit frames -> none). Kept across register/unregister cycles.
+    if originalTargetAttrs[frame] == nil then
+        originalTargetAttrs[frame] = {
+            type1     = frame:GetAttribute("type1"),
+            starType1 = frame:GetAttribute("*type1"),
+        }
+    end
     frame:RegisterForClicks(GetClickDirection())
     if frame.EnableMouseWheel then frame:EnableMouseWheel(true) end
     if not wrappedFrames[frame] then
@@ -1037,6 +1084,11 @@ local function DoRegisterFrame(frame)
         end
     end
 
+    -- Neutralize the default left-click target / right-click menu for any button
+    -- the user did not bind (see NeutralizeDefaultClicks). Restored in
+    -- DoUnregisterFrame on disable.
+    NeutralizeDefaultClicks(frame, bindings)
+
 end
 
 local function DoUnregisterFrame(frame)
@@ -1055,10 +1107,19 @@ local function DoUnregisterFrame(frame)
     end
     ClearKeyAttrs(frame, lastBindingCount)
 
-    -- Restore default click behavior (target + menu). The menu goes through the
-    -- secure SecureActionButton proxy (12.0.7 gates a raw togglemenu on unit
-    -- buttons, and an insecure reopen taints the menu's protected items).
-    frame:SetAttribute("type1", "target")
+    -- Restore the frame's NATIVE left-click target attrs captured at register
+    -- time: raid frames revert to type1/*type1 = "target", EUI unit frames revert
+    -- to NO left-click target (their native state) rather than being forced to
+    -- target. The menu's *type2 / *clickbutton2 are restored by AttachSecureUnitMenu.
+    local o = originalTargetAttrs[frame]
+    if o then
+        frame:SetAttribute("type1", o.type1)
+        frame:SetAttribute("*type1", o.starType1)
+    else
+        -- Never captured (shouldn't happen): fall back to the historical raid default.
+        frame:SetAttribute("type1", "target")
+        frame:SetAttribute("*type1", "target")
+    end
     if EllesmereUI.AttachSecureUnitMenu then
         EllesmereUI.AttachSecureUnitMenu(frame)
     else
@@ -1246,6 +1307,9 @@ function ns.CC_ApplyBindings()
             else
             end
         end
+        -- Re-neutralize the unbound left/right defaults after the rebuild (the
+        -- clear pass above may have stripped a previous binding's type<N>).
+        NeutralizeDefaultClicks(frame, bindings)
     end
     -- Bind proxy gets keyboard attrs too (unnamed frame fallback)
     for _, fb in ipairs(frameBindings) do
@@ -1341,13 +1405,17 @@ function ns.CC_ApplyBindings()
     header:SetAttribute("eui_hover_set", table.concat(hoverSetLines, "\n"))
     header:SetAttribute("eui_hover_clear", table.concat(hoverClearLines, "\n"))
 
-    -- Teardown executed on the NEXT rebuild: drop every override binding this
-    -- build owns (hover keys + frame-based keys) and reset the active flag.
-    local teardown = {}
-    for _, line in ipairs(hoverClearLines) do teardown[#teardown + 1] = line end
-    for _, line in ipairs(kbClearLines) do teardown[#teardown + 1] = line end
-    teardown[#teardown + 1] = "eui_hoveractive = false"
-    header._ccClearScript = table.concat(teardown, "\n")
+    -- Teardown executed on the NEXT rebuild (line ~1311): drop every override
+    -- binding this header owns and reset the active flag. self:ClearBindings()
+    -- wipes them ALL in one shot rather than replaying a per-key ClearBinding
+    -- list. The per-key list was fragile: when the LAST hover/keyboard binding is
+    -- unbound, the state driver is not re-registered (the gate just below), so any
+    -- override the per-key teardown missed -- e.g. one still active because the
+    -- user was hovering a frame when they unbound -- had nothing left to clear it
+    -- and kept firing until /reload (the unbind-doesn't-take-effect bug). The
+    -- header owns only click-cast overrides and they re-establish on the next
+    -- hover, so a full wipe is always safe.
+    header._ccClearScript = "self:ClearBindings()\neui_hoveractive = false"
 
     if #hoverSetLines > 0 or #kbClearLines > 0 then
         local fbFailsafe = table.concat(kbClearLines, "\n")

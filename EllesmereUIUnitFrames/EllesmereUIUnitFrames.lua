@@ -79,6 +79,9 @@ local defaults = {
         portraitStyle = "attached",
         healthBarTexture = "none",
         darkTheme = false,
+        -- Show one decimal on abbreviated values (240.5k) and percents (77.3%).
+        -- Global, default off; read by the unit-frame text tags via _G flags.
+        showDecimalOnText = false,
         -- Custom enemy reaction colors (empty = use Blizzard FACTION_BAR_COLORS).
         -- Keys: hostile (reactions 1-3), neutral (4), friendly (5-8), tapped.
         enemyColors = {},
@@ -310,6 +313,7 @@ local defaults = {
             castbarKickTickEnabled = true,
             castbarInterruptMidCastEnabled = false,
             castbarInterruptMidCastColor = { r = 0.318, g = 0.820, b = 0.357 },
+            castbarUninterruptibleColor = { r = 0.5, g = 0.5, b = 0.5 },
             castbarClassColored = false,
             healthDisplay = "both",
             showBuffs = true,
@@ -615,6 +619,7 @@ local defaults = {
             castbarKickTickEnabled = true,
             castbarInterruptMidCastEnabled = false,
             castbarInterruptMidCastColor = { r = 0.318, g = 0.820, b = 0.357 },
+            castbarUninterruptibleColor = { r = 0.5, g = 0.5, b = 0.5 },
             castbarClassColored = false,
             healthDisplay = "perhp",
             leftTextContent = "name",
@@ -932,6 +937,43 @@ local function SetFSFont(fs, size, flags)
     EllesmereUI.PrimeFontShadow(fs, f == "")
   end
   fs:SetFont(GetSelectedFont(), size or 12, f)
+end
+
+-- Shared cast-bar text anchoring (mirrors the nameplate cast text system). The
+-- cast bar text line holds three elements -- spell name, spell target, duration --
+-- each assigned a side ("left" | "right" | "center"). The duration reserves a fixed
+-- slot of width on its side; a non-center element sharing the duration's side is
+-- shifted inward by that width. Center elements anchor to the bar center and are
+-- never pushed.
+--   side    : "left" | "right" | "center"
+--   pushed  : true when the duration occupies this same side and this element moves inward
+--   reserve : duration reserved width (only consumed when pushed)
+--   isTimer : the duration uses slightly tighter base insets than text
+-- Returns: point (anchor), xOff (base, before the user X offset), justify
+function ns.GetCastTextAnchor(side, pushed, reserve, isTimer)
+    if side == "center" then
+        return "CENTER", 0, "CENTER"
+    elseif side == "left" then
+        local base = isTimer and 3 or 5
+        if pushed then base = base + reserve end
+        return "LEFT", base, "LEFT"
+    else -- "right"
+        local base = -3
+        if pushed then base = base - reserve end
+        return "RIGHT", base, "RIGHT"
+    end
+end
+
+-- WoW does not visually re-lay-out a FontString when only its SetJustifyH changes;
+-- a fresh build does. Clearing then re-setting the text forces the new alignment to
+-- take effect, and it MUST be a real change -- re-setting the identical string is
+-- deduped and skips the re-layout. GetText may return a secret (cast name/target);
+-- SetText accepts secrets and the value is never inspected, so the round-trip is safe.
+function ns.ReflowFontString(fs)
+    if not fs then return end
+    local t = fs:GetText()
+    fs:SetText("")
+    fs:SetText(t or "")
 end
 
 -- Disable WoW's automatic pixel snapping on a texture (prevents sub-pixel jitter)
@@ -1293,6 +1335,28 @@ end
 ns.EUI_IsSmartPowerPercent = EUI_IsSmartPowerPercent
 EllesmereUI.IsSmartPowerPercent = EUI_IsSmartPowerPercent
 
+-- Show Decimal on Text (global, default off). A Blizzard AbbreviateNumbers config
+-- that emits one decimal per magnitude band: 240500 -> "240.5k", 2405000 -> "2.4m".
+-- AbbreviateNumbers runs in Blizzard's secure context, so feeding it a secret value
+-- PLUS this config stays secret-safe (exactly like the no-config call we already use
+-- on secret health/power). Tags read two _G flags (sandbox falls back to _G):
+--   _G._EUI_AbbrevDecimalCfg = this table when on, nil when off (nil == today's call)
+--   _G._EUI_TextDecimals     = true/false, selects "%.1f" vs "%d" for percents
+ns._decimalAbbrevConfig = { breakpointData = {
+    { breakpoint = 1e9, abbreviation = "b", significandDivisor = 1e8, fractionDivisor = 10, abbreviationIsGlobal = false },
+    { breakpoint = 1e6, abbreviation = "m", significandDivisor = 1e5, fractionDivisor = 10, abbreviationIsGlobal = false },
+    { breakpoint = 1e3, abbreviation = "k", significandDivisor = 1e2, fractionDivisor = 10, abbreviationIsGlobal = false },
+} }
+function ns.ApplyTextDecimalGlobals()
+    if db and db.profile and db.profile.showDecimalOnText then
+        _G._EUI_TextDecimals = true
+        _G._EUI_AbbrevDecimalCfg = ns._decimalAbbrevConfig
+    else
+        _G._EUI_TextDecimals = false
+        _G._EUI_AbbrevDecimalCfg = nil
+    end
+end
+
 do
   local tagName = "curhpshort"
   local function AbbrevHP(unit)
@@ -1300,7 +1364,8 @@ do
     if not UnitIsConnected(unit) then return "OFFLINE" end
     if UnitIsDeadOrGhost(unit) then return "DEAD" end
     local hp = UnitHealth(unit) or 0
-    return AbbreviateNumbers(hp)
+    local cfg = _G._EUI_AbbrevDecimalCfg
+    return cfg and AbbreviateNumbers(hp, cfg) or AbbreviateNumbers(hp)
   end
 
   oUF.Tags.Methods[tagName] = AbbrevHP
@@ -1314,7 +1379,7 @@ do
     if UnitIsDeadOrGhost(unit) then return "DEAD" end
     local pct = UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)
     if not pct then return "0" end
-    return string_format("%d", pct)
+    return string_format(_G._EUI_TextDecimals and "%.1f" or "%d", pct)
   end
   oUF.Tags.Events["perhpnosign"] = "UNIT_HEALTH UNIT_MAXHEALTH"
 end
@@ -1325,13 +1390,23 @@ end
 _G._EUI_ResolvedPowerType = _G._EUI_ResolvedPowerType or {}
 
 -- eui-perpp: power percent using resolved power type (runs in oUF _PROXY env)
+-- Power percent is intentionally NOT decimal-gated: "Show Decimal on Text"
+-- applies to health text only, so power keeps integer percents.
 oUF.Tags.Methods["eui-perpp"] = [[function(u)
     local pType = _EUI_ResolvedPowerType[u] or UnitPowerType(u)
     return string.format('%d', UnitPowerPercent(u, pType, true, CurveConstants.ScaleTo100))
 end]]
 oUF.Tags.Events["eui-perpp"] = "UNIT_POWER_UPDATE UNIT_MAXPOWER UNIT_DISPLAYPOWER"
 
+-- eui-perhp: health percent, EUI-owned so "Show Decimal on Text" can switch
+-- %d / %.1f without editing the vendored oUF [perhp]. Mirrors [perhp] otherwise.
+oUF.Tags.Methods["eui-perhp"] = [[function(u)
+    return string.format(_EUI_TextDecimals and '%.1f' or '%d', UnitHealthPercent(u, true, CurveConstants.ScaleTo100))
+end]]
+oUF.Tags.Events["eui-perhp"] = "UNIT_HEALTH UNIT_MAXHEALTH"
+
 -- eui-curpp: current power as abbreviated number
+-- Power value is intentionally NOT decimal-gated (health-only feature).
 oUF.Tags.Methods["eui-curpp"] = [[function(u)
     local pType = _EUI_ResolvedPowerType[u] or UnitPowerType(u)
     return AbbreviateNumbers(UnitPower(u, pType))
@@ -1351,7 +1426,8 @@ oUF.Tags.Events["eui-absorb"] = "UNIT_ABSORB_AMOUNT_CHANGED"
 -- blank-at-zero; only the full TruncateWhenZero variant blanks).
 oUF.Tags.Methods["eui-absorbshort"] = [[function(u)
     if not u or not UnitExists(u) then return "" end
-    return AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0)
+    local cfg = _EUI_AbbrevDecimalCfg
+    return cfg and AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0, cfg) or AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0)
 end]]
 oUF.Tags.Events["eui-absorbshort"] = "UNIT_ABSORB_AMOUNT_CHANGED"
 
@@ -1391,6 +1467,17 @@ local function CastIconInWidth(unit, s)
     return s.showCastIcon ~= false and s.castbarIconInWidth ~= false
 end
 
+-- Whether the cast spell icon sits on the RIGHT of the bar instead of the
+-- default left. Independent of "part of the bar"; defaults off (left).
+local function CastIconOnRight(unit, s)
+    s = s or GetSettingsForUnit(unit)
+    if not s then return false end
+    if unit == "player" then
+        return s.playerCastbarIconRight == true
+    end
+    return s.castbarIconRight == true
+end
+
 -- Anchor the cast spell icon and inset the fill based on whether the icon is
 -- part of the bar width. inWidth=true -> icon at the bar's left edge, fill
 -- inset by the icon width (castbarBg becomes the full footprint, so unlock
@@ -1406,7 +1493,7 @@ end
 -- iconH is the configured cast bar height (castbarHeight / playerCastbarHeight),
 -- used only for the square WIDTH and the matching fill inset so those are
 -- deterministic too; it falls back to bg:GetHeight() when omitted.
-local function LayoutCastbarIcon(castbar, inWidth, iconH)
+local function LayoutCastbarIcon(castbar, inWidth, iconH, onRight)
     if not castbar then return end
     local bg = castbar:GetParent()
     if not bg then return end
@@ -1415,17 +1502,35 @@ local function LayoutCastbarIcon(castbar, inWidth, iconH)
     if iconFrame then
         iconFrame:ClearAllPoints()
         if inWidth then
-            PP.Point(iconFrame, "TOPLEFT", bg, "TOPLEFT", 0, 0)
-            PP.Point(iconFrame, "BOTTOMLEFT", bg, "BOTTOMLEFT", 0, 0)
+            -- Icon inside the footprint, flush with the chosen edge.
+            if onRight then
+                PP.Point(iconFrame, "TOPRIGHT", bg, "TOPRIGHT", 0, 0)
+                PP.Point(iconFrame, "BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
+            else
+                PP.Point(iconFrame, "TOPLEFT", bg, "TOPLEFT", 0, 0)
+                PP.Point(iconFrame, "BOTTOMLEFT", bg, "BOTTOMLEFT", 0, 0)
+            end
         else
-            PP.Point(iconFrame, "TOPRIGHT", bg, "TOPLEFT", 0, 0)
-            PP.Point(iconFrame, "BOTTOMRIGHT", bg, "BOTTOMLEFT", 0, 0)
+            -- Icon hangs outside the bar, off the chosen edge.
+            if onRight then
+                PP.Point(iconFrame, "TOPLEFT", bg, "TOPRIGHT", 0, 0)
+                PP.Point(iconFrame, "BOTTOMLEFT", bg, "BOTTOMRIGHT", 0, 0)
+            else
+                PP.Point(iconFrame, "TOPRIGHT", bg, "TOPLEFT", 0, 0)
+                PP.Point(iconFrame, "BOTTOMRIGHT", bg, "BOTTOMLEFT", 0, 0)
+            end
         end
         iconFrame:SetWidth(side)
     end
     castbar:ClearAllPoints()
-    PP.Point(castbar, "TOPLEFT", bg, "TOPLEFT", inWidth and side or 0, 0)
-    PP.Point(castbar, "BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
+    if inWidth and onRight then
+        -- Bar occupies the left of the footprint; icon takes the right edge.
+        PP.Point(castbar, "TOPLEFT", bg, "TOPLEFT", 0, 0)
+        PP.Point(castbar, "BOTTOMRIGHT", bg, "BOTTOMRIGHT", -side, 0)
+    else
+        PP.Point(castbar, "TOPLEFT", bg, "TOPLEFT", inWidth and side or 0, 0)
+        PP.Point(castbar, "BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
+    end
 end
 
 -- Returns the donor settings table for mini frames (focus ? target ? player)
@@ -1593,9 +1698,9 @@ local function GetPlayerTargetHealthTag(unit)
     if display == "curhpshort" then
         return "[curhpshort]"
     elseif display == "perhp" then
-        return "[perhp]%"
+        return "[eui-perhp]%"
     else
-        return "[curhpshort] | [perhp]%"
+        return "[curhpshort] | [eui-perhp]%"
     end
 end
 
@@ -1604,9 +1709,9 @@ local function GetFocusHealthTag()
     if display == "curhpshort" then
         return "[curhpshort]"
     elseif display == "both" then
-        return "[curhpshort] | [perhp]%"
+        return "[curhpshort] | [eui-perhp]%"
     else
-        return "[perhp]%"
+        return "[eui-perhp]%"
     end
 end
 
@@ -1615,9 +1720,9 @@ local function GetBossHealthTag()
     if display == "curhpshort" then
         return "[curhpshort]"
     elseif display == "both" then
-        return "[curhpshort] | [perhp]%"
+        return "[curhpshort] | [eui-perhp]%"
     else
-        return "[perhp]%"
+        return "[eui-perhp]%"
     end
 end
 
@@ -1625,15 +1730,19 @@ end
 -- content: "name", "both", "curhpshort", "perhp", "perhpnosign", "perhpnum", "none"
 local function ContentToTag(content)
     if content == "name" then return "[name]"
-    elseif content == "both" then return "[curhpshort] | [perhp]%"
-    elseif content == "perhpnum" then return "[perhp]% | [curhpshort]"
+    elseif content == "both" then return "[curhpshort] | [eui-perhp]%"
+    elseif content == "perhpnum" then return "[eui-perhp]% | [curhpshort]"
     elseif content == "curhpshort" then return "[curhpshort]"
-    elseif content == "perhp" then return "[perhp]%"
+    elseif content == "perhp" then return "[eui-perhp]%"
     elseif content == "perhpnosign" then return "[perhpnosign]"
-    elseif content == "perpp" then return "[perpp]%"
-    elseif content == "curpp" then return "[curpp]"
-    elseif content == "curhp_curpp" then return "[curhpshort] | [curpp]"
-    elseif content == "perhp_perpp" then return "[perhp]% | [perpp]%"
+    -- Power content uses the secret-safe eui- power tags (identical to the power
+    -- bar text). The stock [curpp]/[perpp] tags read raw UnitPower, which is a
+    -- secret value for enemies and bugs out the fontstring on target change; the
+    -- eui- tags resolve power type from the cache and stay display-safe.
+    elseif content == "perpp" then return "[eui-perpp]%"
+    elseif content == "curpp" then return "[eui-curpp]"
+    elseif content == "curhp_curpp" then return "[curhpshort] | [eui-curpp]"
+    elseif content == "perhp_perpp" then return "[eui-perhp]% | [eui-perpp]%"
     elseif content == "absorb" then return "[eui-absorb]"
     elseif content == "absorbshort" then return "[eui-absorbshort]"
     elseif content == "group" then return "[group]"
@@ -2032,6 +2141,29 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         if frame.UpdateTags then frame:UpdateTags() end
     end
 
+    -- Power-color override for power-content text. Mirrors the power bar text
+    -- logic: the unit's own power type, white fallback when the token can't
+    -- resolve. ApplyBTBPowerColors re-applies all three slots; it runs at layout
+    -- time AND continuously from the power element's PostUpdateColor, so the color
+    -- survives tag updates and power-type changes (identical to the power bar text).
+    -- The per-slot early-out (no power-color flag) keeps it ~free when unused.
+    local function ApplyBTBPowerColor(fs, contentKey, usePowerColor)
+        if not fs or not usePowerColor then return end
+        if contentKey == "perpp" or contentKey == "curpp" or contentKey == "curhp_curpp" or contentKey == "perhp_perpp" then
+            -- Secret-safe per-unit power color: player resolves via the clean
+            -- string token (identical to before); non-player units recover it
+            -- from the clean integer power type instead of falling back to white.
+            local r, g, b = EllesmereUI.ResolveUnitPowerColor(unit)
+            if r then fs:SetTextColor(r, g, b)
+            else fs:SetTextColor(1, 1, 1) end
+        end
+    end
+    local function ApplyBTBPowerColors(s)
+        ApplyBTBPowerColor(leftFS, s.btbLeftContent or "none", s.btbLeftPowerColor)
+        ApplyBTBPowerColor(rightFS, s.btbRightContent or "none", s.btbRightPowerColor)
+        ApplyBTBPowerColor(centerFS, s.btbCenterContent or "none", s.btbCenterPowerColor)
+    end
+
     local function ApplyBTBTextPositions(s)
         local lc = s.btbLeftContent or "none"
         local rc = s.btbRightContent or "none"
@@ -2067,22 +2199,10 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         ApplyClassColor(leftFS, unit, s.btbLeftClassColor, s.btbLeftColorR, s.btbLeftColorG, s.btbLeftColorB)
         ApplyClassColor(rightFS, unit, s.btbRightClassColor, s.btbRightColorR, s.btbRightColorG, s.btbRightColorB)
         ApplyClassColor(centerFS, unit, s.btbCenterClassColor, s.btbCenterColorR, s.btbCenterColorG, s.btbCenterColorB)
-        -- Power color overrides (applied after class color, takes priority for power-related text)
-        local function ApplyBTBPowerColor(fs, contentKey, usePowerColor)
-            if not fs or not usePowerColor then return end
-            if contentKey == "perpp" or contentKey == "curpp" or contentKey == "curhp_curpp" or contentKey == "perhp_perpp" then
-                -- EUI's global power color override (matches the power bar fill),
-                -- NOT Blizzard's PowerBarColor table.
-                local _, pToken = UnitPowerType(unit)
-                local info = EllesmereUI.GetPowerColor(pToken or "MANA")
-                if info then
-                    fs:SetTextColor(info.r, info.g, info.b)
-                end
-            end
-        end
-        ApplyBTBPowerColor(leftFS, lc, s.btbLeftPowerColor)
-        ApplyBTBPowerColor(rightFS, rc, s.btbRightPowerColor)
-        ApplyBTBPowerColor(centerFS, cc, s.btbCenterPowerColor)
+        -- Power color: applied after class color; also re-applied continuously
+        -- from the power element's PostUpdateColor (btb._applyBTBPowerColors) so it
+        -- survives tag updates / power-type changes, identical to the power bar text.
+        ApplyBTBPowerColors(s)
     end
 
     ApplyBTBTextTags(
@@ -2094,6 +2214,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
 
     btb._applyBTBTextTags = ApplyBTBTextTags
     btb._applyBTBTextPositions = ApplyBTBTextPositions
+    btb._applyBTBPowerColors = ApplyBTBPowerColors
 
     -- Class icon overlay ? on a high-level frame so it renders above the border
     local classIconHolder = CreateFrame("Frame", nil, frame)
@@ -2984,7 +3105,10 @@ local function CreateAbsorbBar(frame, unit, settings)
                         g:SetValue(amt)
                         fsZone = fsZone or { left = self.LeftText, right = self.RightText, center = self.CenterText }
                         local fs = fsZone[zone]
-                        if fs then fs:SetText(AbbreviateNumbers(amt)) end
+                        if fs then
+                            local cfg = _G._EUI_AbbrevDecimalCfg
+                            fs:SetText(cfg and AbbreviateNumbers(amt, cfg) or AbbreviateNumbers(amt))
+                        end
                     end
                 end
             end
@@ -3103,12 +3227,24 @@ local function CreateAbsorbBar(frame, unit, settings)
                     ApplyAbsorbStyle(ab, absStyle, s)
                 end
 
+                -- Show Overshield (opt-in, default ON). The "overshield" is the
+                -- absorb that exceeds the empty health and backfills over current
+                -- health -- drawn by the backfill bar (ab), which is clipped to the
+                -- filled region. When the toggle is OFF (overlay mode only) we feed
+                -- the backfill 0 so only the empty health fills; the forward bar
+                -- (clipped to the missing-health region) still caps at the right
+                -- edge. Right/left edge modes draw the WHOLE absorb through ab (fw
+                -- hidden below), so they are left untouched. ON = byte-identical.
+                local overshieldOn = (not s) or s.showOvershield ~= false
+                local abValue = absorbAmt
+                if not overshieldOn and absorbMode == "overlay" then abValue = 0 end
+
                 -- Both bars get the raw absorb value and the normal maxHealth.
                 -- The clip frames do the "min(absorb, curHealth)" and
                 -- "max(0, absorb - curHealth)" math visually so we never need
                 -- Lua arithmetic on the (possibly secret) absorb value.
                 ab:SetMinMaxValues(0, maxHealth)
-                ab:SetValue(absorbAmt)
+                ab:SetValue(abValue)
                 ab:Show()
 
                 if fw then
@@ -3236,9 +3372,11 @@ local function CreatePowerBar(frame, unit, settings)
             local cf = s2.customPowerFillColor
             if cf then bR, bG, bB = cf.r, cf.g, cf.b else bR, bG, bB = 0, 0, 1 end
         else
-            local _, pToken = UnitPowerType(unit)
-            local info = EllesmereUI.GetPowerColor(pToken or "MANA")
-            if info then bR, bG, bB = info.r, info.g, info.b end
+            -- Secret-safe: player via the clean token, non-player via the clean
+            -- integer power type, so the custom power color applies on EVERY unit
+            -- (the bar no longer depends on oUF's colors.power sync). Unmapped
+            -- power types return nil and keep oUF's resolved color.
+            bR, bG, bB = EllesmereUI.ResolveUnitPowerColor(unit)
         end
         if s2.powerGradientEnabled and bR then
             local gc = s2.powerGradientColor
@@ -3258,6 +3396,18 @@ local function CreatePowerBar(frame, unit, settings)
             -- the bar on its built-in default color instead of the user's.
             self:SetStatusBarColor(bR, bG, bB)
         end
+        -- Keep the power-percent text color in sync with THIS unit (fires on
+        -- target/focus change + UNIT_DISPLAYPOWER, so the text follows the unit
+        -- instead of the color resolved at creation). Gated on the feature being
+        -- active (power-colored AND text shown) -> short-circuits to no cost
+        -- for every other frame.
+        if s2.powerPercentTextPowerColor and (s2.powerPercentText or "none") ~= "none" and self._applyPowerTextColor then
+            self._applyPowerTextColor(s2)
+        end
+        -- Same continuous re-application for the Bottom Text Bar's power-colored
+        -- text (per-slot early-out keeps it ~free when no slot uses power color).
+        local btb = frame.BottomTextBar
+        if btb and btb._applyBTBPowerColors then btb._applyBTBPowerColors(s2) end
     end
 
     -- Custom power bar background color
@@ -3279,11 +3429,52 @@ local function CreatePowerBar(frame, unit, settings)
     power._ppFS = ppFS
     power._ppTextOvr = ppTextOvr
 
+    -- Power-percent text color for the CURRENT unit (applied per-unit so
+    -- target/focus follow the unit, not the player). Power-color mode resolves
+    -- the unit's own power type; some enemies return a secret token that can't
+    -- map to a color, so those fall back to white (matching the reference
+    -- approach). No-power units are NOT special-cased -- they keep showing 0%.
+    local function ApplyPowerTextColor(s)
+        if s.powerPercentTextPowerColor then
+            -- Secret-safe per-unit power color (see EllesmereUI.ResolveUnitPowerColor):
+            -- player keeps the exact token color; non-player units recover it from
+            -- the clean integer power type instead of falling back to white.
+            local r, g, b = EllesmereUI.ResolveUnitPowerColor(unit)
+            if r then ppFS:SetTextColor(r, g, b)
+            else ppFS:SetTextColor(1, 1, 1) end
+        elseif s.powerTextColor then
+            local tc = s.powerTextColor
+            ppFS:SetTextColor(tc.r, tc.g, tc.b, tc.a or 1)
+        else
+            ppFS:SetTextColor(1, 1, 1)
+        end
+    end
+    power._applyPowerTextColor = ApplyPowerTextColor
+
     local function ApplyPowerPercentText(s)
         local pos = s.powerPercentText or "none"
         local sz  = s.powerPercentSize or 9
         local ox  = s.powerPercentX or 0
         local oy  = s.powerPercentY or 0
+
+        -- Height-0 hotfix (purely additive; only triggers when Power Bar Height is 0).
+        -- Normally the text overlay is SetAllPoints(power); at height 0 the bar
+        -- collapses to nothing, so the overlay -- and the power text with it -- would
+        -- collapse too. Re-anchor the overlay to the bar's footprint with a real text
+        -- height so the text still renders while the bar stays hidden. The _euiHeight0
+        -- flag means frames that never hit height 0 are completely untouched, and a
+        -- live change back to a positive height restores the exact original behavior.
+        if (s.powerHeight or 6) <= 0 then
+            ppTextOvr:ClearAllPoints()
+            ppTextOvr:SetPoint("LEFT", power, "LEFT", 0, 0)
+            ppTextOvr:SetPoint("RIGHT", power, "RIGHT", 0, 0)
+            ppTextOvr:SetHeight(sz + 6)
+            ppTextOvr._euiHeight0 = true
+        elseif ppTextOvr._euiHeight0 then
+            ppTextOvr:ClearAllPoints()
+            ppTextOvr:SetAllPoints(power)
+            ppTextOvr._euiHeight0 = nil
+        end
 
         SetFSFont(ppFS, sz)
         ppFS:ClearAllPoints()
@@ -3325,20 +3516,8 @@ local function CreatePowerBar(frame, unit, settings)
         frame:Tag(ppFS, tag); ppFS._curTag = tag
         if frame.UpdateTags then frame:UpdateTags() end
 
-        -- Text color: power-colored > custom color > white
-        if s.powerPercentTextPowerColor then
-            -- Use EUI's global power color override (matches the options swatch
-            -- and the power bar fill), NOT Blizzard's PowerBarColor table.
-            local _, pToken = UnitPowerType(unit)
-            local info = EllesmereUI.GetPowerColor(pToken or "MANA")
-            if info then ppFS:SetTextColor(info.r, info.g, info.b)
-            else ppFS:SetTextColor(1, 1, 1) end
-        elseif s.powerTextColor then
-            local tc = s.powerTextColor
-            ppFS:SetTextColor(tc.r, tc.g, tc.b, tc.a or 1)
-        else
-            ppFS:SetTextColor(1, 1, 1)
-        end
+        -- Text color: power-colored (per-unit) > custom color > white
+        ApplyPowerTextColor(s)
         ppFS:Show()
     end
 
@@ -3732,6 +3911,12 @@ local function ApplyUnitFrameCastColor(castbar)
     end
     castbar.castTintLayer:SetVertexColor(cc.r, cc.g, cc.b)
     if castbar._shieldedTint then
+        -- Uninterruptible overlay colour (customizable; defaults to the
+        -- previously-hardcoded grey). The overlay's alpha is toggled from the
+        -- secret "not interruptible" flag, so the colour is always set and only
+        -- becomes visible on uninterruptible casts.
+        local uc = (settings and settings.castbarUninterruptibleColor) or { r = 0.5, g = 0.5, b = 0.5 }
+        castbar._shieldedTint:SetVertexColor(uc.r, uc.g, uc.b)
         local uninterruptible = GetCastbarUninterruptible(castbar)
         if castbar._shieldedTint.SetAlphaFromBoolean then
             castbar._shieldedTint:SetAlphaFromBoolean(uninterruptible, 1, 0)
@@ -4081,28 +4266,56 @@ local function CreateCastBar(frame, unit, settings)
     target:Hide()
     castbar.Target = target
 
-    -- Layout: spell name 42% LEFT, timer RIGHT (sized to font), target 42% between them.
-    -- Matches nameplate RefreshNamePosition exactly. Offsets from settings.
+    -- Side-aware three-zone layout (mirrors the nameplate cast text system). Each
+    -- element has a side ("left"/"right"/"center"); the duration reserves its slot and
+    -- pushes whichever non-center element shares its side. Center is never pushed.
+    -- Spell name hides on the "none" side; target/duration visibility is governed by
+    -- _showTarget / _showDuration (their dropdown "None" sets those flags false).
     local function LayoutCastTextZones(cb)
         local barW = cb:GetWidth()
         if not barW or barW <= 0 then return end
-        local timerSz = cb._durationSize or 10
-        local timerW = timerSz * 2.2
-        local snX = cb._nameOX or 0
-        local snY = cb._nameOY or 0
-        local dtX = cb._durOX or 0
-        local dtY = cb._durOY or 0
-        local tgX = cb._tgtOX or 0
-        local tgY = cb._tgtOY or 0
+        local timerW = (cb._durationSize or 10) * 2.2
+        local showDur = cb._showDuration ~= false
+        local nameSide = cb._nameSide or "left"
+        local tgtSide  = cb._tgtSide or "right"
+        local durSide  = cb._durSide or "right"
+        local textW = barW * 0.42
+        -- Spell name width: the 42% above reserves the opposite half for the cast
+        -- target. When this unit never shows a target (boss frames -- showCastTarget
+        -- is false with no UI to enable it), the name has the row to itself, so let
+        -- it use 80% of the bar before truncating.
+        local nameW = (cb._showTarget == false) and (barW * 0.80) or textW
+        -- Spell name
         cb.Text:ClearAllPoints()
-        cb.Text:SetWidth(barW * 0.42)
-        cb.Text:SetPoint("LEFT", cb, "LEFT", 5 + snX, 1 + snY)
-        cb.Time:ClearAllPoints()
-        cb.Time:SetWidth(timerW)
-        cb.Time:SetPoint("RIGHT", cb, "RIGHT", -3 + dtX, dtY)
-        cb.Target:ClearAllPoints()
-        cb.Target:SetWidth(barW * 0.42)
-        cb.Target:SetPoint("RIGHT", cb, "RIGHT", -3 - timerW + tgX, tgY)
+        if nameSide == "none" then
+            cb.Text:Hide()
+        else
+            local pt, xb, jh = ns.GetCastTextAnchor(nameSide, showDur and durSide == nameSide, timerW, false)
+            cb.Text:SetWidth(nameW)
+            cb.Text:SetJustifyH(jh)
+            cb.Text:SetPoint(pt, cb, pt, xb + (cb._nameOX or 0), 1 + (cb._nameOY or 0))
+            cb.Text:Show()
+        end
+        -- Spell target (visibility handled by _showTarget / hasTarget elsewhere)
+        do
+            local pt, xb, jh = ns.GetCastTextAnchor(tgtSide, showDur and durSide == tgtSide, timerW, false)
+            cb.Target:ClearAllPoints()
+            cb.Target:SetWidth(textW)
+            cb.Target:SetJustifyH(jh)
+            cb.Target:SetPoint(pt, cb, pt, xb + (cb._tgtOX or 0), (cb._tgtOY or 0))
+        end
+        -- Duration / timer (side only "left"/"right"; visibility via _showDuration)
+        do
+            local pt, xb, jh = ns.GetCastTextAnchor(durSide, false, timerW, true)
+            cb.Time:ClearAllPoints()
+            cb.Time:SetWidth(timerW)
+            cb.Time:SetJustifyH(jh)
+            cb.Time:SetPoint(pt, cb, pt, xb + (cb._durOX or 0), (cb._durOY or 0))
+        end
+        -- Re-flow so a live JustifyH change takes effect on already-rendered text.
+        ns.ReflowFontString(cb.Text)
+        ns.ReflowFontString(cb.Target)
+        ns.ReflowFontString(cb.Time)
     end
     castbar._durationSize = settings.castDurationSize or 10
     castbar._nameOX = settings.castSpellNameX or 0
@@ -4111,10 +4324,15 @@ local function CreateCastBar(frame, unit, settings)
     castbar._durOY = settings.castDurationY or 0
     castbar._tgtOX = settings.castSpellTargetX or 0
     castbar._tgtOY = settings.castSpellTargetY or 0
+    castbar._nameSide = settings.castSpellNameSide or "left"
+    castbar._tgtSide  = settings.castSpellTargetSide or "right"
+    castbar._durSide  = settings.castDurationSide or "right"
+    castbar._showDuration = settings.showCastDuration ~= false
+    castbar._showTarget = settings.showCastTarget ~= false
     castbar._layoutTextZones = LayoutCastTextZones
     LayoutCastTextZones(castbar)
 
-    -- Helper: sync all offset/size cache values from settings onto
+    -- Helper: sync all offset/size/side cache values from settings onto
     -- the castbar, then re-layout. Called from live refresh paths.
     castbar._syncOffsetsAndLayout = function(self, s)
         self._durationSize = s.castDurationSize or 10
@@ -4124,6 +4342,10 @@ local function CreateCastBar(frame, unit, settings)
         self._durOY  = s.castDurationY or 0
         self._tgtOX  = s.castSpellTargetX or 0
         self._tgtOY  = s.castSpellTargetY or 0
+        self._nameSide = s.castSpellNameSide or "left"
+        self._tgtSide  = s.castSpellTargetSide or "right"
+        self._durSide  = s.castDurationSide or "right"
+        self._showDuration = s.showCastDuration ~= false
         if self._layoutTextZones then self:_layoutTextZones() end
     end
 
@@ -4264,7 +4486,7 @@ local function CreateCastBar(frame, unit, settings)
 
     -- Initial icon/fill layout (re-applied on every reload by the per-unit
     -- update paths and whenever the cast-bar height changes).
-    LayoutCastbarIcon(castbar, CastIconInWidth(unit, settings), cbHeight)
+    LayoutCastbarIcon(castbar, CastIconInWidth(unit, settings), cbHeight, CastIconOnRight(unit, settings))
 
     return castbar
 end
@@ -6955,6 +7177,9 @@ ns.ApplyEnemyColors = ApplyEnemyColors
 
 local function ReloadFrames()
     ResolveFontPath()
+    -- Refresh the tag-readable decimal globals before the combat early-return so
+    -- tags pick up the saved state at login and on any settings change.
+    ns.ApplyTextDecimalGlobals()
     if InCombatLockdown() then
         return
     end
@@ -7422,7 +7647,7 @@ local function ReloadFrames()
                                     local cbg = settings.castBgColor
                                     castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                                 end
-                                LayoutCastbarIcon(frame.Castbar, CastIconInWidth("player", settings))
+                                LayoutCastbarIcon(frame.Castbar, CastIconInWidth("player", settings), nil, CastIconOnRight("player", settings))
                                 -- Resize cast icon to match castbar height
                                 if frame.Castbar._iconFrame then
                                     PP.Size(frame.Castbar._iconFrame, cbH, cbH)
@@ -7478,6 +7703,9 @@ local function ReloadFrames()
                                 local tsC = settings.castSpellTargetColor or { r=1, g=1, b=1 }
                                 frame.Castbar.Target:SetTextColor(tsC.r, tsC.g, tsC.b)
                                 frame.Castbar._showTarget = settings.showCastTarget ~= false
+                                frame.Castbar._nameSide = settings.castSpellNameSide or "left"
+                                frame.Castbar._tgtSide  = settings.castSpellTargetSide or "right"
+                                frame.Castbar._durSide  = settings.castDurationSide or "right"
                                 if not frame.Castbar._showTarget then
                                     frame.Castbar.Target:Hide()
                                 end
@@ -7890,7 +8118,7 @@ local function ReloadFrames()
                                     local cbg = settings.castBgColor
                                     castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                                 end
-                                LayoutCastbarIcon(frame.Castbar, CastIconInWidth("target", settings))
+                                LayoutCastbarIcon(frame.Castbar, CastIconInWidth("target", settings), nil, CastIconOnRight("target", settings))
                                 if frame.Castbar._iconFrame then
                                     PP.Size(frame.Castbar._iconFrame, cbH2, cbH2)
                                     if not frame.Castbar:IsShown() then
@@ -8249,7 +8477,7 @@ local function ReloadFrames()
                                 local cbg = settings.castBgColor
                                 castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                             end
-                            LayoutCastbarIcon(frame.Castbar, CastIconInWidth("focus", settings))
+                            LayoutCastbarIcon(frame.Castbar, CastIconInWidth("focus", settings), nil, CastIconOnRight("focus", settings))
                             if frame.Castbar._iconFrame then
                                 PP.Size(frame.Castbar._iconFrame, cbH3, cbH3)
                                 if not frame.Castbar:IsShown() then
@@ -8313,6 +8541,9 @@ local function ReloadFrames()
                         local tsC = settings.castSpellTargetColor or { r=1, g=1, b=1 }
                         frame.Castbar.Target:SetTextColor(tsC.r, tsC.g, tsC.b)
                         frame.Castbar._showTarget = settings.showCastTarget ~= false
+                        frame.Castbar._nameSide = settings.castSpellNameSide or "left"
+                        frame.Castbar._tgtSide  = settings.castSpellTargetSide or "right"
+                        frame.Castbar._durSide  = settings.castDurationSide or "right"
                         if not frame.Castbar._showTarget then
                             frame.Castbar.Target:Hide()
                         end
@@ -8564,7 +8795,7 @@ local function ReloadFrames()
                                 frame:EnableElement("Castbar")
                             end
                             PP.Size(castbarBg, totalWidth, settings.castbarHeight or 14)
-                            LayoutCastbarIcon(frame.Castbar, CastIconInWidth("boss1", settings))
+                            LayoutCastbarIcon(frame.Castbar, CastIconInWidth("boss1", settings), nil, CastIconOnRight("boss1", settings))
                             if frame.Castbar._iconFrame then
                                 local cbH = settings.castbarHeight or 14
                                 PP.Size(frame.Castbar._iconFrame, cbH, cbH)
@@ -8626,6 +8857,9 @@ local function ReloadFrames()
                         local tsC = settings.castSpellTargetColor or { r=1, g=1, b=1 }
                         frame.Castbar.Target:SetTextColor(tsC.r, tsC.g, tsC.b)
                         frame.Castbar._showTarget = settings.showCastTarget ~= false
+                        frame.Castbar._nameSide = settings.castSpellNameSide or "left"
+                        frame.Castbar._tgtSide  = settings.castSpellTargetSide or "right"
+                        frame.Castbar._durSide  = settings.castDurationSide or "right"
                         if not frame.Castbar._showTarget then
                             frame.Castbar.Target:Hide()
                         end
@@ -8902,9 +9136,10 @@ local function ReloadFrames()
                         local cf = s2.customPowerFillColor
                         if cf then bR, bG, bB = cf.r, cf.g, cf.b else bR, bG, bB = 0, 0, 1 end
                     else
-                        local _, pToken = UnitPowerType(unit)
-                        local info = EllesmereUI.GetPowerColor(pToken or "MANA")
-                        if info then bR, bG, bB = info.r, info.g, info.b end
+                        -- Secret-safe per-unit power color (player via token,
+                        -- non-player via the clean integer type), so custom power
+                        -- colors apply on EVERY unit independent of oUF's sync.
+                        bR, bG, bB = EllesmereUI.ResolveUnitPowerColor(unit)
                     end
                     if s2.powerGradientEnabled and bR then
                         local gc = s2.powerGradientColor
@@ -8916,7 +9151,24 @@ local function ReloadFrames()
                     elseif not useP then
                         local cf = s2.customPowerFillColor
                         if cf then self:SetStatusBarColor(cf.r, cf.g, cf.b) else self:SetStatusBarColor(0, 0, 1) end
+                    elseif bR then
+                        -- Power-color mode (no gradient): explicitly paint the bar
+                        -- so it does not depend on oUF's colors.power being synced
+                        -- (block 1 does this; this settings-refresh copy did not,
+                        -- which is why non-player bars showed oUF's default color).
+                        self:SetStatusBarColor(bR, bG, bB)
                     end
+                    -- Keep the power-percent text color in sync with this unit
+                    -- (per-unit power color; set up in CreatePowerBar). Gated on
+                    -- the feature being active (power-colored AND text shown) ->
+                    -- short-circuits to no cost for every other frame.
+                    if s2.powerPercentTextPowerColor and (s2.powerPercentText or "none") ~= "none" and self._applyPowerTextColor then
+                        self._applyPowerTextColor(s2)
+                    end
+                    -- Same continuous re-application for the Bottom Text Bar's
+                    -- power-colored text (per-slot early-out keeps it ~free).
+                    local btb = frame.BottomTextBar
+                    if btb and btb._applyBTBPowerColors then btb._applyBTBPowerColors(s2) end
                 end
                 local customBg = settings.customPowerBgColor
                 if customBg and frame.Power.bg then
@@ -8991,6 +9243,19 @@ local function ReloadFrames()
                 if frame.Castbar.Time then
                     local dtSz = s.castDurationSize or 10
                     SetMiniFont(frame.Castbar.Time, dtSz)
+                end
+                -- Boss frames get their full cast text refresh in the boss branch above
+                -- (colors / show / sides / bg). Two gaps remain here: the donor-font line
+                -- just above set the boss cast text to the DONOR size, and the boss branch
+                -- re-runs layout from the CACHED offsets. Re-apply the size from the boss
+                -- settings (keeping the donor typeface) and sync the X/Y offsets + side
+                -- layout so live boss frames update on every cast-text option change.
+                if unit:match("^boss") then
+                    local cb = frame.Castbar
+                    if cb.Text then SetMiniFont(cb.Text, settings.castSpellNameSize or 11) end
+                    if cb.Time then SetMiniFont(cb.Time, settings.castDurationSize or 10) end
+                    if cb.Target then SetMiniFont(cb.Target, settings.castSpellTargetSize or 11) end
+                    if cb._syncOffsetsAndLayout then cb:_syncOffsetsAndLayout(settings) end
                 end
             end
             end -- else (enabled frame processing)
@@ -9179,6 +9444,16 @@ function InitializeFrames()
         end
         frame:HookScript("OnEnter", UnitFrame_OnEnter)
         frame:HookScript("OnLeave", UnitFrame_OnLeave)
+        -- Expose to click-casting via the standard global table. The EUI unit
+        -- frames replace the Blizzard ones, which the click-cast engine registers
+        -- by name -- but those are hidden, so the engine never reaches the visible
+        -- frames. Registering ours here lets click-casting (EUI's engine when "All
+        -- Unit Frames" is on, or Clique otherwise) apply the same bindings + the
+        -- unbound-click suppression it uses on raid/party. The engine captures and
+        -- restores each frame's native click attrs, so these keep their own
+        -- defaults (no forced left-click target) when click-cast is off.
+        if type(ClickCastFrames) ~= "table" then ClickCastFrames = {} end
+        ClickCastFrames[frame] = true
     end
 
     -- Always spawn all frames; hide disabled ones for zero performance impact
@@ -10241,6 +10516,12 @@ function InitializeFrames()
                 if btb.LeftText then ApplyClassColor(btb.LeftText, unitKey, s.btbLeftClassColor, s.btbLeftColorR, s.btbLeftColorG, s.btbLeftColorB) end
                 if btb.RightText then ApplyClassColor(btb.RightText, unitKey, s.btbRightClassColor, s.btbRightColorR, s.btbRightColorG, s.btbRightColorB) end
                 if btb.CenterText then ApplyClassColor(btb.CenterText, unitKey, s.btbCenterClassColor, s.btbCenterColorR, s.btbCenterColorG, s.btbCenterColorB) end
+                -- Power color must win for power-colored slots: the ApplyClassColor
+                -- calls above drop any non-class slot to its custom/white color, which
+                -- clobbers the power color PostUpdateColor set. Re-apply power color
+                -- after (class -> power, same order as ApplyBTBTextPositions). The
+                -- per-slot early-out keeps it free for slots not using power color.
+                if btb._applyBTBPowerColors then btb._applyBTBPowerColors(s) end
             end
         end
         if not frame or not frame.Portrait then return end

@@ -3287,7 +3287,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         -- Row 3: Spacing | Border Size (+ swatch)
         local row3
         row3, hh = W:DualRow(optsFrame, sy,
-            { type="slider", text="Spacing", min=0, max=10, step=1,
+            { type="slider", text="Spacing", min=-1, max=10, step=1,
               disabled=BuffsOff, disabledTooltip="Show Buffs",
               getValue=function() return BVal("spacing", 1) end,
               setValue=function(v) BSet("spacing", v) end },
@@ -4913,7 +4913,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 { type="slider", text="Size", min=4, max=40, step=1,
                   getValue=function() return ind.size or 12 end,
                   setValue=function(v) ind.size = v; ReloadAndUpdate() end },
-                { type="slider", text="Spacing", min=0, max=10, step=1,
+                { type="slider", text="Spacing", min=-1, max=10, step=1,
                   getValue=function() return ind.spacing or 1 end,
                   setValue=function(v) ind.spacing = v; ReloadAndUpdate() end })
 

@@ -216,7 +216,12 @@ end
 local function CreateIcon(btn, raid)
     local icon = CreateFrame("Frame", nil, btn)
     icon._tsRaid = raid or false
-    icon:SetFrameLevel(btn:GetFrameLevel() + 12)
+    -- Keep the icon AND its border (bdr, at icon +1) BELOW the name/health text
+    -- carrier (button/preview-frame +12) so the health %/name stays readable
+    -- when the icon is positioned over the center of the frame, while the border
+    -- still sits above the icon's own texture. Stays above the frame's base
+    -- border (+8) so the icon still renders over it.
+    icon:SetFrameLevel(btn:GetFrameLevel() + 10)
     icon:Hide()
 
     local tex = icon:CreateTexture(nil, "ARTWORK")

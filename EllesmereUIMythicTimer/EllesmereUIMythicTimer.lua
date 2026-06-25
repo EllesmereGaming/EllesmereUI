@@ -1958,7 +1958,10 @@ function EMT:OnInitialize()
 
         if db.profile.bestObjectiveSplits then
             for scopeKey in pairs(db.profile.bestObjectiveSplits) do
-                local mapIDStr = scopeKey:match("^(%d+)")
+                -- Keys are normally scoped strings ("<mapID>-..."), but legacy
+                -- data can store a bare numeric mapID. tostring() guards against
+                -- calling :match on a number (crashes in Lua 5.1).
+                local mapIDStr = tostring(scopeKey):match("^(%d+)")
                 local mapID = tonumber(mapIDStr)
                 if mapID and not validMapIDs[mapID] then
                     db.profile.bestObjectiveSplits[scopeKey] = nil

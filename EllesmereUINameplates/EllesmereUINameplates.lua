@@ -123,7 +123,7 @@ function ns._appendDisplayPresetKeys(t)
         "textSlotLeftSize", "textSlotLeftXOffset", "textSlotLeftYOffset",
         "textSlotCenterSize", "textSlotCenterXOffset", "textSlotCenterYOffset",
         "textSlotTopColor", "textSlotRightColor", "textSlotLeftColor", "textSlotCenterColor",
-        "tankHasAggroEnabled", "tankHasAggro", "classicTankAggro",
+        "tankHasAggroEnabled", "tankHasAggro", "classicTankAggro", "tankHasAggroOverrideMobType",
         "dpsHasAggro", "dpsNearAggro", "offTankAggroEnabled", "offTankAggro",
         "dpsNoAggroEnabled", "dpsNoAggro",
         "targetArrowDouble", "targetArrowStyle", "targetArrowColor", "targetArrowClassColor",
@@ -140,6 +140,7 @@ end
 local defaults = {
     absorbStyle = "blizzard",
     absorbCleanAlpha = 30,
+    absorbColor = { r = 1, g = 1, b = 1 },
     hostile = { r = 0.39, g = 0.11, b = 0.09 },
     neutral = { r = 0.81, g = 0.72, b = 0.19 },
     tapped  = { r = 0.50, g = 0.50, b = 0.50 },
@@ -166,6 +167,9 @@ local defaults = {
     darkenEnemiesOOC = true,
     tankHasAggro = { r = 0.05, g = 0.82, b = 0.62 },
     tankHasAggroEnabled = false,
+    -- When on, the tank has-aggro color overrides the Mini-Boss and Caster
+    -- colors (promotes it above priority step 7); off = it stays low priority.
+    tankHasAggroOverrideMobType = false,
     classicTankAggro = false,
     tankLosingAggro = { r = 0.81, g = 0.72, b = 0.19 },
     tankNoAggro = { r = 1.00, g = 0.22, b = 0.17 },
@@ -277,6 +281,10 @@ local defaults = {
     -- targetGlowHighlight) are intentionally NOT defaulted here: they stay nil
     -- so the getters can live-convert from the legacy targetGlowStyle string.
     targetBorderColor = { r = 1, g = 1, b = 1 },
+    -- Target Highlight wash color/opacity (defaults match the formerly
+    -- hardcoded white at 30%, so existing users are unaffected).
+    targetHighlightColor = { r = 1, g = 1, b = 1 },
+    targetHighlightAlpha = 0.20,
     raidMarkerPos = "topright",
     raidMarkerSize = 24,
     classificationSlot = "topleft",
@@ -288,12 +296,20 @@ local defaults = {
     castNameColor = { r = 1, g = 1, b = 1 },
     castNameOffsetX = 0,
     castNameOffsetY = 0,
+    -- Side the spell name occupies on the cast bar text line: "left" | "right" | "center" | "none".
+    -- Default "left" reproduces the historical fixed layout.
+    castNameSide = "left",
     castTargetSize = 10,
     castTargetClassColor = true,
     castTargetColor = { r = 1, g = 1, b = 1 },
     castTargetOffsetX = 0,
     castTargetOffsetY = 0,
+    -- Side the spell target occupies: "left" | "right" | "center" | "none". Default "right".
+    castTargetSide = "right",
     showCastTimer = true,
+    -- Side the cast timer occupies when shown: "left" | "right". Visibility stays governed
+    -- by showCastTimer (the dropdown's "None" option simply sets showCastTimer = false).
+    castTimerSide = "right",
     castTimerSize = 10,
     castTimerColor = { r = 1, g = 1, b = 1 },
     castTimerOffsetX = 0,
@@ -304,6 +320,17 @@ local defaults = {
     showBorder = true,
     borderSize = 1,
     borderColor = { r = 0.067, g = 0.067, b = 0.067 },
+    -- Custom border (opt-in) -- reuses the shared EllesmereUI border engine
+    -- (same system as Unit Frames, full SharedMedia support). When
+    -- customBorderEnabled is false (the default) NONE of these keys are read
+    -- and the simple border above is rendered exactly as before, so existing
+    -- users see zero change.
+    customBorderEnabled = false,
+    customBorderTexture = "solid",
+    customBorderSize = 1,
+    customBorderColor = { r = 0.067, g = 0.067, b = 0.067 },
+    customBorderAlpha = 1,
+    customBorderBehind = false,
     pandemicGlow = false,
     pandemicGlowStyle = 1,
     pandemicGlowColor = { r = 1.0, g = 0.800, b = 0.329 },
@@ -363,11 +390,105 @@ local defaults = {
     textSlotCenterColor = { r = 1, g = 1, b = 1 },
     -- Bar texture overlay
     healthBarTexture = "none",
+    castBarTexture = "none",
 }
 local BAR_W = 150
 ns.defaults = defaults
 ns.BAR_W = BAR_W
 local CAST_H = 17
+
+-- Custom nameplate border (opt-in) -----------------------------------------
+-- Register per-style/size offset defaults with the shared border engine,
+-- mirroring the Unit Frames registration. Wrapped in do/end so no file-scope
+-- locals leak (this file runs near Lua 5.1's main-chunk local cap).
+do
+    if EllesmereUI and EllesmereUI.RegisterBorderDefaults then
+        local function AllSizes(ox, oy, sx, sy)
+            local t = {}
+            for k = 0, 4 do t[k] = { offsetX = ox, offsetY = oy, shiftX = sx, shiftY = sy } end
+            return t
+        end
+        EllesmereUI.RegisterBorderDefaults("nameplates", {
+            ["glow"]  = { defaultSize = 1, sizes = AllSizes(0, 0, 0, 0) },
+            ["blizz"] = {
+                defaultSize = 4,
+                sizes = {
+                    [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
+                    [1] = { offsetX = 2, offsetY = 1, shiftX = 0, shiftY = 0 },
+                    [2] = { offsetX = 3, offsetY = 1, shiftX = 1, shiftY = 0 },
+                    [3] = { offsetX = 4, offsetY = 2, shiftX = 2, shiftY = 0 },
+                    [4] = { offsetX = 5, offsetY = 3, shiftX = 2, shiftY = 0 },
+                },
+            },
+            ["dialog"] = {
+                defaultSize = 2,
+                sizes = {
+                    [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
+                    [1] = { offsetX = 2, offsetY = 2, shiftX = 0, shiftY = 0 },
+                    [2] = { offsetX = 2, offsetY = 2, shiftX = 0, shiftY = 0 },
+                    [3] = { offsetX = 4, offsetY = 4, shiftX = 0, shiftY = 0 },
+                    [4] = { offsetX = 8, offsetY = 8, shiftX = 0, shiftY = 0 },
+                },
+            },
+            ["sm:Blizzard Achievement Wood"] = { defaultSize = 1, sizes = AllSizes(1, 1, 0, 0) },
+        })
+    end
+end
+
+-- Custom border apply helpers. They read the enemy profile `p` (friendly
+-- plates intentionally mirror the enemy border settings 1:1) and route through
+-- the shared EllesmereUI border engine. The custom border lives on a dedicated
+-- child frame we own (plate._customBorder), so it never collides with the
+-- simple PP.CreateBorder that decorates plate.health directly. Defined as ns
+-- fields (not new file-scope locals) to respect the local cap.
+function ns.IsCustomBorderEnabled()
+    local v = p and p.customBorderEnabled
+    if v == nil then return defaults.customBorderEnabled end
+    return v
+end
+function ns.ApplyCustomBorderStyle(plate)
+    if not plate or not plate.health then return end
+    if not (EllesmereUI and EllesmereUI.ApplyBorderStyle) then return end
+    local tex    = (p and p.customBorderTexture) or defaults.customBorderTexture
+    local sz     = (p and p.customBorderSize) or defaults.customBorderSize
+    local col    = (p and p.customBorderColor) or defaults.customBorderColor
+    local a      = (p and p.customBorderAlpha) or defaults.customBorderAlpha or 1
+    local behind = p and p.customBorderBehind
+    if behind == nil then behind = defaults.customBorderBehind end
+    local bf = plate._customBorder
+    if not bf then
+        bf = CreateFrame("Frame", nil, plate.health)
+        bf:SetAllPoints(plate.health)
+        plate._customBorder = bf
+    end
+    -- Nameplate health bars flatten render layers, which voids inter-frame
+    -- ordering -- a textured backdrop border drawn on the BORDER draw layer
+    -- would be clipped by the ARTWORK health fill. Lift the border onto an
+    -- explicit MEDIUM strata (the same flatten escape the plate uses for its
+    -- text and aura layers) so it renders above the fill. Strata is set before
+    -- ApplyBorderStyle so the backdrop child it may create inherits it; setting
+    -- it again on reuse re-propagates to that child.
+    bf:SetFrameStrata("MEDIUM")
+    bf:SetFrameLevel(behind and math.max(1, plate.health:GetFrameLevel() - 1) or (plate.health:GetFrameLevel() + 1))
+    EllesmereUI.ApplyBorderStyle(bf, sz, col.r, col.g, col.b, a, tex,
+        p and p.customBorderOffset, p and p.customBorderOffsetY,
+        p and p.customBorderShiftX, p and p.customBorderShiftY,
+        "nameplates", sz)
+end
+function ns.ApplyCustomBorderColor(plate)
+    if not plate or not plate._customBorder then return end
+    if not (EllesmereUI and EllesmereUI.SetBorderStyleColor) then return end
+    local col = (p and p.customBorderColor) or defaults.customBorderColor
+    local a   = (p and p.customBorderAlpha) or defaults.customBorderAlpha or 1
+    EllesmereUI.SetBorderStyleColor(plate._customBorder, col.r, col.g, col.b, a)
+end
+function ns.HideCustomBorder(plate)
+    local bf = plate and plate._customBorder
+    if bf and EllesmereUI and EllesmereUI.ApplyBorderStyle then
+        EllesmereUI.ApplyBorderStyle(bf, 0)
+        bf:Hide()
+    end
+end
 
 -- Health bar texture overlay tables (stored on ns to avoid local count pressure)
 do
@@ -430,18 +551,53 @@ local function ApplyHealthBarTexture(plate)
 end
 ns.ApplyHealthBarTexture = ApplyHealthBarTexture
 
+-- Cast bar texture -- mirrors ApplyHealthBarTexture exactly, using the same
+-- texture set (EUI built-ins + SharedMedia, appended into ns.healthBarTextures
+-- at options-build time). Attached to ns (no new file-scope local).
+function ns.ApplyCastBarTexture(plate)
+    local cast = plate.cast
+    if not cast then return end
+    local texKey = (p and p.castBarTexture) or defaults.castBarTexture or "none"
+    local path   = EllesmereUI.ResolveTexturePath(ns.healthBarTextures, texKey, "Interface\\Buttons\\WHITE8x8")
+    cast:SetStatusBarTexture(path)
+    -- The uninterruptible overlay is a flat WHITE8x8 drawn over the fill (tinted
+    -- grey, shown via SetAlphaFromBoolean), so it would hide the fill texture on
+    -- uninterruptible casts. Give it the same texture so the pattern shows
+    -- through in the uninterruptible colour. The per-cast SetVertexColor (grey)
+    -- is re-applied on every cast start, so changing the texture here is safe.
+    if plate.castBarOverlay then
+        plate.castBarOverlay:SetTexture(path)
+    end
+end
+
 function ns.ApplyAbsorbStyle(plate)
     local style = (p and p.absorbStyle) or defaults.absorbStyle
-    local tex   = ns.NP_ABSORB_STYLE_TEX[style] or ns.NP_ABSORB_STYLE_TEX.blizzard
-    local alpha = ns.NP_ABSORB_STYLE_ALPHA[style] or 0.8
-    if style == "clean" then
+    -- blizzard/striped/clean live in NP_ABSORB_STYLE_TEX; the stripe keys
+    -- (shared with the Focus Texture dropdown) resolve via ResolveOverlayTexPath.
+    local tex   = ns.NP_ABSORB_STYLE_TEX[style] or ns.ResolveOverlayTexPath(style) or ns.NP_ABSORB_STYLE_TEX.blizzard
+    -- Opacity applies to every style. absorbAlpha (0-100) is the single source
+    -- of truth once the user touches the slider or picks a style; until then we
+    -- fall back to the original per-style defaults so existing profiles are
+    -- unchanged.
+    local alpha = p and p.absorbAlpha
+    if alpha then
+        alpha = alpha / 100
+    elseif style == "clean" then
         alpha = ((p and p.absorbCleanAlpha) or defaults.absorbCleanAlpha or 30) / 100
+    else
+        alpha = ns.NP_ABSORB_STYLE_ALPHA[style] or 0.8
+    end
+    -- Tint applies to every style EXCEPT Blizzard, which keeps its own coloring.
+    local r, g, b = 1, 1, 1
+    if style ~= "blizzard" then
+        local c = (p and p.absorbColor) or defaults.absorbColor
+        if c then r, g, b = c.r, c.g, c.b end
     end
     local mask = plate._absorbMask
     for _, bar in ipairs({ plate.absorb, plate.absorbForward, plate.absorbOverflow }) do
         if bar then
             bar:SetStatusBarTexture(tex)
-            bar:SetStatusBarColor(1, 1, 1, alpha)
+            bar:SetStatusBarColor(r, g, b, alpha)
             local fill = bar:GetStatusBarTexture()
             if fill then
                 fill:SetDrawLayer("ARTWORK", 1)
@@ -1027,6 +1183,14 @@ function ns.GetTargetGlowHighlight()
 end
 function ns.GetTargetBorderColor()
     return (p and p.targetBorderColor) or defaults.targetBorderColor
+end
+function ns.GetTargetHighlightColor()
+    return (p and p.targetHighlightColor) or defaults.targetHighlightColor
+end
+function ns.GetTargetHighlightAlpha()
+    local a = p and p.targetHighlightAlpha
+    if a == nil then return defaults.targetHighlightAlpha end
+    return a
 end
 local function GetShowTargetGlow()
     return ns.GetTargetGlowEllesmereUI() or ns.GetTargetGlowBorderColor() or ns.GetTargetGlowHighlight()
@@ -1736,7 +1900,8 @@ local function EnsureTargetHighlight(plate)
     if plate.targetHighlight then return end
     local t = plate.health:CreateTexture(nil, "OVERLAY", nil, 5)
     t:SetAllPoints(plate.health)
-    t:SetColorTexture(1, 1, 1, 0.30)
+    local c = ns.GetTargetHighlightColor()
+    t:SetColorTexture(c.r, c.g, c.b, ns.GetTargetHighlightAlpha())
     t:Hide()
     plate.targetHighlight = t
 end
@@ -2114,18 +2279,30 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
 
     function plate:ApplyBorder()
         if not PP then return end
-        if IsBorderEnabled() then
-            local sz = (p and p.borderSize) or defaults.borderSize
-            PP.SetBorderSize(plate.health, sz)
-            PP.ShowBorder(plate.health)
-        else
+        if ns.IsCustomBorderEnabled() then
+            -- Custom border replaces the simple one: hide the PP strips on the
+            -- health bar and render the custom border on its own child frame.
             PP.HideBorder(plate.health)
+            ns.ApplyCustomBorderStyle(plate)
+        else
+            ns.HideCustomBorder(plate)
+            if IsBorderEnabled() then
+                local sz = (p and p.borderSize) or defaults.borderSize
+                PP.SetBorderSize(plate.health, sz)
+                PP.ShowBorder(plate.health)
+            else
+                PP.HideBorder(plate.health)
+            end
         end
     end
     function plate:ApplyBorderColor()
         if not PP then return end
-        local cr, cg, cb = GetBorderColor()
-        PP.SetBorderColor(plate.health, cr, cg, cb, 1)
+        if ns.IsCustomBorderEnabled() then
+            ns.ApplyCustomBorderColor(plate)
+        else
+            local cr, cg, cb = GetBorderColor()
+            PP.SetBorderColor(plate.health, cr, cg, cb, 1)
+        end
     end
     -- Target glow, target arrows, and focus overlay are lazy-created on
     -- demand (EnsureGlow / EnsureArrows / EnsureFocusOverlay) since only
@@ -3971,9 +4148,27 @@ local function GetReactionColor(unit)
             return c.r, c.g, c.b
         end
     end
-    -- 7. Boss / Mini-boss
+    -- 6b. Tank has aggro -- "Override Mini-Boss and Caster colors" option.
+    -- Promotes the has-aggro color above the mini-boss/caster steps (but still
+    -- below target/focus/enemy-class). Sits between the absolute-priority
+    -- Classic Tank Aggro path (handled above) and the default low-priority path
+    -- (step 9). Off by default, so the default behavior is unchanged.
+    if isThreatUnit and _isTankRole and threatStatus >= 3 then
+        local hae = defaults.tankHasAggroEnabled
+        if db.tankHasAggroEnabled ~= nil then hae = db.tankHasAggroEnabled end
+        local ovr = defaults.tankHasAggroOverrideMobType
+        if db.tankHasAggroOverrideMobType ~= nil then ovr = db.tankHasAggroOverrideMobType end
+        if hae and ovr then
+            local c = _C("tankHasAggro")
+            return c.r, c.g, c.b
+        end
+    end
+    -- 7. Mini-boss. Boss is intentionally LOWER priority than the low-priority
+    -- threat colors below, so it is deferred to step 10b (see _isBossUnit);
+    -- mini-boss stays here, above threat.
     local inCombat = UnitAffectingCombat(unit)
     local classification = UnitClassification(unit)
+    local _isBossUnit = false  -- deferred: boss color is applied at step 10b
     if classification == "elite" or classification == "worldboss" or classification == "rareelite" then
         -- Effective level (handles level scaling / Chromie time), not raw level.
         local level = UnitEffectiveLevel(unit)
@@ -3990,8 +4185,12 @@ local function GetReactionColor(unit)
             if level ~= -1 and UnitIsLieutenant and UnitIsLieutenant(unit) then
                 isBoss = false
             end
-            local c = _C(isBoss and "boss" or "miniboss")
-            return MaybeDarken(c.r, c.g, c.b, inCombat)
+            if isBoss then
+                _isBossUnit = true
+            else
+                local c = _C("miniboss")
+                return MaybeDarken(c.r, c.g, c.b, inCombat)
+            end
         end
     end
     -- 8. Caster
@@ -4017,6 +4216,12 @@ local function GetReactionColor(unit)
             local c = _C("dpsNoAggro")
             return c.r, c.g, c.b
         end
+    end
+    -- 10b. Boss (intentionally below the low-priority threat colors above, so a
+    -- tank-has-aggro / dps-no-aggro color takes precedence over the boss color).
+    if _isBossUnit then
+        local c = _C("boss")
+        return MaybeDarken(c.r, c.g, c.b, inCombat)
     end
     -- 11. Fallback: enemy in combat / out of combat
     local eic = _C("enemyInCombat")
@@ -4147,14 +4352,12 @@ local function HideBlizzardFrame(nameplate, unit)
                     -- First paint for this plate: rebuild immediately
                     plate:UpdateAuras(nil)
                 else
-                    -- No stash: Blizzard's UF received UNIT_AURA before our
-                    -- handler (uf registers first in SetUnit, and WoW
-                    -- dispatches in registration order), or this is a
-                    -- non-event re-filter (faction flip). Rebuilding HERE
-                    -- with nil updateInfo bypasses every relevance gate and
-                    -- caused a full rebuild per aura event. Instead owe ONE
-                    -- authoritative full rebuild next frame; bursts coalesce.
-                    plate._auraOwedFull = true
+                    -- No stash yet: either this RefreshAuras is about to be
+                    -- paired with our UNIT_AURA handler, or it is a non-event
+                    -- re-filter. Wait one frame so UNIT_AURA can supply a
+                    -- gated payload; if it never arrives, drain does one full
+                    -- rebuild.
+                    plate._auraAwaitingUnitAura = true
                     plate:QueueAuraFallback()
                 end
             end
@@ -4313,6 +4516,45 @@ ns._pandemicTickFrame:SetScript("OnUpdate", function(self, elapsed)
 end)
 ns._pandemicTickFrame:Hide()  -- start hidden; shown when pandemic glows activate
 
+-- Shared cast-bar text anchoring. The cast bar text line holds three elements --
+-- spell name, spell target, cast timer -- each assigned to a side ("left" |
+-- "right" | "center"). The cast timer reserves a fixed slot of width on its side;
+-- a non-center element sharing the timer's side is shifted inward by that width to
+-- make room (mirrors how the target has always been pushed left by the timer).
+-- Center elements anchor to the bar center and are never pushed.
+--
+--   side    : "left" | "right" | "center"
+--   pushed  : true when the timer occupies this same side and this element must move inward
+--   reserve : timer reserved width (only consumed when pushed)
+--   isTimer : the timer uses slightly tighter base insets than text
+-- Returns: point (anchor), xOff (base, before the user X offset), justify
+function ns.GetCastTextAnchor(side, pushed, reserve, isTimer)
+    if side == "center" then
+        return "CENTER", 0, "CENTER"
+    elseif side == "left" then
+        local base = isTimer and 3 or 5
+        if pushed then base = base + reserve end
+        return "LEFT", base, "LEFT"
+    else -- "right"
+        local base = -3
+        if pushed then base = base - reserve end
+        return "RIGHT", base, "RIGHT"
+    end
+end
+
+-- WoW does not visually re-lay-out a FontString when only its SetJustifyH changes;
+-- a fresh build does, which is why a /reload looked right but an in-place side
+-- change did not. Clearing then re-setting the text forces the new alignment to
+-- take effect, and it MUST be a real change -- re-setting the identical string is
+-- deduped and skips the re-layout. (Same trick as the raid frame name text.)
+-- GetText may return a secret (cast name/target); SetText accepts secrets and the
+-- value is never inspected, so the round-trip is safe.
+function ns.ReflowFontString(fs)
+    local t = fs:GetText()
+    fs:SetText("")
+    fs:SetText(t or "")
+end
+
 local NameplateFrame = {}
 
 -- Appearance generation: bumped by RefreshAllSettings so plates re-apply
@@ -4364,26 +4606,48 @@ function NameplateFrame:ApplyAppearance()
     SetFSFont(self.castName, cns, GetNPOutline())
     SetFSFont(self.castTarget, cts, GetNPOutline())
     SetFSFont(self.castTimer, ctmSz, GetNPOutline())
-    self.castName:SetJustifyH("LEFT")
-    self.castTarget:SetJustifyH("RIGHT")
-    self.castTimer:SetJustifyH("RIGHT")
     self.castTimer:SetTextColor(ctmC.r, ctmC.g, ctmC.b, 1)
     local showTimer = defaults.showCastTimer
     if p and p.showCastTimer ~= nil then showTimer = p.showCastTimer end
     self._showCastTimer = showTimer
+    local nameSide   = (p and p.castNameSide)   or defaults.castNameSide
+    local targetSide = (p and p.castTargetSide) or defaults.castTargetSide
+    local timerSide  = (p and p.castTimerSide)  or defaults.castTimerSide
     local castW = self.cast:GetWidth()
     local timerW = ctmSz * 2.2
     if castW and castW > 0 then
-        self.castName:SetWidth(castW * 0.42)
+        local textW = castW * 0.42
+        if nameSide ~= "none" then
+            local pt, xb, jh = ns.GetCastTextAnchor(nameSide, showTimer and timerSide == nameSide, timerW, false)
+            self.castName:SetWidth(textW)
+            self.castName:SetJustifyH(jh)
+            self.castName:ClearAllPoints()
+            self.castName:SetPoint(pt, self.cast, pt, xb + cnOX, cnOY)
+        end
+        if targetSide ~= "none" then
+            local pt, xb, jh = ns.GetCastTextAnchor(targetSide, showTimer and timerSide == targetSide, timerW, false)
+            self.castTarget:SetWidth(textW)
+            self.castTarget:SetJustifyH(jh)
+            self.castTarget:ClearAllPoints()
+            self.castTarget:SetPoint(pt, self.cast, pt, xb + ctOX, ctOY)
+        end
+        -- Timer side is only "left"/"right"; visibility stays governed by showTimer.
+        local tpt, txb, tjh = ns.GetCastTextAnchor(timerSide, false, timerW, true)
         self.castTimer:SetWidth(timerW)
-        self.castTarget:SetWidth(castW * 0.42)
-        self.castName:ClearAllPoints()
-        self.castName:SetPoint("LEFT", self.cast, "LEFT", 5 + cnOX, cnOY)
-        self.castTarget:ClearAllPoints()
-        self.castTarget:SetPoint("RIGHT", self.cast, "RIGHT", -3 - timerW + ctOX, ctOY)
+        self.castTimer:SetJustifyH(tjh)
         self.castTimer:ClearAllPoints()
-        self.castTimer:SetPoint("RIGHT", self.cast, "RIGHT", -3 + tmOX, tmOY)
+        self.castTimer:SetPoint(tpt, self.cast, tpt, txb + tmOX, tmOY)
     end
+    -- Base visibility by side (UpdateCast refines the target per cast on hasTarget).
+    self.castName:SetShown(nameSide ~= "none")
+    self.castTarget:SetShown(targetSide ~= "none")
+    self.castTimer:SetShown(showTimer)
+    -- Force the new justify to take effect on text that is already rendered (e.g.
+    -- changing the side while a plate is mid-cast). A fresh cast re-flows on its own
+    -- because UpdateCast sets the text after this, but a live setting change does not.
+    ns.ReflowFontString(self.castName)
+    ns.ReflowFontString(self.castTarget)
+    ns.ReflowFontString(self.castTimer)
     self.castName:SetTextColor(cnc.r, cnc.g, cnc.b, 1)
     local function GetAuraDurationCfg(kind)
         local sizeKey = kind .. "DurationTextSize"
@@ -4518,6 +4782,7 @@ function NameplateFrame:ApplyAppearance()
         self.absorbOverflow:SetHeight(GetHealthBarHeight())
     end
     ApplyHealthBarTexture(self)
+    ns.ApplyCastBarTexture(self)
     ns.ApplyAbsorbStyle(self)
     self:ApplyBorder()
     self:ApplyBorderColor()
@@ -4814,6 +5079,7 @@ function NameplateFrame:ClearUnit()
     self._pendingCoalesced = nil
     self._auraFallbackPending = nil
     self._auraOwedFull = nil
+    self._auraAwaitingUnitAura = nil
     self._lastFullRebuildT = nil
     self._absorbHidden = nil
     self._auraGroupMask = nil
@@ -5048,7 +5314,7 @@ function NameplateFrame:UpdateHealthValues()
             local pctVal = UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)
             pctText = string.format("%d%%", pctVal)
             pctNoSignText = string.format("%d", pctVal)
-            numText = AbbreviateNumbers(UnitHealth(unit))
+            numText = AbbreviateNumbers(curHealth)
             -- Decimal variants computed only when at least one slot opts in.
             if anyDec then
                 pctTextDec = string.format("%.1f%%", pctVal)
@@ -5429,14 +5695,27 @@ function NameplateFrame:ApplyTarget()
     if isTarget and ns.GetTargetGlowBorderColor() then
         if PP then
             local bc = ns.GetTargetBorderColor()
-            PP.SetBorderColor(self.health, bc.r, bc.g, bc.b, 1)
+            if ns.IsCustomBorderEnabled() then
+                -- Custom border replaces the simple one; recolor it with the
+                -- target color. Lazy-create it first if a plate is targeted
+                -- before its first ApplyBorder ran.
+                if not self._customBorder then ns.ApplyCustomBorderStyle(self) end
+                if self._customBorder and EllesmereUI.SetBorderStyleColor then
+                    EllesmereUI.SetBorderStyleColor(self._customBorder, bc.r, bc.g, bc.b, 1)
+                end
+            else
+                PP.SetBorderColor(self.health, bc.r, bc.g, bc.b, 1)
+            end
         end
     else
         self:ApplyBorderColor()
     end
-    -- Highlight: fixed translucent white wash across the health bar
+    -- Highlight: translucent wash across the health bar (color + opacity are
+    -- configurable; re-applied on show so live edits and pooled textures update)
     if isTarget and ns.GetTargetGlowHighlight() then
         EnsureTargetHighlight(self)
+        local c = ns.GetTargetHighlightColor()
+        self.targetHighlight:SetColorTexture(c.r, c.g, c.b, ns.GetTargetHighlightAlpha())
         self.targetHighlight:Show()
     elseif self.targetHighlight then
         self.targetHighlight:Hide()
@@ -6273,19 +6552,25 @@ function NameplateFrame:UpdateCast()
         self:ApplyNameVisibility()
         local castW = self.cast:GetWidth()
         if castW and castW > 0 then self.castName:SetWidth(castW * 0.42) end
-        local _isv = issecretvalue
-        local texClean = texture ~= nil and not (_isv and _isv(texture))
-        if texClean then
-            self._castTex = texture
+        -- Icon and name must describe the SAME cast. Both are taken from this
+        -- UnitCastingInfo/UnitChannelInfo snapshot: the icon comes straight from
+        -- the live texture (which may be a secret value -- SetTexture accepts
+        -- secrets natively), so it is never rejected and never replaced by a
+        -- cached or leftover icon from a previous cast or a recycled unit.
+        if type(texture) ~= "nil" then
             self.castIcon:SetTexture(texture)
-        elseif self._castTex then
-            self.castIcon:SetTexture(self._castTex)
-        elseif castSpellID then
-            local info = C_Spell.GetSpellInfo(castSpellID)
-            if info and info.iconID then
-                self._castTex = info.iconID
+        elseif type(castSpellID) ~= "nil" then
+            -- Texture genuinely absent (rare): fall back to THIS cast's spell
+            -- icon. pcall guards an invalid/0/unknown spellID; iconID is fed
+            -- straight to SetTexture and never branched on.
+            local okInfo, info = pcall(C_Spell.GetSpellInfo, castSpellID)
+            if okInfo and type(info) == "table" then
                 self.castIcon:SetTexture(info.iconID)
+            else
+                self.castIcon:SetTexture(nil)
             end
+        else
+            self.castIcon:SetTexture(nil)
         end
         self.castName:SetText(type(name) ~= "nil" and name or "")
 
@@ -6330,7 +6615,10 @@ function NameplateFrame:UpdateCast()
             self.castTarget:SetTextColor(ctc.r, ctc.g, ctc.b, 1)
         end
 
-        self.castTarget:SetShown(hasTarget)
+        local nameSide   = db.castNameSide   or defaults.castNameSide
+        local targetSide = db.castTargetSide or defaults.castTargetSide
+        self.castName:SetShown(nameSide ~= "none")
+        self.castTarget:SetShown(hasTarget and targetSide ~= "none")
         self.castTimer:SetShown(self._showCastTimer)
 
         if type(kickProtected) == "nil" then
@@ -6835,6 +7123,21 @@ function NameplateFrame:ShowCastLockout()
     end)
 end
 function NameplateFrame:UNIT_HEALTH()
+    -- If the mob dies while the "Interrupted" flash is held up, Blizzard's
+    -- nameplate death animation scales the still-shown cast bar and it looks
+    -- squished/warped. Tear the flash down the instant death is detected.
+    -- Gated on _interrupted first, so UnitIsDeadOrGhost is only ever called
+    -- during the brief flash window -- ~free on normal health ticks. (Same
+    -- safe death check already used by the health-text path.)
+    if self._interrupted and self.unit and UnitIsDeadOrGhost(self.unit) then
+        self._interrupted = nil
+        if self._interruptTimer then
+            self._interruptTimer:Cancel()
+            self._interruptTimer = nil
+        end
+        self.cast:Hide()
+        self:ApplyNameVisibility()
+    end
     self:UpdateHealthValues()
 end
 function NameplateFrame:UNIT_ABSORB_AMOUNT_CHANGED()
@@ -6892,6 +7195,7 @@ function NameplateFrame:UNIT_AURA(_, updateInfo)
         if not meta then meta = {}; self._pendingMeta = meta end
         meta.updateInfo = updateInfo
         meta.hasAdds, meta.hasRemoves, meta.hasUpdates = hasAdds, hasRemoves, hasUpdates
+        self._auraAwaitingUnitAura = nil
         -- Fallback: if RefreshAuras doesn't fire (e.g. Blizzard's UnitFrame
         -- suppressed), process next frame.
         self:QueueAuraFallback()
@@ -6918,11 +7222,9 @@ function ns._npClassifyAuraUpdate(updateInfo)
 end
 
 -- Shared next-frame aura processing queue. Used by the UNIT_AURA stash
--- path AND the RefreshAuras hook's owed-rebuild path. An owed FULL
--- rebuild always supersedes a stashed pending update: the pending path
--- runs relevance gates that may skip, and a gated skip must never
--- consume an authoritative refresh (faction flips / re-filters change
--- debuffList membership with no UNIT_AURA event).
+-- path, same-frame owed full rebuilds, and RefreshAuras re-filters. A
+-- RefreshAuras event first waits for the paired UNIT_AURA payload; only
+-- if no payload arrives does the drain do an authoritative full rebuild.
 -- Zero-allocation dispatcher: one parentless frame + swap queues replace
 -- a C_Timer.After timer object per deferred aura event. Parentless so
 -- draining continues while UIParent is hidden (cinematics, alt-Z),
@@ -6935,8 +7237,9 @@ do
 
     local function DrainPlate(plate)
         plate._auraFallbackPending = nil
-        if plate._auraOwedFull then
+        if plate._auraOwedFull or plate._auraAwaitingUnitAura then
             plate._auraOwedFull = nil
+            plate._auraAwaitingUnitAura = nil
             plate._pendingAuraUpdate = nil
             if plate._pendingMeta then plate._pendingMeta.updateInfo = nil end
             if plate.unit then plate:UpdateAuras(nil) end
@@ -7654,6 +7957,9 @@ do
     ns._displayPresetKeys[#ns._displayPresetKeys + 1] = "ccDurationTextX"
     ns._displayPresetKeys[#ns._displayPresetKeys + 1] = "ccDurationTextY"
     ns._displayPresetKeys[#ns._displayPresetKeys + 1] = "ccDurationTextColor"
+    ns._displayPresetKeys[#ns._displayPresetKeys + 1] = "castNameSide"
+    ns._displayPresetKeys[#ns._displayPresetKeys + 1] = "castTargetSide"
+    ns._displayPresetKeys[#ns._displayPresetKeys + 1] = "castTimerSide"
     ns._appendDisplayPresetKeys(ns._displayPresetKeys)
 
     -- Also handle spec changes that happen before the UI is ever opened

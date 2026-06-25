@@ -253,7 +253,7 @@ do
             title:SetFont(FONT, 22, "")
             title:SetTextColor(1, 1, 1, 1)
             PP.Point(title, "TOP", popup, "TOP", 0, -32)
-            title:SetText("Assign Preset to Specs")
+            title:SetText(EllesmereUI.L("Assign Preset to Specs"))
             popup._title = title
 
             -- Subtitle
@@ -274,7 +274,7 @@ do
             checkAllBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
             local checkAllLbl = checkAllBtn:CreateFontString(nil, "OVERLAY")
             checkAllLbl:SetFont(FONT, 14, "")
-            checkAllLbl:SetText("Check All")
+            checkAllLbl:SetText(EllesmereUI.L("Check All"))
             checkAllLbl:SetTextColor(1, 1, 1, 0.45)
             checkAllLbl:SetPoint("CENTER")
             checkAllBtn:SetSize(checkAllLbl:GetStringWidth() + 4, 20)
@@ -294,7 +294,7 @@ do
             uncheckAllBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
             local uncheckAllLbl = uncheckAllBtn:CreateFontString(nil, "OVERLAY")
             uncheckAllLbl:SetFont(FONT, 14, "")
-            uncheckAllLbl:SetText("Uncheck All")
+            uncheckAllLbl:SetText(EllesmereUI.L("Uncheck All"))
             uncheckAllLbl:SetTextColor(1, 1, 1, 0.45)
             uncheckAllLbl:SetPoint("CENTER")
             uncheckAllBtn:SetSize(uncheckAllLbl:GetStringWidth() + 4, 20)
@@ -332,7 +332,7 @@ do
             defDDLabel:SetFont(FONT, 14, "")
             defDDLabel:SetTextColor(1, 1, 1, 0.45)
             PP.Point(defDDLabel, "BOTTOM", defDDContainer, "CENTER", 0, 7)
-            defDDLabel:SetText("Default Profile (for non-assigned specs)")
+            defDDLabel:SetText(EllesmereUI.L("Default Profile (for non-assigned specs)"))
             popup._defDDLabel = defDDLabel
 
             local defDDBtn = CreateFrame("Button", nil, defDDContainer)
@@ -479,7 +479,7 @@ do
             local closeLbl = closeBtn:CreateFontString(nil, "OVERLAY")
             closeLbl:SetFont(FONT, 16, "")
             PP.Point(closeLbl, "CENTER", closeBtn, "CENTER", 0, 0)
-            closeLbl:SetText("Done")
+            closeLbl:SetText(EllesmereUI.L("Done"))
             closeLbl:SetTextColor(EG.r, EG.g, EG.b, 0.9)
             closeBtn:SetScript("OnEnter", function()
                 closeLbl:SetTextColor(EG.r, EG.g, EG.b, 1)
@@ -504,7 +504,7 @@ do
             local cancelLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
             cancelLbl:SetFont(FONT, 16, "")
             PP.Point(cancelLbl, "CENTER", cancelBtn, "CENTER", 0, 0)
-            cancelLbl:SetText("Cancel")
+            cancelLbl:SetText(EllesmereUI.L("Cancel"))
             cancelLbl:SetTextColor(1, 1, 1, 0.50)
             cancelBtn:SetScript("OnEnter", function()
                 cancelLbl:SetTextColor(1, 1, 1, 0.75)
@@ -555,22 +555,22 @@ do
         if opts.title then
             specPopup._title:SetText(opts.title)
         else
-            specPopup._title:SetText("Assign Preset to Specs")
+            specPopup._title:SetText(EllesmereUI.L("Assign Preset to Specs"))
         end
         if opts.subtitle then
             specPopup._subtitle:SetText(opts.subtitle)
         else
             local presetName
-            if presetKey == "custom" then presetName = "Custom"
+            if presetKey == "custom" then presetName = EllesmereUI.L("Custom")
             elseif presetKey == "ellesmereui" then presetName = "EllesmereUI"
             elseif presetKey and type(presetKey) == "string" and presetKey:sub(1, 5) == "user:" then presetName = presetKey:sub(6)
             else presetName = presetKey or "" end
-            specPopup._subtitle:SetText("Select which specs you want " .. presetName .. " to be assigned to")
+            specPopup._subtitle:SetText(EllesmereUI.Lf("Select which specs you want %1$s to be assigned to", presetName))
         end
 
         -- Update Done button text
         if specPopup._closeLbl then
-            specPopup._closeLbl:SetText(opts.buttonText or "Done")
+            specPopup._closeLbl:SetText(opts.buttonText or EllesmereUI.L("Done"))
         end
 
         -- Populate columns
@@ -596,7 +596,7 @@ do
                     if pKey ~= presetKey and type(specList) == "table" then
                         for sID in pairs(specList) do
                             local dName
-                            if pKey == "custom" then dName = "Custom"
+                            if pKey == "custom" then dName = EllesmereUI.L("Custom")
                             elseif pKey == "ellesmereui" then dName = "EllesmereUI"
                             elseif pKey:sub(1, 5) == "user:" then dName = pKey:sub(6)
                             else dName = pKey end
@@ -655,7 +655,7 @@ do
                 else
                     hdr._label:SetTextColor(1, 1, 1, 0.7)
                 end
-                hdr._label:SetText(cls.name)
+                hdr._label:SetText((LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[cls.class]) or cls.name)
                 yOff = yOff + CLASS_H + CLASS_PAD_BOT
 
                 -- Spec checkboxes
@@ -694,7 +694,12 @@ do
                     PP.Point(row, "TOPLEFT", col, "TOPLEFT", 0, -yOff)
                     row:Show()
 
-                    row._lbl:SetText(spec.name)
+                    local locSpecName = spec.name
+                    if GetSpecializationInfoByID then
+                        local sn = select(2, GetSpecializationInfoByID(spec.id))
+                        if sn and sn ~= "" then locSpecName = sn end
+                    end
+                    row._lbl:SetText(locSpecName)
                     row._specID = spec.id
 
                     local lockedBy = lockedSpecs[spec.id]
@@ -782,7 +787,7 @@ do
 
             local function DefPresetDisplayName(key)
                 if not key then return "" end
-                if key == "custom" then return "Custom" end
+                if key == "custom" then return EllesmereUI.L("Custom") end
                 if key == "ellesmereui" then return "EllesmereUI" end
                 if key:sub(1, 5) == "user:" then return key:sub(6) end
                 return key

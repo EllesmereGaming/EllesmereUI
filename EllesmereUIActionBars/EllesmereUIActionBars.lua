@@ -347,6 +347,11 @@ local defaults = {
         highlightUseClassColor = false,
         highlightCustomColor = { r = 0.973, g = 0.839, b = 0.604, a = 1 },
         highlightBorderSize = 4,
+        showCastHighlight = true,
+        -- Show the recharge countdown on charge spells while a charge is still
+        -- banked (mirrors the "Show numbers for cooldowns" CVar onto the recharge
+        -- timer). Off = Blizzard default (recharge number only at 0 charges).
+        showChargeRechargeNumbers = true,
         desaturateOnCooldown = false,
         procGlowType = 1,
         procGlowColor = { r = 1, g = 0.776, b = 0.376 },
@@ -2437,6 +2442,7 @@ do
         dispatcher:RegisterEvent("UPDATE_VEHICLE_ACTIONBAR")
         dispatcher:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
         dispatcher:RegisterEvent("PLAYER_TARGET_CHANGED")
+        dispatcher:RegisterEvent("CVAR_UPDATE")  -- "Show numbers for cooldowns" toggled -> re-apply charge recharge numbers
         -- Direct API calls bypass the mixin's OnEvent dispatch, which
         -- triggers UpdateButtonArt (noop + hook), icon bg hook, and other
         -- per-button overhead. With 60 populated buttons, the mixin path
@@ -2517,6 +2523,24 @@ do
                                     if chargeInfo and chargeInfo.maxCharges and chargeInfo.maxCharges > 1 then
                                         local chargeCd = btn.chargeCooldown
                                         if chargeCd then
+                                            -- Extend the WoW "Show numbers for cooldowns" setting to
+                                            -- recharging charge spells. Blizzard hides the countdown
+                                            -- number on the charge (recharge) cooldown unconditionally,
+                                            -- so a number normally only shows at 0 charges (the main
+                                            -- cooldown). Mirror the "Show numbers for cooldowns" CVar
+                                            -- here: un-hide the recharge timer only when the setting is
+                                            -- on, hide it when off. Cached per-frame so we only call on a
+                                            -- state change; CVAR_UPDATE re-applies it live on toggle.
+                                            if chargeCd.SetHideCountdownNumbers then
+                                                -- Show recharge numbers only when the feature is on
+                                                -- AND Blizzard's cooldown-numbers CVar is on.
+                                                local hideNums = (EAB.db.profile.showChargeRechargeNumbers == false)
+                                                    or (not GetCVarBool("countdownForCooldowns"))
+                                                if EFD(chargeCd).rechargeNumbersHidden ~= hideNums then
+                                                    EFD(chargeCd).rechargeNumbersHidden = hideNums
+                                                    chargeCd:SetHideCountdownNumbers(hideNums)
+                                                end
+                                            end
                                             if chargeInfo.isActive then
                                                 local chargeDur = C_ActionBar.GetActionChargeDuration(action)
                                                 if chargeDur then chargeCd:SetCooldownFromDurationObject(chargeDur) end
@@ -2527,6 +2551,21 @@ do
                                     elseif btn.chargeCooldown then
                                         btn.chargeCooldown:Clear()
                                     end
+                                end
+                            end
+                        elseif event == "CVAR_UPDATE" then
+                            -- "Show numbers for cooldowns" toggled: re-apply the recharge-number
+                            -- visibility to every charge cooldown immediately (the main cooldown
+                            -- numbers update natively; this keeps the recharge timer consistent).
+                            -- Cached per chargeCd, so unrelated CVAR_UPDATEs are near-free.
+                            local hideNums = (EAB.db.profile.showChargeRechargeNumbers == false)
+                                or (not GetCVarBool("countdownForCooldowns"))
+                            for _, btn in ipairs(btns) do
+                                local chargeCd = btn.chargeCooldown
+                                if chargeCd and chargeCd.SetHideCountdownNumbers
+                                   and EFD(chargeCd).rechargeNumbersHidden ~= hideNums then
+                                    EFD(chargeCd).rechargeNumbersHidden = hideNums
+                                    chargeCd:SetHideCountdownNumbers(hideNums)
                                 end
                             end
                         elseif event == "ACTIONBAR_UPDATE_USABLE" then
@@ -5404,6 +5443,8 @@ local function BuildVisibilityString(info, s, visOverride)
             petShow = "[combat] show; hide"
         elseif vis == "out_of_combat" then
             petShow = "[nocombat] show; hide"
+        elseif vis == "show_dragonriding" then
+            petShow = "[advflyable,mounted,flying] show; hide"
         elseif s.combatShowEnabled then
             petShow = "[combat] show; hide"
         elseif s.combatHideEnabled then
@@ -5440,6 +5481,10 @@ local function BuildVisibilityString(info, s, visOverride)
         return hidePrefix .. "[group:party] show; [group:raid] show; hide"
     elseif vis == "solo" then
         return hidePrefix .. "[nogroup] show; hide"
+    elseif vis == "show_dragonriding" then
+        -- Show only while flying on a skyriding mount. The secure state driver
+        -- re-evaluates this automatically (incl. the flying transition).
+        return hidePrefix .. "[advflyable,mounted,flying] show; hide"
     end
     return hidePrefix .. "show"
 end
@@ -6997,6 +7042,54 @@ function EAB:ApplyMiscTextures()
     -- dispatcher + ACTIONBAR_UPDATE_COOLDOWN handles cooldown/GCD swipes.
 end
 
+-- "Show Highlight on Spell Cast": the CheckedTexture is the highlight that
+-- appears when a spell is the current/active action. When the option is off
+-- we drive the CheckedTexture alpha to 0 (same hide-via-alpha pattern the
+-- "none" pushed/highlight types use). This is the single source of truth so
+-- every site that sets CheckedTexture alpha stays consistent.
+function EAB:GetCheckedAlpha()
+    return (self.db.profile.showCastHighlight == false) and 0 or 1
+end
+
+function EAB:ApplyCheckedTextures()
+    local a = self:GetCheckedAlpha()
+    for _, info in ipairs(BAR_CONFIG) do
+        local buttons = barButtons[info.key]
+        if buttons then
+            for i = 1, #buttons do
+                local btn = buttons[i]
+                if btn and btn.CheckedTexture then
+                    btn.CheckedTexture:SetAlpha(a)
+                end
+            end
+        end
+    end
+end
+
+-- Re-apply charge-spell recharge-number visibility across all buttons. Same
+-- logic the dispatcher's per-tick + CVAR_UPDATE paths use; called when the
+-- "Show Cooldown Numbers" cog toggle flips so the change is immediate (a DB
+-- toggle does not fire CVAR_UPDATE). Cached per chargeCd, so it is near-free.
+function EAB:RefreshChargeRechargeNumbers()
+    local hideNums = (self.db.profile.showChargeRechargeNumbers == false)
+        or (not GetCVarBool("countdownForCooldowns"))
+    for _, info in ipairs(BAR_CONFIG) do
+        if not info.isStance and not info.isPetBar then
+            local buttons = barButtons[info.key]
+            if buttons then
+                for _, btn in ipairs(buttons) do
+                    local chargeCd = btn.chargeCooldown
+                    if chargeCd and chargeCd.SetHideCountdownNumbers
+                       and EFD(chargeCd).rechargeNumbersHidden ~= hideNums then
+                        EFD(chargeCd).rechargeNumbersHidden = hideNums
+                        chargeCd:SetHideCountdownNumbers(hideNums)
+                    end
+                end
+            end
+        end
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Keybind System
 --  Hybrid routing: empower/flyout slots use SetOverrideBindingClick so our
@@ -7198,13 +7291,15 @@ do
                         if ct then ct:SetAlpha(0) end
                     else
                         -- Slot has an action; restore alpha so Blizzard's
-                        -- UpdateState manages checked visuals.
-                        if ct then ct:SetAlpha(1) end
+                        -- UpdateState manages checked visuals (honors the
+                        -- Show Highlight on Spell Cast setting).
+                        if ct then ct:SetAlpha(EAB:GetCheckedAlpha()) end
                     end
                 else
                     -- Normal page: restore alpha on all buttons so checked
-                    -- state renders correctly when spells are dragged in.
-                    if ct then ct:SetAlpha(1) end
+                    -- state renders correctly when spells are dragged in
+                    -- (honors the Show Highlight on Spell Cast setting).
+                    if ct then ct:SetAlpha(EAB:GetCheckedAlpha()) end
                 end
             end
         end
@@ -7384,6 +7479,7 @@ local function ApplyAll()
     EAB:ApplyCooldownFonts()
     EAB:ApplyCooldownEdge()
     EAB:ApplyMiscTextures()
+    EAB:ApplyCheckedTextures()
     if not inCombat then EAB:ApplyCombatVisibility() end
     if not inCombat then EAB:RefreshRuntimeVisibility() end
     EAB:RefreshMouseover()
@@ -8280,7 +8376,7 @@ function EAB:FinishSetup()
                     -- normal OnLeave fade it on real exit. Otherwise hide as before.
                     local state = hoverStates[key]
                     StopFade(frame)
-                    if MouseIsOver(frame) then
+                    if frame:IsMouseOver() then
                         if state then state.isHovered = true; state.fadeDir = "in" end
                         frame:SetAlpha(s._savedBarAlpha or 1)
                         if key == "MainBar" then SyncPagingAlpha(s._savedBarAlpha or 1) end
@@ -8891,13 +8987,14 @@ function EAB:FinishSetup()
                         -- SetChecked / StartFlash / StopFlash are visual-only and safe
                         -- to call during combat lockdown.
                         local ct = btn:GetCheckedTexture()
+                        local ctA = EAB:GetCheckedAlpha()
                         if isActive then
                             if IsPetAttackAction(i) then
                                 btn:StartFlash()
-                                if ct then ct:SetAlpha(0.5) end
+                                if ct then ct:SetAlpha(0.5 * ctA) end
                             else
                                 btn:StopFlash()
-                                if ct then ct:SetAlpha(1.0) end
+                                if ct then ct:SetAlpha(1.0 * ctA) end
                             end
                             btn:SetChecked(true)
                         else
@@ -10019,8 +10116,7 @@ AttachExtraBarHoverHooks = function(info)
             end
         end
 
-        if not MouseIsOver then return true end
-        return MouseIsOver(hoverRoot)
+        return hoverRoot:IsMouseOver()
     end
 
     local OnEnter, OnLeave = EAB_VTABLE.Hover.BuildHandlers(info.key, state, {

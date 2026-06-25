@@ -424,6 +424,15 @@ initFrame:SetScript("OnEvent", function(self)
                         EllesmereUIDB.fpsShowWorldMS = v
                         if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
                       end },
+                    { type="toggle", label="Hide Local/World Label",
+                      get=function()
+                        return EllesmereUIDB and EllesmereUIDB.fpsHideLabel or false
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.fpsHideLabel = v
+                        if EllesmereUI._applyFPSCounter then EllesmereUI._applyFPSCounter() end
+                      end },
                 },
             })
             local fpsCogBtn = CreateFrame("Button", nil, leftRgn)

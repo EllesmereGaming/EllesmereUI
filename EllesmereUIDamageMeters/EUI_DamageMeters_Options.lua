@@ -1120,6 +1120,17 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v) Set("standaloneTimerAnchor", v); ApplySAT() end })
         y = y - h
 
+        -- ── EXTRAS ───────────────────────────────────────────────────
+        _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Spell Tooltips on Hover",
+              tooltip="Show the game's spell tooltip when you hover a spell in a breakdown window.",
+              getValue = function() return Cfg("showSpellTooltips") ~= false end,
+              setValue = function(v) Set("showSpellTooltips", v) end },
+            { type="label", text="" })
+        y = y - h
+
         return math.abs(y)
     end
 
