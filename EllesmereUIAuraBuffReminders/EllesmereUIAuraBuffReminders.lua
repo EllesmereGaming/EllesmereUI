@@ -188,7 +188,7 @@ local LABEL_CLASS_OVERRIDES = {
 }
 local function ShortLabel(name, classOverride)
     if classOverride and LABEL_CLASS_OVERRIDES[classOverride] then
-        return LABEL_CLASS_OVERRIDES[classOverride]
+        return EllesmereUI.L(LABEL_CLASS_OVERRIDES[classOverride])
     end
     if LABEL_OVERRIDES[name] then return LABEL_OVERRIDES[name] end
     return name:match("^(%S+)") or name
@@ -769,6 +769,15 @@ end
 -------------------------------------------------------------------------------
 --  SPELL DATA Raid Buffs (all non-secret in 12.0, work in combat)
 -------------------------------------------------------------------------------
+-- Resolve a spell's display name from its ID in the client's locale, with
+-- an English fallback, so reminder labels follow the game client's language
+-- instead of the hardcoded English name. Exposed as _G._EABR_SpellName for
+-- the options panel.
+_G._EABR_SpellName = function(spellID, fallback)
+    local n = spellID and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
+    return n or fallback
+end
+
 local RAID_BUFFS = {
     { key="motw",   class="DRUID",   name="Mark of the Wild",       castSpell=1126,   buffIDs={1126,432661},    check="raid" },
     { key="bshout", class="WARRIOR", name="Battle Shout",           castSpell=6673,   buffIDs={6673},    check="raid" },
@@ -2003,7 +2012,7 @@ if inInstance or rb.showNonInstanced then
                 if isMissing then
                     local e = AcquireEntry()
                     e.mode = "spell"; e.spellID = buff.castSpell
-                    e.label = ShortLabel(buff.name)
+                    e.label = ShortLabel(_G._EABR_SpellName(buff.castSpell, buff.name))
                     if buff.check == "huntersMark" then e.unit = "target" end
                     e.cat = "raidbuff"; e.data = buff; e.scale = rb.scale or 1.0
                     e.dismissKey = buff.key and ("raidbuff:" .. buff.key) or nil
@@ -2093,7 +2102,7 @@ if inInstance or au.showNonInstanced then
                     if isMissing then
                         local e = AcquireEntry()
                         e.mode = "spell"; e.spellID = aura.castSpell
-                        e.label = ShortLabel(aura.name)
+                        e.label = ShortLabel(_G._EABR_SpellName(aura.castSpell, aura.name))
                         e.cat = "aura"; e.data = aura; e.scale = au.scale or 1.0
                         e.dismissKey = "aura:" .. aura.key
                         missing[#missing+1] = e
@@ -2148,7 +2157,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                 if missingL and activeL < reqL then
                     local e = AcquireEntry()
                     e.mode = "spell"; e.spellID = missingL.castSpell
-                    e.label = ShortLabel(missingL.name, "ROGUE")
+                    e.label = ShortLabel(_G._EABR_SpellName(missingL.castSpell, missingL.name), "ROGUE")
                     e.cat = "consumable"; e.data = missingL; e.scale = co.scale or 1.0
                     e.dismissKey = "consumable:rogue_lethal"
                     missing[#missing+1] = e
@@ -2156,7 +2165,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                 if missingNL and activeNL < reqNL then
                     local e = AcquireEntry()
                     e.mode = "spell"; e.spellID = missingNL.castSpell
-                    e.label = ShortLabel(missingNL.name, "ROGUE")
+                    e.label = ShortLabel(_G._EABR_SpellName(missingNL.castSpell, missingNL.name), "ROGUE")
                     e.cat = "consumable"; e.data = missingNL; e.scale = co.scale or 1.0
                     e.dismissKey = "consumable:rogue_nonlethal"
                     missing[#missing+1] = e
@@ -2177,7 +2186,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                         if show then
                             local e = AcquireEntry()
                             e.mode = "spell"; e.spellID = rite.castSpell
-                            e.label = ShortLabel(rite.name)
+                            e.label = ShortLabel(_G._EABR_SpellName(rite.castSpell, rite.name))
                             e.cat = "consumable"; e.data = rite; e.scale = co.scale or 1.0
                             e.dismissKey = "consumable:" .. rite.key
                             missing[#missing+1] = e
@@ -2217,7 +2226,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                         if not found then
                             local e = AcquireEntry()
                             e.mode = "spell"; e.spellID = imbue.castSpell
-                            e.label = ShortLabel(imbue.name, "SHAMAN_IMBUE")
+                            e.label = ShortLabel(_G._EABR_SpellName(imbue.castSpell, imbue.name), "SHAMAN_IMBUE")
                             e.cat = "consumable"; e.data = imbue; e.scale = co.scale or 1.0
                             e.dismissKey = "consumable:" .. imbue.key
                             missing[#missing+1] = e
@@ -2690,7 +2699,7 @@ local function Refresh()
                     if safe then
                         local spellID = m.data and m.data.castSpell
                         local texture = m.texture or (spellID and Tex(spellID)) or 134400
-                        local label = m.label or (m.data and ShortLabel(m.data.name)) or ""
+                        local label = m.label or (m.data and ShortLabel(_G._EABR_SpellName(m.data.castSpell, m.data.name))) or ""
                         local f
                         if useCursor and IsImportantBuff(m) then
                             cursorIdx = cursorIdx + 1
@@ -2738,7 +2747,7 @@ local function Refresh()
                 if useCursor and IsImportantBuff(m) then
                     local spellID = m.data and m.data.castSpell
                     local texture = m.texture or (spellID and Tex(spellID)) or 134400
-                    local label = m.label or (m.data and ShortLabel(m.data.name)) or ""
+                    local label = m.label or (m.data and ShortLabel(_G._EABR_SpellName(m.data.castSpell, m.data.name))) or ""
                     cursorIdx = cursorIdx + 1
                     ShowCursorIcon(cursorIdx, spellID, texture, label)
                     local f = cursorActiveIcons[#cursorActiveIcons]

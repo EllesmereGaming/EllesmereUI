@@ -93,7 +93,7 @@ initFrame:SetScript("OnEvent", function(self)
     }
     local function ShortLabel(name, classOverride)
         if classOverride and LABEL_CLASS_OVERRIDES[classOverride] then
-            return LABEL_CLASS_OVERRIDES[classOverride]
+            return EllesmereUI.L(LABEL_CLASS_OVERRIDES[classOverride])
         end
         if LABEL_OVERRIDES[name] then return LABEL_OVERRIDES[name] end
         return name:match("^(%S+)") or name
@@ -114,7 +114,7 @@ initFrame:SetScript("OnEvent", function(self)
         for _, buff in ipairs(RAID_BUFFS) do
             if buff.class == playerClass and Known(buff.castSpell) then
                 if rb and rb.enabled and rb.enabled[buff.key] then
-                    icons[#icons+1] = { texture = Tex(buff.castSpell), label = ShortLabel(buff.name), cat = "raidbuff", itemKey = buff.key }
+                    icons[#icons+1] = { texture = Tex(buff.castSpell), label = ShortLabel(_G._EABR_SpellName(buff.castSpell, buff.name)), cat = "raidbuff", itemKey = buff.key }
                 end
             end
         end
@@ -133,11 +133,11 @@ initFrame:SetScript("OnEvent", function(self)
                     if specOk then
                         if aura.key == "bol" or aura.key == "bof" then
                             if not beaconAdded then
-                                icons[#icons+1] = { texture = Tex(aura.castSpell), label = ShortLabel(aura.name), cat = "aura", itemKey = aura.key }
+                                icons[#icons+1] = { texture = Tex(aura.castSpell), label = ShortLabel(_G._EABR_SpellName(aura.castSpell, aura.name)), cat = "aura", itemKey = aura.key }
                                 beaconAdded = true
                             end
                         else
-                            icons[#icons+1] = { texture = Tex(aura.castSpell), label = ShortLabel(aura.name), cat = "aura", itemKey = aura.key }
+                            icons[#icons+1] = { texture = Tex(aura.castSpell), label = ShortLabel(_G._EABR_SpellName(aura.castSpell, aura.name)), cat = "aura", itemKey = aura.key }
                         end
                     end
                 end
@@ -150,7 +150,7 @@ initFrame:SetScript("OnEvent", function(self)
             local POISONS = _G._EABR_ROGUE_POISONS or {}
             for _, poison in ipairs(POISONS) do
                 if Known(poison.castSpell) and co and co.enabled and co.enabled[poison.key] then
-                    icons[#icons+1] = { texture = Tex(poison.castSpell), label = ShortLabel(poison.name, "ROGUE"), cat = "consumable", itemKey = poison.key }
+                    icons[#icons+1] = { texture = Tex(poison.castSpell), label = ShortLabel(_G._EABR_SpellName(poison.castSpell, poison.name), "ROGUE"), cat = "consumable", itemKey = poison.key }
                     break
                 end
             end
@@ -161,7 +161,7 @@ initFrame:SetScript("OnEvent", function(self)
             local RITES = _G._EABR_PALADIN_RITES or {}
             for _, rite in ipairs(RITES) do
                 if Known(rite.castSpell) and co and co.enabled and co.enabled[rite.key] then
-                    icons[#icons+1] = { texture = Tex(rite.castSpell), label = ShortLabel(rite.name), cat = "consumable", itemKey = rite.key }
+                    icons[#icons+1] = { texture = Tex(rite.castSpell), label = ShortLabel(_G._EABR_SpellName(rite.castSpell, rite.name)), cat = "consumable", itemKey = rite.key }
                     break
                 end
             end
@@ -172,7 +172,7 @@ initFrame:SetScript("OnEvent", function(self)
             local IMBUES = _G._EABR_SHAMAN_IMBUES or {}
             for _, imbue in ipairs(IMBUES) do
                 if Known(imbue.castSpell) and co and co.enabled and co.enabled[imbue.key] then
-                    icons[#icons+1] = { texture = Tex(imbue.castSpell), label = ShortLabel(imbue.name, "SHAMAN_IMBUE"), cat = "consumable", itemKey = imbue.key }
+                    icons[#icons+1] = { texture = Tex(imbue.castSpell), label = ShortLabel(_G._EABR_SpellName(imbue.castSpell, imbue.name), "SHAMAN_IMBUE"), cat = "consumable", itemKey = imbue.key }
                     break
                 end
             end
@@ -1042,7 +1042,7 @@ initFrame:SetScript("OnEvent", function(self)
             local gridItems = {}
             for _, buff in ipairs(RAID_BUFFS) do
                 gridItems[#gridItems+1] = {
-                    label = buff.name,
+                    label = _G._EABR_SpellName(buff.castSpell, buff.name),
                     classToken = buff.class,
                     key = buff.key,
                     getVal = function() local r = RDB(); return r and r.enabled and r.enabled[buff.key] end,
@@ -1080,7 +1080,7 @@ initFrame:SetScript("OnEvent", function(self)
             local gridItems = {}
             for _, aura in ipairs(AURAS) do
                 gridItems[#gridItems+1] = {
-                    label = aura.name,
+                    label = _G._EABR_SpellName(aura.castSpell, aura.name),
                     classToken = aura.class,
                     key = aura.key,
                     getVal = function() local a = ADB(); return a and a.enabled and a.enabled[aura.key] end,
@@ -1103,7 +1103,7 @@ initFrame:SetScript("OnEvent", function(self)
             local gridItems = {}
             for _, poison in ipairs(POISONS) do
                 gridItems[#gridItems+1] = {
-                    label = poison.name,
+                    label = _G._EABR_SpellName(poison.castSpell, poison.name),
                     classToken = "ROGUE",
                     key = poison.key,
                     getVal = function() local c = CDB(); return c and c.enabled and c.enabled[poison.key] end,
@@ -1126,7 +1126,7 @@ initFrame:SetScript("OnEvent", function(self)
             local gridItems = {}
             for _, rite in ipairs(RITES) do
                 gridItems[#gridItems+1] = {
-                    label = rite.name,
+                    label = _G._EABR_SpellName(rite.castSpell, rite.name),
                     classToken = "PALADIN",
                     key = rite.key,
                     getVal = function() local c = CDB(); return c and c.enabled and c.enabled[rite.key] end,
@@ -1149,7 +1149,7 @@ initFrame:SetScript("OnEvent", function(self)
             local IMBUES = _G._EABR_SHAMAN_IMBUES or {}
             for _, imbue in ipairs(IMBUES) do
                 gridItems[#gridItems+1] = {
-                    label = imbue.name,
+                    label = _G._EABR_SpellName(imbue.castSpell, imbue.name),
                     classToken = "SHAMAN",
                     key = imbue.key,
                     getVal = function() local c = CDB(); return c and c.enabled and c.enabled[imbue.key] end,
@@ -1159,7 +1159,7 @@ initFrame:SetScript("OnEvent", function(self)
             local SHIELDS = _G._EABR_SHAMAN_SHIELDS or {}
             for _, shield in ipairs(SHIELDS) do
                 gridItems[#gridItems+1] = {
-                    label = shield.name,
+                    label = EllesmereUI.L(shield.name),
                     classToken = "SHAMAN",
                     key = shield.key,
                     getVal = function() local c = CDB(); return c and c.enabled and c.enabled[shield.key] end,
