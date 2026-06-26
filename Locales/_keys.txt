@@ -53,6 +53,7 @@ Back
 Brightness
 Browse community presets.
 CDM Buttons can have all their glow and active\nstates changed on a per icon (or synced to the bar)\nbasis. Click on a button to show that button's settings.
+Calendar
 Cancel
 Cast Timer Settings
 Check All

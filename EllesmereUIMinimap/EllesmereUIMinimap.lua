@@ -2078,6 +2078,255 @@ local function HideFriendsTooltip()
     if _friendsTT then _friendsTT:Hide() end
 end
 
+-- Custom calendar tooltip with right-aligned kill counts and server/reset footer.
+local _calendarTT
+local _calendarTTTitle
+local _calendarTTRows = {}
+local _calendarTTFooters = {}
+local CTT_PAD = 8
+local CTT_ROW_H = 14
+local CTT_TITLE_H = 16
+local CTT_GAP = 6
+
+local function GetCalendarTT()
+    if _calendarTT then return _calendarTT end
+    local f = CreateFrame("Frame", nil, UIParent)
+    f:SetFrameStrata("TOOLTIP")
+    f:SetFrameLevel(200)
+    f:Hide()
+    local bg = f:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.067, 0.067, 0.067, 0.92)
+    EllesmereUI.MakeBorder(f, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
+    _calendarTT = f
+    return f
+end
+
+local function EnsureCalendarTTRow(idx)
+    if _calendarTTRows[idx] then return _calendarTTRows[idx] end
+    local tt = GetCalendarTT()
+    local leftFS = tt:CreateFontString(nil, "OVERLAY")
+    leftFS:SetFont(FTT_FONT(), 10, "")
+    leftFS:SetJustifyH("LEFT")
+    local rightFS = tt:CreateFontString(nil, "OVERLAY")
+    rightFS:SetFont(FTT_FONT(), 10, "")
+    rightFS:SetJustifyH("RIGHT")
+    _calendarTTRows[idx] = { left = leftFS, right = rightFS }
+    return _calendarTTRows[idx]
+end
+
+local function EnsureCalendarTTFooter(idx)
+    if _calendarTTFooters[idx] then return _calendarTTFooters[idx] end
+    local tt = GetCalendarTT()
+    local leftFS = tt:CreateFontString(nil, "OVERLAY")
+    leftFS:SetFont(FTT_FONT(), 10, "")
+    leftFS:SetJustifyH("LEFT")
+    leftFS:SetTextColor(1, 1, 1, 0.65)
+    local rightFS = tt:CreateFontString(nil, "OVERLAY")
+    rightFS:SetFont(FTT_FONT(), 10, "")
+    rightFS:SetJustifyH("RIGHT")
+    rightFS:SetTextColor(1, 1, 1, 0.80)
+    _calendarTTFooters[idx] = { left = leftFS, right = rightFS }
+    return _calendarTTFooters[idx]
+end
+
+local function EnsureCalendarTTTitle()
+    if _calendarTTTitle then return _calendarTTTitle end
+    local tt = GetCalendarTT()
+    local fs = tt:CreateFontString(nil, "OVERLAY")
+    fs:SetFont(FTT_FONT(), 12, "")
+    fs:SetJustifyH("CENTER")
+    fs:SetTextColor(1, 1, 1, 0.90)
+    _calendarTTTitle = fs
+    return fs
+end
+
+local function GetServerTimeText()
+    local h, m = GetGameTime()
+    local use24h = GetCVar("timeMgrUseMilitaryTime") == "1"
+    if use24h then
+        return format("%02d:%02d", h, m)
+    end
+    local ampm = h >= 12 and "PM" or "AM"
+    h = h % 12
+    if h == 0 then h = 12 end
+    return format("%d:%02d %s", h, m, ampm)
+end
+
+local function GetWeeklyResetText()
+    if C_DateAndTime and C_DateAndTime.GetSecondsUntilWeeklyReset and SecondsToTime then
+        local secs = C_DateAndTime.GetSecondsUntilWeeklyReset()
+        if secs then
+            return SecondsToTime(secs, true, nil, 3)
+        end
+    end
+    return ""
+end
+
+local function HideCalendarTooltip()
+    if _calendarTT then _calendarTT:Hide() end
+end
+
+local function ShowCalendarTooltip(anchor, lockoutEntries)
+    local tt = GetCalendarTT()
+    local font = FTT_FONT()
+
+    for i = 1, #_calendarTTRows do
+        _calendarTTRows[i].left:Hide()
+        _calendarTTRows[i].right:Hide()
+    end
+    for i = 1, #_calendarTTFooters do
+        _calendarTTFooters[i].left:Hide()
+        _calendarTTFooters[i].right:Hide()
+    end
+
+    local title = EnsureCalendarTTTitle()
+    title:SetFont(font, 12, "")
+    title:SetText(EllesmereUI.L("Calendar"))
+
+    local footerData = {
+        { left = EllesmereUI.L("Server Time"), right = GetServerTimeText() },
+        { left = format("%s %s", WEEKLY or "Weekly", RESET or "Reset"), right = GetWeeklyResetText() },
+    }
+
+    local maxLeftW, maxRightW = 0, 0
+    local curY = -CTT_PAD
+
+    title:ClearAllPoints()
+    title:SetPoint("TOP", tt, "TOP", 0, curY)
+    title:Show()
+    curY = curY - CTT_TITLE_H - CTT_GAP
+
+    for i, entry in ipairs(lockoutEntries) do
+        local row = EnsureCalendarTTRow(i)
+        row.left:SetFont(font, 10, "")
+        row.right:SetFont(font, 10, "")
+        row.left:SetText(entry.left)
+        row.right:SetText(entry.right or "")
+        row.left:ClearAllPoints()
+        row.left:SetPoint("TOPLEFT", tt, "TOPLEFT", CTT_PAD, curY)
+        row.right:ClearAllPoints()
+        row.right:SetPoint("TOPRIGHT", tt, "TOPRIGHT", -CTT_PAD, curY)
+        row.left:Show()
+        if entry.right and entry.right ~= "" then row.right:Show() end
+
+        local lw = row.left:GetStringWidth() or 0
+        local rw = row.right:GetStringWidth() or 0
+        if lw > maxLeftW then maxLeftW = lw end
+        if rw > maxRightW then maxRightW = rw end
+
+        curY = curY - CTT_ROW_H
+    end
+
+    curY = curY - CTT_GAP
+
+    for i, fd in ipairs(footerData) do
+        local footer = EnsureCalendarTTFooter(i)
+        footer.left:SetFont(font, 10, "")
+        footer.right:SetFont(font, 10, "")
+        footer.left:SetText(fd.left)
+        footer.right:SetText(fd.right)
+        footer.left:ClearAllPoints()
+        footer.left:SetPoint("TOPLEFT", tt, "TOPLEFT", CTT_PAD, curY)
+        footer.right:ClearAllPoints()
+        footer.right:SetPoint("TOPRIGHT", tt, "TOPRIGHT", -CTT_PAD, curY)
+        footer.left:Show()
+        footer.right:Show()
+
+        local lw = footer.left:GetStringWidth() or 0
+        local rw = footer.right:GetStringWidth() or 0
+        if lw > maxLeftW then maxLeftW = lw end
+        if rw > maxRightW then maxRightW = rw end
+
+        curY = curY - CTT_ROW_H
+    end
+
+    local contentW = CTT_PAD + maxLeftW + 16 + maxRightW + CTT_PAD
+    local ttW = math.max(contentW, 180)
+    local ttH = -curY + CTT_PAD
+
+    tt:SetSize(ttW, ttH)
+    tt:ClearAllPoints()
+    tt:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -4, 0)
+    tt:Show()
+
+    local bottom = tt:GetBottom()
+    if bottom and bottom < 0 then
+        local top = tt:GetTop()
+        if top then
+            tt:ClearAllPoints()
+            tt:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -4, -bottom)
+        end
+    end
+end
+
+-- Saved instance lockouts for the calendar tooltip (ElvUI Time datatext pattern).
+local LOCKOUT_DIFFICULTIES = {
+    [2] = true,   -- heroic
+    [23] = true,  -- mythic
+    [148] = true,
+    [174] = true,
+    [185] = true,
+    [198] = true,
+    [201] = true,
+    [215] = true,
+}
+local LFR_DIFFICULTIES = {
+    [7] = true,
+    [17] = true,
+}
+
+local function GetCalendarLockoutEntries()
+    if EllesmereUIDB and EllesmereUIDB.calendarLockoutTooltip == false then return end
+    if not GetNumSavedInstances or not GetSavedInstanceInfo then return end
+
+    if RequestRaidInfo then RequestRaidInfo() end
+
+    local entries = {}
+    for i = 1, GetNumSavedInstances() do
+        local name, _, _, difficulty, locked, extended, _, isRaid, _, difficultyName, numEncounters, encounterProgress =
+            GetSavedInstanceInfo(i)
+        if name and (locked or extended) and (isRaid or LOCKOUT_DIFFICULTIES[difficulty]) then
+            local diffLabel = difficultyName
+            local _, _, isHeroic, _, displayHeroic, displayMythic
+            if GetDifficultyInfo and difficulty then
+                diffLabel, _, isHeroic, _, displayHeroic, displayMythic = GetDifficultyInfo(difficulty)
+            end
+            diffLabel = diffLabel or ""
+
+            local isLFR = LFR_DIFFICULTIES[difficulty]
+            local sortTier
+            if displayMythic then
+                sortTier = "4"
+            elseif isHeroic or displayHeroic then
+                sortTier = "3"
+            elseif isLFR then
+                sortTier = "1"
+            else
+                sortTier = "2"
+            end
+            local sortKey = name .. "\t" .. sortTier
+
+            local leftText = name
+            local rightText = diffLabel
+            if numEncounters and numEncounters > 0 and encounterProgress and encounterProgress >= 0 then
+                rightText = format("%s %d/%d", diffLabel, encounterProgress, numEncounters)
+            end
+            entries[#entries + 1] = { sortKey = sortKey, left = leftText, right = rightText }
+        end
+    end
+
+    table.sort(entries, function(a, b) return a.sortKey < b.sortKey end)
+
+    if #entries == 0 then return end
+
+    local result = {}
+    for ei = 1, #entries do
+        result[#result + 1] = { left = entries[ei].left, right = entries[ei].right }
+    end
+    return result
+end
+
 local function BuildCustomIndicators(minimap)
     if _customIndicators.tracking then return end
 
@@ -2133,12 +2382,20 @@ local function BuildCustomIndicators(minimap)
     local calBaseLeave = _customIndicators.calendar:GetScript("OnLeave")
     _customIndicators.calendar:SetScript("OnEnter", function(self)
         if calBaseEnter then calBaseEnter(self) end
-        if not GetFFD(self).freeMoveJustDragged and EllesmereUI.ShowWidgetTooltip then
+        if GetFFD(self).freeMoveJustDragged then return end
+        local lockoutEntries
+        if not (EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance()) then
+            lockoutEntries = GetCalendarLockoutEntries()
+        end
+        if lockoutEntries then
+            ShowCalendarTooltip(self, lockoutEntries)
+        elseif EllesmereUI.ShowWidgetTooltip then
             EllesmereUI.ShowWidgetTooltip(self, "Calendar", { anchor = "left" })
         end
     end)
     _customIndicators.calendar:SetScript("OnLeave", function(self)
         if calBaseLeave then calBaseLeave(self) end
+        HideCalendarTooltip()
         if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
     end)
 
