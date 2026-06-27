@@ -323,6 +323,21 @@ initFrame:SetScript("OnEvent", function(self)
             if coordInitOff then coordCogBlock:Show() else coordCogBlock:Hide() end
         end
 
+		-- Hide Tutorial Pop-ups (HelpTip tips, HelpPlate info windows, and the glowing "i" help-plate buttons on the micro-menu, spellbook, etc.)
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Hide Tutorial Pop-ups",
+              tooltip="Hides Blizzard's tutorial tips, the help-plate info windows, and the glowing (i) help buttons that appear on the micro-menu, spellbook, and other frames.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.hideTutorials or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.hideTutorials = v
+                  if EllesmereUI._applyHideTutorials then EllesmereUI._applyHideTutorials() end
+              end },
+            { type="spacer" }
+        );  y = y - h
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         ---------------------------------------------------------------------------
