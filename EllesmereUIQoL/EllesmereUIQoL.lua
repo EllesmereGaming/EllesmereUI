@@ -2048,3 +2048,175 @@ do
         end
     end
 end
+
+-------------------------------------------------------------------------------
+--  Hide Tutorial Pop-ups
+-------------------------------------------------------------------------------
+do
+    local function Enabled()
+        return EllesmereUIDB and EllesmereUIDB.hideTutorials
+    end
+
+    -- MainHelpPlateButtonMixin.ShowTooltip is a stable reference; cache it once.
+    local fingerprint
+    local function GetFingerprint()
+        if fingerprint == nil then
+            fingerprint = (MainHelpPlateButtonMixin and MainHelpPlateButtonMixin.ShowTooltip) or false
+        end
+        return fingerprint
+    end
+
+    -- Buttons we alpha-hid, so disabling restores exactly those (and never a
+    -- button Blizzard had hidden for its own reasons).
+    local hiddenByUs = {}
+    local function HideButton(btn)
+        btn:SetAlpha(0)
+        btn:EnableMouse(false)
+        hiddenByUs[btn] = true
+    end
+    local function DismissActiveTips()
+        local tt = HelpPlateTooltip
+        if tt and tt:IsShown() then tt:Hide() end
+        if not (HelpTip and HelpTip.framePool and HelpTip.framePool.EnumerateActive) then return end
+        pcall(function()
+            for tip in HelpTip.framePool:EnumerateActive() do
+                if tip:IsShown() then
+                    local info = tip.info
+                    if info and info.cvarBitfield and info.bitfieldFlag then
+                        SetCVarBitfield(info.cvarBitfield, info.bitfieldFlag, true)
+                    end
+                    tip:Hide()
+                end
+            end
+        end)
+    end
+
+    local HideButtonsUnder
+    local function ScanChildren(...)
+        for i = 1, select("#", ...) do
+            HideButtonsUnder((select(i, ...)))
+        end
+    end
+    function HideButtonsUnder(root)
+        if not root then return end
+        local fp = GetFingerprint()
+        if not fp then return end
+        if root.ShowTooltip == fp then HideButton(root) end
+        if root.GetChildren then ScanChildren(root:GetChildren()) end
+    end
+
+    local function FullSweepButtons()
+        local fp = GetFingerprint()
+        if not fp then return end
+        local frame = EnumerateFrames()
+        while frame do
+            if frame.ShowTooltip == fp then HideButton(frame) end
+            frame = EnumerateFrames(frame)
+        end
+    end
+
+    -- Re-show every button we hid (live disable).
+    local function RestoreButtons()
+        for btn in pairs(hiddenByUs) do
+            btn:SetAlpha(1)
+            btn:EnableMouse(true)
+            hiddenByUs[btn] = nil
+        end
+    end
+
+    -- Panels currently open via ShowUIPanel. re-scan their subtrees on the
+    -- ticker so buttons that appear on a tab switch (which does NOT fire
+    -- ShowUIPanel) are caught immediately instead of sitting there stuck.
+    local openPanels = {}
+
+    -- Installed on first enable; the hook + ticker both gate on Enabled(), so
+    -- they no-op (and cost nothing) once the feature is turned back off.
+    local hooksInstalled = false
+    local function InstallHooks()
+        if hooksInstalled or not ShowUIPanel then return end
+        hooksInstalled = true
+        hooksecurefunc("ShowUIPanel", function(frame)
+            if not Enabled() or not frame then return end
+            openPanels[frame] = true
+            -- Synchronous: hide before the frame is drawn, so no flicker.
+            HideButtonsUnder(frame)
+            DismissActiveTips()
+            -- Next-frame pass for anything created one frame later.
+            if C_Timer then
+                C_Timer.After(0, function()
+                    if Enabled() then HideButtonsUnder(frame); DismissActiveTips() end
+                end)
+            end
+        end)
+        if C_Timer and C_Timer.NewTicker then
+
+            C_Timer.NewTicker(0.05, function()
+                if not Enabled() then return end
+                DismissActiveTips()
+                for frame in pairs(openPanels) do
+                    if frame:IsShown() then
+                        HideButtonsUnder(frame)
+                    else
+                        openPanels[frame] = nil
+                    end
+                end
+            end)
+        end
+    end
+
+    local weDisabledHelptips = false
+    local function ApplyHideTutorials()
+        if Enabled() then
+            InstallHooks()
+            pcall(SetCVar, "hideHelptips", "1")
+            weDisabledHelptips = true
+            pcall(SetCVar, "showTutorials", "0")
+            FullSweepButtons()
+            DismissActiveTips()
+        else
+     
+            if weDisabledHelptips then
+                pcall(SetCVar, "hideHelptips", "0")
+                weDisabledHelptips = false
+            end
+            RestoreButtons()
+        end
+    end
+    EllesmereUI._applyHideTutorials = ApplyHideTutorials
+
+    -- Instant kill for HelpPlateTooltip
+    local tooltipHooked = false
+    local function InstallTooltipHook()
+        if tooltipHooked or not HelpPlateTooltip then return end
+        tooltipHooked = true
+        if HelpPlate and HelpPlate.ShowTutorialTooltip then
+            hooksecurefunc(HelpPlate, "ShowTutorialTooltip", function()
+                if Enabled() and HelpPlateTooltip then HelpPlateTooltip:Hide() end
+            end)
+        end
+        if HelpPlateTooltip.Init then
+            hooksecurefunc(HelpPlateTooltip, "Init", function(self)
+                if Enabled() then self:Hide() end
+            end)
+        end
+    end
+
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_LOGIN")
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    f:RegisterEvent("ADDON_LOADED")
+    f:SetScript("OnEvent", function(_, event, addon)
+        if event == "ADDON_LOADED" then
+            if addon == "Blizzard_HelpPlate" then InstallTooltipHook() end
+            return
+        end
+        if event == "PLAYER_LOGIN" then
+            InstallTooltipHook()  -- if Blizzard_HelpPlate is already loaded
+            ApplyHideTutorials()
+        elseif Enabled() then
+            -- Zone-in: re-catch any "i" buttons that now exist.
+            FullSweepButtons()
+            DismissActiveTips()
+        end
+    end)
+end
