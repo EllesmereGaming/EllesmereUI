@@ -241,7 +241,8 @@ local TBB_DEFAULT_BAR = {
     name      = "New Bar",
     enabled   = true,
     hideWhenInactive = true,  -- hide the bar unless the tracked aura is active
-    grouped   = true,   -- per-bar "Group Tracking Bars" checkbox; checked bars chain + share width/height
+    grouped   = true,   -- grouped bars chain + share width/height within their groupID
+    groupID   = 1,      -- Tracking Bar group bucket (1..n); grouped=false means independent
     height    = 24,
     width     = 270,
     verticalOrientation = false,
@@ -301,16 +302,36 @@ function ns.GetTrackedBuffBars()
     end
     local tbb = prof.trackedBuffBars
     -- Live migration: the old single "Group Tracking Bars" toggle (tbb.groupEnabled)
-    -- becomes a per-bar `grouped` checkbox. Convert once per spec table: toggle
-    -- ENABLED -> every bar checked; toggle DISABLED or never-set -> every bar
-    -- unchecked. TBB config is per-spec/per-profile so there is no SavedVariables
-    -- migration pass; this read-time convert is idempotent (guarded by the flag,
-    -- then the legacy boolean is cleared so later per-bar edits are never stomped).
+    -- became per-bar grouping, and now grouping is bucketed by groupID so multiple
+    -- independent Tracking Bar groups can exist at different screen positions.
+    -- Existing grouped bars are placed into Group 1; ungrouped bars remain independent.
+    if not tbb.groups then tbb.groups = {} end
+    if not tbb.groups[1] then
+        tbb.groups[1] = {
+            name = "Group 1",
+            growDirection = tbb.groupGrowDirection or "DOWN",
+            spacing = tbb.groupSpacing or 2,
+        }
+    end
     if not tbb._groupMigrated then
         local checked = (tbb.groupEnabled == true)
-        for _, b in ipairs(tbb.bars or {}) do b.grouped = checked end
+        for _, b in ipairs(tbb.bars or {}) do
+            b.grouped = checked
+            b.groupID = checked and 1 or nil
+        end
         tbb.groupEnabled = nil
         tbb._groupMigrated = true
+    end
+    if not tbb._multiGroupMigrated then
+        for _, b in ipairs(tbb.bars or {}) do
+            if b.grouped ~= false then
+                b.grouped = true
+                b.groupID = tonumber(b.groupID) or 1
+            else
+                b.groupID = nil
+            end
+        end
+        tbb._multiGroupMigrated = true
     end
     return tbb
 end
@@ -346,13 +367,20 @@ function ns.AddTrackedBuffBar()
     newBar.popularKey = nil
     newBar.spellIDs = nil
     newBar.baseSpellID = nil
-    -- A new bar joins the group only if EVERY existing bar is already checked,
-    -- otherwise it starts unchecked (independent). Vacuously true for the 1st bar.
-    local allGrouped = true
-    for _, b in ipairs(tbb.bars) do
-        if not ns.TBBBarGrouped(b) then allGrouped = false; break end
+    -- A new bar inherits the previous bar's group bucket when possible; otherwise
+    -- it starts in Group 1 for the very first bar, or independent after an
+    -- independent previous bar.
+    local prev = tbb.bars[#tbb.bars]
+    if prev and ns.TBBBarGrouped(prev) then
+        newBar.grouped = true
+        newBar.groupID = ns.TBBBarGroupID(prev) or 1
+    elseif #tbb.bars == 0 then
+        newBar.grouped = true
+        newBar.groupID = 1
+    else
+        newBar.grouped = false
+        newBar.groupID = nil
     end
-    newBar.grouped = allGrouped
     tbb.bars[#tbb.bars + 1] = newBar
     tbb.selectedBar = #tbb.bars
 
@@ -406,127 +434,156 @@ function ns.GetTBBFrame(idx) return tbbFrames[idx] end
 
 -------------------------------------------------------------------------------
 --  Per-bar grouping helpers
---  A bar is "grouped" (checked) when cfg.grouped ~= false (default checked).
---  All checked bars form ONE group in index order: the first ENABLED checked
---  bar is the group anchor (owns the position/mover), later checked bars chain
---  to it and share its width/height. Unchecked bars are fully independent.
+--  A bar is grouped when cfg.grouped ~= false and it has a valid groupID.
+--  Each groupID forms its own chain, anchor, grow direction, spacing and unlock
+--  mover. Ungrouped bars are fully independent.
 -------------------------------------------------------------------------------
-function ns.TBBBarGrouped(cfg)
-    return cfg ~= nil and cfg.grouped ~= false
+function ns.TBBEnsureGroups(tbb)
+    tbb = tbb or ns.GetTrackedBuffBars()
+    if not tbb.groups then tbb.groups = {} end
+    if not tbb.groups[1] then
+        tbb.groups[1] = { name = "Group 1", growDirection = tbb.groupGrowDirection or "DOWN", spacing = tbb.groupSpacing or 2 }
+    end
+    return tbb.groups
 end
 
--- Index of the group anchor = first enabled, checked bar (or nil if none).
-function ns.TBBGroupAnchorIndex()
+function ns.TBBGetGroup(tbb, groupID)
+    tbb = tbb or ns.GetTrackedBuffBars()
+    local groups = ns.TBBEnsureGroups(tbb)
+    groupID = tonumber(groupID) or 1
+    if groupID < 1 then groupID = 1 end
+    if not groups[groupID] then
+        groups[groupID] = { name = "Group " .. groupID, growDirection = "DOWN", spacing = 2 }
+    end
+    return groups[groupID]
+end
+
+function ns.TBBBarGrouped(cfg)
+    if not cfg or cfg.grouped == false then return false end
+    local gid = tonumber(cfg.groupID) or 1
+    return gid >= 1
+end
+
+function ns.TBBBarGroupID(cfg)
+    if not ns.TBBBarGrouped(cfg) then return nil end
+    return tonumber(cfg.groupID) or 1
+end
+
+-- Index of a group's anchor = first enabled, checked bar in that group.
+function ns.TBBGroupAnchorIndex(groupID)
     local t = ns.GetTrackedBuffBars()
+    groupID = tonumber(groupID) or 1
     for i, c in ipairs(t.bars or {}) do
-        if c.enabled ~= false and ns.TBBBarGrouped(c) then return i end
+        if c.enabled ~= false and ns.TBBBarGroupID(c) == groupID then return i end
     end
     return nil
 end
 
--- Count of checked bars (regardless of enabled) -- drives the grow/spacing gate.
-function ns.TBBGroupedCount()
+-- Count of checked bars in one group, or all checked bars when groupID is nil.
+function ns.TBBGroupedCount(groupID)
     local t = ns.GetTrackedBuffBars()
     local n = 0
     for _, c in ipairs(t.bars or {}) do
-        if ns.TBBBarGrouped(c) then n = n + 1 end
+        if groupID == nil then
+            if ns.TBBBarGrouped(c) then n = n + 1 end
+        elseif ns.TBBBarGroupID(c) == tonumber(groupID) then
+            n = n + 1
+        end
     end
     return n
 end
 
+function ns.TBBGetUsedGroupIDs()
+    local t = ns.GetTrackedBuffBars()
+    local seen, out = {}, {}
+    for _, c in ipairs(t.bars or {}) do
+        local gid = ns.TBBBarGroupID(c)
+        if gid and not seen[gid] then seen[gid] = true; out[#out + 1] = gid end
+    end
+    table.sort(out)
+    return out
+end
 
 -- Runtime reflow for grouped Tracking Bars.
--- BuildTrackedBuffBars creates the static group chain, but the tick decides
--- which bars are currently visible. Reflow only the visible grouped members so
--- inactive hidden buffs do not leave holes in the chain:
---   configured order: Buff 1, Buff 2, Buff 3
---   active:           Buff 2, Buff 3        -> Buff 2 sits at group anchor
---   active:           Buff 1, Buff 2, Buff 3 -> Buff 1 sits at group anchor,
---                                              Buff 2/3 move after it
-local _tbbReflow = { visible = {}, lastIdx = {}, lastCount = 0, lastGrow = nil, lastSpacing = nil }
+-- BuildTrackedBuffBars creates a static chain per group, but the tick decides
+-- which bars are currently visible. Reflow visible members separately for each
+-- group so inactive hidden buffs do not leave holes in their own chain.
+local _tbbReflow = { groups = {} }
 local function ReflowVisibleGroupedTBBars(tbb, bars)
     if not (tbb and bars and tbbFrames) then return end
     -- Don't fight edit-preview (placeholder) or unlock-mode dragging: in those
     -- modes BuildTrackedBuffBars and the unlock system own bar positions.
     if ns._tbbPlaceholderMode or EllesmereUI._unlockActive then return end
 
-    local anchorIdx = ns.TBBGroupAnchorIndex and ns.TBBGroupAnchorIndex()
-    if not anchorIdx then return end
+    ns.TBBEnsureGroups(tbb)
 
-    local growDir = ((tbb.groupGrowDirection or "DOWN"):upper())
-    local spacing = tbb.groupSpacing or 2
-
-    -- Collect enabled + checked + currently visible bars in saved hierarchy
-    -- order. A bar with hideWhenInactive=false is visible and therefore keeps its
-    -- slot, which matches the user's choice to show inactive bars. Entry tables
-    -- are pooled and reused across ticks to avoid per-frame allocation in this
-    -- hot (every-16ms) path.
-    local visible = _tbbReflow.visible
-    local count = 0
+    local touched = {}
     for i, cfg in ipairs(bars) do
+        local gid = ns.TBBBarGroupID(cfg)
         local f = tbbFrames[i]
-        if cfg and cfg.enabled ~= false and ns.TBBBarGrouped(cfg)
-           and f and f._tbbReady and f:IsShown() then
-            count = count + 1
-            local e = visible[count]
-            if not e then e = {}; visible[count] = e end
+        if gid and cfg.enabled ~= false and f and f._tbbReady and f:IsShown() then
+            touched[gid] = true
+            local st = _tbbReflow.groups[gid]
+            if not st then st = { visible = {}, lastIdx = {} }; _tbbReflow.groups[gid] = st end
+            st.count = (st.count or 0) + 1
+            local e = st.visible[st.count]
+            if not e then e = {}; st.visible[st.count] = e end
             e.idx = i; e.frame = f
         end
     end
 
-    if count == 0 then
-        _tbbReflow.lastCount = 0
-        return
-    end
+    for gid, st in pairs(_tbbReflow.groups) do
+        local count = st.count or 0
+        local group = ns.TBBGetGroup(tbb, gid)
+        local growDir = ((group.growDirection or tbb.groupGrowDirection or "DOWN"):upper())
+        local spacing = group.spacing or tbb.groupSpacing or 2
+        local anchorIdx = ns.TBBGroupAnchorIndex and ns.TBBGroupAnchorIndex(gid)
 
-    -- Re-anchor only when the visible member sequence or the grow/spacing tuple
-    -- changes. Compared element-wise so no string is allocated each tick.
-    local lastIdx = _tbbReflow.lastIdx
-    local changed = count ~= _tbbReflow.lastCount
-        or growDir ~= _tbbReflow.lastGrow or spacing ~= _tbbReflow.lastSpacing
-    if not changed then
-        for n = 1, count do
-            if visible[n].idx ~= lastIdx[n] then changed = true; break end
-        end
-    end
-    if not changed then return end
-    _tbbReflow.lastCount   = count
-    _tbbReflow.lastGrow    = growDir
-    _tbbReflow.lastSpacing = spacing
-    for n = 1, count do lastIdx[n] = visible[n].idx end
-
-    local first = visible[1].frame
-    local anchorFrame = tbbFrames[anchorIdx]
-
-    if anchorFrame and anchorFrame ~= first then
-        -- The configured anchor buff is inactive/hidden: pin the first VISIBLE
-        -- member onto the anchor frame's slot so it takes the group origin. The
-        -- anchor frame keeps whatever position BuildTrackedBuffBars / the unlock
-        -- system gave it (including element anchoring), so this preserves it.
-        first:ClearAllPoints()
-        first:SetPoint("TOPLEFT", anchorFrame, "TOPLEFT", 0, 0)
-    end
-    -- else: the first visible bar IS the anchor -- leave its point untouched.
-    -- BuildTrackedBuffBars and the unlock system already position it and honor
-    -- IsUnlockAnchored, so re-deriving from tbbPositions here would clobber an
-    -- element-anchored group (yanking it to a stale coord or screen center).
-
-    local prev = first
-    for n = 2, count do
-        local f = visible[n].frame
-        f:ClearAllPoints()
-        if growDir == "DOWN" then
-            f:SetPoint("TOP", prev, "BOTTOM", 0, -spacing)
-        elseif growDir == "UP" then
-            f:SetPoint("BOTTOM", prev, "TOP", 0, spacing)
-        elseif growDir == "RIGHT" then
-            f:SetPoint("LEFT", prev, "RIGHT", spacing, 0)
-        elseif growDir == "LEFT" then
-            f:SetPoint("RIGHT", prev, "LEFT", -spacing, 0)
+        if count == 0 or not anchorIdx then
+            st.lastCount = 0
+            st.count = 0
         else
-            f:SetPoint("TOP", prev, "BOTTOM", 0, -spacing)
+            local visible = st.visible
+            local lastIdx = st.lastIdx
+            local changed = count ~= st.lastCount or growDir ~= st.lastGrow or spacing ~= st.lastSpacing
+            if not changed then
+                for n = 1, count do
+                    if visible[n].idx ~= lastIdx[n] then changed = true; break end
+                end
+            end
+            if changed then
+                st.lastCount = count
+                st.lastGrow = growDir
+                st.lastSpacing = spacing
+                for n = 1, count do lastIdx[n] = visible[n].idx end
+
+                local first = visible[1].frame
+                local anchorFrame = tbbFrames[anchorIdx]
+                if anchorFrame and anchorFrame ~= first then
+                    first:ClearAllPoints()
+                    first:SetPoint("TOPLEFT", anchorFrame, "TOPLEFT", 0, 0)
+                end
+
+                local prev = first
+                for n = 2, count do
+                    local f = visible[n].frame
+                    f:ClearAllPoints()
+                    if growDir == "DOWN" then
+                        f:SetPoint("TOP", prev, "BOTTOM", 0, -spacing)
+                    elseif growDir == "UP" then
+                        f:SetPoint("BOTTOM", prev, "TOP", 0, spacing)
+                    elseif growDir == "RIGHT" then
+                        f:SetPoint("LEFT", prev, "RIGHT", spacing, 0)
+                    elseif growDir == "LEFT" then
+                        f:SetPoint("RIGHT", prev, "LEFT", -spacing, 0)
+                    else
+                        f:SetPoint("TOP", prev, "BOTTOM", 0, -spacing)
+                    end
+                    prev = f
+                end
+            end
+            st.count = 0
         end
-        prev = f
     end
 end
 
@@ -542,10 +599,11 @@ function ns.PropagateTBBGroupSize(srcIdx, dim, value)
     local bars = t.bars
     if not bars then return end
     local src = bars[srcIdx]
-    if not (src and ns.TBBBarGrouped(src)) then return end
+    local srcGroupID = ns.TBBBarGroupID(src)
+    if not srcGroupID then return end
     _tbbGroupSizing = true
     for i, c in ipairs(bars) do
-        if i ~= srcIdx and ns.TBBBarGrouped(c) then
+        if i ~= srcIdx and ns.TBBBarGroupID(c) == srcGroupID then
             c[dim] = value
             local f = tbbFrames[i]
             if f then
@@ -2014,7 +2072,9 @@ function ns.BuildTrackedBuffBars()
     local tbb = ns.GetTrackedBuffBars()
     local bars = tbb.bars
     local _tbbPos = ns.GetTBBPositions()
-    if _tbbReflow then _tbbReflow.lastCount = 0 end
+    if _tbbReflow and _tbbReflow.groups then
+        for _, st in pairs(_tbbReflow.groups) do st.lastCount = 0; st.count = 0 end
+    end
 
     -- Hide bars beyond current count
     for i = #bars + 1, #tbbFrames do
@@ -2028,7 +2088,7 @@ function ns.BuildTrackedBuffBars()
 
     local anyEnabled = false
     local anyLust = false  -- any enabled bloodlust bar -> needs the Sated listener
-    local lastGroupedBar  -- tracks previous enabled bar for grouped anchoring
+    local lastGroupedBarByGroup = {}  -- [groupID] = previous enabled bar in that group
     for i, cfg in ipairs(bars) do
         -- Update gating flags
         if cfg.pandemicGlow                             then _anyPandemic  = true end
@@ -2077,27 +2137,27 @@ function ns.BuildTrackedBuffBars()
                 bar._nameSet = displayName and displayName ~= "" or false
             end
 
-            -- Saved position / grouping. Only CHECKED (cfg.grouped) bars chain;
-            -- the first checked bar takes the independent branch (its own saved
-            -- pos) and becomes the anchor, later checked bars chain to it.
-            -- Unchecked bars always fall to the independent branch.
-            local barGrouped = ns.TBBBarGrouped(cfg)
-            if barGrouped and lastGroupedBar then
-                -- Grouped: position relative to previous grouped bar
-                local growDir = (tbb.groupGrowDirection or "DOWN"):upper()
-                local spacing = tbb.groupSpacing or 2
+            -- Saved position / grouping. Grouped bars chain only within their
+            -- own groupID. The first enabled bar in each group owns that group's
+            -- saved position/mover; ungrouped bars are independent.
+            local groupID = ns.TBBBarGroupID(cfg)
+            local prevGroupedBar = groupID and lastGroupedBarByGroup[groupID]
+            if groupID and prevGroupedBar then
+                local group = ns.TBBGetGroup(tbb, groupID)
+                local growDir = ((group.growDirection or tbb.groupGrowDirection or "DOWN"):upper())
+                local spacing = group.spacing or tbb.groupSpacing or 2
                 bar:ClearAllPoints()
                 if growDir == "DOWN" then
-                    bar:SetPoint("TOP", lastGroupedBar, "BOTTOM", 0, -spacing)
+                    bar:SetPoint("TOP", prevGroupedBar, "BOTTOM", 0, -spacing)
                 elseif growDir == "UP" then
-                    bar:SetPoint("BOTTOM", lastGroupedBar, "TOP", 0, spacing)
+                    bar:SetPoint("BOTTOM", prevGroupedBar, "TOP", 0, spacing)
                 elseif growDir == "RIGHT" then
-                    bar:SetPoint("LEFT", lastGroupedBar, "RIGHT", spacing, 0)
+                    bar:SetPoint("LEFT", prevGroupedBar, "RIGHT", spacing, 0)
                 elseif growDir == "LEFT" then
-                    bar:SetPoint("RIGHT", lastGroupedBar, "LEFT", -spacing, 0)
+                    bar:SetPoint("RIGHT", prevGroupedBar, "LEFT", -spacing, 0)
                 end
             else
-                -- Independent positioning (bar 1 always, or grouping disabled)
+                -- Independent positioning, or the first enabled member of a group.
                 local posKey = tostring(i)
                 local pos = _tbbPos[posKey]
                 if pos and pos.point then
@@ -2114,7 +2174,7 @@ function ns.BuildTrackedBuffBars()
                 end
             end
 
-            if barGrouped then lastGroupedBar = bar end
+            if groupID then lastGroupedBarByGroup[groupID] = bar end
             bar._tbbReady    = true
             bar._isPassive   = nil
             bar._stackCount  = 0
@@ -2165,10 +2225,9 @@ function ns.RegisterTBBUnlockElements()
     local bars = tbb and tbb.bars
     if not bars or #bars == 0 then return end
 
-    -- Group anchor (first enabled checked bar) owns the group mover; the other
-    -- checked members hide theirs. Computed per build so it tracks checkbox edits.
-    local anchorIdx = ns.TBBGroupAnchorIndex()
-    local groupedCount = ns.TBBGroupedCount()
+    -- Each group anchor (first enabled member in that group) owns its group's
+    -- mover; other grouped members hide theirs. Computed per build so it tracks
+    -- group edits.
     local elements = {}
     for i, cfg in ipairs(bars) do
         local idx = i
@@ -2177,8 +2236,8 @@ function ns.RegisterTBBUnlockElements()
         if bar then
             elements[#elements + 1] = MK({
                 key   = "TBB_" .. posKey,
-                label = (idx == anchorIdx and groupedCount >= 2)
-                    and "Tracking Bar Group"
+                label = (ns.TBBBarGroupID(cfg) and idx == ns.TBBGroupAnchorIndex(ns.TBBBarGroupID(cfg)) and ns.TBBGroupedCount(ns.TBBBarGroupID(cfg)) >= 2)
+                    and ((ns.TBBGetGroup(tbb, ns.TBBBarGroupID(cfg)).name or ("Group " .. ns.TBBBarGroupID(cfg))) .. " Tracking Bars")
                     or ("Tracking Bar: " .. (cfg.name or ("Bar " .. idx))),
                 group = "Cooldown Manager",
                 order = 650,
@@ -2195,14 +2254,11 @@ function ns.RegisterTBBUnlockElements()
                     local b = t and t.bars
                     if not b or idx > #b then return true end
                     local c = b[idx]
-                    -- Unchecked bars always show their own mover.
-                    if not ns.TBBBarGrouped(c) then return false end
-                    -- Checked bars: only the group anchor shows a mover (it moves
-                    -- the whole group). Hide every other checked member -- enabled
-                    -- OR disabled (a disabled member re-enables straight into the
-                    -- chain, so its own mover would be a phantom). When no checked
-                    -- bar is enabled the anchor is nil and all are hidden.
-                    return idx ~= ns.TBBGroupAnchorIndex()
+                    local gid = ns.TBBBarGroupID(c)
+                    -- Ungrouped bars always show their own mover.
+                    if not gid then return false end
+                    -- Grouped bars: only this group's anchor shows a mover.
+                    return idx ~= ns.TBBGroupAnchorIndex(gid)
                 end,
                 -- Grouped non-anchor members are positioned by the relative
                 -- SetPoint chain in BuildTrackedBuffBars. Report them as
@@ -2214,8 +2270,9 @@ function ns.RegisterTBBUnlockElements()
                     local t = ns.GetTrackedBuffBars()
                     local b = t and t.bars
                     local c = b and b[idx]
-                    if not c or not ns.TBBBarGrouped(c) then return false end
-                    return idx ~= ns.TBBGroupAnchorIndex()
+                    local gid = ns.TBBBarGroupID(c)
+                    if not gid then return false end
+                    return idx ~= ns.TBBGroupAnchorIndex(gid)
                 end,
                 getFrame = function() return tbbFrames[idx] end,
                 getSize  = function()
@@ -2298,10 +2355,12 @@ function ns.RegisterTBBUnlockElements()
                     -- group would teleport. Mirror the group origin into every
                     -- checked member's key so whichever bar becomes the anchor
                     -- reads the current position.
-                    if idx == ns.TBBGroupAnchorIndex() and ns.TBBGroupedCount() >= 2 then
-                        local t = ns.GetTrackedBuffBars()
-                        for j, c in ipairs(t.bars or {}) do
-                            if j ~= idx and ns.TBBBarGrouped(c) then
+                    local t = ns.GetTrackedBuffBars()
+                    local curCfg = t and t.bars and t.bars[idx]
+                    local curGroupID = ns.TBBBarGroupID(curCfg)
+                    if curGroupID and idx == ns.TBBGroupAnchorIndex(curGroupID) and ns.TBBGroupedCount(curGroupID) >= 2 then
+                        for j, bc in ipairs(t.bars or {}) do
+                            if j ~= idx and ns.TBBBarGroupID(bc) == curGroupID then
                                 pos[tostring(j)] = { point = point, relPoint = relPoint, x = x, y = y }
                             end
                         end

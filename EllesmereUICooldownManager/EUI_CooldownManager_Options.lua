@@ -2963,86 +2963,102 @@ initFrame:SetScript("OnEvent", function(self)
         parent._showRowDivider = true
 
         -------------------------------------------------------------------
-        --  BAR GROUPING (shared across all bars)
+        --  BAR GROUPING (multiple independent groups)
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "BAR GROUPING", y);  y = y - h
 
-        -- Group Tracking Bars (per-bar checkbox dropdown) | Grouped Grow Direction
-        -- The checkbox dropdown lists every bar; checked bars chain together and
-        -- share width/height, unchecked bars are independent. Grow/spacing apply
-        -- to the chain and only matter once 2+ bars are checked.
-        local grpRow
-        grpRow, h = W:DualRow(parent, y,
-            { type = "dropdown", text = "Group Tracking Bars",
-              values = { __placeholder = "..." }, order = { "__placeholder" },
-              getValue = function() return "__placeholder" end, setValue = function() end },
+        local function SelectedTBBGroupID()
+            local bd = SelectedTBB()
+            return bd and ns.TBBBarGroupID and ns.TBBBarGroupID(bd) or nil
+        end
+        local function SelectedTBBGroup()
+            local gid = SelectedTBBGroupID()
+            if not gid then return nil end
+            return ns.TBBGetGroup(ns.GetTrackedBuffBars(), gid)
+        end
+        local function GroupValues()
+            local values = { none = "No Group" }
+            local order = { "none" }
+            local t = ns.GetTrackedBuffBars()
+            if ns.TBBEnsureGroups then ns.TBBEnsureGroups(t) end
+            for i = 1, 4 do
+                local g = t.groups and t.groups[i]
+                values[tostring(i)] = (g and g.name) or ("Group " .. i)
+                order[#order + 1] = tostring(i)
+            end
+            return values, order
+        end
+
+        local groupValues, groupOrder = GroupValues()
+        _, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Tracking Group",
+              values = groupValues, order = groupOrder,
+              getValue = function()
+                  local gid = SelectedTBBGroupID()
+                  return gid and tostring(gid) or "none"
+              end,
+              setValue = function(v)
+                  local bd = SelectedTBB(); if not bd then return end
+                  if v == "none" then
+                      bd.grouped = false
+                      bd.groupID = nil
+                  else
+                      local gid = tonumber(v) or 1
+                      local t = ns.GetTrackedBuffBars()
+                      ns.TBBGetGroup(t, gid)
+                      bd.grouped = true
+                      bd.groupID = gid
+                  end
+                  ns.BuildTrackedBuffBars()
+                  EllesmereUI:RefreshPage()
+              end },
             { type = "dropdown", text = "Grouped Grow Direction",
               values = { DOWN = "Down", UP = "Up", LEFT = "Left", RIGHT = "Right" },
               order = { "DOWN", "UP", "LEFT", "RIGHT" },
-              disabled = function() return ns.TBBGroupedCount() < 2 end,
-              disabledTooltip = "Group 2 or more Tracking Bars",
+              disabled = function()
+                  local gid = SelectedTBBGroupID()
+                  return not gid or ns.TBBGroupedCount(gid) < 2
+              end,
+              disabledTooltip = "Assign 2 or more Tracking Bars to this group",
               getValue = function()
-                  local t = ns.GetTrackedBuffBars()
-                  return t and t.groupGrowDirection or "DOWN"
+                  local g = SelectedTBBGroup()
+                  return g and g.growDirection or "DOWN"
               end,
               setValue = function(v)
-                  local t = ns.GetTrackedBuffBars()
-                  if t then t.groupGrowDirection = v end
+                  local g = SelectedTBBGroup()
+                  if g then g.growDirection = v end
                   ns.BuildTrackedBuffBars()
                   EllesmereUI:RefreshPage()
               end }
         );  y = y - h
 
-        -- Replace the dummy left dropdown with the per-bar grouped checkbox dropdown
-        do
-            local leftRgn = grpRow._leftRegion
-            if leftRgn._control then leftRgn._control:Hide() end
-            local t = ns.GetTrackedBuffBars()
-            local grpItems = {}
-            for idx, b in ipairs(t.bars or {}) do
-                local nm = b.name or ("Bar " .. idx)
-                if not b.popularKey and b.spellID and b.spellID > 0 then
-                    local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(b.spellID)
-                    if info and info.name then nm = info.name end
-                end
-                grpItems[#grpItems + 1] = { key = tostring(idx), label = nm }
-            end
-            local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                leftRgn, 210, leftRgn:GetFrameLevel() + 2,
-                grpItems,
-                function(k)
-                    local tt = ns.GetTrackedBuffBars()
-                    return ns.TBBBarGrouped(tt.bars and tt.bars[tonumber(k)])
-                end,
-                function(k, v)
-                    local tt = ns.GetTrackedBuffBars()
-                    local b = tt.bars and tt.bars[tonumber(k)]
-                    if b then b.grouped = v and true or false end
-                    ns.BuildTrackedBuffBars()
-                    EllesmereUI:RefreshPage()
-                end)
-            PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
-            leftRgn._control = cbDD
-            leftRgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbRefresh)
-        end
-
-        -- Bar Spacing slider | empty label
+        -- Group Name | Bar Spacing
         _, h = W:DualRow(parent, y,
-            { type = "slider", text = "Bar Spacing", min = -2, max = 20, step = 1,
-              disabled = function() return ns.TBBGroupedCount() < 2 end,
-              disabledTooltip = "Group 2 or more Tracking Bars",
+            { type = "dropdown", text = "Group Name",
+              values = groupValues, order = groupOrder,
+              disabled = function() return true end,
+              disabledTooltip = "Group names are created automatically for now",
               getValue = function()
-                  local t = ns.GetTrackedBuffBars()
-                  return t and t.groupSpacing or 2
+                  local gid = SelectedTBBGroupID()
+                  return gid and tostring(gid) or "none"
+              end,
+              setValue = function() end },
+            { type = "slider", text = "Bar Spacing", min = -2, max = 20, step = 1,
+              disabled = function()
+                  local gid = SelectedTBBGroupID()
+                  return not gid or ns.TBBGroupedCount(gid) < 2
+              end,
+              disabledTooltip = "Assign 2 or more Tracking Bars to this group",
+              getValue = function()
+                  local g = SelectedTBBGroup()
+                  return g and g.spacing or 2
               end,
               setValue = function(v)
-                  local t = ns.GetTrackedBuffBars()
-                  if t then t.groupSpacing = v end
+                  local g = SelectedTBBGroup()
+                  if g then g.spacing = v end
                   ns.BuildTrackedBuffBars()
                   EllesmereUI:RefreshPage()
-              end },
-            { type = "label", text = "" }
+              end }
         );  y = y - h
 
         -------------------------------------------------------------------
@@ -3057,8 +3073,9 @@ initFrame:SetScript("OnEvent", function(self)
         local tbbKey = "TBB_" .. _tbbSelectedBar
         do
             local selBd = SelectedTBB()
-            if selBd and ns.TBBBarGrouped(selBd) then
-                local ai = ns.TBBGroupAnchorIndex()
+            local gid = selBd and ns.TBBBarGroupID and ns.TBBBarGroupID(selBd)
+            if gid then
+                local ai = ns.TBBGroupAnchorIndex(gid)
                 if ai then tbbKey = "TBB_" .. ai end
             end
         end
@@ -3073,11 +3090,12 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v)
                   local bd = SelectedTBB(); if not bd then return end
                   bd.height = v
-                  -- Grouped bars share height: write every other checked bar too.
-                  if ns.TBBBarGrouped(bd) then
+                  -- Grouped bars share height only inside the selected bar's group.
+                  local gid = ns.TBBBarGroupID and ns.TBBBarGroupID(bd)
+                  if gid then
                       local t = ns.GetTrackedBuffBars()
                       for _, b in ipairs(t.bars or {}) do
-                          if b ~= bd and ns.TBBBarGrouped(b) then b.height = v end
+                          if b ~= bd and ns.TBBBarGroupID(b) == gid then b.height = v end
                       end
                   end
                   ns.BuildTrackedBuffBars()
@@ -3090,11 +3108,12 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v)
                   local bd = SelectedTBB(); if not bd then return end
                   bd.width = v
-                  -- Grouped bars share width: write every other checked bar too.
-                  if ns.TBBBarGrouped(bd) then
+                  -- Grouped bars share width only inside the selected bar's group.
+                  local gid = ns.TBBBarGroupID and ns.TBBBarGroupID(bd)
+                  if gid then
                       local t = ns.GetTrackedBuffBars()
                       for _, b in ipairs(t.bars or {}) do
-                          if b ~= bd and ns.TBBBarGrouped(b) then b.width = v end
+                          if b ~= bd and ns.TBBBarGroupID(b) == gid then b.width = v end
                       end
                   end
                   ns.BuildTrackedBuffBars()
