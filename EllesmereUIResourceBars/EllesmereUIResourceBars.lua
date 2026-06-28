@@ -882,6 +882,30 @@ local DEFAULTS = {
             latencyShowText   = false,
             latencyR = 0.835, latencyG = 0.290, latencyB = 0.290, latencyA = 1.0,
         },
+        gcdBar = {
+            enabled       = false,
+            width         = 220,
+            height        = 12,
+            anchorX       = 0,
+            anchorY       = -78,  -- below the cast bar's default (-54); matches reset/clear
+            orientation   = "HORIZONTAL",  -- "HORIZONTAL","VERTICAL_UP","VERTICAL_DOWN"
+            classColored  = false,
+            fillR         = 0.267, fillG = 0.729, fillB = 0.898, fillA = 1,
+            gradientEnabled = false,
+            gradientR     = 0.20, gradientG = 0.20, gradientB = 0.80, gradientA = 1,
+            gradientDir   = "HORIZONTAL",  -- "HORIZONTAL","VERTICAL"
+            texture       = "none",
+            showSpark     = false,
+            borderSize    = 1,
+            borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
+            borderTexture = "solid",
+            bgR           = 0, bgG = 0, bgB = 0, bgA = 0.7,
+            frameStrata   = "MEDIUM",
+            instanceOnly  = false,
+            instantOnly   = false,
+            alwaysShow    = false,
+            unlockPos     = nil,
+        },
         totemBar = {
             iconSize      = 30,
             spacing       = 2,
@@ -915,12 +939,11 @@ local secondaryBar  -- bar-style secondary (e.g. Devourer soul fragments, Elemen
 local secondaryBarTicks = {}  -- tick mark texture cache for bar-type secondary
 local secondaryPipTicks = {}  -- tick mark texture cache for pip-type secondary hash lines
 local castBarFrame
+local gcdBarFrame
 local totemBarFrame
 local _totemBorderOverlays = setmetatable({}, { __mode = "k" })
 local _totemHooked = false
 local _totemOrigParent
-local _latencySendTime      -- GetTime() at CURRENT_SPELL_CAST_CHANGED
-local _latencyEventActive   -- true when CURRENT_SPELL_CAST_CHANGED is registered
 local _erbEventFrame        -- file-scoped ref to the event frame (assigned in OnEnable)
 local isInCombat = false
 local currentAlpha = 1
@@ -935,6 +958,8 @@ local RefreshAnchoredBarsForUnlockTarget
 -- Forward declarations
 local UpdateCastBar
 local BuildCastBar
+local UpdateGCDBar
+local BuildGCDBar
 local OnCastStart, OnChannelStart, OnChannelUpdate, OnCastStop, OnEmpowerStart, OnEmpowerUpdate
 local ShowChannelTicks, HideChannelTicks
 
@@ -1561,6 +1586,69 @@ local function RegisterUnlockElements()
         })
     end
 
+    -- GCD Bar
+    do
+        local function S() return ERB.db.profile.gcdBar end
+        local function gcdSave(key, point, relPoint, x, y)
+            if not point then return end
+            local g = S()
+            g.unlockPos = { point = point, relPoint = relPoint or point, x = x, y = y }
+            if not EllesmereUI._unlockActive and gcdBarFrame then
+                gcdBarFrame:ClearAllPoints()
+                gcdBarFrame:SetPoint(point, UIParent, relPoint or point, x, y)
+            end
+        end
+        local function gcdLoad()
+            local pos = S().unlockPos
+            if not pos then return nil end
+            local pt = pos.point
+            return { point = pt, relPoint = pos.relPoint or pt, x = pos.x, y = pos.y }
+        end
+        local function gcdClear()
+            local g = S()
+            g.unlockPos = nil
+            g.anchorX = 0; g.anchorY = -78
+        end
+        local function gcdApply()
+            local pos = S().unlockPos
+            if not pos then return end
+            if gcdBarFrame then
+                local pt = pos.point
+                local sx, sy = SnapXY(pos.x, pos.y, gcdBarFrame, pos)
+                gcdBarFrame:ClearAllPoints()
+                gcdBarFrame:SetPoint(pt, UIParent, pos.relPoint or pt, sx, sy)
+            end
+        end
+        elements[#elements + 1] = MK({
+            key = "ERB_GCDBar", label = "GCD Bar", group = "Resource Bars", order = 506,
+            noAnchorTarget = true,
+            getFrame = function() return gcdBarFrame end,
+            getSize  = function()
+                local g = S()
+                return OrientedSize(g.width, g.height, g.orientation or "HORIZONTAL")
+            end,
+            setWidth = function(_, w)
+                local g = S()
+                if IsVerticalOrientation(g.orientation) then
+                    g.height = PP.Snap(math.max(w, 4))
+                else
+                    g.width = PP.Snap(math.max(w, 10))
+                end
+                Rebuild()
+            end,
+            setHeight = function(_, h)
+                local g = S()
+                if IsVerticalOrientation(g.orientation) then
+                    g.width = PP.Snap(math.max(h, 10))
+                else
+                    g.height = PP.Snap(math.max(h, 4))
+                end
+                Rebuild()
+            end,
+            savePos = gcdSave, loadPos = gcdLoad, clearPos = gcdClear, applyPos = gcdApply,
+        })
+    end
+
     -- Totem Bar
     do
         local function S() return ERB.db.profile.totemBar end
@@ -1629,6 +1717,7 @@ local ERB_ANCHOR_FRAMES = {
     erb_powerbar      = function() return primaryBar end,
     erb_health        = function() return healthBar end,
     erb_castbar       = function() return castBarFrame end,
+    erb_gcdbar        = function() return gcdBarFrame end,
     erb_cdm           = function() return _G._ECME_GetBarFrame and _G._ECME_GetBarFrame("cooldowns") end,
     mouse             = nil,  -- handled separately
     partyframe        = nil,  -- handled separately
@@ -1668,9 +1757,11 @@ end
 -- resource: +1 = class resource sits ABOVE the power bar -> grow up; -1 = below
 -- -> grow down. Pure read of stored config (no writes, no live bounds). Falls
 -- back to +1 (grow up -- the default layout has the class resource above) when
--- the class resource is disabled or the two bars are co-located.
+-- there is no class resource config or the two bars are co-located. Direction is
+-- resolved from the STORED class-resource position even when it is disabled, so
+-- expanding into a toggled-off / spec-disabled class resource grows the right way.
 local function ResolveExpandDirSign(pp, sp)
-    if not sp or sp.enabled == false then return 1 end
+    if not sp then return 1 end
     -- Anchored: class resource pinned relative to the power bar.
     if NormalizeAnchorKey(sp.anchorTo) == "erb_powerbar" then
         if sp.anchorPosition == "bottom" then return -1 end
@@ -1823,6 +1914,7 @@ local UNLOCK_TARGET_TO_ERB_ANCHOR = {
     ERB_Power = "erb_powerbar",
     ERB_ClassResource = "erb_classresource",
     ERB_CastBar = "erb_castbar",
+    ERB_GCDBar = "erb_gcdbar",
 }
 
 local function GetAnchorOffsets(settings)
@@ -2163,9 +2255,13 @@ local function BuildBars()
     -- or writes the saved setting -- see _ERB_SuppressExpand in OnInitialize.
     if pp.expandIfNoResource and not _heightMatched
        and not EllesmereUI._erbExpandSuppressed and not EllesmereUI._unlockActive then
-        local secRes = GetSecondaryResource()
-        if not secRes then
-            local sp2 = p.secondary or FALLBACK.secondary
+        local sp2 = p.secondary or FALLBACK.secondary
+        -- The class resource bar leaves an empty slot to expand into when "Show
+        -- Class Resource" is toggled off, when it is disabled for the current
+        -- spec via the spec picker, or when the spec has no class resource at
+        -- all. Mirrors the "Shift Elements if No Resource" absence checks
+        -- (IsSpecDisabled + GetSecondaryResource), plus the master-disable case.
+        if sp2.enabled == false or IsSpecDisabled(sp2) or not GetSecondaryResource() then
             ppExpandDelta = sp2.pipHeight or 20
             ppHeight = ppHeight + ppExpandDelta
             ppDirSign = ResolveExpandDirSign(pp, sp2)
@@ -3394,6 +3490,21 @@ local function UpdateSecondaryResource()
     local _tsEnabled = _tsEntry and (_tsEntry.thresholdEnabled ~= false) or false
     if not _tsEnabled then _tsEntry = nil end
     local _tsThreshCount = _tsEntry and _tsEntry.thresholdCount or sp.thresholdCount
+    -- Enhance Five Bar needs a threshold of at least 7 (the bar is 5 pips + overflow).
+    -- Clamp the value used this update so the live bar is always correct, and persist
+    -- a stale entry saved below 7 (e.g. created before Five Bar) so it actually
+	-- updates (only an Enhancement entry)
+    if powerType == "MAELSTROM_WEAPON" and sp.enhanceFiveBar and _tsEntry
+       and _tsThreshCount and _tsThreshCount < 7 then
+        _tsThreshCount = 7
+        local _specIdx = GetSpecialization()
+        local _specID = _specIdx and C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo(_specIdx)
+        if _specID and _tsEntry.specIDs then
+            for _, sid in ipairs(_tsEntry.specIDs) do
+                if sid == _specID then _tsEntry.thresholdCount = 7; break end
+            end
+        end
+    end
     local _tsPartialOnly = _tsEntry and _tsEntry.thresholdPartialOnly
     if _tsPartialOnly == nil then _tsPartialOnly = sp.thresholdPartialOnly end
     -- Bar-type only: reverse the threshold direction so the threshold color shows
@@ -3957,13 +4068,21 @@ local function UpdateSecondaryResource()
             local _enhOR, _enhOG, _enhOB = sp.enhanceOverflowR or 1, sp.enhanceOverflowG or 0.6, sp.enhanceOverflowB or 0.2
             if _enhOverflow then cur = 5 end  -- all 5 pips active when overflowing
 
-            local useThresh = _tsEntry and cur >= _tsThreshCount and not _enhFive
+            local useThresh = _tsEntry and (cur >= _tsThreshCount or _enhRealCur >= _tsThreshCount)
             local tr, tg, tb = _tsR, _tsG, _tsB
             for i = 1, maxC do
                 if pips[i] and pips[i]:IsShown() then
                     local active = i <= cur
-                    if active and _enhOverflow and i <= _enhOverCount then
+					-- if no threshold just use enhfive color
+                    if active and _enhOverflow and i <= _enhOverCount and not useThresh then
                         pips[i]:SetActive(true, _enhOR, _enhOG, _enhOB)
+					elseif active and _enhOverflow and i <= _enhOverCount and useThresh then
+						-- if partial, make count 5 based
+						if _tsPartialOnly and i < (_tsThreshCount - cur) then
+							pips[i]:SetActive(true, _enhOR, _enhOG, _enhOB)
+                        else
+                            pips[i]:SetActive(true, tr, tg, tb)
+                        end
                     elseif active and useThresh then
                         if _tsPartialOnly and i < _tsThreshCount then
                             pips[i]:SetActive(true, r, g, b, a)
@@ -4357,6 +4476,9 @@ local function OnUpdate(self, dt)
 
     -- Cast bar update
     UpdateCastBar(dt)
+
+    -- GCD bar update
+    UpdateGCDBar(dt)
 
     -- Throttled poll for Vengeance soul fragments (GetSpellCastCount has no
     -- discrete event) and as a safety net for other custom/bar resources.
@@ -4767,12 +4889,10 @@ end
         spark:Hide()
     end
 
-    -- Latency overlay: register/unregister event + style overlay based on setting
-    if cb.latencyEnabled and _erbEventFrame then
-        if not _latencyEventActive then
-            _erbEventFrame:RegisterEvent("CURRENT_SPELL_CAST_CHANGED")
-            _latencyEventActive = true
-        end
+    -- Latency overlay: style based on setting. Width is computed per cast from
+    -- GetNetStats (live network latency), so there is no event timing involved
+    -- and spell-queueing cannot break it.
+    if cb.latencyEnabled then
         local lo = castBarFrame._latencyOverlay
         local lR, lG, lB, lA = cb.latencyR or 0.835, cb.latencyG or 0.290, cb.latencyB or 0.290, cb.latencyA or 1
         local texKey = cb.texture
@@ -4788,11 +4908,6 @@ end
             lo:SetColorTexture(lR, lG, lB, lA)
         end
     else
-        if _latencyEventActive and _erbEventFrame then
-            _erbEventFrame:UnregisterEvent("CURRENT_SPELL_CAST_CHANGED")
-            _latencyEventActive = false
-            _latencySendTime = nil
-        end
         if castBarFrame._latencyOverlay then castBarFrame._latencyOverlay:Hide() end
         castBarFrame._latencySuffix = nil
     end
@@ -4988,7 +5103,7 @@ UpdateCastBar = function(dt)
     local cb = ERB.db.profile.castBar
     local showTimer = cb.showTimer
 
-    local latSuffix = _latencyEventActive and castBarFrame._latencySuffix
+    local latSuffix = castBarFrame._latencySuffix
     local totalDurMode = showTimer and cb.showTotalDuration
     -- Cache the " / X.X" suffix once per cast (total duration is constant)
     local totalSuffix = totalDurMode and castBarFrame._totalDurSuffix
@@ -5091,19 +5206,23 @@ local function ShowLatencyOverlay(castType)
     if not overlay then return end
 
     local cb = ERB.db.profile.castBar
-    local sendTime = _latencySendTime
-    _latencySendTime = nil  -- consumed regardless of outcome
-
-    -- Bail early: feature off, no timestamp, or bad timing
-    if not cb.latencyEnabled or not sendTime then
+    if not cb.latencyEnabled then
         overlay:Hide(); castBarFrame._latencySuffix = nil; return
     end
 
-    local latencySec = min(GetTime() - sendTime, 0.4)  -- cap 400ms
+    -- Read live network latency straight from the engine. This is queue-proof:
+    -- it does not depend on the timing between cast events (which spell-queueing
+    -- and frame-coherent GetTime() both make unreliable). Casts round-trip
+    -- through the world server, so its latency is the relevant one; fall back to
+    -- the home/realm value only while world latency has not been measured yet.
+    local _, _, latencyHome, latencyWorld = GetNetStats()
+    local latencyMs = latencyWorld
+    if latencyMs <= 0 then latencyMs = latencyHome end
+    local latencySec = latencyMs / 1000
     local castDur = castBarFrame._endTime - castBarFrame._startTime
     local barWidth = castBarFrame._bar:GetWidth()
 
-    if latencySec <= 0 or castDur <= 0 or latencySec >= castDur or barWidth <= 0 then
+    if latencySec <= 0 or castDur <= 0 or barWidth <= 0 then
         overlay:Hide(); castBarFrame._latencySuffix = nil; return
     end
 
@@ -5114,6 +5233,11 @@ local function ShowLatencyOverlay(castType)
         castBarFrame._latencySuffix = nil
     end
 
+    -- Size as a fraction of the cast, clamped to [1px, full bar] so it always
+    -- renders something and never overruns the bar on a lag spike.
+    local width = barWidth * (latencySec / castDur)
+    if width < 1 then width = 1 elseif width > barWidth then width = barWidth end
+
     local clip = castBarFrame._barClip
     overlay:ClearAllPoints()
     if castType == "channel" then
@@ -5123,7 +5247,7 @@ local function ShowLatencyOverlay(castType)
         overlay:SetPoint("TOPRIGHT", clip, "TOPRIGHT", 0, 0)
         overlay:SetPoint("BOTTOMRIGHT", clip, "BOTTOMRIGHT", 0, 0)
     end
-    overlay:SetWidth(barWidth * (latencySec / castDur))
+    overlay:SetWidth(width)
     overlay:Show()
 end
 
@@ -5171,7 +5295,7 @@ OnCastStart = function()
         end
     end
 
-    if _latencyEventActive then ShowLatencyOverlay("cast") end
+    ShowLatencyOverlay("cast")
 
     castBarFrame:Show()
     EllesmereUI.SetElementVisibility(castBarFrame, true)
@@ -5228,7 +5352,7 @@ OnChannelStart = function()
     -- Channel tick marks
     ShowChannelTicks(spellID)
 
-    if _latencyEventActive then ShowLatencyOverlay("channel") end
+    ShowLatencyOverlay("channel")
 
     castBarFrame:Show()
     EllesmereUI.SetElementVisibility(castBarFrame, true)
@@ -5336,7 +5460,7 @@ OnCastStop = function()
     end
     castBarFrame._numStages = 0
     HideChannelTicks()
-    if _latencyEventActive then HideLatencyOverlay() end
+    HideLatencyOverlay()
     EllesmereUI.SetElementVisibility(castBarFrame, false)
 end
 
@@ -5361,7 +5485,7 @@ OnEmpowerStart = function()
     castBarFrame._endTime = endTimeMS / 1000
     castBarFrame._spellName = name
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
-    if _latencyEventActive then HideLatencyOverlay() end
+    HideLatencyOverlay()
     castBarFrame._nameText:SetText(name)
     castBarFrame._bar:SetValue(0)
     HideChannelTicks()
@@ -5445,6 +5569,288 @@ OnEmpowerUpdate = function()
 
     castBarFrame._startTime = startTimeMS / 1000
     castBarFrame._endTime = endTimeMS / 1000
+end
+
+-------------------------------------------------------------------------------
+--  GCD Bar
+--  Uses the same detection logic as the cursor GCD Circle
+-------------------------------------------------------------------------------
+BuildGCDBar = function()
+    local g = ERB.db.profile.gcdBar
+
+    if not g.enabled then
+        if gcdBarFrame then
+            EllesmereUI.SetElementVisibility(gcdBarFrame, false)
+            gcdBarFrame:UnregisterAllEvents()
+            gcdBarFrame._gcdStart = nil
+            gcdBarFrame._gcdDur = nil
+            gcdBarFrame._gcdActualStart = nil
+        end
+        return
+    end
+
+    if not gcdBarFrame then
+        gcdBarFrame = CreateFrame("Frame", "ERB_GCDBarFrame", UIParent)
+        gcdBarFrame:SetFrameStrata(g.frameStrata or "MEDIUM")
+        gcdBarFrame:SetFrameLevel(15)
+
+        -- Background
+        local bg = gcdBarFrame:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        gcdBarFrame._bg = bg
+
+        -- Border frame
+        local bdrFrame = CreateFrame("Frame", nil, gcdBarFrame)
+        bdrFrame:SetAllPoints(gcdBarFrame)
+        bdrFrame:SetFrameLevel(gcdBarFrame:GetFrameLevel() + 5)
+        gcdBarFrame._border = bdrFrame
+        local PP = EllesmereUI and EllesmereUI.PP
+        if PP then PP.CreateBorder(bdrFrame, 0, 0, 0, 1, 1) end
+
+        -- Clip frame
+        local clipFrame = CreateFrame("Frame", nil, gcdBarFrame)
+        clipFrame:SetClipsChildren(true)
+        gcdBarFrame._barClip = clipFrame
+
+        -- Status bar
+        local bar = CreateFrame("StatusBar", "ERB_GCDBar", clipFrame)
+        bar:SetMinMaxValues(0, 1)
+        bar:SetValue(0)
+        gcdBarFrame._bar = bar
+        -- Native smoothing, applied via SetValue(progress, _castInterp) like the cast bar.
+        bar._castInterp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
+
+        -- Spark (same texture/approach as the cast bar)
+        local sparkFrame = CreateFrame("Frame", nil, clipFrame)
+        sparkFrame:SetAllPoints(bar)
+        sparkFrame:SetFrameLevel(bar:GetFrameLevel() + 2)
+        local spark = sparkFrame:CreateTexture(nil, "OVERLAY", nil, 1)
+        spark:SetTexture(SPARK_TEX)
+        spark:SetBlendMode("ADD")
+        gcdBarFrame._spark = spark
+
+        -- Event-driven GCD capture (like the cursor GCD ring)
+        gcdBarFrame:SetScript("OnEvent", function(self, event, unit, castGUID)
+            if unit ~= "player" then return end
+            local gc = ERB.db.profile.gcdBar
+            if not gc or not gc.enabled then return end
+
+            local getCD = C_Spell and C_Spell.GetSpellCooldown
+
+            -- Stop events: clear the bar the moment the GCD is no longer active.
+            if event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED"
+               or event == "UNIT_SPELLCAST_STOP" then
+                local cd = getCD and getCD(61304)
+                local stillActive = false
+                if cd and cd.startTime then
+                    local ok, act = pcall(function()
+                        local d, s = cd.duration, cd.startTime
+                        return (d and d > 0 and d <= 1.6 and s and s > 0) and true or false
+                    end)
+                    stillActive = ok and act
+                end
+                if not stillActive then
+                    self._gcdStart = nil
+                    self._gcdDur = nil
+                    self._gcdActualStart = nil
+                end
+                return
+            end
+
+            if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_CHANNEL_START"
+               or event == "UNIT_SPELLCAST_EMPOWER_START" then
+                self._hardCastGUID = castGUID  -- remember this cast had a cast time
+                if gc.instantOnly then return end  -- instant-only: don't fill for hard casts
+            elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+                -- instant-only: skip the SUCCEEDED that ends a hard cast (same GUID)
+                if gc.instantOnly and castGUID == self._hardCastGUID then return end
+            else
+                return
+            end
+
+            local cd = getCD and getCD(61304)
+            if not cd or not cd.startTime then return end
+            local ok, elapsed, dur = pcall(function()
+                local d, s = cd.duration, cd.startTime
+                if d and d > 0 and d <= 1.6 and s and s > 0 then return GetTime() - s, d end
+                return nil
+            end)
+            if ok and elapsed and not (issecretvalue and (issecretvalue(elapsed) or issecretvalue(dur))) then
+                local actualStart = GetTime() - elapsed
+                -- Only (re)start for a freshly started GCD (elapsed near 0).
+                -- This stops an off-GCD / succeeded spell from restarting the
+                -- running GCD.
+                if elapsed < 0.3 and ((not self._gcdActualStart) or actualStart > (self._gcdActualStart + 0.05)) then
+                    self._gcdActualStart = actualStart
+                    -- Fill starts visually at 0 fills over the time remaining
+                    -- (Using the true start would open the bar at the
+                    -- already-elapsed %, e.g. ~30% on a hasted GCD.)
+                    self._gcdStart = GetTime()
+                    self._gcdDur = math.max(dur - elapsed, 0.05)
+                end
+            end
+        end)
+    end
+
+    -- register the cast events that start a GCD.
+    gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_START", "player")
+    gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "player")
+    gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "player")
+    gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_STOP", "player")
+    gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "player")
+    gcdBarFrame:RegisterUnitEvent("UNIT_SPELLCAST_EMPOWER_START", "player")
+
+    -- Size (orientation swaps width/height for vertical) + position
+    local ori = g.orientation or "HORIZONTAL"
+    local w, h = OrientedSize(g.width, g.height, ori)
+    gcdBarFrame:SetFrameStrata(g.frameStrata or "MEDIUM")
+
+    if g.unlockPos and g.unlockPos.point then
+        gcdBarFrame:SetSize(w, h)
+        if not EllesmereUI._unlockActive then
+            local anchored = EllesmereUI.IsUnlockAnchored("ERB_GCDBar")
+            if not (anchored and gcdBarFrame:GetLeft()) then
+                local rp = g.unlockPos.relPoint or g.unlockPos.point
+                gcdBarFrame:ClearAllPoints()
+                gcdBarFrame:SetPoint(g.unlockPos.point, UIParent, rp, g.unlockPos.x or 0, g.unlockPos.y or 0)
+            end
+        end
+    else
+        gcdBarFrame:SetSize(w, h)
+        if not EllesmereUI._unlockActive then
+            gcdBarFrame:ClearAllPoints()
+            gcdBarFrame:SetPoint("CENTER", UIParent, "CENTER", g.anchorX or 0, g.anchorY or 0)
+        end
+    end
+
+    -- Border styling
+    if gcdBarFrame._border then
+        local bs = g.borderSize or 0
+        local pl = gcdBarFrame:GetFrameLevel()
+        gcdBarFrame._border:SetFrameLevel(g.borderBehind and math.max(0, pl - 1) or (pl + 5))
+        EllesmereUI.ApplyBorderStyle(gcdBarFrame._border, bs,
+            g.borderR or 0, g.borderG or 0, g.borderB or 0, g.borderA or 1,
+            g.borderTexture or "solid", g.borderTextureOffset, g.borderTextureOffsetY,
+            g.borderTextureShiftX, g.borderTextureShiftY, "resourcebars", bs)
+    end
+
+    -- Clip + bar layout. The 1px inset keeps the fill from bleeding past the
+    -- border; with no border there's nothing to clip to, so skip it -- otherwise
+    -- it eats the whole height of very thin bars (height 1-2 -> nothing visible).
+    local clipFrame = gcdBarFrame._barClip
+    local bar = gcdBarFrame._bar
+    local bdrInset = ((g.borderSize or 0) > 0 and PP and PP.mult) or 0
+    clipFrame:ClearAllPoints()
+    clipFrame:SetPoint("TOPLEFT", gcdBarFrame, "TOPLEFT", bdrInset, -bdrInset)
+    clipFrame:SetPoint("BOTTOMRIGHT", gcdBarFrame, "BOTTOMRIGHT", -bdrInset, bdrInset)
+    clipFrame:SetFrameLevel(gcdBarFrame:GetFrameLevel() + 1)
+    bar:ClearAllPoints()
+    bar:SetAllPoints(clipFrame)
+
+    -- Texture + background
+    local texPath = EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, g.texture, "Interface\\Buttons\\WHITE8x8")
+    bar:SetStatusBarTexture(texPath)
+    gcdBarFrame._bg:SetTexture(nil)
+    gcdBarFrame._bg:SetColorTexture(g.bgR, g.bgG, g.bgB, g.bgA)
+
+    ApplyBarOrientation(bar, ori)
+    -- HORIZONTAL_LEFT = horizontal, but the fill grows right->left (reverse).
+    -- ApplyBarOrientation treats any non-vertical key as normal horizontal, so
+    -- flip reverse-fill here for the left variant.
+    if ori == "HORIZONTAL_LEFT" then bar:SetReverseFill(true) end
+
+    -- Fill color / gradient
+    local fillTex = bar:GetStatusBarTexture()
+    local fR, fG, fB, fA = g.fillR, g.fillG, g.fillB, g.fillA
+    if g.classColored then
+        local cc = CLASS_COLORS[cachedClass]
+        if cc then fR, fG, fB = cc[1], cc[2], cc[3] end
+    end
+    if g.gradientEnabled then
+        ApplyBarGradient(fillTex, g.gradientDir or "HORIZONTAL", fR, fG, fB, fA,
+            g.gradientR, g.gradientG, g.gradientB, g.gradientA)
+    else
+        ApplyBarFlat(fillTex, fR, fG, fB, fA)
+    end
+
+    -- Leading-edge spark: anchored to the fill texture's moving edge so it tracks
+    -- the fill. Edge depends on orientation (right / top / bottom for down-fill).
+    local spark = gcdBarFrame._spark
+    if spark then
+        if g.showSpark then
+            spark:ClearAllPoints()
+            if ori == "VERTICAL_UP" then
+                spark:SetSize(w, 8)
+                spark:SetPoint("CENTER", fillTex, "TOP", 0, 0)
+            elseif ori == "VERTICAL_DOWN" then
+                spark:SetSize(w, 8)
+                spark:SetPoint("CENTER", fillTex, "BOTTOM", 0, 0)
+            elseif ori == "HORIZONTAL_LEFT" then
+                spark:SetSize(8, h)
+                spark:SetPoint("CENTER", fillTex, "LEFT", 0, 0)
+            else
+                spark:SetSize(8, h)
+                spark:SetPoint("CENTER", fillTex, "RIGHT", 0, 0)
+            end
+            spark:Show()
+        else
+            spark:Hide()
+        end
+    end
+
+    -- Visibility
+    gcdBarFrame:Show()
+    if g.alwaysShow and not (g.instanceOnly and not IsInInstance()) then
+        bar:SetValue(0)
+        EllesmereUI.SetElementVisibility(gcdBarFrame, true)
+    else
+        bar:SetValue(0)
+        EllesmereUI.SetElementVisibility(gcdBarFrame, false)
+    end
+end
+
+UpdateGCDBar = function(_dt)
+    if not gcdBarFrame or not gcdBarFrame:IsShown() then return end
+    local g = ERB.db.profile.gcdBar
+    if not g or not g.enabled then return end
+
+    -- Frame stays shown; visibility is via alpha to avoid the Hide->Show fill
+    -- flash. (Re-showing a hidden StatusBar renders its fill full for a frame.)
+    local bar = gcdBarFrame._bar
+
+    if g.instanceOnly and not IsInInstance() then
+        bar:SetValue(0)
+        EllesmereUI.SetElementVisibility(gcdBarFrame, false)
+        return
+    end
+
+    -- Animate from the start/duration captured at the cast event (set in the
+    -- OnEvent handler). No per-frame cooldown polling.
+    local startT, dur = gcdBarFrame._gcdStart, gcdBarFrame._gcdDur
+    local active = startT and dur
+    local elapsed
+    if active then
+        elapsed = GetTime() - startT
+        if elapsed < 0 or elapsed >= dur then
+            gcdBarFrame._gcdStart = nil
+            gcdBarFrame._gcdDur = nil
+            gcdBarFrame._gcdActualStart = nil
+            active = false
+        end
+    end
+
+    if not active then
+        -- No GCD running: empty, and invisible unless Always Show is on.
+        bar:SetValue(0)
+        local visible = false
+        if g.alwaysShow then visible = true end
+        EllesmereUI.SetElementVisibility(gcdBarFrame, visible)
+        return
+    end
+
+    EllesmereUI.SetElementVisibility(gcdBarFrame, true)
+    bar:SetValue(elapsed / dur, bar._castInterp)
 end
 
 -------------------------------------------------------------------------------
@@ -5730,6 +6136,7 @@ function ERB:ApplyAll()
     BuildMainFrame()
     BuildBars()
     BuildCastBar()
+    BuildGCDBar()
     BuildTotemBar()
 
     -- Apply frame strata to all existing bar frames (covers live changes)
@@ -5743,6 +6150,8 @@ function ERB:ApplyAll()
     if totemBarFrame then totemBarFrame:SetFrameStrata(tb and tb.frameStrata or "MEDIUM") end
     local cb = ERB.db.profile.castBar
     if castBarFrame then castBarFrame:SetFrameStrata(cb and cb.frameStrata or "MEDIUM") end
+    local gb = ERB.db.profile.gcdBar
+    if gcdBarFrame then gcdBarFrame:SetFrameStrata(gb and gb.frameStrata or "MEDIUM") end
     UpdateHealthBar()
     UpdatePrimaryBar()
     UpdateSecondaryResource()
@@ -5939,8 +6348,6 @@ local function OnEvent(self, event, ...)
             ERB:ApplyAll()
             RegisterUnlockElements()
         end)
-    elseif event == "CURRENT_SPELL_CAST_CHANGED" then
-        _latencySendTime = GetTime()
     elseif event == "UNIT_SPELLCAST_START" then
         local unit = ...
         if unit == "player" then OnCastStart() end

@@ -1,0 +1,752 @@
+local _, ns = ...
+
+-- ===========================================================================
+--  EllesmereUI CDM -- Custom Active State engine (isolated)
+-- ===========================================================================
+-- Draws OUR OWN icon (saturated, with its own duration swipe) on top of an
+-- existing CDM icon while a custom "active window" is open, then hides it. It
+-- NEVER modifies the underlying icon -- no desaturation, no swipe, no cooldown
+-- changes; the underlying icon just sits beneath, covered while we are active.
+--
+-- Two rule sources:
+--   1. Built-in rules (FAKE_ACTIVE_RULES) -- class/spec gated, can use an aura's
+--      live remaining time (e.g. Aug Evoker Ebon Might).
+--   2. User rules -- any cd/utility preset (trinket / potion / racial / custom
+--      spell id) the player gives an "Active State" + timer to in the per-spell
+--      menu. Stored at the PROFILE level keyed by spell (ns.GetCustomActiveStates),
+--      so it travels with the spell across bars and specs. Triggered on use
+--      (UNIT_SPELLCAST_SUCCEEDED); the entry's own Active Swipe / Active Glow /
+--      Glow Effect Color fields style the overlay.
+--
+-- ISOLATION / ZERO-COST
+--   * Built-in rules live in FAKE_ACTIVE_RULES below (one row each).
+--   * Re-armed on every CDM full rebuild. If nothing is active for this spec /
+--     profile, no events register and the engine is inert.
+--
+-- TAINT: trigger is a plain event; the overlay is entirely our own frames,
+-- toggled by alpha (never Show/Hide). No Blizzard frame tables are written.
+-- ===========================================================================
+
+local GetTime                = GetTime
+local UnitClass              = UnitClass
+local GetSpecialization      = GetSpecialization
+local GetInventoryItemID     = GetInventoryItemID
+local CreateFrame            = CreateFrame
+local C_Timer                = C_Timer
+local C_Item                 = C_Item
+local C_SpellBook            = C_SpellBook
+local wipe                   = wipe
+local pcall                  = pcall
+local type                   = type
+local RAID_CLASS_COLORS      = RAID_CLASS_COLORS
+local C_Container            = C_Container
+local GetInventoryItemCooldown = GetInventoryItemCooldown
+local GetPlayerAuraBySpellID = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
+
+-- ---------------------------------------------------------------------------
+--  BUILT-IN RULES
+-- ---------------------------------------------------------------------------
+-- spellID        the CDM icon to decorate (the ability icon's spellID)
+-- class / spec   optional gates (spec = index 1..4)
+-- trigger        "aura" | "cast" | function(api) -> expiry|true|nil
+-- auraSpellID    (aura)  player buff whose expirationTime drives the window
+-- triggerSpellID (cast)  spell whose cast opens the window (default = spellID)
+-- duration       window seconds ("aura": fallback when the aura reports none)
+local FAKE_ACTIVE_RULES = {
+    -- Augmentation Evoker -- Ebon Might (real buff window, extend/drop aware).
+    {
+        spellID     = 395152,
+        class       = "EVOKER",
+        spec        = 3,
+        trigger     = "aura",
+        auraSpellID = 395296,
+        duration    = 20,
+    },
+}
+
+-- ---------------------------------------------------------------------------
+--  State
+-- ---------------------------------------------------------------------------
+local _armed     = false
+local _rules     = {}                                  -- all live rules this spec/profile
+local _auraRules = {}                                  -- subset: aura trigger
+local _customRules = {}                                -- subset: function trigger
+local _castMap   = {}                                  -- castSpellID -> { rule, ... }
+local _needAura  = false
+local _needCast  = false
+local _windows   = setmetatable({}, { __mode = "k" })  -- rule -> { start, dur, expiry }
+local _lastCast
+local _events
+local _ticker
+local _api       = {}
+local _overlays  = setmetatable({}, { __mode = "k" })  -- iconFrame -> overlay data
+
+-- Cooldown-state effects (continuous, cooldown-driven; presets only).
+local _cdStateRules = {}                                -- subset: cas.cdStateEffect set
+local _cdStateTicker
+local _hasUserRules = false                             -- any profile (user) rule armed
+
+-- Forward declarations
+local GetOverlay, ResolveSwipeColor, IconTexture, ApplyToFrame, ApplyRule, RaiseOverlayBorders, RestoreOverlayBorders
+local EnsureTicker, OpenWindow, CloseWindow, CloseAll, CastWindow
+local OpenFromAura, EvalCustom, InitialStamp, OnEvent, UpdateListeners
+local ResolveCastSpells
+local PresetOnCD, ApplyCdState, RestoreAllCdState, EnsureCdStateTicker, EvalCdStateNow
+
+-- ---------------------------------------------------------------------------
+--  Overlay icon: one per underlying icon frame, pooled. Toggled by alpha only.
+-- ---------------------------------------------------------------------------
+GetOverlay = function(iconFrame)
+    local o = _overlays[iconFrame]
+    if o then return o end
+    o = {}
+    local lvl = (iconFrame:GetFrameLevel() or 0) + 20
+
+    local f = CreateFrame("Frame", nil, iconFrame)
+    f:SetAllPoints(iconFrame)
+    f:SetFrameLevel(lvl)
+    f:SetAlpha(0)
+    o.frame = f
+
+    local icon = f:CreateTexture(nil, "ARTWORK")
+    icon:SetAllPoints(f)
+    o.icon = icon
+
+    local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+    cd:SetAllPoints(f)
+    cd:SetFrameLevel(lvl + 1)
+    cd:SetDrawEdge(false)
+    cd:SetDrawBling(false)
+    cd:SetHideCountdownNumbers(false)
+    cd:SetSwipeTexture("Interface\\Buttons\\WHITE8x8")
+    o.cd = cd
+
+    -- Own glow frame for ns.ApplyActiveOverlays (never collides with the real
+    -- active-state path's fd.glowOverlay).
+    local glow = CreateFrame("Frame", nil, f)
+    glow:SetAllPoints(f)
+    glow:SetFrameLevel(lvl + 4)
+    glow:SetAlpha(0)
+    o.glowOverlay = glow
+
+    _overlays[iconFrame] = o
+    return o
+end
+
+-- ---------------------------------------------------------------------------
+--  While an overlay is open it sits ABOVE the underlying icon (so it covers the
+--  real icon + its swipe). Temporarily lift the icon's border frame(s) above the
+--  overlay so the active swipe never paints over the border; restore on close.
+--  "Show Behind" borders (bd.borderBehind) are intentionally behind the icon, so
+--  leave those alone.
+-- ---------------------------------------------------------------------------
+RaiseOverlayBorders = function(iconFrame, o, bd)
+    if o._brdRaised then return end
+    local lvl = o.frame:GetFrameLevel() + 2
+    local fd  = ns._hookFrameData and ns._hookFrameData[iconFrame]
+    local ifc = ns._ecmeFC and ns._ecmeFC[iconFrame]
+    if fd and fd.borderFrame and not (bd and bd.borderBehind) then
+        o._brdSavedLvl = fd.borderFrame:GetFrameLevel()
+        pcall(fd.borderFrame.SetFrameLevel, fd.borderFrame, lvl)
+    end
+    if ifc and ifc.shapeBorderFrame then
+        o._sbSavedLvl = ifc.shapeBorderFrame:GetFrameLevel()
+        pcall(ifc.shapeBorderFrame.SetFrameLevel, ifc.shapeBorderFrame, lvl)
+    end
+    o._brdRaised = true
+end
+
+RestoreOverlayBorders = function(iconFrame, o)
+    if not o._brdRaised then return end
+    local fd  = ns._hookFrameData and ns._hookFrameData[iconFrame]
+    local ifc = ns._ecmeFC and ns._ecmeFC[iconFrame]
+    if fd and fd.borderFrame and o._brdSavedLvl then
+        pcall(fd.borderFrame.SetFrameLevel, fd.borderFrame, o._brdSavedLvl)
+    end
+    if ifc and ifc.shapeBorderFrame and o._sbSavedLvl then
+        pcall(ifc.shapeBorderFrame.SetFrameLevel, ifc.shapeBorderFrame, o._sbSavedLvl)
+    end
+    o._brdSavedLvl, o._sbSavedLvl, o._brdRaised = nil, nil, false
+end
+
+-- Active swipe colour: class, custom, or default gold. Drives our own swipe.
+ResolveSwipeColor = function(ss)
+    local cr, cg, cb
+    if ss and ss.activeSwipeClassColor then
+        local _, ct = UnitClass("player")
+        if ct then
+            local cc = RAID_CLASS_COLORS[ct]
+            if cc then cr, cg, cb = cc.r, cc.g, cc.b end
+        end
+    end
+    cr = cr or (ss and ss.activeSwipeR) or 1
+    cg = cg or (ss and ss.activeSwipeG) or 0.776
+    cb = cb or (ss and ss.activeSwipeB) or 0.376
+    local ca = (ss and ss.activeSwipeA) or 0.7
+    return cr, cg, cb, ca
+end
+
+-- Copy the underlying icon's texture + crop so the overlay looks identical
+-- (works for both Blizzard pool frames .Icon and our preset frames ._tex).
+IconTexture = function(iconFrame, o, rule)
+    local src = iconFrame.Icon or iconFrame._tex
+    if src and src.GetTexture then
+        local t = src:GetTexture()
+        if t then
+            o.icon:SetTexture(t)
+            o.icon:SetTexCoord(src:GetTexCoord())
+            return
+        end
+    end
+    if rule.spellID and rule.spellID > 0 and C_Spell and C_Spell.GetSpellInfo then
+        local info = C_Spell.GetSpellInfo(rule.spellID)
+        o.icon:SetTexture(info and info.iconID)
+        o.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    end
+end
+
+-- ---------------------------------------------------------------------------
+--  Show / hide the overlay on a single icon frame.
+-- ---------------------------------------------------------------------------
+ApplyToFrame = function(iconFrame, rule, win)
+    local o = GetOverlay(iconFrame)
+    -- Bar data + per-spell settings. User rules carry their own styling entry
+    -- (profile-level, travels with the spell); built-in rules (e.g. Ebon Might)
+    -- read the bar's per-spell settings. barData is needed either way for the
+    -- overlay's shape geometry, so resolve it unconditionally.
+    local fc = ns._ecmeFC and ns._ecmeFC[iconFrame]
+    local barKey = fc and fc.barKey
+    local bd = barKey and ns.barDataByKey and ns.barDataByKey[barKey]
+    local ss = rule.cas
+    if not ss then
+        local sd = barKey and ns.GetBarSpellData and ns.GetBarSpellData(barKey)
+        ss = sd and ns.ResolveSpellSettings and ns.ResolveSpellSettings(iconFrame, rule.spellID, sd)
+    end
+
+    -- "Hide Active State" dropdown -> never show the overlay.
+    local hidden = ss and ss.activeSwipeMode == "none"
+
+    if win and not hidden then
+        o._rule = rule  -- remembered so a live restyle can re-sync this overlay
+        IconTexture(iconFrame, o, rule)
+        -- Mirror the underlying icon's custom shape onto our overlay so a shaped
+        -- icon stays shaped (mask + swipe), then lift the border above us.
+        if ns.ApplyShapeToOverlay then ns.ApplyShapeToOverlay(iconFrame, o.icon, o.cd, bd) end
+        RaiseOverlayBorders(iconFrame, o, bd)
+        o.icon:SetDesaturated(false)
+        local cr, cg, cb, ca = ResolveSwipeColor(ss)
+        o.cd:SetSwipeColor(cr, cg, cb, ca)
+        o.cd:SetCooldown(win.start, win.dur)
+        o._ss = ss
+        -- Match the icon's Duration Text settings on our own countdown number;
+        -- otherwise it renders in Blizzard's default font.
+        if ns.StyleOverlayCooldownText then
+            ns.StyleOverlayCooldownText(o.cd, bd, ss, iconFrame:GetScale())
+        end
+        -- Feed the active glow + border the underlying icon's shape / border so
+        -- Shape Glow masks to the shape (it reads the shape from its glow frame's
+        -- parent FC) and Active Border can recolour the real (now-raised) border.
+        local ufd  = ns._hookFrameData and ns._hookFrameData[iconFrame]
+        local uifc = ns._ecmeFC and ns._ecmeFC[iconFrame]
+        o.borderFrame = (ufd and ufd.borderFrame) or nil
+        local gfc = ns.FC and ns.FC(o.frame)
+        if gfc then
+            gfc.shapeApplied = (uifc and uifc.shapeApplied) or nil
+            gfc.shapeName    = (uifc and uifc.shapeName) or nil
+            gfc.shapeMask    = (uifc and uifc.shapeMask) or nil
+            gfc.shapeBorder  = (uifc and uifc.shapeBorder) or nil
+        end
+        if ns.ApplyActiveOverlays then ns.ApplyActiveOverlays(o.frame, o, ss, true, bd) end
+        o.frame:SetAlpha(1)
+    else
+        o._rule = nil
+        o._ss = nil
+        RestoreOverlayBorders(iconFrame, o)
+        if ns.ApplyActiveOverlays then ns.ApplyActiveOverlays(o.frame, o, ss, false, bd) end
+        o.cd:Clear()
+        o.frame:SetAlpha(0)
+    end
+end
+
+-- Apply (or clear) a rule on every matching live icon. A rule with .barKey only
+-- matches icons on that bar (user rules are per-bar); built-in rules match any.
+ApplyRule = function(rule, win)
+    local icons = ns.cdmBarIcons
+    local FCt = ns._ecmeFC
+    if not icons or not FCt then return end
+    local sid = rule.spellID
+    for _, list in pairs(icons) do
+        for i = 1, #list do
+            local f = list[i]
+            local fc = f and FCt[f]
+            if fc and fc.spellID == sid and (not rule.barKey or fc.barKey == rule.barKey) then
+                ApplyToFrame(f, rule, win)
+                if ns._fakeActiveDebug then
+                    print(("|cff0cd29fEUI FakeActive|r %s sid=%s"):format(
+                        win and "ON " or "off", tostring(sid)))
+                end
+            end
+        end
+    end
+end
+
+-- ---------------------------------------------------------------------------
+--  Expiry ticker (self-hides when idle).
+-- ---------------------------------------------------------------------------
+EnsureTicker = function()
+    if not _ticker then
+        _ticker = CreateFrame("Frame")
+        _ticker:Hide()
+        _ticker._acc = 0
+        _ticker:SetScript("OnUpdate", function(self, elapsed)
+            self._acc = self._acc + elapsed
+            if self._acc < 0.1 then return end
+            self._acc = 0
+            local now = GetTime()
+            local anyOpen = false
+            for i = 1, #_rules do
+                local rule = _rules[i]
+                local win = _windows[rule]
+                if win then
+                    if now >= win.expiry then CloseWindow(rule)
+                    else anyOpen = true end
+                end
+            end
+            if not anyOpen then self:Hide() end
+        end)
+    end
+    _ticker:Show()
+end
+
+OpenWindow = function(rule, win)
+    _windows[rule] = win
+    ApplyRule(rule, win)
+    EnsureTicker()
+end
+
+CloseWindow = function(rule)
+    _windows[rule] = nil
+    ApplyRule(rule, nil)
+end
+
+CloseAll = function()
+    for i = 1, #_rules do
+        local rule = _rules[i]
+        if _windows[rule] ~= nil then
+            _windows[rule] = nil
+            ApplyRule(rule, nil)
+        end
+    end
+    if _ticker then _ticker:Hide() end
+end
+
+CastWindow = function(rule)
+    local now = GetTime()
+    local dur = rule.duration or 0
+    if dur <= 0 then return nil end
+    return { start = now, dur = dur, expiry = now + dur }
+end
+
+-- ---------------------------------------------------------------------------
+--  Trigger evaluators
+-- ---------------------------------------------------------------------------
+OpenFromAura = function(rule)
+    local aura = GetPlayerAuraBySpellID and GetPlayerAuraBySpellID(rule.auraSpellID)
+    if aura and aura.expirationTime and aura.expirationTime > 0 then
+        local expiry = aura.expirationTime
+        local dur = aura.duration
+        if not dur or dur <= 0 then dur = rule.duration or (expiry - GetTime()) end
+        OpenWindow(rule, { start = expiry - dur, dur = dur, expiry = expiry })
+    elseif _windows[rule] ~= nil then
+        CloseWindow(rule)
+    end
+end
+
+EvalCustom = function(rule)
+    _api.now           = GetTime()
+    _api.lastCast      = _lastCast
+    _api.GetPlayerAura = GetPlayerAuraBySpellID
+    local ok, r = pcall(rule.trigger, _api)
+    if not ok then return end
+    local now = GetTime()
+    local win
+    if r == true then
+        local dur = rule.duration or 0
+        if dur > 0 then win = { start = now, dur = dur, expiry = now + dur } end
+    elseif type(r) == "number" and r > now then
+        local dur = rule.duration or (r - now)
+        win = { start = r - dur, dur = dur, expiry = r }
+    end
+    if win then OpenWindow(rule, win)
+    elseif _windows[rule] ~= nil then CloseWindow(rule) end
+end
+
+InitialStamp = function()
+    for i = 1, #_auraRules do OpenFromAura(_auraRules[i]) end
+    for i = 1, #_customRules do EvalCustom(_customRules[i]) end
+end
+
+OnEvent = function(self, event, unit, _, spellID)
+    if event == "UNIT_AURA" then
+        for i = 1, #_auraRules do OpenFromAura(_auraRules[i]) end
+        for i = 1, #_customRules do EvalCustom(_customRules[i]) end
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        _lastCast = spellID
+        local hits = spellID and _castMap[spellID]
+        if hits then
+            for i = 1, #hits do
+                local win = CastWindow(hits[i])
+                if win then OpenWindow(hits[i], win) end
+            end
+        end
+        for i = 1, #_customRules do EvalCustom(_customRules[i]) end
+    elseif event == "PLAYER_EQUIPMENT_CHANGED" then
+        -- A trinket swap re-points a slot's settings to a different item; re-arm
+        -- so the slot picks up the newly-equipped trinket's rule (or none).
+        if unit == 13 or unit == 14 then
+            ns.FakeActive_Rearm()
+        end
+    end
+end
+
+UpdateListeners = function()
+    if _needAura or _needCast or _hasUserRules then
+        if not _events then
+            _events = CreateFrame("Frame")
+            _events:SetScript("OnEvent", OnEvent)
+        end
+        if _needAura then _events:RegisterUnitEvent("UNIT_AURA", "player")
+        else _events:UnregisterEvent("UNIT_AURA") end
+        if _needCast then _events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+        else _events:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED") end
+        -- Trinket swaps only matter when the player actually uses custom states.
+        if _hasUserRules then _events:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+        else _events:UnregisterEvent("PLAYER_EQUIPMENT_CHANGED") end
+    elseif _events then
+        _events:UnregisterAllEvents()
+    end
+end
+
+-- Spell ids whose successful cast should open a rule's window. For positive
+-- keys: the spell (and its live override). For negative keys (item presets):
+-- the item's on-use spell. -13 / -14 are the equipped trinket slots.
+ResolveCastSpells = function(key)
+    local out = {}
+    if key > 0 then
+        out[#out + 1] = key
+        if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+            local ov = C_SpellBook.FindSpellOverrideByID(key)
+            if ov and ov > 0 and ov ~= key then out[#out + 1] = ov end
+        end
+    else
+        local itemID
+        if key == -13 or key == -14 then
+            itemID = GetInventoryItemID and GetInventoryItemID("player", -key)
+        else
+            itemID = -key
+        end
+        if itemID and C_Item and C_Item.GetItemSpell then
+            local _, spID = C_Item.GetItemSpell(itemID)
+            if spID then out[#out + 1] = spID end
+        end
+    end
+    return out
+end
+
+-- ---------------------------------------------------------------------------
+--  Cooldown State effects (presets): hide or glow the icon based on whether the
+--  ability is on cooldown. A cooldown ENDING has no reliable event, so this is a
+--  throttled poll -- but only while at least one preset actually uses it.
+-- ---------------------------------------------------------------------------
+-- Unified "is this preset on a real (non-GCD) cooldown right now?" read.
+PresetOnCD = function(key)
+    local now = GetTime()
+    if key > 0 then
+        local ci = C_Spell and C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(key)
+        return (ci and ci.isActive and not ci.isOnGCD) or false
+    end
+    local start, dur, enable
+    if key == -13 or key == -14 then
+        if GetInventoryItemCooldown then start, dur, enable = GetInventoryItemCooldown("player", -key) end
+        if enable ~= nil and enable ~= 1 then return false end
+    else
+        local itemID = -key
+        if C_Container and C_Container.GetItemCooldown then start, dur = C_Container.GetItemCooldown(itemID) end
+        if not (start and dur and dur > 1.5) and C_Item and C_Item.GetItemCooldown then
+            start, dur = C_Item.GetItemCooldown(itemID)
+        end
+    end
+    return (start and dur and dur > 1.5 and now < start + dur) or false
+end
+
+-- Normal (shown) alpha for a frame, from its bar's opacity.
+local function FrameBaseAlpha(fc)
+    local bd = fc and fc.barKey and ns.barDataByKey and ns.barDataByKey[fc.barKey]
+    return (bd and bd.barOpacity) or 1
+end
+
+-- cas is the rule's styling entry (passed in so a trinket, whose frame key is a
+-- slot, still gets the per-item glow colour). Marks the frame "touched" so the
+-- restore pass below can find it even after the trinket has been swapped out.
+ApplyCdState = function(frame, fc, cas, eff, onCD)
+    local fd = ns._hookFrameData and ns._hookFrameData[frame]
+    if fd then fd._presetCdTouched = true end
+    if eff == "hiddenOnCD" or eff == "hiddenReady" then
+        local hide
+        if eff == "hiddenOnCD" then hide = onCD else hide = not onCD end
+        frame:SetAlpha(hide and 0 or FrameBaseAlpha(fc))
+        -- Set the SAME flag the layout / visibility / refresh code already honors,
+        -- so a relayout (mount, dismount, settings change) keeps it hidden instead
+        -- of flashing it visible until the next tick.
+        fc._cdStateHidden = hide or false
+        return
+    end
+    -- Glow modes: glow while the ability is READY (off cooldown). Not a hide.
+    fc._cdStateHidden = false
+    local glow = fd and fd.glowOverlay
+    if not glow then return end
+    if not onCD then
+        if not fd._presetCdGlowOn then
+            local gr, gg, gb = ns.ResolveGlowColor and ns.ResolveGlowColor(cas or {})
+            ns.StartNativeGlow(glow, eff == "pixelGlowReady" and 1 or 3, gr or 1, gg or 1, gb or 1)
+            fd._presetCdGlowOn = true
+        end
+    elseif fd._presetCdGlowOn then
+        ns.StopNativeGlow(glow)
+        fd._presetCdGlowOn = false
+    end
+end
+
+-- Clear cd-state visuals on every icon we have touched (before a re-arm, so a
+-- removed effect -- or a trinket swapped out of a slot -- un-hides / un-glows).
+RestoreAllCdState = function()
+    local icons = ns.cdmBarIcons
+    local FCt = ns._ecmeFC
+    if not icons or not FCt then return end
+    for _, list in pairs(icons) do
+        for i = 1, #list do
+            local f = list[i]
+            local fd = ns._hookFrameData and ns._hookFrameData[f]
+            if fd and fd._presetCdTouched then
+                local fc = FCt[f]
+                f:SetAlpha(FrameBaseAlpha(fc))
+                if fc then fc._cdStateHidden = false end
+                if fd._presetCdGlowOn and fd.glowOverlay then
+                    ns.StopNativeGlow(fd.glowOverlay)
+                    fd._presetCdGlowOn = false
+                end
+                fd._presetCdTouched = nil
+            end
+        end
+    end
+end
+
+-- One full evaluation pass. Driven by the ticker (continuous) AND called
+-- synchronously at the end of a re-arm, so a settings change does not leave the
+-- icon shown for a tick before the next poll re-hides it.
+EvalCdStateNow = function()
+    local icons = ns.cdmBarIcons
+    local FCt = ns._ecmeFC
+    if not icons or not FCt then return end
+    for r = 1, #_cdStateRules do
+        local rule = _cdStateRules[r]
+        local eff = rule.cas and rule.cas.cdStateEffect
+        if eff then
+            local onCD = PresetOnCD(rule.spellID)
+            local sid = rule.spellID
+            for _, list in pairs(icons) do
+                for i = 1, #list do
+                    local f = list[i]
+                    local fc = f and FCt[f]
+                    if fc and fc.spellID == sid then
+                        ApplyCdState(f, fc, rule.cas, eff, onCD)
+                    end
+                end
+            end
+        end
+    end
+end
+
+EnsureCdStateTicker = function()
+    if not _cdStateTicker then
+        _cdStateTicker = CreateFrame("Frame")
+        _cdStateTicker:Hide()
+        _cdStateTicker._acc = 0
+        _cdStateTicker:SetScript("OnUpdate", function(self, elapsed)
+            self._acc = self._acc + elapsed
+            if self._acc < 0.12 then return end
+            self._acc = 0
+            EvalCdStateNow()
+        end)
+    end
+    _cdStateTicker:Show()
+end
+
+local function MapCast(rule)
+    local spells = ResolveCastSpells(rule.triggerSpellID or rule.spellID)
+    for i = 1, #spells do
+        local sp = spells[i]
+        local list = _castMap[sp]
+        if not list then list = {}; _castMap[sp] = list end
+        list[#list + 1] = rule
+    end
+    _needCast = true
+end
+
+local function AddRule(rule)
+    _rules[#_rules + 1] = rule
+    local tr = rule.trigger
+    if tr == "aura" then
+        _auraRules[#_auraRules + 1] = rule; _needAura = true
+    elseif type(tr) == "function" then
+        _customRules[#_customRules + 1] = rule; _needCast = true
+    else  -- "cast"
+        MapCast(rule)
+    end
+end
+
+-- ---------------------------------------------------------------------------
+--  Re-sync a single overlay after its underlying icon was restyled.
+-- ---------------------------------------------------------------------------
+-- Called from RefreshCDMIconAppearance (via ApplyShapeToCDMIcon) whenever an icon
+-- is re-shaped / re-bordered / re-zoomed -- including a settings change made WHILE
+-- a fake-active window is open. That restyle re-textures the shared shapeMask and
+-- resets the icon's border frame back to its normal level (below our overlay), so
+-- without this the overlay would show the old/stale shape and the border would sit
+-- hidden beneath us until the window next reopened. Re-applies our shape (new
+-- mask + geometry + swipe) and forces a fresh border raise. No-op unless an
+-- overlay is currently shown on this icon.
+function ns.FakeActive_OnIconRestyled(iconFrame)
+    local o = _overlays[iconFrame]
+    if not o or not o._rule then return end           -- no overlay / no open window
+    if o.frame:GetAlpha() == 0 then return end         -- overlay not currently shown
+    local fc = ns._ecmeFC and ns._ecmeFC[iconFrame]
+    local barKey = fc and fc.barKey
+    local bd = barKey and ns.barDataByKey and ns.barDataByKey[barKey]
+    IconTexture(iconFrame, o, o._rule)
+    if ns.ApplyShapeToOverlay then ns.ApplyShapeToOverlay(iconFrame, o.icon, o.cd, bd) end
+    -- Re-apply Duration Text styling too (the font/size/colour may have changed).
+    if ns.StyleOverlayCooldownText then
+        ns.StyleOverlayCooldownText(o.cd, bd, o._ss, iconFrame:GetScale())
+    end
+    -- The restyle reset the border to its normal level; clear the stale flag so
+    -- RaiseOverlayBorders re-captures that level and lifts it above us again.
+    o._brdRaised = false
+    RaiseOverlayBorders(iconFrame, o, bd)
+    -- Re-feed the active glow / border the underlying shape + border refs, then
+    -- re-apply so a glow-colour / active-border edit takes effect live (the glow
+    -- only restarts if its style/colour actually changed). ApplyShapeToCDMIcon
+    -- just reset the shape border to its configured colour, so drop the stale
+    -- saved colour first to re-capture it for restore-on-falloff.
+    local ufd  = ns._hookFrameData and ns._hookFrameData[iconFrame]
+    local uifc = ns._ecmeFC and ns._ecmeFC[iconFrame]
+    o.borderFrame = (ufd and ufd.borderFrame) or nil
+    local gfc = ns.FC and ns.FC(o.frame)
+    if gfc then
+        gfc.shapeApplied = (uifc and uifc.shapeApplied) or nil
+        gfc.shapeName    = (uifc and uifc.shapeName) or nil
+        gfc.shapeMask    = (uifc and uifc.shapeMask) or nil
+        gfc.shapeBorder  = (uifc and uifc.shapeBorder) or nil
+    end
+    if o._ss and ns.ApplyActiveOverlays then
+        o._sbColorSaved = false
+        ns.ApplyActiveOverlays(o.frame, o, o._ss, true, bd)
+    end
+end
+
+-- ---------------------------------------------------------------------------
+--  Re-arm for the current class + spec + profile. Called after every rebuild.
+-- ---------------------------------------------------------------------------
+function ns.FakeActive_Rearm()
+    RestoreAllCdState()  -- un-hide / un-glow icons from the outgoing rule set
+    CloseAll()
+    wipe(_rules); wipe(_auraRules); wipe(_customRules); wipe(_castMap); wipe(_cdStateRules)
+    _needAura, _needCast, _armed, _hasUserRules = false, false, false, false
+
+    -- 1. Built-in rules (class/spec gated).
+    local _, classFile = UnitClass("player")
+    local specIdx = GetSpecialization and GetSpecialization() or nil
+    for i = 1, #FAKE_ACTIVE_RULES do
+        local rule = FAKE_ACTIVE_RULES[i]
+        if (not rule.class or rule.class == classFile)
+           and (not rule.spec or rule.spec == specIdx) then
+            AddRule(rule)
+        end
+    end
+
+    -- 2. User rules: profile-level custom active states, keyed by spell. These
+    --    travel with the spell across every bar and spec, so no barKey scope --
+    --    the overlay shows on whichever bar currently hosts the icon.
+    -- A spell may have a cast-triggered active overlay (duration), a continuous
+    -- cooldown-state effect (cdStateEffect), or both.
+    local store = ns.GetCustomActiveStates and ns.GetCustomActiveStates()
+    if store then
+        for key, cas in pairs(store) do
+            -- Skip bare trinket-SLOT keys: trinket settings are keyed by item now
+            -- (a -13/-14 entry is only stale data from before that change).
+            if type(cas) == "table" and key ~= -13 and key ~= -14 then
+                local hasDur = (cas.duration or 0) > 0
+                local hasCd  = cas.cdStateEffect ~= nil
+                if hasDur or hasCd then
+                    -- Settings are keyed by spell / item. A trinket's settings are
+                    -- keyed by item, but its ICON is a slot (-13/-14) -- so route the
+                    -- rule to whichever slot currently holds that item. (Cast +
+                    -- cooldown then resolve from the slot, the existing path.) Not
+                    -- equipped -> the rule matches nothing, which is correct.
+                    local matchKey = key
+                    if key < 0 and GetInventoryItemID then
+                        local itemID = -key
+                        if GetInventoryItemID("player", 13) == itemID then matchKey = -13
+                        elseif GetInventoryItemID("player", 14) == itemID then matchKey = -14 end
+                    end
+                    local rule = { spellID = matchKey, cas = cas, user = true }
+                    _rules[#_rules + 1] = rule
+                    _hasUserRules = true
+                    if hasDur then
+                        rule.trigger  = "cast"
+                        rule.duration = cas.duration
+                        MapCast(rule)
+                    end
+                    if hasCd then
+                        _cdStateRules[#_cdStateRules + 1] = rule
+                    end
+                end
+            end
+        end
+    end
+
+    _armed = #_rules > 0
+    UpdateListeners()
+    if #_cdStateRules > 0 then
+        EnsureCdStateTicker()
+        EvalCdStateNow()  -- apply now so the rebuild doesn't flash the icon visible
+    elseif _cdStateTicker then
+        _cdStateTicker:Hide()
+    end
+
+    if not _armed then return end
+    InitialStamp()
+    if C_Timer then
+        C_Timer.After(3, function()
+            if not _armed then return end
+            InitialStamp()
+            EvalCdStateNow()  -- frames may not have existed at re-arm (login)
+        end)
+    end
+end
+
+-- Re-arm on every CDM full rebuild, kept out of the (large) rebuild function.
+local _origFullCDMRebuild = ns.FullCDMRebuild
+ns.FullCDMRebuild = function(reason)
+    if _origFullCDMRebuild then _origFullCDMRebuild(reason) end
+    ns.FakeActive_Rearm()
+end
+
+-- Debug toggle: /run EllesmereUI.FakeActiveDebug()
+if EllesmereUI then
+    function EllesmereUI.FakeActiveDebug()
+        ns._fakeActiveDebug = not ns._fakeActiveDebug
+        print(("|cff0cd29fEUI FakeActive|r debug %s | armed=%s rules=%d"):format(
+            ns._fakeActiveDebug and "ON" or "off", tostring(_armed), #_rules))
+    end
+end

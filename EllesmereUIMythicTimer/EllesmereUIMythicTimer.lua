@@ -62,6 +62,7 @@ local DB_DEFAULTS = {
         showAffixes       = true,
         showPlusTwoTimer  = true,
         showPlusThreeTimer = true,
+        showThreshRemaining = false,
         showDeaths        = true,
         showObjectives    = true,
         showObjectiveTimes = true,
@@ -897,6 +898,8 @@ local function CreateStandaloneFrame()
     f._threshFS:SetWordWrap(false)
     f._threshFS2 = f:CreateFontString(nil, "OVERLAY")
     f._threshFS2:SetWordWrap(false)
+    f._threshRemFS = f:CreateFontString(nil, "OVERLAY")
+    f._threshRemFS:SetWordWrap(false)
     f._deathFS = f:CreateFontString(nil, "OVERLAY")
     f._deathFS:SetWordWrap(false)
     f._deathHit = CreateFrame("Frame", nil, f)
@@ -1265,7 +1268,10 @@ local function RenderStandalone()
     if _barW_for_thresh < 60 then _barW_for_thresh = 60 end
 
     local function RenderThresholdText()
-        if (p.showPlusTwoTimer or p.showPlusThreeTimer) and maxTime > 0 then
+        local showRem = p.showThreshRemaining == true
+        if (p.showPlusTwoTimer or p.showPlusThreeTimer or showRem) and maxTime > 0 then
+            local thSize = p.thresholdSize or 12
+
             local function buildLabel(threshTime, color)
                 local diff = threshTime - elapsed
                 if diff >= 0 then
@@ -1276,45 +1282,110 @@ local function RenderStandalone()
                 return format("|cff999999%s|r", FormatTime(threshTime))
             end
 
-            -- Threshold text sits centered horizontally on its tick mark,
-            -- anchored to the timer bar so it follows the bar exactly.
-            local function place(fs, tickRatio)
+            -- Anchor a FontString centered horizontally at bar-local x = cx,
+            -- in the threshold row above/below the bar (follows the bar exactly).
+            local function placeAt(fs, cx)
                 fs:ClearAllPoints()
-                local tickX = _barW_for_thresh * tickRatio
                 if underBarMode then
                     -- threshold rendered before the bar -> sit above the bar
-                    fs:SetPoint("BOTTOM", f._barBg, "TOPLEFT", tickX, 2)
+                    fs:SetPoint("BOTTOM", f._barBg, "TOPLEFT", cx, 2)
                 else
                     -- threshold rendered after the bar -> sit below the bar
-                    fs:SetPoint("TOP", f._barBg, "BOTTOMLEFT", tickX, -2)
+                    fs:SetPoint("TOP", f._barBg, "BOTTOMLEFT", cx, -2)
                 end
             end
 
+            -- Prepare each visible FontString (text + style) up front so
+            -- GetStringWidth is valid before layout.
             if p.showPlusThreeTimer then
-                SetFS(f._threshFS, p.thresholdSize or 12)
+                SetFS(f._threshFS, thSize)
                 ApplyShadow(f._threshFS)
                 f._threshFS:SetTextColor(1, 1, 1)
                 f._threshFS:SetText(buildLabel(plusThreeT, p.timerPlusThreeColor))
-                place(f._threshFS, plusThreeT / maxTime)
-                f._threshFS:Show()
-            else
-                f._threshFS:Hide()
             end
             if p.showPlusTwoTimer then
-                SetFS(f._threshFS2, p.thresholdSize or 12)
+                SetFS(f._threshFS2, thSize)
                 ApplyShadow(f._threshFS2)
                 f._threshFS2:SetTextColor(1, 1, 1)
                 f._threshFS2:SetText(buildLabel(plusTwoT, p.timerPlusTwoColor))
-                place(f._threshFS2, plusTwoT / maxTime)
-                f._threshFS2:Show()
-            else
-                f._threshFS2:Hide()
             end
+            if showRem then
+                SetFS(f._threshRemFS, thSize)
+                ApplyShadow(f._threshRemFS)
+                -- Same single MM:SS as the timer's text, showing time left in
+                -- the key. Inherits the main timer's color so it reddens on
+                -- depletion just like the big clock.
+                f._threshRemFS:SetTextColor(tR, tG, tB)
+                f._threshRemFS:SetText(FormatTime(timeLeft))
+            end
+
+            if not showRem then
+                -- Unchanged behavior: each threshold text centered on its tick.
+                if p.showPlusThreeTimer then
+                    placeAt(f._threshFS, _barW_for_thresh * (plusThreeT / maxTime))
+                    f._threshFS:Show()
+                else
+                    f._threshFS:Hide()
+                end
+                if p.showPlusTwoTimer then
+                    placeAt(f._threshFS2, _barW_for_thresh * (plusTwoT / maxTime))
+                    f._threshFS2:Show()
+                else
+                    f._threshFS2:Hide()
+                end
+                f._threshRemFS:Hide()
+            else
+                -- Remaining text pinned flush to the bar's right edge; the
+                -- +2/+3 texts prefer their tick centers but are nudged left as
+                -- needed so none of the three ever overlap. Packed right to
+                -- left with a small gap, clamped to the bar's left edge.
+                local GAP = 2
+                local barW = _barW_for_thresh
+                -- Visible set, left to right (plusThree < plusTwo < bar end).
+                local entries = {}
+                if p.showPlusThreeTimer then
+                    entries[#entries + 1] = { fs = f._threshFS, w = f._threshFS:GetStringWidth() or 0,
+                        center = barW * (plusThreeT / maxTime) }
+                else
+                    f._threshFS:Hide()
+                end
+                if p.showPlusTwoTimer then
+                    entries[#entries + 1] = { fs = f._threshFS2, w = f._threshFS2:GetStringWidth() or 0,
+                        center = barW * (plusTwoT / maxTime) }
+                else
+                    f._threshFS2:Hide()
+                end
+                local remW = f._threshRemFS:GetStringWidth() or 0
+                entries[#entries + 1] = { fs = f._threshRemFS, w = remW,
+                    center = barW - remW / 2, pinRight = true }
+
+                -- Right-to-left: each text's right edge must clear the next
+                -- text's left edge (minus GAP). Only shift left, never right,
+                -- so tick-aligned texts stay put when there is room.
+                local limit  -- max allowed right edge for the current text
+                for i = #entries, 1, -1 do
+                    local e = entries[i]
+                    local half = e.w / 2
+                    if (not e.pinRight) and limit then
+                        local right = e.center + half
+                        if right > limit then e.center = limit - half end
+                    end
+                    if e.center - half < 0 then e.center = half end  -- clamp to left edge
+                    limit = (e.center - half) - GAP
+                end
+
+                for _, e in ipairs(entries) do
+                    placeAt(e.fs, e.center)
+                    e.fs:Show()
+                end
+            end
+
             -- Reserve vertical space for the threshold row (height + gap).
-            y = y - (p.thresholdSize or 12) - ROW_GAP
+            y = y - thSize - ROW_GAP
         else
             f._threshFS:Hide()
             f._threshFS2:Hide()
+            f._threshRemFS:Hide()
         end
     end
 
@@ -1475,11 +1546,18 @@ local function RenderStandalone()
             f._timerFS:SetJustifyH("LEFT")
         end
         f._timerFS:ClearAllPoints()
-        -- Fixed-width once per format change: MM:SS is always 5 chars, so
-        -- width only re-measures when the string length changes (e.g. mode swap).
+        -- Pin a constant width so the timer doesn't wobble as digits change (a
+        -- proportional font makes "1" narrower than "8"). We measure a worst-case
+        -- template ("99:99 / 99:99") once per format and reuse it. The font path
+        -- and outline flags are part of the key: without them a late font swap
+        -- (LibSharedMedia load, "Apply to All Game Text", a heavier font) leaves
+        -- the width pinned to the old, narrower measurement and the engine
+        -- ellipsizes the overflow (e.g. "33:00" -> "33:...").
         local _timerSz = p.timerTextSize or 20
         local _fScale = f:GetEffectiveScale() or 1
+        local _fPath, _, _fFlags = f._timerFS:GetFont()
         local _mainKey = #(timerText or "") .. "|" .. _timerSz .. "|" .. string.format("%.3f", _fScale)
+            .. "|" .. (_fPath or "") .. "|" .. (_fFlags or "")
         if f._timerFS._lastLen ~= _mainKey then
             f._timerFS._lastLen = _mainKey
             -- Measure with worst-case digits so SetWidth never clips the live text.
@@ -1491,9 +1569,9 @@ local function RenderStandalone()
             -- the "99:99" template stays visible (bug seen during the
             -- 10-second pre-start window where elapsed stays at 0).
             f._timerFS._lastText = templ
-            -- +2px safety margin: subpixel rounding at non-default UI scales
-            -- can otherwise clip the rightmost glyph and force a wrap.
-            f._timerFS:SetWidth((f._timerFS:GetStringWidth() or 0) + 2)
+            -- +3px safety margin: subpixel rounding at fractional UI scales can
+            -- otherwise clip the rightmost glyph and force a wrap.
+            f._timerFS:SetWidth((f._timerFS:GetStringWidth() or 0) + 3)
             SetTextDiff(f._timerFS, timerText)
         end
 
@@ -1510,15 +1588,19 @@ local function RenderStandalone()
                 f._timerDetailFS:SetJustifyH("LEFT")
             end
             f._timerDetailFS:ClearAllPoints()
-            -- Cache key includes font size: switching modes (12pt detail
-            -- ↔ 20pt detail) must re-measure the templatized width, else
-            -- the larger glyphs get clipped and the detail vanishes.
-            local _detKey = #timerDetailText .. "|" .. detailSize
+            -- Cache key includes font size, scale, and font (path + flags):
+            -- switching modes (12pt detail <-> 20pt detail) or a late font swap
+            -- must re-measure the templatized width, else the larger/wider
+            -- glyphs get clipped and the detail vanishes.
+            local _detScale = f:GetEffectiveScale() or 1
+            local _detPath, _, _detFlags = f._timerDetailFS:GetFont()
+            local _detKey = #timerDetailText .. "|" .. detailSize .. "|" .. string.format("%.3f", _detScale)
+                .. "|" .. (_detPath or "") .. "|" .. (_detFlags or "")
             if f._timerDetailFS._lastKey ~= _detKey then
                 f._timerDetailFS._lastKey = _detKey
                 local templ = timerDetailText:gsub("%d", "9")
                 f._timerDetailFS:SetText(templ)
-                f._timerDetailFS:SetWidth((f._timerDetailFS:GetStringWidth() or 0) + 2)
+                f._timerDetailFS:SetWidth((f._timerDetailFS:GetStringWidth() or 0) + 3)
                 f._timerDetailFS:SetText(timerDetailText)
             end
 

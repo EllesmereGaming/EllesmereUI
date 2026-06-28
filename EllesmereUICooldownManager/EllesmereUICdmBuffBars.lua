@@ -149,6 +149,64 @@ function ns.HookPandemicState(frame)
     end
 end
 
+local PANDEMIC_THRESHOLD = 0.3
+local LIFEBLOOM_SPELL_ID = 33763
+local _lbName               -- cached Lifebloom spell name (resolved lazily once)
+local _scanLast, _scanResult = 0, false
+-- Pandemic fallback for auras Blizzard never flags (currently only Lifebloom).
+-- bar._isLifebloom is resolved once and cached on our own frame: the call site
+-- skips this call entirely once a bar is known not to be Lifebloom, so
+-- non-Lifebloom pandemic-glow bars cost nothing per frame. Only the Lifebloom
+-- bar reaches the throttled unit scan below.
+local function LifebloomPandemic(bar, blzChild)
+    -- Resolve "is this the Lifebloom bar" once and cache it. Spell data can be
+    -- late-loading, so leave the flag nil (retry next frame) until both names
+    -- resolve.
+    if bar._isLifebloom == nil then
+        if not _lbName then _lbName = C_Spell.GetSpellName(LIFEBLOOM_SPELL_ID) end
+        local sid = ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(blzChild)
+        local sName = sid and C_Spell.GetSpellName(sid)
+        if not (_lbName and sName) then return false end
+        bar._isLifebloom = (_lbName == sName)
+    end
+    if not bar._isLifebloom then return false end
+
+    -- Throttle the unit scan to 10/sec; return the cached result if throttled.
+    local now = GetTime()
+    if (now - _scanLast) < 0.1 then return _scanResult end
+
+    local result = false
+    local function check(unit)
+        if not UnitExists(unit) then return end
+        local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, unit, _lbName, "HELPFUL|PLAYER")
+        if not ok or not aura then return end
+        local dur, exp = aura.duration, aura.expirationTime
+        if not dur or not exp then return end
+        local isSec = issecretvalue
+        if isSec and (isSec(dur) or isSec(exp)) then return end -- shouldn't be secret, for safety
+        if dur <= 0 then return end
+        if (exp - now) <= dur * PANDEMIC_THRESHOLD then result = true end
+    end
+
+    -- Player first, then the group; stop as soon as one Lifebloom is in pandemic.
+    check("player")
+    if not result then
+        if IsInRaid() then
+            for i = 1, GetNumGroupMembers() do
+                check("raid" .. i)
+                if result then break end
+            end
+        elseif IsInGroup() then
+            for i = 1, GetNumGroupMembers() do
+                check("party" .. i)
+                if result then break end
+            end
+        end
+    end
+    _scanLast, _scanResult = now, result
+    return result
+end
+
 -------------------------------------------------------------------------------
 --  Popular Buffs (derived from BUFF_BAR_PRESETS, with compat alias)
 -------------------------------------------------------------------------------
@@ -374,6 +432,102 @@ function ns.TBBGroupedCount()
         if ns.TBBBarGrouped(c) then n = n + 1 end
     end
     return n
+end
+
+
+-- Runtime reflow for grouped Tracking Bars.
+-- BuildTrackedBuffBars creates the static group chain, but the tick decides
+-- which bars are currently visible. Reflow only the visible grouped members so
+-- inactive hidden buffs do not leave holes in the chain:
+--   configured order: Buff 1, Buff 2, Buff 3
+--   active:           Buff 2, Buff 3        -> Buff 2 sits at group anchor
+--   active:           Buff 1, Buff 2, Buff 3 -> Buff 1 sits at group anchor,
+--                                              Buff 2/3 move after it
+local _tbbReflow = { visible = {}, lastIdx = {}, lastCount = 0, lastGrow = nil, lastSpacing = nil }
+local function ReflowVisibleGroupedTBBars(tbb, bars)
+    if not (tbb and bars and tbbFrames) then return end
+    -- Don't fight edit-preview (placeholder) or unlock-mode dragging: in those
+    -- modes BuildTrackedBuffBars and the unlock system own bar positions.
+    if ns._tbbPlaceholderMode or EllesmereUI._unlockActive then return end
+
+    local anchorIdx = ns.TBBGroupAnchorIndex and ns.TBBGroupAnchorIndex()
+    if not anchorIdx then return end
+
+    local growDir = ((tbb.groupGrowDirection or "DOWN"):upper())
+    local spacing = tbb.groupSpacing or 2
+
+    -- Collect enabled + checked + currently visible bars in saved hierarchy
+    -- order. A bar with hideWhenInactive=false is visible and therefore keeps its
+    -- slot, which matches the user's choice to show inactive bars. Entry tables
+    -- are pooled and reused across ticks to avoid per-frame allocation in this
+    -- hot (every-16ms) path.
+    local visible = _tbbReflow.visible
+    local count = 0
+    for i, cfg in ipairs(bars) do
+        local f = tbbFrames[i]
+        if cfg and cfg.enabled ~= false and ns.TBBBarGrouped(cfg)
+           and f and f._tbbReady and f:IsShown() then
+            count = count + 1
+            local e = visible[count]
+            if not e then e = {}; visible[count] = e end
+            e.idx = i; e.frame = f
+        end
+    end
+
+    if count == 0 then
+        _tbbReflow.lastCount = 0
+        return
+    end
+
+    -- Re-anchor only when the visible member sequence or the grow/spacing tuple
+    -- changes. Compared element-wise so no string is allocated each tick.
+    local lastIdx = _tbbReflow.lastIdx
+    local changed = count ~= _tbbReflow.lastCount
+        or growDir ~= _tbbReflow.lastGrow or spacing ~= _tbbReflow.lastSpacing
+    if not changed then
+        for n = 1, count do
+            if visible[n].idx ~= lastIdx[n] then changed = true; break end
+        end
+    end
+    if not changed then return end
+    _tbbReflow.lastCount   = count
+    _tbbReflow.lastGrow    = growDir
+    _tbbReflow.lastSpacing = spacing
+    for n = 1, count do lastIdx[n] = visible[n].idx end
+
+    local first = visible[1].frame
+    local anchorFrame = tbbFrames[anchorIdx]
+
+    if anchorFrame and anchorFrame ~= first then
+        -- The configured anchor buff is inactive/hidden: pin the first VISIBLE
+        -- member onto the anchor frame's slot so it takes the group origin. The
+        -- anchor frame keeps whatever position BuildTrackedBuffBars / the unlock
+        -- system gave it (including element anchoring), so this preserves it.
+        first:ClearAllPoints()
+        first:SetPoint("TOPLEFT", anchorFrame, "TOPLEFT", 0, 0)
+    end
+    -- else: the first visible bar IS the anchor -- leave its point untouched.
+    -- BuildTrackedBuffBars and the unlock system already position it and honor
+    -- IsUnlockAnchored, so re-deriving from tbbPositions here would clobber an
+    -- element-anchored group (yanking it to a stale coord or screen center).
+
+    local prev = first
+    for n = 2, count do
+        local f = visible[n].frame
+        f:ClearAllPoints()
+        if growDir == "DOWN" then
+            f:SetPoint("TOP", prev, "BOTTOM", 0, -spacing)
+        elseif growDir == "UP" then
+            f:SetPoint("BOTTOM", prev, "TOP", 0, spacing)
+        elseif growDir == "RIGHT" then
+            f:SetPoint("LEFT", prev, "RIGHT", spacing, 0)
+        elseif growDir == "LEFT" then
+            f:SetPoint("RIGHT", prev, "LEFT", -spacing, 0)
+        else
+            f:SetPoint("TOP", prev, "BOTTOM", 0, -spacing)
+        end
+        prev = f
+    end
 end
 
 -- Fan a width/height change from a grouped bar out to every other grouped bar:
@@ -972,9 +1126,16 @@ local _findChildGeneration = 0
 -- SavedVariables). Prevents frame references from leaking into serialization.
 local _findChildCache = {}
 
+-- Sticky cfg->frame bindings for the one-to-one assignment pass below. Keyed by
+-- cfg table, value is the Blizzard frame last paired to it. Lives in its own
+-- table (never on cfg, which is in SavedVariables) so frame refs don't leak into
+-- serialization. Dropped on cache invalidation (spec swap, pool rebuild).
+local _tbbStickyFrame = {}
+
 function ns.InvalidateTBBFrameCache()
     _findChildGeneration = _findChildGeneration + 1
     wipe(_findChildCache)
+    wipe(_tbbStickyFrame)
 end
 
 local function FindChild(cfg)
@@ -1001,6 +1162,140 @@ local function FindChild(cfg)
     return nil
 end
 ns.FindTBBChild = FindChild
+
+-------------------------------------------------------------------------------
+--  AssignFramesToConfigs
+--
+--  Pairs each tracked-bar config to AT MOST ONE BuffBarCooldownViewer frame,
+--  consuming every frame once so two configs can never mirror the same frame.
+--  This is the fix for multi-variant spells like Eclipse: Solar and Lunar
+--  expose sibling frames that SHARE one cooldownInfo (linkedSpellIDs lists both
+--  variants), so per-config FindChild() greedily binds BOTH configs to whichever
+--  frame enumerates first -- "Lunar shows twice, Solar never" (and the mirror,
+--  double Solar). Going frame-driven mirrors how the icon viewer works: it
+--  decorates one display per Blizzard child instead of matching a stored spell
+--  back to an ambiguous frame.
+--
+--  Three passes, each only over still-unconsumed frames:
+--    1. Sticky  -- reuse last tick's binding. The frame OBJECT identity never
+--                  goes secret, so a pairing locked in out of combat stays put
+--                  when GetAuraSpellID turns secret mid-fight. Revalidated
+--                  against a clean read when one is available (self-heals a
+--                  recycled pool frame); trusted blindly only while secret.
+--    2. Exact   -- per-frame canonical id == the config's spell (clean reads
+--                  pair frameSolar->cfgSolar, frameLunar->cfgLunar). Locks the
+--                  sticky binding for future ticks.
+--    3. Fallback-- cooldownInfo/linkedSpellIDs struct match for configs still
+--                  unpaired (combat with no prior sticky binding). Consumption
+--                  still guarantees no two configs land on the same frame.
+--
+--  Returns a cfg->frame map (a reused module table; copy if you must retain it).
+-------------------------------------------------------------------------------
+local _tbbAssignment   = {}
+local _tbbFrameScratch = {}
+local _tbbConsumed     = {}
+local _tbbFrameSID     = {}  -- frame -> canonical spell id, computed once per call
+
+local function CfgWantsSID(cfg, sid)
+    if not sid then return false end
+    if cfg.spellIDs then
+        for _, s in ipairs(cfg.spellIDs) do if s == sid then return true end end
+        return false
+    end
+    if cfg.spellID and cfg.spellID > 0 then
+        if sid == cfg.spellID then return true end
+        if cfg.baseSpellID and cfg.baseSpellID > 0 and sid == cfg.baseSpellID then return true end
+    end
+    return false
+end
+
+local function FrameIsActive(frames, target)
+    for i = 1, #frames do if frames[i] == target then return true end end
+    return false
+end
+
+local function AssignFramesToConfigs(bars)
+    local assignment = _tbbAssignment
+    wipe(assignment)
+    if not bars then return assignment end
+
+    local viewer = _G["BuffBarCooldownViewer"]
+    if not viewer or not viewer.itemFramePool then return assignment end
+
+    -- Snapshot the active pool once (enumeration is consumed by EnumerateActive)
+    -- and resolve each frame's canonical spell id ONCE here -- the passes below
+    -- would otherwise re-query it O(configs x frames) per tick, and each call
+    -- pcalls live WoW frame APIs. Caching also gives every pass a consistent
+    -- within-tick view of each frame's identity.
+    local GetCanonical = ns.GetCanonicalSpellIDForFrame
+    local frames = _tbbFrameScratch
+    wipe(frames)
+    wipe(_tbbFrameSID)
+    for frame in viewer.itemFramePool:EnumerateActive() do
+        frames[#frames + 1] = frame
+        _tbbFrameSID[frame] = GetCanonical and GetCanonical(frame) or nil
+    end
+
+    local consumed = _tbbConsumed
+    wipe(consumed)
+
+    -- Pass 1: sticky.
+    for _, cfg in ipairs(bars) do
+        local bound = _tbbStickyFrame[cfg]
+        if bound and not consumed[bound] and FrameIsActive(frames, bound) then
+            local sid = _tbbFrameSID[bound]
+            if sid then
+                -- Clean read available: keep only if still the right variant.
+                if CfgWantsSID(cfg, sid) then
+                    assignment[cfg]   = bound
+                    consumed[bound]   = true
+                else
+                    _tbbStickyFrame[cfg] = nil
+                end
+            else
+                -- Secret/combat: trust the binding locked in earlier.
+                assignment[cfg] = bound
+                consumed[bound] = true
+            end
+        end
+    end
+
+    -- Pass 2: exact per-frame identity.
+    for _, cfg in ipairs(bars) do
+        if not assignment[cfg] then
+            for i = 1, #frames do
+                local frame = frames[i]
+                if not consumed[frame] then
+                    local sid = _tbbFrameSID[frame]
+                    if sid and CfgWantsSID(cfg, sid) then
+                        assignment[cfg]      = frame
+                        consumed[frame]      = true
+                        _tbbStickyFrame[cfg] = frame
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    -- Pass 3: cooldownInfo/linkedSpellIDs struct fallback. Do NOT sticky a fuzzy
+    -- match -- let a later clean read re-pair it exactly in pass 2.
+    for _, cfg in ipairs(bars) do
+        if not assignment[cfg] then
+            for i = 1, #frames do
+                local frame = frames[i]
+                if not consumed[frame] and MatchFrameToConfig(frame, cfg) then
+                    assignment[cfg] = frame
+                    consumed[frame] = true
+                    break
+                end
+            end
+        end
+    end
+
+    return assignment
+end
+ns.AssignTBBFramesToConfigs = AssignFramesToConfigs
 
 --- Frame-based check: is a spellID present in BuffBarCooldownViewer?
 --- Iterates the tiny pool (~3-5 frames) and uses MatchesSID for robust
@@ -1408,6 +1703,11 @@ function ns.UpdateTrackedBuffBarTimers()
     end
 
 
+    -- Pair configs to Blizzard frames ONE-TO-ONE up front, consuming each frame
+    -- once. Prevents two configs (e.g. Eclipse Solar + Lunar, which share a
+    -- cooldownInfo) from both mirroring the same frame and showing twice.
+    local assignment = AssignFramesToConfigs(bars)
+
     for i, cfg in ipairs(bars) do
         local bar = tbbFrames[i]
         if not bar or not bar._tbbReady then
@@ -1420,7 +1720,7 @@ function ns.UpdateTrackedBuffBarTimers()
             -- Self-driven 40s lust bar; no Blizzard frame to mirror.
             UpdateLustBar(bar, cfg)
         else
-            local blzChild = FindChild(cfg)
+            local blzChild = assignment[cfg]
             if blzChild then ns.HookPandemicState(blzChild) end
 
             -- Active state must come from the CooldownViewer item's IsActive()
@@ -1562,6 +1862,13 @@ function ns.UpdateTrackedBuffBarTimers()
                     -- pandemic alerts in Blizzard CDM settings.
                     if _anyPandemic and cfg.pandemicGlow then
                         local inPandemic = blzChild and _pandemicState[blzChild]
+                        -- Fallback for auras Blizzard never pandemic-flags
+                        -- (currently only Lifebloom). bar._isLifebloom is cached
+                        -- after the first resolve, so once a bar is known not to
+                        -- be Lifebloom this is a single table read and skips.
+                        if not inPandemic and blzChild and bar._isLifebloom ~= false then
+                            inPandemic = LifebloomPandemic(bar, blzChild)
+                        end
                         -- TBBs always show our glow (including Blizzard Default)
                         -- because Blizzard's native PandemicIcon is on the
                         -- hidden blzChild frame, not our visible TBB bar.
@@ -1619,6 +1926,10 @@ function ns.UpdateTrackedBuffBarTimers()
             end
         end
     end
+
+    -- Re-pack visible grouped Tracking Bars after the active/inactive pass so
+    -- hidden buffs do not reserve a slot in the group.
+    ReflowVisibleGroupedTBBars(tbb, bars)
 
     -- Deferred name fill: if BuildTrackedBuffBars couldn't resolve the spell
     -- name (data not loaded yet), retry here each tick until it succeeds.
@@ -1703,6 +2014,7 @@ function ns.BuildTrackedBuffBars()
     local tbb = ns.GetTrackedBuffBars()
     local bars = tbb.bars
     local _tbbPos = ns.GetTBBPositions()
+    if _tbbReflow then _tbbReflow.lastCount = 0 end
 
     -- Hide bars beyond current count
     for i = #bars + 1, #tbbFrames do
@@ -1806,6 +2118,7 @@ function ns.BuildTrackedBuffBars()
             bar._tbbReady    = true
             bar._isPassive   = nil
             bar._stackCount  = 0
+            bar._isLifebloom = nil  -- re-resolve Lifebloom identity after a rebuild
             bar:Hide()  -- tick will show when active
         end
     end

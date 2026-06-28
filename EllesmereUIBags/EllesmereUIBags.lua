@@ -83,18 +83,28 @@ local function GetCatTitleSize()
     return BP().bagCatTitleSize or 11
 end
 
--- Abbreviate a dungeon name to initials (skip "of", "the", "a")
+-- Abbreviate a dungeon name to initials (skip connector words). The Cyrillic
+-- entries cover localized clients where GetMapUIInfo returns translated names.
 local _dungeonAbbrCache = {}
-local _skipWords = { ["of"] = true, ["the"] = true, ["a"] = true, ["an"] = true }
+local _skipWords = {
+    ["of"] = true, ["the"] = true, ["a"] = true, ["an"] = true,
+    ["из"] = true, ["за"] = true, ["в"] = true, ["на"] = true,
+    ["и"] = true, ["под"] = true, ["с"] = true,
+}
 local function AbbrevDungeon(mapID)
     local cached = _dungeonAbbrCache[mapID]
     if cached then return cached end
     local name = C_ChallengeMode and C_ChallengeMode.GetMapUIInfo and C_ChallengeMode.GetMapUIInfo(mapID)
     if not name or name == "" then return "" end
     local abbr = ""
-    for word in name:gmatch("%S+") do
+    -- Split on whitespace AND hyphens so "Nexus-Point Xenas" abbreviates to NPX.
+    for word in name:gmatch("[^%s%-]+") do
         if not _skipWords[word:lower()] then
-            abbr = abbr .. word:sub(1, 1):upper()
+            -- Take the first whole UTF-8 character: multi-byte (Cyrillic) names
+            -- would be split by sub(1,1). Identical to sub(1,1):upper() for ASCII.
+            local wordUpper = word:upper()
+            local firstChar = wordUpper:match("^[%z\1-\127\194-\244][\128-\191]*")
+            abbr = abbr .. (firstChar or "")
         end
     end
     _dungeonAbbrCache[mapID] = abbr

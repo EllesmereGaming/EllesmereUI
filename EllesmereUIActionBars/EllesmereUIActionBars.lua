@@ -5444,7 +5444,9 @@ local function BuildVisibilityString(info, s, visOverride)
         elseif vis == "out_of_combat" then
             petShow = "[nocombat] show; hide"
         elseif vis == "show_dragonriding" then
-            petShow = "[advflyable,mounted,flying] show; hide"
+            petShow = "[advflyable,flying] show; hide"
+        elseif vis == "show_not_dragonriding" then
+            petShow = "[advflyable,flying] hide; show"
         elseif s.combatShowEnabled then
             petShow = "[combat] show; hide"
         elseif s.combatHideEnabled then
@@ -5482,9 +5484,14 @@ local function BuildVisibilityString(info, s, visOverride)
     elseif vis == "solo" then
         return hidePrefix .. "[nogroup] show; hide"
     elseif vis == "show_dragonriding" then
-        -- Show only while flying on a skyriding mount. The secure state driver
-        -- re-evaluates this automatically (incl. the flying transition).
-        return hidePrefix .. "[advflyable,mounted,flying] show; hide"
+            -- No "mounted": Druid Flight Form is a shapeshift, not a mount, so it
+            -- would never match. This covers skyriding mounts and
+            -- Flight Form (advflyable excludes ordinary flying)
+        return hidePrefix .. "[advflyable,flying] show; hide"
+    elseif vis == "show_not_dragonriding" then
+            -- Exact inverse of show_dragonriding: hide while dragonriding,
+            -- show otherwise. hidePrefix still force-hides in pet battle/vehicle.
+        return hidePrefix .. "[advflyable,flying] hide; show"
     end
     return hidePrefix .. "show"
 end
@@ -5844,6 +5851,140 @@ function EAB:RefreshRuntimeVisibility()
     end
 end
 
+-------------------------------------------------------------------------------
+--  Myslot compatibility
+--  Myslot exports settings by automating a PickupAction + PlaceAction on every
+--  populated action slot (60+ in a row). With bars/buttons that hide empty
+--  slots or use conditional visibility, each pickup/place forces a costly
+--  secure show/hide pass; back-to-back that stalls the client for many seconds.
+--
+--  The user-confirmed cure is the "Visibility: Always + Always Show Buttons"
+--  config, so while Myslot's window is open we apply exactly that to every bar
+--  (the same change the options toggles make). To do it SAFELY we back each
+--  bar's real visibility settings up to the saved variables BEFORE overwriting,
+--  then restore on close. Because the backup is persisted, a /reload (or
+--  logout) with the window still open can never strand the user on "always":
+--  EAB:OnInitialize calls RestoreMyslotBackup unconditionally on the next
+--  login, before any bar is built, so the swap is always undone.
+-------------------------------------------------------------------------------
+-- Settings swapped to force a bar fully visible. Listed once so backup and
+-- overwrite stay in sync. Wrapped in do/end (with the two methods below) so
+-- this stays a block upvalue, not a chunk-level local -- this file sits at
+-- Lua 5.1's 200-local-per-chunk cap.
+do
+local MYSLOT_VIS_FIELDS = {
+    "barVisibility", "alwaysHidden", "mouseoverEnabled", "mouseoverAlpha",
+    "_savedBarAlpha", "combatShowEnabled", "combatHideEnabled", "alwaysShowButtons",
+}
+
+-- Restore real visibility settings from the persisted backup, then clear it.
+-- Safe to call anytime (no-op if no backup). NOT gated on Myslot being enabled,
+-- so it self-heals even if Myslot was disabled since the backup was written.
+function EAB:RestoreMyslotBackup()
+    local backup = self.db and self.db.profile and self.db.profile._myslotVisBackup
+    if not backup then return false end
+    for key, saved in pairs(backup) do
+        local s = self.db.profile.bars[key]
+        if s then
+            for _, f in ipairs(MYSLOT_VIS_FIELDS) do s[f] = saved[f] end
+        end
+    end
+    self.db.profile._myslotVisBackup = nil
+    return true
+end
+
+function EAB:SetMyslotForceShow(on)
+    on = not not on
+    -- The persisted backup's presence IS the "are we forcing" state, so this
+    -- survives /reload without a separate flag.
+    local forcing = self.db.profile._myslotVisBackup ~= nil
+    if on == forcing then return end
+
+    if on then
+        -- Capture real values and PERSIST the backup BEFORE overwriting, so the
+        -- backup always exists if any field was changed (crash/reload-safe).
+        local backup = {}
+        for _, info in ipairs(BAR_CONFIG) do
+            local s = self.db.profile.bars[info.key]
+            if s then
+                local saved = {}
+                for _, f in ipairs(MYSLOT_VIS_FIELDS) do saved[f] = s[f] end
+                backup[info.key] = saved
+            end
+        end
+        self.db.profile._myslotVisBackup = backup
+        -- Overwrite to "always" + "always show buttons" (mirrors the options'
+        -- ApplyVisibilityKey("always"), incl. restoring a mouseover bar's real
+        -- alpha so it doesn't stay faded).
+        for _, info in ipairs(BAR_CONFIG) do
+            local s = self.db.profile.bars[info.key]
+            if s then
+                local wasMouseover = s.mouseoverEnabled
+                s.barVisibility = "always"
+                s.alwaysHidden = false
+                s.mouseoverEnabled = false
+                if wasMouseover and s._savedBarAlpha then
+                    s.mouseoverAlpha = s._savedBarAlpha
+                    s._savedBarAlpha = nil
+                end
+                s.combatShowEnabled = false
+                s.combatHideEnabled = false
+                s.alwaysShowButtons = true
+            end
+        end
+    else
+        self:RestoreMyslotBackup()
+    end
+
+    -- Re-apply -- the same calls the options "Visibility"/"Always Show Buttons"
+    -- toggles make, now that the real settings reflect the desired state.
+    if not InCombatLockdown() then
+        self:RefreshRuntimeVisibility()
+        self:RefreshMouseover()
+        self:ApplyCombatVisibility()
+        for _, info in ipairs(BAR_CONFIG) do
+            self:ApplyAlwaysShowButtons(info.key)
+        end
+    end
+    if EllesmereUI and EllesmereUI.RefreshPage then EllesmereUI:RefreshPage() end
+end
+end -- do: MYSLOT_VIS_FIELDS scope
+
+do
+    -- Only wire up the integration when the user has Myslot enabled. When it is
+    -- not, the watcher is never created and SetMyslotForceShow never runs, so no
+    -- settings are ever swapped. (The OnInitialize restore still runs regardless,
+    -- so a leftover backup from when Myslot was enabled always self-heals.)
+    local function MyslotEnabled()
+        if C_AddOns and C_AddOns.GetAddOnEnableState then
+            return C_AddOns.GetAddOnEnableState("Myslot") > 0
+        end
+        return true
+    end
+    if MyslotEnabled() then
+        -- Myslot exposes its main window via LibStub("Myslot-5.0").MainFrame.
+        -- Hook its show/hide to toggle the force-show override. No-op if Myslot
+        -- exposes no frame.
+        local hooked = false
+        local function TryHookMyslot()
+            if hooked or not LibStub then return hooked end
+            local lib = LibStub:GetLibrary("Myslot-5.0", true)
+            local frame = lib and lib.MainFrame
+            if not frame then return false end
+            hooked = true
+            frame:HookScript("OnShow", function() EAB:SetMyslotForceShow(true) end)
+            frame:HookScript("OnHide", function() EAB:SetMyslotForceShow(false) end)
+            if frame:IsShown() then EAB:SetMyslotForceShow(true) end
+            return true
+        end
+        local watcher = CreateFrame("Frame")
+        watcher:RegisterEvent("PLAYER_LOGIN")
+        watcher:RegisterEvent("ADDON_LOADED")
+        watcher:SetScript("OnEvent", function()
+            if TryHookMyslot() then watcher:UnregisterAllEvents() end
+        end)
+    end
+end
 
 -------------------------------------------------------------------------------
 --  "Toggle Action Bar" visibility keybind
@@ -7909,6 +8050,12 @@ function EAB:OnInitialize()
     -- Expose for ApplyAnchorPosition's growth-direction edge read.
     EllesmereUI._abBarPositions = self.db.profile.barPositions
 
+    -- Myslot safety net: if a previous session ended while Myslot's window was
+    -- open (e.g. /reload), the real bar visibility settings were swapped to
+    -- "always". Restore them now -- before any bar is built -- so the swap can
+    -- never persist. Unconditional (see EAB:SetMyslotForceShow).
+    self:RestoreMyslotBackup()
+
     -- Mark whether we need to capture Blizzard layout on first install.
     -- The actual capture is deferred to PLAYER_ENTERING_WORLD when
     -- Edit Mode has fully applied bar positions/sizes.
@@ -9054,6 +9201,38 @@ function EAB:FinishSetup()
     _petEventFrame:RegisterUnitEvent("UNIT_PET", "player")
     _petEventFrame:RegisterUnitEvent("UNIT_AURA", "pet")
     _petEventFrame:SetScript("OnEvent", UpdatePetBar)
+
+    -- Stance bar GCD / cooldown swipe.
+    --
+    -- Blizzard drives the shapeshift cooldown swipe exclusively through the
+    -- StanceBar frame's UPDATE_SHAPESHIFT_COOLDOWN -> StanceBarMixin:UpdateState.
+    -- HideBlizzardBars() unregisters all events on the StanceBar frame, so that
+    -- path is dead. The swipe only ever appeared by accident: a bar transition
+    -- (form change, Ascendance, etc.) makes ValidateActionBarTransition re-Show()
+    -- StanceBar, whose OnShow -> Update -> UpdateState sets the cooldown on the
+    -- (reparented but identical) StanceButton frames before our OnShow hook
+    -- re-hides the now-empty bar. A plain GCD from a spell that does NOT change
+    -- form fires UPDATE_SHAPESHIFT_COOLDOWN with no transition, so nothing ran
+    -- and the form-lockout swipe was invisible.
+    --
+    -- Mirror Blizzard's cooldown update directly on our reused StanceButtons.
+    -- Visual-only (CooldownFrame_Set touches no protected state), so it is safe
+    -- during combat, same as the pet PET_BAR_UPDATE_COOLDOWN path above.
+    local function UpdateStanceCooldowns()
+        local numForms = GetNumShapeshiftForms()
+        for i = 1, numForms do
+            local btn = _G["StanceButton" .. i]
+            if btn and btn.cooldown then
+                local start, duration, enable = GetShapeshiftFormCooldown(i)
+                CooldownFrame_Set(btn.cooldown, start, duration, enable)
+            end
+        end
+    end
+    local _stanceEventFrame = CreateFrame("Frame")
+    _stanceEventFrame:RegisterEvent("UPDATE_SHAPESHIFT_COOLDOWN")
+    _stanceEventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+    _stanceEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    _stanceEventFrame:SetScript("OnEvent", UpdateStanceCooldowns)
 
 
     -- Talent changes can cause Blizzard to re-show hidden bars.
@@ -11059,4 +11238,3 @@ end)
         C_Timer.After(0.5, ScanABSwiftmend)
     end)
 end)()
-

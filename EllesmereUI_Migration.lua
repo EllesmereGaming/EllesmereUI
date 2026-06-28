@@ -448,6 +448,162 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- Consolidate the auto-seeded per-profile CDM buckets (created by the migration
+-- above) into spell LAYOUTS: collapse identical duplicates into one, KEEP any
+-- genuinely-different setups as their own layouts, and back up the originals.
+-- The per-profile seeding copied one CDM setup into every profile, so users
+-- otherwise see a redundant layout per profile. Only touches auto-seeded buckets
+-- (no `meta`); user-created/imported layouts (which have `meta`) are left alone.
+EllesmereUI.RegisterMigration({
+    id          = "cdm_consolidate_profile_layouts_v1",
+    scope       = "global",
+    description = "Collapse identical auto-seeded per-profile CDM buckets into single spell layouts; keep distinct ones; dormant backup at spellAssignments._preConsolidateBackup.",
+    body        = function(ctx)
+        local db = ctx.db
+        local sa = db and db.spellAssignments
+        if not sa or type(sa.profiles) ~= "table" then return end
+        local DeepCopy = EllesmereUI._DeepCopy or (EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy)
+
+        -- Deep value-equality, IGNORING "_"-prefixed bookkeeping keys (e.g.
+        -- _migrations) so two seeded copies that only differ in migration flags
+        -- still count as identical.
+        local function ContentEqual(a, b)
+            if type(a) ~= type(b) then return false end
+            if type(a) ~= "table" then return a == b end
+            for k, v in pairs(a) do
+                if not (type(k) == "string" and k:sub(1, 1) == "_") then
+                    if not ContentEqual(v, b[k]) then return false end
+                end
+            end
+            for k in pairs(b) do
+                if not (type(k) == "string" and k:sub(1, 1) == "_") then
+                    if a[k] == nil then return false end
+                end
+            end
+            return true
+        end
+
+        -- Auto-seeded buckets have no `meta`; user-created layouts do. Only the
+        -- seeded ones are candidates for consolidation.
+        local seeded = {}
+        for name, bucket in pairs(sa.profiles) do
+            if type(bucket) == "table" and not bucket.meta then
+                seeded[#seeded + 1] = name
+            end
+        end
+        if #seeded <= 1 then return end  -- nothing to collapse
+
+        -- One-time dormant backup of every bucket (safety net; recoverable).
+        if DeepCopy and not sa._preConsolidateBackup then
+            sa._preConsolidateBackup = DeepCopy(sa.profiles)
+        end
+
+        -- Process the active profile first so its name is the kept representative
+        -- for the live setup; rest alphabetically for determinism.
+        local activeName = db.activeProfile or "Default"
+        table.sort(seeded)
+        local ordered = {}
+        if sa.profiles[activeName] and not sa.profiles[activeName].meta then
+            ordered[#ordered + 1] = activeName
+        end
+        for _, n in ipairs(seeded) do
+            if n ~= activeName then ordered[#ordered + 1] = n end
+        end
+
+        local kept = {}
+        local repOf = {}   -- every processed seeded name -> its surviving layout
+        for _, name in ipairs(ordered) do
+            local bucket = sa.profiles[name]
+            local rep
+            for _, kn in ipairs(kept) do
+                if ContentEqual(sa.profiles[kn].specProfiles or {}, bucket.specProfiles or {}) then
+                    rep = kn; break
+                end
+            end
+            if rep then
+                sa.profiles[name] = nil   -- identical duplicate: drop it
+                repOf[name] = rep
+            else
+                kept[#kept + 1] = name
+                repOf[name] = name
+            end
+        end
+
+        -- The active layout is remembered PER EUI PROFILE: point each profile at
+        -- the surviving layout holding its own (pre-consolidation) CDM, so
+        -- switching profiles loads that profile's setup. Don't clobber a pointer
+        -- the user already set.
+        sa.activeLayoutByProfile = sa.activeLayoutByProfile or {}
+        if db.profiles then
+            for pname in pairs(db.profiles) do
+                if not sa.activeLayoutByProfile[pname] and repOf[pname] then
+                    sa.activeLayoutByProfile[pname] = repOf[pname]
+                end
+            end
+        end
+        local activeRep = repOf[activeName] or kept[1] or activeName
+        if not sa.activeLayoutByProfile[activeName] then
+            sa.activeLayoutByProfile[activeName] = activeRep
+        end
+        -- Global last-active = default for any profile without a pointer yet.
+        if not sa.activeLayout or not sa.profiles[sa.activeLayout] then
+            sa.activeLayout = activeRep
+        end
+    end,
+})
+
+-- Detach CDM spell layouts from profiles. Converts the implicit per-profile
+-- active-layout map (activeLayoutByProfile) into OPT-IN bindings (profileBindings)
+-- plus a single account-wide active layout. Behavior-identical on update: every
+-- profile is bound to exactly the layout it used, so swapping profiles still
+-- auto-activates that layout. The user detaches by removing bindings.
+-- Runs AFTER cdm_consolidate_profile_layouts_v1 (registration order), so it
+-- inherits the deduped layouts + per-profile pointers.
+EllesmereUI.RegisterMigration({
+    id          = "cdm_detach_spell_layouts_v1",
+    scope       = "global",
+    description = "Convert per-profile active CDM spell layouts (activeLayoutByProfile) into opt-in profile bindings + a single account-wide active layout. Zero behavior change.",
+    body = function(ctx)
+        local db = ctx.db
+        local sa = db and db.spellAssignments
+        if type(sa) ~= "table" then return end
+        local byProfile = sa.activeLayoutByProfile
+        sa.profileBindings = sa.profileBindings or {}
+        if type(byProfile) == "table" then
+            for prof, layout in pairs(byProfile) do
+                if type(prof) == "string" and type(layout) == "string"
+                   and type(sa.profiles) == "table" and type(sa.profiles[layout]) == "table" then
+                    -- Don't clobber a binding the user may already have set.
+                    if sa.profileBindings[prof] == nil then
+                        sa.profileBindings[prof] = layout
+                    end
+                end
+            end
+        end
+        -- Account-wide active = the current profile's layout, so the live CDM is
+        -- byte-for-byte unchanged on this character. Fall back to the old global
+        -- pointer, then any valid layout.
+        local cur = db.activeProfile or "Default"
+        local active = sa.profileBindings[cur]
+        if type(active) ~= "string" or not (sa.profiles and sa.profiles[active]) then
+            if type(sa.activeLayout) == "string" and sa.profiles and sa.profiles[sa.activeLayout] then
+                active = sa.activeLayout
+            else
+                active = nil
+                if type(sa.profiles) == "table" then
+                    for n, v in pairs(sa.profiles) do if type(v) == "table" then active = n; break end end
+                end
+            end
+        end
+        sa.activeLayout = active
+        -- Retire the old per-profile resolution table (back up first, then clear).
+        if byProfile then
+            sa._preDetachBackup = byProfile
+            sa.activeLayoutByProfile = nil
+        end
+    end,
+})
+
 EllesmereUI.RegisterMigration({
     id          = "quest_tracker_sec_color_default",
     scope       = "profile",
@@ -2504,6 +2660,30 @@ EllesmereUI.RegisterMigration({
         db.syncedModules = {}
         if count >= 2 then
             db.syncedModules.EllesmereUIBags = carried
+        end
+    end,
+})
+
+-- Custom colours are gaining an opt-in "Save Colors Per Profile" mode. Seed every
+-- existing profile's customColors from the current account-wide table so that, the
+-- moment the mode is enabled, every profile starts with identical colours (no
+-- jarring change). The global EllesmereUIDB.customColors is left intact and stays
+-- the source of truth while the mode is off. One-time, account-wide overwrite --
+-- prior per-profile customColors snapshots were inert (never restored) so there is
+-- nothing meaningful to preserve.
+EllesmereUI.RegisterMigration({
+    id          = "global_colors_per_profile_seed_v1",
+    scope       = "global",
+    description = "Seed every profile's customColors from the global table for the opt-in per-profile colours mode.",
+    body        = function(ctx)
+        local db = ctx.db
+        if not db or type(db.customColors) ~= "table" or type(db.profiles) ~= "table" then return end
+        local DeepCopy = EllesmereUI._DeepCopy or (EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy)
+        if not DeepCopy then return end
+        for _, pd in pairs(db.profiles) do
+            if type(pd) == "table" then
+                pd.customColors = DeepCopy(db.customColors)
+            end
         end
     end,
 })

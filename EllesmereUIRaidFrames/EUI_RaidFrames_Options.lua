@@ -526,6 +526,45 @@ initFrame:SetScript("OnEvent", function(self)
     local absorbStyleOrder = { "none", "striped", "stripedReversed", "clean", "blizzard", "blizzardModern", "largeStripes", "largeStripesR" }
     -- Heal absorb shares the values table but EXCLUDES Blizzard (Modern).
     local healAbsorbStyleOrder = { "none", "striped", "stripedReversed", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR" }
+    -- Max Health mirrors Heal Absorb plus the dedicated "Max Health Stripes" first.
+    local maxHealthStyleOrder = { "none", "maxHealthStripes", "striped", "stripedReversed", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR" }
+    -- Append SharedMedia statusbar textures after a divider, mirroring the Bar
+    -- Texture dropdown. SM keys ("sm:" prefixed) were appended to the shared
+    -- health-bar tables by AppendSharedMediaTextures; render-time resolution
+    -- flows through ns.ResolveAbsorbStyleTex -> the health-bar texture lookup.
+    -- All three dropdowns share absorbStyleValues, so each gains the SM entries
+    -- and the preview swatch.
+    do
+        if EllesmereUI.AppendSharedMediaTextures then
+            EllesmereUI.AppendSharedMediaTextures(
+                ns.healthBarTextureNames or {}, ns.healthBarTextureOrder or {}, nil, ns.healthBarTextures)
+        end
+        local smNames = ns.healthBarTextureNames or {}
+        local smKeys = {}
+        for _, k in ipairs(ns.healthBarTextureOrder or {}) do
+            if type(k) == "string" and k:find("^sm:") then
+                smKeys[#smKeys + 1] = k
+                absorbStyleValues[k] = smNames[k] or k
+            end
+        end
+        if #smKeys > 0 then
+            for _, ord in ipairs({ absorbStyleOrder, healAbsorbStyleOrder, maxHealthStyleOrder }) do
+                ord[#ord + 1] = "---"
+                for _, k in ipairs(smKeys) do ord[#ord + 1] = k end
+            end
+        end
+        -- Preview swatch behind each menu row. Special compound keys resolve to
+        -- their representative texture; everything else via ns.ResolveAbsorbStyleTex.
+        absorbStyleValues._menuOpts = {
+            itemHeight = 28,
+            background = function(key)
+                if not key or key == "---" or key == "none" then return nil end
+                if key == "blizzardModern" then return ns.ResolveAbsorbStyleTex("striped") end
+                if key == "maxHealthStripes" then return "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png" end
+                return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex(key) or nil
+            end,
+        }
+    end
 
     local growthValues = {
         DOWN  = "Down",
@@ -1394,6 +1433,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Backing Opacity", min=0, max=100, step=1,
                       get=function() return SVal("healAbsorbBgOpacity", 25) end,
                       set=function(v) SSet("healAbsorbBgOpacity", v) end },
+                    { type="toggle", label="Show Over Dispels",
+                      get=function() return SVal("healAbsorbOverDispel", false) == true end,
+                      set=function(v) SSet("healAbsorbOverDispel", v) end },
                 },
             })
             local cogBtn = CreateFrame("Button", nil, rgn)
@@ -1458,7 +1500,7 @@ initFrame:SetScript("OnEvent", function(self)
             local maxHealthRow
             maxHealthRow, h = W:DualRow(parent, y,
                 { type="dropdown", text="Max Health Style", values=absorbStyleValues,
-                  order={ "none", "maxHealthStripes", "striped", "stripedReversed", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR" },
+                  order=maxHealthStyleOrder,
                   getValue=function() return SVal("maxHealthStyle", "maxHealthStripes") end,
                   setValue=function(v) SSet("maxHealthStyle", v); EllesmereUI:RefreshPage() end },
                 { type="slider", text="Max Health Opacity", min=5, max=100, step=1,
@@ -2015,6 +2057,116 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
+
+        -- Row 4: Heal Absorb Text (+ color swatches) | Heal Absorb Text Position
+        -- (+ offset cog). Row 5: Heal Absorb Text Size. 1:1 with Health Text; the
+        -- text shows the heal-absorb shield amount (short/full), hidden at zero.
+        row, h = W:DualRow(parent, y,
+            { type="dropdown", text="Heal Absorb Text",
+              values={ ["none"]="None", ["short"]="Short (240k)", ["amount"]="Amount" },
+              order={ "none", "short", "amount" },
+              getValue=function() return SVal("healAbsorbTextMode", "none") end,
+              setValue=function(v) SSet("healAbsorbTextMode", v); EllesmereUI:RefreshPage() end },
+            { type="dropdown", text="Heal Absorb Text Position", values=namePositionValues, order=namePositionOrder,
+              disabled=function() return SVal("healAbsorbTextMode", "none") == "none" end,
+              disabledTooltip="Heal Absorb Text",
+              getValue=function() return SVal("healAbsorbTextPosition", "center") end,
+              setValue=function(v) SSet("healAbsorbTextPosition", v) end });  y = y - h
+        -- Inline color swatches for Heal Absorb Text color (custom / class / accent),
+        -- mirroring the Health Text triple swatch.
+        do
+            local rgn = row._leftRegion
+            local function AddHASwatch(getColor, setColor, mode, opensPicker, tooltip)
+                local sw = EllesmereUI.BuildColorSwatch(
+                    rgn, row:GetFrameLevel() + 3, getColor, setColor, false, 20)
+                sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                rgn._lastInline = sw
+                sw._eabOrigClick = sw:GetScript("OnClick")
+                sw:SetScript("OnClick", function(self)
+                    if SVal("healAbsorbTextColorMode", "custom") ~= mode then
+                        SSet("healAbsorbTextColorMode", mode)
+                        EllesmereUI:RefreshPage()
+                        return
+                    end
+                    if opensPicker and self._eabOrigClick then self._eabOrigClick(self) end
+                end)
+                if tooltip then
+                    sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, tooltip) end)
+                    sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                end
+                local function vis()
+                    sw:SetAlpha(SVal("healAbsorbTextColorMode", "custom") == mode and 1 or 0.3)
+                end
+                EllesmereUI.RegisterWidgetRefresh(vis)
+                vis()
+            end
+            -- Custom (rightmost): editable color, opens the picker when active.
+            AddHASwatch(
+                function()
+                    local c = SGet("healAbsorbTextCustomColor")
+                    if c then return c.r, c.g, c.b, 1 end
+                    return 1, 0.3, 0.3, 1
+                end,
+                function(r, g, b)
+                    SWrite("healAbsorbTextCustomColor", { r=r, g=g, b=b })
+                    ReloadAndUpdate()
+                end, "custom", true, "Custom Color")
+            -- Class color.
+            AddHASwatch(
+                function()
+                    local _, ct = UnitClass("player")
+                    if ct and RAID_CLASS_COLORS[ct] then
+                        local cc = RAID_CLASS_COLORS[ct]
+                        return cc.r, cc.g, cc.b, 1
+                    end
+                    return 1, 1, 1, 1
+                end,
+                function() end, "class", false, "Class Color")
+            -- Accent color (leftmost).
+            AddHASwatch(
+                function()
+                    local r, g, b = EllesmereUI.ResolveThemeColor(EllesmereUI.GetActiveTheme())
+                    return r or 1, g or 1, b or 1, 1
+                end,
+                function() end, "accent", false, "Accent Color")
+        end
+        -- Offset cog on the Heal Absorb Text Position region (right of Row 4)
+        do
+            local rgn = row._rightRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Heal Absorb Text Offset",
+                rows = {
+                    { type="slider", label="Offset X", min=-50, max=50, step=1,
+                      get=function() return SVal("healAbsorbTextOffsetX", 0) end,
+                      set=function(v) SSet("healAbsorbTextOffsetX", v) end },
+                    { type="slider", label="Offset Y", min=-50, max=50, step=1,
+                      get=function() return SVal("healAbsorbTextOffsetY", 0) end,
+                      set=function(v) SSet("healAbsorbTextOffsetY", v) end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            local haOff = SVal("healAbsorbTextMode", "none") == "none"
+            cogBtn:SetAlpha(haOff and 0.15 or 0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(s)
+                s:SetAlpha(SVal("healAbsorbTextMode", "none") == "none" and 0.15 or 0.4)
+            end)
+            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
+        end
+        -- Row 5: Heal Absorb Text Size | (blank odd last slot)
+        row, h = W:DualRow(parent, y,
+            { type="slider", text="Heal Absorb Text Size", min=6, max=26, step=1,
+              disabled=function() return SVal("healAbsorbTextMode", "none") == "none" end,
+              disabledTooltip="Heal Absorb Text",
+              getValue=function() return SVal("healAbsorbTextSize", 9) end,
+              setValue=function(v) SSet("healAbsorbTextSize", v) end },
+            { type="label", text="" });  y = y - h
 
         -------------------------------------------------------------------
         --  INDICATORS
@@ -2734,7 +2886,102 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return not SVal("dispelShowAll", true) end,
               setValue=function(v) SSet("dispelShowAll", not v) end });  y = y - h
 
-        -- Private Dispel Overlay Position (for private auras in 12.0.5+)
+        -- Dispellable Debuff Location: route dispellable debuffs to their own
+        -- anchor + growth (separate from the main debuff display). "Same as
+        -- Debuffs" keeps them in the normal debuff layout (no change).
+        local dispLocValues = {
+            same        = "Same as Debuffs",
+            topleft     = "Top Left",
+            top         = "Top",
+            topright    = "Top Right",
+            left        = "Left",
+            center      = "Center",
+            right       = "Right",
+            bottomleft  = "Bottom Left",
+            bottom      = "Bottom",
+            bottomright = "Bottom Right",
+        }
+        local dispLocOrder = { "same", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+        local dispGrowValues = { RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down", CENTER = "Center" }
+        local dispGrowOrder = { "RIGHT", "LEFT", "UP", "DOWN", "CENTER" }
+        local function GetDefaultDispGrow(pos)
+            if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
+            if pos == "left" or pos == "topleft" or pos == "bottomleft" then return "RIGHT" end
+            if pos == "top" then return "DOWN" end
+            if pos == "bottom" then return "UP" end
+            return "RIGHT"
+        end
+        local function dispLocOff() return SVal("dispellableDebuffLocation", "same") == "same" end
+
+        row, h = W:DualRow(parent, y,
+            { type="dropdown", text="Dispellable Debuff Location", values=dispLocValues, order=dispLocOrder,
+              getValue=function() return SVal("dispellableDebuffLocation", "same") end,
+              setValue=function(v)
+                  SSet("dispellableDebuffLocation", v)
+                  if v ~= "same" then SSet("dispellableDebuffGrowDirection", GetDefaultDispGrow(v)) end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="toggle", text="Dispel Clock Border",
+              getValue=function() return SVal("dispelClockBorder", false) end,
+              setValue=function(v) SSet("dispelClockBorder", v); EllesmereUI:RefreshPage() end }
+        ); y = y - h
+        -- Left cog: Dispellable Debuff Location growth direction + X/Y offsets.
+        -- Only interactive when a separate location is chosen (not "Same as Debuffs").
+        do
+            local rgn = row._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Dispellable Debuff Location",
+                rows = {
+                    { type="dropdown", label="Growth Direction", values=dispGrowValues, order=dispGrowOrder,
+                      get=function() return SVal("dispellableDebuffGrowDirection", "RIGHT") end,
+                      set=function(v) SSet("dispellableDebuffGrowDirection", v) end },
+                    { type="slider", label="Offset X", min=-50, max=50, step=1,
+                      get=function() return SVal("dispellableDebuffOffsetX", 0) end,
+                      set=function(v) SSet("dispellableDebuffOffsetX", v) end },
+                    { type="slider", label="Offset Y", min=-50, max=50, step=1,
+                      get=function() return SVal("dispellableDebuffOffsetY", 0) end,
+                      set=function(v) SSet("dispellableDebuffOffsetY", v) end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(dispLocOff() and 0.15 or 0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
+            cogBtn:SetScript("OnEnter", function(self) if not dispLocOff() then self:SetAlpha(0.7) end end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(dispLocOff() and 0.15 or 0.4) end)
+            cogBtn:SetScript("OnClick", function(self) if not dispLocOff() then cogShow(self) end end)
+        end
+        -- Right cog on the toggle: Extra Border Size (physical px on top of the
+        -- main debuff border size). Only interactive while the toggle is on.
+        do
+            local rgn = row._rightRegion
+            local function clockOn() return SVal("dispelClockBorder", false) end
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Dispel Clock Border",
+                rows = {
+                    { type="slider", label="Extra Border Size", min=0, max=4, step=1,
+                      get=function() return SVal("dispelClockExtraBorder", 0) end,
+                      set=function(v) SSet("dispelClockExtraBorder", v) end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(clockOn() and 0.4 or 0.15)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
+            cogBtn:SetScript("OnEnter", function(self) if clockOn() then self:SetAlpha(0.7) end end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(clockOn() and 0.4 or 0.15) end)
+            cogBtn:SetScript("OnClick", function(self) if clockOn() then cogShow(self) end end)
+        end
+
+        -- Private Dispel Overlay Position (moved here, below the location row).
         local dispelOverlayPosValues = {
             [0] = "Top",
             [1] = "Bottom",
@@ -2952,7 +3199,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(lbl, GetUseShadow()) end
                 lbl:SetFont(EllesmereUI.GetFontPath("raidFrames"), 13, GetOutline())
                 lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
-                lbl:SetText("Move Frames")
+                lbl:SetText(EllesmereUI.L("Move Frames"))
 
                 -- Inline cog: Free Move layout options (created before
                 -- UpdateMoveBtn so its closure captures the local)
@@ -2994,7 +3241,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 local function UpdateMoveBtn()
                     local active = ns.FB_IsMoverShown and ns.FB_IsMoverShown()
-                    lbl:SetText(active and "Stop Moving" or "Move Frames")
+                    lbl:SetText(active and EllesmereUI.L("Stop Moving") or EllesmereUI.L("Move Frames"))
                     btn:SetAlpha(MoveAllowed() and 1 or 0.35)
                     local freeOn = FBEnabled() and FBSet().position == "free"
                     cogBtn:SetAlpha(freeOn and 0.4 or 0.15)
@@ -3141,7 +3388,7 @@ initFrame:SetScript("OnEvent", function(self)
                 kbLbl:SetPoint("CENTER")
 
                 local function FormatKey(key)
-                    if not key then return "Not Bound" end
+                    if not key then return EllesmereUI.L("Not Bound") end
                     local parts = {}
                     for mod in key:gmatch("(%u+)%-") do
                         parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
@@ -3275,7 +3522,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(lbl, GetUseShadow()) end
                 lbl:SetFont(EllesmereUI.GetFontPath("raidFrames"), 13, GetOutline())
                 lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
-                lbl:SetText("Move Frames")
+                lbl:SetText(EllesmereUI.L("Move Frames"))
 
                 -- Inline cog: Free Move layout options (created before
                 -- UpdateMoveBtn so its closure captures the local)
@@ -3314,7 +3561,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 local function UpdateMoveBtn()
                     local active = ns.XF_IsMoverShown and ns.XF_IsMoverShown()
-                    lbl:SetText(active and "Stop Moving" or "Move Frames")
+                    lbl:SetText(active and EllesmereUI.L("Stop Moving") or EllesmereUI.L("Move Frames"))
                     btn:SetAlpha(MoveAllowed() and 1 or 0.35)
                     local freeOn = XFConfigured() and XFSet().position == "free"
                     cogBtn:SetAlpha(freeOn and 0.4 or 0.15)
@@ -3916,8 +4163,18 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
 
+            -- Auto Resize Icons: checkbox dropdown over the existing
+            -- autoResizeIndicators key ("Indicators & Auras") plus the
+            -- autoResizeTrackedBuffs key ("Tracked Buffs"). Pure view -- no
+            -- migration; existing autoResizeIndicators values are preserved and
+            -- Tracked Buffs defaults on (matching the prior always-on behavior).
+            local autoResizeRow
+            local autoResizeSlot = { type="dropdown", text="Auto Resize Icons",
+                values={ __placeholder = "All" }, order={ "__placeholder" },
+                getValue=function() return "__placeholder" end,
+                setValue=function() end }
             if #availableTiers > 0 then
-                _, h = W:DualRow(parent, y,
+                autoResizeRow, h = W:DualRow(parent, y,
                     { type="dropdown", text="Add Custom Raid Size",
                       tooltip="This option allows you to set custom frame sizing and positioning to different raid sizes. Note: This does NOT resize/reposition frames while in combat, if players join/leave mid combat it will resize after combat completes.",
                       values=availableValues, order=availableOrder,
@@ -3936,21 +4193,34 @@ initFrame:SetScript("OnEvent", function(self)
                           ReloadAndUpdate()
                           EllesmereUI:RefreshPage(true)
                       end },
-                    { type="toggle", text="Auto Resize Indicators & Auras",
-                      getValue=function() return SVal("autoResizeIndicators", false) end,
-                      setValue=function(v) SSet("autoResizeIndicators", v) end });  y = y - h
-                -- Tooltip for Auto Resize Indicators
-                do
-                    local rgn = row and row._rightRegion
-                    -- The toggle already has built-in tooltip support via the widget system
-                end
+                    autoResizeSlot);  y = y - h
             else
-                -- All tiers added, just show Auto Resize Indicators
-                _, h = W:DualRow(parent, y,
+                -- All tiers added, just show Auto Resize Icons
+                autoResizeRow, h = W:DualRow(parent, y,
                     { type="label", text="" },
-                    { type="toggle", text="Auto Resize Indicators & Auras",
-                      getValue=function() return SVal("autoResizeIndicators", false) end,
-                      setValue=function(v) SSet("autoResizeIndicators", v) end });  y = y - h
+                    autoResizeSlot);  y = y - h
+            end
+            -- Overlay the checkbox dropdown onto the right region (mirrors the
+            -- "Hover Borders" conversion pattern).
+            do
+                local rightRgn = autoResizeRow._rightRegion
+                if rightRgn._control then rightRgn._control:Hide() end
+                local arKeyMap = { indicators = "autoResizeIndicators", trackedBuffs = "autoResizeTrackedBuffs" }
+                local arItems = {
+                    { key = "indicators",   label = "Indicators & Auras" },
+                    { key = "trackedBuffs", label = "Tracked Buffs" },
+                }
+                local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
+                    rightRgn, 170, rightRgn:GetFrameLevel() + 2,
+                    arItems,
+                    function(k)
+                        -- Tracked Buffs defaults on; Indicators & Auras defaults off.
+                        if k == "trackedBuffs" then return SVal(arKeyMap[k], true) end
+                        return SVal(arKeyMap[k], false)
+                    end,
+                    function(k, v) SSet(arKeyMap[k], v) end)
+                PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+                rightRgn._control = cbDD
             end
         end
 
@@ -4615,14 +4885,42 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return db.profile.partyHideSelf or false end,
               setValue=function(v) db.profile.partyHideSelf = v; PartyReloadAndUpdate() end });  y = y - h
 
-        -- Row 5: Auto Resize Indicators & Auras | Frame Spacing
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Auto Resize Indicators & Auras",
-              getValue=function() return SVal("partyAutoResizeIndicators", false) end,
-              setValue=function(v) PSSet("partyAutoResizeIndicators", v) end },
+        -- Row 5: Auto Resize Icons (checkbox dropdown) | Frame Spacing
+        -- Checkbox dropdown over the existing partyAutoResizeIndicators key
+        -- ("Indicators & Auras") plus partyAutoResizeTrackedBuffs ("Tracked
+        -- Buffs"). Pure view -- no migration; existing values preserved and
+        -- Tracked Buffs defaults on (matching the prior always-on behavior).
+        local partyAutoResizeRow
+        partyAutoResizeRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Auto Resize Icons",
+              values={ __placeholder = "All" }, order={ "__placeholder" },
+              getValue=function() return "__placeholder" end,
+              setValue=function() end },
             { type="slider", text="Frame Spacing", min=-1, max=15, step=1,
               getValue=function() return SVal("partyCellSpacing", db.profile.cellSpacing or 2) end,
               setValue=function(v) PSSet("partyCellSpacing", v) end });  y = y - h
+        -- Overlay the checkbox dropdown onto the LEFT region (Auto Resize Icons
+        -- sits in the left slot; mirrors the Frames-tab conversion).
+        do
+            local leftRgn = partyAutoResizeRow._leftRegion
+            if leftRgn._control then leftRgn._control:Hide() end
+            local arKeyMap = { indicators = "partyAutoResizeIndicators", trackedBuffs = "partyAutoResizeTrackedBuffs" }
+            local arItems = {
+                { key = "indicators",   label = "Indicators & Auras" },
+                { key = "trackedBuffs", label = "Tracked Buffs" },
+            }
+            local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
+                leftRgn, 170, leftRgn:GetFrameLevel() + 2,
+                arItems,
+                function(k)
+                    -- Tracked Buffs defaults on; Indicators & Auras defaults off.
+                    if k == "trackedBuffs" then return SVal(arKeyMap[k], true) end
+                    return SVal(arKeyMap[k], false)
+                end,
+                function(k, v) PSSet(arKeyMap[k], v) end)
+            PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+            leftRgn._control = cbDD
+        end
 
         -- Row 6: Flip Frame Growth
         _, h = W:DualRow(parent, y,
@@ -5576,6 +5874,123 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
             cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+        end
+
+        -- Row 4: CC Debuff Glow (style dropdown + class/custom swatches + pixel cog)
+        -- 1:1 of CDM's Buff Glow control, applied to crowd-control debuff icons.
+        do
+            local PP = EllesmereUI.PanelPP or EllesmereUI.PP
+            local GLOW_VALUES = { [0] = "None" }
+            local GLOW_ORDER = { 0 }
+            local Styles = EllesmereUI.Glows and EllesmereUI.Glows.STYLES
+            if Styles then
+                for i, entry in ipairs(Styles) do
+                    if not entry.shapeGlow then
+                        GLOW_VALUES[i] = entry.name
+                        GLOW_ORDER[#GLOW_ORDER + 1] = i
+                    end
+                end
+            end
+            local function glowOff() return SVal("debuffFilter", "all") == "none" end
+            local ccGlowRow
+            ccGlowRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="CC Debuff Glow",
+                  values=GLOW_VALUES, order=GLOW_ORDER,
+                  disabled=glowOff, disabledTooltip="Show Debuffs",
+                  getValue=function() return SVal("debuffCCGlowType", 0) end,
+                  setValue=function(v) SSet("debuffCCGlowType", v); EllesmereUI:RefreshPage() end },
+                { type="label", text="" });  y = y - h
+
+            -- Inline class + custom colour swatches (left of the dropdown), then the
+            -- pixel-glow cog to their left. Mirrors the CDM Buff Glow row.
+            do
+                local leftRgn = ccGlowRow._leftRegion
+                local ctrl = leftRgn._control
+
+                local classSwatch, updateClassSwatch = EllesmereUI.BuildColorSwatch(
+                    leftRgn, ccGlowRow:GetFrameLevel() + 3,
+                    function()
+                        local _, classFile = UnitClass("player")
+                        local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+                        if cc then return cc.r, cc.g, cc.b end
+                        return 1, 0.82, 0
+                    end,
+                    function() end, false, 20)
+                PP.Point(classSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+                classSwatch:SetScript("OnClick", function()
+                    if glowOff() then return end
+                    SWrite("debuffCCGlowClassColor", true); ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end)
+                classSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSwatch, "Class Colored") end)
+                classSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+                local glowSwatch, updateGlowSwatch = EllesmereUI.BuildColorSwatch(
+                    leftRgn, ccGlowRow:GetFrameLevel() + 3,
+                    function() return SVal("debuffCCGlowR", 1.0), SVal("debuffCCGlowG", 0.776), SVal("debuffCCGlowB", 0.376) end,
+                    function(r, g, b)
+                        SWrite("debuffCCGlowR", r); SWrite("debuffCCGlowG", g); SWrite("debuffCCGlowB", b)
+                        ReloadAndUpdate()
+                    end, false, 20)
+                PP.Point(glowSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
+                glowSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(glowSwatch, "Custom Colored") end)
+                glowSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local origGlowClick = glowSwatch:GetScript("OnClick")
+                glowSwatch:SetScript("OnClick", function(self, ...)
+                    if glowOff() then return end
+                    if SGet("debuffCCGlowClassColor") then
+                        SWrite("debuffCCGlowClassColor", false); ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                        return
+                    end
+                    if (SVal("debuffCCGlowType", 0) or 0) == 0 then return end
+                    if origGlowClick then origGlowClick(self, ...) end
+                end)
+
+                leftRgn._lastInline = glowSwatch
+
+                local function UpdateGlowState()
+                    local gt = SVal("debuffCCGlowType", 0) or 0
+                    local noGlow = gt == 0 or glowOff()
+                    local isClassColored = SGet("debuffCCGlowClassColor")
+                    glowSwatch:SetAlpha((isClassColored or noGlow) and 0.3 or 1)
+                    classSwatch:SetAlpha((isClassColored and not noGlow) and 1 or 0.3)
+                end
+                EllesmereUI.RegisterWidgetRefresh(function() updateGlowSwatch(); updateClassSwatch(); UpdateGlowState() end)
+                UpdateGlowState()
+
+                -- Pixel-glow cog (Lines / Thickness / Speed), enabled only for Pixel Glow.
+                local function pixelOff() return (SVal("debuffCCGlowType", 0) or 0) ~= 1 or glowOff() end
+                local _, pgCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Pixel Glow",
+                    rows = {
+                        { type="slider", label="Lines", min=2, max=16, step=1,
+                          get=function() return SVal("debuffCCGlowLines", 8) end,
+                          set=function(v) SSet("debuffCCGlowLines", v) end },
+                        { type="slider", label="Thickness", min=1, max=4, step=1,
+                          get=function() return SVal("debuffCCGlowThickness", 2) end,
+                          set=function(v) SSet("debuffCCGlowThickness", v) end },
+                        -- Speed shown inverted (higher = faster) like the CDM cog.
+                        { type="slider", label="Speed", min=1, max=8, step=1,
+                          get=function() return 9 - (SVal("debuffCCGlowSpeed", 4)) end,
+                          set=function(v) SSet("debuffCCGlowSpeed", 9 - v) end },
+                    },
+                })
+                local cogBtn = CreateFrame("Button", nil, leftRgn)
+                cogBtn:SetSize(26, 26)
+                cogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+                leftRgn._lastInline = cogBtn
+                cogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+                cogBtn:SetAlpha(pixelOff() and 0.15 or 0.4)
+                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+                cogBtn:SetScript("OnEnter", function(self)
+                    if pixelOff() then
+                        EllesmereUI.ShowWidgetTooltip(self, "This option requires Pixel Glow to be the selected glow type")
+                    else self:SetAlpha(0.7) end
+                end)
+                cogBtn:SetScript("OnLeave", function(self) EllesmereUI.HideWidgetTooltip(); self:SetAlpha(pixelOff() and 0.15 or 0.4) end)
+                cogBtn:SetScript("OnClick", function(self) if pixelOff() then return end pgCogShow(self) end)
+                EllesmereUI.RegisterWidgetRefresh(function() cogBtn:SetAlpha(pixelOff() and 0.15 or 0.4) end)
+            end
         end
 
         if onSection then onSection("debuffStyle", _secY, y) end

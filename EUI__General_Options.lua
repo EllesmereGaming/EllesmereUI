@@ -33,6 +33,56 @@ local PATCHNOTES_KEY   = "_EUIPatchNotes"
 local IS_STANDALONE = type(ADDON_NAME) == "string" and ADDON_NAME:find("Standalone") ~= nil
 
 -------------------------------------------------------------------------------
+--  Shared CDM spell-layout export flow
+--  Used by BOTH the full-profile export and the per-addon export. Asks whether
+--  to bundle the CDM spell layout (which spells sit on which bars + per-spell
+--  settings); on Yes, opens the spec picker so the user chooses which specs.
+--  Calls exportFn(includeCDM, cdmSpecs) with the result. An export string is
+--  produced ONLY on an explicit "No" (without layout) or a completed picker
+--  selection -- closing/escaping either popup produces NO export.
+-------------------------------------------------------------------------------
+function EllesmereUI.RunCDMSpellExportFlow(activeName, exportFn)
+    local function pickThenExport()
+        local specs = {}
+        local sp = EllesmereUIDB and EllesmereUIDB.spellAssignments
+            and EllesmereUIDB.spellAssignments.profiles
+            and EllesmereUIDB.spellAssignments.profiles[activeName]
+            and EllesmereUIDB.spellAssignments.profiles[activeName].specProfiles
+        local n = (GetNumSpecializations and GetNumSpecializations()) or 0
+        for i = 1, n do
+            local specID = GetSpecializationInfo and GetSpecializationInfo(i)
+            if specID then
+                local key = tostring(specID)
+                local d = sp and sp[key]
+                specs[#specs + 1] = {
+                    key = key,
+                    checked = (d and type(d.barSpells) == "table" and next(d.barSpells) ~= nil) and true or false,
+                }
+            end
+        end
+        EllesmereUI:ShowCDMSpecPickerPopup({
+            title         = EllesmereUI.L("Export CDM Spells"),
+            subtitle      = EllesmereUI.L("This can't change which spells the user tracks in Blizzard's CDM.\nIt's recommended to also share your Blizzard CDM layout for any spec you choose here."),
+            subtitleColor = { 1, 0.82, 0.2 },
+            subtitleAtBottom = true,
+            confirmText   = EllesmereUI.L("Export"),
+            specs         = specs,
+            onConfirm     = function(selectedSpecs) exportFn(true, selectedSpecs) end,
+            onCancel      = function() end,  -- cancel / Esc / click-off: just close, NO export
+        })
+    end
+    EllesmereUI:ShowConfirmPopup({
+        title       = EllesmereUI.L("Include CDM Spell Layout?"),
+        message     = EllesmereUI.L("Include your Cooldown Manager spell layout (which spells sit on which bars) plus all per-spell settings for any specs you choose."),
+        confirmText = EllesmereUI.L("Yes"),
+        cancelText  = EllesmereUI.L("No"),
+        onConfirm   = function() pickThenExport() end,
+        onCancel    = function() exportFn(false, nil) end,  -- "No": export WITHOUT layout
+        onDismiss   = function() end,  -- Esc / click-off: just close, NO export
+    })
+end
+
+-------------------------------------------------------------------------------
 --  What's New? page -- interactive patch notes in three tiers of importance:
 --    1) hero cards (two per row), 2) small clickable listings, 3) fix lines.
 --  Content lives in EllesmereUI._WHATSNEW_PATCHES (newest patch first). A
@@ -274,10 +324,184 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "8.3.1",
+        heroes = {
+            {
+                module = "Profiles",
+                title = "Add CDM Per-Spell Settings & Positions to profile exports",
+                desc  = "Profile export can now optionally include your CDM spell layout (which spells sit on which bars, plus per-spell settings) for the specs you choose, and importing applies it to the new profile.",
+                nav   = { module = "_EUIProfiles", page = "Profiles" },
+            },
+            {
+                module = "CDM",
+                title = "Pots/Trinkets/Racial Active States & CD Effects",
+                desc  = "Trinkets, potions, racials, and custom spells can now show their own glow and color while active, and change how they look depending on whether they're ready to use.",
+                nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars",
+                    preSelect = function()
+                        if EllesmereUI._setCDMBar then EllesmereUI._setCDMBar("cooldowns") end
+                    end },
+            },
+            {
+                module = "CDM",
+                title = "Sync Trinkets, Potions & Racials Across Specs",
+                desc  = "Set them up once, then copy their placement and settings to your other specs with a single button.",
+                nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars",
+                    preSelect = function()
+                        if EllesmereUI._setCDMBar then EllesmereUI._setCDMBar("cooldowns") end
+                    end },
+            },
+            {
+                module = "Resource Bars",
+                title = "New GCD Bar",
+                desc  = "A new bar that fills over your global cooldown, with full control over its size, position, color, and look.",
+                nav   = { module = "EllesmereUIResourceBars", page = "GCD Bar", section = "LAYOUT", highlight = "Enable GCD Bar" },
+            },
+            {
+                module = "Raid Frames",
+                title = "Heal absorb text and dispel debuff customizations",
+                desc  = "New healer tools for raid frames, including heal-absorb text, a crowd-control glow on debuffs, and more ways to position and highlight dispellable debuffs.",
+                nav   = { module = "EllesmereUIRaidFrames", page = "Frames", section = "DISPELS", highlight = "Dispellable Debuff Location" },
+            },
+            {
+                module = "Quality of Life",
+                title = "Expanded crosshair customization",
+                desc  = "The character crosshair gains much more control over its size, shape, color, and position, plus new options for when it shows and how it reacts to your target's range.",
+                nav   = { module = "EllesmereUIQoL", page = "Quality of Life", section = "CROSSHAIR", highlight = "Character Crosshair" },
+            },
+        },
+        features = {
+            {
+                module = "Colors",
+                title = "Shared or per-profile custom colors",
+                desc  = "A new Global Colors section lets you share one profile's custom palette across every profile (default, via Pull Colors From) or give each profile its own Class, Power, Class Resource, and Resource colors.",
+                nav   = { module = "_EUIGlobal", page = "Fonts & Colors", section = "GLOBAL COLORS", highlight = "Apply to All Profiles" },
+            },
+            {
+                module = "EllesmereUI",
+                title = "Improved Multi-Language Support",
+                desc  = "Improved EllesmereUI translations across the entire suite, with options-panel sliders and What's New cards re-laid out to fit longer texts.",
+            },
+            {
+                module = "Minimap",
+                title = "Calendar button shows your instance lockouts",
+                desc  = "Hovering the minimap calendar button now lists your saved raid and dungeon lockouts with boss kill progress, plus the current server time and time until the weekly reset.",
+                nav   = { module = "EllesmereUIBlizzardSkin", page = "Tooltips, Menus & Popups", section = "BLIZZARD UI ELEMENTS", highlight = "Show Calendar Lockouts" },
+            },
+            {
+                module = "Unit Frames",
+                title = "Non-tank threat border",
+                desc  = "Adds an optional shadow border on your player frame when you pull or hold threat as a non-tank in dungeons, raids, and delves, with separate Has Aggro and Close to Aggro colors.",
+                nav   = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "DISPLAY", highlight = "",
+                    preSelect = function()
+                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
+                        EllesmereUI._pendingUnitSelect = "player"
+                    end },
+            },
+            {
+                module = "Action Bars",
+                title = "Hide Bars When Skyriding",
+                desc  = "A new \"When Not Dragonriding\" visibility mode does the opposite of When Dragonriding - it hides the bar while you're skyriding and shows it the rest of the time.",
+                nav   = { module = "EllesmereUIActionBars", page = "Bar Display", section = "VISIBILITY", highlight = "Visibility",
+                    preSelect = function()
+                        if EllesmereUI._setActionBarKey then EllesmereUI._setActionBarKey("MainBar") end
+                        EllesmereUI._pendingActionBarSelect = "MainBar"
+                    end },
+            },
+            {
+                module = "Mythic+ Timer",
+                title = "Show Time Remaining",
+                desc  = "A new toggle adds an MM:SS countdown of the key's remaining time to the +2/+3 threshold row, reddening as time runs out.",
+                nav   = { module = "EllesmereUIMythicTimer", page = "Mythic+ Timer" },
+            },
+            {
+                module = "Tracking Bars",
+                title = "Grouped Bars Auto-Pack",
+                desc  = "Grouped bars now act like weakaura style bars where they won't leave blank spaces anymore and will instead always show in the next available bar slot sequentially.",
+                nav   = { module = "EllesmereUICooldownManager", page = "Tracking Bars", section = "BAR GROUPING", highlight = "Group Tracking" },
+            },
+            {
+                module = "Unit Frames",
+                title = "Heal Absorb Health Text",
+                desc  = "Player health text gains \"Heal Absorb Amount\" and \"Heal Absorb Short\" options for the Left/Right/Center fields.",
+                nav   = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "HEALTH BAR", highlight = "Left Text",
+                    preSelect = function()
+                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
+                        EllesmereUI._pendingUnitSelect = "player"
+                    end },
+            },
+            {
+                module = "Unit Frames",
+                title = "Per-Frame Bar Texture",
+                desc  = "Mini frames (Pet, Target of Target, Focus Target) and Boss frames gain a Bar Texture dropdown that defaults to Inherit but can be set per frame.",
+                nav   = { module = "EllesmereUIUnitFrames", page = "Boss Frames", section = "DISPLAY", highlight = "Bar Texture" },
+            },
+            {
+                module = "Unit Frames",
+                title = "Boss Frame Hover Borders",
+                desc  = "Boss frames get a Hover Borders control to recolor the border on mouseover and when targeted, each with its own color.",
+                nav   = { module = "EllesmereUIUnitFrames", page = "Boss Frames", section = "DISPLAY", highlight = "Hover Borders" },
+            },
+            {
+                module = "Unit Frames",
+                title = "Buff & Debuff Spacing",
+                desc  = "Adds independent Spacing X and Spacing Y sliders for buff and debuff icons via the Buff/Debuff Position cogs.",
+                nav   = { module = "EllesmereUIUnitFrames", page = "Main Frames",
+                    preSelect = function()
+                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
+                        EllesmereUI._pendingUnitSelect = "player"
+                    end },
+            },
+            {
+                module = "Unit, Raid Frames & Nameplates",
+                title = "SharedMedia Absorb Textures",
+                desc  = "Absorb and heal-absorb style dropdowns now include your installed SharedMedia statusbar textures.",
+                nav   = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "ABSORBS", highlight = "Absorb Style",
+                    preSelect = function()
+                        if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end
+                        EllesmereUI._pendingUnitSelect = "player"
+                    end },
+            },
+        },
+        fixes = {
+            { module = "CDM", text = "Sound pickers for Focus Cast Sound and per-buff Audio Effect now have a search box." },
+            { module = "CDM", text = "Added Nightborne racial tracking (Arcane Pulse), which was missing from the racial list." },
+            { module = "CDM", text = "Pandemic-glow \"Apply to All\" now also syncs tracking bars and no longer changes the glow style on surfaces that order their style lists differently." },
+            { module = "CDM", text = "A trinket, potion, or racial already on another bar is no longer grayed out in the add menu and instead auto-moves to the new bar like a regular spell." },
+            { module = "CDM", text = "A buff stored under two spell IDs from older data now collapses to a single slot in the buff bar preview instead of appearing twice." },
+            { module = "CDM", text = "Plain cooldowns you clear from Blizzard's Cooldown Manager now disappear from your previews, while trinkets, racials, and custom spells are kept." },
+            { module = "Tracking Bars", text = "Paired spells like Eclipse (Solar) and Eclipse (Lunar) now each drive their own bar instead of one showing twice while the other never appears." },
+            { module = "Tracking Bars", text = "Switching specs while the page is open now refreshes the selected bar and dropdown instead of leaving the previous spec's selection shown." },
+            { module = "Tracking Bars", text = "Pandemic glow now fires for Lifebloom on you or a group member, which Blizzard never flags natively." },
+            { module = "Resource Bars", text = "Expand Power Bar if No Resource now also expands when the class resource is toggled off or disabled for the current spec, not only when the spec has none at all." },
+            { module = "Resource Bars", text = "Fixed the threshold color not showing with Enhance 5 Bar Style; the Enhancement threshold is now enforced at a minimum of 7 and the preview uses your configured threshold color." },
+            { module = "Resource Bars", text = "The cast bar latency overlay now reads live network latency directly, so spell-queueing no longer stops it from showing." },
+            { module = "Raid Frames", text = "The \"Auto Resize Indicators & Auras\" toggle is now an \"Auto Resize Icons\" dropdown that independently scales Indicators & Auras and Tracked Buffs with frame size." },
+            { module = "Raid Frames", text = "New \"Show Over Dispels\" toggle lifts the heal-absorb overlay above the dispel gradient instead of rendering below it." },
+            { module = "Raid Frames", text = "Fixed custom (non-20-player) sizes loading at the wrong position shortly after login, so frames now stay where you placed them." },
+            { module = "Unit Frames", text = "New \"Hover Borders\" control lets you enable or disable the mouseover highlight border per frame, where it was previously always on." },
+            { module = "Unit Frames", text = "New \"Show 2 for Boss\" option gives boss frames a second decimal place (240.55k / 77.30%) when health text decimals are enabled." },
+            { module = "Unit Frames", text = "Buff and debuff Offset X/Y sliders now reach plus or minus 1500 (was 200) to move auras much further from the frame." },
+            { module = "Unit Frames", text = "New Cast Bar Position cog adds an Offset Y slider to nudge the boss cast bar up or down." },
+            { module = "Unit Frames", text = "Player, target, and focus cast bars now display above other frames instead of occasionally being hidden behind them." },
+            { module = "Unit Frames", text = "Cast bar timer text now has extra room so it no longer truncates prematurely." },
+            { module = "Action Bars", text = "The \"When Dragonriding\" bar visibility option now also shows the bar in Druid Flight Form, which is a shapeshift rather than a skyriding mount." },
+            { module = "Action Bars", text = "The shapeshift/stance bar now shows its cooldown (GCD) swipe even for spells that do not change form." },
+            { module = "Action Bars", text = "While Myslot's window is open, bars are temporarily forced to Always shown to stop the multi-second stall during import/export, then restored when it closes." },
+            { module = "Nameplates", text = "New sync icon on the Pandemic Glow Style row applies the nameplate's pandemic glow to all CDM and tracking bars at once." },
+            { module = "Minimap", text = "The Omnium Folio button no longer goes missing or drifts to the wrong position and scale after a loading screen, and its custom position and scale now persist." },
+            { module = "Bags", text = "Mythic Keystone dungeon abbreviations now split on hyphens (Nexus-Point Xenas shows as NPX) and handle localized client names." },
+            { module = "Auras, Buffs & Consumables", text = "Warrior stance reminders now read shapeshift forms from the stance bar instead of auras, so each spec is reminded of its proper stance and the reminder clears the moment that stance is active." },
+            { module = "Auras, Buffs & Consumables", text = "The Inky Black Potion reminder now clears after you drink the potion, and reappears if the buff is cancelled, expires, or you die." },
+            { module = "Auras, Buffs & Consumables", text = "The last-used flask, food, and weapon-enchant preference now persists correctly, so the \"last used\" preferred-item option works." },
+            { module = "Chat", text = "The Whisper Sound dropdown gained a search box to filter the list by typing." },
+            { module = "Mythic+ Timer", text = "Fixed the timer and detail text getting cut off (e.g. \"33:00\" shown as \"33:...\") after a font swap such as a custom font or \"Apply to All Game Text\"." },
+        },
+    },
+    {
         version = "8.3",
         heroes = {
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Reorder Buff Icons",
                 desc  = "Drag to rearrange the icons on your buff bars, the same way cooldown and utility bars already let you.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars",
@@ -286,7 +510,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                     end },
             },
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Buff Activation Sounds",
                 desc  = "Give any tracked buff its own sound that plays the moment it becomes active, with a speaker button to preview from the full sound list.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars",
@@ -319,7 +543,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                     end },
             },
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Hide Recharge Timer With Charges",
                 desc  = "On cooldown and utility bars, an icon can hide its recharge countdown while you still have a charge banked, showing the number again only once all charges are spent.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars",
@@ -363,9 +587,9 @@ EllesmereUI._WHATSNEW_PATCHES = {
         fixes = {
             { module = "Action Bars", text = "A new option controls whether charge spells show their recharge countdown while a charge is still banked." },
             { module = "Action Bars", text = "A new toggle can hide the highlight overlay shown on the current or active action." },
-            { module = "Cooldown Manager", text = "Preset and custom buffs now reserve their slot when inactive, the same as tracked buffs, when Always Show Buffs or Keep Buffs in Same Place is on." },
-            { module = "Cooldown Manager", text = "With Suppress GCD on, a charge spell that has spent all of its charges now keeps its recharge swipe instead of briefly blanking it." },
-            { module = "Cooldown Manager", text = "Adding a custom spell by ID now notes that manually entered spells cannot show charge counts." },
+            { module = "CDM", text = "Preset and custom buffs now reserve their slot when inactive, the same as tracked buffs, when Always Show Buffs or Keep Buffs in Same Place is on." },
+            { module = "CDM", text = "With Suppress GCD on, a charge spell that has spent all of its charges now keeps its recharge swipe instead of briefly blanking it." },
+            { module = "CDM", text = "Adding a custom spell by ID now notes that manually entered spells cannot show charge counts." },
             { module = "Damage Meters", text = "The Current session now reliably resets at the start of a new boss pull instead of occasionally carrying data over." },
             { module = "General", text = "Fixed spell activation glows so the Classic WoW glow no longer flickers backwards each loop and the marching ants border glow animates again." },
             { module = "General", text = "Long setting names in the options panels now trim with an ellipsis and show the full text on hover instead of overlapping their control." },
@@ -406,7 +630,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "General", text = "Fixed square boxes and missing characters that could appear across the Blizzard UI and other addons in non-Latin languages." },
             { module = "Chat", text = "Fixed Lua errors that could appear after receiving a Battle.net whisper." },
             { module = "Quality of Life", text = "Fixed an error that could stop the group sign-up dialog from opening when using a persistent signup note." },
-            { module = "Cooldown Manager", text = "With Suppress GCD on, a charge spell's recharge swipe no longer disappears while another ability is on cooldown." },
+            { module = "CDM", text = "With Suppress GCD on, a charge spell's recharge swipe no longer disappears while another ability is on cooldown." },
             { module = "Character Sheet", text = "Fixed the oversized X on equipment set delete buttons." },
             { module = "Mythic+ Timer", text = "Fixed a startup error caused by some saved best-time split data." },
         },
@@ -457,7 +681,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                     end },
             },
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Hide Recharge Edge",
                 desc  = "Charge cooldowns gain a per-spell Hide Recharge Edge option that removes the bright sweeping edge shown while a charge is recharging.",
                 nav   = { module = "EllesmereUICooldownManager", page = "Tracking Bars" },
@@ -473,10 +697,10 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Resource Bars", text = "You can now color the gaps between class resource pips and set the color and opacity of the empty slot overlay." },
             { module = "Nameplates", text = "Health bars can now be up to 50 pixels tall and cast bars up to 40 pixels tall." },
             { module = "Nameplates", text = "The interrupt flash now clears the instant a target dies, so the cast bar no longer looks squished by the death animation." },
-            { module = "Cooldown Manager", text = "The spell picker now ends with a Missing Spells? shortcut that opens Blizzard's Cooldown Manager so you can add spells that are not listed." },
-            { module = "Cooldown Manager", text = "With Hide Active State on, a charge cooldown's recharge swipe and edge now stay visible instead of disappearing while a charge is in hand or when you press another ability." },
-            { module = "Cooldown Manager", text = "Switching specialization no longer briefly flashes placeholder icons across your tracked buff bars." },
-            { module = "Cooldown Manager", text = "Grouped tracking bars now stay anchored together when you enter combat instead of a member detaching from the group." },
+            { module = "CDM", text = "The spell picker now ends with a Missing Spells? shortcut that opens Blizzard's Cooldown Manager so you can add spells that are not listed." },
+            { module = "CDM", text = "With Hide Active State on, a charge cooldown's recharge swipe and edge now stay visible instead of disappearing while a charge is in hand or when you press another ability." },
+            { module = "CDM", text = "Switching specialization no longer briefly flashes placeholder icons across your tracked buff bars." },
+            { module = "CDM", text = "Grouped tracking bars now stay anchored together when you enter combat instead of a member detaching from the group." },
             { module = "Unit Frames", text = "Power-colored bars and power text now show the correct color on target, focus, and boss frames instead of white or a default color." },
             { module = "Action Bars", text = "Abilities with multiple charges now show the recharge countdown number while charging when cooldown numbers are on, and you can toggle cooldown numbers from the Action Bars options." },
             { module = "Chat", text = "Fixed a taint issue with the chat box that could cause Lua errors, most often when receiving a whisper during combat." },
@@ -487,7 +711,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
         version = "8.2.7",
         heroes = {
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Keep Buffs in Same Place",
                 desc  = "Reserve a fixed slot for every tracked buff so active buffs stop shifting when others fall off, while empty slots stay invisible.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "BAR LAYOUT", highlight = "Keep Buffs in Same Place",
@@ -496,7 +720,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                     end },
             },
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Max Stacks Glow for Charge Spells",
                 desc  = "Make a charge spell's icon glow when it reaches its maximum number of charges, with its own glow style picked per spell.",
                 nav   = { module = "EllesmereUICooldownManager", page = "Tracking Bars" },
@@ -556,7 +780,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 nav   = { module = "EllesmereUIResourceBars", page = "Class, Power and Health Bars", section = "CLASS RESOURCE BAR", highlight = "Custom Recharge Color" },
             },
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Per-Buff Border Size & Color",
                 desc  = "Override an individual tracked buff icon's border size and color independently of the bar's border.",
                 nav   = { module = "EllesmereUICooldownManager", page = "Tracking Bars" },
@@ -584,9 +808,9 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Raid Frames", text = "With click-cast set up, unbound left and right clicks no longer trigger the default target or menu, and turning click-cast off restores each frame's normal click behavior." },
             { module = "Raid Frames", text = "The buff and indicator Spacing sliders now go down to -1 so you can pack icons slightly tighter." },
             { module = "Resource Bars", text = "The rune recharge countdown number now shows on top of the bar border instead of being hidden beneath it." },
-            { module = "Cooldown Manager", text = "Timer, name, and stack text on tracking bars now shows on top of the border instead of being hidden behind it." },
-            { module = "Cooldown Manager", text = "A multi-charge spell no longer desaturates while at least one charge is still available to cast." },
-            { module = "Cooldown Manager", text = "Choosing a text position from a per-spell cog menu no longer closes the whole settings menu." },
+            { module = "CDM", text = "Timer, name, and stack text on tracking bars now shows on top of the border instead of being hidden behind it." },
+            { module = "CDM", text = "A multi-charge spell no longer desaturates while at least one charge is still available to cast." },
+            { module = "CDM", text = "Choosing a text position from a per-spell cog menu no longer closes the whole settings menu." },
             { module = "General", text = "Border styles added through SharedMedia now apply at a visible default size the moment you pick them in a border style dropdown." },
         },
     },
@@ -594,7 +818,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
         version = "8.2.6",
         heroes = {
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Per-Icon Buff Customization",
                 desc  = "Right-click any buff icon to give it its own glow, glow color, duration text, charge and stack text, and visibility, independent of the rest of the bar.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars",
@@ -603,7 +827,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                     end },
             },
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Add Any Buff to a Buff Bar",
                 desc  = "Buff bars now accept preset consumables and custom spell IDs directly. The separate Auras bar type has been merged in, and existing Auras bars convert to buff bars automatically.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars",
@@ -642,8 +866,8 @@ EllesmereUI._WHATSNEW_PATCHES = {
             },
         },
         fixes = {
-            { module = "Cooldown Manager", text = "Custom glow type and color now apply to abilities that proc into a second ability, such as a Demon Hunter's Eradicate becoming Reap or a Death Knight's Festering Strike becoming Festering Scythe, instead of falling back to the default glow." },
-            { module = "Cooldown Manager", text = "Tracking bar fills now animate smoothly instead of jumping between values." },
+            { module = "CDM", text = "Custom glow type and color now apply to abilities that proc into a second ability, such as a Demon Hunter's Eradicate becoming Reap or a Death Knight's Festering Strike becoming Festering Scythe, instead of falling back to the default glow." },
+            { module = "CDM", text = "Tracking bar fills now animate smoothly instead of jumping between values." },
             { module = "Resource Bars", text = "Vengeance Demon Hunter Soul Fragment pips show the threshold color again once the configured fragment count is reached." },
             { module = "Unit Frames", text = "Health bar backgrounds no longer turn transparent when Reverse Fill is enabled and the unit takes damage." },
         },
@@ -691,11 +915,11 @@ EllesmereUI._WHATSNEW_PATCHES = {
             },
         },
         fixes = {
-            { module = "Cooldown Manager", text = "Tracking bars for hero-talent override spells now keep showing after the talent is removed, such as a Death Charge bar that keeps tracking once you untalent and cast Death's Advance." },
+            { module = "CDM", text = "Tracking bars for hero-talent override spells now keep showing after the talent is removed, such as a Death Charge bar that keeps tracking once you untalent and cast Death's Advance." },
             { module = "Nameplates", text = "Fixed a Lua error that could occur when mousing over friendly NPC nameplates that have titles such as innkeepers or flight masters." },
             { module = "Raid Frames", text = "Health bar backgrounds set to class color no longer revert to the custom color as a unit's health changes." },
             { module = "Unit Frames", text = "Health bar backgrounds no longer show through the filled portion when you lower the fill opacity, matching how raid frames already behaved." },
-            { module = "Cooldown Manager", text = "Bars anchored to another cooldown bar now stay flush against it when you switch to a character or profile whose bar is a different width." },
+            { module = "CDM", text = "Bars anchored to another cooldown bar now stay flush against it when you switch to a character or profile whose bar is a different width." },
             { module = "General", text = "The options sidebar addon list now shows a scroll-to-bottom arrow so it is clear the list can scroll." },
         },
     },
@@ -721,7 +945,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 nav   = { module = "EllesmereUIUnitFrames", page = "Boss Frames", section = "Buffs and Debuffs", highlight = "Simple Buff Display" },
             },
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Always Show Buffs is now Per-Bar",
                 desc  = "Always Show Buffs is now a per-bar toggle, so each buff bar can keep its tracked buffs on screen even when they are off cooldown.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "ICON DISPLAY", highlight = "Always Show Buffs",
@@ -772,13 +996,13 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 nav   = { module = "_EUIGlobal", page = "Fonts & Colors", section = "GLOBAL FONT", highlight = "Disable Slug Outline" },
             },
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Charge Cooldown Edge",
                 desc  = "Spells with charges now show a sweeping cooldown edge, with a per-spell option to hide the radial swipe and keep only the edge.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "", highlight = "" },
             },
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Active Border Color",
                 desc  = "A new per-spell option recolors an icon's border while the tracked spell is active.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "", highlight = "" },
@@ -838,10 +1062,10 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Aura Reminders", text = "Talent reminders now cover the new Sporefall raid." },
             { module = "Chat", text = "Sidebar icons you have dragged to custom spots no longer drift out of place after a reload." },
             { module = "Chat", text = "Turning on a sidebar icon that was off now adds it correctly and prompts for a reload when one is needed." },
-            { module = "Cooldown Manager", text = "The countdown number no longer gets partly hidden behind the icon border, and its position offset applies reliably." },
-            { module = "Cooldown Manager", text = "Custom per-spell settings such as swipe color now save and apply for newly added and Hero talent spells instead of reverting to default." },
-            { module = "Cooldown Manager", text = "Clicking a bar's custom border color swatch now turns off class color and opens the color picker in one click instead of leaving the border black." },
-            { module = "Cooldown Manager", text = "Pixel glow ant settings are no longer greyed out for glow styles other than Auto-Cast Shine." },
+            { module = "CDM", text = "The countdown number no longer gets partly hidden behind the icon border, and its position offset applies reliably." },
+            { module = "CDM", text = "Custom per-spell settings such as swipe color now save and apply for newly added and Hero talent spells instead of reverting to default." },
+            { module = "CDM", text = "Clicking a bar's custom border color swatch now turns off class color and opens the color picker in one click instead of leaving the border black." },
+            { module = "CDM", text = "Pixel glow ant settings are no longer greyed out for glow styles other than Auto-Cast Shine." },
             { module = "Nameplates", text = "Target arrows and side icons no longer leave a gap for the full-size cast icon when nothing is casting." },
             { module = "QoL", text = "The dungeon teleport prompt now closes correctly when you leave an instance while in combat." },
             { module = "Raid Frames", text = "Hovering or clicking a unit where a debuff icon overlaps now passes through correctly so casting and targeting keep working." },
@@ -908,7 +1132,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
         },
         features = {
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Desaturate When Not Active",
                 desc  = "A new per-spell icon state that greys out the icon whenever the spell is not in its active state.",
                 -- No nav: lives in the per-spell cog, no options page to open (static card).
@@ -965,7 +1189,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
         version = "8.2.1",
         heroes = {
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Always Show Buffs, Now Per-Bar",
                 desc  = "Always Show Buffs is now a per-bar toggle, so each buff bar can independently keep its tracked buffs on screen even when they are off cooldown, with its own option to grey out the inactive ones.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "ICON DISPLAY", highlight = "Always Show Buffs",
@@ -1004,13 +1228,13 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 nav   = { module = "EllesmereUIActionBars", page = "Menu, Bags & XP Bars", section = "MICRO MENU & BAGS", highlight = "Micro Menu Visibility" },
             },
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Customizable Pixel Glow",
                 desc  = "CD and Utility bars get a Pixel Glow Thickness slider plus a cog for Lines and Speed, and the Buff Glow's Pixel Glow gets a matching Lines, Thickness, and Speed cog.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "ICON DISPLAY", highlight = "Pixel Glow Thickness" },
             },
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Charge & Stack Text Positioning",
                 desc  = "Place the charge or stack count in any corner or the center, and preset potions and healthstones now show a sample count in the preview.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "ICON DISPLAY", highlight = "Charge/Stack Size" },
@@ -1029,7 +1253,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
             },
         },
         fixes = {
-            { module = "Cooldown Manager", text = "Adding a tracked buff to a custom buff bar no longer shows a duplicate or a generic icon for talent transformed spells." },
+            { module = "CDM", text = "Adding a tracked buff to a custom buff bar no longer shows a duplicate or a generic icon for talent transformed spells." },
             { module = "Action Bars", text = "A mouseover bar no longer vanishes the instant you drop a spell onto it while your cursor is still over it." },
             { module = "Action Bars", text = "The main bar's page-swap arrows now follow its mouseover fade and visibility settings." },
             { module = "Action Bars", text = "The Pet Bar no longer stays visible after exiting Quick Keybind mode." },
@@ -1050,13 +1274,13 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 -- No nav: automatic behavior with no setting to open (static card).
             },
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Tracking Bar Size-Matching",
                 desc  = "Cooldown tracking bars can now match the width and height of other interface elements in Unlock Mode.",
                 -- No nav: Unlock Mode action with no setting to open (static card).
             },
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Group Tracking Bars",
                 desc  = "Pick which tracking bars chain together and share width and height, with a per-bar checklist.",
                 nav   = { module = "EllesmereUICooldownManager", page = "Tracking Bars", section = "BAR GROUPING", highlight = "Group Tracking" },
@@ -1070,7 +1294,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
         },
         features = {
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Bloodlust & Heroism Bars",
                 desc  = "Add Bloodlust or Heroism to a Custom Auras bar as a self-timed 40-second icon.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "BAR LAYOUT", highlight = "" },
@@ -1108,7 +1332,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Unit Frames", text = "Clicking a buff or debuff icon in the preview to jump to its setting now works after turning buffs on or changing the debuff count." },
             { module = "Unlock Mode", text = "Movers for deleted or hidden elements no longer reappear as ghosts when opening Unlock Mode or after combat." },
             { module = "Unlock Mode", text = "Size-matching to an element that cannot be matched now shows a clear message instead of doing nothing." },
-            { module = "Cooldown Manager", text = "Fixed a phantom 40-second Bloodlust bar appearing in the open world after leaving a dungeon while Sated." },
+            { module = "CDM", text = "Fixed a phantom 40-second Bloodlust bar appearing in the open world after leaving a dungeon while Sated." },
             { module = "Damage Meters", text = "Bars reserve more space for the amount text so numbers stay readable next to long names." },
             { module = "Bloodlust", text = "Fixed the active-buff overlay falsely reappearing when zoning or logging in while Sated." },
             { module = "Raid Frames", text = "Nicknames from raid-tracker addons now show in the standalone build." },
@@ -1177,7 +1401,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 nav   = { module = "EllesmereUIBags", page = "Bags", section = "DISPLAY", highlight = "Auto-Size to Fit" },
             },
             {
-                module = "Cooldown Manager",
+                module = "CDM",
                 title = "Hide Items if Missing",
                 desc  = "Hide a bar's consumables entirely when you have none, instead of dimming them.",
                 nav   = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "EXTRAS", highlight = "Hide Items if Missing" },
@@ -1313,8 +1537,8 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Nameplates",       text = "Health percent text can now show one decimal place (e.g. 72.4%)." },
             { module = "Nameplates",       text = "Fixed the interrupt tick and interrupt-ready marker flickering during your rotation." },
             { module = "Nameplates",       text = "Fixed the interrupt tick jittering by a pixel as a cast progressed." },
-            { module = "Cooldown Manager", text = "Now shows the real spell's keybind when both a macro and the spell are bound." },
-            { module = "Cooldown Manager", text = "Racial tracking simplified to a single entry that follows your character's race." },
+            { module = "CDM", text = "Now shows the real spell's keybind when both a macro and the spell are bound." },
+            { module = "CDM", text = "Racial tracking simplified to a single entry that follows your character's race." },
             { module = "General",          text = "Profile and preset import failures now show a specific reason instead of a generic error." },
             { module = "General",          text = "Right-click unit and raid menus work again after the 12.0.7 change that suppressed them." },
             { module = "General",          text = "Text drop shadows render again across the UI after 12.0.7 stopped showing them." },
@@ -2488,6 +2712,10 @@ initFrame:SetScript("OnEvent", function(self)
         local y = yOffset
         local _, h
         local MakeFont = EllesmereUI.MakeFont
+        -- Swatches read/write the EFFECTIVE palette (per-profile -> active profile's
+        -- own; global -> the shared source profile's). In every editable case that
+        -- IS the active profile's table, so edits land correctly; the only locked
+        -- case (global mode on a non-source profile) is gated by an overlay below.
         local GetCustomColorsDB = EllesmereUI.GetCustomColorsDB
         local CLASS_COLOR_MAP = EllesmereUI.CLASS_COLOR_MAP
         local DEFAULT_POWER_COLORS = EllesmereUI.DEFAULT_POWER_COLORS
@@ -2568,6 +2796,11 @@ initFrame:SetScript("OnEvent", function(self)
                             if rl then for i2 = 1, #rl do rl[i2]() end end
                         end, false, SWATCH_SZ)
                     swatch:SetPoint("RIGHT", cell, "RIGHT", -GRID_SIDE_PAD, 0)
+                    -- Repaint from current colours whenever the page refreshes or is
+                    -- shown (SelectPage re-runs the refresh list on show). Keeps the
+                    -- swatches in sync after a profile change / global-source change
+                    -- instead of showing the colours from when the page was built.
+                    EllesmereUI.RegisterWidgetRefresh(updateSwatch)
 
                     -- Undo (reset) button
                     local undoBtn = CreateFrame("Button", nil, cell)
@@ -3310,9 +3543,52 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -------------------------------------------------------------------
+        --  GLOBAL COLORS section
+        -------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "GLOBAL COLORS", y);  y = y - h
+        do
+            local profileOrder = select(1, EllesmereUI.GetProfileList()) or {}
+            local pullValues = {}
+            for _, n in ipairs(profileOrder) do pullValues[n] = n end
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Apply to All Profiles",
+                  tooltip="On (default): one profile's palette is shared across every profile (chosen via Pull Colors From). Off: each profile keeps its own custom colors (Power, Class Resource, Class, Resource).",
+                  -- Default ON (nil treated as on) = global colours for all profiles.
+                  getValue=function() return EllesmereUIDB.colorsApplyToAllProfiles ~= false end,
+                  setValue=function(v)
+                      EllesmereUIDB.colorsApplyToAllProfiles = v
+                      EllesmereUI.ApplyColorsToOUF()
+                      -- Force rebuild: the toggle flips the dropdown's enabled state
+                      -- and the editing-gate, which a fast-path refresh won't redo.
+                      EllesmereUI:RefreshPage(true)
+                  end },
+                -- Global-mode source: which single profile's palette every profile
+                -- uses. Enabled only while "Apply to All Profiles" is ON; in
+                -- per-profile mode each profile uses its own, so it's disabled.
+                { type="dropdown", text="Pull Colors From",
+                  values=pullValues, order=profileOrder,
+                  disabled=function() return EllesmereUIDB.colorsApplyToAllProfiles == false end,
+                  disabledTooltip="Apply to All Profiles",
+                  getValue=function() return EllesmereUIDB.colorsPullFrom or profileOrder[1] end,
+                  setValue=function(v)
+                      EllesmereUIDB.colorsPullFrom = v
+                      EllesmereUI.ApplyColorsToOUF()
+                      EllesmereUI:RefreshPage()
+                  end });  y = y - h
+        end
+        -- Colour-edit gate: when this profile mirrors another profile's colours
+        -- (GLOBAL mode on a different profile), each section's grid below gets its
+        -- OWN click-blocking overlay (built at the end of this page builder),
+        -- mirroring the Raid Frames party-tab sync overlays. Per-section grid
+        -- bounds {top, bot} are captured into _colorGates as the sections lay out.
+        local _colorGates = {}
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+
+        -------------------------------------------------------------------
         --  CLASS COLORS section
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "CLASS COLORS", y);  y = y - h
+        _colorGates[1] = { top = y }
 
         local classItems = {}
         for _, token in ipairs(CLASS_ORDER) do
@@ -3340,6 +3616,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         h = BuildColorGrid(parent, y, classItems)
         y = y - h
+        _colorGates[1].bot = y
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -3347,6 +3624,7 @@ initFrame:SetScript("OnEvent", function(self)
         --  POWER COLORS section
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "POWER COLORS", y);  y = y - h
+        _colorGates[2] = { top = y }
 
         local POWER_ORDER = {
             "MANA", "RAGE", "FOCUS", "ENERGY", "RUNIC_POWER", "FURY",
@@ -3377,6 +3655,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         h = BuildColorGrid(parent, y, powerItems)
         y = y - h
+        _colorGates[2].bot = y
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -3387,6 +3666,7 @@ initFrame:SetScript("OnEvent", function(self)
         --  category yet, so these are set up but not wired to anything.
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "CLASS RESOURCE COLORS", y);  y = y - h
+        _colorGates[3] = { top = y }
         do
             -- Order + labels only; default colors live in the shared
             -- EllesmereUI.DEFAULT_CLASS_RESOURCE_COLORS so the resource bar's
@@ -3426,8 +3706,62 @@ initFrame:SetScript("OnEvent", function(self)
             h = BuildColorGrid(parent, y, resourceItems)
         end
         y = y - h
+        _colorGates[3].bot = y
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
+
+        -- Colour-edit gate: in GLOBAL mode the shared palette comes from ONE
+        -- profile; while viewing a different profile, block editing here (those
+        -- colours aren't the ones in use). ONE overlay PER SECTION, each sized to
+        -- that section's grid, mirroring the Raid Frames party-tab "Synced with
+        -- Raid Settings" overlays (instead of a single sheet over all three).
+        -- Always created; a shared refresh callback shows/hides them + updates the
+        -- message, so they stay correct after a profile or global-source change
+        -- even when the page is served from cache.
+        do
+            local gates = {}
+            local CPAD = EllesmereUI.CONTENT_PAD or 20  -- side inset so the overlay matches the grid content width
+            local function MakeColorGate(topY, botY)
+                if not topY or not botY then return end
+                local ov = CreateFrame("Frame", nil, parent)
+                ov:SetPoint("TOPLEFT", parent, "TOPLEFT", CPAD, topY)
+                ov:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -CPAD, topY)
+                ov:SetHeight(math.abs(botY - topY))
+                ov:SetFrameLevel(parent:GetFrameLevel() + 100)
+                ov:EnableMouse(true)
+                ov:Hide()
+                local tex = ov:CreateTexture(nil, "OVERLAY")
+                tex:SetAllPoints()
+                tex:SetColorTexture(13/255, 17/255, 25/255, 0.98)
+                local msg = EllesmereUI.MakeFont(ov, 13, nil, 1, 1, 1)
+                msg:SetTextColor(1, 1, 1, 0.56)
+                msg:SetWidth(parent:GetWidth() - 100)
+                msg:SetJustifyH("CENTER")
+                msg:SetPoint("CENTER", ov, "CENTER", 0, 0)
+                ov._msg = msg
+                gates[#gates + 1] = ov
+            end
+            for _, g in ipairs(_colorGates) do MakeColorGate(g.top, g.bot) end
+            local function UpdateColorGate()
+                local locked = EllesmereUI.IsColorEditingLocked and EllesmereUI.IsColorEditingLocked()
+                local text
+                if locked then
+                    local p = EllesmereUI.GetProfilesDB()
+                    local srcName = EllesmereUIDB.colorsPullFrom or (p.profileOrder and p.profileOrder[1]) or ""
+                    text = EllesmereUI.Lf("Colors are shared globally from the \"%1$s\" profile.\nSwitch to it (or set Pull Colors From to this profile) to edit.", srcName)
+                end
+                for _, ov in ipairs(gates) do
+                    if locked then
+                        ov._msg:SetText(text)
+                        ov:Show()
+                    else
+                        ov:Hide()
+                    end
+                end
+            end
+            UpdateColorGate()
+            EllesmereUI.RegisterWidgetRefresh(UpdateColorGate)
+        end
 
         return math.abs(y)
     end
@@ -4426,6 +4760,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- "Include layout" toggle: off = don't import any anchor/size-match
             -- relationships (your existing layout is left untouched).
+            local layoutChkBtn
             do
                 local ilBtn = CreateFrame("Button", nil, footerFrame)
                 ilBtn:SetSize(150, 24)
@@ -4450,6 +4785,7 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI.ShowWidgetTooltip(ilBtn, EllesmereUI.L("Import the anchor & size-match relationships from this profile. Off = keep your own layout; only the selected modules' own positions/settings come in."))
                 end)
                 ilBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                layoutChkBtn = ilBtn
             end
 
             local IMP_BTN_W = 180
@@ -4520,6 +4856,15 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     end
                 end
+                -- CDM spell allocation is top-level (the per-module loop above doesn't
+                -- catch it). Keep it ONLY if the CDM module is selected for import; if
+                -- CDM is not being imported, spell layouts are never applied. When kept,
+                -- every spec in the string imports as-is (no spec picker -- see commit below).
+                if filteredPayload and filteredPayload.data then
+                    if not selectedImports["EllesmereUICooldownManager"] then
+                        filteredPayload.data.cdmSpells = nil
+                    end
+                end
                 -- Layout relationships: keep only the anchor/size-match
                 -- relationships whose BOTH endpoints are in the selected modules
                 -- (per-element graph filter), using the payload's keyToFolder meta.
@@ -4552,32 +4897,43 @@ initFrame:SetScript("OnEvent", function(self)
                     filteredPayload.data.euiAccent    = nil
                 end
 
-                local filteredStr = EllesmereUI.EncodePayload(filteredPayload)
-                if not filteredStr then
-                    EllesmereUI:ShowInfoPopup({ title = EllesmereUI.L("Import Failed"), content = EllesmereUI.L("Failed to encode import data.") })
-                    return
+                local function commit()
+                    local filteredStr = EllesmereUI.EncodePayload(filteredPayload)
+                    if not filteredStr then
+                        EllesmereUI:ShowInfoPopup({ title = EllesmereUI.L("Import Failed"), content = EllesmereUI.L("Failed to encode import data.") })
+                        return
+                    end
+
+                    local ok, err, status = EllesmereUI.ImportProfile(filteredStr, name)
+                    -- Apply the preset's Blizzard Edit Mode layout (if one was supplied)
+                    -- right before the reload, so the profile + layout land together.
+                    -- pcall-guarded so a Blizzard-side Edit Mode error can never block
+                    -- the reload -- the EUI profile still applies. No-op for the manual
+                    -- paste path (no stored edit-mode string).
+                    if ok and importPage._editModeString then
+                        pcall(EllesmereUI.ApplyPresetEditMode, importPage._editModeString, importPage._editModeLayoutName)
+                    end
+                    if ok and status == "spec_locked" then
+                        EllesmereUI:ShowInfoPopup({
+                            title   = EllesmereUI.L("Profile Imported"),
+                            content = EllesmereUI.Lf("\"%1$s\" was saved but cannot be loaded because this spec has an assigned profile. Switch specs or remove the spec assignment to use it.", name),
+                        })
+                        ReloadUI()
+                    elseif ok then
+                        ReloadUI()
+                    else
+                        EllesmereUI:ShowInfoPopup({ title = EllesmereUI.L("Import Failed"), content = err or EllesmereUI.L("Unknown error") })
+                    end
                 end
 
-                local ok, err, status = EllesmereUI.ImportProfile(filteredStr, name)
-                -- Apply the preset's Blizzard Edit Mode layout (if one was supplied)
-                -- right before the reload, so the profile + layout land together.
-                -- pcall-guarded so a Blizzard-side Edit Mode error can never block
-                -- the reload -- the EUI profile still applies. No-op for the manual
-                -- paste path (no stored edit-mode string).
-                if ok and importPage._editModeString then
-                    pcall(EllesmereUI.ApplyPresetEditMode, importPage._editModeString, importPage._editModeLayoutName)
-                end
-                if ok and status == "spec_locked" then
-                    EllesmereUI:ShowInfoPopup({
-                        title   = EllesmereUI.L("Profile Imported"),
-                        content = EllesmereUI.Lf("\"%1$s\" was saved but cannot be loaded because this spec has an assigned profile. Switch specs or remove the spec assignment to use it.", name),
-                    })
-                    ReloadUI()
-                elseif ok then
-                    ReloadUI()
-                else
-                    EllesmereUI:ShowInfoPopup({ title = EllesmereUI.L("Import Failed"), content = err or EllesmereUI.L("Unknown error") })
-                end
+                -- CDM spell layouts (when the CDM module is selected, gated above)
+                -- import as-is. No spec picker: CDM spells are per-profile (stored
+                -- under spellAssignments.profiles[profileName]), so the import only
+                -- populates the NEW imported profile's store -- other profiles are
+                -- untouched and nothing is overwritten. Importing every spec in the
+                -- string is strictly beneficial -- any spec NOT in the string just
+                -- falls back to default bars, which is what a fresh profile gets anyway.
+                commit()
             end)
             importBtn._flashError = BuildErrorFlash(importBtn, impBrd)
 
@@ -4904,20 +5260,27 @@ initFrame:SetScript("OnEvent", function(self)
             local detailX = IMG_PAD + heroImgW + 28
             local detailW = totalW - 26 - detailX
 
+            local isRussian = GetLocale() == "ruRU"
+            local heroNameY = isRussian and -18 or -22
+            local byLblGap = isRussian and -4 or -7
+            local descGap = isRussian and -6 or -12
+            local descHeight = isRussian and 50 or 32
+            local tagGap = isRussian and -6 or -12
+
             local heroName = EllesmereUI.MakeFont(hero, 20, nil, 1, 1, 1, 0.95)
-            PP.Point(heroName, "TOPLEFT", hero, "TOPLEFT", detailX, -22)
+            PP.Point(heroName, "TOPLEFT", hero, "TOPLEFT", detailX, heroNameY)
             heroName:SetJustifyH("LEFT")
             heroName:SetWordWrap(false)
 
             local heroByLbl = EllesmereUI.MakeFont(hero, 13, nil, 1, 1, 1, 0.40)
-            PP.Point(heroByLbl, "TOPLEFT", heroName, "BOTTOMLEFT", 0, -7)
+            PP.Point(heroByLbl, "TOPLEFT", heroName, "BOTTOMLEFT", 0, byLblGap)
             heroByLbl:SetText(EllesmereUI.L("by"))
             local heroAuthor = EllesmereUI.MakeFont(hero, 13, nil, EG.r, EG.g, EG.b)
             PP.Point(heroAuthor, "LEFT", heroByLbl, "RIGHT", 5, 0)
 
             local heroDesc = EllesmereUI.MakeFont(hero, 12, nil, 1, 1, 1, 0.55)
-            PP.Point(heroDesc, "TOPLEFT", heroByLbl, "BOTTOMLEFT", 0, -12)
-            PP.Size(heroDesc, detailW, 32)
+            PP.Point(heroDesc, "TOPLEFT", heroByLbl, "BOTTOMLEFT", 0, descGap)
+            PP.Size(heroDesc, detailW, descHeight)
             heroDesc:SetJustifyH("LEFT")
             heroDesc:SetJustifyV("TOP")
             heroDesc:SetWordWrap(true)
@@ -4925,20 +5288,25 @@ initFrame:SetScript("OnEvent", function(self)
             -- Tag pills row (rebuilt per selection)
             local tagRow = CreateFrame("Frame", nil, hero)
             PP.Size(tagRow, detailW, 22)
-            PP.Point(tagRow, "TOPLEFT", heroDesc, "BOTTOMLEFT", 0, -12)
+            PP.Point(tagRow, "TOPLEFT", heroDesc, "BOTTOMLEFT", 0, tagGap)
             local tagPills = {}
             local function BuildTagPills(tags)
                 for _, p in ipairs(tagPills) do p:Hide(); p:SetParent(nil) end
                 wipe(tagPills)
                 local tx = 0
+                local ty = 0
                 for _, tag in ipairs(tags or {}) do
                     local pill = CreateFrame("Frame", nil, tagRow)
                     local pf = EllesmereUI.MakeFont(pill, 11, nil, 1, 1, 1, 0.6)
                     pf:SetPoint("CENTER")
                     pf:SetText(EllesmereUI.L(tag))
                     local pw = math.floor(pf:GetStringWidth() + 0.5) + 22
+                    if tx > 0 and tx + pw > detailW then
+                        tx = 0
+                        ty = ty - 28
+                    end
                     PP.Size(pill, pw, 22)
-                    PP.Point(pill, "LEFT", tagRow, "LEFT", tx, 0)
+                    PP.Point(pill, "TOPLEFT", tagRow, "TOPLEFT", tx, ty)
                     local pbg = pill:CreateTexture(nil, "BACKGROUND")
                     pbg:SetAllPoints()
                     pbg:SetColorTexture(0.06, 0.08, 0.10, 0.6)
@@ -5414,8 +5782,13 @@ initFrame:SetScript("OnEvent", function(self)
             local cardX = 0
             MakeActionCard(rowFrame, cardX, MEDIA .. "icons\\export.png",
                 EllesmereUI.L("Export Full Profile"), EllesmereUI.L("Export your current profile."), function()
-                    local str = EllesmereUI.ExportCurrentProfile()
-                    if str then EllesmereUI:ShowExportPopup(str) end
+                    local activeName = EllesmereUI.GetActiveProfileName()
+                    -- A full-profile export always includes the CDM module, so always
+                    -- ask whether to bundle the CDM spell layout (then pick specs).
+                    EllesmereUI.RunCDMSpellExportFlow(activeName, function(includeCDM, cdmSpecs)
+                        local str = EllesmereUI.ExportCurrentProfile(true, includeCDM, cdmSpecs)
+                        if str then EllesmereUI:ShowExportPopup(str) end
+                    end)
                 end)
 
             -- Import Profile
@@ -6283,6 +6656,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- "Include layout" toggle: off = no anchor/size-match relationships are
             -- exported (each module lands at its own saved position, untied).
+            local layoutChkBtn
             do
                 local ilBtn = CreateFrame("Button", nil, footerFrame)
                 ilBtn:SetSize(150, 24)
@@ -6307,7 +6681,9 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI.ShowWidgetTooltip(ilBtn, EllesmereUI.L("Include the anchor & size-match relationships between modules. Off = export each module's own positions only, with no cross-module tying."))
                 end)
                 ilBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                layoutChkBtn = ilBtn
             end
+
 
             local EXPORT_BTN_W = 180
             local EXPORT_BTN_H = 30
@@ -6355,8 +6731,17 @@ initFrame:SetScript("OnEvent", function(self)
                     return
                 end
                 local activeName = EllesmereUI.GetActiveProfileName()
-                local str = EllesmereUI.ExportProfile(activeName, folders, includeLayoutExport)
-                if str then EllesmereUI:ShowExportPopup(str) end
+                local function finishExport(includeCDM, cdmSpecs)
+                    local str = EllesmereUI.ExportProfile(activeName, folders, includeLayoutExport, includeCDM, cdmSpecs)
+                    if str then EllesmereUI:ShowExportPopup(str) end
+                end
+                -- If the CDM module is selected, run the shared flow (ask -> spec
+                -- picker); otherwise export straight away with no CDM spell layout.
+                if folders["EllesmereUICooldownManager"] then
+                    EllesmereUI.RunCDMSpellExportFlow(activeName, finishExport)
+                else
+                    finishExport(false, nil)
+                end
             end)
             exportSelBtn._flashError = BuildErrorFlash(exportSelBtn, eaBrd)
 
@@ -6447,7 +6832,12 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Developer settings defaults
                 EllesmereUIDB.showSpellID = false
                 EllesmereUIDB.suppressErrors = true
+                -- Crosshair: the root is the inherited global default, so reset it
+                -- here (per-profile overrides are cleared by the profile's own
+                -- reset). With the root off, profiles without an override inherit
+                -- "None".
                 EllesmereUIDB.crosshairSize = "None"
+                if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
                 -- Reset unlock mode layout data
                 EllesmereUIDB.unlockAnchors = nil
                 EllesmereUIDB.unlockWidthMatch = nil

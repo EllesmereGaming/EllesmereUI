@@ -561,6 +561,7 @@ initFrame:SetScript("OnEvent", function(self)
         whisperSoundValues._menuOpts = {
             itemHeight = 26,
             maxTextWidthPct = 0.8,
+            searchable = true,
             iconAtlas = function(key)
                 if key == "none" then return nil end
                 if not whisperSoundPaths[key] then return nil end

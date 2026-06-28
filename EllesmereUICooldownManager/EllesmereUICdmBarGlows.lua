@@ -236,6 +236,7 @@ local function UpdateOverlayVisuals()
             local entry = overlay._assignEntry
             local spellID = entry.spellID
             local mode = entry.mode or "ACTIVE"
+            local onlyInCombat = entry.onlyInCombat == true
 
             local auraActive = false
             if spellID and spellID > 0 then
@@ -250,6 +251,10 @@ local function UpdateOverlayVisuals()
                 shouldGlow = not auraActive
             else
                 shouldGlow = auraActive
+            end
+
+            if shouldGlow and onlyInCombat then
+                shouldGlow = (InCombatLockdown and InCombatLockdown()) or UnitAffectingCombat("player") or false
             end
 
             -- Only update on state change (avoids restarting animations)
@@ -303,4 +308,3 @@ ns.RequestUpdate = ns.RequestBarGlowUpdate
 function ns.InitBarGlows()
     SetupOverlays()
 end
-

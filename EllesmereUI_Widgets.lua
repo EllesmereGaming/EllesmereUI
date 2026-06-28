@@ -7,6 +7,7 @@
 local EllesmereUI = _G.EllesmereUI
 EllesmereUI._deferredInits[#EllesmereUI._deferredInits + 1] = function()
 local PP = EllesmereUI.PanelPP
+local isRussian = GetLocale() == "ruRU"
 
 -- Utility functions (used heavily)
 local SolidTex         = EllesmereUI.SolidTex
@@ -557,6 +558,14 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     local _moMaxTextPct = _menuOpts and _menuOpts.maxTextWidthPct
     local _moOnItemHover = _menuOpts and _menuOpts.onItemHover
     local _moOnItemLeave = _menuOpts and _menuOpts.onItemLeave
+    -- Optional in-menu search box (opt-in via _menuOpts.searchable). Adds a
+    -- filter field at the top of the menu that hides non-matching items and
+    -- repositions the rest. Intended for flat lists (no subnav or dividers).
+    local _moSearchable = _menuOpts and _menuOpts.searchable
+    local SEARCH_H = 26
+    local searchPad = _moSearchable and (SEARCH_H + 8) or 0
+    local searchEdit, searchPlaceholder
+    local searchResetScroll  -- assigned inside the scrolling branch; nil otherwise
     local mBgR, mBgG, mBgB, mBgA = DD_BG_R, DD_BG_G, DD_BG_B, DD_BG_HA
     local mBrR, mBrG, mBrB, mBrA = 1, 1, 1, DD_BRD_A
     local menu = CreateFrame("Frame", nil, UIParent)
@@ -570,6 +579,29 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     menu:Hide()
     SolidTex(menu, "BACKGROUND", mBgR, mBgG, mBgB, mBgA):SetAllPoints()
     MakeBorder(menu, mBrR, mBrG, mBrB, mBrA, PP)
+
+    if _moSearchable then
+        local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("options") or "Fonts\\FRIZQT__.TTF"
+        searchEdit = CreateFrame("EditBox", nil, menu)
+        searchEdit:SetSize(menuW - 16, SEARCH_H)
+        searchEdit:SetPoint("TOP", menu, "TOP", 0, -4)
+        searchEdit:SetFrameLevel(menu:GetFrameLevel() + 4)
+        searchEdit:SetFont(fontPath, 11, "")
+        searchEdit:SetTextColor(1, 1, 1, 0.9)
+        searchEdit:SetJustifyH("LEFT")
+        searchEdit:SetAutoFocus(false)
+        searchEdit:SetMaxLetters(30)
+        searchEdit:SetTextInsets(4, 4, 0, 0)
+        local sBg = searchEdit:CreateTexture(nil, "BACKGROUND")
+        sBg:SetAllPoints()
+        sBg:SetColorTexture(0, 0, 0, 0.4)
+        searchPlaceholder = searchEdit:CreateFontString(nil, "OVERLAY")
+        searchPlaceholder:SetFont(fontPath, 11, "")
+        searchPlaceholder:SetTextColor(0.5, 0.5, 0.5, 0.6)
+        searchPlaceholder:SetPoint("LEFT", searchEdit, "LEFT", 4, 0)
+        searchPlaceholder:SetText(EllesmereUI.L("Search..."))
+        searchEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    end
 
     -- Inner container: items are always parented here.
     -- If scrolling is needed, this becomes the scroll child.
@@ -914,10 +946,10 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     --  ScrollFrame with a thin custom scrollbar + smooth scrolling.
     ---------------------------------------------------------------------------
     if totalContentH > (_menuOpts and _menuOpts.maxHeight or DD_MAX_HEIGHT) then
-        menu:SetHeight(_menuOpts and _menuOpts.maxHeight or DD_MAX_HEIGHT)
+        menu:SetHeight((_menuOpts and _menuOpts.maxHeight or DD_MAX_HEIGHT) + searchPad)
 
         local sf = CreateFrame("ScrollFrame", nil, menu)
-        sf:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, 0)
+        sf:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, -searchPad)
         sf:SetPoint("BOTTOMRIGHT", menu, "BOTTOMRIGHT", 0, 0)
         sf:SetFrameLevel(menu:GetFrameLevel() + 1)
         sf:EnableMouseWheel(true)
@@ -963,6 +995,13 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
             local maxTravel = trackH - thumbH
             ddThumb:ClearAllPoints()
             ddThumb:SetPoint("TOP", ddTrack, "TOP", 0, -(scrollRatio * maxTravel))
+        end
+
+        -- Let the search filter snap back to the top after the list changes.
+        searchResetScroll = function()
+            ddScrollTarget = 0
+            sf:SetVerticalScroll(0)
+            UpdateDDThumb()
         end
 
         ddSmoothFrame:SetScript("OnUpdate", function(_, elapsed)
@@ -1056,8 +1095,49 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
             UpdateDDThumb()
         end)
     else
-        menu:SetHeight(totalContentH)
-        innerContainer:SetAllPoints(menu)
+        menu:SetHeight(totalContentH + searchPad)
+        if searchPad > 0 then
+            innerContainer:ClearAllPoints()
+            innerContainer:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, -searchPad)
+            innerContainer:SetPoint("BOTTOMRIGHT", menu, "BOTTOMRIGHT", 0, 0)
+        else
+            innerContainer:SetAllPoints(menu)
+        end
+    end
+
+    -- Wire the optional search filter now that items, container and scroll
+    -- helpers all exist. Matches against the visible label text so it works
+    -- in every locale.
+    if searchEdit then
+        local function ApplySearchFilter(raw)
+            local q = strlower(strtrim(raw or ""))
+            if searchPlaceholder then searchPlaceholder:SetShown(q == "") end
+            local visIdx = 0
+            for _, item in ipairs(menuItems) do
+                local name = (item._label and item._label:GetText()) or item._displayName or ""
+                if q == "" or strfind(strlower(tostring(name)), q, 1, true) then
+                    item:Show()
+                    item:ClearAllPoints()
+                    item:SetPoint("TOPLEFT", innerContainer, "TOPLEFT", 1, -(4 + visIdx * _moItemH))
+                    item:SetPoint("TOPRIGHT", innerContainer, "TOPRIGHT", -1, -(4 + visIdx * _moItemH))
+                    visIdx = visIdx + 1
+                else
+                    item:Hide()
+                end
+            end
+            innerContainer:SetHeight(math.max(1, 4 + visIdx * _moItemH + 3))
+            if searchResetScroll then searchResetScroll() end
+        end
+        searchEdit:SetScript("OnTextChanged", function(self) ApplySearchFilter(self:GetText()) end)
+        menu:HookScript("OnShow", function()
+            searchEdit:SetText("")
+            ApplySearchFilter("")
+            searchEdit:SetFocus()
+        end)
+        menu:HookScript("OnHide", function()
+            searchEdit:SetText("")
+            searchEdit:ClearFocus()
+        end)
     end
 
     local function Refresh()
@@ -1461,6 +1541,9 @@ ShowWidgetTooltip = function(label, text, opts)
         if iType == "raid" and InCombatLockdown() then return end
         if (iType == "pvp" or iType == "arena") and InCombatLockdown() then return end
     end
+    -- Allow a function for dynamic text (re-evaluated on each show). Resolved
+    -- after the suppression checks so it isn't called when the tooltip is hidden.
+    if type(text) == "function" then text = text() end
     local tt = GetTooltipFrame()
     local MAX_W = 250
     local PAD = 8  -- horizontal padding each side (matches text anchor insets)
@@ -1984,6 +2067,15 @@ local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue
             ddBtn._ddRefresh = nil
         end
         -- Also refresh the label text in case the current selection's label changed
+        ddLbl:SetText(DDResolveLabel(values, order, getValue()))
+    end
+
+    -- Public: refresh only the displayed label from getValue, without rebuilding
+    -- or invalidating the menu. Safe to call while the menu is wired/open (unlike
+    -- _invalidateMenu, which nils the cached menu and would break the wired
+    -- click). Use when an external change can alter what getValue returns
+    -- (e.g. the crosshair size dropdown showing "Custom" after a cog edit).
+    ddBtn._refreshLabel = function()
         ddLbl:SetText(DDResolveLabel(values, order, getValue()))
     end
 
@@ -2942,7 +3034,8 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
         end
 
         if t == "slider" then
-            local trackFrame, valBox, _, slThumb = BuildSliderCore(region, cfg.trackWidth or 160, 4, 14, 40, 26, 13, SL.INPUT_A,
+            local defaultTrackW = isRussian and 120 or 160
+            local trackFrame, valBox, _, slThumb = BuildSliderCore(region, cfg.trackWidth or defaultTrackW, 4, 14, 40, 26, 13, SL.INPUT_A,
                 cfg.min, cfg.max, cfg.step, cfg.getValue, cfg.setValue, true, cfg.snapPoints)
             PP.Point(valBox, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
             PP.Point(trackFrame, "RIGHT", valBox, "LEFT", -12, 0)
@@ -3291,7 +3384,8 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
         end
 
         if t == "slider" then
-            local trackFrame, valBox, _, slThumb = BuildSliderCore(region, cfg.trackWidth or 130, 4, 14, 40, 26, 13, SL.INPUT_A,
+            local defaultTrackW = isRussian and 100 or 130
+            local trackFrame, valBox, _, slThumb = BuildSliderCore(region, cfg.trackWidth or defaultTrackW, 4, 14, 40, 26, 13, SL.INPUT_A,
                 cfg.min, cfg.max, cfg.step, cfg.getValue, cfg.setValue, true, cfg.snapPoints)
             PP.Point(valBox, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
             PP.Point(trackFrame, "RIGHT", valBox, "LEFT", -12, 0)
@@ -3729,6 +3823,27 @@ function WidgetFactory:WideDualButton(parent, text1, text2, yOffset, onClick1, o
         PP.Point(btn, "CENTER", frame, "CENTER", info[2], 0)
         btn:SetFrameLevel(frame:GetFrameLevel() + 1)
         MakeStyledButton(btn, info[1], 14, WB_COLOURS, info[3])
+    end
+    return frame, ROW_H
+end
+
+-- WideTripleButton  (three buttons side by side, centered -- for action rows)
+function WidgetFactory:WideTripleButton(parent, text1, text2, text3, yOffset, onClick1, onClick2, onClick3, btnWidth)
+    btnWidth = btnWidth or 205
+    local BTN_H = 37
+    local ROW_H = BTN_H + 20
+    local frame = CreateFrame("Frame", nil, parent)
+    PP.Size(frame, parent:GetWidth() - CONTENT_PAD * 2, ROW_H)
+    PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
+    TagOptionRow(frame, parent, (text1 or "") .. " " .. (text2 or "") .. " " .. (text3 or ""))
+    local gap = DUAL_GAP
+    local offsets = { -(btnWidth + gap), 0, (btnWidth + gap) }
+    for i, info in ipairs({ {text1, onClick1}, {text2, onClick2}, {text3, onClick3} }) do
+        local btn = CreateFrame("Button", nil, frame)
+        PP.Size(btn, btnWidth, BTN_H)
+        PP.Point(btn, "CENTER", frame, "CENTER", offsets[i], 0)
+        btn:SetFrameLevel(frame:GetFrameLevel() + 1)
+        MakeStyledButton(btn, info[1], 12, WB_COLOURS, info[2])
     end
     return frame, ROW_H
 end
@@ -5523,10 +5638,12 @@ local function BuildSyncIcon(opts)
     allBtn:SetScript("OnEnter", function()
         local r, g, b = EllesmereUI.GetAccentColor()
         allText:SetTextColor(r, g, b, 1)
+        if opts.tooltip then ShowWidgetTooltip(allBtn, opts.tooltip, opts.tooltipOpts) end
     end)
     allBtn:SetScript("OnLeave", function()
         local r, g, b = EllesmereUI.GetAccentColor()
         allText:SetTextColor(r, g, b, 0.65)
+        if opts.tooltip then HideWidgetTooltip() end
     end)
 
     -- " | Multiple" link (only when multiApply opts are provided)
@@ -6365,9 +6482,12 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             row:SetScript("OnClick", function()
                 if item.locked or (item.lockedFn and item.lockedFn()) then return end
                 setFn(item.key, not getFn(item.key))
-                UpdateCheck(); UpdateLabel()
-                -- Refresh dynamic action labels (e.g. All/None toggle)
+                UpdateLabel()
+                -- Refresh checkbox visuals + dynamic action labels, so items
+                -- whose checked state depends on others (e.g. "Always" in
+                -- crosshair) update live.
                 for _, r in ipairs(_allRows) do
+                    if r.frame._updateCheck then r.frame._updateCheck() end
                     if r.frame._updateActionLabel then r.frame._updateActionLabel() end
                 end
                 if onChanged then

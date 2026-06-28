@@ -78,6 +78,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     --- Shorten a buff/aura label to its first word, with special overrides.
     local LABEL_OVERRIDES = {
+        ["Battle Stance"]           = "Stance",
         ["Defensive Stance"]        = "Stance",
         ["Berserker Stance"]        = "Stance",
         ["Devotion Aura"]           = "Aura",
@@ -195,6 +196,21 @@ initFrame:SetScript("OnEvent", function(self)
         -- Food
         if co and co.enabled and co.enabled.food then
             icons[#icons+1] = { texture = 134062, label = "Food", cat = "consumable", itemKey = "food" }
+        end
+
+        -- Augment Rune
+        if co and co.enabled and co.enabled.augment_rune then
+            icons[#icons+1] = { texture = C_Item.GetItemIconByID(259085) or 134400, label = "Rune", cat = "consumable", itemKey = "augment_rune" }
+        end
+
+        -- Healthstone (default-on: treat nil as enabled, matching the toggle)
+        if co and co.enabled and co.enabled.healthstone ~= false then
+            icons[#icons+1] = { texture = C_Item.GetItemIconByID(5512) or 134400, label = "Stone", cat = "consumable", itemKey = "healthstone" }
+        end
+
+        -- Inky Black Potion
+        if co and co.enabled and co.enabled.inky_black then
+            icons[#icons+1] = { texture = C_Item.GetItemIconByID(124640) or 136122, label = "Inky", cat = "consumable", itemKey = "inky_black" }
         end
 
         return icons
@@ -476,7 +492,12 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
             UpdatePreviewHeader()
-            return
+            -- Must return the header height. A bare `return` (nil) made
+            -- SetContentHeader collapse the content header to 0px, so the whole
+            -- preview vanished whenever a toggle left the icon count unchanged
+            -- (inky/healthstone, augment rune, pet, or a raid buff/aura not for
+            -- this class). Match the full-build height (base 80 + hint row).
+            return 80 + ((not IsPreviewHintDismissed()) and 35 or 0)
         end
 
         -- Container for icons (centered within hardcoded 80px header)
@@ -1245,7 +1266,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Augment Rune toggle | Display In dropdown
-        _, h = W:DualRow(parent, y,
+        local runeRow
+        runeRow, h = W:DualRow(parent, y,
             { type="toggle", text="Augment Rune",
               getValue=function() local c = CDB(); return c and c.enabled and c.enabled.augment_rune end,
               setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.augment_rune = v; RefreshAll(); RebuildPreviewHeader() end end },
@@ -1269,6 +1291,7 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()
               end }
         );  y = y - h
+        local healthstoneRow = row
 
         -- Inline "Choose Zones" button on the right region (Inky Black)
         do
@@ -1380,6 +1403,11 @@ initFrame:SetScript("OnEvent", function(self)
         if flaskRow then _eabrClickMappings["item:flask"] = { section = flaskRow, target = flaskRow } end
         if foodRow then _eabrClickMappings["item:food"] = { section = foodRow, target = foodRow } end
         if weaponEnchantRow then _eabrClickMappings["item:weapon_enchant"] = { section = weaponEnchantRow, target = weaponEnchantRow } end
+        if runeRow then _eabrClickMappings["item:augment_rune"] = { section = runeRow, target = runeRow } end
+        if healthstoneRow then
+            _eabrClickMappings["item:healthstone"] = { section = healthstoneRow, target = healthstoneRow }
+            _eabrClickMappings["item:inky_black"] = { section = healthstoneRow, target = healthstoneRow }
+        end
 
         return math.abs(y)
     end

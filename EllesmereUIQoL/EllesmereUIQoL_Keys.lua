@@ -16,13 +16,23 @@ do
     -- Spell IDs indexed by dungeon name (case-insensitive matching)
     local TELEPORT_BY_NAME = {
         ["magisters' terrace"]         = 1254572,
+        ["терраса магистров"]          = 1254572,
         ["maisara caverns"]            = 1254559,
+        ["пещеры майсара"]             = 1254559,
         ["nexus-point xenas"]          = 1254563,
+        ["нексус-пойнт ксенас"]        = 1254563,
+        ["нексус-поинт ксенас"]        = 1254563,
         ["windrunner spire"]           = 1254400,
+        ["шпиль ветрокрылых"]          = 1254400,
         ["algeth'ar academy"]          = 393273,
+        ["академия алгет'ар"]          = 393273,
+        ["академия алгетар"]           = 393273,
         ["pit of saron"]               = 1254555,
+        ["яма сарона"]                 = 1254555,
         ["seat of the triumvirate"]    = 1254551,
+        ["престол триумвирата"]        = 1254551,
         ["skyreach"]                   = 159898,
+        ["небесный путь"]              = 159898,
     }
     if C_ChallengeMode and C_ChallengeMode.GetMapTable then
         local maps = C_ChallengeMode.GetMapTable()

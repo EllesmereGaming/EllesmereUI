@@ -1556,7 +1556,7 @@ local function CreateMinimapPortalFlyout()
                     GameTooltip:SetItemByID(self._hsID)
                 end
             elseif self._hsType == "housing" then
-                GameTooltip:AddLine("Housing Dashboard")
+                GameTooltip:AddLine(EllesmereUI.L("Housing Dashboard"))
             end
             GameTooltip:Show()
         end)
@@ -2000,7 +2000,7 @@ local function ShowFriendsTooltip(anchor)
         hdr:SetFont(font, 12, "")
         local ac = EllesmereUI.ELLESMERE_GREEN or EllesmereUI._accentColor
         local acHex = ac and format("%02x%02x%02x", (ac.r or 0.05) * 255, (ac.g or 0.82) * 255, (ac.b or 0.62) * 255) or "0cd29f"
-        hdr:SetText(sec.title .. " (|cff" .. acHex .. #sec.list .. "|r)")
+        hdr:SetText(EllesmereUI.L(sec.title) .. " (|cff" .. acHex .. #sec.list .. "|r)")
         hdr:ClearAllPoints()
         hdr:SetPoint("TOP", tt, "TOP", 0, curY)
         hdr:Show()
@@ -3044,16 +3044,21 @@ end
 -- old-expansion button). The setting only HIDES it when off.
 -- It is a plain (non-secure) Blizzard button, so SetParent/SetPoint are safe.
 local _omniumFolioHooked = false
+-- Re-entrancy guard: PositionOmniumFolio calls SetParent/SetScale/SetPoint, all
+-- of which we hook below. The guard stops our own writes from recursing.
+local _omniumFolioApplying = false
 local function PositionOmniumFolio(btn)
     if not btn or not Minimap then return end
     local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
     if not mp then return end
+    _omniumFolioApplying = true
     if btn:GetParent() ~= Minimap then btn:SetParent(Minimap) end
     btn:SetFrameStrata(Minimap:GetFrameStrata())
     btn:SetFrameLevel((Minimap:GetFrameLevel() or 0) + 10)
     btn:SetScale(mp.omniumFolioScale or 0.75)
     btn:ClearAllPoints()
     btn:SetPoint("BOTTOMLEFT", Minimap, "BOTTOMLEFT", mp.omniumFolioX or 0, mp.omniumFolioY or 0)
+    _omniumFolioApplying = false
 end
 
 local function ApplyOmniumFolio()
@@ -3062,11 +3067,16 @@ local function ApplyOmniumFolio()
     local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
     if not mp then return end
 
-    -- One-time Show hook: when OFF, re-hide whenever Blizzard shows it; when ON,
-    -- just enforce our bottom-left position (never force it visible).
+    -- One-time persistent hooks. Blizzard re-anchors/re-scales/re-parents this
+    -- button after loading screens (RefreshButton, edit-mode relayout, etc.),
+    -- often WITHOUT calling Show(), so a Show-only hook lets it drift back to
+    -- Blizzard's default TOPLEFT anchor inside the alpha-0 MinimapCluster --
+    -- which reads as "wrong position/scale" or "missing button" until /reload.
+    -- Re-assert our state on every parent/point/scale change as well as Show.
     if not _omniumFolioHooked then
         _omniumFolioHooked = true
-        hooksecurefunc(btn, "Show", function(self)
+        local function reassert(self)
+            if _omniumFolioApplying then return end
             local m = EBS.db and EBS.db.profile and EBS.db.profile.minimap
             if not m then return end
             if m.showOmniumFolio == false then
@@ -3074,16 +3084,30 @@ local function ApplyOmniumFolio()
             else
                 PositionOmniumFolio(self)
             end
-        end)
+        end
+        hooksecurefunc(btn, "Show", reassert)
+        hooksecurefunc(btn, "SetParent", reassert)
+        hooksecurefunc(btn, "SetPoint", reassert)
+        hooksecurefunc(btn, "SetScale", reassert)
     end
 
     if mp.showOmniumFolio == false then
         btn:Hide()
         return
     end
-    -- Enabled: position/raise only -- do NOT force Show(). Blizzard decides
-    -- whether the current landing page button is shown.
+    -- Enabled: position/raise, then make sure it's actually visible. Blizzard
+    -- Shows this button itself when the ExpansionLandingPage overlay applies,
+    -- but that "OverlayChanged" event can fire before the button registers its
+    -- callback (seen after /reload and zoning), leaving it stuck at its XML
+    -- hidden default even though it exists and is allowed. When it's hidden,
+    -- nudge Blizzard's own RefreshButton: it re-runs the real show/hide decision
+    -- (hides when ShouldShow is false or in an empty Garrison) and repaints the
+    -- CURRENT expansion icon, so this never forces a stale button -- unlike a
+    -- raw Show(). The Show() it issues re-fires our reposition hook.
     PositionOmniumFolio(btn)
+    if not btn:IsShown() and btn.RefreshButton then
+        btn:RefreshButton(true)
+    end
 end
 
 local function ApplyMinimap()
@@ -4005,6 +4029,21 @@ function EBS:OnEnable()
     loginRefresh:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
         C_Timer.After(0, ApplyAll)
+    end)
+
+    -- The Omnium Folio (expansion landing page) button must be re-asserted after
+    -- EVERY loading screen, not just the first. Blizzard can leave it hidden on a
+    -- zone-in (RefreshButton's early-out path), and another minimap-button addon
+    -- can re-grab its parent/position -- the one-shot loginRefresh above won't
+    -- catch later transitions, which is the "button gone after a loading screen,
+    -- /reload fixes it" report. This persistent watcher re-runs ApplyOmniumFolio,
+    -- which is idempotent when the button is already shown and correctly placed
+    -- (it only nudges RefreshButton when the button is hidden). Deferred a frame
+    -- so Blizzard's own PLAYER_ENTERING_WORLD handling runs first.
+    local folioRefresh = CreateFrame("Frame")
+    folioRefresh:RegisterEvent("PLAYER_ENTERING_WORLD")
+    folioRefresh:SetScript("OnEvent", function()
+        C_Timer.After(0, ApplyOmniumFolio)
     end)
 
     -- If GameTimeFrame still doesn't exist, watch for Blizzard_TimeManager to load

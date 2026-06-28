@@ -548,6 +548,8 @@ do
             popup._COL_W   = COL_W
             popup._CLASS_GAP = CLASS_GAP
             popup._dimmer = dimmer
+            popup._POPUP_W = POPUP_W
+            popup._POPUP_H = POPUP_H
             specPopup = popup
         end
 
@@ -566,6 +568,30 @@ do
             elseif presetKey and type(presetKey) == "string" and presetKey:sub(1, 5) == "user:" then presetName = presetKey:sub(6)
             else presetName = presetKey or "" end
             specPopup._subtitle:SetText(EllesmereUI.Lf("Select which specs you want %1$s to be assigned to", presetName))
+        end
+        -- Per-call subtitle color (default dim white). Lets a caller render a red
+        -- overwrite warning in the subtitle slot. Reset every call (popup is cached).
+        if opts.subtitleColor then
+            local c = opts.subtitleColor
+            specPopup._subtitle:SetTextColor(c.r or c[1] or 1, c.g or c[2] or 1, c.b or c[3] or 1, c.a or 1)
+        else
+            specPopup._subtitle:SetTextColor(1, 1, 1, 0.45)
+        end
+        -- Placement: a bottom warning (CDM export/import) drops into the blank
+        -- space above the buttons -- the spec grid never fills the full height,
+        -- so no resize is needed (the popup stays the same height as every other
+        -- spec picker). Normal callers keep the subtitle under the title. The
+        -- warning also renders 2px larger for emphasis.
+        specPopup._subtitle:ClearAllPoints()
+        PP.Size(specPopup, specPopup._POPUP_W, specPopup._POPUP_H)
+        local subFont = specPopup._subtitle:GetFont()
+        if opts.subtitleAtBottom then
+            specPopup._subtitle:SetFont(subFont, 16, "")
+            -- Buttons sit 38px up at 39px tall (top edge ~77px); ~30px gap above.
+            PP.Point(specPopup._subtitle, "BOTTOM", specPopup, "BOTTOM", 0, 107)
+        else
+            specPopup._subtitle:SetFont(subFont, 14, "")
+            PP.Point(specPopup._subtitle, "TOP", specPopup._title, "BOTTOM", 0, -8)
         end
 
         -- Update Done button text
@@ -588,6 +614,7 @@ do
         -- Build lookup: specID -> presetKey for specs assigned to OTHER presets
         local lockedSpecs = {}
         local disabledSpecs = opts.disabledSpecs or {}
+        local lockedOnSpecs = opts.lockedOnSpecs or {}
         local preCheckedSpecs = opts.preCheckedSpecs
         do
             local fullMap = db and db[dbKey]
@@ -612,6 +639,10 @@ do
             for sID in pairs(preCheckedSpecs) do
                 assignments[sID] = true
             end
+        end
+        -- Locked-on specs are always checked and cannot be toggled off.
+        for sID in pairs(lockedOnSpecs) do
+            assignments[sID] = true
         end
 
         for colIdx = 1, NUM_COLS do
@@ -704,14 +735,22 @@ do
 
                     local lockedBy = lockedSpecs[spec.id]
                     local disabledTip = disabledSpecs[spec.id]
+                    local lockedOnTip = lockedOnSpecs[spec.id]
                     row._locked = lockedBy ~= nil
                     row._disabled = disabledTip ~= nil
+                    row._lockedOn = lockedOnTip ~= nil and lockedOnTip ~= false
 
                     local checked = assignments[spec.id] == true
                     row._checked = checked
                     local EG = ELLESMERE_GREEN
                     local function UpdateVisual(r)
-                        if r._locked or r._disabled then
+                        if r._lockedOn then
+                            -- Always-on (e.g. the sync source): checked but locked/grayed.
+                            r._check:Show()
+                            r._boxBorder:SetColor(EG.r, EG.g, EG.b, CB_ACT_BRD_A * 0.5)
+                            r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 0.5)
+                            r._lbl:SetTextColor(1, 1, 1, 0.4)
+                        elseif r._locked or r._disabled then
                             r._check:Hide()
                             r._boxBorder:SetColor(BORDER_R, BORDER_G, BORDER_B, CB_BRD_A * 0.4)
                             r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 0.35)
@@ -732,7 +771,7 @@ do
                     allCheckboxes[#allCheckboxes + 1] = row
 
                     row:SetScript("OnClick", function(self)
-                        if self._locked or self._disabled then return end
+                        if self._lockedOn or self._locked or self._disabled then return end
                         self._checked = not self._checked
                         assignments[spec.id] = self._checked or nil
                         UpdateVisual(self)
@@ -741,13 +780,16 @@ do
                         if self._disabled and disabledTip then
                             EllesmereUI.ShowWidgetTooltip(self._box,
                                 EllesmereUI.DisabledTooltip(disabledTip))
+                        elseif self._lockedOn and type(lockedOnTip) == "string" then
+                            EllesmereUI.ShowWidgetTooltip(self._box,
+                                EllesmereUI.DisabledTooltip(lockedOnTip))
                         end
-                        if self._locked or self._disabled then return end
+                        if self._lockedOn or self._locked or self._disabled then return end
                         self._lbl:SetTextColor(1, 1, 1, 0.90)
                     end)
                     row:SetScript("OnLeave", function(self)
                         EllesmereUI.HideWidgetTooltip()
-                        if self._locked or self._disabled then return end
+                        if self._lockedOn or self._locked or self._disabled then return end
                         self._lbl:SetTextColor(1, 1, 1, 0.65)
                     end)
 
@@ -760,7 +802,7 @@ do
         specPopup._checkAll:SetScript("OnClick", function()
             local EG2 = ELLESMERE_GREEN
             for _, row in ipairs(allCheckboxes) do
-                if not row._locked and not row._disabled then
+                if not row._locked and not row._disabled and not row._lockedOn then
                     row._checked = true
                     assignments[row._specID] = true
                     row._check:Show()
@@ -770,7 +812,7 @@ do
         end)
         specPopup._uncheckAll:SetScript("OnClick", function()
             for _, row in ipairs(allCheckboxes) do
-                if not row._locked and not row._disabled then
+                if not row._locked and not row._disabled and not row._lockedOn then
                     row._checked = false
                     assignments[row._specID] = nil
                     row._check:Hide()

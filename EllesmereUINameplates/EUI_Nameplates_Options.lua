@@ -2749,7 +2749,13 @@ initFrame:SetScript("OnEvent", function(self)
                     previewLabel:SetAlpha(off and 0.3 or 1)
                 end
             end
-            EllesmereUI.RegisterWidgetRefresh(UpdatePreviewGrayOut)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                UpdatePreviewGrayOut()
+                -- Re-render the glow so external changes (e.g. the CDM
+                -- "Apply to: All" sync) update the preview, not just the
+                -- dropdown label. Mirrors the CDM pandemic preview.
+                RefreshPandemicPreview()
+            end)
             UpdatePreviewGrayOut()
         end
 
@@ -2777,6 +2783,25 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             swatch:SetAlpha(pandemicOff() and 0.15 or 1)
             swatch:EnableMouse(not pandemicOff())
+        end
+
+        -- Apply-to-All: push this nameplate pandemic glow out to all CDM bars.
+        -- The coordinator lives in the CDM core, so the link only appears when
+        -- that module is loaded (otherwise there's nothing to sync to).
+        if EllesmereUI.BuildSyncIcon and EllesmereUI.ApplyPandemicGlowToAll then
+            EllesmereUI.BuildSyncIcon({
+                region = glowStyleRow._leftRegion,
+                tooltip = "Apply this pandemic glow to all CDM bars and tracking bars. A surface that can't show a style uses its closest match.",
+                isSynced = function()
+                    return EllesmereUI.IsPandemicGlowSyncedToAll(
+                        EllesmereUI.PandemicPayloadFromNameplate(DB()), { skipNameplates = true })
+                end,
+                onClick = function()
+                    EllesmereUI.ApplyPandemicGlowToAll(
+                        EllesmereUI.PandemicPayloadFromNameplate(DB()), { skipNameplates = true })
+                    C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
+                end,
+            })
         end
 
         -- Pixel Glow sub-options: only enabled when style is "Pixel Glow" (index 1)
@@ -3950,6 +3975,34 @@ initFrame:SetScript("OnEvent", function(self)
             "stripes-small-close", "stripes-small-spread", "striped-tiny",
             "clean",
         }
+        -- Append SharedMedia statusbar textures after a divider, mirroring the
+        -- Bar Texture dropdown. SM keys ("sm:" prefixed) were appended to the
+        -- shared health-bar tables by AppendSharedMediaTextures; render-time
+        -- resolution flows through ns.ResolveOverlayTexPath -> the health-bar
+        -- texture lookup, so a saved SM key paints correctly on the absorb bar.
+        do
+            local sepAdded = false
+            for _, k in ipairs(hbtOrder) do
+                if k ~= "---" and k:find("^sm:") then
+                    if not sepAdded then
+                        absorbStyleOrder[#absorbStyleOrder + 1] = "---"
+                        sepAdded = true
+                    end
+                    absorbStyleOrder[#absorbStyleOrder + 1] = k
+                    absorbStyleValues[k] = hbtValues[k]
+                end
+            end
+            -- Preview swatch behind each menu row. Resolves exactly like the
+            -- render path: NP_ABSORB_STYLE_TEX for blizzard/striped/clean, then
+            -- ns.ResolveOverlayTexPath for stripe overlays and SM keys.
+            absorbStyleValues._menuOpts = {
+                itemHeight = 28,
+                background = function(key)
+                    if not key or key == "---" then return nil end
+                    return ns.NP_ABSORB_STYLE_TEX[key] or ns.ResolveOverlayTexPath(key)
+                end,
+            }
+        end
         local bgHoverRow
         bgHoverRow, h = W:DualRow(parent, y,
             { type="slider", text="Background", min=0, max=100, step=1,

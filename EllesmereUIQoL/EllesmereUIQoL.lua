@@ -1683,6 +1683,69 @@ end
 -------------------------------------------------------------------------------
 do
     local crosshairFrame
+
+    -- Crosshair settings: the account-wide EllesmereUIDB root is the inherited
+    -- global default (preserved, never cleared); the QoL per-profile DB holds
+    -- per-profile settings. Existing users keep their current crosshair until a
+    -- profile overrides it.
+    -- CrosshairDB() is nil until the Cursor module creates it.
+    local function CrosshairDB()
+        return _G._ECL_AceDB and _G._ECL_AceDB.profile
+    end
+    EllesmereUI.GetCrosshairDB = CrosshairDB
+
+    -- Effective read: profile override -> global root -> nil (inline default).
+    local function CrosshairGet(k)
+        local p = CrosshairDB()
+        if p and p[k] ~= nil then return p[k] end
+        return EllesmereUIDB and EllesmereUIDB[k]
+    end
+    EllesmereUI.GetCrosshairValue = CrosshairGet
+
+    -- Melee-range detection, use a per-spec melee-range spell
+    local SPEC_SPELLS = {
+        [65]   = 853,    [66]   = 96231,  [70]   = 96231,             -- Paladin (Holy: Hammer of Justice 10yd; Ret/Prot: Rebuke)
+        [250]  = 316239, [251]  = 316239, [252]  = 316239,            -- Death Knight
+        [577]  = 162794, [581]  = 344859, [1480] = 473662,            -- Demon Hunter
+        [255]  = 186270,                                              -- Hunter (Survival)
+        [102]  = 5221,   [103]  = 5221,   [104]  = 5221, [105] = 5221,-- Druid (gated by form)
+        [268]  = 205523, [269]  = 205523, [270]  = 205523,            -- Monk
+        [71]   = 1464,   [72]   = 1464,   [73]   = 23922,             -- Warrior
+        [263]  = 17364,                                               -- Shaman (Enhancement)
+        [259]  = 1752,   [260]  = 1752,   [261]  = 1752,              -- Rogue
+        [1467] = 362969, [1468] = 362969, [1473] = 362969,            -- Evoker
+    }
+    local DRUID_MELEE_FORMS = { [1] = true, [2] = true }  -- Bear, Cat
+
+    local _, _chPlayerClass = UnitClass("player")
+    local _meleeSpell  -- cached melee spell for the current spec (nil = ranged spec)
+
+    local function RefreshCrosshairMeleeSpell()
+        local specID
+        if PlayerUtil and PlayerUtil.GetCurrentSpecID then
+            specID = PlayerUtil.GetCurrentSpecID()
+        elseif GetSpecialization then
+            local idx = GetSpecialization()
+            if idx then specID = (GetSpecializationInfo(idx)) end
+        end
+        _meleeSpell = (specID and SPEC_SPELLS[specID]) or nil
+    end
+    RefreshCrosshairMeleeSpell()
+
+    -- True only when there is an attackable, living target out of melee range.
+    -- Druids count only while in a melee form (Cat/Bear).
+    local function TargetOutOfMelee()
+        if not _meleeSpell then return false end
+        if _chPlayerClass == "DRUID" and not DRUID_MELEE_FORMS[GetShapeshiftForm()] then
+            return false
+        end
+        if not (UnitExists("target") and UnitCanAttack("player", "target")
+                and not UnitIsDead("target")) then
+            return false
+        end
+        return C_Spell.IsSpellInRange(_meleeSpell, "target") == false
+    end
+
     local function CreateCrosshair()
         if crosshairFrame then return end
         crosshairFrame = CreateFrame("Frame", "EUI_CharacterCrosshair", UIParent)
@@ -1693,21 +1756,61 @@ do
         crosshairFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
         crosshairFrame:SetSize(1, 1)
 
-        local function MakeArm()
-            local t = crosshairFrame:CreateTexture(nil, "OVERLAY")
+        local function MakeArm(layer)
+            local t = crosshairFrame:CreateTexture(nil, layer or "OVERLAY")
             if t.SetSnapToPixelGrid then
                 t:SetSnapToPixelGrid(false)
                 t:SetTexelSnappingBias(0)
             end
             return t
         end
-        crosshairFrame._hBar = MakeArm()
-        crosshairFrame._vBar = MakeArm()
+        -- Borders sit on artwork so the overlay arms render on top of them.
+        crosshairFrame._hBorder = MakeArm("ARTWORK")
+        crosshairFrame._vBorder = MakeArm("ARTWORK")
+        crosshairFrame._hBar = MakeArm("OVERLAY")
+        crosshairFrame._vBar = MakeArm("OVERLAY")
+
+        -- Throttled recolor when the target is out of melee range. No-ops unless
+        -- the feature is enabled and the class has a mapped melee spell.
+        local meleeAccum = 0
+        crosshairFrame:SetScript("OnUpdate", function(self, elapsed)
+            meleeAccum = meleeAccum + elapsed
+            if meleeAccum < 0.15 then return end
+            meleeAccum = 0
+            local nc = self._normalColor
+            if not nc then return end
+            if not (CrosshairGet("crosshairMeleeColorEnabled") and _meleeSpell) then
+                if self._meleeActive then
+                    self._meleeActive = false
+                    self._hBar:SetColorTexture(nc.r, nc.g, nc.b, nc.a)
+                    self._vBar:SetColorTexture(nc.r, nc.g, nc.b, nc.a)
+                end
+                return
+            end
+            local outOfRange = TargetOutOfMelee()
+            if outOfRange ~= self._meleeActive then
+                self._meleeActive = outOfRange
+                local c = outOfRange and (CrosshairGet("crosshairMeleeColor") or { r = 1, g = 0, b = 0, a = 1 }) or nc
+                self._hBar:SetColorTexture(c.r or 1, c.g or 0, c.b or 0, c.a or 1)
+                self._vBar:SetColorTexture(c.r or 1, c.g or 0, c.b or 0, c.a or 1)
+            end
+        end)
     end
 
+    -- Hardcoded presets (the original look): thickness + total arm length. The
+    -- options dropdown stamps these onto the H/V Width/Length values, and they
+    -- are the fallback here when those values are unset. Cog sliders fine-tune.
+    EllesmereUI.CROSSHAIR_PRESETS = {
+        Thin   = { width = 1, length = 40 },
+        Normal = { width = 2, length = 40 },
+        Thick  = { width = 3, length = 40 },
+    }
+
     EllesmereUI._applyCrosshair = function()
-        local PP = EllesmereUI.PanelPP
-        local size = EllesmereUIDB and EllesmereUIDB.crosshairSize or "None"
+        local PP = EllesmereUI.PP
+        -- Effective reads (profile override -> global root -> inline default)
+        local G = CrosshairGet
+        local size = G("crosshairSize") or "None"
         if size == "None" then
             if crosshairFrame then crosshairFrame:Hide() end
             return
@@ -1715,37 +1818,98 @@ do
 
         CreateCrosshair()
 
-        local c = EllesmereUIDB and EllesmereUIDB.crosshairColor
+        local c = G("crosshairColor")
         local cr = c and c.r or 1
         local cg = c and c.g or 1
         local cb = c and c.b or 1
         local ca = c and c.a or 0.75
 
-        local thickness = (size == "Thin") and 1 or (size == "Thick") and 3 or 2
-        local ARM = PP.Scale(20)
+        -- Preset gives the baseline width/length, sliders override per axis.
+        local preset = EllesmereUI.CROSSHAIR_PRESETS[size] or EllesmereUI.CROSSHAIR_PRESETS.Normal
+        local hWidth = G("crosshairHWidth") or preset.width
+        local vWidth = G("crosshairVWidth") or preset.width
+        local hLen   = G("crosshairHLength") or preset.length
+        local vLen   = G("crosshairVLength") or preset.length
+        local xOff   = G("crosshairXOffset") or 0
+        local yOff   = G("crosshairYOffset") or 0
+        local bSize  = G("crosshairBorderSize") or 0
+        local bc     = G("crosshairBorderColor") or { r = 0, g = 0, b = 0, a = 1 }
 
-        local hBar = crosshairFrame._hBar
-        local vBar = crosshairFrame._vBar
+        -- (0,0) = screen center
+        crosshairFrame:ClearAllPoints()
+        crosshairFrame:SetPoint("CENTER", UIParent, "CENTER", xOff, yOff)
 
-        hBar:SetColorTexture(cr, cg, cb, ca)
+        local hBar, vBar = crosshairFrame._hBar, crosshairFrame._vBar
+        local hBorder, vBorder = crosshairFrame._hBorder, crosshairFrame._vBorder
+
         hBar:ClearAllPoints()
-        hBar:SetPoint("LEFT",  crosshairFrame, "CENTER", -ARM, 0)
-        hBar:SetPoint("RIGHT", crosshairFrame, "CENTER",  ARM, 0)
-        hBar:SetHeight(thickness)
+        hBar:SetSize(PP.Scale(hLen), PP.Scale(hWidth))
+        hBar:SetPoint("CENTER", crosshairFrame, "CENTER", 0, 0)
+        hBar:SetColorTexture(cr, cg, cb, ca)
 
-        vBar:SetColorTexture(cr, cg, cb, ca)
         vBar:ClearAllPoints()
-        vBar:SetPoint("TOP",    crosshairFrame, "CENTER", 0,  ARM)
-        vBar:SetPoint("BOTTOM", crosshairFrame, "CENTER", 0, -ARM)
-        vBar:SetWidth(thickness)
+        vBar:SetSize(PP.Scale(vWidth), PP.Scale(vLen))
+        vBar:SetPoint("CENTER", crosshairFrame, "CENTER", 0, 0)
+        vBar:SetColorTexture(cr, cg, cb, ca)
 
-        crosshairFrame:Show()
+        -- Base colour for the out-of-melee-range recolor, reset the melee state
+        -- so the OnUpdate re-applies the range colour next tick if still needed.
+        crosshairFrame._normalColor = { r = cr, g = cg, b = cb, a = ca }
+        crosshairFrame._meleeActive = false
+
+        -- Pixel border: a slightly larger bar of border colour behind each arm.
+        if bSize and bSize > 0 then
+            local bp = PP.Scale(bSize)
+            local br, bg, bb, ba = bc.r or 0, bc.g or 0, bc.b or 0, bc.a or 1
+            hBorder:ClearAllPoints()
+            hBorder:SetSize(PP.Scale(hLen) + bp * 2, PP.Scale(hWidth) + bp * 2)
+            hBorder:SetPoint("CENTER", crosshairFrame, "CENTER", 0, 0)
+            hBorder:SetColorTexture(br, bg, bb, ba)
+            hBorder:Show()
+            vBorder:ClearAllPoints()
+            vBorder:SetSize(PP.Scale(vWidth) + bp * 2, PP.Scale(vLen) + bp * 2)
+            vBorder:SetPoint("CENTER", crosshairFrame, "CENTER", 0, 0)
+            vBorder:SetColorTexture(br, bg, bb, ba)
+            vBorder:Show()
+        else
+            hBorder:Hide()
+            vBorder:Hide()
+        end
+
+        -- Visibility: always / combat / instances / instances_combat (both).
+        local vis = G("crosshairVisibility") or "always"
+        local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
+        local show = true
+        if vis == "combat" then
+            show = inCombat
+        elseif vis == "instances" then
+            show = IsInInstance()
+        elseif vis == "instances_combat" then
+            show = IsInInstance() and inCombat
+        end
+        if show then crosshairFrame:Show() else crosshairFrame:Hide() end
+    end
+
+    -- Re-evaluate visibility on combat / zone transitions, and refresh the
+    -- cached melee spell when the spec changes.
+    do
+        local visWatch = CreateFrame("Frame")
+        visWatch:RegisterEvent("PLAYER_REGEN_DISABLED")
+        visWatch:RegisterEvent("PLAYER_REGEN_ENABLED")
+        visWatch:RegisterEvent("PLAYER_ENTERING_WORLD")
+        visWatch:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+        visWatch:SetScript("OnEvent", function(_, event)
+            if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
+                RefreshCrosshairMeleeSpell()
+            end
+            -- _applyCrosshair self-guards: nil DB -> returns, "None" -> hides,
+            -- and runs the one-time migration once the profile DB is ready.
+            if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+        end)
     end
 
     C_Timer.After(1, function()
-        if EllesmereUIDB and EllesmereUIDB.crosshairSize and EllesmereUIDB.crosshairSize ~= "None" then
-            EllesmereUI._applyCrosshair()
-        end
+        if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
     end)
 
     ---------------------------------------------------------------------------
@@ -1883,4 +2047,80 @@ do
             end)
         end
     end
+end
+
+-------------------------------------------------------------------------------
+--  Hide Error Messages
+--  Swallows the red UIErrorsFrame spam (e.g. "Not enough rage", "Ability is
+--  not ready yet") while keeping a short whitelist of genuinely useful errors
+--  visible. The OnEvent override is only installed while the option is on, so
+--  it costs nothing for anyone who leaves it off.
+-------------------------------------------------------------------------------
+do
+    local origOnEvent
+    local installed = false
+
+    -- Errors worth keeping even while the rest are hidden. Built lazily so we
+    -- only touch the ERR_* globals when someone actually enables the feature.
+    local keep
+    local function BuildKeepList()
+        if keep then return end
+        keep = {}
+        for _, msg in ipairs({
+            ERR_INV_FULL, ERR_QUEST_LOG_FULL, ERR_RAID_GROUP_ONLY,
+            ERR_PARTY_LFG_BOOT_LIMIT, ERR_PARTY_LFG_BOOT_DUNGEON_COMPLETE,
+            ERR_PARTY_LFG_BOOT_IN_COMBAT, ERR_PARTY_LFG_BOOT_IN_PROGRESS,
+            ERR_PARTY_LFG_BOOT_LOOT_ROLLS, ERR_PARTY_LFG_TELEPORT_IN_COMBAT,
+            ERR_PET_SPELL_DEAD, ERR_PLAYER_DEAD,
+            SPELL_FAILED_TARGET_NO_POCKETS, ERR_ALREADY_PICKPOCKETED,
+        }) do
+            if msg then keep[msg] = true end
+        end
+    end
+
+    -- The group-kick "not eligible" line is a format string, so it needs a
+    -- pattern match rather than a plain equality check.
+    local function IsBootNotEligible(err)
+        if type(err) ~= "string" or not ERR_PARTY_LFG_BOOT_NOT_ELIGIBLE_S then return false end
+        local ok, found = pcall(function()
+            return err:find(string.format(ERR_PARTY_LFG_BOOT_NOT_ELIGIBLE_S, ".+"))
+        end)
+        return (ok and found) and true or false
+    end
+
+    local function FilteredOnEvent(self, event, id, err, ...)
+        if event == "UI_ERROR_MESSAGE" then
+            if keep[err] or IsBootNotEligible(err) then
+                return origOnEvent(self, event, id, err, ...)
+            end
+            return
+        end
+        return origOnEvent(self, event, id, err, ...)
+    end
+
+    local function ApplyHideErrorMessages()
+        local on = EllesmereUIDB and EllesmereUIDB.hideErrorMessages
+        if on and not installed then
+            BuildKeepList()
+            origOnEvent = UIErrorsFrame:GetScript("OnEvent")
+            UIErrorsFrame:SetScript("OnEvent", FilteredOnEvent)
+            UIParent:UnregisterEvent("PING_SYSTEM_ERROR")
+            installed = true
+        elseif not on and installed then
+            UIErrorsFrame:SetScript("OnEvent", origOnEvent)
+            origOnEvent = nil
+            UIParent:RegisterEvent("PING_SYSTEM_ERROR")
+            installed = false
+        end
+    end
+    EllesmereUI._applyHideErrorMessages = ApplyHideErrorMessages
+
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_LOGIN")
+    f:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        if EllesmereUIDB and EllesmereUIDB.hideErrorMessages then
+            ApplyHideErrorMessages()
+        end
+    end)
 end

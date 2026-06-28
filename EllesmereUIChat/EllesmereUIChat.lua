@@ -969,7 +969,7 @@ local function CreatePortalFlyout()
                     GameTooltip:SetItemByID(self._hsID)
                 end
             elseif self._hsType == "housing" then
-                GameTooltip:AddLine("Housing Dashboard")
+                GameTooltip:AddLine(EUI.L("Housing Dashboard"))
             end
             GameTooltip:Show()
         end)

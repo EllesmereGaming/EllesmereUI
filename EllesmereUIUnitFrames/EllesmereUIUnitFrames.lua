@@ -82,6 +82,16 @@ local defaults = {
         -- Show one decimal on abbreviated values (240.5k) and percents (77.3%).
         -- Global, default off; read by the unit-frame text tags via _G flags.
         showDecimalOnText = false,
+        -- When decimals are on, boss frames show two decimals (240.55k / 77.30%)
+        -- instead of one. Default on. Inline cog on "Show Decimal on Health Text".
+        showDecimalBoss2 = true,
+        -- Player Threat (Non-Tank): additive "Shadow" border on the PLAYER frame
+        -- when the player is pulling/has aggro, in instanced content only. Global,
+        -- default off (zero cost until enabled). Colors mirror the nameplate
+        -- non-tank threat defaults (has aggro / close to aggro).
+        playerThreatBorderEnabled  = false,
+        playerThreatHasAggroColor  = { r = 1.00, g = 0.50, b = 0.00 },
+        playerThreatNearAggroColor = { r = 0.81, g = 0.72, b = 0.19 },
         -- Custom enemy reaction colors (empty = use Blizzard FACTION_BAR_COLORS).
         -- Keys: hostile (reactions 1-3), neutral (4), friendly (5-8), tapped.
         enemyColors = {},
@@ -823,6 +833,15 @@ local defaults = {
             borderColor = { r = 0, g = 0, b = 0 },
             borderTexture = "solid",
             highlightColor = { r = 1, g = 1, b = 1 },
+            -- Boss Hover / Target border recolor (mirrors Raid Frames "Hover
+            -- Borders"). Both default OFF; enabling one recolors the existing
+            -- border to that color (hover takes priority over target).
+            bossHoverBorderEnabled = false,
+            bossHoverBorderColor = { r = 1, g = 1, b = 1 },
+            bossHoverBorderAlpha = 1,
+            bossTargetBorderEnabled = false,
+            bossTargetBorderColor = { r = 1, g = 1, b = 1 },
+            bossTargetBorderAlpha = 1,
             raidMarkerEnabled = true,
             raidMarkerSize = 28,
             raidMarkerAlign = "left",
@@ -1046,10 +1065,13 @@ local function UnitToSettingsKey(unit)
     return nil
 end
 
-local function ApplyHealthBarTexture(health, unitKey)
+local function ApplyHealthBarTexture(health, unitKey, texKeyOverride)
     if not health then return end
-    local s = unitKey and db.profile[unitKey]
-    local texKey = (s and s.healthBarTexture) or db.profile.healthBarTexture or "none"
+    local texKey = texKeyOverride
+    if not texKey then
+        local s = unitKey and db.profile[unitKey]
+        texKey = (s and s.healthBarTexture) or db.profile.healthBarTexture or "none"
+    end
     local path   = EllesmereUI.ResolveTexturePath(healthBarTextures, texKey, "Interface\\Buttons\\WHITE8x8")
     health:SetStatusBarTexture(path)
     local hFill = health:GetStatusBarTexture()
@@ -1071,6 +1093,21 @@ local function ApplyHealthBarTexture(health, unitKey)
         local pFill = power:GetStatusBarTexture()
         if pFill then UnsnapTex(pFill) end
     end
+end
+
+-- Resolve a unit's effective health bar texture KEY. Main frames use their own
+-- key (falling back to the global default). Mini frames (pet, target of target,
+-- focus target, boss) inherit the donor frame's texture (focus > target >
+-- player) by default; a non-nil, non-"inherit" own key overrides that for this
+-- frame only. Used by both the live frames and the options preview so they match.
+ns.ResolveHealthBarTextureKey = function(ownSettings, donorSettings)
+    local own = ownSettings and ownSettings.healthBarTexture
+    if own and own ~= "inherit" then return own end
+    if donorSettings then
+        local d = donorSettings.healthBarTexture
+        if d and d ~= "inherit" then return d end
+    end
+    return db.profile.healthBarTexture or "none"
 end
 
 -- Cast bars reuse the unit's health bar texture so every bar matches. The cast
@@ -1347,13 +1384,32 @@ ns._decimalAbbrevConfig = { breakpointData = {
     { breakpoint = 1e6, abbreviation = "m", significandDivisor = 1e5, fractionDivisor = 10, abbreviationIsGlobal = false },
     { breakpoint = 1e3, abbreviation = "k", significandDivisor = 1e2, fractionDivisor = 10, abbreviationIsGlobal = false },
 } }
+-- Two-decimal variant for boss frames ("Show 2 for Boss"): 240.55k / 2.45m.
+-- Per band: significandDivisor = breakpoint / 100, fractionDivisor = 100.
+ns._decimalAbbrevConfig2 = { breakpointData = {
+    { breakpoint = 1e9, abbreviation = "b", significandDivisor = 1e7, fractionDivisor = 100, abbreviationIsGlobal = false },
+    { breakpoint = 1e6, abbreviation = "m", significandDivisor = 1e4, fractionDivisor = 100, abbreviationIsGlobal = false },
+    { breakpoint = 1e3, abbreviation = "k", significandDivisor = 1e1, fractionDivisor = 100, abbreviationIsGlobal = false },
+} }
 function ns.ApplyTextDecimalGlobals()
     if db and db.profile and db.profile.showDecimalOnText then
         _G._EUI_TextDecimals = true
         _G._EUI_AbbrevDecimalCfg = ns._decimalAbbrevConfig
+        -- Boss frames get a second decimal place (default on). Tags fall back
+        -- to the 1-decimal path for every non-boss unit when the flag is set,
+        -- and ignore it entirely when nil.
+        if db.profile.showDecimalBoss2 ~= false then
+            _G._EUI_BossExtraDecimal = true
+            _G._EUI_AbbrevDecimalCfg2 = ns._decimalAbbrevConfig2
+        else
+            _G._EUI_BossExtraDecimal = false
+            _G._EUI_AbbrevDecimalCfg2 = nil
+        end
     else
         _G._EUI_TextDecimals = false
         _G._EUI_AbbrevDecimalCfg = nil
+        _G._EUI_BossExtraDecimal = false
+        _G._EUI_AbbrevDecimalCfg2 = nil
     end
 end
 
@@ -1365,6 +1421,10 @@ do
     if UnitIsDeadOrGhost(unit) then return "DEAD" end
     local hp = UnitHealth(unit) or 0
     local cfg = _G._EUI_AbbrevDecimalCfg
+    -- Boss frames use the 2-decimal config when "Show 2 for Boss" is on.
+    if _G._EUI_BossExtraDecimal and string.sub(unit, 1, 4) == "boss" then
+      cfg = _G._EUI_AbbrevDecimalCfg2
+    end
     return cfg and AbbreviateNumbers(hp, cfg) or AbbreviateNumbers(hp)
   end
 
@@ -1379,6 +1439,9 @@ do
     if UnitIsDeadOrGhost(unit) then return "DEAD" end
     local pct = UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)
     if not pct then return "0" end
+    if _G._EUI_BossExtraDecimal and string.sub(unit, 1, 4) == "boss" then
+      return string_format("%.2f", pct)
+    end
     return string_format(_G._EUI_TextDecimals and "%.1f" or "%d", pct)
   end
   oUF.Tags.Events["perhpnosign"] = "UNIT_HEALTH UNIT_MAXHEALTH"
@@ -1401,7 +1464,9 @@ oUF.Tags.Events["eui-perpp"] = "UNIT_POWER_UPDATE UNIT_MAXPOWER UNIT_DISPLAYPOWE
 -- eui-perhp: health percent, EUI-owned so "Show Decimal on Text" can switch
 -- %d / %.1f without editing the vendored oUF [perhp]. Mirrors [perhp] otherwise.
 oUF.Tags.Methods["eui-perhp"] = [[function(u)
-    return string.format(_EUI_TextDecimals and '%.1f' or '%d', UnitHealthPercent(u, true, CurveConstants.ScaleTo100))
+    local fmt = _EUI_TextDecimals and '%.1f' or '%d'
+    if _EUI_BossExtraDecimal and string.sub(u, 1, 4) == 'boss' then fmt = '%.2f' end
+    return string.format(fmt, UnitHealthPercent(u, true, CurveConstants.ScaleTo100))
 end]]
 oUF.Tags.Events["eui-perhp"] = "UNIT_HEALTH UNIT_MAXHEALTH"
 
@@ -1430,6 +1495,23 @@ oUF.Tags.Methods["eui-absorbshort"] = [[function(u)
     return cfg and AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0, cfg) or AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0)
 end]]
 oUF.Tags.Events["eui-absorbshort"] = "UNIT_ABSORB_AMOUNT_CHANGED"
+
+-- eui-healabsorb: full heal-absorb amount, blank when zero (mirrors eui-absorb
+-- with UnitGetTotalHealAbsorbs). TruncateWhenZero blanks naturally at zero.
+oUF.Tags.Methods["eui-healabsorb"] = [[function(u)
+    if not u or not UnitExists(u) then return "" end
+    return string.format("%s", C_StringUtil.TruncateWhenZero(UnitGetTotalHealAbsorbs(u) or 0))
+end]]
+oUF.Tags.Events["eui-healabsorb"] = "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
+
+-- eui-healabsorbshort: heal-absorb abbreviated (e.g. 80k). Like eui-absorbshort
+-- it shows "0" at zero, so the "Heal Absorb Short" text gate hides it then.
+oUF.Tags.Methods["eui-healabsorbshort"] = [[function(u)
+    if not u or not UnitExists(u) then return "" end
+    local cfg = _EUI_AbbrevDecimalCfg
+    return cfg and AbbreviateNumbers(UnitGetTotalHealAbsorbs(u) or 0, cfg) or AbbreviateNumbers(UnitGetTotalHealAbsorbs(u) or 0)
+end]]
+oUF.Tags.Events["eui-healabsorbshort"] = "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
 
 local optionsFrame
 local optionsCategoryID
@@ -1745,6 +1827,8 @@ local function ContentToTag(content)
     elseif content == "perhp_perpp" then return "[eui-perhp]% | [eui-perpp]%"
     elseif content == "absorb" then return "[eui-absorb]"
     elseif content == "absorbshort" then return "[eui-absorbshort]"
+    elseif content == "healabsorb" then return "[eui-healabsorb]"
+    elseif content == "healabsorbshort" then return "[eui-healabsorbshort]"
     elseif content == "group" then return "[group]"
     else return nil end
 end
@@ -2651,6 +2735,18 @@ local ABSORB_STYLE_ALPHA = {
     blizzard        = 0.8,
 }
 
+-- Resolve an absorb-style key to a texture path. Built-in styles come from
+-- ABSORB_STYLE_TEX; "sm:" SharedMedia keys (shared with the Bar Texture
+-- dropdown, appended into healthBarTextures by AppendSharedMediaTextures) fall
+-- through to the health-bar texture lookup. Used by both the live render
+-- (ApplyAbsorbStyle / ApplyHealAbsorbStyle) and the options preview, so a saved
+-- SM key paints identically everywhere.
+function ns.ResolveAbsorbStyleTex(style, fallback)
+    return ABSORB_STYLE_TEX[style]
+        or (EllesmereUI.ResolveTexturePath and EllesmereUI.ResolveTexturePath(healthBarTextures, style, fallback))
+        or fallback
+end
+
 -- Effective absorb opacity: the per-unit absorbOpacity once set, otherwise the
 -- pre-split behavior (clean uses absorbCleanAlpha, other styles the fixed 0.8).
 -- Read-time fallback so existing user settings render identically with no
@@ -2667,7 +2763,7 @@ end
 
 local function ApplyAbsorbStyle(absorbBar, style, settings)
     if not absorbBar then return end
-    local tex = ABSORB_STYLE_TEX[style] or ABSORB_SHIELD_TEX
+    local tex = ns.ResolveAbsorbStyleTex(style, ABSORB_SHIELD_TEX)
     local alpha = GetAbsorbOpacity(style, settings)
     local ac = (settings and settings.absorbColor) or { r = 1, g = 1, b = 1 }
     -- striped-5-reversed.png is a repeating tile (the striped3 shield texture
@@ -2701,7 +2797,7 @@ end
 -- reproduce the pre-split hardcoded look: clean white8x8, red, 0.65 alpha.
 local function ApplyHealAbsorbStyle(haBar, style, settings)
     if not haBar then return end
-    local tex = ABSORB_STYLE_TEX[style] or "Interface\\Buttons\\WHITE8X8"
+    local tex = ns.ResolveAbsorbStyleTex(style, "Interface\\Buttons\\WHITE8X8")
     local alpha = ((settings and settings.healAbsorbOpacity) or 65) / 100
     local hc = (settings and settings.healAbsorbColor) or { r = 0.8, g = 0.15, b = 0.15 }
     -- The "Large Outlined Stripes" styles are pre-colored; render them untinted.
@@ -3097,11 +3193,21 @@ local function CreateAbsorbBar(frame, unit, settings)
             -- the bar-style early return so it works with the absorb BAR disabled.
             -- Secret-safe: the absorb is only fed to SetValue and AbbreviateNumbers,
             -- never compared to zero (SetText takes the same value the tag would).
-            if self._absGate and event == "UNIT_ABSORB_AMOUNT_CHANGED" then
-                local amt, got, fsZone
+            -- Each gate feeds its own value source: shield gates use total
+            -- absorbs, heal gates (g._euiHealGate) use total heal absorbs. Both
+            -- absorb events drive the loop; each amount is fetched lazily once.
+            if self._absGate and (event == "UNIT_ABSORB_AMOUNT_CHANGED" or event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED") then
+                local shieldAmt, healAmt, fsZone
                 for zone, g in pairs(self._absGate) do
                     if g:IsShown() then
-                        if not got then amt = (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(updUnit)) or 0; got = true end
+                        local amt
+                        if g._euiHealGate then
+                            if not healAmt then healAmt = (UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(updUnit)) or 0 end
+                            amt = healAmt
+                        else
+                            if not shieldAmt then shieldAmt = (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(updUnit)) or 0 end
+                            amt = shieldAmt
+                        end
                         g:SetValue(amt)
                         fsZone = fsZone or { left = self.LeftText, right = self.RightText, center = self.CenterText }
                         local fs = fsZone[zone]
@@ -4274,7 +4380,8 @@ local function CreateCastBar(frame, unit, settings)
     local function LayoutCastTextZones(cb)
         local barW = cb:GetWidth()
         if not barW or barW <= 0 then return end
-        local timerW = (cb._durationSize or 10) * 2.2
+        -- +5px so the timer text has a little extra room before it truncates.
+        local timerW = (cb._durationSize or 10) * 2.2 + 5
         local showDur = cb._showDuration ~= false
         local nameSide = cb._nameSide or "left"
         local tgtSide  = cb._tgtSide or "right"
@@ -4644,11 +4751,42 @@ local function SetupShowOnCastBar(frame, unit)
 end
 
 
+-- Boss frames have an independent Hover / Target border recolor (mirrors the
+-- Raid Frames "Hover Borders" control); both default OFF. Priority: hover (while
+-- moused over) > target (while this boss is the current target) > the frame's
+-- normal border color. Recolors the existing unified border in place. _hovered is
+-- maintained by the OnEnter/OnLeave hooks; _isTarget by the boss target updater.
+-- Defined on ns (not a file local) to avoid the Lua 200-local cap.
+ns.ApplyBossBorderState = function(self)
+    if not self.unifiedBorder then return end
+    local s = db.profile.boss
+    if not s then return end
+    local r, g, b, a
+    if self._hovered and s.bossHoverBorderEnabled then
+        local c = s.bossHoverBorderColor or { r = 1, g = 1, b = 1 }
+        r, g, b, a = c.r, c.g, c.b, s.bossHoverBorderAlpha or 1
+    elseif self._isTarget and s.bossTargetBorderEnabled then
+        local c = s.bossTargetBorderColor or { r = 1, g = 1, b = 1 }
+        r, g, b, a = c.r, c.g, c.b, s.bossTargetBorderAlpha or 1
+    else
+        local c = s.borderColor or { r = 0, g = 0, b = 0 }
+        r, g, b, a = c.r, c.g, c.b, s.borderAlpha or 1
+    end
+    EllesmereUI.SetBorderStyleColor(self.unifiedBorder, r, g, b, a)
+end
+
 local function FrameBorderEnter(self)
     if not self.unifiedBorder then return end
     local unit = self.unit or "player"
-    local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget" or (unit and unit:match("^boss%d$")))
+    if unit:match("^boss%d$") then
+        self._hovered = true
+        ns.ApplyBossBorderState(self)
+        return
+    end
+    local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget")
     local settings = isMini and GetMiniDonorSettings() or GetSettingsForUnit(unit)
+    -- Highlight defaults ON (nil == enabled); only an explicit false disables it.
+    if settings.highlightEnabled == false then return end
     local hc = settings.highlightColor or { r = 1, g = 1, b = 1 }
     local ha = settings.highlightAlpha or 1
     EllesmereUI.SetBorderStyleColor(self.unifiedBorder, hc.r, hc.g, hc.b, ha)
@@ -4656,7 +4794,12 @@ end
 local function FrameBorderLeave(self)
     if not self.unifiedBorder then return end
     local unit = self.unit or "player"
-    local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget" or (unit and unit:match("^boss%d$")))
+    if unit:match("^boss%d$") then
+        self._hovered = false
+        ns.ApplyBossBorderState(self)
+        return
+    end
+    local isMini = (unit == "pet" or unit == "targettarget" or unit == "focustarget")
     local settings = isMini and GetMiniDonorSettings() or GetSettingsForUnit(unit)
     local bc = settings.borderColor or { r = 0, g = 0, b = 0 }
     local ba = settings.borderAlpha or 1
@@ -4688,6 +4831,99 @@ local function CreateUnifiedBorder(frame, unit)
     frame:HookScript("OnLeave", FrameBorderLeave)
 
     return border
+end
+
+-------------------------------------------------------------------------------
+--  Player Threat border (additive "Shadow" style on the PLAYER frame)
+--
+--  Zero cost unless enabled: no frame is created and no event is registered
+--  until the option is turned on. When on we watch ONLY the player's own threat
+--  (RegisterUnitEvent ... "player") plus the minimal combat / zone boundaries
+--  needed to clear it, and the effect shows only in instanced content
+--  (party/raid/delve) while grouped -- mirroring the nameplate non-tank logic.
+-------------------------------------------------------------------------------
+local _ptWatcher       -- lazily-created event frame
+local _ptShownState    -- nil / "has" / "near" -- skip redundant re-apply
+
+-- party/raid/delve instances only (mirrors the nameplate threat-context gate)
+local function PT_InInstancedContent()
+    local _, instanceType, difficultyID = GetInstanceInfo()
+    if (tonumber(difficultyID) or 0) == 0 then return false end
+    if C_Garrison and C_Garrison.IsOnGarrisonMap and C_Garrison.IsOnGarrisonMap() then return false end
+    local isDelve = C_PartyInfo and C_PartyInfo.IsDelveInProgress and C_PartyInfo.IsDelveInProgress()
+    return instanceType == "party" or instanceType == "raid" or isDelve
+end
+
+-- Lazily create the dedicated additive shadow border on the player frame. It
+-- sits behind the frame like the real "Shadow" border style, separate from the
+-- unified border so it ADDS to whatever border the user already has.
+local function PT_EnsureBorder(pf)
+    if pf._threatShadowBorder then return pf._threatShadowBorder end
+    local b = CreateFrame("Frame", nil, pf)
+    PP.Point(b, "TOPLEFT", pf, "TOPLEFT", 0, 0)
+    PP.Point(b, "BOTTOMRIGHT", pf, "BOTTOMRIGHT", 0, 0)
+    b:SetFrameLevel(math.max(0, pf:GetFrameLevel() - 1))
+    b:Hide()
+    pf._threatShadowBorder = b
+    return b
+end
+
+local function PT_Hide()
+    local pf = frames.player
+    if pf and pf._threatShadowBorder then pf._threatShadowBorder:Hide() end
+    _ptShownState = nil
+end
+
+-- Render the additive Shadow border (size 2) tinted with the threat color --
+-- identical to picking "Shadow" at size 2 from the Border Style dropdown.
+local function PT_Show(state, c)
+    local pf = frames.player
+    if not pf then return end
+    local b = PT_EnsureBorder(pf)
+    if _ptShownState ~= state then
+        _ptShownState = state
+        EllesmereUI.ApplyBorderStyle(b, 2, c.r, c.g, c.b, 1, "shadow", nil, nil, nil, nil, "unitframes", 2)
+    else
+        EllesmereUI.SetBorderStyleColor(b, c.r, c.g, c.b, 1)
+    end
+    b:Show()
+end
+
+-- Re-evaluate the player's threat and paint/clear the additive shadow border.
+function ns.UpdatePlayerThreatBorder()
+    if not (db and db.profile and db.profile.playerThreatBorderEnabled) then PT_Hide(); return end
+    if not frames.player then return end
+    if not PT_InInstancedContent() or not IsInGroup() then PT_Hide(); return end
+    local status = UnitThreatSituation("player")
+    if status and status >= 2 then
+        -- status 2/3: the mob is on you -- you have aggro.
+        PT_Show("has", db.profile.playerThreatHasAggroColor or { r = 1, g = 0.5, b = 0 })
+    elseif status == 1 then
+        -- status 1: higher threat than the tank but not tanking yet -- close to aggro.
+        PT_Show("near", db.profile.playerThreatNearAggroColor or { r = 0.81, g = 0.72, b = 0.19 })
+    else
+        PT_Hide()
+    end
+end
+
+-- Enable/disable the watcher. Registers ONLY the player's own threat event plus
+-- the minimal boundaries to clear it; tears everything down and hides when off.
+function ns.SetPlayerThreatEnabled(on)
+    if on then
+        if not _ptWatcher then
+            _ptWatcher = CreateFrame("Frame")
+            _ptWatcher:SetScript("OnEvent", function() ns.UpdatePlayerThreatBorder() end)
+        end
+        _ptWatcher:RegisterUnitEvent("UNIT_THREAT_SITUATION_UPDATE", "player")
+        _ptWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+        _ptWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
+        _ptWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+        _ptWatcher:RegisterEvent("GROUP_ROSTER_UPDATE")
+        ns.UpdatePlayerThreatBorder()
+    else
+        if _ptWatcher then _ptWatcher:UnregisterAllEvents() end
+        PT_Hide()
+    end
 end
 
 
@@ -5044,9 +5280,15 @@ local function CreateTargetAuras(frame, unit)
     buffs:SetPoint(bia, buffAnchorParent, bfp, box * gap + bfOffX, boy * gap + buffCbOff + bfOffY)
     buffs:SetSize(containerWidth, auraSize)
     buffs.size = auraSize
-    -- Boss buffs: physical-pixel-perfect icon spacing from the configured slider
-    -- (simple display uses its own key). Other units keep the legacy 1px gap.
-    buffs.spacing = unitIsBoss and PP.FromPixels(ns.GetBossBuffSpacing(settings, simpleBuffOn)) or gap
+    -- Icon spacing, physical-pixel-perfect at any scale. Boss uses one Spacing
+    -- value (its own simple-display key when simpleBuffOn); main frames have
+    -- independent X (column) / Y (row) spacing.
+    if unitIsBoss then
+        buffs.spacing = PP.FromPixels(ns.GetBossBuffSpacing(settings, simpleBuffOn))
+    else
+        buffs.spacingX = PP.FromPixels((settings and settings.buffSpacingX) or 1)
+        buffs.spacingY = PP.FromPixels((settings and settings.buffSpacingY) or 1)
+    end
     buffs.num = 4
     buffs.maxCols = AuraMaxCols(buffGrowthEff, settings and settings.maxBuffs or 4, settings and settings.buffMaxPerRow)
     buffs.initialAnchor = bia
@@ -5117,9 +5359,13 @@ local function CreateTargetAuras(frame, unit)
         debuffs:SetPoint(dia, simpleAnchorParent, dfp, dox * gap + dbOffX, doy * gap + debuffCbOff + dbOffY)
         debuffs:SetSize(containerWidth, debuffAuraSize)
         debuffs.size = debuffAuraSize
-        -- Boss debuffs: physical-pixel-perfect icon spacing from the configured
-        -- slider (simple display uses its own key). Other units keep 1px.
-        debuffs.spacing = unitIsBoss and PP.FromPixels(ns.GetBossDebuffSpacing(settings, simpleOn)) or gap
+        -- Boss uses one Spacing value; main frames have independent X/Y spacing.
+        if unitIsBoss then
+            debuffs.spacing = PP.FromPixels(ns.GetBossDebuffSpacing(settings, simpleOn))
+        else
+            debuffs.spacingX = PP.FromPixels((settings and settings.debuffSpacingX) or 1)
+            debuffs.spacingY = PP.FromPixels((settings and settings.debuffSpacingY) or 1)
+        end
         debuffs.num = (dAnc ~= "none") and maxDebuffs or 0
         debuffs.maxCols = AuraMaxCols(effectiveGrowth, maxDebuffs, settings and settings.debuffMaxPerRow)
         debuffs.initialAnchor = dia
@@ -5342,9 +5588,15 @@ local function StyleFullFrame(frame, unit)
     -- Lazy: _absGate/_absClip stay nil until a zone is actually set to Absorb
     -- Short, so frames that never use it pay ZERO cost (the Override below skips
     -- entirely when self._absGate is nil).
-    local function ApplyAbsorbGate(zone, fs, isAbsorb)
+    -- content is the zone's resolved content key; "absorbshort" gates on shield
+    -- absorbs, "healabsorbshort" gates on heal absorbs (g._euiHealGate marks the
+    -- value source so the Override driver feeds the right amount). Anything else
+    -- tears the gate down. Lazy: no gate frame is created until a zone needs one.
+    local function ApplyAbsorbGate(zone, fs, content)
+        local isHeal = (content == "healabsorbshort")
+        local wantGate = (content == "absorbshort" or isHeal)
         local g = frame._absGate and frame._absGate[zone]
-        if isAbsorb then
+        if wantGate then
             if not g then
                 frame._absGate = frame._absGate or {}
                 frame._absClip = frame._absClip or {}
@@ -5362,11 +5614,18 @@ local function StyleFullFrame(frame, unit)
                 frame._absClip[zone] = clip
             end
             local clip = frame._absClip[zone]
+            g._euiHealGate = isHeal
             g:ClearAllPoints()
             g:SetAllPoints(fs)  -- gate spans the zone's text allocation (live)
             if fs:GetParent() ~= clip then fs:SetParent(clip) end
             g:Show(); clip:Show()
-            g:SetValue((UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0)
+            local amt
+            if isHeal then
+                amt = (UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(unit)) or 0
+            else
+                amt = (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0
+            end
+            g:SetValue(amt)
         elseif g then
             local clip = frame._absClip[zone]
             if fs:GetParent() == clip then fs:SetParent(textOverlay) end
@@ -5385,9 +5644,9 @@ local function StyleFullFrame(frame, unit)
         if ltag then frame:Tag(leftText, ltag); leftText._curTag = ltag end
         if rtag then frame:Tag(rightText, rtag); rightText._curTag = rtag end
         if ctag then frame:Tag(centerText, ctag); centerText._curTag = ctag end
-        ApplyAbsorbGate("left", leftText, lc == "absorbshort")
-        ApplyAbsorbGate("right", rightText, rc == "absorbshort")
-        ApplyAbsorbGate("center", centerText, cc == "absorbshort")
+        ApplyAbsorbGate("left", leftText, lc)
+        ApplyAbsorbGate("right", rightText, rc)
+        ApplyAbsorbGate("center", centerText, cc)
         if frame.UpdateTags then frame:UpdateTags() end
     end
     ApplyTextTags(leftContent, rightContent, centerContent)
@@ -5621,9 +5880,15 @@ local function StyleFocusFrame(frame, unit)
     -- Lazy: _absGate/_absClip stay nil until a zone is actually set to Absorb
     -- Short, so frames that never use it pay ZERO cost (the Override below skips
     -- entirely when self._absGate is nil).
-    local function ApplyAbsorbGate(zone, fs, isAbsorb)
+    -- content is the zone's resolved content key; "absorbshort" gates on shield
+    -- absorbs, "healabsorbshort" gates on heal absorbs (g._euiHealGate marks the
+    -- value source so the Override driver feeds the right amount). Anything else
+    -- tears the gate down. Lazy: no gate frame is created until a zone needs one.
+    local function ApplyAbsorbGate(zone, fs, content)
+        local isHeal = (content == "healabsorbshort")
+        local wantGate = (content == "absorbshort" or isHeal)
         local g = frame._absGate and frame._absGate[zone]
-        if isAbsorb then
+        if wantGate then
             if not g then
                 frame._absGate = frame._absGate or {}
                 frame._absClip = frame._absClip or {}
@@ -5641,11 +5906,18 @@ local function StyleFocusFrame(frame, unit)
                 frame._absClip[zone] = clip
             end
             local clip = frame._absClip[zone]
+            g._euiHealGate = isHeal
             g:ClearAllPoints()
             g:SetAllPoints(fs)  -- gate spans the zone's text allocation (live)
             if fs:GetParent() ~= clip then fs:SetParent(clip) end
             g:Show(); clip:Show()
-            g:SetValue((UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0)
+            local amt
+            if isHeal then
+                amt = (UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(unit)) or 0
+            else
+                amt = (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0
+            end
+            g:SetValue(amt)
         elseif g then
             local clip = frame._absClip[zone]
             if fs:GetParent() == clip then fs:SetParent(textOverlay) end
@@ -5664,9 +5936,9 @@ local function StyleFocusFrame(frame, unit)
         if ltag then frame:Tag(leftText, ltag); leftText._curTag = ltag end
         if rtag then frame:Tag(rightText, rtag); rightText._curTag = rtag end
         if ctag then frame:Tag(centerText, ctag); centerText._curTag = ctag end
-        ApplyAbsorbGate("left", leftText, lc == "absorbshort")
-        ApplyAbsorbGate("right", rightText, rc == "absorbshort")
-        ApplyAbsorbGate("center", centerText, cc == "absorbshort")
+        ApplyAbsorbGate("left", leftText, lc)
+        ApplyAbsorbGate("right", rightText, rc)
+        ApplyAbsorbGate("center", centerText, cc)
         if frame.UpdateTags then frame:UpdateTags() end
     end
     ApplyTextTags(leftContent, rightContent, centerContent)
@@ -5787,13 +6059,11 @@ local function StyleSimpleFrame(frame, unit)
     health.colorDisconnected = true
     health._euiUnitKey = UnitToSettingsKey(unit)
 
-    -- Inherit health bar texture from donor frame (focus > target > player)
+    -- Inherit health bar texture from donor frame (focus > target > player),
+    -- unless this frame set its own override.
     local donor = GetMiniDonorSettings()
     local unitKey = UnitToSettingsKey(unit)
-    local origTex = settings.healthBarTexture
-    settings.healthBarTexture = donor.healthBarTexture
-    ApplyHealthBarTexture(health, unitKey)
-    settings.healthBarTexture = origTex
+    ApplyHealthBarTexture(health, unitKey, ns.ResolveHealthBarTextureKey(settings, donor))
     ApplyHealthBarAlpha(health, unitKey)
     health:SetReverseFill(settings.healthReverseFill and true or false)
     ApplyDarkTheme(health)
@@ -5872,9 +6142,15 @@ local function StyleSimpleFrame(frame, unit)
     -- Lazy: _absGate/_absClip stay nil until a zone is actually set to Absorb
     -- Short, so frames that never use it pay ZERO cost (the Override below skips
     -- entirely when self._absGate is nil).
-    local function ApplyAbsorbGate(zone, fs, isAbsorb)
+    -- content is the zone's resolved content key; "absorbshort" gates on shield
+    -- absorbs, "healabsorbshort" gates on heal absorbs (g._euiHealGate marks the
+    -- value source so the Override driver feeds the right amount). Anything else
+    -- tears the gate down. Lazy: no gate frame is created until a zone needs one.
+    local function ApplyAbsorbGate(zone, fs, content)
+        local isHeal = (content == "healabsorbshort")
+        local wantGate = (content == "absorbshort" or isHeal)
         local g = frame._absGate and frame._absGate[zone]
-        if isAbsorb then
+        if wantGate then
             if not g then
                 frame._absGate = frame._absGate or {}
                 frame._absClip = frame._absClip or {}
@@ -5892,12 +6168,19 @@ local function StyleSimpleFrame(frame, unit)
                 frame._absClip[zone] = clip
             end
             local clip = frame._absClip[zone]
+            g._euiHealGate = isHeal
             g:ClearAllPoints()
             g:SetAllPoints(fs)  -- gate spans the zone's text allocation (live)
             if fs:GetParent() ~= clip then fs:SetParent(clip) end
             g:Show(); clip:Show()
             -- Seed once so the text is correct before the next absorb event.
-            g:SetValue((UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0)
+            local amt
+            if isHeal then
+                amt = (UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(unit)) or 0
+            else
+                amt = (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0
+            end
+            g:SetValue(amt)
         elseif g then
             local clip = frame._absClip[zone]
             if fs:GetParent() == clip then fs:SetParent(textOverlay) end
@@ -5915,9 +6198,9 @@ local function StyleSimpleFrame(frame, unit)
         if ltag then frame:Tag(leftText, ltag); leftText._curTag = ltag end
         if rtag then frame:Tag(rightText, rtag); rightText._curTag = rtag end
         if ctag then frame:Tag(centerText, ctag); centerText._curTag = ctag end
-        ApplyAbsorbGate("left", leftText, lc == "absorbshort")
-        ApplyAbsorbGate("right", rightText, rc == "absorbshort")
-        ApplyAbsorbGate("center", centerText, cc == "absorbshort")
+        ApplyAbsorbGate("left", leftText, lc)
+        ApplyAbsorbGate("right", rightText, rc)
+        ApplyAbsorbGate("center", centerText, cc)
         if frame.UpdateTags then frame:UpdateTags() end
     end
     ApplyTextTags(leftContent, rightContent, centerContent)
@@ -6022,13 +6305,11 @@ local function StylePetFrame(frame, unit)
     health.colorDisconnected = true
     health._euiUnitKey = UnitToSettingsKey(unit)
 
-    -- Inherit health bar texture from donor frame (focus > target > player)
+    -- Inherit health bar texture from donor frame (focus > target > player),
+    -- unless this frame set its own override.
     local donor = GetMiniDonorSettings()
     local unitKey = UnitToSettingsKey(unit)
-    local origTex = settings.healthBarTexture
-    settings.healthBarTexture = donor.healthBarTexture
-    ApplyHealthBarTexture(health, unitKey)
-    settings.healthBarTexture = origTex
+    ApplyHealthBarTexture(health, unitKey, ns.ResolveHealthBarTextureKey(settings, donor))
     ApplyHealthBarAlpha(health, unitKey)
     health:SetReverseFill(settings.healthReverseFill and true or false)
     ApplyDarkTheme(health)
@@ -6107,9 +6388,15 @@ local function StylePetFrame(frame, unit)
     -- Lazy: _absGate/_absClip stay nil until a zone is actually set to Absorb
     -- Short, so frames that never use it pay ZERO cost (the Override below skips
     -- entirely when self._absGate is nil).
-    local function ApplyAbsorbGate(zone, fs, isAbsorb)
+    -- content is the zone's resolved content key; "absorbshort" gates on shield
+    -- absorbs, "healabsorbshort" gates on heal absorbs (g._euiHealGate marks the
+    -- value source so the Override driver feeds the right amount). Anything else
+    -- tears the gate down. Lazy: no gate frame is created until a zone needs one.
+    local function ApplyAbsorbGate(zone, fs, content)
+        local isHeal = (content == "healabsorbshort")
+        local wantGate = (content == "absorbshort" or isHeal)
         local g = frame._absGate and frame._absGate[zone]
-        if isAbsorb then
+        if wantGate then
             if not g then
                 frame._absGate = frame._absGate or {}
                 frame._absClip = frame._absClip or {}
@@ -6127,12 +6414,19 @@ local function StylePetFrame(frame, unit)
                 frame._absClip[zone] = clip
             end
             local clip = frame._absClip[zone]
+            g._euiHealGate = isHeal
             g:ClearAllPoints()
             g:SetAllPoints(fs)  -- gate spans the zone's text allocation (live)
             if fs:GetParent() ~= clip then fs:SetParent(clip) end
             g:Show(); clip:Show()
             -- Seed once so the text is correct before the next absorb event.
-            g:SetValue((UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0)
+            local amt
+            if isHeal then
+                amt = (UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(unit)) or 0
+            else
+                amt = (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0
+            end
+            g:SetValue(amt)
         elseif g then
             local clip = frame._absClip[zone]
             if fs:GetParent() == clip then fs:SetParent(textOverlay) end
@@ -6150,9 +6444,9 @@ local function StylePetFrame(frame, unit)
         if ltag then frame:Tag(leftText, ltag); leftText._curTag = ltag end
         if rtag then frame:Tag(rightText, rtag); rightText._curTag = rtag end
         if ctag then frame:Tag(centerText, ctag); centerText._curTag = ctag end
-        ApplyAbsorbGate("left", leftText, lc == "absorbshort")
-        ApplyAbsorbGate("right", rightText, rc == "absorbshort")
-        ApplyAbsorbGate("center", centerText, cc == "absorbshort")
+        ApplyAbsorbGate("left", leftText, lc)
+        ApplyAbsorbGate("right", rightText, rc)
+        ApplyAbsorbGate("center", centerText, cc)
         if frame.UpdateTags then frame:UpdateTags() end
     end
     ApplyTextTags(leftContent, rightContent, centerContent)
@@ -6346,9 +6640,15 @@ local function StyleBossFrame(frame, unit)
     -- Lazy: _absGate/_absClip stay nil until a zone is actually set to Absorb
     -- Short, so frames that never use it pay ZERO cost (the Override below skips
     -- entirely when self._absGate is nil).
-    local function ApplyAbsorbGate(zone, fs, isAbsorb)
+    -- content is the zone's resolved content key; "absorbshort" gates on shield
+    -- absorbs, "healabsorbshort" gates on heal absorbs (g._euiHealGate marks the
+    -- value source so the Override driver feeds the right amount). Anything else
+    -- tears the gate down. Lazy: no gate frame is created until a zone needs one.
+    local function ApplyAbsorbGate(zone, fs, content)
+        local isHeal = (content == "healabsorbshort")
+        local wantGate = (content == "absorbshort" or isHeal)
         local g = frame._absGate and frame._absGate[zone]
-        if isAbsorb then
+        if wantGate then
             if not g then
                 frame._absGate = frame._absGate or {}
                 frame._absClip = frame._absClip or {}
@@ -6366,12 +6666,19 @@ local function StyleBossFrame(frame, unit)
                 frame._absClip[zone] = clip
             end
             local clip = frame._absClip[zone]
+            g._euiHealGate = isHeal
             g:ClearAllPoints()
             g:SetAllPoints(fs)  -- gate spans the zone's text allocation (live)
             if fs:GetParent() ~= clip then fs:SetParent(clip) end
             g:Show(); clip:Show()
             -- Seed once so the text is correct before the next absorb event.
-            g:SetValue((UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0)
+            local amt
+            if isHeal then
+                amt = (UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(unit)) or 0
+            else
+                amt = (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0
+            end
+            g:SetValue(amt)
         elseif g then
             local clip = frame._absClip[zone]
             if fs:GetParent() == clip then fs:SetParent(textOverlay) end
@@ -6389,9 +6696,9 @@ local function StyleBossFrame(frame, unit)
         if ltag then frame:Tag(leftText, ltag); leftText._curTag = ltag end
         if rtag then frame:Tag(rightText, rtag); rightText._curTag = rtag end
         if ctag then frame:Tag(centerText, ctag); centerText._curTag = ctag end
-        ApplyAbsorbGate("left", leftText, lc == "absorbshort")
-        ApplyAbsorbGate("right", rightText, rc == "absorbshort")
-        ApplyAbsorbGate("center", centerText, cc == "absorbshort")
+        ApplyAbsorbGate("left", leftText, lc)
+        ApplyAbsorbGate("right", rightText, rc)
+        ApplyAbsorbGate("center", centerText, cc)
         if frame.UpdateTags then frame:UpdateTags() end
     end
     ApplyTextTags(leftContent, rightContent, centerContent)
@@ -7219,7 +7526,7 @@ local function ReloadFrames()
 
     -- Apply frame strata to all spawned unit frames
     local ufStrata = profile.frameStrata or "MEDIUM"
-    for _, frame in pairs(frames) do
+    for unitKey, frame in pairs(frames) do
         if type(frame) == "table" and frame.SetFrameStrata then
             frame:SetFrameStrata(ufStrata)
             -- Re-apply or reset custom strata for detached bars
@@ -7229,6 +7536,13 @@ local function ReloadFrames()
                 else
                     frame.BottomTextBar:SetFrameStrata(ufStrata)
                 end
+            end
+            -- The cast bar is a child of the frame, so the SetFrameStrata above
+            -- reset it to the frame's strata. Lift player/target/focus cast bars
+            -- to HIGH so they never hide behind other MEDIUM-strata frames.
+            if frame.Castbar and (unitKey == "player" or unitKey == "target" or unitKey == "focus") then
+                local cbg = frame.Castbar:GetParent()
+                if cbg then cbg:SetFrameStrata("HIGH") end
             end
             -- SetFrameStrata re-stacks children; lift the raid marker holder back
             -- above the text overlay so the marker is never hidden behind name/health text.
@@ -7778,11 +8092,12 @@ local function ReloadFrames()
                             end
                             -- Only reanchor + ForceUpdate when layout actually changed
                             local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings)
-                            local buffKey = string.format("%s%s%d%d%d%s%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, buffCbOff, settings.buffGrowth or "auto", settings.maxBuffs or 4, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. buffFilter
+                            local buffKey = string.format("%s%s%d%d%d%s%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, buffCbOff, settings.buffGrowth or "auto", settings.maxBuffs or 4, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter
                             if frame.Buffs._lastBuffKey ~= buffKey then
                                 frame.Buffs._lastBuffKey = buffKey
                                 ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", settings)
                                 frame.Buffs.size = settings.buffSize or 22
+                                frame.Buffs.spacingX = PP.FromPixels(settings.buffSpacingX or 1); frame.Buffs.spacingY = PP.FromPixels(settings.buffSpacingY or 1)
                                 frame.Buffs:ClearAllPoints()
                                 frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + (settings.buffOffsetX or 0), boy * 1 + buffCbOff + (settings.buffOffsetY or 0))
                                 frame.Buffs.initialAnchor = bia
@@ -7826,12 +8141,13 @@ local function ReloadFrames()
                                 debuffCbOff = -cbH
                             end
                             local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings) .. (settings.showLustDebuff and "|LUST" or "")
-                            local debuffKey = string.format("%s%s%d%d%d%s%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, debuffCbOff, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. debuffFilter
+                            local debuffKey = string.format("%s%s%d%d%d%s%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, debuffCbOff, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter
                             if frame.Debuffs._lastDebuffKey ~= debuffKey then
                                 frame.Debuffs._lastDebuffKey = debuffKey
                                 ns.ApplyEUIAuraFilter(frame.Debuffs, "HARMFUL", settings)
                                 frame.Debuffs.onlyShowPlayer = nil
                                 frame.Debuffs.size = settings.debuffSize or 22
+                                frame.Debuffs.spacingX = PP.FromPixels(settings.debuffSpacingX or 1); frame.Debuffs.spacingY = PP.FromPixels(settings.debuffSpacingY or 1)
                                 frame.Debuffs:ClearAllPoints()
                                 frame.Debuffs:SetPoint(dia, frame, dfp, dox * 1 + (settings.debuffOffsetX or 0), doy * 1 + debuffCbOff + (settings.debuffOffsetY or 0))
                                 frame.Debuffs.initialAnchor = dia
@@ -8213,11 +8529,12 @@ local function ReloadFrames()
                                 end
                             end
                             local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings)
-                            local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 20, liveCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. buffFilter
+                            local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 20, liveCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter
                             if frame.Buffs._lastBuffKey ~= buffKey then
                                 frame.Buffs._lastBuffKey = buffKey
                                 ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", settings)
                                 frame.Buffs.size = settings.buffSize or 22
+                                frame.Buffs.spacingX = PP.FromPixels(settings.buffSpacingX or 1); frame.Buffs.spacingY = PP.FromPixels(settings.buffSpacingY or 1)
                                 frame.Buffs:ClearAllPoints()
                                 frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + (settings.buffOffsetX or 0), boy * 1 + liveCbOff + (settings.buffOffsetY or 0))
                                 frame.Buffs.initialAnchor = bia
@@ -8263,12 +8580,13 @@ local function ReloadFrames()
                                 end
                             end
                             local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings) .. (settings.showLustDebuff and "|LUST" or "")
-                            local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 20, liveDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. debuffFilter
+                            local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 20, liveDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter
                             if frame.Debuffs._lastDebuffKey ~= debuffKey then
                                 frame.Debuffs._lastDebuffKey = debuffKey
                                 ns.ApplyEUIAuraFilter(frame.Debuffs, "HARMFUL", settings)
                                 frame.Debuffs.onlyShowPlayer = nil
                                 frame.Debuffs.size = settings.debuffSize or 22
+                                frame.Debuffs.spacingX = PP.FromPixels(settings.debuffSpacingX or 1); frame.Debuffs.spacingY = PP.FromPixels(settings.debuffSpacingY or 1)
                                 frame.Debuffs:ClearAllPoints()
                                 frame.Debuffs:SetPoint(dia, frame, dfp, dox * 1 + (settings.debuffOffsetX or 0), doy * 1 + liveDbCbOff + (settings.debuffOffsetY or 0))
                                 frame.Debuffs.initialAnchor = dia
@@ -8578,12 +8896,13 @@ local function ReloadFrames()
                             end
                         end
                         local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings) .. (settings.showLustDebuff and "|LUST" or "")
-                        local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, focusDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. debuffFilter
+                        local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, focusDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter
                         if frame.Debuffs._lastDebuffKey ~= debuffKey then
                             frame.Debuffs._lastDebuffKey = debuffKey
                             ns.ApplyEUIAuraFilter(frame.Debuffs, "HARMFUL", settings)
                             frame.Debuffs.onlyShowPlayer = nil
                             frame.Debuffs.size = settings.debuffSize or 22
+                            frame.Debuffs.spacingX = PP.FromPixels(settings.debuffSpacingX or 1); frame.Debuffs.spacingY = PP.FromPixels(settings.debuffSpacingY or 1)
                             frame.Debuffs:ClearAllPoints()
                             frame.Debuffs:SetPoint(dia, frame, dfp, dox * 1 + (settings.debuffOffsetX or 0), doy * 1 + focusDbCbOff + (settings.debuffOffsetY or 0))
                             frame.Debuffs.initialAnchor = dia
@@ -8620,11 +8939,12 @@ local function ReloadFrames()
                             end
                         end
                         local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings)
-                        local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 4, focusBfCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. buffFilter
+                        local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 4, focusBfCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter
                         if frame.Buffs._lastBuffKey ~= buffKey then
                             frame.Buffs._lastBuffKey = buffKey
                             ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", settings)
                             frame.Buffs.size = settings.buffSize or 22
+                            frame.Buffs.spacingX = PP.FromPixels(settings.buffSpacingX or 1); frame.Buffs.spacingY = PP.FromPixels(settings.buffSpacingY or 1)
                             frame.Buffs:ClearAllPoints()
                             frame.Buffs:SetPoint(bia, frame, bfp, box * 1 + (settings.buffOffsetX or 0), boy * 1 + focusBfCbOff + (settings.buffOffsetY or 0))
                             frame.Buffs.initialAnchor = bia
@@ -8812,7 +9132,8 @@ local function ReloadFrames()
                             -- bar's bottom: the health/power bars live in the half-pixel-inset
                             -- bar clip, which left a ~1px gap below the frame. The cast bar is
                             -- full frame width, so frame bottom-center keeps it centered + flush.
-                            castbarBg:SetPoint("TOP", frame, "BOTTOM", 0, 0)
+                            -- castbarOffsetY nudges the whole cast bar vertically (positive = up).
+                            castbarBg:SetPoint("TOP", frame, "BOTTOM", 0, settings.castbarOffsetY or 0)
                             if settings.castbarHideWhenInactive and not frame.Castbar:IsShown() then
                                 castbarBg:Hide()
                             else
@@ -9078,23 +9399,33 @@ local function ReloadFrames()
             local isMiniFrame = (unit == "pet" or unit == "targettarget" or unit == "focustarget" or unit:match("^boss%d$"))
             local donorSettings = isMiniFrame and GetMiniDonorSettings() or settings
 
-            -- Apply health bar texture overlay (use donor for mini frames)
+            -- Apply health bar texture overlay (mini frames inherit the donor
+            -- texture unless they set their own override).
             if isMiniFrame then
-                -- Override texture settings from donor
                 local uKey = UnitToSettingsKey(unit)
-                local origTex = settings.healthBarTexture
-                settings.healthBarTexture = donorSettings.healthBarTexture
-                ApplyHealthBarTexture(frame.Health, uKey)
-                settings.healthBarTexture = origTex
+                ApplyHealthBarTexture(frame.Health, uKey, ns.ResolveHealthBarTextureKey(settings, donorSettings))
                 ApplyHealthBarAlpha(frame.Health, uKey)
             else
                 ApplyHealthBarTexture(frame.Health, UnitToSettingsKey(unit))
                 ApplyHealthBarAlpha(frame.Health, UnitToSettingsKey(unit))
             end
-            -- Cast bar reuses the same bar texture as the health bar (donor texture for mini frames).
+            -- Cast bar reuses the same bar texture as the health bar.
             if frame.Castbar then
-                local cbTexKey = (isMiniFrame and donorSettings.healthBarTexture) or settings.healthBarTexture or db.profile.healthBarTexture or "none"
+                local cbTexKey
+                if isMiniFrame then
+                    cbTexKey = ns.ResolveHealthBarTextureKey(settings, donorSettings)
+                else
+                    cbTexKey = settings.healthBarTexture or db.profile.healthBarTexture or "none"
+                end
                 ns.ApplyCastBarTexture(frame.Castbar, cbTexKey)
+            end
+            -- Boss Hover/Target border: the border was just restyled to its normal
+            -- color above, so re-apply the hover/target recolor (both default off,
+            -- so this is a no-op unless the user enabled a boss border).
+            if unit:match("^boss%d$") then
+                local isT = UnitIsUnit(unit, "target")
+                frame._isTarget = (isT and not issecretvalue(isT)) and true or false
+                ns.ApplyBossBorderState(frame)
             end
             frame.Health:SetReverseFill(settings.healthReverseFill and true or false)
             ApplyDarkTheme(frame.Health)
@@ -10191,7 +10522,7 @@ function InitializeFrames()
 
     -- Apply user-selected frame strata to all unit frames
     local ufStrata = db.profile.frameStrata or "MEDIUM"
-    for _, frame in pairs(frames) do
+    for unitKey, frame in pairs(frames) do
         if type(frame) == "table" and frame.SetFrameStrata then
             frame:SetFrameStrata(ufStrata)
             if frame.BottomTextBar and frame.BottomTextBar._isDetached then
@@ -10200,6 +10531,13 @@ function InitializeFrames()
                 else
                     frame.BottomTextBar:SetFrameStrata(ufStrata)
                 end
+            end
+            -- The cast bar is a child of the frame, so the SetFrameStrata above
+            -- reset it to the frame's strata. Lift player/target/focus cast bars
+            -- to HIGH so they never hide behind other MEDIUM-strata frames.
+            if frame.Castbar and (unitKey == "player" or unitKey == "target" or unitKey == "focus") then
+                local cbg = frame.Castbar:GetParent()
+                if cbg then cbg:SetFrameStrata("HIGH") end
             end
             -- SetFrameStrata re-stacks children; lift the raid marker holder back
             -- above the text overlay so the marker is never hidden behind name/health text.
@@ -10579,6 +10917,31 @@ function InitializeFrames()
             ReapplyFrameTextClassColors("focustarget")
         end
     end)
+
+    -- Boss Hover/Target border: refresh each boss frame's target state when the
+    -- player's target changes or boss units (dis)appear. Hover is handled by the
+    -- OnEnter/OnLeave hooks; this only tracks target. Both borders default off, so
+    -- this is a cheap no-op unless the user enabled a boss border.
+    -- Defined on ns (not a local) to avoid the Lua 200-local cap.
+    ns.UpdateBossTargetBorders = function()
+        for i = 1, 5 do
+            local f = frames["boss" .. i]
+            if f and f.unifiedBorder then
+                local isT = UnitIsUnit("boss" .. i, "target")
+                f._isTarget = (isT and not issecretvalue(isT)) and true or false
+                ns.ApplyBossBorderState(f)
+            end
+        end
+    end
+    if not frames._bossTargetBorderUpdater then
+        frames._bossTargetBorderUpdater = CreateFrame("Frame")
+        frames._bossTargetBorderUpdater:RegisterEvent("PLAYER_TARGET_CHANGED")
+        frames._bossTargetBorderUpdater:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
+        frames._bossTargetBorderUpdater:RegisterEvent("UNIT_TARGETABLE_CHANGED")
+        frames._bossTargetBorderUpdater:RegisterEvent("PLAYER_ENTERING_WORLD")
+    end
+    frames._bossTargetBorderUpdater:SetScript("OnEvent", ns.UpdateBossTargetBorders)
+    ns.UpdateBossTargetBorders()
 
     -- Deferred class portrait fix: at frame creation time UnitClass() may return nil
     -- for dynamic units (target, focus) because no unit is selected yet on login/reload.
@@ -11591,6 +11954,11 @@ function EllesmereUF:OnEnable()
     C_Timer.After(0, function()
         if EllesmereUI and EllesmereUI.ApplyColorsToOUF then
             EllesmereUI.ApplyColorsToOUF()
+        end
+        -- Restore the player-threat watcher if the option was saved enabled
+        -- (zero cost otherwise -- nothing is registered when off).
+        if db and db.profile and db.profile.playerThreatBorderEnabled and ns.SetPlayerThreatEnabled then
+            ns.SetPlayerThreatEnabled(true)
         end
     end)
 

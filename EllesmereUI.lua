@@ -2868,11 +2868,47 @@ function EllesmereUI.DarkenColor(r, g, b, frac)
     return r * (1 - frac), g * (1 - frac), b * (1 - frac)
 end
 
--- Get the custom colors DB table (lazy-init)
+-- Effective in-game custom colours used by all rendering consumers (lazy-init).
+-- Custom colours are stored PER PROFILE (db.profiles[name].customColors). The
+-- account-wide "Apply to All Profiles" toggle (EllesmereUIDB.colorsApplyToAllProfiles,
+-- default ON -- nil treated as on) decides which profile's palette the game uses:
+--   ON  (global, default): ONE chosen profile's palette (EllesmereUIDB.colorsPullFrom,
+--        default the first profile) shared across EVERY profile.
+--   OFF (per-profile): the ACTIVE profile's own palette.
+-- Nothing is wiped/restored on a profile switch -- the getter just resolves a
+-- different table each call -- so the old spec-switch colour-wipe cannot recur.
+-- Missing/empty tables fall through to defaults (consumers have their own).
 function EllesmereUI.GetCustomColorsDB()
     if not EllesmereUIDB then EllesmereUIDB = {} end
     if not EllesmereUIDB.customColors then EllesmereUIDB.customColors = {} end
+    if EllesmereUI.GetProfilesDB then
+        local pdb = EllesmereUI.GetProfilesDB()
+        if EllesmereUIDB.colorsApplyToAllProfiles == false then
+            -- Per-profile: the active profile's own palette.
+            local active = pdb.profiles and pdb.profiles[pdb.activeProfile or "Default"]
+            if active then active.customColors = active.customColors or {}; return active.customColors end
+        else
+            -- Global (default): the chosen source profile's palette, used everywhere.
+            local srcName = EllesmereUIDB.colorsPullFrom or (pdb.profileOrder and pdb.profileOrder[1])
+            local src = srcName and pdb.profiles and pdb.profiles[srcName]
+            if src then src.customColors = src.customColors or {}; return src.customColors end
+        end
+    end
     return EllesmereUIDB.customColors
+end
+
+-- Colour editing is locked only in GLOBAL mode while viewing a profile OTHER than
+-- the one supplying the shared palette -- editing a dormant palette would mislead.
+-- Per-profile mode (Apply to All Profiles off) is always editable; global mode is
+-- editable on the source profile.
+function EllesmereUI.IsColorEditingLocked()
+    if not EllesmereUIDB then return false end
+    if EllesmereUIDB.colorsApplyToAllProfiles == false then return false end
+    if not EllesmereUI.GetProfilesDB then return false end
+    local pdb = EllesmereUI.GetProfilesDB()
+    local activeName = pdb.activeProfile or "Default"
+    local srcName = EllesmereUIDB.colorsPullFrom or (pdb.profileOrder and pdb.profileOrder[1])
+    return srcName ~= nil and srcName ~= activeName
 end
 
 -------------------------------------------------------------------------------
@@ -9135,7 +9171,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.3"
+EllesmereUI.VERSION = "8.3.1"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -10407,7 +10443,7 @@ EllesmereUI.VIS_VALUES = {
 }
 EllesmereUI.VIS_ORDER = { "never", "always", "mouseover", "in_combat", "out_of_combat", "---", "in_raid", "in_party", "solo" }
 
--- Action Bars variant: adds "Show when Dragonriding". Only the SECURE action
+-- Action Bars variant: adds "When Dragonriding". Only the SECURE action
 -- bars (1-8, stance, pet) can express it as [advflyable,mounted,flying] in their
 -- state driver, which re-evaluates the flying transition in real time. The
 -- non-secure bars (Micro/Bag/XP/Rep) and other modules can't catch the takeoff
@@ -10418,12 +10454,13 @@ EllesmereUI.VIS_VALUES_AB = {
     mouseover  = "Mouseover",
     in_combat      = "In Combat",
     out_of_combat  = "Out of Combat",
-    show_dragonriding = "Show when Dragonriding",
+    show_dragonriding = "When Dragonriding",
+    show_not_dragonriding = "When Not Dragonriding",
     in_raid        = "In Raid Group",
     in_party   = "In Party",
     solo       = "Solo",
 }
-EllesmereUI.VIS_ORDER_AB = { "never", "always", "mouseover", "in_combat", "out_of_combat", "show_dragonriding", "---", "in_raid", "in_party", "solo" }
+EllesmereUI.VIS_ORDER_AB = { "never", "always", "mouseover", "in_combat", "out_of_combat", "show_dragonriding", "show_not_dragonriding", "---", "in_raid", "in_party", "solo" }
 
 -- CDM variant (no mouseover -- CDM bars don't support mouseover visibility)
 EllesmereUI.VIS_VALUES_CDM = {
@@ -10565,6 +10602,16 @@ function EllesmereUI.CheckVisibilityMode(mode, state)
             return canGlide == true
         end
         return true
+    end
+    if mode == "show_not_dragonriding" then
+        -- Exact inverse of show_dragonriding: show whenever NOT flying on a
+        -- glide-capable (skyriding) mount.
+        if not (IsMounted and IsMounted() and IsFlying and IsFlying()) then return true end
+        if C_PlayerInfo and C_PlayerInfo.GetGlidingInfo then
+            local _, canGlide = C_PlayerInfo.GetGlidingInfo()
+            return canGlide ~= true
+        end
+        return false
     end
     -- "always" and "mouseover" both return true (mouseover handled separately)
     return true

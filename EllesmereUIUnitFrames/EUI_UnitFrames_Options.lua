@@ -293,11 +293,13 @@ initFrame:SetScript("OnEvent", function(self)
         ["both"]         = "Health # | %",
         ["absorb"]       = "Absorb Amount",
         ["absorbshort"]  = "Absorb Short (230k)",
+        ["healabsorb"]      = "Heal Absorb Amount",
+        ["healabsorbshort"] = "Heal Absorb Short (80k)",
         ["group"]        = "Group Number",
         ["none"]         = "None",
     }
     local healthTextOrder = { "none", "---", "name", "perhp", "perhpnosign", "curhpshort", "perhpnum", "both" }
-    local healthTextOrderPlayer = { "none", "---", "name", "perhp", "perhpnosign", "curhpshort", "perhpnum", "both", "absorb", "absorbshort", "group" }
+    local healthTextOrderPlayer = { "none", "---", "name", "perhp", "perhpnosign", "curhpshort", "perhpnum", "both", "absorb", "absorbshort", "healabsorb", "healabsorbshort", "group" }
 
     -- Text bar (BTB) text dropdown values (includes power options)
     local btbTextValues = {
@@ -745,6 +747,10 @@ initFrame:SetScript("OnEvent", function(self)
 
 
     local function BuildUnitPreview(parent, unitKey, side)
+        -- The preview honors the aura Y offset only up to this magnitude, so a
+        -- large offset can't balloon the preview / content header. Real frames
+        -- still apply the full offset; only the preview clamps.
+        local PREVIEW_Y_CAP = 50
         -- Preview fill coloring with optional additive gradient (mirrors real frames).
         local function PV_FillColor(tex, texPath, br, bg, bb, gEnabled, gColor, gDir, alpha)
             if not tex then return end
@@ -826,6 +832,19 @@ initFrame:SetScript("OnEvent", function(self)
             if ba == "topleft" or ba == "topright" then
                 initBuffTopPad = initBuffExtra
             end
+            -- Mirror the Y-offset overflow that pf:Update reserves (auraTopOv/
+            -- auraBotOv), so the first build positions the preview and the content
+            -- below it correctly -- otherwise the spacing is wrong on unit switch
+            -- until a slider nudge forces a full Update.
+            local boy = math.max(-PREVIEW_Y_CAP, math.min(PREVIEW_Y_CAP, settings.buffOffsetY or 0))
+            if ba == "topleft" or ba == "topright" then
+                if boy > 0 then initBuffTopPad = initBuffTopPad + boy end
+            elseif ba == "bottomleft" or ba == "bottomright" then
+                if boy < 0 then initBuffExtra = initBuffExtra - boy end
+            else
+                if boy > 0 then initBuffTopPad = initBuffTopPad + boy
+                elseif boy < 0 then initBuffExtra = initBuffExtra - boy end
+            end
         end
         do
             local da = settings.debuffAnchor or "none"
@@ -835,6 +854,16 @@ initFrame:SetScript("OnEvent", function(self)
                 if da == "topleft" or da == "topright" then
                     initBuffTopPad = initBuffTopPad + debuffH
                 end
+            end
+            -- Mirror the debuff Y-offset overflow reserved in pf:Update.
+            local doy = math.max(-PREVIEW_Y_CAP, math.min(PREVIEW_Y_CAP, settings.debuffOffsetY or 0))
+            if da == "topleft" or da == "topright" then
+                if doy > 0 then initBuffTopPad = initBuffTopPad + doy end
+            elseif da == "bottomleft" or da == "bottomright" then
+                if doy < 0 then initBuffExtra = initBuffExtra - doy end
+            elseif da ~= "none" then
+                if doy > 0 then initBuffTopPad = initBuffTopPad + doy
+                elseif doy < 0 then initBuffExtra = initBuffExtra - doy end
             end
         end
 
@@ -1135,6 +1164,12 @@ initFrame:SetScript("OnEvent", function(self)
             elseif content == "absorbshort" then
                 local maxHP = UnitHealthMax("player") or 1
                 return _pvAbbrev(math.floor(maxHP * 0.14))
+            elseif content == "healabsorb" then
+                local maxHP = UnitHealthMax("player") or 1
+                return string.format("%d", math.floor(maxHP * 0.08))
+            elseif content == "healabsorbshort" then
+                local maxHP = UnitHealthMax("player") or 1
+                return _pvAbbrev(math.floor(maxHP * 0.08))
             elseif content == "group" then
                 return "3"
             else
@@ -1759,7 +1794,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- Shield (damage) absorb
             local absStyle = settings.showPlayerAbsorb
             local PREV_ABS_ALPHA = { striped = 0.8, stripedReversed = 0.8, clean = (settings.absorbCleanAlpha or 30) / 100, blizzard = 0.8 }
-            local tex   = PREV_ABS_TEX[absStyle] or PREV_ABS_TEX.striped
+            -- SharedMedia keys fall through to the health-bar texture lookup.
+            local tex   = ns.ResolveAbsorbStyleTex(absStyle, PREV_ABS_TEX.striped)
             -- Effective opacity/color: mirrors GetAbsorbOpacity in EllesmereUIUnitFrames.lua
             local alpha = settings.absorbOpacity and (settings.absorbOpacity / 100) or PREV_ABS_ALPHA[absStyle] or 0.8
             local ac = settings.absorbColor or { r = 1, g = 1, b = 1 }
@@ -1784,7 +1820,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Mutually exclusive with the shield absorb on the preview: only
             -- visible while the eyeball is on, at which point absorbBar hides.
             local haStyle = settings.healAbsorbStyle or "clean"
-            local haTex   = PREV_ABS_TEX[haStyle] or "Interface\\Buttons\\WHITE8X8"
+            local haTex   = ns.ResolveAbsorbStyleTex(haStyle, "Interface\\Buttons\\WHITE8X8")
             local haAlpha = ((settings.healAbsorbOpacity) or 65) / 100
             local hc = settings.healAbsorbColor or { r = 0.8, g = 0.15, b = 0.15 }
             if haStyle == "largeOutlinedStripes" or haStyle == "largeOutlinedStripesR" then hc = { r = 1, g = 1, b = 1 } end
@@ -2191,9 +2227,10 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
                 healthBgColor:SetColorTexture(uBgR, uBgG, uBgB, 1)
-                -- Update bar texture on fill textures
+                -- Update bar texture on fill textures (mini frames resolve the
+                -- donor texture unless they set their own override).
                 do
-                    local curTexKey = s.healthBarTexture or db.profile.healthBarTexture or "none"
+                    local curTexKey = ns.ResolveHealthBarTextureKey(s, isMini and ds or nil)
                     local curTexPath = (ns.healthBarTextures or {})[curTexKey]
                     if healthFill then
                         local hGA = s.healthBarOpacity or 90
@@ -2742,7 +2779,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- Effective opacity/color: mirrors GetAbsorbOpacity in EllesmereUIUnitFrames.lua
                     local _paA = s.absorbOpacity and (s.absorbOpacity / 100) or _paAlpha[absS] or 0.8
                     local _paC = s.absorbColor or { r = 1, g = 1, b = 1 }
-                    absorbBar:SetStatusBarTexture(_paTex[absS] or _paTex.striped)
+                    absorbBar:SetStatusBarTexture(ns.ResolveAbsorbStyleTex(absS, _paTex.striped))
                     local _paFill = absorbBar:GetStatusBarTexture()
                     if _paFill then
                         _paFill:SetDrawLayer("ARTWORK", 1)
@@ -2761,20 +2798,10 @@ initFrame:SetScript("OnEvent", function(self)
             if healAbsorbBar then
                 local haS = s.healAbsorbStyle or "clean"
                 if _healPrev and haS ~= "none" then
-                    local _haTex = {
-                        striped         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped3.tga",
-                        stripedReversed = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped-5-reversed.png",
-                        clean           = "Interface\\Buttons\\WHITE8X8",
-                        blizzard        = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\blizzard.tga",
-                        largeOutlinedStripes  = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-left.png",
-                        largeOutlinedStripesR = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-habsorb-right.png",
-                        largeStripes          = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-left.png",
-                        largeStripesR         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-right.png",
-                    }
                     local _haA = ((s.healAbsorbOpacity) or 65) / 100
                     local _haC = s.healAbsorbColor or { r = 0.8, g = 0.15, b = 0.15 }
                     if haS == "largeOutlinedStripes" or haS == "largeOutlinedStripesR" then _haC = { r = 1, g = 1, b = 1 } end
-                    healAbsorbBar:SetStatusBarTexture(_haTex[haS] or "Interface\\Buttons\\WHITE8X8")
+                    healAbsorbBar:SetStatusBarTexture(ns.ResolveAbsorbStyleTex(haS, "Interface\\Buttons\\WHITE8X8"))
                     local _haFill = healAbsorbBar:GetStatusBarTexture()
                     if _haFill then
                         _haFill:SetDrawLayer("ARTWORK", 2)
@@ -2849,6 +2876,10 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Buff icons -- reposition based on anchor/growth/size/offset settings
             local buffExtra = 0
+            -- Vertical overflow (px) reserved when a Y offset pushes auras past the
+            -- frame edges, beyond their footprint. Fed into the dynamic header below
+            -- so the preview grows instead of icons spilling onto neighboring options.
+            local auraTopOv, auraBotOv = 0, 0
             if #buffIcons > 0 then
                 -- Boss Simple Buff Display forces a single Left/Right column matched
                 -- to the frame height; mirrors the live runtime override.
@@ -2872,13 +2903,17 @@ initFrame:SetScript("OnEvent", function(self)
                     local buffH = ns.GetAuraCropHeight(buffCrop, buffSize)
                     -- Boss icon spacing from the configured slider (simple display
                     -- uses its own key); other units keep the 1px schematic gap.
-                    local buffGap = (unitKey == "boss") and ns.GetBossBuffSpacing(s, simpleBuffOn) or 1
+                    local buffGapX = (unitKey == "boss") and ns.GetBossBuffSpacing(s, simpleBuffOn) or (s.buffSpacingX or 1)
+                    local buffGapY = (unitKey == "boss") and ns.GetBossBuffSpacing(s, simpleBuffOn) or (s.buffSpacingY or 1)
                     local bOffX = s.buffOffsetX or 0
-                    -- Simple mode uses its own X offset (falling back to the regular
-                    -- buff offset for existing users) to match the live column.
-                    if simpleBuffOn then bOffX = (ns.GetBossSimpleBuffOffset(s)) end
-                    -- Preview intentionally ignores the Y offset (real frames still honor it).
-                    local bOffY = 0
+                    -- Preview now mirrors the real frame's Y offset too; the dynamic
+                    -- header below reserves room so offset auras never overflow.
+                    local bOffY = s.buffOffsetY or 0
+                    -- Simple mode uses its own X/Y offsets (falling back to the regular
+                    -- buff offsets for existing users) to match the live column.
+                    if simpleBuffOn then bOffX, bOffY = ns.GetBossSimpleBuffOffset(s) end
+                    -- Cap the preview's Y offset so it can't over-expand the preview.
+                    bOffY = math.max(-PREVIEW_Y_CAP, math.min(PREVIEW_Y_CAP, bOffY))
                     local ba = simpleBuffOn and simpleBuffMode or (s.buffAnchor or "topleft")
                     local bg = s.buffGrowth or "auto"
 
@@ -2892,22 +2927,22 @@ initFrame:SetScript("OnEvent", function(self)
 
                     -- Anchor point on pf and offset for first icon
                     local anchorMap = {
-                        topleft     = { pt = "TOPLEFT",     ox = bOffX,                        oy = buffGap + bOffY },
-                        topright    = { pt = "TOPRIGHT",    ox = bOffX,                        oy = buffGap + bOffY },
-                        bottomleft  = { pt = "BOTTOMLEFT",  ox = bOffX,                        oy = -(buffH + buffGap) + bOffY },
-                        bottomright = { pt = "BOTTOMRIGHT", ox = bOffX,                        oy = -(buffH + buffGap) + bOffY },
-                        left        = { pt = "LEFT",        ox = -(buffGap) + bOffX,           oy = bOffY },
-                        right       = { pt = "RIGHT",       ox = buffGap + bOffX,              oy = bOffY },
+                        topleft     = { pt = "TOPLEFT",     ox = bOffX,                        oy = buffGapY + bOffY },
+                        topright    = { pt = "TOPRIGHT",    ox = bOffX,                        oy = buffGapY + bOffY },
+                        bottomleft  = { pt = "BOTTOMLEFT",  ox = bOffX,                        oy = -(buffH + buffGapY) + bOffY },
+                        bottomright = { pt = "BOTTOMRIGHT", ox = bOffX,                        oy = -(buffH + buffGapY) + bOffY },
+                        left        = { pt = "LEFT",        ox = -(buffGapX) + bOffX,          oy = bOffY },
+                        right       = { pt = "RIGHT",       ox = buffGapX + bOffX,             oy = bOffY },
                     }
                     local am = anchorMap[ba] or anchorMap.topleft
 
                     -- Growth offset for icon 2 relative to icon 1
                     local dx, dy = 0, 0
-                    if gDir == "right" then dx = buffSize + buffGap
-                    elseif gDir == "left" then dx = -(buffSize + buffGap)
-                    elseif gDir == "up" then dy = buffH + buffGap
-                    elseif gDir == "down" then dy = -(buffH + buffGap)
-                    else dx = buffSize + buffGap end
+                    if gDir == "right" then dx = buffSize + buffGapX
+                    elseif gDir == "left" then dx = -(buffSize + buffGapX)
+                    elseif gDir == "up" then dy = buffH + buffGapY
+                    elseif gDir == "down" then dy = -(buffH + buffGapY)
+                    else dx = buffSize + buffGapX end
 
                     -- Determine justifyH for SetPoint (which corner of the icon anchors)
                     local justH = "BOTTOMLEFT"
@@ -2932,7 +2967,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- ClearAllPoints + SetPoint causes a one-frame gap that makes icons blink.
                     -- Also guard Show()/Hide() -- calling Show() on an already-visible frame
                     -- triggers a re-render that causes a shutter effect.
-                    local anchorKey = justH .. am.pt .. am.ox .. am.oy .. dx .. dy .. buffSize .. buffH .. (useSimpleBossAnchor and "S" or "N") .. simpleBuffMode .. bOffX .. "g" .. buffGap
+                    local anchorKey = justH .. am.pt .. am.ox .. am.oy .. dx .. dy .. buffSize .. buffH .. (useSimpleBossAnchor and "S" or "N") .. simpleBuffMode .. bOffX .. "gx" .. buffGapX .. "gy" .. buffGapY
                     for i, bf in ipairs(buffIcons) do
                         if i <= visibleBuffCount then
                             if bf._anchorKey ~= anchorKey then
@@ -2940,7 +2975,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 bf:ClearAllPoints()
                                 if i == 1 then
                                     if useSimpleBossAnchor then
-                                        PP.Point(bf, simpleIconPt, bossSimpleAnchorFrame, simpleParentPt, simpleEdgeSign * buffGap + bOffX, bOffY)
+                                        PP.Point(bf, simpleIconPt, bossSimpleAnchorFrame, simpleParentPt, simpleEdgeSign * buffGapX + bOffX, bOffY)
                                     else
                                         -- Left/Right center on the bar area (barArea) only, not pf
                                         -- which includes the cast bar -- matches real frames + boss preview.
@@ -2948,7 +2983,7 @@ initFrame:SetScript("OnEvent", function(self)
                                     end
                                 else
                                     if useSimpleBossAnchor then
-                                        PP.Point(bf, simpleIconPt, buffIcons[1], simpleIconPt, simpleEdgeSign * (i - 1) * (buffSize + buffGap), 0)
+                                        PP.Point(bf, simpleIconPt, buffIcons[1], simpleIconPt, simpleEdgeSign * (i - 1) * (buffSize + buffGapX), 0)
                                     else
                                         PP.Point(bf, justH, buffIcons[1], justH, dx * (i - 1), dy * (i - 1))
                                     end
@@ -2970,7 +3005,18 @@ initFrame:SetScript("OnEvent", function(self)
                     -- (top/bottom anchors). Left/Right columns grow sideways and
                     -- need no extra vertical room, so they reserve no space.
                     if ba == "topleft" or ba == "topright" or ba == "bottomleft" or ba == "bottomright" then
-                        buffExtra = buffH + buffGap + 2
+                        buffExtra = buffH + buffGapY + 2
+                    end
+                    -- Reserve any vertical overflow the Y offset adds beyond the
+                    -- footprint above: top anchors pushed up / bottom pushed down;
+                    -- side anchors have no footprint so the whole offset counts.
+                    if ba == "topleft" or ba == "topright" then
+                        if bOffY > 0 then auraTopOv = auraTopOv + bOffY end
+                    elseif ba == "bottomleft" or ba == "bottomright" then
+                        if bOffY < 0 then auraBotOv = auraBotOv - bOffY end
+                    else
+                        if bOffY > 0 then auraTopOv = auraTopOv + bOffY
+                        elseif bOffY < 0 then auraBotOv = auraBotOv - bOffY end
                     end
                 else
                     for _, bf in ipairs(buffIcons) do if bf:IsShown() then bf:Hide() end end
@@ -3006,13 +3052,17 @@ initFrame:SetScript("OnEvent", function(self)
                     local debuffH = ns.GetAuraCropHeight(debuffCrop, debuffSize)
                     -- Boss icon spacing from the configured slider (simple display
                     -- uses its own key); other units keep the 1px schematic gap.
-                    local debuffGap = (unitKey == "boss") and ns.GetBossDebuffSpacing(s, simpleOn) or 1
+                    local debuffGapX = (unitKey == "boss") and ns.GetBossDebuffSpacing(s, simpleOn) or (s.debuffSpacingX or 1)
+                    local debuffGapY = (unitKey == "boss") and ns.GetBossDebuffSpacing(s, simpleOn) or (s.debuffSpacingY or 1)
                     local dOffX = s.debuffOffsetX or 0
-                    -- Simple mode uses its own X offset (falling back to the regular
-                    -- debuff offset for existing users) to match the live column.
-                    if simpleOn then dOffX = (ns.GetBossSimpleDebuffOffset(s)) end
-                    -- Preview intentionally ignores the Y offset (real frames still honor it).
-                    local dOffY = 0
+                    -- Preview now mirrors the real frame's Y offset too; the dynamic
+                    -- header below reserves room so offset auras never overflow.
+                    local dOffY = s.debuffOffsetY or 0
+                    -- Simple mode uses its own X/Y offsets (falling back to the regular
+                    -- debuff offsets for existing users) to match the live column.
+                    if simpleOn then dOffX, dOffY = ns.GetBossSimpleDebuffOffset(s) end
+                    -- Cap the preview's Y offset so it can't over-expand the preview.
+                    dOffY = math.max(-PREVIEW_Y_CAP, math.min(PREVIEW_Y_CAP, dOffY))
                     local dg = s.debuffGrowth or "auto"
 
                     local autoGrowth = {
@@ -3023,21 +3073,21 @@ initFrame:SetScript("OnEvent", function(self)
                     local gDir = (dg == "auto") and (autoGrowth[dAnc] or "right") or dg
 
                     local anchorMap = {
-                        topleft     = { pt = "TOPLEFT",     ox = dOffX,                         oy = debuffGap + dOffY },
-                        topright    = { pt = "TOPRIGHT",    ox = dOffX,                         oy = debuffGap + dOffY },
-                        bottomleft  = { pt = "BOTTOMLEFT",  ox = dOffX,                         oy = -(debuffH + debuffGap) + dOffY },
-                        bottomright = { pt = "BOTTOMRIGHT", ox = dOffX,                         oy = -(debuffH + debuffGap) + dOffY },
-                        left        = { pt = "LEFT",        ox = -(debuffGap) + dOffX,          oy = dOffY },
-                        right       = { pt = "RIGHT",       ox = debuffGap + dOffX,             oy = dOffY },
+                        topleft     = { pt = "TOPLEFT",     ox = dOffX,                         oy = debuffGapY + dOffY },
+                        topright    = { pt = "TOPRIGHT",    ox = dOffX,                         oy = debuffGapY + dOffY },
+                        bottomleft  = { pt = "BOTTOMLEFT",  ox = dOffX,                         oy = -(debuffH + debuffGapY) + dOffY },
+                        bottomright = { pt = "BOTTOMRIGHT", ox = dOffX,                         oy = -(debuffH + debuffGapY) + dOffY },
+                        left        = { pt = "LEFT",        ox = -(debuffGapX) + dOffX,         oy = dOffY },
+                        right       = { pt = "RIGHT",       ox = debuffGapX + dOffX,            oy = dOffY },
                     }
                     local am = anchorMap[dAnc] or anchorMap.bottomleft
 
                     local dx, dy = 0, 0
-                    if gDir == "right" then dx = debuffSize + debuffGap
-                    elseif gDir == "left" then dx = -(debuffSize + debuffGap)
-                    elseif gDir == "up" then dy = debuffH + debuffGap
-                    elseif gDir == "down" then dy = -(debuffH + debuffGap)
-                    else dx = debuffSize + debuffGap end
+                    if gDir == "right" then dx = debuffSize + debuffGapX
+                    elseif gDir == "left" then dx = -(debuffSize + debuffGapX)
+                    elseif gDir == "up" then dy = debuffH + debuffGapY
+                    elseif gDir == "down" then dy = -(debuffH + debuffGapY)
+                    else dx = debuffSize + debuffGapX end
 
                     local justH = "BOTTOMLEFT"
                     if dAnc == "topright" or dAnc == "bottomright" then
@@ -3059,7 +3109,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local simpleIconPt   = (simpleMode == "right") and "TOPLEFT"  or "TOPRIGHT"
                     local simpleParentPt = (simpleMode == "right") and "TOPRIGHT" or "TOPLEFT"
                     local simpleEdgeSign = (simpleMode == "right") and 1 or -1
-                    local anchorKey = justH .. am.pt .. am.ox .. am.oy .. dx .. dy .. debuffSize .. debuffH .. (useSimpleBossAnchor and "S" or "N") .. simpleMode .. dOffX .. "g" .. debuffGap
+                    local anchorKey = justH .. am.pt .. am.ox .. am.oy .. dx .. dy .. debuffSize .. debuffH .. (useSimpleBossAnchor and "S" or "N") .. simpleMode .. dOffX .. "gx" .. debuffGapX .. "gy" .. debuffGapY
                     for i, df in ipairs(debuffIcons) do
                         if i <= visibleDebuffCount then
                             if df._anchorKey ~= anchorKey then
@@ -3068,7 +3118,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 df:ClearAllPoints()
                                 if i == 1 then
                                     if useSimpleBossAnchor then
-                                        PP.Point(df, simpleIconPt, bossSimpleAnchorFrame, simpleParentPt, simpleEdgeSign * debuffGap + dOffX, dOffY)
+                                        PP.Point(df, simpleIconPt, bossSimpleAnchorFrame, simpleParentPt, simpleEdgeSign * debuffGapX + dOffX, dOffY)
                                     else
                                         -- Left/Right center on the bar area (barArea) only, not pf
                                         -- which includes the cast bar -- matches real frames + boss preview.
@@ -3076,7 +3126,7 @@ initFrame:SetScript("OnEvent", function(self)
                                     end
                                 else
                                     if useSimpleBossAnchor then
-                                        PP.Point(df, simpleIconPt, debuffIcons[1], simpleIconPt, simpleEdgeSign * (i - 1) * (debuffSize + debuffGap), 0)
+                                        PP.Point(df, simpleIconPt, debuffIcons[1], simpleIconPt, simpleEdgeSign * (i - 1) * (debuffSize + debuffGapX), 0)
                                     else
                                         PP.Point(df, justH, debuffIcons[1], justH, dx * (i - 1), dy * (i - 1))
                                     end
@@ -3095,6 +3145,16 @@ initFrame:SetScript("OnEvent", function(self)
                     local debuffGap2 = 1
                     if dAnc == "topleft" or dAnc == "topright" or dAnc == "bottomleft" or dAnc == "bottomright" then
                         debuffExtra = debuffH + debuffGap2 + 2
+                    end
+                    -- Reserve any vertical overflow the Y offset adds beyond the
+                    -- footprint above (see the buff block for the rationale).
+                    if dAnc == "topleft" or dAnc == "topright" then
+                        if dOffY > 0 then auraTopOv = auraTopOv + dOffY end
+                    elseif dAnc == "bottomleft" or dAnc == "bottomright" then
+                        if dOffY < 0 then auraBotOv = auraBotOv - dOffY end
+                    else
+                        if dOffY > 0 then auraTopOv = auraTopOv + dOffY
+                        elseif dOffY < 0 then auraBotOv = auraBotOv - dOffY end
                     end
                 else
                     for _, df in ipairs(debuffIcons) do if df:IsShown() then df:Hide() end end
@@ -3296,6 +3356,9 @@ initFrame:SetScript("OnEvent", function(self)
                     auraTopPad = auraTopPad + debuffExtra
                 end
             end
+            -- Add the upward Y-offset overflow so the preview slides down enough to
+            -- fit auras pushed above their footprint (any anchor).
+            auraTopPad = auraTopPad + auraTopOv
 
             -- Extra space above frame for detached-top elements
             local detTopExtra = 0
@@ -3326,7 +3389,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- Use UpdateContentHeaderHeight so the scroll position is
             -- compensated -- keeps the widget the user is interacting with
             -- in the same screen position even when the preview grows/shrinks.
-            local auraExtra = buffExtra + debuffExtra
+            -- auraBotOv clears auras pushed below their footprint by the Y offset.
+            local auraExtra = buffExtra + debuffExtra + auraBotOv
             pf._buffExtra = auraExtra
             pf._detTopExtra = detTopExtra
             local parentTH = th * combinedScale
@@ -3335,11 +3399,13 @@ initFrame:SetScript("OnEvent", function(self)
             if _ufPreviewHintFS_display and _ufPreviewHintFS_display:IsShown() then hintH = 29 end
             local fixedH = pf._headerFixedH or 0
             if fixedH > 0 then
-                EllesmereUI:UpdateContentHeaderHeight(fixedH + parentTH + auraExtra + detTopExtra + cpBottomScaled + hintH)
+                -- auraTopOv: the preview slid down by this much (auraTopPad), so the
+                -- section must grow by it too, else it overlaps the next section.
+                EllesmereUI:UpdateContentHeaderHeight(fixedH + parentTH + auraExtra + auraTopOv + detTopExtra + cpBottomScaled + hintH)
             end
             -- Reposition segmented pill below the preview when height changes
             if pf._segFrame then
-                local pillY = -(baseOY + parentTH + auraExtra + detTopExtra + cpBottomScaled + (pf._segGap or 20))
+                local pillY = -(baseOY + parentTH + auraExtra + auraTopOv + detTopExtra + cpBottomScaled + (pf._segGap or 20))
                 PP.Point(pf._segFrame, "TOP", pf:GetParent(), "TOP", 0, pillY)
             end
 
@@ -4193,13 +4259,14 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
-        -- Double inline swatches on Border slider (left region): left = Highlight, right = Border
+        -- Inline Border color swatch on the Border slider. The Highlight swatch
+        -- moved to the "Hover Borders" dropdown below (same highlightColor var).
         do
             local leftRgn = sharedScaleBorderRow._rightRegion
             local ctrl = leftRgn._control
             local PP = EllesmereUI.PP
 
-            -- Right swatch: Border color (with alpha)
+            -- Border color (with alpha)
             local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
                 leftRgn, sharedScaleBorderRow:GetFrameLevel() + 3,
                 function()
@@ -4218,26 +4285,7 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             borderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
-            -- Left swatch: Highlight color (with alpha)
-            local hlSwatch, updateHlSwatch = EllesmereUI.BuildColorSwatch(
-                leftRgn, sharedScaleBorderRow:GetFrameLevel() + 3,
-                function()
-                    local c = SGet("highlightColor") or { r = 1, g = 1, b = 1 }
-                    return c.r, c.g, c.b, SVal("highlightAlpha", 1)
-                end,
-                function(r, g, b, a)
-                    UNIT_DB_MAP[selectedUnit]().highlightColor = { r=r, g=g, b=b }
-                    UNIT_DB_MAP[selectedUnit]().highlightAlpha = a
-                    ReloadAndUpdate()
-                end,
-                true, 20)
-            PP.Point(hlSwatch, "RIGHT", borderSwatch, "LEFT", -8, 0)
-            hlSwatch:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(hlSwatch, "Highlight")
-            end)
-            hlSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch(); updateHlSwatch() end)
+            EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
         end
 
         -- Row 4: Show Tooltip | Frame Strata
@@ -4300,7 +4348,10 @@ initFrame:SetScript("OnEvent", function(self)
                   ReloadAndUpdate(); UpdatePreview()
                   EllesmereUI:RefreshPage()
               end },
-            { type="label", text="" });  y = y - h
+            { type="dropdown", text="Hover Borders",
+              values={ __placeholder = "All" }, order={ "__placeholder" },
+              getValue=function() return "__placeholder" end,
+              setValue=function() end });  y = y - h
         -- Smaller dimmed "(Applies to All Units)" subtitle next to the label
         -- (mirrors the CDM "Anchor to Cursor" subtitle pattern).
         do
@@ -4320,6 +4371,131 @@ initFrame:SetScript("OnEvent", function(self)
             else
                 suffix:SetPoint("LEFT", decRow._leftRegion, "LEFT", 120, 0)
             end
+        end
+
+        -- Inline cog on the toggle: extra decimal options. "Show 2 for Boss"
+        -- (default on) gives boss frames a second decimal place when decimals
+        -- are enabled. Greyed out while the master decimal toggle is off.
+        do
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Health Text Decimals",
+                rows = {
+                    { type="toggle", label="Show 2 for Boss",
+                      get=function() return db.profile.showDecimalBoss2 ~= false end,
+                      set=function(v)
+                          db.profile.showDecimalBoss2 = v
+                          if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
+                          ReloadAndUpdate(); UpdatePreview()
+                      end },
+                },
+            })
+            MakeCogBtn(decRow._leftRegion, cogShow, nil, nil,
+                function() return not db.profile.showDecimalOnText end)
+        end
+
+        -- Hover Borders dropdown (mirrors Raid Frames): Highlight (per-unit hover
+        -- highlight border) + Player Threat (player frame only, global). Inline
+        -- swatches: Highlight / Has Aggro / Close to Aggro.
+        do
+            local rightRgn = decRow._rightRegion
+            if rightRgn._control then rightRgn._control:Hide() end
+            local isPlayer = (selectedUnit == "player")
+            local hbItems = { { key = "highlight", label = "Highlight" } }
+            if isPlayer then
+                hbItems[#hbItems + 1] = {
+                    key = "playerThreat",
+                    label = "Player Threat (Non-Tank)",
+                    tooltip = "Adds a Shadow border to your player frame when you pull or hold threat as a non-tank. Only active in dungeons, raids and delves.",
+                }
+            end
+            local UpdateHBSwatchVis  -- forward declare; assigned after swatches
+            local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
+                rightRgn, 170, rightRgn:GetFrameLevel() + 2,
+                hbItems,
+                function(k)
+                    if k == "highlight" then return SVal("highlightEnabled", true) end
+                    if k == "playerThreat" then return db.profile.playerThreatBorderEnabled or false end
+                    return false
+                end,
+                function(k, v)
+                    if k == "highlight" then
+                        SSet("highlightEnabled", v); ReloadAndUpdate()
+                    elseif k == "playerThreat" then
+                        db.profile.playerThreatBorderEnabled = v
+                        if ns.SetPlayerThreatEnabled then ns.SetPlayerThreatEnabled(v) end
+                    end
+                    if UpdateHBSwatchVis then UpdateHBSwatchVis() end
+                end)
+            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+            rightRgn._control = cbDD
+            rightRgn._lastInline = nil
+
+            local lvl = decRow:GetFrameLevel() + 3
+            -- Highlight swatch (per-unit), nearest the dropdown.
+            local hlSwatch, updHl = EllesmereUI.BuildColorSwatch(
+                rightRgn, lvl,
+                function()
+                    local c = SGet("highlightColor") or { r = 1, g = 1, b = 1 }
+                    return c.r, c.g, c.b, SVal("highlightAlpha", 1)
+                end,
+                function(r, g, b, a)
+                    UNIT_DB_MAP[selectedUnit]().highlightColor = { r=r, g=g, b=b }
+                    UNIT_DB_MAP[selectedUnit]().highlightAlpha = a
+                    ReloadAndUpdate()
+                end, true, 20)
+            hlSwatch:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+            rightRgn._lastInline = hlSwatch
+            hlSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hlSwatch, "Highlight") end)
+            hlSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            local hasSwatch, updHas, nearSwatch, updNear
+            if isPlayer then
+                -- Has Aggro swatch (global), left of Highlight.
+                hasSwatch, updHas = EllesmereUI.BuildColorSwatch(
+                    rightRgn, lvl,
+                    function()
+                        local c = db.profile.playerThreatHasAggroColor or { r = 1, g = 0.5, b = 0 }
+                        return c.r, c.g, c.b, 1
+                    end,
+                    function(r, g, b)
+                        db.profile.playerThreatHasAggroColor = { r=r, g=g, b=b }
+                        if ns.UpdatePlayerThreatBorder then ns.UpdatePlayerThreatBorder() end
+                    end, false, 20)
+                hasSwatch:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
+                rightRgn._lastInline = hasSwatch
+                hasSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hasSwatch, "Has Aggro") end)
+                hasSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+                -- Close to Aggro swatch (global), left of Has Aggro.
+                nearSwatch, updNear = EllesmereUI.BuildColorSwatch(
+                    rightRgn, lvl,
+                    function()
+                        local c = db.profile.playerThreatNearAggroColor or { r = 0.81, g = 0.72, b = 0.19 }
+                        return c.r, c.g, c.b, 1
+                    end,
+                    function(r, g, b)
+                        db.profile.playerThreatNearAggroColor = { r=r, g=g, b=b }
+                        if ns.UpdatePlayerThreatBorder then ns.UpdatePlayerThreatBorder() end
+                    end, false, 20)
+                nearSwatch:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
+                rightRgn._lastInline = nearSwatch
+                nearSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(nearSwatch, "Close to Aggro") end)
+                nearSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            end
+
+            -- Gray a swatch when its toggle is off (still clickable to pre-set).
+            UpdateHBSwatchVis = function()
+                hlSwatch:SetAlpha(SVal("highlightEnabled", true) and 1 or 0.3)
+                if hasSwatch then
+                    local on = db.profile.playerThreatBorderEnabled
+                    hasSwatch:SetAlpha(on and 1 or 0.3)
+                    nearSwatch:SetAlpha(on and 1 or 0.3)
+                end
+            end
+            EllesmereUI.RegisterWidgetRefresh(function()
+                updHl(); if updHas then updHas() end; if updNear then updNear() end; UpdateHBSwatchVis()
+            end)
+            UpdateHBSwatchVis()
         end
 
         _, h = W:Spacer(parent, y, 20); y = y - h
@@ -5257,7 +5433,7 @@ initFrame:SetScript("OnEvent", function(self)
                 for _, key in ipairs(keys) do
                     if key ~= selectedUnit then
                         local d = UNIT_DB_MAP[key]()
-                        d.leftTextContent = ((v == "absorb" or v == "absorbshort" or v == "group") and key ~= "player") and "none" or v
+                        d.leftTextContent = ((v == "absorb" or v == "absorbshort" or v == "healabsorb" or v == "healabsorbshort" or v == "group") and key ~= "player") and "none" or v
                         d.leftTextClassColor = src.leftTextClassColor
                         d.leftTextColorR, d.leftTextColorG, d.leftTextColorB = src.leftTextColorR, src.leftTextColorG, src.leftTextColorB
                         d.leftTextSize = src.leftTextSize
@@ -5275,7 +5451,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local v = src.leftTextContent or "name"
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
                         local d = UNIT_DB_MAP[key]()
-                        local expected = ((v == "absorb" or v == "absorbshort" or v == "group") and key ~= "player") and "none" or v
+                        local expected = ((v == "absorb" or v == "absorbshort" or v == "healabsorb" or v == "healabsorbshort" or v == "group") and key ~= "player") and "none" or v
                         if (d.leftTextContent or "name") ~= expected then return false end
                         if (d.leftTextClassColor or false) ~= (src.leftTextClassColor or false) then return false end
                         if (d.leftTextColorR or 1) ~= (src.leftTextColorR or 1) then return false end
@@ -5392,7 +5568,7 @@ initFrame:SetScript("OnEvent", function(self)
                 for _, key in ipairs(keys) do
                     if key ~= selectedUnit then
                         local d = UNIT_DB_MAP[key]()
-                        d.rightTextContent = ((v == "absorb" or v == "absorbshort" or v == "group") and key ~= "player") and "none" or v
+                        d.rightTextContent = ((v == "absorb" or v == "absorbshort" or v == "healabsorb" or v == "healabsorbshort" or v == "group") and key ~= "player") and "none" or v
                         d.rightTextClassColor = src.rightTextClassColor
                         d.rightTextColorR, d.rightTextColorG, d.rightTextColorB = src.rightTextColorR, src.rightTextColorG, src.rightTextColorB
                         d.rightTextSize = src.rightTextSize
@@ -5410,7 +5586,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local v = src.rightTextContent or "both"
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
                         local d = UNIT_DB_MAP[key]()
-                        local expected = ((v == "absorb" or v == "absorbshort" or v == "group") and key ~= "player") and "none" or v
+                        local expected = ((v == "absorb" or v == "absorbshort" or v == "healabsorb" or v == "healabsorbshort" or v == "group") and key ~= "player") and "none" or v
                         if (d.rightTextContent or "both") ~= expected then return false end
                         if (d.rightTextClassColor or false) ~= (src.rightTextClassColor or false) then return false end
                         if (d.rightTextColorR or 1) ~= (src.rightTextColorR or 1) then return false end
@@ -5536,7 +5712,7 @@ initFrame:SetScript("OnEvent", function(self)
                 for _, key in ipairs(keys) do
                     if key ~= selectedUnit then
                         local d = UNIT_DB_MAP[key]()
-                        d.centerTextContent = ((v == "absorb" or v == "absorbshort" or v == "group") and key ~= "player") and "none" or v
+                        d.centerTextContent = ((v == "absorb" or v == "absorbshort" or v == "healabsorb" or v == "healabsorbshort" or v == "group") and key ~= "player") and "none" or v
                         d.centerTextClassColor = src.centerTextClassColor
                         d.centerTextColorR, d.centerTextColorG, d.centerTextColorB = src.centerTextColorR, src.centerTextColorG, src.centerTextColorB
                         d.centerTextSize = src.centerTextSize
@@ -5554,7 +5730,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local v = src.centerTextContent or "none"
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
                         local d = UNIT_DB_MAP[key]()
-                        local expected = ((v == "absorb" or v == "absorbshort" or v == "group") and key ~= "player") and "none" or v
+                        local expected = ((v == "absorb" or v == "absorbshort" or v == "healabsorb" or v == "healabsorbshort" or v == "group") and key ~= "player") and "none" or v
                         if (d.centerTextContent or "none") ~= expected then return false end
                         if (d.centerTextClassColor or false) ~= (src.centerTextClassColor or false) then return false end
                         if (d.centerTextColorR or 1) ~= (src.centerTextColorR or 1) then return false end
@@ -6524,8 +6700,7 @@ initFrame:SetScript("OnEvent", function(self)
                 math.floor(ar * 255 + 0.5),
                 math.floor(ag * 255 + 0.5),
                 math.floor(ab * 255 + 0.5))
-            local hintText = "For player frame, this provides a simple, mini castbar below player frame. To edit the main player cast bar, "
-                .. accentHex .. "click here|r"
+            local hintText = EllesmereUI.Lf("For player frame, this provides a simple, mini castbar below player frame. To edit the main player cast bar, %sclick here|r", accentHex)
             -- Full-width label (passing nil as the right slot expands the left
             -- region to the whole row) so the text renders via the panel's own
             -- widget path. A transparent button over the row makes the line
@@ -8618,12 +8793,19 @@ initFrame:SetScript("OnEvent", function(self)
             local _, buffPosCogShow = EllesmereUI.BuildCogPopup({
                 title = "Buff Position",
                 rows = {
-                    { type="slider", label="Offset X", min=-200, max=200, step=1,
+                    { type="slider", label="Offset X", min=-1500, max=1500, step=1,
                       get=function() return SValSupported("buffOffsetX", 0) end,
                       set=function(v) SSetSupported("buffOffsetX", v) end },
-                    { type="slider", label="Offset Y", min=-200, max=200, step=1,
+                    { type="slider", label="Offset Y", min=-1500, max=1500, step=1,
                       get=function() return SValSupported("buffOffsetY", 0) end,
                       set=function(v) SSetSupported("buffOffsetY", v) end },
+                    -- Physical-pixel-perfect gaps between buff icons (X = columns, Y = rows).
+                    { type="slider", label="Spacing X", min=-1, max=10, step=1,
+                      get=function() return SValSupported("buffSpacingX", 1) end,
+                      set=function(v) SSetSupported("buffSpacingX", v) end },
+                    { type="slider", label="Spacing Y", min=-1, max=10, step=1,
+                      get=function() return SValSupported("buffSpacingY", 1) end,
+                      set=function(v) SSetSupported("buffSpacingY", v) end },
                 },
             })
             MakeCogBtn(rightRgn, buffPosCogShow, nil, EllesmereUI.DIRECTIONS_ICON, BuffDisabled)
@@ -8732,12 +8914,19 @@ initFrame:SetScript("OnEvent", function(self)
             local _, debuffPosCogShow = EllesmereUI.BuildCogPopup({
                 title = "Debuff Position",
                 rows = {
-                    { type="slider", label="Offset X", min=-200, max=200, step=1,
+                    { type="slider", label="Offset X", min=-1500, max=1500, step=1,
                       get=function() return SValSupported("debuffOffsetX", 0) end,
                       set=function(v) SSetSupported("debuffOffsetX", v) end },
-                    { type="slider", label="Offset Y", min=-200, max=200, step=1,
+                    { type="slider", label="Offset Y", min=-1500, max=1500, step=1,
                       get=function() return SValSupported("debuffOffsetY", 0) end,
                       set=function(v) SSetSupported("debuffOffsetY", v) end },
+                    -- Physical-pixel-perfect gaps between debuff icons (X = columns, Y = rows).
+                    { type="slider", label="Spacing X", min=-1, max=10, step=1,
+                      get=function() return SValSupported("debuffSpacingX", 1) end,
+                      set=function(v) SSetSupported("debuffSpacingX", v) end },
+                    { type="slider", label="Spacing Y", min=-1, max=10, step=1,
+                      get=function() return SValSupported("debuffSpacingY", 1) end,
+                      set=function(v) SSetSupported("debuffSpacingY", v) end },
                 },
             })
             MakeCogBtn(rightRgn, debuffPosCogShow, nil, EllesmereUI.DIRECTIONS_ICON, DebuffDisabled)
@@ -9005,8 +9194,45 @@ initFrame:SetScript("OnEvent", function(self)
             ["largeStripesR"]         = "Large Stripes R",          -- large-absorb-right.png
         }
         -- Shield (regular) absorb dropdown order. Heal absorb uses its own
-        -- inline order below (it adds the two "Outlined" variants on top).
+        -- order (it adds the two "Outlined" variants on top).
         local absorbStyleOrder = { "none", "striped", "stripedReversed", "clean", "blizzard", "largeStripes", "largeStripesR" }
+        local healAbsorbStyleOrder = { "none", "striped", "stripedReversed", "clean", "blizzard", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR" }
+        -- Append SharedMedia statusbar textures after a divider, mirroring the
+        -- Bar Texture dropdown. SM keys ("sm:" prefixed) were appended to the
+        -- shared health-bar tables by AppendSharedMediaTextures; render-time
+        -- resolution flows through ns.ResolveAbsorbStyleTex -> the health-bar
+        -- texture lookup. Both the shield and heal-absorb dropdowns share
+        -- absorbStyleValues, so both gain the SM entries and the preview swatch.
+        do
+            if EllesmereUI.AppendSharedMediaTextures then
+                EllesmereUI.AppendSharedMediaTextures(
+                    ns.healthBarTextureNames or {}, ns.healthBarTextureOrder or {}, nil, ns.healthBarTextures)
+            end
+            local smNames = ns.healthBarTextureNames or {}
+            local smKeys = {}
+            for _, k in ipairs(ns.healthBarTextureOrder or {}) do
+                if type(k) == "string" and k:find("^sm:") then
+                    smKeys[#smKeys + 1] = k
+                    absorbStyleValues[k] = smNames[k] or k
+                end
+            end
+            if #smKeys > 0 then
+                absorbStyleOrder[#absorbStyleOrder + 1] = "---"
+                healAbsorbStyleOrder[#healAbsorbStyleOrder + 1] = "---"
+                for _, k in ipairs(smKeys) do
+                    absorbStyleOrder[#absorbStyleOrder + 1] = k
+                    healAbsorbStyleOrder[#healAbsorbStyleOrder + 1] = k
+                end
+            end
+            -- Preview swatch behind each menu row, resolved exactly like render.
+            absorbStyleValues._menuOpts = {
+                itemHeight = 28,
+                background = function(key)
+                    if not key or key == "---" or key == "none" then return nil end
+                    return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex(key) or nil
+                end,
+            }
+        end
 
         -- Effective absorb opacity: absorbOpacity once set, otherwise the
         -- pre-split behavior (clean -> absorbCleanAlpha, other styles 80).
@@ -9117,7 +9343,7 @@ initFrame:SetScript("OnEvent", function(self)
         local healAbsorbRow
         healAbsorbRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Heal Absorb Style", values=absorbStyleValues,
-              order={ "none", "striped", "stripedReversed", "clean", "blizzard", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR" },
+              order=healAbsorbStyleOrder,
               getValue=function() return SValSupported("healAbsorbStyle", "clean") end,
               setValue=function(v)
                   if v == "clean" then
@@ -9748,6 +9974,13 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI:SetContentHeader(_displayHeaderBuilder)
                     EllesmereUI:RefreshPage(true)
                     EllesmereUI.SmoothScrollTo(savedScroll)
+                    -- The preview's Update runs DURING the rebuild above, before the
+                    -- content header's layout has settled, so its sizing/header-height
+                    -- pass lands on stale geometry (preview spacing wrong, debuff row
+                    -- missing until a slider nudge). Initial page load gets a settled
+                    -- pass via RegisterOnShow; a unit switch (panel already open) does
+                    -- not -- so re-run the preview next frame, once layout has settled.
+                    C_Timer.After(0, UpdatePreview)
                 end
             )
             PP.Point(ddBtn, "TOP", hdr, "TOP", 0, fy)
@@ -10078,6 +10311,130 @@ initFrame:SetScript("OnEvent", function(self)
         if enableRow then
             enableRowFrame, h = enableRow(W, parent, y)
             y = y - h
+        end
+
+        -- Bar Texture override (new row, slot 1). Mini frames inherit the main
+        -- frames' donor texture (focus > target > player) by default; picking a
+        -- specific texture here overrides that for this frame only. Lands as the
+        -- last DISPLAY row: Row 2 for ToT/Focus Target/Pet, Row 3 for Boss.
+        do
+            local mtVals, mtOrder = BuildBarTexDropdown()
+            table.insert(mtOrder, 1, "inherit")
+            mtVals["inherit"] = "Inherit (Main Frames)"
+            -- Menu item preview background for "Inherit" shows the donor texture.
+            local mo = mtVals._menuOpts
+            if mo then
+                local baseBg = mo.background
+                mo.background = function(key)
+                    if key == "inherit" then
+                        local donor = GetMiniDonorSettings()
+                        local dk = donor and donor.healthBarTexture
+                        if dk == "inherit" then dk = nil end
+                        dk = dk or db.profile.healthBarTexture
+                        return dk and (ns.healthBarTextures or {})[dk] or nil
+                    end
+                    return baseBg and baseBg(key) or nil
+                end
+            end
+            -- Boss frames get a "Hover Borders" control in the right slot (mirrors
+            -- Raid Frames); the other mini frames leave that slot empty.
+            local isBoss = (unitKey == "boss")
+            local rightSlot
+            if isBoss then
+                rightSlot = { type="dropdown", text="Hover Borders",
+                    values={ __placeholder = "All" }, order={ "__placeholder" },
+                    getValue=function() return "__placeholder" end,
+                    setValue=function() end }
+            else
+                rightSlot = { type="label", text="" }
+            end
+            local barTexRow
+            barTexRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Bar Texture", values=mtVals, order=mtOrder,
+                  getValue=function()
+                      local v = settingsTable.healthBarTexture
+                      if v == nil then return "inherit" end
+                      return v
+                  end,
+                  setValue=function(v)
+                      if v == "inherit" then
+                          settingsTable.healthBarTexture = nil
+                      else
+                          settingsTable.healthBarTexture = v
+                      end
+                      ReloadAndUpdate()
+                  end },
+                rightSlot);  y = y - h
+
+            -- Boss Hover Borders: checkbox dropdown (Hover Border / Target Border,
+            -- both default off) with inline color swatches. Enabling one recolors
+            -- the boss frame's existing border to that color (hover > target).
+            if isBoss then
+                local PP = EllesmereUI.PP
+                local rightRgn = barTexRow._rightRegion
+                if rightRgn._control then rightRgn._control:Hide() end
+                local hbKeyMap = { hover = "bossHoverBorderEnabled", target = "bossTargetBorderEnabled" }
+                local hbItems = {
+                    { key = "hover",  label = "Hover Border" },
+                    { key = "target", label = "Target Border" },
+                }
+                local UpdateHBSwatchVis  -- forward declare; assigned after swatches
+                local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
+                    rightRgn, 170, rightRgn:GetFrameLevel() + 2,
+                    hbItems,
+                    function(k) return settingsTable[hbKeyMap[k]] and true or false end,
+                    function(k, v)
+                        settingsTable[hbKeyMap[k]] = v
+                        ReloadAndUpdate()
+                        if UpdateHBSwatchVis then UpdateHBSwatchVis() end
+                    end)
+                PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+                rightRgn._control = cbDD
+                rightRgn._lastInline = nil
+
+                -- Inline swatches: Hover (nearest the dropdown), then Target to its left.
+                local lvl = barTexRow:GetFrameLevel() + 3
+                local hoverSwatch, updHover = EllesmereUI.BuildColorSwatch(
+                    rightRgn, lvl,
+                    function()
+                        local c = settingsTable.bossHoverBorderColor or { r = 1, g = 1, b = 1 }
+                        return c.r, c.g, c.b, settingsTable.bossHoverBorderAlpha or 1
+                    end,
+                    function(r, g, b, a)
+                        settingsTable.bossHoverBorderColor = { r=r, g=g, b=b }
+                        settingsTable.bossHoverBorderAlpha = a
+                        ReloadAndUpdate()
+                    end, true, 20)
+                hoverSwatch:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+                rightRgn._lastInline = hoverSwatch
+                hoverSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hoverSwatch, "Hover") end)
+                hoverSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+                local targetSwatch, updTarget = EllesmereUI.BuildColorSwatch(
+                    rightRgn, lvl,
+                    function()
+                        local c = settingsTable.bossTargetBorderColor or { r = 1, g = 1, b = 1 }
+                        return c.r, c.g, c.b, settingsTable.bossTargetBorderAlpha or 1
+                    end,
+                    function(r, g, b, a)
+                        settingsTable.bossTargetBorderColor = { r=r, g=g, b=b }
+                        settingsTable.bossTargetBorderAlpha = a
+                        ReloadAndUpdate()
+                    end, true, 20)
+                targetSwatch:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
+                rightRgn._lastInline = targetSwatch
+                targetSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(targetSwatch, "Target") end)
+                targetSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+                -- Gray a swatch when its border state is off (still clickable so the
+                -- color can be pre-set), matching the Raid Frames Hover Borders row.
+                UpdateHBSwatchVis = function()
+                    hoverSwatch:SetAlpha(settingsTable.bossHoverBorderEnabled and 1 or 0.3)
+                    targetSwatch:SetAlpha(settingsTable.bossTargetBorderEnabled and 1 or 0.3)
+                end
+                EllesmereUI.RegisterWidgetRefresh(function() updHover(); updTarget(); UpdateHBSwatchVis() end)
+                UpdateHBSwatchVis()
+            end
         end
 
         -- Optional extra rows after enable (e.g. portrait, cast icon, indicators)
@@ -11532,7 +11889,7 @@ initFrame:SetScript("OnEvent", function(self)
             local B = db.profile.boss
             local hh
             -- Inline cog-button helper (boss-section style).
-            local function CCogBtn(rgn, showFn)
+            local function CCogBtn(rgn, showFn, iconPath)
                 local cogBtn = CreateFrame("Button", nil, rgn)
                 cogBtn:SetSize(26, 26)
                 cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
@@ -11541,7 +11898,7 @@ initFrame:SetScript("OnEvent", function(self)
                 cogBtn:SetAlpha(0.4)
                 local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
                 cogTex:SetAllPoints()
-                cogTex:SetTexture(EllesmereUI.COGS_ICON)
+                cogTex:SetTexture(iconPath or EllesmereUI.COGS_ICON)
                 cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
                 cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
                 cogBtn:SetScript("OnClick", function(self) showFn(self) end)
@@ -11597,6 +11954,20 @@ initFrame:SetScript("OnEvent", function(self)
                 sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 rgn._lastInline = sw
                 castFillSwatch = sw
+            end
+            -- Inline cog on Show Cast Bar (left region): Offset Y nudges the whole
+            -- cast bar vertically (positive = up). Updates the live frames + both
+            -- previews via ReloadAndUpdate + the boss preview refresh.
+            do
+                local _, offCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Cast Bar Position",
+                    rows = {
+                        { type="slider", label="Offset Y", min=-200, max=200, step=1,
+                          get=function() return B.castbarOffsetY or 0 end,
+                          set=function(v) B.castbarOffsetY = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
+                    },
+                })
+                AddCastBlock(CCogBtn(castMainRow._leftRegion, offCogShow, EllesmereUI.DIRECTIONS_ICON))
             end
 
             -- Row 2: Show Cast Icon (+ icon cog) | Bar Background (opacity slider + color swatch)
@@ -11836,6 +12207,9 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI:SetContentHeader(_miniHeaderBuilder)
                     EllesmereUI:RefreshPage(true)
                     EllesmereUI.SmoothScrollTo(0)
+                    -- Re-run the preview next frame once the rebuilt layout has
+                    -- settled (same fix as the Main Frames unit selector).
+                    C_Timer.After(0, UpdatePreview)
                 end
             )
             PP.Point(ddBtn, "TOP", hdr, "TOP", 0, fy)

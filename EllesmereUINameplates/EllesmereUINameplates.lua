@@ -669,6 +669,12 @@ local PANDEMIC_GLOW_STYLES = {
       rows = 5, columns = 5, frames = 25, duration = 0.3, frameW = 48, frameH = 48, scale = 1.47, previewScale = 1.47 },
 }
 ns.PANDEMIC_GLOW_STYLES = PANDEMIC_GLOW_STYLES
+-- Expose the nameplate glow-style list cross-addon so other modules (e.g. the
+-- CDM "Apply Pandemic Glow to all" sync) can translate a style by NAME instead
+-- of copying a raw index. Nameplates order their styles differently from CDM
+-- (their list omits "Custom Shape Glow"), so a raw index means a different
+-- style on each side.
+if EllesmereUI then EllesmereUI.NameplatePandemicGlowStyles = PANDEMIC_GLOW_STYLES end
 
 local function GetPandemicGlowStyle()
     local raw = p and p.pandemicGlowStyle

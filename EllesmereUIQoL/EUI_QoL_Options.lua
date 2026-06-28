@@ -323,6 +323,21 @@ initFrame:SetScript("OnEvent", function(self)
             if coordInitOff then coordCogBlock:Show() else coordCogBlock:Hide() end
         end
 
+        -- Row 6: Hide Error Messages (left) |
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Hide Error Messages",
+              tooltip="Hides most red error messages (such as 'Not enough rage' or 'Ability is not ready yet'). Important errors like a full bag or quest log are still shown.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.hideErrorMessages or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.hideErrorMessages = v
+                  if EllesmereUI._applyHideErrorMessages then EllesmereUI._applyHideErrorMessages() end
+              end },
+            { type="label", text="" }
+        );  y = y - h
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         ---------------------------------------------------------------------------
@@ -599,7 +614,7 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end
 
-        -- Row 3: Low Durability Warning (left, with cog+eye+swatch) | Disable Right Click Targeting (right)
+        -- Row 2: Low Durability Warning (left, with cog+eye+swatch) | Disable Right Click Targeting (right)
         local durWarnRow
         durWarnRow, h = W:DualRow(parent, y,
             { type="toggle", text="Low Durability Warning",
@@ -846,7 +861,7 @@ initFrame:SetScript("OnEvent", function(self)
             if eyeInitOff then eyeBlock:Show() else eyeBlock:Hide() end
         end
 
-        -- Row 4: Secondary Stat Display (left, with swatch+cog) | Guild Chat Privacy (right)
+        -- Row 3: Secondary Stat Display (left, with swatch+cog) | Guild Chat Privacy (right)
         local row4
         row4, h = W:DualRow(parent, y,
             { type="toggle", text="Secondary Stat Display",
@@ -997,22 +1012,9 @@ initFrame:SetScript("OnEvent", function(self)
             if ssInitOff then ssCogBlock:Show() else ssCogBlock:Hide() end
         end
 
-        -- Row 5: Character Crosshair (left, with inline swatch) | Rested Indicator (right)
-        local crosshairRow
-        crosshairRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Character Crosshair",
-              tooltip="Displays a crosshair at the center of the screen.",
-              values={ ["None"]="None", ["Thin"]="Thin", ["Normal"]="Normal", ["Thick"]="Thick" },
-              order={ "None", "Thin", "Normal", "Thick" },
-              getValue=function()
-                return (EllesmereUIDB and EllesmereUIDB.crosshairSize) or "None"
-              end,
-              setValue=function(v)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.crosshairSize = v
-                if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
-                EllesmereUI:RefreshPage()
-              end },
+        -- Row 4: Rested Indicator (left) |
+        local restedRow
+        restedRow, h = W:DualRow(parent, y,
             { type="toggle", text="Rested Indicator",
               tooltip="Displays a ZZZ indicator on your player frame when you are in a resting area.",
               getValue=function()
@@ -1027,12 +1029,13 @@ initFrame:SetScript("OnEvent", function(self)
                     if v and IsResting() then pf._restIndicator:Show() else pf._restIndicator:Hide() end
                 end
                 EllesmereUI:RefreshPage()
-              end }
+              end },
+            { type="label", text="" }
         );  y = y - h
 
-        -- Inline cog on Rested Indicator (right) for X/Y offsets
+        -- Inline cog on Rested Indicator (left region) for X/Y offsets
         do
-            local rightRgn = crosshairRow._rightRegion
+            local leftRgn = restedRow._leftRegion
             local function ApplyRestIndicatorPos()
                 local pf = _G["EllesmereUIUnitFrames_Player"]
                 if pf and pf._restIndicator then
@@ -1065,11 +1068,11 @@ initFrame:SetScript("OnEvent", function(self)
             local function restOff()
                 return not EllesmereUIDB or EllesmereUIDB.showRestedIndicator ~= true
             end
-            local restCogBtn = CreateFrame("Button", nil, rightRgn)
+            local restCogBtn = CreateFrame("Button", nil, leftRgn)
             restCogBtn:SetSize(26, 26)
-            restCogBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
-            rightRgn._lastInline = restCogBtn
-            restCogBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
+            restCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
+            leftRgn._lastInline = restCogBtn
+            restCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
             restCogBtn:SetAlpha(restOff() and 0.15 or 0.4)
             local restCogTex = restCogBtn:CreateTexture(nil, "OVERLAY")
             restCogTex:SetAllPoints()
@@ -1096,21 +1099,186 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateRestCogState()
         end
 
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+
+        ---------------------------------------------------------------------------
+        --  CROSSHAIR
+        ---------------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "CROSSHAIR", y);  y = y - h
+
+        -- Crosshair: per-profile live in the QoL DB (_ECL_AceDB.profile),
+        -- with the account-wide EllesmereUIDB root as the inherited default.
+        local function cdb() return _G._ECL_AceDB and _G._ECL_AceDB.profile end
+        local function cget(k)
+            local p = cdb()
+            if p and p[k] ~= nil then return p[k] end
+            return EllesmereUIDB and EllesmereUIDB[k]
+        end
+        local function cset(k, v) local p = cdb(); if p then p[k] = v end end
+        local function crosshairOff()
+            return (cget("crosshairSize") or "None") == "None"
+        end
+
+        -- True when the effective thickness is custom (would display as
+        -- "Custom" if enabled) -- i.e. H/V widths differ or don't match a preset.
+        -- Checked regardless of None so a saved custom config can be restored.
+        local function crosshairIsCustom()
+            local P = EllesmereUI.CROSSHAIR_PRESETS
+            local s = cget("crosshairSize")
+            local sizeForBase = (s and s ~= "None" and s) or "Normal"
+            local base = (P and (P[sizeForBase] or P.Normal)) or { width = 2 }
+            local hw = cget("crosshairHWidth") or base.width
+            local vw = cget("crosshairVWidth") or base.width
+            if hw ~= vw then return true end
+            if P then
+                for _, p in pairs(P) do if p.width == hw then return false end end
+            end
+            return true
+        end
+
+        -- Row 1: Character Crosshair (left: dropdown + swatch + cog) | Visibility
+        local crosshairRow
+        crosshairRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Character Crosshair",
+              tooltip="Displays a crosshair at the center of the screen.",
+              -- "Custom" is only selectable when a custom thickness is
+              -- stored (re-evaluated each time the menu opens); otherwise it's
+              -- greyed, since picking it would just produce a preset look.
+              itemDisabled=function(v) return v == "custom" and not crosshairIsCustom() end,
+			  itemDisabledTooltip=function(v)
+				if v == "custom" then return "This option requires a custom thickness to be set." end
+      		  end,
+              -- The shown value is derived from the actual thickness: a preset
+              -- name when the width matches one, otherwise "Custom". "Custom" is
+              -- also selectable -- picking it re-enables using the user's stored
+              -- values
+              values={ ["None"]="None", ["Thin"]="Thin", ["Normal"]="Normal", ["Thick"]="Thick", ["custom"]="Custom" },
+              order={ "None", "Thin", "Normal", "Thick", "custom" },
+              getValue=function()
+                local size = cget("crosshairSize") or "None"
+                if size == "None" then return "None" end
+                local P = EllesmereUI.CROSSHAIR_PRESETS
+                local base = (P and (P[size] or P.Normal)) or { width = 2 }
+                local hw = cget("crosshairHWidth") or base.width
+                local vw = cget("crosshairVWidth") or base.width
+                if hw == vw and P then
+                    for name, p in pairs(P) do
+                        if p.width == hw then return name end
+                    end
+                end
+                return "custom"
+              end,
+              setValue=function(v)
+                local p = cdb()
+                if not p then return end
+                p.crosshairSize = v
+                -- Presets exist mainly for backwards compatibility. They stamp
+                -- only the thickness baseline so Thin/Normal/Thick stay distinct
+                -- and the cog reflects them. Length is not touched: it defaults
+                -- to the preset length (40) only while unset, and once a user
+                -- customises it, it persists across preset changes.
+                local preset = EllesmereUI.CROSSHAIR_PRESETS and EllesmereUI.CROSSHAIR_PRESETS[v]
+                if preset then
+                    p.crosshairHWidth = preset.width
+                    p.crosshairVWidth = preset.width
+                end
+                if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+                EllesmereUI:RefreshPage()
+              end },
+            { type="dropdown", text="Visibility",
+              tooltip="Choose when the crosshair is shown.",
+              disabled=function() return crosshairOff() end,
+              disabledTooltip="Enable the crosshair to set its visibility.", rawTooltip=true,
+              -- Real control is a multi-select checkbox dropdown injected below;
+              -- this placeholder just provides the labelled right-region slot.
+              values={ ["_placeholder"]="..." }, order={ "_placeholder" },
+              getValue=function() return "_placeholder" end,
+              setValue=function() end }
+        );  y = y - h
+
+        -- Visibility: multi-select checkbox dropdown (Always / Combat / Instances),
+        -- backed by the single crosshairVisibility string for backwards compat:
+        --   always | combat | instances | instances_combat
+        -- "Always" is the base state. Picking it
+        -- clears the others; clearing both reverts to it.
+        do
+            local visRgn = crosshairRow._rightRegion
+            if visRgn._control then visRgn._control:Hide() end
+
+            local function curVis() return cget("crosshairVisibility") or "always" end
+            local visItems = {
+                { key = "always",    label = "Always",
+                  tooltip = "Always show the crosshair." },
+                { key = "combat",    label = "Combat",
+                  tooltip = "Show only while in combat. Combine with Instances to show only during instanced combat." },
+                { key = "instances", label = "Instances",
+                  tooltip = "Show only while in a dungeon, raid, arena or battleground. Combine with Combat to show only during instanced combat." },
+            }
+            local visCB, visCBRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                visRgn, 200, visRgn:GetFrameLevel() + 2,
+                visItems,
+                function(k)
+                    local v = curVis()
+                    if k == "always"    then return v == "always" end
+                    if k == "combat"    then return v == "combat" or v == "instances_combat" end
+                    return v == "instances" or v == "instances_combat"
+                end,
+                function(k, on)
+                    local v = curVis()
+                    local combat    = (v == "combat" or v == "instances_combat")
+                    local instances = (v == "instances" or v == "instances_combat")
+                    if k == "always" then
+                        if not on then return end  -- can't un-pick the base state directly
+                        combat, instances = false, false
+                    elseif k == "combat" then
+                        combat = on
+                    else
+                        instances = on
+                    end
+                    local nv = "always"
+                    if combat and instances then nv = "instances_combat"
+                    elseif combat then nv = "combat"
+                    elseif instances then nv = "instances" end
+                    cset("crosshairVisibility", nv)
+                    if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+                end)
+            PP.Point(visCB, "RIGHT", visRgn, "RIGHT", -20, 0)
+            visRgn._control = visCB
+            visRgn._lastInline = nil
+
+            -- Disabled overlay: grey + block when the crosshair is off, matching
+            -- the placeholder's disabled state.
+            local visBlock = CreateFrame("Frame", nil, visCB)
+            visBlock:SetAllPoints()
+            visBlock:SetFrameLevel(visCB:GetFrameLevel() + 20)
+            visBlock:EnableMouse(true)
+            visBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(visCB, "Enable the crosshair to set its visibility.")
+            end)
+            visBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function visUpdateDisabled()
+                if crosshairOff() then
+                    visCB:SetAlpha(0.4); visBlock:Show()
+                else
+                    visCB:SetAlpha(1); visBlock:Hide()
+                end
+            end
+            EllesmereUI.RegisterWidgetRefresh(visCBRefresh)
+            EllesmereUI.RegisterWidgetRefresh(visUpdateDisabled)
+            visUpdateDisabled()
+        end
+
         -- Inline color swatch on the crosshair dropdown (left region)
         do
             local leftRgn = crosshairRow._leftRegion
-            local function crosshairOff()
-                return not EllesmereUIDB or (EllesmereUIDB.crosshairSize or "None") == "None"
-            end
 
             local chSwGet = function()
-                local c = EllesmereUIDB and EllesmereUIDB.crosshairColor
+                local c = cget("crosshairColor")
                 if c then return c.r, c.g, c.b, c.a end
                 return 1, 1, 1, 0.75
             end
             local chSwSet = function(r, g, b, a)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.crosshairColor = { r = r, g = g, b = b, a = a or 1 }
+                cset("crosshairColor", { r = r, g = g, b = b, a = a or 1 })
                 if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
             end
             local chSwatch, chUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, chSwGet, chSwSet, true, 20)
@@ -1140,6 +1308,163 @@ initFrame:SetScript("OnEvent", function(self)
             local chInitOff = crosshairOff()
             chSwatch:SetAlpha(chInitOff and 0.3 or 1)
             if chInitOff then chSwBlock:Show() else chSwBlock:Hide() end
+        end
+
+        -- Inline cog on the crosshair dropdown (left region) for expanded options
+        do
+            local leftRgn = crosshairRow._leftRegion
+            local function chCogOff() return crosshairOff() end
+            local function presetThick()
+                local s = cget("crosshairSize")
+                local P = EllesmereUI.CROSSHAIR_PRESETS
+                local p = P and (P[s] or P.Normal)
+                return (p and p.width) or 2
+            end
+            local function applyCH()
+                if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+            end
+            local function dbset(k, v)
+                cset(k, v)
+                applyCH()
+            end
+            -- Re-resolve the size dropdown's label so it shows "Custom" (or snaps
+            -- back to a preset) live when the thickness is changed in this cog.
+            local function refreshSizeLabel()
+                local ctrl = crosshairRow._leftRegion and crosshairRow._leftRegion._control
+                if ctrl and ctrl._refreshLabel then ctrl._refreshLabel() end
+            end
+
+            local _, chCogShow = EllesmereUI.BuildCogPopup({
+                title = "Crosshair Options",
+                rows = {
+                    { type="slider", label="H Length", min=1, max=100, step=1,
+                      get=function() return cget("crosshairHLength") or 40 end,
+                      set=function(v) dbset("crosshairHLength", v) end },
+                    { type="slider", label="H Width", min=1, max=20, step=1,
+                      get=function() return cget("crosshairHWidth") or presetThick() end,
+                      set=function(v) dbset("crosshairHWidth", v); refreshSizeLabel() end },
+                    { type="slider", label="V Length", min=1, max=100, step=1,
+                      get=function() return cget("crosshairVLength") or 40 end,
+                      set=function(v) dbset("crosshairVLength", v) end },
+                    { type="slider", label="V Width", min=1, max=20, step=1,
+                      get=function() return cget("crosshairVWidth") or presetThick() end,
+                      set=function(v) dbset("crosshairVWidth", v); refreshSizeLabel() end },
+                    { type="slider", label="Border", min=0, max=5, step=1,
+                      get=function() return cget("crosshairBorderSize") or 0 end,
+                      set=function(v) dbset("crosshairBorderSize", v) end },
+                    { type="colorpicker", label="Border Color", hasAlpha=true,
+                      get=function()
+                          local bc = cget("crosshairBorderColor")
+                          if bc then return bc.r, bc.g, bc.b, bc.a end
+                          return 0, 0, 0, 1
+                      end,
+                      set=function(r, g, b, a)
+                          cset("crosshairBorderColor", { r = r, g = g, b = b, a = a or 1 })
+                          applyCH()
+                      end },
+                    { type="slider", label="X Offset", min=-200, max=200, step=1,
+                      get=function() return cget("crosshairXOffset") or 0 end,
+                      set=function(v) dbset("crosshairXOffset", v) end },
+                    { type="slider", label="Y Offset", min=-200, max=200, step=1,
+                      get=function() return cget("crosshairYOffset") or 0 end,
+                      set=function(v) dbset("crosshairYOffset", v) end },
+                },
+            })
+
+            local chCogBtn = CreateFrame("Button", nil, leftRgn)
+            chCogBtn:SetSize(26, 26)
+            chCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
+            leftRgn._lastInline = chCogBtn
+            chCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+            chCogBtn:SetAlpha(chCogOff() and 0.15 or 0.4)
+            local chCogTex = chCogBtn:CreateTexture(nil, "OVERLAY")
+            chCogTex:SetAllPoints()
+            chCogTex:SetTexture(EllesmereUI.COGS_ICON)
+            chCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            chCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(chCogOff() and 0.15 or 0.4) end)
+            chCogBtn:SetScript("OnClick", function(self) chCogShow(self) end)
+
+            -- Blocking overlay when the crosshair is off (None)
+            local chCogBlock = CreateFrame("Frame", nil, chCogBtn)
+            chCogBlock:SetAllPoints()
+            chCogBlock:SetFrameLevel(chCogBtn:GetFrameLevel() + 10)
+            chCogBlock:EnableMouse(true)
+            chCogBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(chCogBtn, EllesmereUI.DisabledTooltip("Character Crosshair"))
+            end)
+            chCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function UpdateChCogState()
+                local off = chCogOff()
+                chCogBtn:SetAlpha(off and 0.15 or 0.4)
+                if off then chCogBlock:Show() else chCogBlock:Hide() end
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateChCogState)
+            UpdateChCogState()
+        end
+
+        -- Color Out of Melee Range (toggle + inline color picker)
+        local meleeRow
+        meleeRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Color Out of Melee Range",
+              tooltip=function()
+                  local sid
+                  if PlayerUtil and PlayerUtil.GetCurrentSpecID then
+                      sid = PlayerUtil.GetCurrentSpecID()
+                  elseif GetSpecialization then
+                      local idx = GetSpecialization()
+                      if idx then sid = (GetSpecializationInfo(idx)) end
+                  end
+                  local s = "Changes the crosshair colour when your current target is out of melee range."
+                  if sid == 65 then s = s .. " Holy uses Hammer of Justice (10yd)." end
+				  if sid == 1480 then s = s .. " Devourer uses Consume (25yd)." end
+                  return s
+              end,
+              disabled=function() return crosshairOff() end,
+              disabledTooltip="Enable the crosshair to use this option.", rawTooltip=true,
+              getValue=function() return cget("crosshairMeleeColorEnabled") == true end,
+              setValue=function(v)
+                cset("crosshairMeleeColorEnabled", v)
+                if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+                EllesmereUI:RefreshPage()
+              end },
+            { type="label", text="" }
+        );  y = y - h
+        -- Inline color swatch (disabled when toggle is off or crosshair is None)
+        do
+            local leftRgn = meleeRow._leftRegion
+            local function meleeOff()
+                return crosshairOff() or cget("crosshairMeleeColorEnabled") ~= true
+            end
+            local mcGet = function()
+                local c = cget("crosshairMeleeColor")
+                if c then return c.r, c.g, c.b, c.a end
+                return 1, 0, 0, 1
+            end
+            local mcSet = function(r, g, b, a)
+                cset("crosshairMeleeColor", { r = r, g = g, b = b, a = a or 1 })
+                if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
+            end
+            local mcSwatch, mcUpdate = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, mcGet, mcSet, true, 20)
+            PP.Point(mcSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
+            leftRgn._lastInline = mcSwatch
+
+            local mcBlock = CreateFrame("Frame", nil, mcSwatch)
+            mcBlock:SetAllPoints()
+            mcBlock:SetFrameLevel(mcSwatch:GetFrameLevel() + 10)
+            mcBlock:EnableMouse(true)
+            mcBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(mcSwatch, EllesmereUI.DisabledTooltip("Color Out of Melee Range"))
+            end)
+            mcBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = meleeOff()
+                mcSwatch:SetAlpha(off and 0.3 or 1)
+                if off then mcBlock:Show() else mcBlock:Hide() end
+                mcUpdate()
+            end)
+            local mcInitOff = meleeOff()
+            mcSwatch:SetAlpha(mcInitOff and 0.3 or 1)
+            if mcInitOff then mcBlock:Show() else mcBlock:Hide() end
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -1310,11 +1635,13 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.autoRepairGuild = false
                 EllesmereUIDB.shifterEnabled = false
                 EllesmereUIDB.shifterPositions = nil
+                EllesmereUIDB.hideErrorMessages = false
             end
             EllesmereUIDB.autoLogging = nil
             if _G._EUI_ResetUpgradeCalc then _G._EUI_ResetUpgradeCalc() end
             if _G._EBS_ResetCursor then _G._EBS_ResetCursor() end
             if EllesmereUI._applyHideBlizzardPartyFrame then EllesmereUI._applyHideBlizzardPartyFrame() end
+            if EllesmereUI._applyHideErrorMessages then EllesmereUI._applyHideErrorMessages() end
             if EllesmereUI._applyQuickSignup then EllesmereUI._applyQuickSignup() end
             if EllesmereUI._applyPersistSignupNote then EllesmereUI._applyPersistSignupNote() end
             EllesmereUI:InvalidatePageCache()

@@ -8,6 +8,7 @@ local abs = math.abs
 
 local PAGE_DISPLAY   = "Class, Power and Health Bars"
 local PAGE_CASTBAR   = "Cast Bar"
+local PAGE_GCD       = "GCD Bar"
 local PAGE_TOTEM     = "Totem Bar"
 local PAGE_UNLOCK    = "Unlock Mode"
 
@@ -409,7 +410,10 @@ initFrame:SetScript("OnEvent", function(self)
                     filledCount = _previewPipCount
                 end
                 local useThresh = _pvTsEnabled
-                local tr, tg, tb = sp.thresholdR, sp.thresholdG, sp.thresholdB
+				-- use current spec threshold color if configured
+				local tr = _pvTsEntry2 and _pvTsEntry2.thresholdR or sp.thresholdR
+				local tg = _pvTsEntry2 and _pvTsEntry2.thresholdG or sp.thresholdG
+				local tb = _pvTsEntry2 and _pvTsEntry2.thresholdB or sp.thresholdB
 
                 for i, pip in ipairs(_previewFrames.pips) do
                     if isVertical then
@@ -1956,7 +1960,7 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()
               end },
             { type = "toggle", text = "Expand Power Bar if No Resource",
-              tooltip = "When your spec has no class resource, automatically adds the class resource height to the power bar. Automatically disabled when Power Bar height is matched to another element.",
+              tooltip = "When the class resource bar is not shown, this automatically adds the class resource height to the power bar.",
               -- Mutually exclusive with "Shift Elements if No Resource": grey this
               -- while shift is set, but only when it is itself OFF so a legacy profile
               -- that has both on can still turn this off (no deadlock).
@@ -3722,11 +3726,30 @@ initFrame:SetScript("OnEvent", function(self)
 
                     -- threshold input
                     local threshMax = isBar and 100 or 10
+					-- Enhance Five-Bar minimum (7) applies only to the entry that
+					-- targets Enhancement and only while Five-Bar mode is on.
+					local entryIsEnhance = false
+					if p.secondary.enhanceFiveBar == true and entry.specIDs then
+						for _, sid in ipairs(entry.specIDs) do
+							if sid == 263 then entryIsEnhance = true; break end
+						end
+					end
+					local threshMin = entryIsEnhance and 7 or 1
                     ef._threshInput:SetText(tostring(entry.thresholdCount or (isBar and 30 or 3)))
+					-- Enhance-only tooltip on the threshold input to explain minimum
+					if entryIsEnhance then
+						ef._threshInput:SetScript("OnEnter", function(self)
+							EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Enhance 5 Bar minimum is %d (if you want less just change 5 bar color)"):format(threshMin))
+						end)
+						ef._threshInput:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+					else
+						ef._threshInput:SetScript("OnEnter", nil)
+						ef._threshInput:SetScript("OnLeave", nil)
+					end
                     ef._threshInput:SetScript("OnEnterPressed", function(self)
                         local val = tonumber(self:GetText())
                         if not val then self:SetText(tostring(entry.thresholdCount or 3)); self:ClearFocus(); return end
-                        val = math.max(1, math.min(threshMax, math.floor(val + 0.5)))
+                        val = math.max(threshMin, math.min(threshMax, math.floor(val + 0.5)))
                         self:SetText(tostring(val))
                         local p2 = DB(); if not p2 then return end
                         local ent = p2.secondary.thresholdSpecs and p2.secondary.thresholdSpecs[idx]
@@ -5390,6 +5413,7 @@ initFrame:SetScript("OnEvent", function(self)
                 p.secondary.offsetX = 0; p.secondary.offsetY = -38; p.secondary.unlockPos = nil
                 p.secondary.countTextUnlockPos = nil
                 p.castBar.unlockPos = nil; p.castBar.anchorX = 0; p.castBar.anchorY = -50
+                p.gcdBar.unlockPos = nil; p.gcdBar.anchorX = 0; p.gcdBar.anchorY = -78
                 Refresh()
             end,
             nil,
@@ -6936,17 +6960,379 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
+    --  GCD Bar page
+    ---------------------------------------------------------------------------
+    local function BuildGCDBarPage(pageName, parent, yOffset)
+        local W = EllesmereUI.Widgets
+        local y = yOffset
+        local _, h
+
+        parent._showRowDivider = true
+
+        -- Re-append SharedMedia textures (catches lazy-registered SM packs)
+        if EllesmereUI.AppendSharedMediaTextures then
+            EllesmereUI.AppendSharedMediaTextures(
+                _G._ERB_BarTextureNames or {},
+                _G._ERB_BarTextureOrder or {},
+                nil,
+                _G._ERB_BarTextures
+            )
+        end
+        -- Bar texture dropdown values (same set the renderer uses)
+        local texValues, texOrder = {}, {}
+        do
+            local texNames = _G._ERB_BarTextureNames or {}
+            local texOrder2 = _G._ERB_BarTextureOrder or {}
+            local texLookup = _G._ERB_BarTextures or {}
+            for _, key in ipairs(texOrder2) do
+                if key ~= "---" then texValues[key] = texNames[key] or key end
+                texOrder[#texOrder + 1] = key
+            end
+            texValues._menuOpts = { itemHeight = 28, background = function(key) return texLookup[key] end }
+        end
+
+        local gcdOff = function() local p = DB(); return p and not p.gcdBar.enabled end
+
+        local function RefreshGCD()
+            if _G._ERB_Apply then _G._ERB_Apply() end
+            if EllesmereUI.NotifyElementResized then
+                EllesmereUI.NotifyElementResized("ERB_GCDBar")
+            end
+        end
+
+        -----------------------------------------------------------------------
+        local _sec
+        _sec, h = W:SectionHeader(parent, "LAYOUT", y);  y = y - h
+
+        local gStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
+        local gStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
+
+        -- Row: Enable GCD Bar (+ position cog) | Frame Strata
+        local enableRow
+        enableRow, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Enable GCD Bar",
+              tooltip = "Shows a bar that fills over the global cooldown.",
+              getValue = function() local p = DB(); return p and p.gcdBar.enabled end,
+              setValue = function(v)
+                  local p = DB(); if not p then return end
+                  p.gcdBar.enabled = v; RefreshGCD(); EllesmereUI:RefreshPage()
+              end },
+            { type = "dropdown", text = "Frame Strata",
+              tooltip = "Controls the order that overlapping elements display in. Set higher to show above other elements.",
+              disabled = gcdOff, disabledTooltip = "GCD Bar",
+              values = gStrataValues, order = gStrataOrder,
+              getValue = function() local p = DB(); return p and p.gcdBar.frameStrata or "MEDIUM" end,
+              setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.frameStrata = v; RefreshGCD() end }
+        );  y = y - h
+        -- Inline position cog (X/Y + unlock) on Enable
+        do
+            local rgn = enableRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "GCD Bar Position",
+                rows = {
+                    -- X/Y edit whichever position is in effect: the saved unlock
+                    -- position takes priority in the renderer, so once it exists
+                    -- these sliders adjust it (otherwise they adjust the CENTER offset).
+                    { type = "slider", label = "X Offset", min = -600, max = 600, step = 1,
+                      get = function()
+                          local p = DB(); if not p then return 0 end
+                          local g = p.gcdBar
+                          if g.unlockPos and g.unlockPos.point then return g.unlockPos.x or 0 end
+                          return g.anchorX or 0
+                      end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          local g = p.gcdBar
+                          if g.unlockPos and g.unlockPos.point then g.unlockPos.x = v else g.anchorX = v end
+                          RefreshGCD()
+                      end },
+                    { type = "slider", label = "Y Offset", min = -600, max = 600, step = 1,
+                      get = function()
+                          local p = DB(); if not p then return 0 end
+                          local g = p.gcdBar
+                          if g.unlockPos and g.unlockPos.point then return g.unlockPos.y or 0 end
+                          return g.anchorY or -78
+                      end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          local g = p.gcdBar
+                          if g.unlockPos and g.unlockPos.point then g.unlockPos.y = v else g.anchorY = v end
+                          RefreshGCD()
+                      end },
+                },
+                footer = { unlockKey = "ERB_GCDBar" },
+            })
+            local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
+            local cogDis = CreateFrame("Frame", nil, rgn)
+            cogDis:SetAllPoints(cogBtn)
+            cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
+            cogDis:EnableMouse(true)
+            cogDis:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("GCD Bar"))
+            end)
+            cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function UpdateCogDis()
+                local p = DB()
+                if p and not p.gcdBar.enabled then cogDis:Show() else cogDis:Hide() end
+            end
+            cogBtn:HookScript("OnShow", UpdateCogDis)
+            EllesmereUI.RegisterWidgetRefresh(UpdateCogDis)
+            UpdateCogDis()
+        end
+
+        -- Row: Height | Width
+        local ghDis, ghTip, ghRaw = EllesmereUI.MatchGuard("ERB_GCDBar", "Height", gcdOff, "GCD Bar")
+        local gwDis, gwTip, gwRaw = EllesmereUI.MatchGuard("ERB_GCDBar", "Width", gcdOff, "GCD Bar")
+        _, h = W:DualRow(parent, y,
+            { type = "slider", text = "Height", min = 1, max = 60, step = 1,
+              disabled = ghDis, disabledTooltip = ghTip, rawTooltip = ghRaw,
+              getValue = function() local p = DB(); return p and p.gcdBar.height or 12 end,
+              setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.height = v; RefreshGCD() end },
+            { type = "slider", text = "Width", min = 50, max = 500, step = 1,
+              disabled = gwDis, disabledTooltip = gwTip, rawTooltip = gwRaw,
+              getValue = function() local p = DB(); return p and p.gcdBar.width or 220 end,
+              setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.width = v; RefreshGCD() end }
+        );  y = y - h
+
+        -- Row: Orientation | Instance Only
+        _, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Orientation",
+              disabled = gcdOff, disabledTooltip = "GCD Bar",
+              values = { HORIZONTAL = "Horizontal (Right)", HORIZONTAL_LEFT = "Horizontal (Left)", VERTICAL_UP = "Vertical (Up)", VERTICAL_DOWN = "Vertical (Down)" },
+              order = { "HORIZONTAL", "HORIZONTAL_LEFT", "VERTICAL_UP", "VERTICAL_DOWN" },
+              getValue = function() local p = DB(); return p and p.gcdBar.orientation or "HORIZONTAL" end,
+              setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.orientation = v; RefreshGCD(); EllesmereUI:RefreshPage() end },
+            { type = "toggle", text = "Instance Only",
+              tooltip = "Only show the GCD bar while in a dungeon, raid, arena or battleground.",
+              disabled = gcdOff, disabledTooltip = "GCD Bar",
+              getValue = function() local p = DB(); return p and p.gcdBar.instanceOnly end,
+              setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.instanceOnly = v; RefreshGCD() end }
+        );  y = y - h
+
+        -- Row: Only Instant Casts | Always Show
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Only Instant Casts",
+              tooltip = "Only show the GCD bar for instant-cast abilities. While hard-casting or channeling a spell, the bar stays hidden (the cast bar already shows that progress).",
+              disabled = gcdOff, disabledTooltip = "GCD Bar",
+              getValue = function() local p = DB(); return p and p.gcdBar.instantOnly end,
+              setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.instantOnly = v; RefreshGCD() end },
+            { type = "toggle", text = "Always Show",
+              tooltip = "Keep the GCD bar visible (sitting empty) when no global cooldown is running, instead of hiding it.",
+              disabled = gcdOff, disabledTooltip = "GCD Bar",
+              getValue = function() local p = DB(); return p and p.gcdBar.alwaysShow end,
+              setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.alwaysShow = v; RefreshGCD() end }
+        );  y = y - h
+
+        _, h = W:Spacer(parent, y, 16);  y = y - h
+
+        -----------------------------------------------------------------------
+        _sec, h = W:SectionHeader(parent, "DISPLAY", y);  y = y - h
+
+        -- Row: Border Style | Border Size (+ inline color swatch + offset cog)
+        do
+            local btValues, btOrder = EllesmereUI.GetBorderTextureDropdown()
+            local bsRow
+            bsRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Border Style",
+                  disabled = gcdOff, disabledTooltip = "GCD Bar",
+                  values=btValues, order=btOrder,
+                  getValue=function() local p = DB(); return p and p.gcdBar.borderTexture or "solid" end,
+                  setValue=function(v)
+                      local p = DB(); if not p then return end
+                      p.gcdBar.borderTexture = v; p.gcdBar.borderTextureOffset = nil; p.gcdBar.borderTextureOffsetY = nil; p.gcdBar.borderTextureShiftX = nil; p.gcdBar.borderTextureShiftY = nil
+                      local _bcol, _bbehind = EllesmereUI.GetBorderStyleSelectDefaults(v)
+                      p.gcdBar.borderR = _bcol.r; p.gcdBar.borderG = _bcol.g; p.gcdBar.borderB = _bcol.b; p.gcdBar.borderA = 1
+                      p.gcdBar.borderBehind = _bbehind
+                      local defSz = EllesmereUI.GetBorderDefaultSize("resourcebars", v)
+                      if defSz then p.gcdBar.borderSize = defSz end
+                      RefreshGCD(); EllesmereUI:RefreshPage()
+                  end },
+                { type = "slider", text = "Border Size", min = 0, max = 4, step = 1,
+                  disabled = gcdOff, disabledTooltip = "GCD Bar",
+                  getValue = function() local p = DB(); return p and (p.gcdBar.borderSize or 0) or 0 end,
+                  setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.borderSize = v; RefreshGCD(); EllesmereUI:RefreshPage() end });  y = y - h
+            -- Border color swatch on the size slider (right region)
+            do
+                local rgn = bsRow._rightRegion
+                local ctrl = rgn._control
+                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
+                    rgn, bsRow:GetFrameLevel() + 3,
+                    function()
+                        local p = DB()
+                        return (p and p.gcdBar.borderR or 0), (p and p.gcdBar.borderG or 0),
+                               (p and p.gcdBar.borderB or 0), (p and p.gcdBar.borderA or 1)
+                    end,
+                    function(r, g, b, a)
+                        local p = DB(); if not p then return end
+                        p.gcdBar.borderR, p.gcdBar.borderG, p.gcdBar.borderB, p.gcdBar.borderA = r, g, b, a
+                        RefreshGCD(); EllesmereUI:RefreshPage()
+                    end, true, 20)
+                PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
+                local block = CreateFrame("Frame", nil, swatch)
+                block:SetAllPoints()
+                block:SetFrameLevel(swatch:GetFrameLevel() + 10)
+                block:EnableMouse(true)
+                block:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("This option requires a Border Size above 0."))
+                end)
+                block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdateSwatchState()
+                    local p = DB()
+                    local noBorder = not p or (p.gcdBar.borderSize or 0) == 0
+                    if noBorder then swatch:SetAlpha(0.3); block:Show() else swatch:SetAlpha(1); block:Hide() end
+                end
+                EllesmereUI.RegisterWidgetRefresh(function() updateSwatch(); UpdateSwatchState() end)
+                UpdateSwatchState()
+            end
+            -- Offset cog on Border Style (left region), hidden for "solid"
+            do
+                local rgn = bsRow._leftRegion
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Border Offset",
+                    rows = {
+                        { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
+                          get = function() local p = DB(); if not p then return 0 end; local v = p.gcdBar.borderTextureOffset; if v then return v end; local dox = EllesmereUI.GetBorderDefaults("resourcebars", p.gcdBar.borderTexture or "solid", p.gcdBar.borderSize or 0); return dox end,
+                          set = function(v) local p = DB(); if not p then return end; p.gcdBar.borderTextureOffset = v; RefreshGCD(); EllesmereUI:RefreshPage() end },
+                        { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
+                          get = function() local p = DB(); if not p then return 0 end; local v = p.gcdBar.borderTextureOffsetY; if v then return v end; local _, doy = EllesmereUI.GetBorderDefaults("resourcebars", p.gcdBar.borderTexture or "solid", p.gcdBar.borderSize or 0); return doy end,
+                          set = function(v) local p = DB(); if not p then return end; p.gcdBar.borderTextureOffsetY = v; RefreshGCD(); EllesmereUI:RefreshPage() end },
+                        { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
+                          get = function() local p = DB(); if not p then return 0 end; local v = p.gcdBar.borderTextureShiftX; if v then return v end; local _, _, dsx = EllesmereUI.GetBorderDefaults("resourcebars", p.gcdBar.borderTexture or "solid", p.gcdBar.borderSize or 0); return dsx end,
+                          set = function(v) local p = DB(); if not p then return end; p.gcdBar.borderTextureShiftX = v == 0 and nil or v; RefreshGCD(); EllesmereUI:RefreshPage() end },
+                        { type = "slider", label = "Shift Y", min = -10, max = 10, step = 1,
+                          get = function() local p = DB(); if not p then return 0 end; local v = p.gcdBar.borderTextureShiftY; if v then return v end; local _, _, _, dsy = EllesmereUI.GetBorderDefaults("resourcebars", p.gcdBar.borderTexture or "solid", p.gcdBar.borderSize or 0); return dsy end,
+                          set = function(v) local p = DB(); if not p then return end; p.gcdBar.borderTextureShiftY = v == 0 and nil or v; RefreshGCD(); EllesmereUI:RefreshPage() end },
+                        { type = "toggle", label = "Show Behind",
+                          get = function() local p = DB(); return p and p.gcdBar.borderBehind or false end,
+                          set = function(v) local p = DB(); if not p then return end; p.gcdBar.borderBehind = v == false and nil or v; RefreshGCD(); EllesmereUI:RefreshPage() end },
+                    },
+                })
+                local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
+                local function UpdateCogVis()
+                    local p = DB()
+                    local tex = p and p.gcdBar.borderTexture or "solid"
+                    if tex == "solid" then cogBtn:Hide() else cogBtn:Show() end
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+                UpdateCogVis()
+            end
+        end
+
+        -- Row: Color (gradient end / custom / class + gradient cog) | Background (+ bg swatch)
+        local colorRow
+        colorRow, h = W:DualRow(parent, y,
+            { type = "multiSwatch", text = "Color",
+              disabled = gcdOff, disabledTooltip = "GCD Bar",
+              swatches = {
+                  { tooltip = "Gradient End Color", hasAlpha = true,
+                    getValue = function() local p = DB(); if not p then return 0.20, 0.20, 0.80, 1 end; return p.gcdBar.gradientR, p.gcdBar.gradientG, p.gcdBar.gradientB, p.gcdBar.gradientA end,
+                    setValue = function(r, g, b, a) local p = DB(); if not p then return end; p.gcdBar.gradientR, p.gcdBar.gradientG, p.gcdBar.gradientB, p.gcdBar.gradientA = r, g, b, a; RefreshGCD() end },
+                  { tooltip = "Custom Colored", hasAlpha = true,
+                    getValue = function() local p = DB(); if not p then local _, cf = UnitClass("player"); local cc = CLASS_COLORS[cf]; return cc and cc[1] or 1, cc and cc[2] or 0.70, cc and cc[3] or 0, 1 end; return p.gcdBar.fillR, p.gcdBar.fillG, p.gcdBar.fillB, p.gcdBar.fillA end,
+                    setValue = function(r, g, b, a) local p = DB(); if not p then return end; p.gcdBar.fillR, p.gcdBar.fillG, p.gcdBar.fillB, p.gcdBar.fillA = r, g, b, a; if p.gcdBar.classColored then p.gcdBar.classColored = false end; RefreshGCD(); EllesmereUI:RefreshPage() end,
+                    onClick = function(self) local p = DB(); if not p then return end; if p.gcdBar.classColored then p.gcdBar.classColored = false; RefreshGCD(); EllesmereUI:RefreshPage(); return end; if self._eabOrigClick then self._eabOrigClick(self) end end,
+                    refreshAlpha = function() local p = DB(); return (p and not p.gcdBar.classColored) and 1 or 0.3 end },
+                  { tooltip = "Class Colored",
+                    getValue = function() local _, classFile = UnitClass("player"); local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]; if cc then return cc.r, cc.g, cc.b, 1 end; return 1, 0.70, 0, 1 end,
+                    setValue = function() end,
+                    onClick = function() local p = DB(); if not p then return end; p.gcdBar.classColored = true; RefreshGCD(); EllesmereUI:RefreshPage() end,
+                    refreshAlpha = function() local p = DB(); return (not p or p.gcdBar.classColored == true) and 1 or 0.3 end },
+              } },
+            { type = "slider", text = "Background", min = 0, max = 100, step = 1,
+              disabled = gcdOff, disabledTooltip = "GCD Bar",
+              getValue = function() local p = DB(); return math.floor(((p and p.gcdBar.bgA or 0.7) * 100) + 0.5) end,
+              setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.bgA = v / 100; RefreshGCD() end }
+        );  y = y - h
+        -- Gradient cog on Color
+        do
+            local rgn = colorRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Gradient Settings",
+                rows = {
+                    { type = "toggle", label = "Enable Gradient",
+                      get = function() local p = DB(); return p and p.gcdBar.gradientEnabled end,
+                      set = function(v) local p = DB(); if not p then return end; p.gcdBar.gradientEnabled = v; RefreshGCD(); EllesmereUI:RefreshPage() end },
+                    { type = "dropdown", label = "Gradient Direction",
+                      values = { HORIZONTAL = "Horizontal", VERTICAL = "Vertical" }, order = { "HORIZONTAL", "VERTICAL" },
+                      get = function() local p = DB(); return p and p.gcdBar.gradientDir or "HORIZONTAL" end,
+                      set = function(v) local p = DB(); if not p then return end; p.gcdBar.gradientDir = v; RefreshGCD() end },
+                },
+            })
+            local cogBtn = MakeCogBtn(rgn, cogShow)
+            local cogDis = CreateFrame("Frame", nil, rgn)
+            cogDis:SetAllPoints(cogBtn)
+            cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
+            cogDis:EnableMouse(true)
+            cogDis:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("GCD Bar")) end)
+            cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function UpdateCogDisGrad() local p = DB(); if p and not p.gcdBar.enabled then cogDis:Show() else cogDis:Hide() end end
+            cogBtn:HookScript("OnShow", UpdateCogDisGrad)
+            EllesmereUI.RegisterWidgetRefresh(UpdateCogDisGrad)
+            UpdateCogDisGrad()
+        end
+        -- Gradient end-color swatch enable/disable
+        do
+            local swatch = colorRow._leftRegion._control
+            local function UpdateGradientSwatch()
+                local p = DB()
+                if not p or not p.gcdBar.enabled then swatch:SetAlpha(0.15); swatch:Disable(); swatch._disabledTooltip = "GCD Bar"
+                elseif not p.gcdBar.gradientEnabled then swatch:SetAlpha(0.15); swatch:Disable(); swatch._disabledTooltip = "Gradient"
+                else swatch:SetAlpha(1); swatch:Enable(); swatch._disabledTooltip = nil end
+            end
+            UpdateGradientSwatch()
+            EllesmereUI.RegisterWidgetRefresh(UpdateGradientSwatch)
+        end
+        -- Background color swatch on the Background slider (right region)
+        do
+            local rgn = colorRow._rightRegion
+            local ctrl = rgn._control
+            local bgSwatch, bgUpdateSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, colorRow:GetFrameLevel() + 3,
+                function() local p = DB(); return (p and p.gcdBar.bgR or 0), (p and p.gcdBar.bgG or 0), (p and p.gcdBar.bgB or 0) end,
+                function(r, g, b) local p = DB(); if not p then return end; p.gcdBar.bgR, p.gcdBar.bgG, p.gcdBar.bgB = r, g, b; RefreshGCD() end,
+                nil, 20)
+            PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            local function UpdateBgSwatch()
+                local p = DB()
+                if not p or not p.gcdBar.enabled then bgSwatch:SetAlpha(0.15); bgSwatch:Disable(); bgSwatch._disabledTooltip = "GCD Bar"
+                else bgSwatch:SetAlpha(1); bgSwatch:Enable(); bgSwatch._disabledTooltip = nil end
+                bgUpdateSwatch()
+            end
+            UpdateBgSwatch()
+            EllesmereUI.RegisterWidgetRefresh(UpdateBgSwatch)
+        end
+
+        -- Row: Bar Texture | Show Spark
+        _, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Bar Texture",
+              disabled = gcdOff, disabledTooltip = "GCD Bar",
+              values = texValues, order = texOrder,
+              getValue = function() local p = DB(); return p and p.gcdBar.texture or "none" end,
+              setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.texture = v; RefreshGCD() end },
+            { type = "toggle", text = "Show Spark",
+              tooltip = "Show a small glowing spark that moves along the leading edge of the fill.",
+              disabled = gcdOff, disabledTooltip = "GCD Bar",
+              getValue = function() local p = DB(); return p and p.gcdBar.showSpark end,
+              setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.showSpark = v; RefreshGCD() end }
+        );  y = y - h
+
+        return math.abs(y)
+    end
+
+    ---------------------------------------------------------------------------
     --  Register the module
     ---------------------------------------------------------------------------
     EllesmereUI:RegisterModule("EllesmereUIResourceBars", {
         title       = "Resource Bars",
         description = "Custom class resource, health, and mana bar display.",
-        pages       = { PAGE_DISPLAY, PAGE_CASTBAR, PAGE_TOTEM },
+        pages       = { PAGE_DISPLAY, PAGE_CASTBAR, PAGE_GCD, PAGE_TOTEM },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_DISPLAY then
                 return BuildBarDisplayPage(pageName, parent, yOffset)
             elseif pageName == PAGE_CASTBAR then
                 return BuildCastBarPage(pageName, parent, yOffset)
+            elseif pageName == PAGE_GCD then
+                return BuildGCDBarPage(pageName, parent, yOffset)
             elseif pageName == PAGE_TOTEM then
                 return BuildTotemBarPage(pageName, parent, yOffset)
             end

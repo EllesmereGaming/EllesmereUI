@@ -480,6 +480,9 @@ initFrame:SetScript("OnEvent", function(self)
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "+2 / +3 Threshold Size",
                     rows = {
+                        { type="toggle", label="Show Time Remaining",
+                          get=function() return Cfg("showThreshRemaining") == true end,
+                          set=function(v) Set("showThreshRemaining", v); Refresh() end },
                         { type="slider", label="Size", min=6, max=20, step=1,
                           get=function() return Cfg("thresholdSize") or 12 end,
                           set=function(v) Set("thresholdSize", v); Refresh() end },
