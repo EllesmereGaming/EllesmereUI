@@ -336,6 +336,19 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._applyHideTutorials then EllesmereUI._applyHideTutorials() end
               end },
             { type="spacer" }
+        -- Row 6: Hide Error Messages (left) |
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Hide Error Messages",
+              tooltip="Hides most red error messages (such as 'Not enough rage' or 'Ability is not ready yet'). Important errors like a full bag or quest log are still shown.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.hideErrorMessages or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.hideErrorMessages = v
+                  if EllesmereUI._applyHideErrorMessages then EllesmereUI._applyHideErrorMessages() end
+              end },
+            { type="label", text="" }
         );  y = y - h
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -1635,11 +1648,13 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.autoRepairGuild = false
                 EllesmereUIDB.shifterEnabled = false
                 EllesmereUIDB.shifterPositions = nil
+                EllesmereUIDB.hideErrorMessages = false
             end
             EllesmereUIDB.autoLogging = nil
             if _G._EUI_ResetUpgradeCalc then _G._EUI_ResetUpgradeCalc() end
             if _G._EBS_ResetCursor then _G._EBS_ResetCursor() end
             if EllesmereUI._applyHideBlizzardPartyFrame then EllesmereUI._applyHideBlizzardPartyFrame() end
+            if EllesmereUI._applyHideErrorMessages then EllesmereUI._applyHideErrorMessages() end
             if EllesmereUI._applyQuickSignup then EllesmereUI._applyQuickSignup() end
             if EllesmereUI._applyPersistSignupNote then EllesmereUI._applyPersistSignupNote() end
             EllesmereUI:InvalidatePageCache()

@@ -2217,6 +2217,77 @@ do
             -- Zone-in: re-catch any "i" buttons that now exist.
             FullSweepButtons()
             DismissActiveTips()
+--  Hide Error Messages
+--  Swallows the red UIErrorsFrame spam (e.g. "Not enough rage", "Ability is
+--  not ready yet") while keeping a short whitelist of genuinely useful errors
+--  visible. The OnEvent override is only installed while the option is on, so
+--  it costs nothing for anyone who leaves it off.
+-------------------------------------------------------------------------------
+do
+    local origOnEvent
+    local installed = false
+
+    -- Errors worth keeping even while the rest are hidden. Built lazily so we
+    -- only touch the ERR_* globals when someone actually enables the feature.
+    local keep
+    local function BuildKeepList()
+        if keep then return end
+        keep = {}
+        for _, msg in ipairs({
+            ERR_INV_FULL, ERR_QUEST_LOG_FULL, ERR_RAID_GROUP_ONLY,
+            ERR_PARTY_LFG_BOOT_LIMIT, ERR_PARTY_LFG_BOOT_DUNGEON_COMPLETE,
+            ERR_PARTY_LFG_BOOT_IN_COMBAT, ERR_PARTY_LFG_BOOT_IN_PROGRESS,
+            ERR_PARTY_LFG_BOOT_LOOT_ROLLS, ERR_PARTY_LFG_TELEPORT_IN_COMBAT,
+            ERR_PET_SPELL_DEAD, ERR_PLAYER_DEAD,
+            SPELL_FAILED_TARGET_NO_POCKETS, ERR_ALREADY_PICKPOCKETED,
+        }) do
+            if msg then keep[msg] = true end
+        end
+    end
+
+    -- The group-kick "not eligible" line is a format string, so it needs a
+    -- pattern match rather than a plain equality check.
+    local function IsBootNotEligible(err)
+        if type(err) ~= "string" or not ERR_PARTY_LFG_BOOT_NOT_ELIGIBLE_S then return false end
+        local ok, found = pcall(function()
+            return err:find(string.format(ERR_PARTY_LFG_BOOT_NOT_ELIGIBLE_S, ".+"))
+        end)
+        return (ok and found) and true or false
+    end
+
+    local function FilteredOnEvent(self, event, id, err, ...)
+        if event == "UI_ERROR_MESSAGE" then
+            if keep[err] or IsBootNotEligible(err) then
+                return origOnEvent(self, event, id, err, ...)
+            end
+            return
+        end
+        return origOnEvent(self, event, id, err, ...)
+    end
+
+    local function ApplyHideErrorMessages()
+        local on = EllesmereUIDB and EllesmereUIDB.hideErrorMessages
+        if on and not installed then
+            BuildKeepList()
+            origOnEvent = UIErrorsFrame:GetScript("OnEvent")
+            UIErrorsFrame:SetScript("OnEvent", FilteredOnEvent)
+            UIParent:UnregisterEvent("PING_SYSTEM_ERROR")
+            installed = true
+        elseif not on and installed then
+            UIErrorsFrame:SetScript("OnEvent", origOnEvent)
+            origOnEvent = nil
+            UIParent:RegisterEvent("PING_SYSTEM_ERROR")
+            installed = false
+        end
+    end
+    EllesmereUI._applyHideErrorMessages = ApplyHideErrorMessages
+
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_LOGIN")
+    f:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        if EllesmereUIDB and EllesmereUIDB.hideErrorMessages then
+            ApplyHideErrorMessages()
         end
     end)
 end
