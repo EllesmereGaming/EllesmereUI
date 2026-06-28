@@ -386,6 +386,8 @@ local _inEncounter = false       -- true between ENCOUNTER_START and ENCOUNTER_E
 local _playerGUID
 local _windows = {}  -- array of active window tables
 ns._windows = _windows
+-- Forward declarations: instanceFrame handlers call Schedule before roster block defines it.
+local RefreshRosterPanelData, ScheduleRosterPanelRefresh
 ns._DM_TYPE_NAMES = DM_TYPE_NAMES
 local _combatEndTime = 0       -- GetTime() at combat end; control-flow sentinel (ticker teardown / freeze-once)
 local _needsFinalRefresh = false
@@ -523,6 +525,7 @@ instanceFrame:SetScript("OnEvent", function(_, event)
                     -- server session is our cue to revive the live refresh.
                     StartSharedTicker()
                 end
+                ScheduleRosterPanelRefresh()
             end)
         end
     elseif event == "DAMAGE_METER_CURRENT_SESSION_UPDATED" then
@@ -549,6 +552,7 @@ instanceFrame:SetScript("OnEvent", function(_, event)
             w._cachedTargets = nil
             w.Refresh()
         end
+        ScheduleRosterPanelRefresh()
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Zone transition (load screen). If we are STILL in combat after the load
         -- (e.g. /reload on a target dummy, or zoning into an active fight), restore
@@ -593,6 +597,7 @@ instanceFrame:SetScript("OnEvent", function(_, event)
             w._barCacheKey = nil
             w._barSources = nil
         end
+        ScheduleRosterPanelRefresh()
         C_Timer.After(0.5, function()
             for _, w in ipairs(_windows) do w.Refresh() end
         end)
@@ -1749,6 +1754,543 @@ end
 
 local _edmMenuAnchor = nil  -- tracks which button opened the menu (for toggle)
 
+-------------------------------------------------------------------------------
+--  Group roster panel (shared singleton). Data refresh: debounced world events +
+--  login (RefreshRosterPanelData). Hover only anchors/shows and repaints from
+--  _rosterUnitsSnapshot + _rosterStatsCache (no APIs). Stale inspect/ilvl reads
+--  keep last good values per GUID. INSPECT_READY stays registered for the queue.
+-------------------------------------------------------------------------------
+local _rosterPanel, _rosterList
+local _rosterAnchorBtn, _rosterAnchorWin
+local _rosterHideHandle
+local _rosterUnitsSnapshot = {}
+local _rosterInspectQueue = {}
+local _rosterRefreshTimer
+-- Last displayed stats per unit GUID (ilvl string, spec file id). Survives failed re-queries (inspect throttle).
+local _rosterStatsCache = {}
+local ROSTER_INSPECT_CHAIN_DELAY = 0.55
+local ROSTER_ROW_H      = 20
+local ROSTER_PANEL_PAD  = 0
+local ROSTER_HEADER_H   = 16
+local ROSTER_ROW_POOL   = 40
+-- Vertical gap when anchoring roster above the header button (positive = panel shifts up).
+-- Helps keep the bottom ilvl column clear of common cursor rings / soft-target circles.
+local ROSTER_POPUP_GAP_Y = 14
+
+local function CancelRosterHideTimer()
+    if _rosterHideHandle then
+        _rosterHideHandle:Cancel()
+        _rosterHideHandle = nil
+    end
+end
+
+local function ScheduleRosterHide()
+    CancelRosterHideTimer()
+    _rosterHideHandle = C_Timer.NewTimer(0.12, function()
+        _rosterHideHandle = nil
+        if not _rosterPanel or not _rosterPanel:IsShown() then return end
+        local over = _rosterPanel:IsMouseOver()
+            or (_rosterAnchorBtn and _rosterAnchorBtn:IsMouseOver())
+        if not over then
+            _rosterPanel:Hide()
+            _rosterAnchorBtn = nil
+            _rosterAnchorWin = nil
+        end
+    end)
+end
+
+local function HideRosterPanelNow()
+    CancelRosterHideTimer()
+    wipe(_rosterInspectQueue)
+    if _rosterPanel then
+        _rosterPanel:Hide()
+    end
+    _rosterAnchorBtn = nil
+    _rosterAnchorWin = nil
+end
+
+-- Meter window used for combat-source spec fallback (prefer hovered window, else any visible, else first).
+local function GetRosterMeterWin(pref)
+    if pref and pref.frame then return pref end
+    if _rosterAnchorWin and _rosterAnchorWin.frame then return _rosterAnchorWin end
+    for _, w in ipairs(_windows) do
+        if w and w.frame and w.frame:IsShown() then return w end
+    end
+    return _windows[1]
+end
+
+local function BuildRosterUnitList()
+    local units = {}
+    if IsInRaid() then
+        local n = GetNumGroupMembers()
+        for i = 1, n do
+            local u = _raidUnits[i]
+            if u and UnitExists(u) then units[#units + 1] = u end
+        end
+    elseif IsInGroup() then
+        units[#units + 1] = "player"
+        local n = GetNumGroupMembers() - 1
+        for i = 1, n do
+            local u = _partyUnits[i]
+            if u and UnitExists(u) then units[#units + 1] = u end
+        end
+    else
+        units[1] = "player"
+    end
+    return units
+end
+
+local function FindMeterSourceForGUID(W, guid)
+    if not guid or not W or not W._lastSession or not W._lastSession.combatSources then return nil end
+    if issecretvalue and issecretvalue(guid) then return nil end
+    local playerGuid = UnitGUID("player")
+    for _, src in ipairs(W._lastSession.combatSources) do
+        if playerGuid and guid == playerGuid and src.isLocalPlayer then
+            return src
+        end
+        local sg = src.sourceGUID
+        if sg and not (issecretvalue and issecretvalue(sg)) then
+            if sg == guid or tostring(sg) == tostring(guid) then return src end
+        end
+    end
+    return nil
+end
+
+-- Roster spec icon: numeric file IDs only (same contract as meter specIconID / ResolveIcon).
+-- APIs read via { GetSpecializationInfo(...) } so indices stay aligned. Player uses live GSI first,
+-- then meter session; other units prefer meter, then inspect+ByID.
+local function RosterGsiTable(specIndex)
+    if not GetSpecializationInfo or not specIndex or specIndex <= 0 then return nil end
+    local ok, t = pcall(function() return { GetSpecializationInfo(specIndex) } end)
+    if not ok or type(t) ~= "table" then return nil end
+    return t
+end
+
+local function RosterGsiByIDTable(specID)
+    if not GetSpecializationInfoByID or not specID or specID <= 0 then return nil end
+    local ok, t = pcall(function() return { GetSpecializationInfoByID(specID) } end)
+    if not ok or type(t) ~= "table" then return nil end
+    return t
+end
+
+local function RosterIconFileIDFromSpecTable(t)
+    if not t then return nil end
+    local icon = t[4]
+    if type(icon) == "number" and icon ~= 0 then return icon end
+    if type(icon) == "string" and icon ~= "" then
+        local n = tonumber(icon)
+        if n and n ~= 0 then return n end
+    end
+    return nil
+end
+
+local function RosterPlayerSpecFileID()
+    local idx = GetSpecialization and GetSpecialization() or 0
+    if idx > 0 then
+        local t = RosterGsiTable(idx)
+        local fid = RosterIconFileIDFromSpecTable(t)
+        if fid then return fid end
+        if t and type(t[1]) == "number" and t[1] > 0 then
+            fid = RosterIconFileIDFromSpecTable(RosterGsiByIDTable(t[1]))
+            if fid then return fid end
+        end
+    end
+    if C_SpecializationInfo and C_SpecializationInfo.GetSpecialization then
+        local cx = C_SpecializationInfo.GetSpecialization() or 0
+        if cx > 0 then
+            local fid = RosterIconFileIDFromSpecTable(RosterGsiTable(cx))
+            if fid then return fid end
+            fid = RosterIconFileIDFromSpecTable(RosterGsiByIDTable(cx))
+            if fid then return fid end
+            if C_SpecializationInfo.GetSpecializationInfo then
+                local ok, sid = pcall(function() return select(1, C_SpecializationInfo.GetSpecializationInfo(cx)) end)
+                if ok and type(sid) == "number" and sid > 0 then
+                    fid = RosterIconFileIDFromSpecTable(RosterGsiByIDTable(sid))
+                    if fid then return fid end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function RosterResolveSpecIconFileID(unit, W)
+    -- Self: live APIs first (spec swap / idle meter), then meter session if present.
+    if unit == "player" then
+        local fid = RosterPlayerSpecFileID()
+        if fid then return fid end
+        local guid = UnitGUID("player")
+        if W and guid then
+            local src = FindMeterSourceForGUID(W, guid)
+            if src and type(src.specIconID) == "number" and src.specIconID ~= 0 then
+                return src.specIconID
+            end
+        end
+        return nil
+    end
+    local guid = unit and UnitGUID(unit)
+    if W and guid then
+        local src = FindMeterSourceForGUID(W, guid)
+        if src and type(src.specIconID) == "number" and src.specIconID ~= 0 then
+            return src.specIconID
+        end
+    end
+    if guid and GetInspectSpecialization then
+        local ok, inspId = pcall(GetInspectSpecialization, unit)
+        if ok and type(inspId) == "number" and inspId > 0 then
+            return RosterIconFileIDFromSpecTable(RosterGsiByIDTable(inspId))
+        end
+    end
+    return nil
+end
+
+local function SetRosterRowClassBackground(row, classFile)
+    if not row then return end
+    if not row.classBg then
+        row.classBg = row:CreateTexture(nil, "BACKGROUND", nil, -8)
+        row.classBg:SetAllPoints()
+    end
+    local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+    if cc then
+        row.classBg:SetColorTexture(cc.r, cc.g, cc.b, 0.32)
+        row.classBg:Show()
+    else
+        row.classBg:SetColorTexture(0.1, 0.1, 0.12, 0.55)
+        row.classBg:Show()
+    end
+end
+
+local function SetRosterSpecIcon(tex, fileID)
+    if fileID and type(fileID) == "number" and fileID ~= 0 then
+        tex:SetTexture(fileID)
+        tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        tex:SetDesaturated(false)
+        tex:SetVertexColor(1, 1, 1, 1)
+        tex:Show()
+    else
+        tex:Hide()
+    end
+end
+
+local function RosterRefreshRowStats(unit, row, meterPrefW)
+    if not row or not unit then return end
+    local guid = UnitGUID(unit)
+    local prev = (guid and _rosterStatsCache[guid]) or {}
+
+    local ilvlStr = "—"
+    if unit == "player" then
+        local avg, avgEq = GetAverageItemLevel()
+        local v = avgEq or avg
+        if v and v > 0 then ilvlStr = tostring(math.floor(v + 0.5))
+        elseif prev.ilvlStr and prev.ilvlStr ~= "—" then ilvlStr = prev.ilvlStr end
+    elseif C_PaperDollInfo and C_PaperDollInfo.GetInspectItemLevel then
+        local ok, v = pcall(C_PaperDollInfo.GetInspectItemLevel, unit)
+        if ok and v and type(v) == "number" and v > 0 then ilvlStr = tostring(math.floor(v + 0.5))
+        elseif prev.ilvlStr and prev.ilvlStr ~= "—" then ilvlStr = prev.ilvlStr end
+    elseif prev.ilvlStr and prev.ilvlStr ~= "—" then
+        ilvlStr = prev.ilvlStr
+    end
+    row.ilvlFS:SetText(ilvlStr)
+
+    local specFid
+    if row.specIcon then
+        local Wctx = GetRosterMeterWin(meterPrefW)
+        local fidNew = RosterResolveSpecIconFileID(unit, Wctx)
+        if fidNew and fidNew ~= 0 then specFid = fidNew
+        elseif prev.specFileID and prev.specFileID ~= 0 then specFid = prev.specFileID end
+        SetRosterSpecIcon(row.specIcon, specFid)
+    end
+
+    if guid then
+        _rosterStatsCache[guid] = {
+            ilvlStr = ilvlStr,
+            specFileID = specFid or prev.specFileID,
+        }
+    end
+end
+
+local function RosterNotifyInspectQueueHeadDelayed()
+    if not _rosterInspectQueue or #_rosterInspectQueue == 0 then return end
+    if InCombatLockdown() then return end
+    local u = _rosterInspectQueue[1]
+    if u and UnitExists(u) and CanInspect(u) then NotifyInspect(u) end
+end
+
+local function RosterHandleInspectReady(guid)
+    if not _rosterPanel or not guid then return end
+    -- Refresh ilevel/spec for whichever roster unit this GUID belongs to.
+    for i = 1, #_rosterUnitsSnapshot do
+        local u = _rosterUnitsSnapshot[i]
+        if u and u ~= "player" and UnitGUID(u) == guid then
+            local row = _rosterPanel._rows and _rosterPanel._rows[i]
+            if row then RosterRefreshRowStats(u, row) end
+            break
+        end
+    end
+    -- Advance our sequential NotifyInspect queue only when the ready GUID matches the head.
+    if #_rosterInspectQueue == 0 then return end
+    local head = _rosterInspectQueue[1]
+    if head and UnitGUID(head) == guid then
+        table.remove(_rosterInspectQueue, 1)
+        if #_rosterInspectQueue > 0 and not InCombatLockdown() then
+            C_Timer.After(ROSTER_INSPECT_CHAIN_DELAY, RosterNotifyInspectQueueHeadDelayed)
+        end
+    end
+end
+
+local function RosterBeginInspectQueue()
+    wipe(_rosterInspectQueue)
+    for i = 1, #_rosterUnitsSnapshot do
+        local u = _rosterUnitsSnapshot[i]
+        if u and u ~= "player" and UnitExists(u) and CanInspect(u) then
+            _rosterInspectQueue[#_rosterInspectQueue + 1] = u
+        end
+    end
+    if #_rosterInspectQueue == 0 then return end
+    if InCombatLockdown() then return end
+    local u = _rosterInspectQueue[1]
+    if u and UnitExists(u) and CanInspect(u) then
+        NotifyInspect(u)
+    end
+end
+
+local function EnsureRosterRow(panel, idx)
+    local row = panel._rows[idx]
+    if row then
+        if row.durFS then
+            row.durFS:Hide()
+            row.durFS:SetParent(nil)
+            row.durFS = nil
+        end
+        if row.classIcon then
+            row.classIcon:Hide()
+            row.classIcon:SetParent(nil)
+            row.classIcon = nil
+        end
+        if not row.classBg then
+            row.classBg = row:CreateTexture(nil, "BACKGROUND", nil, -8)
+            row.classBg:SetAllPoints()
+            row.classBg:SetColorTexture(0.1, 0.1, 0.12, 0.55)
+        end
+        row.specIcon:ClearAllPoints()
+        row.specIcon:SetPoint("LEFT", row, "LEFT", 4, 0)
+        row.ilvlFS:ClearAllPoints()
+        row.ilvlFS:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        row.nameFS:ClearAllPoints()
+        row.nameFS:SetPoint("LEFT", row.specIcon, "RIGHT", 6, 0)
+        row.nameFS:SetPoint("RIGHT", row.ilvlFS, "LEFT", -4, 0)
+        row.nameFS:SetShadowColor(0, 0, 0, 0.8)
+        row.nameFS:SetShadowOffset(1, -1)
+        return row
+    end
+    local fontPath = (EUI.GetFontPath and EUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+    local outline = (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag()) or ""
+    row = CreateFrame("Frame", nil, panel._list)
+    row:SetHeight(ROSTER_ROW_H)
+    row.classBg = row:CreateTexture(nil, "BACKGROUND", nil, -8)
+    row.classBg:SetAllPoints()
+    row.classBg:SetColorTexture(0.1, 0.1, 0.12, 0.55)
+    row.specIcon = row:CreateTexture(nil, "ARTWORK")
+    row.specIcon:SetSize(16, 16)
+    row.specIcon:SetPoint("LEFT", row, "LEFT", 4, 0)
+    row.ilvlFS = row:CreateFontString(nil, "OVERLAY")
+    row.ilvlFS:SetFont(fontPath, 11, outline)
+    row.ilvlFS:SetWidth(40)
+    row.ilvlFS:SetJustifyH("RIGHT")
+    row.ilvlFS:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+    row.nameFS = row:CreateFontString(nil, "OVERLAY")
+    row.nameFS:SetFont(fontPath, 11, outline)
+    row.nameFS:SetPoint("LEFT", row.specIcon, "RIGHT", 6, 0)
+    row.nameFS:SetPoint("RIGHT", row.ilvlFS, "LEFT", -4, 0)
+    row.nameFS:SetJustifyH("LEFT")
+    row.nameFS:SetShadowColor(0, 0, 0, 0.8)
+    row.nameFS:SetShadowOffset(1, -1)
+    panel._rows[idx] = row
+    return row
+end
+
+local function EnsureRosterPanel()
+    if _rosterPanel then return end
+    local RS = EUI.RESKIN or {}
+    _rosterPanel = CreateFrame("Frame", "EllesmereUIDMRosterPanel", UIParent)
+    _rosterPanel:SetFrameStrata("FULLSCREEN_DIALOG")
+    _rosterPanel:SetFrameLevel(205)
+    _rosterPanel:SetClampedToScreen(true)
+    _rosterPanel:EnableMouse(true)
+    _rosterPanel:Hide()
+    local bg = _rosterPanel:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(RS.BG_R or 0.067, RS.BG_G or 0.067, RS.BG_B or 0.067, RS.CTX_ALPHA or 0.95)
+    local PP_L = EUI.PP
+    if PP_L and PP_L.CreateBorder then PP_L.CreateBorder(_rosterPanel, 1, 1, 1, RS.BRD_ALPHA or 0.18, 1) end
+    _rosterPanel:RegisterEvent("PLAYER_REGEN_DISABLED")
+    _rosterPanel:RegisterEvent("INSPECT_READY")
+    _rosterPanel:SetScript("OnEvent", function(self, event, ...)
+        if event == "PLAYER_REGEN_DISABLED" then
+            self:Hide()
+        elseif event == "INSPECT_READY" then
+            local guid = ...
+            RosterHandleInspectReady(guid)
+        end
+    end)
+    _rosterPanel:SetScript("OnHide", function(self)
+        CancelRosterHideTimer()
+        wipe(_rosterInspectQueue)
+    end)
+    _rosterPanel:SetScript("OnEnter", function() CancelRosterHideTimer() end)
+    _rosterPanel:SetScript("OnLeave", function() ScheduleRosterHide() end)
+
+    local fontPath = (EUI.GetFontPath and EUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+    local outline = (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag()) or ""
+    local hdr = CreateFrame("Frame", nil, _rosterPanel)
+    hdr:SetHeight(ROSTER_HEADER_H)
+    hdr:SetPoint("TOPLEFT", _rosterPanel, "TOPLEFT", 0, 0)
+    hdr:SetPoint("TOPRIGHT", _rosterPanel, "TOPRIGHT", 0, 0)
+    local hdrSep = hdr:CreateTexture(nil, "ARTWORK")
+    hdrSep:SetHeight(1)
+    hdrSep:SetPoint("BOTTOMLEFT", hdr, "BOTTOMLEFT", 0, 0)
+    hdrSep:SetPoint("BOTTOMRIGHT", hdr, "BOTTOMRIGHT", 0, 0)
+    hdrSep:SetColorTexture(1, 1, 1, 0.12)
+    local hdrIlvl = hdr:CreateFontString(nil, "OVERLAY")
+    hdrIlvl:SetFont(fontPath, 10, outline)
+    hdrIlvl:SetJustifyH("RIGHT")
+    hdrIlvl:SetText("ilvl")
+    hdrIlvl:SetTextColor(0.75, 0.75, 0.82, 1)
+    hdrIlvl:SetPoint("RIGHT", hdr, "RIGHT", -4, 0)
+    hdrIlvl:SetWidth(40)
+    _rosterPanel._header = hdr
+    _rosterPanel._headerIlvl = hdrIlvl
+
+    _rosterList = CreateFrame("Frame", nil, _rosterPanel)
+    _rosterList:SetPoint("TOPLEFT", _rosterPanel, "TOPLEFT", 0, -ROSTER_HEADER_H)
+    _rosterList:SetPoint("BOTTOMRIGHT", _rosterPanel, "BOTTOMRIGHT", 0, 0)
+    _rosterPanel._list = _rosterList
+    _rosterPanel._rows = {}
+end
+
+RefreshRosterPanelData = function(preferredW)
+    EnsureRosterPanel()
+    wipe(_rosterInspectQueue)
+    local Wctx = GetRosterMeterWin(preferredW)
+    local units = BuildRosterUnitList()
+    local keep = {}
+    for i = 1, #units do
+        local u = units[i]
+        local g = u and UnitGUID(u)
+        if g then keep[g] = true end
+    end
+    for g in pairs(_rosterStatsCache) do
+        if not keep[g] then _rosterStatsCache[g] = nil end
+    end
+    local n = #units
+    local rowW = 268
+    for i = 1, ROSTER_ROW_POOL do
+        local row = EnsureRosterRow(_rosterPanel, i)
+        if i <= n then
+            local unit = units[i]
+            local _, classFile = UnitClass(unit)
+            local name = UnitName(unit) or "?"
+            if issecretvalue and issecretvalue(name) then name = "?" end
+            name = StripRealm(name) or name
+            SetRosterRowClassBackground(row, classFile)
+            row.nameFS:SetText(name)
+            row.nameFS:SetTextColor(1, 1, 1, 1)
+            RosterRefreshRowStats(unit, row, Wctx)
+            row.ilvlFS:SetTextColor(0.85, 0.85, 0.9, 1)
+            row:SetWidth(rowW)
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", _rosterList, "TOPLEFT", 0, -(i - 1) * ROSTER_ROW_H)
+            row:Show()
+        else
+            row:Hide()
+        end
+    end
+    wipe(_rosterUnitsSnapshot)
+    for i = 1, n do _rosterUnitsSnapshot[i] = units[i] end
+    local listH = math.max(ROSTER_ROW_H, n * ROSTER_ROW_H)
+    _rosterList:SetSize(rowW, listH)
+    local panelH = ROSTER_HEADER_H + listH + ROSTER_PANEL_PAD * 2
+    local panelW = rowW + ROSTER_PANEL_PAD * 2
+    _rosterPanel:SetSize(panelW, panelH)
+    C_Timer.After(0, function()
+        if not _rosterPanel then return end
+        if InCombatLockdown() then return end
+        RosterBeginInspectQueue()
+    end)
+end
+
+-- Repaint roster from snapshot + _rosterStatsCache only (no inspect / ilvl API calls). Used on header hover.
+local function RosterApplyPanelLayoutNoRefresh()
+    if not _rosterPanel then return end
+    local n = #_rosterUnitsSnapshot
+    local rowW = 268
+    for i = 1, ROSTER_ROW_POOL do
+        local row = EnsureRosterRow(_rosterPanel, i)
+        if i <= n then
+            local unit = _rosterUnitsSnapshot[i]
+            local _, classFile = UnitClass(unit)
+            local name = UnitName(unit) or "?"
+            if issecretvalue and issecretvalue(name) then name = "?" end
+            name = StripRealm(name) or name
+            SetRosterRowClassBackground(row, classFile)
+            row.nameFS:SetText(name)
+            row.nameFS:SetTextColor(1, 1, 1, 1)
+            local g = unit and UnitGUID(unit)
+            local c = g and _rosterStatsCache[g]
+            row.ilvlFS:SetText((c and c.ilvlStr) or "—")
+            if row.specIcon then SetRosterSpecIcon(row.specIcon, c and c.specFileID) end
+            row.ilvlFS:SetTextColor(0.85, 0.85, 0.9, 1)
+            row:SetWidth(rowW)
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", _rosterList, "TOPLEFT", 0, -(i - 1) * ROSTER_ROW_H)
+            row:Show()
+        else
+            row:Hide()
+        end
+    end
+    local listH = math.max(ROSTER_ROW_H, n * ROSTER_ROW_H)
+    _rosterList:SetSize(rowW, listH)
+    local panelH = ROSTER_HEADER_H + listH + ROSTER_PANEL_PAD * 2
+    local panelW = rowW + ROSTER_PANEL_PAD * 2
+    _rosterPanel:SetSize(panelW, panelH)
+end
+
+ScheduleRosterPanelRefresh = function()
+    if _rosterRefreshTimer then _rosterRefreshTimer:Cancel() end
+    _rosterRefreshTimer = C_Timer.NewTimer(0.12, function()
+        _rosterRefreshTimer = nil
+        RefreshRosterPanelData(nil)
+    end)
+end
+
+local function ShowRosterPanel(anchorBtn, W)
+    if not anchorBtn or not W then return end
+    if _edmMenu and _edmMenu:IsShown() then
+        _edmMenu:Hide()
+        if _edmSub then _edmSub:Hide() end
+        _edmMenuAnchor = nil
+    end
+    CancelRosterHideTimer()
+    EnsureRosterPanel()
+    _rosterAnchorBtn = anchorBtn
+    _rosterAnchorWin = W
+    RosterApplyPanelLayoutNoRefresh()
+    _rosterPanel:ClearAllPoints()
+    _rosterPanel:SetPoint("BOTTOMRIGHT", anchorBtn, "TOPRIGHT", 0, ROSTER_POPUP_GAP_Y)
+    _rosterPanel:Show()
+end
+
+-- World-driven roster row refreshes (debounced burst from roster/equipment events).
+do
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("GROUP_ROSTER_UPDATE")
+    f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    f:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    f:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
+    f:SetScript("OnEvent", function() ScheduleRosterPanelRefresh() end)
+end
+
 local function ShowEDMMenu(items, anchorBtn)
     if not _edmMenu then
         _edmMenu = MakeMenuPanel(0)
@@ -1772,6 +2314,8 @@ local function ShowEDMMenu(items, anchorBtn)
         _edmMenu:Hide()
         return
     end
+
+    HideRosterPanelNow()
 
     local function dismiss() _edmMenu:Hide(); if _edmSub then _edmSub:Hide() end end
     LayoutMenu(_edmMenu, items, dismiss)
@@ -2362,8 +2906,39 @@ local function CreateDMWindow(winIdx)
         end
     end)
 
-    -- Ordered list of header buttons for live resize/reposition
-    W.hdrBtns = { W.settingsBtn, W.segmentBtn, W.modeBtn, W.resetBtn, W.winActionBtn }
+    do
+        local rosterXOff = -(btnSize * 5 + btnPad * 6 + 2)
+        local rosterBtn = CreateFrame("Button", nil, header)
+        rosterBtn:SetSize(btnSize, btnSize)
+        rosterBtn:SetPoint("RIGHT", header, "RIGHT", rosterXOff, 0)
+        rosterBtn:SetFrameLevel(header:GetFrameLevel() + 2)
+        local ir0, ig0, ib0 = GetIconColor()
+        local rosterIcon = rosterBtn:CreateTexture(nil, "ARTWORK")
+        rosterIcon:SetAllPoints()
+        rosterIcon:SetTexture(MEDIA .. "dm_roster.png")
+        rosterIcon:SetDesaturated(true)
+        rosterIcon:SetVertexColor(ir0, ig0, ib0, ICON_ALPHA)
+        W.hdrIcons[#W.hdrIcons + 1] = rosterIcon
+        rosterBtn:SetScript("OnEnter", function(self)
+            local r, g, b = GetIconColor()
+            rosterIcon:SetVertexColor(r, g, b, ICON_HOVER_ALPHA)
+            if _edmMenu and _edmMenu:IsShown() and _edmMenuAnchor == self then return end
+            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+            ShowRosterPanel(self, W)
+        end)
+        rosterBtn:SetScript("OnLeave", function()
+            local r, g, b = GetIconColor()
+            rosterIcon:SetVertexColor(r, g, b, ICON_ALPHA)
+            ScheduleRosterHide()
+        end)
+        rosterBtn:SetScript("OnClick", function()
+            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        end)
+        W.rosterBtn = rosterBtn
+    end
+
+    -- Ordered list of header buttons for live resize/reposition (roster = leftmost / highest index)
+    W.hdrBtns = { W.settingsBtn, W.segmentBtn, W.modeBtn, W.resetBtn, W.winActionBtn, W.rosterBtn }
 
     -- Truncate the header title so it never runs under the right-side header
     -- icons. Mirrors the icon layout math (N buttons of hdrIconSize spaced by
@@ -3969,6 +4544,7 @@ local function CreateDMWindow(winIdx)
     --  Destroy
     ---------------------------------------------------------------------------
     function W.Destroy()
+        if _rosterAnchorWin == W then HideRosterPanelNow() end
         if W._hoverTicker then W._hoverTicker:Cancel() end
         unlockFadeFrame:SetScript("OnUpdate", nil)
         resizeFrame:SetScript("OnUpdate", nil)
@@ -4648,6 +5224,7 @@ initFrame:SetScript("OnEvent", function(self)
             EnsureTooltipFrame()
             local sc = (cfg.hoverTooltipScale or 100) / 100
             if _ttFrame then _ttFrame:SetScale(sc); _ttLastScale = sc end
+            C_Timer.After(0, function() RefreshRosterPanelData(nil) end)
             return
         end
         _windows[winIdx] = CreateDMWindow(winIdx)
