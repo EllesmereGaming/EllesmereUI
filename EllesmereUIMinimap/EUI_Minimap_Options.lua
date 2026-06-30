@@ -516,6 +516,24 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
         end
 
+        -- Friends Online: per-section row cap (0 = no cap)
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Friends List Cap", min=0, max=50, step=1,
+              tooltip="Max rows shown per section in the Friends Online tooltip. 0 = no cap.",
+              getValue=function() local m = MinimapDB(); return m and m.friendsMaxRows or 0 end,
+              setValue=function(v)
+                local m = MinimapDB(); if not m then return end
+                m.friendsMaxRows = v
+              end },
+            { type="slider", text="Flyout Scale", min=0.5, max=2.0, step=0.01,
+              tooltip="Scales the Friends, Great Vault and M+ Portals hover panels the extra buttons open.",
+              getValue=function() local m = MinimapDB(); return m and m.extraFlyoutScale or 1.0 end,
+              setValue=function(v)
+                local m = MinimapDB(); if not m then return end
+                m.extraFlyoutScale = v
+              end }
+        );  y = y - h
+
         -- Show Omnium Folio (expansion landing page button) | inline X/Y cog
         local omniumRow
         omniumRow, h = W:DualRow(parent, y,

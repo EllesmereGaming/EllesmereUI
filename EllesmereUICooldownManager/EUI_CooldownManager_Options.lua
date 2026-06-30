@@ -5678,6 +5678,12 @@ initFrame:SetScript("OnEvent", function(self)
                         { val = "pixelGlowReady",  label = "Pixel Glow (CD Ready)" },
                         { val = "buttonGlowReady", label = "Button Glow (CD Ready)" },
                     }
+                    -- Reverse Swipe single-select (per-spell / per-preset). Shared by
+                    -- both the regular-spell (ss) and preset/custom (cas) menus below.
+                    local REVERSE_SWIPE_ITEMS = {
+                        { val = nil,  label = "Off" },
+                        { val = true, label = "Reverse Swipe" },
+                    }
 
                     -- Track open subnavs on the menu frame so OnUpdate can see them
 
@@ -5697,7 +5703,7 @@ initFrame:SetScript("OnEvent", function(self)
                         lbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
                         lbl:SetPoint("LEFT", 10, 0)
                         lbl:SetJustifyH("LEFT")
-                        lbl:SetText(label)
+                        lbl:SetText(EllesmereUI.L(label))
 
                         -- Optional disabled state (opts.disabled = function -> bool):
                         -- greys the row, blocks the flyout, and shows a tooltip.
@@ -5779,7 +5785,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 sLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
                                 sLbl:SetPoint("LEFT", 10, 0)
                                 sLbl:SetJustifyH("LEFT")
-                                sLbl:SetText(item.label)
+                                sLbl:SetText(EllesmereUI.L(item.label))
 
                                 -- Highlight selected item. Charge entries are
                                 -- independent toggles (item.charge names the ss
@@ -5927,6 +5933,7 @@ initFrame:SetScript("OnEvent", function(self)
                                                 os.glowColorG = ss.glowColorG
                                                 os.glowColorB = ss.glowColorB
                                                 os.desatNotActive = ss.desatNotActive
+                                                os.reverseSwipe = ss.reverseSwipe
                                             end
                                         end
                                     end
@@ -6371,9 +6378,69 @@ initFrame:SetScript("OnEvent", function(self)
                             })
                         end)
 
+                        -- Audio on Buff Gain / Loss sound list + speaker-preview
+                        -- decorator. Defined once here so the Blizzard-tracked-buff
+                        -- rows AND the self-timed preset/custom gain row share the same
+                        -- list + preview (entries mirror the Focus Cast Sound dropdown
+                        -- via the shared ns.FOCUSKICK_SOUND_* tables).
+                        local AUDIO_ITEMS = {}
+                        for _, key in ipairs(ns.FOCUSKICK_SOUND_ORDER or { "none" }) do
+                            if type(key) == "string" and key:sub(1, 3) == "---" then
+                                -- Separator inserted by AppendSharedMediaSounds between
+                                -- the built-in sounds and the appended LibSharedMedia
+                                -- sounds. Render as a divider line, not a sound entry.
+                                AUDIO_ITEMS[#AUDIO_ITEMS + 1] = { divider = true }
+                            else
+                                AUDIO_ITEMS[#AUDIO_ITEMS + 1] = {
+                                    val   = key,
+                                    label = (ns.FOCUSKICK_SOUND_NAMES and ns.FOCUSKICK_SOUND_NAMES[key]) or key,
+                                }
+                            end
+                        end
+                        -- Speaker-preview decorator: plays a row's focused sound without
+                        -- selecting it (mirrors the dropdown's preview icon).
+                        local function AddSoundPreview(si, item)
+                            if item.val and item.val ~= "none" then
+                                local play = CreateFrame("Button", nil, si)
+                                play:SetSize(16, 16)
+                                play:SetPoint("RIGHT", si, "RIGHT", -8, 0)
+                                play:SetFrameLevel(si:GetFrameLevel() + 2)
+                                play:SetNormalAtlas("common-icon-sound")
+                                play:SetPushedAtlas("common-icon-sound-pressed")
+                                play:SetScript("OnClick", function()
+                                    local paths = ns.FOCUSKICK_SOUND_PATHS
+                                    local path = paths and paths[item.val]
+                                    if path then PlaySoundFile(path, "Master") end
+                                end)
+                                play:SetScript("OnEnter", function()
+                                    EllesmereUI.ShowWidgetTooltip(play, "Preview Sound")
+                                end)
+                                play:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                            end
+                        end
+                        -- "Audio on Buff Gain": stored per-icon as ss.buffActiveSoundKey
+                        -- ("none"/nil = silent). Blizzard-tracked buffs fire it via the
+                        -- apply-edge hook (EnsureBuffSoundHook -> TriggerAuraAppliedAlert);
+                        -- self-timed preset/custom buffs fire it from the cast-timer gain
+                        -- edge in UpdateCustomBuffBars (CdmHooks) off the SAME stored key.
+                        local function AddBuffGainRow()
+                            MakeSubnavRow("Audio on Buff Gain", AUDIO_ITEMS,
+                                function() return ss.buffActiveSoundKey or "none" end,
+                                function(v)
+                                    EnsureSS()
+                                    ss.buffActiveSoundKey = (v ~= "none" and v) or nil
+                                    -- Flip the 0-cost gate live so the edge hook / cast
+                                    -- timer starts playing on the next activation.
+                                    if ss.buffActiveSoundKey then ns._cdmAnyBuffSound = true end
+                                end,
+                                function() return ss.buffActiveSoundKey == nil end,
+                                AddSoundPreview,
+                                { searchable = true })
+                        end
+
                         -- Always Show Buffs + Desaturate Inactive apply only to
-                        -- Blizzard-tracked buffs (inactive placeholders); they are
-                        -- omitted entirely for injected custom/preset buffs.
+                        -- Blizzard-tracked buffs (inactive placeholders); injected
+                        -- custom/preset buffs skip them and get only the gain row.
                         if not isInjectedCustom then
                             -- Always Show Buffs: per-icon tri-state override of the bar
                             -- toggle. Default = inherit bar; Show = force the inactive
@@ -6420,61 +6487,11 @@ initFrame:SetScript("OnEvent", function(self)
                                 function(v) EnsureSS(); ss.desatInactive = v end,
                                 function() return ss.desatInactive == nil end)
 
-                            -- Audio on Buff Gain / Loss: play a sound when this buff
-                            -- becomes active (gain) or drops (loss). Both rows share the
-                            -- same sound list + speaker preview as the Focus Cast Sound
-                            -- dropdown (shared ns.FOCUSKICK_SOUND_* tables). Stored per-icon
-                            -- as ss.buffActiveSoundKey / ss.buffLostSoundKey ("none"/nil =
-                            -- silent); the edge hooks (EnsureBuffSoundHook -> Blizzard's
-                            -- TriggerAuraAppliedAlert / TriggerAuraRemovedAlert) fire live.
-                            local AUDIO_ITEMS = {}
-                            for _, key in ipairs(ns.FOCUSKICK_SOUND_ORDER or { "none" }) do
-                                if type(key) == "string" and key:sub(1, 3) == "---" then
-                                    -- Separator inserted by AppendSharedMediaSounds between
-                                    -- the built-in sounds and the appended LibSharedMedia
-                                    -- sounds. Render as a divider line, not a sound entry.
-                                    AUDIO_ITEMS[#AUDIO_ITEMS + 1] = { divider = true }
-                                else
-                                    AUDIO_ITEMS[#AUDIO_ITEMS + 1] = {
-                                        val   = key,
-                                        label = (ns.FOCUSKICK_SOUND_NAMES and ns.FOCUSKICK_SOUND_NAMES[key]) or key,
-                                    }
-                                end
-                            end
-                            -- Shared speaker-preview decorator: plays a row's focused sound
-                            -- without selecting it (mirrors the dropdown's preview icon).
-                            -- Used by both the Gain and Loss rows so they stay identical.
-                            local function AddSoundPreview(si, item)
-                                if item.val and item.val ~= "none" then
-                                    local play = CreateFrame("Button", nil, si)
-                                    play:SetSize(16, 16)
-                                    play:SetPoint("RIGHT", si, "RIGHT", -8, 0)
-                                    play:SetFrameLevel(si:GetFrameLevel() + 2)
-                                    play:SetNormalAtlas("common-icon-sound")
-                                    play:SetPushedAtlas("common-icon-sound-pressed")
-                                    play:SetScript("OnClick", function()
-                                        local paths = ns.FOCUSKICK_SOUND_PATHS
-                                        local path = paths and paths[item.val]
-                                        if path then PlaySoundFile(path, "Master") end
-                                    end)
-                                    play:SetScript("OnEnter", function()
-                                        EllesmereUI.ShowWidgetTooltip(play, "Preview Sound")
-                                    end)
-                                    play:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                                end
-                            end
-                            MakeSubnavRow("Audio on Buff Gain", AUDIO_ITEMS,
-                                function() return ss.buffActiveSoundKey or "none" end,
-                                function(v)
-                                    EnsureSS()
-                                    ss.buffActiveSoundKey = (v ~= "none" and v) or nil
-                                    -- Flip the 0-cost gate live so the edge hook starts
-                                    -- attaching on the next refresh.
-                                    if ss.buffActiveSoundKey then ns._cdmAnyBuffSound = true end
-                                end,
-                                function() return ss.buffActiveSoundKey == nil end,
-                                AddSoundPreview,
-                                { searchable = true })
+                            AddBuffGainRow()
+
+                            -- Audio on Buff Loss: Blizzard-tracked buffs fire a real drop
+                            -- edge (TriggerAuraRemovedAlert), so the loss sound is offered
+                            -- here only. Stored per-icon as ss.buffLostSoundKey.
                             MakeSubnavRow("Audio on Buff Loss", AUDIO_ITEMS,
                                 function() return ss.buffLostSoundKey or "none" end,
                                 function(v)
@@ -6487,7 +6504,29 @@ initFrame:SetScript("OnEvent", function(self)
                                 function() return ss.buffLostSoundKey == nil end,
                                 AddSoundPreview,
                                 { searchable = true })
+                        else
+                            -- Self-timed preset/custom buffs (Bloodlust/Heroism, Light's
+                            -- Potential, potions, and user-added custom buff IDs with a
+                            -- duration) are shown on a cast/edge for a fixed window. The
+                            -- real aura is secret/other-cast, so only the GAIN edge is
+                            -- knowable -- offer the gain sound only. It is fired from the
+                            -- cast timer in UpdateCustomBuffBars (CdmHooks).
+                            AddBuffGainRow()
                         end
+
+                        -- Reverse Swipe (buffs / custom buffs / buff presets):
+                        -- reverses the buff's fill direction. Default off. Same
+                        -- per-spell store (ss) + runtime apply + zero-cost gate as
+                        -- cd/utility spells; placed outside the injected split so it
+                        -- is offered for every buff type.
+                        MakeSubnavRow("Reverse Swipe", REVERSE_SWIPE_ITEMS,
+                            function() return ss.reverseSwipe and true or nil end,
+                            function(v)
+                                EnsureSS(); ss.reverseSwipe = v or nil
+                                if v then ns._cdmAnyReverseSwipe = true end
+                                if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                            end,
+                            function() return ss.reverseSwipe == nil end)
                     else
                     local isCustomInjected = spellID < 0
                         or (ns._myRacialsSet and ns._myRacialsSet[spellID])
@@ -6595,6 +6634,19 @@ initFrame:SetScript("OnEvent", function(self)
                                 if ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
                             end,
                             function() return not (cas and cas.cdStateEffect) end)
+
+                        -- Reverse Swipe (preset / custom): reverses this icon's
+                        -- cooldown swipe direction. Default off. Stored in the
+                        -- profile customActiveStates so it travels with the spell.
+                        MakeSubnavRow("Reverse Swipe", REVERSE_SWIPE_ITEMS,
+                            function() return (cas and cas.reverseSwipe) and true or nil end,
+                            function(v)
+                                EnsureCAS().reverseSwipe = v or nil
+                                if v then ns._cdmAnyReverseSwipe = true end
+                                if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                                if ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
+                            end,
+                            function() return not (cas and cas.reverseSwipe) end)
 
                         if not hasActive then
                             MakeActionRow("Add Active State", function()
@@ -7002,6 +7054,18 @@ initFrame:SetScript("OnEvent", function(self)
                         end)
                     end
 
+                    -- 4a. Reverse Swipe (per-spell): reverses the cooldown swipe
+                    -- direction. Default off; runtime apply + zero-cost gate live in
+                    -- RefreshCDMIconAppearance / RescanReverseSwipeFlag.
+                    MakeSubnavRow("Reverse Swipe", REVERSE_SWIPE_ITEMS,
+                        function() return ss.reverseSwipe and true or nil end,
+                        function(v)
+                            EnsureSS(); ss.reverseSwipe = v or nil
+                            if v then ns._cdmAnyReverseSwipe = true end
+                            if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                        end,
+                        function() return ss.reverseSwipe == nil end)
+
                     -- 4b. Audio Effect on CD Ready (cd/utility per-icon): play a sound
                     -- the moment the spell's real cooldown finishes. Same sound list +
                     -- speaker preview as the buff Audio rows / Focus Cast Sound (shared
@@ -7248,6 +7312,7 @@ initFrame:SetScript("OnEvent", function(self)
                                     os.glowColorR = ss.glowColorR
                                     os.glowColorG = ss.glowColorG
                                     os.glowColorB = ss.glowColorB
+                                    os.reverseSwipe = ss.reverseSwipe
                                 end
                             end
                             if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
@@ -9923,17 +9988,28 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local count = #tracked
 
-            -- Use the same stride logic as the runtime (ComputeTopRowStride)
+            -- Use the same stride logic as the runtime (ComputeTopRowStride).
+            -- Top and Bottom custom-row overrides are mutually exclusive; the
+            -- Bottom override is the flip (pick the bottom count, top gets rest).
             local stride, topRowCount
-            if numRows == 2 and bd.customTopRowEnabled and bd.topRowCount and bd.topRowCount > 0 then
-                topRowCount = math.min(bd.topRowCount, count)
+            local customTop
+            if numRows == 2 then
+                if bd.customTopRowEnabled and bd.topRowCount and bd.topRowCount > 0 then
+                    customTop = math.min(bd.topRowCount, count)
+                elseif bd.customBottomRowEnabled and bd.bottomRowCount and bd.bottomRowCount > 0 then
+                    customTop = count - math.min(bd.bottomRowCount, count)
+                end
+            end
+            if customTop ~= nil then
+                if customTop < 0 then customTop = 0 end
+                topRowCount = customTop
                 local bottomCount = count - topRowCount
-                if bottomCount <= 0 then
-                    -- Match the runtime: collapse to one row until the icon count
-                    -- exceeds the top-row count and actually fills a second row.
-                    -- This also keeps the "+" button on the top row.
+                if bottomCount <= 0 or topRowCount <= 0 then
+                    -- Match the runtime: collapse to one row until BOTH rows hold
+                    -- an icon. This also keeps the "+" button on the single row.
                     numRows = 1
-                    stride = math.max(topRowCount, 1)
+                    topRowCount = count
+                    stride = math.max(count, 1)
                 else
                     stride = math.max(topRowCount, bottomCount)
                 end
@@ -10389,7 +10465,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local subFs = EllesmereUI.MakeFont(popup, 11, nil, 1, 1, 1, 0.45)
                 subFs:SetPoint("TOP", titleFs, "BOTTOM", 0, -4)
                 subFs:SetWidth(DDW); subFs:SetJustifyH("CENTER")
-                subFs:SetText("Choose the spec to copy racials, pots & trinkets from")
+                subFs:SetText("Choose the spec to copy trinkets, pots, racials & buff presets from")
                 local search = CreateFrame("EditBox", nil, popup)
                 PP.Size(search, DDW, 26)
                 search:SetPoint("TOP", subFs, "BOTTOM", 0, -10)
@@ -10494,7 +10570,8 @@ initFrame:SetScript("OnEvent", function(self)
             C_Timer.After(0.05, function() P.search:SetFocus() end)
         end
 
-        -- Sync Racials, Pots & Trinkets across specs (per profile). First-time
+        -- Sync Generic CDs/Buffs across specs (per profile): trinkets, pots,
+        -- racials and buff-bar presets (Bloodlust, etc.). First-time
         -- setup picks a SOURCE spec (searchable dropdown, default current spec),
         -- then a spec picker with the source locked ON (auto-checked, can't be
         -- deselected).
@@ -10511,7 +10588,7 @@ initFrame:SetScript("OnEvent", function(self)
                     s.checked = (s.key == sourceKey)
                 end
                 EllesmereUI:ShowCDMSpecPickerPopup({
-                    title       = "Sync Racials, Pots & Trinkets",
+                    title       = "Sync Generic CDs/Buffs",
                     subtitle    = "Choose which specs sync with " .. srcName .. " (the source is always included)",
                     confirmText = "Sync",
                     specs       = specs,
@@ -10536,7 +10613,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Edit an existing sync: open the spec picker directly (no source step),
         -- with the currently-synced specs pre-checked. Unchecking a spec drops it
-        -- from the sync (its racials/pots/trinkets are left exactly as they are);
+        -- from the sync (its trinkets/pots/racials/buff presets are left as-is);
         -- checking a new spec folds it in. Falling to one-or-zero specs clears it.
         local function EditRPTSync()
             -- Pre-check EVERY synced spec, not just the current class's. A sync
@@ -10553,8 +10630,8 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
             EllesmereUI:ShowCDMSpecPickerPopup({
-                title       = "Sync Racials, Pots & Trinkets",
-                subtitle    = "Uncheck a spec to remove it from the sync. Removed specs keep their current racials, pots & trinkets.",
+                title       = "Sync Generic CDs/Buffs",
+                subtitle    = "Uncheck a spec to remove it from the sync. Removed specs keep their current trinkets, pots, racials & buff presets.",
                 confirmText = "Save",
                 specs       = specs,
                 onConfirm   = function(selectedSpecs)
@@ -10582,15 +10659,16 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Action buttons: repopulate + open Blizzard CDM + sync racials/pots/trinkets.
+        -- Action buttons: repopulate + open Blizzard CDM + sync generic CDs/buffs
+        -- (trinkets, pots, racials & buff presets across specs).
         -- The third button keeps the same label whether or not a sync exists;
         -- DoRPTSync routes to setup vs edit based on ns.HasRPTSync().
         _, h = W:WideTripleButton(parent,
-            "Repopulate from Blizzard CDM", "Open Blizzard CDM", "Sync Racials, Pots & Trinkets", y,
+            "Repopulate from Blizzard CDM", "Open Blizzard CDM", "Sync Generic CDs/Buffs", y,
             function()
                 EllesmereUI:ShowConfirmPopup({
                     title = "Repopulate Bars",
-                    message = "This will reset all default bar spell assignments for the current spec to match Blizzard's CDM layout. Custom bars are not affected. Continue?",
+                    message = "This will reset all default bar spell assignments for the current spec to match Blizzard's CDM layout. Spells you added yourself (presets, custom IDs and racials) are kept. Continue?",
                     confirmText = "Repopulate",
                     cancelText = "Cancel",
                     onConfirm = function()
@@ -11238,7 +11316,10 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   local bd = BD()
                   bd.numRows = v
-                  if v ~= 2 then bd.topRowCount = nil; bd.customTopRowEnabled = nil end
+                  if v ~= 2 then
+                      bd.topRowCount = nil; bd.customTopRowEnabled = nil
+                      bd.bottomRowCount = nil; bd.customBottomRowEnabled = nil
+                  end
                   -- numRows change invalidates cached match dims (rows is one
                   -- of the inputs to the matched-axis dim calculation).
                   bd._matchIconPhys = nil
@@ -11259,13 +11340,24 @@ initFrame:SetScript("OnEvent", function(self)
                 local bd = BD()
                 return not bd or not bd.customTopRowEnabled
             end
+            local function customBottomOff()
+                local bd = BD()
+                return not bd or not bd.customBottomRowEnabled
+            end
             local _, topRowCogShow = EllesmereUI.BuildCogPopup({
-                title = "Top Row Icons",
+                title = "Row Icons",
                 rows = {
                     { type="toggle", label="Custom Top Row Count",
+                      -- Mutually exclusive with Custom Bottom Row Count: enabling one
+                      -- disables the other's toggle. Clearing the sibling on enable
+                      -- also prevents a both-on deadlock (both overlays showing).
+                      disabled=function() return BD().customBottomRowEnabled == true end,
+                      disabledTooltip="Disabled while Custom Bottom Row Count is enabled",
+                      rawTooltip=true,
                       get=function() return BD().customTopRowEnabled end,
                       set=function(v)
                           BD().customTopRowEnabled = v
+                          if v then BD().customBottomRowEnabled = nil end
                           ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
                       end },
                     { type="slider", label="Top Row Icons",
@@ -11287,6 +11379,38 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v)
                           if v == 0 then v = nil end
                           BD().topRowCount = v
+                          ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+                      end },
+                    { type="toggle", label="Custom Bottom Row Count",
+                      -- Flip of Custom Top Row Count; mutually exclusive with it.
+                      disabled=function() return BD().customTopRowEnabled == true end,
+                      disabledTooltip="Disabled while Custom Top Row Count is enabled",
+                      rawTooltip=true,
+                      get=function() return BD().customBottomRowEnabled end,
+                      set=function(v)
+                          BD().customBottomRowEnabled = v
+                          if v then BD().customTopRowEnabled = nil end
+                          ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+                      end },
+                    { type="slider", label="Bottom Row Icons",
+                      min=1, max=50, step=1,
+                      tooltip="How many icons to show on the bottom row. The rest go on the top row.",
+                      disabled=customBottomOff,
+                      disabledTooltip="Custom Bottom Row Count",
+                      get=function()
+                          local bd = BD()
+                          if bd.bottomRowCount and bd.bottomRowCount > 0 then return bd.bottomRowCount end
+                          local count = 0
+                          local sdBR = ns.GetBarSpellData(bd.key)
+                          if sdBR and sdBR.assignedSpells then
+                              for _, sid in ipairs(sdBR.assignedSpells) do if sid and sid ~= 0 then count = count + 1 end end
+                          end
+                          if count == 0 then return 1 end
+                          return math.max(1, math.floor(count / 2))
+                      end,
+                      set=function(v)
+                          if v == 0 then v = nil end
+                          BD().bottomRowCount = v
                           ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
                       end },
                 },
@@ -11872,19 +11996,9 @@ initFrame:SetScript("OnEvent", function(self)
                 UpdateBuffGlowState()
             end
 
-            -- Inline pixel-glow cog on Buff Glow: 1:1 replica of the Pandemic Glow
-            -- cog (Lines / Thickness / Speed), enabled only when Pixel Glow is chosen.
-            do
-                local function buffAntsOff()
-                    return (BD().buffGlowType or 0) ~= 1 or IsCustomShape()
-                end
-                BuildPandemicCogButton(buffGlowRow, buffAntsOff, BD, function()
-                    ns.BuildAllCDMBars()
-                    -- Re-apply to already-active glows so the permanent custom aura
-                    -- preview reflects the new Lines/Thickness/Speed immediately.
-                    if ns.RefreshBuffGlows then ns.RefreshBuffGlows() end
-                end, { lines = "buffGlowLines", thickness = "buffGlowThickness", speed = "buffGlowSpeed" })
-            end
+            -- (Pixel Glow Thickness / Lines / Speed moved to a dedicated row at the
+            -- bottom of this section -- see "Pixel Glow Thickness (buff bars)" below.
+            -- Same buffGlow* variables, so user settings are unchanged.)
 
             -- Row 3: Custom Icon Shape | Icon Zoom
             local buffShapeZoomRow
@@ -12844,6 +12958,44 @@ initFrame:SetScript("OnEvent", function(self)
                 MakeCogBtn(rightRgn, pgCogShow, nil, EllesmereUI.RESIZE_ICON)
             end
         end
+        end
+
+        -- Pixel Glow Thickness (buff bars) -- mirrors the CD/utility row above.
+        -- Reuses the same buffGlow* variables so user settings are unchanged.
+        -- Always enabled (no disabled state).
+        if isBuffGlowBar then
+            local pgRow
+            pgRow, h = W:DualRow(parent, y,
+                { type="slider", text="Pixel Glow Thickness", min=1, max=4, step=1, trackWidth=120,
+                  tooltip="Thickness of the Pixel Glow applied to this bar's buff icons.",
+                  getValue=function() return BD().buffGlowThickness or 2 end,
+                  setValue=function(v)
+                      BD().buffGlowThickness = v
+                      ns.BuildAllCDMBars(); if ns.RefreshBuffGlows then ns.RefreshBuffGlows() end; Refresh()
+                  end },
+                { type="label", text="" });  y = y - h
+            -- Inline cog on Pixel Glow Thickness: Lines + Speed (buffGlow* vars)
+            do
+                local leftRgn = pgRow._leftRegion
+                local _, pgCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Pixel Glow",
+                    rows = {
+                        { type="slider", label="Lines", min=2, max=16, step=1,
+                          get=function() return BD().buffGlowLines or 8 end,
+                          set=function(v)
+                              BD().buffGlowLines = v
+                              ns.BuildAllCDMBars(); if ns.RefreshBuffGlows then ns.RefreshBuffGlows() end
+                          end },
+                        { type="slider", label="Speed", min=1, max=8, step=1,
+                          get=function() return 9 - (BD().buffGlowSpeed or 4) end,
+                          set=function(v)
+                              BD().buffGlowSpeed = 9 - v
+                              ns.BuildAllCDMBars(); if ns.RefreshBuffGlows then ns.RefreshBuffGlows() end
+                          end },
+                    },
+                })
+                MakeCogBtn(leftRgn, pgCogShow, nil, EllesmereUI.RESIZE_ICON)
+            end
         end
 
         _, h = W:Spacer(parent, y, 8);  y = y - h

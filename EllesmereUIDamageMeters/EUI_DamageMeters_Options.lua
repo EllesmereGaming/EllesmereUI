@@ -143,7 +143,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Refresh Rate (+ seconds) | Reset Data Keybind
+        -- Refresh Rate (+ seconds) | Hide Reset Button
         local rrRow
         rrRow, h = W:DualRow(parent, y,
             { type="slider", text="Refresh Rate",
@@ -152,7 +152,10 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return Cfg("refreshRate") or 0.5 end,
               setValue = function(v) Set("refreshRate", v) end,
               fmt = function(v) return format("%.2fs", v) end },
-            { type="label", text="Reset Data Keybind" })
+            { type="toggle", text="Hide Reset Button",
+              tooltip = "Hide the Reset Data button from the damage meter header.",
+              getValue = function() return Cfg("hideResetButton") == true end,
+              setValue = function(v) Set("hideResetButton", v); ApplyHdr() end })
         do
             local rgn = rrRow._leftRegion
             local suffix = rgn:CreateFontString(nil, "OVERLAY")
@@ -174,8 +177,16 @@ initFrame:SetScript("OnEvent", function(self)
             suffix:SetText(EllesmereUI.L("(seconds)"))
         end
 
+        y = y - h
+
+        -- Reset Data Keybind
+        local kbRow
+        kbRow, h = W:DualRow(parent, y,
+            { type="label", text="" },
+            { type="label", text="Reset Data Keybind" })
+
         do
-            local rgn = rrRow._rightRegion
+            local rgn = kbRow._rightRegion
             local KB_W, KB_H = 120, 26
             local kbBtn = CreateFrame("Button", nil, rgn)
             PP.Size(kbBtn, KB_W, KB_H)

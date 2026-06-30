@@ -1,12 +1,15 @@
 -------------------------------------------------------------------------------
 --  EllesmereUICdmRPTSync.lua
---  Racials / Pots / Trinkets sync, across chosen specs of the ACTIVE PROFILE.
+--  Generic CDs/Buffs sync, across chosen specs of the ACTIVE PROFILE.
 --
---  "RPT" = the character-utility entries: trinket slots (-13/-14), item presets
---  (negative item IDs from the Potions & Healthstone flyout), and the player's
---  racial ability. When specs are synced, editing these on one synced spec
---  auto-copies them (bar placement + per-icon settings) to the other synced
---  specs. Regular cooldowns/buffs and unsynced specs are never touched.
+--  Synced entries are the spec-independent ones: trinket slots (-13/-14), item
+--  presets (negative item IDs from the Potions & Healthstone flyout), the player's
+--  racial ability, and built-in BUFF-BAR PRESETS (Bloodlust/Heroism, Time Spiral,
+--  Light's Potential, the buff potions). When specs are synced, editing these on
+--  one synced spec auto-copies them to the other synced specs. RPT ids sync bar
+--  placement + per-icon settings; buff presets are ADDITIVE-ONLY (added to specs
+--  that lack them, never removed by sync). Regular cooldowns, Blizzard-tracked
+--  buffs, custom-typed buff IDs, and unsynced specs are never touched.
 --
 --  Storage rides in the per-profile spell store:
 --      spellAssignments.profiles[<euiProfile>].rptSyncSpecs[specKey] = true
@@ -133,6 +136,56 @@ local function IsRPTId(id)
 end
 ns.IsRPTSyncId = IsRPTId
 
+-- Buff-bar PRESET ids (Bloodlust/Heroism, Time Spiral, Light's Potential, the buff
+-- potions), derived from ns.BUFF_BAR_PRESETS. Built lazily so it picks up the
+-- faction-resolved Bloodlust/Heroism id. Custom-typed buff IDs and Blizzard-tracked
+-- buffs are NOT in this set, so only the built-in presets are ever synced.
+local _buffPresetIds
+local function BuffPresetIds()
+    if not _buffPresetIds then
+        _buffPresetIds = {}
+        local presets = ns.BUFF_BAR_PRESETS
+        if type(presets) == "table" then
+            for _, preset in ipairs(presets) do
+                if type(preset.spellIDs) == "table" then
+                    for _, sid in ipairs(preset.spellIDs) do _buffPresetIds[sid] = true end
+                end
+            end
+        end
+    end
+    return _buffPresetIds
+end
+
+-- COLLECT-ONLY predicate for buff presets. A buff preset's identity is the matched
+-- pair (assignedSpells id + spellDurations[id]>0) -- there is no customSpellIDs
+-- fallback. This is used ONLY to COLLECT and ADD buff presets across specs. It is
+-- NEVER routed into the step-1 strip, and the strip never clears spellDurations, so
+-- sync can never remove or duration-orphan a buff preset (additive-only). The
+-- duration requirement keeps it to buffs bars (CD/utility presets use
+-- customSpellDurations, never spellDurations).
+local function IsBuffSyncId(sd, id)
+    return BuffPresetIds()[id]
+       and type(sd) == "table"
+       and type(sd.spellDurations) == "table"
+       and (sd.spellDurations[id] or 0) > 0
+end
+
+-- Set of buff-preset ids already present anywhere in a spec's bars, so additive
+-- sync never seeds a buff preset onto a second bar (cross-bar duplication guard).
+local function BuffIdsPresentOnTarget(tgtProf)
+    local set = {}
+    if type(tgtProf) ~= "table" or type(tgtProf.barSpells) ~= "table" then return set end
+    local presetIds = BuffPresetIds()
+    for barKey, sd in pairs(tgtProf.barSpells) do
+        if barKey ~= "__ghost_cd" and type(sd.assignedSpells) == "table" then
+            for _, id in ipairs(sd.assignedSpells) do
+                if presetIds[id] then set[id] = true end
+            end
+        end
+    end
+    return set
+end
+
 -- Active profile's synced-spec set, or nil. Read-only.
 function ns.GetRPTSyncSpecs()
     local b = GetActiveBucket()
@@ -144,15 +197,24 @@ function ns.HasRPTSync()
     return s ~= nil and next(s) ~= nil
 end
 
--- { [barKey] = { ids = {id,...}, settings = {[id]=copy} } } of a spec's RPT entries.
+-- { [barKey] = { ids = {id,...}, settings = {[id]=copy}, durations = {[id]=dur} } }
+-- of a spec's sync entries: RPT ids (racials/pots/trinkets) PLUS buff presets.
+-- `durations` is populated ONLY for buff-preset ids (they need the stored duration
+-- to render on the target spec); RPT ids never have a spellDurations entry.
 local function CollectRPT(specProf)
     local out = {}
     if type(specProf) ~= "table" or type(specProf.barSpells) ~= "table" then return out end
     for barKey, sd in pairs(specProf.barSpells) do
         if barKey ~= "__ghost_cd" and type(sd.assignedSpells) == "table" then
-            local ids
+            local ids, durations
             for _, id in ipairs(sd.assignedSpells) do
-                if IsRPTId(id) then ids = ids or {}; ids[#ids + 1] = id end
+                if IsRPTId(id) then
+                    ids = ids or {}; ids[#ids + 1] = id
+                elseif IsBuffSyncId(sd, id) then
+                    ids = ids or {}; ids[#ids + 1] = id
+                    durations = durations or {}
+                    durations[id] = sd.spellDurations[id]
+                end
             end
             if ids then
                 local settings
@@ -164,7 +226,7 @@ local function CollectRPT(specProf)
                         end
                     end
                 end
-                out[barKey] = { ids = ids, settings = settings }
+                out[barKey] = { ids = ids, settings = settings, durations = durations }
             end
         end
     end
@@ -201,15 +263,19 @@ local function ApplyRPT(specProfiles, sourceSpecKey, targetSpecKey)
         for _, id in ipairs(data.ids) do srcBarOf[id] = barKey end
     end
 
-    -- 1. Drop only RPT ids that no longer belong on their current target bar
-    --    (removed from the source, or moved to a different bar). RPT ids that
-    --    stay on the same bar are LEFT IN PLACE so their slot position survives.
+    -- 1. Drop a target RPT id only when the source still carries it but on a
+    --    DIFFERENT bar (a move) -- step 2 then re-adds it on the source's bar.
+    --    An id the source lacks ENTIRELY (srcBarOf[id] == nil) is LEFT IN PLACE:
+    --    an absent source entry is not an authoritative removal -- the source spec
+    --    may simply be unconfigured -- so we never strip a configured target down
+    --    to match an empty/partial source (that wiped Bloodlust/pots/trinkets off
+    --    synced specs). RPT ids that stay on the same bar keep their slot position.
     for barKey, sd in pairs(tgtProf.barSpells) do
         if barKey ~= "__ghost_cd" and type(sd.assignedSpells) == "table" then
             local w = 1
             for r = 1, #sd.assignedSpells do
                 local id = sd.assignedSpells[r]
-                if IsRPTId(id) and srcBarOf[id] ~= barKey then
+                if IsRPTId(id) and srcBarOf[id] and srcBarOf[id] ~= barKey then
                     if sd.spellSettings then sd.spellSettings[id] = nil end
                 else
                     sd.assignedSpells[w] = id; w = w + 1
@@ -219,24 +285,46 @@ local function ApplyRPT(specProfiles, sourceSpecKey, targetSpecKey)
         end
     end
 
-    -- 2. Add any source RPT ids the target is missing (appended at the end -- a
-    --    newly synced icon has no prior slot here), and sync per-icon settings
-    --    for all source RPT ids. Ids already present keep their current slot.
+    -- 2. ADD source sync ids the target is missing (additive only -- step 2 never
+    --    removes). RPT ids append on the source's bar; their settings sync
+    --    (overwrite). Buff presets append ONLY when the target has them on NO
+    --    buffs-family bar (target-wide presence -> no cross-bar duplication) and are
+    --    ALWAYS paired with a spellDurations entry (fill-only), so a buff id can
+    --    never become a duration-less invisible orphan. Buff settings are fill-only
+    --    so a spec's own per-icon buff styling is never reset by re-propagation.
+    --    Ids already present keep their current slot.
+    local tgtBuffPresent = BuffIdsPresentOnTarget(tgtProf)
     for barKey, data in pairs(srcRPT) do
         local sd = tgtProf.barSpells[barKey]
         if not sd then sd = { assignedSpells = {} }; tgtProf.barSpells[barKey] = sd end
         if not sd.assignedSpells then sd.assignedSpells = {} end
         local present = {}
         for _, id in ipairs(sd.assignedSpells) do present[id] = true end
+        local durs = data.durations
         for _, id in ipairs(data.ids) do
-            if not present[id] then
+            if durs and durs[id] ~= nil then
+                -- Buff preset: add only if absent from EVERY buffs-family bar of the
+                -- target, and always pair the duration so it renders.
+                if not present[id] and not tgtBuffPresent[id] then
+                    sd.assignedSpells[#sd.assignedSpells + 1] = id
+                    present[id] = true
+                    tgtBuffPresent[id] = true
+                    sd.spellDurations = sd.spellDurations or {}
+                    sd.spellDurations[id] = sd.spellDurations[id] or durs[id]
+                end
+            elseif not present[id] then
                 sd.assignedSpells[#sd.assignedSpells + 1] = id
                 present[id] = true
             end
         end
         if data.settings then
             if not sd.spellSettings then sd.spellSettings = {} end
-            for id, s in pairs(data.settings) do sd.spellSettings[id] = DeepCopy(s) end
+            for id, s in pairs(data.settings) do
+                -- RPT settings sync (overwrite); buff-preset settings fill-only.
+                if IsRPTId(id) or sd.spellSettings[id] == nil then
+                    sd.spellSettings[id] = DeepCopy(s)
+                end
+            end
         end
     end
 end
@@ -247,6 +335,13 @@ function ns.PropagateRPTFrom(sourceSpecKey)
     local b = GetActiveBucket()
     if not b or type(b.rptSyncSpecs) ~= "table" or not b.rptSyncSpecs[sourceSpecKey] then return end
     if not b.specProfiles then return end
+    -- Never propagate from a source spec that carries NO racial/pot/trinket
+    -- entries. An empty source is not an authoritative "remove everything" signal
+    -- -- it is usually an unconfigured spec the player just happens to be viewing
+    -- -- so propagating it would only ever strip configured targets and create
+    -- empty stamped profiles for never-played specs. Require at least one RPT id.
+    local srcProf = b.specProfiles[sourceSpecKey]
+    if not srcProf or next(CollectRPT(srcProf)) == nil then return end
     for specKey in pairs(b.rptSyncSpecs) do
         if specKey ~= sourceSpecKey then
             ApplyRPT(b.specProfiles, sourceSpecKey, specKey)
@@ -314,7 +409,8 @@ function ns.ClearRPTSync()
 end
 
 -- Auto-propagate RPT after the centralized spell-mutation functions run (covers
--- add / remove / move / preset / replace of racials, pots & trinkets). Settings
+-- add / remove / move / preset / replace of racials, pots, trinkets & buff
+-- presets). Settings
 -- changes are covered by a spell-picker close hook in the options file.
 do
     local function Wrap(fnName)

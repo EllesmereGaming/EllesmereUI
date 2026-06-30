@@ -97,6 +97,7 @@ end
 local visFrame = CreateFrame("Frame")
 visFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 visFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+visFrame:RegisterEvent("PLAYER_DEAD")
 visFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 visFrame:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
 visFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -109,6 +110,17 @@ visFrame:SetScript("OnEvent", function(_, event)
         _inCombat = true
     elseif event == "PLAYER_REGEN_ENABLED" then
         _inCombat = false
+    elseif event == "PLAYER_DEAD" then
+        -- A dead player is never in combat, but PLAYER_REGEN_ENABLED is not
+        -- guaranteed to fire on death (notably when dying mid-encounter in an
+        -- instance). A missed "left combat" event would otherwise leave
+        -- _inCombat stuck true, hiding every "Out of Combat" frame until a
+        -- reload. Clearing it here is the safety net for that case.
+        _inCombat = false
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        -- Re-sync from the real combat state across world / instance boundaries
+        -- in case a regen toggle was missed while loading.
+        _inCombat = InCombatLockdown() and true or false
     end
     C_Timer.After(0, DeferredRequest)
 end)

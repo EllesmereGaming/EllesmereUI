@@ -643,7 +643,7 @@ local function CreateHeader()
     header.title = header:CreateFontString(nil, "OVERLAY")
     SetBagFont(header.title, 13)
     header.title:SetPoint("LEFT", header, "LEFT", 8, 0)
-    header.title:SetText("Inventory")
+    header.title:SetText(EllesmereUI.L("Inventory"))
     header.title:SetTextColor(1, 1, 1)
 
     -- Item count (updated by RefreshInventory)
@@ -667,7 +667,7 @@ local function CreateHeader()
     local placeholder = search:CreateFontString(nil, "OVERLAY")
     SetBagFont(placeholder, 11)
     placeholder:SetPoint("LEFT", search, "LEFT", 5, 0)
-    placeholder:SetText("Search...")
+    placeholder:SetText(EllesmereUI.L("Search..."))
     placeholder:SetTextColor(0.4, 0.4, 0.4)
     EUI_Bags._searchBox = search
 
@@ -1418,13 +1418,13 @@ local function GetGoldTooltip()
     title:SetFont("Fonts\\FRIZQT__.TTF", 11, "")
     title:SetTextColor(0.80, 0.80, 0.80, 1)
     title:SetPoint("TOP", f, "TOP", 0, -GOLD_PAD)
-    title:SetText("Gold Summary")
+    title:SetText(EllesmereUI.L("Gold Summary"))
     f._title = title
 
     local hint = f:CreateFontString(nil, "OVERLAY")
     hint:SetFont("Fonts\\FRIZQT__.TTF", 10, "")
     hint:SetTextColor(1, 0.4, 0.4, 1)
-    hint:SetText("Ctrl + Right-Click: Reset all data")
+    hint:SetText(EllesmereUI.L("Ctrl + Right-Click: Reset all data"))
     f._hint = hint
 
     _goldTT = f
@@ -1508,7 +1508,7 @@ local function ShowGoldTooltip(anchor)
     if warbandGold then
         local nameFS = _goldTTRows[totalRow][0]
         local goldFS = _goldTTRows[totalRow][1]
-        nameFS:SetText("|cffffcc80Warbank|r")
+        nameFS:SetText("|cffffcc80" .. EllesmereUI.L("Warbank") .. "|r")
         goldFS:SetText(FormatGoldOnly(warbandGold))
         goldFS:SetTextColor(WARBANK_GOLD_R, WARBANK_GOLD_G, WARBANK_GOLD_B, 1)
         nameFS:Show(); goldFS:Show()
@@ -1521,7 +1521,7 @@ local function ShowGoldTooltip(anchor)
 
     local totalNameFS = _goldTTRows[totalRow][0]
     local totalGoldFS = _goldTTRows[totalRow][1]
-    totalNameFS:SetText("|cffffcc80Total|r")
+    totalNameFS:SetText("|cffffcc80" .. EllesmereUI.L("Total") .. "|r")
     totalGoldFS:SetText(FormatGoldOnly(totalGold))
     totalGoldFS:SetTextColor(1, 1, 0.5, 1)
     totalNameFS:Show(); totalGoldFS:Show()
@@ -1753,7 +1753,7 @@ local function CreateReagentBagUI()
     header.title = header:CreateFontString(nil, "OVERLAY")
     SetBagFont(header.title, 13)
     header.title:SetPoint("LEFT", 15, 0)
-    header.title:SetText("REAGENTS")
+    header.title:SetText(EllesmereUI.L("REAGENTS"))
     header.title:SetTextColor(1, 1, 1)
     local close = CreateFrame("Button", nil, header)
     close:SetSize(20, 20)
@@ -3636,7 +3636,7 @@ local function CreateSidebar()
     sidebarHdr._label = sidebarHdr:CreateFontString(nil, "OVERLAY")
     SetBagFont(sidebarHdr._label, 10)
     sidebarHdr._label:SetPoint("LEFT", sidebarHdr, "LEFT", 8, 0)
-    sidebarHdr._label:SetText("Categories")
+    sidebarHdr._label:SetText(EllesmereUI.L("Categories"))
     sidebarHdr._label:SetTextColor(0.5, 0.5, 0.5)
 
     local ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.png"
@@ -3864,9 +3864,9 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
     -- Three fixed views (All Items / OneBag / MultiBag), the configured default
     -- type first, then the rest in canonical order.
     local _fixedViews = {
-        all      = { catIdx = 0,  name = "All Items", icon = 133633, count = totalCount },
-        onebag   = { catIdx = -1, name = "OneBag",    icon = 133634, count = totalCount },
-        multibag = { catIdx = -2, name = "MultiBag",  icon = 133635, count = totalCount },
+        all      = { catIdx = 0,  name = EllesmereUI.L("All Items"), icon = 133633, count = totalCount },
+        onebag   = { catIdx = -1, name = EllesmereUI.L("OneBag"),    icon = 133634, count = totalCount },
+        multibag = { catIdx = -2, name = EllesmereUI.L("MultiBag"),  icon = 133635, count = totalCount },
     }
     local _dbt = GetDefaultBagType()
     displayList[#displayList + 1] = _fixedViews[_dbt] or _fixedViews.all
@@ -4182,7 +4182,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             btn._label:SetWordWrap(false)
             btn._label:SetPoint("LEFT", btn._icon, "RIGHT", 6, 0)
             btn._label:SetPoint("RIGHT", btn, "RIGHT", -6, 0)
-            btn._label:SetText("Add Category")
+            btn._label:SetText(EllesmereUI.L("Add Category"))
             btn._label:SetTextColor(1, 1, 1, 0.4)
             btn:SetScript("OnEnter", function(self)
                 self._bg:SetColorTexture(1, 1, 1, 0.06)
@@ -4213,7 +4213,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     SetBagFont(title, 13)
                     title:SetPoint("TOPLEFT", popup, "TOPLEFT", 10, -10)
                     title:SetTextColor(1, 1, 1, 0.9)
-                    title:SetText("New Custom Category")
+                    title:SetText(EllesmereUI.L("New Custom Category"))
 
                     -- Name editbox
                     local eb = CreateFrame("EditBox", nil, popup)
@@ -4237,7 +4237,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     SetBagFont(iconLbl, 11)
                     iconLbl:SetPoint("TOPLEFT", eb, "BOTTOMLEFT", 0, -8)
                     iconLbl:SetTextColor(0.7, 0.7, 0.7, 1)
-                    iconLbl:SetText("Icon:")
+                    iconLbl:SetText(EllesmereUI.L("Icon:"))
 
                     -- Icon grid (placeholder IDs -- replace with real set)
                     local ICON_IDS = {
@@ -4318,7 +4318,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     SetBagFont(customLbl, 11)
                     customLbl:SetPoint("TOPLEFT", iconLbl, "BOTTOMLEFT", 0, -(4 + lastRow * (ICON_SZ + ICON_PAD) + 6))
                     customLbl:SetTextColor(0.7, 0.7, 0.7, 1)
-                    customLbl:SetText("Custom Icon ID:")
+                    customLbl:SetText(EllesmereUI.L("Custom Icon ID:"))
 
                     -- Preview icon to the left of the editbox
                     local preview = CreateFrame("Frame", nil, popup)
@@ -4385,7 +4385,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     SetBagFont(cBtnLbl, 12)
                     cBtnLbl:SetPoint("CENTER")
                     cBtnLbl:SetTextColor(1, 1, 1, 0.9)
-                    cBtnLbl:SetText("Create")
+                    cBtnLbl:SetText(EllesmereUI.L("Create"))
                     createBtn:SetScript("OnEnter", function() cBtnBg:SetColorTexture(0.2, 0.2, 0.2, 1) end)
                     createBtn:SetScript("OnLeave", function() cBtnBg:SetColorTexture(0.15, 0.15, 0.15, 1) end)
                     -- Red flash validation for empty fields
@@ -5137,15 +5137,15 @@ function EUI_Bags:RefreshInventory()
             pinHdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
             pinHdr:SetWidth(columns * (SLOT_SIZE + SPACING))
             local showTips = BP().bagShowPinRecentTips ~= false
-            pinHdr._label:SetText("Pinned Items")
-            pinHdr._hint:SetText(showTips and "(Middle Click to Add or Remove)" or "")
+            pinHdr._label:SetText(EllesmereUI.L("Pinned Items"))
+            pinHdr._hint:SetText(showTips and EllesmereUI.L("(Middle Click to Add or Remove)") or "")
             if not pinHdr._hideBtn then
                 local hb = CreateFrame("Button", nil, pinHdr)
                 hb:SetSize(30, 16)
                 hb._fs = hb:CreateFontString(nil, "OVERLAY")
                 SetBagFont(hb._fs, 9)
                 hb._fs:SetAllPoints()
-                hb._fs:SetText("Hide")
+                hb._fs:SetText(EllesmereUI.L("Hide"))
                 hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
                 hb:SetScript("OnEnter", function(self)
                     self._fs:SetTextColor(1, 1, 1, 0.9)
@@ -5227,15 +5227,15 @@ function EUI_Bags:RefreshInventory()
             recHdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
             recHdr:SetWidth(columns * (SLOT_SIZE + SPACING))
             local showTips = BP().bagShowPinRecentTips ~= false
-            recHdr._label:SetText("Recent Items")
-            recHdr._hint:SetText(showTips and "(Extra quickview display, your items are also in their category)" or "")
+            recHdr._label:SetText(EllesmereUI.L("Recent Items"))
+            recHdr._hint:SetText(showTips and EllesmereUI.L("(Extra quickview display, your items are also in their category)") or "")
             if not recHdr._hideBtn then
                 local hb = CreateFrame("Button", nil, recHdr)
                 hb:SetSize(30, 16)
                 hb._fs = hb:CreateFontString(nil, "OVERLAY")
                 SetBagFont(hb._fs, 9)
                 hb._fs:SetAllPoints()
-                hb._fs:SetText("Hide")
+                hb._fs:SetText(EllesmereUI.L("Hide"))
                 hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
                 hb:SetScript("OnEnter", function(self)
                     self._fs:SetTextColor(1, 1, 1, 0.9)
@@ -5324,14 +5324,14 @@ function EUI_Bags:RefreshInventory()
                 if a.bag ~= b.bag then return a.bag < b.bag end
                 return a.slot < b.slot
             end)
-            RenderBagGrid("Main Bags (" .. mainFilled .. " / " .. #mainSlots .. ")", mainSlots)
+            RenderBagGrid(EllesmereUI.Lf("Main Bags (%d / %d)", mainFilled, #mainSlots), mainSlots)
         else
             -- MultiBag: one section per equipped bag (0-4)
             local function BagDisplayName(bag)
-                if bag == 0 then return "Backpack" end
+                if bag == 0 then return EllesmereUI.L("Backpack") end
                 local invID = C_Container.ContainerIDToInventoryID(bag)
                 local link = invID and GetInventoryItemLink("player", invID)
-                return (link and GetItemInfo(link)) or ("Bag " .. bag)
+                return (link and GetItemInfo(link)) or EllesmereUI.Lf("Bag %d", bag)
             end
             for bag = 0, 4 do
                 local bagList = {}
@@ -5368,7 +5368,7 @@ function EUI_Bags:RefreshInventory()
             reagHdr:SetWidth(columns * (SLOT_SIZE + SPACING))
             local reagFilled = 0
             for _, d in ipairs(reagentSlotList) do if d.info then reagFilled = reagFilled + 1 end end
-            reagHdr._label:SetText("Reagent Bag (" .. reagFilled .. " / " .. #reagentSlotList .. ")")
+            reagHdr._label:SetText(EllesmereUI.Lf("Reagent Bag (%d / %d)", reagFilled, #reagentSlotList))
             reagHdr:Show()
             curY = curY - 22
 
@@ -5463,10 +5463,10 @@ function EUI_Bags:RefreshInventory()
             local showTips = BP().bagShowPinRecentTips ~= false
             if showPinAdd and showTips then
                 hdr._label:SetText(sectionName)
-                hdr._hint:SetText("(Middle Click to Add or Remove)")
+                hdr._hint:SetText(EllesmereUI.L("(Middle Click to Add or Remove)"))
             elseif alwaysShow and showTips then
                 hdr._label:SetText(sectionName)
-                hdr._hint:SetText("(Extra quickview display, your items are also in their category)")
+                hdr._hint:SetText(EllesmereUI.L("(Extra quickview display, your items are also in their category)"))
             else
                 hdr._label:SetText(sectionName .. " (" .. itemCount .. ")")
                 hdr._hint:SetText("")
@@ -5479,7 +5479,7 @@ function EUI_Bags:RefreshInventory()
                     hb._fs = hb:CreateFontString(nil, "OVERLAY")
                     SetBagFont(hb._fs, 9)
                     hb._fs:SetAllPoints()
-                    hb._fs:SetText("Hide")
+                    hb._fs:SetText(EllesmereUI.L("Hide"))
                     hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
                     hb:SetScript("OnEnter", function(self)
                         self._fs:SetTextColor(1, 1, 1, 0.9)
@@ -5671,7 +5671,7 @@ function EUI_Bags:RefreshInventory()
                         end
                     end
                     if #recentItems > 0 then recentItems = MergeDuplicates(recentItems) end
-                    RenderSection("Recent Items", recentItems, false, false, true)
+                    RenderSection(EllesmereUI.L("Recent Items"), recentItems, false, false, true)
                 end
             elseif cat.groupName then
                 if not renderedGroups[cat.groupName] then
@@ -5814,7 +5814,7 @@ function EUI_Bags:RefreshInventory()
                     delBtn._fs = delBtn:CreateFontString(nil, "OVERLAY")
                     SetBagFont(delBtn._fs, 10)
                     delBtn._fs:SetPoint("RIGHT", ef, "RIGHT", 0, 0)
-                    delBtn._fs:SetText("Delete")
+                    delBtn._fs:SetText(EllesmereUI.L("Delete"))
                     delBtn._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
                     delBtn:SetWidth(delBtn._fs:GetStringWidth() + 4)
                     delBtn:SetAllPoints(delBtn._fs)
@@ -5851,7 +5851,7 @@ function EUI_Bags:RefreshInventory()
                     editBtn._fs = editBtn:CreateFontString(nil, "OVERLAY")
                     SetBagFont(editBtn._fs, 10)
                     editBtn._fs:SetPoint("RIGHT", divider, "LEFT", -6, 0)
-                    editBtn._fs:SetText("Edit")
+                    editBtn._fs:SetText(EllesmereUI.L("Edit"))
                     editBtn._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
                     editBtn:SetWidth(editBtn._fs:GetStringWidth() + 4)
                     editBtn:SetAllPoints(editBtn._fs)
@@ -5904,10 +5904,10 @@ function EUI_Bags:RefreshInventory()
                 local showTips = BP().bagShowPinRecentTips ~= false
                 if selCat and selCat.isPinned and showTips then
                     hdr._label:SetText(headerName)
-                    hdr._hint:SetText("(Middle Click to Add or Remove)")
+                    hdr._hint:SetText(EllesmereUI.L("(Middle Click to Add or Remove)"))
                 elseif selCat and selCat.isRecent and showTips then
                     hdr._label:SetText(headerName)
-                    hdr._hint:SetText("(Extra quickview display, your items are also in their category)")
+                    hdr._hint:SetText(EllesmereUI.L("(Extra quickview display, your items are also in their category)"))
                 else
                     hdr._label:SetText(headerName .. " (" .. #displayItems .. ")")
                     hdr._hint:SetText("")
@@ -5995,9 +5995,9 @@ function EUI_Bags:RefreshInventory()
     if EUI_Bags.Header and EUI_Bags.Header.itemCount then
         if selectedCategoryIndex == 0 or selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then
             local totalSlots = totalCount + #emptySlots
-            EUI_Bags.Header.itemCount:SetText(totalCount .. " / " .. totalSlots .. " Items")
+            EUI_Bags.Header.itemCount:SetText(EllesmereUI.Lf("%d / %d Items", totalCount, totalSlots))
         else
-            EUI_Bags.Header.itemCount:SetText(totalCount .. " Items")
+            EUI_Bags.Header.itemCount:SetText(EllesmereUI.Lf("%d Items", totalCount))
         end
     end
 

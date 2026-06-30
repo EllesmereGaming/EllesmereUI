@@ -223,7 +223,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 4: Timestamps | (empty)
+        -- Row 4: Timestamps | Extend Background Behind Tabs
         do
             local tsValues = {
                 ["__blizzard"]  = { text = "Use Blizzard Setting" },
@@ -248,7 +248,19 @@ initFrame:SetScript("OnEvent", function(self)
                       Set("timestampFormat", v)
                       if ECHAT.ApplyTimestampCVar then ECHAT.ApplyTimestampCVar() end
                   end },
-                { type="label", text="" })
+                { type="toggle", text="Extend Background Behind Tabs",
+                  tooltip="Extends the chat background up behind the tabs, and the sidebar to match, for one seamless panel.",
+                  getValue=function() return Cfg("extendBgBehindTabs") or false end,
+                  setValue=function(v)
+                      Set("extendBgBehindTabs", v)
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Reload Required",
+                          message     = "A UI reload is needed to apply the extended chat background.",
+                          confirmText = "Reload Now",
+                          cancelText  = "Later",
+                          onConfirm   = function() ReloadUI() end,
+                      })
+                  end })
         end
         y = y - h
 
@@ -526,31 +538,37 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h ]]
 
-        -- Row 1 (active): Hide Tooltip on Hover | (empty)
+        -- Row 1: Hide Tooltip on Hover | Hide Borders
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Hide Tooltip on Hover",
               getValue=function() return Cfg("hideTooltipOnHover") or false end,
               setValue=function(v) Set("hideTooltipOnHover", v) end },
-            { type="label", text="" })
-        y = y - h
-
-        -- Row 2: Hide Borders | Input on Top
-        _, h = W:DualRow(parent, y,
             { type="toggle", text="Hide Borders",
               getValue=function() return Cfg("hideBorders") or false end,
               setValue=function(v)
                   Set("hideBorders", v)
                   if ECHAT.ApplyBorders then ECHAT.ApplyBorders() end
-              end },
+              end })
+        y = y - h
+
+        -- Row 2: Input on Top | Lock Main Chat Size
+        _, h = W:DualRow(parent, y,
             { type="toggle", text="Input on Top",
               getValue=function() return Cfg("inputOnTop") or false end,
               setValue=function(v)
                   Set("inputOnTop", v)
                   if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
+              end },
+            { type="toggle", text="Lock Main Chat Size",
+              tooltip="Hides the resize handle on the main chat frame, preventing accidental resizing.",
+              getValue=function() return Cfg("lockChatSize") or false end,
+              setValue=function(v)
+                  Set("lockChatSize", v)
+                  if ECHAT.ApplyLockChatSize then ECHAT.ApplyLockChatSize() end
               end })
         y = y - h
 
-        -- Row 3: Lock Main Chat Size | Whisper Sound
+        -- Row 3: Whisper Sound | (empty)
         -- Sound dropdown: shallow-copy the runtime tables so _menuOpts
         -- (preview icon) doesn't pollute the shared tables.
         local whisperSoundValues = {}
@@ -577,19 +595,12 @@ initFrame:SetScript("OnEvent", function(self)
             end,
             iconTooltip = function() return "Preview Sound" end,
         }
-        local whisperSoundRow
-        whisperSoundRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Lock Main Chat Size",
-              tooltip="Hides the resize handle on the main chat frame, preventing accidental resizing.",
-              getValue=function() return Cfg("lockChatSize") or false end,
-              setValue=function(v)
-                  Set("lockChatSize", v)
-                  if ECHAT.ApplyLockChatSize then ECHAT.ApplyLockChatSize() end
-              end },
+        _, h = W:DualRow(parent, y,
             { type="dropdown", text="Whisper Sound",
               values=whisperSoundValues, order=whisperSoundOrder,
               getValue=function() return Cfg("whisperSoundKey") or "none" end,
-              setValue=function(v) Set("whisperSoundKey", v) end })
+              setValue=function(v) Set("whisperSoundKey", v) end },
+            { type="label", text="" })
         y = y - h
 
         return math.abs(y)

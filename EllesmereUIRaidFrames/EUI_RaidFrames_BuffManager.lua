@@ -90,8 +90,8 @@ local ORIENT_VALUES = { HORIZONTAL = "Horizontal", VERTICAL = "Vertical" }
 local ORIENT_ORDER = { "HORIZONTAL", "VERTICAL" }
 
 -- Show when mode (for frame effects)
-local SHOW_WHEN_VALUES = { present = "When Present", missing = "When Missing" }
-local SHOW_WHEN_ORDER = { "present", "missing" }
+local SHOW_WHEN_VALUES = { present = "When Any Present", allPresent = "When All Present", anyMissing = "When Any Missing", missing = "When All Missing" }
+local SHOW_WHEN_ORDER = { "present", "allPresent", "anyMissing", "missing" }
 
 -- Indicator frame level (layering relative to the unit button). For Icon/Square
 -- the indicator's own border sits at base + 1 and its count/duration text carrier
@@ -947,7 +947,63 @@ local C_DurationUtil = C_DurationUtil
 
 local C_UnitAuras_GetAuraDuration = C_UnitAuras.GetAuraDuration
 
-local function ApplyBarDrain(bar, unit, auraInstanceID, duration, expirationTime)
+-- Max Duration override (per-indicator): rescale the buff's swipe / bar fill to a
+-- fixed baseline instead of its actual duration. Active only when the toggle is on
+-- AND a positive number was entered (blank = off). Returns M (seconds) or nil.
+local function BM_EffectiveMaxDur(ind)
+    if not ind or not ind.maxDurationEnabled then return nil end
+    local m = tonumber(ind.maxDuration)
+    if not m or m <= 0 then return nil end
+    return m
+end
+ns.BM_EffectiveMaxDur = BM_EffectiveMaxDur
+
+-- Bar Max-Duration self-drain. Blizzard's GPU-smooth SetTimerDuration takes no
+-- custom max, so an overridden bar is drained here instead: one shared OnUpdate
+-- (hidden when idle) sets each registered bar's fill to clamp(remaining / M, 0, 1).
+-- Only overridden bars register, so it costs nothing for everyone else.
+local barMaxDurActive = setmetatable({}, { __mode = "k" })  -- [bar] = { exp, m }
+local barMaxDurTicker = CreateFrame("Frame")
+barMaxDurTicker:Hide()
+barMaxDurTicker:SetScript("OnUpdate", function()
+    local now = GetTime()
+    local anyActive = false
+    for bar, st in pairs(barMaxDurActive) do
+        if not bar:IsShown() then
+            barMaxDurActive[bar] = nil
+        else
+            anyActive = true
+            local frac = (st.exp - now) / st.m
+            if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
+            bar:SetValue(frac)
+        end
+    end
+    if not anyActive then barMaxDurTicker:Hide() end
+end)
+local function RegisterBarMaxDur(bar, exp, m)
+    local st = barMaxDurActive[bar]
+    if not st then st = {}; barMaxDurActive[bar] = st end
+    st.exp, st.m = exp, m
+    barMaxDurTicker:Show()
+end
+local function UnregisterBarMaxDur(bar)
+    barMaxDurActive[bar] = nil
+end
+
+local function ApplyBarDrain(bar, unit, auraInstanceID, duration, expirationTime, maxDur)
+    -- Max Duration override: scale the fill to the fixed baseline (still ends at
+    -- the real expiration). Needs a clean expirationTime; self-drained via the
+    -- ticker above. A buff applied at < M starts partly drained; one longer than
+    -- M shows full until it drops below M (the clamp).
+    if maxDur and expirationTime and not issecretvalue(expirationTime) and expirationTime > 0 then
+        bar:SetMinMaxValues(0, 1)
+        local frac = (expirationTime - GetTime()) / maxDur
+        if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
+        bar:SetValue(frac)
+        RegisterBarMaxDur(bar, expirationTime, maxDur)
+        return
+    end
+    UnregisterBarMaxDur(bar)
     -- Preferred: native Duration object from C_UnitAuras (GPU-side smooth drain)
     if auraInstanceID and not issecretvalue(auraInstanceID) and C_UnitAuras_GetAuraDuration and bar.SetTimerDuration then
         local durObj = C_UnitAuras_GetAuraDuration(unit, auraInstanceID)
@@ -1759,14 +1815,16 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                             local bgc = ind.barBgColor or { r=0, g=0, b=0 }
                             bar._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (ind.barBgOpacity or 50) / 100)
                         end
-                        -- Duration fill (smooth drain via native SetTimerDuration)
+                        -- Duration fill (smooth drain via native SetTimerDuration,
+                        -- or a fixed-baseline self-drain when Max Duration is set)
                         local dur = aura.duration
                         local exp = aura.expirationTime
                         local iid = aura.auraInstanceID
+                        local maxDur = BM_EffectiveMaxDur(ind)
                         if dur and exp and not issecretvalue(dur) and not issecretvalue(exp) and dur > 0 then
-                            ApplyBarDrain(bar, unit, iid, dur, exp)
+                            ApplyBarDrain(bar, unit, iid, dur, exp, maxDur)
                         else
-                            ApplyBarDrain(bar, unit, iid, nil, nil)
+                            ApplyBarDrain(bar, unit, iid, nil, nil, maxDur)
                         end
                         -- Threshold "expiring" recolor (secret-safe curve + ticker).
                         -- While enabled the ticker owns the bar color and reverts to
@@ -2015,7 +2073,18 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                                     local applied = false
                                     local iid = aura.auraInstanceID
                                     local cdBaseA = hideIcon and 1 or iconAlpha
-                                    if iid and not issecretvalue(iid) and C_UnitAuras.GetAuraDuration then
+                                    local mdMax = BM_EffectiveMaxDur(ind)
+                                    local mdExp = aura.expirationTime
+                                    if mdMax and mdExp and not issecretvalue(mdExp) and mdExp > 0 then
+                                        -- Max Duration override: scale the swipe to the fixed
+                                        -- baseline (still ends at the real expiration). A buff
+                                        -- applied at < M shows a partly-drained swipe from the
+                                        -- start; one longer than M shows full until it drops
+                                        -- below M.
+                                        f._cooldown:SetCooldown(mdExp - mdMax, mdMax)
+                                        f._cooldown:SetAlpha(cdBaseA)
+                                        applied = true
+                                    elseif iid and not issecretvalue(iid) and C_UnitAuras.GetAuraDuration then
                                         local durObj = C_UnitAuras.GetAuraDuration(unit, iid)
                                         if durObj then
                                             f._cooldown:SetCooldownFromDurationObject(durObj)
@@ -2087,15 +2156,19 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
         else
             -- Frame effects
             local anyPresent = false
+            local allPresent = #ind.spells > 0
             local presentAura = nil
             for _, sid in ipairs(ind.spells) do
                 local a = GetAura(sid)
-                if a then anyPresent = true; presentAura = a; break end
+                if a then anyPresent = true; presentAura = presentAura or a
+                else allPresent = false end
             end
 
             local showWhen = ind.showWhen or "present"
             local shouldShow = (showWhen == "present" and anyPresent)
                             or (showWhen == "missing" and not anyPresent)
+                            or (showWhen == "allPresent" and allPresent)
+                            or (showWhen == "anyMissing" and not allPresent)
 
             -- Threshold drives off the first present tracked aura (present mode
             -- only -- a missing aura has no remaining time to watch). Secret-safe.
@@ -5101,6 +5174,25 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 rgn._lastInline = prev
             end
 
+            -- Max Duration: rescale the cooldown swipe to a fixed baseline (input =
+            -- seconds) so buffs applied at varying durations are comparable. Inline
+            -- toggle enables it; off by default, and off until a number is entered.
+            local mdRow = SettingsRow(
+                { type="input", text="Max Duration", inputWidth=56,
+                  getValue=function() return ind.maxDuration and tostring(ind.maxDuration) or "" end,
+                  setValue=function(txt)
+                      local n = tonumber(txt)
+                      ind.maxDuration = (n and n > 0) and n or nil
+                      ReloadAndUpdate()
+                  end },
+                { type="label", text="" })
+            EllesmereUI.BuildInlineToggle({
+                region = mdRow._leftRegion,
+                getValue = function() return ind.maxDurationEnabled == true end,
+                setValue = function(v) ind.maxDurationEnabled = v end,
+                onToggle = function() ReloadAndUpdate() end,
+            })
+
             -- THRESHOLD section (Enable, seconds, color, opacity)
             BuildThresholdRow(false)
 
@@ -5285,6 +5377,25 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     bgSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                     rgn._lastInline = bgSwatch
                 end
+
+                -- Max Duration: rescale the bar fill to a fixed baseline (input =
+                -- seconds) so buffs applied at varying durations are comparable.
+                -- Inline toggle enables it; off by default, off until a number is set.
+                local mdRow = SettingsRow(
+                    { type="input", text="Max Duration", inputWidth=56,
+                      getValue=function() return ind.maxDuration and tostring(ind.maxDuration) or "" end,
+                      setValue=function(txt)
+                          local n = tonumber(txt)
+                          ind.maxDuration = (n and n > 0) and n or nil
+                          ReloadAndUpdate()
+                      end },
+                    { type="label", text="" })
+                EllesmereUI.BuildInlineToggle({
+                    region = mdRow._leftRegion,
+                    getValue = function() return ind.maxDurationEnabled == true end,
+                    setValue = function(v) ind.maxDurationEnabled = v end,
+                    onToggle = function() ReloadAndUpdate() end,
+                })
 
                 -- THRESHOLD section (Enable, seconds, color, opacity)
                 BuildThresholdRow(false)

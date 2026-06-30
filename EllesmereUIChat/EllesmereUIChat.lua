@@ -47,6 +47,7 @@ local CHAT_DEFAULTS = {
             tabFontSize = 10,
             sidebarVisibility = "always",
             hideBorders = false,
+            extendBgBehindTabs = false,
             forceOnScreen = false,
             showFriends = true,
             showCopy = true,
@@ -150,6 +151,11 @@ local _chatAlphaCurrent = 1
 local _chatFadeFrame = CreateFrame("Frame")
 _chatFadeFrame:Hide()
 
+-- Height of the tab strip (GeneralDockManager dockH, set in StyleDockManager).
+-- Used by the "Extend Background Behind Tabs" feature to size the strip behind
+-- the tabs and to shift the sidebar icon chain up by the same amount.
+local TAB_STRIP_H = 24
+
 -- Batch cursor check: reads cursor position once, tests a frame using
 -- pre-fetched raw cursor coords. Avoids repeated GetCursorPosition calls.
 local _rawCX, _rawCY = 0, 0
@@ -213,6 +219,98 @@ function ECHAT.ApplyBackground()
         local sbBg = CFD(cf1).sidebar:GetRegions()
         if sbBg and sbBg.SetColorTexture then
             sbBg:SetColorTexture(BG_R, BG_G, BG_B, BG_A)
+        end
+    end
+    -- Keep the behind-tabs extension in sync with the new color/opacity.
+    if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
+end
+
+-- Extend the chat background up behind the tab strip (and the sidebar by the
+-- same amount) so the tabs sit on one continuous panel instead of floating over
+-- empty space. Opt-in via cfg.extendBgBehindTabs (default off, reload on toggle).
+--
+-- This only ever creates OUR OWN frames -- it never touches a Blizzard tab or
+-- the GeneralDockManager -- so it stays completely taint free. The strip height
+-- matches the dock height so it lines up pixel-for-pixel with the tab bar.
+--
+-- The chat strip is ONE frame parented to UIParent (not to a chat frame) and
+-- pinned to ChatFrame1's bg top. UIParent parenting keeps it visible when you
+-- switch docked tabs (a per-frame child would vanish with its hidden frame), and
+-- a BACKGROUND strata keeps it BEHIND the tabs. Because it does not inherit a
+-- chat frame's alpha, _ApplyAlpha fades it directly.
+function ECHAT.ApplyExtendedBackground()
+    local cfg = ECHAT.DB()
+    local extend = cfg.extendBgBehindTabs == true
+    local cf1 = _G.ChatFrame1
+    local d1 = cf1 and CFD(cf1)
+    local bg1 = d1 and d1.bg
+    if not bg1 then return end
+
+    local ext = ns._chatBgExt
+    if extend and not ext then
+        ext = CreateFrame("Frame", nil, UIParent)
+        ext:SetPoint("BOTTOMLEFT", bg1, "TOPLEFT", 0, 0)
+        ext:SetPoint("BOTTOMRIGHT", bg1, "TOPRIGHT", 0, 0)
+        ext:SetHeight(TAB_STRIP_H)
+        local t = ext:CreateTexture(nil, "BACKGROUND")
+        t._euiOwned = true
+        t:SetAllPoints()
+        ns._chatBgExt = ext
+        ns._chatBgExtTex = t
+    end
+    if ext then
+        if ns._chatBgExtTex then ns._chatBgExtTex:SetColorTexture(BG_R, BG_G, BG_B, BG_A) end
+        -- Sit at the very bottom of the UI so the tabs (and their own dark
+        -- backgrounds) always render in front of this strip. BACKGROUND is still
+        -- above the 3D world, and the strip never overlaps the chat text or the
+        -- sidebar, so dropping this low has no other visual side effects.
+        ext:SetFrameStrata("BACKGROUND")
+        ext:SetFrameLevel(0)
+        if _chatAlphaCurrent then ext:SetAlpha(_chatAlphaCurrent) end
+        ext:SetShown(extend)
+    end
+
+    -- Sidebar (ChatFrame1 only): a matching strip above the sidebar, plus a 1px
+    -- divider continuation so the sidebar/chat hairline runs the full height. The
+    -- sidebar is always visible and fades on its own, so this can stay a child of
+    -- it (rendered behind the icons via the sidebar's own frame level).
+    local sb = d1.sidebar
+    if sb then
+        local showSb = extend and not cfg.hideSidebarBg
+        local sext = d1.sidebarExt
+        if showSb and not sext then
+            sext = CreateFrame("Frame", nil, sb)
+            sext:SetPoint("BOTTOMLEFT", sb, "TOPLEFT", 0, 0)
+            sext:SetPoint("BOTTOMRIGHT", sb, "TOPRIGHT", 0, 0)
+            sext:SetHeight(TAB_STRIP_H)
+            sext:SetFrameLevel(sb:GetFrameLevel())
+            local t = sext:CreateTexture(nil, "BACKGROUND")
+            t._euiOwned = true
+            t:SetAllPoints()
+            local div = sext:CreateTexture(nil, "OVERLAY", nil, 7)
+            div._euiOwned = true
+            div:SetWidth((PP and PP.mult) or 1)
+            div:SetColorTexture(1, 1, 1, 0.06)
+            if PP and PP.DisablePixelSnap then PP.DisablePixelSnap(div) end
+            d1.sidebarExt = sext
+            d1.sidebarExtTex = t
+            d1.sidebarExtDiv = div
+        end
+        if sext then
+            if d1.sidebarExtTex then d1.sidebarExtTex:SetColorTexture(BG_R, BG_G, BG_B, BG_A) end
+            local div = d1.sidebarExtDiv
+            if div then
+                div:ClearAllPoints()
+                if cfg.sidebarRight then
+                    div:SetPoint("TOPLEFT", sext, "TOPLEFT", 0, 0)
+                    div:SetPoint("BOTTOMLEFT", sext, "BOTTOMLEFT", 0, 0)
+                else
+                    div:SetPoint("TOPRIGHT", sext, "TOPRIGHT", 0, 0)
+                    div:SetPoint("BOTTOMRIGHT", sext, "BOTTOMRIGHT", 0, 0)
+                end
+                div:SetShown(not cfg.hideBorders)
+            end
+            sext:SetShown(showSb)
         end
     end
 end
@@ -312,6 +410,8 @@ function ECHAT.ApplyBorders()
             CFD(cf1).sidebarDiv:SetShown(not hide)
         end
     end
+    -- Mirror border visibility onto the behind-tabs divider continuation.
+    if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
 end
 
 -- Show/hide individual sidebar icons and re-anchor visible ones to close gaps
@@ -322,6 +422,9 @@ function ECHAT.ApplySidebarIcons()
     if not sb then return end
 
     local ICON_GAP = cfg.sidebarIconSpacing or 10
+    -- Shift the chain up by the tab-strip height when the background is extended
+    -- (and free-move is off). Matches the offset applied at icon creation time.
+    local iconTopShift = (cfg.extendBgBehindTabs and not cfg.freeMoveIcons) and TAB_STRIP_H or 0
     local showFriends = cfg.showFriends ~= false
     local showCopy = cfg.showCopy ~= false
     local showPortals = cfg.showPortals ~= false
@@ -333,7 +436,7 @@ function ECHAT.ApplySidebarIcons()
         CFD(cf1).friendsBtn:SetShown(showFriends)
         if showFriends then
             CFD(cf1).friendsBtn:ClearAllPoints()
-            CFD(cf1).friendsBtn:SetPoint("TOP", sb, "TOP", 0, -ICON_GAP)
+            CFD(cf1).friendsBtn:SetPoint("TOP", sb, "TOP", 0, -ICON_GAP + iconTopShift)
         end
     end
     if CFD(cf1).friendsCount then CFD(cf1).friendsCount:SetShown(showFriends) end
@@ -370,7 +473,7 @@ function ECHAT.ApplySidebarIcons()
         if anchor then
             entry.btn:SetPoint("TOP", anchor, "BOTTOM", 0, -ICON_GAP)
         else
-            entry.btn:SetPoint("TOP", sb, "TOP", 0, -ICON_GAP)
+            entry.btn:SetPoint("TOP", sb, "TOP", 0, -ICON_GAP + iconTopShift)
         end
         entry.btn:Show()
         anchor = entry.btn
@@ -488,6 +591,8 @@ function ECHAT.ApplySidebarPosition()
         end
     end
 
+    -- Re-place the behind-tabs divider continuation onto the new edge.
+    if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
 end
 
 -- Apply icon color to all sidebar icons
@@ -559,6 +664,8 @@ function ECHAT.ApplySidebarBackground()
     if PP.GetBorders(sb) then
         PP.GetBorders(sb):SetShown(show)
     end
+    -- Hide the sidebar extension too when the sidebar background is hidden.
+    if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
 end
 
 -- Scale sidebar icon buttons and friends count text
@@ -1258,6 +1365,9 @@ local function _ApplyAlpha(alpha)
     -- Active underline: single tracked ref instead of 20-tab loop
     local ul = ns._activeUnderline
     if ul and ul:IsShown() then ul:SetAlpha(alpha) end
+    -- Behind-tabs background extension (UIParent-parented, so it does not inherit
+    -- the chat frame alpha -- fade it directly alongside the chat).
+    if ns._chatBgExt then ns._chatBgExt:SetAlpha(alpha) end
     -- Sidebar (mode cached at build time)
     local sb = _alphaFrames._sidebar
     if sb then
@@ -1964,9 +2074,12 @@ local function SkinEditBox(cf)
     eb:SetPoint("TOPRIGHT", cf, "BOTTOMRIGHT", 5, -8)
     eb:SetHeight(23)
 
-    -- Font
+    -- Font: use the SAME outline as the chat frames + ECHAT.ApplyFonts (which
+    -- reads GetOutlineFlag too), so the input box always matches the rest of
+    -- chat. Hardcoding "" here left it un-outlined (drop shadow showed through)
+    -- whenever the user picked an outline for chat.
     local ebSize = GetFrameFontSize(cf:GetID())
-    eb:SetFont(GetFont(), ebSize, "")
+    eb:SetFont(GetFont(), ebSize, GetOutlineFlag())
     eb:SetTextInsets(8, 8, 0, 0)
 
     -- Apply custom font to the header ("Say:", "Party:", etc.) and suffix.
@@ -1975,11 +2088,12 @@ local function SkinEditBox(cf)
     -- secure chain taints the execution context and blocks SendChatMessage.
     local function ApplyEditBoxHeaderFont(editBox)
         local sz = GetFrameFontSize(editBox:GetParent():GetID())
+        local ol = GetOutlineFlag()
         if editBox.header then
-            editBox.header:SetFont(GetFont(), sz, "")
+            editBox.header:SetFont(GetFont(), sz, ol)
         end
         if editBox.headerSuffix then
-            editBox.headerSuffix:SetFont(GetFont(), sz, "")
+            editBox.headerSuffix:SetFont(GetFont(), sz, ol)
         end
     end
     ApplyEditBoxHeaderFont(eb)
@@ -2161,12 +2275,19 @@ local function SkinChatFrame(cf)
         local showSettings = icfg.showSettings ~= false
         local iconOrder    = icfg.sidebarIconOrder or {}
 
+        -- When the background is extended behind the tabs, the sidebar panel
+        -- grows upward by the tab-strip height. Shift the (chain-anchored) icons
+        -- up the same amount so the top icon keeps its gap from the new top edge.
+        -- Skipped when free-move is on -- those icons are user-positioned, not
+        -- chained, so they stay exactly where the user dropped them.
+        local iconTopShift = (icfg.extendBgBehindTabs and not icfg.freeMoveIcons) and TAB_STRIP_H or 0
+
         -- Friends + count (always first when enabled)
         local anchor = nil
         local friendsBtn, friendsCount, copyBtn, portalBtn, voiceBtn, settingsBtn
 
         if showFriends then
-            friendsBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_friends.png", nil, "TOP", -ICON_SPACING)
+            friendsBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_friends.png", nil, "TOP", -ICON_SPACING + iconTopShift)
             friendsBtn:SetSize(26, 26)
 
             friendsCount = sidebar:CreateFontString(nil, "OVERLAY")
@@ -2225,7 +2346,7 @@ local function SkinChatFrame(cf)
                 if anchor then
                     btn:SetPoint("TOP", anchor, "BOTTOM", 0, -ICON_SPACING)
                 else
-                    btn:SetPoint("TOP", sidebar, "TOP", 0, -ICON_SPACING)
+                    btn:SetPoint("TOP", sidebar, "TOP", 0, -ICON_SPACING + iconTopShift)
                 end
                 anchor = btn
                 middleBtns[info.key] = btn

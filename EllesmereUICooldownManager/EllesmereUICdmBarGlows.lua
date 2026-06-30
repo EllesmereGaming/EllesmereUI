@@ -308,3 +308,98 @@ ns.RequestUpdate = ns.RequestBarGlowUpdate
 function ns.InitBarGlows()
     SetupOverlays()
 end
+
+-------------------------------------------------------------------------------
+--  Debug: /euibgdebug [spellID]
+--  Diagnoses why a bar glow does/doesn't fire. Run WHILE the buff in question
+--  is active (e.g. a pet-summon "buff" Blizzard shows on the CDM). Dumps:
+--    1. bar glow assignments (the spellID each glow watches)
+--    2. ns._tickBlizzActiveCache (the spellIDs we currently consider "active")
+--    3. every live overlay + its last glow decision
+--    4. every ACTIVE CDM viewer frame's state -- the key comparison is whether
+--       Blizzard set the AURA flags (wasSetFromAura / auraInstanceID, which our
+--       cache keys off) versus only a COOLDOWN/duration. Pet-summon "buffs" are
+--       suspected to show via the cooldown, not an aura, so they never land in
+--       the cache. The dump makes that visible.
+-------------------------------------------------------------------------------
+local function _sname(id) return (id and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)) or "?" end
+local function _safe(v)
+    if issecretvalue and issecretvalue(v) then return "<secret>" end
+    return tostring(v)
+end
+
+SLASH_EUIBGDEBUG1 = "/euibgdebug"
+SlashCmdList.EUIBGDEBUG = function(msg)
+    local focus = tonumber(msg)
+    print("|cff00ccff== EUI Bar Glow Debug ==|r" .. (focus and (" focus spellID=" .. focus .. " (" .. _sname(focus) .. ")") or ""))
+
+    -- 1. Assignments
+    local bg = ns.GetBarGlows()
+    print(("|cffffd200Assignments|r (enabled=%s):"):format(tostring(bg and bg.enabled)))
+    if bg and bg.assignments then
+        for key, list in pairs(bg.assignments) do
+            if type(list) == "table" then
+                for i = 1, #list do
+                    local e = list[i]
+                    print(("  [%s#%d] spellID=%s (%s) mode=%s"):format(
+                        key, i, tostring(e.spellID), _sname(e.spellID), tostring(e.mode or "ACTIVE")))
+                end
+            end
+        end
+    end
+
+    -- 2. Active cache (what we think is up right now)
+    local cache = ns._tickBlizzActiveCache or {}
+    print("|cffffd200_tickBlizzActiveCache (active spellIDs):|r")
+    local any = false
+    for sid in pairs(cache) do
+        any = true
+        local mark = (focus and sid == focus) and "  <-- FOCUS" or ""
+        print(("  %s (%s)%s"):format(tostring(sid), _sname(sid), mark))
+    end
+    if not any then print("  (empty)") end
+
+    -- 3. Live overlays + last glow decision
+    print("|cffffd200Overlays:|r")
+    for key, overlay in pairs(overlayFrames) do
+        local e = overlay._assignEntry
+        print(("  %s shown=%s sid=%s lastGlow=%s"):format(
+            key, tostring(overlay:IsShown()), tostring(e and e.spellID), tostring(lastStates[key])))
+    end
+
+    -- 4. Walk the 4 CDM viewers; dump each ACTIVE frame's active-state signals.
+    local viewers = { "EssentialCooldownViewer", "UtilityCooldownViewer", "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
+    for _, vn in ipairs(viewers) do
+        local vf = _G[vn]
+        if vf and vf.itemFramePool and vf.itemFramePool.EnumerateActive then
+            for frame in vf.itemFramePool:EnumerateActive() do
+                local cdID = frame.cooldownID or (frame.cooldownInfo and frame.cooldownInfo.cooldownID)
+                local sid, baseSid = ns.ResolveFrameSpellID(frame)
+                if (not focus) or sid == focus or baseSid == focus then
+                    print(("|cff88ff88[%s]|r cdID=%s sid=%s base=%s (%s)"):format(
+                        vn, tostring(cdID), tostring(sid), tostring(baseSid), _sname(sid)))
+                    -- THE aura flags our cache keys off:
+                    print(("    AURA: wasSetFromAura=%s auraInstanceID=%s  shown=%s"):format(
+                        _safe(frame.wasSetFromAura), _safe(frame.auraInstanceID), tostring(frame:IsShown())))
+                    -- COOLDOWN/duration: pet-summons may show "active" only via this.
+                    if frame.Cooldown and frame.Cooldown.GetCooldownTimes then
+                        local ok, s, d = pcall(frame.Cooldown.GetCooldownTimes, frame.Cooldown)
+                        if ok then print(("    COOLDOWN: start=%s dur=%s"):format(_safe(s), _safe(d))) end
+                    end
+                    -- Blizzard cooldown-info struct (hasAura / isBuff / linked etc.)
+                    if cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+                        local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
+                        if info then
+                            local parts = {}
+                            for k, v in pairs(info) do
+                                if type(v) ~= "table" then parts[#parts + 1] = k .. "=" .. _safe(v) end
+                            end
+                            print("    INFO: " .. table.concat(parts, " "))
+                        end
+                    end
+                end
+            end
+        end
+    end
+    print("|cff00ccff== end ==|r")
+end

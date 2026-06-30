@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Lightweight quality of life tools and enhancements.
 ## Author: Ellesmere
-## Version: 8.3.3
+## Version: 8.3.5
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIQoLDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga

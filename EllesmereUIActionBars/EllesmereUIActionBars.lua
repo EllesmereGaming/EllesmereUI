@@ -5383,7 +5383,13 @@ function EAB:RefreshMouseover()
                     local blizzFrame = _G[info.frameName]
                     if blizzFrame then frame = blizzFrame end
                 end
-                if s.mouseoverEnabled then
+                if info.noManagedVisibility then
+                    -- Position-only Blizzard-owned eye (QueueStatus): EUI no longer
+                    -- controls its visibility, so never fade or alpha-hide it --
+                    -- force full opacity regardless of stale mouseover settings.
+                    StopFade(frame)
+                    frame:SetAlpha(1)
+                elseif s.mouseoverEnabled then
                     if info.isDataBar then
                         AttachDataBarHoverHooks(key)
                     end
@@ -8791,8 +8797,10 @@ function EAB:FinishSetup()
                             _dragState.strataCache[frame] = nil
                         end
                     end
-                    -- Fade back out if mouseover-enabled and not hovered
-                    if s.mouseoverEnabled then
+                    -- Fade back out if mouseover-enabled and not hovered. Skip
+                    -- position-only Blizzard-owned bars (the QueueStatus eye): EUI
+                    -- controls only their position, never fades them out.
+                    if s.mouseoverEnabled and not info.noManagedVisibility then
                         if not (state and state.isHovered) then
                             StopFade(frame)
                             FadeTo(frame, 0, s.mouseoverSpeed or 0.15)
@@ -10275,6 +10283,10 @@ end
 --  Reparents Blizzard frames into holder frames so unlock mode can position them.
 -------------------------------------------------------------------------------
 AttachExtraBarHoverHooks = function(info)
+    -- Position-only Blizzard-owned bars (the QueueStatus eye) never get mouseover
+    -- fade hooks -- EUI controls only their position now, not visibility. Without
+    -- this, a stale "mouseover" setting would fade the eye to alpha 0 on leave.
+    if info.noManagedVisibility then return end
     -- Idempotent: only attach once per bar key
     if hoverStates[info.key] then return end
 

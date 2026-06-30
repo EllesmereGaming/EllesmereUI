@@ -663,24 +663,34 @@ local function _unitInRange(u)
     return vis == true
 end
 
--- Returns true if any in-range group member is missing the buff.
-local function AnyGroupMemberMissingBuff(spellIDs)
-    if not IsInGroup() then return not _unitHasBuff("player", spellIDs) end
-    if _unitOk("player") and not _unitHasBuff("player", spellIDs) then return true end
+-- Returns true if any in-range group member who BENEFITS from the buff is
+-- missing it. `benefits` is an optional CLASS->true set (e.g. only int users
+-- for Arcane Intellect); nil means every class benefits. The class gate runs
+-- BEFORE the aura read so non-beneficiaries are skipped without scanning their
+-- auras -- a net win over the unfiltered scan. UnitClass's class token is
+-- non-secret for friendly group members.
+local function AnyGroupMemberMissingBuff(spellIDs, benefits)
+    local selfBenefits = not benefits or benefits[GetPlayerClass()]
+    if not IsInGroup() then return selfBenefits and not _unitHasBuff("player", spellIDs) end
+    if selfBenefits and _unitOk("player") and not _unitHasBuff("player", spellIDs) then return true end
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
             local u = "raid"..i
-            if _unitOk(u) and UnitIsPlayer(u) and not UnitIsUnit(u, "player")
-               and _unitInRange(u) and not _unitHasBuff(u, spellIDs) then
-                return true
+            if _unitOk(u) and UnitIsPlayer(u) and not UnitIsUnit(u, "player") and _unitInRange(u) then
+                local _, class = UnitClass(u)
+                if (not benefits or benefits[class]) and not _unitHasBuff(u, spellIDs) then
+                    return true
+                end
             end
         end
     else
         for i = 1, GetNumSubgroupMembers() do
             local u = "party"..i
-            if _unitOk(u) and UnitIsPlayer(u)
-               and _unitInRange(u) and not _unitHasBuff(u, spellIDs) then
-                return true
+            if _unitOk(u) and UnitIsPlayer(u) and _unitInRange(u) then
+                local _, class = UnitClass(u)
+                if (not benefits or benefits[class]) and not _unitHasBuff(u, spellIDs) then
+                    return true
+                end
             end
         end
     end
@@ -767,13 +777,31 @@ end
 
 
 -------------------------------------------------------------------------------
+--  Raid buff beneficiaries (class-level). Only Intellect and Attack Power are
+--  stat-restricted; the rest (versatility/stamina/skyfury/bronze) help everyone
+--  and use no filter. A class is listed if ANY of its specs wants the stat, so
+--  hybrids (Paladin/Monk/Druid/Shaman) appear in both -- this coarse fallback
+--  may slightly over-count those, never under-count.
+-------------------------------------------------------------------------------
+local BUFF_BENEFICIARIES = {
+    intellect = {
+        MAGE = true, WARLOCK = true, PRIEST = true, DRUID = true,
+        SHAMAN = true, MONK = true, EVOKER = true, PALADIN = true,
+    },
+    attackPower = {
+        WARRIOR = true, ROGUE = true, HUNTER = true, DEATHKNIGHT = true,
+        PALADIN = true, MONK = true, DRUID = true, DEMONHUNTER = true, SHAMAN = true,
+    },
+}
+
+-------------------------------------------------------------------------------
 --  SPELL DATA Raid Buffs (all non-secret in 12.0, work in combat)
 -------------------------------------------------------------------------------
 local RAID_BUFFS = {
     { key="motw",   class="DRUID",   name="Mark of the Wild",       castSpell=1126,   buffIDs={1126,432661},    check="raid" },
-    { key="bshout", class="WARRIOR", name="Battle Shout",           castSpell=6673,   buffIDs={6673},    check="raid" },
+    { key="bshout", class="WARRIOR", name="Battle Shout",           castSpell=6673,   buffIDs={6673},    check="raid", benefit="attackPower" },
     { key="fort",   class="PRIEST",  name="Power Word: Fortitude",  castSpell=21562,  buffIDs={21562},   check="raid" },
-    { key="ai",     class="MAGE",    name="Arcane Intellect",       castSpell=1459,   buffIDs={1459,432778},    check="raid" },
+    { key="ai",     class="MAGE",    name="Arcane Intellect",       castSpell=1459,   buffIDs={1459,432778},    check="raid", benefit="intellect" },
     { key="bronze", class="EVOKER",  name="Blessing of the Bronze", castSpell=364342,
       buffIDs={381732,381741,381746,381748,381749,381750,381751,381752,381753,381754,381756,381757,381758},
       check="raid" },
@@ -1996,7 +2024,7 @@ if inInstance or rb.showNonInstanced then
                 if buff.check == "huntersMark" then
                     isMissing = inCombat and _huntersMarkNeeded
                 elseif rb.showOthersMissing and buff.check == "raid" and (IsInGroup() or IsInRaid()) then
-                    isMissing = AnyGroupMemberMissingBuff(buff.buffIDs)
+                    isMissing = AnyGroupMemberMissingBuff(buff.buffIDs, buff.benefit and BUFF_BENEFICIARIES[buff.benefit])
                 else
                     isMissing = not PlayerHasAuraByID(buff.buffIDs)
                 end
@@ -2647,6 +2675,31 @@ local function Refresh()
                     e.label = "Felguard"
                     e.cat = "consumable"; e.scale = co.scale or 1.0
                     e.dismissKey = "consumable:wrong_pet"
+                    missing[#missing+1] = e
+                end
+            end
+            -- Pet on Passive: warn when an active pet is set to Passive stance.
+            -- Combat-safe: pet command state is not part of the secret system.
+            -- Skip while mounted: the pet is forced to Passive automatically.
+            if not suppress and co.enabled.pet_passive ~= false
+               and UnitExists("pet") and not UnitIsDead("pet")
+               and not IsMounted() then
+                local passiveActive, passiveTex, passiveIsToken
+                for i = 1, (NUM_PET_ACTION_SLOTS or 10) do
+                    local nm, tx, tok, active = GetPetActionInfo(i)
+                    if nm == "PET_MODE_PASSIVE" then
+                        if not isSecret(active) then passiveActive = (active == true) end
+                        passiveTex, passiveIsToken = tx, tok
+                        break
+                    end
+                end
+                if passiveActive then
+                    local e = AcquireEntry()
+                    e.mode = "texture"
+                    e.texture = (passiveIsToken and _G[passiveTex]) or passiveTex or petIcon
+                    e.label = PET_MODE_PASSIVE or "Passive"
+                    e.cat = "consumable"; e.scale = co.scale or 1.0
+                    e.dismissKey = "consumable:pet_passive"
                     missing[#missing+1] = e
                 end
             end
@@ -3792,6 +3845,11 @@ mainFrame:RegisterEvent("PLAYER_ALIVE")
 mainFrame:RegisterEvent("PLAYER_UNGHOST")
 mainFrame:RegisterEvent("BAG_UPDATE")
 mainFrame:RegisterUnitEvent("UNIT_PET", "player")
+-- UNIT_PET fires on pet summon/dismiss, NOT on a stance change. The Passive Pet
+-- Reminder reacts to the pet's command state (Passive/Defensive/Assist), which
+-- changes the pet action bar -- PET_BAR_UPDATE is the event for that. Without it
+-- the reminder only re-evaluated on the next unrelated refresh (e.g. a reload).
+mainFrame:RegisterEvent("PET_BAR_UPDATE")
 
 -------------------------------------------------------------------------------
 --  Ready Check Mana Warning

@@ -1665,6 +1665,21 @@ function EllesmereUI.GetTooltipBg()
     local a = (db and db.tooltipBgOpacity) or R.TT_ALPHA
     return r, g, b, a
 end
+-- Tooltip border: size + colour/opacity for the Blizzard tooltip reskin.
+-- Customizable in Blizz UI Enhanced > Blizzard Tooltip > Border. Defaults to the
+-- historical hardcoded look (white @ BRD_ALPHA, 1px) so unset = current look.
+-- Returns r, g, b, a, size. (0 is a valid size/component/opacity -- relies on
+-- Lua treating 0 as truthy, so the `or` fallbacks only fire on nil.)
+function EllesmereUI.GetTooltipBorder()
+    local db = EllesmereUIDB
+    local c = db and db.tooltipBorderColor
+    local r = (c and c.r) or 1
+    local g = (c and c.g) or 1
+    local b = (c and c.b) or 1
+    local a = (db and db.tooltipBorderOpacity) or EllesmereUI.RESKIN.BRD_ALPHA
+    local size = (db and db.tooltipBorderSize) or 1
+    return r, g, b, a, size
+end
 -- Layout
 EllesmereUI.DUAL_ITEM_W  = DUAL_ITEM_W
 EllesmereUI.DUAL_GAP     = DUAL_GAP
@@ -3078,6 +3093,8 @@ EllesmereUI.FONT_FILES = {
     ["Russo One"]           = "Russo One.ttf",
     ["Ubuntu"]              = "Ubuntu.ttf",
     ["Homespun"]            = "Homespun.ttf",
+    ["KMT Kimberley"]       = "KMT Kimberley.otf",
+    ["KMT Ninja Naruto"]    = "KMT Ninja Naruto.ttf",
     ["Friz Quadrata"]       = nil,  -- Blizzard font
     ["Arial"]               = nil,  -- Blizzard font
     ["Morpheus"]            = nil,  -- Blizzard font
@@ -3096,6 +3113,7 @@ EllesmereUI.FONT_ORDER = {
     "Arial Narrow", "Changa", "Cinzel Decorative", "Exo",
     "Fira Sans Bold", "Fira Sans Light", "Future X Black",
     "Gotham Narrow Ultra", "Gotham Narrow", "Russo One", "Ubuntu", "Homespun",
+    "KMT Kimberley", "KMT Ninja Naruto",
     "Friz Quadrata", "Arial", "Morpheus", "Skurri",
 }
 -- Display name overrides for the font dropdown (key = FONT_ORDER name)
@@ -3388,6 +3406,69 @@ function EllesmereUI.ApplyGlobalFontToGameText()
             local _, size, flags = obj:GetFont()
             if size and size > 0 then obj:SetFont(path, size, flags) end
         end
+    end
+end
+
+-- Module-scoped font failsafe (always on, independent of "Apply to All Game
+-- Text"). Three enhanced areas style their text per-frame -- Chat, the Quest
+-- Tracker, and the Blizzard-UI-Enhanced tooltips -- but some sub-elements draw
+-- their font from Blizzard's SHARED font OBJECTS rather than a fontstring we
+-- explicitly touch, so per-frame styling leaves those stragglers on the default
+-- face. Swapping the area's font objects to the module's resolved font at login
+-- catches them. Each area is gated on its module being loaded/enabled and uses
+-- that module's own font key, so a per-module font override is honoured (a
+-- missing override falls back to the global font). Only the typeface + outline
+-- change; native size is preserved (tooltips also honour their font-scale).
+-- Same taint-safe basis as ApplyGlobalFontToGameText: SetFont on font objects
+-- only, never a write onto a Blizzard frame table. Runs after the global pass
+-- so the module-specific face wins in these three areas.
+function EllesmereUI.ApplyModuleFontFailsafe()
+    local IsLoaded = C_AddOns and C_AddOns.IsAddOnLoaded
+    local GetPath = EllesmereUI.GetFontPath
+    if not IsLoaded or not GetPath then return end
+
+    -- Pure TYPEFACE swap: change only the face, preserving each object's native
+    -- size AND native outline flags (exactly like ApplyGlobalFontToGameText). It
+    -- must not impose size/outline, or it would fight the per-frame styling --
+    -- e.g. the chat input box is deliberately drawn without an outline, so a
+    -- forced outline on ChatFontNormal would wrongly outline it. Guards a
+    -- nil/non-object, a missing size, and a SetFont that rejects the args, so an
+    -- absent or renamed object is a silent no-op.
+    local function swap(obj, path)
+        if not obj or type(obj) ~= "table" or not obj.GetFont or not obj.SetFont then return end
+        local _, size, flags = obj:GetFont()
+        if not size or size <= 0 then return end
+        pcall(obj.SetFont, obj, path or _G.STANDARD_TEXT_FONT, size, flags)
+    end
+
+    -- Chat: the module fonts the frames + edit boxes directly; ChatFontNormal
+    -- backstops the rest (menus, copy/URL windows, channel buttons, etc.).
+    if IsLoaded("EllesmereUIChat") then
+        swap(_G.ChatFontNormal, GetPath("chat"))
+    end
+
+    -- Quest Tracker: the skin region-walks the live blocks; these shared
+    -- objects catch fontstrings Blizzard (re)templates after the walk. ONLY the
+    -- ObjectiveTracker*-prefixed objects, so the world-map quest log (QuestFont*)
+    -- stays untouched -- the tracker, not the map sidebar.
+    if IsLoaded("EllesmereUIQuestTracker") then
+        local p = GetPath("questTracker")
+        swap(_G.ObjectiveTrackerHeaderFont, p)
+        swap(_G.ObjectiveTrackerLineFont, p)
+        for i = 12, 22 do
+            swap(_G["ObjectiveTrackerFont" .. i], p)
+        end
+    end
+
+    -- Tooltips (Blizzard UI Enhanced): only when the tooltip skin is on
+    -- (customTooltips). _ttFonts already styles each visible line (size +
+    -- outline + scale) on show; these objects only backstop the typeface for
+    -- tooltips/lines it never reaches.
+    if IsLoaded("EllesmereUIBlizzardSkin") and (not EllesmereUIDB or EllesmereUIDB.customTooltips ~= false) then
+        local p = GetPath("blizzardSkin")
+        swap(_G.GameTooltipText, p)
+        swap(_G.GameTooltipHeaderText, p)
+        swap(_G.GameTooltipTextSmall, p)
     end
 end
 
@@ -9341,7 +9422,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.3.3"
+EllesmereUI.VERSION = "8.3.5"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -10141,6 +10222,11 @@ initFrame:SetScript("OnEvent", function(self, event)
     -- Apply the global font to Blizzard's default game text (opt-in, reload-gated).
     -- Done here at login, out of combat, so it runs once before the UI renders.
     EllesmereUI.ApplyGlobalFontToGameText()
+    -- Always-on failsafe: swap the shared font objects behind Chat, the Quest
+    -- Tracker, and Blizzard-UI-Enhanced tooltips to each module's font, so the
+    -- sub-elements our per-frame styling misses pick up the right face. Runs
+    -- after the global pass so the per-module face wins in those three areas.
+    EllesmereUI.ApplyModuleFontFailsafe()
 
     ---------------------------------------------------------------------------
     --  Escape proxy: single UISpecialFrames entry for all EUI frames.

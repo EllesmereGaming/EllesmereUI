@@ -2091,9 +2091,19 @@ function EllesmereUI.SaveCurrentAsProfile(name)
         phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds     or {}),
     }
     db.profiles[name] = copy
-    -- CDM spell content is now an independent, account-wide SWITCHABLE LAYOUT
-    -- system, decoupled from EUI profiles. Copying a profile must NOT create or
-    -- fork a CDM layout. (Managed in EllesmereUICdmLayouts.lua.)
+
+    -- CDM spell content lives in the per-profile spell store at
+    -- EllesmereUIDB.spellAssignments.profiles[<name>], OUTSIDE the profile blob.
+    -- DeepCopy(src) above carried only the bar DEFINITIONS (in the addon blob),
+    -- NOT the spell allocations / per-icon settings / RPT-sync specs / TBB
+    -- broadcast set that ride on this bucket. Fork the whole bucket so the new
+    -- profile is a true 1:1 of the source's CDM (which spells sit on which bars,
+    -- etc). Without this the copy renders bars with no spells on them.
+    local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
+    if sa and type(sa.profiles) == "table" and type(sa.profiles[current]) == "table" then
+        sa.profiles[name] = DeepCopy(sa.profiles[current])
+    end
+
     local found = false
     for _, n in ipairs(db.profileOrder) do
         if n == name then found = true; break end
@@ -2136,10 +2146,14 @@ function EllesmereUI.DeleteProfile(name)
     for specID, pName in pairs(db.specProfiles) do
         if pName == name then db.specProfiles[specID] = nil end
     end
-    -- CDM spell content is now an independent, account-wide SWITCHABLE LAYOUT
-    -- system, decoupled from EUI profiles. Deleting a profile must NOT delete a
-    -- CDM layout (a layout may share the profile's name). (Managed in
-    -- EllesmereUICdmLayouts.lua.)
+    -- CDM spell content lives in the per-profile spell store at
+    -- EllesmereUIDB.spellAssignments.profiles[<name>] (OUTSIDE the profile blob).
+    -- Drop it alongside the profile so no orphaned bucket lingers (and so a future
+    -- profile created with the same name never inherits this profile's stale CDM).
+    local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
+    if sa and type(sa.profiles) == "table" then
+        sa.profiles[name] = nil
+    end
     -- Clean up sync targets: remove deleted profile from every module's list
     if EllesmereUIDB.syncedModules then
         for folder, targets in pairs(EllesmereUIDB.syncedModules) do
@@ -2166,9 +2180,15 @@ function EllesmereUI.RenameProfile(oldName, newName)
     if not db.profiles[oldName] then return end
     db.profiles[newName] = db.profiles[oldName]
     db.profiles[oldName] = nil
-    -- CDM spell content is now an independent, account-wide SWITCHABLE LAYOUT
-    -- system, decoupled from EUI profiles. Renaming a profile must NOT rename a
-    -- CDM layout. (Managed in EllesmereUICdmLayouts.lua.)
+    -- CDM spell content lives in the per-profile spell store at
+    -- EllesmereUIDB.spellAssignments.profiles[<name>] (OUTSIDE the profile blob),
+    -- keyed by profile name. Move the bucket to the new name so the renamed
+    -- profile keeps its CDM spell allocations (otherwise they vanish on rename).
+    local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
+    if sa and type(sa.profiles) == "table" and sa.profiles[oldName] ~= nil then
+        sa.profiles[newName] = sa.profiles[oldName]
+        sa.profiles[oldName] = nil
+    end
     for i, n in ipairs(db.profileOrder) do
         if n == oldName then db.profileOrder[i] = newName; break end
     end

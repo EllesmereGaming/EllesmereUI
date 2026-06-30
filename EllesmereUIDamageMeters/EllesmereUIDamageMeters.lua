@@ -193,7 +193,7 @@ local DM_DEFAULTS = {
             showClassColor  = true,
             showPinnedSelf  = false,
             showHoverTooltip = true,
-            showSpellTooltips = true,  -- game spell tooltip on breakdown-row hover
+            showSpellTooltips = true,     -- game spell tooltip on breakdown-row hover
             breakdownAnchorPoint = "row", -- "row" (Above Row) | "center" (Center of Screen)
             breakdownBarTexture = "match",
             barColorUseAccent = true,
@@ -215,6 +215,7 @@ local DM_DEFAULTS = {
             standaloneTimerPos    = nil,
             standaloneTimerAnchor = "free",
             refreshRate = 1,
+            hideResetButton = false, -- display the "reset data" button on the damage meter header
             hdrBgColor      = { r = 0x1B/255, g = 0x1B/255, b = 0x1B/255 },
             hdrBgAlpha      = 1,
             hdrHeight       = 22,
@@ -300,11 +301,47 @@ local function DB() return ns.EDM.DB() end
 local function GetHeaderH() local c = DB(); return c.hdrHeight or 22 end
 
 -- Header icon visibility (hide until title bar hovered)
+local function ResetButtonHidden(cfg)
+    cfg = cfg or DB()
+    return cfg.hideResetButton == true
+end
+
+local function GetHeaderLayoutButtons(W, cfg)
+    local buttons = {}
+    if not W or not W.hdrBtns then return buttons end
+    local hideReset = ResetButtonHidden(cfg)
+    for _, btn in ipairs(W.hdrBtns) do
+        if btn ~= W.resetBtn or not hideReset then
+            buttons[#buttons + 1] = btn
+        end
+    end
+    return buttons
+end
+
+local function LayoutHeaderButtons(W, cfg, iconSz)
+    if not W or not W.header or not W.hdrBtns then return end
+    local btnPad = -2
+    local layoutBtns = GetHeaderLayoutButtons(W, cfg)
+    for bi, btn in ipairs(layoutBtns) do
+        if iconSz then btn:SetSize(iconSz, iconSz) end
+        btn:ClearAllPoints()
+        btn:SetPoint("RIGHT", W.header, "RIGHT", -(iconSz * (bi - 1) + btnPad * bi + 2), 0)
+    end
+end
+
 local function SetHeaderButtonsShown(W, shown)
     if not W or not W.hdrBtns then return end
+    local hideReset = ResetButtonHidden()
     for _, btn in ipairs(W.hdrBtns) do
-        btn:SetAlpha(shown and 1 or 0)
-        btn:EnableMouse(shown)
+        if btn == W.resetBtn and hideReset then
+            btn:Hide()
+            btn:SetAlpha(0)
+            btn:EnableMouse(false)
+        else
+            btn:Show()
+            btn:SetAlpha(shown and 1 or 0)
+            btn:EnableMouse(shown)
+        end
     end
 end
 
@@ -706,6 +743,8 @@ local DM_BAR_TEXTURES = {
     ["gradient-tb"]   = DM_TEX_BASE .. "gradient-tb.tga",
     ["matte"]         = DM_TEX_BASE .. "matte.tga",
     ["sheer"]         = DM_TEX_BASE .. "sheer.tga",
+    ["blinkii-diamonds"] = DM_TEX_BASE .. "blinkii-diamonds.tga",
+    ["kringel-window"]   = DM_TEX_BASE .. "kringel-window.tga",
 }
 local DM_BAR_TEXTURE_ORDER = {
     "none", "melli", "atrocity",
@@ -714,6 +753,7 @@ local DM_BAR_TEXTURE_ORDER = {
     "divide", "glass",
     "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
     "matte", "sheer",
+    "blinkii-diamonds", "kringel-window",
 }
 local DM_BAR_TEXTURE_NAMES = {
     ["none"]        = "None",
@@ -733,6 +773,8 @@ local DM_BAR_TEXTURE_NAMES = {
     ["gradient-tb"] = "Gradient Down",
     ["matte"]       = "Matte",
     ["sheer"]       = "Sheer",
+    ["blinkii-diamonds"] = "Blinkii Diamonds",
+    ["kringel-window"]   = "Kringel Window",
 }
 _G._EDM_BarTextures     = DM_BAR_TEXTURES
 _G._EDM_BarTextureOrder = DM_BAR_TEXTURE_ORDER
@@ -1098,7 +1140,7 @@ local function BuildAllPlayerTargets(session, sessionID)
     end
     if not enemySession or not enemySession.combatSources or #enemySession.combatSources == 0 then
         _targetsCache.key = cacheKey; _targetsCache.map = nil
-    
+
         return nil
     end
 
@@ -1168,7 +1210,7 @@ local function BuildPlayerTargets(playerName, session, sessionID, maxTargets)
     if #list > maxTargets then
         local trimmed = {}
         for i = 1, maxTargets do trimmed[i] = list[i] end
-    
+
         return trimmed
     end
 
@@ -2404,6 +2446,7 @@ local function CreateDMWindow(winIdx)
 
     -- Ordered list of header buttons for live resize/reposition
     W.hdrBtns = { W.settingsBtn, W.segmentBtn, W.modeBtn, W.resetBtn, W.winActionBtn }
+    LayoutHeaderButtons(W, cfg, btnSize)
 
     -- Truncate the header title so it never runs under the right-side header
     -- icons. Mirrors the icon layout math (N buttons of hdrIconSize spaced by
@@ -2416,7 +2459,7 @@ local function CreateDMWindow(winIdx)
         fs:SetText(full)
         local c = DB()
         local iconSz = c.hdrIconSize or 22
-        local n = (W.hdrBtns and #W.hdrBtns) or 5
+        local n = #GetHeaderLayoutButtons(W, c)
         local headerW = frame:GetWidth() or (wdb.width or 300)
         local btnLeft = headerW - (iconSz * n) - (btnPad * n) - 2
         local avail = btnLeft - (6 + (c.hdrTextOffX or 0)) - 6
@@ -4144,14 +4187,7 @@ ns.ApplyHeader = function()
             SetDMFont(w.timerText, hdrFS)
         end
         -- Resize and reposition header buttons
-        if w.hdrBtns then
-            local btnPad = -2
-            for bi, btn in ipairs(w.hdrBtns) do
-                btn:SetSize(iconSz, iconSz)
-                btn:ClearAllPoints()
-                btn:SetPoint("RIGHT", w.header, "RIGHT", -(iconSz * (bi - 1) + btnPad * bi + 2), 0)
-            end
-        end
+        LayoutHeaderButtons(w, cfg, iconSz)
         -- Close icon is 2px larger than other icons
         if w._closeIconTex then
             w._closeIconTex:ClearAllPoints()

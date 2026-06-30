@@ -68,6 +68,12 @@ function ns.RefreshCastOverlay(plate)
         if cast:GetParent() ~= lift then
             cast:SetParent(lift)
             cast:SetFrameStrata(LIFT_STRATA)
+            -- Keep the cast text above the cast border once lifted. The text frame
+            -- is normally pinned to MEDIUM for in-plate aura/text ordering, but the
+            -- cast border (a strata-inheriting child of the cast bar) rides up to
+            -- HIGH with the lift -- leaving MEDIUM text behind it. Lift the text to
+            -- the same strata; its level 900 keeps it above the border there.
+            if plate.castTextFrame then plate.castTextFrame:SetFrameStrata(LIFT_STRATA) end
             plate._castOverlayLifted = true
         end
         local s = plate:GetEffectiveScale()
@@ -78,6 +84,7 @@ function ns.RefreshCastOverlay(plate)
     elseif plate._castOverlayLifted then
         cast:SetParent(plate)
         cast:SetFrameStrata(plate:GetFrameStrata())
+        if plate.castTextFrame then plate.castTextFrame:SetFrameStrata("MEDIUM") end
         plate._castOverlayLifted = nil
         plate._castLiftScale = nil
     end
@@ -91,6 +98,7 @@ function ns.ClearAllCastOverlays()
         if plate._castOverlayLifted then
             plate.cast:SetParent(plate)
             plate.cast:SetFrameStrata(plate:GetFrameStrata())
+            if plate.castTextFrame then plate.castTextFrame:SetFrameStrata("MEDIUM") end
             plate._castOverlayLifted = nil
             plate._castLiftScale = nil
         end

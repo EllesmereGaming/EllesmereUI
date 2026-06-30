@@ -21,6 +21,78 @@ local COMPARE_DUNGEON = "DUNGEON"
 local COMPARE_LEVEL = "LEVEL"
 local COMPARE_LEVEL_AFFIX = "LEVEL_AFFIX"
 
+local TEXTURE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
+local barTextures = {
+    ["none"]          = nil,
+    ["melli"]         = TEXTURE_BASE .. "melli.tga",
+    ["beautiful"]     = TEXTURE_BASE .. "beautiful.tga",
+    ["plating"]       = TEXTURE_BASE .. "plating.tga",
+    ["atrocity"]      = TEXTURE_BASE .. "atrocity.tga",
+    ["divide"]        = TEXTURE_BASE .. "divide.tga",
+    ["glass"]         = TEXTURE_BASE .. "glass.tga",
+    ["fade-right"]    = TEXTURE_BASE .. "fade-right.tga",
+    ["thin-line-top"] = TEXTURE_BASE .. "thin-line-top.tga",
+    ["thin-line-bottom"] = TEXTURE_BASE .. "thin-line-bottom.tga",
+    ["fade"]          = TEXTURE_BASE .. "fade.tga",
+    ["gradient-lr"]   = TEXTURE_BASE .. "gradient-lr.tga",
+    ["gradient-rl"]   = TEXTURE_BASE .. "gradient-rl.tga",
+    ["gradient-bt"]   = TEXTURE_BASE .. "gradient-bt.tga",
+    ["gradient-tb"]   = TEXTURE_BASE .. "gradient-tb.tga",
+    ["matte"]         = TEXTURE_BASE .. "matte.tga",
+    ["sheer"]         = TEXTURE_BASE .. "sheer.tga",
+}
+local barTextureOrder = {
+    "none", "melli", "atrocity",
+    "fade", "fade-right",
+    "thin-line-top", "thin-line-bottom",
+    "beautiful", "plating",
+    "divide", "glass",
+    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
+    "matte", "sheer",
+}
+local barTextureNames = {
+    ["none"]          = "None",
+    ["melli"]         = "Melli (ElvUI)",
+    ["beautiful"]     = "Beautiful",
+    ["plating"]       = "Plating",
+    ["atrocity"]      = "Atrocity",
+    ["divide"]        = "Divide",
+    ["glass"]         = "Glass",
+    ["fade-right"]    = "Fade Right",
+    ["thin-line-top"] = "Thin Line Top",
+    ["thin-line-bottom"] = "Thin Line Bottom",
+    ["fade"]          = "Fade",
+    ["gradient-lr"]   = "Gradient Right",
+    ["gradient-rl"]   = "Gradient Left",
+    ["gradient-bt"]   = "Gradient Up",
+    ["gradient-tb"]   = "Gradient Down",
+    ["matte"]         = "Matte",
+    ["sheer"]         = "Sheer",
+}
+ns.barTextures = barTextures
+ns.barTextureOrder = barTextureOrder
+ns.barTextureNames = barTextureNames
+
+local function AppendSharedMediaBarTextures()
+    if EllesmereUI and EllesmereUI.AppendSharedMediaTextures then
+        EllesmereUI.AppendSharedMediaTextures(barTextureNames, barTextureOrder, nil, barTextures)
+    end
+end
+ns.AppendSharedMediaBarTextures = AppendSharedMediaBarTextures
+
+local function ApplyBarTexture(tex, texKey, r, g, b, a)
+    if not tex then return end
+    local path = EllesmereUI and EllesmereUI.ResolveTexturePath
+        and EllesmereUI.ResolveTexturePath(barTextures, texKey or "none", nil)
+    if path then
+        tex:SetTexture(path)
+        tex:SetVertexColor(r, g, b, a)
+    else
+        tex:SetVertexColor(1, 1, 1, 1)
+        tex:SetColorTexture(r, g, b, a)
+    end
+end
+
 local function CopyTable(src)
     if type(src) ~= "table" then return src end
     local out = {}
@@ -59,6 +131,7 @@ end
 local DB_DEFAULTS = {
     profile = {
         enabled           = true,
+        showTitle         = true,
         showAffixes       = true,
         showPlusTwoTimer  = true,
         showPlusThreeTimer = true,
@@ -66,6 +139,9 @@ local DB_DEFAULTS = {
         showDeaths        = true,
         showObjectives    = true,
         showObjectiveTimes = true,
+        objectiveTimePosition = "RIGHT",
+        objectiveTextOffsetX = 0,
+        objectiveTextOffsetY = 0,
         showEnemyBar      = true,
         showEnemyText     = true,
         scale             = 1.0,
@@ -74,18 +150,43 @@ local DB_DEFAULTS = {
         showPreview       = false,
         enemyForcesPos    = "BOTTOM",
         enemyForcesPctPos = "LABEL",
+        -- enemyForcesTextSize: intentionally unset so it falls back to objectivesSize
+        -- (see RenderEnemyForces). Writing a default here would override a user's
+        -- customized objectivesSize. Written only when the slider is changed.
+        enemyForcesTextOffsetX = 0,
+        enemyForcesTextOffsetY = 0,
         deathsInTitle     = false,
         deathTimeInTitle  = false,
         timerInBar        = false,
         showTimerBar      = true,
         showTimerBreakdown = false,
+        titleAffixPosition = "ABOVE_TIMER",
+        -- titleAffixDeathGap: intentionally unset so it falls back to ROW_GAP + 5
+        -- (which tracks the user's rowGap). A hardcoded default would break the
+        -- title/affix spacing for anyone who customized rowGap.
+        titleAffixSandwichGap = 6,
+        titleAffixTimerGap = 6,
+        titleAffixBarGap = 6,
         alignAllText      = "RIGHT",
         titleUseAccent    = true,
         titleColor        = { r = 1, g = 1, b = 1 },
         titleSize         = 16,
         affixSize         = 12,
         thresholdSize     = 12,
+        -- thresholdPlus*Size: intentionally unset so each falls back to thresholdSize
+        -- (see RenderThresholdText). Hardcoding 12 here would override a user's
+        -- customized thresholdSize. Written per-row only when its slider is changed.
         tickAlpha         = 1,
+        timerBarStyle     = "TICKS",
+        timerBarSegmentGap = 2,
+        thresholdTextOffsetX = 0,
+        thresholdTextOffsetY = 0,
+        thresholdPlusThreeTextOffsetX = 0,
+        thresholdPlusThreeTextOffsetY = 0,
+        thresholdPlusTwoTextOffsetX = 0,
+        thresholdPlusTwoTextOffsetY = 0,
+        thresholdPlusOneTextOffsetX = 0,
+        thresholdPlusOneTextOffsetY = 0,
         objectivesSize    = 12,
         timerExpiredColor = { r = 0.9, g = 0.2, b = 0.2 },
         enemyForcesTextFormat = "PERCENT",
@@ -97,10 +198,24 @@ local DB_DEFAULTS = {
         barWidth          = 210,
         barHeight         = 8,
         barHeightExpanded = 22,
+        barTexture        = "none",
+        barBgTexture      = "none",
         rowGap            = 6,
         objectiveGap      = 4,
         timerPlusTwoColor = { r = 0.3, g = 0.8, b = 1 },
         timerPlusThreeColor = { r = 0.4, g = 1, b = 0.4 },
+        timerBarUseCustomColor = false,
+        timerBarColor = { r = 0.4, g = 1, b = 0.4 },
+        timerSegment1Color = { r = 0.4, g = 1, b = 0.4 },
+        timerSegment2Color = { r = 0.3, g = 0.8, b = 1 },
+        timerSegment3Color = { r = 0xB0 / 255, g = 0x59 / 255, b = 0xCC / 255 },
+        timerSegment1TextColor = { r = 0.4, g = 1, b = 0.4 },
+        timerSegment2TextColor = { r = 0.3, g = 0.8, b = 1 },
+        timerSegment3TextColor = { r = 1, g = 1, b = 1 },
+        thresholdPlusThreeTextWhite = false,
+        thresholdPlusTwoTextWhite = false,
+        thresholdPlusOneTextWhite = false,
+        affixTextColor    = { r = 1, g = 1, b = 1 },
         objectiveTextColor = { r = 0.9, g = 0.9, b = 0.9 },
         objectiveCompletedColor = { r = 0.3, g = 0.8, b = 0.3 },
         splitFasterColor  = { r = 0.4, g = 1, b = 0.4 },
@@ -222,6 +337,9 @@ local function GetColor(tbl, fallbackR, fallbackG, fallbackB)
 end
 
 local function GetTimerBarFillColor(profile, elapsed, plusThreeTime, plusTwoTime, maxTime)
+    if profile and profile.timerBarUseCustomColor == true then
+        return GetColor(profile.timerBarColor, 0.4, 1, 0.4)
+    end
     if maxTime and maxTime > 0 and elapsed > plusTwoTime then
         -- +2 lost: solid #B059CC.
         return 0xB0 / 255, 0x59 / 255, 0xCC / 255
@@ -231,6 +349,27 @@ local function GetTimerBarFillColor(profile, elapsed, plusThreeTime, plusTwoTime
     end
     -- On for +3: match the +3 threshold color.
     return GetColor(profile and profile.timerPlusThreeColor, 0.4, 1, 0.4)
+end
+
+local function GetTimerSegmentFillColor(profile, elapsed, plusThreeTime, plusTwoTime)
+    if elapsed > plusTwoTime then
+        return GetColor(profile and profile.timerSegment3Color, 0xB0 / 255, 0x59 / 255, 0xCC / 255)
+    elseif elapsed > plusThreeTime then
+        return GetColor(profile and profile.timerSegment2Color, 0.3, 0.8, 1)
+    end
+    return GetColor(profile and profile.timerSegment1Color, 0.4, 1, 0.4)
+end
+
+local function GetTimerSegmentTextColor(profile, index)
+    if index == 3 then
+        if profile and profile.thresholdPlusOneTextWhite == true then return 1, 1, 1 end
+        return GetColor(profile and profile.timerSegment3Color, 0xB0 / 255, 0x59 / 255, 0xCC / 255)
+    elseif index == 2 then
+        if profile and profile.thresholdPlusTwoTextWhite == true then return 1, 1, 1 end
+        return GetColor(profile and profile.timerSegment2Color, 0.3, 0.8, 1)
+    end
+    if profile and profile.thresholdPlusThreeTextWhite == true then return 1, 1, 1 end
+    return GetColor(profile and profile.timerSegment1Color, 0.4, 1, 0.4)
 end
 
 local function NormalizeAffixKey(affixes)
@@ -1115,73 +1254,78 @@ local function RenderStandalone()
     local _gAlign = (p.alignAllText == "LEFT") and "LEFT" or "RIGHT"
     local function _ra() return _gAlign end
 
-    -- Title
-    local titleAlign = _ra(p.titleAlign or "CENTER")
-    local tR, tG, tB
-    if p.titleUseAccent ~= false then
-        tR, tG, tB = aR, aG, aB
-    elseif p.titleColor then
-        tR, tG, tB = p.titleColor.r or 1, p.titleColor.g or 1, p.titleColor.b or 1
-    else
-        tR, tG, tB = 1, 1, 1
-    end
-    local titleText = format("|cff%02x%02x%02x+%d  %s|r",
-        floor(tR * 255), floor(tG * 255), floor(tB * 255),
-        run.level, run.mapName or "Mythic+")
-    f._titleFS:SetJustifyH(titleAlign)
-    f._titleFS:SetTextColor(1, 1, 1)
-    local titleMax = p.titleSize or 13
-    local titleMin = max(8, titleMax - 3)
-    SetFittedText(f._titleFS, titleText, innerW, titleMax, titleMin)
-    f._titleFS:ClearAllPoints()
-    f._titleFS:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, y)
-    f._titleFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PAD, y)
-    f._titleFS:Show()
-    local titleH = f._titleFS:GetStringHeight() or titleMax
-    y = y - titleH - 2 - ROW_GAP
-
-    -- Affixes
-    if p.showAffixes then
-        local names = {}
-        local affixIDs = {}
-        if run._previewAffixNames then
-            for _, name in ipairs(run._previewAffixNames) do
-                names[#names + 1] = name
-            end
-            if run._previewAffixIDs then
-                for _, affixID in ipairs(run._previewAffixIDs) do
-                    affixIDs[#affixIDs + 1] = affixID
-                end
-            end
+    local function RenderTitleAffixes()
+        local titleAlign = _ra(p.titleAlign or "CENTER")
+        local tR, tG, tB
+        if p.titleUseAccent ~= false then
+            tR, tG, tB = aR, aG, aB
+        elseif p.titleColor then
+            tR, tG, tB = p.titleColor.r or 1, p.titleColor.g or 1, p.titleColor.b or 1
         else
-            -- Use the cached affix names snapshotted at StartRun. Falls back
-            -- to GetAffixInfo only if cache is missing (run started before
-            -- this code path was added, or preview mode).
-            for i, id in ipairs(run.affixes) do
-                local name = (run.affixNames and run.affixNames[i])
-                    or C_ChallengeMode.GetAffixInfo(id)
-                if name then
+            tR, tG, tB = 1, 1, 1
+        end
+        if p.showTitle ~= false then
+            local titleText = format("|cff%02x%02x%02x+%d  %s|r",
+                floor(tR * 255), floor(tG * 255), floor(tB * 255),
+                run.level, run.mapName or "Mythic+")
+            f._titleFS:SetJustifyH(titleAlign)
+            f._titleFS:SetTextColor(1, 1, 1)
+            local titleMax = p.titleSize or 13
+            local titleMin = max(8, titleMax - 3)
+            SetFittedText(f._titleFS, titleText, innerW, titleMax, titleMin)
+            f._titleFS:ClearAllPoints()
+            f._titleFS:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, y)
+            f._titleFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PAD, y)
+            f._titleFS:Show()
+            local titleH = f._titleFS:GetStringHeight() or titleMax
+            y = y - titleH - 2 - ROW_GAP
+        else
+            f._titleFS:Hide()
+        end
+
+        if p.showAffixes then
+            local names = {}
+            if run._previewAffixNames then
+                for _, name in ipairs(run._previewAffixNames) do
                     names[#names + 1] = name
-                    affixIDs[#affixIDs + 1] = id
+                end
+            else
+                -- Use the cached affix names snapshotted at StartRun. Falls back
+                -- to GetAffixInfo only if cache is missing (run started before
+                -- this code path was added, or preview mode).
+                for i, id in ipairs(run.affixes) do
+                    local name = (run.affixNames and run.affixNames[i])
+                        or C_ChallengeMode.GetAffixInfo(id)
+                    if name then
+                        names[#names + 1] = name
+                    end
                 end
             end
-        end
-        if #names > 0 then
-            f._affixFS:SetTextColor(1, 1, 1)
-            f._affixFS:SetJustifyH(titleAlign)
-            local affixMax = p.affixSize or 10
-            local affixMin = max(6, affixMax - 2)
-            SetFittedText(f._affixFS, table.concat(names, "  \194\183  "), innerW, affixMax, affixMin)
-            f._affixFS:ClearAllPoints()
-            f._affixFS:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, y + 5)
-            f._affixFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PAD, y + 5)
-            f._affixFS:Show()
-            y = y - (f._affixFS:GetStringHeight() or 12) - ROW_GAP + 5
+            if #names > 0 then
+                f._affixFS:SetTextColor(GetColor(p.affixTextColor, 1, 1, 1))
+                f._affixFS:SetJustifyH(titleAlign)
+                local affixMax = p.affixSize or 10
+                local affixMin = max(6, affixMax - 2)
+                SetFittedText(f._affixFS, table.concat(names, "  \194\183  "), innerW, affixMax, affixMin)
+                f._affixFS:ClearAllPoints()
+                f._affixFS:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, y + 5)
+                f._affixFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PAD, y + 5)
+                f._affixFS:Show()
+                y = y - (f._affixFS:GetStringHeight() or 12) - ROW_GAP + 5
+            else
+                f._affixFS:Hide()
+            end
         else
             f._affixFS:Hide()
         end
-    else
-        f._affixFS:Hide()
+    end
+
+    local titleAffixBelowTimer = (p.titleAffixPosition == "BELOW_TIMER")
+    local defaultTitleDeathGap = ROW_GAP + 5
+    local defaultSandwichGap = ROW_GAP
+    if not titleAffixBelowTimer then
+        RenderTitleAffixes()
+        y = y - ((p.titleAffixDeathGap or defaultTitleDeathGap) - defaultTitleDeathGap)
     end
 
     -- Deaths (toggle removed; always on when there are deaths)
@@ -1215,6 +1359,9 @@ local function RenderStandalone()
     else
         f._deathFS:Hide()
         f._deathHit:Hide()
+        if titleAffixBelowTimer and not p.deathsInTitle then
+            y = y - 12 - ROW_GAP - 5
+        end
     end
 
     -- Timer colours
@@ -1223,7 +1370,13 @@ local function RenderStandalone()
     local timeLeft = max(0, maxTime - elapsed)
     local plusTwoT, plusThreeT = CalculateBonusTimers(maxTime, run.affixes)
     local completedElapsed = run.preciseCompletedElapsed or elapsed
-    local timerBarR, timerBarG, timerBarB = GetTimerBarFillColor(p, run.completed and completedElapsed or elapsed, plusThreeT, plusTwoT, maxTime)
+    local colorElapsed = run.completed and completedElapsed or elapsed
+    local timerBarR, timerBarG, timerBarB
+    if p.timerBarStyle == "SEGMENTS" then
+        timerBarR, timerBarG, timerBarB = GetTimerSegmentFillColor(p, colorElapsed, plusThreeT, plusTwoT)
+    else
+        timerBarR, timerBarG, timerBarB = GetTimerBarFillColor(p, colorElapsed, plusThreeT, plusTwoT, maxTime)
+    end
 
     -- Build timer text per user-selected display mode.
     --   REMAINING        -> "11:37"   (or "+OT" when overtime)
@@ -1278,9 +1431,24 @@ local function RenderStandalone()
     if _barW_for_thresh < 60 then _barW_for_thresh = 60 end
 
     local function RenderThresholdText()
+        if p.showTimerBar == false and p.showEnemyBar == false then
+            f._threshFS:Hide()
+            f._threshFS2:Hide()
+            f._threshRemFS:Hide()
+            return
+        end
+
         local showRem = p.showThreshRemaining == true
         if (p.showPlusTwoTimer or p.showPlusThreeTimer or showRem) and maxTime > 0 then
-            local thSize = p.thresholdSize or 12
+            local plusThreeSize = p.thresholdPlusThreeSize or p.thresholdSize or 12
+            local plusTwoSize = p.thresholdPlusTwoSize or p.thresholdSize or 12
+            local plusOneSize = p.thresholdPlusOneSize or p.thresholdSize or 12
+            local thresholdRowSize = max(
+                p.showPlusThreeTimer and plusThreeSize or 0,
+                p.showPlusTwoTimer and plusTwoSize or 0,
+                showRem and plusOneSize or 0,
+                12
+            )
 
             local function buildLabel(threshTime, color)
                 local diff = threshTime - elapsed
@@ -1292,59 +1460,108 @@ local function RenderStandalone()
                 return format("|cff999999%s|r", FormatTime(threshTime))
             end
 
-            -- Anchor a FontString centered horizontally at bar-local x = cx,
-            -- in the threshold row above/below the bar (follows the bar exactly).
-            local function placeAt(fs, cx)
+            local segmentedThresholds = (p.timerBarStyle == "SEGMENTS")
+            local segmentGap = segmentedThresholds and max(0, p.timerBarSegmentGap or 2) or 0
+            local plusThreeLabelX = max(0, min(_barW_for_thresh, _barW_for_thresh * (plusThreeT / maxTime) - segmentGap / 2))
+            local plusTwoLabelX = max(0, min(_barW_for_thresh, _barW_for_thresh * (plusTwoT / maxTime) - segmentGap / 2))
+            local thresholdAnchorBar = f._barBg
+            if underBarMode and p.showTimerBar == false and p.showEnemyBar ~= false then
+                thresholdAnchorBar = f._enemyBarBg
+            end
+
+            -- Anchor a FontString at bar-local x = cx in the threshold row.
+            -- In segmented mode, +2/+3 labels right-align to segment ends.
+            local function placeAt(fs, cx, rightJustified, offsetX, offsetY)
+                local offX = offsetX
+                local offY = offsetY
+                if offX == nil then offX = p.thresholdTextOffsetX or 0 end
+                if offY == nil then offY = p.thresholdTextOffsetY or 0 end
+                local aboveBar = underBarMode or segmentedThresholds
+                local point
+                if rightJustified then
+                    point = aboveBar and "BOTTOMRIGHT" or "TOPRIGHT"
+                else
+                    point = aboveBar and "BOTTOM" or "TOP"
+                end
                 fs:ClearAllPoints()
-                if underBarMode then
+                if aboveBar then
                     -- threshold rendered before the bar -> sit above the bar
-                    fs:SetPoint("BOTTOM", f._barBg, "TOPLEFT", cx, 2)
+                    fs:SetPoint(point, thresholdAnchorBar, "TOPLEFT", cx + offX, 2 + offY)
                 else
                     -- threshold rendered after the bar -> sit below the bar
-                    fs:SetPoint("TOP", f._barBg, "BOTTOMLEFT", cx, -2)
+                    fs:SetPoint(point, thresholdAnchorBar, "BOTTOMLEFT", cx + offX, -2 + offY)
                 end
             end
 
             -- Prepare each visible FontString (text + style) up front so
             -- GetStringWidth is valid before layout.
             if p.showPlusThreeTimer then
-                SetFS(f._threshFS, thSize)
+                SetFS(f._threshFS, plusThreeSize)
                 ApplyShadow(f._threshFS)
                 f._threshFS:SetTextColor(1, 1, 1)
-                f._threshFS:SetText(buildLabel(plusThreeT, p.timerPlusThreeColor))
+                local c1r, c1g, c1b = GetTimerSegmentTextColor(p, 1)
+                f._threshFS:SetText(buildLabel(plusThreeT, { r = c1r, g = c1g, b = c1b }))
             end
             if p.showPlusTwoTimer then
-                SetFS(f._threshFS2, thSize)
+                SetFS(f._threshFS2, plusTwoSize)
                 ApplyShadow(f._threshFS2)
                 f._threshFS2:SetTextColor(1, 1, 1)
-                f._threshFS2:SetText(buildLabel(plusTwoT, p.timerPlusTwoColor))
+                local c2r, c2g, c2b = GetTimerSegmentTextColor(p, 2)
+                f._threshFS2:SetText(buildLabel(plusTwoT, { r = c2r, g = c2g, b = c2b }))
             end
             if showRem then
-                SetFS(f._threshRemFS, thSize)
+                SetFS(f._threshRemFS, plusOneSize)
                 ApplyShadow(f._threshRemFS)
                 -- Same single MM:SS as the timer's text, showing time left in
-                -- the key. Inherits the main timer's color so it reddens on
-                -- depletion just like the big clock.
-                f._threshRemFS:SetTextColor(tR, tG, tB)
+                -- the key. In the default TICKS style it inherits the main timer
+                -- color so it reddens on depletion just like the big clock (legacy
+                -- behavior); the new SEGMENTS style colors it to match segment 3,
+                -- and the per-row "white" toggle still forces white.
+                if p.timerBarStyle == "SEGMENTS" then
+                    f._threshRemFS:SetTextColor(GetTimerSegmentTextColor(p, 3))
+                elseif p.thresholdPlusOneTextWhite == true then
+                    f._threshRemFS:SetTextColor(1, 1, 1)
+                else
+                    f._threshRemFS:SetTextColor(tR, tG, tB)
+                end
                 f._threshRemFS:SetText(FormatRemaining(maxTime - elapsed))
             end
 
             if not showRem then
-                -- Unchanged behavior: each threshold text centered on its tick.
+                -- Each threshold text sits on its tick/segment boundary.
                 if p.showPlusThreeTimer then
-                    placeAt(f._threshFS, _barW_for_thresh * (plusThreeT / maxTime))
+                    placeAt(f._threshFS, segmentedThresholds and plusThreeLabelX or (_barW_for_thresh * (plusThreeT / maxTime)), segmentedThresholds, p.thresholdPlusThreeTextOffsetX, p.thresholdPlusThreeTextOffsetY)
                     f._threshFS:Show()
                 else
                     f._threshFS:Hide()
                 end
                 if p.showPlusTwoTimer then
-                    placeAt(f._threshFS2, _barW_for_thresh * (plusTwoT / maxTime))
+                    placeAt(f._threshFS2, segmentedThresholds and plusTwoLabelX or (_barW_for_thresh * (plusTwoT / maxTime)), segmentedThresholds, p.thresholdPlusTwoTextOffsetX, p.thresholdPlusTwoTextOffsetY)
                     f._threshFS2:Show()
                 else
                     f._threshFS2:Hide()
                 end
                 f._threshRemFS:Hide()
             else
+                if segmentedThresholds then
+                    if p.showPlusThreeTimer then
+                        placeAt(f._threshFS, plusThreeLabelX, true, p.thresholdPlusThreeTextOffsetX, p.thresholdPlusThreeTextOffsetY)
+                        f._threshFS:Show()
+                    else
+                        f._threshFS:Hide()
+                    end
+                    if p.showPlusTwoTimer then
+                        placeAt(f._threshFS2, plusTwoLabelX, true, p.thresholdPlusTwoTextOffsetX, p.thresholdPlusTwoTextOffsetY)
+                        f._threshFS2:Show()
+                    else
+                        f._threshFS2:Hide()
+                    end
+                    placeAt(f._threshRemFS, _barW_for_thresh, true, p.thresholdPlusOneTextOffsetX, p.thresholdPlusOneTextOffsetY)
+                    f._threshRemFS:Show()
+                    y = y - thresholdRowSize - ROW_GAP
+                    return
+                end
+
                 -- Remaining text pinned flush to the bar's right edge; the
                 -- +2/+3 texts prefer their tick centers but are nudged left as
                 -- needed so none of the three ever overlap. Packed right to
@@ -1385,13 +1602,23 @@ local function RenderStandalone()
                 end
 
                 for _, e in ipairs(entries) do
-                    placeAt(e.fs, e.center)
+                    local rightJustified = segmentedThresholds or e.pinRight
+                    local anchorX = rightJustified and (e.center + e.w / 2) or e.center
+                    local offX, offY
+                    if e.fs == f._threshFS then
+                        offX, offY = p.thresholdPlusThreeTextOffsetX, p.thresholdPlusThreeTextOffsetY
+                    elseif e.fs == f._threshFS2 then
+                        offX, offY = p.thresholdPlusTwoTextOffsetX, p.thresholdPlusTwoTextOffsetY
+                    elseif e.fs == f._threshRemFS then
+                        offX, offY = p.thresholdPlusOneTextOffsetX, p.thresholdPlusOneTextOffsetY
+                    end
+                    placeAt(e.fs, anchorX, rightJustified, offX, offY)
                     e.fs:Show()
                 end
             end
 
             -- Reserve vertical space for the threshold row (height + gap).
-            y = y - thSize - ROW_GAP
+            y = y - thresholdRowSize - ROW_GAP
         else
             f._threshFS:Hide()
             f._threshFS2:Hide()
@@ -1399,8 +1626,16 @@ local function RenderStandalone()
         end
     end
 
-    -- Enemy forces (toggle removed; always rendered)
+    -- Enemy forces
     local function RenderEnemyForces()
+        if p.showEnemyBar == false then
+            f._enemyFS:Hide()
+            f._enemyBarBg:Hide()
+            f._enemyBarFill:Hide()
+            if f._enemyBarText then f._enemyBarText:Hide() end
+            return
+        end
+
         -- Use cached ref (set by UpdateObjectives) instead of re-finding
         -- the weighted objective on every render.
         local enemyObj = run._weightedObj
@@ -1434,7 +1669,8 @@ local function RenderStandalone()
             label = "Enemy Forces"
         end
 
-        SetFS(f._enemyFS, p.objectivesSize or 12)
+        local enemyTextSize = p.enemyForcesTextSize or p.objectivesSize or 12
+        SetFS(f._enemyFS, enemyTextSize)
         ApplyShadow(f._enemyFS)
         if enemyObj.completed then
             f._enemyFS:SetTextColor(GetColor(p.objectiveCompletedColor, 0.3, 0.8, 0.3))
@@ -1461,7 +1697,7 @@ local function RenderStandalone()
                 f._enemyBarBg:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + TBAR_PAD, y)
             end
             f._enemyBarBg:SetSize(barW, ENEMY_BAR_H)
-            f._enemyBarBg:SetColorTexture(0.12, 0.12, 0.12, 0.9)
+            ApplyBarTexture(f._enemyBarBg, p.barBgTexture, 0.12, 0.12, 0.12, 0.9)
             f._enemyBarBg:Show()
 
             local eR, eG, eB
@@ -1478,7 +1714,7 @@ local function RenderStandalone()
             f._enemyBarFill:ClearAllPoints()
             f._enemyBarFill:SetPoint("TOPLEFT", f._enemyBarBg, "TOPLEFT", 0, 0)
             f._enemyBarFill:SetSize(eFillW, ENEMY_BAR_H)
-            f._enemyBarFill:SetColorTexture(eR, eG, eB, 0.8)
+            ApplyBarTexture(f._enemyBarFill, p.barTexture, eR, eG, eB, 0.8)
             f._enemyBarFill:Show()
 
             if not f._enemyBarText then
@@ -1486,7 +1722,7 @@ local function RenderStandalone()
                 f._enemyBarText:SetWordWrap(false)
             end
             if pctPos == "BAR" then
-                SetFS(f._enemyBarText, p.objectivesSize or 12)
+                SetFS(f._enemyBarText, enemyTextSize)
                 ApplyShadow(f._enemyBarText)
                 -- In-bar percent is always white for readability over the
                 -- accent-filled bar regardless of completion / user colors.
@@ -1496,7 +1732,7 @@ local function RenderStandalone()
                 f._enemyBarText:SetPoint("CENTER", f._enemyBarBg, "CENTER", 0, 0)
                 f._enemyBarText:Show()
             elseif pctPos == "BESIDE" then
-                SetFS(f._enemyBarText, p.objectivesSize or 12)
+                SetFS(f._enemyBarText, enemyTextSize)
                 ApplyShadow(f._enemyBarText)
                 if enemyObj.completed then
                     f._enemyBarText:SetTextColor(GetColor(p.objectiveCompletedColor, 0.3, 0.8, 0.3))
@@ -1524,10 +1760,11 @@ local function RenderStandalone()
                 return
             end
             -- In under-bar mode, lift the enemy text up 2px to sit closer to the bar.
-            local labelY = underBarMode and (y + 2) or y
+            local labelX = p.enemyForcesTextOffsetX or 0
+            local labelY = (underBarMode and (y + 2) or y) + (p.enemyForcesTextOffsetY or 0)
             f._enemyFS:ClearAllPoints()
-            f._enemyFS:SetPoint("TOPLEFT", f, "TOPLEFT", ePad, labelY)
-            f._enemyFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -ePad, labelY)
+            f._enemyFS:SetPoint("TOPLEFT", f, "TOPLEFT", ePad + labelX, labelY)
+            f._enemyFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -ePad + labelX, labelY)
             f._enemyFS:SetJustifyH(objAlign)
             f._enemyFS:Show()
             local trailingGap = underBarMode and (4 - 2 + 5) or 4
@@ -1648,6 +1885,18 @@ local function RenderStandalone()
         f._timerDetailFS:Hide()
     end
 
+    if titleAffixBelowTimer then
+        local timerGap = p.titleAffixTimerGap or p.titleAffixSandwichGap or defaultSandwichGap
+        local barGap = p.titleAffixBarGap or p.titleAffixSandwichGap or defaultSandwichGap
+        if p.timerInBar then
+            y = y - timerGap
+        else
+            y = y - (timerGap - defaultSandwichGap)
+        end
+        RenderTitleAffixes()
+        y = y - (barGap - defaultSandwichGap)
+    end
+
     if underBarMode then
         RenderThresholdText()
     end
@@ -1667,7 +1916,8 @@ local function RenderStandalone()
             f._barBg:SetPoint("TOP", f, "TOP", 0, y)
         end
         f._barBg:SetSize(barW, TBAR_H)
-        f._barBg:SetColorTexture(0.12, 0.12, 0.12, 0.9)
+        ApplyBarTexture(f._barBg, p.barBgTexture, 0.12, 0.12, 0.12, 0.9)
+        f._barBg:SetAlpha(1)
         f._barBg:Show()
 
         local fillPct = min(1, elapsed / maxTime)
@@ -1676,37 +1926,113 @@ local function RenderStandalone()
         f._barFill:SetPoint("TOPLEFT", f._barBg, "TOPLEFT", 0, 0)
         f._barFill:SetSize(fillW, TBAR_H)
         local _fillA = p.timerInBar and (p.barFillAlphaExpanded or 0.85) or 0.85
-        f._barFill:SetColorTexture(timerBarR, timerBarG, timerBarB, _fillA)
+        ApplyBarTexture(f._barFill, p.barTexture, timerBarR, timerBarG, timerBarB, _fillA)
         f._barFill:Show()
 
-        -- Pixel-perfect 2-physical-pixel tick markers.
+        -- Pixel-perfect 2-physical-pixel tick markers and segment boundaries.
         local _PP = EllesmereUI and EllesmereUI.PP
         local _es = f:GetEffectiveScale()
         local _tickW = _PP and _PP.SnapForES(2, _es) or 2
         local function _snap(v) return _PP and _PP.SnapForES(v, _es) or v end
 
+        local function HideTimerSegments()
+            if f._timerSegBgs then
+                for _, tex in ipairs(f._timerSegBgs) do tex:Hide() end
+            end
+            if f._timerSegFills then
+                for _, tex in ipairs(f._timerSegFills) do tex:Hide() end
+            end
+        end
+
+        local function EnsureTimerSegments()
+            f._timerSegBgs = f._timerSegBgs or {}
+            f._timerSegFills = f._timerSegFills or {}
+            for i = 1, 3 do
+                if not f._timerSegBgs[i] then
+                    f._timerSegBgs[i] = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+                end
+                if not f._timerSegFills[i] then
+                    f._timerSegFills[i] = f:CreateTexture(nil, "ARTWORK")
+                end
+            end
+        end
+
+        local barStyle = p.timerBarStyle or "TICKS"
+        if barStyle == "SEGMENTS" then
+            EnsureTimerSegments()
+            f._barBg:SetAlpha(0)
+            f._barFill:Hide()
+            f._seg3:Hide()
+            f._seg2:Hide()
+
+            -- Physical-pixel-perfect gaps, the same way ticks are: snap the gap
+            -- WIDTH to a whole number of physical pixels, snap each boundary
+            -- center, then derive the far gap edge as nearEdge + gapW so every
+            -- gap is exactly gapW physical pixels wide (no independent-snap drift).
+            local gapW = _snap(max(0, p.timerBarSegmentGap or 2))
+            local b3 = _snap(barW * (plusThreeT / maxTime))
+            local b2 = _snap(barW * (plusTwoT / maxTime))
+            local g3L = _snap(b3 - gapW / 2); local g3R = g3L + gapW
+            local g2L = _snap(b2 - gapW / 2); local g2R = g2L + gapW
+            local segs = {
+                { x1 = 0,    x2 = g3L,  t1 = 0,          t2 = plusThreeT },
+                { x1 = g3R,  x2 = g2L,  t1 = plusThreeT, t2 = plusTwoT },
+                { x1 = g2R,  x2 = barW, t1 = plusTwoT,   t2 = maxTime },
+            }
+            for i, seg in ipairs(segs) do
+                local x1 = max(0, min(barW, seg.x1))
+                local x2v = max(0, min(barW, seg.x2))
+                local w = x2v - x1
+                if w < 1 then w = 1 end
+
+                local bg = f._timerSegBgs[i]
+                bg:ClearAllPoints()
+                bg:SetPoint("TOPLEFT", f._barBg, "TOPLEFT", x1, 0)
+                bg:SetSize(w, TBAR_H)
+                ApplyBarTexture(bg, p.barBgTexture, 0.12, 0.12, 0.12, 0.9)
+                bg:Show()
+
+                local segDur = max(1, seg.t2 - seg.t1)
+                local segPct = min(1, max(0, (elapsed - seg.t1) / segDur))
+                local fill = f._timerSegFills[i]
+                fill:ClearAllPoints()
+                fill:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
+                fill:SetSize(max(1, w * segPct), TBAR_H)
+                ApplyBarTexture(fill, p.barTexture, timerBarR, timerBarG, timerBarB, _fillA)
+                if segPct > 0 then fill:Show() else fill:Hide() end
+            end
+        else
+            HideTimerSegments()
+        end
+
         local tickA = p.tickAlpha or 1
         local whiteTicks = p.tickWhite == true
+        local tickR, tickG, tickB = GetColor(p.timerTickColor, 1, 1, 1)
 
-        f._seg3:ClearAllPoints()
-        f._seg3:SetSize(_tickW, TBAR_H)
-        f._seg3:SetPoint("TOPLEFT", f._barBg, "TOPLEFT", _snap(barW * (plusThreeT / maxTime)) - _tickW / 2, 0)
-        if whiteTicks or elapsed > plusThreeT then
-            f._seg3:SetColorTexture(1, 1, 1, tickA)
+        if barStyle == "SEGMENTS" then
+            f._seg3:Hide()
+            f._seg2:Hide()
         else
-            f._seg3:SetColorTexture(0.4, 1, 0.4, tickA)
-        end
-        f._seg3:Show()
+            f._seg3:ClearAllPoints()
+            f._seg3:SetSize(_tickW, TBAR_H)
+            f._seg3:SetPoint("TOPLEFT", f._barBg, "TOPLEFT", _snap(barW * (plusThreeT / maxTime)) - _tickW / 2, 0)
+            if p.timerTickColor or whiteTicks or elapsed > plusThreeT then
+                f._seg3:SetColorTexture(tickR, tickG, tickB, tickA)
+            else
+                f._seg3:SetColorTexture(0.4, 1, 0.4, tickA)
+            end
+            f._seg3:Show()
 
-        f._seg2:ClearAllPoints()
-        f._seg2:SetSize(_tickW, TBAR_H)
-        f._seg2:SetPoint("TOPLEFT", f._barBg, "TOPLEFT", _snap(barW * (plusTwoT / maxTime)) - _tickW / 2, 0)
-        if whiteTicks or elapsed > plusTwoT then
-            f._seg2:SetColorTexture(1, 1, 1, tickA)
-        else
-            f._seg2:SetColorTexture(0.3, 0.8, 1, tickA)
+            f._seg2:ClearAllPoints()
+            f._seg2:SetSize(_tickW, TBAR_H)
+            f._seg2:SetPoint("TOPLEFT", f._barBg, "TOPLEFT", _snap(barW * (plusTwoT / maxTime)) - _tickW / 2, 0)
+            if p.timerTickColor or whiteTicks or elapsed > plusTwoT then
+                f._seg2:SetColorTexture(tickR, tickG, tickB, tickA)
+            else
+                f._seg2:SetColorTexture(0.3, 0.8, 1, tickA)
+            end
+            f._seg2:Show()
         end
-        f._seg2:Show()
 
         if p.timerInBar then
             if not f._barTimerFS then
@@ -1721,11 +2047,11 @@ local function RenderStandalone()
             else
                 f._barTimerFS:SetTextColor(tR, tG, tB)
             end
-            -- Include the optional detail "(remaining / total)" so ELAPSED_DETAIL
-            -- (and any detail mode) reads the same in-bar as it does above the bar.
-            local barText = timerText
-            if timerDetailText then barText = barText .. timerDetailText end
-            SetTextDiff(f._barTimerFS, barText)
+            local barTimerText = timerText
+            if timerDetailText then
+                barTimerText = timerText .. timerDetailText
+            end
+            SetTextDiff(f._barTimerFS, barTimerText)
             f._barTimerFS:ClearAllPoints()
             if p.timerInBarLeftText then
                 f._barTimerFS:SetPoint("LEFT", f._barBg, "LEFT", 5, 0)
@@ -1741,6 +2067,12 @@ local function RenderStandalone()
     else
         f._barBg:Hide(); f._barFill:Hide()
         f._seg3:Hide(); f._seg2:Hide()
+        if f._timerSegBgs then
+            for _, tex in ipairs(f._timerSegBgs) do tex:Hide() end
+        end
+        if f._timerSegFills then
+            for _, tex in ipairs(f._timerSegFills) do tex:Hide() end
+        end
         if f._barTimerFS then f._barTimerFS:Hide() end
     end
 
@@ -1792,43 +2124,75 @@ local function RenderStandalone()
                         compareSuffix = "  |cff888888PB " .. FormatTime(target) .. "|r"
                     end
                 end
-                -- Timer/split text on the right FontString (never truncated).
-                -- Boss name on the left FontString (truncated with "..." by
+                -- Timer/split text uses its own FontString (never truncated).
+                -- Boss name uses the remaining width (truncated with "..." by
                 -- WoW's engine if it exceeds the remaining width). No string
                 -- reads required -- SetWidth + SetWordWrap(false) handles
                 -- truncation at the C++ level, safe for secret values.
-                local rightText = (timeStr ~= "" and ("  " .. timeStr) or "") .. compareSuffix
+                local splitText = timeStr
+                if splitText ~= "" and compareSuffix ~= "" then
+                    splitText = splitText .. compareSuffix
+                elseif compareSuffix ~= "" then
+                    splitText = compareSuffix:gsub("^%s+", "")
+                end
                 local oInnerW = frameW - oPad * 2
+                local timeOnLeft = (p.objectiveTimePosition == "LEFT")
+                local splitGap = 4
+                local objTextX = p.objectiveTextOffsetX or 0
+                local objTextY = p.objectiveTextOffsetY or 0
+                local objY = y + objTextY
                 nameFS:ClearAllPoints()
                 timeFS:ClearAllPoints()
-                if rightText ~= "" then
-                    timeFS:SetText(rightText)
+                nameFS:SetText(displayName)
+                if splitText ~= "" then
+                    timeFS:SetText(splitText)
                     timeFS:SetTextColor(1, 1, 1, 1)
                     timeFS:SetWidth(0)
                     local timeW = timeFS:GetStringWidth() or 0
-                    if objAlign == "RIGHT" then
-                        timeFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -oPad, y)
-                        nameFS:SetPoint("TOPRIGHT", timeFS, "TOPLEFT", 0, 0)
-                    else
-                        timeFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -oPad, y)
-                        nameFS:SetPoint("TOPLEFT", f, "TOPLEFT", oPad, y)
-                    end
-                    local nameMaxW = oInnerW - timeW
+                    local nameMaxW = oInnerW - timeW - splitGap
                     if nameMaxW < 20 then nameMaxW = 20 end
-                    nameFS:SetWidth(nameMaxW)
+                    nameFS:SetWidth(0)
+                    local nameW = nameFS:GetStringWidth() or 0
+                    if nameW > nameMaxW then nameW = nameMaxW end
+                    if nameW < 20 then nameW = 20 end
+                    nameFS:SetWidth(nameW)
+                    if timeOnLeft then
+                        if objAlign == "RIGHT" then
+                            nameFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -oPad + objTextX, objY)
+                            timeFS:SetPoint("TOPRIGHT", nameFS, "TOPLEFT", -splitGap, 0)
+                        elseif objAlign == "CENTER" then
+                            local groupW = timeW + splitGap + nameW
+                            timeFS:SetPoint("TOP", f, "TOP", objTextX - (groupW - timeW) / 2, objY)
+                            nameFS:SetPoint("TOPLEFT", timeFS, "TOPRIGHT", splitGap, 0)
+                        else
+                            timeFS:SetPoint("TOPLEFT", f, "TOPLEFT", oPad + objTextX, objY)
+                            nameFS:SetPoint("TOPLEFT", timeFS, "TOPRIGHT", splitGap, 0)
+                        end
+                    else
+                        if objAlign == "RIGHT" then
+                            timeFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -oPad + objTextX, objY)
+                            nameFS:SetPoint("TOPRIGHT", timeFS, "TOPLEFT", -splitGap, 0)
+                        elseif objAlign == "CENTER" then
+                            local groupW = nameW + splitGap + timeW
+                            nameFS:SetPoint("TOP", f, "TOP", objTextX - (groupW - nameW) / 2, objY)
+                            timeFS:SetPoint("TOPLEFT", nameFS, "TOPRIGHT", splitGap, 0)
+                        else
+                            nameFS:SetPoint("TOPLEFT", f, "TOPLEFT", oPad + objTextX, objY)
+                            timeFS:SetPoint("TOPLEFT", nameFS, "TOPRIGHT", splitGap, 0)
+                        end
+                    end
                     timeFS:Show()
                 else
                     timeFS:Hide()
                     if objAlign == "RIGHT" then
-                        nameFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -oPad, y)
+                        nameFS:SetPoint("TOPRIGHT", f, "TOPRIGHT", -oPad + objTextX, objY)
                     elseif objAlign == "CENTER" then
-                        nameFS:SetPoint("TOP", f, "TOP", 0, y)
+                        nameFS:SetPoint("TOP", f, "TOP", objTextX, objY)
                     else
-                        nameFS:SetPoint("TOPLEFT", f, "TOPLEFT", oPad, y)
+                        nameFS:SetPoint("TOPLEFT", f, "TOPLEFT", oPad + objTextX, objY)
                     end
                     nameFS:SetWidth(oInnerW)
                 end
-                nameFS:SetText(displayName)
                 nameFS:SetJustifyH(objAlign)
                 nameFS:Show()
                 y = y - (nameFS:GetStringHeight() or 12) - OBJ_GAP
@@ -2027,6 +2391,7 @@ end)
 function EMT:OnInitialize()
     db = EllesmereUI.Lite.NewDB("EllesmereUIMythicTimerDB", DB_DEFAULTS)
     _G._EMT_AceDB = db
+    AppendSharedMediaBarTextures()
 
     if db and db.profile then
         local pp = db.profile
