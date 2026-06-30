@@ -44,6 +44,7 @@ local defaults = {
             hideMail             = false,
             hideRaidDifficulty   = false,
             hideCraftingOrder    = false,
+            friendsMaxRows       = 0,   -- 0 = no cap; else cap per section, show "...and N more"
             hideExtraBtns        = { greatVault = false, portals = false, friendsOnline = false, groupButton = false },
             mouseoverExtraBtns   = false,  -- extra buttons only show on minimap mouseover
             greatVaultExtraInfo  = true,
@@ -62,6 +63,7 @@ local defaults = {
             customBtnSizeEnabled = false,
             customBtnSize        = 24,
             btnPositions         = {},
+            extraFlyoutScale     = 1.0,
             showClock     = true,
             clockInside   = true,
             clockFormat   = "12h",
@@ -1223,6 +1225,9 @@ local function ShowVaultTooltip(anchor)
     }
 
     local tt = GetVaultTooltip()
+    -- Scale the whole flyout to the user's Extra Button Flyout Scale (re-applied each show).
+    local _mp = EBS.db and EBS.db.profile.minimap
+    tt:SetScale(_mp and _mp.extraFlyoutScale or 1.0)
 
     -- Apply user's current font to all FontStrings
     local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("minimap")) or "Fonts\\FRIZQT__.TTF"
@@ -1700,6 +1705,11 @@ end
 local function ToggleMinimapPortalFlyout(anchorBtn)
     if InCombatLockdown() then return end
     local flyout = CreateMinimapPortalFlyout()
+    -- Scale to the user's Extra Button Flyout Scale. Safe (combat early-returns
+    -- above; secure children). Set before the anchor math so GetEffectiveScale
+    -- below reflects it.
+    local _mp = EBS.db and EBS.db.profile.minimap
+    flyout:SetScale(_mp and _mp.extraFlyoutScale or 1.0)
     if flyout:IsShown() then
         flyout:Hide()
     else
@@ -1794,7 +1804,7 @@ local function GatherOnlineFriends()
             if online and name then
                 local short = name:match("^([^%-]+)") or name
                 if short ~= myName then
-                    guild[#guild + 1] = { name = short, class = classFile, zone = zone or "", level = level }
+                    guild[#guild + 1] = { name = short, full = name, class = classFile, zone = zone or "", level = level, kind = "guild" }
                 end
             end
         end
@@ -1815,12 +1825,26 @@ local function GatherOnlineFriends()
                     if ci and ci.classFile then classFile = ci.classFile end
                 end
                 local zone = gameInfo.areaName or ""
+                local realm = gameInfo.realmName
+                local full = charName
+                if charName and realm and realm ~= "" then
+                    full = charName .. "-" .. realm
+                end
+                -- Battle tag without the #discriminator (fall back to accountName/RealID)
+                local rawTag = acct.battleTag or acct.accountName
+                local tagName = rawTag and rawTag:match("^([^#]+)") or rawTag
                 local entry = {
-                    name = charName or acct.accountName or "???",
+                    name = charName or tagName or "???",
+                    full = full,
                     class = classFile,
                     zone = zone,
                     level = gameInfo.characterLevel,
-                    bnetTag = acct.accountName,
+                    bnetTag = tagName,
+                    bnetName = acct.accountName or acct.battleTag,
+                    bnetID = acct.bnetAccountID,
+                    isFavorite = acct.isFavorite,
+                    note = acct.note,
+                    kind = "bnet",
                 }
                 if charName then seenBNet[charName] = true end
                 if acct.isFavorite then
@@ -1841,9 +1865,12 @@ local function GatherOnlineFriends()
             if charName and not seenBNet[charName] then
                 friends[#friends + 1] = {
                     name = charName:match("^([^%-]+)") or charName,
+                    full = charName,
                     class = info.className and info.className:upper():gsub(" ", ""),
                     zone = info.area or "",
                     level = info.level,
+                    note = info.notes,
+                    kind = "char",
                 }
             end
         end
@@ -1859,10 +1886,35 @@ local function GatherOnlineFriends()
         if guildSet[favorites[i].name] then table.remove(favorites, i) end
     end
 
+    -- Sort by zone (empty zones last), then name -- groups same-location together
+    local function byZone(a, b)
+        local az, bz = a.zone or "", b.zone or ""
+        if (az == "") ~= (bz == "") then return az ~= "" end
+        if az ~= bz then return az < bz end
+        return (a.name or "") < (b.name or "")
+    end
+    -- Friends/favorites sort A-Z by battle tag (fall back to name); guild stays grouped by zone
+    local function byTag(a, b)
+        return (a.bnetTag or a.name or ""):lower() < (b.bnetTag or b.name or ""):lower()
+    end
+    table.sort(guild, byZone)
+    table.sort(favorites, byTag)
+    table.sort(friends, byTag)
+
     return guild, favorites, friends
 end
 
--- Custom two-column friends tooltip (same pattern as M+ death tooltip)
+-- Custom two-column friends tooltip (same pattern as M+ death tooltip).
+-- FTT_FONT stays file-scope (it is shared with the calendar/vault tooltips below).
+-- Everything else lives in the do-block so its locals are released at the matching
+-- end and do not consume main-chunk local slots -- this file is at the Lua 5.1
+-- 200-local cap. Only ShowFriendsTooltip / HideFriendsTooltip are used outside the
+-- block (the minimap hover handlers), so they are forward-declared here.
+local function FTT_FONT()
+    return (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("minimap")) or EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
+end
+local ShowFriendsTooltip, HideFriendsTooltip
+do
 local _friendsTT
 local _friendsTTRows = {}
 local _friendsTTHeaders = {}
@@ -1872,11 +1924,136 @@ local FTT_ROW_H   = 14
 local FTT_HDR_H   = 16
 local FTT_GAP     = 2
 local FTT_DIV_PAD = 5   -- padding above and below the divider line
-local FTT_MAX_FAV = 20
-local FTT_MAX_GLD = 20
-local FTT_MAX_FRD = 15
-local function FTT_FONT()
-    return (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("minimap")) or EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
+
+-- Hover-stable hide: small grace period so cursor can travel from button to tooltip
+local _fttHideToken = 0
+local _fttMenuOpen = false
+local function CancelFTTHide()
+    _fttHideToken = _fttHideToken + 1
+end
+local function ScheduleFTTHide()
+    _fttHideToken = _fttHideToken + 1
+    if _fttMenuOpen then return end
+    local mine = _fttHideToken
+    C_Timer.After(0.15, function()
+        if mine ~= _fttHideToken then return end
+        if _fttMenuOpen then return end
+        if _friendsTT then _friendsTT:Hide() end
+    end)
+end
+
+-- THE RULE: "protected content" = anywhere the chat / whisper system carries
+-- secret values and a whisper action can taint Blizzard's chat code -- i.e. a
+-- Mythic+ run (the entire run), raid combat, and rated / instanced PvP combat.
+-- This is exactly EllesmereUI.InProtectedInstance() (defined in EllesmereUI.lua),
+-- the canonical EUI guard for taint-sensitive operations. Whispering is suppressed
+-- entirely in this state; invites are still allowed (they touch no chat code).
+local function FTTInProtectedContent()
+    return EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance() or false
+end
+
+-- Open a whisper. BNet friends are whispered via their Battle.net account
+-- (reaches them on any character / faction / realm); everyone else by character
+-- name. Passing an explicit chat frame skips ChatFrame_SendTell's
+-- FCF_OpenTemporaryWindow path -- that path drives the now-secret window list in
+-- 12.0 and tainted all of chat (the SetTellTarget / windowList /
+-- MessageEventHandler cascade). A "/w" macro can't open the editbox, only send.
+local function FTTOpenWhisper(charName, bnetName)
+    -- Suppress whispers wherever chat is taint-sensitive: (1) protected content,
+    -- and (2) while /euidev is on -- it forces addonChallengeModeRestrictionsForced,
+    -- i.e. the same secret-value restricted environment as a real Mythic+, so chat
+    -- would taint there too. InProtectedInstance() does NOT see the forced CVar, so
+    -- the dev-mode check is separate.
+    local blocked
+    if EllesmereUI.IsDevModeActive and EllesmereUI.IsDevModeActive() then
+        blocked = "This action is protected while dev mode (/euidev) is on."
+    elseif FTTInProtectedContent() then
+        blocked = "This action is protected in Mythic+ and raid combat."
+    end
+    if blocked then
+        if UIErrorsFrame then UIErrorsFrame:AddMessage(blocked, 1.0, 0.3, 0.3, 1.0) end
+        return
+    end
+    if bnetName and bnetName ~= "" then
+        local sendBN = (ChatFrameUtil and ChatFrameUtil.SendBNetTell) or ChatFrame_SendBNetTell
+        if sendBN then sendBN(bnetName, DEFAULT_CHAT_FRAME); return end
+    end
+    if charName and charName ~= "" then
+        local sendTell = (ChatFrameUtil and ChatFrameUtil.SendTell) or ChatFrame_SendTell
+        if sendTell then sendTell(charName, DEFAULT_CHAT_FRAME) end
+    end
+end
+
+-- Reusable right-click menu: plain buttons. Whisper -> FTTOpenWhisper (frame-scoped,
+-- no FCF taint); Invite -> C_PartyInfo.InviteUnit (taint-safe, opens no chat window;
+-- the same call our Friends search-results rows use).
+local _fttMenu
+local function GetFTTMenu()
+    if _fttMenu then return _fttMenu end
+    local PAD, RH, MW = 4, 18, 96
+    local m = CreateFrame("Frame", nil, UIParent)
+    m:SetFrameStrata("TOOLTIP")
+    m:SetFrameLevel(500)
+    m:EnableMouse(true)
+    m:SetSize(MW, PAD * 2 + RH * 2)
+    m:Hide()
+    local bg = m:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
+    EllesmereUI.MakeBorder(m, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
+
+    local function MakeItem(text, yOff, onClick)
+        local b = CreateFrame("Button", nil, m)
+        b:RegisterForClicks("AnyUp")
+        b:SetPoint("TOPLEFT", m, "TOPLEFT", PAD, yOff)
+        b:SetPoint("TOPRIGHT", m, "TOPRIGHT", -PAD, yOff)
+        b:SetHeight(RH)
+        local hl = b:CreateTexture(nil, "BACKGROUND")
+        hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.10); hl:Hide()
+        b:SetScript("OnEnter", function() hl:Show() end)
+        b:SetScript("OnLeave", function() hl:Hide() end)
+        b:SetScript("OnClick", function()
+            onClick(m._target, m._bnet)
+            m:Hide()
+        end)
+        local fs = b:CreateFontString(nil, "OVERLAY")
+        fs:SetFont(FTT_FONT(), 11, "")
+        fs:SetJustifyH("LEFT")
+        fs:SetPoint("LEFT", b, "LEFT", 6, 0)
+        fs:SetText(text)
+    end
+
+    -- Whisper(charName, bnetName); Invite always uses the character name.
+    MakeItem("Whisper", -PAD, FTTOpenWhisper)
+    MakeItem("Invite", -PAD - RH, function(target)
+        if target and target ~= "" and C_PartyInfo and C_PartyInfo.InviteUnit then
+            C_PartyInfo.InviteUnit(target)
+        end
+    end)
+
+    m:SetScript("OnLeave", function(self)
+        if not self:IsMouseOver() then self:Hide() end
+    end)
+    m:SetScript("OnHide", function()
+        _fttMenuOpen = false
+        ScheduleFTTHide()
+    end)
+    _fttMenu = m
+    return m
+end
+
+local function FTTShowRowMenu(rowBtn)
+    local target = rowBtn and rowBtn._fttTarget
+    local bnet = rowBtn and rowBtn._fttBnet
+    if (not target or target == "") and (not bnet or bnet == "") then return end
+    local m = GetFTTMenu()
+    m._target = target
+    m._bnet = bnet
+    _fttMenuOpen = true
+    CancelFTTHide()
+    m:ClearAllPoints()
+    m:SetPoint("TOPLEFT", rowBtn, "TOPRIGHT", 0, 0)
+    m:Show()
 end
 
 local function GetFriendsTT()
@@ -1884,6 +2061,10 @@ local function GetFriendsTT()
     local f = CreateFrame("Frame", nil, UIParent)
     f:SetFrameStrata("TOOLTIP")
     f:SetFrameLevel(200)
+    f:EnableMouse(true)
+    f:SetScript("OnEnter", CancelFTTHide)
+    f:SetScript("OnLeave", ScheduleFTTHide)
+    f:HookScript("OnHide", function() if _fttMenu then _fttMenu:Hide() end end)
     f:Hide()
     local bg = f:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
@@ -1896,14 +2077,52 @@ end
 local function EnsureFTTRow(idx)
     if _friendsTTRows[idx] then return _friendsTTRows[idx] end
     local tt = GetFriendsTT()
-    local nameFS = tt:CreateFontString(nil, "OVERLAY")
+    local btn = CreateFrame("Button", nil, tt)
+    btn:EnableMouse(true)
+    btn:RegisterForClicks("AnyUp")
+    btn:SetHeight(FTT_ROW_H)
+    local hl = btn:CreateTexture(nil, "BACKGROUND")
+    hl:SetAllPoints()
+    hl:SetColorTexture(1, 1, 1, 0.08)
+    hl:Hide()
+    btn._hl = hl
+    btn:SetScript("OnEnter", function(self)
+        CancelFTTHide()
+        if self._entry then self._hl:Show() end
+    end)
+    btn:SetScript("OnLeave", function(self)
+        self._hl:Hide()
+        ScheduleFTTHide()
+    end)
+    -- Left-click whispers (frame-scoped, no FCF taint); right-click opens the menu.
+    btn:SetScript("OnClick", function(self, mouseButton)
+        if not self._entry then return end
+        if mouseButton == "RightButton" then
+            FTTShowRowMenu(self)
+        elseif mouseButton == "LeftButton" then
+            FTTOpenWhisper(self._fttTarget, self._fttBnet)
+            CancelFTTHide()
+            if _friendsTT then _friendsTT:Hide() end
+        end
+    end)
+    local nameFS = btn:CreateFontString(nil, "OVERLAY")
     nameFS:SetFont(FTT_FONT(), 10, "")
     nameFS:SetJustifyH("LEFT")
-    local zoneFS = tt:CreateFontString(nil, "OVERLAY")
+    nameFS:SetPoint("LEFT", btn, "LEFT", 0, 0)
+    local zoneFS = btn:CreateFontString(nil, "OVERLAY")
     zoneFS:SetFont(FTT_FONT(), 10, "")
     zoneFS:SetJustifyH("RIGHT")
-    _friendsTTRows[idx] = { name = nameFS, zone = zoneFS }
+    zoneFS:SetPoint("RIGHT", btn, "RIGHT", 0, 0)
+    _friendsTTRows[idx] = { button = btn, name = nameFS, zone = zoneFS }
     return _friendsTTRows[idx]
+end
+
+-- Store the whisper/invite targets on a row (read by its OnClick and the menu).
+-- target = character name (invite + character whisper); bnet = Battle.net account
+-- (preferred for whisper when set).
+local function FTTSetRowTarget(btn, target, bnet)
+    btn._fttTarget = target
+    btn._fttBnet = bnet
 end
 
 local function EnsureFTTHeader(idx)
@@ -1932,10 +2151,18 @@ local function EnsureFTTDivider(idx)
     return tex
 end
 
-local function ShowFriendsTooltip(anchor)
+function ShowFriendsTooltip(anchor)
+    CancelFTTHide()
     local guild, favorites, friends = GatherOnlineFriends()
     local tt = GetFriendsTT()
+    -- Scale the whole flyout to the user's Extra Button Flyout Scale (re-applied each show).
+    local _mp = EBS.db and EBS.db.profile.minimap
+    tt:SetScale(_mp and _mp.extraFlyoutScale or 1.0)
     local total = #guild + #favorites + #friends
+
+    local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+    local maxRows = mp and tonumber(mp.friendsMaxRows) or 0
+    if maxRows and maxRows < 0 then maxRows = 0 end
 
     -- Refresh fonts to match current global font setting
     local font = FTT_FONT()
@@ -1947,10 +2174,17 @@ local function ShowFriendsTooltip(anchor)
         _friendsTTHeaders[i]:SetFont(font, 12, "")
     end
 
-    -- Hide all pooled elements
+    -- Hide all pooled elements and clear stale entry refs
     for i = 1, #_friendsTTRows do
-        _friendsTTRows[i].name:Hide()
-        _friendsTTRows[i].zone:Hide()
+        local r = _friendsTTRows[i]
+        r.name:Hide()
+        r.zone:Hide()
+        if r.button then
+            r.button:Hide()
+            r.button._entry = nil
+            FTTSetRowTarget(r.button, nil)
+            if r.button._hl then r.button._hl:Hide() end
+        end
     end
     for i = 1, #_friendsTTHeaders do _friendsTTHeaders[i]:Hide() end
     for i = 1, #_friendsTTDividers do _friendsTTDividers[i]:Hide() end
@@ -1961,8 +2195,12 @@ local function ShowFriendsTooltip(anchor)
         row.name:SetText("|cff888888No friends online|r")
         row.zone:SetText("")
         tt:SetSize(FTT_PAD * 2 + 140, FTT_PAD + FTT_ROW_H + FTT_PAD)
-        row.name:ClearAllPoints()
-        row.name:SetPoint("TOPLEFT", tt, "TOPLEFT", FTT_PAD, -FTT_PAD)
+        row.button:ClearAllPoints()
+        row.button:SetPoint("TOPLEFT", tt, "TOPLEFT", FTT_PAD, -FTT_PAD)
+        row.button:SetPoint("TOPRIGHT", tt, "TOPRIGHT", -FTT_PAD, -FTT_PAD)
+        row.button._entry = nil
+        FTTSetRowTarget(row.button, nil)
+        row.button:Show()
         row.name:Show()
         tt:ClearAllPoints()
         tt:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -4, 0)
@@ -1971,9 +2209,9 @@ local function ShowFriendsTooltip(anchor)
     end
 
     local sections = {}
-    if #favorites > 0 then sections[#sections + 1] = { title = "Favorites", list = favorites, max = FTT_MAX_FAV } end
-    if #guild > 0 then sections[#sections + 1] = { title = "Guild", list = guild, max = FTT_MAX_GLD } end
-    if #friends > 0 then sections[#sections + 1] = { title = "Friends", list = friends, max = FTT_MAX_FRD } end
+    if #favorites > 0 then sections[#sections + 1] = { title = "Favorites", list = favorites } end
+    if #guild > 0 then sections[#sections + 1] = { title = "Guild", list = guild } end
+    if #friends > 0 then sections[#sections + 1] = { title = "Friends", list = friends } end
 
     local rowIdx = 0
     local hdrIdx = 0
@@ -2007,7 +2245,8 @@ local function ShowFriendsTooltip(anchor)
         hdr:Show()
         curY = curY - FTT_HDR_H - 5  -- spacing below header
 
-        local shown = math.min(#sec.list, sec.max)
+        local shown = #sec.list
+        if maxRows > 0 and shown > maxRows then shown = maxRows end
         for i = 1, shown do
             local e = sec.list[i]
             rowIdx = rowIdx + 1
@@ -2017,6 +2256,15 @@ local function ShowFriendsTooltip(anchor)
 
             local cc = e.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[e.class]
             local colored = cc and cc:WrapTextInColorCode(e.name) or e.name
+            -- BNet friends: show battle tag before the in-game name, e.g. "Bigmacz (Unholyftw)"
+            if e.bnetTag then
+                colored = "|cffffd100" .. e.bnetTag .. "|r (" .. colored .. ")"
+            end
+            -- Level to the right of the in-game name, e.g. "Unholyftw 80"
+            local lvl = tonumber(e.level)
+            if lvl and lvl > 0 then
+                colored = colored .. " |cffb0b0b0" .. lvl .. "|r"
+            end
             row.name:SetText(colored)
             row.name:SetTextColor(1, 1, 1, 0.85)
 
@@ -2027,10 +2275,12 @@ local function ShowFriendsTooltip(anchor)
                 row.zone:SetText("")
             end
 
-            row.name:ClearAllPoints()
-            row.name:SetPoint("TOPLEFT", tt, "TOPLEFT", FTT_PAD, curY)
-            row.zone:ClearAllPoints()
-            row.zone:SetPoint("TOPRIGHT", tt, "TOPRIGHT", -FTT_PAD, curY)
+            row.button._entry = e
+            FTTSetRowTarget(row.button, e.full or e.name, e.bnetName)
+            row.button:ClearAllPoints()
+            row.button:SetPoint("TOPLEFT", tt, "TOPLEFT", FTT_PAD, curY)
+            row.button:SetPoint("TOPRIGHT", tt, "TOPRIGHT", -FTT_PAD, curY)
+            row.button:Show()
             row.name:Show()
             row.zone:Show()
 
@@ -2042,14 +2292,18 @@ local function ShowFriendsTooltip(anchor)
             curY = curY - (FTT_ROW_H + FTT_GAP)
         end
 
-        if #sec.list > sec.max then
+        if maxRows > 0 and #sec.list > maxRows then
             rowIdx = rowIdx + 1
             local row = EnsureFTTRow(rowIdx)
             row.name:SetFont(font, 10, "")
-            row.name:SetText("|cff888888...and " .. (#sec.list - sec.max) .. " more|r")
+            row.name:SetText("|cff888888...and " .. (#sec.list - maxRows) .. " more|r")
             row.zone:SetText("")
-            row.name:ClearAllPoints()
-            row.name:SetPoint("TOPLEFT", tt, "TOPLEFT", FTT_PAD, curY)
+            row.button._entry = nil
+            FTTSetRowTarget(row.button, nil)
+            row.button:ClearAllPoints()
+            row.button:SetPoint("TOPLEFT", tt, "TOPLEFT", FTT_PAD, curY)
+            row.button:SetPoint("TOPRIGHT", tt, "TOPRIGHT", -FTT_PAD, curY)
+            row.button:Show()
             row.name:Show()
             curY = curY - (FTT_ROW_H + FTT_GAP)
         end
@@ -2075,9 +2329,10 @@ local function ShowFriendsTooltip(anchor)
     return total
 end
 
-local function HideFriendsTooltip()
-    if _friendsTT then _friendsTT:Hide() end
+function HideFriendsTooltip()
+    ScheduleFTTHide()
 end
+end  -- friends tooltip do-block
 
 -- Custom calendar tooltip with right-aligned kill counts and server/reset footer.
 local _calendarTT

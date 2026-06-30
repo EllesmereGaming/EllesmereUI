@@ -1822,12 +1822,17 @@ function ns.UpdateLustListener()
     end
     if not any and ns.AnyCustomAuraLust then any = ns.AnyCustomAuraLust() end
     _ensureLustListener(any)
+    -- Sibling preset listener, refreshed from the same buff/TBB change sites
+    -- (every add/remove/rebuild path already calls UpdateLustListener).
+    if ns.UpdateTimeSpiralListener then ns.UpdateTimeSpiralListener() end
 end
 
--- Self-driven display for the lust bar: fill + timer come from our own 40s
--- countdown, not from a Blizzard frame. Name/icon are set in BuildTrackedBuffBars.
-local function UpdateLustBar(bar, cfg)
-    local remaining = _lustExpiry - GetTime()
+-- Self-driven display for an event-armed, self-timed preset bar (Bloodlust 40s,
+-- Time Spiral 10s): fill + timer come from our own countdown, not a Blizzard
+-- frame. Name/icon are set in BuildTrackedBuffBars. `expiry` is the GetTime()
+-- the window ends at; `duration` is the full window length (the bar's max).
+local function _UpdateSelfTimedBar(bar, cfg, expiry, duration)
+    local remaining = expiry - GetTime()
     if remaining <= 0 then
         if bar:IsShown() then bar:Hide() end
         return
@@ -1836,7 +1841,7 @@ local function UpdateLustBar(bar, cfg)
     if not wasShown then bar:Show() end
     local sb = bar._bar
     if sb then
-        sb:SetMinMaxValues(0, 40)
+        sb:SetMinMaxValues(0, duration)
         -- Smooth fill is baseline for tracking bars: they move in one direction
         -- at a known rate (no sudden jumps to read instantly, unlike a health
         -- bar), so interpolation only removes judder. wasShown snaps a fresh
@@ -1860,6 +1865,128 @@ local function UpdateLustBar(bar, cfg)
     elseif bar._timerText then
         bar._timerText:Hide()
     end
+end
+local function UpdateLustBar(bar, cfg)
+    _UpdateSelfTimedBar(bar, cfg, _lustExpiry, 40)
+end
+
+-------------------------------------------------------------------------------
+--  Time Spiral "Free Move" preset (popularKey == "timespiral")
+--  Mirrors Bloodlust, but armed off Blizzard's spell-activation glow on the
+--  player's class movement ability -- the Time Spiral free-cast proc -- instead
+--  of an aura. A whitelisted glow-SHOW starts a self-timed 10s window. Like
+--  Bloodlust there is NO login/reload reconstruction: only a fresh glow arms it.
+--  Talent-aware suppression drops glows that fire on a movement ability for
+--  unrelated reasons (DH Inertia / Dash of Chaos, Warlock Soulburn).
+-------------------------------------------------------------------------------
+local TIME_SPIRAL_DURATION = 10
+-- Per-class movement abilities that glow when Time Spiral grants a free cast.
+local TIME_SPIRAL_TRIGGERS = {
+    [48265] = true,   -- Death's Advance
+    [195072] = true,  -- Fel Rush
+    [189110] = true,  -- Infernal Strike
+    [1850] = true,    -- Dash
+    [252216] = true,  -- Tiger Dash
+    [358267] = true,  -- Hover
+    [186257] = true,  -- Aspect of the Cheetah
+    [1953] = true,    -- Blink
+    [212653] = true,  -- Shimmer
+    [361138] = true,  -- Roll
+    [119085] = true,  -- Chi Torpedo
+    [190784] = true,  -- Divine Steed
+    [73325] = true,   -- Leap of Faith
+    [2983] = true,    -- Sprint
+    [192063] = true,  -- Gust of Wind
+    [58875] = true,   -- Spirit Walk
+    [79206] = true,   -- Spiritwalker's Grace
+    [48020] = true,   -- Demonic Circle: Teleport
+    [6544] = true,    -- Heroic Leap
+}
+-- Talent-gated abilities that ALSO glow a movement ability for reasons unrelated
+-- to the Time Spiral proc. While the talent is known, a cast of one suppresses
+-- the glow that follows for a short window.
+local TIME_SPIRAL_GLOW_FILTERS = {
+    { talent = 427640, spells = { 198793, 370965, 195072 } },  -- DH Inertia
+    { talent = 427794, spells = { 195072 } },                  -- DH Dash of Chaos
+    { talent = 385899, spells = { 385899 } },                  -- Warlock Soulburn
+}
+-- State grouped in one table to stay clear of the file's local budget.
+local _ts = { expiry = 0, suppressUntil = 0, suppress = {}, active = false, frame = nil }
+
+local function _rebuildTimeSpiralSuppress()
+    wipe(_ts.suppress)
+    local known = C_SpellBook and C_SpellBook.IsSpellKnown
+    if not known then return end
+    for _, e in ipairs(TIME_SPIRAL_GLOW_FILTERS) do
+        if known(e.talent) then
+            for _, sid in ipairs(e.spells) do _ts.suppress[sid] = true end
+        end
+    end
+end
+
+-- Toggle the glow listener. Registered only while an enabled Time Spiral bar or
+-- Custom Auras (icon) display exists. Glow-event spellIDs are clean (not secret).
+local function _ensureTimeSpiralListener(enable)
+    if enable then
+        if not _ts.frame then
+            _ts.frame = CreateFrame("Frame")
+            _ts.frame:SetScript("OnEvent", function(_, event, ...)
+                if event == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" then
+                    local sid = ...
+                    if not TIME_SPIRAL_TRIGGERS[sid] then return end
+                    if GetTime() < _ts.suppressUntil then return end
+                    _ts.expiry = GetTime() + TIME_SPIRAL_DURATION  -- free move just granted
+                    -- Drive any Custom Auras (icon) display sharing this edge.
+                    if ns.SignalTimeSpiralCast then ns.SignalTimeSpiralCast() end
+                elseif event == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE" then
+                    local sid = ...
+                    if not TIME_SPIRAL_TRIGGERS[sid] then return end
+                    -- Proc consumed (you used the free move) or the buff expired:
+                    -- end the window now so the bar / icon disappear with the glow
+                    -- instead of riding out the full 10s. Guarded on an active
+                    -- window so an unrelated trigger's hide can't spuriously fire.
+                    if _ts.expiry > GetTime() then
+                        _ts.expiry = 0
+                        if ns.SignalTimeSpiralEnd then ns.SignalTimeSpiralEnd() end
+                    end
+                elseif event == "UNIT_SPELLCAST_SENT" then
+                    -- (unit, target, castGUID, spellID); arg4 is the spellID.
+                    local _, _, _, sid = ...
+                    if sid and _ts.suppress[sid] then
+                        _ts.suppressUntil = GetTime() + 1.5
+                    end
+                elseif event == "TRAIT_CONFIG_UPDATED" or event == "PLAYER_ENTERING_WORLD" then
+                    _rebuildTimeSpiralSuppress()
+                end
+            end)
+        end
+        if not _ts.active then
+            _rebuildTimeSpiralSuppress()
+            _ts.frame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
+            _ts.frame:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
+            _ts.frame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
+            _ts.frame:RegisterEvent("TRAIT_CONFIG_UPDATED")
+            _ts.frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+            _ts.active = true
+        end
+    elseif _ts.frame and _ts.active then
+        _ts.frame:UnregisterAllEvents()
+        _ts.active = false
+    end
+end
+
+-- Arm the glow listener if EITHER a Time Spiral Tracking Bar OR a Custom Auras
+-- (icon) Time Spiral display is enabled. Authoritative (scans the DB).
+function ns.UpdateTimeSpiralListener()
+    local any = false
+    local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
+    if tbb and tbb.bars then
+        for _, cfg in ipairs(tbb.bars) do
+            if cfg.enabled ~= false and cfg.popularKey == "timespiral" then any = true; break end
+        end
+    end
+    if not any and ns.AnyCustomAuraTimeSpiral then any = ns.AnyCustomAuraTimeSpiral() end
+    _ensureTimeSpiralListener(any)
 end
 
 -------------------------------------------------------------------------------
@@ -1902,6 +2029,9 @@ function ns.UpdateTrackedBuffBarTimers()
         elseif cfg.popularKey == "bloodlust" then
             -- Self-driven 40s lust bar; no Blizzard frame to mirror.
             UpdateLustBar(bar, cfg)
+        elseif cfg.popularKey == "timespiral" then
+            -- Self-driven 10s Time Spiral "Free Move" bar; glow-armed, no frame.
+            _UpdateSelfTimedBar(bar, cfg, _ts.expiry, TIME_SPIRAL_DURATION)
         else
             local blzChild = assignment[cfg]
             if blzChild then ns.HookPandemicState(blzChild) end

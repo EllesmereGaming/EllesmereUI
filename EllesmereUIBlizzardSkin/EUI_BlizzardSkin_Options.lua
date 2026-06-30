@@ -343,6 +343,55 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateSidModState()
         end
 
+        -- Border: size slider with an inline colour + opacity swatch. Part of the
+        -- tooltip reskin, so it grays with "Reskin Tooltip". Defaults to the
+        -- historical hardcoded look (white @ 18% alpha, 1px) -- unset = unchanged.
+        local borderRow
+        borderRow, h = W:DualRow(parent, y,
+            { type="slider", text="Border", min=0, max=4, step=1,
+              disabled=ttReskinOff, disabledTooltip="Reskin Tooltip",
+              getValue=function()
+                  local s = EllesmereUIDB and EllesmereUIDB.tooltipBorderSize
+                  if s == nil then return 1 end
+                  return s
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.tooltipBorderSize = v
+              end },
+            { type="label", text="" }
+        );  y = y - h
+        -- Inline colour + opacity swatch on the Border slider (left region).
+        do
+            local PP = EllesmereUI.PanelPP
+            local rgn = borderRow._leftRegion
+            local swGet = function()
+                local c = EllesmereUIDB and EllesmereUIDB.tooltipBorderColor
+                local r = (c and c.r) or 1
+                local g = (c and c.g) or 1
+                local b = (c and c.b) or 1
+                local a = (EllesmereUIDB and EllesmereUIDB.tooltipBorderOpacity) or EllesmereUI.RESKIN.BRD_ALPHA
+                return r, g, b, a
+            end
+            local swSet = function(r, g, b, a)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.tooltipBorderColor = { r = r, g = g, b = b }
+                if a ~= nil then EllesmereUIDB.tooltipBorderOpacity = a end
+            end
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, true, 20)
+            PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
+            rgn._lastInline = swatch
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = ttReskinOff()
+                swatch:SetAlpha(off and 0.15 or 1)
+                swatch:EnableMouse(not off)
+                updateSwatch()
+            end)
+            local off = ttReskinOff()
+            swatch:SetAlpha(off and 0.15 or 1)
+            swatch:EnableMouse(not off)
+        end
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         _, h = W:SectionHeader(parent, "BLIZZARD WINDOW RESKINS", y);  y = y - h

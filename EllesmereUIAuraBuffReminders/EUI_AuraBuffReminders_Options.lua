@@ -755,6 +755,22 @@ initFrame:SetScript("OnEvent", function(self)
 
         parent._showRowDivider = true
 
+        -- Click-action info label at the top of the page (below the preview area)
+        do
+            local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("auraBuff")) or "Fonts\\FRIZQT__.TTF"
+            local infoFrame = CreateFrame("Frame", nil, parent)
+            infoFrame:SetSize(parent:GetWidth(), 20)
+            infoFrame:SetPoint("TOP", parent, "TOP", 0, y - 15)
+            infoFrame._isSpacer = true
+            local line1 = infoFrame:CreateFontString(nil, "OVERLAY")
+            line1:SetFont(fontPath, 15, "")
+            line1:SetTextColor(1, 1, 1, 0.75)
+            line1:SetPoint("TOP", infoFrame, "TOP", 0, 0)
+            line1:SetJustifyH("CENTER")
+            line1:SetText(EllesmereUI.L("Left Click to apply buffs (out of combat), Middle Click to hide until next load screen"))
+            y = y - 32
+        end
+
         -----------------------------------------------------------------------
         --  CORE section
         -----------------------------------------------------------------------
@@ -1188,6 +1204,14 @@ initFrame:SetScript("OnEvent", function(self)
               tooltip="Show a reminder when your Demonology Warlock has the wrong pet summoned (not Felguard).",
               getValue=function() local c = CDB(); return c and c.enabled and c.enabled.wrong_pet ~= false end,
               setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.wrong_pet = v; RefreshAll(); RebuildPreviewHeader() end end }
+        );  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Passive Pet Reminder",
+              tooltip="Show a reminder when your active pet is set to Passive stance. Only applies to pet classes (Hunter, Warlock, Death Knight, Mage).",
+              getValue=function() local c = CDB(); return c and c.enabled and c.enabled.pet_passive ~= false end,
+              setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.pet_passive = v; RefreshAll(); RebuildPreviewHeader() end end },
+            { type="spacer" }
         );  y = y - h
 
         _eabrClickMappings.pet = { section = petHdr, target = petFirstRow }

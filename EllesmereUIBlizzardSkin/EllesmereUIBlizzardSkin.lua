@@ -56,14 +56,28 @@ end
             GetFFD(tt).bg = tt:CreateTexture(nil, "BACKGROUND", nil, -8)
             GetFFD(tt).bg:SetAllPoints()
             if _PP and _PP.CreateBorder then
-                _PP.CreateBorder(tt, 1, 1, 1, EllesmereUI.RESKIN.BRD_ALPHA, 1, "OVERLAY", 7)
+                local bR, bG, bB, bA, bSize = EllesmereUI.GetTooltipBorder()
+                _PP.CreateBorder(tt, bR, bG, bB, bA, bSize, "OVERLAY", 7)
             end
         end
         -- Unified, user-customizable background (shared with the EUI custom
         -- tooltips via EllesmereUI.GetTooltipBg). Re-applied each skin call so a
-        -- settings change shows on the next tooltip. Border alpha stays fixed.
+        -- settings change shows on the next tooltip.
         GetFFD(tt).bg:SetColorTexture(EllesmereUI.GetTooltipBg())
         GetFFD(tt).bg:Show()
+        -- Border size + colour are user-customizable (Blizz UI Enhanced >
+        -- Blizzard Tooltip > Border). Re-applied each call like the bg so a
+        -- change shows on the next tooltip; size 0 hides the border.
+        if _PP and _PP.GetBorders and _PP.GetBorders(tt) then
+            local bR, bG, bB, bA, bSize = EllesmereUI.GetTooltipBorder()
+            if bSize and bSize > 0 then
+                _PP.SetBorderSize(tt, bSize)
+                _PP.SetBorderColor(tt, bR, bG, bB, bA)
+                _PP.ShowBorder(tt)
+            else
+                _PP.HideBorder(tt)
+            end
+        end
     end
 
     local function _ttFonts(tt, startFrom)
@@ -1444,6 +1458,20 @@ do
         return cursorFrame
     end
 
+    -- Show + position the tracking frame at the pointer right now. The OnUpdate
+    -- alone only repositions it on the NEXT frame, so a tooltip anchored to it
+    -- and shown synchronously this frame (as the custom CDM frames do) would have
+    -- no valid rect yet -- and nothing renders.
+    local function PositionCursorFrameNow(cf)
+        cf:Show()
+        local scale = UIParent:GetEffectiveScale()
+        if scale > 0 then
+            local x, y = GetCursorPosition()
+            cf:ClearAllPoints()
+            cf:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x / scale, y / scale)
+        end
+    end
+
     local function ApplyCursorAnchor(tooltip, parent)
         if tooltip ~= GameTooltip then return end
         -- Gated by the "Reskin Tooltip" master (matches the grayed-out option), so
@@ -1451,10 +1479,42 @@ do
         if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return end
         if not (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor) then return end
         if not parent or tooltip:IsForbidden() then return end
+        -- Respect the "Show Tooltips" suppression. This post-hook runs after
+        -- HideTooltipByMode in the GameTooltip_SetDefaultAnchor chain, so without
+        -- this check the re-anchor below would undo its Hide() every frame and the
+        -- tooltip would stay visible (e.g. "Out of Combat" leaking tips in combat).
+        if EllesmereUI._tooltipSuppressedByMode and EllesmereUI._tooltipSuppressedByMode(tooltip) then
+            if cursorFrame then cursorFrame:Hide() end
+            tooltip:Hide()
+            return
+        end
         local cf = EnsureCursorFrame()
-        cf:Show()
+        PositionCursorFrameNow(cf)
         local point = POINT_FOR_POS[EllesmereUIDB.tooltipCursorPosition or "top"] or "BOTTOM"
         tooltip:SetOwner(parent, "ANCHOR_NONE")
+        tooltip:ClearAllPoints()
+        tooltip:SetPoint(point, cf, "CENTER",
+            EllesmereUIDB.tooltipCursorOffsetX or 0,
+            EllesmereUIDB.tooltipCursorOffsetY or 0)
+    end
+
+    -- Re-assert the cursor anchor on GameTooltip WITHOUT re-owning it (SetOwner
+    -- would wipe the content). A custom frame whose tooltip content-setter
+    -- (e.g. SetItemByID) clears/hides the tip mid-build can fire GameTooltip's
+    -- OnHide -- which hides the tracking frame -- leaving the tip anchored to a
+    -- hidden/unpositioned frame so it never appears. Calling this AFTER the
+    -- content is set (and before Show) re-shows + repositions the tracking frame
+    -- and re-points the tooltip so it reliably renders at the cursor. No-op when
+    -- the cursor anchor (or the reskin master) is off, so callers can call it
+    -- unconditionally.
+    EllesmereUI._repointTooltipAtCursor = function(tooltip)
+        if tooltip ~= GameTooltip then return end
+        if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return end
+        if not (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor) then return end
+        if tooltip:IsForbidden() then return end
+        local cf = EnsureCursorFrame()
+        PositionCursorFrameNow(cf)
+        local point = POINT_FOR_POS[EllesmereUIDB.tooltipCursorPosition or "top"] or "BOTTOM"
         tooltip:ClearAllPoints()
         tooltip:SetPoint(point, cf, "CENTER",
             EllesmereUIDB.tooltipCursorOffsetX or 0,
@@ -1515,21 +1575,31 @@ end
 --  for the default mode, costing one table read per tooltip when unused.
 -------------------------------------------------------------------------------
 do
-    local function HideTooltipByMode(tooltip)
-        if tooltip ~= GameTooltip then return end
-        if tooltip.IsForbidden and tooltip:IsForbidden() then return end
+    -- Shared decision: should GameTooltip be suppressed right now given the
+    -- user's "Show Tooltips" mode + combat state? Exposed on EllesmereUI so the
+    -- cursor-anchor hook can honor it too (otherwise the cursor re-anchor would
+    -- re-show a tooltip this hook just hid).
+    function EllesmereUI._tooltipSuppressedByMode(tooltip)
+        if tooltip ~= GameTooltip then return false end
+        if tooltip.IsForbidden and tooltip:IsForbidden() then return false end
         -- Gated by the "Reskin Tooltip" master (matches the grayed-out "Show
         -- Tooltips" option), so disabling the reskin never leaves tooltips stuck
         -- suppressed at, e.g., "Never".
-        if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return end
+        if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return false end
         local mode = (EllesmereUIDB and EllesmereUIDB.tooltipShowMode) or "always"
-        if mode == "always" then return end
         if mode == "never" then
-            tooltip:Hide()
+            return true
         elseif mode == "outOfCombat" then
-            if InCombatLockdown() then tooltip:Hide() end
+            return InCombatLockdown()
         elseif mode == "outOfBossCombat" then
-            if IsEncounterInProgress() then tooltip:Hide() end
+            return IsEncounterInProgress()
+        end
+        return false
+    end
+
+    local function HideTooltipByMode(tooltip)
+        if EllesmereUI._tooltipSuppressedByMode(tooltip) then
+            tooltip:Hide()
         end
     end
     if GameTooltip_SetDefaultAnchor then

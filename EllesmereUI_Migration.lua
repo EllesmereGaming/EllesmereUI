@@ -2185,6 +2185,29 @@ EllesmereUI.RegisterMigration({
 })
 
 EllesmereUI.RegisterMigration({
+    id          = "ab_queuestatus_reset_visibility_v1",
+    scope       = "profile",
+    description = "Reset stale QueueStatus (LFG eye) visibility/mouseover settings to neutral. EUI used to control the eye's visibility but now only controls its position; old saved values (e.g. barVisibility 'mouseover' with mouseoverAlpha 0) could leave the eye permanently invisible with no UI left to restore it.",
+    body = function(ctx)
+        local ab = ctx.profile.addons and ctx.profile.addons.EllesmereUIActionBars
+        local qs = ab and ab.bars and ab.bars.QueueStatus
+        if type(qs) ~= "table" then return end
+        -- Neutral defaults (matches the EXTRA_BARS defaults): always-visible, no
+        -- mouseover fade, no combat/housing/instance hiding.
+        qs.barVisibility      = "always"
+        qs.alwaysHidden       = false
+        qs.mouseoverEnabled   = false
+        qs.mouseoverAlpha     = 1
+        qs._savedBarAlpha     = nil
+        qs.combatHideEnabled  = false
+        qs.combatShowEnabled  = false
+        qs.housingHideEnabled = false
+        qs.visHideHousing     = false
+        qs.visOnlyInstances   = false
+    end,
+})
+
+EllesmereUI.RegisterMigration({
     id          = "uf_per_unit_portrait_style_v1",
     scope       = "profile",
     description = "Copy global portraitStyle into player/target/focus per-unit tables.",
@@ -2796,6 +2819,42 @@ EllesmereUI.RegisterMigration({
         if db.reskinGreatVault  == nil then db.reskinGreatVault  = master end
         if db.reskinGameMenu    == nil then db.reskinGameMenu    = master and queueNotFalse end
         if db.reskinLFGMenu     == nil then db.reskinLFGMenu     = master and queueNotFalse end
+    end,
+})
+
+EllesmereUI.RegisterMigration({
+    id          = "texture_kringel_diamonds_to_blinkii_v1",
+    scope       = "profile",
+    description = "Rename the saved 'kringel-diamonds' bar texture value to its replacement 'blinkii-diamonds' across Unit Frames, Raid Frames, Nameplates, Resource Bars, and Damage Meters.",
+    body = function(ctx)
+        -- The kringel-diamonds texture was replaced by blinkii-diamonds (same slot,
+        -- new art). The dropdown value is the texture KEY string, stored under
+        -- different fields per module (healthBarTexture, general.barTexture,
+        -- castBar.texture, per-unit overrides, dm.barTexture). "kringel-diamonds"
+        -- only ever appears as a texture-selection value, so a recursive value swap
+        -- over each module's saved data catches every storage location and is
+        -- idempotent (nothing left to match on a second pass).
+        local addons = ctx.profile.addons
+        if type(addons) ~= "table" then return end
+
+        local function swap(t, depth)
+            if type(t) ~= "table" or depth > 8 then return end
+            for k, v in pairs(t) do
+                if v == "kringel-diamonds" then
+                    t[k] = "blinkii-diamonds"
+                elseif type(v) == "table" then
+                    swap(v, depth + 1)
+                end
+            end
+        end
+
+        local MODULES = {
+            "EllesmereUIUnitFrames", "EllesmereUIRaidFrames", "EllesmereUINameplates",
+            "EllesmereUIResourceBars", "EllesmereUIDamageMeters",
+        }
+        for _, name in ipairs(MODULES) do
+            swap(addons[name], 1)
+        end
     end,
 })
 

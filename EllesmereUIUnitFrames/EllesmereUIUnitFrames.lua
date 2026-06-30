@@ -1045,6 +1045,8 @@ local healthBarTextures = {
     ["gradient-tb"]   = TEXTURE_BASE .. "gradient-tb.tga",
     ["matte"]         = TEXTURE_BASE .. "matte.tga",
     ["sheer"]         = TEXTURE_BASE .. "sheer.tga",
+    ["blinkii-diamonds"] = TEXTURE_BASE .. "blinkii-diamonds.tga",
+    ["kringel-window"]   = TEXTURE_BASE .. "kringel-window.tga",
 }
 local healthBarTextureOrder = {
     "none", "melli", "atrocity",
@@ -1054,6 +1056,7 @@ local healthBarTextureOrder = {
     "divide", "glass",
     "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
     "matte", "sheer",
+    "blinkii-diamonds", "kringel-window",
 }
 local healthBarTextureNames = {
     ["none"]        = "None",
@@ -1073,6 +1076,8 @@ local healthBarTextureNames = {
     ["gradient-tb"] = "Gradient Down",
     ["matte"]       = "Matte",
     ["sheer"]       = "Sheer",
+    ["blinkii-diamonds"] = "Blinkii Diamonds",
+    ["kringel-window"]   = "Kringel Window",
 }
 ns.healthBarTextures = healthBarTextures
 ns.healthBarTextureOrder = healthBarTextureOrder
@@ -1621,6 +1626,10 @@ ns.NICK_ADDON = addonName:find("Standalone") and addonName or "EllesmereUI"
 function ns.ResolveUnitNickname(unit)
     local name = UnitName(unit)
     if not name then return "" end
+    -- Master toggle (Unit Frames > main frames > Display, default OFF): when off,
+    -- skip every provider lookup and show the raw unit name. One switch for all
+    -- main frames. Returning the raw (possibly secret) name here is display-safe.
+    if not (db and db.profile and db.profile.showNicknames) then return name end
     -- Nicknames are a player-only concept; NPCs (bosses, etc.) keep their name.
     if not UnitIsPlayer(unit) then return name end
     local nameSecret = issecretvalue and issecretvalue(name)
@@ -7910,10 +7919,18 @@ local function ReloadFrames()
             end
             -- The cast bar is a child of the frame, so the SetFrameStrata above
             -- reset it to the frame's strata. Lift player/target/focus cast bars
-            -- to HIGH so they never hide behind other MEDIUM-strata frames.
+            -- to HIGH so they never hide behind other MEDIUM-strata frames -- unless
+            -- the global "Raise Cast Bar Strata (All)" toggle is off, in which case the
+            -- cast bar is explicitly left at the frame's strata.
             if frame.Castbar and (unitKey == "player" or unitKey == "target" or unitKey == "focus") then
                 local cbg = frame.Castbar:GetParent()
-                if cbg then cbg:SetFrameStrata("HIGH") end
+                if cbg then
+                    if profile.raiseCastbarStrata ~= false then
+                        cbg:SetFrameStrata("HIGH")
+                    else
+                        cbg:SetFrameStrata(strata)
+                    end
+                end
             end
             -- SetFrameStrata re-stacks children; lift the raid marker holder back
             -- above the text overlay so the marker is never hidden behind name/health text.
@@ -10930,10 +10947,18 @@ function InitializeFrames()
             end
             -- The cast bar is a child of the frame, so the SetFrameStrata above
             -- reset it to the frame's strata. Lift player/target/focus cast bars
-            -- to HIGH so they never hide behind other MEDIUM-strata frames.
+            -- to HIGH so they never hide behind other MEDIUM-strata frames -- unless
+            -- the global "Raise Cast Bar Strata (All)" toggle is off, in which case the
+            -- cast bar is explicitly left at the frame's strata.
             if frame.Castbar and (unitKey == "player" or unitKey == "target" or unitKey == "focus") then
                 local cbg = frame.Castbar:GetParent()
-                if cbg then cbg:SetFrameStrata("HIGH") end
+                if cbg then
+                    if db.profile.raiseCastbarStrata ~= false then
+                        cbg:SetFrameStrata("HIGH")
+                    else
+                        cbg:SetFrameStrata(strata)
+                    end
+                end
             end
             -- SetFrameStrata re-stacks children; lift the raid marker holder back
             -- above the text overlay so the marker is never hidden behind name/health text.

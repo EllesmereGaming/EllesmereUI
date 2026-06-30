@@ -4606,6 +4606,20 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateHBSwatchVis()
         end
 
+        -- Show Nicknames: global master toggle for ALL main frames (player /
+        -- target / focus), default OFF. Gates ns.ResolveUnitNickname -- off shows
+        -- raw unit names, on shows nicknames from supported providers. Not
+        -- per-frame: one switch drives every main frame.
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Nicknames",
+              tooltip="Show player nicknames from supported addons instead of character names on your main frames.",
+              getValue=function() return db.profile.showNicknames or false end,
+              setValue=function(v)
+                  db.profile.showNicknames = v
+                  if ns.RefreshAllUnitNames then ns.RefreshAllUnitNames() end
+              end },
+            { type="label", text="" });  y = y - h
+
         _, h = W:Spacer(parent, y, 20); y = y - h
 
         -------------------------------------------------------------------
@@ -7177,6 +7191,16 @@ initFrame:SetScript("OnEvent", function(self)
                   set = function(v)
                       UNIT_DB_MAP[selectedUnit]().castbarHideWhenInactive = v
                       ReloadAndUpdate(); UpdatePreview()
+                  end },
+                -- Global (not per-frame, not synced): lift the player/target/focus
+                -- cast bars to HIGH strata. Default on = existing behavior; off leaves
+                -- them at the frame's strata. A single db.profile key drives all three.
+                { type = "toggle", label = "Raise Cast Bar Strata (All)",
+                  tooltip = "Lifts the player, target, and focus cast bars above other frames so they are never hidden behind them.",
+                  get = function() return db.profile.raiseCastbarStrata ~= false end,
+                  set = function(v)
+                      db.profile.raiseCastbarStrata = v
+                      ReloadAndUpdate()
                   end },
             }
             if selectedUnit == "target" or selectedUnit == "focus" then

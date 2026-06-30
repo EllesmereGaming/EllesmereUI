@@ -3466,6 +3466,46 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
             -- Row-level disabled state
             RegisterWidgetRefresh(function() ApplyDisabledState() end)
             ApplyDisabledState()
+
+        elseif t == "input" then
+            -- Free-text entry box, right-anchored. getValue returns the display
+            -- string; setValue receives the raw text and parses/validates it.
+            -- Commits on Enter and on focus loss; Escape reverts. Used e.g. for
+            -- Max Duration (numeric, blank = unset).
+            local boxW = cfg.inputWidth or 64
+            local box = CreateFrame("EditBox", nil, region)
+            box:SetSize(boxW, 22)
+            PP.Point(box, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
+            box:SetAutoFocus(false)
+            box:SetFont(EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 13, "")
+            box:SetTextColor(1, 1, 1, 0.9)
+            box:SetJustifyH("CENTER")
+            box:SetTextInsets(4, 4, 0, 0)
+            local boxBg = box:CreateTexture(nil, "BACKGROUND")
+            boxBg:SetAllPoints()
+            boxBg:SetColorTexture(0.12, 0.12, 0.12, 0.85)
+            local function RefreshInput()
+                if box:HasFocus() then return end
+                box:SetText((cfg.getValue and cfg.getValue()) or "")
+            end
+            local committing = false
+            local function CommitInput()
+                if committing then return end
+                committing = true
+                box:ClearFocus()
+                if cfg.setValue then cfg.setValue(box:GetText()) end
+                RefreshInput()
+                committing = false
+            end
+            box:SetScript("OnEnterPressed", CommitInput)
+            box:SetScript("OnEditFocusLost", CommitInput)
+            box:SetScript("OnEscapePressed", function(self) self:ClearFocus(); RefreshInput() end)
+            RefreshInput()
+            controlFrame = box
+            controlAnchor = box
+            AddControlDisabledTooltip(box, cfg)
+            RegisterWidgetRefresh(function() RefreshInput(); ApplyDisabledState() end)
+            ApplyDisabledState()
         end
         region._control = controlAnchor or controlFrame
     end

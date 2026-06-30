@@ -333,8 +333,9 @@ end
 -- Bloodlust/Heroism is the exception below: it is debuff-driven (see the TBB
 -- tick special-case for popularKey == "bloodlust") rather than cooldown-
 -- detected, because the lust buff is cast by others and is secret. It starts a
--- 40s bar off the player's Sated/Exhaustion debuff edge. Time Spiral / warlock
--- pets stay out (no usable detection).
+-- 40s bar off the player's Sated/Exhaustion debuff edge. Time Spiral is likewise
+-- event-driven (glow-armed, see the TBB tick special-case for popularKey ==
+-- "timespiral"); warlock pets stay out (no usable detection).
 local BUFF_BAR_PRESETS = {
     {
         -- Faction label: Horde = Bloodlust (2825), Alliance = Heroism (32182).
@@ -347,6 +348,19 @@ local BUFF_BAR_PRESETS = {
         duration = 40,
         tbbOnly  = true,  -- not a cooldown-usable preset (kept out of the CD/utility picker)
         customAuraToo = true,  -- but allowed on Custom Auras (icon) bars; debuff-driven 40s window
+    },
+    {
+        -- Time Spiral "Free Move" proc: glow-driven, self-timed 10s window (see
+        -- the TBB tick special-case for popularKey == "timespiral"). Like
+        -- Bloodlust it is event-armed (a spell-activation glow on the player's
+        -- class movement ability), not cooldown-detected.
+        key      = "timespiral",
+        name     = "Time Spiral",
+        icon     = 4622479,
+        spellIDs = { 374968 },
+        duration = 10,
+        tbbOnly  = true,       -- not a cooldown-usable preset (kept out of the CD/utility picker)
+        customAuraToo = true,  -- but allowed on Custom Auras (icon) bars; glow-driven 10s window
     },
     {
         key      = "lights_potential",
@@ -848,6 +862,46 @@ function ns.RescanCustomItemFlag()
                         end
                     end
                 end
+            end
+        end
+    end
+end
+
+-- Reverse Swipe gate: set ns._cdmAnyReverseSwipe once if any saved spell (any
+-- spec) has the per-spell reverseSwipe toggle on. The reverse-apply in
+-- RefreshCDMIconAppearance is skipped entirely for anyone who never enables it,
+-- so the cooldown keeps its default swipe direction at 0 cost. Monotonic,
+-- scanned-once contract identical to the flags above (the options toggle flips
+-- the flag live on enable).
+function ns.RescanReverseSwipeFlag()
+    if ns._cdmAnyReverseSwipe or ns._reverseSwipeFlagScanned then return end
+    local sp = SpellStore and SpellStore.GetSpecProfiles and SpellStore.GetSpecProfiles()
+    if not sp then return end
+    ns._reverseSwipeFlagScanned = true
+    -- Regular per-spell settings (per-bar spellSettings, every spec).
+    for _, prof in pairs(sp) do
+        local barSpells = prof and prof.barSpells
+        if barSpells then
+            for _, bs in pairs(barSpells) do
+                local ssAll = bs and bs.spellSettings
+                if ssAll then
+                    for _, ss in pairs(ssAll) do
+                        if ss and ss.reverseSwipe then
+                            ns._cdmAnyReverseSwipe = true
+                            return
+                        end
+                    end
+                end
+            end
+        end
+    end
+    -- Preset / custom cd-utility spells (profile-level customActiveStates).
+    local cas = ns.GetCustomActiveStates and ns.GetCustomActiveStates()
+    if cas then
+        for _, e in pairs(cas) do
+            if e and e.reverseSwipe then
+                ns._cdmAnyReverseSwipe = true
+                return
             end
         end
     end
@@ -3031,21 +3085,34 @@ BuildCDMBar = function(barIndex)
     frame:Show()
 end
 
--- Compute stride respecting topRowCount override (only for numRows == 2)
+-- Compute stride respecting the custom row-count override (only for numRows == 2).
+-- Two MUTUALLY EXCLUSIVE overrides both resolve to an effective TOP-row count:
+--   * Custom Top Row Count    -> topRowCount icons on the top row.
+--   * Custom Bottom Row Count -> bottomRowCount icons on the bottom row; the top
+--     row gets the remainder (the flipped form of the top override).
+-- Mutual exclusivity is enforced in options; if both somehow set, top wins.
 local function ComputeTopRowStride(barData, count)
     local numRows = barData.numRows or 1
     if numRows < 1 then numRows = 1 end
-    if numRows == 2 and barData.customTopRowEnabled and barData.topRowCount and barData.topRowCount > 0 then
-        local topCount = math.min(barData.topRowCount, count)
-        local bottomCount = count - topCount
-        -- Custom top-row mode only spills into a second row once the icon count
-        -- actually exceeds the top-row count. Until then, report ONE effective
-        -- row so the bar doesn't reserve space for (or lay out) an empty second
-        -- row. The second row appears the moment a bottom-row icon exists.
-        if bottomCount <= 0 then
-            return topCount, 1, topCount
+    if numRows == 2 then
+        local topCount
+        if barData.customTopRowEnabled and barData.topRowCount and barData.topRowCount > 0 then
+            topCount = math.min(barData.topRowCount, count)
+        elseif barData.customBottomRowEnabled and barData.bottomRowCount and barData.bottomRowCount > 0 then
+            topCount = count - math.min(barData.bottomRowCount, count)
         end
-        return math.max(topCount, bottomCount), numRows, topCount
+        if topCount then
+            if topCount < 0 then topCount = 0 end
+            local bottomCount = count - topCount
+            -- Custom-row mode only uses a second row once BOTH rows are non-empty.
+            -- Until then, report ONE effective row so the bar doesn't reserve or
+            -- lay out an empty row. The second row appears the moment both rows
+            -- hold at least one icon.
+            if bottomCount <= 0 or topCount <= 0 then
+                return count, 1, count
+            end
+            return math.max(topCount, bottomCount), numRows, topCount
+        end
     end
     local stride = math.ceil(count / numRows)
     local topCount = count - (numRows - 1) * stride
@@ -3713,8 +3780,19 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
                 extraCrop = (1 - 2 * zoom) / (2 * (baseW + 1))
             end
             if shape == "cropped" then
+                -- Cropped applies a heavy vertical TexCoord crop. With default
+                -- pixel/texel snapping the cropped image edge can round to a
+                -- different physical pixel than the (unsnapped) cooldown swipe,
+                -- producing a 1px swipe/icon split on fractional frame positions
+                -- at certain effective scales. Disable snapping so the image
+                -- renders to its exact rect, matching the swipe. No size change.
+                if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false) end
+                if tex.SetTexelSnappingBias then tex:SetTexelSnappingBias(0) end
                 tex:SetTexCoord(zoom, 1 - zoom, zoom + 0.10 + extraCrop, 1 - zoom - 0.10 - extraCrop)
             else
+                -- Restore default grid snapping for non-cropped shapes so an
+                -- icon previously set to cropped stays crisp after switching.
+                if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(true) end
                 tex:SetTexCoord(zoom, 1 - zoom, zoom + extraCrop, 1 - zoom - extraCrop)
             end
         end
@@ -4068,6 +4146,35 @@ local function RefreshCDMIconAppearance(barKey)
             local showCD = barData.showCooldownText
             if ssb and ssb.showCooldownText ~= nil then showCD = ssb.showCooldownText end
             cd:SetSwipeColor(0, 0, 0, barData.swipeAlpha or 0.7)
+            -- Per-spell Reverse Swipe: flips this icon's swipe direction away from
+            -- the bar default (buffs fill up, cooldowns deplete). Entire block is
+            -- gated by the session flag, so it is ZERO cost / ZERO behavior change
+            -- unless at least one spell has the toggle on -- the cooldown then keeps
+            -- DecorateFrame's default. Resolves the frame's CURRENT spell each pass
+            -- (so pool reuse + talent overrides stay correct) and re-asserts on every
+            -- refresh, so toggling off restores the default. Not a per-tick path.
+            if ns._cdmAnyReverseSwipe then
+                local rfBuff = (barData.barType == "buffs" or barKey == "buffs" or barData.barType == "custom_buff")
+                local rfReverse = rfBuff
+                local rfFc = _ecmeFC[icon]
+                local rfSid = rfFc and rfFc.spellID
+                if rfSid then
+                    -- Regular per-spell setting (per-bar spellSettings).
+                    local rev
+                    if ns.ResolveSpellSettings then
+                        local rfSs = ns.ResolveSpellSettings(icon, rfSid, ns.GetBarSpellData(barKey))
+                        rev = rfSs and rfSs.reverseSwipe
+                    end
+                    -- Preset / custom cd-utility spell setting (profile customActiveStates).
+                    if not rev and ns.GetCustomActiveState then
+                        local casKey = (ns.ResolveCustomActiveKey and ns.ResolveCustomActiveKey(rfSid)) or rfSid
+                        local cas = ns.GetCustomActiveState(casKey)
+                        rev = cas and cas.reverseSwipe
+                    end
+                    if rev then rfReverse = not rfBuff end
+                end
+                cd:SetReverse(rfReverse)
+            end
             -- Per-spell "Hide CD Text (Charges)" can additionally hide the recharge
             -- numbers while a charge is in hand; the font block below still styles
             -- the text (using the bar's showCD) so it is ready when numbers return.
@@ -5506,6 +5613,7 @@ BuildAllCDMBars = function()
     ns.RescanBuffSoundFlag()      -- set the Audio on Buff Gain/Loss gate (once) before refresh
     ns.RescanCdReadySoundFlag()   -- set the Audio Effect on CD Ready gate (once) before refresh
     ns.RescanCustomItemFlag()     -- set the custom-item buff-injection gate (once)
+    ns.RescanReverseSwipeFlag()   -- set the Reverse Swipe gate (once) before refresh
 
     local p = ECME.db.profile
 
@@ -5979,6 +6087,12 @@ function ns.RepopulateFromBlizzard()
         if id < 0 then return true end
         if sd.customSpellIDs and sd.customSpellIDs[id] then return true end
         if _myRacialsSet and _myRacialsSet[id] then return true end
+        -- A positive id carrying a stored duration is one of OUR injected
+        -- preset/custom buffs (Bloodlust/Heroism, potions, Time Spiral, custom
+        -- buff IDs). Blizzard-tracked buffs are never written into assignedSpells
+        -- with a duration, so this can only be a user-added entry -- preserve it.
+        -- Presets predate the customSpellIDs flag, so the flag alone is not enough.
+        if sd.spellDurations and (sd.spellDurations[id] or 0) > 0 then return true end
         return false
     end
 
@@ -7302,6 +7416,49 @@ SlashCmdList.CDMDBG = function()
     end
 
     P("=== END SNAPSHOT ===")
+end
+
+-------------------------------------------------------------------------------
+-- /euiorder -- focused talent-swap order probe (TEMP DEBUG). For each CD/util
+-- bar, dumps the stored assignedSpells order and the rendered order with each
+-- icon's sortOrder. sortOrder 99999 (= [end]) means the spell wasn't found in
+-- assignedSpells and got sorted to the end (spillover). Run before/after a
+-- talent swap to see whether a re-talented spell keeps its slot.
+-------------------------------------------------------------------------------
+SLASH_EUIORDER1 = "/euiorder"
+SlashCmdList.EUIORDER = function()
+    local ACCENT = "|cff0cd29f"; local DIM = "|cff7f7f7f"; local BAD = "|cffff5555"; local OFF = "|r"
+    local function P(s) print(ACCENT .. "[Order]" .. OFF .. " " .. s) end
+    local function NM(sid)
+        if type(sid) ~= "number" or sid <= 0 then return tostring(sid) end
+        local n = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(sid)
+        return sid .. ":" .. tostring(n or "?")
+    end
+    local p = ECME.db and ECME.db.profile
+    if not p or not p.cdmBars then P("no profile") return end
+    for _, bd in ipairs(p.cdmBars.bars) do
+        if bd.enabled and not bd.isGhostBar
+           and bd.barType ~= "buffs" and bd.barType ~= "custom_buff" and bd.key ~= "buffs" then
+            local sd = ns.GetBarSpellData(bd.key)
+            local list = sd and sd.assignedSpells
+            local parts = {}
+            if list then for i, sid in ipairs(list) do parts[i] = i .. ")" .. NM(sid) end end
+            P(ACCENT .. bd.key .. OFF .. " assigned(" .. (list and #list or 0) .. "): "
+                .. (next(parts) and table.concat(parts, "  ") or (DIM .. "(empty)" .. OFF)))
+            local icons = ns.cdmBarIcons and ns.cdmBarIcons[bd.key]
+            local rparts = {}
+            if icons then
+                for i = 1, #icons do
+                    local fc = ns._ecmeFC and ns._ecmeFC[icons[i]]
+                    local sid = fc and fc.spellID
+                    local so = fc and fc.sortOrder
+                    rparts[i] = i .. ")" .. NM(sid) .. ":so=" .. tostring(so) .. ((so == 99999) and (BAD .. "[end]" .. OFF) or "")
+                end
+            end
+            P("   rendered(" .. (icons and #icons or 0) .. "): "
+                .. (next(rparts) and table.concat(rparts, "  ") or (DIM .. "(none)" .. OFF)))
+        end
+    end
 end
 
 -------------------------------------------------------------------------------

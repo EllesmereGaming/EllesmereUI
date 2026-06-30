@@ -1354,6 +1354,7 @@ local function DecorateFrame(frame, barData)
                 if ss2 and (ss2.chargeHideSwipe or ss2.hideRechargeEdge) then ns._cdmAnyChargeStyle = true end
                 if ss2 and ss2.maxStacksGlow and ss2.maxStacksGlow > 0 then ns._cdmAnyMaxStacksGlow = true end
                 if ss2 and ss2.chargeHideCdText then ns._cdmAnyChargeHideCdText = true end
+                if ss2 and ss2.reverseSwipe then ns._cdmAnyReverseSwipe = true end
 
                 if ss2 and ss2.activeSwipeMode == "none" then
                     -- Hide Active State: force black swipe, track active flag.
@@ -2039,10 +2040,38 @@ local function GetOrCreateTrinketFrame(slotID)
         local ffc = _ecmeFC[self]
         local bd2 = ffc and ffc.barKey and barDataByKey[ffc.barKey]
         if not bd2 or not bd2.showTooltip then return end
+        -- Honor the global "Show Tooltips" visibility mode (Blizzard Skin); a
+        -- custom frame's explicit content population would otherwise re-show the
+        -- tip after the global suppression hook hid it.
+        if EllesmereUI and EllesmereUI._tooltipSuppressedByMode
+           and EllesmereUI._tooltipSuppressedByMode(GameTooltip) then return end
         local itemID = GetInventoryItemID("player", self._trinketSlot)
         if itemID then
             GameTooltip_SetDefaultAnchor(GameTooltip, self)
-            GameTooltip:SetInventoryItem("player", self._trinketSlot)
+            -- Prefer the equipped item's link so the tooltip reflects the actual
+            -- upgrade/bonus IDs (real item level + stats) rather than the base item.
+            -- SetItemByID is only a fallback if no link is available.
+            local link = GetInventoryItemLink("player", self._trinketSlot)
+            if link then
+                GameTooltip:SetHyperlink(link)
+            else
+                GameTooltip:SetItemByID(itemID)
+            end
+            -- Re-assert the cursor anchor after content is set (see helper notes):
+            -- the item content-setter can drop the tip's cursor anchor, so without
+            -- this it never appears while "Anchor to Cursor" is on. No-op otherwise.
+            if EllesmereUI and EllesmereUI._repointTooltipAtCursor then
+                EllesmereUI._repointTooltipAtCursor(GameTooltip)
+            end
+            GameTooltip:Show()
+            -- This is our own already-equipped trinket, so the side-by-side
+            -- comparison (shopping) tooltips are just noise -- hide them after the
+            -- tip is shown. Done here rather than by toggling the alwaysCompareItems
+            -- CVar: mutating a user setting on every combat-time hover is wasteful
+            -- and leaks the "off" state if anything errors mid-build.
+            if GameTooltip_HideShoppingTooltips then
+                GameTooltip_HideShoppingTooltips(GameTooltip)
+            end
         end
     end)
     f:SetScript("OnLeave", GameTooltip_Hide)
@@ -2253,8 +2282,14 @@ local function GetOrCreatePlaceholderFrame(barKey, spellID, iconID)
             local bd2 = ffc and ffc.barKey and barDataByKey[ffc.barKey]
             if not bd2 or not bd2.showTooltip then return end
             if not self._phSpellID then return end
+            -- Honor the global "Show Tooltips" visibility mode (Blizzard Skin).
+            if EllesmereUI and EllesmereUI._tooltipSuppressedByMode
+               and EllesmereUI._tooltipSuppressedByMode(GameTooltip) then return end
             GameTooltip_SetDefaultAnchor(GameTooltip, self)
             GameTooltip:SetSpellByID(self._phSpellID)
+            if EllesmereUI and EllesmereUI._repointTooltipAtCursor then
+                EllesmereUI._repointTooltipAtCursor(GameTooltip)
+            end
             GameTooltip:Show()
         end)
         f:SetScript("OnLeave", GameTooltip_Hide)
@@ -2354,8 +2389,16 @@ local function GetOrCreateItemPresetFrame(barKey, itemID)
         local ffc = _ecmeFC[self]
         local bd2 = ffc and ffc.barKey and barDataByKey[ffc.barKey]
         if not bd2 or not bd2.showTooltip then return end
+        -- Honor the global "Show Tooltips" visibility mode (Blizzard Skin).
+        if EllesmereUI and EllesmereUI._tooltipSuppressedByMode
+           and EllesmereUI._tooltipSuppressedByMode(GameTooltip) then return end
         GameTooltip_SetDefaultAnchor(GameTooltip, self)
         GameTooltip:SetItemByID(self._presetItemID)
+        -- Re-assert the cursor anchor after content is set (item setters can drop
+        -- it under "Anchor to Cursor", leaving the tip invisible). No-op otherwise.
+        if EllesmereUI and EllesmereUI._repointTooltipAtCursor then
+            EllesmereUI._repointTooltipAtCursor(GameTooltip)
+        end
         GameTooltip:Show()
     end)
     f:SetScript("OnLeave", GameTooltip_Hide)
@@ -2635,6 +2678,55 @@ function ns.AnyCustomAuraLust()
             if sd and sd.assignedSpells then
                 for _, sid in ipairs(sd.assignedSpells) do
                     if LUST_PRESET_SPELLS[sid] then return true end
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- Time Spiral "Free Move" preset: same emulated-cast trick as Bloodlust. The
+-- glow-armed rising edge (CdmBuffBars _ensureTimeSpiralListener) calls this to
+-- mark spell 374968 as "just cast" so the existing self-timed-icon path renders
+-- a 10s Custom Auras (icon) display. A no-op for any bar not tracking it.
+function ns.SignalTimeSpiralCast()
+    _pendingCastIDs[374968] = true
+    QueueCustomBuffUpdate()
+end
+
+-- Called from the Time Spiral glow-HIDE edge (proc consumed): expire any active
+-- 374968 Custom Auras (icon) window now so the icon disappears with the glow
+-- instead of riding out the full 10s. Clears every "barKey:374968" timer (the
+-- suffix uniquely identifies the spell on any bar), then queues a refresh:
+-- custom_buff bars hide their own-frame on the update, buff bars drop the
+-- injected frame on the reanchor.
+function ns.SignalTimeSpiralEnd()
+    local suffix = ":374968"
+    local n = #suffix
+    local any = false
+    for k in pairs(_customAuraTimers) do
+        if type(k) == "string" and k:sub(-n) == suffix then
+            _customAuraTimers[k] = nil
+            any = true
+        end
+    end
+    if any then
+        QueueCustomBuffUpdate()
+        if ns.QueueReanchor then ns.QueueReanchor() end
+    end
+end
+
+-- True if any enabled Custom Auras (custom_buff) / buff bar tracks Time Spiral,
+-- so the shared glow listener stays armed even with no Tracking Bar present.
+function ns.AnyCustomAuraTimeSpiral()
+    local p = ECME and ECME.db and ECME.db.profile
+    if not (p and p.cdmBars and p.cdmBars.bars) then return false end
+    for _, bd in ipairs(p.cdmBars.bars) do
+        if bd.enabled and (bd.barType == "custom_buff" or bd.barType == "buffs") then
+            local sd = ns.GetBarSpellData and ns.GetBarSpellData(bd.key)
+            if sd and sd.assignedSpells then
+                for _, sid in ipairs(sd.assignedSpells) do
+                    if sid == 374968 then return true end
                 end
             end
         end
@@ -3553,9 +3645,18 @@ local function CollectAndReanchor()
                                             local spid = ffc and ffc.spellID
                                             local bd2 = ffc and ffc.barKey and barDataByKey[ffc.barKey]
                                             if not bd2 or not bd2.showTooltip then return end
+                                            -- Honor the global "Show Tooltips" mode (Blizzard Skin).
+                                            if EllesmereUI and EllesmereUI._tooltipSuppressedByMode
+                                               and EllesmereUI._tooltipSuppressedByMode(GameTooltip) then return end
                                             if spid and spid > 0 then
                                                 GameTooltip_SetDefaultAnchor(GameTooltip, self)
                                                 GameTooltip:SetSpellByID(spid)
+                                                if EllesmereUI and EllesmereUI._repointTooltipAtCursor then
+                                                    EllesmereUI._repointTooltipAtCursor(GameTooltip)
+                                                end
+                                                -- Explicit Show(): needed when "Anchor to Cursor"
+                                                -- re-owns the tooltip to ANCHOR_NONE (see trinket).
+                                                GameTooltip:Show()
                                             end
                                         end)
                                         f:SetScript("OnLeave", GameTooltip_Hide)
@@ -3994,6 +4095,32 @@ ns.CollectAndReanchor = CollectAndReanchor
 --  CollectAndReanchor can read the same live timers.)
 -------------------------------------------------------------------------------
 
+-- Per-icon "Audio on Buff Gain" for self-timed preset/custom buffs (potions,
+-- Bloodlust/Heroism, Light's Potential, user-added custom buff IDs). These never
+-- fire Blizzard's TriggerAuraAppliedAlert -- they appear on a cast/edge for a
+-- fixed window -- so the regular-buff apply-edge hook can't reach them. We play
+-- the SAME stored key (ss.buffActiveSoundKey) here, off the cast edge that
+-- (re)starts the icon's timer. No loss sound: the real aura is secret/other-cast,
+-- so only the gain edge is knowable. The id comes straight from the bar's
+-- assignedSpells (clean, never secret), so the lookup is a direct spellSettings
+-- hit -- no GetCanonicalSpellIDForFrame dance. Gated 0-cost on ns._cdmAnyBuffSound
+-- (the same flag RescanBuffSoundFlag sets from these very spellSettings) and
+-- throttled so a refresh-cast a few frames apart can't double-fire.
+local _presetGainSoundAt = {}
+local PRESET_GAIN_SOUND_GAP = 0.3
+local function PlayPresetBuffGainSound(sd, sid, now)
+    if not ns._cdmAnyBuffSound then return end
+    local ss = sd and sd.spellSettings and sd.spellSettings[sid]
+    local key = ss and ss.buffActiveSoundKey
+    if not key or key == "none" then return end
+    local last = _presetGainSoundAt[sid]
+    if last and (now - last) < PRESET_GAIN_SOUND_GAP then return end
+    _presetGainSoundAt[sid] = now
+    local paths = ns.FOCUSKICK_SOUND_PATHS
+    local path = paths and paths[key]
+    if path then PlaySoundFile(path, "Master") end
+end
+
 local function UpdateCustomBuffBars()
     -- if CooldownViewerSettings and CooldownViewerSettings:IsShown() then return end
     local p = ECME.db and ECME.db.profile
@@ -4027,6 +4154,7 @@ local function UpdateCustomBuffBars()
                                     duration = duration,
                                 }
                                 timer = _customAuraTimers[timerKey]
+                                PlayPresetBuffGainSound(sd, sid, now)
                             end
 
                             local isActive = timer and duration > 0
@@ -4121,6 +4249,7 @@ local function UpdateCustomBuffBars()
                             start = now, duration = durs[sid],
                         }
                         needBuffReanchor = true
+                        PlayPresetBuffGainSound(sd, sid, now)
                     end
                 end
             end
@@ -4194,68 +4323,29 @@ end
 -------------------------------------------------------------------------------
 --  Sync extra buff bars with Blizzard CDM viewer
 --
---  When the user removes a buff from Blizzard CDM settings, the viewer stops
---  creating frames for it. The default buff bar self-heals (reads from live
---  cdmBarIcons), but extra buff bars store their own assignedSpells which
---  become orphans -- visible in the preview but never active in-game.
---  This function enumerates the buff viewer's pool to build a set of all
---  spell IDs Blizzard currently tracks, then removes any positive (Blizzard-
---  sourced) assignedSpells entries from extra buff bars that aren't in it.
+--  Reanchor extra buff bars shortly after the Blizzard CDM settings panel
+--  closes, once Blizzard has finished rebuilding its viewer pools.
+--
+--  HISTORY -- do NOT reintroduce frame-pool-based orphan pruning here.
+--  This used to ALSO strip "orphan" spells from each extra buff bar: any
+--  positive assignedSpells entry whose spellID wasn't found in the BuffIcon
+--  pool (or, later, the CDM category set) was deleted. That caused data loss
+--  on DUAL-TRACKED spells that carry more than one variant spell ID:
+--    * Vengeance DH stores Metamorphosis on a custom buff bar as 191427, but
+--      every live Vengeance frame reports 187827. 191427 is surfaced ONLY by
+--      the buff frame's linkedSpellIDs, and ONLY while the buff is active.
+--    * This sync runs ~0.3s after the panel closes, when Meta is down -- so
+--      191427 matched neither the (empty) buff pool nor the category set, and
+--      got deleted. Worse, deleting it destroyed the route-map diversion, so
+--      re-tracking Meta spilled it onto the DEFAULT buffs bar.
+--  No state-independent check (pool / category / IsPlayerSpell / variant
+--  family) can recognize 191427 while Meta is inactive, so the prune is
+--  unfixable for this class of spell. An untracked buff now simply lingers as
+--  a harmless non-rendering preview entry (removable by hand) -- consistent
+--  with how the CD/utility side already behaves.
 -------------------------------------------------------------------------------
 function ns.SyncExtraBuffBarsWithViewer()
-    local p = ECME.db and ECME.db.profile
-    if not p or not p.cdmBars then return end
-
-    -- Build set of spell IDs Blizzard's buff viewer currently has frames for.
-    -- EnumerateActive includes tracked-but-inactive buffs (they have cooldownInfo
-    -- even when hidden), but excludes spells the user removed from CDM settings
-    -- (those frames are released from the pool).
-    local trackedSet = {}
-    local buffViewer = _G["BuffIconCooldownViewer"]
-    if buffViewer and buffViewer.itemFramePool and buffViewer.itemFramePool.EnumerateActive then
-        for frame in buffViewer.itemFramePool:EnumerateActive() do
-            local displaySID, baseSID = ResolveFrameSpellID(frame)
-            if displaySID and displaySID > 0 then trackedSet[displaySID] = true end
-            if baseSID and baseSID > 0 then trackedSet[baseSID] = true end
-            -- Also grab linked spell IDs so override variants match
-            local fc = _ecmeFC[frame]
-            if fc and fc.linkedSpellIDs then
-                for _, lid in ipairs(fc.linkedSpellIDs) do
-                    if lid and lid > 0 then trackedSet[lid] = true end
-                end
-            end
-        end
-    end
-
-    -- Filter orphaned entries from each extra buff bar
-    local changed = false
-    for _, bd in ipairs(p.cdmBars.bars) do
-        if bd.enabled and bd.barType == "buffs" and bd.key ~= "buffs"
-           and not bd.isGhostBar then
-            local sd = ns.GetBarSpellData(bd.key)
-            if sd and sd.assignedSpells then
-                local writeIdx = 1
-                for readIdx = 1, #sd.assignedSpells do
-                    local id = sd.assignedSpells[readIdx]
-                    -- Keep: negative IDs (presets), custom spells, and tracked spells
-                    if type(id) ~= "number" or id <= 0
-                       or (sd.customSpellIDs and sd.customSpellIDs[id])
-                       or trackedSet[id] then
-                        sd.assignedSpells[writeIdx] = id
-                        writeIdx = writeIdx + 1
-                    else
-                        changed = true
-                    end
-                end
-                for i = writeIdx, #sd.assignedSpells do sd.assignedSpells[i] = nil end
-            end
-        end
-    end
-
-    if changed then
-        if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
-        QueueReanchor()
-    end
+    QueueReanchor()
 end
 
 -------------------------------------------------------------------------------
@@ -4695,9 +4785,22 @@ function ns.SetupViewerHooks()
                 wipe(ac)
                 for vi = 1, 4 do
                     local vf = _G[VIEWER_NAMES[vi]]
+                    -- BuffIcon (3) / BuffBar (4) viewers SHOW a frame only while its
+                    -- buff/effect is active; the cooldown viewers (1,2) always show
+                    -- their icons, so "shown" is meaningless there. So in the buff
+                    -- viewers a shown, non-placeholder frame counts as active even
+                    -- without aura props -- this catches totems and pet-summon
+                    -- "buffs" (e.g. Mindbender) that Blizzard never gives an
+                    -- auraInstanceID. Mirrors the buff-bar glow logic in BuffTicker.
+                    local isBuffViewer = (vi >= 3)
                     if vf and vf.itemFramePool and vf.itemFramePool.EnumerateActive then
                         for frame in vf.itemFramePool:EnumerateActive() do
-                            if frame.wasSetFromAura == true or frame.auraInstanceID ~= nil then
+                            local active = frame.wasSetFromAura == true or frame.auraInstanceID ~= nil
+                            if not active and isBuffViewer and frame:IsShown()
+                               and not frame._isPlaceholderFrame then
+                                active = true
+                            end
+                            if active then
                                 local sid, baseSID = ResolveFrameSpellID(frame)
                                 if sid and sid > 0 then
                                     ac[sid] = true

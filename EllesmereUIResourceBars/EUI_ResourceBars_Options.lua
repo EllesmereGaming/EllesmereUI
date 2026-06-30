@@ -1866,6 +1866,14 @@ initFrame:SetScript("OnEvent", function(self)
         -- Dark mode applies ONLY to the class resource bar (secondary). It uses the
         -- same flat dark fill/bg as Unit Frames / Raid Frames. secondary.darkTheme is
         -- the single source of truth; health/primary are never darkened.
+        -- The Background colour is shared by Health & Power (and, when Dark Mode is
+        -- off, the class resource bar). While Dark Mode is on the class resource bar
+        -- stays dark, so the label calls out that only Health & Power are affected.
+        local bgLabel = "Background"
+        do
+            local p0 = DB()
+            if p0 and p0.secondary.darkTheme then bgLabel = "Background (Health & Power)" end
+        end
         _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Dark Mode Class Resource",
               getValue = function()
@@ -1876,11 +1884,10 @@ initFrame:SetScript("OnEvent", function(self)
                   local p = DB(); if not p then return end
                   p.secondary.darkTheme = v
                   RebuildClass()
-                  EllesmereUI:RefreshPage()
+                  -- Force a full rebuild so the Background label re-renders.
+                  EllesmereUI:RefreshPage(true)
               end },
-            { type = "colorpicker", text = "Background", hasAlpha = true,
-              disabled = function() local p = DB(); return p and p.secondary.darkTheme end,
-              disabledTooltip = "Dark Mode Class Resource", requireState = "disabled",
+            { type = "colorpicker", text = bgLabel, hasAlpha = true,
               getValue = function()
                   local p = DB()
                   if not p then return 0x11/255, 0x11/255, 0x11/255, 0.75 end
@@ -1891,7 +1898,6 @@ initFrame:SetScript("OnEvent", function(self)
                   p.health.bgR, p.health.bgG, p.health.bgB, p.health.bgA = r, g, b, a
                   p.primary.bgR, p.primary.bgG, p.primary.bgB, p.primary.bgA = r, g, b, a
                   p.secondary.barBgR, p.secondary.barBgG, p.secondary.barBgB, p.secondary.barBgA = r, g, b, a
-                  if p.secondary.darkTheme then p.secondary.darkTheme = false end
                   if not p.health.customColored then p.health.customColored = true end
                   if not p.primary.customColored then p.primary.customColored = true end
                   SmoothRefresh()
@@ -4339,12 +4345,8 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()
               end },
             { type = "multiSwatch", text = "Fill Color",
-              disabled = function() local p = DB(); return p and (not p.primary.enabled or p.secondary.darkTheme) end,
-              disabledTooltip = function()
-                  local p = DB()
-                  if p and p.secondary.darkTheme then return "This option requires Dark Mode Class Resource to be disabled" end
-                  return powerDisTip
-              end,
+              disabled = powerOff,
+              disabledTooltip = powerDisTip,
               swatches = {
                 { tooltip = "Gradient End Color", hasAlpha = true,
                   disabled = function()
@@ -5077,12 +5079,8 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()
               end },
             { type = "multiSwatch", text = "Fill Color",
-              disabled = function() local p = DB(); return p and (not p.health.enabled or p.secondary.darkTheme) end,
-              disabledTooltip = function()
-                  local p = DB()
-                  if p and p.secondary.darkTheme then return "This option requires Dark Mode Class Resource to be disabled" end
-                  return "Health Bar"
-              end,
+              disabled = healthOff,
+              disabledTooltip = "Health Bar",
               swatches = {
                 { tooltip = "Gradient End Color", hasAlpha = true,
                   disabled = function()

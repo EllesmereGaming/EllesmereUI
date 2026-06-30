@@ -347,6 +347,121 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
+        -- Row 7: Announce Group Deaths (left, with Text Size cog)
+        local deathRow
+        deathRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Announce Group Deaths",
+              tooltip="Shows a large on-screen alert (e.g. \"Player DIED!\") whenever a party or raid member dies, so you immediately notice deaths during dungeons and raids. Use Unlock Mode to reposition the alert.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.announceGroupDeaths or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.announceGroupDeaths = v
+                  if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="label", text="" }
+        );  y = y - h
+
+        -- Inline cog (Text Size) on the Announce Group Deaths toggle
+        do
+            local leftRgn = deathRow._leftRegion
+            local function deathOff()
+                return not (EllesmereUIDB and EllesmereUIDB.announceGroupDeaths)
+            end
+
+            -- Sound dropdown values (mirrors Chat's "Whisper Sound"): shallow-copy
+            -- the runtime name table and attach _menuOpts so each row gets a
+            -- click-to-preview speaker icon.
+            local gdSoundPaths = EllesmereUI._groupDeathSoundPaths or {}
+            local gdSoundNames = EllesmereUI._groupDeathSoundNames or { none = "None" }
+            local gdSoundOrder = EllesmereUI._groupDeathSoundOrder or { "none" }
+            local gdSoundValues = {}
+            for k, v in pairs(gdSoundNames) do gdSoundValues[k] = v end
+            gdSoundValues._menuOpts = {
+                itemHeight = 26,
+                maxTextWidthPct = 0.8,
+                searchable = true,
+                iconAtlas = function(key)
+                    if key == "none" then return nil end
+                    if not gdSoundPaths[key] then return nil end
+                    return "common-icon-sound"
+                end,
+                iconPressedAtlas = function(key)
+                    if key == "none" then return nil end
+                    return "common-icon-sound-pressed"
+                end,
+                iconOnClick = function(key)
+                    local path = gdSoundPaths[key]
+                    if path then PlaySoundFile(path, "Master") end
+                end,
+                iconTooltip = function() return "Preview Sound" end,
+            }
+
+            local _, deathCogShow = EllesmereUI.BuildCogPopup({
+                title = "Group Death Alert Settings",
+                rows = {
+                    { type="slider", label="Text Size",
+                      min=14, max=64, step=1,
+                      get=function()
+                        return (EllesmereUIDB and EllesmereUIDB.groupDeathTextSize) or 34
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.groupDeathTextSize = v
+                        if EllesmereUI._applyGroupDeathAlert then EllesmereUI._applyGroupDeathAlert() end
+                        if EllesmereUI._groupDeathShowVisual then EllesmereUI._groupDeathShowVisual() end
+                      end },
+                    { type="dropdown", label="Sound",
+                      values=gdSoundValues, order=gdSoundOrder,
+                      get=function()
+                        return (EllesmereUIDB and EllesmereUIDB.groupDeathSoundKey) or "none"
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.groupDeathSoundKey = v
+                        if v ~= "none" and EllesmereUI._groupDeathPlaySound then
+                            EllesmereUI._groupDeathPlaySound()
+                        end
+                      end },
+                },
+            })
+            local deathCogBtn = CreateFrame("Button", nil, leftRgn)
+            deathCogBtn:SetSize(26, 26)
+            deathCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
+            leftRgn._lastInline = deathCogBtn
+            deathCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+            deathCogBtn:SetAlpha(deathOff() and 0.15 or 0.4)
+            local deathCogTex = deathCogBtn:CreateTexture(nil, "OVERLAY")
+            deathCogTex:SetAllPoints()
+            deathCogTex:SetTexture(EllesmereUI.COGS_ICON or EllesmereUI.DIRECTIONS_ICON)
+            deathCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            deathCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            deathCogBtn:SetScript("OnClick", function(self) deathCogShow(self) end)
+
+            -- Blocking overlay for cog when the feature is off
+            local deathCogBlock = CreateFrame("Frame", nil, deathCogBtn)
+            deathCogBlock:SetAllPoints()
+            deathCogBlock:SetFrameLevel(deathCogBtn:GetFrameLevel() + 10)
+            deathCogBlock:EnableMouse(true)
+            deathCogBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(deathCogBtn, EllesmereUI.DisabledTooltip("Announce Group Deaths"))
+            end)
+            deathCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if deathOff() then
+                    deathCogBtn:SetAlpha(0.15); deathCogBlock:Show()
+                else
+                    deathCogBtn:SetAlpha(0.4); deathCogBlock:Hide()
+                end
+            end)
+            local deathInitOff = deathOff()
+            deathCogBtn:SetAlpha(deathInitOff and 0.15 or 0.4)
+            if deathInitOff then deathCogBlock:Show() else deathCogBlock:Hide() end
+        end
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         ---------------------------------------------------------------------------
@@ -1640,12 +1755,18 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.shifterEnabled = false
                 EllesmereUIDB.shifterPositions = nil
                 EllesmereUIDB.hideErrorMessages = false
+                EllesmereUIDB.announceGroupDeaths = false
+                EllesmereUIDB.groupDeathTextSize = nil
+                EllesmereUIDB.groupDeathAlertPos = nil
+                EllesmereUIDB.groupDeathSound = nil      -- legacy boolean (pre-dropdown)
+                EllesmereUIDB.groupDeathSoundKey = nil
             end
             EllesmereUIDB.autoLogging = nil
             if _G._EUI_ResetUpgradeCalc then _G._EUI_ResetUpgradeCalc() end
             if _G._EBS_ResetCursor then _G._EBS_ResetCursor() end
             if EllesmereUI._applyHideBlizzardPartyFrame then EllesmereUI._applyHideBlizzardPartyFrame() end
             if EllesmereUI._applyHideErrorMessages then EllesmereUI._applyHideErrorMessages() end
+            if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
             if EllesmereUI._applyQuickSignup then EllesmereUI._applyQuickSignup() end
             if EllesmereUI._applyPersistSignupNote then EllesmereUI._applyPersistSignupNote() end
             EllesmereUI:InvalidatePageCache()

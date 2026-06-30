@@ -2164,6 +2164,13 @@ local function SkinCharacterSheet()
                     if issecretvalue(statValue) then return end
                     GameTooltip:SetOwner(valueButton, "ANCHOR_RIGHT")
 
+                    -- Read the section title's CURRENT color so the tooltip lines
+                    -- match instantly when a State Display swatch changes. (section.color
+                    -- is captured at build time, so using it would stay stale until a
+                    -- /reload; the title FontString is live-updated by
+                    -- EllesmereUI._refreshCharacterSheetColors.)
+                    local scR, scG, scB = sectionTitle:GetTextColor()
+
                     -- Format value according to stat's format string
                     local displayValue = statValue
                     if stat.format then
@@ -2181,7 +2188,7 @@ local function SkinCharacterSheet()
                         if currencyInfo then
                             local earned = currencyInfo.totalEarned or 0
                             local maximum = currencyInfo.maxQuantity or 0
-                            GameTooltip:AddLine(L(stat.name) .. " Crests", section.color.r, section.color.g, section.color.b, 1)
+                            GameTooltip:AddLine(L(stat.name) .. " Crests", scR, scG, scB, 1)
                             GameTooltip:AddLine(string.format("%d / %d", earned, maximum), 1, 1, 1, true)
                         end
                     -- Secondary stats with raw rating
@@ -2190,7 +2197,7 @@ local function SkinCharacterSheet()
                         local rawValue = stat.rawFunc()
                         GameTooltip:AddLine(
                             string.format(L("%s %.2f%% (%d rating)"), L(stat.name), percentValue, rawValue),
-                            section.color.r, section.color.g, section.color.b, 1  -- Use category color
+                            scR, scG, scB, 1  -- category color (live)
                         )
                         -- Description for secondary stats
                         local description = ""
@@ -2238,12 +2245,12 @@ local function SkinCharacterSheet()
                                 GameTooltip:AddLine(" ")
                                 GameTooltip:AddLine(string.format(L("Adjusted Rating: %s"),
                                     BreakUpLargeNumbers(math.floor(adjusted + 0.5))),
-                                    section.color.r, section.color.g, section.color.b, 1)
+                                    scR, scG, scB, 1)
                                 GameTooltip:AddLine(string.format(L("Wasted Rating: %s"),
                                     BreakUpLargeNumbers(math.floor(wasted + 0.5))),
-                                    section.color.r, section.color.g, section.color.b, 1)
+                                    scR, scG, scB, 1)
                                 GameTooltip:AddLine(string.format(L("Penalty Percentage: %d%%"), penalty),
-                                    section.color.r, section.color.g, section.color.b, 1)
+                                    scR, scG, scB, 1)
                                 if nextThreshold then
                                     local nextRating = math.floor(nextThreshold + 0.5)
                                     local needed = nextRating - math.floor(rawValue + 0.5)
@@ -2251,7 +2258,7 @@ local function SkinCharacterSheet()
                                     GameTooltip:AddLine(string.format(L("Next %d%% Penalty At: %s (+%s)"),
                                         nextPenalty, BreakUpLargeNumbers(nextRating),
                                         BreakUpLargeNumbers(needed)),
-                                        section.color.r, section.color.g, section.color.b, 1)
+                                        scR, scG, scB, 1)
                                 end
                             end
                         end
@@ -2276,11 +2283,11 @@ local function SkinCharacterSheet()
                         if bonus ~= 0 then
                             statLine = statLine .. " (" .. base .. (bonus > 0 and "+" or "") .. bonus .. ")"
                         end
-                        GameTooltip:AddLine(statLine, section.color.r, section.color.g, section.color.b, 1)
+                        GameTooltip:AddLine(statLine, scR, scG, scB, 1)
                         GameTooltip:AddLine(L(stat.tooltip), 1, 1, 1, true)
                     -- Generic stats (Attack, Defense, etc.)
                     else
-                        GameTooltip:AddLine(titleLine, section.color.r, section.color.g, section.color.b, 1)
+                        GameTooltip:AddLine(titleLine, scR, scG, scB, 1)
                         if stat.tooltip then
                             GameTooltip:AddLine(L(stat.tooltip), 1, 1, 1, true)
                         end
