@@ -190,27 +190,27 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Flask
         if co and co.enabled and co.enabled.flask then
-            icons[#icons+1] = { texture = 134830, label = "Flask", cat = "consumable", itemKey = "flask" }
+            icons[#icons+1] = { texture = 134830, label = EllesmereUI.L("Flask"), cat = "consumable", itemKey = "flask" }
         end
 
         -- Food
         if co and co.enabled and co.enabled.food then
-            icons[#icons+1] = { texture = 134062, label = "Food", cat = "consumable", itemKey = "food" }
+            icons[#icons+1] = { texture = 134062, label = EllesmereUI.L("Food"), cat = "consumable", itemKey = "food" }
         end
 
         -- Augment Rune
         if co and co.enabled and co.enabled.augment_rune then
-            icons[#icons+1] = { texture = C_Item.GetItemIconByID(259085) or 134400, label = "Rune", cat = "consumable", itemKey = "augment_rune" }
+            icons[#icons+1] = { texture = C_Item.GetItemIconByID(259085) or 134400, label = EllesmereUI.L("Rune"), cat = "consumable", itemKey = "augment_rune" }
         end
 
         -- Healthstone (default-on: treat nil as enabled, matching the toggle)
         if co and co.enabled and co.enabled.healthstone ~= false then
-            icons[#icons+1] = { texture = C_Item.GetItemIconByID(5512) or 134400, label = "Stone", cat = "consumable", itemKey = "healthstone" }
+            icons[#icons+1] = { texture = C_Item.GetItemIconByID(5512) or 134400, label = EllesmereUI.L("Stone"), cat = "consumable", itemKey = "healthstone" }
         end
 
         -- Inky Black Potion
         if co and co.enabled and co.enabled.inky_black then
-            icons[#icons+1] = { texture = C_Item.GetItemIconByID(124640) or 136122, label = "Inky", cat = "consumable", itemKey = "inky_black" }
+            icons[#icons+1] = { texture = C_Item.GetItemIconByID(124640) or 136122, label = EllesmereUI.L("Inky"), cat = "consumable", itemKey = "inky_black" }
         end
 
         return icons

@@ -2280,7 +2280,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                     if runeItem then
                         local e = AcquireEntry()
                         e.mode = "item"; e.itemID = runeItem
-                        e.texture = GetItemIcon(runeItem); e.label = ShortLabel("Augment Rune")
+                        e.texture = GetItemIcon(runeItem); e.label = EllesmereUI.L(ShortLabel("Augment Rune"))
                         e.cat = "consumable"; e.scale = co.scale or 1.0
                         e.dismissKey = "consumable:rune"
                         missing[#missing+1] = e
@@ -2328,7 +2328,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                     e.mode = "macro"
                     e.macro = "/use item:" .. bestItemID .. "\n/use " .. si.slot
                     e.texture = GetItemIcon(bestItemID) or 134400
-                    e.label = ShortLabel(si.slot == 16 and "Main Hand" or "Off Hand")
+                    e.label = EllesmereUI.L(ShortLabel(si.slot == 16 and "Main Hand" or "Off Hand"))
                     e.tooltipItem = bestItemID
                     e.desaturated = not r.hasBags
                     e.cat = "consumable"; e.scale = co.scale or 1.0
@@ -2347,7 +2347,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                     local e = AcquireEntry()
                     e.mode = "item"; e.itemID = flaskItemID
                     e.texture = GetItemIcon(flaskItemID) or 134830
-                    e.label = "Flask"
+                    e.label = EllesmereUI.L("Flask")
                     e.desaturated = not rf.hasBags
                     e.cat = "consumable"; e.scale = co.scale or 1.0
                     e.dismissKey = "consumable:flask"
@@ -2364,7 +2364,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                     local e = AcquireEntry()
                     e.mode = "item"; e.itemID = foodItemID
                     e.texture = GetItemIcon(foodItemID) or 134062
-                    e.label = "Food"
+                    e.label = EllesmereUI.L("Food")
                     e.cat = "consumable"; e.scale = co.scale or 1.0
                     e.dismissKey = "consumable:food"
                     missing[#missing+1] = e
@@ -2393,7 +2393,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                         local e = AcquireEntry()
                         e.mode = "item"; e.itemID = INKY_BLACK_ITEM
                         e.texture = GetItemIcon(INKY_BLACK_ITEM)
-                        e.label = ShortLabel("Inky Black Potion")
+                        e.label = EllesmereUI.L(ShortLabel("Inky Black Potion"))
                         e.cat = "consumable"; e.scale = co.scale or 1.0
                         e.dismissKey = "consumable:inky_black"
                         missing[#missing+1] = e
@@ -2447,7 +2447,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
             if hasWarlock and not hasHealthstone then
                 local e = AcquireEntry()
                 e.mode = "texture"; e.texture = 538745
-                e.label = "HS"
+                e.label = EllesmereUI.L("HS")
                 e.cat = "consumable"; e.scale = co.scale or 1.0
                 e.dismissKey = "consumable:healthstone"
                 missing[#missing+1] = e
@@ -2468,7 +2468,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
             if not hasBuff then
                 local e = AcquireEntry()
                 e.mode = "texture"; e.texture = PARTNERED_TRINKET.icon
-                e.label = "Whistle"
+                e.label = EllesmereUI.L("Whistle")
                 e.cat = "consumable"; e.scale = co.scale or 1.0
                 e.dismissKey = "consumable:coaches_whistle"
                 missing[#missing+1] = e
@@ -2494,7 +2494,7 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
             if needsRune then
                 local e = AcquireEntry()
                 e.mode = "texture"; e.texture = 135957
-                e.label = "Rune"
+                e.label = EllesmereUI.L("Rune")
                 e.cat = "consumable"; e.scale = co.scale or 1.0
                 e.dismissKey = "consumable:runeforge"
                 missing[#missing+1] = e
@@ -2653,7 +2653,7 @@ local function Refresh()
                     local e = AcquireEntry()
                     e.mode = "texture"
                     e.texture = 136216
-                    e.label = "Felguard"
+                    e.label = EllesmereUI.L("Felguard")
                     e.cat = "consumable"; e.scale = co.scale or 1.0
                     e.dismissKey = "consumable:wrong_pet"
                     missing[#missing+1] = e
