@@ -899,6 +899,7 @@ local _abbreviateCfg
 local CJK = ({
     zhCN = { thousand = "千", wan = "万", yi = "亿" },
     zhTW = { thousand = "千", wan = "萬", yi = "億" },
+    koKR = { thousand = "천", wan = "만", yi = "억" },
 })[GetLocale()]
 do
     local opts
