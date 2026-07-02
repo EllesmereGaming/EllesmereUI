@@ -3668,6 +3668,25 @@ local function CreateAbsorbBar(frame, unit, settings)
     return backfillBar
 end
 
+-- Lazily creates (if needed) and returns the power bar border frame.
+-- Ensures the border exists even if the power bar was not detached at
+-- creation time and only became detached later via a live options update.
+local function EnsurePowerBorder(power)
+    local pbBorder = power._pbBorder
+    if not pbBorder then
+        pbBorder = CreateFrame("Frame", nil, power)
+        PP.Point(pbBorder, "TOPLEFT", power, "TOPLEFT", 0, 0)
+        PP.Point(pbBorder, "BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
+        power._pbBorder = pbBorder
+    end
+    -- Border must always render in the same strata as the power bar itself,
+    -- otherwise SetFrameLevel ordering is meaningless (different strata always
+    -- win over frame level) and the border can end up overlapping/hiding the
+    -- bar, or hidden behind it, depending on detached bar strata settings.
+    pbBorder:SetFrameStrata(power:GetFrameStrata())
+    return pbBorder
+end
+
 local function CreatePowerBar(frame, unit, settings)
     local powerPos = settings.powerPosition or "below"
 
@@ -4019,9 +4038,7 @@ local function CreatePowerBar(frame, unit, settings)
 
     -- Power bar border (only when detached)
     if isDetached then
-        local pbBorder = CreateFrame("Frame", nil, power)
-        PP.Point(pbBorder, "TOPLEFT", power, "TOPLEFT", 0, 0)
-        PP.Point(pbBorder, "BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
+        local pbBorder = EnsurePowerBorder(power)
         local pbBehind = settings.powerBorderBehind
         pbBorder:SetFrameLevel(pbBehind and math.max(0, power:GetFrameLevel() - 1) or (power:GetFrameLevel() + 5))
         local pbTexKey = settings.powerBorderStyle or "solid"
@@ -4032,7 +4049,6 @@ local function CreatePowerBar(frame, unit, settings)
             pbTexKey, settings.powerBorderOffsetX, settings.powerBorderOffsetY,
             settings.powerBorderShiftX, settings.powerBorderShiftY, "unitframes", pbSize)
         if pbSize == 0 then pbBorder:Hide() end
-        power._pbBorder = pbBorder
     end
 
     return power
@@ -8323,6 +8339,12 @@ local function ReloadFrames()
                         if frame.Power._applyPowerPercentText then frame.Power._applyPowerPercentText(settings) end
 
                         -- Update power bar border (detached only)
+                        -- Always ensure the border exists AND keep its strata
+                        -- synced with the power bar's current strata, since
+                        -- SetFrameStrata above can change on every options update.
+                        if ppIsDetached then
+                            EnsurePowerBorder(frame.Power)
+                        end
                         if frame.Power._pbBorder then
                             local pbTexKey = settings.powerBorderStyle or "solid"
                             local pbSize = settings.powerBorderSize or 0
@@ -8740,6 +8762,12 @@ local function ReloadFrames()
                         if frame.Power._applyPowerPercentText then frame.Power._applyPowerPercentText(settings) end
 
                         -- Update power bar border (detached only)
+                        -- Always ensure the border exists AND keep its strata
+                        -- synced with the power bar's current strata, since
+                        -- SetFrameStrata above can change on every options update.
+                        if ppIsDetached2 then
+                            EnsurePowerBorder(frame.Power)
+                        end
                         if frame.Power._pbBorder then
                             local pbTexKey = settings.powerBorderStyle or "solid"
                             local pbSize = settings.powerBorderSize or 0
@@ -8751,7 +8779,7 @@ local function ReloadFrames()
                                 settings.powerBorderShiftX, settings.powerBorderShiftY, "unitframes", pbSize)
                             local pbBehind = settings.powerBorderBehind
                             frame.Power._pbBorder:SetFrameLevel(pbBehind and math.max(0, frame.Power:GetFrameLevel() - 1) or (frame.Power:GetFrameLevel() + 5))
-                            if pbSize > 0 and ppIsDetached then
+                            if pbSize > 0 and ppIsDetached2 then
                                 frame.Power._pbBorder:Show()
                             else
                                 frame.Power._pbBorder:Hide()
