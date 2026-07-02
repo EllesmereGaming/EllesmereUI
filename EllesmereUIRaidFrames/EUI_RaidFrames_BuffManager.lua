@@ -296,15 +296,24 @@ local function CurrentSpecKey()
 end
 ns.BM_CurrentSpecKey = CurrentSpecKey
 
--- Flat spell name lookup
-local SPELL_NAME_BY_ID = {}
+-- Flat spell name lookup (fallback = hardcoded English names)
+local STORED_NAME_BY_ID = {}
 for _, spec in ipairs(HEALER_SPECS) do
     for _, spell in ipairs(spec.spells) do
         if not spell.hide then
-            SPELL_NAME_BY_ID[spell.id] = spell.name
+            STORED_NAME_BY_ID[spell.id] = spell.name
         end
     end
 end
+-- Resolve to the client-localized name by ID; fall back to stored English
+-- until spell data is cached (retries on next access, caches once localized).
+local SPELL_NAME_BY_ID = setmetatable({}, {
+    __index = function(t, id)
+        local nm = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+        if nm then rawset(t, id, nm); return nm end
+        return STORED_NAME_BY_ID[id]
+    end,
+})
 
 -- Spec dropdown values/order
 local SPEC_DD_VALUES = {}
@@ -3525,7 +3534,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         titleFS:SetFont(fontPath, 13, "")
         titleFS:SetJustifyH("LEFT")
         titleFS:SetWordWrap(false)
-        titleFS:SetText(typeName)
+        titleFS:SetText(EllesmereUI.L(typeName))
         titleFS:SetTextColor(1, 1, 1)
 
         -- Position subtitle (smaller, grayer, inline after type name)
@@ -3538,7 +3547,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             posFS:SetFont(fontPath, 11, "")
             posFS:SetJustifyH("LEFT")
             posFS:SetWordWrap(false)
-            posFS:SetText("(" .. posText .. ")")
+            posFS:SetText("(" .. EllesmereUI.L(posText) .. ")")
             posFS:SetTextColor(0.75, 0.75, 0.75, 0.65)
         end
 
@@ -3556,7 +3565,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             end
             spellFS:SetText(table.concat(names, ", "))
         else
-            spellFS:SetText("(no spells)")
+            spellFS:SetText(EllesmereUI.L("(no spells)"))
         end
         spellFS:SetTextColor(0.4, 0.4, 0.4)
 
@@ -3677,7 +3686,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         local addLabel = addBtn:CreateFontString(nil, "OVERLAY")
         addLabel:SetFont(fontPath, 12, "")
         addLabel:SetPoint("CENTER")
-        addLabel:SetText("Add New")
+        addLabel:SetText(EllesmereUI.L("Add New"))
         addLabel:SetTextColor(1, 1, 1)
 
         addBtn:SetScript("OnEnter", function()
@@ -3750,7 +3759,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local abLbl = popup:CreateFontString(nil, "OVERLAY")
                 abLbl:SetFont(fontPath, 11, "")
                 abLbl:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, py)
-                abLbl:SetText("Abilities")
+                abLbl:SetText(EllesmereUI.L("Abilities"))
                 abLbl:SetTextColor(1, 1, 1, 0.6)
                 py = py - LABEL_H - LBL_GAP
 
@@ -3762,7 +3771,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         if spec then
                             for _, spell in ipairs(spec.spells) do
                                 if not spell.hide then
-                                    items[#items + 1] = { key = tostring(spell.id), label = spell.name, icon = GetSpellIcon(spell.id), iconSize = DD_SPELL_ICON_SIZE }
+                                    items[#items + 1] = { key = tostring(spell.id), label = SPELL_NAME_BY_ID[spell.id] or spell.name, icon = GetSpellIcon(spell.id), iconSize = DD_SPELL_ICON_SIZE }
                                 end
                             end
                             table.sort(items, function(a, b) return a.label < b.label end)
@@ -4752,7 +4761,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     if not spell.hide then
                         abItems[#abItems + 1] = {
                             key = tostring(spell.id),
-                            label = spell.name,
+                            label = SPELL_NAME_BY_ID[spell.id] or spell.name,
                             icon = GetSpellIcon(spell.id), iconSize = DD_SPELL_ICON_SIZE,
                         }
                     end
