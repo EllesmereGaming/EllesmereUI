@@ -22,8 +22,30 @@ local UnitCanAttack, UnitIsPlayer = UnitCanAttack, UnitIsPlayer
 local UnitClass, UnitIsDeadOrGhost = UnitClass, UnitIsDeadOrGhost
 local UnitExists, UnitHealthPercent = UnitExists, UnitHealthPercent
 local GetRaidTargetIndex, SetRaidTargetIconTexture = GetRaidTargetIndex, SetRaidTargetIconTexture
+local UnitGroupRolesAssigned, IsInGroup = UnitGroupRolesAssigned, IsInGroup
+local UnitGUID, UnitExists = UnitGUID, UnitExists
+local IsInRaid, GetNumGroupMembers = IsInRaid, GetNumGroupMembers
 local C_NamePlate = C_NamePlate
 local Enum = Enum
+
+-- Resolves a unit's assigned TANK role reliably. UnitGroupRolesAssigned is only
+-- dependable on roster tokens (party1/raid3); on a nameplate token it can return
+-- "NONE". So if the direct check misses, match the unit's GUID to its roster
+-- token and read the role from there.
+local function IsGroupTank(unit)
+    if not unit or not IsInGroup() then return false end
+    if UnitGroupRolesAssigned(unit) == "TANK" then return true end
+    local guid = UnitGUID(unit)
+    if not guid then return false end
+    local inRaid = IsInRaid()
+    for i = 1, (GetNumGroupMembers() or 0) do
+        local u = inRaid and ("raid" .. i) or ("party" .. i)
+        if UnitExists(u) and UnitGUID(u) == guid then
+            return UnitGroupRolesAssigned(u) == "TANK"
+        end
+    end
+    return false
+end
 
 -------------------------------------------------------------------------------
 --  State
@@ -525,6 +547,73 @@ local function RestoreNPCNameplate(nameplate, unit)
 end
 
 -------------------------------------------------------------------------------
+--  Name-only tank role icon (players)
+--  In name-only mode we keep Blizzard's name FontString (no custom plate), so
+--  the tank icon is a lightweight texture anchored to the left of that name.
+--  Pooled per nameplate, mirroring the NPC-overlay approach above.
+-------------------------------------------------------------------------------
+local nameOnlyRoleIcons = {}      -- nameplate → icon frame
+local nameOnlyRoleIconPool = {}
+
+local function ReleaseNameOnlyRoleIcon(nameplate)
+    local icon = nameOnlyRoleIcons[nameplate]
+    if not icon then return end
+    nameOnlyRoleIcons[nameplate] = nil
+    icon:Hide()
+    icon:ClearAllPoints()
+    icon:SetParent(UIParent)
+    nameOnlyRoleIconPool[#nameOnlyRoleIconPool + 1] = icon
+end
+
+local function UpdateNameOnlyRoleIcon(nameplate, unit)
+    if not nameplate or not unit then return end
+    local uf = nameplate.UnitFrame
+    local nameFS = uf and uf.name
+    local fp = FP()
+    local show = nameFS
+        and (not fp or fp.showTankIcon ~= false)
+        and IsNameOnlyMode()
+        and UnitIsPlayer(unit)
+        and not UnitIsUnit(unit, "player")
+        and IsGroupTank(unit)
+    if not show then
+        ReleaseNameOnlyRoleIcon(nameplate)
+        return
+    end
+    local icon = nameOnlyRoleIcons[nameplate]
+    if not icon then
+        icon = table.remove(nameOnlyRoleIconPool)
+        if not icon then
+            icon = CreateFrame("Frame", nil, nameplate)
+            icon.tex = icon:CreateTexture(nil, "OVERLAY")
+            icon.tex:SetAllPoints()
+            icon.tex:SetAtlas("UI-LFG-RoleIcon-Tank")
+        else
+            icon:SetParent(nameplate)
+        end
+        nameOnlyRoleIcons[nameplate] = icon
+    end
+    local sz = (fp and fp.tankIconSize) or 60
+    icon:SetSize(sz, sz)
+    icon:SetFrameLevel((uf:GetFrameLevel() or 0) + 5)
+    icon:ClearAllPoints()
+    -- Centered just above the name text
+    icon:SetPoint("BOTTOM", nameFS, "TOP", 0, 2)
+    icon:Show()
+end
+ns.UpdateNameOnlyRoleIcon = UpdateNameOnlyRoleIcon
+
+-- Always-on listener: keeps the tank icon current in BOTH health-bar and
+-- name-only modes (the friendly event manager only runs in health-bar mode).
+local roleIconManager = CreateFrame("Frame")
+roleIconManager:RegisterEvent("PLAYER_ROLES_ASSIGNED")
+roleIconManager:RegisterEvent("GROUP_ROSTER_UPDATE")
+roleIconManager:RegisterEvent("PLAYER_ENTERING_WORLD")
+roleIconManager:SetScript("OnEvent", function()
+    if ns.RefreshFriendlyRoleIcons then ns.RefreshFriendlyRoleIcons() end
+end)
+
+-------------------------------------------------------------------------------
 --  NamePlateDriverFrame hooks — suppress Blizzard UFs at the earliest moment
 --  These fire synchronously inside Blizzard's nameplate creation, BEFORE
 --  NAME_PLATE_UNIT_ADDED reaches any addon event handler.
@@ -580,6 +669,7 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
                     end
                 end)
             end
+            UpdateNameOnlyRoleIcon(nameplate, unit)
         end
     end
 end)
@@ -591,6 +681,7 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateRemoved", function(_, unit)
     local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
     if nameplate then
         HideNPCOverlay(nameplate)
+        ReleaseNameOnlyRoleIcon(nameplate)
         nameOnlyNPCSuppressed[nameplate] = nil
     end
     if modifiedUFs[unit] then
@@ -752,6 +843,17 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
     plate.raid:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
     plate.raid:SetTexCoord(0, 1, 0, 1)
 
+    -- Role icon: auto-shown on party/raid tanks so they are easy to spot.
+    -- Centered just above the name text.
+    plate.roleFrame = CreateFrame("Frame", nil, plate)
+    plate.roleFrame:SetSize(60, 60)
+    plate.roleFrame:SetPoint("BOTTOM", plate.name, "TOP", 0, 2)
+    plate.roleFrame:SetFrameLevel(plate.health:GetFrameLevel() + 5)
+    plate.roleFrame:Hide()
+    plate.role = plate.roleFrame:CreateTexture(nil, "OVERLAY")
+    plate.role:SetAllPoints()
+    plate.role:SetAtlas("UI-LFG-RoleIcon-Tank")
+
     if CreateUnitHealPredictionCalculator then
         plate.hpCalculator = CreateUnitHealPredictionCalculator()
         if plate.hpCalculator.SetMaximumHealthMode then
@@ -816,6 +918,7 @@ function FriendlyFrame:SetUnit(unit, nameplate)
     self:UpdateHealth()
     self:UpdateName()
     self:UpdateRaidIcon()
+    self:UpdateRoleIcon()
     self:ApplyTarget()
     -- Re-apply the enemy border settings every spawn: a pooled plate may have
     -- been released while the user changed the border size/color/toggle.
@@ -834,6 +937,7 @@ function FriendlyFrame:ClearUnit()
     self.glow:Hide()
     if ns.HideHoverEffect then ns.HideHoverEffect(self) else self.highlight:Hide() end
     self.raidFrame:Hide()
+    self.roleFrame:Hide()
     self.leftArrow:Hide()
     self.rightArrow:Hide()
     self:Hide()
@@ -900,6 +1004,26 @@ function FriendlyFrame:UpdateRaidIcon()
         self.raidFrame:SetPoint("BOTTOMRIGHT", self.health, "TOPRIGHT", 0, rmY)
     end
     self.raidFrame:Show()
+end
+
+-- Shows a tank role icon on party/raid members assigned the TANK role, so the
+-- tank's nameplate is easy to pick out. Enabled by default; opt out via the
+-- `showTankIcon` profile flag.
+function FriendlyFrame:UpdateRoleIcon()
+    local unit = self.unit
+    if not unit or not self.roleFrame then return end
+    local fp = FP()
+    if fp and fp.showTankIcon == false then self.roleFrame:Hide(); return end
+    -- Only other players while grouped; skip self and non-players (NPCs/pets).
+    if not UnitIsPlayer(unit) or UnitIsUnit(unit, "player") or not IsInGroup() then
+        self.roleFrame:Hide(); return
+    end
+    if not IsGroupTank(unit) then
+        self.roleFrame:Hide(); return
+    end
+    local sz = (fp and fp.tankIconSize) or 60
+    self.roleFrame:SetSize(sz, sz)
+    self.roleFrame:Show()
 end
 
 function FriendlyFrame:ApplyTarget()
@@ -1077,6 +1201,20 @@ end
 function ns.RefreshFriendlyHealthText()
     for _, plate in pairs(friendlyPlates) do
         plate:UpdateHealth()
+    end
+end
+
+function ns.RefreshFriendlyRoleIcons()
+    -- Health-bar mode: custom plates
+    for _, plate in pairs(friendlyPlates) do
+        plate:UpdateRoleIcon()
+    end
+    -- Name-only mode: Blizzard name plates (icon anchored to the name text)
+    if C_NamePlate and C_NamePlate.GetNamePlates then
+        for _, nameplate in ipairs(C_NamePlate.GetNamePlates(true)) do
+            local u = nameplate.namePlateUnitToken
+            if u then UpdateNameOnlyRoleIcon(nameplate, u) end
+        end
     end
 end
 

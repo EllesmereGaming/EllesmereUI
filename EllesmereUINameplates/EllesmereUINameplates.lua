@@ -220,6 +220,8 @@ local defaults = {
     friendlyNPCColor = { r = 0, g = 1, b = 0 },
     friendlyNPCNameSize = 13,
     friendlyNameTextSize = 12,
+    showTankIcon = true,
+    tankIconSize = 60,
     showEnemyPets = false,
     font = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",
     textSlotTop = "enemyName",

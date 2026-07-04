@@ -2524,6 +2524,25 @@ initFrame:SetScript("OnEvent", function(self)
             refreshNameSwatches()
         end
 
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Tank Role Icon",
+              tooltip="Show a tank role icon above the nameplate of your group's tank so you can find them easily.",
+              getValue=function() return DBVal("showTankIcon") ~= false end,
+              setValue=function(v)
+                DB().showTankIcon = v and true or false
+                if ns.RefreshFriendlyRoleIcons then ns.RefreshFriendlyRoleIcons() end
+              end },
+            { type="slider", text="Tank Icon Size", trackWidth=120,
+              min=16, max=100, step=1,
+              disabled=function() return DBVal("showTankIcon") == false end,
+              disabledTooltip="Enable Show Tank Role Icon",
+              getValue=function() return DBVal("tankIconSize") or defaults.tankIconSize end,
+              setValue=function(v)
+                DB().tankIconSize = v
+                if ns.RefreshFriendlyRoleIcons then ns.RefreshFriendlyRoleIcons() end
+              end,
+              tooltip="Size of the tank role icon shown on your group tank's nameplate. Default is 60." });  y = y - h
+
         local npcRow
         npcRow, h = W:DualRow(parent, y,
             { type="toggle", text="Show Friendly NPC Nameplates",
