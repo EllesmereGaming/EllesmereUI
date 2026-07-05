@@ -580,6 +580,35 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
+        -- Raid Control: a compact raid-management panel (markers, ready check,
+        -- role poll, main tank/assist, countdown, difficulty, convert, pings).
+        -- Positioned via Unlock Mode; enabling prompts a reload so the mover and
+        -- secure frames are registered before positioning.
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Enable Raid Control",
+              tooltip="A compact, movable raid-management panel: target markers, ready check, role poll, main tank/assist, countdown, difficulty, convert to raid/party, restrict pings and more. The button appears whenever you are in a group. Position it via Unlock Mode. Enabling requires a reload before you can position it.",
+              getValue=function()
+                  return EllesmereUI_IsRaidControlEnabled and EllesmereUI_IsRaidControlEnabled() or false
+              end,
+              setValue=function(v)
+                  if v then
+                      if EllesmereUI_EnableRaidControl then EllesmereUI_EnableRaidControl() end
+                      if EllesmereUI.ShowConfirmPopup then
+                          EllesmereUI:ShowConfirmPopup({
+                              title       = "Reload Required",
+                              message     = "Reload the UI to position Raid Control via Unlock Mode.",
+                              confirmText = "Reload Now",
+                              cancelText  = "Later",
+                              onConfirm   = function() ReloadUI() end,
+                          })
+                      end
+                  else
+                      if EllesmereUI_DisableRaidControl then EllesmereUI_DisableRaidControl() end
+                  end
+              end },
+            { type="spacer" }
+        );  y = y - h
+
         -- TEMP DISABLED: Group Finder reskin + QoL toggles. The feature file is
         -- also commented out of EllesmereUIBlizzardSkin.toc. Revert both by
         -- removing the --[[ and --]] markers here and uncommenting the TOC line.

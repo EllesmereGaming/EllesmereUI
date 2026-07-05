@@ -8,6 +8,9 @@
 --  implementation and the same saved setting (EllesmereUIDB.hideBlizzardPartyFrame),
 --  with no behaviour differing between the two toggles.
 --
+--  Also hidden whenever Raid Control is enabled (EllesmereUIDB.raidControl),
+--  since that feature replaces the Blizzard raid manager.
+--
 --  Default: whatever the user has saved; unset = shown (off).
 --
 --  Mechanism: reparent the manager to a hidden frame (SetParent is blocked in
@@ -21,7 +24,9 @@ local _partyHiddenParent
 local _partyOrigParent
 
 local function ApplyHideBlizzardPartyFrame()
-    local shouldHide = EllesmereUIDB and EllesmereUIDB.hideBlizzardPartyFrame
+    -- Hidden when the user opts in OR when Raid Control is enabled (it replaces
+    -- the Blizzard raid manager, so the Blizzard one must not also show).
+    local shouldHide = EllesmereUIDB and (EllesmereUIDB.hideBlizzardPartyFrame or EllesmereUIDB.raidControl)
     local mgr = CompactRaidFrameManager or _G["CompactRaidFrameManager"]
     if not mgr then return end
 

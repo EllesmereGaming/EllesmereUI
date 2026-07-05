@@ -53,6 +53,7 @@ EllesmereUI_Visibility.lua
 EllesmereUI_Presets.lua
 EllesmereUI_Profiles.lua
 EllesmereUI_PartyMode.lua
+EllesmereUI_RaidControl.lua
 EUI_MacroFactory.lua
 EUI__General_Options.lua
 EUI_UnlockMode.lua
