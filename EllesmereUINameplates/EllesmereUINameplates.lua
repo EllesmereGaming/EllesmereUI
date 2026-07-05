@@ -1337,7 +1337,7 @@ function ns.GetClassPowerBorderSize()
 end
 
 -- Player class icon overlay. Uses Ellesmere's class icon sheets when selected;
--- otherwise uses Blizzard's built-in class atlas with a legacy sheet fallback.
+-- otherwise uses Blizzard's built-in class sheet, matching other EUI modules.
 do
     local CLASS_ICON_TEX = "Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES"
     local CLASS_FULL_SPRITE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\"
@@ -1411,17 +1411,12 @@ do
             return true
         end
 
-        local atlas = "classicon-" .. string.lower(classToken)
-        if tex.SetAtlas and (not C_Texture or not C_Texture.GetAtlasInfo or C_Texture.GetAtlasInfo(atlas)) then
-            tex:SetAtlas(atlas)
+        tex:SetTexture(CLASS_ICON_TEX)
+        local coords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classToken]
+        if coords then
+            tex:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
         else
-            tex:SetTexture(CLASS_ICON_TEX)
-            local tc = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classToken]
-            if tc then
-                tex:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
-            else
-                tex:SetTexCoord(0, 1, 0, 1)
-            end
+            tex:SetTexCoord(0, 1, 0, 1)
         end
         tex:SetDesaturated(false)
         tex:SetVertexColor(1, 1, 1, 1)
