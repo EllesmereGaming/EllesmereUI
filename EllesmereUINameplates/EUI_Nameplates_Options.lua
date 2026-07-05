@@ -6594,6 +6594,104 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -----------------------------------------------------------------------
+        --  PLAYER CLASS ICONS
+        -----------------------------------------------------------------------
+        do
+            _, h = W:SectionHeader(parent, "PLAYER CLASS ICONS", y);  y = y - h
+
+            local function classIconsDisabled()
+                return DBVal("showEnemyClassIcons") ~= true and DBVal("showFriendlyClassIcons") ~= true
+            end
+            local classIconStyleValues = {
+                blizzard = "Blizzard",
+                accent   = "EUI Accent",
+                modern   = "Modern",
+                arcade   = "Arcade",
+                glyph    = "Glyph",
+                legend   = "Legend",
+                midnight = "Midnight",
+                pixel    = "Pixel",
+                runic    = "Runic",
+            }
+            local classIconStyleOrder = {
+                "blizzard", "---", "accent", "modern", "arcade", "glyph",
+                "legend", "midnight", "pixel", "runic",
+            }
+            local function refreshClassIcons(rebuild)
+                if ns.RefreshClassIcons then ns.RefreshClassIcons() end
+                UpdatePreview()
+                if rebuild then EllesmereUI:RefreshPage() end
+            end
+
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Enemy Player Class Icons",
+                  tooltip="Shows class icons above enemy player nameplates.",
+                  getValue=function() return DBVal("showEnemyClassIcons") == true end,
+                  setValue=function(v)
+                    DB().showEnemyClassIcons = v
+                    refreshClassIcons(true)
+                  end },
+                { type="toggle", text="Friendly Player Class Icons",
+                  tooltip="Shows class icons above EUI full friendly player nameplates. Name-only friendly nameplates stay Blizzard-controlled.",
+                  getValue=function() return DBVal("showFriendlyClassIcons") == true end,
+                  setValue=function(v)
+                    DB().showFriendlyClassIcons = v
+                    refreshClassIcons(true)
+                  end });  y = y - h
+
+            _, h = W:DualRow(parent, y,
+                { type="dropdown", text="Class Icon Style",
+                  tooltip="Uses Blizzard icons or EllesmereUI's existing class icon art.",
+                  disabled=classIconsDisabled,
+                  disabledTooltip="Enemy or Friendly Player Class Icons",
+                  values=classIconStyleValues,
+                  order=classIconStyleOrder,
+                  getValue=function() return DBVal("classIconStyle") or defaults.classIconStyle end,
+                  setValue=function(v)
+                    DB().classIconStyle = v
+                    refreshClassIcons()
+                  end },
+                { type="slider", text="Class Icon Size", min=12, max=40, step=1,
+                  disabled=classIconsDisabled,
+                  disabledTooltip="Enemy or Friendly Player Class Icons",
+                  getValue=function() return DBVal("classIconSize") or defaults.classIconSize end,
+                  setValue=function(v)
+                    DB().classIconSize = v
+                    refreshClassIcons()
+                  end });  y = y - h
+
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Class Color Border",
+                  disabled=classIconsDisabled,
+                  disabledTooltip="Enemy or Friendly Player Class Icons",
+                  getValue=function() return DBVal("classIconClassColorBorder") ~= false end,
+                  setValue=function(v)
+                    DB().classIconClassColorBorder = v
+                    refreshClassIcons()
+                  end },
+                { type="slider", text="Class Icon X", min=-80, max=80, step=1,
+                  disabled=classIconsDisabled,
+                  disabledTooltip="Enemy or Friendly Player Class Icons",
+                  getValue=function() return DBVal("classIconXOffset") or defaults.classIconXOffset end,
+                  setValue=function(v)
+                    DB().classIconXOffset = v
+                    refreshClassIcons()
+                  end });  y = y - h
+
+            _, h = W:DualRow(parent, y,
+                { type="slider", text="Class Icon Y", min=-80, max=80, step=1,
+                  disabled=classIconsDisabled,
+                  disabledTooltip="Enemy or Friendly Player Class Icons",
+                  getValue=function() return DBVal("classIconYOffset") or defaults.classIconYOffset end,
+                  setValue=function(v)
+                    DB().classIconYOffset = v
+                    refreshClassIcons()
+                  end });  y = y - h
+
+            _, h = W:Spacer(parent, y, 20);  y = y - h
+        end
+
+        -----------------------------------------------------------------------
         --  CLASS RESOURCE
         -----------------------------------------------------------------------
         local classResourceHeader
