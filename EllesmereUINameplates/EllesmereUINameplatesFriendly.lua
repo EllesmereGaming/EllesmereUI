@@ -832,6 +832,7 @@ function FriendlyFrame:ClearUnit()
     if self.unit then RestoreBlizzardUF(self.unit) end
     self.unit = nil
     self.nameplate = nil
+    self._classIconRetryCount = nil
     self.glow:Hide()
     if ns.HideHoverEffect then ns.HideHoverEffect(self) else self.highlight:Hide() end
     self.raidFrame:Hide()
@@ -1011,6 +1012,7 @@ function ns.RemoveFriendlyPlateNoRestore(unit)
     modifiedUFs[unit] = nil
     plate.unit = nil
     plate.nameplate = nil
+    plate._classIconRetryCount = nil
     plate.glow:Hide()
     if ns.HideHoverEffect then ns.HideHoverEffect(plate) else plate.highlight:Hide() end
     plate.raidFrame:Hide()

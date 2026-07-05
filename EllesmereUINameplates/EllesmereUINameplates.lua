@@ -1341,7 +1341,6 @@ end
 do
     local CLASS_ICON_TEX = "Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES"
     local CLASS_FULL_SPRITE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\"
-    local CLASS_ACCENT_BASE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-accent\\"
     local CLASS_FULL_COORDS = {
         WARRIOR     = { 0,     0.125, 0,     0.125 },
         MAGE        = { 0.125, 0.25,  0,     0.125 },
@@ -1357,34 +1356,44 @@ do
         MONK        = { 0.25,  0.375, 0.25,  0.375 },
         DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
     }
-    local CLASS_ACCENT_FILES = {
-        WARRIOR     = "warrior",
-        MAGE        = "mage",
-        ROGUE       = "rogue",
-        DRUID       = "druid",
-        EVOKER      = "evoker",
-        HUNTER      = "hunter",
-        SHAMAN      = "shaman",
-        PRIEST      = "priest",
-        WARLOCK     = "warlock",
-        PALADIN     = "paladin",
-        DEATHKNIGHT = "dk",
-        MONK        = "monk",
-        DEMONHUNTER = "dh",
-    }
     local CLASS_FULL_STYLES = {
-        modern = true, arcade = true, glyph = true, legend = true,
+        modern = true, arcade = true, glyph = true,
         midnight = true, pixel = true, runic = true,
     }
 
-    local function ApplyEllesmereClassIconTexture(tex, classToken, style)
-        if style == "accent" then
-            local file = CLASS_ACCENT_FILES[classToken]
-            if not file then return false end
-            tex:SetTexture(CLASS_ACCENT_BASE .. file .. ".png")
-            tex:SetTexCoord(0, 1, 0, 1)
-            return true
+    local function NormalizeClassIconStyle(style)
+        if style == "blizzard" or CLASS_FULL_STYLES[style] then
+            return style
         end
+        return defaults.classIconStyle
+    end
+
+    local function IsPlayerClassIconUnit(unit)
+        if UnitIsPlayer(unit) then return true end
+        local guid = UnitGUID(unit)
+        return type(guid) == "string" and guid:match("^Player%-") ~= nil
+    end
+
+    local function GetClassIconClassToken(unit)
+        local classToken = UnitClassBase and UnitClassBase(unit)
+        if not classToken then
+            classToken = select(2, UnitClass(unit))
+        end
+        return classToken
+    end
+
+    local function QueueClassIconRetry(plate, unit)
+        if not plate or not unit then return end
+        plate._classIconRetryCount = (plate._classIconRetryCount or 0) + 1
+        if plate._classIconRetryCount > 5 then return end
+        C_Timer.After(0.2, function()
+            if plate.unit == unit then
+                ns.UpdateClassIcon(plate)
+            end
+        end)
+    end
+
+    local function ApplyEllesmereClassIconTexture(tex, classToken, style)
         if not CLASS_FULL_STYLES[style] then return false end
         local coords = CLASS_FULL_COORDS[classToken]
         if not coords then return false end
@@ -1395,7 +1404,7 @@ do
 
     function ns.ApplyClassIconTexture(tex, classToken, style)
         if not tex or not classToken then return false end
-        style = style or defaults.classIconStyle
+        style = NormalizeClassIconStyle(style or defaults.classIconStyle)
         if style ~= "blizzard" and ApplyEllesmereClassIconTexture(tex, classToken, style) then
             tex:SetDesaturated(false)
             tex:SetVertexColor(1, 1, 1, 1)
@@ -1420,7 +1429,7 @@ do
     end
 
     function ns.GetClassIconStyle()
-        return (p and p.classIconStyle) or defaults.classIconStyle
+        return NormalizeClassIconStyle((p and p.classIconStyle) or defaults.classIconStyle)
     end
     function ns.GetClassIconSize()
         return (p and p.classIconSize) or defaults.classIconSize
@@ -1438,7 +1447,7 @@ do
     end
 
     function ns.IsClassIconEnabledForUnit(unit)
-        if not unit or not UnitIsPlayer(unit) or UnitIsUnit(unit, "player") then return false end
+        if not unit or UnitIsUnit(unit, "player") or not IsPlayerClassIconUnit(unit) then return false end
         if UnitCanAttack("player", unit) then
             return p and p.showEnemyClassIcons == true
         end
@@ -1466,17 +1475,17 @@ do
         local unit = plate and plate.unit
         if not ns.IsClassIconEnabledForUnit(unit) then
             if plate and plate.classIconFrame then plate.classIconFrame:Hide() end
+            if plate then plate._classIconRetryCount = nil end
             return
         end
 
-        local classToken = UnitClassBase and UnitClassBase(unit)
-        if not classToken then
-            classToken = select(2, UnitClass(unit))
-        end
+        local classToken = GetClassIconClassToken(unit)
         if not classToken then
             if plate.classIconFrame then plate.classIconFrame:Hide() end
+            QueueClassIconRetry(plate, unit)
             return
         end
+        plate._classIconRetryCount = nil
 
         ns.EnsureClassIcon(plate)
         local frame = plate.classIconFrame
@@ -5820,6 +5829,7 @@ function NameplateFrame:ClearUnit()
     self._kickGeoDirty = nil
     self._castTex = nil
     self._castLockout = nil
+    self._classIconRetryCount = nil
     if ns._npDequeueAuraWork then ns._npDequeueAuraWork(self) end
     self.cast:Hide()
     self.castShieldFrame:Hide()
@@ -8350,6 +8360,7 @@ local function RefreshThreatContextAndPlateColors()
     wipe(ns._questObjText)
     for _, plate in pairs(ns.plates) do
         plate:UpdateHealthColor()
+        if plate.UpdateClassIcon then plate:UpdateClassIcon() end
     end
 end
 
@@ -8582,10 +8593,12 @@ manager:SetScript("OnEvent", function(self, event, unit)
         if oldTarget and oldTarget.unit then
             oldTarget:ApplyTarget()
             oldTarget:UpdateHealthColor()
+            if oldTarget.UpdateClassIcon then oldTarget:UpdateClassIcon() end
         end
         if ns._cachedTargetPlate and ns._cachedTargetPlate ~= oldTarget then
             ns._cachedTargetPlate:ApplyTarget()
             ns._cachedTargetPlate:UpdateHealthColor()
+            if ns._cachedTargetPlate.UpdateClassIcon then ns._cachedTargetPlate:UpdateClassIcon() end
         end
     elseif event == "PLAYER_FOCUS_CHANGED" then
         -- PERF: only update old + new focus plates instead of iterating all
@@ -8602,6 +8615,7 @@ manager:SetScript("OnEvent", function(self, event, unit)
         local function UpdateFocusPlate(plate)
             if not plate or not plate.unit then return end
             plate:UpdateHealthColor()
+            if plate.UpdateClassIcon then plate:UpdateClassIcon() end
             if focusPct ~= 100 then
                 local castH = GetCastBarHeight()
                 if UnitIsUnit(plate.unit, "focus") then

@@ -6646,34 +6646,40 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         --  PLAYER CLASS ICONS
         -----------------------------------------------------------------------
+        local playerClassIconHeader
+        local playerClassIconToggleRow
+        local playerClassIconStyleRow
         do
-            _, h = W:SectionHeader(parent, "PLAYER CLASS ICONS", y);  y = y - h
+            playerClassIconHeader, h = W:SectionHeader(parent, "PLAYER CLASS ICONS", y);  y = y - h
 
             local function classIconsDisabled()
                 return DBVal("showEnemyClassIcons") ~= true and DBVal("showFriendlyClassIcons") ~= true
             end
             local classIconStyleValues = {
                 blizzard = "Blizzard",
-                accent   = "EUI Accent",
                 modern   = "Modern",
                 arcade   = "Arcade",
                 glyph    = "Glyph",
-                legend   = "Legend",
                 midnight = "Midnight",
                 pixel    = "Pixel",
                 runic    = "Runic",
             }
             local classIconStyleOrder = {
-                "blizzard", "---", "accent", "modern", "arcade", "glyph",
-                "legend", "midnight", "pixel", "runic",
+                "blizzard", "---", "modern", "arcade", "glyph",
+                "midnight", "pixel", "runic",
             }
+            local function getClassIconStyle()
+                local style = DBVal("classIconStyle") or defaults.classIconStyle
+                if classIconStyleValues[style] then return style end
+                return defaults.classIconStyle
+            end
             local function refreshClassIcons(rebuild)
                 if ns.RefreshClassIcons then ns.RefreshClassIcons() end
                 UpdatePreview()
                 if rebuild then EllesmereUI:RefreshPage() end
             end
 
-            _, h = W:DualRow(parent, y,
+            playerClassIconToggleRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Enemy Player Class Icons",
                   tooltip="Shows class icons above enemy player nameplates.",
                   getValue=function() return DBVal("showEnemyClassIcons") == true end,
@@ -6689,14 +6695,14 @@ initFrame:SetScript("OnEvent", function(self)
                     refreshClassIcons(true)
                   end });  y = y - h
 
-            _, h = W:DualRow(parent, y,
+            playerClassIconStyleRow, h = W:DualRow(parent, y,
                 { type="dropdown", text="Class Icon Style",
                   tooltip="Uses Blizzard icons or EllesmereUI's existing class icon art.",
                   disabled=classIconsDisabled,
                   disabledTooltip="Enemy or Friendly Player Class Icons",
                   values=classIconStyleValues,
                   order=classIconStyleOrder,
-                  getValue=function() return DBVal("classIconStyle") or defaults.classIconStyle end,
+                  getValue=getClassIconStyle,
                   setValue=function(v)
                     DB().classIconStyle = v
                     refreshClassIcons()
@@ -7449,6 +7455,7 @@ initFrame:SetScript("OnEvent", function(self)
             castTarget   = { section = generalTextHeader, target = spellNameRow,        slotSide = "right" },
             healthBar    = { section = healthBarHeader,  target = healthBarHeightRow },
             classResource = { section = classResourceHeader, target = classResourceSection },
+            playerClassIcon = { section = playerClassIconHeader, target = playerClassIconStyleRow or playerClassIconToggleRow, slotSide = "left" },
             targetArrows = { section = tfxHeader,            target = targetGlowRow,       slotSide = "right" },
         }
 
@@ -7732,6 +7739,11 @@ initFrame:SetScript("OnEvent", function(self)
                 classOverlay = CreateHitOverlay(pv._classIcon, "classIcon")
                 if not showClassificationPreview then classOverlay:Hide() end
             end
+            local playerClassOverlay
+            if pv._playerClassIcon and pv._playerClassIcon.frame then
+                playerClassOverlay = CreateHitOverlay(pv._playerClassIcon.frame, "playerClassIcon")
+                if not pv._playerClassIcon.frame:IsShown() then playerClassOverlay:Hide() end
+            end
             -- Class resource pips wrapper button spanning all visible pips
             local cpOverlay
             if pv._cpPips then
@@ -7786,6 +7798,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Sync overlay visibility with preview toggles
             pv._raidOverlay = raidOverlay
             pv._classOverlay = classOverlay
+            pv._playerClassOverlay = playerClassOverlay
             -- Target arrows wrapper button spanning both arrow textures
             local arrowOverlay
             if pv._arrows then
