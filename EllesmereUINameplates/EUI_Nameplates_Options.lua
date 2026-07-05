@@ -559,6 +559,17 @@ initFrame:SetScript("OnEvent", function(self)
         nameFS:SetText(EllesmereUI.L("Enemy Name Text"))
         nameFS:SetTextColor(1, 1, 1, 1)
 
+        local playerClassIconFrame = CreateFrame("Frame", nil, pf)
+        playerClassIconFrame:SetFrameLevel(health:GetFrameLevel() + 9)
+        playerClassIconFrame:Hide()
+        local playerClassIconTex = playerClassIconFrame:CreateTexture(nil, "ARTWORK")
+        playerClassIconTex:SetAllPoints()
+        UnsnapTex(playerClassIconTex)
+        if PP and PP.CreateBorder then
+            PP.CreateBorder(playerClassIconFrame, 0, 0, 0, 1, 1, "OVERLAY", 7, true)
+        end
+        pf._playerClassIcon = { frame = playerClassIconFrame, icon = playerClassIconTex, anchor = nameFS }
+
         -- Health percentage text (right-aligned inside health bar)
         local hpText = healthTextFrame:CreateFontString(nil, "OVERLAY")
         SetPVFont(hpText, FONT_PATH, 10, GetNPOptOutline())
@@ -850,6 +861,44 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Cached position values for the health bar anchor (see health block).
         local _cachedRawBarW, _cachedXOff
+
+        pf.UpdatePlayerClassIcon = function(self)
+            local ci = self._playerClassIcon
+            if not ci then return 0 end
+            local enabled = DBVal("showEnemyClassIcons") == true or DBVal("showFriendlyClassIcons") == true
+            if not enabled then
+                ci.frame:Hide()
+                return 0
+            end
+
+            local _, classToken = UnitClass("player")
+            classToken = classToken or "WARRIOR"
+            local size = DBVal("classIconSize") or defaults.classIconSize
+            local xOff = DBVal("classIconXOffset") or defaults.classIconXOffset
+            local yOff = DBVal("classIconYOffset") or defaults.classIconYOffset
+
+            ci.frame:SetSize(size, size)
+            ci.frame:ClearAllPoints()
+            ci.frame:SetPoint("BOTTOM", ci.anchor, "TOP", xOff, yOff)
+            if ns.ApplyClassIconTexture then
+                ns.ApplyClassIconTexture(ci.icon, classToken, DBVal("classIconStyle") or defaults.classIconStyle)
+            end
+
+            if PP and PP.GetBorders then
+                local border = PP.GetBorders(ci.frame)
+                if border then
+                    local c = DBVal("classIconClassColorBorder") ~= false and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken]
+                    if c then
+                        PP.SetBorderColor(ci.frame, c.r, c.g, c.b, 1)
+                    else
+                        PP.SetBorderColor(ci.frame, 0, 0, 0, 1)
+                    end
+                    PP.ShowBorder(ci.frame)
+                end
+            end
+            ci.frame:Show()
+            return math.max(0, size + yOff)
+        end
 
         -------------------------------------------------------------------
         --  Update re-reads DB, applies to existing frames. No rebuilds.
@@ -1804,6 +1853,7 @@ initFrame:SetScript("OnEvent", function(self)
             if isTopSlot(ccSlotVal) then topExtent = math.max(topExtent, ccSz + ccYOff) end
             if isTopSlot(rmPos) and showRM then topExtent = math.max(topExtent, rmSize + rmYOff) end
             if isTopSlot(clPos) and showCL then topExtent = math.max(topExtent, reIconSz + clYOff) end
+            if self.UpdatePlayerClassIcon then topExtent = math.max(topExtent, self:UpdatePlayerClassIcon()) end
             -- Only include name text height when something is actually in the top slot
             local topTextH = (slotTop ~= "none") and (topFontSz + 4 + nameYOff + topYOff) or 0
             -- Only add debuffY gap when something occupies the center "top" position or top text slot

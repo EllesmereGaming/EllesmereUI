@@ -1393,6 +1393,32 @@ do
         return true
     end
 
+    function ns.ApplyClassIconTexture(tex, classToken, style)
+        if not tex or not classToken then return false end
+        style = style or defaults.classIconStyle
+        if style ~= "blizzard" and ApplyEllesmereClassIconTexture(tex, classToken, style) then
+            tex:SetDesaturated(false)
+            tex:SetVertexColor(1, 1, 1, 1)
+            return true
+        end
+
+        local atlas = "classicon-" .. string.lower(classToken)
+        if tex.SetAtlas and (not C_Texture or not C_Texture.GetAtlasInfo or C_Texture.GetAtlasInfo(atlas)) then
+            tex:SetAtlas(atlas)
+        else
+            tex:SetTexture(CLASS_ICON_TEX)
+            local tc = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classToken]
+            if tc then
+                tex:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
+            else
+                tex:SetTexCoord(0, 1, 0, 1)
+            end
+        end
+        tex:SetDesaturated(false)
+        tex:SetVertexColor(1, 1, 1, 1)
+        return true
+    end
+
     function ns.GetClassIconStyle()
         return (p and p.classIconStyle) or defaults.classIconStyle
     end
@@ -1465,27 +1491,7 @@ do
         end
         frame:SetPoint("BOTTOM", anchor, "TOP", ns.GetClassIconXOffset(), ns.GetClassIconYOffset())
 
-        local style = ns.GetClassIconStyle()
-        if style ~= "blizzard" and ApplyEllesmereClassIconTexture(frame.icon, classToken, style) then
-            frame.icon:SetDesaturated(false)
-            frame.icon:SetVertexColor(1, 1, 1, 1)
-        else
-            local atlas = "classicon-" .. string.lower(classToken)
-            if frame.icon.SetAtlas and (not C_Texture or not C_Texture.GetAtlasInfo or C_Texture.GetAtlasInfo(atlas)) then
-                frame.icon:SetAtlas(atlas)
-                frame.icon:SetTexCoord(0, 1, 0, 1)
-            else
-                frame.icon:SetTexture(CLASS_ICON_TEX)
-                local tc = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classToken]
-                if tc then
-                    frame.icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
-                else
-                    frame.icon:SetTexCoord(0, 1, 0, 1)
-                end
-            end
-            frame.icon:SetDesaturated(false)
-            frame.icon:SetVertexColor(1, 1, 1, 1)
-        end
+        ns.ApplyClassIconTexture(frame.icon, classToken, ns.GetClassIconStyle())
 
         if PP and PP.GetBorders then
             local border = PP.GetBorders(frame)
