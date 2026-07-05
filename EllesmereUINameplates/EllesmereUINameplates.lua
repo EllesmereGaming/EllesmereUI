@@ -37,7 +37,7 @@ local function NP_ArmAuraCooldown(cd, durObj)
     end
     return true
 end
-local UnitName, UnitGUID = UnitName, UnitGUID
+local UnitName = UnitName
 local UnitIsUnit, UnitCanAttack = UnitIsUnit, UnitCanAttack
 local UnitIsEnemy, UnitIsTapDenied = UnitIsEnemy, UnitIsTapDenied
 
@@ -1369,9 +1369,7 @@ do
     end
 
     local function IsPlayerClassIconUnit(unit)
-        if UnitIsPlayer(unit) then return true end
-        local guid = UnitGUID(unit)
-        return type(guid) == "string" and guid:match("^Player%-") ~= nil
+        return UnitIsPlayer(unit) == true
     end
 
     local function GetClassIconClassToken(unit)
