@@ -1769,7 +1769,7 @@ do
         { range = 25,  id = 13289 }, -- Egan's Blaster
         { range = 30,  id = 17202 }, -- Snowball
         { range = 35,  id = 18904 }, -- Zorbin's Ultra-Shrinker
-        { range = 40,  id = 18640 }, -- Happy Fun Rock
+        { range = 40,  id = 28767 }, -- The Decapitator
         { range = 45,  id = 32698 }, -- Wrangling Rope
         { range = 60,  id = 32825 }, -- Soul Cannon
         { range = 80,  id = 35278 }, -- Reinforced Net
@@ -1825,11 +1825,7 @@ do
                 _crosshairCutoffRange = 5
             end
         elseif classFile == "PALADIN" then
-            if specID == 65 then -- Holy
-                _crosshairCutoffRange = 40
-            else
-                _crosshairCutoffRange = 5
-            end
+            _crosshairCutoffRange = 5
         elseif classFile == "SHAMAN" then
             if specID == 263 then -- Enhancement
                 _crosshairCutoffRange = 5
