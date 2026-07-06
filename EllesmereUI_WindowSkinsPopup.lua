@@ -172,14 +172,14 @@ local function ShowWindowSkinsPopup()
     eyebrow:SetFont(FONT, 13, "")
     eyebrow:SetTextColor(EG.r, EG.g, EG.b, 0.9)
     PP.Point(eyebrow, "TOP", popup, "TOP", 0, -104)
-    eyebrow:SetText("NEW FEATURE")
+    eyebrow:SetText(EllesmereUI.L("NEW FEATURE"))
 
     -- Title
     local title = popup:CreateFontString(nil, "OVERLAY")
     title:SetFont(FONT, 25, "")
     title:SetTextColor(1, 1, 1, 1)
     PP.Point(title, "TOP", eyebrow, "BOTTOM", 0, -6)
-    title:SetText("Blizzard Window Skinning")
+    title:SetText(EllesmereUI.L("Blizzard Window Skinning"))
 
     -- Description
     local desc = popup:CreateFontString(nil, "OVERLAY")
@@ -189,7 +189,7 @@ local function ShowWindowSkinsPopup()
     desc:SetJustifyH("CENTER")
     desc:SetWordWrap(true)
     PP.Point(desc, "TOP", title, "BOTTOM", 0, -12)
-    desc:SetText("Blizzard's windows now match the EllesmereUI theme with a WoW 2.0 Dark Theme, from the Dungeon Journal to the Auction House and beyond.")
+    desc:SetText(EllesmereUI.L("Blizzard's windows now match the EllesmereUI theme with a WoW 2.0 Dark Theme, from the Dungeon Journal to the Auction House and beyond."))
 
     -- Feature bullets
     local BULLETS = {
@@ -208,7 +208,7 @@ local function ShowWindowSkinsPopup()
         else
             PP.Point(bl, "TOPLEFT", prev, "BOTTOMLEFT", 0, -10)
         end
-        bl:SetText(text)
+        bl:SetText(EllesmereUI.L(text))
         local dot = popup:CreateTexture(nil, "OVERLAY")
         dot:SetColorTexture(EG.r, EG.g, EG.b, 1)
         PP.Size(dot, 5, 5)
@@ -247,7 +247,7 @@ local function ShowWindowSkinsPopup()
         lbl:SetFont(FONT, 15, "")
         PP.Point(lbl, "CENTER", btn, "CENTER", 0, 0)
         lbl:SetTextColor(r, g, b, secondary and 0.55 or 0.9)
-        lbl:SetText(text)
+        lbl:SetText(EllesmereUI.L(text))
         btn:SetScript("OnEnter", function()
             if secondary then
                 lbl:SetTextColor(DISABLE_R, DISABLE_G, DISABLE_B, 1)
@@ -281,7 +281,7 @@ local function ShowWindowSkinsPopup()
     footnote:SetWidth(POPUP_W - 80)
     footnote:SetJustifyH("CENTER")
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 16)
-    footnote:SetText("Style each window your own way.")
+    footnote:SetText(EllesmereUI.L("Style each window your own way."))
 
     -- Escape = Keep Enabled (the non-destructive default). Consume Escape,
     -- propagate other keys so chat/UI shortcuts still work behind the dimmer.
