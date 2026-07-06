@@ -177,13 +177,13 @@ initFrame:SetScript("OnEvent", function(self)
                    and bd.barType ~= "custom_buff" then
                     list[#list + 1] = {
                         value = bd.key,
-                        label = "CDM Bar - " .. (bd.name or bd.key),
+                        label = EllesmereUI.Lf("CDM Bar - %s", EllesmereUI.L(bd.name or bd.key)),
                     }
                 end
             end
         end
         for i = 1, 8 do
-            list[#list + 1] = { value = i, label = BG_ACTION_BAR_LABELS[i] }
+            list[#list + 1] = { value = i, label = EllesmereUI.L(BG_ACTION_BAR_LABELS[i]) }
         end
         return list
     end
@@ -191,12 +191,12 @@ initFrame:SetScript("OnEvent", function(self)
     local function GetBGTargetLabel(sel)
         sel = NormalizeSelectedBar(sel)
         if type(sel) == "number" then
-            return BG_ACTION_BAR_LABELS[sel] or ("Action Bar " .. sel)
+            return EllesmereUI.L(BG_ACTION_BAR_LABELS[sel] or ("Action Bar " .. sel))
         end
         local p = ns.ECME and ns.ECME.db and ns.ECME.db.profile
         if p and p.cdmBars and p.cdmBars.bars then
             for _, bd in ipairs(p.cdmBars.bars) do
-                if bd.key == sel then return "CDM Bar - " .. (bd.name or bd.key) end
+                if bd.key == sel then return EllesmereUI.Lf("CDM Bar - %s", EllesmereUI.L(bd.name or bd.key)) end
             end
         end
         return tostring(sel)
@@ -240,7 +240,7 @@ initFrame:SetScript("OnEvent", function(self)
         local labels, order = {}, {}
         if ns.GLOW_STYLES then
             for i, entry in ipairs(ns.GLOW_STYLES) do
-                labels[i] = entry.name or ("Style " .. i)
+                labels[i] = (entry.name and EllesmereUI.L(entry.name)) or ("Style " .. i)
                 order[#order + 1] = i
             end
         end
@@ -670,7 +670,7 @@ initFrame:SetScript("OnEvent", function(self)
             lbl:SetPoint("RIGHT", ico, "LEFT", -4, 0)
             lbl:SetJustifyH("LEFT")
             lbl:SetWordWrap(false); lbl:SetMaxLines(1)
-            lbl:SetText(sp.name)
+            lbl:SetText(EllesmereUI.L(sp.name))
             lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
 
             local hl = item:CreateTexture(nil, "ARTWORK", nil, -1)
@@ -1826,7 +1826,7 @@ initFrame:SetScript("OnEvent", function(self)
                 displayName = (info and info.name) or displayName
             end
             if unassigned then displayName = "" end
-            wrap._nameText:SetText(displayName or "")
+            wrap._nameText:SetText(EllesmereUI.L(displayName or ""))
         end
         -- Icon texture (same resolution as the live build; question mark when
         -- no buff is assigned yet)
@@ -2456,7 +2456,7 @@ initFrame:SetScript("OnEvent", function(self)
             lbl:SetPoint("RIGHT", ico, "LEFT", -4, 0)
             lbl:SetJustifyH("LEFT")
             lbl:SetWordWrap(false); lbl:SetMaxLines(1)
-            lbl:SetText(entry.name)
+            lbl:SetText(EllesmereUI.L(entry.name))
             lbl:SetTextColor(baseR, baseG, baseB, baseA)
 
             local hl = item:CreateTexture(nil, "ARTWORK", nil, -1)
@@ -2534,7 +2534,7 @@ initFrame:SetScript("OnEvent", function(self)
             lbl:SetPoint("RIGHT", ico, "LEFT", -4, 0)
             lbl:SetJustifyH("LEFT")
             lbl:SetWordWrap(false); lbl:SetMaxLines(1)
-            lbl:SetText(sp.name)
+            lbl:SetText(EllesmereUI.L(sp.name))
             lbl:SetTextColor(baseR, baseG, baseB, baseA)
 
             local hl = item:CreateTexture(nil, "ARTWORK", nil, -1)
@@ -2546,7 +2546,7 @@ initFrame:SetScript("OnEvent", function(self)
                 lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA * 0.4)
                 ico:SetDesaturated(true); ico:SetAlpha(0.4)
                 item:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(item, "Already assigned to " .. usedOnBar)
+                    EllesmereUI.ShowWidgetTooltip(item, EllesmereUI.Lf("Already assigned to %s", EllesmereUI.L(usedOnBar)))
                     hl:SetColorTexture(1, 1, 1, hlA * 0.3); hl:SetAlpha(1)
                 end)
                 item:SetScript("OnLeave", function()
@@ -2917,7 +2917,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 local bd = SelectedTBB()
                 if bd then
-                    local label = bd.name or "Bar"
+                    local label = (bd.name and EllesmereUI.L(bd.name)) or "Bar"
                     if not bd.popularKey and bd.spellID and bd.spellID > 0 then
                         local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(bd.spellID)
                         if info and info.name then label = info.name end
@@ -3136,7 +3136,7 @@ initFrame:SetScript("OnEvent", function(self)
                     iLbl:SetJustifyH("LEFT")
                     iLbl:SetWordWrap(false); iLbl:SetMaxLines(1)
                     iLbl:SetPoint("LEFT", spIco, "RIGHT", 6, 0)
-                    local displayName = b.name or ("Bar " .. idx)
+                    local displayName = (b.name and EllesmereUI.L(b.name)) or EllesmereUI.Lf("Bar %d", idx)
                     if not b.popularKey and b.spellID and b.spellID > 0 then
                         local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(b.spellID)
                         if info and info.name then displayName = info.name end
@@ -6113,7 +6113,7 @@ initFrame:SetScript("OnEvent", function(self)
             lbl:SetPoint("LEFT", iconTex, "RIGHT", 6, 0)
             lbl:SetPoint("RIGHT", -4, 0)
             lbl:SetJustifyH("LEFT")
-            lbl:SetText(sp.name or "")
+            lbl:SetText(EllesmereUI.L(sp.name or ""))
             lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
 
             local hl = item:CreateTexture(nil, "ARTWORK")
@@ -6217,7 +6217,7 @@ initFrame:SetScript("OnEvent", function(self)
                     sLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
                     sLbl:SetPoint("LEFT", sIco, "RIGHT", 6, 0); sLbl:SetPoint("RIGHT", -4, 0)
                     sLbl:SetJustifyH("LEFT"); sLbl:SetWordWrap(false); sLbl:SetMaxLines(1)
-                    sLbl:SetText(preset.name or "")
+                    sLbl:SetText(EllesmereUI.L(preset.name or ""))
                     local sHl = si:CreateTexture(nil, "ARTWORK")
                     sHl:SetAllPoints(); sHl:SetColorTexture(1, 1, 1, 0)
                     if isAdded then
@@ -8038,7 +8038,7 @@ initFrame:SetScript("OnEvent", function(self)
                             row:SetFrameLevel(menu:GetFrameLevel() + 2)
                             local lbl = row:CreateFontString(nil, "OVERLAY")
                             lbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
-                            lbl:SetPoint("LEFT", 10, 0); lbl:SetJustifyH("LEFT"); lbl:SetText(label)
+                            lbl:SetPoint("LEFT", 10, 0); lbl:SetJustifyH("LEFT"); lbl:SetText(EllesmereUI.L(label))
                             -- Resting label color: accent when this cog's values differ
                             -- from the bar, dim when they all match / inherit it.
                             local function UpdateLabel()
@@ -9926,7 +9926,7 @@ initFrame:SetScript("OnEvent", function(self)
                         sLbl:SetPoint("LEFT", si, "LEFT", 10, 0)
                         sLbl:SetPoint("RIGHT", sIco, "LEFT", -5, 0)
                         sLbl:SetJustifyH("LEFT"); sLbl:SetWordWrap(false); sLbl:SetMaxLines(1)
-                        sLbl:SetText(it.name); sLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                        sLbl:SetText(EllesmereUI.L(it.name)); sLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
                         local sHl = si:CreateTexture(nil, "ARTWORK")
                         sHl:SetAllPoints(); sHl:SetColorTexture(1, 1, 1, 0); sHl:SetAlpha(0)
                         si:SetScript("OnEnter", function()
@@ -10057,7 +10057,7 @@ initFrame:SetScript("OnEvent", function(self)
             for _, slot in ipairs({13, 14}) do
                 local negSlot = -(slot)
                 local itemID = GetInventoryItemID("player", slot)
-                local label = (slot == 13) and "Trinket Slot 1" or "Trinket Slot 2"
+                local label = EllesmereUI.L((slot == 13) and "Trinket Slot 1" or "Trinket Slot 2")
                 local tex = itemID and C_Item.GetItemIconByID(itemID)
                 local isAdded = alreadyOnBar[negSlot]
                 -- Only gray out if it's already on THIS bar. Presets on OTHER
@@ -10094,7 +10094,7 @@ initFrame:SetScript("OnEvent", function(self)
                     tiLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA * 0.4)
                     local tooltipName = isAdded and (bd and (bd.name or bd.key) or barKey) or otherBarName
                     ti:SetScript("OnEnter", function()
-                        EllesmereUI.ShowWidgetTooltip(ti, "Already on " .. tooltipName)
+                        EllesmereUI.ShowWidgetTooltip(ti, EllesmereUI.Lf("Already on %s", EllesmereUI.L(tooltipName)))
                     end)
                     ti:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 else
@@ -10152,7 +10152,7 @@ initFrame:SetScript("OnEvent", function(self)
                     riLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA * 0.4)
                     local rTooltipName = isAdded and (bd and (bd.name or bd.key) or barKey) or rOtherBar
                     ri:SetScript("OnEnter", function()
-                        EllesmereUI.ShowWidgetTooltip(ri, "Already on " .. rTooltipName)
+                        EllesmereUI.ShowWidgetTooltip(ri, EllesmereUI.Lf("Already on %s", EllesmereUI.L(rTooltipName)))
                     end)
                     ri:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 else
@@ -10266,7 +10266,7 @@ initFrame:SetScript("OnEvent", function(self)
                         sLbl:SetJustifyH("LEFT")
                         sLbl:SetWordWrap(false)
                         sLbl:SetMaxLines(1)
-                        sLbl:SetText(preset.name)
+                        sLbl:SetText(EllesmereUI.L(preset.name))
 
                         local sHl = si:CreateTexture(nil, "ARTWORK")
                         sHl:SetAllPoints()
@@ -10278,7 +10278,7 @@ initFrame:SetScript("OnEvent", function(self)
                             sIco:SetAlpha(0.4)
                             local pTooltipName = isAdded and (bd and (bd.name or bd.key) or barKey) or pOtherBar
                             si:SetScript("OnEnter", function()
-                                EllesmereUI.ShowWidgetTooltip(si, "Already on " .. pTooltipName)
+                                EllesmereUI.ShowWidgetTooltip(si, EllesmereUI.Lf("Already on %s", EllesmereUI.L(pTooltipName)))
                             end)
                             si:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                         else
@@ -10384,7 +10384,7 @@ initFrame:SetScript("OnEvent", function(self)
                     sLbl:SetPoint("RIGHT", sIco, "LEFT", -5, 0)
                     sLbl:SetJustifyH("LEFT")
                     sLbl:SetWordWrap(false); sLbl:SetMaxLines(1)
-                    sLbl:SetText(preset.name)
+                    sLbl:SetText(EllesmereUI.L(preset.name))
 
                     local sHl = si:CreateTexture(nil, "ARTWORK")
                     sHl:SetAllPoints(); sHl:SetColorTexture(1, 1, 1, 0); sHl:SetAlpha(0)
@@ -10450,7 +10450,7 @@ initFrame:SetScript("OnEvent", function(self)
             lbl:SetJustifyH("LEFT")
             lbl:SetWordWrap(false)
             lbl:SetMaxLines(1)
-            lbl:SetText(sp.name)
+            lbl:SetText(EllesmereUI.L(sp.name))
 
             local hl = item:CreateTexture(nil, "ARTWORK")
             hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0); hl:SetAlpha(0)
@@ -10472,7 +10472,7 @@ initFrame:SetScript("OnEvent", function(self)
                 ico:SetAlpha(0.4)
                 item:SetScript("OnClick", nil)
                 item:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(item, "This spell is already being used on " .. barName)
+                    EllesmereUI.ShowWidgetTooltip(item, EllesmereUI.Lf("This spell is already being used on %s", EllesmereUI.L(barName)))
                     hl:SetColorTexture(1, 1, 1, hlA * 0.3); hl:SetAlpha(1)
                 end)
                 item:SetScript("OnLeave", function()
@@ -10502,7 +10502,7 @@ initFrame:SetScript("OnEvent", function(self)
                     lbl:SetTextColor(1, 1, 1, 1)
                     hl:SetColorTexture(1, 1, 1, hlA); hl:SetAlpha(1)
                     if notLearned then
-                        EllesmereUI.ShowWidgetTooltip(item, "Not currently talented")
+                        EllesmereUI.ShowWidgetTooltip(item, EllesmereUI.L("Not currently talented"))
                     end
                 end)
                 item:SetScript("OnLeave", function()
@@ -12853,7 +12853,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             local function UpdateDDLabel()
                 local bd = bars[selectedCDMBarIndex]
-                local label = bd and (bd.name or bd.key) or ""
+                local label = bd and EllesmereUI.L(bd.name or bd.key) or ""
                 ddLbl:SetText(label)
             end
             UpdateDDLabel()
@@ -12900,7 +12900,7 @@ initFrame:SetScript("OnEvent", function(self)
                     iLbl:SetJustifyH("LEFT")
                     iLbl:SetWordWrap(false); iLbl:SetMaxLines(1)
                     iLbl:SetPoint("LEFT", item, "LEFT", 10, 0)
-                    local displayName = b.name or b.key
+                    local displayName = EllesmereUI.L(b.name or b.key)
                     iLbl:SetText(displayName)
 
                     local iHl = item:CreateTexture(nil, "ARTWORK")
@@ -13052,9 +13052,9 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Buff bar now hosts Blizzard-tracked buffs AND injected preset/
                 -- custom buffs, so there's no separate Aura bar type to create.
                 local addBarTypes = {
-                    { type = "cooldowns",   label = "+ Add New Cooldowns Bar" },
-                    { type = "utility",     label = "+ Add New Utility Bar" },
-                    { type = "buffs",       label = "+ Add New Buff Bar" },
+                    { type = "cooldowns",   label = EllesmereUI.L("+ Add New Cooldowns Bar") },
+                    { type = "utility",     label = EllesmereUI.L("+ Add New Utility Bar") },
+                    { type = "buffs",       label = EllesmereUI.L("+ Add New Buff Bar") },
                 }
                 for _, entry in ipairs(addBarTypes) do
                     local addItem = CreateFrame("Button", nil, menu)
