@@ -1602,7 +1602,7 @@ local function GetVaultTooltip()
     title:SetFont("Fonts\\FRIZQT__.TTF", 11, "")  -- placeholder, updated on show
     title:SetTextColor(0.80, 0.80, 0.80, 1)
     title:SetPoint("TOP", f, "TOP", 0, -VAULT_PAD)
-    title:SetText("Great Vault")
+    title:SetText(EllesmereUI.L("Great Vault"))
     f._title = title
 
     -- 3 data rows x 4 columns (label + 3 tokens)
@@ -1651,7 +1651,7 @@ local function ShowVaultTooltip(anchor)
     for r = 1, 3 do
         local rd = rows[r]
         local labelFS = _vaultTTRows[r][0]
-        labelFS:SetText(rd.label)
+        labelFS:SetText(EllesmereUI.L(rd.label))
         labelFS:SetTextColor(0.812, 0.592, 0.212, 1)
         local w = labelFS:GetStringWidth() or 0
         if w > colWidths[1] then colWidths[1] = w end
@@ -2629,7 +2629,7 @@ function ShowFriendsTooltip(anchor)
     if total == 0 then
         local row = EnsureFTTRow(1)
         row.name:SetFont(font, 10, "")
-        row.name:SetText("|cff888888No friends online|r")
+        row.name:SetText(EllesmereUI.L("|cff888888No friends online|r"))
         row.zone:SetText("")
         tt:SetSize(FTT_PAD * 2 + 140, FTT_PAD + FTT_ROW_H + FTT_PAD)
         row.button:ClearAllPoints()
@@ -5166,7 +5166,7 @@ do
                 label:SetFont("Fonts\\FRIZQT__.TTF", 11, "")
                 label:SetPoint("LEFT", btn, "LEFT", 10, 0)
                 label:SetTextColor(0.9, 0.9, 0.9)
-                label:SetText(item.text)
+                label:SetText(EllesmereUI.L(item.text))
 
                 local itemFn = item.fn
                 btn:SetScript("OnClick", function()
@@ -5214,7 +5214,7 @@ do
                 label:SetFont("Fonts\\FRIZQT__.TTF", 11, "")
                 label:SetPoint("LEFT", btn, "LEFT", 10, 0)
                 label:SetTextColor(0.9, 0.9, 0.9)
-                label:SetText(item.text)
+                label:SetText(EllesmereUI.L(item.text))
 
                 btn:HookScript("OnClick", function() C_Timer.After(0, function() SetMenuVisible(false) end) end)
 
