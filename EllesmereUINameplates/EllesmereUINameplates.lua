@@ -37,7 +37,7 @@ local function NP_ArmAuraCooldown(cd, durObj)
     end
     return true
 end
-local UnitName, UnitGUID = UnitName, UnitGUID
+local UnitName = UnitName
 local UnitIsUnit, UnitCanAttack = UnitIsUnit, UnitCanAttack
 local UnitIsEnemy, UnitIsTapDenied = UnitIsEnemy, UnitIsTapDenied
 
@@ -137,6 +137,8 @@ function ns._appendDisplayPresetKeys(t)
         "debuffCropIcons", "buffCropIcons", "ccCropIcons",
         "showCastLockoutAsCrowdControl",
         "targetGlowEllesmereUI", "targetGlowBorderColor", "targetGlowHighlight", "targetBorderColor",
+        "showEnemyClassIcons", "showFriendlyClassIcons", "classIconStyle", "classIconSize",
+        "classIconXOffset", "classIconYOffset", "classIconClassColorBorder",
     }) do t[#t + 1] = k end
 end
 
@@ -236,6 +238,13 @@ local defaults = {
     targetArrowScale = 1.0,
     targetArrowColor = { r = 1, g = 1, b = 1 },
     targetArrowClassColor = false,
+    showEnemyClassIcons = false,
+    showFriendlyClassIcons = false,
+    classIconStyle = "blizzard",
+    classIconSize = 22,
+    classIconXOffset = 0,
+    classIconYOffset = 2,
+    classIconClassColorBorder = true,
     showClassPower = false,
     classPowerPos = "bottom",
     classPowerYOffset = 1,
@@ -1361,6 +1370,182 @@ end
 function ns.GetClassPowerBorderSize()
     return (p and p.classPowerBorderSize) or defaults.classPowerBorderSize
 end
+
+-- Player class icon overlay. Uses Ellesmere's class icon sheets when selected;
+-- otherwise uses Blizzard's built-in class sheet, matching other EUI modules.
+do
+    local CLASS_ICON_TEX = "Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES"
+    local CLASS_FULL_SPRITE_BASE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\"
+    local CLASS_FULL_COORDS = {
+        WARRIOR     = { 0,     0.125, 0,     0.125 },
+        MAGE        = { 0.125, 0.25,  0,     0.125 },
+        ROGUE       = { 0.25,  0.375, 0,     0.125 },
+        DRUID       = { 0.375, 0.5,   0,     0.125 },
+        EVOKER      = { 0.5,   0.625, 0,     0.125 },
+        HUNTER      = { 0,     0.125, 0.125, 0.25  },
+        SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
+        PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
+        WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
+        PALADIN     = { 0,     0.125, 0.25,  0.375 },
+        DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
+        MONK        = { 0.25,  0.375, 0.25,  0.375 },
+        DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
+    }
+    local CLASS_FULL_STYLES = {
+        modern = true, arcade = true, glyph = true,
+        midnight = true, pixel = true, runic = true,
+    }
+
+    local function NormalizeClassIconStyle(style)
+        if style == "blizzard" or CLASS_FULL_STYLES[style] then
+            return style
+        end
+        return defaults.classIconStyle
+    end
+
+    local function IsPlayerClassIconUnit(unit)
+        return UnitIsPlayer(unit) == true
+    end
+
+    local function GetClassIconClassToken(unit)
+        local classToken = UnitClassBase and UnitClassBase(unit)
+        if not classToken then
+            classToken = select(2, UnitClass(unit))
+        end
+        return classToken
+    end
+
+    local function QueueClassIconRetry(plate, unit)
+        if not plate or not unit then return end
+        plate._classIconRetryCount = (plate._classIconRetryCount or 0) + 1
+        if plate._classIconRetryCount > 5 then return end
+        C_Timer.After(0.2, function()
+            if plate.unit == unit then
+                ns.UpdateClassIcon(plate)
+            end
+        end)
+    end
+
+    local function ApplyEllesmereClassIconTexture(tex, classToken, style)
+        if not CLASS_FULL_STYLES[style] then return false end
+        local coords = CLASS_FULL_COORDS[classToken]
+        if not coords then return false end
+        tex:SetTexture(CLASS_FULL_SPRITE_BASE .. style .. ".tga")
+        tex:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+        return true
+    end
+
+    function ns.ApplyClassIconTexture(tex, classToken, style)
+        if not tex or not classToken then return false end
+        style = NormalizeClassIconStyle(style or defaults.classIconStyle)
+        if style ~= "blizzard" and ApplyEllesmereClassIconTexture(tex, classToken, style) then
+            tex:SetDesaturated(false)
+            tex:SetVertexColor(1, 1, 1, 1)
+            return true
+        end
+
+        tex:SetTexture(CLASS_ICON_TEX)
+        local coords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classToken]
+        if coords then
+            tex:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+        else
+            tex:SetTexCoord(0, 1, 0, 1)
+        end
+        tex:SetDesaturated(false)
+        tex:SetVertexColor(1, 1, 1, 1)
+        return true
+    end
+
+    function ns.GetClassIconStyle()
+        return NormalizeClassIconStyle((p and p.classIconStyle) or defaults.classIconStyle)
+    end
+    function ns.GetClassIconSize()
+        return (p and p.classIconSize) or defaults.classIconSize
+    end
+    function ns.GetClassIconXOffset()
+        return (p and p.classIconXOffset) or defaults.classIconXOffset
+    end
+    function ns.GetClassIconYOffset()
+        return (p and p.classIconYOffset) or defaults.classIconYOffset
+    end
+    function ns.GetClassIconClassColorBorder()
+        local v = p and p.classIconClassColorBorder
+        if v == nil then return defaults.classIconClassColorBorder end
+        return v
+    end
+
+    function ns.IsClassIconEnabledForUnit(unit)
+        if not unit or UnitIsUnit(unit, "player") or not IsPlayerClassIconUnit(unit) then return false end
+        if UnitCanAttack("player", unit) then
+            return p and p.showEnemyClassIcons == true
+        end
+        return p and p.showFriendlyClassIcons == true
+    end
+
+    function ns.EnsureClassIcon(plate)
+        if plate.classIconFrame then return end
+        local frame = CreateFrame("Frame", nil, plate)
+        frame:SetFrameStrata("MEDIUM")
+        frame:SetFrameLevel(905)
+        frame:Hide()
+        plate.classIconFrame = frame
+
+        frame.icon = frame:CreateTexture(nil, "ARTWORK")
+        frame.icon:SetAllPoints()
+        if PP and PP.DisablePixelSnap then PP.DisablePixelSnap(frame.icon) end
+
+        if PP and PP.CreateBorder then
+            PP.CreateBorder(frame, 0, 0, 0, 1, 1, "OVERLAY", 7, true)
+        end
+    end
+
+    function ns.UpdateClassIcon(plate)
+        local unit = plate and plate.unit
+        if not ns.IsClassIconEnabledForUnit(unit) then
+            if plate and plate.classIconFrame then plate.classIconFrame:Hide() end
+            if plate then plate._classIconRetryCount = nil end
+            return
+        end
+
+        local classToken = GetClassIconClassToken(unit)
+        if not classToken then
+            if plate.classIconFrame then plate.classIconFrame:Hide() end
+            QueueClassIconRetry(plate, unit)
+            return
+        end
+        plate._classIconRetryCount = nil
+
+        ns.EnsureClassIcon(plate)
+        local frame = plate.classIconFrame
+        local size = ns.GetClassIconSize()
+        frame:SetSize(size, size)
+        frame:ClearAllPoints()
+
+        local anchor = plate.health
+        if plate.name and plate.name:IsShown()
+           and (not plate.topTextFrame or plate.name:GetParent() == plate.topTextFrame) then
+            anchor = plate.name
+        end
+        frame:SetPoint("BOTTOM", anchor, "TOP", ns.GetClassIconXOffset(), ns.GetClassIconYOffset())
+
+        ns.ApplyClassIconTexture(frame.icon, classToken, ns.GetClassIconStyle())
+
+        if PP and PP.GetBorders then
+            local border = PP.GetBorders(frame)
+            if border then
+                local c = ns.GetClassIconClassColorBorder() and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken]
+                if c then
+                    PP.SetBorderColor(frame, c.r, c.g, c.b, 1)
+                else
+                    PP.SetBorderColor(frame, 0, 0, 0, 1)
+                end
+                PP.ShowBorder(frame)
+            end
+        end
+        frame:Show()
+    end
+end
+
 local function IsBorderEnabled()
     local v = p and p.showBorder
     if v == nil then return defaults.showBorder end
@@ -3282,6 +3467,14 @@ function ns.RefreshAllSettings()
         end
     end
     if ns.ApplyClassPowerSetting then ns.ApplyClassPowerSetting() end
+    if ns.RefreshFriendlyClassIcons then ns.RefreshFriendlyClassIcons() end
+end
+
+function ns.RefreshClassIcons()
+    for _, plate in pairs(ns.plates) do
+        if plate.UpdateClassIcon then plate:UpdateClassIcon() end
+    end
+    if ns.RefreshFriendlyClassIcons then ns.RefreshFriendlyClassIcons() end
 end
 
 function ns.HideHoverEffect(plate)
@@ -5694,6 +5887,7 @@ function NameplateFrame:SetUnit(unit, nameplate)
             self:UpdateName()
             self:UpdateClassification()
             self:UpdateRaidIcon()
+            self:UpdateClassIcon()
             self:ApplyTarget()
             self:ApplyMouseover()
             self:UpdateCast()
@@ -5776,6 +5970,7 @@ function NameplateFrame:ClearUnit()
     self._kickGeoDirty = nil
     self._castTex = nil
     self._castLockout = nil
+    self._classIconRetryCount = nil
     if ns._npDequeueAuraWork then ns._npDequeueAuraWork(self) end
     self.cast:Hide()
     self.castShieldFrame:Hide()
@@ -5798,6 +5993,7 @@ function NameplateFrame:ClearUnit()
     self.raidFrame:Hide()
     self.classFrame:Hide()
     if self.classText then self.classText:Hide() end
+    if self.classIconFrame then self.classIconFrame:Hide() end
     if self.focusLetter then self.focusLetter:Hide() end
     if self.leftArrow then self.leftArrow:Hide() end
     if self.rightArrow then self.rightArrow:Hide() end
@@ -6142,6 +6338,9 @@ function NameplateFrame:UpdateName()
         self.name:SetText(name)
     end
 end
+function NameplateFrame:UpdateClassIcon()
+    ns.UpdateClassIcon(self)
+end
 function NameplateFrame:UpdateClassification()
     if not self.unit then return end
     local slot = GetClassificationSlot()
@@ -6332,6 +6531,7 @@ function NameplateFrame:RefreshNamePosition()
     self:ApplyNameVisibility()
     self:UpdateAuras()
     self:UpdateClassification()
+    self:UpdateClassIcon()
 end
 function NameplateFrame:UpdateRaidIcon()
     if not self.unit then return end
@@ -8064,6 +8264,7 @@ function NameplateFrame:QueueAuraFallback()
 end
 function NameplateFrame:UNIT_NAME_UPDATE()
     self:UpdateName()
+    if self.classIconFrame then self:UpdateClassIcon() end
 end
 function NameplateFrame:UNIT_THREAT_LIST_UPDATE()
     self:UpdateHealthColor()
@@ -8317,6 +8518,7 @@ local function RefreshThreatContextAndPlateColors()
     wipe(ns._questObjText)
     for _, plate in pairs(ns.plates) do
         plate:UpdateHealthColor()
+        if plate.UpdateClassIcon then plate:UpdateClassIcon() end
     end
 end
 
@@ -8549,10 +8751,12 @@ manager:SetScript("OnEvent", function(self, event, unit)
         if oldTarget and oldTarget.unit then
             oldTarget:ApplyTarget()
             oldTarget:UpdateHealthColor()
+            if oldTarget.UpdateClassIcon then oldTarget:UpdateClassIcon() end
         end
         if ns._cachedTargetPlate and ns._cachedTargetPlate ~= oldTarget then
             ns._cachedTargetPlate:ApplyTarget()
             ns._cachedTargetPlate:UpdateHealthColor()
+            if ns._cachedTargetPlate.UpdateClassIcon then ns._cachedTargetPlate:UpdateClassIcon() end
         end
     elseif event == "PLAYER_FOCUS_CHANGED" then
         -- PERF: only update old + new focus plates instead of iterating all
@@ -8569,6 +8773,7 @@ manager:SetScript("OnEvent", function(self, event, unit)
         local function UpdateFocusPlate(plate)
             if not plate or not plate.unit then return end
             plate:UpdateHealthColor()
+            if plate.UpdateClassIcon then plate:UpdateClassIcon() end
             if focusPct ~= 100 then
                 local castH = GetCastBarHeight()
                 if UnitIsUnit(plate.unit, "focus") then

@@ -783,6 +783,7 @@ function FriendlyFrame:SetUnit(unit, nameplate)
     self:UpdateHealth()
     self:UpdateName()
     self:UpdateRaidIcon()
+    self:UpdateClassIcon()
     self:ApplyTarget()
     -- Re-apply the enemy border settings every spawn: a pooled plate may have
     -- been released while the user changed the border size/color/toggle.
@@ -798,9 +799,11 @@ function FriendlyFrame:ClearUnit()
     if self.unit then RestoreBlizzardUF(self.unit) end
     self.unit = nil
     self.nameplate = nil
+    self._classIconRetryCount = nil
     self.glow:Hide()
     if ns.HideHoverEffect then ns.HideHoverEffect(self) else self.highlight:Hide() end
     self.raidFrame:Hide()
+    if self.classIconFrame then self.classIconFrame:Hide() end
     self.leftArrow:Hide()
     self.rightArrow:Hide()
     self:Hide()
@@ -840,6 +843,10 @@ function FriendlyFrame:UpdateName()
     if not unit then return end
     local unitName = UnitName(unit)
     self.name:SetText(unitName or "")
+end
+
+function FriendlyFrame:UpdateClassIcon()
+    if ns.UpdateClassIcon then ns.UpdateClassIcon(self) end
 end
 
 function FriendlyFrame:UpdateRaidIcon()
@@ -890,7 +897,10 @@ function FriendlyFrame:ApplyTarget()
 end
 
 function FriendlyFrame:UNIT_HEALTH()  self:UpdateHealth() end
-function FriendlyFrame:UNIT_NAME_UPDATE()  self:UpdateName() end
+function FriendlyFrame:UNIT_NAME_UPDATE()
+    self:UpdateName()
+    if self.classIconFrame then self:UpdateClassIcon() end
+end
 
 -------------------------------------------------------------------------------
 --  Friendly event manager (target, mouseover, raid icons)
@@ -969,11 +979,13 @@ function ns.RemoveFriendlyPlateNoRestore(unit)
     modifiedUFs[unit] = nil
     plate.unit = nil
     plate.nameplate = nil
+    plate._classIconRetryCount = nil
     plate.glow:Hide()
     if ns.HideHoverEffect then ns.HideHoverEffect(plate) else plate.highlight:Hide() end
     plate.raidFrame:Hide()
     plate.leftArrow:Hide()
     plate.rightArrow:Hide()
+    if plate.classIconFrame then plate.classIconFrame:Hide() end
     plate:Hide()
     plate:SetParent(UIParent)
     plate:ClearAllPoints()
@@ -1076,6 +1088,13 @@ function ns.RefreshFriendlyNameTextSize()
     local size = GetFriendlyNameTextSize()
     for _, plate in pairs(friendlyPlates) do
         if plate.name then SetFSFont(plate.name, size, "OUTLINE, SLUG") end
+        if plate.UpdateClassIcon then plate:UpdateClassIcon() end
+    end
+end
+
+function ns.RefreshFriendlyClassIcons()
+    for _, plate in pairs(friendlyPlates) do
+        if plate.UpdateClassIcon then plate:UpdateClassIcon() end
     end
 end
 

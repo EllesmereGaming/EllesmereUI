@@ -558,6 +558,17 @@ initFrame:SetScript("OnEvent", function(self)
         nameFS:SetText(EllesmereUI.L("Enemy Name Text"))
         nameFS:SetTextColor(1, 1, 1, 1)
 
+        local playerClassIconFrame = CreateFrame("Frame", nil, pf)
+        playerClassIconFrame:SetFrameLevel(health:GetFrameLevel() + 9)
+        playerClassIconFrame:Hide()
+        local playerClassIconTex = playerClassIconFrame:CreateTexture(nil, "ARTWORK")
+        playerClassIconTex:SetAllPoints()
+        UnsnapTex(playerClassIconTex)
+        if PP and PP.CreateBorder then
+            PP.CreateBorder(playerClassIconFrame, 0, 0, 0, 1, 1, "OVERLAY", 7, true)
+        end
+        pf._playerClassIcon = { frame = playerClassIconFrame, icon = playerClassIconTex, anchor = nameFS }
+
         -- Health percentage text (right-aligned inside health bar)
         local hpText = healthTextFrame:CreateFontString(nil, "OVERLAY")
         SetPVFont(hpText, FONT_PATH, 10, GetNPOptOutline())
@@ -849,6 +860,44 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Cached position values for the health bar anchor (see health block).
         local _cachedRawBarW, _cachedXOff
+
+        pf.UpdatePlayerClassIcon = function(self)
+            local ci = self._playerClassIcon
+            if not ci then return 0 end
+            local enabled = DBVal("showEnemyClassIcons") == true or DBVal("showFriendlyClassIcons") == true
+            if not enabled then
+                ci.frame:Hide()
+                return 0
+            end
+
+            local _, classToken = UnitClass("player")
+            classToken = classToken or "WARRIOR"
+            local size = DBVal("classIconSize") or defaults.classIconSize
+            local xOff = DBVal("classIconXOffset") or defaults.classIconXOffset
+            local yOff = DBVal("classIconYOffset") or defaults.classIconYOffset
+
+            ci.frame:SetSize(size, size)
+            ci.frame:ClearAllPoints()
+            ci.frame:SetPoint("BOTTOM", ci.anchor, "TOP", xOff, yOff)
+            if ns.ApplyClassIconTexture then
+                ns.ApplyClassIconTexture(ci.icon, classToken, DBVal("classIconStyle") or defaults.classIconStyle)
+            end
+
+            if PP and PP.GetBorders then
+                local border = PP.GetBorders(ci.frame)
+                if border then
+                    local c = DBVal("classIconClassColorBorder") ~= false and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken]
+                    if c then
+                        PP.SetBorderColor(ci.frame, c.r, c.g, c.b, 1)
+                    else
+                        PP.SetBorderColor(ci.frame, 0, 0, 0, 1)
+                    end
+                    PP.ShowBorder(ci.frame)
+                end
+            end
+            ci.frame:Show()
+            return math.max(0, size + yOff)
+        end
 
         -------------------------------------------------------------------
         --  Update re-reads DB, applies to existing frames. No rebuilds.
@@ -1789,6 +1838,7 @@ initFrame:SetScript("OnEvent", function(self)
             if isTopSlot(ccSlotVal) then topExtent = math.max(topExtent, ccSz + ccYOff) end
             if isTopSlot(rmPos) and showRM then topExtent = math.max(topExtent, rmSize + rmYOff) end
             if isTopSlot(clPos) and showCL then topExtent = math.max(topExtent, reIconSz + clYOff) end
+            if self.UpdatePlayerClassIcon then topExtent = math.max(topExtent, self:UpdatePlayerClassIcon()) end
             -- Only include name text height when something is actually in the top slot
             local topTextH = (slotTop ~= "none") and (topFontSz + 4 + nameYOff + topYOff) or 0
             -- Only add debuffY gap when something occupies the center "top" position or top text slot
@@ -6716,6 +6766,110 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -----------------------------------------------------------------------
+        --  PLAYER CLASS ICONS
+        -----------------------------------------------------------------------
+        local playerClassIconHeader
+        local playerClassIconToggleRow
+        local playerClassIconStyleRow
+        do
+            playerClassIconHeader, h = W:SectionHeader(parent, "PLAYER CLASS ICONS", y);  y = y - h
+
+            local function classIconsDisabled()
+                return DBVal("showEnemyClassIcons") ~= true and DBVal("showFriendlyClassIcons") ~= true
+            end
+            local classIconStyleValues = {
+                blizzard = "Blizzard",
+                modern   = "Modern",
+                arcade   = "Arcade",
+                glyph    = "Glyph",
+                midnight = "Midnight",
+                pixel    = "Pixel",
+                runic    = "Runic",
+            }
+            local classIconStyleOrder = {
+                "blizzard", "---", "modern", "arcade", "glyph",
+                "midnight", "pixel", "runic",
+            }
+            local function getClassIconStyle()
+                local style = DBVal("classIconStyle") or defaults.classIconStyle
+                if classIconStyleValues[style] then return style end
+                return defaults.classIconStyle
+            end
+            local function refreshClassIcons(rebuild)
+                if ns.RefreshClassIcons then ns.RefreshClassIcons() end
+                UpdatePreview()
+                if rebuild then EllesmereUI:RefreshPage() end
+            end
+
+            playerClassIconToggleRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Enemy Player Class Icons",
+                  tooltip="Shows class icons above enemy player nameplates.",
+                  getValue=function() return DBVal("showEnemyClassIcons") == true end,
+                  setValue=function(v)
+                    DB().showEnemyClassIcons = v
+                    refreshClassIcons(true)
+                  end },
+                { type="toggle", text="Friendly Player Class Icons",
+                  tooltip="Shows class icons above EUI full friendly player nameplates. Name-only friendly nameplates stay Blizzard-controlled.",
+                  getValue=function() return DBVal("showFriendlyClassIcons") == true end,
+                  setValue=function(v)
+                    DB().showFriendlyClassIcons = v
+                    refreshClassIcons(true)
+                  end });  y = y - h
+
+            playerClassIconStyleRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Class Icon Style",
+                  tooltip="Uses Blizzard icons or EllesmereUI's existing class icon art.",
+                  disabled=classIconsDisabled,
+                  disabledTooltip="Enemy or Friendly Player Class Icons",
+                  values=classIconStyleValues,
+                  order=classIconStyleOrder,
+                  getValue=getClassIconStyle,
+                  setValue=function(v)
+                    DB().classIconStyle = v
+                    refreshClassIcons()
+                  end },
+                { type="slider", text="Class Icon Size", min=12, max=40, step=1,
+                  disabled=classIconsDisabled,
+                  disabledTooltip="Enemy or Friendly Player Class Icons",
+                  getValue=function() return DBVal("classIconSize") or defaults.classIconSize end,
+                  setValue=function(v)
+                    DB().classIconSize = v
+                    refreshClassIcons()
+                  end });  y = y - h
+
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Class Color Border",
+                  disabled=classIconsDisabled,
+                  disabledTooltip="Enemy or Friendly Player Class Icons",
+                  getValue=function() return DBVal("classIconClassColorBorder") ~= false end,
+                  setValue=function(v)
+                    DB().classIconClassColorBorder = v
+                    refreshClassIcons()
+                  end },
+                { type="slider", text="Class Icon X", min=-80, max=80, step=1,
+                  disabled=classIconsDisabled,
+                  disabledTooltip="Enemy or Friendly Player Class Icons",
+                  getValue=function() return DBVal("classIconXOffset") or defaults.classIconXOffset end,
+                  setValue=function(v)
+                    DB().classIconXOffset = v
+                    refreshClassIcons()
+                  end });  y = y - h
+
+            _, h = W:DualRow(parent, y,
+                { type="slider", text="Class Icon Y", min=-80, max=80, step=1,
+                  disabled=classIconsDisabled,
+                  disabledTooltip="Enemy or Friendly Player Class Icons",
+                  getValue=function() return DBVal("classIconYOffset") or defaults.classIconYOffset end,
+                  setValue=function(v)
+                    DB().classIconYOffset = v
+                    refreshClassIcons()
+                  end });  y = y - h
+
+            _, h = W:Spacer(parent, y, 20);  y = y - h
+        end
+
+        -----------------------------------------------------------------------
         --  CLASS RESOURCE
         -----------------------------------------------------------------------
         local classResourceHeader
@@ -7433,6 +7587,7 @@ initFrame:SetScript("OnEvent", function(self)
             castTarget   = { section = generalTextHeader, target = spellNameRow,        slotSide = "right" },
             healthBar    = { section = healthBarHeader,  target = healthBarHeightRow },
             classResource = { section = classResourceHeader, target = classResourceSection },
+            playerClassIcon = { section = playerClassIconHeader, target = playerClassIconStyleRow or playerClassIconToggleRow, slotSide = "left" },
             targetArrows = { section = tfxHeader,            target = targetGlowRow,       slotSide = "right" },
         }
 
@@ -7716,6 +7871,11 @@ initFrame:SetScript("OnEvent", function(self)
                 classOverlay = CreateHitOverlay(pv._classIcon, "classIcon")
                 if not showClassificationPreview then classOverlay:Hide() end
             end
+            local playerClassOverlay
+            if pv._playerClassIcon and pv._playerClassIcon.frame then
+                playerClassOverlay = CreateHitOverlay(pv._playerClassIcon.frame, "playerClassIcon")
+                if not pv._playerClassIcon.frame:IsShown() then playerClassOverlay:Hide() end
+            end
             -- Class resource pips wrapper button spanning all visible pips
             local cpOverlay
             if pv._cpPips then
@@ -7770,6 +7930,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Sync overlay visibility with preview toggles
             pv._raidOverlay = raidOverlay
             pv._classOverlay = classOverlay
+            pv._playerClassOverlay = playerClassOverlay
             -- Target arrows wrapper button spanning both arrow textures
             local arrowOverlay
             if pv._arrows then
