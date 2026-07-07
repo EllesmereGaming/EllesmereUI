@@ -132,10 +132,12 @@ function ns._appendDisplayPresetKeys(t)
         "targetArrowDouble", "targetArrowStyle", "targetArrowColor", "targetArrowClassColor",
         "auraStackTextSize", "auraStackTextColor",
         "auraStackTextPosition", "auraStackTextX", "auraStackTextY",
+        "auraDurationTextSize", "auraDurationTextColor",
         "buffTextSize", "buffTextColor", "ccTextSize", "ccTextColor",
         "raidMarkerPos", "classificationSlot",
         "debuffCropIcons", "buffCropIcons", "ccCropIcons",
         "showCastLockoutAsCrowdControl",
+        "castIconOffsetX", "castIconOffsetY",
         "targetGlowEllesmereUI", "targetGlowBorderColor", "targetGlowHighlight", "targetBorderColor",
     }) do t[#t + 1] = k end
 end
@@ -397,6 +399,8 @@ local defaults = {
     questObjectiveTextSize = 14,
     showCastIcon = true,
     castIconScale = 1,
+    castIconOffsetX = 0,
+    castIconOffsetY = 0,
     castbarIconInWidth = false,
     castIconOnRight = false,
     castIconFullSize = false,
@@ -969,6 +973,8 @@ end
 function ns.LayoutCastIcon(plate, castH)
     local icon = plate.castIconFrame
     local onRight = ns.GetCastIconOnRight()
+    local xOff = (p and p.castIconOffsetX) or defaults.castIconOffsetX
+    local yOff = (p and p.castIconOffsetY) or defaults.castIconOffsetY
     icon:ClearAllPoints()
     if ns.GetCastIconFullSize() then
         local side = GetHealthBarHeight() + castH
@@ -982,19 +988,19 @@ function ns.LayoutCastIcon(plate, castH)
         -- the icon square (its height is fixed by the top/bottom anchors = side).
         icon:SetWidth(side)
         if onRight then
-            icon:SetPoint("TOPLEFT", plate.health, "TOPRIGHT", 0, 0)
-            icon:SetPoint("BOTTOMLEFT", plate.cast, "BOTTOMRIGHT", 0, 0)
+            icon:SetPoint("TOPLEFT", plate.health, "TOPRIGHT", xOff, yOff)
+            icon:SetPoint("BOTTOMLEFT", plate.cast, "BOTTOMRIGHT", xOff, yOff)
         else
-            icon:SetPoint("TOPRIGHT", plate.health, "TOPLEFT", 0, 0)
-            icon:SetPoint("BOTTOMRIGHT", plate.cast, "BOTTOMLEFT", 0, 0)
+            icon:SetPoint("TOPRIGHT", plate.health, "TOPLEFT", xOff, yOff)
+            icon:SetPoint("BOTTOMRIGHT", plate.cast, "BOTTOMLEFT", xOff, yOff)
         end
     else
         icon:SetScale(GetCastIconScale() or 1)
         icon:SetSize(castH, castH)
         if onRight then
-            icon:SetPoint("TOPLEFT", plate.cast, "TOPRIGHT", 0, 0)
+            icon:SetPoint("TOPLEFT", plate.cast, "TOPRIGHT", xOff, yOff)
         else
-            icon:SetPoint("TOPRIGHT", plate.cast, "TOPLEFT", 0, 0)
+            icon:SetPoint("TOPRIGHT", plate.cast, "TOPLEFT", xOff, yOff)
         end
     end
 end
@@ -8717,7 +8723,6 @@ do
         "debuffYOffset", "sideAuraXOffset", "auraSpacing",
         "debuffSpacing", "buffSpacing", "ccSpacing",
         "debuffTimerPosition", "buffTimerPosition", "ccTimerPosition",
-        "auraDurationTextSize", "auraDurationTextColor",
     }
     ns._displayPresetKeys[#ns._displayPresetKeys + 1] = "auraDurationTextX"
     ns._displayPresetKeys[#ns._displayPresetKeys + 1] = "auraDurationTextY"

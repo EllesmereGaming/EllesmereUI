@@ -1093,6 +1093,8 @@ initFrame:SetScript("OnEvent", function(self)
             local onRight = (icdb and icdb.castIconOnRight) or false
             local fullSize = (icdb and icdb.castIconFullSize) or false
             local iconScale = (icdb and icdb.castIconScale) or defaults.castIconScale
+            local iconXOff = (icdb and icdb.castIconOffsetX) or defaults.castIconOffsetX or 0
+            local iconYOff = (icdb and icdb.castIconOffsetY) or defaults.castIconOffsetY or 0
             local castIconLeftPush, castIconRightPush = 0, 0
             if showIcon then
                 if fullSize then
@@ -1193,17 +1195,17 @@ initFrame:SetScript("OnEvent", function(self)
                     local fs = barH + castH
                     castParts.iconFrame:SetSize(fs, fs)
                     if onRight then
-                        castParts.iconFrame:SetPoint("BOTTOMLEFT", cast, "BOTTOMRIGHT", 0, 0)
+                        castParts.iconFrame:SetPoint("BOTTOMLEFT", cast, "BOTTOMRIGHT", iconXOff, iconYOff)
                     else
-                        castParts.iconFrame:SetPoint("BOTTOMRIGHT", cast, "BOTTOMLEFT", 0, 0)
+                        castParts.iconFrame:SetPoint("BOTTOMRIGHT", cast, "BOTTOMLEFT", iconXOff, iconYOff)
                     end
                 else
                     local scaledH = castH * iconScale
                     castParts.iconFrame:SetSize(scaledH, scaledH)
                     if onRight then
-                        castParts.iconFrame:SetPoint("TOPLEFT", cast, "TOPRIGHT", 0, 0)
+                        castParts.iconFrame:SetPoint("TOPLEFT", cast, "TOPRIGHT", iconXOff, iconYOff)
                     else
-                        castParts.iconFrame:SetPoint("TOPRIGHT", cast, "TOPLEFT", 0, 0)
+                        castParts.iconFrame:SetPoint("TOPRIGHT", cast, "TOPLEFT", iconXOff, iconYOff)
                     end
                 end
                 castParts.iconFrame:Show()
@@ -5688,6 +5690,20 @@ initFrame:SetScript("OnEvent", function(self)
                                 plate.castIconFrame:SetScale(v)
                             end
                         end
+                        UpdatePreview()
+                      end },
+                    { type="slider", label="X Offset", min=-50, max=50, step=1,
+                      get=function() return DBVal("castIconOffsetX") or defaults.castIconOffsetX or 0 end,
+                      set=function(v)
+                        DB().castIconOffsetX = v
+                        ns.RefreshAllSettings()
+                        UpdatePreview()
+                      end },
+                    { type="slider", label="Y Offset", min=-50, max=50, step=1,
+                      get=function() return DBVal("castIconOffsetY") or defaults.castIconOffsetY or 0 end,
+                      set=function(v)
+                        DB().castIconOffsetY = v
+                        ns.RefreshAllSettings()
                         UpdatePreview()
                       end },
                     { type="toggle", label="Make Icon Part of the Bar",
