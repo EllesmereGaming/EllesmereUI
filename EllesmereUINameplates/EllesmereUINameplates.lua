@@ -132,6 +132,7 @@ function ns._appendDisplayPresetKeys(t)
         "targetArrowDouble", "targetArrowStyle", "targetArrowColor", "targetArrowClassColor",
         "auraStackTextSize", "auraStackTextColor",
         "auraStackTextPosition", "auraStackTextX", "auraStackTextY",
+        "auraDurationTextSize", "auraDurationTextColor",
         "buffTextSize", "buffTextColor", "ccTextSize", "ccTextColor",
         "raidMarkerPos", "classificationSlot",
         "debuffCropIcons", "buffCropIcons", "ccCropIcons",
@@ -2688,6 +2689,16 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                 -- draws over it. Only the icon-separator line is hidden so an in-width
                 -- "part of the bar" icon stays seamless with the bar.
                 if plate.castLeftBorder then plate.castLeftBorder:Hide() end
+                if plate.castIconFrame and PP.GetBorders(plate.castIconFrame) then
+                    if GetShowCastIcon() and ns.GetCastIconFullSize()
+                        and plate.unit and UnitIsUnit(plate.unit, "target")
+                        and ns.GetTargetGlowBorderColor()
+                    then
+                        PP.SetBorderColor(plate.castIconFrame, r, g, b, a)
+                    else
+                        PP.SetBorderColor(plate.castIconFrame, 0, 0, 0, 1)
+                    end
+                end
             end
             plate._wrapActive = true
         elseif plate._wrapActive then
@@ -2707,6 +2718,9 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                 plate.castWrapRegion:Hide()
             end
             if plate.castLeftBorder then plate.castLeftBorder:Show() end
+            if plate.castIconFrame and PP.GetBorders(plate.castIconFrame) then
+                PP.SetBorderColor(plate.castIconFrame, 0, 0, 0, 1)
+            end
             plate:ApplyCastBorder()
             plate:ApplyCastBorderColor()
         end
@@ -8717,7 +8731,6 @@ do
         "debuffYOffset", "sideAuraXOffset", "auraSpacing",
         "debuffSpacing", "buffSpacing", "ccSpacing",
         "debuffTimerPosition", "buffTimerPosition", "ccTimerPosition",
-        "auraDurationTextSize", "auraDurationTextColor",
     }
     ns._displayPresetKeys[#ns._displayPresetKeys + 1] = "auraDurationTextX"
     ns._displayPresetKeys[#ns._displayPresetKeys + 1] = "auraDurationTextY"
