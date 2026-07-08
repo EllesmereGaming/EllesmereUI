@@ -542,6 +542,7 @@ local function NewIndicator(indType, spells)
         ind.frameLevel       = "medium"
         ind.growDirection    = "RIGHT"
         ind.spacing          = 0
+        ind.fixedSlots       = false
     elseif indType == "square" then
         ind.ownOnly          = true
         ind.showDuration     = true
@@ -551,6 +552,7 @@ local function NewIndicator(indType, spells)
         ind.frameLevel    = "medium"
         ind.growDirection = "RIGHT"
         ind.spacing      = 0
+        ind.fixedSlots   = false
     elseif indType == "bar" then
         ind.ownOnly          = true
         ind.color = { r = 0x0C/255, g = 0xD2/255, b = 0x9D/255 }
@@ -1868,6 +1870,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                 local sz = (ind.size or 12) * iscale
                 local snap = ns.PixelSnap or function(v) return v end
                 local gap = snap((ind.spacing or 1) * iscale)
+                local fixedSlots = ind.fixedSlots == true
                 -- Running cursor: each icon advances the next by its OWN size, so a
                 -- per-spell size offset reflows its neighbors instead of overlapping.
                 -- CENTER needs the total run width up front to center it. (Computed
@@ -1876,7 +1879,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                 if growDir == "CENTER" then
                     local totalW, cnt = 0, 0
                     for _, sid2 in ipairs(ind.spells) do
-                        if GetAura(sid2) then
+                        if fixedSlots or GetAura(sid2) then
                             local so2 = ind.sizeOffsets and ind.sizeOffsets[sid2] or 0
                             local s2 = sz + so2 * iscale
                             if s2 < 1 then s2 = 1 end
@@ -1888,6 +1891,21 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                 end
                 local spellIdx = 0
                 for _, sid in ipairs(ind.spells) do
+                    local soff = ind.sizeOffsets and ind.sizeOffsets[sid] or 0
+                    local iconSz = sz + soff * iscale
+                    if iconSz < 1 then iconSz = 1 end
+                    local gx, gy = 0, 0
+                    if fixedSlots then
+                        if growDir == "RIGHT" or growDir == "CENTER" then
+                            gx = cursor; cursor = cursor + iconSz + gap
+                        elseif growDir == "DOWN" then
+                            gy = -cursor; cursor = cursor + iconSz + gap
+                        elseif growDir == "LEFT" then
+                            gx = -cursor; cursor = cursor + iconSz + gap
+                        elseif growDir == "UP" then
+                            gy = cursor; cursor = cursor + iconSz + gap
+                        end
+                    end
                     local aura = GetAura(sid)
                     if aura then
                         iconPoolIdx = iconPoolIdx + 1
@@ -1896,9 +1914,6 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                             BM_ApplyIconLevel(f, ind, buttonLvl)
                             -- Per-spell size offset (right-click in preview): base
                             -- size + this spell's offset, clamped to >= 1px.
-                            local soff = ind.sizeOffsets and ind.sizeOffsets[sid] or 0
-                            local iconSz = sz + soff * iscale
-                            if iconSz < 1 then iconSz = 1 end
                             f:SetSize(iconSz, iconSz)
                             f:ClearAllPoints()
                             -- Cumulative growth by actual icon size (see cursor note).
@@ -1907,15 +1922,16 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                             -- then advance by this icon's OWN size. LEFT/UP just negate
                             -- the axis. (cursor starts at 0 so icon 1 lands flush at the
                             -- anchor with no special-case guard.)
-                            local gx, gy = 0, 0
-                            if growDir == "RIGHT" or growDir == "CENTER" then
-                                gx = cursor; cursor = cursor + iconSz + gap
-                            elseif growDir == "DOWN" then
-                                gy = -cursor; cursor = cursor + iconSz + gap
-                            elseif growDir == "LEFT" then
-                                gx = -cursor; cursor = cursor + iconSz + gap
-                            elseif growDir == "UP" then
-                                gy = cursor; cursor = cursor + iconSz + gap
+                            if not fixedSlots then
+                                if growDir == "RIGHT" or growDir == "CENTER" then
+                                    gx = cursor; cursor = cursor + iconSz + gap
+                                elseif growDir == "DOWN" then
+                                    gy = -cursor; cursor = cursor + iconSz + gap
+                                elseif growDir == "LEFT" then
+                                    gx = -cursor; cursor = cursor + iconSz + gap
+                                elseif growDir == "UP" then
+                                    gy = cursor; cursor = cursor + iconSz + gap
+                                end
                             end
                             f:SetPoint(ind.position or "TOPLEFT", health, ind.position or "TOPLEFT",
                                        (ind.offsetX or 0) * iscale + gx, (ind.offsetY or 0) * iscale + gy)
@@ -2587,6 +2603,7 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                             local isSelected = ns._bmSelectedIndId and ind.id == ns._bmSelectedIndId
                             local maxShow = (isSelected or ns._bmAllIndicatorsVisible) and #ind.spells or 2
                             local previewTotal = math.min(maxShow, #ind.spells)
+                            local fixedSlots = ind.fixedSlots == true
                             -- Running cursor (matches live render): each icon advances
                             -- the next by its own size so size offsets reflow neighbors.
                             local cursor = 0
@@ -2603,21 +2620,11 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                             end
                             for si, sid in ipairs(ind.spells) do
                                 if si > maxShow then break end
-                                iPoolIdx = iPoolIdx + 1
-                                local fr = iconPool[iPoolIdx]
-                                if fr then
-                                    BM_ApplyIconLevel(fr, ind, pvBaseLvl)
-                                    -- Per-spell size offset (right-click to set):
-                                    -- base size + this spell's offset, clamped >= 1px.
-                                    local soff = ind.sizeOffsets and ind.sizeOffsets[sid] or 0
-                                    local iconSz = sz + soff * iscale
-                                    if iconSz < 1 then iconSz = 1 end
-                                    fr:SetSize(iconSz, iconSz)
-                                    fr:ClearAllPoints()
-                                    -- Matches BM_UpdateIndicators: place at accumulated
-                                    -- previous sizes, then advance by own size (LEFT/UP
-                                    -- negate the axis; no first-icon guard needed).
-                                    local gx, gy = 0, 0
+                                local soff = ind.sizeOffsets and ind.sizeOffsets[sid] or 0
+                                local iconSz = sz + soff * iscale
+                                if iconSz < 1 then iconSz = 1 end
+                                local gx, gy = 0, 0
+                                if fixedSlots then
                                     if growDir == "RIGHT" or growDir == "CENTER" then
                                         gx = cursor; cursor = cursor + iconSz + gap
                                     elseif growDir == "DOWN" then
@@ -2626,6 +2633,29 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                         gx = -cursor; cursor = cursor + iconSz + gap
                                     elseif growDir == "UP" then
                                         gy = cursor; cursor = cursor + iconSz + gap
+                                    end
+                                end
+                                iPoolIdx = iPoolIdx + 1
+                                local fr = iconPool[iPoolIdx]
+                                if fr then
+                                    BM_ApplyIconLevel(fr, ind, pvBaseLvl)
+                                    -- Per-spell size offset (right-click to set):
+                                    -- base size + this spell's offset, clamped >= 1px.
+                                    fr:SetSize(iconSz, iconSz)
+                                    fr:ClearAllPoints()
+                                    -- Matches BM_UpdateIndicators: place at accumulated
+                                    -- previous sizes, then advance by own size (LEFT/UP
+                                    -- negate the axis; no first-icon guard needed).
+                                    if not fixedSlots then
+                                        if growDir == "RIGHT" or growDir == "CENTER" then
+                                            gx = cursor; cursor = cursor + iconSz + gap
+                                        elseif growDir == "DOWN" then
+                                            gy = -cursor; cursor = cursor + iconSz + gap
+                                        elseif growDir == "LEFT" then
+                                            gx = -cursor; cursor = cursor + iconSz + gap
+                                        elseif growDir == "UP" then
+                                            gy = cursor; cursor = cursor + iconSz + gap
+                                        end
                                     end
                                     fr:SetPoint(ind.position or "TOPLEFT", health, ind.position or "TOPLEFT",
                                                 (ind.offsetX or 0) * iscale + gx, (ind.offsetY or 0) * iscale + gy)
@@ -5251,11 +5281,14 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 { type="input", text="Max Duration", inputWidth=56,
                   getValue=function() return ind.maxDuration and tostring(ind.maxDuration) or "" end,
                   setValue=function(txt)
-                      local n = tonumber(txt)
-                      ind.maxDuration = (n and n > 0) and n or nil
-                      ReloadAndUpdate()
+                    local n = tonumber(txt)
+                    ind.maxDuration = (n and n > 0) and n or nil
+                    ReloadAndUpdate()
                   end },
-                { type="label", text="" })
+                { type="toggle", text="Fixed Slots",
+                  tooltip="Keep each ability in its configured slot; missing buffs leave empty space instead of shifting later buffs forward.",
+                  getValue=function() return ind.fixedSlots == true end,
+                  setValue=function(v) ind.fixedSlots = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end })
             EllesmereUI.BuildInlineToggle({
                 region = mdRow._leftRegion,
                 getValue = function() return ind.maxDurationEnabled == true end,
