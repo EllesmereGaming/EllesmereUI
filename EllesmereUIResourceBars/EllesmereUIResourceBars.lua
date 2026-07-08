@@ -1249,6 +1249,11 @@ local DEFAULTS = {
             instanceOnly  = false,
             instantOnly   = false,
             alwaysShow    = false,
+            showSpellText = false,
+            spellTextSide = "center",
+            spellTextSize = 11,
+            spellTextX    = 0,
+            spellTextY    = 0,
             unlockPos     = nil,
         },
         totemBar = {
@@ -6289,6 +6294,11 @@ BuildGCDBar = function()
             gcdBarFrame._gcdStart = nil
             gcdBarFrame._gcdDur = nil
             gcdBarFrame._gcdActualStart = nil
+            gcdBarFrame._gcdSpellName = nil
+            if gcdBarFrame._nameText then
+                gcdBarFrame._nameText:SetText("")
+                gcdBarFrame._nameText:Hide()
+            end
             gcdBarFrame._barActive = nil
         end
         return
@@ -6334,6 +6344,21 @@ BuildGCDBar = function()
         spark:SetBlendMode("ADD")
         gcdBarFrame._spark = spark
 
+        -- Spell name text overlay for the spell that triggered this GCD.
+        local textFrame = CreateFrame("Frame", nil, gcdBarFrame)
+        textFrame:SetAllPoints(bar)
+        textFrame:SetFrameLevel(gcdBarFrame:GetFrameLevel() + 10)
+        gcdBarFrame._textFrame = textFrame
+
+        local nameText = textFrame:CreateFontString(nil, "OVERLAY")
+        SetRBFont(nameText, GetRBFont(), 11)
+        nameText:SetPoint("CENTER", bar, "CENTER", 0, 0)
+        nameText:SetJustifyH("CENTER")
+        nameText:SetWordWrap(false)
+        nameText:SetNonSpaceWrap(false)
+        nameText:Hide()
+        gcdBarFrame._nameText = nameText
+
         -- Event-driven GCD capture (like the cursor GCD ring)
         gcdBarFrame:SetScript("OnEvent", function(self, event, unit, _, spellID)
             if unit ~= "player" then return end
@@ -6363,6 +6388,11 @@ BuildGCDBar = function()
                     self._gcdStart = nil
                     self._gcdDur = nil
                     self._gcdActualStart = nil
+                    self._gcdSpellName = nil
+                    if self._nameText then
+                        self._nameText:SetText("")
+                        self._nameText:Hide()
+                    end
                 end
                 self._realCastSpellID = nil  -- the cast ended; clear the hard-cast flag
                 return
@@ -6420,6 +6450,11 @@ BuildGCDBar = function()
                         -- already-elapsed %, e.g. ~30% on a hasted GCD.)
                         self._gcdStart = GetTime()
                         self._gcdDur = math.max(dur - elapsed, 0.05)
+                        self._gcdSpellName = nil
+                        if spellID then
+                            local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
+                            self._gcdSpellName = (type(info) == "table" and info.name) or info
+                        end
                     end
                 end
             end
@@ -6494,6 +6529,36 @@ BuildGCDBar = function()
     bar:ClearAllPoints()
     bar:SetAllPoints(clipFrame)
 
+    -- Spell text layout. Uses the same anchoring rules as Cast Bar Spell Text.
+    if gcdBarFrame._textFrame then
+        gcdBarFrame._textFrame:ClearAllPoints()
+        gcdBarFrame._textFrame:SetAllPoints(bar)
+        gcdBarFrame._textFrame:SetFrameLevel(gcdBarFrame:GetFrameLevel() + 10)
+    end
+
+    if gcdBarFrame._nameText then
+        local barW = bar:GetWidth()
+        if not barW or barW < 10 then barW = g.width or 220 end
+
+        local spellSide = g.spellTextSide or "center"
+        SetRBFont(gcdBarFrame._nameText, GetRBFont(), g.spellTextSize or 11)
+
+        local pt, xb, jh = ns.GetCastTextAnchor(spellSide, false, 0)
+        gcdBarFrame._nameText:ClearAllPoints()
+        gcdBarFrame._nameText:SetJustifyH(jh)
+        gcdBarFrame._nameText:SetPoint(pt, bar, pt, xb + (g.spellTextX or 0), g.spellTextY or 0)
+
+        if spellSide == "center" then
+            gcdBarFrame._nameText:SetWidth(barW * 0.6)
+        else
+            gcdBarFrame._nameText:SetWidth(math.max(barW - 8, 10))
+        end
+
+        if ns.ReflowFontString then
+            ns.ReflowFontString(gcdBarFrame._nameText)
+        end
+    end
+
     -- Texture + background
     local texPath = EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, g.texture, "Interface\\Buttons\\WHITE8x8")
     bar:SetStatusBarTexture(texPath)
@@ -6549,9 +6614,17 @@ BuildGCDBar = function()
     gcdBarFrame:Show()
     if g.alwaysShow and not (g.instanceOnly and not IsInInstance()) then
         bar:SetValue(0)
+        if gcdBarFrame._nameText then
+            gcdBarFrame._nameText:SetText("")
+            gcdBarFrame._nameText:Hide()
+        end
         EllesmereUI.SetElementVisibility(gcdBarFrame, true)
     else
         bar:SetValue(0)
+        if gcdBarFrame._nameText then
+            gcdBarFrame._nameText:SetText("")
+            gcdBarFrame._nameText:Hide()
+        end
         EllesmereUI.SetElementVisibility(gcdBarFrame, false)
     end
 end
@@ -6568,6 +6641,11 @@ UpdateGCDBar = function(_dt)
     if g.instanceOnly and not IsInInstance() then
         bar:SetValue(0)
         gcdBarFrame._barActive = nil
+        gcdBarFrame._gcdSpellName = nil
+        if gcdBarFrame._nameText then
+            gcdBarFrame._nameText:SetText("")
+            gcdBarFrame._nameText:Hide()
+        end
         EllesmereUI.SetElementVisibility(gcdBarFrame, false)
         return
     end
@@ -6583,6 +6661,11 @@ UpdateGCDBar = function(_dt)
             gcdBarFrame._gcdStart = nil
             gcdBarFrame._gcdDur = nil
             gcdBarFrame._gcdActualStart = nil
+            gcdBarFrame._gcdSpellName = nil
+            if gcdBarFrame._nameText then
+                gcdBarFrame._nameText:SetText("")
+                gcdBarFrame._nameText:Hide()
+            end
             active = false
         end
     end
@@ -6592,6 +6675,10 @@ UpdateGCDBar = function(_dt)
         -- (In deplete mode "empty" = depleted, which is the right idle state.)
         bar:SetValue(0)
         gcdBarFrame._barActive = nil
+        if gcdBarFrame._nameText then
+            gcdBarFrame._nameText:SetText("")
+            gcdBarFrame._nameText:Hide()
+        end
         local visible = false
         if g.alwaysShow then visible = true end
         EllesmereUI.SetElementVisibility(gcdBarFrame, visible)
@@ -6599,6 +6686,15 @@ UpdateGCDBar = function(_dt)
     end
 
     EllesmereUI.SetElementVisibility(gcdBarFrame, true)
+    if gcdBarFrame._nameText then
+        if g.showSpellText and gcdBarFrame._gcdSpellName and gcdBarFrame._gcdSpellName ~= "" then
+            gcdBarFrame._nameText:SetText(gcdBarFrame._gcdSpellName)
+            gcdBarFrame._nameText:Show()
+        else
+            gcdBarFrame._nameText:SetText("")
+            gcdBarFrame._nameText:Hide()
+        end
+    end
     -- Deplete mode starts full (1) and drains to empty (0); normal mode fills 0->1.
     local progress = elapsed / dur
     local value = g.depleteFill and (1 - progress) or progress
