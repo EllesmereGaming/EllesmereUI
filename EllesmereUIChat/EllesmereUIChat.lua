@@ -1871,7 +1871,11 @@ end
 local function OnHyperlinkLeave(self)
     if _hyperlinkEntered then
         _hyperlinkEntered = nil
-        GameTooltip:Hide()
+        if EllesmereUI.FadeTooltipOut then
+            EllesmereUI.FadeTooltipOut(GameTooltip)
+        else
+            GameTooltip:Hide()
+        end
     end
 end
 

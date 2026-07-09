@@ -75,11 +75,44 @@ function EllesmereUI.DisableAllBlizzWindowSkins()
     end
 end
 
+local TOOLTIP_FADE_DEFAULT = 0.2
+local TOOLTIP_FADE_MAX = 3
+
+local function GetCustomTooltipFadeDuration()
+    if not (EllesmereUIDB and EllesmereUIDB.tooltipFadeEnabled) then return nil end
+    local duration = EllesmereUIDB.tooltipFadeOutDuration
+    if type(duration) ~= "number" then duration = TOOLTIP_FADE_DEFAULT end
+    if duration < 0 then return 0 end
+    if duration > TOOLTIP_FADE_MAX then return TOOLTIP_FADE_MAX end
+    return duration
+end
+
+local function ApplyTooltipFade(tt, duration)
+    if duration <= 0 or not tt.FadeOut then
+        tt:Hide()
+        return
+    end
+    local state = GetFFD(tt)
+    state.fadeInternal = true
+    tt:FadeOut(duration)
+    state.fadeInternal = nil
+end
+
+function EllesmereUI.FadeTooltipOut(tt)
+    if not tt or tt:IsForbidden() then return end
+    local duration = GetCustomTooltipFadeDuration()
+    if duration == nil then
+        tt:Hide()
+        return
+    end
+    ApplyTooltipFade(tt, duration)
+end
+
 -------------------------------------------------------------------------------
 --  Tooltip / Context Menu / Static Popup Skinning
---  Restyles Blizzard's GameTooltip and related frames with EUI's dark style.
---  Visual-only changes (alpha, backdrop color, font). No Hide/Show/SetParent
---  on Blizzard frames. All hooks are post-hooks via hooksecurefunc.
+--  Restyles Blizzard's GameTooltip and related frames with EUI's dark style,
+--  and hosts the optional tooltip fade timing. Hooks are post-hooks via
+--  hooksecurefunc; frame state stays in the external weak table above.
 -------------------------------------------------------------------------------
 ;(function()
     local _ttSkinned = {}
@@ -89,6 +122,22 @@ end
     local _GameTooltip = GameTooltip
     local _RAID_CC = RAID_CLASS_COLORS
     local _nameL1 = nil  -- cached ref to GameTooltipTextLeft1
+    local _ttFadeInitialized = false
+    local _ttSharedBackdropHooked = false
+
+    local function _ttForEachKnownFrame(callback)
+        for _, tt in ipairs({
+            _GameTooltip, ShoppingTooltip1, ShoppingTooltip2,
+            ItemRefTooltip, ItemRefShoppingTooltip1, ItemRefShoppingTooltip2,
+            FriendsTooltip, EmbeddedItemTooltip, GameSmallHeaderTooltip, QuickKeybindTooltip,
+            _G.WarCampaignTooltip, _G.ReputationParagonTooltip,
+            _G.LibDBIconTooltip, _G.SettingsTooltip,
+            QuestScrollFrame and QuestScrollFrame.StoryTooltip,
+            QuestScrollFrame and QuestScrollFrame.CampaignTooltip,
+        }) do
+            if tt then callback(tt) end
+        end
+    end
 
     local function _enabled()
         return not EllesmereUIDB or EllesmereUIDB.customTooltips ~= false
@@ -162,10 +211,47 @@ end
 
     local function _ttOnShow(self) _ttSkin(self); _ttFonts(self) end
 
+    local function _ttFadeRegister(tt)
+        if not tt or tt:IsForbidden() or not tt.FadeOut then return end
+        local state = GetFFD(tt)
+        if state.fadeHooked then return end
+        state.fadeHooked = true
+        hooksecurefunc(tt, "FadeOut", function(self)
+            local fadeState = GetFFD(self)
+            if fadeState.fadeInternal then return end
+            local duration = GetCustomTooltipFadeDuration()
+            if duration == nil then return end
+            ApplyTooltipFade(self, duration)
+        end)
+    end
+
     local function _ttHook(tt)
-        if not tt or tt:IsForbidden() or _ttSkinned[tt] then return end
+        if not tt or tt:IsForbidden() then return end
+        _ttFadeRegister(tt)
+        if _ttSkinned[tt] then return end
         _ttSkinned[tt] = true
         tt:HookScript("OnShow", _ttOnShow)
+    end
+
+    local function _ttInitFade()
+        if _ttFadeInitialized then return end
+        _ttFadeInitialized = true
+        _ttForEachKnownFrame(_ttFadeRegister)
+        if SharedTooltip_SetBackdropStyle and not _ttSharedBackdropHooked then
+            _ttSharedBackdropHooked = true
+            -- Deferred: SharedTooltip_SetBackdropStyle can fire from secure
+            -- Blizzard code. Skin work stays deferred; fade registration is
+            -- external state plus a post-hook and is safe to add here.
+            hooksecurefunc("SharedTooltip_SetBackdropStyle", function(tt)
+                C_Timer.After(0, function()
+                    _ttFadeRegister(tt)
+                    if _enabled() then
+                        _ttHook(tt)
+                        _ttSkin(tt)
+                    end
+                end)
+            end)
+        end
     end
 
     local function _accentEnabled()
@@ -510,26 +596,7 @@ end
     -- Visual reskin: the dark bg/border (via _ttHook -> _ttSkin), EUI fonts, and
     -- the restyled tooltip status bar. Gated on "Reskin Tooltip" (customTooltips).
     local function _ttInitVisual()
-        for _, tt in ipairs({
-            _GameTooltip, ShoppingTooltip1, ShoppingTooltip2,
-            ItemRefTooltip, ItemRefShoppingTooltip1, ItemRefShoppingTooltip2,
-            FriendsTooltip, EmbeddedItemTooltip, GameSmallHeaderTooltip, QuickKeybindTooltip,
-            _G.WarCampaignTooltip, _G.ReputationParagonTooltip,
-            _G.LibDBIconTooltip, _G.SettingsTooltip,
-            QuestScrollFrame and QuestScrollFrame.StoryTooltip,
-            QuestScrollFrame and QuestScrollFrame.CampaignTooltip,
-        }) do
-            _ttHook(tt)
-        end
-        if SharedTooltip_SetBackdropStyle then
-            -- Deferred: SharedTooltip_SetBackdropStyle can fire from
-            -- secure Blizzard code (casting bar, combat UI). Running
-            -- _ttSkin synchronously inside the hook taints the call stack
-            -- (BackdropTemplate OnLoad propagates to CastingBarFrame).
-            hooksecurefunc("SharedTooltip_SetBackdropStyle", function(tt)
-                C_Timer.After(0, function() _ttSkin(tt) end)
-            end)
-        end
+        _ttForEachKnownFrame(_ttHook)
         if GameTooltipStatusBar then
             GameTooltipStatusBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
             local sbBg = GameTooltipStatusBar:CreateTexture(nil, "BACKGROUND")
@@ -577,7 +644,7 @@ end
     end
 
     -- Back-compat full init (data + visual), used by the live re-apply path.
-    local function _ttInit() _ttInitData(); _ttInitVisual() end
+    local function _ttInit() _ttInitFade(); _ttInitData(); _ttInitVisual() end
 
     -- Context menu skinning
     local _menuSkinned = {}
@@ -804,10 +871,10 @@ end
         f:RegisterEvent("PLAYER_LOGIN")
         f:SetScript("OnEvent", function(self)
             self:UnregisterAllEvents()
-            -- "Reskin Tooltip" (customTooltips) is the master for ALL of EUI's
-            -- tooltip handling: the visual reskin AND the data additions (class
-            -- colors, player titles, M+ score, item level). When off, EUI leaves
-            -- tooltips alone, matching the grayed-out tooltip options. The generic
+            _ttInitFade()
+            -- "Reskin Tooltip" (customTooltips) is the master for the visual
+            -- reskin and data additions (class colors, titles, score, item level).
+            -- Custom fade timing remains independent. The generic
             -- context menu / static popup reskins are independent (reskinPopupsMenus)
             -- and the per-window reskins use their own keys -- all seeded from the
             -- old master once by the blizzskin_reskin_master_split_v1 migration at
@@ -1613,6 +1680,48 @@ do
 
     local cursorFrame
     local hooked = false
+    local isSecretValue = issecretvalue
+    local CURSOR_OWNER_SCAN_DEPTH = 16
+    local CURSOR_STATIC_OWNER_NAMES = {
+        "DropDown", "Dropdown", "ContextMenu",
+        "PVEFrame", "LFGList", "GroupFinder", "ChallengesFrame", "Mythic", "Keystone",
+        "EUI_MainBagFrame", "EUI_ReagentBagFrame", "EUI_BagsWindowFrame", "EUI_BankFrame", "ContainerFrame",
+        "AuctionHouse", "Auction",
+    }
+
+    local function OwnerMatches(owner, names, checkBag)
+        local frame = owner
+        for _ = 1, CURSOR_OWNER_SCAN_DEPTH do
+            if not frame or frame == UIParent then return false end
+            if frame.IsForbidden and frame:IsForbidden() then return false end
+            if checkBag and frame.GetBagID then
+                local ok, bagID = pcall(frame.GetBagID, frame)
+                if ok and type(bagID) == "number" then return true end
+            end
+            if checkBag and (frame == _G.EUI_Bags or frame == _G.EUI_BagsReagent
+                or frame == _G.EUI_BagsWindow or frame == _G.EUI_BankFrame) then
+                return true
+            end
+            local name = frame.GetName and frame:GetName()
+            if type(name) == "string" and not (isSecretValue and isSecretValue(name)) then
+                for i = 1, #names do
+                    if name:find(names[i], 1, true) then return true end
+                end
+            end
+            frame = frame.GetParent and frame:GetParent()
+        end
+        return false
+    end
+
+    local function IsStaticTooltipOwner(owner)
+        return OwnerMatches(owner, CURSOR_STATIC_OWNER_NAMES, true)
+    end
+
+    local function IsStaticTooltipContext(tooltip, parent)
+        local owner = tooltip.GetOwner and tooltip:GetOwner()
+        return IsStaticTooltipOwner(parent)
+            or (owner ~= parent and IsStaticTooltipOwner(owner))
+    end
 
     local function EnsureCursorFrame()
         if cursorFrame then return cursorFrame end
@@ -1655,6 +1764,10 @@ do
         if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return end
         if not (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor) then return end
         if not parent or tooltip:IsForbidden() then return end
+        if IsStaticTooltipContext(tooltip, parent) then
+            if cursorFrame then cursorFrame:Hide() end
+            return
+        end
         -- Respect the "Show Tooltips" suppression. This post-hook runs after
         -- HideTooltipByMode in the GameTooltip_SetDefaultAnchor chain, so without
         -- this check the re-anchor below would undo its Hide() every frame and the
@@ -1688,6 +1801,7 @@ do
         if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return end
         if not (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor) then return end
         if tooltip:IsForbidden() then return end
+        if IsStaticTooltipContext(tooltip, tooltip:GetOwner()) then return end
         local cf = EnsureCursorFrame()
         PositionCursorFrameNow(cf)
         local point = POINT_FOR_POS[EllesmereUIDB.tooltipCursorPosition or "top"] or "BOTTOM"
@@ -1713,7 +1827,8 @@ do
         if GameTooltip.FadeOut then
             hooksecurefunc(GameTooltip, "FadeOut", function(self)
                 if self ~= GameTooltip then return end
-                if EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor then
+                if GetCustomTooltipFadeDuration() == nil
+                    and EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor then
                     self:Hide()
                 end
             end)
