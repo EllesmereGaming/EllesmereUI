@@ -148,8 +148,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:SectionHeader(parent, "BLIZZARD TOOLTIP", y);  y = y - h
 
-        -- "Reskin Tooltip" (customTooltips) is the master for this section: its
-        -- reskin-driven sub-settings gray out (and stop applying) when it is off.
+        -- "Reskin Tooltip" (customTooltips) is the master for the skin-driven
+        -- settings in this section. Custom fade timing remains independent.
         -- Per-line tooltip content settings (titles, item level, M+ score,
         -- detailed tooltips, health strip) live in the content cog on this
         -- toggle. Settings independent of the skin (Show Detailed Tooltips,
@@ -157,6 +157,10 @@ initFrame:SetScript("OnEvent", function(self)
         -- with the reskin off.
         local function ttReskinOff()
             return EllesmereUIDB and EllesmereUIDB.customTooltips == false
+        end
+
+        local function ttCustomFadeOff()
+            return not (EllesmereUIDB and EllesmereUIDB.tooltipFadeEnabled)
         end
 
         local ttCursorRow
@@ -380,6 +384,31 @@ initFrame:SetScript("OnEvent", function(self)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.tooltipBgOpacity = v / 100
               end });  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text=EllesmereUI.L("Custom Fade Out"),
+              tooltip=EllesmereUI.L("Overrides Blizzard's tooltip fade timing. Leave disabled to keep the current default behavior."),
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.tooltipFadeEnabled or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.tooltipFadeEnabled = v
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="slider", text=EllesmereUI.L("Fade Out Duration"),
+              tooltip=EllesmereUI.L("How long supported tooltips take to fade. Set to 0 for an instant hide."),
+              min=0, max=3, step=0.05, format="%.2fs",
+              disabled=ttCustomFadeOff,
+              disabledTooltip=function() return EllesmereUI.L("Custom Fade Out") end,
+              getValue=function()
+                  return (EllesmereUIDB and EllesmereUIDB.tooltipFadeOutDuration) or 0.2
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.tooltipFadeOutDuration = v
+              end }
+        );  y = y - h
 
         local ttModeRow
         ttModeRow, h = W:DualRow(parent, y,
@@ -2133,6 +2162,8 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.tooltipCursorPosition = nil
                 EllesmereUIDB.tooltipCursorOffsetX = nil
                 EllesmereUIDB.tooltipCursorOffsetY = nil
+                EllesmereUIDB.tooltipFadeEnabled = nil
+                EllesmereUIDB.tooltipFadeOutDuration = nil
                 EllesmereUIDB.uberTooltips = nil
                 EllesmereUIDB.uberTooltipsManual = nil
                 EllesmereUIDB.tooltipHideHealthStrip = nil
