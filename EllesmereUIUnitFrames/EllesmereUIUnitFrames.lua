@@ -1266,7 +1266,7 @@ local function ApplyDarkTheme(health)
         -- Check for custom fill/bg colors on this unit
         local unitKey = health._euiUnitKey
         local unitSettings = unitKey and db.profile[unitKey]
-        -- Pet class coloring is opt-in. Pets never match oUF's colorClass (that
+                -- Pet class coloring is opt-in. Pets never match oUF's colorClass (that
         -- path requires a player unit), so the pet frame uses colorClassPet, gated
         -- on the pet page's Class Colored Fill toggle.
         if unitKey == "pet" and unitSettings and unitSettings.healthClassColored then
@@ -6785,6 +6785,7 @@ local function StylePetFrame(frame, unit)
     bg:SetColorTexture(0, 0, 0, 0.5)
     health.bg = bg
 
+    health.colorClass = true
     health.colorReaction = true
     health.colorTapped = true
     health.colorDisconnected = true
@@ -8037,6 +8038,35 @@ local function ReloadFrames()
                 if us and us.frameStrata then strata = us.frameStrata end
             end
             frame:SetFrameStrata(strata)
+            -- EUI FIX: Health bar and the unified border only ever get their strata
+            -- set ONCE, at creation time (CreateHealthBar / CreateUnifiedBorder just
+            -- snapshot frame:GetFrameStrata() at that moment). WoW does NOT keep a
+            -- child frame's strata in sync with its parent's strata after the fact,
+            -- so without this explicit re-apply here, Health/Border silently keep
+            -- stacking on whatever strata they had at creation -- stale relative to
+            -- the frame's CURRENT strata -- until a UI reload rebuilds them from
+            -- scratch. This is what caused the "border shows through" bug and the
+            -- need for a /reload after changing strata settings.
+            if frame.Health then
+                frame.Health:SetFrameStrata(strata)
+            end
+            if frame.unifiedBorder then
+                frame.unifiedBorder:SetFrameStrata(strata)
+            end
+            -- Power bar: only re-sync here for ATTACHED positions (above/below), which
+            -- also only ever got their strata set once at creation (see CreatePowerBar's
+            -- "else power:SetFrameStrata(frame:GetFrameStrata())" branch). Detached power
+            -- bars are intentionally left alone here -- they're handled explicitly a bit
+            -- later with their own custom-strata logic (enableCustomBarStratas /
+            -- detachedPowerStrata), which must NOT be overwritten by the frame's strata.
+            if frame.Power then
+                local uSettings = GetSettingsForUnit(unitKey)
+                local ppPos = uSettings and (uSettings.powerPosition or "below") or "below"
+                local ppIsDetached = (ppPos == "detached_top" or ppPos == "detached_bottom")
+                if not ppIsDetached then
+                    frame.Power:SetFrameStrata(strata)
+                end
+            end
             -- Re-apply or reset custom strata for detached bars
             if frame.BottomTextBar and frame.BottomTextBar._isDetached then
                 if profile.enableCustomBarStratas then
@@ -8799,6 +8829,19 @@ local function ReloadFrames()
                             pw2 = settings.powerWidth
                         end
                         PP.Size(frame.Power, pw2, settings.powerHeight)
+                        -- EUI FIX: this was missing here (unlike the player branch above),
+                        -- which is the actual root cause of the strata bug -- frame:SetFrameStrata
+                        -- on the main frame re-stacks ALL descendants (including the detached Power
+                        -- bar) down to the frame's own strata; without re-applying the custom
+                        -- detached strata here, Target's Power bar silently stayed dragged down to
+                        -- the frame's strata on every live settings refresh, only getting the
+                        -- correct custom strata back after a full /reload (which recreates it via
+                        -- CreatePowerBar). Mirrors the player-branch logic 1:1.
+                        if ppIsDetached2 and db.profile.enableCustomBarStratas then
+                            frame.Power:SetFrameStrata(db.profile.detachedPowerStrata or "HIGH")
+                        elseif ppIsDetached2 then
+                            frame.Power:SetFrameStrata("MEDIUM")
+                        end
                         frame.Power:ClearAllPoints()
                         if ppPos == "none" then
                             frame.Power:Hide()
@@ -9191,6 +9234,12 @@ local function ReloadFrames()
                         fpw = settings.powerWidth
                     end
                     PP.Size(frame.Power, fpw, settings.powerHeight or 6)
+                    -- EUI FIX: same missing detached-strata restore as the Target branch.
+                    if fPpIsDet and db.profile.enableCustomBarStratas then
+                        frame.Power:SetFrameStrata(db.profile.detachedPowerStrata or "HIGH")
+                    elseif fPpIsDet then
+                        frame.Power:SetFrameStrata("MEDIUM")
+                    end
                     frame.Power:ClearAllPoints()
                     if fPpPos == "none" then
                         frame.Power:Hide()
@@ -9543,6 +9592,12 @@ local function ReloadFrames()
                         bpw = settings.powerWidth
                     end
                     frame.Power:SetSize(bpw, settings.powerHeight or 6)
+                    -- EUI FIX: same missing detached-strata restore as Target/Focus branches.
+                    if bPpIsDet and db.profile.enableCustomBarStratas then
+                        frame.Power:SetFrameStrata(db.profile.detachedPowerStrata or "HIGH")
+                    elseif bPpIsDet then
+                        frame.Power:SetFrameStrata("MEDIUM")
+                    end
                     frame.Power:ClearAllPoints()
                     if bPpPos == "none" then
                         frame.Power:Hide()
@@ -11044,6 +11099,23 @@ function InitializeFrames()
                 if us and us.frameStrata then strata = us.frameStrata end
             end
             frame:SetFrameStrata(strata)
+            -- EUI FIX: see matching fix in the earlier strata-refresh loop above --
+            -- Health/Border/attached-Power only got their strata set once at
+            -- creation and never tracked frame's strata changes afterward.
+            if frame.Health then
+                frame.Health:SetFrameStrata(strata)
+            end
+            if frame.unifiedBorder then
+                frame.unifiedBorder:SetFrameStrata(strata)
+            end
+            if frame.Power then
+                local uSettings = GetSettingsForUnit(unitKey)
+                local ppPos = uSettings and (uSettings.powerPosition or "below") or "below"
+                local ppIsDetached = (ppPos == "detached_top" or ppPos == "detached_bottom")
+                if not ppIsDetached then
+                    frame.Power:SetFrameStrata(strata)
+                end
+            end
             if frame.BottomTextBar and frame.BottomTextBar._isDetached then
                 if db.profile.enableCustomBarStratas then
                     frame.BottomTextBar:SetFrameStrata(db.profile.detachedTextBarStrata or "DIALOG")
