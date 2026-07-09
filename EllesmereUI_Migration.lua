@@ -3279,6 +3279,69 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- PR #393 originally shipped on a v8.2-based development branch with its own
+-- tooltip cursor and chat-link keys. Current main has richer cursor placement
+-- and per-profile Chat settings, so seed those modern destinations without
+-- replacing values already written by current builds.
+EllesmereUI.RegisterMigration({
+    id          = "tooltip_behavior_pr393_v1",
+    scope       = "global",
+    description = "Migrate the v8.2 PR #393 tooltip cursor, fade, and chat-link settings into the current tooltip and Chat settings.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db then return end
+
+        local hadLegacyCursor = db.tooltipAnchorToMouse ~= nil
+            or db.tooltipCursorAnchorPoint ~= nil
+        if db.tooltipAnchorCursor == nil and db.tooltipAnchorToMouse ~= nil then
+            db.tooltipAnchorCursor = db.tooltipAnchorToMouse == true
+        end
+
+        if db.tooltipCursorPosition == nil and hadLegacyCursor then
+            local positions = {
+                TOPLEFT = "bottomright",
+                TOPRIGHT = "bottomleft",
+                BOTTOMLEFT = "topright",
+                BOTTOMRIGHT = "topleft",
+            }
+            db.tooltipCursorPosition = positions[db.tooltipCursorAnchorPoint or "TOPLEFT"]
+        end
+        if hadLegacyCursor then
+            if db.tooltipCursorOffsetX == nil then db.tooltipCursorOffsetX = 16 end
+            if db.tooltipCursorOffsetY == nil then db.tooltipCursorOffsetY = -16 end
+        end
+
+        if db.tooltipFadeEnabled == nil and type(db.tooltipFadeOutDuration) == "number" then
+            db.tooltipFadeEnabled = true
+        end
+
+        if db.chatLinkTooltips ~= nil and type(db.profiles) == "table" then
+            for _, profile in pairs(db.profiles) do
+                if type(profile) == "table" then
+                    if type(profile.addons) ~= "table" then profile.addons = {} end
+                    local chatAddon = profile.addons.EllesmereUIChat
+                    if type(chatAddon) ~= "table" then
+                        chatAddon = {}
+                        profile.addons.EllesmereUIChat = chatAddon
+                    end
+                    local chat = chatAddon.chat
+                    if type(chat) ~= "table" then
+                        chat = {}
+                        chatAddon.chat = chat
+                    end
+                    if chat.hideTooltipOnHover == nil then
+                        chat.hideTooltipOnHover = db.chatLinkTooltips ~= true
+                    end
+                end
+            end
+        end
+
+        db.tooltipAnchorToMouse = nil
+        db.tooltipCursorAnchorPoint = nil
+        db.chatLinkTooltips = nil
+    end,
+})
+
 local migrationFrame = CreateFrame("Frame")
 migrationFrame:RegisterEvent("ADDON_LOADED")
 migrationFrame:SetScript("OnEvent", function(self, event, addonName)
