@@ -2222,11 +2222,30 @@ initFrame:SetScript("OnEvent", function(self)
         return math.abs(y)
     end
 
+    local qolSearchTerms = {
+        "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging",
+        "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest",
+        "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift",
+        "combat alert", "enter combat", "leave combat", "in combat", "combat text",
+        "combat notification", "transform", "transforms", "costume", "disguise",
+        "chef's hat", "noggenfogger",
+        "rested", "rested indicator", "open", "containers", "auto open containers",
+        "hide blizzard party panel", "skip cinematics", "quick loot",
+        "auto-fill delete confirmation", "auto repair", "auto sell junk",
+        "ah current expansion only", "hide talking head", "show coordinates on map",
+        "suppress lua errors", "hide error messages", "hide tutorial pop-ups",
+        "announce group deaths", "hide item transforms", "low durability warning",
+        "disable right click", "secondary stat display", "guild chat privacy cover",
+        "character crosshair", "color out of range", "auto insert keystone",
+        "announce instance reset", "quick signup", "persistent signup note",
+        "hide screenshot status", "train all button", "auto unwrap collections",
+    }
+
     EllesmereUI:RegisterModule("EllesmereUIQoL", {
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
         pages       = { PAGE_QOL, PAGE_CURSOR, PAGE_AUTOLOG, PAGE_UPGCALC, PAGE_SHIFTER },
-        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger" },
+        searchTerms = qolSearchTerms,
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_QOL then
                 return BuildQoLPage(pageName, parent, yOffset)

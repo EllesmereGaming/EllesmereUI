@@ -9171,6 +9171,11 @@ function EllesmereUI:SelectPage(pageName)
             EllesmereUI:ApplyInlineSearch("")
         end
 
+        if not cached._searchLabelsIndexed then
+            cached._searchLabelsIndexed = true
+            EllesmereUI._indexPageSearchLabels(activeModule, cached.wrapper)
+        end
+
         -- Restore this page's refresh list
         ClearWidgetRefreshList()
         if cached.refreshList then
@@ -9228,7 +9233,9 @@ function EllesmereUI:SelectPage(pageName)
             totalH = totalH,
             headerBuilder = headerBuilder,
             refreshList = cachedRefreshList,
+            _searchLabelsIndexed = true,
         }
+        EllesmereUI._indexPageSearchLabels(activeModule, wrapper)
     end
 
     -- Reset scroll to top on tab switch
@@ -9322,7 +9329,9 @@ function EllesmereUI:RefreshPage(force)
         totalH = totalH,
         headerBuilder = headerBuilder,
         refreshList = cachedRefreshList,
+        _searchLabelsIndexed = true,
     }
+    EllesmereUI._indexPageSearchLabels(activeModule, wrapper)
 
     skipScrollChildReanchor = false
     suppressScrollRangeChanged = false
@@ -9426,6 +9435,58 @@ function EllesmereUI:SelectModule(folderName)
 end
 
 -------------------------------------------------------------------------------
+--  Sidebar search: option-label index (built from visited option pages)
+-------------------------------------------------------------------------------
+function EllesmereUI._gatherSearchLabels(frame, out, seen)
+    if not frame then return end
+    local function add(s)
+        if not s or s == "" then return end
+        s = s:lower()
+        if not seen[s] then seen[s] = true; out[#out + 1] = s end
+    end
+    add(frame._sectionName)
+    add(frame._sectionNameLoc)
+    add(frame._labelText)
+    add(frame._labelTextLoc)
+    add(frame._splitSearchLabels)
+    add(frame._splitSearchLabelsLoc)
+    if frame._leftRegion then add(frame._leftRegion._slotLabel) end
+    if frame._midRegion then add(frame._midRegion._slotLabel) end
+    if frame._rightRegion then add(frame._rightRegion._slotLabel) end
+    for _, child in ipairs({ frame:GetChildren() }) do
+        EllesmereUI._gatherSearchLabels(child, out, seen)
+    end
+end
+
+function EllesmereUI._mergeModuleSearchLabels(moduleName, labels)
+    local mod = modules[moduleName]
+    if not mod or not labels then return end
+    if not mod._optionSearchLabels then
+        mod._optionSearchLabels = {}
+        mod._optionSearchLabelSet = {}
+    end
+    local seen = mod._optionSearchLabelSet
+    for _, label in ipairs(labels) do
+        if label ~= "" and not seen[label] then
+            seen[label] = true
+            mod._optionSearchLabels[#mod._optionSearchLabels + 1] = label
+        end
+    end
+end
+
+function EllesmereUI._indexPageSearchLabels(moduleName, wrapper)
+    if not moduleName or not wrapper then return end
+    local labels, seen = {}, {}
+    EllesmereUI._gatherSearchLabels(wrapper, labels, seen)
+    if #labels == 0 then return end
+    EllesmereUI._mergeModuleSearchLabels(moduleName, labels)
+    local sbText = EllesmereUI._sidebarSearchText
+    if sbText and sbText ~= "" and EllesmereUI._applySidebarSearch then
+        EllesmereUI._applySidebarSearch(sbText)
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Sidebar search filter
 --  Iterates the last order captured by RefreshSidebarStates, hides any button
 --  whose addon display name and registered page names don't contain the query,
@@ -9438,7 +9499,7 @@ function EllesmereUI._applySidebarSearch(text)
 
     -- Split the query into whitespace-delimited words. An entry matches only
     -- if EVERY word is found somewhere in its combined searchable text
-    -- (display name + registered page names + module searchTerms).
+    -- (display name + registered page names + module searchTerms + option labels).
     local queryWords = {}
     if text ~= "" then
         for word in text:gmatch("%S+") do
@@ -9468,6 +9529,11 @@ function EllesmereUI._applySidebarSearch(text)
                 end
             else
                 parts[#parts + 1] = tostring(mod.searchTerms):lower()
+            end
+        end
+        if mod and mod._optionSearchLabels then
+            for _, t in ipairs(mod._optionSearchLabels) do
+                parts[#parts + 1] = t
             end
         end
         local haystack = table.concat(parts, " ")
