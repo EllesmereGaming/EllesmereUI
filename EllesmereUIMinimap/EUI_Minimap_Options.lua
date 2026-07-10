@@ -451,7 +451,14 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshMinimap()
                 EllesmereUI:RefreshPage()
               end },
-            { type="label", text="" }
+            { type="toggle", text="Show Line of Sight Cone",
+              tooltip="Draw a blue cone on the minimap showing the direction your character is facing.",
+              getValue=function() local m = MinimapDB(); return m and m.showFacingCone or false end,
+              setValue=function(v)
+                  local m = MinimapDB(); if not m then return end
+                  m.showFacingCone = v
+                  RefreshMinimap()
+              end }
         );  y = y - h
 
         -- "Reset" label next to the Free Move toggle (only visible when enabled)
@@ -495,14 +502,7 @@ initFrame:SetScript("OnEvent", function(self)
                   m.rotateMinimap = v
                   RefreshMinimap()
               end },
-            { type="toggle", text="Show Line of Sight Cone",
-              tooltip="Draw a blue cone on the minimap showing the direction your character is facing.",
-              getValue=function() local m = MinimapDB(); return m and m.showFacingCone or false end,
-              setValue=function(v)
-                  local m = MinimapDB(); if not m then return end
-                  m.showFacingCone = v
-                  RefreshMinimap()
-              end }
+            { type="label", text="" }
         );  y = y - h
 
         y = y - 10
