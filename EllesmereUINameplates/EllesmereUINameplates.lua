@@ -137,7 +137,7 @@ function ns._appendDisplayPresetKeys(t)
         "buffDurationTextSize", "buffDurationTextX", "buffDurationTextY", "buffDurationTextColor",
         "ccDurationTextSize", "ccDurationTextX", "ccDurationTextY", "ccDurationTextColor",
         "buffTextSize", "buffTextColor", "ccTextSize", "ccTextColor",
-        "raidMarkerPos", "classificationSlot",
+        "raidMarkerPos", "raidMarkerAlpha", "classificationSlot",
         "castNameSize", "castNameColor", "castTargetSize", "castTargetClassColor", "castTargetColor",
         "showCastTimer", "castTimerSize", "castTimerColor", "targetScale",
         "castNameSide", "castTargetSide", "castTimerSide",
@@ -335,8 +335,10 @@ local defaults = {
     targetHighlightAlpha = 0.20,
     nameRaidMarkerEnabled = false,
     nameRaidMarkerSize = 14,
+    nameRaidMarkerAlpha = 1,
     raidMarkerPos = "topright",
     raidMarkerSize = 24,
+    raidMarkerAlpha = 1,
     classificationSlot = "topleft",
     rareEliteIconSize = 20,
     castBarHeight = 17,
@@ -1098,6 +1100,17 @@ local function GetRaidMarkerSize()
     return (p and p[pos .. "SlotSize"]) or defaults[pos .. "SlotSize"] or 24
 end
 ns.GetRaidMarkerSize = GetRaidMarkerSize
+local function GetRaidMarkerAlpha()
+    return (p and p.raidMarkerAlpha) or defaults.raidMarkerAlpha or 1
+end
+ns.GetRaidMarkerAlpha = GetRaidMarkerAlpha
+local function GetNameRaidMarkerCfg()
+    local enabled = (p and p.nameRaidMarkerEnabled) == true
+    local size = (p and p.nameRaidMarkerSize) or defaults.nameRaidMarkerSize or 14
+    local alpha = (p and p.nameRaidMarkerAlpha) or defaults.nameRaidMarkerAlpha or 1
+    return enabled, size, alpha
+end
+ns.GetNameRaidMarkerCfg = GetNameRaidMarkerCfg
 local function GetRaidMarkerYOffset()
     return 0
 end
@@ -3371,6 +3384,7 @@ function ns.RefreshAllSettings()
         end
     end
     if ns.ApplyClassPowerSetting then ns.ApplyClassPowerSetting() end
+    if ns.RefreshFriendlyRaidIcons then ns.RefreshFriendlyRaidIcons() end
     -- 12.1 aura containers: fingerprint-guarded, near-free when no aura
     -- settings changed.
     if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
@@ -6465,6 +6479,7 @@ function NameplateFrame:RefreshNamePosition(localOnly)
         else
             SetRaidTargetIconTexture(self.nameRaid, idx)
             PP.Size(self.nameRaidFrame, nameMarkerSize, nameMarkerSize)
+            self.nameRaidFrame:SetAlpha((p and p.nameRaidMarkerAlpha) or defaults.nameRaidMarkerAlpha or 1)
             self._nameRaidMarkerShown = true
             self.nameRaidFrame:Show()
             nameMarkerShown = true
@@ -6561,6 +6576,7 @@ function NameplateFrame:UpdateRaidIcon()
     SetRaidTargetIconTexture(self.raid, idx)
     local sz = GetRaidMarkerSize()
     PP.Size(self.raidFrame, sz, sz)
+    self.raidFrame:SetAlpha(GetRaidMarkerAlpha())
     local cpPush = GetClassPowerTopPush(self)
     local rxOff, ryOff = GetAuraSlotOffsets("raidMarker")
     self.raidFrame:ClearAllPoints()

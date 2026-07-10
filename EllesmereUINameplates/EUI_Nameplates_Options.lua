@@ -3800,6 +3800,13 @@ initFrame:SetScript("OnEvent", function(self)
                         ns.RefreshAllSettings()
                         UpdatePreview()
                       end },
+                    { type="slider", label="Opacity", min=0.1, max=1, step=0.05,
+                      get=function() return DBVal("nameRaidMarkerAlpha") or defaults.nameRaidMarkerAlpha or 1 end,
+                      set=function(v)
+                        DB().nameRaidMarkerAlpha = v
+                        ns.RefreshAllSettings()
+                        UpdatePreview()
+                      end },
                 },
             })
             local cogBtn = CreateFrame("Button", nil, rgn)
@@ -4801,6 +4808,20 @@ initFrame:SetScript("OnEvent", function(self)
                 spTrack:Hide(); spValBox:Hide()
                 pf._spTrack = spTrack; pf._spValBox = spValBox
 
+                local opLabel = MakeFont(pf, 12, nil, 1, 1, 1)
+                opLabel:SetAlpha(0.6); opLabel:SetText(EllesmereUI.L("Opacity"))
+                opLabel:SetPoint("LEFT", pf, "TOPLEFT", SIDE_PAD, SP_ROW_Y - SLIDER_H / 2)
+                opLabel:Hide()
+                pf._opLabel = opLabel
+                local opTrack, opValBox = BuildSliderCore(pf, SLIDER_W, 4, 12, INPUT_W, SLIDER_H, 11, SL_INPUT_A,
+                    0.1, 1, 0.05,
+                    function() return pf._opGet and pf._opGet() or 1 end,
+                    function(v) if pf._opSet then pf._opSet(v) end end, true)
+                opTrack:SetPoint("TOPLEFT", pf, "TOPLEFT", SLIDER_LEFT, SP_ROW_Y - 2)
+                opValBox:ClearAllPoints(); opValBox:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -SIDE_PAD, SP_ROW_Y)
+                opTrack:Hide(); opValBox:Hide()
+                pf._opTrack = opTrack; pf._opValBox = opValBox
+
                 -- Width % slider row (hidden unless a width-fit text element: enemy
                 -- name, cast spell name, cast target). Fixed range, built once; the
                 -- row is reordered/repositioned per show via the seq block below.
@@ -5019,6 +5040,7 @@ initFrame:SetScript("OnEvent", function(self)
             local hasSize = opts.sizeGet ~= nil
             local hasWidth = opts.widthGet ~= nil
             local hasSpacing = opts.spacingGet ~= nil
+            local hasOpacity = opts.opacityGet ~= nil
             local hasGrowth = opts.growthGet ~= nil
             local hasToggle = opts.toggleGet ~= nil
             local hasCrop = opts.cropGet ~= nil
@@ -5063,6 +5085,20 @@ initFrame:SetScript("OnEvent", function(self)
                 cogPopup._spLabel:Hide()
                 cogPopup._spTrack:Hide()
                 cogPopup._spValBox:Hide()
+            end
+
+            if hasOpacity then
+                cogPopup._opGet = opts.opacityGet
+                cogPopup._opSet = opts.opacitySet
+                cogPopup._opLabel:Show()
+                cogPopup._opTrack:Show()
+                cogPopup._opValBox:Show()
+            else
+                cogPopup._opGet = nil
+                cogPopup._opSet = nil
+                cogPopup._opLabel:Hide()
+                cogPopup._opTrack:Hide()
+                cogPopup._opValBox:Hide()
             end
 
             -- Show/hide width % row
@@ -5193,6 +5229,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local seq = {}
                 if hasSize and opts.sizeFirst then
                     seq[#seq + 1] = { p._sLabel, p._sTrack, p._sValBox }
+                    if hasOpacity then seq[#seq + 1] = { p._opLabel, p._opTrack, p._opValBox } end
                     if hasSpacing then seq[#seq + 1] = { p._spLabel, p._spTrack, p._spValBox } end
                     seq[#seq + 1] = { p._xLabel, p._xTrack, p._xValBox }
                     seq[#seq + 1] = { p._yLabel, p._yTrack, p._yValBox }
@@ -5200,6 +5237,7 @@ initFrame:SetScript("OnEvent", function(self)
                     seq[#seq + 1] = { p._xLabel, p._xTrack, p._xValBox }
                     seq[#seq + 1] = { p._yLabel, p._yTrack, p._yValBox }
                     if hasSize    then seq[#seq + 1] = { p._sLabel, p._sTrack, p._sValBox } end
+                    if hasOpacity then seq[#seq + 1] = { p._opLabel, p._opTrack, p._opValBox } end
                     if hasSpacing then seq[#seq + 1] = { p._spLabel, p._spTrack, p._spValBox } end
                 end
                 for i, r in ipairs(seq) do
@@ -5280,6 +5318,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if hasSize    then h = h + gap + rowH end
                 if hasWidth   then h = h + gap + rowH end
                 if hasSpacing then h = h + gap + rowH end
+                if hasOpacity then h = h + gap + rowH end
                 if hasGrowth then h = h + gap + p._GROWTH_ROW_H end
                 -- Grow and toggle are mutually exclusive and share the same slot.
                 if hasToggle then h = h + gap + p._GROWTH_ROW_H end
@@ -5385,6 +5424,9 @@ initFrame:SetScript("OnEvent", function(self)
                     spacingKey = "buffSpacing"; cropKey = "buffCropIcons"
                 elseif element == "ccs" then
                     spacingKey = "ccSpacing"; cropKey = "ccCropIcons"
+                elseif element == "raidmarker" then
+                    opts.opacityGet = function() return DBVal("raidMarkerAlpha") or defaults.raidMarkerAlpha or 1 end
+                    opts.opacitySet = function(v) DB().raidMarkerAlpha = v; RefreshAllSlots(); UpdatePreview() end
                 end
                 if spacingKey then
                     opts.spacingGet = function() return DBVal(spacingKey) or defaults[spacingKey] end
