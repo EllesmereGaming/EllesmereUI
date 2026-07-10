@@ -1469,7 +1469,6 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v) SHDB().iconOpacity = v; RefreshSH() end }
         );  y = y - h
 
-        -- Row 5: Animation Style | (empty)
         local shAnimValues = {
             none  = "None",
             slide = "Slide In",
@@ -1482,7 +1481,12 @@ initFrame:SetScript("OnEvent", function(self)
               values = shAnimValues, order = shAnimOrder,
               getValue = function() return SHDB().iconAnimation or "slide" end,
               setValue = function(v) SHDB().iconAnimation = v end },
-            { type = "label", text = "" }
+            { type = "slider", text = "Fade-Out Time",
+              tooltip = "Seconds after which history icons disappear. 0 = never (icons stay until pushed out).",
+              min = 0, max = 60, step = 1,
+              disabled = iconOff, disabledTooltip = "Icon History",
+              getValue = function() return SHDB().iconFadeTime or 0 end,
+              setValue = function(v) SHDB().iconFadeTime = v; RefreshSH() end }
         );  y = y - h
 
         -- =====================================================================

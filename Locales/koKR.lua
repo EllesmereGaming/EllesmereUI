@@ -4626,3 +4626,4 @@ if GetLocale() == "koKR" and EllesmereUI then
         ["윈첨"] = "첨탑",
     }
 end
+L["Fade-Out Time"] = "사라지는 시간"

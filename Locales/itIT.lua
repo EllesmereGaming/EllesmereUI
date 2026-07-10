@@ -131,3 +131,4 @@ L["Quest Tracker"]     = "Tracciamento missioni"
 L["Minimap"]           = "Minimappa"
 L["Chat"]              = true
 L["Damage Meters"]     = "Misuratore danni"
+L["Fade-Out Time"] = "Tempo di scomparsa"

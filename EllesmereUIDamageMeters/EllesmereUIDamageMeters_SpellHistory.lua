@@ -33,6 +33,7 @@ local SH_DEFAULTS = {
     growDirection   = "LEFT",
     iconSize        = 36,
     iconZoom        = 0.08,
+    iconFadeTime    = 0,
     iconSpacing     = 1,
     iconCount       = 5,
     iconOpacity     = 1,
@@ -459,6 +460,7 @@ local _iconPool = {}
 local _lastAnimTimestamp = 0  -- tracks when to animate icon 1
 local _lastIconCount = 0      -- tracks visible count for minimal loop
 local _iconLayoutKey = ""     -- tracks settings that affect icon layout (skip repositioning if unchanged)
+local _fadeTicker
 
 local ANIM_DUR = 0.5
 local ANIM_SLIDE_PX = 6
@@ -649,7 +651,38 @@ BuildIconStrip = function()
 
     local maxIcons = sh.iconCount or 5
     local histCount = min(#_history, maxIcons)
+
+    local fadeTime = sh.iconFadeTime or 0
+    local FADE_DUR = 1.5
+    local fadeNow, fadeFrozen
+    if fadeTime > 0 and histCount > 0 then
+        local inCombat = UnitAffectingCombat and UnitAffectingCombat("player")
+        fadeFrozen = inCombat
+        if not inCombat then
+            fadeNow = GetTime()
+            local visible = 0
+            for i = 1, histCount do
+                if fadeNow - (_history[i].timestamp or fadeNow) < fadeTime + FADE_DUR then
+                    visible = i
+                else
+                    break
+                end
+            end
+            histCount = visible
+        end
+        if inCombat or histCount > 0 then
+            if not _fadeTicker then
+                _fadeTicker = C_Timer.NewTicker(0.05, function() BuildIconStrip() end)
+            end
+        elseif _fadeTicker then
+            _fadeTicker:Cancel(); _fadeTicker = nil
+        end
+    elseif _fadeTicker then
+        _fadeTicker:Cancel(); _fadeTicker = nil
+    end
+
     local showPreview = ns._optionsOpen and histCount < maxIcons
+        and not (fadeTime > 0 and #_history > 0)
     local count = showPreview and maxIcons or histCount
 
     -- Nothing to show: hide the strip entirely
@@ -726,6 +759,21 @@ BuildIconStrip = function()
                         ic.tex:SetVertexColor(1, 1, 1, 1)
                     end
                     ic.tex:SetAlpha(1)
+                end
+                if fadeNow and not fadeFrozen then
+                    local age = fadeNow - (entry.timestamp or fadeNow)
+                    if age > fadeTime then
+                        local k = 1 - (age - fadeTime) / FADE_DUR
+                        if k < 0 then k = 0 end
+                        ic.frame:SetAlpha(iconAlpha * k)
+                        ic._fading = true
+                    elseif ic._fading then
+                        ic.frame:SetAlpha(iconAlpha)
+                        ic._fading = nil
+                    end
+                elseif ic._fading then
+                    ic.frame:SetAlpha(iconAlpha)
+                    ic._fading = nil
                 end
             else
                 if not ic._isPreview then
