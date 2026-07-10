@@ -4036,7 +4036,10 @@ local function ApplyMinimap()
 
     -- Rotate Minimap: enforce the CVar to match our setting. Default off keeps
     -- it at 0; turning it on sets 1. Runs out of combat (ApplyMinimap defers).
-    SetCVar("rotateMinimap", p.rotateMinimap and "1" or "0")
+    -- WoW's native rotating render has no overscan for a square mask, exposing
+    -- empty corners as it turns. Limit rotation to circular shapes.
+    local rotateMap = p.rotateMinimap and (p.shape == "circle" or p.shape == "textured_circle")
+    SetCVar("rotateMinimap", rotateMap and "1" or "0")
 
     local minimap = Minimap
     if not minimap then return end
@@ -4047,7 +4050,10 @@ local function ApplyMinimap()
         EBS._rotateMinimapHooked = true
         hooksecurefunc(MinimapCluster, "SetRotateMinimap", function()
             local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
-            if mp then SetCVar("rotateMinimap", mp.rotateMinimap and "1" or "0") end
+            if mp then
+                local rotate = mp.rotateMinimap and (mp.shape == "circle" or mp.shape == "textured_circle")
+                SetCVar("rotateMinimap", rotate and "1" or "0")
+            end
         end)
     end
 
@@ -4059,11 +4065,18 @@ local function ApplyMinimap()
         cone:SetAllPoints(minimap)
         cone:SetFrameLevel(minimap:GetFrameLevel() + 2)
         cone:EnableMouse(false)
+        cone.fillLines = {}
+        for i = 1, 41 do
+            local line = cone:CreateLine(nil, "ARTWORK")
+            line:SetThickness(3)
+            line:SetColorTexture(0.15, 0.55, 1, 0.12)
+            cone.fillLines[i] = line
+        end
         cone.lines = {}
         for i = 1, 12 do
             local line = cone:CreateLine(nil, "OVERLAY")
             line:SetThickness(i <= 2 and 1.5 or 1)
-            line:SetColorTexture(1, 1, 1, i <= 2 and 0.65 or 0.45)
+            line:SetColorTexture(0.25, 0.7, 1, i <= 2 and 0.8 or 0.65)
             cone.lines[i] = line
         end
         cone:SetScript("OnUpdate", function(self, elapsed)
@@ -4077,7 +4090,8 @@ local function ApplyMinimap()
             if not facing then self:SetAlpha(0); return end
             self:SetAlpha(1)
 
-            local angle = mp.rotateMinimap and 0 or facing
+            local rotates = mp.rotateMinimap and (mp.shape == "circle" or mp.shape == "textured_circle")
+            local angle = rotates and 0 or facing
             local radius = min(self:GetWidth(), self:GetHeight()) * 0.42
             local halfAngle = math.rad(32)
             local cx, cy = 0, 0
@@ -4087,6 +4101,16 @@ local function ApplyMinimap()
 
             local leftX, leftY = Point(angle - halfAngle)
             local rightX, rightY = Point(angle + halfAngle)
+
+            -- Closely-spaced translucent rays create the filled blue sector.
+            for i = 1, 41 do
+                local a = angle - halfAngle + (i - 1) * (halfAngle * 2 / 40)
+                local x, y = Point(a)
+                local line = self.fillLines[i]
+                line:SetStartPoint("CENTER", self, cx, cy)
+                line:SetEndPoint("CENTER", self, x, y)
+            end
+
             self.lines[1]:SetStartPoint("CENTER", self, cx, cy)
             self.lines[1]:SetEndPoint("CENTER", self, leftX, leftY)
             self.lines[2]:SetStartPoint("CENTER", self, cx, cy)

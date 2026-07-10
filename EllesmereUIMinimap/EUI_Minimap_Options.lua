@@ -482,6 +482,29 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateResetVis)
         end
 
+        -- Map orientation controls belong to Display, immediately before the
+        -- next section starts.
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Rotate Minimap with Player",
+              tooltip="Rotate the minimap texture so the direction your character is facing is always at the top. WoW's renderer does not support rotating a square map without exposing empty corners.",
+              disabled=function() local m = MinimapDB(); return m and (m.shape or "square") == "square" end,
+              disabledTooltip="Circle Shape",
+              getValue=function() local m = MinimapDB(); return m and m.rotateMinimap or false end,
+              setValue=function(v)
+                  local m = MinimapDB(); if not m then return end
+                  m.rotateMinimap = v
+                  RefreshMinimap()
+              end },
+            { type="toggle", text="Show Line of Sight Cone",
+              tooltip="Draw a blue cone on the minimap showing the direction your character is facing.",
+              getValue=function() local m = MinimapDB(); return m and m.showFacingCone or false end,
+              setValue=function(v)
+                  local m = MinimapDB(); if not m then return end
+                  m.showFacingCone = v
+                  RefreshMinimap()
+              end }
+        );  y = y - h
+
         y = y - 10
 
         -- MINIMAP & QOL BUTTONS section header
@@ -1741,26 +1764,6 @@ initFrame:SetScript("OnEvent", function(self)
             accentSwatch:SetAlpha(initAccent and 1 or 0.3)
             customSwatch:SetAlpha(initAccent and 0.3 or 1)
         end
-
-        -- Keep map-orientation controls together at the end of Display.
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Rotate Minimap with Player",
-              tooltip="Rotate the minimap texture so the direction your character is facing is always at the top.",
-              getValue=function() local m = MinimapDB(); return m and m.rotateMinimap or false end,
-              setValue=function(v)
-                  local m = MinimapDB(); if not m then return end
-                  m.rotateMinimap = v
-                  RefreshMinimap()
-              end },
-            { type="toggle", text="Show Line of Sight Cone",
-              tooltip="Draw a cone on the minimap showing the direction your character is facing.",
-              getValue=function() local m = MinimapDB(); return m and m.showFacingCone or false end,
-              setValue=function(v)
-                  local m = MinimapDB(); if not m then return end
-                  m.showFacingCone = v
-                  RefreshMinimap()
-              end }
-        );  y = y - h
 
         return math.abs(y)
     end
