@@ -223,7 +223,6 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 4: Timestamps | Extend Background Behind Tabs
         do
             local tsValues = {
                 ["__blizzard"]  = { text = "Use Blizzard Setting" },
@@ -240,7 +239,8 @@ initFrame:SetScript("OnEvent", function(self)
                 "%I:%M ", "%I:%M:%S ", "%I:%M %p ", "%I:%M:%S %p ", "---",
                 "%H:%M ", "%H:%M:%S ",
             }
-            _, h = W:DualRow(parent, y,
+            local tsRow
+            tsRow, h = W:DualRow(parent, y,
                 { type="dropdown", text="Timestamps",
                   values=tsValues, order=tsOrder,
                   getValue=function() return Cfg("timestampFormat") or "%I:%M " end,
@@ -261,6 +261,102 @@ initFrame:SetScript("OnEvent", function(self)
                           onConfirm   = function() ReloadUI() end,
                       })
                   end })
+            do
+                local lrgn = tsRow._leftRegion
+                local ctrl = lrgn._control
+
+                local tsSwatch, tsSwatchRefresh = EllesmereUI.BuildColorSwatch(
+                    lrgn, tsRow:GetFrameLevel() + 3,
+                    function()
+                        return (Cfg("timestampR") or 0.55), (Cfg("timestampG") or 0.57), (Cfg("timestampB") or 0.60)
+                    end,
+                    function(r, g, b)
+                        Set("timestampR", r); Set("timestampG", g); Set("timestampB", b)
+                        Set("timestampColored", true)
+                        if ECHAT.ApplyTimestampCVar then ECHAT.ApplyTimestampCVar() end
+                        EllesmereUI:RefreshPage()
+                    end,
+                    false, 20)
+                PP.Point(tsSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+                do
+                    local origClick = tsSwatch:GetScript("OnClick")
+                    tsSwatch:SetScript("OnClick", function(self, ...)
+                        if not Cfg("timestampColored") then
+                            Set("timestampColored", true)
+                            if ECHAT.ApplyTimestampCVar then ECHAT.ApplyTimestampCVar() end
+                            EllesmereUI:RefreshPage()
+                            return
+                        end
+                        if origClick then origClick(self, ...) end
+                    end)
+                end
+                tsSwatch:HookScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(tsSwatch, EllesmereUI.L("Custom Color"))
+                end)
+                tsSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+                local chatSwatch, chatSwatchRefresh = EllesmereUI.BuildColorSwatch(
+                    lrgn, tsRow:GetFrameLevel() + 3,
+                    function() return 1, 0.75, 0.35 end,
+                    function() end,
+                    false, 20)
+                PP.Point(chatSwatch, "RIGHT", tsSwatch, "LEFT", -6, 0)
+                chatSwatch:SetScript("OnClick", function()
+                    Set("timestampColored", false)
+                    if ECHAT.ApplyTimestampCVar then ECHAT.ApplyTimestampCVar() end
+                    EllesmereUI:RefreshPage()
+                end)
+                chatSwatch:HookScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(chatSwatch, EllesmereUI.L("Chat Color (timestamp matches the message color)"))
+                end)
+                chatSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+                local function UpdateSwatchStates()
+                    tsSwatchRefresh()
+                    chatSwatchRefresh()
+                    local custom = Cfg("timestampColored") and true or false
+                    tsSwatch:SetAlpha(custom and 1 or 0.3)
+                    chatSwatch:SetAlpha(custom and 0.3 or 1)
+                end
+                UpdateSwatchStates()
+                EllesmereUI.RegisterWidgetRefresh(UpdateSwatchStates)
+
+                local function SampleTime()
+                    local fmt = Cfg("timestampFormat") or "%I:%M "
+                    if fmt == "__blizzard" or fmt == "none" then fmt = "%H:%M " end
+                    local core = fmt:match("^(.-)%s*$")
+                    return (date and date(core)) or "15:27"
+                end
+                local sampleT = SampleTime()
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Timestamp Settings",
+                    rows = {
+                        { type = "dropdown", label = "Brackets",
+                          values = {
+                              none   = sampleT,
+                              square = "[" .. sampleT .. "]",
+                              paren  = "(" .. sampleT .. ")",
+                          },
+                          order = { "none", "square", "paren" },
+                          get = function() return Cfg("timestampBrackets") or "none" end,
+                          set = function(v)
+                              Set("timestampBrackets", v)
+                              if ECHAT.ApplyTimestampCVar then ECHAT.ApplyTimestampCVar() end
+                          end },
+                    },
+                })
+                local cogBtn = CreateFrame("Button", nil, lrgn)
+                cogBtn:SetSize(26, 26)
+                cogBtn:SetPoint("RIGHT", chatSwatch, "LEFT", -6, 0)
+                cogBtn:SetFrameLevel(lrgn:GetFrameLevel() + 5)
+                cogBtn:SetAlpha(0.4)
+                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                cogTex:SetAllPoints()
+                cogTex:SetTexture(EllesmereUI.COGS_ICON)
+                cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+                cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+                cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
+            end
         end
         y = y - h
 

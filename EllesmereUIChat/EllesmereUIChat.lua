@@ -41,6 +41,11 @@ local CHAT_DEFAULTS = {
             bgG        = 0.045,
             bgB        = 0.05,
             timestampFormat = "%I:%M ",
+            timestampColored = false,
+            timestampBrackets = "none",
+            timestampR = 0.55,
+            timestampG = 0.57,
+            timestampB = 0.60,
             font = "__global",
             outlineMode = "__global",
             fontSize = 12,
@@ -3266,6 +3271,22 @@ initFrame:SetScript("OnEvent", function(self)
         local cfg = ECHAT.DB()
         local fmt = cfg.timestampFormat or "%I:%M "
         if fmt == "__blizzard" then return end
+        if fmt ~= "none" then
+            local core, trail = fmt:match("^(.-)(%s*)$")
+            local br = cfg.timestampBrackets
+            if br == "square" then
+                core = "[" .. core .. "]"
+            elseif br == "paren" then
+                core = "(" .. core .. ")"
+            end
+            if cfg.timestampColored then
+                local r = floor((cfg.timestampR or 0.55) * 255 + 0.5)
+                local g = floor((cfg.timestampG or 0.57) * 255 + 0.5)
+                local b = floor((cfg.timestampB or 0.60) * 255 + 0.5)
+                core = ("|cff%02x%02x%02x%s|r"):format(r, g, b, core)
+            end
+            fmt = core .. trail
+        end
         SetCVar("showTimestamps", fmt)
     end
     ApplyTimestampCVar()

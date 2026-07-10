@@ -131,3 +131,5 @@ L["Quest Tracker"]     = "Rastreador de missões"
 L["Minimap"]           = "Minimapa"
 L["Chat"]              = true
 L["Damage Meters"]     = "Medidor de dano"
+L["Brackets"] = "Colchetes"
+L["Chat Color (timestamp matches the message color)"] = "Cor do chat (o horário segue a cor da mensagem)"

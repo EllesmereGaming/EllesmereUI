@@ -4626,3 +4626,5 @@ if GetLocale() == "koKR" and EllesmereUI then
         ["윈첨"] = "첨탑",
     }
 end
+L["Brackets"] = "괄호"
+L["Chat Color (timestamp matches the message color)"] = "채팅 색상 (시간이 메시지 색상을 따름)"

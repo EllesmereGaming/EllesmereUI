@@ -131,3 +131,5 @@ L["Quest Tracker"]     = "Suivi de quêtes"
 L["Minimap"]           = "Minicarte"
 L["Chat"]              = true
 L["Damage Meters"]     = "Mesureur de dégâts"
+L["Brackets"] = "Crochets"
+L["Chat Color (timestamp matches the message color)"] = "Couleur du chat (l'horodatage suit la couleur du message)"
