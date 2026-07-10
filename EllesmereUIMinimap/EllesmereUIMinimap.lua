@@ -4092,7 +4092,7 @@ local function ApplyMinimap()
 
             local rotates = mp.rotateMinimap and (mp.shape == "circle" or mp.shape == "textured_circle")
             local angle = rotates and 0 or facing
-            local radius = min(self:GetWidth(), self:GetHeight()) * 0.21
+            local radius = min(self:GetWidth(), self:GetHeight()) * 0.315
             local halfAngle = math.rad(32)
             local cx, cy = 0, 0
             local function Point(a)
