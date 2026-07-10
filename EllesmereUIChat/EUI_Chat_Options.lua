@@ -264,6 +264,14 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Abbreviate Channel Names",
+              tooltip="Shortens channel names in chat: [2. Trade - City] becomes [2]. The channel link stays clickable.",
+              getValue=function() return Cfg("abbreviateChannelNames") or false end,
+              setValue=function(v) Set("abbreviateChannelNames", v) end },
+            nil)
+        y = y - h
+
         -- -- SIDEBAR -----------------------------------------------------------
         _, h = W:SectionHeader(parent, "SIDEBAR", y); y = y - h
 

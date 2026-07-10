@@ -41,6 +41,7 @@ local CHAT_DEFAULTS = {
             bgG        = 0.045,
             bgB        = 0.05,
             timestampFormat = "%I:%M ",
+            abbreviateChannelNames = false,
             font = "__global",
             outlineMode = "__global",
             fontSize = 12,
@@ -2210,12 +2211,31 @@ local function SkinEditBox(cf)
     end
 end
 
+local function RewriteChatText(text)
+    if type(text) ~= "string" then return text end
+    local cfg = ECHAT.DB()
+    if cfg.abbreviateChannelNames then
+        text = text:gsub("(|Hchannel:[^|]*|h)%[(%d+)%.[^%]]*%](|h)", "%1[%2]%3")
+    end
+    return text
+end
+
+local function WrapAddMessage(cf)
+    if CFD(cf).origAddMessage or not cf.AddMessage then return end
+    CFD(cf).origAddMessage = cf.AddMessage
+    cf.AddMessage = function(frame, text, ...)
+        return CFD(frame).origAddMessage(frame, RewriteChatText(text), ...)
+    end
+end
+
 local function SkinChatFrame(cf)
     if not cf or _skinned[cf] then return end
     _skinned[cf] = true
     _alphaFrames = nil
     local name = cf:GetName()
     if not name then return end
+
+    WrapAddMessage(cf)
 
     -- No HookScript("OnEvent") on chat frames -- even post-hooks taint
     -- the C-level event dispatcher. Idle reset + pulse detection are
