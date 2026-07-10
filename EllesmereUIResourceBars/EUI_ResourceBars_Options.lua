@@ -210,18 +210,162 @@ initFrame:SetScript("OnEvent", function(self)
         return 5
     end
 
+    local ANCHOR_JUSTIFY = {
+        LEFT = "LEFT", TOPLEFT = "LEFT", BOTTOMLEFT = "LEFT",
+        RIGHT = "RIGHT", TOPRIGHT = "RIGHT", BOTTOMRIGHT = "RIGHT",
+    }
+
+    local function BuildBarPreviewFrame(container, key)
+        local bar = CreateFrame("Frame", nil, container)
+        local bg = bar:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        UnsnapTex(bg)
+        bar._bg = bg
+        local fill = bar:CreateTexture(nil, "ARTWORK")
+        fill:SetPoint("LEFT")
+        UnsnapTex(fill)
+        bar._fill = fill
+        bar._border = MakePreviewBorder(bar, 0, 0, 0, 1, 1)
+        local overlay = CreateFrame("Frame", nil, bar)
+        overlay:SetAllPoints(bar)
+        overlay:SetFrameLevel(bar:GetFrameLevel() + 10)
+        bar._text = overlay:CreateFontString(nil, "OVERLAY")
+        _previewFrames[key] = bar
+        return bar
+    end
+
+    local function UpdateBarPreview(key)
+        local p = DB(); if not p then return end
+        local bar = _previewFrames[key]
+        if not bar then return end
+        local cfg = p[key]
+        if not cfg or not cfg.enabled then bar:Hide(); return end
+        local Snap = _previewSnap or function(v) return v end
+        local w = cfg.width or 214
+        local h = cfg.height or 14
+        bar:SetSize(Snap(w), Snap(h))
+
+        local _, cf = UnitClass("player")
+        local cc = CLASS_COLORS[cf]
+        local fr, fg, fb
+        if cfg.darkTheme then
+            fr, fg, fb = EllesmereUI.GetDarkModeFill()
+        elseif cfg.customColored then
+            fr, fg, fb = cfg.fillR, cfg.fillG, cfg.fillB
+        elseif key == "health" then
+            fr, fg, fb = cc and cc[1] or 0.1, cc and cc[2] or 0.8, cc and cc[3] or 0.1
+        else
+            local _, ptoken = UnitPowerType("player")
+            local pcol = PowerBarColor and ptoken and PowerBarColor[ptoken]
+            if pcol then fr, fg, fb = pcol.r, pcol.g, pcol.b
+            else fr, fg, fb = 0, 0.55, 1 end
+        end
+
+        if cfg.darkTheme then
+            local dr, dg, db2 = EllesmereUI.GetDarkModeBg()
+            bar._bg:SetColorTexture(dr, dg, db2, 1)
+        else
+            bar._bg:SetColorTexture(cfg.bgR or 0.07, cfg.bgG or 0.07, cfg.bgB or 0.07, cfg.bgA or 0.75)
+        end
+
+        local pct = (key == "health") and 100 or _previewBarFillPct
+        local fill = bar._fill
+        fill:SetSize(math.max(1, Snap(w * pct / 100)), Snap(h))
+        local texKey = p.general.barTexture or "none"
+        local texLookup = _G._ERB_BarTextures or {}
+        local texPath = texLookup[texKey]
+        if texPath then fill:SetTexture(texPath)
+        else fill:SetTexture("Interface\\Buttons\\WHITE8x8") end
+        fill:SetVertexColor(fr, fg, fb, cfg.fillA or 1)
+
+        local bsz = cfg.borderSize or 0
+        bar._border:SetShown(bsz > 0)
+        if bsz > 0 then
+            bar._border:SetSize(bsz)
+            bar._border:SetColor(cfg.borderR or 0, cfg.borderG or 0, cfg.borderB or 0, cfg.borderA or 1)
+        end
+
+        local txt = bar._text
+        local fmt = cfg.textFormat or "none"
+        if fmt == "none" then
+            txt:Hide()
+        else
+            SetPVFont(txt, FONT_PATH, cfg.textSize or 10)
+            txt:SetText(pct .. "%")
+            if cfg.textCustomColored ~= false then
+                txt:SetTextColor(cfg.textFillR or 1, cfg.textFillG or 1, cfg.textFillB or 1, cfg.textFillA or 1)
+            else
+                txt:SetTextColor(fr, fg, fb, 1)
+            end
+            local a = cfg.textAnchor or "CENTER"
+            txt:ClearAllPoints()
+            txt:SetPoint(a, bar, a, cfg.textXOffset or 0, cfg.textYOffset or 0)
+            txt:SetJustifyH(ANCHOR_JUSTIFY[a] or "CENTER")
+            txt:Show()
+        end
+        bar:Show()
+    end
+
+    local function LayoutPreviewStack()
+        local p = DB(); if not p then return end
+        local container = _previewFrames.container
+        if not container then return end
+        local items = {}
+        local function add(key, h, x, y, shown)
+            if shown then items[#items + 1] = { key = key, h = h, x = x, y = y } end
+        end
+        add("secondary", p.secondary.pipHeight or 20,
+            p.secondary.offsetX or 0, p.secondary.offsetY or -38,
+            HasClassResource() and _previewFrames.pipContainer ~= nil)
+        add("primary", p.primary.height or 14,
+            p.primary.offsetX or 0, p.primary.offsetY or -54,
+            _previewFrames.primary and _previewFrames.primary:IsShown())
+        add("health", p.health.height or 16,
+            p.health.offsetX or 0, p.health.offsetY or -64,
+            _previewFrames.health and _previewFrames.health:IsShown())
+        if #items == 0 then return end
+        local top, bottom
+        for _, it in ipairs(items) do
+            local hi, lo = it.y + it.h / 2, it.y - it.h / 2
+            if not top or hi > top then top = hi end
+            if not bottom or lo < bottom then bottom = lo end
+        end
+        local shift = -(top + bottom) / 2
+        for _, it in ipairs(items) do
+            local frame = (it.key == "secondary") and _previewFrames.pipContainer or _previewFrames[it.key]
+            local yCenter = it.y + shift
+            if it.key == "secondary" then
+                _previewFrames.pipYOffset = yCenter
+                _previewFrames.pipXOffset = it.x
+            end
+            if frame then
+                frame:ClearAllPoints()
+                frame:SetPoint("CENTER", container, "CENTER", it.x, yCenter)
+            end
+        end
+    end
+
     local function UpdatePreviewHeader()
         local p = DB()
         if not p then return end
 
-        -- No class resource for this spec hide everything
+        UpdateBarPreview("health")
+        UpdateBarPreview("primary")
+
         if not HasClassResource() then
             local pc = _previewFrames.pipContainer
             if pc then pc:Hide() end
-            if _previewHintFS then _previewHintFS:Hide() end
-            EllesmereUI:UpdateContentHeaderHeight(0)
+            local anyBar = (_previewFrames.health and _previewFrames.health:IsShown())
+                or (_previewFrames.primary and _previewFrames.primary:IsShown())
+            if not anyBar then
+                if _previewHintFS then _previewHintFS:Hide() end
+                EllesmereUI:UpdateContentHeaderHeight(0)
+            else
+                LayoutPreviewStack()
+            end
             return
         end
+        LayoutPreviewStack()
 
         local container = _previewFrames.pipContainer and _previewFrames.pipContainer:GetParent()
         local sp = p.secondary
@@ -256,13 +400,13 @@ initFrame:SetScript("OnEvent", function(self)
                 pr, pg, pb = sp.fillR, sp.fillG, sp.fillB
             end
 
-            -- Static center -- no y-offset interaction with preview
             local pScale = 1.0
             local function ApplyPipTransform()
                 local s = pc["_anim_scale"] or pScale
                 pc:SetScale(s)
                 pc:ClearAllPoints()
-                pc:SetPoint("CENTER", container, "CENTER", 0, 0)
+                pc:SetPoint("CENTER", container, "CENTER",
+                    _previewFrames.pipXOffset or 0, _previewFrames.pipYOffset or 0)
             end
             SmoothAnimate(pc, "scale", pScale, function() ApplyPipTransform() end)
 
@@ -648,7 +792,10 @@ initFrame:SetScript("OnEvent", function(self)
     _previewHeaderBuilder = function(hdr, hdrW)
         local p = DB()
         if not p then return 0 end
-        if not HasClassResource() then return 0 end
+        local hasCR = HasClassResource()
+        if not hasCR and not (p.health and p.health.enabled) and not (p.primary and p.primary.enabled) then
+            return 0
+        end
         _previewBuilding = true
         local _, classFile = UnitClass("player")
 
@@ -669,12 +816,19 @@ initFrame:SetScript("OnEvent", function(self)
             return math.floor(val * s + 0.5) / s
         end
 
+        _previewFrames.container = container
+
+        BuildBarPreviewFrame(container, "health")
+        BuildBarPreviewFrame(container, "primary")
+
         local sp = p.secondary
         local pipH = sp.pipHeight
         local isBar = ns.IsBarTypeSecondary()
 
         -- pipC is the container for either pips or the bar preview
-        local pipC = CreateFrame("Frame", nil, container)
+        local pipC
+        if hasCR then
+        pipC = CreateFrame("Frame", nil, container)
         _previewFrames.pipContainer = pipC
         _previewFrames.pips = {}
 
@@ -769,6 +923,7 @@ initFrame:SetScript("OnEvent", function(self)
         countText:SetTextColor(1, 1, 1, 0.9)
         do local _pvTA = sp.textAnchor or "CENTER"; countText:SetPoint(_pvTA, pipC, _pvTA, sp.textXOffset or 0, sp.textYOffset or 0) end
         pipC._countText = countText
+        end
 
         UpdatePreviewHeader()
 
