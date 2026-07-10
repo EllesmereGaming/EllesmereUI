@@ -69,6 +69,7 @@ local defaults = {
             enabled       = true,
             shape         = "square",
             rotateMinimap = false,
+            showFacingCone = false,
             borderSize    = 1,
             showCoords    = false,
             coordPrecision = 0,
@@ -4039,6 +4040,72 @@ local function ApplyMinimap()
 
     local minimap = Minimap
     if not minimap then return end
+
+    -- Blizzard can re-apply its own rotate-minimap preference during layout
+    -- changes. Keep our explicit setting authoritative, as SexyMap does.
+    if MinimapCluster and not EBS._rotateMinimapHooked then
+        EBS._rotateMinimapHooked = true
+        hooksecurefunc(MinimapCluster, "SetRotateMinimap", function()
+            local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+            if mp then SetCVar("rotateMinimap", mp.rotateMinimap and "1" or "0") end
+        end)
+    end
+
+    -- Player-facing line-of-sight cone. Lines avoid an additional texture
+    -- asset and remain crisp at every minimap size. With a rotating map the
+    -- player always faces up; on a north-up map the cone follows facing.
+    if not minimap._euiFacingCone then
+        local cone = CreateFrame("Frame", nil, minimap)
+        cone:SetAllPoints(minimap)
+        cone:SetFrameLevel(minimap:GetFrameLevel() + 2)
+        cone:EnableMouse(false)
+        cone.lines = {}
+        for i = 1, 12 do
+            local line = cone:CreateLine(nil, "OVERLAY")
+            line:SetThickness(i <= 2 and 1.5 or 1)
+            line:SetColorTexture(1, 1, 1, i <= 2 and 0.65 or 0.45)
+            cone.lines[i] = line
+        end
+        cone:SetScript("OnUpdate", function(self, elapsed)
+            self.elapsed = (self.elapsed or 0) + elapsed
+            if self.elapsed < 0.03 then return end
+            self.elapsed = 0
+
+            local mp = EBS.db and EBS.db.profile and EBS.db.profile.minimap
+            if not mp or not mp.showFacingCone then return end
+            local facing = GetPlayerFacing()
+            if not facing then self:SetAlpha(0); return end
+            self:SetAlpha(1)
+
+            local angle = mp.rotateMinimap and 0 or facing
+            local radius = min(self:GetWidth(), self:GetHeight()) * 0.42
+            local halfAngle = math.rad(32)
+            local cx, cy = 0, 0
+            local function Point(a)
+                return cx + math.sin(a) * radius, cy + math.cos(a) * radius
+            end
+
+            local leftX, leftY = Point(angle - halfAngle)
+            local rightX, rightY = Point(angle + halfAngle)
+            self.lines[1]:SetStartPoint("CENTER", self, cx, cy)
+            self.lines[1]:SetEndPoint("CENTER", self, leftX, leftY)
+            self.lines[2]:SetStartPoint("CENTER", self, cx, cy)
+            self.lines[2]:SetEndPoint("CENTER", self, rightX, rightY)
+
+            -- Ten short segments form the curved outer edge of the cone.
+            for i = 1, 10 do
+                local a1 = angle - halfAngle + (i - 1) * (halfAngle * 2 / 10)
+                local a2 = angle - halfAngle + i * (halfAngle * 2 / 10)
+                local x1, y1 = Point(a1)
+                local x2, y2 = Point(a2)
+                local line = self.lines[i + 2]
+                line:SetStartPoint("CENTER", self, x1, y1)
+                line:SetEndPoint("CENTER", self, x2, y2)
+            end
+        end)
+        minimap._euiFacingCone = cone
+    end
+    minimap._euiFacingCone:SetShown(p.showFacingCone)
 
     if not p.enabled then
         -- If we never touched the minimap this session, do absolutely nothing.
