@@ -42,6 +42,7 @@ local CHAT_DEFAULTS = {
             bgB        = 0.05,
             timestampFormat = "%I:%M ",
             abbreviateChannelNames = false,
+            removeNameBrackets = false,
             font = "__global",
             outlineMode = "__global",
             fontSize = 12,
@@ -2216,6 +2217,10 @@ local function RewriteChatText(text)
     local cfg = ECHAT.DB()
     if cfg.abbreviateChannelNames then
         text = text:gsub("(|Hchannel:[^|]*|h)%[(%d+)%.[^%]]*%](|h)", "%1[%2]%3")
+    end
+    if cfg.removeNameBrackets then
+        text = text:gsub("(|Hplayer:[^|]*|h)%[(.-)%](|h)", "%1%2%3")
+        text = text:gsub("(|HBNplayer:[^|]*|h)%[(.-)%](|h)", "%1%2%3")
     end
     return text
 end

@@ -131,3 +131,4 @@ L["Quest Tracker"]     = "Suivi de quêtes"
 L["Minimap"]           = "Minicarte"
 L["Chat"]              = true
 L["Damage Meters"]     = "Mesureur de dégâts"
+L["Remove Name Brackets"] = "Supprimer les crochets des noms"

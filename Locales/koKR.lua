@@ -4626,3 +4626,4 @@ if GetLocale() == "koKR" and EllesmereUI then
         ["윈첨"] = "첨탑",
     }
 end
+L["Remove Name Brackets"] = "이름 괄호 제거"

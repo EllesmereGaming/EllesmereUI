@@ -4490,3 +4490,4 @@ L["Abilities with multiple charges now show the recharge countdown number while 
 L["Fixed a taint issue with the chat box that could cause Lua errors, most often when receiving a whisper during combat."] = "Исправлен баг блокировки (taint) поля чата, приводивший к ошибкам Lua (чаще при получении сообщений в бою)."
 L["Custom class, power, and resource colors no longer reset to default after switching specs or profiles."] = "Свои цвета классов, энергии и ресурсов больше не сбрасываются после смены спека или профиля."
 
+L["Remove Name Brackets"] = "Убрать скобки у имён"

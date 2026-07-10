@@ -269,7 +269,10 @@ initFrame:SetScript("OnEvent", function(self)
               tooltip="Shortens channel names in chat: [2. Trade - City] becomes [2]. The channel link stays clickable.",
               getValue=function() return Cfg("abbreviateChannelNames") or false end,
               setValue=function(v) Set("abbreviateChannelNames", v) end },
-            nil)
+            { type="toggle", text="Remove Name Brackets",
+              tooltip="Removes the [brackets] around player names in chat. The name stays clickable.",
+              getValue=function() return Cfg("removeNameBrackets") or false end,
+              setValue=function(v) Set("removeNameBrackets", v) end })
         y = y - h
 
         -- -- SIDEBAR -----------------------------------------------------------

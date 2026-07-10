@@ -131,3 +131,4 @@ L["Quest Tracker"]     = "Tracciamento missioni"
 L["Minimap"]           = "Minimappa"
 L["Chat"]              = true
 L["Damage Meters"]     = "Misuratore danni"
+L["Remove Name Brackets"] = "Rimuovi parentesi dai nomi"
