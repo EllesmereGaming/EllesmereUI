@@ -21,6 +21,7 @@ local ECME
 local _anyPandemic  = false
 local _anyThreshold = false
 local _anyStacks    = false
+local _anyStackFill = false
 
 -- Glow helpers (from main CDM file)
 local function StartGlow(...) if ns.StartNativeGlow then return ns.StartNativeGlow(...) end end
@@ -1761,6 +1762,15 @@ local function FeedTBBThresholdOverlay(bar)
     overlay:SetValue(bar._stackCount or 0)
 end
 
+-- Resolve stack-fill mode for a bar. When enabled, the fill uses
+-- bar._stackCount / cfg.stackThresholdMax instead of remaining duration.
+local function ResolveStackFill(cfg)
+    if not _anyStackFill or not cfg.trackStacks then return false, 1 end
+    local m = tonumber(cfg.stackThresholdMax) or 10
+    if m < 1 then m = 1 end
+    return true, m
+end
+
 -------------------------------------------------------------------------------
 --  Tick Marks
 -------------------------------------------------------------------------------
@@ -3455,6 +3465,33 @@ function ns.UpdateTrackedBuffBarTimers()
                     if bar._pandemicGlowActive then ClearPandemic(bar) end
                 end
 
+                -- Stack-fill override: swap duration mirror for a stacks / max-stacks
+                -- fill, hide timer + spark, and drive stacks text from live aura data
+                -- (bypasses UpdateStacks so 1-stack auras still render).
+                if sb and _anyStackFill then
+                    local stackFill, maxStacks = ResolveStackFill(cfg)
+                    if stackFill then
+                        local stacks = 0
+                        if blzChild and blzChild.auraInstanceID and blzChild.auraDataUnit then
+                            local ok, ad = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID,
+                                blzChild.auraDataUnit, blzChild.auraInstanceID)
+                            if ok and ad and ad.applications then stacks = ad.applications end
+                        end
+                        sb:SetMinMaxValues(0, maxStacks)
+                        local smooth = wasShown and Enum and Enum.StatusBarInterpolation
+                            and Enum.StatusBarInterpolation.ExponentialEaseOut
+                        if smooth then sb:SetValue(stacks, smooth)
+                        else           sb:SetValue(stacks) end
+                        if bar._timerText then bar._timerText:Hide() end
+                        if bar._spark then bar._spark:Hide() end
+                        if bar._stacksText then
+                            bar._stacksText:SetText(tostring(stacks))
+                            bar._stacksText:Show()
+                        end
+                        bar._stackCount = stacks
+                    end
+                end
+
                 -- Threshold feed (gated)
                 if _anyThreshold and cfg.stackThresholdEnabled then
                     FeedTBBThresholdOverlay(bar)
@@ -3480,7 +3517,22 @@ function ns.UpdateTrackedBuffBarTimers()
                 local exp = fbAura.expirationTime
                 local isSec = issecretvalue
                 local clean = dur and exp and not (isSec and (isSec(dur) or isSec(exp)))
-                if sb then
+                local stackFill, maxStacks = ResolveStackFill(cfg)
+                if stackFill and sb then
+                    local stacks = fbAura.applications or 0
+                    sb:SetMinMaxValues(0, maxStacks)
+                    local smooth = wasShown and Enum and Enum.StatusBarInterpolation
+                        and Enum.StatusBarInterpolation.ExponentialEaseOut
+                    if smooth then sb:SetValue(stacks, smooth)
+                    else           sb:SetValue(stacks) end
+                    if bar._timerText then bar._timerText:Hide() end
+                    if bar._spark then bar._spark:Hide() end
+                    if bar._stacksText then
+                        bar._stacksText:SetText(tostring(stacks))
+                        bar._stacksText:Show()
+                    end
+                    bar._stackCount = stacks
+                elseif sb then
                     if clean and dur > 0 then
                         local remaining = exp - GetTime()
                         if remaining < 0 then remaining = 0 end
@@ -3534,9 +3586,12 @@ function ns.UpdateTrackedBuffBarTimers()
                     bar._nameSet = true
                 end
                 -- Keep the extras quiet in fallback mode: no Blizzard child to
-                -- read stacks/pandemic state from.
-                if bar._stacksText then bar._stacksText:Hide() end
-                bar._stackCount = 0
+                -- read stacks/pandemic state from. Skipped when stack-fill drove
+                -- them above.
+                if not stackFill then
+                    if bar._stacksText then bar._stacksText:Hide() end
+                    bar._stackCount = 0
+                end
                 if bar._pandemicGlowActive then ClearPandemic(bar) end
             else
                 -- Inactive: clear transient state
@@ -3669,6 +3724,7 @@ function ns.BuildTrackedBuffBars()
     _anyPandemic  = false
     _anyThreshold = false
     _anyStacks    = false
+    _anyStackFill = false
 
     local anyEnabled = false
     local anyLust = false  -- any enabled bloodlust bar -> needs the Sated listener
@@ -3678,6 +3734,7 @@ function ns.BuildTrackedBuffBars()
         if cfg.pandemicGlow                             then _anyPandemic  = true end
         if cfg.stackThresholdEnabled                    then _anyThreshold = true; _anyStacks = true end
         if (cfg.stacksPosition or "center") ~= "none"  then _anyStacks    = true end
+        if cfg.trackStacks                              then _anyStackFill = true; _anyStacks = true end
 
         if not tbbFrames[i] then
             tbbFrames[i] = CreateTrackedBuffBarFrame(UIParent, i)

@@ -5158,6 +5158,25 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateThreshSwatchState()
         end
 
+        -- Row 2b: Fill Bar by Stacks (toggle)
+        -- Bar fills by current stacks / stackThresholdMax (the "Enable Max Stacks"
+        -- slider above) instead of remaining duration. Read live in
+        -- EllesmereUICdmBuffBars.lua via cfg.trackStacks / cfg.stackThresholdMax.
+        do
+            local _
+            _, h = W:DualRow(parent, y,
+                { type = "toggle", text = "Fill Bar by Stacks",
+                  tooltip = "Fill the bar by the aura's current stacks / max stacks (uses the Max Stacks value from the Enable Max Stacks row above) instead of by remaining duration. Timer text and spark are hidden while this is on.",
+                  getValue = function() local bd = SelectedTBB(); return bd and bd.trackStacks end,
+                  setValue = function(v)
+                      local bd = SelectedTBB(); if not bd then return end
+                      bd.trackStacks = v and true or nil
+                      RefreshTBB(); EllesmereUI:RefreshPage()
+                  end },
+                { type = "label", text = "" }
+            );  y = y - h
+        end
+
         -- Row 3: Pandemic Glow | Pandemic Glow Preview
         do
             local function tbbPandemicOff()
