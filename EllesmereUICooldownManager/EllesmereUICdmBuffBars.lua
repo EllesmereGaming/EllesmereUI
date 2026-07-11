@@ -3485,7 +3485,7 @@ function ns.UpdateTrackedBuffBarTimers()
                         if bar._timerText then bar._timerText:Hide() end
                         if bar._spark then bar._spark:Hide() end
                         if bar._stacksText then
-                            bar._stacksText:SetText(tostring(stacks))
+                            bar._stacksText:SetText(stacks)
                             bar._stacksText:Show()
                         end
                         bar._stackCount = stacks
@@ -3528,7 +3528,7 @@ function ns.UpdateTrackedBuffBarTimers()
                     if bar._timerText then bar._timerText:Hide() end
                     if bar._spark then bar._spark:Hide() end
                     if bar._stacksText then
-                        bar._stacksText:SetText(tostring(stacks))
+                        bar._stacksText:SetText(stacks)
                         bar._stacksText:Show()
                     end
                     bar._stackCount = stacks
