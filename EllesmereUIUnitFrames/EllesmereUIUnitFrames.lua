@@ -3998,9 +3998,24 @@ function ns.UpdatePowerBorder(power, settings)
         settings.powerBorderAlpha or 1, settings.powerBorderStyle or "solid",
         settings.powerBorderOffsetX, settings.powerBorderOffsetY,
         settings.powerBorderShiftX, settings.powerBorderShiftY, "unitframes", size)
-    border:SetFrameLevel(settings.powerBorderBehind
-        and math.max(0, power:GetFrameLevel() - 1) or (power:GetFrameLevel() + 5))
-    if isDet and size > 0 then border:Show() else border:Hide() end
+    local borderLevel = settings.powerBorderBehind
+        and math.max(0, power:GetFrameLevel() - 1) or (power:GetFrameLevel() + 5)
+    border:SetFrameLevel(borderLevel)
+    local showBorder = isDet and size > 0
+    if showBorder then border:Show() else border:Hide() end
+
+    -- Power text overlay must clear the border: it shares the bar's strata and can
+    -- sit above the overlay's default level, so match strata and lift past it.
+    local ovr = power._ppTextOvr
+    if ovr then
+        ovr:SetFrameStrata(power:GetFrameStrata())
+        if showBorder then
+            ovr:SetFrameLevel(borderLevel + 5)
+        else
+            local pf = power:GetParent()
+            ovr:SetFrameLevel((pf and pf:GetFrameLevel() or power:GetFrameLevel()) + 15)
+        end
+    end
 end
 
 local function CreatePowerBar(frame, unit, settings)
