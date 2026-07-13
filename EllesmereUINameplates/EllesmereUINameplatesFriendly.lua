@@ -527,6 +527,12 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
         end
     end
 
+    if IsNameOnlyMode() then
+        C_Timer.After(0, function()
+            if ns.RefreshNameOnlyMarkers then ns.RefreshNameOnlyMarkers() end
+        end)
+    end
+
     -- Name-only mode (players): remove Blizzard's width constraint on the
     -- name FontString so long names are never truncated with "...".
     if IsNameOnlyMode() and UnitIsPlayer(unit) then
@@ -551,6 +557,71 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
     end
 end)
 
+local nameOnlyMarkers = {}
+
+local function GetNameOnlyNameFS(nameplate)
+    local overlay = npcOverlays[nameplate]
+    if overlay and overlay.name then return overlay.name, overlay end
+    local uf = nameplate.UnitFrame
+    if uf and uf.name then return uf.name, nameplate end
+    return nil
+end
+
+local function UpdateNameOnlyMarker(nameplate, unit)
+    local mk = nameOnlyMarkers[nameplate]
+    local enabled, size, alpha
+    if ns.GetNameRaidMarkerCfg then enabled, size, alpha = ns.GetNameRaidMarkerCfg() end
+    local idx
+    if enabled and IsNameOnlyMode() and unit and GetRaidTargetIndex then
+        idx = GetRaidTargetIndex(unit)
+    end
+    if not idx then
+        if mk then mk:Hide() end
+        return
+    end
+    local nameFS, parent = GetNameOnlyNameFS(nameplate)
+    if not nameFS or not nameFS:IsShown() then
+        if mk then mk:Hide() end
+        return
+    end
+    if not mk then
+        mk = CreateFrame("Frame", nil, UIParent)
+        mk.tex = mk:CreateTexture(nil, "OVERLAY")
+        mk.tex:SetAllPoints()
+        mk.tex:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+        nameOnlyMarkers[nameplate] = mk
+    end
+    mk:SetParent(parent)
+    mk:SetFrameLevel(((parent.GetFrameLevel and parent:GetFrameLevel()) or 0) + 6)
+    mk:ClearAllPoints()
+    mk:SetPoint("RIGHT", nameFS, "LEFT", -3, 0)
+    mk:SetSize(size, size)
+    mk:SetAlpha(alpha)
+    SetRaidTargetIconTexture(mk.tex, idx)
+    mk:Show()
+end
+
+local function HideNameOnlyMarker(nameplate)
+    local mk = nameOnlyMarkers[nameplate]
+    if mk then mk:Hide(); mk:SetParent(UIParent); mk:ClearAllPoints() end
+end
+
+function ns.RefreshNameOnlyMarkers()
+    if not (C_NamePlate and C_NamePlate.GetNamePlates) then return end
+    for _, nameplate in ipairs(C_NamePlate.GetNamePlates()) do
+        local unit = nameplate.namePlateUnitToken
+        if unit and not UnitCanAttack("player", unit) and not UnitIsUnit(unit, "player") then
+            UpdateNameOnlyMarker(nameplate, unit)
+        end
+    end
+end
+
+local nameOnlyMarkerWatcher = CreateFrame("Frame")
+nameOnlyMarkerWatcher:RegisterEvent("RAID_TARGET_UPDATE")
+nameOnlyMarkerWatcher:SetScript("OnEvent", function()
+    ns.RefreshNameOnlyMarkers()
+end)
+
 hooksecurefunc(NamePlateDriverFrame, "OnNamePlateRemoved", function(_, unit)
     -- Guard: Blizzard settings panel can fire this with "preview" which is not a valid unit
     if not unit or not unit:find("^nameplate") then return end
@@ -558,6 +629,7 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateRemoved", function(_, unit)
     local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
     if nameplate then
         HideNPCOverlay(nameplate)
+        HideNameOnlyMarker(nameplate)
         nameOnlyNPCSuppressed[nameplate] = nil
     end
     if modifiedUFs[unit] then
@@ -808,6 +880,7 @@ function FriendlyFrame:ClearUnit()
     self.glow:Hide()
     if ns.HideHoverEffect then ns.HideHoverEffect(self) else self.highlight:Hide() end
     self.raidFrame:Hide()
+    if self.nameRaidFrame then self.nameRaidFrame:Hide() end
     self.leftArrow:Hide()
     self.rightArrow:Hide()
     self:Hide()
@@ -849,8 +922,25 @@ function FriendlyFrame:UpdateName()
     self.name:SetText(unitName or "")
 end
 
+function FriendlyFrame:UpdateNameRaidIcon()
+    local nrf = self.nameRaidFrame
+    if not nrf then return end
+    local enabled, size, alpha
+    if ns.GetNameRaidMarkerCfg then enabled, size, alpha = ns.GetNameRaidMarkerCfg() end
+    local idx
+    if enabled and self.unit then
+        idx = GetRaidTargetIndex and GetRaidTargetIndex(self.unit)
+    end
+    if not idx then nrf:Hide(); return end
+    SetRaidTargetIconTexture(self.nameRaid, idx)
+    nrf:SetSize(size, size)
+    nrf:SetAlpha(alpha)
+    nrf:Show()
+end
+
 function FriendlyFrame:UpdateRaidIcon()
     if not self.unit then return end
+    self:UpdateNameRaidIcon()
     local pos = ns.GetRaidMarkerPos()
     if pos == "none" then self.raidFrame:Hide(); return end
     local idx = GetRaidTargetIndex and GetRaidTargetIndex(self.unit)
@@ -859,6 +949,7 @@ function FriendlyFrame:UpdateRaidIcon()
     local sz = ns.GetRaidMarkerSize()
     local rmY = ns.GetRaidMarkerYOffset()
     self.raidFrame:SetSize(sz, sz)
+    if ns.GetRaidMarkerAlpha then self.raidFrame:SetAlpha(ns.GetRaidMarkerAlpha()) end
     self.raidFrame:ClearAllPoints()
     if pos == "top" then
         self.raidFrame:SetPoint("BOTTOM", self.health, "TOP", 0, ns.GetDebuffYOffset())
@@ -979,6 +1070,7 @@ function ns.RemoveFriendlyPlateNoRestore(unit)
     plate.glow:Hide()
     if ns.HideHoverEffect then ns.HideHoverEffect(plate) else plate.highlight:Hide() end
     plate.raidFrame:Hide()
+    if plate.nameRaidFrame then plate.nameRaidFrame:Hide() end
     plate.leftArrow:Hide()
     plate.rightArrow:Hide()
     plate:Hide()
@@ -1052,6 +1144,13 @@ function ns.RefreshFriendlyHealthText()
     for _, plate in pairs(friendlyPlates) do
         plate:UpdateHealth()
     end
+end
+
+function ns.RefreshFriendlyRaidIcons()
+    for _, plate in pairs(friendlyPlates) do
+        plate:UpdateRaidIcon()
+    end
+    if ns.RefreshNameOnlyMarkers then ns.RefreshNameOnlyMarkers() end
 end
 
 function ns.RefreshFriendlyColors()
