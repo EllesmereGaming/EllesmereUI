@@ -907,6 +907,18 @@ initFrame:SetScript("OnEvent", function(self)
             { type="label", text="" }
         );  y = y - h
 
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Scale", min=0.5, max=1.5, step=0.05,
+              tooltip="Scales the entire character and inspect sheet. Applies out of combat; changes made in combat take effect when combat ends.",
+              getValue=function() return (EllesmereUIDB and EllesmereUIDB.charSheetScale) or 1.0 end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.charSheetScale = v
+                  if EllesmereUI._refreshCharSheetScale then EllesmereUI._refreshCharSheetScale() end
+              end },
+            { type="spacer" }
+        );  y = y - h
+
         _, h = W:Spacer(parent, y, 10);  y = y - h
 
         ---------------------------------------------------------------------------

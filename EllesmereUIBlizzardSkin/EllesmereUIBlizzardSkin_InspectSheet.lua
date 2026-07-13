@@ -1053,6 +1053,7 @@ if EllesmereUI then
         InspectFrame:HookScript("OnShow", function()
             skinned = false
             ApplyThemedInspectSheet()
+            if EllesmereUI._refreshCharSheetScale then EllesmereUI._refreshCharSheetScale() end
             C_Timer.After(0.1, function()
                 if not InspectFrame or not InspectFrame:IsShown() then return end
                 if EllesmereUI._refreshInspectItemLevelVisibility then

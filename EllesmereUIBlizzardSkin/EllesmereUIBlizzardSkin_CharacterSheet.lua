@@ -4912,6 +4912,9 @@ if EllesmereUI then
             -- Heavy skin (model, slots, stats, tabs) defers to first OnShow.
             CharacterFrame:HookScript("OnShow", ApplyThemedCharacterSheet)
 
+            EllesmereUI._refreshCharSheetScale()
+            CharacterFrame:HookScript("OnShow", EllesmereUI._refreshCharSheetScale)
+
             -- Function to detect and set active equipment set
             local function UpdateActiveEquipmentSet()
                 local setIDs = C_EquipmentSet.GetEquipmentSetIDs()
@@ -5138,6 +5141,27 @@ function EllesmereUI._refreshCharSheetIconZoom()
             slot.icon:SetTexCoord(z, 1 - z, z, 1 - z)
         end
     end
+end
+
+-- Apply the user scale to the character (and inspect) sheet. SetScale on these
+-- managed UIPanels taints the panel-position manager if it runs while the
+-- position manager executes, so defer to PLAYER_REGEN_ENABLED when in combat.
+local _charSheetScaleWaiter
+function EllesmereUI._refreshCharSheetScale()
+    local s = (EllesmereUIDB and EllesmereUIDB.charSheetScale) or 1.0
+    if InCombatLockdown() then
+        if not _charSheetScaleWaiter then
+            _charSheetScaleWaiter = CreateFrame("Frame")
+            _charSheetScaleWaiter:SetScript("OnEvent", function(self)
+                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+                EllesmereUI._refreshCharSheetScale()
+            end)
+        end
+        _charSheetScaleWaiter:RegisterEvent("PLAYER_REGEN_ENABLED")
+        return
+    end
+    if CharacterFrame and CharacterFrame:GetScale() ~= s then CharacterFrame:SetScale(s) end
+    if InspectFrame and InspectFrame:GetScale() ~= s then InspectFrame:SetScale(s) end
 end
 
 -- Function to refresh upgrade track visibility when toggle changes
