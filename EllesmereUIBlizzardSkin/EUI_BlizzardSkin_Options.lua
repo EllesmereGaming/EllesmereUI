@@ -1161,6 +1161,29 @@ initFrame:SetScript("OnEvent", function(self)
         return y
     end
 
+    local function BuildMerchantContent(parent, y)
+        local W = EllesmereUI.Widgets
+        local _, h
+
+        _, h = WSCardSection(parent, "QUALITY OF LIFE", y);  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Item Level",
+              tooltip="Shows the item level on each weapon and armor piece a vendor is selling. Works with or without the reskin.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.merchantShowItemLevel == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.merchantShowItemLevel = v
+                  if EllesmereUI._Merchant_RefreshItemLevels then EllesmereUI._Merchant_RefreshItemLevels() end
+              end },
+            { type="label", text="" }
+        );  y = y - h
+
+        return y
+    end
+
     ---------------------------------------------------------------------------
     --  Blizzard Window Skins page: one expandable card per reskinned window.
     --  Card headers are custom chrome, but every sub-setting ROW is a standard
@@ -1510,6 +1533,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 EllesmereUIDB.reskinMerchant = v
             end,
+            buildContent = BuildMerchantContent,
         },
         {
             key   = "auctionhouse",

@@ -215,7 +215,6 @@ Font changed. A UI reload is needed to apply the new font.
 Food
 For Icons: Left click to edit group, Right click to custom size individual
 For player frame, this provides a simple, mini castbar below player frame. To edit the main player cast bar, %sclick here|r
-Frame Source
 From
 Full Preview
 GLOBAL
@@ -324,6 +323,7 @@ OneBag
 OneBank
 OneWarbank
 Opacity
+Override Active:
 PER-SPELL OPTIONS
 Page
 Paste your profile string here...

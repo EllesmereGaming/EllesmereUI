@@ -7610,6 +7610,83 @@ WSkin.RegisterWindow({
 })
 
 -------------------------------------------------------------------------------
+--  Merchant item-level overlay (QoL, independent of the Merchant reskin).
+--  Shows the item level on the top-left of each vendor tile for gear
+--  (weapons/armor) when EllesmereUIDB.merchantShowItemLevel is set. Buttons
+--  carry their merchant slot index as their ID (Blizzard's MerchantFrame_Update
+--  sets it), so we resolve the link straight from GetMerchantItemLink.
+-------------------------------------------------------------------------------
+local MERCHANT_ILVL_WEAPON = Enum.ItemClass.Weapon
+local MERCHANT_ILVL_ARMOR  = Enum.ItemClass.Armor
+
+local function UpdateMerchantItemLevels()
+    local f = _G.MerchantFrame
+    if not f then return end
+    local show = EllesmereUIDB and EllesmereUIDB.merchantShowItemLevel == true
+    local onSellTab = (f.selectedTab or 1) == 1
+    for i = 1, 12 do
+        local btn = _G["MerchantItem" .. i .. "ItemButton"]
+        if btn then
+            local fs = btn.EUIMerchantILvl
+            if not fs then
+                fs = btn:CreateFontString(nil, "OVERLAY", nil, 7)
+                fs:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
+                local path = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+                local flag = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE"
+                fs:SetFont(path, 12, flag)
+                btn.EUIMerchantILvl = fs
+            end
+            fs:SetText("")
+            if show and onSellTab and f:IsVisible() then
+                local index = btn:GetID()
+                local link = index and index > 0 and GetMerchantItemLink(index)
+                if link then
+                    local _, _, _, _, _, classID = C_Item.GetItemInfoInstant(link)
+                    if classID == MERCHANT_ILVL_WEAPON or classID == MERCHANT_ILVL_ARMOR then
+                        local ilvl = C_Item.GetDetailedItemLevelInfo(link)
+                        if ilvl and ilvl > 0 then
+                            fs:SetText(ilvl)
+                            local quality = select(3, C_Item.GetItemInfo(link))
+                            local r, g, b = 1, 1, 1
+                            if EllesmereUI.GetItemLevelColor then
+                                local c = EllesmereUI.GetItemLevelColor(link, quality)
+                                if c then r, g, b = c.r or 1, c.g or 1, c.b or 1 end
+                            elseif quality then
+                                r, g, b = C_Item.GetItemQualityColor(quality)
+                            end
+                            fs:SetTextColor(r, g, b, 1)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+EllesmereUI._Merchant_RefreshItemLevels = UpdateMerchantItemLevels
+
+local _merchantILvlHooked = false
+local function EnsureMerchantILvlHook()
+    if _merchantILvlHooked then return end
+    _merchantILvlHooked = true
+    if type(_G.MerchantFrame_Update) == "function" then
+        hooksecurefunc("MerchantFrame_Update", WSkin.Debounce(UpdateMerchantItemLevels))
+    end
+end
+
+local mILvlBoot = CreateFrame("Frame")
+mILvlBoot:RegisterEvent("PLAYER_LOGIN")
+mILvlBoot:RegisterEvent("MERCHANT_SHOW")
+mILvlBoot:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+mILvlBoot:SetScript("OnEvent", function(_, event)
+    if event == "GET_ITEM_INFO_RECEIVED"
+       and not (_G.MerchantFrame and _G.MerchantFrame:IsVisible()) then
+        return
+    end
+    EnsureMerchantILvlHook()
+    UpdateMerchantItemLevels()
+end)
+
+-------------------------------------------------------------------------------
 --  Class / Profession Trainer (ClassTrainerFrame, Blizzard_TrainerUI)
 --  Portrait frame: flat chrome, squared skill-row icons, native availability
 --  text color kept (green/red/gray -- like item rarity, we never force white),
