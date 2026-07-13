@@ -746,18 +746,24 @@ end
 -- SetParent (avoids tainting the secure scenario tree), no recursion into
 -- children (avoids the invisible-click-catcher pattern).
 local _trackerHookInstalled = false
+local _trackerHidePending = false
 local function InstallTrackerHook()
     if _trackerHookInstalled then return end
     local otf = _G.ObjectiveTrackerFrame
     if not otf then return end
     _trackerHookInstalled = true
+
+    local combatFrame = CreateFrame("Frame")
+    combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    combatFrame:SetScript("OnEvent", function()
+        if _trackerHidePending then
+            _trackerHidePending = false
+            if otf:IsShown() then otf:Hide() end
+        end
+    end)
+
     hooksecurefunc(otf, "Show", function()
         if not (db and db.profile and db.profile.enabled) then return end
-        -- Hide during active challenge AND after it completes but before
-        -- the player has left the dungeon instance. Blizzard's end-of-run
-        -- fanfare flips IsChallengeModeActive() back to false while the
-        -- user is still inside -- without the completed + party gate the
-        -- tracker pops back up for the last seconds before zone-out.
         local active = C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
                        and C_ChallengeMode.IsChallengeModeActive()
         local completedInInstance = currentRun and currentRun.completed
@@ -766,7 +772,11 @@ local function InstallTrackerHook()
             completedInInstance = (iType == "party")
         end
         if active or completedInInstance then
-            otf:Hide()
+            if InCombatLockdown() then
+                _trackerHidePending = true
+            else
+                otf:Hide()
+            end
         end
     end)
 end
@@ -780,7 +790,11 @@ local function ApplyTrackerVisibility()
     if db and db.profile and db.profile.enabled
        and C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
        and C_ChallengeMode.IsChallengeModeActive() then
-        otf:Hide()
+        if InCombatLockdown() then
+            _trackerHidePending = true
+        else
+            otf:Hide()
+        end
     end
 end
 
