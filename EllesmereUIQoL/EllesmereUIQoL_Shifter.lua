@@ -31,6 +31,7 @@ local PRELOADED = {
     "BankFrame",
     "MailFrame",
     "GossipFrame",
+    "QuestFrame",
     "MerchantFrame",
     "AddonList",
     "ChatConfigFrame",
@@ -94,8 +95,15 @@ local ADDON_FRAMES = {
 -- For these frames the drag target is a child header element, not the frame
 -- itself (avoids fighting model-rotate or interior click regions).
 local DRAG_HEADERS = {
-    ["AchievementFrame"] = "AchievementFrameHeader",
-    ["WorldMapFrame"]    = "WorldMapTitleButton",
+    ["WorldMapFrame"] = "WorldMapTitleButton",
+}
+
+-- Extra drag handles layered ON TOP of the frame body. Used when a
+-- mouse-enabled child sits over the frame and would otherwise swallow the
+-- drag (e.g. the Achievement frame's floating points header). Values resolve
+-- to a child frame: either a global name or a function(frame) -> child.
+local EXTRA_DRAG_TARGETS = {
+    ["AchievementFrame"] = function(frame) return frame.Header or _G["AchievementFrameHeader"] end,
 }
 
 -- Blizzard windows that normally dock beside CharacterFrame (Item Upgrade,
@@ -471,55 +479,64 @@ local function HookFrame(frame, name)
         frame:SetClampedToScreen(true)
     end
 
-    -- Determine drag target (header child or the frame itself)
-    local headerName = DRAG_HEADERS[name]
-    local dragTarget = (headerName and _G[headerName]) or frame
-
     local dragging  -- non-protected only: "save" | "temp" | nil
 
-    dragTarget:HookScript("OnMouseDown", function(_, button)
-        if not IsEnabled() then return end
-        if button ~= "LeftButton" then return end
-        if InCombatLockdown() and frame:IsProtected() then return end
-        local noShift = EllesmereUIDB and EllesmereUIDB.shifterNoShift
-        local mode
-        if IsShiftKeyDown() or noShift then
-            mode = "save"
-        elseif IsControlKeyDown() then
-            mode = "temp"
-        else
-            return
-        end
-        if frame:IsProtected() then
-            StartSecureDrag(frame, name, mode)
-        else
-            dragging = mode
-            frame:StartMoving()
-        end
-    end)
-
-    dragTarget:HookScript("OnMouseUp", function(_, button)
-        if button ~= "LeftButton" then return end
-        if frame:IsProtected() then
-            if secureDrag.frame == frame then StopSecureDrag() end
-            return
-        end
-        if not dragging then return end
-        frame:StopMovingOrSizing()
-        frame:SetUserPlaced(false)
-        local p, _, rp, x, y = frame:GetPoint(1)
-        if p then
-            if dragging == "save" then
-                SavePos(name, p, rp, x, y)
-                tempPos[frame] = nil
+    local function AttachDrag(dragTarget)
+        if not dragTarget or not dragTarget.HookScript then return end
+        dragTarget:HookScript("OnMouseDown", function(_, button)
+            if not IsEnabled() then return end
+            if button ~= "LeftButton" then return end
+            if InCombatLockdown() and frame:IsProtected() then return end
+            local noShift = EllesmereUIDB and EllesmereUIDB.shifterNoShift
+            local mode
+            if IsShiftKeyDown() or noShift then
+                mode = "save"
+            elseif IsControlKeyDown() then
+                mode = "temp"
             else
-                tempPos[frame] = {
-                    point = p, relPoint = rp, x = x, y = y,
-                }
+                return
             end
-        end
-        dragging = nil
-    end)
+            if frame:IsProtected() then
+                StartSecureDrag(frame, name, mode)
+            else
+                dragging = mode
+                frame:StartMoving()
+            end
+        end)
+
+        dragTarget:HookScript("OnMouseUp", function(_, button)
+            if button ~= "LeftButton" then return end
+            if frame:IsProtected() then
+                if secureDrag.frame == frame then StopSecureDrag() end
+                return
+            end
+            if not dragging then return end
+            frame:StopMovingOrSizing()
+            frame:SetUserPlaced(false)
+            local p, _, rp, x, y = frame:GetPoint(1)
+            if p then
+                if dragging == "save" then
+                    SavePos(name, p, rp, x, y)
+                    tempPos[frame] = nil
+                else
+                    tempPos[frame] = {
+                        point = p, relPoint = rp, x = x, y = y,
+                    }
+                end
+            end
+            dragging = nil
+        end)
+    end
+
+    -- Primary drag target (header child or the frame itself)
+    local headerName = DRAG_HEADERS[name]
+    AttachDrag((headerName and _G[headerName]) or frame)
+
+    -- Extra handles layered on top of the frame body
+    local extra = EXTRA_DRAG_TARGETS[name]
+    if extra then
+        AttachDrag(type(extra) == "function" and extra(frame) or _G[extra])
+    end
 
     frame:HookScript("OnShow", function()
         if not IsEnabled() then return end

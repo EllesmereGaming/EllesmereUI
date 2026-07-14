@@ -383,6 +383,25 @@ local playerFriendlySpell = FRIENDLY_SPELL_BY_CLASS[playerClassToken]
 -- Rendered as a white border matching the hover highlight style.
 local THREAT_ACTIVE = { [2] = true, [3] = true }
 
+-- Combat indicator media + class sprite coords (shared with the Unit Frames
+-- combat icon assets). Kept on `ns` to avoid the Lua 5.1 chunk local cap.
+ns._COMBAT_MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\combat\\"
+ns._COMBAT_CLASS_COORDS = {
+    WARRIOR     = { 0,     0.125, 0,     0.125 },
+    MAGE        = { 0.125, 0.25,  0,     0.125 },
+    ROGUE       = { 0.25,  0.375, 0,     0.125 },
+    DRUID       = { 0.375, 0.5,   0,     0.125 },
+    EVOKER      = { 0.5,   0.625, 0,     0.125 },
+    HUNTER      = { 0,     0.125, 0.125, 0.25  },
+    SHAMAN      = { 0.125, 0.25,  0.125, 0.25  },
+    PRIEST      = { 0.25,  0.375, 0.125, 0.25  },
+    WARLOCK     = { 0.375, 0.5,   0.125, 0.25  },
+    PALADIN     = { 0,     0.125, 0.25,  0.375 },
+    DEATHKNIGHT = { 0.125, 0.25,  0.25,  0.375 },
+    MONK        = { 0.25,  0.375, 0.25,  0.375 },
+    DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
+}
+
 -------------------------------------------------------------------------------
 --  Default settings
 -------------------------------------------------------------------------------
@@ -588,6 +607,15 @@ local defaults = {
         leaderIconSize   = 14,
         leaderIconOffsetX  = 0,
         leaderIconOffsetY  = 0,
+        -- Combat icon: shown on members who are in combat (M+ skip awareness)
+        showCombatIndicator = false,
+        combatIndicatorStyle = "standard",   -- standard/class/combat0..5 (none handled by showCombatIndicator)
+        combatIndicatorColor = "custom",      -- custom/classcolor (standard/class styles only)
+        combatIndicatorCustomColor = { r = 1, g = 0.2, b = 0.2 },
+        combatIndicatorSize  = 16,
+        combatIndicatorPosition = "right",
+        combatIndicatorOffsetX = 0,
+        combatIndicatorOffsetY = 0,
         statusTextPosition = "center",
         statusTextOffsetX  = 0,
         statusTextOffsetY  = 0,
@@ -3311,6 +3339,23 @@ local function StyleButton(button)
     AnchorReadyCheck()
     d.AnchorReadyCheck = AnchorReadyCheck
 
+    -- Combat icon (on the marker carrier, above the border). Shows for members
+    -- currently affecting combat; the 9-position anchor mirrors the role icon.
+    local combatIcon = markerCarrier:CreateTexture(nil, "OVERLAY", nil, 1)
+    local ciSz = PixelSnap(s.combatIndicatorSize or 16)
+    combatIcon:SetSize(ciSz, ciSz)
+    combatIcon:Hide()
+    d.combatIcon = combatIcon
+
+    local function AnchorCombatIcon()
+        local s = LiveS()   -- party/extra-aware (see LiveS note above)
+        combatIcon:ClearAllPoints()
+        local pos = (s.combatIndicatorPosition or "right"):upper()
+        combatIcon:SetPoint(pos, health, pos, s.combatIndicatorOffsetX or 0, s.combatIndicatorOffsetY or 0)
+    end
+    AnchorCombatIcon()
+    d.AnchorCombatIcon = AnchorCombatIcon
+
     -- Debuff icons (pre-created, anchored dynamically)
     d.debuffIcons = {}
     local cap = s.debuffCap or 3
@@ -4048,6 +4093,56 @@ ns._UpdateLeaderIcon = function(d, s, unit)
 end
 
 -------------------------------------------------------------------------------
+--  Combat icon show/hide decision. Shows for group members who are currently
+--  affecting combat (M+ skip awareness). Driven by UpdateButton and the
+--  lightweight ns._UpdateCombatIcons updater (UNIT_FLAGS / regen transitions).
+--  Texture Show/Hide is combat-legal. (Lives on ns to respect the chunk local
+--  cap.)
+-------------------------------------------------------------------------------
+ns._UpdateCombatIcon = function(d, s, unit)
+    local icon = d.combatIcon
+    if not icon then return end
+    if not s.showCombatIndicator then icon:Hide(); return end
+    local c = UnitAffectingCombat(unit)
+    if issecretvalue(c) or not c then icon:Hide(); return end
+
+    local EllesmereUI = ns.EllesmereUI
+    local style = s.combatIndicatorStyle or "standard"
+    local MEDIA = ns._COMBAT_MEDIA
+    if style:find("^combat%d") then
+        icon:SetTexture(MEDIA .. style .. ".tga")
+        icon:SetTexCoord(0, 1, 0, 1)
+        if icon.SetDesaturated then icon:SetDesaturated(false) end
+        icon:SetVertexColor(1, 1, 1, 1)
+    else
+        local classToken = d.classToken
+        if not classToken then local _, ct = UnitClass(unit); classToken = ct end
+        if classToken and issecretvalue(classToken) then classToken = nil end
+        if style == "class" then
+            icon:SetTexture(MEDIA .. "combat-indicator-class-custom.png")
+            local coords = classToken and ns._COMBAT_CLASS_COORDS[classToken]
+            if coords then
+                icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+            else
+                icon:SetTexCoord(0, 1, 0, 1)
+            end
+        else
+            icon:SetTexture(MEDIA .. "combat-indicator-custom.png")
+            icon:SetTexCoord(0, 1, 0, 1)
+        end
+        local colorMode = s.combatIndicatorColor or "custom"
+        if colorMode == "classcolor" then
+            local cc = (classToken and EllesmereUI.GetClassColor and EllesmereUI.GetClassColor(classToken)) or { r = 1, g = 1, b = 1 }
+            icon:SetVertexColor(cc.r, cc.g, cc.b, 1)
+        else
+            local cc = s.combatIndicatorCustomColor or { r = 1, g = 1, b = 1 }
+            icon:SetVertexColor(cc.r, cc.g, cc.b, 1)
+        end
+    end
+    icon:Show()
+end
+
+-------------------------------------------------------------------------------
 --  Update all visual elements for a single button
 -------------------------------------------------------------------------------
 local function UpdateButton(button)
@@ -4281,6 +4376,9 @@ local function UpdateButton(button)
 
     -- Leader/assistant icon (honors the "Show In Combat" cog)
     ns._UpdateLeaderIcon(d, s, unit)
+
+    -- Combat icon (members currently in combat)
+    ns._UpdateCombatIcon(d, s, unit)
 
     -- Raid marker
     if d.raidMarker then
@@ -5895,6 +5993,65 @@ ns._UpdateLeaderIcons = function()
     for unit, btn in pairs(ns._xfUnitToButton) do updateLeader(unit, btn) end
 end
 
+-- Lightweight: only refresh combat icons on each button. Driven by UNIT_FLAGS
+-- (per-unit combat flag flips) and combat transitions. Texture Show/Hide is
+-- combat-legal, so this is safe to run from PLAYER_REGEN_DISABLED.
+ns._UpdateCombatIcons = function()
+    local function updateCombat(unit, btn)
+        local d = GetFFD(btn)
+        if not d.combatIcon then return end
+        local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
+        ns._UpdateCombatIcon(d, s, unit)
+    end
+    for unit, btn in pairs(unitToButton) do updateCombat(unit, btn) end
+    for unit, btn in pairs(ns._partyUnitToButton) do updateCombat(unit, btn) end
+    for unit, btn in pairs(ns._xfUnitToButton) do updateCombat(unit, btn) end
+end
+
+-- Single-unit combat icon refresh for UNIT_FLAGS routing (raid + party).
+ns._UpdateCombatIconFor = function(unit, btn)
+    local d = GetFFD(btn)
+    if not d.combatIcon then return end
+    local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
+    ns._UpdateCombatIcon(d, s, unit)
+end
+
+-- True when the combat icon is enabled anywhere (raid or effective party). Used
+-- to skip all combat-icon work while the feature is off.
+ns._CombatIconEnabled = function()
+    if not (db and db.profile) then return false end
+    if db.profile.showCombatIndicator then return true end
+    if ns._partyProxy.showCombatIndicator then return true end
+    return false
+end
+
+-- Register UNIT_FLAGS on the per-unit trackers ONLY while the combat icon is
+-- enabled (raid uses its own key; party its effective key). When the option is
+-- off, no tracker listens for UNIT_FLAGS, so the disabled feature runs no event
+-- code at all. Event (un)registration is combat-legal. Extra Frames trackers
+-- are gated separately inside XF_Apply. Called from ReloadFrames and once after
+-- the trackers are built.
+ns.UpdateCombatEventRegistration = function()
+    if not (db and db.profile) then return end
+    local raidWant  = db.profile.showCombatIndicator and true or false
+    local partyWant = ns._partyProxy.showCombatIndicator and true or false
+    for unit, tracker in pairs(unitTrackers) do
+        local want
+        if unit == "player" then
+            want = raidWant or partyWant
+        elseif unit:find("^party%d") then
+            want = partyWant
+        else
+            want = raidWant
+        end
+        if want then
+            tracker:RegisterUnitEvent("UNIT_FLAGS", unit)
+        else
+            tracker:UnregisterEvent("UNIT_FLAGS")
+        end
+    end
+end
+
 -- Lightweight: health-only update for UNIT_HEALTH / UNIT_MAXHEALTH.
 -- Skips power, name, role, leader, marker, target, threat -- those don't
 -- change on health events and are handled by their own event paths.
@@ -6981,6 +7138,11 @@ XF.Layout = function()
             d.readyCheck:SetSize(rcSz, rcSz)
             if d.AnchorReadyCheck then d.AnchorReadyCheck() end
         end
+        if d.combatIcon then
+            local cciSz = PixelSnap(xs.combatIndicatorSize or 16)
+            d.combatIcon:SetSize(cciSz, cciSz)
+            if d.AnchorCombatIcon then d.AnchorCombatIcon() end
+        end
         if d.debuffIcons then
             for _, icon in ipairs(d.debuffIcons) do
                 icon:SetSize(xs.debuffSize or 18, xs.debuffSize or 18)
@@ -7104,6 +7266,8 @@ XF.EnsureBuilt = function()
                 end
             elseif event == "UNIT_IN_RANGE_UPDATE" then
                 ns._UpdateButtonRange(unit, b)
+            elseif event == "UNIT_FLAGS" then
+                ns._UpdateCombatIconFor(unit, b)
             elseif event == "READY_CHECK_CONFIRM" then
                 -- Plain registration; filter to this slot's unit here
                 if unit and unit == b:GetAttribute("unit") then
@@ -7172,6 +7336,10 @@ function ns.XF_Apply()
             ns._xfUnitToButton[unit] = b
             for _, ev in ipairs(XF.EVENTS) do
                 t:RegisterUnitEvent(ev, unit)
+            end
+            -- UNIT_FLAGS is opt-in: extra frames mirror the raid combat-icon toggle.
+            if db.profile.showCombatIndicator then
+                t:RegisterUnitEvent("UNIT_FLAGS", unit)
             end
             t:RegisterEvent("READY_CHECK_CONFIRM")
             t:RegisterEvent("PLAYER_FLAGS_CHANGED")
@@ -8058,6 +8226,9 @@ local RangeUpdate  -- forward declaration (defined in Range fading section below
 -------------------------------------------------------------------------------
 local function ReloadFrames()
     local s = ns._scaledProfile
+    -- Keep UNIT_FLAGS registration in lockstep with the combat-icon toggle so a
+    -- disabled option listens for nothing (runs no event code).
+    if ns.UpdateCombatEventRegistration then ns.UpdateCombatEventRegistration() end
     -- Rebuild dispel-color curves so custom-color edits take effect immediately.
     if ns._RebuildDispelCurves then ns._RebuildDispelCurves() end
     -- Recalculate active tier from current group size + overrides
@@ -8188,6 +8359,13 @@ local function ReloadFrames()
             local rcSz = PixelSnap(s.readyCheckSize or 20)
             d.readyCheck:SetSize(rcSz, rcSz)
             if d.AnchorReadyCheck then d.AnchorReadyCheck() end
+        end
+
+        -- Combat icon size + position
+        if d.combatIcon then
+            local cciSz = PixelSnap(s.combatIndicatorSize or 16)
+            d.combatIcon:SetSize(cciSz, cciSz)
+            if d.AnchorCombatIcon then d.AnchorCombatIcon() end
         end
 
         -- Border
@@ -8385,6 +8563,11 @@ ns._ResizePartyButtons = function(w, h)
                 if d.raidMarker then
                     local rmSz = PixelSnap(pp.raidMarkerSize or 16)
                     d.raidMarker:SetSize(rmSz, rmSz)
+                end
+                if d.combatIcon then
+                    local cciSz = PixelSnap(pp.combatIndicatorSize or 16)
+                    d.combatIcon:SetSize(cciSz, cciSz)
+                    if d.AnchorCombatIcon then d.AnchorCombatIcon() end
                 end
                 if d.debuffIcons then
                     for _, icon in ipairs(d.debuffIcons) do
@@ -9131,11 +9314,13 @@ local function OnEvent(self, event, arg1, ...)
         -- Combat starting: hide role/leader icons on frames using the in-combat cogs.
         if ns._UpdateRoleIcons then ns._UpdateRoleIcons() end
         if ns._UpdateLeaderIcons then ns._UpdateLeaderIcons() end
+        if ns._CombatIconEnabled() and ns._UpdateCombatIcons then ns._UpdateCombatIcons() end
     elseif event == "PLAYER_REGEN_ENABLED" then
         inCombat = false
         -- Combat ended: restore any role/leader icons suppressed during combat.
         if ns._UpdateRoleIcons then ns._UpdateRoleIcons() end
         if ns._UpdateLeaderIcons then ns._UpdateLeaderIcons() end
+        if ns._CombatIconEnabled() and ns._UpdateCombatIcons then ns._UpdateCombatIcons() end
         -- Complete any container reparent that was blocked during combat (e.g.
         -- the options panel was closed mid-combat while a preview was active).
         -- Without this, a combat auto-close can leave the real frames orphaned
@@ -9453,6 +9638,9 @@ local function OnEvent(self, event, arg1, ...)
             end
             ns.ProfEnd("ThreatUpdate", t0)
         end
+    elseif event == "UNIT_FLAGS" then
+        local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
+        if btn then ns._UpdateCombatIconFor(arg1, btn) end
     elseif event == "PLAYER_FLAGS_CHANGED" or event == "UNIT_CONNECTION" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn then
@@ -9687,6 +9875,8 @@ do
             "readyCheckSize", "readyCheckPosition", "readyCheckOffsetX", "readyCheckOffsetY",
             "statusTextPosition", "statusTextOffsetX", "statusTextOffsetY", "statusTextSize", "statusTextColor",
             "showLeaderIcon", "showLeaderIconInCombat", "leaderIconPosition", "leaderIconSize", "leaderIconOffsetX", "leaderIconOffsetY",
+            "showCombatIndicator", "combatIndicatorStyle", "combatIndicatorColor", "combatIndicatorCustomColor",
+            "combatIndicatorSize", "combatIndicatorPosition", "combatIndicatorOffsetX", "combatIndicatorOffsetY",
             "borderSize", "borderColor", "borderAlpha", "borderTexture",
             "borderBehind", "borderTextureOffset", "borderTextureOffsetY",
             "borderTextureShiftX", "borderTextureShiftY",
@@ -9798,7 +9988,7 @@ for _, k in ipairs({
     "nameSize", "healthTextSize", "healAbsorbTextSize", "statusTextSize",
     "debuffStacksTextSize", "debuffDurTextSize", "defDurTextSize",
     -- Icon sizes
-    "roleIconSize", "leaderIconSize", "raidMarkerSize",
+    "roleIconSize", "leaderIconSize", "raidMarkerSize", "combatIndicatorSize",
     "debuffSize", "defSize", "paSize", "dispellableDebuffSize",
     -- Offsets
     "nameOffsetX", "nameOffsetY",
@@ -9808,6 +9998,7 @@ for _, k in ipairs({
     "roleIconOffsetX", "roleIconOffsetY",
     "leaderIconOffsetX", "leaderIconOffsetY",
     "raidMarkerOffsetX", "raidMarkerOffsetY",
+    "combatIndicatorOffsetX", "combatIndicatorOffsetY",
     "debuffOffsetX", "debuffOffsetY",
     "dispellableDebuffOffsetX", "dispellableDebuffOffsetY",
     "debuffStacksOffsetX", "debuffStacksOffsetY",
@@ -10301,6 +10492,10 @@ end
 -- we write party_ values onto db.profile, call the closures, then restore.
 ns.ReloadPartyFrames = function()
     if not ns._partyHeader then return end
+    -- Re-evaluate UNIT_FLAGS registration before the temp-swap below (which
+    -- overwrites db.profile), so a section sync/unsync that flips the party's
+    -- effective combat-icon state turns the party trackers on/off in step.
+    if ns.UpdateCombatEventRegistration then ns.UpdateCombatEventRegistration() end
     local p = ns._partyProxy  -- reads party_ keys with fallthrough
     local raw = db.profile
     -- Scaled reads for everything in INDICATOR_SCALE_KEYS (role/leader/marker
@@ -10429,6 +10624,13 @@ ns.ReloadPartyFrames = function()
             local rcSz = PixelSnap(pp.readyCheckSize or 20)
             d.readyCheck:SetSize(rcSz, rcSz)
             if d.AnchorReadyCheck then d.AnchorReadyCheck() end
+        end
+
+        -- Combat icon
+        if d.combatIcon then
+            local cciSz = PixelSnap(pp.combatIndicatorSize or 16)
+            d.combatIcon:SetSize(cciSz, cciSz)
+            if d.AnchorCombatIcon then d.AnchorCombatIcon() end
         end
 
         -- Border
@@ -11961,6 +12163,11 @@ local function CreatePreviewFrame(index)
     readyCheck:SetPoint("CENTER", health, "CENTER", 0, 0)
     readyCheck:Hide()
 
+    -- Combat icon (position/size/style re-applied in the preview indicator pass)
+    local combatIcon = markerCarrier:CreateTexture(nil, "OVERLAY", nil, 1)
+    combatIcon:SetSize(PixelSnap(s.combatIndicatorSize or 16), PixelSnap(s.combatIndicatorSize or 16))
+    combatIcon:Hide()
+
     -- Text carrier: text band (above every border incl. the raise, below auras).
     local textCarrier = CreateFrame("Frame", nil, f)
     textCarrier:SetAllPoints(health)
@@ -12051,6 +12258,7 @@ local function CreatePreviewFrame(index)
     f._statusText = statusFS
     f._roleIcon = roleIcon
     f._leaderIcon = leaderIcon
+    f._combatIcon = combatIcon
 
     -- Helper: create a preview aura icon with texture, cooldown, border
     local function MakePreviewAuraIcon(parent, level, sz)
@@ -13448,6 +13656,46 @@ local function ApplyPreviewData(f, index)
             f._leaderIcon:Show()
         else
             f._leaderIcon:Hide()
+        end
+    end
+
+    -- Combat icon: on live alive members when the indicators eyeball is on.
+    if f._combatIcon then
+        if indVis and s.showCombatIndicator and not isDead and not isOffline then
+            local cciSz = PixelSnap(s.combatIndicatorSize or 16)
+            f._combatIcon:SetSize(cciSz, cciSz)
+            f._combatIcon:ClearAllPoints()
+            local ciPos = (s.combatIndicatorPosition or "right"):upper()
+            f._combatIcon:SetPoint(ciPos, f._health, ciPos, s.combatIndicatorOffsetX or 0, s.combatIndicatorOffsetY or 0)
+            local style = s.combatIndicatorStyle or "standard"
+            local MEDIA = ns._COMBAT_MEDIA
+            if style:find("^combat%d") then
+                f._combatIcon:SetTexture(MEDIA .. style .. ".tga")
+                f._combatIcon:SetTexCoord(0, 1, 0, 1)
+                if f._combatIcon.SetDesaturated then f._combatIcon:SetDesaturated(false) end
+                f._combatIcon:SetVertexColor(1, 1, 1, 1)
+            else
+                if style == "class" then
+                    f._combatIcon:SetTexture(MEDIA .. "combat-indicator-class-custom.png")
+                    local coords = classToken and ns._COMBAT_CLASS_COORDS[classToken]
+                    if coords then f._combatIcon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+                    else f._combatIcon:SetTexCoord(0, 1, 0, 1) end
+                else
+                    f._combatIcon:SetTexture(MEDIA .. "combat-indicator-custom.png")
+                    f._combatIcon:SetTexCoord(0, 1, 0, 1)
+                end
+                local colorMode = s.combatIndicatorColor or "custom"
+                if colorMode == "classcolor" then
+                    local cc = (classToken and EllesmereUI.GetClassColor(classToken)) or { r = 1, g = 1, b = 1 }
+                    f._combatIcon:SetVertexColor(cc.r, cc.g, cc.b, 1)
+                else
+                    local cc = s.combatIndicatorCustomColor or { r = 1, g = 1, b = 1 }
+                    f._combatIcon:SetVertexColor(cc.r, cc.g, cc.b, 1)
+                end
+            end
+            f._combatIcon:Show()
+        else
+            f._combatIcon:Hide()
         end
     end
 
@@ -15137,6 +15385,9 @@ function ERF:OnEnable()
     for i = 1, 4 do MakeUnitTracker("party" .. i) end
     for i = 1, 40 do MakeUnitTracker("raid" .. i) end
     eventFrame:SetScript("OnEvent", OnEvent)
+
+    -- UNIT_FLAGS is opt-in: only registered while the combat icon is enabled.
+    if ns.UpdateCombatEventRegistration then ns.UpdateCombatEventRegistration() end
 
     -- Dynamically register/unregister UNIT_POWER_UPDATE per unit based on
     -- role and power display settings. Called after roster changes and

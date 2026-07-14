@@ -6721,6 +6721,57 @@ local PUSHED_TYPES = {
     [6] = "none",    -- No pushed effect
 }
 
+do
+local function _setupBorderEdges(btn, storeKey, driverTex)
+    local edges = btn[storeKey]
+    if not edges then
+        edges = {}
+        for j = 1, 4 do
+            local t = btn:CreateTexture(nil, "OVERLAY", nil, 2)
+            t:SetColorTexture(1, 1, 1, 1)
+            t:Hide()
+            edges[j] = t
+        end
+        btn[storeKey] = edges
+        if driverTex then
+            hooksecurefunc(driverTex, "Show", function()
+                if not edges._active then return end
+                for j = 1, 4 do edges[j]:Show() end
+            end)
+            hooksecurefunc(driverTex, "Hide", function()
+                for j = 1, 4 do edges[j]:Hide() end
+            end)
+        end
+    end
+    return edges
+end
+
+local function _applyBorderEdges(edges, btn, brdSize, cr, cg, cb)
+    edges._active = true
+    local anchor = btn.icon or btn.Icon or btn
+    local PP = EllesmereUI.PP
+    for j = 1, 4 do edges[j]:SetVertexColor(cr, cg, cb, 1) end
+    edges[1]:ClearAllPoints(); edges[1]:SetPoint("TOPLEFT", anchor); edges[1]:SetPoint("TOPRIGHT", anchor)
+    if PP then PP.Height(edges[1], brdSize) else edges[1]:SetHeight(brdSize) end
+    edges[2]:ClearAllPoints(); edges[2]:SetPoint("BOTTOMLEFT", anchor); edges[2]:SetPoint("BOTTOMRIGHT", anchor)
+    if PP then PP.Height(edges[2], brdSize) else edges[2]:SetHeight(brdSize) end
+    edges[3]:ClearAllPoints(); edges[3]:SetPoint("TOPLEFT", edges[1], "BOTTOMLEFT"); edges[3]:SetPoint("BOTTOMLEFT", edges[2], "TOPLEFT")
+    if PP then PP.Width(edges[3], brdSize) else edges[3]:SetWidth(brdSize) end
+    edges[4]:ClearAllPoints(); edges[4]:SetPoint("TOPRIGHT", edges[1], "BOTTOMRIGHT"); edges[4]:SetPoint("BOTTOMRIGHT", edges[2], "TOPRIGHT")
+    if PP then PP.Width(edges[4], brdSize) else edges[4]:SetWidth(brdSize) end
+end
+
+local function _hideBorderEdges(btn, storeKey)
+    local edges = btn[storeKey]
+    if not edges then return end
+    edges._active = false
+    for j = 1, 4 do edges[j]:Hide() end
+end
+ns._setupBorderEdges = _setupBorderEdges
+ns._applyBorderEdges = _applyBorderEdges
+ns._hideBorderEdges  = _hideBorderEdges
+end
+
 function EAB:ApplyPushedTextures()
     local p = self.db.profile
     local pType = p.pushedTextureType or 2
@@ -6741,27 +6792,28 @@ function EAB:ApplyPushedTextures()
                 local btn = buttons[i]
                 if btn and btn.PushedTexture then
                     if p.useBlizzardStyle then
-                        -- Restore Blizzard's default pushed atlas (UpdateButtonArt
-                        -- is nooped so the mixin never sets this itself).
-                        -- OVERLAY layer renders above the border frame.
                         btn.PushedTexture:SetAtlas("UI-HUD-ActionBar-IconFrame-Down", true)
                         btn.PushedTexture:SetDrawLayer("OVERLAY", 7)
                         btn.PushedTexture:ClearAllPoints()
                         btn.PushedTexture:SetAllPoints(btn)
                         btn.PushedTexture:SetVertexColor(1, 1, 1, 1)
                         btn.PushedTexture:SetAlpha(1)
+                        ns._hideBorderEdges(btn, "_pushedBorder")
                     elseif pType == 6 then
                         btn.PushedTexture:SetAlpha(0)
+                        ns._hideBorderEdges(btn, "_pushedBorder")
+                    elseif pType == 5 then
+                        btn.PushedTexture:SetAlpha(0)
+                        local edges = ns._setupBorderEdges(btn, "_pushedBorder", btn.PushedTexture)
+                        ns._applyBorderEdges(edges, btn, brdSize, cr, cg, cb)
                     else
                         btn.PushedTexture:SetAlpha(1)
+                        ns._hideBorderEdges(btn, "_pushedBorder")
                         if pType <= 3 then
                             SetSquareTexture(btn.PushedTexture, HIGHLIGHT_TEXTURES[pType] or HIGHLIGHT_TEXTURES[2])
                             btn.PushedTexture:SetVertexColor(cr, cg, cb, 1)
                         elseif pType == 4 then
                             btn.PushedTexture:SetColorTexture(cr, cg, cb, 0.35)
-                        elseif pType == 5 then
-                            SetSquareTexture(btn.PushedTexture, HIGHLIGHT_TEXTURES[1])
-                            btn.PushedTexture:SetVertexColor(cr, cg, cb, 1)
                         end
                     end
                 end
@@ -6867,6 +6919,7 @@ function EAB:ApplyHighlightTextures()
     local hType = p.highlightTextureType or 2
     local useCC = p.highlightUseClassColor
     local customC = p.highlightCustomColor or { r=0.973, g=0.839, b=0.604, a=1 }
+    local brdSize = p.highlightBorderSize or 4
 
     local cr, cg, cb = customC.r, customC.g, customC.b
     if useCC then
@@ -6885,16 +6938,30 @@ function EAB:ApplyHighlightTextures()
                 if btn and btn.HighlightTexture then
                     if hType == 6 then
                         btn.HighlightTexture:SetAlpha(0)
+                        ns._hideBorderEdges(btn, "_highlightBorder")
+                    elseif hType == 5 then
+                        btn.HighlightTexture:SetAlpha(0)
+                        local edges = ns._setupBorderEdges(btn, "_highlightBorder")
+                        ns._applyBorderEdges(edges, btn, brdSize, cr, cg, cb)
+                        if not btn._hlBorderHooked then
+                            btn._hlBorderHooked = true
+                            btn:HookScript("OnEnter", function(self)
+                                local be = self._highlightBorder
+                                if be and be._active then for j = 1, 4 do be[j]:Show() end end
+                            end)
+                            btn:HookScript("OnLeave", function(self)
+                                local be = self._highlightBorder
+                                if be then for j = 1, 4 do be[j]:Hide() end end
+                            end)
+                        end
                     else
                         btn.HighlightTexture:SetAlpha(1)
+                        ns._hideBorderEdges(btn, "_highlightBorder")
                         if hType <= 3 then
                             SetSquareTexture(btn.HighlightTexture, HIGHLIGHT_TEXTURES[hType] or HIGHLIGHT_TEXTURES[1])
                             btn.HighlightTexture:SetVertexColor(cr, cg, cb, 1)
                         elseif hType == 4 then
                             btn.HighlightTexture:SetColorTexture(cr, cg, cb, 0.35)
-                        elseif hType == 5 then
-                            SetSquareTexture(btn.HighlightTexture, HIGHLIGHT_TEXTURES[1])
-                            btn.HighlightTexture:SetVertexColor(cr, cg, cb, 1)
                         end
                     end
                 end
@@ -7732,6 +7799,12 @@ local function UpdateKeybinds()
             -- ElvUI/Bartender do for every button via LibActionButton.
             local bs = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars[info.key]
             local barHasCustomPaging = (bs and bs.paging and next(bs.paging) ~= nil) and true or false
+            if not barHasCustomPaging and info.key == "MainBar" then
+                local _, cls = UnitClass("player")
+                if cls == "DRUID" or cls == "ROGUE" then
+                    barHasCustomPaging = true
+                end
+            end
             for i, btn in ipairs(btns) do
                 if btn then
                     local cmd = prefix .. i

@@ -2800,6 +2800,111 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
 
+        -- Row: Combat Icon Position (includes "None" to disable) | Combat Icon Size.
+        -- Shows on members currently in combat -- e.g. to spot who's still pulling
+        -- during a Mythic+ skip. Style/color/offset live in the inline cog.
+        local combatPositionValues = {
+            none        = "None",
+            topleft     = "Top Left",
+            top         = "Top",
+            topright    = "Top Right",
+            left        = "Left",
+            center      = "Center",
+            right       = "Right",
+            bottomleft  = "Bottom Left",
+            bottom      = "Bottom",
+            bottomright = "Bottom Right",
+        }
+        local combatPositionOrder = { "none", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+        local combatStyleValues = {
+            standard = "Standard",
+            class    = "Class Theme",
+            combat0  = "Arcade",
+            combat1  = "Dungeoneer",
+            combat2  = "Classic",
+            combat3  = "Cross",
+            combat4  = "Circle",
+            combat5  = "Square",
+        }
+        local combatStyleOrder = { "standard", "class", "combat0", "combat1", "combat2", "combat3", "combat4", "combat5" }
+        local ciRow
+        ciRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Combat Icon", values=combatPositionValues, order=combatPositionOrder,
+              getValue=function()
+                  if not SVal("showCombatIndicator", false) then return "none" end
+                  return SVal("combatIndicatorPosition", "right")
+              end,
+              setValue=function(v)
+                  if v == "none" then
+                      SSet("showCombatIndicator", false)
+                  else
+                      SWrite("showCombatIndicator", true)
+                      SSet("combatIndicatorPosition", v)
+                  end
+                  if ns._UpdateCombatIcons then ns._UpdateCombatIcons() end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="slider", text="Combat Icon Size", min=8, max=40, step=1,
+              disabled=function() return not SVal("showCombatIndicator", false) end,
+              disabledTooltip="Combat Icon",
+              getValue=function() return SVal("combatIndicatorSize", 16) end,
+              setValue=function(v) SSet("combatIndicatorSize", v) end });  y = y - h
+        -- Cog for combat icon style / color / offset X/Y
+        do
+            local rgn = ciRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Combat Icon",
+                rows = {
+                    { type="dropdown", label="Style", values=combatStyleValues, order=combatStyleOrder,
+                      get=function() return SVal("combatIndicatorStyle", "standard") end,
+                      set=function(v) SSet("combatIndicatorStyle", v); if ns._UpdateCombatIcons then ns._UpdateCombatIcons() end end },
+                    { type="toggle", label="Class Colored",
+                      tooltip="Tint the combat icon by the member's class color. Not available for the Arcade/Dungeoneer/Classic/Cross/Circle/Square styles.",
+                      disabled=function()
+                          local st = SVal("combatIndicatorStyle", "standard")
+                          return st:find("^combat%d") and true or false
+                      end,
+                      disabledTooltip="Not available for this combat icon style.", rawTooltip=true,
+                      get=function() return SVal("combatIndicatorColor", "custom") == "classcolor" end,
+                      set=function(v) SSet("combatIndicatorColor", v and "classcolor" or "custom"); if ns._UpdateCombatIcons then ns._UpdateCombatIcons() end end },
+                    { type="slider", label="Offset X", min=-50, max=50, step=1,
+                      get=function() return SVal("combatIndicatorOffsetX", 0) end,
+                      set=function(v) SSet("combatIndicatorOffsetX", v) end },
+                    { type="slider", label="Offset Y", min=-50, max=50, step=1,
+                      get=function() return SVal("combatIndicatorOffsetY", 0) end,
+                      set=function(v) SSet("combatIndicatorOffsetY", v) end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+        end
+        -- Inline color swatch for the combat icon custom color
+        do
+            local rgn = ciRow._rightRegion
+            local swatch = EllesmereUI.BuildColorSwatch(
+                rgn, ciRow:GetFrameLevel() + 3,
+                function()
+                    local c = SGet("combatIndicatorCustomColor")
+                    if c then return c.r, c.g, c.b, 1 end
+                    return 1, 0.2, 0.2, 1
+                end,
+                function(r, g, b)
+                    SWrite("combatIndicatorCustomColor", { r=r, g=g, b=b })
+                    if ns._UpdateCombatIcons then ns._UpdateCombatIcons() end
+                end, false, 20)
+            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+        end
+
         -- Show Group Numbers | Number Size (+ inline color swatch with alpha).
         -- Raid only: party frames have no groups. The size + color also drive the
         -- always-on preview group labels; the toggle gates only the real frames.

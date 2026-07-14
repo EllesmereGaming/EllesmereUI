@@ -5357,7 +5357,7 @@ local function PlayPresetBuffLossSound(sd, sid, now)
 end
 
 local function UpdateCustomBuffBars()
-    -- if CooldownViewerSettings and CooldownViewerSettings:IsShown() then return end
+    if not ECME then return end
     local p = ECME.db and ECME.db.profile
     if not p or not p.cdmBars or not p.cdmBars.bars then return end
     local LayoutCDMBar = ns.LayoutCDMBar
@@ -6328,7 +6328,7 @@ do
     end
 
     -- Style tex to match the bars' pushed look. Returns false when pushed is set
-    -- to "None" (so the CDM press mirrors that), true otherwise.
+    -- to "None" (so the CDM press mirrors that), "border" for border mode, true otherwise.
     local function StylePush(tex)
         local p = GetABProfile()
         if p then
@@ -6346,14 +6346,15 @@ do
                 return true
             elseif pType == 6 then
                 tex:SetAlpha(0); return false
+            elseif pType == 5 then
+                tex:SetAlpha(0)
+                return "border", cr, cg, cb, p.pushedBorderSize or 4
             end
             tex:SetAlpha(1)
             if pType <= 3 then
                 tex:SetAtlas(nil); tex:SetTexture(AB_HIGHLIGHT[pType] or AB_HIGHLIGHT[2]); tex:SetVertexColor(cr, cg, cb, 1)
             elseif pType == 4 then
                 tex:SetColorTexture(cr, cg, cb, 0.35)
-            elseif pType == 5 then
-                tex:SetAtlas(nil); tex:SetTexture(AB_HIGHLIGHT[1]); tex:SetVertexColor(cr, cg, cb, 1)
             end
             return true
         end
@@ -6363,6 +6364,19 @@ do
         tex:SetTexCoord(DEPRESS_INSET, 1 - DEPRESS_INSET, DEPRESS_INSET, 1 - DEPRESS_INSET)
         tex:SetVertexColor(1, 1, 1, 1); tex:SetAlpha(1)
         return true
+    end
+
+    local function EnsureBorderEdges(ov)
+        if ov._borderEdges then return ov._borderEdges end
+        local edges = {}
+        for j = 1, 4 do
+            local t = ov:CreateTexture(nil, "OVERLAY", nil, 2)
+            t:SetColorTexture(1, 1, 1, 1)
+            t:Hide()
+            edges[j] = t
+        end
+        ov._borderEdges = edges
+        return edges
     end
 
     local function ShowPush(icon)
@@ -6376,11 +6390,24 @@ do
             ov._tex = tex
             _pushOverlay[icon] = ov
         end
-        if not StylePush(ov._tex) then ov:Hide(); return nil end
+        local result, cr, cg, cb, bsz = StylePush(ov._tex)
+        if not result then ov:Hide(); return nil end
         local region = icon.Icon or icon
         ov:ClearAllPoints()
         ov:SetPoint("TOPLEFT", region, "TOPLEFT", 0, 0)
         ov:SetPoint("BOTTOMRIGHT", region, "BOTTOMRIGHT", 0, 0)
+        if result == "border" then
+            ov._tex:Hide()
+            local edges = EnsureBorderEdges(ov)
+            for j = 1, 4 do edges[j]:SetVertexColor(cr, cg, cb, 1) end
+            edges[1]:ClearAllPoints(); edges[1]:SetPoint("TOPLEFT", ov); edges[1]:SetPoint("TOPRIGHT", ov); edges[1]:SetHeight(bsz); edges[1]:Show()
+            edges[2]:ClearAllPoints(); edges[2]:SetPoint("BOTTOMLEFT", ov); edges[2]:SetPoint("BOTTOMRIGHT", ov); edges[2]:SetHeight(bsz); edges[2]:Show()
+            edges[3]:ClearAllPoints(); edges[3]:SetPoint("TOPLEFT", edges[1], "BOTTOMLEFT"); edges[3]:SetPoint("BOTTOMLEFT", edges[2], "TOPLEFT"); edges[3]:SetWidth(bsz); edges[3]:Show()
+            edges[4]:ClearAllPoints(); edges[4]:SetPoint("TOPRIGHT", edges[1], "BOTTOMRIGHT"); edges[4]:SetPoint("BOTTOMRIGHT", edges[2], "TOPRIGHT"); edges[4]:SetWidth(bsz); edges[4]:Show()
+        else
+            ov._tex:Show()
+            if ov._borderEdges then for j = 1, 4 do ov._borderEdges[j]:Hide() end end
+        end
         ov:Show()
         return ov
     end

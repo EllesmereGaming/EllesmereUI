@@ -6638,8 +6638,9 @@ local function RebuildKeybindCache()
             if key then
                 local slot = def.startSlot + i - 1
                 if def.prefix == "ACTIONBUTTON" then
-                    local btn = _G["ActionButton" .. i]
-                    if btn and btn.action then slot = btn.action end
+                    local mbf = _G["EABBar_MainBar"]
+                    local pg = mbf and tonumber(mbf:GetAttribute("actionpage")) or 1
+                    slot = i + (pg - 1) * 12
                 end
                 local slotType, id = GetActionInfo(slot)
                 local spellID
@@ -6719,12 +6720,7 @@ local function ApplyCachedKeybinds()
     end
 end
 
--- Public entry point: rebuild cache then apply. Defers if in combat.
 local function UpdateCDMKeybinds()
-    if _inCombat then
-        _keybindRebuildPending = true
-        return
-    end
     _keybindRebuildPending = false
     RebuildKeybindCache()
     _keybindCacheReady = true
@@ -8059,9 +8055,16 @@ local function UpdateRotationHighlights()
             for _, icon in ipairs(icons) do
                 local ifc = _ecmeFC[icon]
                 local sid = ifc and ifc.spellID
-                if sid and sid == suggestedSpell and icon:IsShown() then
-                    _rotShow(icon)
-                    newSet[icon] = true
+                if sid and icon:IsShown() then
+                    local match = (sid == suggestedSpell)
+                    if not match and C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+                        local ovr = C_SpellBook.FindSpellOverrideByID(sid)
+                        match = ovr and ovr == suggestedSpell
+                    end
+                    if match then
+                        _rotShow(icon)
+                        newSet[icon] = true
+                    end
                 end
             end
         end
@@ -8384,10 +8387,6 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         -- Flush deferred TBB rebuild that was queued during combat
         if event == "PLAYER_REGEN_ENABLED" and ns.IsTBBRebuildPending and ns.IsTBBRebuildPending() then
             if ns.BuildTrackedBuffBars then ns.BuildTrackedBuffBars() end
-        end
-        -- Flush deferred keybind rebuild that was blocked during combat
-        if event == "PLAYER_REGEN_ENABLED" and _keybindRebuildPending then
-            UpdateCDMKeybinds()
         end
         -- Flush deferred roster reanchor that was blocked during combat
         if event == "PLAYER_REGEN_ENABLED" and _rosterRebuildPending then

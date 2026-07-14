@@ -2217,7 +2217,8 @@ local specialsActive = inInstance or co.showSpecialsNonInstanced
                         local isLethal = (poison.cat == "lethal")
                         if isLethal then knownL = knownL + 1 else knownNL = knownNL + 1 end
                         local aura = C_UnitAuras.GetPlayerAuraBySpellID(poison.castSpell)
-                        if aura then
+                        local active = aura and not IsUnderDuration(aura.duration, aura.expirationTime)
+                        if active then
                             if isLethal then activeL = activeL + 1 else activeNL = activeNL + 1 end
                         elseif co.enabled[poison.key] then
                             if isLethal and not missingL then missingL = poison
