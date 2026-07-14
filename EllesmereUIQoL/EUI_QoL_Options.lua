@@ -10,6 +10,7 @@ local PAGE_BREZ     = "BattleRes"
 local PAGE_AUTOLOG  = "Keys, Logs & Brez"
 local PAGE_UPGCALC  = "Upgrade Calc"
 local PAGE_SHIFTER  = "Shifter"
+local PAGE_MOVEMENT = "Movement"
 
 -------------------------------------------------------------------------------
 --  Hide Item Transforms picker popup
@@ -2242,8 +2243,8 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUIQoL", {
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
-        pages       = { PAGE_QOL, PAGE_CURSOR, PAGE_AUTOLOG, PAGE_UPGCALC, PAGE_SHIFTER },
-        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger" },
+        pages       = { PAGE_QOL, PAGE_CURSOR, PAGE_AUTOLOG, PAGE_UPGCALC, PAGE_SHIFTER, PAGE_MOVEMENT },
+        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "movement alert", "movement cooldown", "mobility", "blink", "disengage", "heroic leap", "time spiral", "free movement", "gateway shard", "demonic gateway", "warlock" },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_QOL then
                 return BuildQoLPage(pageName, parent, yOffset)
@@ -2259,6 +2260,9 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if pageName == PAGE_SHIFTER and _G._EUI_BuildShifterPage then
                 return _G._EUI_BuildShifterPage(pageName, parent, yOffset)
+            end
+            if pageName == PAGE_MOVEMENT and _G._EUI_BuildMovementAlertPage then
+                return _G._EUI_BuildMovementAlertPage(pageName, parent, yOffset)
             end
         end,
         onReset = function()
@@ -2310,6 +2314,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUIDB.autoLogging = nil
             if _G._EUI_ResetUpgradeCalc then _G._EUI_ResetUpgradeCalc() end
             if _G._EBS_ResetCursor then _G._EBS_ResetCursor() end
+            if EllesmereUI._ResetMovementAlert then EllesmereUI._ResetMovementAlert() end
             if EllesmereUI._applyHideBlizzardPartyFrame then EllesmereUI._applyHideBlizzardPartyFrame() end
             if EllesmereUI._applyHideErrorMessages then EllesmereUI._applyHideErrorMessages() end
             if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
