@@ -2662,6 +2662,12 @@ EllesmereUI.RegisterMigration({
     description = "Preserve autoOpenContainers for existing users after default changed from on to off.",
     body = function(ctx)
         local db = ctx.db
+        -- Existing users ONLY. On a fresh install (or right after a factory
+        -- reset) the DB has no profiles yet at early-migration time, and the
+        -- key is nil because the user is NEW -- not because they predate the
+        -- default flip. Without this gate the migration fired on first
+        -- install and enabled Auto Open Containers against the OFF default.
+        if not (db.profiles and next(db.profiles)) then return end
         if db.autoOpenContainers == nil then
             db.autoOpenContainers = true
         end

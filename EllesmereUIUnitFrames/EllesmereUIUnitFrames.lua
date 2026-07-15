@@ -3,6 +3,7 @@ local addonName, ns = ...
 local math_floor, math_ceil, math_max, math_min, math_abs =
     math.floor, math.ceil, math.max, math.min, math.abs
 local string_format = string.format
+local issecretvalue = issecretvalue
 
 local oUF = ns.oUF or oUF
 local PP = EllesmereUI.PP
@@ -11372,7 +11373,6 @@ function InitializeFrames()
     -- Must run after target frame is spawned (right above) so the texture can
     -- be parented to it.
     do
-        local LEADER_ATLAS = "plunderstorm-glues-icon-leader"
         local _leaderUnits = {}
 
         local function _leaderRefresh(uf)
@@ -11381,8 +11381,13 @@ function InitializeFrames()
             local tex = uf._leaderIndicator
             if s.leaderIndicatorEnabled == false then tex:Hide(); return end
             local unit = uf.unit
-            if unit and UnitExists(unit) and UnitIsGroupLeader(unit) then
-                tex:SetAtlas(LEADER_ATLAS)
+            local isLeader = UnitIsGroupLeader(unit)
+            local isAssist = UnitIsGroupAssistant(unit)
+            if isLeader and not issecretvalue(isLeader) then
+                tex:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
+                tex:Show()
+            elseif isAssist and not issecretvalue(isAssist) then
+                tex:SetTexture("Interface\\GroupFrame\\UI-Group-AssistantIcon")
                 tex:Show()
             else
                 tex:Hide()

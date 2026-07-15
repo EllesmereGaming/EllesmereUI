@@ -1181,7 +1181,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Show Item Level",
-              tooltip="Shows the item level on each weapon and armor piece a vendor is selling. Works with or without the reskin.",
+              tooltip="Shows the item level on weapons and armor a vendor sells.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.merchantShowItemLevel == true
               end,

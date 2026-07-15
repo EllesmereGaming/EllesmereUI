@@ -1,0 +1,17 @@
+## Interface: 120000, 120001, 120005, 120007, 120100
+## Title: |cff0cd29fEllesmereUI|r DataBars
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Information bar for EllesmereUI - clock, gold, reputation and more
+## Author: Ellesmere
+## Version: 8.4.7
+## Dependencies: EllesmereUI
+## SavedVariables: EllesmereUIDataBarsDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+# Runtime
+EllesmereUIDataBars.lua
+EllesmereUIDataBars_Blocks.lua
+
+# Options
+EllesmereUIDataBars_Options.lua

@@ -252,6 +252,12 @@ do
     end)
 end
 
+-- (The DataBars auto-disable block was removed 2026-07-13: after the
+-- multi-bar rewrite the module does literally nothing until the user
+-- creates a bar, so it ships enabled with zero cost. If a prior build
+-- auto-disabled it, re-enabling once sticks -- the latch keys
+-- dataBarsAutoDisabled/dataBarsUserChosen are simply no longer read.)
+
 -- /rl reload shortcut -- only
 if not SlashCmdList["RL"] then
     SlashCmdList["RL"] = function() ReloadUI() end

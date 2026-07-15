@@ -346,6 +346,10 @@ local function SkinInspectSheet()
         end
     end
 
+    -- Standard window-reskin border (the AdventureMap_TopBorder atlas texture),
+    -- same as the character sheet and every other skinned Blizzard window.
+    if ns.WSkin and ns.WSkin.AtlasBorder then ns.WSkin.AtlasBorder(frame) end
+
     -- Hide Blizzard backgrounds and borders
     for _, elem in ipairs({frame.NineSlice, frame.Background, frame.TitleBg,
                            frame.TopTileStreaks, frame.Portrait, frame.Bg,
@@ -369,9 +373,25 @@ local function SkinInspectSheet()
         local bgFrame = CreateFrame("Frame", nil, myModel)
         bgFrame:SetFrameLevel(math.max(1, myModel:GetFrameLevel() - 1))
         bgFrame:ClearAllPoints()
-        -- Extend bg to window edges with 4px inset on each side
-        bgFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -60)
-        bgFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4)
+        -- Match the Character sheet: span the backdrop across the full gear
+        -- width (left gear column to right gear column) and down to the model
+        -- bottom, so character-bg.png covers the whole gear + model area. The
+        -- inspect model sits at Blizzard's default center spot, so its right edge
+        -- stops short of the right gear; anchor the right edge to the right gear
+        -- column instead. Falls back progressively if the slots are not up yet.
+        local headSlot  = _G.InspectHeadSlot
+        local handsSlot = _G.InspectHandsSlot
+        if headSlot and handsSlot then
+            bgFrame:SetPoint("TOPLEFT", headSlot, "TOPLEFT", -8, 10)
+            bgFrame:SetPoint("RIGHT", handsSlot, "RIGHT", 8, 0)
+            bgFrame:SetPoint("BOTTOM", myModel, "BOTTOM", 0, -18)
+        elseif headSlot then
+            bgFrame:SetPoint("TOPLEFT", headSlot, "TOPLEFT", -8, 10)
+            bgFrame:SetPoint("BOTTOMRIGHT", myModel, "BOTTOMRIGHT", 0, -18)
+        else
+            bgFrame:SetPoint("TOPLEFT", myModel, "TOPLEFT", -8, 10)
+            bgFrame:SetPoint("BOTTOMRIGHT", myModel, "BOTTOMRIGHT", 0, -18)
+        end
         local bgTex = bgFrame:CreateTexture(nil, "BACKGROUND")
         bgTex:SetAllPoints(bgFrame)
         bgTex:SetTexture("Interface\\AddOns\\EllesmereUIBlizzardSkin\\Media\\character-bg.png")
@@ -575,31 +595,24 @@ local function SkinInspectSheet()
             btn:SetSize(BTN_W, BTN_H)
             btn:SetFrameLevel(frame:GetFrameLevel() + 20)
 
-            -- Strip default textures and hide native text
-            for _, region in ipairs({btn:GetRegions()}) do
-                if region.SetTexture then
-                    region:SetTexture(nil)
-                    region:Hide()
-                elseif region.SetTextColor then
+            -- Standard Blizzard-window-skin button look: dark fill + theme
+            -- border + hover highlight. WSkin.Button fades the native textures.
+            if ns.WSkin and ns.WSkin.Button then ns.WSkin.Button(btn) end
+
+            -- Hide the native label (the View button is a dressing-room icon,
+            -- not "Transmog") and draw our own, white like other skinned buttons.
+            for _, region in ipairs({ btn:GetRegions() }) do
+                if region.GetObjectType and region:GetObjectType() == "FontString" then
                     region:SetTextColor(0, 0, 0, 0)
                 end
             end
-
-            -- Our label
             local label = btn:CreateFontString(nil, "OVERLAY")
             label:SetFont(fontPath, 10, "")
             label:SetPoint("CENTER", btn, "CENTER", 0, 0)
             label:SetJustifyH("CENTER")
             label:SetText(labelText)
-            label:SetTextColor(1, 1, 1, 0.6)
+            label:SetTextColor(1, 1, 1, 1)
             ffd.label = label
-
-            btn:HookScript("OnEnter", function() label:SetTextColor(1, 1, 1, 1) end)
-            btn:HookScript("OnLeave", function() label:SetTextColor(1, 1, 1, 0.6) end)
-
-            if EllesmereUI and EllesmereUI.PanelPP then
-                EllesmereUI.PanelPP.CreateBorder(btn, 0.4, 0.4, 0.4, 1, 1, "OVERLAY", 7)
-            end
 
             btn:SetAlpha(1)
             btn:EnableMouse(true)
@@ -716,8 +729,44 @@ local function SkinInspectSheet()
         textOverlayFrame:EnableMouse(false)
         GetFFD(frame).textOverlayFrame = textOverlayFrame
     end
-    textOverlayFrame:SetAlpha(1)
+    textOverlayFrame:SetAlpha(GetFFD(frame).textHidden and 0 or 1)
     textOverlayFrame:Show()
+
+    -- Top-left eyeball toggle: temporarily hides all item slot text (item level,
+    -- upgrade track, enchants) by alpha-ing the shared overlay. Session-only,
+    -- matches the CharacterSheet eyeball. State lives in FFD so it survives the
+    -- frequent inspect re-skins (the SetAlpha above re-applies it each pass).
+    if not GetFFD(frame).textEyeBtn then
+        local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
+        local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
+        local eyeBtn = CreateFrame("Button", "EUI_InspectSheet_TextEyeBtn", frame)
+        eyeBtn:SetSize(20, 20)
+        eyeBtn:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -6)
+        eyeBtn:SetFrameLevel(frame:GetFrameLevel() + 20)
+        eyeBtn:SetAlpha(0.4)
+        local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        eyeTex:SetAllPoints()
+        eyeTex:SetTexture(GetFFD(frame).textHidden and EYE_INVISIBLE or EYE_VISIBLE)
+        eyeBtn:SetScript("OnClick", function()
+            local hidden = not GetFFD(frame).textHidden
+            GetFFD(frame).textHidden = hidden
+            eyeTex:SetTexture(hidden and EYE_INVISIBLE or EYE_VISIBLE)
+            if GetFFD(frame).textOverlayFrame then
+                GetFFD(frame).textOverlayFrame:SetAlpha(hidden and 0 or 1)
+            end
+        end)
+        eyeBtn:SetScript("OnEnter", function(self)
+            self:SetAlpha(0.8)
+            if EllesmereUI.ShowWidgetTooltip then
+                EllesmereUI.ShowWidgetTooltip(self, GetFFD(frame).textHidden and "Show Item Text" or "Hide Item Text", { width = 135 })
+            end
+        end)
+        eyeBtn:SetScript("OnLeave", function(self)
+            self:SetAlpha(0.4)
+            if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+        end)
+        GetFFD(frame).textEyeBtn = eyeBtn
+    end
 
     -- Position slots and style them
     if InspectPaperDollItemsFrame then
@@ -863,6 +912,14 @@ local function SkinInspectSheet()
                 activeHL:SetBlendMode("ADD")
                 activeHL:Hide()
                 GetFFD(tab).activeHL = activeHL
+            else
+                -- The Blizzard-texture strip loop above clears EVERY one of the
+                -- tab's texture regions, including this one, on each re-skin
+                -- (inspect re-skins on every INSPECT_READY as data streams in).
+                -- Restore the fill, or the active-tab highlight blanks out --
+                -- the same reason the background is re-colored above.
+                GetFFD(tab).activeHL:SetColorTexture(1, 1, 1, 0.02)
+                GetFFD(tab).activeHL:SetBlendMode("ADD")
             end
 
             -- Replace Blizzard label with custom font
@@ -901,6 +958,10 @@ local function SkinInspectSheet()
                 end
                 underline:Hide()
                 GetFFD(tab).underline = underline
+            else
+                -- Same strip-loop restore as activeHL above: re-apply the accent
+                -- fill so the active-tab underline does not blank out on re-skin.
+                GetFFD(tab).underline:SetColorTexture(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 1)
             end
         end
     end
@@ -996,6 +1057,148 @@ local function SkinInspectSheet()
 
 end
 
+-- Replicates stock Blizzard's Inspect-docks-beside-Character layout, since
+-- nothing here pairs the two otherwise and InspectFrame's live model bleeds
+-- through CharacterFrame's when they overlap. Docking beside CharacterFrame
+-- removes the overlap, so no strata/z-order fight is needed -- a strata write
+-- on a protected frame is an insecure, tainting write, so we never do one.
+local DOCK_MARGIN = 4
+
+-- InspectFrame can be a protected frame, and a plain ClearAllPoints/SetPoint on
+-- a protected frame taints its tree. Reposition through a SecureHandler
+-- restricted-environment snippet instead: it executes securely and never
+-- taints. The handler is parented to UIParent, so self:GetParent() inside the
+-- snippet IS UIParent and the frame anchors relative to UIParent. Combat-gated,
+-- since secure repositioning of a protected frame is blocked in combat.
+local securePositioner = CreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
+local function SecureSetPoint(frame, point, relPoint, x, y)
+    if InCombatLockdown() then return false end
+    securePositioner:SetFrameRef("f", frame)
+    securePositioner:SetAttribute("p", point)
+    securePositioner:SetAttribute("rp", relPoint)
+    securePositioner:SetAttribute("x", x)
+    securePositioner:SetAttribute("y", y)
+    securePositioner:Execute([[
+        local f = self:GetFrameRef("f")
+        if not f then return end
+        f:ClearAllPoints()
+        f:SetPoint(self:GetAttribute("p"), self:GetParent(), self:GetAttribute("rp"), self:GetAttribute("x"), self:GetAttribute("y"))
+    ]])
+    return true
+end
+
+local function ShifterPinned(name)
+    return EllesmereUIDB and EllesmereUIDB.shifterPositions
+        and EllesmereUIDB.shifterPositions[name] ~= nil
+end
+
+-- Reposition `mover` immediately beside `anchor`, on whichever side has screen
+-- room. Room is compared in SCREEN-ABSOLUTE units (each frame's coords
+-- normalized through ITS OWN effective scale), so a scaled or edge-pinned anchor
+-- never shoves the mover off screen and back into an overlap. A protected mover
+-- goes through SecureSetPoint (never a raw SetPoint -> taint); since that only
+-- anchors to UIParent, the beside-anchor target is converted to a UIParent-
+-- CENTER offset.
+local function DockBeside(mover, anchor)
+    if not mover or not anchor then return end
+    local as  = anchor:GetEffectiveScale() or 1
+    local ms  = mover:GetEffectiveScale() or 1
+    local ues = UIParent:GetEffectiveScale() or 1
+    local wAbs = (mover:GetWidth() or 0) * ms
+    local leftRoom  = (anchor:GetLeft() or 0) * as
+    local rightRoom = (GetScreenWidth() or 0) * ues - (anchor:GetRight() or 0) * as
+    local dockLeft = leftRoom >= wAbs + DOCK_MARGIN * ms or leftRoom >= rightRoom
+
+    if mover:IsProtected() then
+        if InCombatLockdown() then return end
+        local hAbs = (mover:GetHeight() or 0) * ms
+        local absCenterX
+        if dockLeft then
+            absCenterX = leftRoom - DOCK_MARGIN * ms - wAbs / 2
+        else
+            absCenterX = (anchor:GetRight() or 0) * as + DOCK_MARGIN * ms + wAbs / 2
+        end
+        local absCenterY = (anchor:GetTop() or 0) * as - hAbs / 2
+        local ucx, ucy = UIParent:GetCenter()
+        if ucx and ms > 0 then
+            SecureSetPoint(mover, "CENTER", "CENTER",
+                (absCenterX - ucx * ues) / ms,
+                (absCenterY - ucy * ues) / ms)
+        end
+    else
+        mover:ClearAllPoints()
+        if dockLeft then
+            mover:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -DOCK_MARGIN, 0)
+        else
+            mover:SetPoint("TOPLEFT", anchor, "TOPRIGHT", DOCK_MARGIN, 0)
+        end
+    end
+end
+
+-- Each window's pre-dock anchor, captured the first time WE move it so it can be
+-- put back once its partner is gone. Keyed in an external table (never written
+-- onto the Blizzard frame -> no taint). _ignoreSP guards the SetPoint hooks
+-- against our own repositioning.
+local _savedPoint = {}
+local _moved = {}
+local _ignoreSP = false
+
+local function CapturePoint(frame)
+    if not frame or _savedPoint[frame] then return end
+    local p, rel, rp, x, y = frame:GetPoint(1)
+    if p then _savedPoint[frame] = { p, rel, rp, x, y } end
+end
+
+local function RestorePoint(frame)
+    local p = _savedPoint[frame]
+    if not p or not frame then return end
+    if frame:IsProtected() then
+        -- Secure restore reproduces the native anchor only when it was
+        -- UIParent-relative (the usual case for a top-level panel; a nil
+        -- relativeTo defaults to the parent, UIParent, inside the snippet).
+        if p[2] == nil or p[2] == UIParent then
+            SecureSetPoint(frame, p[1], p[3], p[4], p[5])
+        end
+    else
+        frame:ClearAllPoints()
+        frame:SetPoint(p[1], p[2], p[3], p[4], p[5])
+    end
+end
+
+-- Keep the Inspect and Character windows from overlapping while both are open.
+-- The INSPECT window is held still and the CHARACTER sheet is the one that docks
+-- beside it. If the user has pinned the character sheet with the Shifter, that is
+-- respected (it stays put) and the inspect window yields instead; if both are
+-- pinned, neither moves.
+local function RefreshDock()
+    local insp, cf = InspectFrame, _G.CharacterFrame
+    if not insp or not cf then return end
+    if EllesmereUIDB and EllesmereUIDB.themedInspectSheet == false then return end
+
+    if not (insp:IsShown() and cf:IsShown()) then
+        _ignoreSP = true
+        if _moved[cf]   then _moved[cf]   = nil; RestorePoint(cf);   _savedPoint[cf]   = nil end
+        if _moved[insp] then _moved[insp] = nil; RestorePoint(insp); _savedPoint[insp] = nil end
+        _ignoreSP = false
+        return
+    end
+
+    local mover, anchor
+    if not ShifterPinned("CharacterFrame") then
+        mover, anchor = cf, insp
+    elseif not ShifterPinned("InspectFrame") then
+        mover, anchor = insp, cf
+    else
+        return
+    end
+
+    _ignoreSP = true
+    CapturePoint(mover)
+    _moved[mover] = true
+    DockBeside(mover, anchor)
+    _ignoreSP = false
+end
+
 -- Main function to apply themed inspect sheet
 local function ApplyThemedInspectSheet()
     if EllesmereUIDB and EllesmereUIDB.themedInspectSheet == false then
@@ -1014,7 +1217,6 @@ local function EnsureInspectNineSliceHidden()
     if EllesmereUIDB and EllesmereUIDB.themedInspectSheet == false then return end
     if not InspectFrame then return end
 
-    local FRAME_BG_R, FRAME_BG_G, FRAME_BG_B = 0.03, 0.045, 0.05
     local frame = InspectFrame
 
     -- Hide InspectFrame.NineSlice
@@ -1023,17 +1225,13 @@ local function EnsureInspectNineSliceHidden()
         frame.NineSlice:SetAlpha(0)
     end
 
-    -- Hide InspectFrameInset.NineSlice (borders) and cover with EUI background
+    -- Hide InspectFrameInset.NineSlice (borders). The inset is left transparent
+    -- so the window's modern_blizz bg + 0.62 black overlay show through, matching
+    -- the character sheet. Filling it with a solid color stacked a second dark
+    -- layer behind the model.
     if InspectFrameInset and InspectFrameInset.NineSlice then
         InspectFrameInset.NineSlice:Hide()
         InspectFrameInset.NineSlice:SetAlpha(0)
-
-        -- Create EUI-styled background to cover the inset area
-        if not GetFFD(InspectFrameInset).bg then
-            GetFFD(InspectFrameInset).bg = InspectFrameInset:CreateTexture(nil, "BACKGROUND", nil, -8)
-            GetFFD(InspectFrameInset).bg:SetColorTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B, 1)
-            GetFFD(InspectFrameInset).bg:SetAllPoints(InspectFrameInset)
-        end
     end
 end
 
@@ -1054,6 +1252,7 @@ if EllesmereUI then
             skinned = false
             ApplyThemedInspectSheet()
             if EllesmereUI._refreshCharSheetScale then EllesmereUI._refreshCharSheetScale() end
+            RefreshDock()
             C_Timer.After(0.1, function()
                 if not InspectFrame or not InspectFrame:IsShown() then return end
                 if EllesmereUI._refreshInspectItemLevelVisibility then
@@ -1070,7 +1269,25 @@ if EllesmereUI then
 
         InspectFrame:HookScript("OnHide", function()
             skinned = false
+            RefreshDock()
         end)
+
+        -- When the inspect window itself moves (Shifter drag, Blizzard relayout),
+        -- the docked character sheet follows it, so re-pair on its SetPoint too.
+        hooksecurefunc(InspectFrame, "SetPoint", function()
+            if not _ignoreSP then RefreshDock() end
+        end)
+
+        -- CharacterFrame is core UI, already loaded here (unlike InspectFrame).
+        -- OnShow/OnHide re-pair; the SetPoint hook catches Blizzard's own panel
+        -- relayout (which otherwise blinks the sheet back to its default spot).
+        if _G.CharacterFrame then
+            _G.CharacterFrame:HookScript("OnShow", RefreshDock)
+            _G.CharacterFrame:HookScript("OnHide", RefreshDock)
+            hooksecurefunc(_G.CharacterFrame, "SetPoint", function()
+                if not _ignoreSP then RefreshDock() end
+            end)
+        end
 
         local nineSliceHiddenFrame = CreateFrame("Frame")
         nineSliceHiddenFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")

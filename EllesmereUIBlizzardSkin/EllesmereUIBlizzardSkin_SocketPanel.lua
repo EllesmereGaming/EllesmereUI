@@ -63,6 +63,8 @@ local pendingGemLoads = {} -- itemID -> true: bag gems whose data load we reques
 local socketLoadRequested = {} -- gem itemID -> true: equipped-gem data loads we requested
 local activeIcon = nil    -- icon whose flyout is currently open
 local flyoutScroll = 0    -- top gem index offset when the gem list overflows MAX_FLYOUT_ROWS
+local flyoutHoverMode = false -- flyout opened by hovering an empty socket (auto-closes on leave)
+local ourSession = false  -- a socketing session WE opened is (or may still be) live
 
 --------------------------------------------------------------------------------
 --  Helpers
@@ -193,6 +195,7 @@ end
 local RebuildSockets   -- forward declaration
 local CloseFlyout      -- forward declaration
 local OpenFlyout       -- forward declaration
+local MaybeCloseHoverFlyout -- forward declaration
 
 -- Triggered from a gem-row OnClick (a genuine hardware event).
 local function DoSocket(targetSlot, socketIndex, gemItemID)
@@ -203,16 +206,42 @@ local function DoSocket(targetSlot, socketIndex, gemItemID)
         return
     end
     if CHasItem and CHasItem() then return end            -- don't hijack a held item
-    if ItemSocketingFrame and ItemSocketingFrame:IsShown() then return end
+    if ItemSocketingFrame and ItemSocketingFrame:IsShown() then
+        if ourSession then
+            -- Leftover window from our own previous action (the accept event
+            -- never closed it): end it now so socketing is not silently dead
+            -- until the user closes it by hand. Never reopen in the same
+            -- click -- the old session's SOCKET_INFO_CLOSE would wipe the new
+            -- pending mid-flight. The flyout stays open; the next gem click
+            -- goes through cleanly.
+            SafeCloseSession()
+        end
+        return   -- manual session: never hijack
+    end
     if not SocketInvItem then return end
     pending = { slot = targetSlot, socketIndex = socketIndex, gemItemID = gemItemID, acted = false }
+    ourSession = true
     SocketInvItem(targetSlot)   -- opens the LoD session; we act inside SOCKET_INFO_UPDATE
     CloseFlyout()
 end
 
 -- Runs once inside SOCKET_INFO_UPDATE after the session is ready.
 local function OnSocketInfoUpdate()
-    if not pending or pending.acted then return end
+    if not pending then return end
+    if pending.acted then
+        -- Session updates keep firing after we act (notably when the picked-up
+        -- gem lands in the socket UI). If the first AcceptSockets raced ahead
+        -- of the gem registering, no SOCKET_INFO_ACCEPT ever comes and the
+        -- window sits open waiting for a manual Socket click -- re-issue the
+        -- accept (a no-op when nothing is pending in the UI), bounded so a
+        -- genuinely unacceptable state cannot loop.
+        local n = pending.reaccepts or 0
+        if n < 3 and AcceptSocketsFn then
+            pending.reaccepts = n + 1
+            AcceptSocketsFn()
+        end
+        return
+    end
     local nSock = GetNumSockets and GetNumSockets()
     if not nSock or pending.socketIndex > nSock then
         -- Session not ready / mismatch: wait for the next update. No timer.
@@ -284,6 +313,65 @@ local function PaintEmptyIcon(btn)
     end
 end
 
+--------------------------------------------------------------------------------
+--  Hovered-gem slot glow
+--  Hovering a socket icon plays the standard proc glow over the equipment
+--  slot button holding that gem. Modern WoW Glow is a FlipBook style: the
+--  animation is a C-side AnimationGroup, so no Lua runs while it plays, and
+--  the wrapper is created lazily on first hover and fully stopped + hidden
+--  on leave / sheet close -- zero cost while not hovering. Taint-safe: the
+--  wrapper is OUR frame (parented to CharacterFrame, like the panel); the
+--  Blizzard slot button is only ever read (GetID, size, level) and used as
+--  an anchor target -- never written to, reparented, or hooked.
+--------------------------------------------------------------------------------
+local slotGlow          -- our lazy wrapper frame
+local slotButtons       -- lazy [invSlotID] = Blizzard slot button
+
+local SLOT_BUTTON_NAMES = {
+    "Head", "Neck", "Shoulder", "Chest", "Waist", "Legs", "Feet", "Wrist",
+    "Hands", "Finger0", "Finger1", "Trinket0", "Trinket1", "Back",
+    "MainHand", "SecondaryHand",
+}
+
+local function SlotButtonFor(slotID)
+    if not slotButtons then
+        slotButtons = {}
+        for _, n in ipairs(SLOT_BUTTON_NAMES) do
+            local b = _G["Character" .. n .. "Slot"]
+            -- Keyed by the button's own inventory ID, never a hardcoded pairing.
+            if b and b.GetID then slotButtons[b:GetID()] = b end
+        end
+    end
+    return slotButtons[slotID]
+end
+
+local function StopSlotGlow()
+    if not slotGlow then return end
+    local G = EllesmereUI and EllesmereUI.Glows
+    if G and G.StopGlow then G.StopGlow(slotGlow) end
+    slotGlow:Hide()
+end
+
+local function StartSlotGlow(slotID)
+    local G = EllesmereUI and EllesmereUI.Glows
+    if not (G and G.StartGlow) then return end
+    local slotBtn = SlotButtonFor(slotID)
+    if not slotBtn then return end
+    if not slotGlow then
+        slotGlow = CreateFrame("Frame", nil, CharacterFrame)
+    end
+    slotGlow:ClearAllPoints()
+    slotGlow:SetAllPoints(slotBtn)
+    slotGlow:SetFrameStrata(slotBtn:GetFrameStrata())
+    slotGlow:SetFrameLevel(slotBtn:GetFrameLevel() + 5)
+    slotGlow:Show()
+    local w, h = slotBtn:GetWidth(), slotBtn:GetHeight()
+    if not w or w < 1 then w = 37 end
+    if not h or h < 1 then h = w end
+    -- Style 6 = Modern WoW Glow (proc-loop FlipBook).
+    G.StartGlow(slotGlow, 6, w, 1, 1, 1, nil, h)
+end
+
 local function AcquireIcon(i)
     local btn = iconPool[i]
     if btn then return btn end
@@ -293,6 +381,8 @@ local function AcquireIcon(i)
 
     local icon = btn:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints(btn)
+    -- Standard icon zoom: crop the baked-in dark edge ring off icon art.
+    icon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
     btn.icon = icon
 
     if PP and PP.CreateBorder then
@@ -305,12 +395,25 @@ local function AcquireIcon(i)
     hov:SetColorTexture(1, 1, 1, 0.1)
 
     btn:SetScript("OnEnter", function(self)
+        local rec = self.euiSock
+        if not rec then return end
+        -- Slot locator glow first: independent of tooltip suppression.
+        StartSlotGlow(rec.slot)
+        -- Hover-to-suggest: an EMPTY socket opens the gem flyout on hover so a
+        -- single click on a gem sockets it (click-socket-then-click-gem doubles
+        -- the clicks across a many-socket session). Filled sockets keep the
+        -- explicit click -- replacing destroys the old gem. Never hijack a
+        -- sticky (click-opened) flyout; re-hovering the open icon is a no-op.
+        if not rec.gemLink and not InCombatLockdown() then
+            local open = flyout and flyout:IsShown()
+            if not (open and (activeIcon == self or not flyoutHoverMode)) then
+                OpenFlyout(self, rec.slot, rec.socketIndex, true)
+            end
+        end
         if EllesmereUI and EllesmereUI._tooltipSuppressedByMode
             and EllesmereUI._tooltipSuppressedByMode(GameTooltip) then
             return
         end
-        local rec = self.euiSock
-        if not rec then return end
         if rec.gemLink then
             -- Filled socket: real item tooltip (sanctioned item-tooltip surface).
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -320,12 +423,14 @@ local function AcquireIcon(i)
             -- Empty socket: plain-text hint uses the EUI widget tooltip.
             if EllesmereUI and EllesmereUI.ShowWidgetTooltip then
                 EllesmereUI.ShowWidgetTooltip(self,
-                    (rec.emptyName or "Empty Socket") .. "\nClick to socket a gem from your bags.",
+                    (rec.emptyName or "Empty Socket") .. "\nPick a gem from the list to socket it.",
                     { anchor = "right" })
             end
         end
     end)
     btn:SetScript("OnLeave", function()
+        StopSlotGlow()
+        MaybeCloseHoverFlyout()
         GameTooltip:Hide()
         if EllesmereUI and EllesmereUI.HideWidgetTooltip then
             EllesmereUI.HideWidgetTooltip()
@@ -340,8 +445,15 @@ local function AcquireIcon(i)
             end
             return
         end
-        -- Toggle: clicking the open icon again closes its flyout.
+        -- Toggle: clicking the open icon again closes its flyout. A
+        -- hover-opened flyout is pinned sticky instead (the natural read of
+        -- clicking the socket whose suggestions are already showing).
         if activeIcon == self and flyout and flyout:IsShown() then
+            if flyoutHoverMode then
+                flyoutHoverMode = false
+                if catcher then catcher:Show() end
+                return
+            end
             CloseFlyout()
             return
         end
@@ -518,7 +630,10 @@ local function AcquireGemRow(i)
         GameTooltip:SetHyperlink(self.gemLink)
         GameTooltip:Show()
     end)
-    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    row:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+        MaybeCloseHoverFlyout()
+    end)
     row:SetScript("OnClick", function(self)
         if not self.gemItemID then return end
         DoSocket(flyout.targetSlot, flyout.targetSocketIndex, self.gemItemID)
@@ -610,6 +725,11 @@ local function BuildFlyout()
         PP.CreateBorder(flyout, 0.2, 0.2, 0.2, 1, 1, "OVERLAY", 1)
     end
 
+    -- Mouse-enabled so the hover-opened flyout can watch its own OnLeave; also
+    -- keeps clicks on the menu background from falling through to the sheet.
+    flyout:EnableMouse(true)
+    flyout:SetScript("OnLeave", function() MaybeCloseHoverFlyout() end)
+
     flyout:EnableMouseWheel(true)
     flyout:SetScript("OnMouseWheel", function(self, delta)
         if #gemCache <= MAX_FLYOUT_ROWS then return end
@@ -632,11 +752,12 @@ local function BuildFlyout()
     end)
 end
 
-OpenFlyout = function(iconBtn, targetSlot, targetSocketIndex)
+OpenFlyout = function(iconBtn, targetSlot, targetSocketIndex, hoverMode)
     BuildFlyout()
     -- Close any existing flyout first.
     CloseFlyout()
 
+    flyoutHoverMode = hoverMode and true or false
     flyout.targetSlot = targetSlot
     flyout.targetSocketIndex = targetSocketIndex
     activeIcon = iconBtn
@@ -658,7 +779,10 @@ OpenFlyout = function(iconBtn, targetSlot, targetSocketIndex)
     -- false on the hidden frame, which would swallow the first key next open.
     flyout:SetPropagateKeyboardInput(true)
 
-    catcher:Show()
+    -- Hover mode has no click-catcher: the flyout dismisses itself when the
+    -- cursor leaves it, and a stray hover must never eat an unrelated click.
+    -- A click on the socket icon pins it sticky, which shows the catcher.
+    if not flyoutHoverMode then catcher:Show() end
     flyout:Show()
 
     -- Watch for combat while the flyout is open.
@@ -669,7 +793,21 @@ CloseFlyout = function()
     if flyout then flyout:Hide() end
     if catcher then catcher:Hide() end
     activeIcon = nil
+    flyoutHoverMode = false
     if evtFrame then evtFrame:UnregisterEvent("PLAYER_REGEN_DISABLED") end
+end
+
+-- Hover-opened flyouts dismiss when the cursor is over neither the flyout nor
+-- the socket icon that opened it. Called from the OnLeave of every surface
+-- involved (icon, flyout body, gem rows) -- purely event-driven, no polling.
+MaybeCloseHoverFlyout = function()
+    if not flyoutHoverMode then return end
+    if not (flyout and flyout:IsShown()) then return end
+    -- The margin bridges the 4px anchor gap between icon and flyout so the
+    -- cursor can travel across it without this check closing the menu.
+    if flyout:IsMouseOver(8, -8, -8, 8) then return end
+    if activeIcon and activeIcon:IsMouseOver() then return end
+    CloseFlyout()
 end
 
 --------------------------------------------------------------------------------
@@ -725,6 +863,7 @@ local function OnEvent(self, event, arg1)
     elseif event == "SOCKET_INFO_ACCEPT" or event == "SOCKET_INFO_CLOSE" then
         local ours = pending ~= nil
         pending = nil
+        if event == "SOCKET_INFO_CLOSE" then ourSession = false end
         gemDirty = true
         RebuildSockets()
         -- End the session we opened once the gem is applied; the socketing
@@ -803,6 +942,9 @@ local function OnPaperDollShow()
 end
 
 local function OnHideAll()
+    -- OnLeave never fires when the sheet hides under the cursor; stop the
+    -- slot glow explicitly so its FlipBook anim is not left running hidden.
+    StopSlotGlow()
     CloseFlyout()
     UnregisterShownEvents()
     if panel then panel:Hide() end

@@ -1340,17 +1340,25 @@ local GetBarType = ResolveBarType
 -- action, never a "blocked because it's already on bar X" failure mode.)
 
 --- Same check but for TBB (Tracking Bars check other Tracking Bars only).
-function ns.SpellUsedOnAnyOtherTBB(spellID, excludeIdx)
+--- trackType scopes the check to one track family: nil/"buff" = buff bars,
+--- "cooldown" = cooldown-tracking bars. A bar of a different track type
+--- never blocks a pick (a buff bar and a cooldown bar for the same spell
+--- are distinct, legitimate picks).
+function ns.SpellUsedOnAnyOtherTBB(spellID, excludeIdx, trackType)
     local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
     if not tbb or not tbb.bars then return nil end
     for i, cfg in ipairs(tbb.bars) do
         if i ~= excludeIdx then
-            if cfg.spellID and cfg.spellID == spellID then
-                return cfg.name or ("Tracking Bar " .. i)
-            end
-            if cfg.spellIDs then
-                for _, sid in ipairs(cfg.spellIDs) do
-                    if sid == spellID then return cfg.name or ("Tracking Bar " .. i) end
+            if (cfg.trackType or "buff") ~= (trackType or "buff") then
+                -- Different track type never blocks a pick.
+            else
+                if cfg.spellID and cfg.spellID == spellID then
+                    return cfg.name or ("Tracking Bar " .. i)
+                end
+                if cfg.spellIDs then
+                    for _, sid in ipairs(cfg.spellIDs) do
+                        if sid == spellID then return cfg.name or ("Tracking Bar " .. i) end
+                    end
                 end
             end
         end

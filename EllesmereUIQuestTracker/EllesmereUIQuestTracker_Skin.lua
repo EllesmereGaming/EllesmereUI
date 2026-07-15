@@ -54,6 +54,18 @@ local SUB_TRACKERS = {
     "InitiativeTasksObjectiveTracker",
 }
 
+-- ScenarioObjectiveTracker and UIWidgetObjectiveTracker render their content
+-- through Blizzard's shared UI-widget pool -- the same pool GameTooltip and
+-- AreaPOI tooltips draw from. ANY method call on their child blocks taints
+-- that pool, and the taint surfaces later as "attempt to compare a secret
+-- number value" in LayoutFrame.lua when a tooltip lays out a widget set
+-- (e.g. hovering an AreaPOI on the world map). We only ever skin their
+-- headers; block-level loops must skip them entirely.
+local function SharesWidgetPool(tracker)
+    return tracker == _G.ScenarioObjectiveTracker
+        or tracker == _G.UIWidgetObjectiveTracker
+end
+
 -- Shared font sizes -- read from DB so the options panel can tweak them.
 -- Defaults are seeded in the loader's QT_DEFAULTS table.
 local function GetTitleSize() return EQT.Cfg("titleFontSize")     or 13 end
@@ -742,26 +754,15 @@ local function HookBlockLineMethods(block)
         block.HeaderButton:HookScript("OnLeave", reassertTitle)
     end
 
-    -- Left-click on a quest block also super-tracks it (in addition to
-    -- Blizzard's default click behavior). HookScript preserves the
-    -- default handler and just adds our side-effect.
-    local function superTrackOnClick(self, button)
-        if button ~= "LeftButton" then return end
-        local qID = self.id
-        if type(qID) ~= "number" then return end
-        if C_SuperTrack and C_SuperTrack.SetSuperTrackedQuestID then
-            C_SuperTrack.SetSuperTrackedQuestID(qID)
-        end
-    end
-    -- Only hook the HeaderButton (title-text area), NOT the whole block.
-    -- Hooking block:OnMouseUp eats clicks meant for the quest item button
-    -- and LFG eyeball that sit inside the block's hit region, breaking
-    -- the user's ability to actually use quest items.
-    if block.HeaderButton and block.HeaderButton.HookScript then
-        block.HeaderButton:HookScript("OnClick", function(self, button)
-            superTrackOnClick(block, button)
-        end)
-    end
+    -- REMOVED: an OnClick post-hook here used to call
+    -- C_SuperTrack.SetSuperTrackedQuestID(block.id) so a left-click also
+    -- super-tracked the quest. Setting the super-track from addon (tainted)
+    -- execution taints Blizzard's world-map super-track / AreaPOI refresh,
+    -- surfacing later as a blocked Frame:SetPropagateMouseClicks() when the map
+    -- builds POI pins (ADDON_ACTION_BLOCKED via QuestMapFrame_ShowQuestDetails).
+    -- Blizzard's native block click already super-tracks the quest securely, so
+    -- the hook was redundant; the focus highlight still follows the super-track
+    -- via the SUPER_TRACKING_CHANGED handler.
 
     -- AddObjective / SetStringText hooks REMOVED (session 68 perf audit).
     -- SkinBlock already styles all fontstrings via GetRegions() walk +
@@ -935,6 +936,10 @@ local function SkinExistingBlocks(tracker)
     -- so collapsed/re-expanded states always keep a visible divider.
     if tracker.Header then EnsureAccentDivider(tracker.Header) end
 
+    -- Never touch shared-widget-pool trackers' blocks (see SharesWidgetPool).
+    -- The header/divider above is safe; the block loop below is not.
+    if SharesWidgetPool(tracker) then return end
+
     -- Collect blocks into an ordered list sorted top-to-bottom by Y. We use
     -- this to apply sequential per-section numbering (1, 2, 3...) that
     -- matches the visual order.
@@ -987,8 +992,7 @@ local function HookTracker(tracker)
     -- call on those frames taints the pool, causing secret-value arithmetic
     -- errors when GameTooltip processes widget sets later (LayoutFrame.lua
     -- "attempt to compare a secret number value" via GameTooltip_ClearWidgetSet).
-    if tracker == _G.ScenarioObjectiveTracker
-       or tracker == _G.UIWidgetObjectiveTracker then
+    if SharesWidgetPool(tracker) then
         if tracker.Header then SkinHeader(tracker.Header) end
         if tracker.Update then
             hooksecurefunc(tracker, "Update", function(self)
@@ -1094,6 +1098,9 @@ end
 -- that Blizzard assigns when the player clicks a quest on the map.
 EQT._SuppressAllPOIs = function()
     EachTracker(function(tracker)
+        -- Shared-widget-pool trackers have no quest POI buttons and touching
+        -- their blocks taints the tooltip widget pool (see SharesWidgetPool).
+        if SharesWidgetPool(tracker) then return end
         if not tracker.usedBlocks then return end
         for _, byTemplate in pairs(tracker.usedBlocks) do
             if type(byTemplate) == "table" then

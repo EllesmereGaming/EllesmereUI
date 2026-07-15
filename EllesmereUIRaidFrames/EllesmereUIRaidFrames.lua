@@ -716,6 +716,7 @@ local defaults = {
         -- simple buff grid (all of the active spec's tracked buffs, in a grid).
         bmSimple = {
             showBuffs       = true,
+            ownOnly         = true,
             maxBuffs        = 8,
             iconsPerRow     = 4,
             position        = "topright",
@@ -3745,6 +3746,11 @@ local function StyleButton(button)
     -- the old frame layering: hover (highest) > target > normal.
     local function ApplyBorderColor()
         if not (PP and d.borderFrame) then return end
+        -- Re-called on hover/target changes long after StyleButton: resolve
+        -- LIVE (see the LiveS note above) so party overrides and profile
+        -- swaps are honored -- the captured raid `s` goes stale (same fix as
+        -- UpdatePowerBorder below).
+        local s = LiveS()
         if (s.borderSize or 1) <= 0 then return end
         local r, g, b, a
         local raised = false
@@ -3770,6 +3776,9 @@ local function StyleButton(button)
     -- frame; otherwise it sits above at +8 (unchanged from the old layering).
     local function UpdateBorder()
         if not (PP and d.borderFrame) then return end
+        -- Re-called from ReloadFrames/ReloadPartyFrames long after StyleButton:
+        -- resolve LIVE (see the LiveS note above), same fix as UpdatePowerBorder.
+        local s = LiveS()
         local bs = s.borderSize or 1
         local bc = s.borderColor or { r = 0, g = 0, b = 0 }
         local texKey = s.borderTexture or "solid"
@@ -3790,6 +3799,11 @@ local function StyleButton(button)
         -- (StyleButton tail, ReloadFrames, ReloadPartyFrames) must not draw a
         -- border over a hidden bar. UpdateButton calls this AFTER power:Show().
         if not PP or not d.powerBorderFrame or (d.power and not d.power:IsShown()) then return end
+        -- Stored on `d` and re-called long after StyleButton, so resolve the
+        -- settings source LIVE (see the LiveS note above): the captured raid
+        -- `s` never sees party_ overrides on party frames and goes stale the
+        -- moment db.profile is reassigned by a profile swap.
+        local s = LiveS()
         local style = s.powerBorderStyle or "eui"
         if style == "eui" then
             -- EUI style: 1px divider, white at 20% opacity

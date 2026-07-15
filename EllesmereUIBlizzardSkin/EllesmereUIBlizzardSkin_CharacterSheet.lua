@@ -342,9 +342,9 @@ local function PreSkinCharacterSheet()
     hooksecurefunc(frame, "SetWidth", UpdateBgTexCoords)
     hooksecurefunc(frame, "SetHeight", UpdateBgTexCoords)
     UpdateBgTexCoords()
-    if EllesmereUI and EllesmereUI.PanelPP then
-        EllesmereUI.PanelPP.CreateBorder(frame, 0.2, 0.2, 0.2, 1, 1, "OVERLAY", 7)
-    end
+    -- Standard window-reskin border (the AdventureMap_TopBorder atlas texture),
+    -- matching every other skinned Blizzard window. Replaces the old 1px line.
+    if ns.WSkin and ns.WSkin.AtlasBorder then ns.WSkin.AtlasBorder(frame) end
     -- Window-style system: lets the Modern flat backdrop live-swap in for the
     -- atlas when the user picks Modern for the Character Sheet window.
     if ns.WSkin and ns.WSkin.AdoptShell then
@@ -1209,6 +1209,28 @@ local function SkinCharacterSheet()
     _ComputeBetterInventoryItems = function()
         local betterItems = {}
 
+        -- A two-handed main-hand weapon (2H melee, staff, or a two-handed
+        -- ranged weapon) leaves the off-hand slot (17) intentionally empty, so
+        -- GetEquippedItemLevel(17) returns 0 and ANY off-hand / holdable /
+        -- shield / one-hander in the bags reads as "better than nothing" --
+        -- even one hundreds of ilvls lower. Suppress slot-17 comparisons then:
+        -- the off-hand can't be filled without giving up the two-hander, so a
+        -- lone off-hand piece isn't a straightforward upgrade. Only applies
+        -- while the off-hand is actually empty (Fury Titan's Grip keeps a real
+        -- item there, which compares normally).
+        local offHandBlocked = false
+        do
+            local mhLink = GetInventoryItemLink("player", 16)
+            if mhLink and GetInventoryItemLink("player", 17) == nil then
+                local _, _, _, mhEquipLoc = GetItemInfoInstant(mhLink)
+                if mhEquipLoc == "INVTYPE_2HWEAPON"
+                    or mhEquipLoc == "INVTYPE_RANGED"
+                    or mhEquipLoc == "INVTYPE_RANGEDRIGHT" then
+                    offHandBlocked = true
+                end
+            end
+        end
+
         -- Check all bag slots (0 = backpack, 1-4 = bag slots, 5 = reagent
         -- bag -- included since it can hold any item, not just reagents).
         for bagSlot = 0, 5 do
@@ -1216,7 +1238,7 @@ local function SkinCharacterSheet()
             for slotIndex = 1, bagSize do
                 local itemLink = C_Container.GetContainerItemLink(bagSlot, slotIndex)
                 if itemLink then
-                    local itemName, _, itemRarity, _, _, itemType, _, _, equipSlot, itemIcon = GetItemInfo(itemLink)
+                    local itemName, _, itemRarity, _, _, _, _, _, equipSlot, itemIcon = GetItemInfo(itemLink)
                     -- GetItemInfo's cached itemLevel can be wrong for a
                     -- specific item instance (e.g. an upgrade-track piece) --
                     -- prefer the ItemLocation API (exact per-item level, no
@@ -1231,13 +1253,19 @@ local function SkinCharacterSheet()
                     end
                     itemLevel = tonumber(itemLevel) or tonumber(C_Item.GetDetailedItemLevelInfo(itemLink))
 
-                    -- Only show Weapon and Armor items
-                    if itemLevel and itemName and (itemType == "Weapon" or itemType == "Armor") and equipSlot then
+                    -- Only show Weapon and Armor items. itemType/itemSubType from
+                    -- GetItemInfo are localized display strings (e.g. "Arma" on a
+                    -- Spanish client), so comparing them against English literals
+                    -- silently filtered out every item on non-English clients.
+                    -- classID/subclassID from GetItemInfoInstant are locale-
+                    -- independent numeric IDs (Enum.ItemClass.Weapon = 2,
+                    -- Enum.ItemClass.Armor = 4) and safe to compare directly.
+                    -- GetItemInfoInstant returns:
+                    -- 1 itemID, 2 itemType, 3 itemSubType, 4 itemEquipLoc,
+                    -- 5 iconFileID, 6 classID, 7 subClassID
+                    local _, _, _, _, _, classID, subclassID = GetItemInfoInstant(itemLink)
+                    if itemLevel and itemName and (classID == Enum.ItemClass.Weapon or classID == Enum.ItemClass.Armor) and equipSlot then
                         -- Spec-aware usability filter (skip shields on Ret, etc.)
-                        -- GetItemInfoInstant returns:
-                        -- 1 itemID, 2 itemType, 3 itemSubType, 4 itemEquipLoc,
-                        -- 5 iconFileID, 6 classID, 7 subClassID
-                        local _, _, _, _, _, classID, subclassID = GetItemInfoInstant(itemLink)
                         if not IsItemUsableBySpec(itemLink, equipSlot, classID, subclassID) then
                             -- skip: not usable by current spec
                         else
@@ -1249,10 +1277,14 @@ local function SkinCharacterSheet()
 
                                 -- Check if item is better than ANY of its possible slots
                                 for _, slot in ipairs(compareSlots) do
-                                    local equippedLevel = GetEquippedItemLevel(slot)
-                                    if itemLevel > equippedLevel then
-                                        isBetter = true
-                                        break
+                                    -- Skip the empty off-hand slot behind a 2H weapon
+                                    -- (see offHandBlocked above).
+                                    if not (offHandBlocked and slot == 17) then
+                                        local equippedLevel = GetEquippedItemLevel(slot)
+                                        if itemLevel > equippedLevel then
+                                            isBetter = true
+                                            break
+                                        end
                                     end
                                 end
 

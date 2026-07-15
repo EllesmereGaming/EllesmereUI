@@ -933,15 +933,13 @@ function ECHAT.ApplyIconFreeMove()
     end
 end
 
--- Portal flyout: dungeon portal spell buttons
-local PORTAL_SPELLS = {
-    1254400, 1254572, 1254563, 1254559,
-    159898,  1254555, 1254551, 393273,
-}
-local PORTAL_SHORT = {
-    [1254400] = "WRS", [1254572] = "MT",  [1254563] = "NPX", [1254559] = "MC",
-    [159898]  = "SR",  [1254555] = "PoS", [1254551] = "SoT", [393273]  = "AA",
-}
+-- Portal flyout: dungeon portal spell buttons, built from the shared season
+-- list (EllesmereUI.SEASON_PORTALS) -- one place to update per season.
+local PORTAL_SPELLS, PORTAL_SHORT = {}, {}
+for _, e in ipairs(EllesmereUI.SEASON_PORTALS) do
+    PORTAL_SPELLS[#PORTAL_SPELLS + 1] = e.spellID
+    PORTAL_SHORT[e.spellID] = e.short
+end
 
 local _portalFlyout, _portalBtns
 

@@ -13,27 +13,15 @@ local partyKeys = {}  -- [playerName] = { dungeon = mapID, keyLevel = N, rating 
 -- Built dynamically from C_ChallengeMode.GetMapTable + spell lookup.
 local MAP_TELEPORT_SPELLS = {}
 do
-    -- Spell IDs indexed by dungeon name (case-insensitive matching)
-    local TELEPORT_BY_NAME = {
-        ["magisters' terrace"]         = 1254572,
-        ["терраса магистров"]          = 1254572,
-        ["maisara caverns"]            = 1254559,
-        ["пещеры майсара"]             = 1254559,
-        ["nexus-point xenas"]          = 1254563,
-        ["нексус-пойнт ксенас"]        = 1254563,
-        ["нексус-поинт ксенас"]        = 1254563,
-        ["windrunner spire"]           = 1254400,
-        ["шпиль ветрокрылых"]          = 1254400,
-        ["algeth'ar academy"]          = 393273,
-        ["академия алгет'ар"]          = 393273,
-        ["академия алгетар"]           = 393273,
-        ["pit of saron"]               = 1254555,
-        ["яма сарона"]                 = 1254555,
-        ["seat of the triumvirate"]    = 1254551,
-        ["престол триумвирата"]        = 1254551,
-        ["skyreach"]                   = 159898,
-        ["небесный путь"]              = 159898,
-    }
+    -- Spell IDs indexed by dungeon name (case-insensitive matching), built
+    -- from the shared season list (EllesmereUI.SEASON_PORTALS) -- one place
+    -- to update per season.
+    local TELEPORT_BY_NAME = {}
+    for _, e in ipairs(EllesmereUI.SEASON_PORTALS) do
+        for _, n in ipairs(e.names) do
+            TELEPORT_BY_NAME[n] = e.spellID
+        end
+    end
     if C_ChallengeMode and C_ChallengeMode.GetMapTable then
         local maps = C_ChallengeMode.GetMapTable()
         for _, mapID in ipairs(maps) do

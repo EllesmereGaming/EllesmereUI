@@ -3321,19 +3321,80 @@ local function Skin_Guild()
         local cdStock = capturePts(cd2)
         local boxWide = boxStock and widePts(boxStock, 23, 20)
         local cdWide = cdStock and widePts(cdStock, 23, 23)
+        -- Also widen `ml` (MemberList) itself at the source, since Blizzard's
+        -- own row-sizing below (SetWidth(GetMemberList():GetWidth())) reads
+        -- ml's width directly. RefreshLayout only ever gives `ml` a single
+        -- positional anchor (not a LEFT+RIGHT pair like box2/cd2), so it's
+        -- resized with a plain SetWidth rather than the capturePts/widePts
+        -- anchor-nudge technique above. This works alongside the per-row
+        -- SetWidth override below, not instead of it: the two are
+        -- belt-and-braces, so rows stay correctly sized whether Blizzard's
+        -- layout picks up the widened ml on its own or not.
+        local mlStockWidth = ml:GetWidth()
+        local mlWideWidth = mlStockWidth + 23 + 20
+        -- Every roster row is sized by Blizzard to MemberList's own width
+        -- (CommunitiesMemberListEntryMixin:SetExpanded -> SetWidth(GetMemberList()
+        -- :GetWidth())), a frame this pass never touches -- only its ScrollBox
+        -- and ColumnDisplay children get widened above. Left alone, rows stay
+        -- stock width while the header grows, so each row's GuildInfo text
+        -- (RIGHT-anchored to the row, -4) sits in a box that ends well short of
+        -- the widened header -- the Achievement Points / M+ Rating value renders
+        -- under the Note column instead of the far-right stat column. Re-stamp
+        -- every live row to the ScrollBox's actual current width so it always
+        -- matches. GuildInfo is also LEFT-justified in that box by default, so
+        -- widening it alone never moves the visible text -- center it and nudge
+        -- it left while the roster is showing, and put both back to Blizzard's
+        -- stock LEFT/20/-4 layout when it's not, since MemberList/ScrollBox is
+        -- shared with the Chat tab's narrower names column and a row must not
+        -- stay stranded in the roster's styling after the swap.
+        local GUILD_INFO_NUDGE = 20
+        local function ApplyRowLayout(row)
+            if not row then return end
+            if row.SetWidth then row:SetWidth(box2:GetWidth()) end
+            local gi = row.GuildInfo
+            if gi and row.Note and gi.SetJustifyH and gi.ClearAllPoints then
+                gi:ClearAllPoints()
+                if cd2:IsShown() then
+                    gi:SetJustifyH("CENTER")
+                    gi:SetPoint("LEFT", row.Note, "RIGHT", 20 - GUILD_INFO_NUDGE, 0)
+                    gi:SetPoint("RIGHT", row, "RIGHT", -4 - GUILD_INFO_NUDGE, 0)
+                else
+                    gi:SetJustifyH("LEFT")
+                    gi:SetPoint("LEFT", row.Note, "RIGHT", 20, 0)
+                    gi:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+                end
+            end
+        end
+        -- Same uninitialized-ScrollBox guard used for the AH summary/rail rows
+        -- elsewhere in this file: ForEachFrame errors inside Blizzard's code
+        -- if the view doesn't exist yet (e.g. this pass runs at ADDON_LOADED,
+        -- before the roster has ever been shown).
+        local function SyncRowWidths()
+            if box2.ForEachFrame and box2.GetView and box2:GetView() then
+                pcall(box2.ForEachFrame, box2, ApplyRowLayout)
+            end
+        end
+        hooksecurefunc(box2, "Update", WSkin.Debounce(SyncRowWidths))
         cd2:HookScript("OnShow", function()
             applyPts(box2, boxWide)
             applyPts(cd2, cdWide)
+            ml:SetWidth(mlWideWidth)
+            SyncRowWidths()
         end)
         cd2:HookScript("OnHide", function()
             applyPts(box2, boxStock)
+            ml:SetWidth(mlStockWidth)
+            SyncRowWidths()
         end)
         if cd2:IsShown() then
             applyPts(box2, boxWide)
             applyPts(cd2, cdWide)
+            ml:SetWidth(mlWideWidth)
         else
             applyPts(box2, boxStock)
+            ml:SetWidth(mlStockWidth)
         end
+        SyncRowWidths()
     end
 
     -- Chat view's names-column scrollbar sits 5px right (one-shot, every
@@ -7624,20 +7685,27 @@ local function UpdateMerchantItemLevels()
     if not f then return end
     local show = EllesmereUIDB and EllesmereUIDB.merchantShowItemLevel == true
     local onSellTab = (f.selectedTab or 1) == 1
+    local render = show and onSellTab and f:IsVisible()
     for i = 1, 12 do
         local btn = _G["MerchantItem" .. i .. "ItemButton"]
         if btn then
-            local fs = btn.EUIMerchantILvl
-            if not fs then
-                fs = btn:CreateFontString(nil, "OVERLAY", nil, 7)
-                fs:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
-                local path = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
-                local flag = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE"
-                fs:SetFont(path, 12, flag)
-                btn.EUIMerchantILvl = fs
-            end
-            fs:SetText("")
-            if show and onSellTab and f:IsVisible() then
+            -- FontString ref lives in the engine FFD, never on Blizzard's
+            -- button table. Read without creating so the disabled path costs
+            -- one weak-table lookup per slot.
+            local fd = FFD[btn]
+            local fs = fd and fd.merchantILvl
+            if not render then
+                if fs then fs:SetText("") end
+            else
+                if not fs then
+                    fs = btn:CreateFontString(nil, "OVERLAY", nil, 7)
+                    fs:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
+                    local path = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+                    local flag = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE"
+                    fs:SetFont(path, 12, flag)
+                    GetFFD(btn).merchantILvl = fs
+                end
+                fs:SetText("")
                 local index = btn:GetID()
                 local link = index and index > 0 and GetMerchantItemLink(index)
                 if link then
@@ -7662,7 +7730,6 @@ local function UpdateMerchantItemLevels()
         end
     end
 end
-EllesmereUI._Merchant_RefreshItemLevels = UpdateMerchantItemLevels
 
 local _merchantILvlHooked = false
 local function EnsureMerchantILvlHook()
@@ -7673,17 +7740,45 @@ local function EnsureMerchantILvlHook()
     end
 end
 
+-- The MerchantFrame_Update hook is what renders the item levels; it installs
+-- once the toggle is on and stays (cheap: MerchantFrame_Update only fires
+-- while a merchant is up, and the updater no-ops when the toggle is off). It
+-- must NOT be gated on MerchantFrame:IsVisible(): MERCHANT_SHOW fires before
+-- Blizzard shows the frame, so IsVisible() is false there and the hook would
+-- never install. GET_ITEM_INFO_RECEIVED fires on every item-cache resolve
+-- suite-wide, so it is registered ONLY while a merchant is actually open
+-- (tracked by an explicit flag, not visibility) AND the toggle is on.
 local mILvlBoot = CreateFrame("Frame")
-mILvlBoot:RegisterEvent("PLAYER_LOGIN")
-mILvlBoot:RegisterEvent("MERCHANT_SHOW")
-mILvlBoot:RegisterEvent("GET_ITEM_INFO_RECEIVED")
-mILvlBoot:SetScript("OnEvent", function(_, event)
-    if event == "GET_ITEM_INFO_RECEIVED"
-       and not (_G.MerchantFrame and _G.MerchantFrame:IsVisible()) then
-        return
+local _merchantOpen = false
+local function SyncMerchantILvlEvents()
+    local on = EllesmereUIDB and EllesmereUIDB.merchantShowItemLevel == true
+    if on then EnsureMerchantILvlHook() end
+    if on and _merchantOpen then
+        mILvlBoot:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+    else
+        mILvlBoot:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
     end
-    EnsureMerchantILvlHook()
+end
+
+-- Options toggle entry point: re-sync listeners, then render or clear.
+EllesmereUI._Merchant_RefreshItemLevels = function()
+    SyncMerchantILvlEvents()
     UpdateMerchantItemLevels()
+end
+
+mILvlBoot:RegisterEvent("MERCHANT_SHOW")
+mILvlBoot:RegisterEvent("MERCHANT_CLOSED")
+mILvlBoot:SetScript("OnEvent", function(_, event)
+    if event == "MERCHANT_SHOW" then
+        _merchantOpen = true
+        SyncMerchantILvlEvents()
+        UpdateMerchantItemLevels()
+    elseif event == "MERCHANT_CLOSED" then
+        _merchantOpen = false
+        SyncMerchantILvlEvents()
+    else -- GET_ITEM_INFO_RECEIVED: an item's data resolved while shopping
+        UpdateMerchantItemLevels()
+    end
 end)
 
 -------------------------------------------------------------------------------

@@ -924,6 +924,15 @@ local function LayerSkipsKey(key)
     return (abk and abk[key]) and true or false
 end
 
+-- Tracking Bar CHILD-role link entries (key "TBB_<idx>") are per-spec data
+-- owned by the CDM link buckets (SyncTBBUnlockLinks): layers never carry
+-- them and never wipe them -- an apply would stamp one spec's links onto
+-- another spec's bars. Entries where a TBB key is only the TARGET live
+-- under the child's key and stay layer-managed like any other element.
+local function IsTBBChildKey(key)
+    return type(key) == "string" and key:find("^TBB_%d+$") ~= nil
+end
+
 local function HarvestLayer()
     local layer = {
         anchors     = DeepCopy(EllesmereUIDB and EllesmereUIDB.unlockAnchors or {}),
@@ -931,6 +940,20 @@ local function HarvestLayer()
         heightMatch = DeepCopy(EllesmereUIDB and EllesmereUIDB.unlockHeightMatch or {}),
         cdmGrow = {}, abGrow = {}, elems = {},
     }
+    -- Strip TBB child-role entries: per-spec data, not layer data.
+    local stripSets = { layer.anchors, layer.widthMatch, layer.heightMatch }
+    for i = 1, 3 do
+        local t, kill = stripSets[i], nil
+        for k in pairs(t) do
+            if IsTBBChildKey(k) then
+                kill = kill or {}
+                kill[#kill + 1] = k
+            end
+        end
+        if kill then
+            for _, k in ipairs(kill) do t[k] = nil end
+        end
+    end
     local cdm = LiteProfile("EllesmereUICooldownManager")
     if cdm then
         layer.cdmPos = DeepCopy(cdm.cdmBarPositions or {})
@@ -1001,28 +1024,63 @@ local function ApplyLayer(layer)
         if not anchors then anchors = {}; EllesmereUIDB.unlockAnchors = anchors end
         -- Fallback links belong to the child/target pair, not the spec:
         -- carry each over when the arriving layer keeps the same target.
-        local fallbacks
+        -- TBB child entries (per-spec, bucket-owned) ride the wipe whole --
+        -- fallback included -- and layer-borne ones (from layers saved
+        -- before TBB entries were excluded) are skipped on refill.
+        local fallbacks, tbbKept
         for k, info in pairs(anchors) do
-            if info.fallback then
+            if IsTBBChildKey(k) then
+                tbbKept = tbbKept or {}
+                tbbKept[k] = info
+            elseif info.fallback then
                 fallbacks = fallbacks or {}
                 fallbacks[k] = { tgt = info.target, fb = info.fallback }
             end
         end
         wipe(anchors)
         for k, info in pairs(layer.anchors or {}) do
-            anchors[k] = DeepCopy(info)
-            local f = fallbacks and fallbacks[k]
-            if f and f.tgt == info.target then anchors[k].fallback = f.fb end
+            if not IsTBBChildKey(k) then
+                anchors[k] = DeepCopy(info)
+                local f = fallbacks and fallbacks[k]
+                if f and f.tgt == info.target then anchors[k].fallback = f.fb end
+            end
+        end
+        if tbbKept then
+            for k, info in pairs(tbbKept) do anchors[k] = info end
         end
         EllesmereUI._anchorLinksStamp = (EllesmereUI._anchorLinksStamp or 0) + 1
         local wm = EllesmereUIDB.unlockWidthMatch
         if not wm then wm = {}; EllesmereUIDB.unlockWidthMatch = wm end
+        local wmKept
+        for k, v in pairs(wm) do
+            if IsTBBChildKey(k) then
+                wmKept = wmKept or {}
+                wmKept[k] = v
+            end
+        end
         wipe(wm)
-        for k, v in pairs(layer.widthMatch or {}) do wm[k] = v end
+        for k, v in pairs(layer.widthMatch or {}) do
+            if not IsTBBChildKey(k) then wm[k] = v end
+        end
+        if wmKept then
+            for k, v in pairs(wmKept) do wm[k] = v end
+        end
         local hm = EllesmereUIDB.unlockHeightMatch
         if not hm then hm = {}; EllesmereUIDB.unlockHeightMatch = hm end
+        local hmKept
+        for k, v in pairs(hm) do
+            if IsTBBChildKey(k) then
+                hmKept = hmKept or {}
+                hmKept[k] = v
+            end
+        end
         wipe(hm)
-        for k, v in pairs(layer.heightMatch or {}) do hm[k] = v end
+        for k, v in pairs(layer.heightMatch or {}) do
+            if not IsTBBChildKey(k) then hm[k] = v end
+        end
+        if hmKept then
+            for k, v in pairs(hmKept) do hm[k] = v end
+        end
     end
     local cdm = LiteProfile("EllesmereUICooldownManager")
     if cdm then
@@ -2309,7 +2367,35 @@ function EllesmereUI.SpecOverrides_MergeImportedStores(merged, incoming)
     end
 
     -- Union group lists; returns (unioned, remap oldIncomingId -> newId).
-    local function unionGroups(existing, incomingGroups)
+    -- Equivalence comparators: importing your OWN export must collapse each
+    -- incoming group onto the recipient's original instead of appending a
+    -- re-numbered twin (the original would survive as a dead card while the
+    -- twin held the values -- "everything duplicated" after a self-import).
+    local function sameSpecGroup(a, b)
+        if (a.name or "") ~= (b.name or "") then return false end
+        local as, bs = a.specs or {}, b.specs or {}
+        if #as ~= #bs then return false end
+        local set = {}
+        for _, id in ipairs(as) do set[id] = true end
+        for _, id in ipairs(bs) do
+            if not set[id] then return false end
+        end
+        return true
+    end
+    local function sameCondGroup(a, b)
+        if (a.name or "") ~= (b.name or "") then return false end
+        if (a.key or "") ~= (b.key or "") then return false end
+        local ac, bc = a.conds or {}, b.conds or {}
+        for k in pairs(ac) do if not bc[k] then return false end end
+        for k in pairs(bc) do if not ac[k] then return false end end
+        return true
+    end
+
+    -- Union group lists; returns (unioned, remap oldIncomingId -> newId).
+    -- An incoming group EQUIVALENT to an existing one (per `same`) adopts the
+    -- existing group's id (remapped) and pushes its icon (incoming priority);
+    -- only genuinely new groups append, re-numbered on id collision.
+    local function unionGroups(existing, incomingGroups, same)
         local remap = {}
         if type(incomingGroups) ~= "table" then return existing, remap end
         local out, used = {}, {}
@@ -2320,15 +2406,36 @@ function EllesmereUI.SpecOverrides_MergeImportedStores(merged, incoming)
         local nextId = maxNumericId(existing)
         local incMax = maxNumericId(incomingGroups)
         if incMax > nextId then nextId = incMax end
+        -- Each existing group may be matched by ONE incoming group per union:
+        -- users can hold two groups with identical name+specs/conds, and both
+        -- twins matching the same target would collide their remapped gid
+        -- references (pairs-order data loss in cond value maps / fork keys).
+        -- Claimed-once lets twin pairs collapse onto their own originals; an
+        -- unmatched extra falls through to the append path.
+        local claimed = {}
         for _, g in ipairs(incomingGroups) do
-            local ng = DeepCopy(g)
-            if type(ng.id) == "number" and used[ng.id] then
-                nextId = nextId + 1
-                remap[g.id] = nextId
-                ng.id = nextId
+            local match
+            if same then
+                for _, eg in ipairs(existing or {}) do
+                    if not claimed[eg] and same(eg, g) then match = eg; break end
+                end
             end
-            if type(ng.id) == "number" then used[ng.id] = true end
-            out[#out + 1] = ng
+            if match then
+                claimed[match] = true
+                if g.id ~= match.id then remap[g.id] = match.id end
+                -- Type guard: a corrupt/hand-edited string with a non-table
+                -- icon must not abort the whole import inside DeepCopy.
+                if type(g.icon) == "table" then match.icon = DeepCopy(g.icon) end
+            else
+                local ng = DeepCopy(g)
+                if type(ng.id) == "number" and used[ng.id] then
+                    nextId = nextId + 1
+                    remap[g.id] = nextId
+                    ng.id = nextId
+                end
+                if type(ng.id) == "number" then used[ng.id] = true end
+                out[#out + 1] = ng
+            end
         end
         return out, remap, nextId
     end
@@ -2461,7 +2568,7 @@ function EllesmereUI.SpecOverrides_MergeImportedStores(merged, incoming)
     if incoming.specOverrideGroups then
         local wanted = filterGroups(incoming.specOverrideGroups, specNeeded)
         if #wanted > 0 then
-            local unioned, remap, nextId = unionGroups(merged.specOverrideGroups, wanted)
+            local unioned, remap, nextId = unionGroups(merged.specOverrideGroups, wanted, sameSpecGroup)
             merged.specOverrideGroups = unioned
             specRemap = remap
             merged.specOverrideNextId = math.max(
@@ -2471,7 +2578,7 @@ function EllesmereUI.SpecOverrides_MergeImportedStores(merged, incoming)
     if incoming.condOverrideGroups then
         local wanted = filterGroups(incoming.condOverrideGroups, condNeeded)
         if #wanted > 0 then
-            local unioned, remap = unionGroups(merged.condOverrideGroups, wanted)
+            local unioned, remap = unionGroups(merged.condOverrideGroups, wanted, sameCondGroup)
             merged.condOverrideGroups = unioned
             condRemap = remap
         end
@@ -4878,7 +4985,7 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
             if EllesmereUI.Conditions_Recheck then EllesmereUI.Conditions_Recheck() end
             Cond.UpdateButton()
             Cond.RefreshCards()
-            if EllesmereUI.GetActivePage and EllesmereUI:GetActivePage() == L("Conditional Overrides") then
+            if EllesmereUI.GetActivePage and EllesmereUI:GetActivePage() == "Conditional Overrides" then
                 EllesmereUI:RefreshPage(true)
             end
         end)
@@ -5419,7 +5526,7 @@ function EllesmereUI.SpecOverrides_BuildListPage(parent, startY)
     end
 
     if (not store or #store == 0) and not layoutGroups and not bmGroups then
-        local _, h = W:SectionHeader(parent, "Spec Overrides", y);  y = y - h
+        local _, h = W:SectionHeader(parent, L("Spec Overrides"), y);  y = y - h
         local CONTENT_PAD = EllesmereUI.CONTENT_PAD or 40
         local hint = CreateFrame("Frame", nil, parent)
         hint:SetSize(parent:GetWidth() - CONTENT_PAD * 2, 80)
@@ -5535,7 +5642,7 @@ function EllesmereUI.Conditions_BuildListPage(parent, startY)
     end
 
     if (not store or #store == 0) and not layoutGroups and not bmGroups and #groups == 0 then
-        local _, h = W:SectionHeader(parent, "Conditional Overrides", y);  y = y - h
+        local _, h = W:SectionHeader(parent, L("Conditional Overrides"), y);  y = y - h
         local CONTENT_PAD = EllesmereUI.CONTENT_PAD or 40
         local hint = CreateFrame("Frame", nil, parent)
         hint:SetSize(parent:GetWidth() - CONTENT_PAD * 2, 80)

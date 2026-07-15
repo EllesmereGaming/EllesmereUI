@@ -346,6 +346,175 @@ function ns.GetTBBPositions()
     return prof.tbbPositions
 end
 
+-------------------------------------------------------------------------------
+--  Per-spec unlock-link views (anchor / width-match / height-match entries)
+--
+--  The unlock system stores anchor and size-match links in account-global
+--  stores keyed by element key. Tracking Bar elements are keyed by BAR INDEX
+--  ("TBB_1") while bar lists are per-spec/per-profile, so a raw global entry
+--  made bar 1 of EVERY spec share one link (same target, same offsets):
+--  anchoring a bar on one spec glued the same slot on every other spec, and
+--  dragging it moved them all.
+--
+--  Fix: each (profile, spec) keeps its own copy of the TBB child-role link
+--  entries in a bucket stored next to tbbPositions. The global stores always
+--  hold exactly ONE spec's TBB entries -- the "owner", stamped account-wide
+--  in EllesmereUIDB._tbbLinkOwner -- and SyncTBBUnlockLinks maintains that:
+--    * owner == active spec: bank the live entries into the bucket (the live
+--      stores are that spec's working truth, edited by unlock mode in place)
+--    * owner ~= active spec: bank into the old owner's bucket, then swap the
+--      active spec's bucket into the live stores
+--    * force (a profile restore just replaced the stores wholesale from an
+--      unlockLayout snapshot): swap in only, never bank -- the live TBB
+--      entries no longer belong to the stamped owner
+--  A spec's first-ever view seeds from the current live entries, keeping
+--  only slots that actually have a bar on that spec: existing arrangements
+--  keep their exact look, while a dormant slot inherited from another spec
+--  (the reported cross-spec glue) starts clean.
+--
+--  Entries where a tracking bar is the TARGET (some other element anchored
+--  TO "TBB_1") live under the child's key and are deliberately untouched:
+--  they mean "follow whatever bar 1 is on this spec" and are covered by the
+--  fallback-anchor system when the slot is empty.
+-------------------------------------------------------------------------------
+do
+    local function CopyEntry(v)
+        if type(v) ~= "table" then return v end
+        local t = {}
+        for k, x in pairs(v) do
+            t[k] = type(x) == "table" and CopyEntry(x) or x
+        end
+        return t
+    end
+
+    local function LiveStores(create)
+        local db = EllesmereUIDB
+        if not db then return nil end
+        if create then
+            db.unlockAnchors     = db.unlockAnchors     or {}
+            db.unlockWidthMatch  = db.unlockWidthMatch  or {}
+            db.unlockHeightMatch = db.unlockHeightMatch or {}
+        end
+        return db.unlockAnchors, db.unlockWidthMatch, db.unlockHeightMatch
+    end
+
+    local function Bucket(profileName, specKey, create)
+        if not profileName or not specKey then return nil end
+        local sp = ns.GetSpecProfilesForProfile and ns.GetSpecProfilesForProfile(profileName)
+        if not sp then return nil end
+        local prof = sp[specKey]
+        if not prof then
+            if not create then return nil end
+            prof = { barSpells = {} }
+            sp[specKey] = prof
+        end
+        if not prof.tbbUnlockLinks and create then
+            prof.tbbUnlockLinks = { anchors = {}, wm = {}, hm = {} }
+        end
+        return prof.tbbUnlockLinks
+    end
+
+    -- Copy a live store's TBB child entries into a bucket table (slot-keyed).
+    local function BankOne(store, dest)
+        wipe(dest)
+        if not store then return end
+        for k, v in pairs(store) do
+            if type(k) == "string" then
+                local slot = k:match("^TBB_(%d+)$")
+                if slot then dest[slot] = CopyEntry(v) end
+            end
+        end
+    end
+
+    local function Bank(profileName, specKey)
+        local b = Bucket(profileName, specKey, true)
+        if not b then return end
+        local an, wm, hm = LiveStores(false)
+        BankOne(an, b.anchors)
+        BankOne(wm, b.wm)
+        BankOne(hm, b.hm)
+    end
+
+    -- Replace a live store's TBB child entries with a bucket table's.
+    local function SwapOne(store, src)
+        local kill
+        for k in pairs(store) do
+            if type(k) == "string" and k:match("^TBB_%d+$") then
+                kill = kill or {}
+                kill[#kill + 1] = k
+            end
+        end
+        if kill then
+            for _, k in ipairs(kill) do store[k] = nil end
+        end
+        for slot, v in pairs(src) do
+            store["TBB_" .. slot] = CopyEntry(v)
+        end
+    end
+
+    local function SwapIn(profileName, specKey)
+        local an, wm, hm = LiveStores(true)
+        if not an then return end
+        local b = Bucket(profileName, specKey, false)
+        if not b then
+            b = Bucket(profileName, specKey, true)
+            if not b then return end
+            -- First view for this spec: seed from the current live entries,
+            -- keeping only slots that have a bar here.
+            BankOne(an, b.anchors)
+            BankOne(wm, b.wm)
+            BankOne(hm, b.hm)
+            local t = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
+            local bars = (t and t.bars) or {}
+            local sets = { b.anchors, b.wm, b.hm }
+            for i = 1, 3 do
+                local set, drop = sets[i], nil
+                for slot in pairs(set) do
+                    if not bars[tonumber(slot)] then
+                        drop = drop or {}
+                        drop[#drop + 1] = slot
+                    end
+                end
+                if drop then
+                    for _, slot in ipairs(drop) do set[slot] = nil end
+                end
+            end
+        end
+        SwapOne(an, b.anchors)
+        SwapOne(wm, b.wm)
+        SwapOne(hm, b.hm)
+        -- Modules memoize views over the anchor DB (extent watch etc.).
+        EllesmereUI._anchorLinksStamp = (EllesmereUI._anchorLinksStamp or 0) + 1
+    end
+
+    function ns.SyncTBBUnlockLinks(force)
+        if not EllesmereUIDB then return end
+        local profName = ns.GetActiveProfileName and ns.GetActiveProfileName()
+        local specKey  = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+        if not profName or not specKey then return end
+        local own  = EllesmereUIDB._tbbLinkOwner
+        local same = own and own.profile == profName and own.spec == specKey
+        if force then
+            SwapIn(profName, specKey)
+        elseif same then
+            Bank(profName, specKey)
+            return
+        else
+            if own then Bank(own.profile, own.spec) end
+            SwapIn(profName, specKey)
+        end
+        EllesmereUIDB._tbbLinkOwner = { profile = profName, spec = specKey }
+    end
+
+    -- Called by the profile-restore choke points right after they replace
+    -- the live unlock stores wholesale from an unlockLayout snapshot: the
+    -- snapshot's TBB entries are stale copies of whichever spec last saved
+    -- unlock mode, so the active spec's own entries are re-asserted here.
+    EllesmereUI._TBBRestoreUnlockLinks = function()
+        ns.SyncTBBUnlockLinks(true)
+    end
+end
+
 -- Create a new bar config (no rebuild). `targetGid` picks its group: nil =
 -- follow the last bar's group (quick-add default), 0 = independent, N = that
 -- group. The new bar's style comes from its group's style source, so a bar
@@ -400,6 +569,7 @@ local function AddTrackedBuffBarCore(tbb, targetGid)
     newBar.baseSpellID = nil
     newBar.customDuration = nil
     newBar.glowBased = nil
+    newBar.trackType = nil
     newBar.enabled = true
     ns.TBBSetBarGroup(newBar, gid)
     bars[#bars + 1] = newBar
@@ -535,11 +705,15 @@ function ns.AddBarToAllSpecs(srcIdx)
 
     local function HasSameBar(bars)
         for _, b in ipairs(bars) do
-            if srcBar.popularKey and srcBar.popularKey ~= "" then
-                if b.popularKey == srcBar.popularKey then return true end
-            elseif (not b.popularKey or b.popularKey == "")
-                   and b.spellID and b.spellID == srcBar.spellID then
-                return true
+            -- A cooldown-tracking bar is never the same bar as a buff bar for
+            -- the same spell (and vice versa): track types must match first.
+            if (b.trackType or "buff") == (srcBar.trackType or "buff") then
+                if srcBar.popularKey and srcBar.popularKey ~= "" then
+                    if b.popularKey == srcBar.popularKey then return true end
+                elseif (not b.popularKey or b.popularKey == "")
+                       and b.spellID and b.spellID == srcBar.spellID then
+                    return true
+                end
             end
         end
         return false
@@ -614,6 +788,11 @@ function ns.RemoveBarFromAllSpecs(srcIdx)
     if not sp then return 0 end
 
     local function Matches(b)
+        -- Track types must match: a broadcast buff bar for spell X must never
+        -- delete a user's cooldown-tracking bar for the same spell.
+        if (b.trackType or "buff") ~= (srcBar.trackType or "buff") then
+            return false
+        end
         if srcBar.popularKey and srcBar.popularKey ~= "" then
             return b.popularKey == srcBar.popularKey
         else
@@ -2157,6 +2336,8 @@ local function MatchesSID(info, sid)
 end
 
 local function MatchFrameToConfig(frame, cfg)
+    -- Cooldown-tracking bars are self-driven and never bind a viewer frame.
+    if cfg.trackType == "cooldown" then return false end
     local cdID = frame.cooldownID
     if not cdID then return false end
     local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
@@ -2287,6 +2468,8 @@ local _tbbConsumed     = {}
 local _tbbFrameSID     = {}  -- frame -> canonical spell id, computed once per call
 
 local function CfgWantsSID(cfg, sid)
+    -- Cooldown-tracking bars never match buff-viewer frames or buff coverage.
+    if cfg.trackType == "cooldown" then return false end
     if not sid then return false end
     if cfg.spellIDs then
         for _, s in ipairs(cfg.spellIDs) do if s == sid then return true end end
@@ -2332,6 +2515,13 @@ local function AssignFramesToConfigs(bars)
     -- Pass 1: sticky.
     for _, cfg in ipairs(bars) do
         local bound = _tbbStickyFrame[cfg]
+        -- A bar converted to cooldown tracking releases its old viewer-frame
+        -- binding immediately -- the secret-trust branch below never calls
+        -- CfgWantsSID, so without this it would keep consuming the frame.
+        if bound and cfg.trackType == "cooldown" then
+            _tbbStickyFrame[cfg] = nil
+            bound = nil
+        end
         if bound and not consumed[bound] and FrameIsActive(frames, bound) then
             local sid = _tbbFrameSID[bound]
             if sid then
@@ -2961,7 +3151,15 @@ function ns.UpdateLustListener()
     -- (every add/remove/rebuild path already calls UpdateLustListener).
     if ns.UpdateTimeSpiralListener then ns.UpdateTimeSpiralListener() end
     if ns.UpdatePotionCastListener then ns.UpdatePotionCastListener() end
+    if ns.UpdateCooldownCastListener then ns.UpdateCooldownCastListener() end
 end
+
+-- Profile-wide smooth-fill switches (Bar Layout > Smooth Bars), resolved
+-- ONCE per tick by UpdateTrackedBuffBarTimers for every fill site below.
+-- buffs = buff mirrors + self-timed presets (lust/time spiral/potions);
+-- cooldowns = trackType == "cooldown" bars. Off = values snap (no easing).
+-- Defaults: buffs ON, cooldowns OFF (absent keys read that way).
+local _smoothBuffs, _smoothCooldowns = true, false
 
 -- Self-driven display for an event-armed, self-timed preset bar (Bloodlust 40s,
 -- Time Spiral 10s): fill + timer come from our own countdown, not a Blizzard
@@ -2982,7 +3180,7 @@ local function _UpdateSelfTimedBar(bar, cfg, expiry, duration)
         -- at a known rate (no sudden jumps to read instantly, unlike a health
         -- bar), so interpolation only removes judder. wasShown snaps a fresh
         -- appearance instead of animating from a stale value.
-        local smooth = wasShown and Enum and Enum.StatusBarInterpolation
+        local smooth = _smoothBuffs and wasShown and Enum and Enum.StatusBarInterpolation
             and Enum.StatusBarInterpolation.ExponentialEaseOut
         if smooth then
             sb:SetValue(remaining, smooth)
@@ -3191,6 +3389,540 @@ function ns.UpdatePotionCastListener()
     _ensurePotionCastListener(any)
 end
 
+-- True when v is a plain, readable number. A 12.1 secret value fails the
+-- check BEFORE any type/comparison touches it; nil and non-numbers fail too.
+local function _tbbCleanNum(v)
+    if issecretvalue and issecretvalue(v) then return false end
+    return type(v) == "number"
+end
+
+-------------------------------------------------------------------------------
+--  Cooldown-bar cast mirror. In combat the cooldown APIs keep isActive
+--  readable but turn startTime/duration SECRET, which used to drop every
+--  on-cooldown bar into the shown-full fail-open for the whole fight. So
+--  each tracked spell keeps a local { start, dur } mirror of clean numbers:
+--    * synced from every clean read (out of combat, incl. mid-cooldown), and
+--    * armed from the player's own cast edge in combat --
+--      UNIT_SPELLCAST_SUCCEEDED's spellID arg is clean, never secret.
+--  The tick falls back to the mirror when the API turns secret. isActive
+--  stays readable, so the bar still ends/hides exactly when the real
+--  cooldown does even if the mirror drifts (in-combat CDR, resets).
+-------------------------------------------------------------------------------
+local _cdCast = {}       -- [sid] = { start, dur } live local cooldown mirror
+local _cdDurCache = {}   -- [sid] = last clean cooldown/recharge duration seen
+local _cdWatch = {}      -- [watched sid] = canonical sid to key the mirror by
+local _cdFrame
+local _cdActive = false
+-- Cooldown-state generation: bumped by SPELL_UPDATE_COOLDOWN / CHARGES /
+-- player casts. Bars re-fetch + re-arm their engine duration handle only
+-- when this moves (a cached handle keeps ticking down by itself; only a
+-- CDR/reset-adjusted cooldown needs a fresh fetch).
+local _cdGen = 0
+
+-- Static base cooldown (ms) as the arm-time seed before any clean read.
+-- Tries both API homes and validates each: an existing-but-differently-
+-- shaped C_Spell variant must fall through to the global, not mask it.
+local function _cdBaseDuration(sid)
+    local ms
+    if C_Spell and C_Spell.GetSpellBaseCooldown then
+        ms = C_Spell.GetSpellBaseCooldown(sid)
+    end
+    if not (_tbbCleanNum(ms) and ms > 0) and GetSpellBaseCooldown then
+        ms = GetSpellBaseCooldown(sid)
+    end
+    if _tbbCleanNum(ms) and ms > 0 then return ms / 1000 end
+    return nil
+end
+
+local function _ensureCooldownCastListener(enable)
+    if enable then
+        if not _cdFrame then
+            _cdFrame = CreateFrame("Frame")
+            _cdFrame:SetScript("OnEvent", function(_, event, _, _, castSid)
+                _cdGen = _cdGen + 1
+                if event ~= "UNIT_SPELLCAST_SUCCEEDED" then return end
+                local spellID = castSid
+                if not spellID then return end
+                local canon = _cdWatch[spellID]
+                if not canon and C_Spell and C_Spell.GetBaseSpell then
+                    -- Cast can fire with the override form while the bar
+                    -- watches the base form.
+                    local base = C_Spell.GetBaseSpell(spellID)
+                    if type(base) == "number" then canon = _cdWatch[base] end
+                end
+                if not canon then return end
+                local now = GetTime()
+                -- Charge spells: maxCharges is static and stays readable;
+                -- the cast just consumed one charge.
+                local ch = C_Spell.GetSpellCharges
+                    and C_Spell.GetSpellCharges(canon)
+                local maxCh = ch and ch.maxCharges
+                if not (_tbbCleanNum(maxCh) and maxCh > 1) then maxCh = nil end
+                -- Never overwrite an unexpired mirror: a plain spell cannot
+                -- be cast while on cooldown, and a charge spell cast while
+                -- already recharging does NOT restart the next charge --
+                -- only the count drops.
+                local m = _cdCast[canon]
+                if m and m.dur and (m.start + m.dur) > now then
+                    if maxCh and m.charges and m.charges > 0 then
+                        m.charges = m.charges - 1
+                    end
+                    return
+                end
+                local dur = _cdDurCache[canon] or _cdBaseDuration(canon)
+                if dur then
+                    if not m then m = {}; _cdCast[canon] = m end
+                    m.start = now
+                    m.dur = dur
+                    if maxCh then
+                        -- Cast from full: the first recharge starts now.
+                        m.charges = maxCh - 1
+                        m.maxCh = maxCh
+                    else
+                        m.charges = nil
+                        m.maxCh = nil
+                    end
+                end
+            end)
+        end
+        if not _cdActive then
+            _cdFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+            _cdFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+            _cdFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
+            _cdActive = true
+        end
+    elseif _cdFrame and _cdActive then
+        _cdFrame:UnregisterAllEvents()
+        _cdActive = false
+    end
+end
+
+-- Authoritative (scans the DB): rebuild the watched-spell map and arm the
+-- cast listener only while an enabled cooldown-tracking bar exists.
+-- Refreshed from the same change sites as the other preset listeners
+-- (fanned out from UpdateLustListener).
+function ns.UpdateCooldownCastListener()
+    wipe(_cdWatch)
+    local any = false
+    local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
+    if tbb and tbb.bars then
+        for _, cfg in ipairs(tbb.bars) do
+            if cfg.enabled ~= false and cfg.trackType == "cooldown" then
+                local canon = EffectiveIconSpellID(cfg)
+                if canon then
+                    any = true
+                    -- Every form the cast event could fire with maps to the
+                    -- canonical id the tick keys the mirror by.
+                    _cdWatch[canon] = canon
+                    if cfg.spellID and cfg.spellID > 0 then
+                        _cdWatch[cfg.spellID] = canon
+                    end
+                    if cfg.baseSpellID and cfg.baseSpellID > 0 then
+                        _cdWatch[cfg.baseSpellID] = canon
+                    end
+                    -- Seed the duration cache NOW: build paths run out of
+                    -- combat, where these reads are clean. At cast time in
+                    -- combat the same reads can be secret, and a fresh
+                    -- session has no clean tick read yet -- without a seed
+                    -- the combat cast could never arm the mirror. Never
+                    -- overwrites a value learned from a live clean read.
+                    if not _cdDurCache[canon] then
+                        local seed
+                        local ch = C_Spell.GetSpellCharges
+                            and C_Spell.GetSpellCharges(canon)
+                        local rd = ch and ch.cooldownDuration
+                        if _tbbCleanNum(rd) and rd > 0 then seed = rd end
+                        if not seed then seed = _cdBaseDuration(canon) end
+                        _cdDurCache[canon] = seed
+                    end
+                end
+            end
+        end
+    end
+    _ensureCooldownCastListener(any)
+end
+
+-- Debug: /tbbcd -- dumps the cooldown-bar pipeline state, secret-safe.
+-- Run it IN COMBAT while a bar is misbehaving and read which leg is dead:
+-- listener armed? watch mapped? durCache seeded? mirror live? which API
+-- fields are SECRET right now?
+SLASH_TBBCD1 = "/tbbcd"
+SlashCmdList.TBBCD = function()
+    local function V(v)
+        if issecretvalue and issecretvalue(v) then return "SECRET" end
+        return tostring(v)
+    end
+    print("|cff00ccff[TBB CD Debug]|r combat=" .. tostring(InCombatLockdown())
+        .. " listener=" .. tostring(_cdActive))
+    local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
+    if not (tbb and tbb.bars) then print("  no bars") return end
+    local found = false
+    for i, cfg in ipairs(tbb.bars) do
+        if cfg.enabled ~= false and cfg.trackType == "cooldown" then
+            found = true
+            local sid = EffectiveIconSpellID(cfg)
+            local name = sid and C_Spell.GetSpellName and C_Spell.GetSpellName(sid)
+            print("  bar " .. i .. " " .. tostring(name)
+                .. " saved=" .. tostring(cfg.spellID)
+                .. " effective=" .. tostring(sid)
+                .. " watched=" .. tostring(sid ~= nil and _cdWatch[sid] ~= nil))
+            if sid then
+                print("    durCache=" .. tostring(_cdDurCache[sid])
+                    .. " baseCd=" .. tostring(_cdBaseDuration(sid)))
+                local m = _cdCast[sid]
+                if m and m.dur then
+                    print(string.format("    mirror dur=%.1f rem=%.1f",
+                        m.dur, m.start + m.dur - GetTime()))
+                else
+                    print("    mirror=nil")
+                end
+                local ch = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
+                if ch then
+                    print("    charges max=" .. V(ch.maxCharges)
+                        .. " cur=" .. V(ch.currentCharges)
+                        .. " st=" .. V(ch.cooldownStartTime)
+                        .. " du=" .. V(ch.cooldownDuration))
+                else
+                    print("    charges=nil")
+                end
+                local cd = C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(sid)
+                if cd then
+                    print("    cd act=" .. V(cd.isActive) .. " gcd=" .. V(cd.isOnGCD)
+                        .. " st=" .. V(cd.startTime) .. " du=" .. V(cd.duration))
+                else
+                    print("    cd=nil")
+                end
+                local dobj = C_Spell.GetSpellCooldownDuration
+                    and C_Spell.GetSpellCooldownDuration(sid)
+                local cobj = C_Spell.GetSpellChargeDuration
+                    and C_Spell.GetSpellChargeDuration(sid)
+                local dorem
+                if dobj and dobj.GetRemainingDuration then
+                    dorem = dobj:GetRemainingDuration()
+                elseif cobj and cobj.GetRemainingDuration then
+                    dorem = cobj:GetRemainingDuration()
+                end
+                print("    durObj cd=" .. tostring(dobj ~= nil)
+                    .. " charge=" .. tostring(cobj ~= nil)
+                    .. " rem=" .. V(dorem))
+            end
+        end
+    end
+    if not found then print("  no cooldown-tracking bars") end
+end
+
+-------------------------------------------------------------------------------
+--  Cooldown-tracking bar (cfg.trackType == "cooldown"): fill drains with the
+--  spell's remaining cooldown, timer text = remaining, stacks text = current
+--  charges. Ready (off cooldown / GCD-only / at max charges / spell unknown)
+--  counts as INACTIVE for hideWhenInactive; a shown-but-ready bar renders
+--  full with no timer.
+--
+--  FILL SOURCE ORDER:
+--  1. Engine duration handle (C_Spell.GetSpellCooldownDuration /
+--     GetSpellChargeDuration + StatusBar:SetTimerDuration): the ENGINE
+--     animates the drain and tracks CDR / resets live, secret-proof by
+--     construction. Timer text reads the handle's remaining -- a secret
+--     number in combat, which SetFormattedText accepts.
+--  2. Clean API numbers (out of combat): exact pretty timer text; also
+--     keeps the cast mirror synced.
+--  3. Cast mirror (clients without the duration-object API, or secret
+--     reads with no handle): clean local dead-reckoning -- does NOT see
+--     in-combat CDR, which is why it is last.
+--  4. Fail-open: shown-full bar, no text. Secrecy loses precision, never
+--     errors.
+-------------------------------------------------------------------------------
+local function _UpdateCooldownBar(bar, cfg)
+    local sid = EffectiveIconSpellID(cfg)  -- override/base-resolved saved id
+
+    -- remaining/duration: CLEAN numbers only (nil = ready or secret).
+    -- wantHandle: which engine duration handle drives the fill ("charge" /
+    -- "cd"); timingSecret: the raw numbers were unreadable, so the bar
+    -- NEEDS the handle (or falls back to the mirror).
+    -- charges: CLEAN count for logic/overlays; chargesDisplay: maybe-secret
+    -- count that ONLY ever flows into SetFormattedText; hasCharges: clean
+    -- flag so no secret is ever branched on.
+    local remaining, duration, unreadable, wantHandle, timingSecret
+    local charges, chargesDisplay, hasCharges
+    if sid then
+        local ch = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
+        local maxCh = ch and ch.maxCharges
+        if _tbbCleanNum(maxCh) and maxCh > 1 then
+            -- Charge spell: bar tracks the next charge's recharge. The
+            -- recharge-active flag is the same CLEAN combat signal the Max
+            -- Stacks Glow uses: false only at max charges, and it stays
+            -- readable while the count/timing fields are secret.
+            local chActive = ch.isActive
+            if issecretvalue and issecretvalue(chActive) then
+                unreadable = true
+            elseif not chActive then
+                -- At max charges: ready, and the count is KNOWN without
+                -- touching the secret currentCharges field.
+                charges = maxCh
+                chargesDisplay = maxCh
+                hasCharges = true
+            else
+                -- Recharging (below max).
+                wantHandle = "charge"
+                local cur = ch.currentCharges
+                if _tbbCleanNum(cur) then
+                    charges = cur
+                end
+                chargesDisplay = cur
+                hasCharges = true
+                local st, du = ch.cooldownStartTime, ch.cooldownDuration
+                if _tbbCleanNum(st) and _tbbCleanNum(du) and du > 0 then
+                    duration = du
+                    remaining = st + du - GetTime()
+                    -- Clean read: keep the fallback mirror exact.
+                    _cdDurCache[sid] = du
+                    local m = _cdCast[sid]
+                    if not m then m = {}; _cdCast[sid] = m end
+                    m.start = st
+                    m.dur = du
+                    if charges then m.charges = charges end
+                    m.maxCh = maxCh
+                else
+                    timingSecret = true
+                end
+            end
+        else
+            local cd = C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(sid)
+            if cd then
+                local act, gcd = cd.isActive, cd.isOnGCD
+                local isSec = issecretvalue
+                if isSec and (isSec(act) or isSec(gcd)) then
+                    unreadable = true
+                elseif act and not gcd then
+                    -- Real cooldown running (GCD-only spin never drives the bar).
+                    wantHandle = "cd"
+                    local st, du = cd.startTime, cd.duration
+                    if _tbbCleanNum(st) and _tbbCleanNum(du) and du > 0 then
+                        duration = du
+                        remaining = st + du - GetTime()
+                        -- Clean read: keep the fallback mirror exact.
+                        _cdDurCache[sid] = du
+                        local m = _cdCast[sid]
+                        if not m then m = {}; _cdCast[sid] = m end
+                        m.start = st
+                        m.dur = du
+                    else
+                        timingSecret = true
+                    end
+                end
+            end
+        end
+    end
+    -- Resolve the engine duration handle (preferred fill source). Fetch +
+    -- re-arm ONLY when the cooldown state may have changed: the generation
+    -- bumps on SPELL_UPDATE_COOLDOWN / CHARGES / player casts, plus a 1s
+    -- revalidate for eventless adjustments. Between those, the CACHED
+    -- handle serves every tick -- its remaining keeps ticking down on its
+    -- own; only a CDR/reset-adjusted cooldown needs a fresh fetch.
+    local durObj
+    if wantHandle then
+        durObj = bar._cdDurObj
+        local now = GetTime()
+        if durObj == nil
+           or bar._cdArmGen ~= _cdGen
+           or bar._cdArmSid ~= sid
+           or bar._cdArmKind ~= wantHandle
+           or now - (bar._cdArmTime or 0) > 1 then
+            local fetch
+            if wantHandle == "charge" then
+                if C_Spell.GetSpellChargeDuration then
+                    fetch = C_Spell.GetSpellChargeDuration(sid)
+                end
+            else
+                if C_Spell.GetSpellCooldownDuration then
+                    fetch = C_Spell.GetSpellCooldownDuration(sid)
+                end
+            end
+            durObj = fetch
+            bar._cdDurObj = fetch
+            bar._cdArmGen = _cdGen
+            bar._cdArmSid = sid
+            bar._cdArmKind = wantHandle
+            bar._cdArmTime = now
+            -- The bar timer must be re-set from the fresh handle.
+            bar._cdNeedSet = fetch ~= nil
+        end
+    else
+        bar._cdDurObj = nil
+    end
+    if timingSecret and not durObj then unreadable = true end
+
+    -- Combat-secrecy fallback: timing went secret but the cast mirror holds
+    -- clean local numbers -- drive the drain from those instead of the
+    -- shown-full fail-open. An expired/absent mirror keeps the fail-open.
+    if unreadable and sid then
+        local m = _cdCast[sid]
+        if m and m.dur then
+            local now = GetTime()
+            local rem = m.start + m.dur - now
+            -- Charge model: an expiry means one charge finished and the
+            -- next recharge began at exactly that moment -- advance in
+            -- place. The clean at-max flag above already ends the bar when
+            -- the spell truly tops off; still recharging here means the
+            -- model ran ahead, so hold one below max and keep draining.
+            if m.maxCh and m.charges then
+                local guard = m.maxCh + 1
+                while rem <= 0 and guard > 0 do
+                    m.charges = m.charges + 1
+                    if m.charges >= m.maxCh then m.charges = m.maxCh - 1 end
+                    m.start = m.start + m.dur
+                    if m.start > now then m.start = now end
+                    rem = m.start + m.dur - now
+                    guard = guard - 1
+                end
+            end
+            if rem > 0 then
+                remaining = rem
+                duration = m.dur
+                unreadable = nil
+                if m.charges then
+                    charges = m.charges
+                    chargesDisplay = m.charges
+                    hasCharges = true
+                end
+            end
+        end
+    end
+
+    if remaining and remaining <= 0 then remaining = nil; duration = nil end
+
+    -- Clean ready: drop the mirror so a stale window can never resurrect.
+    -- (A live duration handle means ON cooldown with secret timing -- that
+    -- is not ready, so the mirror stays.)
+    if sid and not unreadable and remaining == nil and not durObj then
+        _cdCast[sid] = nil
+    end
+
+    local onCooldown = (remaining ~= nil) or (durObj ~= nil) or unreadable
+
+    -- No pandemic concept for cooldowns; clear any stale glow from a
+    -- re-purposed bar frame.
+    if bar._pandemicGlowActive then ClearPandemic(bar) end
+
+    if not onCooldown and cfg.hideWhenInactive ~= false then
+        -- Ready = inactive: hide, matching the buff inactive branch.
+        bar._stackCount = 0
+        if bar._stacksText then bar._stacksText:Hide() end
+        bar._nameSet = nil
+        if bar:IsShown() then bar:Hide() end
+        return
+    end
+
+    local wasShown = bar:IsShown()
+    if not wasShown then bar:Show() end
+    local sb = bar._bar
+    if sb then
+        local timerDir = Enum and Enum.StatusBarTimerDirection
+        if durObj and sb.SetTimerDuration and timerDir then
+            -- Engine-driven drain: the duration handle tracks CDR and
+            -- resets live, no numbers ever read. The bar timer is re-set
+            -- only when a fresh handle was fetched (event/revalidate) or
+            -- the bar just appeared -- the engine animates in between.
+            if bar._cdNeedSet or not wasShown then
+                sb:SetMinMaxValues(0, 1)
+                local interpE = Enum.StatusBarInterpolation
+                local interp
+                if interpE then
+                    if wasShown and _smoothCooldowns then
+                        interp = interpE.ExponentialEaseOut
+                    else
+                        interp = interpE.None
+                    end
+                end
+                sb:SetTimerDuration(durObj, interp, timerDir.RemainingTime)
+                if not wasShown and sb.SetToTargetValue then
+                    -- Snap on first show: avoids the empty-to-full sweep-in.
+                    sb:SetToTargetValue()
+                end
+                bar._cdNeedSet = nil
+            end
+            if cfg.showSpark and bar._spark then bar._spark:Show() end
+        elseif remaining then
+            sb:SetMinMaxValues(0, duration)
+            -- Smooth fill is baseline (see UpdateLustBar note).
+            local smooth = _smoothCooldowns and wasShown and Enum
+                and Enum.StatusBarInterpolation
+                and Enum.StatusBarInterpolation.ExponentialEaseOut
+            if smooth then
+                sb:SetValue(remaining, smooth)
+            else
+                sb:SetValue(remaining)
+            end
+            if cfg.showSpark and bar._spark then bar._spark:Show() end
+        else
+            -- Ready (kept on screen) or unreadable fail-open: full bar.
+            -- Plain SetValue also cancels any running bar timer.
+            sb:SetMinMaxValues(0, 1)
+            sb:SetValue(1)
+            if bar._spark then bar._spark:Hide() end
+        end
+    end
+
+    -- Timer: remaining cooldown; hidden when ready/unreadable. Clean
+    -- numbers get the pretty format; a secret remaining from the duration
+    -- handle goes through SetFormattedText (accepts secrets) as whole
+    -- seconds -- no clean compare exists to pick m:ss.
+    if bar._timerText then
+        if remaining and cfg.showTimer then
+            if remaining < 10 then
+                bar._timerText:SetText(string.format("%.1f", remaining))
+            else
+                bar._timerText:SetText(FormatTime(remaining))
+            end
+            bar._timerText:Show()
+        elseif cfg.showTimer and durObj and durObj.GetRemainingDuration then
+            local rem = durObj:GetRemainingDuration()
+            if (issecretvalue and issecretvalue(rem)) or type(rem) == "number" then
+                bar._timerText:SetFormattedText("%.0f", rem)
+                bar._timerText:Show()
+            else
+                bar._timerText:Hide()
+            end
+        else
+            bar._timerText:Hide()
+        end
+    end
+
+    -- Charges reuse the stacks text and the threshold overlay feed. The
+    -- text setter accepts a SECRET live count; overlays need clean numbers
+    -- so a secret count zeroes them instead of freezing a stale value.
+    if hasCharges then
+        bar._stackCount = charges or 0
+        if bar._stacksText then
+            if (cfg.stacksPosition or "center") ~= "none" then
+                bar._stacksText:SetFormattedText("%d", chargesDisplay)
+                bar._stacksText:Show()
+            else
+                bar._stacksText:Hide()
+            end
+        end
+    else
+        bar._stackCount = 0
+        if bar._stacksText then bar._stacksText:Hide() end
+    end
+
+    -- Threshold feed (gated) -- runs in both arms so a charge count that
+    -- becomes unreadable zeroes the overlay instead of freezing its last value.
+    if _anyThreshold and cfg.stackThresholdEnabled then
+        FeedTBBThresholdOverlay(bar)
+    end
+
+    -- Deferred tick marks (same consume as the buff mirror branch).
+    if bar._ticksDirty and sb then
+        local bw = sb:GetWidth()
+        if bw and bw > 0 then
+            ApplyTBBTickMarks(sb, cfg, bar._threshTicks,
+                cfg.verticalOrientation, bar._tickOverlay)
+            bar._ticksDirty = nil
+        end
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Main Tick: UpdateTrackedBuffBarTimers
 --  Direct reskin of Blizzard's BuffBarCooldownViewer StatusBars.
@@ -3203,6 +3935,16 @@ function ns.UpdateTrackedBuffBarTimers()
     local tbb = ns.GetTrackedBuffBars()
     local bars = tbb.bars
     if not bars then if MD then MD("TBBTick") end return end
+
+    -- Profile-wide smooth-fill switches, resolved once per tick for every
+    -- fill site (absent buffs key = enabled; absent cooldowns key = OFF).
+    local sm = ns.GetTBBSmoothSettings and ns.GetTBBSmoothSettings()
+    if sm then
+        _smoothBuffs = sm.buffs ~= false
+        _smoothCooldowns = sm.cooldowns == true
+    else
+        _smoothBuffs, _smoothCooldowns = true, false
+    end
 
     -- Self-heal placeholder mode when user navigates away from CDM Tracking Bars
     if ns._tbbPlaceholderMode then
@@ -3239,6 +3981,9 @@ function ns.UpdateTrackedBuffBarTimers()
             -- no aura tracking / no Blizzard frame to mirror.
             _UpdateSelfTimedBar(bar, cfg, _potionExpiry[cfg.popularKey] or 0,
                 _potionDur[cfg.popularKey])
+        elseif cfg.trackType == "cooldown" then
+            -- Spell-cooldown tracking: self-driven, no Blizzard frame/aura.
+            _UpdateCooldownBar(bar, cfg)
         else
             local blzChild = assignment[cfg]
             if blzChild then ns.HookPandemicState(blzChild) end
@@ -3296,7 +4041,8 @@ function ns.UpdateTrackedBuffBarTimers()
                     -- through natively to widget setters -- no Lua comparison.
                     sb:SetMinMaxValues(blizzBar:GetMinMaxValues())
                     -- Smooth fill is baseline (see UpdateLustBar note).
-                    local smooth = wasShown and Enum and Enum.StatusBarInterpolation
+                    local smooth = _smoothBuffs and wasShown and Enum
+                        and Enum.StatusBarInterpolation
                         and Enum.StatusBarInterpolation.ExponentialEaseOut
                     if smooth then
                         sb:SetValue(blizzBar:GetValue(), smooth)
@@ -3494,7 +4240,8 @@ function ns.UpdateTrackedBuffBarTimers()
                         local remaining = exp - GetTime()
                         if remaining < 0 then remaining = 0 end
                         sb:SetMinMaxValues(0, dur)
-                        local smooth = wasShown and Enum and Enum.StatusBarInterpolation
+                        local smooth = _smoothBuffs and wasShown and Enum
+                            and Enum.StatusBarInterpolation
                             and Enum.StatusBarInterpolation.ExponentialEaseOut
                         if smooth then
                             sb:SetValue(remaining, smooth)
@@ -3634,6 +4381,10 @@ function ns.BuildTrackedBuffBars()
     -- No InCombatLockdown guard needed: TBB frames are our own (UIParent),
     -- not secure Blizzard frames, so positioning in combat is safe.
     _tbbRebuildPending = false
+
+    -- Per-spec unlock-link views: the global anchor/match stores must hold
+    -- THIS spec's TBB entries before any anchored-state below is read.
+    ns.SyncTBBUnlockLinks()
 
     local p = ECME.db.profile
 
@@ -3840,6 +4591,10 @@ end
 function ns.RegisterTBBUnlockElements()
     if not EllesmereUI or not EllesmereUI.RegisterUnlockElements then return end
     if not ECME or not ECME.db then return end
+    -- Per-spec unlock-link views: this path can run on spec change before a
+    -- TBB build (CDM setup registers synchronously so anchor data is ready
+    -- for CollectAndReanchor), so sync the link stores here too.
+    ns.SyncTBBUnlockLinks()
     local MK = EllesmereUI.MakeUnlockElement
     -- Never call UnregisterUnlockElement for TBB keys -- it triggers
     -- PruneStaleLinks which destroys saved anchor data in unlockAnchors.

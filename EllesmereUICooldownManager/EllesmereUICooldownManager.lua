@@ -213,7 +213,6 @@ local StartNativeGlow, StopNativeGlow
 -- Keybind cache: built once out-of-combat, looked up per tick
 local _cdmKeybindCache       = {}   -- [spellID] -> formatted key string
 local _cdmKeybindFromMacro   = {}   -- [key] -> true if the cached bind came from a macro
-local _keybindRebuildPending = false
 local _keybindCacheReady     = false  -- true after first successful build
 local _keybindDebounceTimer  = nil   -- cancellable timer for debounced keybind updates
 
@@ -613,6 +612,21 @@ function ns.GetActiveTBBBroadcastSet()
     if not bucket then return {} end
     if not bucket.tbbBroadcast then bucket.tbbBroadcast = {} end
     return bucket.tbbBroadcast
+end
+
+-- Smooth-fill switches for Tracking Bars (Bar Layout > Smooth Bars). ONE
+-- setting for ALL bars in EVERY spec: lives on the profile bucket OUTSIDE
+-- specProfiles (same home as the broadcast set), so it applies across spec
+-- switches and forks with the profile. Keys: buffs / cooldowns; absent
+-- buffs reads ENABLED, absent cooldowns reads DISABLED (the defaults).
+function ns.GetTBBSmoothSettings()
+    local name = ns.GetActiveProfileName()
+    ns.GetSpecProfilesForProfile(name)
+    local sa = SpellStore.Get()
+    local bucket = sa.profiles and sa.profiles[name]
+    if not bucket then return nil end
+    if not bucket.tbbSmooth then bucket.tbbSmooth = {} end
+    return bucket.tbbSmooth
 end
 
 -- Active SPELL LAYOUT name. Layouts are a shared, account-wide library
@@ -6575,9 +6589,9 @@ ns.GetBarData = GetBarData
 
 -------------------------------------------------------------------------------
 --  Keybind cache for CDM icons
---  Reads HotKey text directly from action button frames -- the same source
---  the action bar itself uses, so it's always correct regardless of bar addon.
---  Deferred if called during combat; fires on PLAYER_REGEN_ENABLED instead.
+--  Resolves binding keys per action slot (main bar paged via the EAB bar's
+--  actionpage attribute, else client page APIs). Read-only + text writes on
+--  our own frames, so it is safe to run in combat (debounced upstream).
 -------------------------------------------------------------------------------
 
 -- Action bar slot -> binding name map. Non-bar-1 entries listed first so that
@@ -6638,8 +6652,22 @@ local function RebuildKeybindCache()
             if key then
                 local slot = def.startSlot + i - 1
                 if def.prefix == "ACTIONBUTTON" then
+                    -- Main bar pages with forms/vehicles. Prefer the EAB main
+                    -- bar's actionpage attribute (set by its secure page
+                    -- handler, covers override/vehicle pages too). Without it
+                    -- (Action Bars module disabled), derive the page from the
+                    -- client: bonus bars (forms) map to pages 7+, else the
+                    -- manually selected page.
                     local mbf = _G["EABBar_MainBar"]
-                    local pg = mbf and tonumber(mbf:GetAttribute("actionpage")) or 1
+                    local pg = mbf and tonumber(mbf:GetAttribute("actionpage"))
+                    if not pg then
+                        local bonus = GetBonusBarOffset and GetBonusBarOffset() or 0
+                        if bonus > 0 then
+                            pg = 6 + bonus
+                        else
+                            pg = (GetActionBarPage and GetActionBarPage()) or 1
+                        end
+                    end
                     slot = i + (pg - 1) * 12
                 end
                 local slotType, id = GetActionInfo(slot)
@@ -6721,7 +6749,6 @@ local function ApplyCachedKeybinds()
 end
 
 local function UpdateCDMKeybinds()
-    _keybindRebuildPending = false
     RebuildKeybindCache()
     _keybindCacheReady = true
     -- Defer apply by one frame so the Blizzard tick has populated FC(icon).spellID
@@ -8051,20 +8078,21 @@ local function UpdateRotationHighlights()
 
     local newSet = {}
     if suggestedSpell then
+        -- Icons store BASE spell ids while GetNextCastSpell returns the
+        -- OVERRIDE (e.g. Maul stored, Raze suggested). Resolve the
+        -- suggestion's base ONCE per pass instead of querying an override
+        -- per icon -- this runs every assisted-highlight change in combat.
+        local suggestedBase = C_Spell and C_Spell.GetBaseSpell
+            and C_Spell.GetBaseSpell(suggestedSpell)
+        if suggestedBase == suggestedSpell then suggestedBase = nil end
         for _, icons in pairs(cdmBarIcons) do
             for _, icon in ipairs(icons) do
                 local ifc = _ecmeFC[icon]
                 local sid = ifc and ifc.spellID
-                if sid and icon:IsShown() then
-                    local match = (sid == suggestedSpell)
-                    if not match and C_SpellBook and C_SpellBook.FindSpellOverrideByID then
-                        local ovr = C_SpellBook.FindSpellOverrideByID(sid)
-                        match = ovr and ovr == suggestedSpell
-                    end
-                    if match then
-                        _rotShow(icon)
-                        newSet[icon] = true
-                    end
+                if sid and (sid == suggestedSpell or (suggestedBase and sid == suggestedBase))
+                   and icon:IsShown() then
+                    _rotShow(icon)
+                    newSet[icon] = true
                 end
             end
         end

@@ -532,6 +532,11 @@ EllesmereUI._SelectMiniUnit = function(unit)
         EllesmereUI._pendingMiniSelect = unit
     end
 end
+-- Capture entries registered BEFORE this deferred body runs (DataBars writes
+-- per-bar EDB_ keys at PLAYER_LOGIN, which fires first); merged back in below
+-- the literal so this assignment never wipes them. Namespace-stashed, not a
+-- local -- this deferred function is at its upvalue/local limits.
+EllesmereUI._elemMapPre = EllesmereUI._ELEMENT_SETTINGS_MAP
 EllesmereUI._ELEMENT_SETTINGS_MAP = {
     -- Main frames: "Main Frames" page; dropdown pre-selected to the unit.
     ["player"]       = { module = "EllesmereUIUnitFrames",       page = "Main Frames",   sectionName = "HEALTH BAR",       preSelectFn = SelectUnitFrame("player"),                   highlightText = "Bar Height" },
@@ -598,6 +603,14 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["CDM_"]               = { module = "EllesmereUICooldownManager", page = "CDM Bars" },
     ["TBB_"]               = { module = "EllesmereUICooldownManager", page = "Tracking Bars" },
 }
+if EllesmereUI._elemMapPre then
+    for k, v in pairs(EllesmereUI._elemMapPre) do
+        if EllesmereUI._ELEMENT_SETTINGS_MAP[k] == nil then
+            EllesmereUI._ELEMENT_SETTINGS_MAP[k] = v
+        end
+    end
+    EllesmereUI._elemMapPre = nil
+end
 
 -- Width Match / Height Match / Anchor To pick modes
 -- Only one pick mode can be active at a time. The active picker mover is stored here.

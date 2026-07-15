@@ -745,6 +745,52 @@ end
 -- every time Blizzard tries to show it during M+, we re-hide it. No
 -- SetParent (avoids tainting the secure scenario tree), no recursion into
 -- children (avoids the invisible-click-catcher pattern).
+local function TrackerShouldBeHidden()
+    if not (db and db.profile and db.profile.enabled) then return false end
+    -- Hide during active challenge AND after it completes but before the
+    -- player has left the dungeon instance. Blizzard's end-of-run fanfare
+    -- flips IsChallengeModeActive() back to false while the user is still
+    -- inside -- without the completed + party gate the tracker pops back
+    -- up for the last seconds before zone-out.
+    if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
+       and C_ChallengeMode.IsChallengeModeActive() then
+        return true
+    end
+    if currentRun and currentRun.completed then
+        local _, iType = GetInstanceInfo()
+        return iType == "party"
+    end
+    return false
+end
+
+-- ObjectiveTrackerFrame is EditMode-managed: its Hide() routes through the
+-- system template to HideBase(), which is protected, so calling it from our
+-- execution during combat is blocked (ADDON_ACTION_BLOCKED). In combat,
+-- suppress with alpha only (top-level frame, never children, never mouse
+-- state) and finish the real Hide once combat drops. The regen listener is
+-- one-shot: it unregisters on fire and is re-registered by each new
+-- in-combat request.
+local _trackerRegenFrame
+local function HideTracker(otf)
+    if InCombatLockdown() then
+        otf:SetAlpha(0)
+        if not _trackerRegenFrame then
+            _trackerRegenFrame = CreateFrame("Frame")
+            _trackerRegenFrame:SetScript("OnEvent", function(self)
+                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+                local f = _G.ObjectiveTrackerFrame
+                if not f then return end
+                f:SetAlpha(1)
+                if TrackerShouldBeHidden() then f:Hide() end
+            end)
+        end
+        _trackerRegenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    else
+        otf:SetAlpha(1)  -- clear any combat alpha-suppression before hiding
+        otf:Hide()
+    end
+end
+
 local _trackerHookInstalled = false
 local function InstallTrackerHook()
     if _trackerHookInstalled then return end
@@ -752,21 +798,8 @@ local function InstallTrackerHook()
     if not otf then return end
     _trackerHookInstalled = true
     hooksecurefunc(otf, "Show", function()
-        if not (db and db.profile and db.profile.enabled) then return end
-        -- Hide during active challenge AND after it completes but before
-        -- the player has left the dungeon instance. Blizzard's end-of-run
-        -- fanfare flips IsChallengeModeActive() back to false while the
-        -- user is still inside -- without the completed + party gate the
-        -- tracker pops back up for the last seconds before zone-out.
-        local active = C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
-                       and C_ChallengeMode.IsChallengeModeActive()
-        local completedInInstance = currentRun and currentRun.completed
-        if completedInInstance then
-            local _, iType = GetInstanceInfo()
-            completedInInstance = (iType == "party")
-        end
-        if active or completedInInstance then
-            otf:Hide()
+        if TrackerShouldBeHidden() then
+            HideTracker(otf)
         end
     end)
 end
@@ -777,10 +810,8 @@ local function ApplyTrackerVisibility()
     InstallTrackerHook()
     local otf = _G.ObjectiveTrackerFrame
     if not otf then return end
-    if db and db.profile and db.profile.enabled
-       and C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
-       and C_ChallengeMode.IsChallengeModeActive() then
-        otf:Hide()
+    if TrackerShouldBeHidden() then
+        HideTracker(otf)
     end
 end
 

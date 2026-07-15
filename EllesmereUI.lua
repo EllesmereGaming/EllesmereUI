@@ -270,6 +270,29 @@ local LOCALE_FONT_FALLBACK = _G.EllesmereUI and _G.EllesmereUI._localeFont or ni
 -------------------------------------------------------------------------------
 local ICONS_PATH    = MEDIA_PATH .. "icons\\"
 
+-------------------------------------------------------------------------------
+--  Season M+ Portals -- single source of truth for every portal/teleport
+--  list in the suite (Chat sidebar flyout, Minimap flyout, QoL /keys name
+--  resolver, DataBars travel tooltip). Update ONCE here each season.
+--    spellID     - primary teleport spell id
+--    short       - abbreviated label used by the flyout buttons
+--    dungeonID   - LFG dungeonID (GetLFGDungeonInfo name lookup)
+--    names       - lowercase dungeon names (plus localized aliases) for
+--                  name -> spell resolution
+--    altSpellIDs - optional variant teleport spell ids
+--  Order = flyout grid order (top-left to bottom-right).
+-------------------------------------------------------------------------------
+EllesmereUI.SEASON_PORTALS = {
+    { spellID = 1254400, short = "WRS", dungeonID = 2739, names = { "windrunner spire", "шпиль ветрокрылых" } },
+    { spellID = 1254572, short = "MT",  dungeonID = 3085, names = { "magisters' terrace", "терраса магистров" } },
+    { spellID = 1254563, short = "NPX", dungeonID = 3056, names = { "nexus-point xenas", "нексус-пойнт ксенас", "нексус-поинт ксенас" } },
+    { spellID = 1254559, short = "MC",  dungeonID = 3097, names = { "maisara caverns", "пещеры майсара" } },
+    { spellID = 159898,  short = "SR",  dungeonID = 779,  altSpellIDs = { 1254557 }, names = { "skyreach", "небесный путь" } },
+    { spellID = 1254555, short = "PoS", dungeonID = 3113, names = { "pit of saron", "яма сарона" } },
+    { spellID = 1254551, short = "SoT", dungeonID = 3118, names = { "seat of the triumvirate", "престол триумвирата" } },
+    { spellID = 393273,  short = "AA",  dungeonID = 2366, names = { "algeth'ar academy", "академия алгет'ар", "академия алгетар" } },
+}
+
 local ADDON_ROSTER = {
     { folder = "EllesmereUIActionBars",        display = "Action Bars",          search_name = "EllesmereUI Action Bars"             },
     { folder = "EllesmereUINameplates",        display = "Nameplates",           search_name = "EllesmereUI Nameplates"              },
@@ -290,6 +313,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIChat",              display = "Chat",                 search_name = "EllesmereUI Chat"                    },
     { folder = "EllesmereUIDamageMeters",      display = "Damage Meters",        search_name = "EllesmereUI Damage Meters"           },
     { folder = "EllesmereUIBags",              display = "Bags",                 search_name = "EllesmereUI Bags"                    },
+    { folder = "EllesmereUIDataBars",          display = "DataBars",             search_name = "EllesmereUI DataBars"                },
     { folder = "EllesmereUIPartyMode",         display = "Party Mode",           search_name = "EllesmereUI Party Mode",             alwaysLoaded = true },
 }
 
@@ -322,6 +346,7 @@ EllesmereUI.ADDON_GROUPS = {
         members = {
             "EllesmereUIQoL",
             "EllesmereUIAuraBuffReminders",
+            "EllesmereUIDataBars",
             "EllesmereUIPartyMode",
         },
     },
@@ -3463,6 +3488,7 @@ EllesmereUI._addonKeyToFolder = {
     mythicTimer  = "EllesmereUIMythicTimer",
     blizzardSkin = "EllesmereUIBlizzardSkin",
     damageMeters = "EllesmereUIDamageMeters",
+    dataBars     = "EllesmereUIDataBars",
     raidFrames   = "EllesmereUIRaidFrames",
     bags         = "EllesmereUIBags",
 }
@@ -9340,6 +9366,7 @@ function EllesmereUI:RegisterModule(folderName, config)
             EllesmereUIChat = true,
             EllesmereUIDamageMeters = true,
             EllesmereUIBags = true,
+            EllesmereUIDataBars = true,
         }
         if not ALLOWED[callerFolder] then return end
     end
@@ -10202,7 +10229,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.4.5"
+EllesmereUI.VERSION = "8.4.7"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -10358,6 +10385,7 @@ EllesmereUI._RunConflictCheck = function()
             { addon = "UltimateMouseCursor",      label = "Ultimate Mouse Cursor",      targets = { "EllesmereUIQoL" } },
             { addon = "BetterCooldownManager",    label = "Better Cooldown Manager",    targets = { "EllesmereUICooldownManager", "EllesmereUIResourceBars" } },
             { addon = "CooldownManagerCentered",    label = "Cooldown Manager Centered",    targets = { "EllesmereUICooldownManager" } },
+            { addon = "SkironCooldownManager",    label = "Skiron Cooldown Manager",    targets = { "EllesmereUICooldownManager" } },
             { addon = "ArcUI",                    label = "ArcUI",                      targets = { "EllesmereUICooldownManager", } },
             { addon = "Ayije_CDM",                label = "Ayije CDM",                  targets = { "EllesmereUICooldownManager", "EllesmereUIResourceBars" } },
             { addon = "MythicPlusTimer",          label = "Mythic Plus Timer",          targets = { "EllesmereUIMythicTimer" } },
@@ -10372,6 +10400,10 @@ EllesmereUI._RunConflictCheck = function()
             { addon = "BetterCharacterPanel",     label = "Better Character Panel",     targets = { "EllesmereUIBlizzardSkin" },
               moduleCheck = function() return BlizzardSkinSubEnabled("themedCharacterSheet") end,
               message = "Better Character Panel conflicts with the EllesmereUI's Character Sheet. Disable either Better Character Panel or the Character Sheet skin in Blizzard UI Enhanced settings." },
+            -- Old name of EllesmereUIDataBars: a leftover copy of the addon
+            -- from before the rename duplicates the entire bar.
+            { addon = "EllesmereUIWonderBar",     label = "EllesmereUI WonderBar",      targets = { "EllesmereUIDataBars" },
+              message = "EllesmereUI WonderBar was renamed to EllesmereUI DataBars. The old WonderBar addon is still installed and both create the same bar. Please disable or delete the EllesmereUIWonderBar addon." },
             { addon = "EllesmereBarGlows",        label = "Ellesmere's CDM Bar Glows",  targets = "all" },
             { addon = "EllesmereNameplates",        label = "Ellesmere's Nameplates",  targets = "all" },
             { addon = "EllesmereActionBars",        label = "Ellesmere's Action Bars",  targets = "all" },

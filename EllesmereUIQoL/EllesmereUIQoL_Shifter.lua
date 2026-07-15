@@ -111,6 +111,17 @@ local EXTRA_DRAG_TARGETS = {
 -- Exchange -- plus Friends, Guild/Communities, and Professions, which
 -- normally sit to CharacterFrame's left with CharacterFrame staying put).
 -- See the docking hook in HookFrame for why and how.
+--
+-- PVEFrame is deliberately NOT here: EllesmereUIBlizzardSkin_GroupFinder.lua
+-- owns that pairing instead, docking CharacterFrame beside PVEFrame (rather
+-- than the reverse) with room-detection that also accounts for third-party
+-- companion panels bolted onto PVEFrame (e.g. RaiderIO's Mythic+ panel).
+-- Having both mechanisms active fought each other: this one's plain room
+-- check has no idea RaiderIO's panel exists, so it could re-dock PVEFrame
+-- right back on top of it the moment CharacterFrame got any saved/temp
+-- Shifter position at all. PVEFrame being protected already skipped this
+-- module's strata/Raise writes too (see the `else` branch below), so
+-- dropping it here leaves it entirely to GroupFinder.lua, with nothing lost.
 local DOCKING_COMPANIONS = {
     ItemUpgradeFrame = true,
     TransmogFrame = true,
@@ -122,7 +133,6 @@ local DOCKING_COMPANIONS = {
     ProfessionsBookFrame = true,
     WorldMapFrame = true,
     HousingDashboardFrame = true,
-    PVEFrame = true,
 }
 
 -------------------------------------------------------------------------------
@@ -461,6 +471,32 @@ local function StartSecureDrag(frame, name, mode)
 end
 
 -------------------------------------------------------------------------------
+--  Companion re-dock on CharacterFrame changes.
+--
+--  Each DOCKING_COMPANIONS frame only re-evaluates its own docked position
+--  when ITS OWN OnShow/SetPoint fires -- never when CharacterFrame itself
+--  moves or rescales. So a companion (WorldMap, Guild/Communities, PVEFrame,
+--  etc.) that's already open and correctly docked goes stale the moment
+--  CharacterFrame is scaled or repositioned afterward, since nothing tells
+--  it to re-check. Every companion registers its ShouldDock/DockToCharacter-
+--  Frame closures here as it's hooked; CharacterFrame's own SetPoint/SetScale
+--  (hooked separately below) walks this list and re-docks anything that
+--  should currently be docked, closing that gap.
+-------------------------------------------------------------------------------
+local dockedCompanions = {}
+
+local function RedockCompanions()
+    for i = 1, #dockedCompanions do
+        local c = dockedCompanions[i]
+        if c.frame:IsShown() and c.shouldDock() then
+            if not c.frame:IsProtected() then c.frame:SetFrameStrata("DIALOG") end
+            c.dock()
+            if not c.frame:IsProtected() then c.frame:Raise() end
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Hook a single frame
 -------------------------------------------------------------------------------
 local function HookFrame(frame, name)
@@ -645,7 +681,18 @@ local function HookFrame(frame, name)
                 if not frame:IsProtected() then frame:Raise() end
             end
         end)
-    elseif name ~= "CharacterFrame" then
+        dockedCompanions[#dockedCompanions + 1] = { frame = frame, shouldDock = ShouldDock, dock = DockToCharacterFrame }
+    elseif name == "CharacterFrame" then
+        -- CharacterFrame itself isn't a companion, but every companion's dock
+        -- is relative to IT -- so a scale or position change here is exactly
+        -- what leaves already-open companions stale (see RedockCompanions).
+        hooksecurefunc(frame, "SetPoint", function()
+            if IsEnabled() then RedockCompanions() end
+        end)
+        hooksecurefunc(frame, "SetScale", function()
+            if IsEnabled() then RedockCompanions() end
+        end)
+    else
         -- Any other Shifter-managed window can end up rendered underneath a
         -- Shifter-pinned CharacterFrame purely because CharacterFrame's skin
         -- forces it to "HIGH" strata -- not because it's meant to dock

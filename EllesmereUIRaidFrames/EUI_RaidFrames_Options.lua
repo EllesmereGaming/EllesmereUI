@@ -2608,6 +2608,12 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
 
+        -- The rows below Marker Position are the less-common indicators. On the
+        -- RAID tab they collapse behind a session-only "Show More" toggle (state
+        -- held in EllesmereUI._rfShowLessCommonIndicators, not a saved variable);
+        -- the party tab (_partyCtx) always shows them.
+        if _partyCtx or EllesmereUI._rfShowLessCommonIndicators then
+
         -- Ready Check / Summon / Rez icon position + size (the three indicators
         -- share a single texture, so one set of controls drives all of them).
         local readyCheckPositionValues = {
@@ -2960,6 +2966,33 @@ initFrame:SetScript("OnEvent", function(self)
                 cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
                 cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
             end
+        end
+        end   -- close the less-common-indicators collapse wrapper
+
+        -- Raid tab only: the session expander shown while the less-common
+        -- indicator rows above are collapsed. White text, accent on hover;
+        -- clicking reveals them for the rest of the session (not saved).
+        if (not _partyCtx) and not EllesmereUI._rfShowLessCommonIndicators then
+            local cpad = EllesmereUI.CONTENT_PAD or 45
+            local moreBtn = CreateFrame("Button", nil, parent)
+            moreBtn:SetHeight(22)
+            moreBtn:SetPoint("TOPLEFT", parent, "TOPLEFT", cpad, y - 4)
+            moreBtn:SetFrameLevel(parent:GetFrameLevel() + 5)
+            local moreFS = EllesmereUI.MakeFont(moreBtn, 13, nil, 1, 1, 1)
+            moreFS:SetPoint("LEFT")
+            moreFS:SetText("+ Show Less Common Indicator Options")
+            moreBtn:SetWidth(math.max((moreFS:GetStringWidth() or 0) + 8, 120))
+            local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+            moreBtn:SetScript("OnEnter", function() moreFS:SetTextColor(EG.r, EG.g, EG.b) end)
+            moreBtn:SetScript("OnLeave", function() moreFS:SetTextColor(1, 1, 1) end)
+            moreBtn:SetScript("OnClick", function()
+                EllesmereUI._rfShowLessCommonIndicators = true
+                -- force=true: full teardown+rebuild. RefreshPage() without it takes
+                -- the values-only fast path and never re-runs the page builder, so
+                -- the collapsed rows would not appear.
+                EllesmereUI:RefreshPage(true)
+            end)
+            y = y - 30
         end
 
         -------------------------------------------------------------------

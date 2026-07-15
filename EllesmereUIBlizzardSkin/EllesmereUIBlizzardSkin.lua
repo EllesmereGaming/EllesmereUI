@@ -1672,15 +1672,11 @@ do
         if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return end
         if not (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor) then return end
         if not parent or tooltip:IsForbidden() then return end
-        -- Respect the "Show Tooltips" suppression. This post-hook runs after
-        -- HideTooltipByMode in the GameTooltip_SetDefaultAnchor chain, so without
-        -- this check the re-anchor below would undo its Hide() every frame and the
-        -- tooltip would stay visible (e.g. "Out of Combat" leaking tips in combat).
-        if EllesmereUI._tooltipSuppressedByMode and EllesmereUI._tooltipSuppressedByMode(tooltip) then
-            if cursorFrame then cursorFrame:Hide() end
-            tooltip:Hide()
-            return
-        end
+        -- "Show Tooltips" suppression parks the tip in a hidden host (see the
+        -- Show Tooltips block below): it stays alive and invisible so the
+        -- peek modifier can reveal it. Anchor it normally -- it must already
+        -- be riding the cursor when revealed. (The old Hide()-based
+        -- suppression needed an early-return here to avoid undoing its Hide.)
         local cf = EnsureCursorFrame()
         PositionCursorFrameNow(cf)
         local point = POINT_FOR_POS[EllesmereUIDB.tooltipCursorPosition or "top"] or "BOTTOM"
@@ -1767,7 +1763,11 @@ end
 --  so there is no ENCOUNTER event bookkeeping. Installed once at load; a no-op
 --  for the default mode, costing one table read per tooltip when unused.
 --  An optional "peek" modifier (tooltipShowModifier) lifts suppression while the
---  chosen key is held, so a hidden tip can be read on hover (e.g. mid-combat).
+--  chosen key is held, so a suppressed tip can be read on hover (e.g. mid-combat).
+--  Suppression keeps the tooltip SHOWN but parked in a hidden host frame (never
+--  Hide, never alpha) so peek is a pure reparent flip -- rebuilding a hidden
+--  tooltip from insecure code errors on secret cooldown data in combat, and
+--  alpha is engine-owned (FadeOut snaps it back and leaks the tip).
 -------------------------------------------------------------------------------
 do
     local function ShowModifierHeld()
@@ -1809,14 +1809,68 @@ do
         return false
     end
 
-    local function HideTooltipByMode(tooltip)
-        if EllesmereUI._tooltipSuppressedByMode(tooltip) then
-            tooltip:Hide()
+    -- Suppression parks the tooltip in a hidden host frame -- NOT Hide() and
+    -- NOT alpha. Hide()-based suppression forced the peek path to REBUILD the
+    -- tooltip from our insecure execution: in combat, action tooltips read
+    -- secret cooldown data and that rebuild hard-errors ("secret values are
+    -- only allowed during untainted execution"), which the FireHoveredOnEnter
+    -- pcall silently swallowed -- peek looked dead in combat on action bars.
+    -- Alpha-based suppression fought the engine: FadeOut (hover-off on world
+    -- units) snaps alpha back to full and animates it down, leaking the tip.
+    -- Parking wins both ways: the tooltip stays SHOWN (the secure hover path
+    -- keeps building and refreshing it), visibility inherits from the hidden
+    -- host regardless of what the engine does to alpha, and peek is a pure
+    -- reparent flip. NOTE: OnHide never fires while parked (the frame is not
+    -- visible), so restore CANNOT rely on it -- the SetOwner hook below is
+    -- the restore point: every tooltip build starts with SetOwner, so an
+    -- explicitly-anchored use (bags, other addons) that never passes
+    -- SetDefaultAnchor can't inherit a parked tooltip; default-anchored
+    -- builds re-park right after, in the SetDefaultAnchor post-hook (its
+    -- internal SetOwner runs before that hook fires).
+    local _suppressHost = CreateFrame("Frame", nil, UIParent)
+    _suppressHost:Hide()
+    local _parked = false
+    local _defaultAnchored = false
+    local _origParent, _origStrata
+    local function ParkTooltip(tt)
+        if _parked then return end
+        _parked = true
+        _origParent = tt:GetParent()
+        if _origParent == _suppressHost then _origParent = nil end
+        _origStrata = tt:GetFrameStrata()
+        tt:SetParent(_suppressHost)
+    end
+    local function UnparkTooltip(tt)
+        if not _parked then return end
+        _parked = false
+        tt:SetParent(_origParent or UIParent)
+        -- SetParent can demote strata; the tooltip must stay topmost.
+        tt:SetFrameStrata(_origStrata or "TOOLTIP")
+    end
+    local function ApplySuppression(tt)
+        if EllesmereUI._tooltipSuppressedByMode(tt) then
+            ParkTooltip(tt)
+        else
+            UnparkTooltip(tt)
         end
     end
-    if GameTooltip_SetDefaultAnchor then
-        hooksecurefunc("GameTooltip_SetDefaultAnchor", HideTooltipByMode)
+    local function SuppressTooltipByMode(tooltip)
+        if tooltip ~= GameTooltip then return end
+        _defaultAnchored = true
+        ApplySuppression(tooltip)
     end
+    if GameTooltip_SetDefaultAnchor then
+        hooksecurefunc("GameTooltip_SetDefaultAnchor", SuppressTooltipByMode)
+    end
+    hooksecurefunc(GameTooltip, "SetOwner", function(tt)
+        _defaultAnchored = false
+        UnparkTooltip(tt)
+    end)
+    GameTooltip:HookScript("OnHide", function(tt)
+        -- Only fires for unparked hides (a parked tooltip is never visible);
+        -- kept so a normal hide clears the default-anchored flag promptly.
+        _defaultAnchored = false
+    end)
 
     -- Live peek: pressing the modifier while already hovering reveals the tip
     -- for the current frame; releasing it hides it again. Moving onto other
@@ -1872,9 +1926,23 @@ do
         local mod = (EllesmereUIDB and EllesmereUIDB.tooltipShowModifier) or "none"
         if mod == "none" or not KeyMatchesModifier(key, mod) then return end
         if down == 1 then
-            FireHoveredOnEnter()
+            if _parked and GameTooltip:IsShown() then
+                -- The parked tip is alive and current under the cursor
+                -- (built by the secure hover path): just reveal it. Never
+                -- rebuild it from here -- see the parking note above.
+                UnparkTooltip(GameTooltip)
+            else
+                -- No live tip: module-built tips (raid frames, CDM) skip
+                -- building while suppressed, so re-drive the hovered frame's
+                -- OnEnter -- with the modifier now held they build normally.
+                FireHoveredOnEnter()
+            end
         elseif GameTooltip:IsShown() and EllesmereUI._tooltipSuppressedByMode(GameTooltip) then
-            GameTooltip:Hide()
+            if _defaultAnchored then
+                ParkTooltip(GameTooltip)
+            else
+                GameTooltip:Hide()
+            end
         end
     end)
 end

@@ -1760,6 +1760,8 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
     local seen = d._bmSimpleSeen
     if not seen then seen = {}; d._bmSimpleSeen = seen else wipe(seen) end
 
+    local ownOnly = bs.ownOnly ~= false
+
     local shown = 0
     local idx = 1
     while true do
@@ -1776,8 +1778,16 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
             if not issecretvalue(sid) then
                 local psid = PRIMARY_BY_ALT[sid] or sid
                 if simpleTrackedSpellIDs[psid] and not seen[psid] then
-                    matched = true
-                    seen[psid] = true
+                    -- Own Only: same PLAYER filter the custom path uses; secret
+                    -- auras below are always player-cast so they skip this check.
+                    local pass = true
+                    if ownOnly and C_UnitAuras_IsAuraFilteredOutByInstanceID then
+                        pass = not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, iid, "PLAYER|HELPFUL")
+                    end
+                    if pass then
+                        matched = true
+                        seen[psid] = true
+                    end
                 end
             else
                 local matchedSid = MatchSecretAuraSimple(unit, iid)
@@ -3895,7 +3905,10 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
               disabled=BuffsOff, disabledTooltip="Show Buffs",
               getValue=function() return BVal("showStacks", true) end,
               setValue=function(v) BSet("showStacks", v) end },
-            { type="label", text="" });  sy = sy - hh
+            { type="toggle", text="Own Only", tooltip="Shows only the buffs you apply",
+              disabled=BuffsOff, disabledTooltip="Show Buffs",
+              getValue=function() return BVal("ownOnly", true) end,
+              setValue=function(v) BSet("ownOnly", v) end });  sy = sy - hh
         do
             local rgn = row5._leftRegion
             local swatch = EllesmereUI.BuildColorSwatch(rgn, row5:GetFrameLevel() + 3,

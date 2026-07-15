@@ -249,11 +249,19 @@ local function GetLowestContentFrame()
     if not modules then return nil end
     local lowestFrame, lowestY
     local _scenarioTracker = _G.ScenarioObjectiveTracker
+    local _widgetTracker = _G.UIWidgetObjectiveTracker
     for _, tracker in ipairs(modules) do
         -- Skip ScenarioObjectiveTracker: its M+ challenge mode blocks
         -- aren't quest content. Showing our bg/top-line around them
         -- during M+ produces visible chrome with no actual quests.
-        if tracker == _scenarioTracker then
+        --
+        -- Skip UIWidgetObjectiveTracker: its blocks share Blizzard's widget
+        -- pool with tooltip/AreaPOI widgets. ANY method call here (GetBottom,
+        -- GetObjectType, IsShown) taints the pool, causing "attempt to compare
+        -- a secret number value" in LayoutFrame.lua when GameTooltip later lays
+        -- out an AreaPOI widget set. See HookTracker in the Skin module, which
+        -- refuses to touch these frames for the same reason.
+        if tracker == _scenarioTracker or tracker == _widgetTracker then
             -- skip
         else
         local function consider(frame)
@@ -286,7 +294,7 @@ local function GetLowestContentFrame()
         if tracker.hasContents then
             consider(tracker.Header)
         end
-        end -- else (skip scenario)
+        end -- else (skip scenario / widget-pool trackers)
     end
     return lowestFrame
 end

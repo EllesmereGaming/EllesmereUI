@@ -937,11 +937,21 @@ function WSkin.NormalizeTabRow(tabs)
     -- pixels and rounds inconsistently. PP.perfect (= 1 physical pixel at
     -- scale 1) divided by the tab's effective scale is exact at any scale.
     local PP = EUI and EUI.PP
+    -- Shave a few px off every skinned tab's height, ONCE per tab (guarded in
+    -- the WSkin FFD so repeated re-skins never shrink it cumulatively). Applied
+    -- here so every window's bottom tab row gets the same shorter profile.
+    local TAB_TRIM_H = 2
     local prev
     for i = 1, #tabs do
         local t = tabs[i]
         if t and t.IsForbidden and not t:IsForbidden()
            and (not t.IsShown or t:IsShown()) then
+            local d = GetFFD(t)
+            if not d.heightTrimmed and t.SetHeight and t.GetHeight then
+                d.heightTrimmed = true
+                local h = t:GetHeight() or 0
+                if h > TAB_TRIM_H then t:SetHeight(h - TAB_TRIM_H) end
+            end
             if prev then
                 local gap = (PP and PP.mult) or 1
                 local es = t.GetEffectiveScale and t:GetEffectiveScale()

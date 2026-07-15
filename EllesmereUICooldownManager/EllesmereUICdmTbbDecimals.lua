@@ -208,7 +208,8 @@ local function CollectDesired()
 
     local work, claimed
     for i, cfg in ipairs(bars) do
-        if cfg.enabled ~= false and cfg.timerDecimals and not cfg.popularKey then
+        if cfg.enabled ~= false and cfg.timerDecimals and not cfg.popularKey
+           and cfg.trackType ~= "cooldown" then
             local include = {}
             AddVariants(include, cfg.spellID)
             AddVariants(include, cfg.baseSpellID)
