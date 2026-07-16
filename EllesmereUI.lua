@@ -6321,8 +6321,7 @@ local function CreateMainFrame()
     clickArea:EnableMouse(true)
     clickArea:SetMovable(true)
     clickArea:RegisterForDrag("LeftButton")
-    -- No SetClampedToScreen -- the whole window (bg + content) moves as one
-    -- and can be dragged freely off any edge.
+    mainFrame:SetClampedToScreen(true)
     clickArea:SetScript("OnDragStart", function() mainFrame:StartMoving() end)
     clickArea:SetScript("OnDragStop",  function() mainFrame:StopMovingOrSizing() end)
 
