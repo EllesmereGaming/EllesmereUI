@@ -1797,12 +1797,10 @@ ns.RefreshBuffBarGating  = function() end
 -------------------------------------------------------------------------------
 local function CreateTrackedBuffBarFrame(parent, idx)
     local wrapFrame = CreateFrame("Frame", "ECME_TBBWrap" .. idx, parent)
-    -- HIGH strata so the whole bar (fill, border, glow, text) renders above
-    -- the buff-icon displays (MEDIUM) -- including their borders and cooldown
-    -- swipes -- when the two elements overlap. Internal ordering stays
-    -- level-based within the wrap (strips +6 < pandemic glow +7 < text +8).
-    wrapFrame:SetFrameStrata("HIGH")
-    wrapFrame:SetFrameLevel(10)
+    -- Level above the buff-icon displays (MEDIUM 5..27) so the bar renders
+    -- on top when they overlap, without elevating strata past MEDIUM.
+    wrapFrame:SetFrameStrata("MEDIUM")
+    wrapFrame:SetFrameLevel(100)
 
     local bar = CreateFrame("StatusBar", "ECME_TBB" .. idx, wrapFrame)
     if bar.EnableMouseClicks then bar:EnableMouseClicks(false) end
