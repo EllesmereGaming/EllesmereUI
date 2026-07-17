@@ -1,0 +1,99 @@
+name: Fork release (upstream tag + feat branches)
+
+# Watches upstream (EllesmereGaming/EllesmereUI) for new release tags and, for
+# each one, publishes a release on this fork built from the upstream tag plus
+# every origin feat/* branch merged on top. A branch ships if and only if it
+# is named feat/*; delete a branch (e.g. after its upstream PR merges) and it
+# drops out of the next release automatically.
+#
+# Scheduled runs release once per upstream tag. To cut a new release for the
+# same upstream tag (e.g. after adding a feat branch mid-cycle), trigger the
+# workflow manually with force enabled — it bumps the -bmf.N suffix.
+
+on:
+  schedule:
+    - cron: '17 3,15 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Release again for the current upstream tag (bumps -bmf.N)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge feat branches onto latest upstream tag
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force == true }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream https://github.com/EllesmereGaming/EllesmereUI.git
+          git fetch --quiet upstream --tags
+
+          upstream_tag=$(git ls-remote --tags --refs upstream 'v*' \
+            | awk -F/ '{print $NF}' \
+            | grep -E '^v[0-9]+(\.[0-9]+)*$' \
+            | sort -V | tail -n 1)
+          if [ -z "$upstream_tag" ]; then
+            echo "::error::Could not determine the latest upstream release tag"
+            exit 1
+          fi
+          echo "Latest upstream release: $upstream_tag"
+
+          existing=$(git tag --list "${upstream_tag}-bmf.*" | wc -l)
+          if [ "$existing" -gt 0 ] && [ "$FORCE" != "true" ]; then
+            echo "Fork release for $upstream_tag already exists; nothing to do."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          fork_tag="${upstream_tag}-bmf.$((existing + 1))"
+
+          feat_branches=$(git branch -r --list 'origin/feat/*' --format='%(refname:short)')
+          if [ -z "$feat_branches" ]; then
+            echo "No feat/ branches on origin; nothing to release on top of $upstream_tag."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git checkout --detach "$upstream_tag"
+
+          for branch in $feat_branches; do
+            echo "Merging $branch"
+            if ! git merge --no-ff --no-edit "$branch"; then
+              title="Fork release: merge conflict building $fork_tag"
+              body=$(printf 'Merging `%s` onto `%s` failed with conflicts. Rebase the branch onto the tag (or resolve otherwise), then re-run the workflow.\n\nFailed run: %s/%s/actions/runs/%s' \
+                "$branch" "$upstream_tag" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
+              if [ -z "$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')" ]; then
+                gh issue create --title "$title" --body "$body"
+              fi
+              echo "::error::Merge conflict merging $branch onto $upstream_tag"
+              exit 1
+            fi
+          done
+
+          git tag -a "$fork_tag" -m "$upstream_tag + $(echo "$feat_branches" | sed 's|^origin/||' | paste -sd ', ' -)"
+          git push origin "$fork_tag"
+          echo "Tagged and pushed $fork_tag"
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Package and publish GitHub release
+        if: steps.build.outputs.proceed == 'true'
+        uses: BigWigsMods/packager@v2
+        env:
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
