@@ -6,6 +6,13 @@ name: Fork release (upstream tag + feat branches)
 # is named feat/*; delete a branch (e.g. after its upstream PR merges) and it
 # drops out of the next release automatically.
 #
+# On a merge conflict, the autofix job runs Claude (claude-fable-5) to rebase
+# the conflicting branch onto the upstream tag and resolve the conflicts. If
+# it succeeds it force-pushes the branch and re-dispatches this workflow
+# (bounded by the attempt counter); if the fix would be too broad — e.g.
+# upstream refactored the code the branch touches — it gives up and opens an
+# issue for a human instead.
+#
 # Scheduled runs release once per upstream tag. To cut a new release for the
 # same upstream tag (e.g. after adding a feat branch mid-cycle), trigger the
 # workflow manually with force enabled — it bumps the -bmf.N suffix.
@@ -19,14 +26,33 @@ on:
         description: Release again for the current upstream tag (bumps -bmf.N)
         type: boolean
         default: false
+      attempt:
+        description: Internal autofix retry counter — leave at 0
+        type: string
+        default: '0'
 
 permissions:
   contents: write
   issues: write
+  actions: write
+  id-token: write
+
+concurrency:
+  group: fork-release
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: https://github.com/EllesmereGaming/EllesmereUI.git
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      conflict: ${{ steps.build.outputs.conflict }}
+      conflict_branch: ${{ steps.build.outputs.conflict_branch }}
+      upstream_tag: ${{ steps.build.outputs.upstream_tag }}
+      fork_tag: ${{ steps.build.outputs.fork_tag }}
+      attempt: ${{ steps.build.outputs.attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,15 +61,17 @@ jobs:
       - name: Merge feat branches onto latest upstream tag
         id: build
         env:
-          GH_TOKEN: ${{ github.token }}
           FORCE: ${{ inputs.force == true }}
+          ATTEMPT: ${{ inputs.attempt || '0' }}
         run: |
           set -euo pipefail
+
+          echo "attempt=$ATTEMPT" >> "$GITHUB_OUTPUT"
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git remote add upstream https://github.com/EllesmereGaming/EllesmereUI.git
+          git remote add upstream "$UPSTREAM_REPO"
           git fetch --quiet upstream --tags
 
           upstream_tag=$(git ls-remote --tags --refs upstream 'v*' \
@@ -76,14 +104,16 @@ jobs:
           for branch in $feat_branches; do
             echo "Merging $branch"
             if ! git merge --no-ff --no-edit "$branch"; then
-              title="Fork release: merge conflict building $fork_tag"
-              body=$(printf 'Merging `%s` onto `%s` failed with conflicts. Rebase the branch onto the tag (or resolve otherwise), then re-run the workflow.\n\nFailed run: %s/%s/actions/runs/%s' \
-                "$branch" "$upstream_tag" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")
-              if [ -z "$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')" ]; then
-                gh issue create --title "$title" --body "$body"
-              fi
-              echo "::error::Merge conflict merging $branch onto $upstream_tag"
-              exit 1
+              git merge --abort || true
+              echo "::warning::Merge conflict merging $branch onto $upstream_tag; handing off to autofix"
+              {
+                echo "conflict=true"
+                echo "conflict_branch=${branch#origin/}"
+                echo "upstream_tag=$upstream_tag"
+                echo "fork_tag=$fork_tag"
+                echo "proceed=false"
+              } >> "$GITHUB_OUTPUT"
+              exit 0
             fi
           done
 
@@ -97,3 +127,163 @@ jobs:
         uses: BigWigsMods/packager@v2
         env:
           GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+
+  autofix:
+    needs: release
+    if: needs.release.outputs.conflict == 'true'
+    runs-on: ubuntu-latest
+    env:
+      BRANCH: ${{ needs.release.outputs.conflict_branch }}
+      UPSTREAM_TAG: ${{ needs.release.outputs.upstream_tag }}
+      FORK_TAG: ${{ needs.release.outputs.fork_tag }}
+      ATTEMPT: ${{ needs.release.outputs.attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Record branch state
+        id: pre
+        run: |
+          set -euo pipefail
+          git remote add upstream "$UPSTREAM_REPO"
+          git fetch --quiet upstream --tags
+          echo "sha=$(git rev-parse "origin/$BRANCH")" >> "$GITHUB_OUTPUT"
+          if [ "$ATTEMPT" -lt 3 ]; then
+            echo "can_fix=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "can_fix=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Autofix attempt limit reached ($ATTEMPT); opening an issue instead"
+          fi
+
+      - name: Rebase conflicting branch with Claude
+        if: steps.pre.outputs.can_fix == 'true'
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_args: |
+            --model claude-fable-5
+            --max-turns 120
+            --allowedTools "Bash(git:*),Read,Grep,Glob,Edit,Write"
+          prompt: |
+            You are running inside GitHub Actions in bmfurtado/EllesmereUI, a fork of
+            EllesmereGaming/EllesmereUI — a World of Warcraft addon suite written in
+            Lua.
+
+            BACKGROUND: This fork carries feature branches (feat/*) whose upstream
+            pull requests are still under review. A release workflow builds the
+            fork's releases by merging every feat/* branch onto the latest upstream
+            release tag. That merge just failed with conflicts for one branch. Your
+            job is to repair that branch by rebasing it onto the release tag, or to
+            give up cleanly if the fix requires more than mechanical conflict
+            resolution.
+
+            FACTS FOR THIS RUN:
+            - Conflicting branch: ${{ needs.release.outputs.conflict_branch }}
+              (exists as origin/${{ needs.release.outputs.conflict_branch }})
+            - Upstream release tag to rebase onto: ${{ needs.release.outputs.upstream_tag }}
+            - The workspace has full history; remote "origin" is the fork, remote
+              "upstream" is the upstream repo, and upstream tags are already fetched.
+
+            STEP 0 — set a git identity so rebase commits work:
+            git config user.name "claude[bot]"; git config user.email "noreply@anthropic.com"
+
+            STEP 1 — understand the branch BEFORE touching anything:
+            - old_base=$(git merge-base origin/${{ needs.release.outputs.conflict_branch }} ${{ needs.release.outputs.upstream_tag }})
+            - Read every commit the branch adds: git log --reverse --stat on
+              $old_base..origin/${{ needs.release.outputs.conflict_branch }}, then git show each commit. Build a
+              clear picture of what the feature does, which files and functions it
+              touches, and why.
+            - Understand what upstream changed in those same files since the old
+              base: git log --oneline $old_base..${{ needs.release.outputs.upstream_tag }} -- <touched files>,
+              and git diff $old_base ${{ needs.release.outputs.upstream_tag }} -- <file> for the files likely
+              to conflict.
+
+            STEP 2 — decide whether this is mechanically fixable:
+            Proceed only if the conflicts are mechanical — code moved or reindented,
+            adjacent edits, renamed locals, small signature changes — and you are
+            confident the rebased result preserves BOTH the feature's behavior and
+            upstream's changes.
+            GIVE UP if any of these hold:
+            - upstream substantially rewrote, refactored, or removed the module or
+              functions the branch modifies, so the feature would need to be
+              re-designed rather than re-applied;
+            - you cannot be confident the resolution is behavior-preserving;
+            - the conflicts involve interactions you cannot verify from the code
+              alone.
+            To give up: run "git rebase --abort" if a rebase is in progress, write a
+            short markdown explanation to /tmp/giveup-reason.md (which files
+            conflict, what upstream changed, why a mechanical fix is unsafe, and
+            what a human should do), and STOP without pushing anything. This addon
+            has no test suite — a wrong resolution ships silently into a release
+            used by real players in game, so giving up is the correct choice
+            whenever in doubt.
+
+            STEP 3 — rebase (only if fixable):
+            - git checkout -B ${{ needs.release.outputs.conflict_branch }} origin/${{ needs.release.outputs.conflict_branch }}
+            - git rebase ${{ needs.release.outputs.upstream_tag }}
+              (this fast-forwards the branch base to the tag and replays the
+              branch's own commits on top — exactly the intended history shape)
+            - Resolve each conflict so both upstream's changes and the feature's
+              intent survive. After resolving each file, re-read the full
+              surrounding section for coherence: no duplicated blocks, no references
+              to symbols that no longer exist, valid Lua syntax.
+            - git add the resolutions and git rebase --continue until the rebase
+              ends.
+
+            STEP 4 — verify, then push:
+            - Compare git diff ${{ needs.release.outputs.upstream_tag }}..HEAD against the branch's original
+              diff ($old_base..origin/${{ needs.release.outputs.conflict_branch }}); they should be equivalent
+              in intent. Investigate anything that differs unexpectedly.
+            - Check the merge is now clean: git merge-tree --write-tree
+              ${{ needs.release.outputs.upstream_tag }} HEAD must report no conflicts.
+            - If (and only if) everything checks out:
+              git push --force-with-lease origin ${{ needs.release.outputs.conflict_branch }}
+            Never create tags, never touch other branches, and never modify the
+            workflow files. If verification fails and you cannot fix it, follow the
+            give-up procedure in STEP 2 instead of pushing.
+
+      - name: Re-dispatch release or open issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRE_SHA: ${{ steps.pre.outputs.sha }}
+          CAN_FIX: ${{ steps.pre.outputs.can_fix }}
+        run: |
+          set -euo pipefail
+
+          git fetch --quiet origin
+          new_sha=$(git rev-parse "origin/$BRANCH")
+
+          if [ "$CAN_FIX" = "true" ] && [ "$new_sha" != "$PRE_SHA" ]; then
+            next=$((ATTEMPT + 1))
+            echo "Branch $BRANCH was rebased ($PRE_SHA -> $new_sha); re-dispatching release (attempt $next)."
+            gh workflow run fork-release.yml --ref main -f attempt="$next"
+            exit 0
+          fi
+
+          title="Fork release: merge conflict building $FORK_TAG"
+          {
+            echo "Merging \`$BRANCH\` onto \`$UPSTREAM_TAG\` failed with conflicts."
+            echo
+            if [ -f /tmp/giveup-reason.md ]; then
+              echo "The automatic fix gave up:"
+              echo
+              cat /tmp/giveup-reason.md
+            elif [ "$CAN_FIX" != "true" ]; then
+              echo "The automatic fix attempt limit was reached ($ATTEMPT attempts)."
+            else
+              echo "The automatic fix did not push a rebased branch (see the run log for details)."
+            fi
+            echo
+            echo "Resolve by rebasing the branch onto the tag, then re-run the workflow."
+            echo
+            echo "Failed run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > /tmp/issue-body.md
+
+          if [ -z "$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')" ]; then
+            gh issue create --title "$title" --body-file /tmp/issue-body.md
+          fi
+          echo "::error::Merge conflict on $BRANCH was not auto-fixed; issue filed"
+          exit 1
