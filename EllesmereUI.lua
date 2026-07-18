@@ -11322,8 +11322,6 @@ initFrame:SetScript("OnEvent", function(self, event)
 
         -- Skin our custom buttons the same way as pooled Blizzard buttons
         if _reskinMenu then
-            local RS = EllesmereUI.RESKIN
-            local PP = EllesmereUI.PP
             for _, customBtn in ipairs({ btn, unlockBtn }) do
                 for j = 1, select("#", customBtn:GetRegions()) do
                     local r = select(j, customBtn:GetRegions())
@@ -11348,9 +11346,14 @@ initFrame:SetScript("OnEvent", function(self, event)
                 inset:SetFrameLevel(customBtn:GetFrameLevel())
                 local cBg = inset:CreateTexture(nil, "BACKGROUND", nil, -6)
                 cBg:SetAllPoints()
-                cBg:SetColorTexture(0.1, 0.1, 0.1, 0.8)
-                if PP and PP.CreateBorder then
-                    PP.CreateBorder(inset, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
+                local buttonColor = EllesmereUIDB and EllesmereUIDB.popupMenuButtonBackgroundColor
+                    or { r=0.1, g=0.1, b=0.1, a=0.8 }
+                cBg:SetColorTexture(buttonColor.r or 0.1, buttonColor.g or 0.1,
+                    buttonColor.b or 0.1, buttonColor.a == nil and 0.8 or buttonColor.a)
+                EllesmereUI._GetFFD(customBtn).gameMenuInset = inset
+                EllesmereUI._GetFFD(customBtn).gameMenuButtonBg = cBg
+                if EllesmereUI._applyBlizzardConfiguredBorder then
+                    EllesmereUI._applyBlizzardConfiguredBorder(inset, "popupMenuButton", 1)
                 end
                 local hl = customBtn:CreateTexture(nil, "HIGHLIGHT")
                 hl:SetAllPoints(inset)
@@ -11360,6 +11363,10 @@ initFrame:SetScript("OnEvent", function(self, event)
                     local euiFont = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath() or nil
                     local _, size, flags = cfs:GetFont()
                     cfs:SetFont(euiFont or "Fonts\\FRIZQT__.TTF", (size or 14) - 2, flags or "")
+                    if EllesmereUI._getPopupMenuButtonTextColor then
+                        local r, g, b = EllesmereUI._getPopupMenuButtonTextColor()
+                        cfs:SetTextColor(r, g, b, 1)
+                    end
                 end
             end
         end
@@ -11378,8 +11385,10 @@ initFrame:SetScript("OnEvent", function(self, event)
                 if header then
                     local headerText = header.Text
                     if headerText and headerText.SetTextColor then
-                        local EG = ELLESMERE_GREEN
-                        headerText:SetTextColor(EG.r, EG.g, EG.b, 1)
+                        if EllesmereUI._getPopupMenuButtonTextColor then
+                            local r, g, b = EllesmereUI._getPopupMenuButtonTextColor()
+                            headerText:SetTextColor(r, g, b, 1)
+                        end
                     end
                 end
             end

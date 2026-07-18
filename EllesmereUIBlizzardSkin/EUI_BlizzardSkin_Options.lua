@@ -61,7 +61,37 @@ initFrame:SetScript("OnEvent", function(self)
             left._lastInline = offsetBtn
 
             local right = row._rightRegion
-            local swatch, refresh = EllesmereUI.BuildColorSwatch(right, right:GetFrameLevel() + 5,
+            local accentSwatch, refreshAccent = EllesmereUI.BuildColorSwatch(right, right:GetFrameLevel() + 5,
+                function()
+                    local color = EllesmereUI.ELLESMERE_GREEN or { r=0.27, g=0.86, b=0.49 }
+                    return color.r, color.g, color.b, 1
+                end,
+                function() end, false, 20)
+            PP.Point(accentSwatch, "RIGHT", right._control, "LEFT", -12, 0)
+            accentSwatch:SetScript("OnClick", function()
+                EllesmereUIDB[prefix .. "BorderColorMode"] = "accent"
+                EllesmereUI:RefreshPage()
+            end)
+            accentSwatch:HookScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, "Accent Color") end)
+            accentSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            local classSwatch, refreshClass = EllesmereUI.BuildColorSwatch(right, right:GetFrameLevel() + 5,
+                function()
+                    local _, class = UnitClass("player")
+                    local color = class and RAID_CLASS_COLORS[class]
+                    return (color and color.r) or 1, (color and color.g) or 1,
+                        (color and color.b) or 1, 1
+                end,
+                function() end, false, 20)
+            PP.Point(classSwatch, "RIGHT", accentSwatch, "LEFT", -8, 0)
+            classSwatch:SetScript("OnClick", function()
+                EllesmereUIDB[prefix .. "BorderColorMode"] = "class"
+                EllesmereUI:RefreshPage()
+            end)
+            classSwatch:HookScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, "Class Color") end)
+            classSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            local customSwatch, refreshCustom = EllesmereUI.BuildColorSwatch(right, right:GetFrameLevel() + 5,
                 function()
                     local color = EllesmereUIDB and EllesmereUIDB[prefix .. "BorderColor"]
                     local alpha = (EllesmereUIDB and EllesmereUIDB[prefix .. "BorderOpacity"])
@@ -72,15 +102,33 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUIDB[prefix .. "BorderColor"] = { r=r, g=g, b=b }
                     EllesmereUIDB[prefix .. "BorderOpacity"] = a
                 end, true, 20)
-            PP.Point(swatch, "RIGHT", right._control, "LEFT", -12, 0)
-            right._lastInline = swatch
+            PP.Point(customSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
+            customSwatch._eabOrigClick = customSwatch:GetScript("OnClick")
+            customSwatch:SetScript("OnClick", function(self)
+                if (EllesmereUIDB[prefix .. "BorderColorMode"] or "custom") ~= "custom" then
+                    EllesmereUIDB[prefix .. "BorderColorMode"] = "custom"
+                    EllesmereUI:RefreshPage()
+                    return
+                end
+                self._eabOrigClick(self)
+            end)
+            customSwatch:HookScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, "Custom Color") end)
+            customSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            right._lastInline = customSwatch
             EllesmereUI.RegisterWidgetRefresh(function()
                 local off = disabledFn and disabledFn()
+                local mode = (EllesmereUIDB and EllesmereUIDB[prefix .. "BorderColorMode"]) or "custom"
                 offsetBtn:SetAlpha(off and 0.15 or 0.4)
                 offsetBtn:EnableMouse(not off)
-                swatch:SetAlpha(off and 0.15 or 1)
-                swatch:EnableMouse(not off)
-                refresh()
+                accentSwatch:SetAlpha(off and 0.15 or (mode == "accent" and 1 or 0.3))
+                accentSwatch:EnableMouse(not off)
+                classSwatch:SetAlpha(off and 0.15 or (mode == "class" and 1 or 0.3))
+                classSwatch:EnableMouse(not off)
+                customSwatch:SetAlpha(off and 0.15 or (mode == "custom" and 1 or 0.3))
+                customSwatch:EnableMouse(not off)
+                refreshAccent()
+                refreshClass()
+                refreshCustom()
             end)
         end
 
@@ -89,7 +137,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
-        _, h = W:SectionHeader(parent, "BLIZZARD UI ELEMENTS", y);  y = y - h
+        _, h = W:SectionHeader(parent, "BLIZZARD POPUPS & GAME MENU", y);  y = y - h
 
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Reskin Popups and Menus",
@@ -112,15 +160,7 @@ initFrame:SetScript("OnEvent", function(self)
                       })
                   end
               end },
-            { type="toggle", text="Accent Colored Elements",
-              tooltip="Recolors headers, arrows, and spell titles in Blizzard tooltips and context menus to match your UI Accent Color.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.accentReskinElements or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.accentReskinElements = v
-              end }
+            { type="spacer", text="" }
         );  y = y - h
 
         local function popupReskinOff()
@@ -143,7 +183,73 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return (EllesmereUIDB and EllesmereUIDB.popupMenuBorderThickness) or "thin" end,
                   setValue=function(v) EllesmereUIDB.popupMenuBorderThickness = v end }); y = y - h
             AttachBorderControls(popupBorderRow, "popupMenu", popupReskinOff)
+
+            local buttonBorderRow
+            buttonBorderRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Button Border Style", disabled=popupReskinOff,
+                  disabledTooltip="Reskin Popups and Menus", values=texValues, order=texOrder,
+                  getValue=function() return (EllesmereUIDB and EllesmereUIDB.popupMenuButtonBorderTexture) or "solid" end,
+                  setValue=function(v)
+                      EllesmereUIDB.popupMenuButtonBorderTexture = v
+                      EllesmereUIDB.popupMenuButtonBorderOffsetX = nil; EllesmereUIDB.popupMenuButtonBorderOffsetY = nil
+                      EllesmereUIDB.popupMenuButtonBorderShiftX = nil; EllesmereUIDB.popupMenuButtonBorderShiftY = nil
+                  end },
+                { type="dropdown", text="Button Border Size", disabled=popupReskinOff,
+                  disabledTooltip="Reskin Popups and Menus", values=BORDER_VALUES, order=BORDER_ORDER,
+                  getValue=function() return (EllesmereUIDB and EllesmereUIDB.popupMenuButtonBorderThickness) or "thin" end,
+                  setValue=function(v) EllesmereUIDB.popupMenuButtonBorderThickness = v end }); y = y - h
+            AttachBorderControls(buttonBorderRow, "popupMenuButton", popupReskinOff)
         end
+
+        _, h = W:DualRow(parent, y,
+            { type="colorpicker", text="Button Background", hasAlpha=true,
+              disabled=popupReskinOff, disabledTooltip="Reskin Popups and Menus",
+              getValue=function()
+                  local c = EllesmereUIDB and EllesmereUIDB.popupMenuButtonBackgroundColor
+                  return (c and c.r) or 0.1, (c and c.g) or 0.1,
+                      (c and c.b) or 0.1, (c and c.a) or 0.8
+              end,
+              setValue=function(r, g, b, a)
+                  EllesmereUIDB.popupMenuButtonBackgroundColor = { r=r, g=g, b=b, a=a }
+              end },
+            { type="multiSwatch", text="Element & Text Color", disabled=popupReskinOff,
+              disabledTooltip="Reskin Popups and Menus",
+              swatches={
+                  { tooltip="Accent Color", hasAlpha=false,
+                    getValue=function()
+                        local c = EllesmereUI.ELLESMERE_GREEN or { r=0.27, g=0.86, b=0.49 }
+                        return c.r, c.g, c.b
+                    end,
+                    setValue=function() end,
+                    onClick=function()
+                        EllesmereUIDB.popupMenuButtonTextColorMode = "accent"
+                        EllesmereUI:RefreshPage()
+                    end,
+                    refreshAlpha=function()
+                        return ((EllesmereUIDB and EllesmereUIDB.popupMenuButtonTextColorMode) or "accent") == "accent" and 1 or 0.3
+                    end },
+                  { tooltip="Custom Color", hasAlpha=false,
+                    getValue=function()
+                        local c = EllesmereUIDB and EllesmereUIDB.popupMenuButtonTextColor
+                        return (c and c.r) or 1, (c and c.g) or 1, (c and c.b) or 1
+                    end,
+                    setValue=function(r, g, b)
+                        EllesmereUIDB.popupMenuButtonTextColorMode = "custom"
+                        EllesmereUIDB.popupMenuButtonTextColor = { r=r, g=g, b=b }
+                    end,
+                    onClick=function(self)
+                        if (EllesmereUIDB.popupMenuButtonTextColorMode or "accent") ~= "custom" then
+                            EllesmereUIDB.popupMenuButtonTextColorMode = "custom"
+                            EllesmereUI:RefreshPage()
+                            return
+                        end
+                        if self._eabOrigClick then self._eabOrigClick(self) end
+                    end,
+                    refreshAlpha=function()
+                        return EllesmereUIDB and EllesmereUIDB.popupMenuButtonTextColorMode == "custom" and 1 or 0.3
+                    end },
+              } }
+        ); y = y - h
 
         local queueRow
         queueRow, h = W:DualRow(parent, y,
@@ -212,7 +318,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.showQueueTimer = v
               end },
-            { type="toggle", text="Reskin Pause Menu",
+            { type="toggle", text="Enable Blizzard Pause Menu",
               tooltip="Reskins the ESC / Game Menu with the EUI dark style, matching fonts, and accent-colored title.",
               getValue=function()
                   -- Independent, default on (not tied to any master reskin toggle).
@@ -2533,6 +2639,23 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.tooltipShowMount = nil
                 EllesmereUIDB.reskinQueuePopup = nil
                 EllesmereUIDB.reskinGameMenu = nil
+                EllesmereUIDB.popupMenuButtonBackgroundColor = nil
+                EllesmereUIDB.popupMenuButtonTextColorMode = nil
+                EllesmereUIDB.popupMenuButtonTextColor = nil
+                -- Remove the superseded separate Game Menu values as well so
+                -- profiles cleanly fall back to the shared popup style.
+                EllesmereUIDB.gameMenuButtonBackgroundColor = nil
+                for _, prefix in ipairs({ "popupMenu", "popupMenuButton", "tooltip", "gameMenu", "gameMenuButton" }) do
+                    EllesmereUIDB[prefix .. "BorderTexture"] = nil
+                    EllesmereUIDB[prefix .. "BorderThickness"] = nil
+                    EllesmereUIDB[prefix .. "BorderColor"] = nil
+                    EllesmereUIDB[prefix .. "BorderColorMode"] = nil
+                    EllesmereUIDB[prefix .. "BorderOpacity"] = nil
+                    EllesmereUIDB[prefix .. "BorderOffsetX"] = nil
+                    EllesmereUIDB[prefix .. "BorderOffsetY"] = nil
+                    EllesmereUIDB[prefix .. "BorderShiftX"] = nil
+                    EllesmereUIDB[prefix .. "BorderShiftY"] = nil
+                end
                 EllesmereUIDB.reskinGreatVault = nil
                 EllesmereUIDB.reskinLFGMenu = nil
                 EllesmereUIDB.showQueueTimer = nil
