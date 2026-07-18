@@ -440,6 +440,15 @@ initFrame:SetScript("OnEvent", function(self)
                           if not EllesmereUIDB then EllesmereUIDB = {} end
                           EllesmereUIDB.autoRepairGuild = v
                       end },
+                    -- Off (default) = short text "12o 34a"; on = coin icons.
+                    { type="toggle", label="Coin Icons",
+                      get=function()
+                          return EllesmereUIDB and EllesmereUIDB.repairCoinIcons == true
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.repairCoinIcons = v
+                      end },
                 },
             })
 

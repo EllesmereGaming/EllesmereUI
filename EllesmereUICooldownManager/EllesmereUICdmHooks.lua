@@ -338,6 +338,28 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
 
     local ChainSettings = ns.ChainSettings
 
+    -- Per-cooldownID buff override: two buff-viewer slots can share one
+    -- canonical spellID (Diabolist Demonic Art vs Diabolic Ritual) but be
+    -- configured independently under a "c"..cooldownID key. Gated so the hot
+    -- path is untouched for every store WITHOUT such a key (BuffFamHasCdKey is
+    -- a cheap store-identity-cached bool), and scoped to buff-viewer frames so
+    -- no cooldown/utility icon ever pays the string build.
+    if frame then
+        local fdC = ns._hookFrameData and ns._hookFrameData[frame]
+        -- Buff-viewer frames AND their inactive-buff placeholders (Always Show /
+        -- Keep in Same Place) both carry the viewer cooldownID and must resolve
+        -- the same per-slot entry, else a collided slot's styling would revert
+        -- whenever the placeholder shows. type(cdID) == "number" still excludes
+        -- preset placeholders, which nil the cooldownID.
+        if (fdC and fdC._isBuffViewerFrame) or frame._isPlaceholderFrame then
+            local cdID = frame.cooldownID
+            if type(cdID) == "number" and ns.BuffFamHasCdKey and ns.BuffFamHasCdKey(settings) then
+                local cd = settings["c" .. cdID]
+                if cd then ChainSettings(cd, tier); return cd end
+            end
+        end
+    end
+
     -- Fast path: direct hit on the primary id (the common, non-override case).
     -- Returns before building the identity set / addId closure below, so the hot
     -- SetSwipeColor path stays allocation-free for spells without an override.
@@ -414,6 +436,52 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
     return tier
 end
 ns.ResolveSpellSettings = ResolveSpellSettings
+
+-- Bar-scoped scan: true when any assigned entry on this CD/utility bar
+-- resolves to a Shift Icons cooldown-state effect. Frame-less and cheap
+-- (one pass over assignedSpells); called at reanchor time and from the
+-- options disabled-state, never per frame per update. Advisory only at
+-- runtime: Pass B additionally walks the live frame list (spillover frames
+-- and alias-keyed settings are invisible to a frame-less scan).
+function ns.CdmBarHasShiftCdState(barKey)
+    local sd = ns.GetBarSpellData(barKey)
+    local list = sd and sd.assignedSpells
+    if not list then return false end
+    for _, sid in ipairs(list) do
+        if sid and sid ~= 0 then
+            local eff
+            local hSid = ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(sid)
+            if hSid then
+                -- Hosted buff: buff-family own entry only (hosted frames
+                -- never inherit this bar's tier).
+                local store = ns.GetSpellSettingsStore and ns.GetSpellSettingsStore("buffs")
+                local ssB = store and store[hSid]
+                eff = ssB and ssB.cdStateEffect
+            else
+                if sid > 0 then
+                    local ss = ResolveSpellSettings(nil, sid, sd, barKey)
+                    eff = ss and ss.cdStateEffect
+                end
+                if eff ~= "hiddenOnCDShift" and eff ~= "hiddenReadyShift"
+                   and ns.GetEffectiveCustomActiveState then
+                    local cas = ns.GetEffectiveCustomActiveState(sid)
+                    if cas and cas.cdStateEffect then eff = cas.cdStateEffect end
+                end
+            end
+            if eff == "hiddenOnCDShift" or eff == "hiddenReadyShift" then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Options-side accessor: the overflow layout bar a frame is diverted to this
+-- session (nil when not diverted). The fc table is file-local.
+function ns.CdmFrameOverflowBar(frame)
+    local fc = frame and _ecmeFC[frame]
+    return fc and fc._overflowLayoutBar or nil
+end
 
 -- Apply the per-spell active-state OVERLAYS (glow + border) for a given active
 -- state. This is the context-independent slice of the SetSwipeColor active block:
@@ -1540,7 +1608,7 @@ local function DecorateFrame(frame, barData)
             brdR, brdG, brdB, barData.borderA or 1,
             textureKey, barData.borderTextureOffset, barData.borderTextureOffsetY,
             barData.borderTextureShiftX, barData.borderTextureShiftY,
-            "cdm", barData.borderThickness or "thin")
+            "cdm", barData.borderThickness or "thin", true)
         -- ApplyBorderStyle above always paints the bar's BASE color. If this
         -- spell's active-state tint is currently engaged (ns.ApplyActiveOverlays
         -- drives fd._activeBorderOn independently of DecorateFrame, via Blizzard's
@@ -2411,6 +2479,24 @@ local function DecorateFrame(frame, barData)
                 if bk2:sub(1, 7) == "__ghost" then return end
                 -- FocusKick icon alpha is owned by SetFocusKickAlpha only.
                 if bk2 == ns.FOCUSKICK_BAR_KEY then return end
+                -- Preset frames (trinket / racial / potion / custom spell) own their
+                -- cd-state entirely through the Fake-Active engine, which reads the
+                -- ITEM/racial cooldown. C_Spell.GetSpellCooldown can't read a negative
+                -- item key, so this spell path always sees the item as ready and would
+                -- re-light the shared glowOverlay every desat tick while it's on
+                -- cooldown. Hand the frame off cleanly (clear any glow we owned).
+                if ns.PresetHasCdState and ns.PresetHasCdState(frame) then
+                    if fd._cdStateGlowOn then
+                        if fd.glowOverlay then ns.StopNativeGlow(fd.glowOverlay) end
+                        fd._cdStateGlowOn = false
+                        -- The Fake-Active path owns this overlay through its own
+                        -- flag; clear it too so its next tick re-asserts the glow we
+                        -- just stopped (otherwise it thinks the glow is still on and
+                        -- never re-starts it, leaving a ready preset dark).
+                        fd._presetCdGlowOn = false
+                    end
+                    return
+                end
                 local ss2 = ResolveSpellSettings(frame, sid2, ns.GetBarSpellData(bk2))
                 local cse = ss2 and ss2.cdStateEffect
                 -- Shift-Icons variants behave exactly like their base hidden
@@ -2523,9 +2609,22 @@ local function DecorateFrame(frame, barData)
                 local onCD = cseInfo and cseInfo.isActive and not cseInfo.isOnGCD
                 if cse == "pixelGlowReady" or cse == "buttonGlowReady" then
                     -- Plain CD Ready Glow: cooldown state only, decided right
-                    -- here -- no usability reads, no deferral, no events. The
-                    -- Resource Aware variants below carry those costs; these
-                    -- deliberately do not.
+                    -- here -- no usability reads, no deferral, no events for
+                    -- genuine Blizzard frames (Blizzard calls SetDesaturated on
+                    -- them at every cd transition, re-firing this hook).
+                    -- EUI's own custom frames (racials / trinkets / potions /
+                    -- custom spells) instead drive desaturation via
+                    -- SetDesaturation(float), which does NOT trigger this
+                    -- SetDesaturated hook -- so on those the glow would never
+                    -- re-evaluate and would stay lit through the whole cooldown.
+                    -- Register just those for the event-driven cooldown watch
+                    -- (its loop handles plain variants too); Blizzard frames keep
+                    -- the zero-event path.
+                    if (frame._isRacialFrame or frame._isTrinketFrame or frame._isPresetFrame
+                        or frame._isItemPresetFrame or frame._isCustomSpellFrame)
+                        and ns.CDGlowWatch then
+                        ns.CDGlowWatch(frame)
+                    end
                     -- Pool reassignment: glow state inherited from a previous
                     -- spell on this frame belongs to that spell -- reset now.
                     if fd._cdGlowBoundSid ~= sid2 then
@@ -2821,11 +2920,13 @@ local function UpdateTrinketFrame(slotID)
     local _, spellID = C_Item.GetItemSpell(itemID)
     f._trinketSpellID = spellID
     local isRealOnUse = false
+    local scanConclusive = false
     if spellID and spellID > 0 then
         local locale = GetLocale()
         if locale == "enUS" or locale == "enGB" then
             local tipData = C_TooltipInfo and C_TooltipInfo.GetItemByID(itemID)
             if tipData and tipData.lines then
+                scanConclusive = true
                 for _, tipLine in ipairs(tipData.lines) do
                     local lt = tipLine.leftText
                     if lt and lt:find("Cooldown%)") then
@@ -2849,9 +2950,14 @@ local function UpdateTrinketFrame(slotID)
             end
         else
             isRealOnUse = true
+            scanConclusive = true
         end
+    else
+        scanConclusive = (spellID == nil or spellID == 0)
     end
-    f._trinketIsOnUse = isRealOnUse
+    if scanConclusive then
+        f._trinketIsOnUse = isRealOnUse
+    end
 end
 ns.UpdateTrinketFrame = UpdateTrinketFrame
 
@@ -3012,10 +3118,16 @@ do
             local sid2 = fc2 and fc2.spellID
             local bk2 = fc2 and fc2.barKey
             local keep = false
-            if fd and fd.glowOverlay and sid2 and bk2 then
+            -- Preset frames are owned by the Fake-Active engine (see the guard in
+            -- the SetDesaturated hook); never let the spell-cooldown path drive
+            -- their glow. keep=false below stops any leftover glow and unwatches.
+            if fd and fd.glowOverlay and sid2 and bk2
+               and not (ns.PresetHasCdState and ns.PresetHasCdState(frame)) then
                 local ss2 = RSP(frame, sid2, ns.GetBarSpellData(bk2))
                 local cse2 = ss2 and ss2.cdStateEffect
-                if cse2 == "pixelGlowReadyUsable" or cse2 == "buttonGlowReadyUsable" then
+                local plainGlow = cse2 == "pixelGlowReady" or cse2 == "buttonGlowReady"
+                local usableGlow = cse2 == "pixelGlowReadyUsable" or cse2 == "buttonGlowReadyUsable"
+                if plainGlow or usableGlow then
                     keep = true
                     -- Pool reassignment: glow state inherited from a previous
                     -- spell on this frame belongs to that spell -- reset now.
@@ -3032,30 +3144,31 @@ do
                     end
                     local ci = C_Spell.GetSpellCooldown(liveSid)
                     local onCD = ci and ci.isActive and not ci.isOnGCD
+                    local shouldGlow
                     if onCD then
                         -- On cooldown always stops the glow -- a safety net
                         -- independent of the SetDesaturated hook, in case that
-                        -- hook doesn't fire for a given transition.
-                        if fd._cdStateGlowOn then
-                            ns.StopNativeGlow(fd.glowOverlay)
-                            fd._cdStateGlowOn = false
-                        end
+                        -- hook doesn't fire for a given transition (it never does
+                        -- for EUI custom frames -- they use SetDesaturation).
+                        shouldGlow = false
+                    elseif usableGlow then
+                        -- Resource Aware: also require castability (resources,
+                        -- form, lockout). nil = no data yet -> not usable.
+                        shouldGlow = (C_Spell.IsSpellUsable and C_Spell.IsSpellUsable(liveSid)) == true
                     else
-                        -- IsSpellUsable is the complete castability signal
-                        -- (resources, form, lockout). nil = no data yet ->
-                        -- treat as not usable; a later event re-evaluates.
-                        local isUsable = C_Spell.IsSpellUsable and C_Spell.IsSpellUsable(liveSid)
-                        if isUsable == true then
-                            if not fd._cdStateGlowOn then
-                                local style = cse2 == "pixelGlowReadyUsable" and 1 or 3
-                                local gr, gg, gb = ns.ResolveGlowColor(ss2)
-                                ns.StartNativeGlow(fd.glowOverlay, style, gr or 1, gg or 1, gb or 1)
-                                fd._cdStateGlowOn = true
-                            end
-                        elseif fd._cdStateGlowOn then
-                            ns.StopNativeGlow(fd.glowOverlay)
-                            fd._cdStateGlowOn = false
+                        -- Plain: cooldown state only.
+                        shouldGlow = true
+                    end
+                    if shouldGlow then
+                        if not fd._cdStateGlowOn then
+                            local style = (cse2 == "pixelGlowReady" or cse2 == "pixelGlowReadyUsable") and 1 or 3
+                            local gr, gg, gb = ns.ResolveGlowColor(ss2)
+                            ns.StartNativeGlow(fd.glowOverlay, style, gr or 1, gg or 1, gb or 1)
+                            fd._cdStateGlowOn = true
                         end
+                    elseif fd._cdStateGlowOn then
+                        ns.StopNativeGlow(fd.glowOverlay)
+                        fd._cdStateGlowOn = false
                     end
                 end
             end
@@ -4951,7 +5064,104 @@ local function CollectAndReanchor()
 
                 -- Sort by user-defined order
                 table.sort(frames, _sortByCDOrder)
+            end
+        end
+    end
 
+    ---------------------------------------------------------------------------
+    --  PHASE 3b: Max Icons overflow diversion (session-only). The tail of an
+    --  over-cap bar's sorted list moves to the target bar's render list for
+    --  this pass. Identity (fc.barKey) stays on the source bar, so per-spell
+    --  settings, menus and assignedSpells are untouched. Plan-then-apply from
+    --  a pre-move snapshot: diverted frames never re-divert and a bar's cap
+    --  counts only its native frames, independent of bar order.
+    ---------------------------------------------------------------------------
+    do
+        local tagged = ns._cdmOverflowTagged
+        if tagged then
+            for f in pairs(tagged) do
+                local fcT = _ecmeFC[f]
+                if fcT then fcT._overflowLayoutBar = nil end
+                tagged[f] = nil
+            end
+        end
+        if ns._cdmAnyOverflowCfg then
+            local moves  -- flat pairs: frame, targetKey, frame, targetKey, ...
+            for _, bd in ipairs(p.cdmBars.bars) do
+                local cap, tKey = bd.maxIcons, bd.overflowTarget
+                -- Legacy profiles carry nil barType on default bars; resolve
+                -- the family through the shared helper, never the raw field.
+                local bdType = ns.GetBarType and ns.GetBarType(bd) or bd.barType
+                if bd.enabled and cap and cap > 0 and tKey and tKey ~= bd.key
+                   and not bd.isGhostBar and bd.key ~= ns.FOCUSKICK_BAR_KEY
+                   and bdType ~= "buffs" and bdType ~= "custom_buff"
+                   and bd.key ~= "buffs" then
+                    local srcList = cdFrames[bd.key]
+                    if srcList and #srcList > cap and cdmBarFrames[bd.key] then
+                        local tbd = barDataByKey[tKey]
+                        local tType = tbd and (ns.GetBarType and ns.GetBarType(tbd) or tbd.barType)
+                        local tOK = tbd and tbd.enabled and not tbd.isGhostBar
+                            and tKey ~= ns.FOCUSKICK_BAR_KEY
+                            and tType ~= "buffs" and tType ~= "custom_buff"
+                            and tKey ~= "buffs" and cdmBarFrames[tKey]
+                        -- No-op rule: never divert while any member of this bar
+                        -- has a Shift Icons cooldown-state effect (the shift
+                        -- filter changes the effective count on a faster,
+                        -- independent cadence than this pass). Two stages: the
+                        -- frame-less assignedSpells scan, then a frame-scoped
+                        -- walk of the live list -- spillover frames (not in
+                        -- assignedSpells) and alias-keyed settings are only
+                        -- visible to the same resolution the live shift driver
+                        -- uses, so the check and the driver can never disagree.
+                        local blocked = ns.CdmBarHasShiftCdState(bd.key)
+                        if tOK and not blocked then
+                            local sdS = ns.GetBarSpellData(bd.key)
+                            for i = 1, #srcList do
+                                local fcS = _ecmeFC[srcList[i]]
+                                if fcS then
+                                    if fcS._cdStateShiftHidden then blocked = true; break end
+                                    local ssS = ResolveSpellSettings(srcList[i], fcS.spellID, sdS, bd.key)
+                                    local effS = ssS and ssS.cdStateEffect
+                                    if effS == "hiddenOnCDShift" or effS == "hiddenReadyShift" then
+                                        blocked = true; break
+                                    end
+                                end
+                            end
+                        end
+                        if tOK and not blocked then
+                            if not moves then moves = {} end
+                            for i = cap + 1, #srcList do
+                                moves[#moves + 1] = srcList[i]
+                                moves[#moves + 1] = tKey
+                            end
+                            for i = #srcList, cap + 1, -1 do srcList[i] = nil end
+                        end
+                    end
+                end
+            end
+            if moves then
+                if not ns._cdmOverflowTagged then
+                    ns._cdmOverflowTagged = setmetatable({}, { __mode = "k" })
+                end
+                tagged = ns._cdmOverflowTagged
+                for i = 1, #moves, 2 do
+                    local f, tKey = moves[i], moves[i + 1]
+                    local tl = cdFrames[tKey]
+                    if not tl then tl = {}; cdFrames[tKey] = tl end
+                    tl[#tl + 1] = f
+                    local fcM = _ecmeFC[f]
+                    if fcM then fcM._overflowLayoutBar = tKey end
+                    tagged[f] = true
+                end
+            end
+        end
+    end
+
+    for barKey, frames in pairs(cdFrames) do
+        local barData = barDataByKey[barKey]
+        if barData and barData.enabled then
+            local container = cdmBarFrames[barKey]
+            if container then
                 -- Assign to icon slots, decorate, show
                 local icons = cdmBarIcons[barKey]
                 if not icons then icons = {}; cdmBarIcons[barKey] = icons end
@@ -5292,6 +5502,25 @@ local function CollectAndReanchor()
             if added and added > 0 then
                 if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
                 if ns.QueueReanchor then ns.QueueReanchor() end
+            end
+        end
+        -- Automatic base-bar materialization (once per spec per session):
+        -- untouched default-bar spells render through the frames-as-truth
+        -- fallback without ever being recorded in assignedSpells, so export
+        -- strings shipped incomplete stores and the import ghost pass hid
+        -- exactly those spells on every recipient. Reseed from the live
+        -- icons -- ONLY after the one-shot migration has stamped (a legacy
+        -- un-migrated store must migrate first or old-model spillovers
+        -- would materialize), never while an import's ghosting is pending
+        -- (Reseed self-guards too), and buff-family bars excluded
+        -- (cdUtilOnly: picker-authoritative). The session flag is wiped on
+        -- talent/loadout changes so newly learned spells re-materialize.
+        if ns.ReseedAssignedSpellsFromLiveIcons and prof
+           and prof._barFilterModelV6 and not prof._importGhostMode then
+            ns._reseededSpecsSession = ns._reseededSpecsSession or {}
+            if not ns._reseededSpecsSession[specKey] then
+                ns._reseededSpecsSession[specKey] = true
+                ns.ReseedAssignedSpellsFromLiveIcons(true)
             end
         end
     end
@@ -5640,6 +5869,8 @@ local function ProcessReanchorQueue(self)
     reanchorDirty = false
     _lastReanchorTime = now
     CollectAndReanchor()
+    -- Reapply visibility: newly collected icons may be at alpha 0.
+    if ns.CDMApplyVisibility then ns.CDMApplyVisibility() end
 end
 
 -------------------------------------------------------------------------------

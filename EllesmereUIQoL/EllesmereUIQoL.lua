@@ -164,6 +164,19 @@ qolFrame:SetScript("OnEvent", function(self)
         local _openableCache = {}  -- itemID -> true/false
         local _failedItems = {}   -- itemID -> true (items that failed to open, skip forever)
         local _cacheBuilt = false
+        -- Self-tracked in-flight opens, keyed by bag/slot. Set synchronously in
+        -- the same tick as UseContainerItem (Lua is single-threaded, so no other
+        -- open pass can slip between the use and this write) and cleared at the
+        -- 0.5s recheck. This -- not Blizzard's isLocked flag, which isn't set
+        -- until a server round-trip completes -- is what stops two overlapping
+        -- passes from double-using the same slot and stranding it greyed.
+        local _openInProgress = {}
+        -- Many payout containers (e.g. Artisan's Consortium Payouts) open a loot
+        -- window and linger in the bag until looted. Opening another container --
+        -- or re-opening the lingering one -- while that window is up strands it.
+        -- Gate all opens on this and resume on LOOT_CLOSED.
+        local _lootOpen = false
+        local function SlotKey(bag, slot) return bag * 1000 + slot end
         local function IsEnabled()
             return EllesmereUIDB and EllesmereUIDB.autoOpenContainers == true
         end
@@ -240,9 +253,20 @@ qolFrame:SetScript("OnEvent", function(self)
                                 if idx > #_pendingOpens then wipe(_pendingOpens); return end
                                 if not IsEnabled() then wipe(_pendingOpens); return end
                                 if InCombatLockdown() or MerchantOpen() then wipe(_pendingOpens); return end
+                                -- A loot window is up: stop here rather than opening
+                                -- over it. LOOT_CLOSED re-runs ScanAndOpen, which
+                                -- picks up whatever is left in the bags.
+                                if _lootOpen then return end
                                 local item = _pendingOpens[idx]
+                                local key = SlotKey(item.bag, item.slot)
                                 local info = C_Container.GetContainerItemInfo(item.bag, item.slot)
-                                if info and info.itemID then
+                                -- Never act on a slot mid-action: our own _openInProgress
+                                -- flag (set synchronously below) or Blizzard's isLocked.
+                                -- Re-using a container that's still resolving a previous
+                                -- open leaves it stuck greyed/unopenable. A slot still
+                                -- locked at the post-open check is in-progress, not a real
+                                -- failure, so it isn't cached as failed -- a later pass retries.
+                                if info and info.itemID and not info.isLocked and not _openInProgress[key] then
                                     if IsWarboundExcluded(item.bag, item.slot) then
                                         OpenNext(idx + 1)
                                         return
@@ -250,10 +274,12 @@ qolFrame:SetScript("OnEvent", function(self)
                                     if _openableCache[info.itemID] and not _failedItems[info.itemID] then
                                         local prevID = info.itemID
                                         local prevCount = info.stackCount or 1
+                                        _openInProgress[key] = true
                                         C_Container.UseContainerItem(item.bag, item.slot)
                                         C_Timer.After(0.5, function()
+                                            _openInProgress[key] = nil
                                             local after = C_Container.GetContainerItemInfo(item.bag, item.slot)
-                                            if after and after.itemID == prevID and (after.stackCount or 1) >= prevCount then
+                                            if after and after.itemID == prevID and not after.isLocked and not _lootOpen and (after.stackCount or 1) >= prevCount then
                                                 _failedItems[prevID] = true
                                             end
                                             OpenNext(idx + 1)
@@ -295,6 +321,10 @@ qolFrame:SetScript("OnEvent", function(self)
                 -- suppressed), so without this the just-bought containers would
                 -- never open after leaving the vendor.
                 containerFrame:RegisterEvent("MERCHANT_CLOSED")
+                -- Track loot windows so payout containers (which open one and
+                -- linger in the bag) aren't opened over / re-opened while looting.
+                containerFrame:RegisterEvent("LOOT_OPENED")
+                containerFrame:RegisterEvent("LOOT_CLOSED")
                 if not _cacheBuilt then
                     _scanBag = BACKPACK_CONTAINER
                     _scanSlot = 1
@@ -304,6 +334,9 @@ qolFrame:SetScript("OnEvent", function(self)
             else
                 containerFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
                 containerFrame:UnregisterEvent("MERCHANT_CLOSED")
+                containerFrame:UnregisterEvent("LOOT_OPENED")
+                containerFrame:UnregisterEvent("LOOT_CLOSED")
+                _lootOpen = false
                 scanFrame:Hide()
             end
         end
@@ -344,9 +377,13 @@ qolFrame:SetScript("OnEvent", function(self)
                 if not IsEnabled() then return end
                 if InCombatLockdown() then return end
                 if MerchantOpen() then return end
+                -- Loot window up: stop; LOOT_CLOSED restarts this pass.
+                if _lootOpen then return end
                 local item = toOpen[idx]
+                local key = SlotKey(item.bag, item.slot)
                 local info2 = C_Container.GetContainerItemInfo(item.bag, item.slot)
-                if info2 and info2.itemID then
+                -- Skip mid-action slots (our in-flight flag or isLocked) -- see the scan pass above.
+                if info2 and info2.itemID and not info2.isLocked and not _openInProgress[key] then
                     if IsWarboundExcluded(item.bag, item.slot) then
                         OpenNext(idx + 1)
                         return
@@ -354,10 +391,12 @@ qolFrame:SetScript("OnEvent", function(self)
                     if _openableCache[info2.itemID] and not _failedItems[info2.itemID] then
                         local prevID = info2.itemID
                         local prevCount = info2.stackCount or 1
+                        _openInProgress[key] = true
                         C_Container.UseContainerItem(item.bag, item.slot)
                         C_Timer.After(0.5, function()
+                            _openInProgress[key] = nil
                             local after = C_Container.GetContainerItemInfo(item.bag, item.slot)
-                            if after and after.itemID == prevID and (after.stackCount or 1) >= prevCount then
+                            if after and after.itemID == prevID and not after.isLocked and not _lootOpen and (after.stackCount or 1) >= prevCount then
                                 _failedItems[prevID] = true
                             end
                             OpenNext(idx + 1)
@@ -371,6 +410,17 @@ qolFrame:SetScript("OnEvent", function(self)
         end
 
         containerFrame:SetScript("OnEvent", function(_, event)
+            if event == "LOOT_OPENED" then
+                _lootOpen = true
+                return
+            end
+            if event == "LOOT_CLOSED" then
+                _lootOpen = false
+                -- Resume opens that were deferred while the window was up. Delay
+                -- so the looted container has left the bag before we re-scan.
+                C_Timer.After(0.5, function() ScanAndOpen(false) end)
+                return
+            end
             -- MERCHANT_CLOSED: the interaction is over but the frame may not
             -- have hidden yet -- skip the entry gate (see ScanAndOpen note)
             -- instead of settling on a timer.
@@ -550,6 +600,25 @@ qolFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Auto Sell Junk + Auto Repair
     ---------------------------------------------------------------------------
+    -- Auto-repair cost string. Coin icons (opt-in via the Auto Repair cog) use
+    -- the game's own localized coin textures; the default short text builds
+    -- "12o 34a" from localized suffixes (EllesmereUI.L translates g/s -> o/a in
+    -- frFR; copper "c" falls through untranslated).
+    local function RepairCostString(cost)
+        if EllesmereUIDB and EllesmereUIDB.repairCoinIcons then
+            return C_CurrencyInfo.GetCoinTextureString(cost)
+        end
+        local g = floor(cost / 10000)
+        local s = floor((cost % 10000) / 100)
+        local c = cost % 100
+        local out = ""
+        if g > 0 then out = g .. EllesmereUI.L("g") end
+        if s > 0 then out = out .. (out ~= "" and " " or "") .. s .. EllesmereUI.L("s") end
+        if c > 0 then out = out .. (out ~= "" and " " or "") .. c .. EllesmereUI.L("c") end
+        if out == "" then out = "0" .. EllesmereUI.L("c") end
+        return out
+    end
+
     local merchantFrame = CreateFrame("Frame", "EUI_MerchantHandler", UIParent)
     merchantFrame:RegisterEvent("MERCHANT_SHOW")
     merchantFrame:SetScript("OnEvent", function()
@@ -574,7 +643,7 @@ qolFrame:SetScript("OnEvent", function(self)
 
                     -- Check if we can actually afford the repair
                     if not useGuild and GetMoney() < cost then
-                        EllesmereUI.Print("|cff0CD29DEllesmereUI:|r |cffff6060Not enough gold to repair.|r")
+                        EllesmereUI.Print("|cff0CD29DEllesmereUI:|r |cffff6060" .. EllesmereUI.L("Not enough gold to repair.") .. "|r")
                         return
                     end
 
@@ -591,10 +660,8 @@ qolFrame:SetScript("OnEvent", function(self)
                         end)
                     end
 
-                    local gold = floor(cost / 10000)
-                    local silver = floor((cost % 10000) / 100)
-                    local src = useGuild and " (guild bank)" or ""
-                    EllesmereUI.Print("|cff0CD29DEllesmereUI:|r Repaired all items for " .. gold .. "g " .. silver .. "s." .. src)
+                    local src = useGuild and EllesmereUI.L(" (guild bank)") or ""
+                    EllesmereUI.Print("|cff0CD29DEllesmereUI:|r " .. EllesmereUI.Lf("Repaired all items for %s", RepairCostString(cost)) .. src)
                 end
             end
         end

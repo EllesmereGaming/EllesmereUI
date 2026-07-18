@@ -77,12 +77,22 @@ function EllesmereUI.Conditions_GroupById(gid)
 end
 
 function EllesmereUI.Conditions_NewGroupId()
+    -- PERSISTED counter, never max+1: deleted groups' per-gid value maps can
+    -- survive on other groups' shared entries, and a reused id silently
+    -- inherited the dead group's overrides. The counter seeds from max+1
+    -- once (legacy stores) and only ever grows.
+    local prof = GetProfileRoot()
     local groups = EllesmereUI.Conditions_GetGroups(true)
     local maxId = 0
     for _, g in ipairs(groups or {}) do
         if type(g.id) == "number" and g.id > maxId then maxId = g.id end
     end
-    return maxId + 1
+    if not prof then return maxId + 1 end
+    local nextId = prof.condOverrideNextId or 0
+    if nextId <= maxId then nextId = maxId end
+    nextId = nextId + 1
+    prof.condOverrideNextId = nextId
+    return nextId
 end
 
 -------------------------------------------------------------------------------
@@ -131,8 +141,30 @@ local _appliedGid = nil        -- gid of the conditional group currently applied
 local _flipPending = false
 local _establish = false       -- post profile-apply: apply-only, no harvests
 
+-- Persisted mirror of the applied pointer (profile root). The applied
+-- conditional's values are baked into the profile's saved module data, so
+-- the pointer must survive with that data: after a /reload the runtime
+-- pointer reset to nil while live still held the overlay, and every bank
+-- that then resolved the applied gid as nil re-banked the overlay into the
+-- conditional DEFAULT maps -- permanent baseline loss on every /reload or
+-- login with a conditional active.
+local function PersistAppliedGid(gid)
+    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    if prof then prof.condAppliedGid = gid end
+end
+
 function EllesmereUI.Conditions_AppliedGid()
-    return _appliedGid
+    if _appliedGid ~= nil then return _appliedGid end
+    -- Stale windows (fresh login, profile-apply MarkStale before the
+    -- establish Recheck lands): fall back to the persisted pointer,
+    -- validated against the active profile's groups (a hand-edited or
+    -- imported store may point at a deleted group).
+    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    local gid = prof and prof.condAppliedGid
+    if gid and EllesmereUI.Conditions_GroupById and EllesmereUI.Conditions_GroupById(gid) then
+        return gid
+    end
+    return nil
 end
 
 --- Profile apply swapped every store wholesale: the applied pointer refers
@@ -148,6 +180,15 @@ function EllesmereUI.Conditions_MarkStale()
     _establish = true
 end
 
+--- True between a profile apply and its (possibly combat-deferred)
+--- establish Recheck. In that window live holds a MIXED state -- baseline
+--- links restored over the incoming profile's layer-valued module data --
+--- and layout harvests must refuse to bank it (a second in-combat boundary
+--- otherwise baked the un-established state into baselineLayout).
+function EllesmereUI.Conditions_EstablishPending()
+    return _establish
+end
+
 function EllesmereUI.Conditions_Recheck()
     if InCombatLockdown() then
         _flipPending = true
@@ -155,7 +196,20 @@ function EllesmereUI.Conditions_Recheck()
     end
     local g = EllesmereUI.Conditions_ActiveGroup()
     local gid = g and g.id or nil
-    if gid == _appliedGid and not _establish then return end
+    -- Effective applied state: the runtime pointer, or -- in the stale
+    -- windows (fresh login, MarkStale-to-establish) -- the persisted pointer
+    -- recording which conditional's values are baked into live data. Using
+    -- the raw runtime pointer here treated a post-/reload overlay as "no
+    -- conditional applied": the matching-condition login early-outed without
+    -- adopting it, and the non-matching login handed the transition a nil
+    -- oldGid, whose harvest banked the overlay into the DEFAULT maps.
+    local applied = EllesmereUI.Conditions_AppliedGid()
+    if gid == applied and not _establish then
+        -- Adopt a persisted pointer into the runtime on the no-op path so
+        -- later compares and MarkStale operate on live state.
+        _appliedGid = applied
+        return
+    end
     -- An open unlock session never survives a layout-owner change (same rule
     -- as spec changes): discard-close first, then transition.
     if EllesmereUI._unlockModeActive and EllesmereUI.ForceCloseUnlockDiscard then
@@ -169,8 +223,9 @@ function EllesmereUI.Conditions_Recheck()
     -- success -- the next signal then converges values and pointer.
     local est = _establish
     _establish = false
-    if handler(_appliedGid, gid, est) then
+    if handler(applied, gid, est) then
         _appliedGid = gid
+        PersistAppliedGid(gid)
     else
         -- Busy (spec transition / edit session / re-entrant refresh): keep
         -- the request and retry on the next signal.

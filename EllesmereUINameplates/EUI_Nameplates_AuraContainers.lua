@@ -165,9 +165,17 @@ local function ApplyNPText(button, d, style)
         local c = style.durColor
         d.duration:SetTextColor(c and c.r or 1, c and c.g or 1, c and c.b or 1)
         local m = TEXT_POS[style.durPos] or TEXT_POS.topleft
-        d.duration:ClearAllPoints()
-        d.duration:SetPoint(m.point, button, m.point,
-            m.nx + (style.durOffX or 0), m.ny + (style.durOffY or 0))
+        -- Anchor change-guarded (stamp AFTER the calls): SetPoint with the
+        -- button as the relative frame is policed by the 12.1 button access
+        -- restriction while auras are secret; unchanged anchors must make
+        -- zero button-involving calls so restyles stay live in-instance.
+        local aKey = m.point .. "|" .. (m.nx + (style.durOffX or 0)) .. "|" .. (m.ny + (style.durOffY or 0))
+        if d.npDurAnchor ~= aKey then
+            d.duration:ClearAllPoints()
+            d.duration:SetPoint(m.point, button, m.point,
+                m.nx + (style.durOffX or 0), m.ny + (style.durOffY or 0))
+            d.npDurAnchor = aKey
+        end
         d.duration:SetJustifyH(m.justify)
         d.duration:SetShown(not style.hideDurationText)
     end
@@ -181,9 +189,13 @@ local function ApplyNPText(button, d, style)
         local sc = style.stackColor
         d.stack:SetTextColor(sc and sc.r or 1, sc and sc.g or 1, sc and sc.b or 1)
         local m = TEXT_POS[style.stackPos] or TEXT_POS.bottomright
-        d.stack:ClearAllPoints()
-        d.stack:SetPoint(m.point, button, m.point,
-            m.nx + (style.stackOffX or 0), m.ny + (style.stackOffY or 0))
+        local sKey = m.point .. "|" .. (m.nx + (style.stackOffX or 0)) .. "|" .. (m.ny + (style.stackOffY or 0))
+        if d.npStackAnchor ~= sKey then
+            d.stack:ClearAllPoints()
+            d.stack:SetPoint(m.point, button, m.point,
+                m.nx + (style.stackOffX or 0), m.ny + (style.stackOffY or 0))
+            d.npStackAnchor = sKey
+        end
         d.stack:SetJustifyH(m.justify)
     end
 end
@@ -211,10 +223,19 @@ local function ApplyNPBuffExtra(button, d, style)
     local Glows = EllesmereUI.Glows
     if style.purgeGlow and Glows and Glows.StartGlow then
         if not d.npPurgeRegistered then
-            d.npPurgeRegistered = true
             local opts = { showWhenHelpful = true, showWhenHarmful = false }
             if AuraButtonBorderStyle then opts.style = AuraButtonBorderStyle.Color end
-            pcall(button.SetAuraBorder, button, d.npPurge, opts)
+            -- Stamp only on SUCCESS: the registration is a button call,
+            -- denied while auras are secret (12.1 access restriction). A
+            -- denied attempt parks the key for the restriction-lift drain
+            -- (the early-nil in the OFF branch below is load-bearing and
+            -- stays pre-stamped: it must kill PurgeEval even when the
+            -- clear call is denied).
+            if pcall(button.SetAuraBorder, button, d.npPurge, opts) then
+                d.npPurgeRegistered = true
+            elseif AK.DeferRestyle then
+                AK.DeferRestyle(d.styleKey)
+            end
         end
         local host = d.npGlowHost
         if not host then

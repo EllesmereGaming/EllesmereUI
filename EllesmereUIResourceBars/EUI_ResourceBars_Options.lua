@@ -987,10 +987,14 @@ initFrame:SetScript("OnEvent", function(self)
         cogBtn:SetScript("OnClick", function(self) showFn(self) end)
         return cogBtn
     end
-    -- Druid-only "Enable/Disable per Form" button for a text row
-    local function AddFormTextBtn(rgn, leftOf, cfgFn, refreshFn)
+    -- Druid-only per-form popup button. `field` picks the map the toggles write:
+    -- "textDisabledForms" (text rows) or "barDisabledForms" (whole-bar enable rows).
+    local function AddFormDisableBtn(rgn, leftOf, cfgFn, refreshFn, field, title, tooltip)
         local _, classFile = UnitClass("player")
         if classFile ~= "DRUID" then return end
+        field = field or "textDisabledForms"
+        title = title or "Enable/Disable per Form"
+        tooltip = tooltip or EllesmereUI.L(title)
         local FORMS = { { key = "mana", label = "Caster" },
                         { key = "rage", label = "Bear" },
                         { key = "energy", label = "Cat" } }
@@ -1000,27 +1004,27 @@ initFrame:SetScript("OnEvent", function(self)
             rows[#rows + 1] = { type = "toggle", label = f.label,
                 get = function()
                     local c = cfgFn()
-                    return not (c and c.textDisabledForms and c.textDisabledForms[key])
+                    return not (c and c[field] and c[field][key])
                 end,
                 set = function(v)
                     local c = cfgFn(); if not c then return end
                     if v then
-                        if c.textDisabledForms then c.textDisabledForms[key] = nil end
+                        if c[field] then c[field][key] = nil end
                     else
-                        c.textDisabledForms = c.textDisabledForms or {}
-                        c.textDisabledForms[key] = true
+                        c[field] = c[field] or {}
+                        c[field][key] = true
                     end
                     refreshFn()
                 end }
         end
         local _, formShow = EllesmereUI.BuildCogPopup({
-            title = "Enable/Disable per Form", bgAlpha = 1,
+            title = title, bgAlpha = 1,
             frameStrata = "FULLSCREEN_DIALOG", frameLevel = 500,
             rows = rows,
         })
         local btn = CreateFrame("Button", nil, rgn)
         btn:SetSize(26, 26)
-        btn:SetPoint("RIGHT", leftOf, "LEFT", -8, 0)
+        btn:SetPoint("RIGHT", leftOf or rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = btn
         btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
         btn:SetAlpha(0.4)
@@ -1029,10 +1033,20 @@ initFrame:SetScript("OnEvent", function(self)
         tex:SetDesaturated(true)
         tex:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\glyph.tga")
         tex:SetTexCoord(0.375, 0.5, 0, 0.125)  -- DRUID glyph
-        btn:SetScript("OnEnter", function(self) self:SetAlpha(0.7); EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Enable/Disable per Form")) end)
+        btn:SetScript("OnEnter", function(self) self:SetAlpha(0.7); EllesmereUI.ShowWidgetTooltip(self, tooltip) end)
         btn:SetScript("OnLeave", function(self) self:SetAlpha(0.4); EllesmereUI.HideWidgetTooltip() end)
         btn:SetScript("OnClick", function(self) formShow(self) end)
         return btn
+    end
+    -- The L() literals keep both popup titles in the static locale key list
+    -- (.tools/extract-locale-keys.sh only sees literal string arguments).
+    local function AddFormTextBtn(rgn, leftOf, cfgFn, refreshFn)
+        return AddFormDisableBtn(rgn, leftOf, cfgFn, refreshFn, "textDisabledForms",
+            "Enable/Disable per Form", EllesmereUI.L("Enable/Disable per Form"))
+    end
+    local function AddFormBarBtn(rgn, cfgFn, refreshFn)
+        return AddFormDisableBtn(rgn, nil, cfgFn, refreshFn, "barDisabledForms",
+            "Enable/Disable Bar per Form", EllesmereUI.L("Enable/Disable Bar per Form"))
     end
 
     ---------------------------------------------------------------------------
@@ -2889,6 +2903,7 @@ initFrame:SetScript("OnEvent", function(self)
                   c.orientation = v; Refresh()
               end }
         );  y = y - h
+        AddFormBarBtn(healthEnableRow._leftRegion, cfg, RebuildHealth)
 
         -- (Per-spec enable picker removed: per-spec enables now live in Spec
         -- Overrides -- capture "Show Health Bar" while editing as a group.)
@@ -3643,6 +3658,7 @@ initFrame:SetScript("OnEvent", function(self)
                   c.orientation = v; Refresh()
               end }
         );  y = y - h
+        AddFormBarBtn(powerEnableRow._leftRegion, cfg, RebuildPower)
 
         -- (Per-spec enable picker removed: per-spec enables now live in Spec
         -- Overrides -- capture "Show Power Bar" while editing as a group.)
@@ -4529,6 +4545,9 @@ initFrame:SetScript("OnEvent", function(self)
             -- Spec Overrides -- capture "Show Class Resource" while editing
             -- as a group.)
         end
+        -- Chains left of the Hide-Power cog in Simple mode (rgn._lastInline),
+        -- or the toggle itself in Advanced.
+        AddFormBarBtn(classEnableRow._leftRegion, cfg, RebuildClass)
 
         -- Row 2: Height | Width (MatchGuard both modes; sync icons Simple-only).
         local function classGuard(propKey)
@@ -4784,7 +4803,7 @@ initFrame:SetScript("OnEvent", function(self)
         do
             local classGapRow
             classGapRow, h = W:DualRow(parent, y,
-                { type = "slider", text = "Bar Spacing", min = 0, max = 20, step = 1,
+                { type = "slider", pixel = true, text = "Bar Spacing", min = 0, max = 20, step = 1,
                   disabled = classOff,
                   disabledTooltip = "Class Resource",
                   getValue = function() local c = cfg(); return c and c.pipSpacing or 3 end,
@@ -8957,7 +8976,7 @@ initFrame:SetScript("OnEvent", function(self)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Icon Settings",
                 rows = {
-                    { type = "slider", label = "Spacing", min = 0, max = 20, step = 1,
+                    { type = "slider", pixel = true, label = "Spacing", min = 0, max = 20, step = 1,
                       get = function() local p = DB(); return p and (p.totemBar.spacing or 2) end,
                       set = function(v)
                           local p = DB(); if not p then return end

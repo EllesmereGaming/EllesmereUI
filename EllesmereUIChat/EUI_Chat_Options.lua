@@ -451,7 +451,7 @@ initFrame:SetScript("OnEvent", function(self)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Icon Settings",
                 rows = {
-                    { type="slider", label="Icon Spacing",
+                    { type="slider", pixel=true, label="Icon Spacing",
                       min = 0, max = 30, step = 1,
                       get=function() return Cfg("sidebarIconSpacing") or 10 end,
                       set=function(v)

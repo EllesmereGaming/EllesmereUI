@@ -4931,17 +4931,100 @@ local function SkinMailRow(row)
     if row.Button then SkinMailItemButton(row.Button) end
 end
 
--- Letter body is a SimpleHTML with per-element colors; force readable white.
+-- Auction-house invoices and crafting-order mail don't use the letter body --
+-- they're their own panels drawn in InvoiceTextFontNormal, a dark brown meant
+-- to sit on the stationery parchment we fade out. Re-font and whiten them.
+local INVOICE_TEXT = {
+    "OpenMailInvoiceItemLabel", "OpenMailInvoicePurchaser", "OpenMailInvoiceSalePrice",
+    "OpenMailInvoiceDeposit", "OpenMailInvoiceHouseCut", "OpenMailInvoiceAmountReceived",
+    "OpenMailInvoiceNotYetSent", "OpenMailInvoiceMoneyDelay",
+}
+local CONSORTIUM_TEXT = {
+    "OpeningText", "CrafterText", "CommissionReceived", "CrafterNote", "ConsortiumNote",
+}
+-- Only the money frames that declare an inline +/-/count font string; the
+-- amounts themselves live on child frames (see SkinMoneyFrameText).
+local INVOICE_MONEY = {
+    "OpenMailDepositMoneyFrame", "OpenMailHouseCutMoneyFrame", "OpenMailSalePriceMoneyFrame",
+}
+
+local function SkinInvoiceFS(fs)
+    if not fs or (fs.IsForbidden and fs:IsForbidden()) then return end
+    WSkin.Font(fs)
+    WSkin.White(fs)
+end
+
+-- The +/- arithmetic signs and the stack count are unnamed font strings
+-- parented straight to the money frames; sweeping direct regions gets those and
+-- nothing else. The amounts live on Gold/Silver/CopperButton children and are
+-- driven by SetNormalFontObject, which SetMoneyFrameColor re-applies on every
+-- update -- so they stay in Blizzard's number font (any SetFont here would be
+-- clobbered), and, deliberately, so does the red on the house cut/commission.
+local function SkinMoneyFrameText(mf)
+    if not mf or mf:IsForbidden() then return end
+    for i = 1, select("#", mf:GetRegions()) do
+        local r = select(i, mf:GetRegions())
+        if r and r.IsObjectType and r:IsObjectType("FontString") then SkinInvoiceFS(r) end
+    end
+end
+
+-- The invoice's arithmetic rule is parchment art (a thin line inside a mostly
+-- transparent 256x32 box) and AMOUNT_RECEIVED anchors to that box, so it can't
+-- be recolored (a multiply keeps the orange) or turned into a color texture
+-- (the whole box would fill, and resizing it would drag the anchor). Fade the
+-- art, keep the box as an invisible spacer, and run our own rule through it.
+local function SkinArithmeticLine()
+    local art = _G.OpenMailArithmeticLine
+    if not art or art:IsForbidden() then return end
+    art:SetAlpha(0)
+    local d = GetFFD(art)
+    if d.rule then return end
+    local parent = art:GetParent()
+    if not parent then return end
+    d.rule = SolidTex(parent, "OVERLAY", Theme.brdR, Theme.brdG, Theme.brdB, Theme.brdA)
+    d.rule:SetHeight(1)
+    d.rule:SetPoint("LEFT", art, "LEFT", 0, 0)
+    d.rule:SetPoint("RIGHT", art, "RIGHT", 0, 0)
+end
+
+local function SkinInvoiceText()
+    for _, n in ipairs(INVOICE_TEXT) do SkinInvoiceFS(_G[n]) end
+    for _, n in ipairs(INVOICE_MONEY) do SkinMoneyFrameText(_G[n]) end
+    SkinArithmeticLine()
+    local cm = _G.ConsortiumMailFrame
+    if not cm or cm:IsForbidden() then return end
+    for _, k in ipairs(CONSORTIUM_TEXT) do SkinInvoiceFS(cm[k]) end
+    local paid = cm.CommissionPaidDisplay
+    if paid then
+        SkinInvoiceFS(paid.CommissionPaidText)
+        SkinMoneyFrameText(paid.MoneyDisplayFrame)
+        -- Plain 1px color texture, so it themes in place. Matches the rule above.
+        if paid.Separator then
+            paid.Separator:SetColorTexture(Theme.brdR, Theme.brdG, Theme.brdB, Theme.brdA)
+        end
+    end
+end
+
+-- Letter body: force readable white + skin font on the SimpleHTML elements.
 local function WhitenMailText()
     local html = _G.OpenMailBodyText
     if html and html.SetTextColor then
+        local fp = Theme.fontPath
+        local ff = Theme.fontFlag or ""
         for _, el in ipairs({ "P", "H1", "H2", "H3" }) do
             pcall(html.SetTextColor, html, el, 1, 1, 1)
+            if fp and html.GetFont then
+                local ok, _, sz = pcall(html.GetFont, html, el)
+                if ok and sz and not issecretvalue(sz) then
+                    pcall(html.SetFont, html, el, fp, sz, ff)
+                end
+            end
         end
     end
-    if _G.OpenMailSubject then WSkin.White(_G.OpenMailSubject) end
+    if _G.OpenMailSubject then WSkin.Font(_G.OpenMailSubject); WSkin.White(_G.OpenMailSubject) end
     local sender = _G.OpenMailSender
-    if sender and sender.Name then WSkin.White(sender.Name) end
+    if sender and sender.Name then WSkin.Font(sender.Name); WSkin.White(sender.Name) end
+    SkinInvoiceText()
 end
 
 local function Skin_OpenMail()

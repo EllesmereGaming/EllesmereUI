@@ -1,7 +1,9 @@
 --------------------------------------------------------------------------------
 --  EllesmereUI_Locale.lua
 --  Central multi-language engine for the EllesmereUI options panel, unlock mode,
---  and custom popups/tooltips. In-game gameplay text is intentionally NOT in scope.
+--  and custom popups/tooltips. Short in-game STATUS text is also in scope where a
+--  locale provides it (raid frame DEAD/OFFLINE/AFK, nameplate "Interrupted",
+--  auto-repair chat feedback) -- untranslated keys fall back to English silently.
 --
 --  Design: "translate the pixels, never the data." Translation is applied at the
 --  render boundary (the :SetText call) inside the shared widget builders, so the

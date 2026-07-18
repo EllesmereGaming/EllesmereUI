@@ -712,7 +712,9 @@ local function PvTick()
 end
 
 function ns.TS_RefreshPreview()
-    local s = S()
+    -- Preview reads route through the real-preview effective overlay when a
+    -- panel view swap is active (falls back to live settings otherwise).
+    local s = (ns.PvEffectiveProfile and ns.PvEffectiveProfile()) or S()
     local frames = ns._partyPvFrames
     local on = ns._partyPvActive and frames and ns._tsPreviewVisible
         and s and (s.tsMode or "whenHealing") ~= "never"
@@ -782,7 +784,8 @@ local function RPvTick()
 end
 
 function ns.TS_RefreshRaidPreview()
-    local s = S()
+    -- Same effective-overlay routing as TS_RefreshPreview above.
+    local s = (ns.PvEffectiveProfile and ns.PvEffectiveProfile()) or S()
     local active, frames
     if ns._TSRaidPvState then active, frames = ns._TSRaidPvState() end
     local on = active and frames and ns._tsRaidPreviewVisible

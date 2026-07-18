@@ -2092,7 +2092,7 @@ end
 --  SkinEditBox: ALL edit box modifications in one place.
 --  Chrome/position/font applied to ALL frames (including temp 11+).
 --  Header font only on frames 1-10 (touching header on 11+ taints UpdateHeader).
---  History hooks only on frames 1-10 (user-initiated, safe).
+--  Edit box hooks only on frames 1-10 (temp windows 11+ get visuals only).
 -------------------------------------------------------------------------------
 local function SkinEditBox(cf)
     local name = cf:GetName()
@@ -2153,19 +2153,31 @@ local function SkinEditBox(cf)
     -- skinning only. (This matches the function header's stated intent and the
     -- 1-10 header-font gate in ECHAT.ApplyFonts.)
     if idx <= 10 then
-    eb:HookScript("OnEditFocusGained", function(self) ApplyEditBoxHeaderFont(self) end)
+        eb:HookScript("OnEditFocusGained", function(self) ApplyEditBoxHeaderFont(self) end)
 
-    eb:SetAltArrowKeyMode(false)
-    if not CFD(eb).history then
+        -- Plain Up/Down input recall. The Midnight edit box performs no
+        -- native recall on plain arrows regardless of alt-arrow mode, so the
+        -- recall is Lua-side over an external history. Two rules keep it
+        -- taint-safe (the previous implementation broke both and blocked
+        -- /ping with ADDON_ACTION_FORBIDDEN):
+        --   1. SECURE commands (IsSecureCmd: /ping, /cast, ...) never enter
+        --      this history. SetText plants addon-tainted text -- harmless
+        --      for ordinary sends, fatal for a protected re-send.
+        --   2. Alt chords pass through untouched: Alt+Up/Down remains the
+        --      engine's own untainted recall (it still holds secure
+        --      commands), and our SetText must never overwrite it.
+        -- Alt-arrow mode off: paired with the OnKeyDown hook in every working
+        -- implementation -- without it the widget does not hand plain Up/Down
+        -- to the hook. Midnight performs no native recall either way.
+        eb:SetAltArrowKeyMode(false)
+        if not CFD(eb).history then
             CFD(eb).history = {}
             CFD(eb).histIdx = 0
             hooksecurefunc(eb, "AddHistoryLine", function(self, text)
-                if issecretvalue and (issecretvalue(text)) then return end
+                if issecretvalue and issecretvalue(text) then return end
+                local cmd = text and text:match("^%s*(/%S+)")
+                if cmd and IsSecureCmd and IsSecureCmd(cmd) then return end
                 local h = CFD(self).history
-                local last = h[#h]
-                if issecretvalue and last and issecretvalue(last) then
-                    h[#h] = nil
-                end
                 if h[#h] ~= text then
                     h[#h + 1] = text
                     if #h > 50 then table.remove(h, 1) end
@@ -2173,32 +2185,30 @@ local function SkinEditBox(cf)
             end)
             eb:HookScript("OnKeyDown", function(self, key)
                 if key ~= "UP" and key ~= "DOWN" then return end
-                -- In M+ keys and boss encounters, Blizzard restricts addon
-                -- chat operations. Calling SetText here taints the edit box
-                -- execution context, blocking SendChatMessage on next Enter.
-                -- Fall back to Blizzard's built-in history in restricted contexts.
+                if IsAltKeyDown() then return end
+                -- Narrow, field-proven restriction guards kept from the
+                -- long-shipped implementation. (C_ChatInfo.
+                -- InChatMessagingLockdown exists but its breadth on Midnight
+                -- is unverified -- do not swap it in blind.)
                 local restricted = GetCVarBool("addonChatRestrictionsForced")
                     or (C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
                         and C_ChallengeMode.IsChallengeModeActive())
                 if restricted then return end
-                local h = CFD(self).history
+                local d = CFD(self)
+                local h = d.history
                 if #h == 0 then return end
                 if key == "UP" then
-                    CFD(self).histIdx = CFD(self).histIdx + 1
-                    if CFD(self).histIdx > #h then CFD(self).histIdx = #h end
-                elseif key == "DOWN" then
-                    CFD(self).histIdx = CFD(self).histIdx - 1
-                    if CFD(self).histIdx < 0 then CFD(self).histIdx = 0 end
+                    d.histIdx = d.histIdx + 1
+                    if d.histIdx > #h then d.histIdx = #h end
+                else
+                    d.histIdx = d.histIdx - 1
+                    if d.histIdx < 0 then d.histIdx = 0 end
                 end
-                if CFD(self).histIdx == 0 then
+                if d.histIdx == 0 then
                     self:SetText("")
                 else
-                    local entry = h[#h - CFD(self).histIdx + 1]
-                    if not entry or (issecretvalue and issecretvalue(entry)) then
-                        self:SetText("")
-                    else
-                        self:SetText(entry)
-                    end
+                    local entry = h[#h - d.histIdx + 1]
+                    if entry then self:SetText(entry) else self:SetText("") end
                 end
             end)
             eb:HookScript("OnEditFocusLost", function(self)

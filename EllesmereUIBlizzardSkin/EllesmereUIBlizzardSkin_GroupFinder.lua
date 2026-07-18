@@ -40,7 +40,8 @@ end
 --  Enable gate. Independent toggle, default on (not tied to any master reskin).
 -------------------------------------------------------------------------------
 local function SkinEnabled()
-    return not EllesmereUIDB or EllesmereUIDB.reskinLFGMenu ~= false
+    return (not EllesmereUIDB or EllesmereUIDB.reskinLFGMenu ~= false)
+        and not (EllesmereUI.BlizzWindowSkinsKilled and EllesmereUI.BlizzWindowSkinsKilled())
 end
 
 -------------------------------------------------------------------------------

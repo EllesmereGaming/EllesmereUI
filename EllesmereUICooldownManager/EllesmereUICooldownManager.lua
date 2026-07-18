@@ -4417,7 +4417,11 @@ function ns.SetCdStateShiftHidden(fc, shiftHidden)
     shiftHidden = shiftHidden or false
     if (fc._cdStateShiftHidden or false) == shiftHidden then return end
     fc._cdStateShiftHidden = shiftHidden
-    local bk = fc.barKey
+    -- Overflow-diverted frames render on the target bar, so the gap-close
+    -- relayout must hit the bar the frame is actually laid out on. Normally
+    -- unreachable for diverted frames (Phase 3b's no-op rule), but there is
+    -- a one-reanchor window after a shift effect is first configured.
+    local bk = fc._overflowLayoutBar or fc.barKey
     if not bk or ns._cdShiftLayoutPending[bk] then return end
     ns._cdShiftLayoutPending[bk] = true
     C_Timer.After(0, function()
@@ -4597,7 +4601,7 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
             if fd and fd.borderFrame then
                 fd.borderFrame:SetFrameLevel(barData.borderBehind and math.max(0, icon:GetFrameLevel() - 1) or (icon:GetFrameLevel() + 13))
             end
-            EllesmereUI.ApplyBorderStyle(bdrTarget, borderSz, brdR, brdG, brdB, brdA, texKey, barData.borderTextureOffset, barData.borderTextureOffsetY, barData.borderTextureShiftX, barData.borderTextureShiftY, "cdm", barData.borderThickness or "thin")
+            EllesmereUI.ApplyBorderStyle(bdrTarget, borderSz, brdR, brdG, brdB, brdA, texKey, barData.borderTextureOffset, barData.borderTextureOffsetY, barData.borderTextureShiftX, barData.borderTextureShiftY, "cdm", barData.borderThickness or "thin", true)
         end
 
         -- Restore icon texture -- fill the entire frame. The border renders
@@ -5013,8 +5017,8 @@ function ns.StyleCustomChargeText(icon, barKey)
     local iconScale = icon:GetScale() or 1
     if iconScale < 0.01 then iconScale = 1 end
     local scSize = (barData.stackCountSize or 11) / iconScale
-    local scX = barData.stackCountX or 0
-    local scY = barData.stackCountY or 0
+    local scX = (barData.stackCountX or 0) / iconScale
+    local scY = (barData.stackCountY or 0) / iconScale
     local scPoint = barData.stackCountPosition or "bottomright"
     if scPoint == "bottomleft" then scPoint = "BOTTOMLEFT"; scY = scY + 2
     elseif scPoint == "topright" then scPoint = "TOPRIGHT"
@@ -5277,7 +5281,7 @@ local function RefreshCDMIconAppearance(barKey)
         local bdrTgt = (fd and fd.borderFrame) or icon
         if fd and fd.borderFrame or EllesmereUI.PP.GetBorders(icon) then
             local textureKey = barData.borderTexture or "solid"
-            EllesmereUI.ApplyBorderStyle(bdrTgt, borderSize, barData.borderR or 0, barData.borderG or 0, barData.borderB or 0, barData.borderA or 1, textureKey, barData.borderTextureOffset, barData.borderTextureOffsetY, barData.borderTextureShiftX, barData.borderTextureShiftY, "cdm", barData.borderThickness or "thin")
+            EllesmereUI.ApplyBorderStyle(bdrTgt, borderSize, barData.borderR or 0, barData.borderG or 0, barData.borderB or 0, barData.borderA or 1, textureKey, barData.borderTextureOffset, barData.borderTextureOffsetY, barData.borderTextureShiftX, barData.borderTextureShiftY, "cdm", barData.borderThickness or "thin", true)
         end
         -- Update background
         if bg then
@@ -5293,8 +5297,8 @@ local function RefreshCDMIconAppearance(barKey)
         local scR = (ssb and ssb.stackCountR) or barData.stackCountR or 1
         local scG = (ssb and ssb.stackCountG) or barData.stackCountG or 1
         local scB = (ssb and ssb.stackCountB) or barData.stackCountB or 1
-        local scX = (ssb and ssb.stackCountX) or barData.stackCountX or 0
-        local scY = (ssb and ssb.stackCountY) or barData.stackCountY or 0
+        local scX = ((ssb and ssb.stackCountX) or barData.stackCountX or 0) * fontScale
+        local scY = ((ssb and ssb.stackCountY) or barData.stackCountY or 0) * fontScale
         -- Stack/charge/item-count text anchor. Default bottom-right keeps the
         -- historical +2 vertical nudge so existing bars stay pixel-identical;
         -- top and center positions sit flush with no baseline nudge.
@@ -5436,9 +5440,18 @@ local function RefreshCDMIconAppearance(barKey)
                             ifd._cdStateGlowOn = true
                         end
                     end
-                    -- Event-driven re-evaluation for Resource Aware glows only
-                    -- (inert unless watched).
-                    if glowUsable and ns.CDGlowWatch then ns.CDGlowWatch(icon) end
+                    -- Event-driven re-evaluation: Resource Aware glows always,
+                    -- plus plain glows on EUI custom frames (their SetDesaturation
+                    -- never fires the SetDesaturated hook that would re-evaluate
+                    -- them). Fake-Active-owned frames (PresetHasCdState) excluded.
+                    local watchGlow = glowUsable
+                    if not watchGlow
+                        and (icon._isRacialFrame or icon._isTrinketFrame or icon._isPresetFrame
+                             or icon._isItemPresetFrame or icon._isCustomSpellFrame)
+                        and not (ns.PresetHasCdState and ns.PresetHasCdState(icon)) then
+                        watchGlow = true
+                    end
+                    if watchGlow and ns.CDGlowWatch then ns.CDGlowWatch(icon) end
                 end
             end
         elseif glowOv then
@@ -5520,8 +5533,21 @@ local function RefreshCDMIconAppearance(barKey)
                             end
                         end
                     end
-                    if (cse == "pixelGlowReadyUsable" or cse == "buttonGlowReadyUsable")
-                       and glowOv and ns.CDGlowWatch then
+                    -- Resource Aware glows always watch cooldown events. Plain
+                    -- glows normally re-evaluate through the SetDesaturated hook,
+                    -- but EUI's custom frames (racial / trinket / potion / custom)
+                    -- drive desaturation via SetDesaturation(float), which never
+                    -- fires that hook -- without a watch their glow stays lit for
+                    -- the whole cooldown. Frames owned by the Fake-Active preset
+                    -- path (PresetHasCdState) are excluded; that engine glows them.
+                    local watchGlow = cse == "pixelGlowReadyUsable" or cse == "buttonGlowReadyUsable"
+                    if not watchGlow and (cse == "pixelGlowReady" or cse == "buttonGlowReady")
+                        and (icon._isRacialFrame or icon._isTrinketFrame or icon._isPresetFrame
+                             or icon._isItemPresetFrame or icon._isCustomSpellFrame)
+                        and not (ns.PresetHasCdState and ns.PresetHasCdState(icon)) then
+                        watchGlow = true
+                    end
+                    if watchGlow and glowOv and ns.CDGlowWatch then
                         ns.CDGlowWatch(icon)
                     end
                 end
@@ -6670,15 +6696,56 @@ local function RebuildKeybindCache()
                     end
                     slot = i + (pg - 1) * 12
                 end
-                local slotType, id = GetActionInfo(slot)
+                local slotType, id, subType = GetActionInfo(slot)
                 local spellID
                 local fromMacro = false
                 if slotType == "spell" then
                     spellID = id
-                elseif slotType == "macro" and id then
-                    local macroSpell = GetMacroSpell(id)
-                    spellID = macroSpell or (id > 0 and id) or nil
+                elseif slotType == "macro" then
                     fromMacro = true
+                    if subType == "spell" then
+                        -- "Smart" single-spell macro: Blizzard already
+                        -- resolved it, and `id` here IS the spellID, not a
+                        -- macro index -- passing it to GetMacroSpell would
+                        -- look up the wrong thing.
+                        spellID = id
+                    else
+                        -- Everything else (single-item, mount/companion,
+                        -- multi-line/conditional...): `id` from GetActionInfo
+                        -- is NOT a reliable identifier here. Resolve the real
+                        -- macro index via its name instead (same workaround
+                        -- EllesmereUICdmHooks.lua's SlotSpellID already uses).
+                        local macroName = GetActionText(slot)
+                        local macroIndex = macroName and GetMacroIndexByName(macroName)
+                        if macroIndex and macroIndex > 0 then
+                            spellID = GetMacroSpell(macroIndex)
+                            if not spellID then
+                                -- Not a spell-shaped macro: pull the first
+                                -- /use target out of the macro body and
+                                -- resolve it as an item instead.
+                                local body = GetMacroBody and GetMacroBody(macroIndex)
+                                local target = body and body:match("/use!?%s+([^\r\n]+)")
+                                if target then
+                                    target = target:gsub("^%[.-%]%s*", ""):match("^%s*(.-)%s*$")
+                                    -- "item:NNNN" is macro-only shorthand for
+                                    -- targeting an itemID directly. It is NOT
+                                    -- a valid GetItemInfoInstant input (that
+                                    -- wants a bare itemID, item name, or a
+                                    -- full item link) -- pull the numeric ID
+                                    -- out ourselves instead of handing the
+                                    -- literal "item:NNNN" string to it.
+                                    local itemID = target:match("^item:(%d+)")
+                                    itemID = itemID and tonumber(itemID)
+                                    if not itemID and not tonumber(target) then
+                                        itemID = C_Item and C_Item.GetItemInfoInstant and C_Item.GetItemInfoInstant(target)
+                                    end
+                                    if itemID then
+                                        _SetKeybind(-itemID, FormatKeybindKey(key), true)
+                                    end
+                                end
+                            end
+                        end
+                    end
                 elseif slotType == "item" and id then
                     -- Store under negated itemID (-id) to match the FC
                     -- convention for item presets/trinkets.
@@ -6838,8 +6905,17 @@ BuildAllCDMBars = function()
     -- Build each bar and populate fast lookup
     local hookActive = ns.IsViewerHooked and ns.IsViewerHooked()
     wipe(barDataByKey)
+    ns._cdmAnyOverflowCfg = nil
     for i, barData in ipairs(p.cdmBars.bars) do
         barDataByKey[barData.key] = barData
+        -- Max Icons overflow: cheap session gate. Validity of the target is
+        -- checked at reanchor time (Phase 3b); this only answers "is it
+        -- worth looking" so the feature is two nil-checks when unused.
+        if not ns._cdmAnyOverflowCfg and barData.enabled
+           and barData.maxIcons and barData.maxIcons > 0
+           and barData.overflowTarget then
+            ns._cdmAnyOverflowCfg = true
+        end
         BuildCDMBar(i)
         local frame = cdmBarFrames[barData.key]
         if frame then frame._prevVisibleCount = nil end
@@ -7190,7 +7266,7 @@ end
 --- spell IDs present on the live bars but missing from assignedSpells.
 --- Called after CollectAndReanchor so the preview stays in sync with
 --- what the player actually sees on their CDM bars.
-function ns.ReseedAssignedSpellsFromLiveIcons()
+function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
     local p = ECME and ECME.db and ECME.db.profile
     if not p or not p.cdmBars then return end
 
@@ -7230,10 +7306,15 @@ function ns.ReseedAssignedSpellsFromLiveIcons()
     local FindVar = ns.FindVariantIndexInList
 
     for _, barData in ipairs(p.cdmBars.bars) do
+        -- cdUtilOnly (the automatic reseed path): buff-family bars are
+        -- picker-authoritative -- materializing live buff icons would
+        -- reintroduce the secret-ID drift duplicate-slot bug the options
+        -- materializer's skip exists to prevent. The manual Repopulate
+        -- flow passes nothing and keeps its full sweep.
         if not barData.isGhostBar
            and barData.key ~= "buffs"
            and (barData.barType == "cooldowns" or barData.barType == "utility"
-                or barData.barType == "buffs"
+                or (barData.barType == "buffs" and not cdUtilOnly)
                 or MAIN_BAR_KEYS[barData.key]) then
             local sd = ns.GetBarSpellData(barData.key)
             local icons = ns.cdmBarIcons and ns.cdmBarIcons[barData.key]
@@ -7258,6 +7339,12 @@ function ns.ReseedAssignedSpellsFromLiveIcons()
                     local fdRS = ns._hookFrameData and ns._hookFrameData[icon]
                     if (fc and fc.isHostedBuff) or icon._isPlaceholderFrame
                        or (fdRS and fdRS._isBuffViewerFrame) then
+                        sid = nil
+                    end
+                    -- Skip overflow-diverted icons: they render on this bar
+                    -- only for the session but belong to their source bar's
+                    -- assignedSpells (mirrors the EnsureAssignedSpells skip).
+                    if sid and fc and fc._overflowLayoutBar then
                         sid = nil
                     end
                     if type(sid) == "number" and sid ~= 0 then
@@ -7293,6 +7380,13 @@ function ns.ReseedAssignedSpellsFromLiveIcons()
             end
         end
     end
+end
+
+-- Parent-facing bridge for the automatic / export-time reconcile: cd and
+-- utility bars only (buff-family excluded -- picker-authoritative). The
+-- export path nil-checks this, so a disabled CDM child is a clean no-op.
+EllesmereUI.CDMReconcileActiveSpecSpells = function()
+    ns.ReseedAssignedSpellsFromLiveIcons(true)
 end
 
 --- Repopulate all main bars from Blizzard CDM for the current spec.
@@ -8331,6 +8425,9 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         -- Blizzard re-evaluate the viewer's tracked cooldown set; without a
         -- rebuild the new pool frames are never re-claimed and the
         -- unclaimed-frame cleanup blanks them (arena-exit empty-CDM bug).
+        -- The spell set may have changed: let the post-rebuild reanchor
+        -- re-run the automatic base-bar materialization for this spec.
+        if ns._reseededSpecsSession then wipe(ns._reseededSpecsSession) end
         ScheduleTalentRebuild()
         return
     end
@@ -8425,27 +8522,27 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     end
     if event == "PLAYER_ENTERING_WORLD" then
         _inCombat = InCombatLockdown and InCombatLockdown() or false
-        -- Arena exit backstop: leaving an arena reverts PvP talents and
-        -- spell overrides, and Blizzard re-evaluates the viewer's tracked
-        -- cooldown set. If PLAYER_PVP_TALENT_UPDATE did not fire across the
-        -- zone-out, nothing re-claims the new pool frames and the
-        -- unclaimed-frame cleanup blanks them (arena-exit empty-CDM bug).
-        -- Schedule the same debounced rebuild a talent change gets; the
-        -- token debounce collapses this with the event-driven trigger when
-        -- both fire, so at most one rebuild runs.
+        -- PvP instance transition backstop: entering or leaving a PvP
+        -- instance rebuilds viewer pools (PvP talents activate/deactivate).
+        -- Rebuild + reanchor so the new pool frames are claimed.
         local _, instType = IsInInstance()
-        if ns._cdmWasInArena and instType ~= "arena" then
+        local wasPvP = ns._cdmWasInPvP
+        local isPvP = (instType == "arena" or instType == "pvp")
+        if wasPvP and not isPvP then
             ScheduleTalentRebuild()
         end
-        ns._cdmWasInArena = (instType == "arena") or nil
+        ns._cdmWasInPvP = isPvP or nil
+        if isPvP and not wasPvP then
+            if ns.QueueReanchor then ns.QueueReanchor() end
+        end
         -- Install rotation helper hook after CDM frames have been built
         C_Timer.After(1, function()
             InstallRotationHook()
         end)
-        -- Safety: re-apply visibility after rebuild settles. Blizzard may
-        -- hide/re-show CDM viewers during loading screens (PvP scoreboard,
-        -- barbershop) and the timing race can leave viewer alpha at 0.
+        -- Safety: re-apply visibility after loading screen settles.
+        -- Two passes to catch both fast and late viewer pool rebuilds.
         C_Timer.After(1.5, _CDMApplyVisibility)
+        C_Timer.After(3, _CDMApplyVisibility)
     end
     if event == "SPELLS_CHANGED" then
         CheckSpecChange()

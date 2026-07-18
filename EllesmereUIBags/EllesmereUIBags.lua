@@ -733,7 +733,7 @@ local function CreateHeader()
         local function ConsolidateStacks(onDone)
             local function DoOnePass()
                 local stacks = {}  -- itemID -> { {bag,slot,count}, ... }
-                for bag = 0, 4 do
+                for bag = 0, 5 do
                     local numSlots = C_Container.GetContainerNumSlots(bag)
                     for slot = 1, numSlots do
                         local info = C_Container.GetContainerItemInfo(bag, slot)
@@ -807,12 +807,14 @@ local function CreateHeader()
 
         -- Scan bags, compute sorted order, and execute all moves in one pass.
         -- Re-scans on every call so retries always work from fresh state.
-        local function ComputeAndExecute()
+        local function ComputeAndExecute(bagMin, bagMax)
+            bagMin = bagMin or 0
+            bagMax = bagMax or 4
             local total = 0
             local sBag, sSlot, sKey, sID = {}, {}, {}, {}
 
             local items = {}
-            for bag = 0, 4 do
+            for bag = bagMin, bagMax do
                 local numSlots = C_Container.GetContainerNumSlots(bag)
                 for slot = 1, numSlots do
                     total = total + 1
@@ -900,16 +902,18 @@ local function CreateHeader()
             return #moves > 0
         end
 
-        local function RunSort()
-            local moved = ComputeAndExecute()
-
-            if not moved then
-                SetCVar("Sound_EnableSFX", sfxWas)
+        local function FinishSort()
+            SetCVar("Sound_EnableSFX", sfxWas)
+            C_Timer.After(0.3, function()
                 EUI_Bags.refreshEnabled = true
                 EUI_Bags:RefreshInventory()
                 C_Timer.After(3, UnlockSort)
-                return
-            end
+            end)
+        end
+
+        local function RunRetryLoop(bagMin, bagMax, onDone)
+            local moved = ComputeAndExecute(bagMin, bagMax)
+            if not moved then onDone(); return end
 
             local retryCount = 0
             local retryFrame = CreateFrame("Frame")
@@ -918,20 +922,25 @@ local function CreateHeader()
                 self:UnregisterAllEvents()
                 retryCount = retryCount + 1
                 C_Timer.After(0.15, function()
-                    local moved = ComputeAndExecute()
+                    local moved = ComputeAndExecute(bagMin, bagMax)
                     if moved and retryCount < 15 then
                         self:RegisterEvent("BAG_UPDATE")
                     else
                         self:SetScript("OnEvent", nil)
-                        SetCVar("Sound_EnableSFX", sfxWas)
-                        C_Timer.After(0.3, function()
-                        EUI_Bags.refreshEnabled = true
-                        EUI_Bags:RefreshInventory()
-                        C_Timer.After(3, UnlockSort)
-                    end)
+                        onDone()
+                    end
+                end)
+            end)
+        end
+
+        local function RunSort()
+            RunRetryLoop(0, 4, function()
+                if C_Container.GetContainerNumSlots(5) > 0 then
+                    RunRetryLoop(5, 5, FinishSort)
+                else
+                    FinishSort()
                 end
             end)
-        end)
         end  -- end RunSort
 
         -- Consolidate partial stacks first, then sort
@@ -5047,7 +5056,6 @@ function EUI_Bags:RefreshInventory()
     -- 5. Render grid into scroll child
     local _t0GridSetup = ProfBegin("GridSetup")
     for _, btn in pairs(itemSlots) do
-        btn:GetParent():Hide()
         if btn.ProfessionQualityOverlay then btn.ProfessionQualityOverlay:SetAlpha(0) end
         if btn.IconOverlay then btn.IconOverlay:SetAlpha(0); btn.IconOverlay:Hide() end
         if btn.IconOverlay2 then btn.IconOverlay2:SetAlpha(0); btn.IconOverlay2:Hide() end
@@ -6068,6 +6076,12 @@ function EUI_Bags:RefreshInventory()
             local gridRows = math.ceil(totalItems / columns)
             curY = curY - (gridRows * (SLOT_SIZE + SPACING))
         end
+    end
+
+    -- Hide slots that were not rendered this pass
+    for i = slotIdx + 1, #itemSlots do
+        local btn = itemSlots[i]
+        if btn then btn:GetParent():Hide() end
     end
 
     -- Set scroll child height to content height

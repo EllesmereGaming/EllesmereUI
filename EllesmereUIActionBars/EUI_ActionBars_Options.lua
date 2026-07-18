@@ -2041,7 +2041,7 @@ initFrame:SetScript("OnEvent", function(self)
                       SUpdatePreviewAndResize()
                       EllesmereUI:RefreshPage()
                   end },
-                { type="slider", text="Button Spacing", min=-10, max=20, step=1,
+                { type="slider", pixel=true, text="Button Spacing", min=-10, max=20, step=1,
                   getValue=function() return SVal("buttonPadding", 2) end,
                   setValue=function(v)
                       SSet("buttonPadding", v, function(k) EAB:ApplyPaddingForBar(k) end)

@@ -1156,7 +1156,23 @@ initFrame:SetScript("OnEvent", function(self)
                 if cc then
                     tgt = string.format("|cff%02x%02x%02x%s|r", math.floor(cc.r * 255 + 0.5), math.floor(cc.g * 255 + 0.5), math.floor(cc.b * 255 + 0.5), tgt)
                 end
-                return " > " .. tgt
+                -- Mirror the live [eui-tgtsep(...)] tag: per-slot separator
+                -- string, space-padded, indicator colored class (the preview
+                -- target's class = the player's) or custom (default white).
+                local sep = prefix and s[prefix .. "TargetSep"]
+                if type(sep) ~= "string" or sep == "" then sep = ">" end
+                sep = " " .. sep .. " "
+                if prefix and s[prefix .. "TargetSepClassColor"] then
+                    if cc then
+                        sep = string.format("|cff%02x%02x%02x%s|r", math.floor(cc.r * 255 + 0.5), math.floor(cc.g * 255 + 0.5), math.floor(cc.b * 255 + 0.5), sep)
+                    end
+                else
+                    local c = prefix and s[prefix .. "TargetSepColor"]
+                    local r, g, b = 1, 1, 1
+                    if type(c) == "table" then r, g, b = c.r or 1, c.g or 1, c.b or 1 end
+                    sep = string.format("|cff%02x%02x%02x%s|r", math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5), sep)
+                end
+                return sep .. tgt
             end
             local function _pvShortName(raw)
                 if not prefix then return raw end
@@ -3572,12 +3588,22 @@ initFrame:SetScript("OnEvent", function(self)
                     local ciPos = s.combatIndicatorPosition or "healthbar"
                     combatInd:SetSize(ciSz, ciSz)
                     combatInd:ClearAllPoints()
-                    local ciAnchor = pf
-                    if ciPos == "healthbar" then ciAnchor = health
-                    elseif ciPos == "textbar" and btbFrame then ciAnchor = btbFrame
-                    elseif ciPos == "portrait" and portraitFrame and sp then ciAnchor = portraitFrame
+                    -- "healthbar" is the stored value shown as "Center" in the dropdown;
+                    -- "center" is a render alias for it.
+                    if ciPos == "portrait" and portraitFrame and sp then
+                        combatInd:SetPoint("CENTER", portraitFrame, "CENTER", ciOx, ciOy)
+                    elseif ciPos == "textbar" then
+                        combatInd:SetPoint("CENTER", btbFrame or pf, "CENTER", ciOx, ciOy)
+                    elseif ciPos == "healthbar" or ciPos == "center" then
+                        combatInd:SetPoint("CENTER", health, "CENTER", ciOx, ciOy)
+                    else
+                        local anchor =
+                            (ciPos == "topright"    and "TOPRIGHT")    or
+                            (ciPos == "bottomleft"  and "BOTTOMLEFT")  or
+                            (ciPos == "bottomright" and "BOTTOMRIGHT") or
+                            "TOPLEFT"
+                        combatInd:SetPoint(anchor, health, anchor, ciOx, ciOy)
                     end
-                    combatInd:SetPoint("CENTER", ciAnchor, "CENTER", ciOx, ciOy)
                     local _, classToken = UnitClass("player")
                     -- All custom combat icons (combat0..5) are shown as-is (no tint).
                     -- Standard/Class Theme are tinted by the colour mode below.
@@ -4127,21 +4153,6 @@ initFrame:SetScript("OnEvent", function(self)
             if not sup then return true end
             return sup[selectedUnit] == true
         end
-        -- Only show "Applies to:" tooltip for leader indicator settings
-        local SHOW_APPLIES_TO = {
-            leaderIndicatorEnabled = true, leaderIndicatorSize = true,
-            leaderIndicatorPosition = true, leaderIndicatorX = true, leaderIndicatorY = true,
-        }
-        local function SSupportTooltip(key)
-            if not SHOW_APPLIES_TO[key] then return nil end
-            local sup = UNIT_SUPPORTS[key]
-            if not sup then return nil end
-            local names = {}
-            for _, k in ipairs(GROUP_UNIT_ORDER) do
-                if sup[k] then names[#names+1] = UNIT_LABELS_SUP[k] end
-            end
-            return "Applies to: " .. table.concat(names, ", ")
-        end
         -- Dim a row region and add tooltip when no checked unit supports the
         -- setting. unsupportedTip (optional) is shown over the dimmed row when
         -- the current unit doesn't support the key.
@@ -4151,7 +4162,7 @@ initFrame:SetScript("OnEvent", function(self)
                 region:SetAlpha(0.35)
                 if region._control and region._control.Disable then region._control:Disable() end
             end
-            local tip = SSupportTooltip(key) or (not visible and unsupportedTip) or nil
+            local tip = not visible and unsupportedTip or nil
             if tip then
                 local function MakeSupportHit(anchor)
                     if not anchor then return end
@@ -6095,6 +6106,41 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) SSet("leftTextShortNameEllipsis", v); UpdatePreview() end,
                       disabled=function() local c=SVal("leftTextContent","name") return c ~= "name" and c ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="multiswatch", label="Indicator Color",
+                      disabled=function() return SVal("leftTextContent","name") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected.",
+                      swatches = {
+                        { tooltip = "Custom Colored", hasAlpha = false,
+                          getValue = function() local c = SVal("leftTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          setValue = function(r, g, b) SSet("leftTextTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                          onClick = function(self)
+                              if SVal("leftTextTargetSepClassColor", false) then
+                                  SSet("leftTextTargetSepClassColor", false); UpdatePreview()
+                                  return
+                              end
+                              if self._eabOrigClick then self._eabOrigClick(self) end
+                          end,
+                          refreshAlpha = function() return SVal("leftTextTargetSepClassColor", false) and 0.3 or 1 end },
+                        { tooltip = "Class Colored", hasAlpha = false,
+                          getValue = function()
+                              local _, ct = UnitClass("player")
+                              local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                              if cc then return cc.r, cc.g, cc.b end
+                              return 1, 1, 1
+                          end,
+                          setValue = function() end,
+                          onClick = function() SSet("leftTextTargetSepClassColor", true); UpdatePreview() end,
+                          refreshAlpha = function() return SVal("leftTextTargetSepClassColor", false) and 1 or 0.3 end },
+                      } },
+                    { type="input", label="Separator", inputWidth=60,
+                      get=function() return SVal("leftTextTargetSep", ">") end,
+                      set=function(v)
+                          v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                          if v == "" then v = ">" end
+                          SSet("leftTextTargetSep", v); UpdatePreview()
+                      end,
+                      disabled=function() return SVal("leftTextContent","name") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected." },
                                     },
             })
             local leftCogShow = leftCogShowRaw
@@ -6242,6 +6288,41 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) SSet("rightTextShortNameEllipsis", v); UpdatePreview() end,
                       disabled=function() local c=SVal("rightTextContent","both") return c ~= "name" and c ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="multiswatch", label="Indicator Color",
+                      disabled=function() return SVal("rightTextContent","both") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected.",
+                      swatches = {
+                        { tooltip = "Custom Colored", hasAlpha = false,
+                          getValue = function() local c = SVal("rightTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          setValue = function(r, g, b) SSet("rightTextTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                          onClick = function(self)
+                              if SVal("rightTextTargetSepClassColor", false) then
+                                  SSet("rightTextTargetSepClassColor", false); UpdatePreview()
+                                  return
+                              end
+                              if self._eabOrigClick then self._eabOrigClick(self) end
+                          end,
+                          refreshAlpha = function() return SVal("rightTextTargetSepClassColor", false) and 0.3 or 1 end },
+                        { tooltip = "Class Colored", hasAlpha = false,
+                          getValue = function()
+                              local _, ct = UnitClass("player")
+                              local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                              if cc then return cc.r, cc.g, cc.b end
+                              return 1, 1, 1
+                          end,
+                          setValue = function() end,
+                          onClick = function() SSet("rightTextTargetSepClassColor", true); UpdatePreview() end,
+                          refreshAlpha = function() return SVal("rightTextTargetSepClassColor", false) and 1 or 0.3 end },
+                      } },
+                    { type="input", label="Separator", inputWidth=60,
+                      get=function() return SVal("rightTextTargetSep", ">") end,
+                      set=function(v)
+                          v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                          if v == "" then v = ">" end
+                          SSet("rightTextTargetSep", v); UpdatePreview()
+                      end,
+                      disabled=function() return SVal("rightTextContent","both") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected." },
                                     },
             })
             local rightCogShow = rightCogShowRaw
@@ -6405,6 +6486,41 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) SSet("centerTextShortNameEllipsis", v); UpdatePreview() end,
                       disabled=function() local c=SVal("centerTextContent","none") return c ~= "name" and c ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="multiswatch", label="Indicator Color",
+                      disabled=function() return SVal("centerTextContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected.",
+                      swatches = {
+                        { tooltip = "Custom Colored", hasAlpha = false,
+                          getValue = function() local c = SVal("centerTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          setValue = function(r, g, b) SSet("centerTextTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                          onClick = function(self)
+                              if SVal("centerTextTargetSepClassColor", false) then
+                                  SSet("centerTextTargetSepClassColor", false); UpdatePreview()
+                                  return
+                              end
+                              if self._eabOrigClick then self._eabOrigClick(self) end
+                          end,
+                          refreshAlpha = function() return SVal("centerTextTargetSepClassColor", false) and 0.3 or 1 end },
+                        { tooltip = "Class Colored", hasAlpha = false,
+                          getValue = function()
+                              local _, ct = UnitClass("player")
+                              local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                              if cc then return cc.r, cc.g, cc.b end
+                              return 1, 1, 1
+                          end,
+                          setValue = function() end,
+                          onClick = function() SSet("centerTextTargetSepClassColor", true); UpdatePreview() end,
+                          refreshAlpha = function() return SVal("centerTextTargetSepClassColor", false) and 1 or 0.3 end },
+                      } },
+                    { type="input", label="Separator", inputWidth=60,
+                      get=function() return SVal("centerTextTargetSep", ">") end,
+                      set=function(v)
+                          v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                          if v == "" then v = ">" end
+                          SSet("centerTextTargetSep", v); UpdatePreview()
+                      end,
+                      disabled=function() return SVal("centerTextContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected." },
                                     },
             })
             local centerCogShow = centerCogShowRaw
@@ -6560,6 +6676,41 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) SSet("extraTextShortNameEllipsis", v); UpdatePreview() end,
                       disabled=function() local c=SVal("extraTextContent","none") return c ~= "name" and c ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="multiswatch", label="Indicator Color",
+                      disabled=function() return SVal("extraTextContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected.",
+                      swatches = {
+                        { tooltip = "Custom Colored", hasAlpha = false,
+                          getValue = function() local c = SVal("extraTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          setValue = function(r, g, b) SSet("extraTextTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                          onClick = function(self)
+                              if SVal("extraTextTargetSepClassColor", false) then
+                                  SSet("extraTextTargetSepClassColor", false); UpdatePreview()
+                                  return
+                              end
+                              if self._eabOrigClick then self._eabOrigClick(self) end
+                          end,
+                          refreshAlpha = function() return SVal("extraTextTargetSepClassColor", false) and 0.3 or 1 end },
+                        { tooltip = "Class Colored", hasAlpha = false,
+                          getValue = function()
+                              local _, ct = UnitClass("player")
+                              local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                              if cc then return cc.r, cc.g, cc.b end
+                              return 1, 1, 1
+                          end,
+                          setValue = function() end,
+                          onClick = function() SSet("extraTextTargetSepClassColor", true); UpdatePreview() end,
+                          refreshAlpha = function() return SVal("extraTextTargetSepClassColor", false) and 1 or 0.3 end },
+                      } },
+                    { type="input", label="Separator", inputWidth=60,
+                      get=function() return SVal("extraTextTargetSep", ">") end,
+                      set=function(v)
+                          v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                          if v == "" then v = ">" end
+                          SSet("extraTextTargetSep", v); UpdatePreview()
+                      end,
+                      disabled=function() return SVal("extraTextContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected." },
                                     },
             })
             local extraCogShow = extraCogShowRaw
@@ -8633,6 +8784,41 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) SSet("btbLeftShortNameEllipsis", v); UpdatePreview() end,
                       disabled=function() local c=SVal("btbLeftContent","none") return c ~= "name" and c ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="multiswatch", label="Indicator Color",
+                      disabled=function() return SVal("btbLeftContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected.",
+                      swatches = {
+                        { tooltip = "Custom Colored", hasAlpha = false,
+                          getValue = function() local c = SVal("btbLeftTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          setValue = function(r, g, b) SSet("btbLeftTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                          onClick = function(self)
+                              if SVal("btbLeftTargetSepClassColor", false) then
+                                  SSet("btbLeftTargetSepClassColor", false); UpdatePreview()
+                                  return
+                              end
+                              if self._eabOrigClick then self._eabOrigClick(self) end
+                          end,
+                          refreshAlpha = function() return SVal("btbLeftTargetSepClassColor", false) and 0.3 or 1 end },
+                        { tooltip = "Class Colored", hasAlpha = false,
+                          getValue = function()
+                              local _, ct = UnitClass("player")
+                              local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                              if cc then return cc.r, cc.g, cc.b end
+                              return 1, 1, 1
+                          end,
+                          setValue = function() end,
+                          onClick = function() SSet("btbLeftTargetSepClassColor", true); UpdatePreview() end,
+                          refreshAlpha = function() return SVal("btbLeftTargetSepClassColor", false) and 1 or 0.3 end },
+                      } },
+                    { type="input", label="Separator", inputWidth=60,
+                      get=function() return SVal("btbLeftTargetSep", ">") end,
+                      set=function(v)
+                          v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                          if v == "" then v = ">" end
+                          SSet("btbLeftTargetSep", v); UpdatePreview()
+                      end,
+                      disabled=function() return SVal("btbLeftContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected." },
                                     },
             })
             local btbLeftCogShow = btbLeftCogShowRaw
@@ -8757,6 +8943,41 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) SSet("btbRightShortNameEllipsis", v); UpdatePreview() end,
                       disabled=function() local c=SVal("btbRightContent","none") return c ~= "name" and c ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="multiswatch", label="Indicator Color",
+                      disabled=function() return SVal("btbRightContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected.",
+                      swatches = {
+                        { tooltip = "Custom Colored", hasAlpha = false,
+                          getValue = function() local c = SVal("btbRightTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          setValue = function(r, g, b) SSet("btbRightTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                          onClick = function(self)
+                              if SVal("btbRightTargetSepClassColor", false) then
+                                  SSet("btbRightTargetSepClassColor", false); UpdatePreview()
+                                  return
+                              end
+                              if self._eabOrigClick then self._eabOrigClick(self) end
+                          end,
+                          refreshAlpha = function() return SVal("btbRightTargetSepClassColor", false) and 0.3 or 1 end },
+                        { tooltip = "Class Colored", hasAlpha = false,
+                          getValue = function()
+                              local _, ct = UnitClass("player")
+                              local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                              if cc then return cc.r, cc.g, cc.b end
+                              return 1, 1, 1
+                          end,
+                          setValue = function() end,
+                          onClick = function() SSet("btbRightTargetSepClassColor", true); UpdatePreview() end,
+                          refreshAlpha = function() return SVal("btbRightTargetSepClassColor", false) and 1 or 0.3 end },
+                      } },
+                    { type="input", label="Separator", inputWidth=60,
+                      get=function() return SVal("btbRightTargetSep", ">") end,
+                      set=function(v)
+                          v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                          if v == "" then v = ">" end
+                          SSet("btbRightTargetSep", v); UpdatePreview()
+                      end,
+                      disabled=function() return SVal("btbRightContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected." },
                                     },
             })
             local btbRightCogShow = btbRightCogShowRaw
@@ -8963,6 +9184,41 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) SSet("btbCenterShortNameEllipsis", v); UpdatePreview() end,
                       disabled=function() local c=SVal("btbCenterContent","none") return c ~= "name" and c ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="multiswatch", label="Indicator Color",
+                      disabled=function() return SVal("btbCenterContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected.",
+                      swatches = {
+                        { tooltip = "Custom Colored", hasAlpha = false,
+                          getValue = function() local c = SVal("btbCenterTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          setValue = function(r, g, b) SSet("btbCenterTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                          onClick = function(self)
+                              if SVal("btbCenterTargetSepClassColor", false) then
+                                  SSet("btbCenterTargetSepClassColor", false); UpdatePreview()
+                                  return
+                              end
+                              if self._eabOrigClick then self._eabOrigClick(self) end
+                          end,
+                          refreshAlpha = function() return SVal("btbCenterTargetSepClassColor", false) and 0.3 or 1 end },
+                        { tooltip = "Class Colored", hasAlpha = false,
+                          getValue = function()
+                              local _, ct = UnitClass("player")
+                              local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                              if cc then return cc.r, cc.g, cc.b end
+                              return 1, 1, 1
+                          end,
+                          setValue = function() end,
+                          onClick = function() SSet("btbCenterTargetSepClassColor", true); UpdatePreview() end,
+                          refreshAlpha = function() return SVal("btbCenterTargetSepClassColor", false) and 1 or 0.3 end },
+                      } },
+                    { type="input", label="Separator", inputWidth=60,
+                      get=function() return SVal("btbCenterTargetSep", ">") end,
+                      set=function(v)
+                          v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                          if v == "" then v = ">" end
+                          SSet("btbCenterTargetSep", v); UpdatePreview()
+                      end,
+                      disabled=function() return SVal("btbCenterContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected." },
                                     },
             })
             local btbCenterCogShow = btbCenterCogShowRaw
@@ -9408,7 +9664,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 3: Bar Spacing + Background Color (with alpha)
         local sharedClassResRow3
         sharedClassResRow3, h = W:DualRow(parent, y,
-            { type="slider", text="Bar Spacing", min=0, max=10, step=1,
+            { type="slider", pixel=true, text="Bar Spacing", min=0, max=10, step=1,
               disabled=function() return SValSupported("classPowerStyle", "none") ~= "modern" end,
               disabledTooltip="Class Resource must be set to Modern", rawTooltip=true,
               getValue=function() return SValSupported("classPowerSpacing", 2) end,
@@ -9638,10 +9894,10 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return SValSupported("buffOffsetY", 0) end,
                       set=function(v) SSetSupported("buffOffsetY", v) end },
                     -- Physical-pixel-perfect gaps between buff icons (X = columns, Y = rows).
-                    { type="slider", label="Spacing X", min=-1, max=10, step=1,
+                    { type="slider", pixel=true, label="Spacing X", min=-1, max=10, step=1,
                       get=function() return SValSupported("buffSpacingX", 1) end,
                       set=function(v) SSetSupported("buffSpacingX", v) end },
-                    { type="slider", label="Spacing Y", min=-1, max=10, step=1,
+                    { type="slider", pixel=true, label="Spacing Y", min=-1, max=10, step=1,
                       get=function() return SValSupported("buffSpacingY", 1) end,
                       set=function(v) SSetSupported("buffSpacingY", v) end },
                 },
@@ -9765,10 +10021,10 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return SValSupported("debuffOffsetY", 0) end,
                       set=function(v) SSetSupported("debuffOffsetY", v) end },
                     -- Physical-pixel-perfect gaps between debuff icons (X = columns, Y = rows).
-                    { type="slider", label="Spacing X", min=-1, max=10, step=1,
+                    { type="slider", pixel=true, label="Spacing X", min=-1, max=10, step=1,
                       get=function() return SValSupported("debuffSpacingX", 1) end,
                       set=function(v) SSetSupported("debuffSpacingX", v) end },
-                    { type="slider", label="Spacing Y", min=-1, max=10, step=1,
+                    { type="slider", pixel=true, label="Spacing Y", min=-1, max=10, step=1,
                       get=function() return SValSupported("debuffSpacingY", 1) end,
                       set=function(v) SSetSupported("debuffSpacingY", v) end },
                 },
@@ -10035,6 +10291,10 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Overlay Opacity", min=5, max=100, step=1,
                           get=function() return db.profile.dispelOverlayOpacity or 100 end,
                           set=function(v) db.profile.dispelOverlayOpacity = v; DispelRefresh() end },
+                        { type="toggle", label="Only Dispellable by You",
+                          tooltip="Shows the overlay only for debuffs you can currently dispel.",
+                          get=function() return db.profile.dispelOverlayByMe == true end,
+                          set=function(v) db.profile.dispelOverlayByMe = v and true or false; DispelRefresh() end },
                     },
                 })
                 local cogBtn = CreateFrame("Button", nil, rgn)
@@ -10146,7 +10406,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Row 3: Spacing | Show Countdown Text
         _, h = W:DualRow(parent, y,
-            { type="slider", text="Spacing", min=-1, max=10, step=1,
+            { type="slider", pixel=true, text="Spacing", min=-1, max=10, step=1,
               getValue=function() return PrivGet("paSpacing", 0) end,
               setValue=function(v) PrivSet("paSpacing", v) end },
             { type="toggle", text="Show Countdown Text",
@@ -10733,8 +10993,10 @@ initFrame:SetScript("OnEvent", function(self)
             end)
 
             -- Cog popup for combat indicator settings
-            local combatPosValues = { ["portrait"]="Portrait", ["healthbar"]="Health Bar", ["textbar"]="Text Bar" }
-            local combatPosOrder = { "portrait", "healthbar", "textbar" }
+            -- "healthbar" is the long-standing stored value for centered-on-health-bar,
+            -- shown as "Center". "center" (briefly stored by 8.4.9-era builds) maps to it.
+            local combatPosValues = { ["topleft"]="Top Left", ["topright"]="Top Right", ["healthbar"]="Center", ["bottomleft"]="Bottom Left", ["bottomright"]="Bottom Right", ["textbar"]="Text Bar", ["portrait"]="Portrait" }
+            local combatPosOrder = { "topleft", "topright", "healthbar", "bottomleft", "bottomright", "textbar", "portrait" }
 
             local _, combatCogShowRaw = EllesmereUI.BuildCogPopup({
                 title = "Combat Indicator Settings",
@@ -10751,15 +11013,19 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return SValSupported("combatIndicatorColor", "custom") == "classcolor" end,
                       set=function(v) SSetSupported("combatIndicatorColor", v and "classcolor" or "custom"); ReloadAndUpdate(); UpdatePreview() end },
                     { type="dropdown", label="Position", values=combatPosValues, order=combatPosOrder,
-                      get=function() return SValSupported("combatIndicatorPosition", "healthbar") end,
+                      get=function()
+                          local pos = SValSupported("combatIndicatorPosition", "healthbar")
+                          if pos == "center" then pos = "healthbar" end
+                          return combatPosValues[pos] and pos or "healthbar"
+                      end,
                       set=function(v) SSetSupported("combatIndicatorPosition", v); ReloadAndUpdate(); UpdatePreview() end },
                     { type="slider", label="Size", min=8, max=64, step=1,
                       get=function() return SValSupported("combatIndicatorSize", 22) end,
                       set=function(v) SSetSupported("combatIndicatorSize", v); ReloadAndUpdate(); UpdatePreview() end },
-                    { type="slider", label="X Offset", min=-100, max=100, step=1,
+                    { type="slider", label="X Offset", min=-200, max=200, step=1,
                       get=function() return SValSupported("combatIndicatorX", 0) end,
                       set=function(v) SSetSupported("combatIndicatorX", v); ReloadAndUpdate(); UpdatePreview() end },
-                    { type="slider", label="Y Offset", min=-100, max=100, step=1,
+                    { type="slider", label="Y Offset", min=-200, max=200, step=1,
                       get=function() return SValSupported("combatIndicatorY", 0) end,
                       set=function(v) SSetSupported("combatIndicatorY", v); ReloadAndUpdate(); UpdatePreview() end },
                 },
@@ -10933,22 +11199,18 @@ initFrame:SetScript("OnEvent", function(self)
             return selectedUnit == "player" or selectedUnit == "target"
         end
         if leaderIndSupported() then
-            local function SetLeaderBoth(key, val)
-                UNIT_DB_MAP["player"]()[key] = val
-                UNIT_DB_MAP["target"]()[key] = val
-                ReloadAndUpdate(); UpdatePreview()
-            end
+            local leaderSyncUnits = { "player", "target" }
             sharedAddRow5, h = W:DualRow(parent, y,
                 { type="toggle", text="Leader Indicator",
                   getValue=function() return SValSupported("leaderIndicatorEnabled", true) end,
                   setValue=function(v)
-                      SetLeaderBoth("leaderIndicatorEnabled", v)
+                      SSetSupported("leaderIndicatorEnabled", v)
                       EllesmereUI:RefreshPage()
                   end },
                 { type="slider", text="Leader Icon Size", min=8, max=48, step=1,
                   disabled=leaderIndOff, disabledTooltip="Leader Indicator",
                   getValue=function() return SValSupported("leaderIndicatorSize", 16) end,
-                  setValue=function(v) SetLeaderBoth("leaderIndicatorSize", v) end });  y = y - h
+                  setValue=function(v) SSetSupported("leaderIndicatorSize", v) end });  y = y - h
             SApplySupport(sharedAddRow5._leftRegion, "leaderIndicatorEnabled")
             SApplySupport(sharedAddRow5._rightRegion, "leaderIndicatorSize")
             do
@@ -10960,13 +11222,13 @@ initFrame:SetScript("OnEvent", function(self)
                     rows = {
                         { type="dropdown", label="Position", values=leaderPosValues, order=leaderPosOrder,
                           get=function() return SValSupported("leaderIndicatorPosition", "topleft") end,
-                          set=function(v) SetLeaderBoth("leaderIndicatorPosition", v) end },
+                          set=function(v) SSetSupported("leaderIndicatorPosition", v) end },
                         { type="slider", label="X Offset", min=-200, max=200, step=1,
                           get=function() return SValSupported("leaderIndicatorX", 0) end,
-                          set=function(v) SetLeaderBoth("leaderIndicatorX", v) end },
+                          set=function(v) SSetSupported("leaderIndicatorX", v) end },
                         { type="slider", label="Y Offset", min=-200, max=200, step=1,
                           get=function() return SValSupported("leaderIndicatorY", 0) end,
-                          set=function(v) SetLeaderBoth("leaderIndicatorY", v) end },
+                          set=function(v) SSetSupported("leaderIndicatorY", v) end },
                     },
                 })
                 local leaderCogBtn = MakeCogBtn(rgn, leaderCogShow)
@@ -10992,6 +11254,44 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.RegisterWidgetRefresh(UpdateLeaderCogState)
                 UpdateLeaderCogState()
             end
+            local function BuildLeaderSync(rgn, key, default, tooltip)
+                local function GetValue(unit)
+                    local v = UNIT_DB_MAP[unit]()[key]
+                    if v == nil then return default end
+                    return v
+                end
+                EllesmereUI.BuildSyncIcon({
+                    region = rgn,
+                    tooltip = tooltip,
+                    onClick = function()
+                        local v = GetValue(selectedUnit)
+                        for _, unit in ipairs(leaderSyncUnits) do UNIT_DB_MAP[unit]()[key] = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                    isSynced = function()
+                        local v = GetValue(selectedUnit)
+                        for _, unit in ipairs(leaderSyncUnits) do
+                            if GetValue(unit) ~= v then return false end
+                        end
+                        return true
+                    end,
+                    flashTargets = function() return { rgn } end,
+                    multiApply = {
+                        elementKeys = leaderSyncUnits,
+                        elementLabels = SHORT_LABELS,
+                        getCurrentKey = function() return selectedUnit end,
+                        onApply = function(checkedKeys)
+                            local v = GetValue(selectedUnit)
+                            for _, unit in ipairs(checkedKeys) do UNIT_DB_MAP[unit]()[key] = v end
+                            ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                        end,
+                    },
+                })
+            end
+            BuildLeaderSync(sharedAddRow5._leftRegion, "leaderIndicatorEnabled", true,
+                "Apply Leader Indicator to all Frames")
+            BuildLeaderSync(sharedAddRow5._rightRegion, "leaderIndicatorSize", 16,
+                "Apply Leader Icon Size to all Frames")
         end
 
         -------------------------------------------------------------------
@@ -11949,6 +12249,41 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) MSet("leftTextShortNameEllipsis", v) end,
                       disabled=function() local c=MVal("leftTextContent","name") return c ~= "name" and c ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="multiswatch", label="Indicator Color",
+                      disabled=function() return MVal("leftTextContent","name") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected.",
+                      swatches = {
+                        { tooltip = "Custom Colored", hasAlpha = false,
+                          getValue = function() local c = MVal("leftTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          setValue = function(r, g, b) MSet("leftTextTargetSepColor", { r=r, g=g, b=b }) end,
+                          onClick = function(self)
+                              if MVal("leftTextTargetSepClassColor", false) then
+                                  MSet("leftTextTargetSepClassColor", false)
+                                  return
+                              end
+                              if self._eabOrigClick then self._eabOrigClick(self) end
+                          end,
+                          refreshAlpha = function() return MVal("leftTextTargetSepClassColor", false) and 0.3 or 1 end },
+                        { tooltip = "Class Colored", hasAlpha = false,
+                          getValue = function()
+                              local _, ct = UnitClass("player")
+                              local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                              if cc then return cc.r, cc.g, cc.b end
+                              return 1, 1, 1
+                          end,
+                          setValue = function() end,
+                          onClick = function() MSet("leftTextTargetSepClassColor", true) end,
+                          refreshAlpha = function() return MVal("leftTextTargetSepClassColor", false) and 1 or 0.3 end },
+                      } },
+                    { type="input", label="Separator", inputWidth=60,
+                      get=function() return MVal("leftTextTargetSep", ">") end,
+                      set=function(v)
+                          v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                          if v == "" then v = ">" end
+                          MSet("leftTextTargetSep", v)
+                      end,
+                      disabled=function() return MVal("leftTextContent","name") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected." },
                                     },
             })
             local cogBtn = MCogBtn(rgn, cogShowFn)
@@ -12035,6 +12370,41 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) MSet("rightTextShortNameEllipsis", v) end,
                       disabled=function() local c=MVal("rightTextContent","none") return c ~= "name" and c ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="multiswatch", label="Indicator Color",
+                      disabled=function() return MVal("rightTextContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected.",
+                      swatches = {
+                        { tooltip = "Custom Colored", hasAlpha = false,
+                          getValue = function() local c = MVal("rightTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          setValue = function(r, g, b) MSet("rightTextTargetSepColor", { r=r, g=g, b=b }) end,
+                          onClick = function(self)
+                              if MVal("rightTextTargetSepClassColor", false) then
+                                  MSet("rightTextTargetSepClassColor", false)
+                                  return
+                              end
+                              if self._eabOrigClick then self._eabOrigClick(self) end
+                          end,
+                          refreshAlpha = function() return MVal("rightTextTargetSepClassColor", false) and 0.3 or 1 end },
+                        { tooltip = "Class Colored", hasAlpha = false,
+                          getValue = function()
+                              local _, ct = UnitClass("player")
+                              local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                              if cc then return cc.r, cc.g, cc.b end
+                              return 1, 1, 1
+                          end,
+                          setValue = function() end,
+                          onClick = function() MSet("rightTextTargetSepClassColor", true) end,
+                          refreshAlpha = function() return MVal("rightTextTargetSepClassColor", false) and 1 or 0.3 end },
+                      } },
+                    { type="input", label="Separator", inputWidth=60,
+                      get=function() return MVal("rightTextTargetSep", ">") end,
+                      set=function(v)
+                          v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                          if v == "" then v = ">" end
+                          MSet("rightTextTargetSep", v)
+                      end,
+                      disabled=function() return MVal("rightTextContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected." },
                                     },
             })
             local cogBtn = MCogBtn(rgn, cogShowFn)
@@ -12133,6 +12503,41 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) MSet("centerTextShortNameEllipsis", v) end,
                       disabled=function() local c=MVal("centerTextContent","none") return c ~= "name" and c ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name or Name > Target is selected." },
+                    { type="multiswatch", label="Indicator Color",
+                      disabled=function() return MVal("centerTextContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected.",
+                      swatches = {
+                        { tooltip = "Custom Colored", hasAlpha = false,
+                          getValue = function() local c = MVal("centerTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          setValue = function(r, g, b) MSet("centerTextTargetSepColor", { r=r, g=g, b=b }) end,
+                          onClick = function(self)
+                              if MVal("centerTextTargetSepClassColor", false) then
+                                  MSet("centerTextTargetSepClassColor", false)
+                                  return
+                              end
+                              if self._eabOrigClick then self._eabOrigClick(self) end
+                          end,
+                          refreshAlpha = function() return MVal("centerTextTargetSepClassColor", false) and 0.3 or 1 end },
+                        { tooltip = "Class Colored", hasAlpha = false,
+                          getValue = function()
+                              local _, ct = UnitClass("player")
+                              local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                              if cc then return cc.r, cc.g, cc.b end
+                              return 1, 1, 1
+                          end,
+                          setValue = function() end,
+                          onClick = function() MSet("centerTextTargetSepClassColor", true) end,
+                          refreshAlpha = function() return MVal("centerTextTargetSepClassColor", false) and 1 or 0.3 end },
+                      } },
+                    { type="input", label="Separator", inputWidth=60,
+                      get=function() return MVal("centerTextTargetSep", ">") end,
+                      set=function(v)
+                          v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                          if v == "" then v = ">" end
+                          MSet("centerTextTargetSep", v)
+                      end,
+                      disabled=function() return MVal("centerTextContent","none") ~= "nametotarget" end,
+                      disabledTooltip="Only applies when Name > Target is selected." },
                                     },
             })
             local cogBtn = MCogBtn(rgn, cogShowFn)
@@ -12683,7 +13088,7 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="dropdown", text="Stack Direction", values={ up="Up", down="Down" }, order={ "up", "down" },
                       getValue=function() return db.profile.boss.bossStackDirection or "down" end,
                       setValue=function(v) db.profile.boss.bossStackDirection = v; ReloadAndUpdate() end },
-                    { type="slider", text="Vertical Spacing", min=-200, max=200, step=1,
+                    { type="slider", pixel=true, text="Vertical Spacing", min=-200, max=200, step=1,
                       getValue=function() return db.profile.bossSpacing or 80 end,
                       setValue=function(v) db.profile.bossSpacing = v; ReloadAndUpdate() end })
                 total = total + ch
@@ -12800,7 +13205,7 @@ initFrame:SetScript("OnEvent", function(self)
                           get=function() local _, y = ns.GetBossSimpleBuffOffset(db.profile.boss); return y end,
                           set=function(v) db.profile.boss.simpleBuffOffsetY = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                         -- Physical-pixel-perfect gap between the simple buff icons.
-                        { type="slider", label="Spacing", min=-1, max=10, step=1,
+                        { type="slider", pixel=true, label="Spacing", min=-1, max=10, step=1,
                           get=function() return db.profile.boss.simpleBuffSpacing or 1 end,
                           set=function(v) db.profile.boss.simpleBuffSpacing = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                     },
@@ -12934,7 +13339,7 @@ initFrame:SetScript("OnEvent", function(self)
                           get=function() local _, y = ns.GetBossSimpleDebuffOffset(db.profile.boss); return y end,
                           set=function(v) db.profile.boss.simpleDebuffOffsetY = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                         -- Physical-pixel-perfect gap between the simple debuff icons.
-                        { type="slider", label="Spacing", min=-1, max=10, step=1,
+                        { type="slider", pixel=true, label="Spacing", min=-1, max=10, step=1,
                           get=function() return db.profile.boss.simpleDebuffSpacing or 1 end,
                           set=function(v) db.profile.boss.simpleDebuffSpacing = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                     },
@@ -13106,7 +13511,7 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return db.profile.boss.buffOffsetY or 0 end,
                       set=function(v) db.profile.boss.buffOffsetY = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                     -- Physical-pixel-perfect gap between the boss buff icons.
-                    { type="slider", label="Spacing", min=-1, max=10, step=1,
+                    { type="slider", pixel=true, label="Spacing", min=-1, max=10, step=1,
                       get=function() return db.profile.boss.buffSpacing or 1 end,
                       set=function(v) db.profile.boss.buffSpacing = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                 } })
@@ -13131,7 +13536,7 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return db.profile.boss.debuffOffsetY or 0 end,
                       set=function(v) db.profile.boss.debuffOffsetY = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                     -- Physical-pixel-perfect gap between the boss debuff icons.
-                    { type="slider", label="Spacing", min=-1, max=10, step=1,
+                    { type="slider", pixel=true, label="Spacing", min=-1, max=10, step=1,
                       get=function() return db.profile.boss.debuffSpacing or 1 end,
                       set=function(v) db.profile.boss.debuffSpacing = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                 } })

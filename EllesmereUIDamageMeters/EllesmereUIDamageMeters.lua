@@ -452,6 +452,27 @@ local function WinDB(idx)
     return cfg.windows[idx]
 end
 
+-- Applies a window's saved position to its frame. Two stored formats:
+--   unlock format: { point, relPoint, x, y } -- relative to UIParent, written
+--                  by unlock mode's Save & Exit (CENTER/CENTER canonical form)
+--   legacy format: { x = left, y = top } -- TOPLEFT offset from UIParent's
+--                  BOTTOMLEFT, written by header drags outside unlock mode
+ns.ApplyWinPosition = function(frame, wdb, idx)
+    local pos = wdb.position
+    frame:ClearAllPoints()
+    if pos and pos.point then
+        frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+    elseif pos and pos.x and pos.y then
+        frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", pos.x, pos.y)
+    else
+        -- Default: 20px from bottom-right of screen, cascading per window
+        local uiW = UIParent:GetWidth()
+        local fw, fh = frame:GetSize()
+        frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT",
+            uiW - fw - 20 + (idx - 1) * 20, fh + 20 - (idx - 1) * 20)
+    end
+end
+
 -- Bookmarks are shared across all windows (stored in dm.bookmarks)
 local function GetBookmarks()
     local cfg = DB()
@@ -474,6 +495,98 @@ local _playerGUID
 local _windows = {}  -- array of active window tables
 ns._windows = _windows
 ns._DM_TYPE_NAMES = DM_TYPE_NAMES
+
+-------------------------------------------------------------------------------
+--  Unlock mode registration
+--  Each window is a first-class unlock element (EDM_Win1..N): the core mover
+--  system provides dragging, exact X/Y entry, anchor-to-element, and
+--  width/height matching. Keys are index-based and kept in sync with the
+--  compacted window array; window deletion re-keys stored anchor/match links
+--  via ShiftIndexedAnchorKeys (see W.Destroy). Called on login, window
+--  add/remove, and profile swap; slots beyond the live count are unregistered.
+-------------------------------------------------------------------------------
+ns.RegisterDMUnlock = function()
+    if not EUI or not EUI.RegisterUnlockElements or not EUI.MakeUnlockElement then return end
+    local MK = EUI.MakeUnlockElement
+    local function winOf(key)
+        local i = tonumber(string.match(key or "", "(%d+)$"))
+        return i and _windows[i], i
+    end
+    local elements = {}
+    for i = 1, #_windows do
+        elements[#elements + 1] = MK({
+            key   = "EDM_Win" .. i,
+            label = "Damage Meter " .. i,
+            group = "Damage Meters",
+            order = 650 + i,
+            getFrame = function(key)
+                local w = winOf(key)
+                return w and w.frame
+            end,
+            getSize = function(key)
+                local w, idx = winOf(key)
+                if w and w.frame then return w.frame:GetWidth(), w.frame:GetHeight() end
+                local wdb = idx and WinDB(idx)
+                return wdb and wdb.width or 375, wdb and wdb.height or 150
+            end,
+            setWidth = function(key, newW)
+                local w, idx = winOf(key)
+                if not w or not w.frame then return end
+                local PPu = EUI.PP
+                local v = math.max(MIN_W, newW or MIN_W)
+                v = PPu and PPu.Snap and PPu.Snap(v) or math.floor(v + 0.5)
+                w.frame:SetWidth(v)
+                if EUI._unlockActive then WinDB(idx).width = math.floor(v + 0.5) end
+                if w.FitTitle then w.FitTitle() end
+            end,
+            setHeight = function(key, newH)
+                local w, idx = winOf(key)
+                if not w or not w.frame then return end
+                local PPu = EUI.PP
+                local v = math.max(MIN_H, newH or MIN_H)
+                v = PPu and PPu.Snap and PPu.Snap(v) or math.floor(v + 0.5)
+                w.frame:SetHeight(v)
+                if EUI._unlockActive then WinDB(idx).height = math.floor(v + 0.5) end
+            end,
+            savePos = function(key, point, relPoint, x, y)
+                local w, idx = winOf(key)
+                if not idx then return end
+                WinDB(idx).position = { point = point, relPoint = relPoint or point, x = x, y = y }
+                if w and w.ApplyPosition and not EUI._unlockActive then w.ApplyPosition() end
+            end,
+            loadPos = function(key)
+                local _, idx = winOf(key)
+                local pos = idx and WinDB(idx).position
+                if not pos then return nil end
+                -- Return a copy: callers may hold or rebase the table, and the
+                -- live DB entry must never be mutated through it
+                if pos.point then
+                    return { point = pos.point, relPoint = pos.relPoint, x = pos.x, y = pos.y }
+                end
+                if pos.x and pos.y then
+                    -- Legacy drag format: TOPLEFT offset from UIParent's BOTTOMLEFT
+                    return { point = "TOPLEFT", relPoint = "BOTTOMLEFT", x = pos.x, y = pos.y }
+                end
+                return nil
+            end,
+            clearPos = function(key)
+                local _, idx = winOf(key)
+                if idx then WinDB(idx).position = nil end
+            end,
+            applyPos = function(key)
+                local w = winOf(key)
+                if w and w.ApplyPosition then w.ApplyPosition() end
+            end,
+        })
+    end
+    EUI:RegisterUnlockElements(elements, "EllesmereUIDamageMeters")
+    -- Drop registrations for window slots beyond the live count
+    if EUI.UnregisterUnlockElement then
+        for i = #_windows + 1, MAX_WINDOWS do
+            EUI:UnregisterUnlockElement("EDM_Win" .. i)
+        end
+    end
+end
 local _combatEndTime = 0       -- GetTime() at combat end; control-flow sentinel (ticker teardown / freeze-once)
 local _needsFinalRefresh = false
 local _curViewFrozenDur = 0    -- final Current-session duration, pinned when combat ends
@@ -2287,16 +2400,10 @@ local function CreateDMWindow(winIdx)
     frame:SetClampedToScreen(true); frame:SetMovable(true)
     W.frame = frame
 
-    if wdb.position and wdb.position.x and wdb.position.y then
-        frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", wdb.position.x, wdb.position.y)
-    else
-        local uiW, uiH = UIParent:GetSize()
-        local fw, fh = frame:GetSize()
-        -- Default: 20px from bottom-right of screen
-        local defX = uiW - fw - 20 + (winIdx - 1) * 20
-        local defY = fh + 20 - (winIdx - 1) * 20
-        frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", defX, defY)
-    end
+    ns.ApplyWinPosition(frame, wdb, winIdx)
+    -- Re-apply saved position (both storage formats). Used by unlock mode's
+    -- applyPosition callback; W.idx (not winIdx) so it survives re-indexing.
+    W.ApplyPosition = function() ns.ApplyWinPosition(frame, wdb, W.idx) end
 
     frame._bg = frame:CreateTexture(nil, "BACKGROUND")
     frame._bg:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -GetHeaderH())
@@ -2571,6 +2678,7 @@ local function CreateDMWindow(winIdx)
             _windows[newIdx2] = nw
             -- Persist count
             local c = DB(); c.windowCount = newIdx2
+            ns.RegisterDMUnlock()
             nw.ShowHome()
         else
             W.Destroy()
@@ -2762,6 +2870,11 @@ local function CreateDMWindow(winIdx)
                 wdb.position = { x = left, y = top }
                 frame:ClearAllPoints()
                 frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+                -- Manual placement overrides any unlock-mode anchor on this window
+                if EllesmereUIDB and EllesmereUIDB.unlockAnchors then
+                    EllesmereUIDB.unlockAnchors["EDM_Win" .. W.idx] = nil
+                end
+                if EUI.ScheduleSettleReapply then EUI.ScheduleSettleReapply() end
             end
         end
         local cx, cy = GetCursorPosition(); local es = frame:GetEffectiveScale()
@@ -2829,6 +2942,12 @@ local function CreateDMWindow(winIdx)
             wdb.position = { x = left, y = top }
             frame:ClearAllPoints()
             frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+            -- Manual placement overrides any unlock-mode anchor on this window
+            if EllesmereUIDB and EllesmereUIDB.unlockAnchors then
+                EllesmereUIDB.unlockAnchors["EDM_Win" .. W.idx] = nil
+            end
+            -- Reposition elements anchored to this window
+            if EUI.ScheduleSettleReapply then EUI.ScheduleSettleReapply() end
         end
     end)
 
@@ -3059,6 +3178,13 @@ local function CreateDMWindow(winIdx)
         if button ~= "LeftButton" or not W.resizing then return end
         W.resizing = false; resizeFrame:Hide()
         wdb.width = math.floor(frame:GetWidth() + 0.5); wdb.height = math.floor(frame:GetHeight() + 0.5)
+        -- Resize pins the TOPLEFT corner, so a point-based position saved by
+        -- unlock mode (e.g. CENTER-anchored) no longer describes this spot.
+        -- Re-save in TOPLEFT drag format to match the pinned corner exactly.
+        if wdb.position and wdb.position.point then
+            local left, top = frame:GetLeft(), frame:GetTop()
+            if left and top then wdb.position = { x = left, y = top } end
+        end
         W.UpdateSticky(nil, W.visibleCount)
         -- Refresh home screen card widths one frame after resize
         if homeFrame and homeFrame:IsShown() then
@@ -3117,84 +3243,6 @@ local function CreateDMWindow(winIdx)
         -- Hook bar rows so entering from the content area starts the poll
         for _, bar in ipairs(W.rowPool) do bar.row:HookScript("OnEnter", StartHoverPoll) end
         if W.stickyPlayer then W.stickyPlayer.row:HookScript("OnEnter", StartHoverPoll) end
-    end
-
-    ---------------------------------------------------------------------------
-    --  Unlock mode overlay
-    ---------------------------------------------------------------------------
-    local unlockOverlay = CreateFrame("Button", nil, frame)
-    unlockOverlay:SetAllPoints(frame); unlockOverlay:SetFrameStrata("DIALOG"); unlockOverlay:SetFrameLevel(999)
-    unlockOverlay:SetClampedToScreen(true); unlockOverlay:SetMovable(true); unlockOverlay:EnableMouse(true)
-    unlockOverlay:RegisterForDrag("LeftButton"); unlockOverlay:Hide()
-    local ovBg = unlockOverlay:CreateTexture(nil, "BACKGROUND"); ovBg:SetAllPoints(); ovBg:SetColorTexture(0.075, 0.113, 0.141, 0.85)
-    local ar, ag, ab = GetAccentRGB()
-    local ovBrd = EUI.MakeBorder and EUI.MakeBorder(unlockOverlay, ar, ag, ab, 0.6)
-    unlockOverlay:HookScript("OnEnter", function() if ovBrd then ovBrd:SetColor(1, 1, 1, 0.9) end end)
-    unlockOverlay:HookScript("OnLeave", function() if ovBrd then ovBrd:SetColor(ar, ag, ab, 0.6) end end)
-    local ovFont = EUI.EXPRESSWAY or (EUI.GetFontPath and EUI.GetFontPath("damageMeters")) or "Fonts\\FRIZQT__.TTF"
-    local labelFr = CreateFrame("Frame", nil, unlockOverlay); labelFr:SetAllPoints(); labelFr:SetFrameLevel(unlockOverlay:GetFrameLevel() + 3)
-    local ovLabel = labelFr:CreateFontString(nil, "OVERLAY")
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(ovLabel, true) end
-    ovLabel:SetFont(ovFont, 10, "")
-    ovLabel:SetPoint("CENTER")
-    ovLabel:SetText(L("Damage Meters")); ovLabel:SetTextColor(1, 1, 1, 0.9)
-
-    -- Overlay absorbs clicks to block interaction with the window beneath.
-    -- Dragging the overlay uses the same snap logic as the header drag.
-    unlockOverlay:EnableMouse(true)
-    unlockOverlay:RegisterForClicks("AnyUp")
-    unlockOverlay:SetScript("OnClick", function() end)  -- absorb clicks
-    unlockOverlay:SetScript("OnMouseDown", function(_, button)
-        if button ~= "LeftButton" then return end
-        local cx, cy = GetCursorPosition(); local es = frame:GetEffectiveScale()
-        dragStartCX = cx/es; dragStartCY = cy/es
-        dragStartLeft = frame:GetLeft(); dragStartTop = frame:GetTop()
-        if not dragStartLeft or not dragStartTop then return end
-        dragging = true; dragFrame:Show()
-    end)
-    unlockOverlay:SetScript("OnMouseUp", function(_, button)
-        if button ~= "LeftButton" or not dragging then return end
-        dragging = false; dragFrame:Hide()
-        local left, top = frame:GetLeft(), frame:GetTop()
-        if left and top then
-            if PP and PP.Snap then left = PP.Snap(left); top = PP.Snap(top) end
-            wdb.position = { x = left, y = top }
-            frame:ClearAllPoints()
-            frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-        end
-    end)
-
-    local MOVER_DELAY, MOVER_FADE = 0.50, 0.75
-    local fadeElapsed = 0
-    unlockOverlay:SetAlpha(0)
-    local unlockFadeFrame = CreateFrame("Frame")
-    unlockFadeFrame:Hide()
-    unlockFadeFrame:SetScript("OnUpdate", function(self, dt)
-        fadeElapsed = fadeElapsed + dt
-        local t = fadeElapsed - MOVER_DELAY
-        local a = t > 0 and math.min(1, t / MOVER_FADE) or 0
-        unlockOverlay:SetAlpha(a)
-        if a >= 1 then self:Hide() end
-    end)
-
-    W._unlockOpen = function()
-        fadeElapsed = 0; unlockOverlay:SetAlpha(0); unlockOverlay:Show()
-        unlockFadeFrame:Show()
-        -- Raise resize + lock above the overlay
-        W.resizeGrip:SetFrameStrata("DIALOG"); W.resizeGrip:SetFrameLevel(1000)
-        W.lockBtn:SetFrameStrata("DIALOG"); W.lockBtn:SetFrameLevel(1001)
-    end
-    W._unlockClose = function()
-        unlockFadeFrame:Hide()
-        unlockOverlay:Hide(); unlockOverlay:SetAlpha(0)
-        -- Restore resize + lock to normal strata
-        W.resizeGrip:SetFrameStrata("HIGH"); W.resizeGrip:SetFrameLevel(frame:GetFrameLevel() + 15)
-        W.lockBtn:SetFrameStrata("HIGH"); W.lockBtn:SetFrameLevel(frame:GetFrameLevel() + 16)
-        local left, top = frame:GetLeft(), frame:GetTop()
-        if left and top then
-            frame:ClearAllPoints(); frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-            wdb.position = { x = left, y = top }
-        end
     end
 
     ---------------------------------------------------------------------------
@@ -4256,23 +4304,30 @@ local function CreateDMWindow(winIdx)
     ---------------------------------------------------------------------------
     function W.Destroy()
         if W._hoverTicker then W._hoverTicker:Cancel() end
-        unlockFadeFrame:SetScript("OnUpdate", nil)
         resizeFrame:SetScript("OnUpdate", nil)
         -- Unregister from global visibility system (prevents ghost resurrection)
         if EUI.UnregisterVisibilityUpdater then EUI.UnregisterVisibilityUpdater(W.UpdateVisibility) end
         frame:Hide(); frame:SetParent(nil)
         -- Remove from runtime array
+        local oldCount = #_windows
         local runtimeIdx
         for i, w in ipairs(_windows) do if w == W then runtimeIdx = i; break end end
         if runtimeIdx then table.remove(_windows, runtimeIdx) end
-        -- Compact DB: remove entry and shift remaining down (no holes)
+        -- Compact DB: remove entry and shift remaining down (no holes).
+        -- W.idx (not the winIdx upvalue) -- prior deletions may have shifted
+        -- this window's slot since creation.
+        local removedIdx = runtimeIdx or W.idx
         local c = DB()
         if c.windows then
-            table.remove(c.windows, winIdx)
+            table.remove(c.windows, removedIdx)
             c.windowCount = #c.windows
         end
         -- Update remaining windows' idx to match their new DB position
         for i, w in ipairs(_windows) do w.idx = i end
+        -- Re-key unlock anchor/size-match links for the shifted window set and
+        -- refresh registrations (drops the now-stale highest EDM_Win slot)
+        if EUI.ShiftIndexedAnchorKeys then EUI.ShiftIndexedAnchorKeys("EDM_Win", removedIdx, oldCount) end
+        ns.RegisterDMUnlock()
     end
 
 
@@ -4417,11 +4472,7 @@ end
 
 ns.ApplyDMPosition = function()
     for _, w in ipairs(_windows) do
-        local wdb = WinDB(w.idx)
-        if w.frame and wdb.position and wdb.position.x and wdb.position.y then
-            w.frame:ClearAllPoints()
-            w.frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", wdb.position.x, wdb.position.y)
-        end
+        if w.ApplyPosition then w.ApplyPosition() end
     end
 end
 
@@ -4961,6 +5012,8 @@ initFrame:SetScript("OnEvent", function(self)
     local function CreateNextWindow()
         winIdx = winIdx + 1
         if winIdx > winCount then
+            -- All windows exist: register them with the core unlock mode system
+            ns.RegisterDMUnlock()
             if cfg.standaloneTimer then CreateSATimer() end
             if _inCombat and not _sharedTicker then StartSharedTicker() end
             -- Pre-create tooltip frame so first hover doesn't pay creation cost
@@ -4973,13 +5026,6 @@ initFrame:SetScript("OnEvent", function(self)
         C_Timer.After(0, CreateNextWindow)
     end
     C_Timer.After(0, CreateNextWindow)
-    -- Unlock mode hooks (notify all DM windows)
-    _G._EDM_UnlockModeOpen = function()
-        for _, w in ipairs(_windows) do if w._unlockOpen then w._unlockOpen() end end
-    end
-    _G._EDM_UnlockModeClose = function()
-        for _, w in ipairs(_windows) do if w._unlockClose then w._unlockClose() end end
-    end
 
     -- Profile swap rebuild: tear down all windows and recreate from new profile
     _G._EDM_Apply = function()
@@ -5014,6 +5060,8 @@ initFrame:SetScript("OnEvent", function(self)
         for i = 1, wc do
             _windows[i] = CreateDMWindow(i)
         end
+        -- Refresh unlock registrations for the new profile's window count
+        ns.RegisterDMUnlock()
         -- Recreate standalone timer if enabled
         if c.standaloneTimer then CreateSATimer() end
         -- Update tooltip scale

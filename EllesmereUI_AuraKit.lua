@@ -147,6 +147,16 @@ local function GetStyleSet(styleKey)
     return set
 end
 
+-- Style keys whose apply hit a denied button call while auras were secret.
+-- 12.1 (build 68745+): engine aura buttons carry the
+-- DenyTaintedAccessWhenAurasAreSecret access restriction, applied by the
+-- engine immediately AFTER initializeFrame returns -- so creation-window
+-- decoration is always legal, but post-creation reads/writes on the BUTTON
+-- object from addon code are rejected in secret contexts (our own child
+-- regions stay writable). Deferred keys re-queue when the restriction
+-- lifts; see the lift watcher below the restyle worker.
+local deferredRestyles = {}
+
 local function ApplyStyleToRegions(button, style)
     local d = bd[button]
     if not d then return end
@@ -158,8 +168,11 @@ local function ApplyStyleToRegions(button, style)
     local w = style.width or 32
     local h = style.height or style.width or 32
     if d.appliedW ~= w or d.appliedH ~= h then
-        d.appliedW, d.appliedH = w, h
+        -- Stamp AFTER the call: SetSize on the button is denied while auras
+        -- are secret, and a pre-stamped failure would make the
+        -- restriction-lift retry skip the resize as "unchanged".
         button:SetSize(w, h)
+        d.appliedW, d.appliedH = w, h
     end
 
     if d.icon then
@@ -182,12 +195,20 @@ local function ApplyStyleToRegions(button, style)
 
     -- Modules with their own text pipeline (fonts, anchors, outline rules) set
     -- noDefaultFonts and do all text styling in style.applyExtra instead.
+    -- Text anchors are change-guarded (stamp AFTER the calls): SetPoint
+    -- with the button as the relative frame is policed by the 12.1 button
+    -- access restriction while auras are secret, and unchanged anchors must
+    -- make zero button-involving calls so restyles stay live in-instance.
     if d.stack and not style.noDefaultFonts then
         local f = style.stackFont or STANDARD_TEXT_FONT
         d.stack:SetFont(f, style.stackFontSize or 12, style.stackFontFlags or "OUTLINE")
-        d.stack:ClearAllPoints()
-        d.stack:SetPoint(style.stackPoint or "BOTTOMRIGHT", button, style.stackPoint or "BOTTOMRIGHT",
-            style.stackX or 2, style.stackY or -2)
+        local sp = style.stackPoint or "BOTTOMRIGHT"
+        local sKey = sp .. "|" .. (style.stackX or 2) .. "|" .. (style.stackY or -2)
+        if d.akStackAnchor ~= sKey then
+            d.stack:ClearAllPoints()
+            d.stack:SetPoint(sp, button, sp, style.stackX or 2, style.stackY or -2)
+            d.akStackAnchor = sKey
+        end
         local c = style.stackColor
         if c then d.stack:SetTextColor(c[1], c[2], c[3], c[4] or 1) end
     end
@@ -196,9 +217,14 @@ local function ApplyStyleToRegions(button, style)
         if not style.noDefaultFonts then
             local f = style.durationFont or STANDARD_TEXT_FONT
             d.duration:SetFont(f, style.durationFontSize or 11, style.durationFontFlags or "OUTLINE")
-            d.duration:ClearAllPoints()
-            d.duration:SetPoint(style.durationPoint or "TOP", button, style.durationRelPoint or "BOTTOM",
-                style.durationX or 0, style.durationY or -2)
+            local dp = style.durationPoint or "TOP"
+            local drp = style.durationRelPoint or "BOTTOM"
+            local aKey = dp .. "|" .. drp .. "|" .. (style.durationX or 0) .. "|" .. (style.durationY or -2)
+            if d.akDurAnchor ~= aKey then
+                d.duration:ClearAllPoints()
+                d.duration:SetPoint(dp, button, drp, style.durationX or 0, style.durationY or -2)
+                d.akDurAnchor = aKey
+            end
         end
         -- The engine keeps writing the text either way; visibility is ours.
         d.duration:SetShown(not style.hideDurationText)
@@ -243,18 +269,35 @@ local function ApplyStyleToRegions(button, style)
         -- inward) and reads as the border recoloring.
         local w = style.width or 18
         local h = style.height or w
-        d.dispelBorder:ClearAllPoints()
-        d.dispelBorder:SetPoint("TOPLEFT", button, "TOPLEFT", -0.0926 * w, 0.0926 * h)
-        d.dispelBorder:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0.0926 * w, -0.0926 * h)
+        -- Rect change-guarded (stamp after): the button is the relative
+        -- frame, policed under the 12.1 access restriction while secret.
+        local rectKey = w .. "|" .. h
+        if d.dispelBorderRect ~= rectKey then
+            d.dispelBorder:ClearAllPoints()
+            d.dispelBorder:SetPoint("TOPLEFT", button, "TOPLEFT", -0.0926 * w, 0.0926 * h)
+            d.dispelBorder:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0.0926 * w, -0.0926 * h)
+            d.dispelBorderRect = rectKey
+        end
         local want = (style.dispelBorder and style.border) and true or false
         if d.dispelBorderOn ~= want then
-            d.dispelBorderOn = want
+            -- Stamp only on SUCCESS: these are button calls, denied while
+            -- auras are secret; a pre-stamped failure would strand the
+            -- registration in the wrong state after the restriction lifts.
+            -- A restricted failure defers this style key to the lift drain.
             if want then
-                pcall(button.SetAuraBorder, button, d.dispelBorder,
-                    { style = AuraButtonBorderStyle.Color, showWhenHarmful = true, showWhenHelpful = false })
+                if pcall(button.SetAuraBorder, button, d.dispelBorder,
+                    { style = AuraButtonBorderStyle.Color, showWhenHarmful = true, showWhenHelpful = false }) then
+                    d.dispelBorderOn = want
+                elseif d.styleKey and AK.AurasRestricted() then
+                    deferredRestyles[d.styleKey] = true
+                end
             else
-                pcall(button.ClearAuraBorder, button)
-                d.dispelBorder:Hide()
+                if pcall(button.ClearAuraBorder, button) then
+                    d.dispelBorder:Hide()
+                    d.dispelBorderOn = want
+                elseif d.styleKey and AK.AurasRestricted() then
+                    deferredRestyles[d.styleKey] = true
+                end
             end
         end
     end
@@ -404,11 +447,26 @@ restyler:SetScript("OnUpdate", function(self)
             local w = restyleWork
             local style = AK.styles[w.key]
             local n = #w.buttons
+            local restricted = AK.AurasRestricted()
             while budget > 0 and w.index <= n do
-                if style then
-                    ApplyStyleToRegions(w.buttons[w.index], style)
-                end
+                local button = w.buttons[w.index]
+                -- Advance BEFORE applying: an error must never wedge the
+                -- queue on one button. (Field incident, 12.1 build 68745:
+                -- a denied button call under aura secrecy retried the same
+                -- button every frame forever -- a 1298-error storm.)
                 w.index = w.index + 1
+                if style then
+                    local ok, err = pcall(ApplyStyleToRegions, button, style)
+                    if not ok then
+                        if restricted then
+                            -- Expected under secrecy: button-object writes
+                            -- are denied. Re-run the whole key at lift.
+                            deferredRestyles[w.key] = true
+                        else
+                            geterrorhandler()(err)
+                        end
+                    end
+                end
                 budget = budget - 1
             end
             if w.index > n then restyleWork = nil end
@@ -420,6 +478,51 @@ function AK.RestyleSoon(styleKey)
     restyleQueue[styleKey] = true
     restyler:Show()
 end
+
+-- Module hook: park a style key for the restriction-lift drain WITHOUT
+-- queueing it now. For module-side pcall'd button calls that were denied
+-- under secrecy -- re-queueing immediately would just spin while the
+-- restriction holds; the lift watcher re-runs the key when it can succeed.
+function AK.DeferRestyle(styleKey)
+    if styleKey then deferredRestyles[styleKey] = true end
+end
+
+------------------------------------------------------------------------------
+-- Restriction-lift watcher. Aura secrecy is instance-gated (combat end,
+-- encounter end, zoning) plus the /euidev forced-restriction CVars; on each
+-- edge, re-probe and drain the deferred restyles. Fail-open: still
+-- restricted just means wait for the next edge. Modules with their own
+-- deferred (skipped-without-stamping) work register a callback; callbacks
+-- must self-guard with a dirty flag so idle firings cost one boolean test.
+------------------------------------------------------------------------------
+
+local liftCallbacks = {}
+function AK.OnRestrictionLift(fn)
+    liftCallbacks[#liftCallbacks + 1] = fn
+end
+
+local liftWatcher = CreateFrame("Frame")
+liftWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+liftWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+liftWatcher:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+liftWatcher:RegisterEvent("ENCOUNTER_END")
+liftWatcher:RegisterEvent("CVAR_UPDATE")
+liftWatcher:SetScript("OnEvent", function(_, event, cvarName)
+    if event == "CVAR_UPDATE" and cvarName
+        and not string.find(cvarName, "RestrictionsForced", 1, true) then
+        return
+    end
+    if not next(deferredRestyles) and #liftCallbacks == 0 then return end
+    if AK.AurasRestricted() then return end
+    for key in pairs(deferredRestyles) do
+        deferredRestyles[key] = nil
+        restyleQueue[key] = true
+        restyler:Show()
+    end
+    for i = 1, #liftCallbacks do
+        liftCallbacks[i]()
+    end
+end)
 
 ------------------------------------------------------------------------------
 -- Container creation

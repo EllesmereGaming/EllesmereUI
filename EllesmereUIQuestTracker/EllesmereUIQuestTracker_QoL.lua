@@ -128,22 +128,25 @@ end
 local function ScanForQuestItem()
     if not C_QuestLog then return nil end
     local num = C_QuestLog.GetNumQuestLogEntries() or 0
+    local fallback = nil
     for i = 1, num do
         local info = C_QuestLog.GetInfo(i)
         if info and not info.isHeader and info.questID then
-            local qID = info.questID
-            local wt = C_QuestLog.GetQuestWatchType and C_QuestLog.GetQuestWatchType(qID)
-            if wt ~= nil then
-                local logIdx = C_QuestLog.GetLogIndexForQuestID and C_QuestLog.GetLogIndexForQuestID(qID) or i
-                local link, itemTex = GetQuestLogSpecialItemInfo(logIdx)
-                if link then
-                    local name = link:match("%[(.-)%]")
-                    if name then return name end
+            local logIdx = C_QuestLog.GetLogIndexForQuestID
+                and C_QuestLog.GetLogIndexForQuestID(info.questID) or i
+            local link = GetQuestLogSpecialItemInfo(logIdx)
+            if link then
+                local name = link:match("%[(.-)%]")
+                if name then
+                    local wt = C_QuestLog.GetQuestWatchType
+                        and C_QuestLog.GetQuestWatchType(info.questID)
+                    if wt ~= nil then return name end
+                    fallback = fallback or name
                 end
             end
         end
     end
-    return nil
+    return fallback
 end
 
 local function InstallQuestItemHotkey()

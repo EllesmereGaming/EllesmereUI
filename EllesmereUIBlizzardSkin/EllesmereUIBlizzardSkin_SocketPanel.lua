@@ -190,6 +190,16 @@ end
 
 local function SafeCloseSession()
     if CloseSocketFn then CloseSocketFn() end
+    -- Fallback for a missing/renamed close API (the probed name is a silent
+    -- no-op then, which left the session window lingering open and empty
+    -- after a strip replace): hide the panel; the window's own OnHide handler
+    -- ends the session. The window itself stays fully visible/interactive
+    -- while it exists -- an invisible live session would block gem clicks
+    -- with no way for the user to close it.
+    local f = _G.ItemSocketingFrame
+    if f and f:IsShown() and not InCombatLockdown() and HideUIPanel then
+        HideUIPanel(f)
+    end
 end
 
 local RebuildSockets   -- forward declaration
@@ -924,7 +934,7 @@ local function BuildPanel()
 end
 
 local function OnPaperDollShow()
-    if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+    if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
     if EllesmereUIDB and EllesmereUIDB.charSheetSocketPanel == false then
         if panel then panel:Hide() end
         return

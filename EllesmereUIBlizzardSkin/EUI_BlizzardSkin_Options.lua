@@ -1708,6 +1708,27 @@ initFrame:SetScript("OnEvent", function(self)
         local searchNameLoc = L(win.title) .. " " .. L(win.desc or "")
         if searchNameLoc ~= searchName then hdr._sectionNameLoc = searchNameLoc end
 
+        -- Global (sidebar) search: the card header never goes through
+        -- SectionHeader, so the index would otherwise have no entry for it --
+        -- searching a window's title/description found it inline but not in
+        -- the sidebar results. Register it with the same title + description
+        -- keywords the inline pseudo-section matches (title as the display
+        -- label, description via the tooltip field, which the fuzzy scorer
+        -- also searches). section = the exact joined string stamped above, so
+        -- a jump scrolls to and glows this header; the page's
+        -- NavigateToElementSettings pre-hook expands the cards first.
+        if EllesmereUI._RegisterSearchEntry then
+            local titleLoc = L(win.title)
+            local descSearch = win.desc or ""
+            local descLoc = L(win.desc or "")
+            if descLoc ~= descSearch then descSearch = descSearch .. " " .. descLoc end
+            EllesmereUI._RegisterSearchEntry(win.title,
+                titleLoc ~= win.title and titleLoc or nil,
+                descSearch,
+                EllesmereUI._buildingModule, EllesmereUI._buildingPage,
+                searchName, nil, nil, true)
+        end
+
         -- Hover wash (transparent when idle; the card bg below provides the fill)
         local hbg = EllesmereUI.SolidTex(hdr, "BACKGROUND", 0, 0, 0, 0)
         hbg:SetAllPoints()
@@ -1859,6 +1880,152 @@ initFrame:SetScript("OnEvent", function(self)
         return y - WS_CARD_GAP
     end
 
+    -- Per-profile master kill switch (the ONLY per-profile setting in this
+    -- section): profile-root key disableWindowSkins, resolved live by
+    -- EllesmereUI.BlizzWindowSkinsKilled(). Skins install at load, so every
+    -- toggle shows the reload popup.
+    local function WSKillSwitchSet(disabled)
+        local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+        if not prof then return end
+        prof.disableWindowSkins = disabled and true or nil
+        -- Structural change (settings <-> hero takeover): force a rebuild,
+        -- a plain refresh only re-reads widget values on the cached page.
+        EllesmereUI:RefreshPage(true)
+        WSReloadPopup(disabled
+            and "Window skins are now disabled for this profile. A UI reload is required to restore the stock Blizzard windows."
+            or "Window skins are now enabled for this profile. A UI reload is required to apply them.")
+    end
+
+    -- Feature hero shown INSTEAD of the page content while window skins are
+    -- disabled for this profile: the intro popup's art (three mini windows,
+    -- eyebrow, bullets) rebuilt inline, with one big Enable button.
+    local function BuildWindowSkinsDisabledHero(parent, yOffset)
+        local PP = EllesmereUI.PanelPP
+        local EG = EllesmereUI.ELLESMERE_GREEN
+        local L  = EllesmereUI.L
+        local MakeBorder = EllesmereUI.MakeBorder
+        local FONT = EllesmereUI._font or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
+
+        local HERO_H = 470
+        local host = CreateFrame("Frame", nil, parent)
+        PP.Size(host, parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2, HERO_H)
+        PP.Point(host, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, yOffset - 24)
+
+        -- Three mini Blizzard "windows" with colored title bars (the intro
+        -- popup's header visual): center one scaled up with a resize grip.
+        local CARD_W, CARD_H, CARD_GAP = 124, 52, 14
+        local titleColors = {
+            { EG.r, EG.g, EG.b },
+            { 0.25, 0.50, 0.90 },
+            { 0.64, 0.39, 0.93 },
+        }
+        for i = 1, 3 do
+            local isCenter = (i == 2)
+            local w = CARD_W
+            local ch = isCenter and (CARD_H + 10) or CARD_H
+            local card = CreateFrame("Frame", nil, host)
+            card:SetFrameLevel(host:GetFrameLevel() + 1)
+            PP.Size(card, w, ch)
+            PP.Point(card, "CENTER", host, "TOP", (i - 2) * (CARD_W + CARD_GAP), -64)
+            local cbg = card:CreateTexture(nil, "BACKGROUND")
+            cbg:SetAllPoints()
+            cbg:SetColorTexture(0.12, 0.13, 0.15, 1)
+            local c = titleColors[i]
+            local bar = card:CreateTexture(nil, "ARTWORK")
+            bar:SetColorTexture(c[1], c[2], c[3], isCenter and 0.95 or 0.75)
+            bar:SetHeight(8)
+            PP.Point(bar, "TOPLEFT", card, "TOPLEFT", 1, -1)
+            PP.Point(bar, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
+            if bar.SetSnapToPixelGrid then bar:SetSnapToPixelGrid(false); bar:SetTexelSnappingBias(0) end
+            local dot = card:CreateTexture(nil, "OVERLAY")
+            dot:SetColorTexture(0, 0, 0, 0.4)
+            PP.Size(dot, 4, 4)
+            PP.Point(dot, "RIGHT", bar, "RIGHT", -3, 0)
+            local l1 = card:CreateTexture(nil, "ARTWORK")
+            l1:SetColorTexture(1, 1, 1, isCenter and 0.42 or 0.32)
+            PP.Size(l1, w - 26, 5)
+            PP.Point(l1, "TOPLEFT", card, "TOPLEFT", 13, -18)
+            local l2 = card:CreateTexture(nil, "ARTWORK")
+            l2:SetColorTexture(1, 1, 1, 0.18)
+            PP.Size(l2, w - 46, 5)
+            PP.Point(l2, "TOPLEFT", l1, "BOTTOMLEFT", 0, -7)
+            if isCenter then
+                local l3 = card:CreateTexture(nil, "ARTWORK")
+                l3:SetColorTexture(1, 1, 1, 0.14)
+                PP.Size(l3, w - 66, 5)
+                PP.Point(l3, "TOPLEFT", l2, "BOTTOMLEFT", 0, -7)
+                local grip = card:CreateTexture(nil, "OVERLAY")
+                grip:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
+                PP.Size(grip, 5, 5)
+                PP.Point(grip, "BOTTOMRIGHT", card, "BOTTOMRIGHT", -2, 2)
+            end
+            MakeBorder(card, 1, 1, 1, isCenter and 0.16 or 0.10, PP)
+        end
+
+        local eyebrow = host:CreateFontString(nil, "OVERLAY")
+        eyebrow:SetFont(FONT, 13, "")
+        eyebrow:SetTextColor(EG.r, EG.g, EG.b, 0.9)
+        PP.Point(eyebrow, "TOP", host, "TOP", 0, -122)
+        eyebrow:SetText(L("EUI FEATURE"))
+
+        local title = host:CreateFontString(nil, "OVERLAY")
+        title:SetFont(FONT, 25, "")
+        title:SetTextColor(1, 1, 1, 1)
+        PP.Point(title, "TOP", eyebrow, "BOTTOM", 0, -6)
+        title:SetText(L("Blizzard Window Skinning"))
+
+        local desc = host:CreateFontString(nil, "OVERLAY")
+        desc:SetFont(FONT, 15, "")
+        desc:SetTextColor(1, 1, 1, 0.5)
+        desc:SetWidth(430)
+        desc:SetJustifyH("CENTER")
+        desc:SetWordWrap(true)
+        PP.Point(desc, "TOP", title, "BOTTOM", 0, -12)
+        desc:SetText(L("Blizzard's windows match the EllesmereUI theme with a WoW 2.0 Dark Theme, from the Dungeon Journal to the Auction House and beyond."))
+
+        local BULLETS = {
+            "Every major Blizzard window themed to match EUI",
+            "Recolor the theme to any color and opacity you like",
+            "Scale any window larger or smaller with Shifter",
+        }
+        local prev
+        for i, text in ipairs(BULLETS) do
+            local bl = host:CreateFontString(nil, "OVERLAY")
+            bl:SetFont(FONT, 14, "")
+            bl:SetTextColor(1, 1, 1, 0.72)
+            bl:SetJustifyH("LEFT")
+            if i == 1 then
+                PP.Point(bl, "TOP", host, "TOP", -20, -252)
+                bl:SetPoint("LEFT", host, "CENTER", -160, 0)
+            else
+                PP.Point(bl, "TOPLEFT", prev, "BOTTOMLEFT", 0, -10)
+            end
+            bl:SetText(L(text))
+            local bdot = host:CreateTexture(nil, "OVERLAY")
+            bdot:SetColorTexture(EG.r, EG.g, EG.b, 1)
+            PP.Size(bdot, 5, 5)
+            PP.Point(bdot, "RIGHT", bl, "LEFT", -10, 0)
+            prev = bl
+        end
+
+        local enableBtn = CreateFrame("Button", nil, host)
+        PP.Size(enableBtn, 220, 40)
+        PP.Point(enableBtn, "TOP", host, "TOP", 0, -344)
+        enableBtn:SetFrameLevel(host:GetFrameLevel() + 2)
+        EllesmereUI.MakeStyledButton(enableBtn, "Enable Window Skins", 15,
+            EllesmereUI.WB_COLOURS, function() WSKillSwitchSet(false) end)
+
+        local footnote = host:CreateFontString(nil, "OVERLAY")
+        footnote:SetFont(FONT, 12, "")
+        footnote:SetTextColor(1, 1, 1, 0.35)
+        PP.Point(footnote, "TOP", enableBtn, "BOTTOM", 0, -12)
+        footnote:SetText(L("Window skins are currently disabled for this profile."))
+
+        -- Builders return the page's total HEIGHT (positive), same as the
+        -- normal page's math.abs(y) tail.
+        return math.abs(yOffset - 24 - HERO_H)
+    end
+
     local function BuildWindowSkinsPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local PP = EllesmereUI.PanelPP
@@ -1867,6 +2034,12 @@ initFrame:SetScript("OnEvent", function(self)
         local _, h
 
         parent._showRowDivider = true
+
+        -- Per-profile kill switch takeover: while window skins are disabled
+        -- for this profile, hide every setting and show the feature hero.
+        if EllesmereUI.BlizzWindowSkinsKilled and EllesmereUI.BlizzWindowSkinsKilled() then
+            return BuildWindowSkinsDisabledHero(parent, yOffset)
+        end
 
         _, h = W:Spacer(parent, y, 14);  y = y - h
 
@@ -1879,6 +2052,21 @@ initFrame:SetScript("OnEvent", function(self)
         local intro = EllesmereUI.MakeFont(introHost, 13, nil, 1, 1, 1, 0.5)
         PP.Point(intro, "TOP", introHost, "TOP", 0, 0)
         intro:SetText(L("Pick a style for all reskinned Blizzard windows."))
+
+        -- Per-profile master switch (top right; the only per-profile setting
+        -- in this section). One step below Blizz Default: no-ops the whole
+        -- window engine + CharacterSheet/Inspect + LFG skinning. Reload-bound.
+        local disBtn = CreateFrame("Button", nil, introHost)
+        PP.Size(disBtn, 160, 24)
+        PP.Point(disBtn, "RIGHT", introHost, "RIGHT", 0, 0)
+        disBtn:SetFrameLevel(introHost:GetFrameLevel() + 3)
+        EllesmereUI.MakeStyledButton(disBtn, "Disable Window Skins", 11,
+            EllesmereUI.WB_COLOURS, function() WSKillSwitchSet(true) end)
+        disBtn:HookScript("OnEnter", function(s)
+            EllesmereUI.ShowWidgetTooltip(s, L("Turns off ALL window skinning for this profile. Requires a reload."))
+        end)
+        disBtn:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
         y = y - 28
 
         -- Set-all row: pick a style, then push it to every window below. The
@@ -2087,12 +2275,12 @@ initFrame:SetScript("OnEvent", function(self)
             { type = "slider", text = "Width", min = 80, max = 600, step = 1,
               getValue = function() return EDR_Cfg("width") end,
               setValue = function(v) EDR_Set("width", v); EDR_Rebuild() end },
-            { type = "slider", text = "Element Spacing", min = 0, max = 12, step = 1,
+            { type = "slider", pixel = true, text = "Element Spacing", min = 0, max = 12, step = 1,
               getValue = function() return EDR_Cfg("gap") end,
               setValue = function(v) EDR_Set("gap", v); EDR_Rebuild() end }
         ); y = y - h
         _, h = W:DualRow(parent, y,
-            { type = "slider", text = "Stack Spacing", min = 0, max = 10, step = 1,
+            { type = "slider", pixel = true, text = "Stack Spacing", min = 0, max = 10, step = 1,
               getValue = function() return EDR_Cfg("stackSpacing") end,
               setValue = function(v) EDR_Set("stackSpacing", v); EDR_Rebuild() end },
             { type = "toggle", text = "Show Icon Cooldown Text",
@@ -2260,6 +2448,12 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUIDragonRidingDB then
                 EllesmereUIDragonRidingDB.profiles = nil
                 EllesmereUIDragonRidingDB.profileKeys = nil
+            end
+            -- Per-profile master kill switch: reset re-enables skins for the
+            -- ACTIVE profile (other profiles keep their own choice).
+            do
+                local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+                if prof then prof.disableWindowSkins = nil end
             end
             if EllesmereUIDB then
                 EllesmereUIDB.customTooltips = nil

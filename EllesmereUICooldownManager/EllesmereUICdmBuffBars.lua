@@ -6,6 +6,7 @@
 --------------------------------------------------------------------------------
 local _, ns = ...
 
+local ceil    = math.ceil
 local floor   = math.floor
 local format  = string.format
 local GetTime = GetTime
@@ -94,9 +95,14 @@ ns.TBB_TEXTURE_NAMES = TBB_TEXTURE_NAMES
 --  Shared Helpers
 -------------------------------------------------------------------------------
 local function FormatTime(remaining)
+    -- Whole SECONDS display uses ceil, matching Blizzard's aura timers: a buff
+    -- with 16.5s left reads "17", not "16". Flooring the seconds showed every
+    -- buff one second below Blizzard's frame (reported/verified for Aug Evoker
+    -- Ebon Might). Minutes/hours stay floor -- their round-up isn't verified
+    -- against Blizzard and buffs seldom sit that high. Sub-10s keeps tenths.
     if remaining >= 3600 then return format("%dh", floor(remaining / 3600)) end
     if remaining >= 60   then return format("%dm", floor(remaining / 60))   end
-    if remaining >= 10   then return format("%d",  floor(remaining))        end
+    if remaining >= 10   then return format("%d",  ceil(remaining))         end
     return format("%.1f", remaining)
 end
 
@@ -246,6 +252,10 @@ local TBB_DEFAULT_BAR = {
     width     = 270,
     verticalOrientation = false,
     reverseFill = false,
+    chargeHashLines = false,
+    chargeHashLineWidth = 2,
+    chargeHashLineR = 0, chargeHashLineG = 0,
+    chargeHashLineB = 0, chargeHashLineA = 1,
     texture   = "none",
     fillR = _classR, fillG = _classG, fillB = _classB, fillA = 1,
     bgR = 0, bgG = 0, bgB = 0, bgA = 0.4,
@@ -275,6 +285,7 @@ local TBB_DEFAULT_BAR = {
     stackThresholdMaxEnabled = false,
     stackThresholdMax = 10,
     stackThresholdTicks = "",
+    stackBasedBar = false,
     pandemicGlow = true,
     pandemicGlowStyle = -1,
     pandemicGlowColor = { r = 1, g = 1, b = 0 },
@@ -1419,11 +1430,15 @@ end
 -------------------------------------------------------------------------------
 --  Style copy
 --  The "style" of a bar is every visual key -- everything except the tracked
---  spell identity, enable state, group membership and the stack-threshold
---  numbers (those are spell-specific, matching AddTrackedBuffBar's reset set).
+--  spell identity, enable state, group membership and the stack-threshold /
+--  stack-based-fill keys (those are spell-specific, matching
+--  AddTrackedBuffBar's reset set).
 -------------------------------------------------------------------------------
 local TBB_STYLE_KEYS = {
-    "height", "width", "verticalOrientation", "reverseFill", "texture",
+    "height", "width", "verticalOrientation", "reverseFill",
+    "chargeHashLines", "chargeHashLineWidth",
+    "chargeHashLineR", "chargeHashLineG", "chargeHashLineB", "chargeHashLineA",
+    "texture", "strata",
     "fillColorMode", "fillR", "fillG", "fillB", "fillA",
     "bgR", "bgG", "bgB", "bgA",
     "gradientEnabled", "gradientR", "gradientG", "gradientB", "gradientA", "gradientDir",
@@ -1791,12 +1806,13 @@ ns.RefreshBuffBarGating  = function() end
 -------------------------------------------------------------------------------
 local function CreateTrackedBuffBarFrame(parent, idx)
     local wrapFrame = CreateFrame("Frame", "ECME_TBBWrap" .. idx, parent)
-    -- HIGH strata so the whole bar (fill, border, glow, text) renders above
-    -- the buff-icon displays (MEDIUM) -- including their borders and cooldown
-    -- swipes -- when the two elements overlap. Internal ordering stays
+    -- MEDIUM strata at level 100 by default; the user can move the whole bar
+    -- to another strata (cfg.strata, applied in ApplyTrackedBuffBarSettings).
+    -- Level 100 keeps the bar above the buff-icon displays (MEDIUM, low
+    -- levels) when the two elements overlap. Internal ordering stays
     -- level-based within the wrap (strips +6 < pandemic glow +7 < text +8).
-    wrapFrame:SetFrameStrata("HIGH")
-    wrapFrame:SetFrameLevel(10)
+    wrapFrame:SetFrameStrata("MEDIUM")
+    wrapFrame:SetFrameLevel(100)
 
     local bar = CreateFrame("StatusBar", "ECME_TBB" .. idx, wrapFrame)
     if bar.EnableMouseClicks then bar:EnableMouseClicks(false) end
@@ -1918,7 +1934,8 @@ local function EnsureTBBThresholdOverlay(bar)
 end
 
 local function SetupTBBThresholdOverlay(bar, cfg)
-    if not cfg.stackThresholdEnabled then
+    if not cfg.stackThresholdEnabled
+       or (cfg.trackType == "cooldown" and cfg.chargeHashLines == true) then
         if bar._threshOverlay then bar._threshOverlay:Hide() end
         return
     end
@@ -1948,6 +1965,34 @@ end
 -------------------------------------------------------------------------------
 --  Tick Marks
 -------------------------------------------------------------------------------
+-- Cooldown state must follow the spell the user saved, not the transient
+-- override returned for an icon while a proc is active. The base fallback only
+-- handles a saved talent override that is no longer learned.
+local function StableCooldownSpellID(cfg)
+    local sid = cfg and cfg.spellID
+    if type(sid) ~= "number" or sid <= 0 then return nil end
+    local base = cfg.baseSpellID
+    if type(base) == "number" and base > 0 and IsPlayerSpell
+       and not IsPlayerSpell(sid) and IsPlayerSpell(base) then
+        return base
+    end
+    return sid
+end
+
+local function GetTBBMaxCharges(cfg)
+    if not cfg or cfg.trackType ~= "cooldown" then return nil end
+    local sid = StableCooldownSpellID(cfg)
+    local ch = sid and C_Spell and C_Spell.GetSpellCharges
+        and C_Spell.GetSpellCharges(sid)
+    local maxCharges = ch and ch.maxCharges
+    if issecretvalue and issecretvalue(maxCharges) then return nil end
+    if type(maxCharges) == "number" and maxCharges > 1 then
+        return math.floor(maxCharges + 0.5)
+    end
+    return nil
+end
+ns.GetTBBMaxCharges = GetTBBMaxCharges
+
 local function ParseTickValues(str)
     if not str or str == "" then return nil end
     local vals = {}
@@ -1964,7 +2009,10 @@ local function ApplyTBBTickMarks(sb, cfg, tickCache, isVert, tickParent)
     if tickCache then
         for i = 1, #tickCache do tickCache[i]:Hide() end
     end
-    if not cfg.stackThresholdEnabled or not cfg.stackThresholdMaxEnabled
+    -- Ticks are governed by Max Stacks alone (the options input unlocks with
+    -- it); Enable Stack Threshold only drives the recolor overlay, not ticks.
+    if (cfg.trackType == "cooldown" and cfg.chargeHashLines == true)
+       or not cfg.stackThresholdMaxEnabled
        or not vals or maxStacks < 1 or not tickCache then return end
 
     local PP = EllesmereUI and EllesmereUI.PP
@@ -2010,6 +2058,168 @@ local function ApplyTBBTickMarks(sb, cfg, tickCache, isVert, tickParent)
 end
 ns.ApplyTBBTickMarks = ApplyTBBTickMarks
 
+-- Charge separators are fixed geometry over the full StatusBar. A spell with
+-- N charges receives N-1 separators. Equal divisions do not move when Reverse
+-- Fill changes the recovery origin; vertical bars simply rotate the marks.
+local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
+    if not bar or not cfg then return end
+    local sb = bar._bar
+    if not sb then return end
+
+    local ticks = bar._chargeHashTicks
+    if cfg.chargeHashLines ~= true or cfg.trackType ~= "cooldown"
+       or type(maxCharges) ~= "number" or maxCharges <= 1 then
+        if ticks then
+            for i = 1, #ticks do ticks[i]:Hide() end
+        end
+        bar._chargeHashLineCacheValid = nil
+        if bar._chargeHashOverlay then bar._chargeHashOverlay:Hide() end
+        return
+    end
+
+    local barW, barH = sb:GetWidth(), sb:GetHeight()
+    if not barW or not barH or barW <= 0 or barH <= 0 then
+        if ticks then
+            for i = 1, #ticks do ticks[i]:Hide() end
+        end
+        if bar._chargeHashOverlay then bar._chargeHashOverlay:Hide() end
+        bar._chargeHashLineCacheValid = nil
+        return
+    end
+
+    local width = tonumber(cfg.chargeHashLineWidth) or 2
+    width = math.max(1, math.min(10, math.floor(width + 0.5)))
+    local lineR = cfg.chargeHashLineR or 0
+    local lineG = cfg.chargeHashLineG or 0
+    local lineB = cfg.chargeHashLineB or 0
+    local lineA = cfg.chargeHashLineA
+    if lineA == nil then lineA = 1 end
+    local isVert = cfg.verticalOrientation and true or false
+    local effectiveScale = sb:GetEffectiveScale() or 1
+    -- This function also runs from the shared timer tick. Keep the cache scalar:
+    -- synthesized table/string keys would generate garbage even on a cache hit.
+    if bar._chargeHashLineCacheValid
+       and bar._chargeHashLineMaxCharges == maxCharges
+       and bar._chargeHashLineWidth == width
+       and bar._chargeHashLineVertical == isVert
+       and bar._chargeHashLineBarW == barW
+       and bar._chargeHashLineBarH == barH
+       and bar._chargeHashLineScale == effectiveScale
+       and bar._chargeHashLineR == lineR
+       and bar._chargeHashLineG == lineG
+       and bar._chargeHashLineB == lineB
+       and bar._chargeHashLineA == lineA
+       and bar._chargeHashOverlay and bar._chargeHashOverlay:IsShown() then
+        return
+    end
+
+    if ticks then
+        for i = 1, #ticks do ticks[i]:Hide() end
+    end
+
+    if not bar._chargeHashOverlay then
+        local overlay = CreateFrame("Frame", nil, sb)
+        overlay:SetAllPoints(sb)
+        overlay:SetFrameLevel(sb:GetFrameLevel() + 4)
+        bar._chargeHashOverlay = overlay
+    end
+    bar._chargeHashOverlay:Show()
+    if not ticks then
+        ticks = {}
+        bar._chargeHashTicks = ticks
+    end
+
+    while #ticks < maxCharges - 1 do
+        local tick = bar._chargeHashOverlay:CreateTexture(nil, "OVERLAY", nil, 7)
+        tick:SetSnapToPixelGrid(false)
+        tick:SetTexelSnappingBias(0)
+        ticks[#ticks + 1] = tick
+    end
+
+    local PP = EllesmereUI and EllesmereUI.PP
+    local lineWidth = PP and PP.Scale(width) or width
+    for i = 1, maxCharges - 1 do
+        local tick = ticks[i]
+        local frac = i / maxCharges
+        tick:SetColorTexture(lineR, lineG, lineB, lineA)
+        tick:ClearAllPoints()
+        if isVert then
+            local offset = PP and PP.Scale(barH * frac) or (barH * frac)
+            tick:SetSize(barW, lineWidth)
+            tick:SetPoint("CENTER", sb, "BOTTOM", 0, offset)
+        else
+            local offset = PP and PP.Scale(barW * frac) or (barW * frac)
+            tick:SetSize(lineWidth, barH)
+            tick:SetPoint("CENTER", sb, "LEFT", offset, 0)
+        end
+        tick:Show()
+    end
+    for i = maxCharges, #ticks do ticks[i]:Hide() end
+    bar._chargeHashLineCacheValid = true
+    bar._chargeHashLineMaxCharges = maxCharges
+    bar._chargeHashLineWidth = width
+    bar._chargeHashLineVertical = isVert
+    bar._chargeHashLineBarW = barW
+    bar._chargeHashLineBarH = barH
+    bar._chargeHashLineScale = effectiveScale
+    bar._chargeHashLineR = lineR
+    bar._chargeHashLineG = lineG
+    bar._chargeHashLineB = lineB
+    bar._chargeHashLineA = lineA
+end
+-- Exported for the options popout preview: its bars have no timer tick to
+-- re-drive width-gated geometry once the fill's anchor-derived size resolves.
+ns.ApplyTBBChargeHashLines = ApplyTBBChargeHashLines
+
+local function AnchorTBBSparkState(bar, anchor, isVert, reverse, flushToEdge)
+    local sb, spark = bar and bar._bar, bar and bar._spark
+    if not sb or not spark or not anchor then return end
+    isVert = isVert and true or false
+    reverse = reverse and true or false
+    flushToEdge = flushToEdge and true or false
+    local barW, barH = sb:GetWidth(), sb:GetHeight()
+    if bar._sparkAnchorTarget == anchor
+       and bar._sparkAnchorVertical == isVert
+       and bar._sparkAnchorReverse == reverse
+       and bar._sparkAnchorFlush == flushToEdge
+       and bar._sparkAnchorBarW == barW
+       and bar._sparkAnchorBarH == barH then
+        return
+    end
+    if isVert then
+        spark:SetSize(barW, 8)
+        spark:SetTexCoord(0, 1, 1, 1, 0, 0, 1, 0)
+    else
+        spark:SetSize(8, barH)
+        spark:SetTexCoord(0, 0, 0, 1, 1, 0, 1, 1)
+    end
+    spark:ClearAllPoints()
+    if isVert then
+        spark:SetPoint("CENTER", anchor, reverse and "BOTTOM" or "TOP", 0, 0)
+    else
+        spark:SetPoint("CENTER", anchor,
+            reverse and "LEFT" or "RIGHT",
+            flushToEdge and 0 or (reverse and 1 or -1), 0)
+    end
+    bar._sparkAnchorTarget = anchor
+    bar._sparkAnchorVertical = isVert
+    bar._sparkAnchorReverse = reverse
+    bar._sparkAnchorFlush = flushToEdge
+    bar._sparkAnchorBarW = barW
+    bar._sparkAnchorBarH = barH
+end
+
+local function AnchorTBBSpark(bar, cfg, anchor, flushToEdge)
+    if not cfg then return end
+    AnchorTBBSparkState(bar, anchor, cfg.verticalOrientation,
+        cfg.reverseFill, flushToEdge)
+end
+
+-- Defined with the charge renderer below; ApplySettings calls it whenever a
+-- pooled bar frame is restyled so stale composite geometry cannot leak into a
+-- different bar after deletion, reordering, or a tracking-type change.
+local _restoreTBBNormalFill
+
 -------------------------------------------------------------------------------
 --  Apply Visual Settings
 -------------------------------------------------------------------------------
@@ -2017,6 +2227,29 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     if not bar or not cfg then return end
     local sb = bar._bar
     if not sb then return end
+    if _restoreTBBNormalFill then _restoreTBBNormalFill(bar, cfg) end
+
+    -- User-selectable strata for the whole bar (the options setter keeps
+    -- grouped bars uniform). A parent strata change COLLAPSES child frame
+    -- levels, so the wrap level and the constructor's internal level ladder
+    -- are re-asserted whenever the strata actually changes; the change guard
+    -- keeps the common repaint path free of the engine re-stack.
+    local strata = cfg.strata or "MEDIUM"
+    if bar._lastStrata ~= strata then
+        bar._lastStrata = strata
+        bar:SetFrameStrata(strata)
+        bar:SetFrameLevel(100)
+        local base = bar:GetFrameLevel()
+        sb:SetFrameLevel(base + 1)
+        if bar._gradClip then bar._gradClip:SetFrameLevel(sb:GetFrameLevel() + 1) end
+        if bar._chargeHashFillClip then bar._chargeHashFillClip:SetFrameLevel(sb:GetFrameLevel() + 1) end
+        if bar._threshOverlay then bar._threshOverlay:SetFrameLevel(sb:GetFrameLevel() + 2) end
+        if bar._sparkOverlay then bar._sparkOverlay:SetFrameLevel(sb:GetFrameLevel() + 2) end
+        if bar._chargeHashOverlay then bar._chargeHashOverlay:SetFrameLevel(sb:GetFrameLevel() + 4) end
+        if bar._barBorder then bar._barBorder:SetFrameLevel(base + 5) end
+        if bar._pandemicGlowOverlay then bar._pandemicGlowOverlay:SetFrameLevel(base + 7) end
+        if bar._textOverlay then bar._textOverlay:SetFrameLevel(sb:GetFrameLevel() + 7) end
+    end
 
     -- width/height are always visual dimensions (what you see on screen) and
     -- describe the bar's TOTAL footprint, icon included: the wrap is exactly
@@ -2076,13 +2309,15 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         sb:SetStatusBarTexture(texPath)
         bar._lastTexPath = texPath
     end
+    local fillTex = sb:GetStatusBarTexture()
+    bar._cachedOurFillTex = fillTex
 
     -- Fill color
     local fR = cfg.fillR or _classR
     local fG = cfg.fillG or _classG
     local fB = cfg.fillB or _classB
     local fA = cfg.fillA or 1
-    sb:GetStatusBarTexture():SetVertexColor(fR, fG, fB, fA)
+    fillTex:SetVertexColor(fR, fG, fB, fA)
     bar._baseFillR, bar._baseFillG, bar._baseFillB, bar._baseFillA = fR, fG, fB, fA
 
     -- Background
@@ -2091,7 +2326,6 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     end
 
     -- Gradient
-    local fillTex = sb:GetStatusBarTexture()
     if cfg.gradientEnabled then
         local dir = cfg.gradientDir or "HORIZONTAL"
         fillTex:SetVertexColor(1, 1, 1, 0)
@@ -2174,22 +2408,7 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     bar._lastReverse = cfg.reverseFill and true or false
     if cfg.showSpark then
         local sparkAnchor = (bar._gradientActive and bar._gradClip) or fillTex
-        if isVert then
-            bar._spark:SetSize(w, 8)
-            bar._spark:SetTexCoord(0, 1, 1, 1, 0, 0, 1, 0)
-        else
-            bar._spark:SetSize(8, h)
-            bar._spark:SetTexCoord(0, 0, 0, 1, 1, 0, 1, 1)
-        end
-        bar._spark:ClearAllPoints()
-        if isVert then
-            bar._spark:SetPoint("CENTER", sparkAnchor, cfg.reverseFill and "BOTTOM" or "TOP", 0, 0)
-        else
-            -- 1px inward so the spark sits over the fill edge, not past it.
-            bar._spark:SetPoint("CENTER", sparkAnchor,
-                cfg.reverseFill and "LEFT" or "RIGHT",
-                cfg.reverseFill and 1 or -1, 0)
-        end
+        AnchorTBBSpark(bar, cfg, sparkAnchor)
         bar._spark:Show()
     else
         bar._spark:Hide()
@@ -2309,6 +2528,7 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         bar._tickOverlay = to
     end
     ApplyTBBTickMarks(sb, cfg, bar._threshTicks, isVert, bar._tickOverlay)
+    ApplyTBBChargeHashLines(bar, cfg, GetTBBMaxCharges(cfg))
     bar._ticksDirty = true
 end
 
@@ -2846,6 +3066,12 @@ end
 --  Stacks Helper (reads Blizzard child Applications frame)
 -------------------------------------------------------------------------------
 local function UpdateStacks(bar, blzChild, cfg)
+    -- Stack-based fill needs a live count even when Blizzard renders no
+    -- Applications text (hidden at 1 stack), plus a restricted marker so the
+    -- fill site can fail open instead of drawing an empty bar.
+    local stackFill = cfg and cfg.stackBasedBar and cfg.trackType ~= "cooldown"
+        and cfg.stackThresholdMaxEnabled
+    bar._stackUnreadable = nil
     -- Read stacks from blzChild.Icon.Applications FontString.
     if blzChild and blzChild.Icon and blzChild.Icon.Applications then
         -- Pass the text straight through without comparing (it may be tainted).
@@ -2871,6 +3097,8 @@ local function UpdateStacks(bar, blzChild, cfg)
                 if ok2 and ad and ad.applications then
                     bar._stackCount = ad.applications
                 end
+            elseif auraInstID and issecretvalue(auraInstID) then
+                bar._stackUnreadable = true
             end
             return
         end
@@ -2894,14 +3122,41 @@ local function UpdateStacks(bar, blzChild, cfg)
                     if ok2 and ad and ad.applications then
                         bar._stackCount = ad.applications
                     end
+                elseif auraInstID and issecretvalue(auraInstID) then
+                    bar._stackUnreadable = true
                 end
                 return
             end
         end
     end
-    -- No stacks
+    -- No stacks text
     if bar._stacksText then bar._stacksText:Hide() end
     bar._stackCount = 0
+    if stackFill and blzChild then
+        -- Stack-based fill: this helper only runs for active frames, so the
+        -- aura is up and counts as at least 1 even with no Applications text.
+        local auraInstID = blzChild.auraInstanceID
+        local auraUnit = blzChild.auraDataUnit
+        if auraInstID and auraUnit then
+            if issecretvalue(auraInstID) then
+                bar._stackUnreadable = true
+            else
+                bar._stackCount = 1
+                local ok, ad = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, auraUnit, auraInstID)
+                if ok and ad and ad.applications then
+                    local apps = ad.applications
+                    -- Secret counts pass straight through to SetValue;
+                    -- readable counts keep the >= 1 floor set above.
+                    if issecretvalue(apps) or apps >= 1 then
+                        bar._stackCount = apps
+                    end
+                end
+            end
+        else
+            -- Active frame with no aura instance to query: count unknowable.
+            bar._stackUnreadable = true
+        end
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -3008,6 +3263,18 @@ local function EffectiveIconSpellID(cfg)
         return cfg.baseSpellID
     end
     return sid
+end
+
+-- Cooldown-bar spell resolution. Charge Hash Lines needs a STABLE identity
+-- (the segment math breaks if the tracked id flips to a proc override
+-- mid-recharge), so bars with that toggle on resolve via
+-- StableCooldownSpellID. Every other cooldown bar keeps the long-standing
+-- override-following EffectiveIconSpellID behavior.
+local function CooldownBarSpellID(cfg)
+    if cfg and cfg.chargeHashLines == true then
+        return StableCooldownSpellID(cfg)
+    end
+    return EffectiveIconSpellID(cfg)
 end
 
 -- Mirror the 12.1 engine-written decimal timer string (hidden FS on the aura
@@ -3397,6 +3664,283 @@ local function _tbbCleanNum(v)
 end
 
 -------------------------------------------------------------------------------
+--  Charge hash fill
+--
+--  currentCharges is secret in combat, so addon Lua cannot calculate
+--      (currentCharges + next-recharge progress) / maxCharges.
+--  Instead, two invisible native StatusBars provide the geometry: one accepts
+--  Blizzard's charge count directly, and one animates exactly one charge-wide
+--  segment from the duration object. A single full-size texture is clipped to
+--  their combined edge, so the player still sees one continuous bar and the
+--  existing texture, gradient, spark, orientation, and reverse-fill settings.
+-------------------------------------------------------------------------------
+local function _ensureTBBChargeHashFill(bar)
+    if bar._chargeHashCountBar then return end
+    local sb = bar._bar
+    if not sb then return end
+
+    local countBar = CreateFrame("StatusBar", nil, sb)
+    countBar:SetAllPoints(sb)
+    countBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+    local countTexture = countBar:GetStatusBarTexture()
+    countTexture:SetSnapToPixelGrid(false)
+    countTexture:SetTexelSnappingBias(0)
+    countBar:SetAlpha(0)
+    countBar:EnableMouse(false)
+    bar._chargeHashCountBar = countBar
+    bar._chargeHashCountTexture = countTexture
+
+    local progressBar = CreateFrame("StatusBar", nil, sb)
+    progressBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+    local progressTexture = progressBar:GetStatusBarTexture()
+    progressTexture:SetSnapToPixelGrid(false)
+    progressTexture:SetTexelSnappingBias(0)
+    progressBar:SetAlpha(0)
+    progressBar:EnableMouse(false)
+    bar._chargeHashProgressBar = progressBar
+    bar._chargeHashProgressTexture = progressTexture
+
+    local clip = CreateFrame("Frame", nil, sb)
+    clip:SetClipsChildren(true)
+    clip:SetFrameLevel(sb:GetFrameLevel() + 1)
+    clip:Hide()
+    bar._chargeHashFillClip = clip
+
+    local fill = clip:CreateTexture(nil, "ARTWORK", nil, 1)
+    fill:SetPoint("TOPLEFT", sb, "TOPLEFT", 0, 0)
+    fill:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0)
+    fill:SetSnapToPixelGrid(false)
+    fill:SetTexelSnappingBias(0)
+    bar._chargeHashFillTexture = fill
+end
+
+local function _styleTBBChargeHashFill(bar, cfg)
+    local fill = bar._chargeHashFillTexture
+    if not fill then return end
+    local texPath = bar._lastTexPath or "Interface\\Buttons\\WHITE8x8"
+    local fR, fG = bar._baseFillR or _classR, bar._baseFillG or _classG
+    local fB, fA = bar._baseFillB or _classB, bar._baseFillA or 1
+    local gradientEnabled = cfg.gradientEnabled and true or false
+    local gradientDir = cfg.gradientDir or "HORIZONTAL"
+    local gR, gG = cfg.gradientR or 0.20, cfg.gradientG or 0.20
+    local gB, gA = cfg.gradientB or 0.80, cfg.gradientA or 1
+    -- Scalar style signature: unchanged active bars take this branch without
+    -- allocating a temporary table/key string every tick.
+    if bar._chargeHashFillStyleValid
+       and bar._chargeHashFillStyleTexPath == texPath
+       and bar._chargeHashFillStyleGradient == gradientEnabled
+       and bar._chargeHashFillStyleDirection == gradientDir
+       and bar._chargeHashFillStyleR == fR
+       and bar._chargeHashFillStyleG == fG
+       and bar._chargeHashFillStyleB == fB
+       and bar._chargeHashFillStyleA == fA
+       and bar._chargeHashFillStyleGradientR == gR
+       and bar._chargeHashFillStyleGradientG == gG
+       and bar._chargeHashFillStyleGradientB == gB
+       and bar._chargeHashFillStyleGradientA == gA then
+        return
+    end
+
+    fill:SetTexture(texPath)
+    fill:ClearAllPoints()
+    if gradientEnabled then
+        -- Gradients stay mapped across the full bar and are revealed by the
+        -- moving clip, matching the stock gradient path.
+        fill:SetPoint("TOPLEFT", bar._bar, "TOPLEFT", 0, 0)
+        fill:SetPoint("BOTTOMRIGHT", bar._bar, "BOTTOMRIGHT", 0, 0)
+        fill:SetVertexColor(1, 1, 1, 1)
+        local c1 = bar._chargeHashGradientColor1
+        local c2 = bar._chargeHashGradientColor2
+        if not c1 then
+            c1 = CreateColor(fR, fG, fB, fA)
+            c2 = CreateColor(gR, gG, gB, gA)
+            bar._chargeHashGradientColor1 = c1
+            bar._chargeHashGradientColor2 = c2
+        else
+            c1.r, c1.g, c1.b, c1.a = fR, fG, fB, fA
+            c2.r, c2.g, c2.b, c2.a = gR, gG, gB, gA
+        end
+        fill:SetGradient(gradientDir, c1, c2)
+    else
+        -- Plain/patterned StatusBar textures stretch with the visible fill.
+        fill:SetAllPoints(bar._chargeHashFillClip)
+        fill:SetVertexColor(fR, fG, fB, fA)
+    end
+    bar._chargeHashFillStyleValid = true
+    bar._chargeHashFillStyleTexPath = texPath
+    bar._chargeHashFillStyleGradient = gradientEnabled
+    bar._chargeHashFillStyleDirection = gradientDir
+    bar._chargeHashFillStyleR = fR
+    bar._chargeHashFillStyleG = fG
+    bar._chargeHashFillStyleB = fB
+    bar._chargeHashFillStyleA = fA
+    bar._chargeHashFillStyleGradientR = gR
+    bar._chargeHashFillStyleGradientG = gG
+    bar._chargeHashFillStyleGradientB = gB
+    bar._chargeHashFillStyleGradientA = gA
+end
+
+_restoreTBBNormalFill = function(bar, cfg)
+    if not bar._chargeHashFillActive then return end
+    if bar._chargeHashFillClip then bar._chargeHashFillClip:Hide() end
+    if bar._chargeHashCountBar then bar._chargeHashCountBar:Hide() end
+    if bar._chargeHashProgressBar then bar._chargeHashProgressBar:Hide() end
+
+    local sb = bar._bar
+    local fillTex = bar._cachedOurFillTex
+    if not fillTex and sb then
+        fillTex = sb:GetStatusBarTexture()
+        bar._cachedOurFillTex = fillTex
+    end
+    if fillTex then fillTex:SetAlpha(1) end
+    if bar._gradientActive and bar._gradClip then bar._gradClip:Show() end
+    if cfg.showSpark and fillTex then
+        AnchorTBBSpark(bar, cfg, (bar._gradientActive and bar._gradClip) or fillTex)
+    end
+
+    bar._chargeHashFillActive = nil
+    bar._chargeHashDuration = nil
+    -- The stock bar timer is not re-armed while its texture is hidden. If hash
+    -- mode is disabled mid-recharge, force the original path to refresh it.
+    bar._cdNeedSet = true
+end
+
+local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
+        durObj, remaining, duration, wasShown)
+    if cfg.chargeHashLines ~= true or type(maxCharges) ~= "number"
+       or maxCharges <= 1 then
+        return false
+    end
+    local secretCount = issecretvalue and issecretvalue(currentCharges)
+    if not secretCount and type(currentCharges) ~= "number" then return false end
+    if not durObj and not (_tbbCleanNum(remaining) and _tbbCleanNum(duration)
+       and duration > 0) then
+        return false
+    end
+
+    _ensureTBBChargeHashFill(bar)
+    local sb = bar._bar
+    local countBar = bar._chargeHashCountBar
+    local progressBar = bar._chargeHashProgressBar
+    local countTexture = bar._chargeHashCountTexture
+    local progressTexture = bar._chargeHashProgressTexture
+    local clip = bar._chargeHashFillClip
+    if not sb or not countBar or not progressBar or not countTexture
+       or not progressTexture or not clip then return false end
+
+    local isVert = cfg.verticalOrientation and true or false
+    local reverse = cfg.reverseFill and true or false
+    local orientation = isVert and "VERTICAL" or "HORIZONTAL"
+    local barW, barH = sb:GetWidth(), sb:GetHeight()
+    -- Direct scalar comparisons preserve every geometry invalidator while
+    -- keeping the steady-state update allocation-free.
+    if not bar._chargeHashFillGeometryValid
+       or bar._chargeHashFillMaxCharges ~= maxCharges
+       or bar._chargeHashFillVertical ~= isVert
+       or bar._chargeHashFillReverse ~= reverse
+       or bar._chargeHashFillBarW ~= barW
+       or bar._chargeHashFillBarH ~= barH then
+        countBar:SetOrientation(orientation)
+        countBar:SetReverseFill(reverse)
+        countBar:SetMinMaxValues(0, maxCharges)
+
+        progressBar:ClearAllPoints()
+        progressBar:SetOrientation(orientation)
+        progressBar:SetReverseFill(reverse)
+        progressBar:SetMinMaxValues(0, 1)
+        if isVert then
+            progressBar:SetHeight(barH / maxCharges)
+            if reverse then
+                progressBar:SetPoint("TOPLEFT", countTexture, "BOTTOMLEFT", 0, 0)
+                progressBar:SetPoint("TOPRIGHT", countTexture, "BOTTOMRIGHT", 0, 0)
+            else
+                progressBar:SetPoint("BOTTOMLEFT", countTexture, "TOPLEFT", 0, 0)
+                progressBar:SetPoint("BOTTOMRIGHT", countTexture, "TOPRIGHT", 0, 0)
+            end
+        else
+            progressBar:SetWidth(barW / maxCharges)
+            if reverse then
+                progressBar:SetPoint("TOPRIGHT", countTexture, "TOPLEFT", 0, 0)
+                progressBar:SetPoint("BOTTOMRIGHT", countTexture, "BOTTOMLEFT", 0, 0)
+            else
+                progressBar:SetPoint("TOPLEFT", countTexture, "TOPRIGHT", 0, 0)
+                progressBar:SetPoint("BOTTOMLEFT", countTexture, "BOTTOMRIGHT", 0, 0)
+            end
+        end
+
+        clip:ClearAllPoints()
+        if isVert then
+            if reverse then
+                clip:SetPoint("TOPRIGHT", sb, "TOPRIGHT", 0, 0)
+                clip:SetPoint("BOTTOMLEFT", progressTexture, "BOTTOMLEFT", 0, 0)
+            else
+                clip:SetPoint("BOTTOMLEFT", sb, "BOTTOMLEFT", 0, 0)
+                clip:SetPoint("TOPRIGHT", progressTexture, "TOPRIGHT", 0, 0)
+            end
+        else
+            if reverse then
+                clip:SetPoint("TOPLEFT", progressTexture, "TOPLEFT", 0, 0)
+                clip:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0)
+            else
+                clip:SetPoint("TOPLEFT", sb, "TOPLEFT", 0, 0)
+                clip:SetPoint("BOTTOMRIGHT", progressTexture, "BOTTOMRIGHT", 0, 0)
+            end
+        end
+        bar._chargeHashFillGeometryValid = true
+        bar._chargeHashFillMaxCharges = maxCharges
+        bar._chargeHashFillVertical = isVert
+        bar._chargeHashFillReverse = reverse
+        bar._chargeHashFillBarW = barW
+        bar._chargeHashFillBarH = barH
+    end
+
+    -- SetValue is a supported secret sink: never inspect or calculate with the
+    -- live count in Lua.
+    countBar:SetValue(currentCharges)
+
+    if durObj and progressBar.SetTimerDuration and Enum
+       and Enum.StatusBarTimerDirection then
+        if bar._cdNeedSet or bar._chargeHashDuration ~= durObj or not wasShown then
+            local interp = Enum.StatusBarInterpolation
+                and Enum.StatusBarInterpolation.Immediate
+            progressBar:SetTimerDuration(durObj, interp,
+                Enum.StatusBarTimerDirection.ElapsedTime)
+            bar._chargeHashDuration = durObj
+        end
+    else
+        -- Compatibility fallback for clients that expose only clean timing.
+        progressBar:SetValue(1 - (remaining / duration))
+        bar._chargeHashDuration = nil
+    end
+
+    _styleTBBChargeHashFill(bar, cfg)
+    local activating = not bar._chargeHashFillActive
+    if activating then
+        countBar:Show()
+        progressBar:Show()
+        local fillTex = bar._cachedOurFillTex
+        if not fillTex then
+            fillTex = sb:GetStatusBarTexture()
+            bar._cachedOurFillTex = fillTex
+        end
+        if fillTex then fillTex:SetAlpha(0) end
+        if bar._gradClip then bar._gradClip:Hide() end
+        clip:Show()
+    end
+    if cfg.showSpark and bar._spark then
+        -- Anchor to the actual native progress texture, not the intermediate
+        -- clip frame. Its moving edge is also the exact visible fill boundary;
+        -- avoiding the frame's pixel rounding keeps the spark physically joined
+        -- to that edge in both normal and reverse fill.
+        AnchorTBBSpark(bar, cfg, progressTexture, true)
+        if not bar._spark:IsShown() then bar._spark:Show() end
+    end
+    bar._chargeHashFillActive = true
+    bar._cdNeedSet = nil
+    return true
+end
+
+-------------------------------------------------------------------------------
 --  Cooldown-bar cast mirror. In combat the cooldown APIs keep isActive
 --  readable but turn startTime/duration SECRET, which used to drop every
 --  on-cooldown bar into the shown-full fail-open for the whole fight. So
@@ -3508,7 +4052,7 @@ function ns.UpdateCooldownCastListener()
     if tbb and tbb.bars then
         for _, cfg in ipairs(tbb.bars) do
             if cfg.enabled ~= false and cfg.trackType == "cooldown" then
-                local canon = EffectiveIconSpellID(cfg)
+                local canon = CooldownBarSpellID(cfg)
                 if canon then
                     any = true
                     -- Every form the cast event could fire with maps to the
@@ -3560,11 +4104,11 @@ SlashCmdList.TBBCD = function()
     for i, cfg in ipairs(tbb.bars) do
         if cfg.enabled ~= false and cfg.trackType == "cooldown" then
             found = true
-            local sid = EffectiveIconSpellID(cfg)
+            local sid = CooldownBarSpellID(cfg)
             local name = sid and C_Spell.GetSpellName and C_Spell.GetSpellName(sid)
             print("  bar " .. i .. " " .. tostring(name)
                 .. " saved=" .. tostring(cfg.spellID)
-                .. " effective=" .. tostring(sid)
+                .. " state=" .. tostring(sid)
                 .. " watched=" .. tostring(sid ~= nil and _cdWatch[sid] ~= nil))
             if sid then
                 print("    durCache=" .. tostring(_cdDurCache[sid])
@@ -3612,11 +4156,12 @@ SlashCmdList.TBBCD = function()
 end
 
 -------------------------------------------------------------------------------
---  Cooldown-tracking bar (cfg.trackType == "cooldown"): fill drains with the
---  spell's remaining cooldown, timer text = remaining, stacks text = current
---  charges. Ready (off cooldown / GCD-only / at max charges / spell unknown)
---  counts as INACTIVE for hideWhenInactive; a shown-but-ready bar renders
---  full with no timer.
+--  Cooldown-tracking bar (cfg.trackType == "cooldown"): the stock fill drains
+--  with the spell's remaining cooldown. Charge Hash Lines instead fill through
+--  one section per recovered charge while the timer remains the NEXT charge's
+--  remaining cooldown. Stacks text = current charges. Ready (off cooldown /
+--  GCD-only / at max charges / spell unknown) counts as INACTIVE for
+--  hideWhenInactive; a shown-but-ready bar renders full with no timer.
 --
 --  FILL SOURCE ORDER:
 --  1. Engine duration handle (C_Spell.GetSpellCooldownDuration /
@@ -3633,7 +4178,7 @@ end
 --     errors.
 -------------------------------------------------------------------------------
 local function _UpdateCooldownBar(bar, cfg)
-    local sid = EffectiveIconSpellID(cfg)  -- override/base-resolved saved id
+    local sid = CooldownBarSpellID(cfg)
 
     -- remaining/duration: CLEAN numbers only (nil = ready or secret).
     -- wantHandle: which engine duration handle drives the fill ("charge" /
@@ -3644,10 +4189,12 @@ local function _UpdateCooldownBar(bar, cfg)
     -- flag so no secret is ever branched on.
     local remaining, duration, unreadable, wantHandle, timingSecret
     local charges, chargesDisplay, hasCharges
+    local maxCharges, chargeCountValue
     if sid then
         local ch = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
         local maxCh = ch and ch.maxCharges
         if _tbbCleanNum(maxCh) and maxCh > 1 then
+            maxCharges = math.floor(maxCh + 0.5)
             -- Charge spell: bar tracks the next charge's recharge. The
             -- recharge-active flag is the same CLEAN combat signal the Max
             -- Stacks Glow uses: false only at max charges, and it stays
@@ -3660,6 +4207,7 @@ local function _UpdateCooldownBar(bar, cfg)
                 -- touching the secret currentCharges field.
                 charges = maxCh
                 chargesDisplay = maxCh
+                chargeCountValue = maxCh
                 hasCharges = true
             else
                 -- Recharging (below max).
@@ -3669,6 +4217,7 @@ local function _UpdateCooldownBar(bar, cfg)
                     charges = cur
                 end
                 chargesDisplay = cur
+                chargeCountValue = cur
                 hasCharges = true
                 local st, du = ch.cooldownStartTime, ch.cooldownDuration
                 if _tbbCleanNum(st) and _tbbCleanNum(du) and du > 0 then
@@ -3800,12 +4349,19 @@ local function _UpdateCooldownBar(bar, cfg)
 
     local onCooldown = (remaining ~= nil) or (durObj ~= nil) or unreadable
 
+    local hashChargeMode = cfg.chargeHashLines == true
+        and type(maxCharges) == "number" and maxCharges > 1
+    if bar._bar then
+        ApplyTBBChargeHashLines(bar, cfg, maxCharges)
+    end
+
     -- No pandemic concept for cooldowns; clear any stale glow from a
     -- re-purposed bar frame.
     if bar._pandemicGlowActive then ClearPandemic(bar) end
 
     if not onCooldown and cfg.hideWhenInactive ~= false then
         -- Ready = inactive: hide, matching the buff inactive branch.
+        _restoreTBBNormalFill(bar, cfg)
         bar._stackCount = 0
         if bar._stacksText then bar._stacksText:Hide() end
         bar._nameSet = nil
@@ -3818,7 +4374,14 @@ local function _UpdateCooldownBar(bar, cfg)
     local sb = bar._bar
     if sb then
         local timerDir = Enum and Enum.StatusBarTimerDirection
-        if durObj and sb.SetTimerDuration and timerDir then
+        local hashFillActive = hashChargeMode and _updateTBBChargeHashFill(
+            bar, cfg, maxCharges, chargeCountValue,
+            durObj, remaining, duration, wasShown)
+        if hashFillActive then
+            -- The composite's invisible native bars own the recovery geometry;
+            -- the visible clipped texture and spark were updated above.
+        elseif durObj and sb.SetTimerDuration and timerDir then
+            _restoreTBBNormalFill(bar, cfg)
             -- Engine-driven drain: the duration handle tracks CDR and
             -- resets live, no numbers ever read. The bar timer is re-set
             -- only when a fresh handle was fetched (event/revalidate) or
@@ -3843,6 +4406,7 @@ local function _UpdateCooldownBar(bar, cfg)
             end
             if cfg.showSpark and bar._spark then bar._spark:Show() end
         elseif remaining then
+            _restoreTBBNormalFill(bar, cfg)
             sb:SetMinMaxValues(0, duration)
             -- Smooth fill is baseline (see UpdateLustBar note).
             local smooth = _smoothCooldowns and wasShown and Enum
@@ -3855,6 +4419,7 @@ local function _UpdateCooldownBar(bar, cfg)
             end
             if cfg.showSpark and bar._spark then bar._spark:Show() end
         else
+            _restoreTBBNormalFill(bar, cfg)
             -- Ready (kept on screen) or unreadable fail-open: full bar.
             -- Plain SetValue also cancels any running bar timer.
             sb:SetMinMaxValues(0, 1)
@@ -3865,11 +4430,13 @@ local function _UpdateCooldownBar(bar, cfg)
 
     -- Timer: remaining cooldown; hidden when ready/unreadable. Clean
     -- numbers get the pretty format; a secret remaining from the duration
-    -- handle goes through SetFormattedText (accepts secrets) as whole
-    -- seconds -- no clean compare exists to pick m:ss.
+    -- handle goes through SetFormattedText (accepts secrets). Hash mode keeps
+    -- tenths visible; stock mode retains its whole-second secret display.
     if bar._timerText then
         if remaining and cfg.showTimer then
-            if remaining < 10 then
+            if hashChargeMode then
+                bar._timerText:SetFormattedText("%.1f", remaining)
+            elseif remaining < 10 then
                 bar._timerText:SetText(string.format("%.1f", remaining))
             else
                 bar._timerText:SetText(FormatTime(remaining))
@@ -3878,7 +4445,7 @@ local function _UpdateCooldownBar(bar, cfg)
         elseif cfg.showTimer and durObj and durObj.GetRemainingDuration then
             local rem = durObj:GetRemainingDuration()
             if (issecretvalue and issecretvalue(rem)) or type(rem) == "number" then
-                bar._timerText:SetFormattedText("%.0f", rem)
+                bar._timerText:SetFormattedText(hashChargeMode and "%.1f" or "%.0f", rem)
                 bar._timerText:Show()
             else
                 bar._timerText:Hide()
@@ -4039,14 +4606,32 @@ function ns.UpdateTrackedBuffBarTimers()
                 if blizzBar then
                     -- Mirror Blizzard's bar onto ours. Secret values pass
                     -- through natively to widget setters -- no Lua comparison.
-                    sb:SetMinMaxValues(blizzBar:GetMinMaxValues())
                     -- Smooth fill is baseline (see UpdateLustBar note).
                     local smooth = _smoothBuffs and wasShown and Enum
                         and Enum.StatusBarInterpolation
                         and Enum.StatusBarInterpolation.ExponentialEaseOut
-                    if smooth then
+                    if cfg.stackBasedBar and cfg.trackType ~= "cooldown"
+                       and cfg.stackThresholdMaxEnabled then
+                        -- Stack-based fill: current stacks over the user's Max
+                        -- Stacks instead of the time mirror. An unreadable
+                        -- count (12.1 combat restriction) fails open to a
+                        -- full bar like every other unreadable fill here.
+                        if bar._stackUnreadable then
+                            sb:SetMinMaxValues(0, 1)
+                            sb:SetValue(1)
+                        else
+                            sb:SetMinMaxValues(0, cfg.stackThresholdMax or 10)
+                            if smooth then
+                                sb:SetValue(bar._stackCount or 0, smooth)
+                            else
+                                sb:SetValue(bar._stackCount or 0)
+                            end
+                        end
+                    elseif smooth then
+                        sb:SetMinMaxValues(blizzBar:GetMinMaxValues())
                         sb:SetValue(blizzBar:GetValue(), smooth)
                     else
+                        sb:SetMinMaxValues(blizzBar:GetMinMaxValues())
                         sb:SetValue(blizzBar:GetValue())
                     end
                     if cfg.showSpark and bar._spark then bar._spark:Show() end
@@ -4337,20 +4922,22 @@ function ns.UpdateTrackedBuffBarTimers()
         end
     end
 
-    -- Spark re-anchor: use cached texture ref to avoid GetStatusBarTexture() alloc.
-    -- SetPoint on an already-anchored spark to the same anchor is a no-op internally.
+    -- Normal-fill spark maintenance. Hash-fill sparks are anchored directly by
+    -- their renderer; both paths use AnchorTBBSparkState's scalar signature so
+    -- unchanged anchors do no native layout work and allocate nothing.
     for _, bar in ipairs(tbbFrames) do
         if bar and bar._spark and bar._spark:IsShown() and bar._bar then
-            local anchor = (bar._gradientActive and bar._gradClip) or bar._cachedOurFillTex
-            if not anchor then
-                anchor = bar._bar:GetStatusBarTexture()
-                bar._cachedOurFillTex = anchor
-            end
-            if anchor then
-                bar._spark:SetPoint("CENTER", anchor,
-                    bar._lastVertical and (bar._lastReverse and "BOTTOM" or "TOP")
-                        or (bar._lastReverse and "LEFT" or "RIGHT"),
-                    bar._lastVertical and 0 or (bar._lastReverse and 1 or -1), 0)
+            if not bar._chargeHashFillActive then
+                local anchor = (bar._gradientActive and bar._gradClip)
+                    or bar._cachedOurFillTex
+                if not anchor then
+                    anchor = bar._bar:GetStatusBarTexture()
+                    bar._cachedOurFillTex = anchor
+                end
+                if anchor then
+                    AnchorTBBSparkState(bar, anchor, bar._lastVertical,
+                        bar._lastReverse, false)
+                end
             end
         end
     end
@@ -4438,6 +5025,8 @@ function ns.BuildTrackedBuffBars()
         if cfg.pandemicGlow                             then _anyPandemic  = true end
         if cfg.stackThresholdEnabled                    then _anyThreshold = true; _anyStacks = true end
         if (cfg.stacksPosition or "center") ~= "none"  then _anyStacks    = true end
+        if cfg.stackBasedBar and cfg.trackType ~= "cooldown"
+           and cfg.stackThresholdMaxEnabled             then _anyStacks    = true end
 
         if not tbbFrames[i] then
             tbbFrames[i] = CreateTrackedBuffBarFrame(UIParent, i)

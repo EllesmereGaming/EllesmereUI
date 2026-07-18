@@ -707,6 +707,41 @@ function ns.BM_BorrowSpellFilter()
     return nil
 end
 
+-- "Show Own on All Specs" (Simple Setup > Buff Display): lifts the
+-- tracked-spec restriction for the SIMPLE grid only.
+local function SimpleShowOwnAllSpecs()
+    local p = ns.db and ns.db.profile
+    local bs = p and p.bmSimple
+    return (bs and bs.showOwnAllSpecs) == true
+end
+
+-- First tracked spec of the player's class, or nil for untracked classes.
+-- The all-specs fallbacks (simple grid toggle, per-indicator flag) resolve
+-- their configuration through this.
+local function ClassFallbackSpecKey()
+    local _, classToken = UnitClass("player")
+    if classToken then
+        for _, spec in ipairs(HEALER_SPECS) do
+            if spec.classToken == classToken then return spec.key end
+        end
+    end
+    return nil
+end
+ns.BM_ClassFallbackSpecKey = ClassFallbackSpecKey
+
+-- The spec key the SIMPLE grid tracks. Normally the player's resolved spec;
+-- with Show Own on All Specs enabled, untracked specs fall back to the
+-- class's first tracked spec so the player still sees their own class buffs.
+-- Secret-aura fingerprints stay gated on the REAL resolved spec
+-- (activeSpecKey_BM), so on fallback specs only plain non-secret spells can
+-- match -- deliberate scope limit, not a bug.
+local function SimpleSpecKey()
+    if activeSpecKey_BM then return activeSpecKey_BM end
+    if not SimpleShowOwnAllSpecs() then return nil end
+    return ClassFallbackSpecKey()
+end
+ns.BM_SimpleSpecKey = SimpleSpecKey
+
 -- Simple Setup whitelist for the container grid (rebuilt by RebuildLookup;
 -- read-only for consumers -- the engine copies candidate tables on set).
 function ns.BM_SimpleTrackedSpellIDs()
@@ -733,19 +768,33 @@ local function RebuildLookup(db)
         GetSpecIndicators(db, spec.key)
     end
 
-    -- Only load indicators for the player's active spec.
+    -- Only load indicators for the player's active spec. With no resolved
+    -- spec (untracked class spec), indicators flagged Show Own on All Specs
+    -- still load from the class-fallback spec so the player's own casts keep
+    -- their indicators (non-secret spells only there: MatchSecretAura stays
+    -- gated on activeSpecKey_BM).
     DetectActiveSpecKey()
-    if activeSpecKey_BM then
-        local specData = db.profile.bmIndicators[activeSpecKey_BM]
+    local loadKey = activeSpecKey_BM
+    local flaggedOnly = false
+    if not loadKey then
+        loadKey = ClassFallbackSpecKey()
+        flaggedOnly = true
+    end
+    if loadKey then
+        local specData = db.profile.bmIndicators[loadKey]
         if specData and type(specData) == "table" then
             for _, ind in ipairs(specData) do
-                if ind.enabled and ind.spells then
+                if ind.enabled and ind.spells
+                   and (not flaggedOnly or ind.showOwnAllSpecs) then
                     allActiveIndicators[#allActiveIndicators + 1] = ind
                     for _, sid in ipairs(ind.spells) do
                         -- Borrow specs (Enh/Ele) only track the spells they can
                         -- cast; the borrowed spec's other indicators stay inert
-                        -- (never match an aura) so nothing else shows.
-                        if (not activeBorrow_BM) or activeBorrow_BM.spells[sid] then
+                        -- (never match an aura) so nothing else shows. An
+                        -- indicator flagged Show Own on All Specs opts out of
+                        -- that restriction.
+                        if (not activeBorrow_BM) or ind.showOwnAllSpecs
+                           or activeBorrow_BM.spells[sid] then
                             trackedSpellIDs[sid] = true
                             if not spellToIndicators[sid] then
                                 spellToIndicators[sid] = {}
@@ -768,14 +817,17 @@ local function RebuildLookup(db)
 
     -- Simple Setup whitelist: every non-hidden spell of the active spec,
     -- regardless of indicators (hidden entries are alternate IDs resolved via
-    -- PRIMARY_BY_ALT during the scan). Borrow specs show only the borrowed spells.
+    -- PRIMARY_BY_ALT during the scan). Borrow specs show only the borrowed
+    -- spells. Show Own on All Specs lifts both restrictions: borrow specs get
+    -- the source spec's full list, untracked specs get the class fallback.
     wipe(simpleTrackedSpellIDs)
-    if activeBorrow_BM then
+    if activeBorrow_BM and not SimpleShowOwnAllSpecs() then
         for sid in pairs(activeBorrow_BM.spells) do
             simpleTrackedSpellIDs[sid] = true
         end
-    elseif activeSpecKey_BM then
-        local spec = SPEC_BY_KEY[activeSpecKey_BM]
+    else
+        local simpleKey = SimpleSpecKey()
+        local spec = simpleKey and SPEC_BY_KEY[simpleKey]
         if spec then
             for _, spell in ipairs(spec.spells) do
                 if not spell.hide then
@@ -1035,14 +1087,17 @@ end
 -------------------------------------------------------------------------------
 function ns.BM_AnchorIndicators(d, health, s)
     -- Re-anchor health color overlay to the current fill texture (may change
-    -- when user swaps health bar texture in settings)
-    if d.bmHCOverlay and health then
-        local ft = health:GetStatusBarTexture()
+    -- when user swaps health bar texture in settings). Always hugs the REAL
+    -- bar: `health` may be the Uniform Icon Anchoring reference (a plain
+    -- Frame with no fill texture), so resolve through its back-pointer.
+    local hcBar = health and (health._euiHealth or health)
+    if d.bmHCOverlay and hcBar then
+        local ft = hcBar.GetStatusBarTexture and hcBar:GetStatusBarTexture()
         d.bmHCOverlay:ClearAllPoints()
         if ft then
             d.bmHCOverlay:SetAllPoints(ft)
         else
-            d.bmHCOverlay:SetAllPoints(health)
+            d.bmHCOverlay:SetAllPoints(hcBar)
         end
     end
 
@@ -1176,9 +1231,13 @@ local function BM_PlaceBar(bar, health, ind, iscale)
     else
         fullW, fullH = ind.barFullWidth, ind.barFullHeight
     end
+    -- Full Width/Height pins span the health bar itself, so they keep the real
+    -- bar even when Uniform Icon Anchoring passed the full-height reference in
+    -- (the reference carries a back-pointer to the bar it was stamped on).
+    local hugBar = health._euiHealth or health
     if fullW and fullH then
         -- Exact overlay of the health bar.
-        bar:SetAllPoints(health)
+        bar:SetAllPoints(hugBar)
     elseif fullW then
         -- Span the health bar's full width; thickness from the cross-axis
         -- slider; vertical placement follows the indicator's vertical edge.
@@ -1196,8 +1255,8 @@ local function BM_PlaceBar(bar, health, ind, iscale)
         local hEdge = (pos:find("RIGHT", 1, true) and "RIGHT")
             or (pos:find("LEFT", 1, true) and "LEFT") or ""
         local ox = (ind.offsetX or 0) * iscale
-        bar:SetPoint("TOP" .. hEdge, health, "TOP" .. hEdge, ox, 0)
-        bar:SetPoint("BOTTOM" .. hEdge, health, "BOTTOM" .. hEdge, ox, 0)
+        bar:SetPoint("TOP" .. hEdge, hugBar, "TOP" .. hEdge, ox, 0)
+        bar:SetPoint("BOTTOM" .. hEdge, hugBar, "BOTTOM" .. hEdge, ox, 0)
         bar:SetWidth(isVert and h or w)
     else
         if isVert then bar:SetSize(h, w) else bar:SetSize(w, h) end
@@ -1700,7 +1759,7 @@ function ns.BM_UpdateSimpleGrid(button, unit, db, updateInfo)
     if not GetFFD then return end
     local d = GetFFD(button)
     if not d.bmSimpleIcons then return end
-    local health = d.health
+    local health = ns.RF_AnchorHostFor and ns.RF_AnchorHostFor(d) or d.health
     if not health then return end
 
     local bs = db and db.profile and db.profile.bmSimple
@@ -1978,7 +2037,7 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
         return
     end
 
-    local health = d.health
+    local health = ns.RF_AnchorHostFor and ns.RF_AnchorHostFor(d) or d.health
     if not health then return end
     local PP = EllesmereUI.PanelPP or EllesmereUI.PP
 
@@ -2835,7 +2894,7 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
 
     local db = ns.db
     if not db or not db.profile or not db.profile.bmIndicators then return end
-    local health = f._health
+    local health = ns.RF_AnchorHost and ns.RF_AnchorHost(f._health, s) or f._health
     if not health then return end
     local PP = EllesmereUI.PanelPP or EllesmereUI.PP
     -- Base level for the Frame Level setting (mirrors the live render).
@@ -3076,7 +3135,9 @@ local function AutoDetectSpec()
             end
         end
     end
-    return nil
+    -- Class has no tracked spec at all (e.g. Warrior): open on Holy Paladin
+    -- instead of a blank page.
+    return "PALADIN_HOLY"
 end
 
 -------------------------------------------------------------------------------
@@ -3126,6 +3187,15 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY)
     health:GetStatusBarTexture():SetHorizTile(false)
     health:SetMinMaxValues(0, 100)
     health:SetValue(85)
+
+    -- Full-height anchor reference (mirrors the live buttons' d.uniformRef so
+    -- Uniform Icon Anchoring previews identically; see ns.RF_AnchorHost).
+    local pvUniformRef = CreateFrame("Frame", nil, pvFrame)
+    pvUniformRef:SetFrameLevel(health:GetFrameLevel())
+    pvUniformRef:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+    pvUniformRef:SetPoint("BOTTOMRIGHT", pvFrame, "BOTTOMRIGHT", 0, 0)
+    health._euiUniformRef = pvUniformRef
+    pvUniformRef._euiHealth = health
 
     -- Preview class color from the player's active spec (falls back to class)
     local previewClass
@@ -3449,7 +3519,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY)
             if previewIcons[i]._cooldown then previewIcons[i]._cooldown:Hide() end
             previewIcons[i]:Hide()
         end
-        ns.BM_AnchorSimpleGrid(fakeD, health, bs, 1, count)
+        ns.BM_AnchorSimpleGrid(fakeD, ns.RF_AnchorHost(health, s), bs, 1, count)
     end
     RefreshSimplePreview()
 
@@ -3491,6 +3561,35 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         RebuildLookup(db)
         if ns.ReloadFrames then ns.ReloadFrames() end
         EllesmereUI:RefreshPage(true)
+    end
+
+    -- Inline cog on each indicator's Own Only control: per-indicator
+    -- Show Own on All Specs (the indicator keeps rendering the player's own
+    -- casts on every spec of the class, bypassing the borrow restriction).
+    local function AttachOwnAllSpecsCog(rgn, ind)
+        local _, cogShow = EllesmereUI.BuildCogPopup({
+            title = "Own Only",
+            rows = {
+                { type = "toggle", label = "Show Own on All Specs",
+                  tooltip = "Show this indicator's buffs on every spec of your class, not only this spec.",
+                  get = function() return ind.showOwnAllSpecs == true end,
+                  set = function(v)
+                      ind.showOwnAllSpecs = v and true or false
+                      ReloadAndUpdate()
+                  end },
+            },
+        })
+        local cogBtn = CreateFrame("Button", nil, rgn)
+        cogBtn:SetSize(26, 26)
+        cogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+        cogBtn:SetAlpha(0.4)
+        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+        cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+        rgn._lastInline = cogBtn
     end
 
     local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
@@ -3838,7 +3937,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         -- Row 3: Spacing | Border Size (+ swatch)
         local row3
         row3, hh = W:DualRow(optsFrame, sy,
-            { type="slider", text="Spacing", min=-1, max=10, step=1,
+            { type="slider", pixel=true, text="Spacing", min=-1, max=10, step=1,
               disabled=BuffsOff, disabledTooltip="Show Buffs",
               getValue=function() return BVal("spacing", 1) end,
               setValue=function(v) BSet("spacing", v) end },
@@ -3947,6 +4046,21 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             UpdateStacksCog()
             EllesmereUI.RegisterWidgetRefresh(UpdateStacksCog)
         end
+
+        -- Row 6: Show Own on All Specs | (empty)
+        _, hh = W:DualRow(optsFrame, sy,
+            { type="toggle", text="Show Own on All Specs",
+              tooltip="Show your own class buffs on every spec, not only on the tracked healer spec.",
+              disabled=BuffsOff, disabledTooltip="Show Buffs",
+              getValue=function() return BVal("showOwnAllSpecs", false) end,
+              setValue=function(v)
+                  bs.showOwnAllSpecs = v and true or false
+                  -- The simple whitelist is spec-resolved inside the lookup
+                  -- build, so the toggle re-runs it before the re-render.
+                  if ns.BM_RebuildLookup then ns.BM_RebuildLookup(ns.db) end
+                  BApply()
+              end },
+            { type="label", text="" });  sy = sy - hh
 
         return 0
     end
@@ -5156,6 +5270,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
             rgn._control = cbDD
             rgn._lastInline = nil
+            AttachOwnAllSpecsCog(rgn, ind)
         end
 
         -- Auto-default growth direction based on position
@@ -5543,6 +5658,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                     rgn._control = cbDD
                     rgn._lastInline = nil
+                    AttachOwnAllSpecsCog(rgn, ind)
                 end
             end
 
@@ -5600,7 +5716,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 { type="slider", text="Size", min=4, max=40, step=1,
                   getValue=function() return ind.size or 12 end,
                   setValue=function(v) ind.size = v; ReloadAndUpdate() end },
-                { type="slider", text="Spacing", min=-1, max=10, step=1,
+                { type="slider", pixel=true, text="Spacing", min=-1, max=10, step=1,
                   getValue=function() return ind.spacing or 1 end,
                   setValue=function(v) ind.spacing = v; ReloadAndUpdate() end })
 
@@ -5902,6 +6018,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                         rgn._control = cbDD
                         rgn._lastInline = nil
+                        AttachOwnAllSpecsCog(rgn, ind)
                     end
                 end
 
@@ -6151,6 +6268,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                         rgn._control = cbDD
                         rgn._lastInline = nil
+                        AttachOwnAllSpecsCog(rgn, ind)
                     end
                 end
 
@@ -6247,6 +6365,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                         rgn._control = cbDD
                         rgn._lastInline = nil
+                        AttachOwnAllSpecsCog(rgn, ind)
                     end
                 end
 
@@ -6334,6 +6453,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                         rgn._control = cbDD
                         rgn._lastInline = nil
+                        AttachOwnAllSpecsCog(rgn, ind)
                     end
                 end
 

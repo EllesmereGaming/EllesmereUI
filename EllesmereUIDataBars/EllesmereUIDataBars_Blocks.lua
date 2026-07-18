@@ -119,7 +119,7 @@ end
 -- creation and every mode-dependent re-anchor alike -- carries the offset
 -- read live from the cfg. Wrap ONLY texts anchored to non-text targets:
 -- texts chained to a wrapped one (bagText -> goldText, eventText ->
--- clockText, cooldownText -> hearthText, infoText -> specText) follow it
+-- clockText, infoText -> specText) follow it
 -- through their anchor and would double-shift if wrapped too. These are
 -- OUR FontStrings, so shadowing the method on the widget table is safe.
 -- Offset changes re-render via ns.ReflowBlocks (factories re-anchor in
@@ -1717,16 +1717,18 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     local tooltipTimer = 0
     local mouseOver = false
 
-    -- Pre-allocated tooltip line buffers (avoid per-show garbage)
+    -- Pre-allocated tooltip line buffers (avoid per-show garbage). `spellId`
+    -- is the static integer teleport spell ID (the click-to-teleport overlay's
+    -- secure attribute), kept separate from the displayed dungeon `name`.
     local _mythicLinesBuf = {}
-    for i = 1, #SEASON_TELEPORTS do _mythicLinesBuf[i] = { name = "", cd = 0 } end
+    for i = 1, #SEASON_TELEPORTS do _mythicLinesBuf[i] = { name = "", cd = 0, spellId = nil } end
     local _mythicLineCount = 0
 
     local function D() return blockCfg.settings or {} end
     local function BC() return barCtx.cfg end
 
     local built = false
-    local hearthButton, hearthIcon, hearthText, cooldownText
+    local hearthButton, hearthIcon, hearthText
     local placeholder
 
     local function RefreshTravelTooltip()
@@ -1738,10 +1740,10 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         local cdStr = ns.FormatCooldown(cd2)
         if not cdStr then cdStr = L["READY"] end
         local ready = cd2 <= 0
-        local rr, rg = 1, 0
-        if ready then rr, rg = 0, 1 end
+        local rr, rg, rb = 0.5, 0.5, 0.5
+        if ready then rr, rg, rb = 0, 1, 0 end
         ns.Tip_AddDouble(L["HEARTHSTONE"] .. " |cffffffff(" .. (GetBindLocation() or "?") .. ")|r",
-                         cdStr, ar, ag, ab, rr, rg, 0)
+                         cdStr, ar, ag, ab, rr, rg, rb)
 
         _mythicLineCount = 0
         for _, entry in ipairs(SEASON_TELEPORTS) do
@@ -1750,12 +1752,14 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
                 local dName = nil
                 if entry.dungeonId and GetLFGDungeonInfo then dName = GetLFGDungeonInfo(entry.dungeonId) end
                 local spInfo = C_Spell.GetSpellInfo(spellId)
+                local spName = spInfo and spInfo.name
                 local name2 = dName
-                if not name2 and spInfo then name2 = spInfo.name end
+                if not name2 then name2 = spName end
                 if not name2 then name2 = tostring(spellId) end
                 _mythicLineCount = _mythicLineCount + 1
-                _mythicLinesBuf[_mythicLineCount].name = name2
-                _mythicLinesBuf[_mythicLineCount].cd   = TravelGetRemainingCooldown(spellId, true)
+                _mythicLinesBuf[_mythicLineCount].name    = name2
+                _mythicLinesBuf[_mythicLineCount].cd      = TravelGetRemainingCooldown(spellId, true)
+                _mythicLinesBuf[_mythicLineCount].spellId = spellId
             end
         end
         if _mythicLineCount > 0 then
@@ -1765,18 +1769,31 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             for i = 2, _mythicLineCount do
                 local j = i
                 while j > 1 and _mythicLinesBuf[j].name < _mythicLinesBuf[j - 1].name do
-                    _mythicLinesBuf[j].name, _mythicLinesBuf[j - 1].name = _mythicLinesBuf[j - 1].name, _mythicLinesBuf[j].name
-                    _mythicLinesBuf[j].cd,   _mythicLinesBuf[j - 1].cd   = _mythicLinesBuf[j - 1].cd,   _mythicLinesBuf[j].cd
+                    _mythicLinesBuf[j].name,    _mythicLinesBuf[j - 1].name    = _mythicLinesBuf[j - 1].name,    _mythicLinesBuf[j].name
+                    _mythicLinesBuf[j].cd,      _mythicLinesBuf[j - 1].cd      = _mythicLinesBuf[j - 1].cd,      _mythicLinesBuf[j].cd
+                    _mythicLinesBuf[j].spellId, _mythicLinesBuf[j - 1].spellId = _mythicLinesBuf[j - 1].spellId, _mythicLinesBuf[j].spellId
                     j = j - 1
                 end
             end
+            -- Clickable rows are ON by default (user decision 2026-07-17);
+            -- nil reads as enabled so existing blocks get them without any
+            -- migration. Turning the toggle off restores the plain read-only
+            -- list (no mouse capture, no keep-alive).
+            local clicky = D().clickableTeleports ~= false
             for i = 1, _mythicLineCount do
                 local e = _mythicLinesBuf[i]
                 local cs = ns.FormatCooldown(e.cd)
                 if not cs then cs = L["READY"] end
-                local er, eg = 1, 0
-                if e.cd <= 0 then er, eg = 0, 1 end
-                ns.Tip_AddDouble(e.name, cs, 0.8, 0.8, 0.8, er, eg, 0)
+                local er, eg, eb = 0.5, 0.5, 0.5
+                if e.cd <= 0 then er, eg, eb = 0, 1, 0 end
+                if clicky and e.cd <= 0 and e.spellId then
+                    -- Ready teleport: left-click the row to cast it (secure
+                    -- overlay button keyed to the static spell ID; the row
+                    -- highlights on hover).
+                    ns.Tip_AddActionDouble(e.name, cs, e.spellId, 0.8, 0.8, 0.8, er, eg, eb)
+                else
+                    ns.Tip_AddDouble(e.name, cs, 0.8, 0.8, 0.8, er, eg, eb)
+                end
             end
         end
         ns.Tip_AddLine(" ")
@@ -1802,8 +1819,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
 
         hearthIcon   = hearthButton:CreateTexture(nil, "OVERLAY"); hearthIcon:SetTexture(HEARTH_TEX)
         hearthText   = hearthButton:CreateFontString(nil, "OVERLAY")
-        cooldownText = hearthButton:CreateFontString(nil, "OVERLAY"); cooldownText:Hide()
-        AttachTextOffset(inst, hearthText)   -- cooldownText chains to hearthText
+        AttachTextOffset(inst, hearthText)
 
         local function SeedMacro()
             if InCombatLockdown() then return end
@@ -1829,7 +1845,9 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         hearthButton:SetScript("OnLeave", function()
             mouseOver = false
             tooltipTimer = 0
-            ns.Tip_Hide(hearthButton)
+            -- Interactive tip (clickable M+ rows): the keep-alive poll owns
+            -- dismissal so the cursor can travel onto the tip to click a row.
+            ns.Tip_HideUnlessInteractive(hearthButton)
             inst:Refresh()
         end)
 
@@ -1858,7 +1876,6 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         local barCfg = BC()
         local barH = barCtx.GetThickness()
         local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
-        local cooldownFont = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
         local isSide = barCtx.IsVertical()
 
         local location = GetBindLocation() or "?"
@@ -1870,27 +1887,18 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         end
 
         ns.SetFont(hearthText, fontSize, barCfg)
-        ns.SetFont(cooldownText, cooldownFont, barCfg)
 
         hearthText:SetText(location)
 
+        -- The block renders only icon + bind location; the remaining cooldown
+        -- lives in the tooltip. On cooldown the block dims to disabled gray.
         local cd = TravelGetPrimaryCooldown()
-        if cd > 0 then
-            local ar, ag, ab = ns.GetAccent()
-            local cdStr = ns.FormatCooldown(cd)
-            if not cdStr then cdStr = L["READY"] end
-            cooldownText:SetText(cdStr)
-            cooldownText:SetTextColor(ar, ag, ab, 1)
-            cooldownText:Show()
-        else
-            cooldownText:Hide()
-        end
 
         if mouseOver then
             local ar, ag, ab = ns.GetAccent()
             hearthText:SetTextColor(ar, ag, ab, 1); hearthIcon:SetVertexColor(ar, ag, ab, 1)
         elseif cd > 0 then
-            hearthText:SetTextColor(1, 0.3, 0.3, 1); hearthIcon:SetVertexColor(1, 0.3, 0.3, 1)
+            hearthText:SetTextColor(0.5, 0.5, 0.5, 1); hearthIcon:SetVertexColor(0.5, 0.5, 0.5, 1)
         else
             local br, bgr, bb = BlockColorOf(blockCfg)
             hearthText:SetTextColor(br, bgr, bb, 1); hearthIcon:SetVertexColor(br, bgr, bb, 1)
@@ -1919,13 +1927,6 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             hearthText:SetPoint("TOP", hearthIcon, "BOTTOM", 0, -2)
             totalH = totalH + ns.SnapToPixelGrid(hearthText:GetStringHeight())
 
-            if cooldownText:IsShown() then
-                ns.SetWrappedText(cooldownText, innerW, "CENTER")
-                cooldownText:ClearAllPoints()
-                cooldownText:SetPoint("TOP", hearthText, "BOTTOM", 0, -2)
-                totalH = totalH + 2 + ns.SnapToPixelGrid(cooldownText:GetStringHeight())
-            end
-
             totalH = max(totalH, barH)
             content:SetHeight(totalH)
             hearthButton:SetHeight(totalH)
@@ -1933,26 +1934,23 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             local slotW = HBudget(inst, 120)
             local textBudget = max(30, slotW - iconSz - gap - 8)
             _trvFitBuf1[1] = location
-            _trvFitBuf2[1] = cooldownText:GetText() or "00:00:00"
+            _trvFitBuf2[1] = "00:00:00"
             ns.SetFont(hearthText, fontSize, barCfg)
-            ns.SetFont(cooldownText, cooldownFont, barCfg)
             hearthText:SetText(location)
             iconSz = min(fontSize, max(14, floor(CONTENT_BASE * 0.72 + 0.5)))
             hearthIcon:SetSize(iconSz, iconSz)
             ns.ResetInlineText(hearthText, "LEFT")
-            ns.ResetInlineText(cooldownText, "CENTER")
             local tw = ns.SnapToPixelGrid(hearthText:GetStringWidth())
             local totalW = min(slotW, iconSz + gap + tw + 4)
             content:SetSize(totalW, barH)
             hearthButton:SetSize(totalW, barH)
             hearthIcon:SetPoint("LEFT", hearthButton, "LEFT", 0, 0)
             hearthText:ClearAllPoints(); hearthText:SetPoint("LEFT", hearthButton, "LEFT", iconSz + gap, 0)
-            cooldownText:ClearAllPoints(); cooldownText:SetPoint("CENTER", hearthText, "TOP", 0, 4)
         end
         MaybeRelayout(inst)
     end
 
-    -- 1s heartbeat: the cooldown text needs 1s resolution; the open tooltip
+    -- 1s heartbeat: drives the ready/cooldown tint flip; the open tooltip
     -- refreshes every 5s while hovered.
     local function TravelTick()
         tooltipTimer = tooltipTimer + 1
@@ -1987,9 +1985,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
             local iconSz = fontSize
             local textH = hearthText:GetStringHeight() or fontSize
-            local cdH = 0
-            if cooldownText:IsShown() then cdH = (cooldownText:GetStringHeight() or 0) + 4 end
-            return max(8 + iconSz + 2 + textH + cdH + 4, barH, 50)
+            return max(8 + iconSz + 2 + textH + 4, barH, 50)
         end
         return max(content:GetWidth() or 120, 40)
     end
@@ -3062,6 +3058,76 @@ function ns.RefreshMicroMenuHider()
     end)
 end
 
+-- Character stats tooltip (opt-in via the micromenu block's charStatsTooltip
+-- setting). Fixed set: equipped item level, primary stat, and the four
+-- secondary percentages with their raw combat rating in parentheses. The
+-- versatility read is wrapped in pcall -- GetVersatilityBonus /
+-- GetCombatRatingBonus can hand back a Midnight "secret value" under
+-- addon-tainted execution, and any arithmetic on it errors, so the line is
+-- dropped rather than crashing the whole tooltip.
+local CS_DIM = "|cffaaaaaa"
+
+local function MMPrimaryStat()
+    local specIndex = GetSpecialization and GetSpecialization()
+    if not specIndex or specIndex <= 0 then return nil end
+    local _, _, _, _, _, statID = GetSpecializationInfo(specIndex)
+    if statID == LE_UNIT_STAT_STRENGTH  then return SPELL_STAT1_NAME or "Strength",  1 end
+    if statID == LE_UNIT_STAT_AGILITY   then return SPELL_STAT2_NAME or "Agility",   2 end
+    if statID == LE_UNIT_STAT_INTELLECT then return SPELL_STAT4_NAME or "Intellect", 4 end
+    return nil
+end
+
+local function MMAddCharStats()
+    local ar, ag, ab = ns.GetAccent()
+    -- Stat reads return SECRET numbers in restricted content. They do NOT
+    -- error on read: format() quietly carries the secret into the row text,
+    -- which then detonates in Tip_Show's width measuring. Check every value
+    -- and drop that row alone, so the tooltip shortens per stat instead of
+    -- aborting mid-build (Tip_AddDouble also refuses secret rows as a net).
+    local function clean(v)
+        if issecretvalue(v) then return nil end
+        return v or 0
+    end
+    local function pctRating(label, pct, rating)
+        pct, rating = clean(pct), clean(rating)
+        if not (pct and rating) then return end
+        ns.Tip_AddDouble(label,
+            format("%.2f%%", pct) .. " " .. CS_DIM .. "(" .. floor(rating + 0.5) .. ")|r",
+            ar, ag, ab, 1, 1, 1)
+    end
+
+    ns.Tip_AddLine(" ")
+
+    local _, eq = GetAverageItemLevel()
+    eq = clean(eq)
+    if eq then
+        ns.Tip_AddDouble(STAT_AVERAGE_ITEM_LEVEL or "Item Level", format("%.1f", eq), ar, ag, ab, 1, 1, 1)
+    end
+
+    local pLabel, pIdx = MMPrimaryStat()
+    if pLabel and pIdx then
+        local _, eff = UnitStat("player", pIdx)
+        eff = clean(eff)
+        if eff then
+            ns.Tip_AddDouble(pLabel, format("%.0f", eff), ar, ag, ab, 1, 1, 1)
+        end
+    end
+
+    pctRating(STAT_CRITICAL_STRIKE or "Critical Strike", GetCritChance(),    GetCombatRating(CR_CRIT_MELEE))
+    pctRating(STAT_HASTE or "Haste",                     GetHaste(),         GetCombatRating(CR_HASTE_MELEE))
+    pctRating(STAT_MASTERY or "Mastery",                 GetMasteryEffect(), GetCombatRating(CR_MASTERY))
+
+    -- Versatility: secret-value-safe (see block comment above).
+    local ok, dmg, rating = pcall(function()
+        local d = (GetCombatRatingBonus(CR_VERSATILITY_DAMAGE_DONE) or 0)
+                + (GetVersatilityBonus(CR_VERSATILITY_DAMAGE_DONE)  or 0)
+        return d, GetCombatRating(CR_VERSATILITY_DAMAGE_DONE) or 0
+    end)
+    if ok then
+        pctRating(STAT_VERSATILITY or "Versatility", dmg, rating)
+    end
+end
+
 ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
@@ -3150,6 +3216,15 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
             end
             ns.Tip_AddDouble('|cFFFFFFFF' .. L["COMPANION_LEVEL"] .. '|r',
                 '|cFF' .. hexAccent .. companionLvl .. '|r', 1, 1, 1, r, g, b)
+        end
+
+        if name == 'char' and D().charStatsTooltip then
+            -- Secret handling lives inside: every stat value is
+            -- issecretvalue-checked (secret reads do not error, they poison
+            -- the row text and detonate later in Tip_Show's measuring). The
+            -- pcall is only a last resort so an API surprise never kills the
+            -- rest of the tooltip.
+            pcall(MMAddCharStats)
         end
 
         ns.Tip_Show()

@@ -55,7 +55,23 @@ local WINDOW_ENABLE_KEYS = {
     inspectrecipe   = "reskinInspectRecipe",
     delves          = "reskinDelves",
 }
+--- Master PER-PROFILE kill switch for ALL Blizzard window skinning: the
+--- window engine + every pack, plus the pre-engine CharacterSheet/Inspect,
+--- SocketPanel and LFG/GroupFinder skins. Stored on the PROFILE ROOT
+--- (EllesmereUIDB.profiles[name].disableWindowSkins) and resolved live, so
+--- it follows profile switches and rides profile exports; nil/false =
+--- enabled. Per-window enable keys and style picks are PRESERVED while
+--- killed, so re-enabling restores the exact configuration. Skins install
+--- at load: crossings require a reload (callers show the popup). The
+--- Tooltips-page popup skins (Queue Popup, Pause Menu) and Dragon Riding
+--- are deliberately NOT windows and stay untouched.
+function EllesmereUI.BlizzWindowSkinsKilled()
+    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    return (prof and prof.disableWindowSkins) and true or false
+end
+
 function EllesmereUI.GetBlizzWindowStyle(winKey)
+    if EllesmereUI.BlizzWindowSkinsKilled() then return "off" end
     local ek = WINDOW_ENABLE_KEYS[winKey]
     if ek and EllesmereUIDB and EllesmereUIDB[ek] == false then return "off" end
     local styles = EllesmereUIDB and EllesmereUIDB.blizzWindowSkinStyles
@@ -160,7 +176,19 @@ end
         end
     end
 
-    local function _ttOnShow(self) _ttSkin(self); _ttFonts(self) end
+    local _ttRelaying = setmetatable({}, { __mode = "k" })
+    local function _ttOnShow(self)
+        _ttSkin(self)
+        _ttFonts(self)
+        -- Re-show so the frame recalculates size with the new fonts. Gated
+        -- on the skin toggle: with it off the fonts above were never
+        -- applied, and the hook (uninstallable) must stay zero-cost.
+        if _enabled() and not _ttRelaying[self] then
+            _ttRelaying[self] = true
+            self:Show()
+            _ttRelaying[self] = nil
+        end
+    end
 
     local function _ttHook(tt)
         if not tt or tt:IsForbidden() or _ttSkinned[tt] then return end

@@ -178,6 +178,24 @@ local dbRegistry = {}  -- all db objects, for logout cleanup
 -- Expose so the profile system can update db.profile in-place after injection
 EUILite._dbRegistry = dbRegistry
 
+-- Pre-SavedVariables db tracking. A NewDB call at FILE SCOPE in the addon
+-- that OWNS the central store runs before WoW loads that addon's
+-- SavedVariables: it builds its profile inside a fresh table, and the real
+-- saved table then replaces the global right after, orphaning the db --
+-- session writes go to the orphan and are never serialized (settings
+-- silently stop saving). In the suite this can't happen (children's files
+-- execute long after the parent's SVs loaded), but in a STANDALONE build
+-- everything is one addon, so a file-scope NewDB (Bags) hit exactly this.
+-- Any db created before the owning addon's ADDON_LOADED is recorded here
+-- and re-rooted in place against the real loaded store at that moment.
+-- STANDALONE-GATED: the suite has no pre-SV NewDB callers (children init
+-- after the parent's SVs load), so the queue is provably empty there; the
+-- gate makes that a hard guarantee instead of a convention. The folder-name
+-- test is rename-immune (the standalone build never renames "Standalone").
+local IS_STANDALONE = type(ADDON_NAME) == "string" and ADDON_NAME:find("Standalone") ~= nil
+local _svLoaded = false   -- true once ADDON_NAME's SavedVariables are live
+local _preSVDBs = {}      -- dbs created before that, awaiting re-root
+
 --- Create or open a database backed by the central EllesmereUIDB store.
 -- Returns a db object with .profile pointing to the active profile table
 -- inside EllesmereUIDB.profiles[name].addons[folder].
@@ -264,6 +282,13 @@ function EUILite.NewDB(svName, defaults, defaultToCharKey)
     -- Register for logout cleanup
     tinsert(dbRegistry, db)
 
+    -- Created before the owning addon's SavedVariables loaded: the real
+    -- saved table will replace EllesmereUIDB momentarily, so queue this db
+    -- for the in-place re-root at ADDON_LOADED (see _preSVDBs above).
+    if IS_STANDALONE and not _svLoaded then
+        tinsert(_preSVDBs, db)
+    end
+
     return db
 end
 
@@ -338,6 +363,42 @@ end)
 local _parentDBRef           -- the table the parent's own SV file produced
 local _dbGuardArmed = true   -- true from load until PLAYER_LOGIN
 
+-- Re-root dbs created before the owning addon's SavedVariables loaded (see
+-- _preSVDBs above): resolve the profile inside the REAL loaded central store,
+-- merge defaults, and update the db object IN PLACE so every closure holding
+-- it reads and writes the table WoW will serialize at logout. The vestigial
+-- child SV global is re-wiped in place (its saved copy loaded after NewDB's
+-- file-scope wipe and would otherwise persist junk).
+local function RerootPreSVDBs()
+    if #_preSVDBs == 0 then return end
+    local profileName = (EllesmereUIDB and EllesmereUIDB.activeProfile) or "Default"
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    if type(EllesmereUIDB.profiles) ~= "table" then EllesmereUIDB.profiles = {} end
+    if type(EllesmereUIDB.profiles[profileName]) ~= "table" then
+        EllesmereUIDB.profiles[profileName] = {}
+    end
+    local profileData = EllesmereUIDB.profiles[profileName]
+    if not profileData.addons then profileData.addons = {} end
+    for _, db in ipairs(_preSVDBs) do
+        if type(profileData.addons[db.folder]) ~= "table" then
+            profileData.addons[db.folder] = {}
+        end
+        local profile = profileData.addons[db.folder]
+        if db._profileDefaults then
+            DeepMergeDefaults(profile, db._profileDefaults)
+        end
+        db.sv = EllesmereUIDB
+        db._profileName = profileName
+        db.profile = profile
+        if _G[db.svName] and type(_G[db.svName]) == "table" then
+            wipe(_G[db.svName])
+        else
+            _G[db.svName] = {}
+        end
+    end
+    wipe(_preSVDBs)
+end
+
 local lifecycleFrame = CreateFrame("Frame")
 lifecycleFrame:RegisterEvent("ADDON_LOADED")
 lifecycleFrame:RegisterEvent("PLAYER_LOGIN")
@@ -345,6 +406,10 @@ lifecycleFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON_NAME then
             _parentDBRef = EllesmereUIDB
+            if IS_STANDALONE then
+                _svLoaded = true
+                RerootPreSVDBs()
+            end
         elseif _dbGuardArmed and _parentDBRef and EllesmereUIDB ~= _parentDBRef then
             -- A stale SavedVariables copy from a child's WTF file replaced
             -- the central DB. Restore the real table; the stale copy purges

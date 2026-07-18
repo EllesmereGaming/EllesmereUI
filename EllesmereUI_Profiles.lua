@@ -637,6 +637,74 @@ function EllesmereUI.IsModuleAddonLoaded(folder)
     return IsAddonLoaded(FOLDER_HOST[folder] or folder)
 end
 
+--- Builds a profile unlockLayout snapshot (anchors + size matches + phantom
+--- bounds). CONTRACT: unlockLayout snapshots hold BASELINE links only -- the
+--- restore side writes them into the live globals and resets the active
+--- unlock-layer pointer, ASSERTING baseline. While a spec/conditional
+--- group's unlock layer is live, the live globals hold that layer's links:
+--- snapshotting them raw stamped a group fork as the profile's "baseline",
+--- and the next layer harvest banked the fork into baselineLayout
+--- permanently (the default-layout corruption class). Unlock Save & Exit
+--- already honors this via SpecOverrides_UnlockBaselineLinks; every profile
+--- snapshot writer must go through here. TBB child-role entries are
+--- per-spec bucket data that layers never carry -- they ride from live so a
+--- baseline-sourced snapshot does not drop them (mirrors ApplyLayer).
+local function SnapshotUnlockLayout()
+    if not EllesmereUIDB then return nil end
+    local ba, bwm, bhm
+    if EllesmereUI.SpecOverrides_UnlockBaselineLinks then
+        ba, bwm, bhm = EllesmereUI.SpecOverrides_UnlockBaselineLinks()
+    end
+    local snap = {
+        anchors       = DeepCopy(ba  or EllesmereUIDB.unlockAnchors     or {}),
+        widthMatch    = DeepCopy(bwm or EllesmereUIDB.unlockWidthMatch  or {}),
+        heightMatch   = DeepCopy(bhm or EllesmereUIDB.unlockHeightMatch or {}),
+        phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds or {}),
+    }
+    if ba then
+        for k, v in pairs(EllesmereUIDB.unlockAnchors or {}) do
+            if type(k) == "string" and k:find("^TBB_%d+$") then snap.anchors[k] = DeepCopy(v) end
+        end
+        for k, v in pairs(EllesmereUIDB.unlockWidthMatch or {}) do
+            if type(k) == "string" and k:find("^TBB_%d+$") then snap.widthMatch[k] = v end
+        end
+        for k, v in pairs(EllesmereUIDB.unlockHeightMatch or {}) do
+            if type(k) == "string" and k:find("^TBB_%d+$") then snap.heightMatch[k] = v end
+        end
+    end
+    return snap
+end
+
+--- Stamp-on-first-touch: a profile with NO unlockLayout snapshot gets one
+--- recorded the moment it is activated, sourced from the current (baseline-
+--- resolved) live links. This replaces the old "leave the live unlock data
+--- untouched" inherit: the inherited links were never RECORDED, so they
+--- mutated with every subsequent switch, got baked into whatever profile was
+--- switched away from next, and broke the restore contract that snapshots
+--- always hold baseline links. Callers stamp BEFORE flipping activeProfile
+--- so the baseline source resolves against the OUTGOING store (the store the
+--- live tables actually belong to). Brand-new profiles also receive the
+--- castbar anchor/width-match defaults the old first-touch branch seeded.
+local function StampUnlockLayoutIfMissing(prof)
+    if not prof or prof.unlockLayout ~= nil then return end
+    local snap = SnapshotUnlockLayout()
+    if not snap then return end
+    local CB_DEFAULTS = {
+        { cb = "playerCastbar", parent = "player" },
+        { cb = "targetCastbar", parent = "target" },
+        { cb = "focusCastbar",  parent = "focus" },
+    }
+    for _, def in ipairs(CB_DEFAULTS) do
+        if not snap.anchors[def.cb] then
+            snap.anchors[def.cb] = { target = def.parent, side = "BOTTOM" }
+        end
+        if not snap.widthMatch[def.cb] then
+            snap.widthMatch[def.cb] = def.parent
+        end
+    end
+    prof.unlockLayout = snap
+end
+
 --- Re-point all db.profile references to the given profile name.
 --- Called when switching profiles so addons see the new data immediately.
 local function RepointAllDBs(profileName)
@@ -665,7 +733,15 @@ local function RepointAllDBs(profileName)
             for folder, targets in pairs(sm) do
                 if type(targets) == "table" and targets[profileName] and targets[outName]
                    and outProf.addons[folder] then
+                    -- Override-owned settings never sync: merge both profiles'
+                    -- override-entry paths into the static exclusions
+                    -- (fail-open -- a derive error keeps the static set).
                     local exclusions = EllesmereUI._syncExclusions and EllesmereUI._syncExclusions[folder]
+                    local exFn = EllesmereUI._SyncExclusionsWithOverrides
+                    if exFn then
+                        local ok, m = pcall(exFn, folder, exclusions, outProf, profileData)
+                        if ok and m then exclusions = m end
+                    end
                     local dst = profileData.addons[folder]
                     if not (exclusions and next(exclusions)) then
                         profileData.addons[folder] = DeepCopy(outProf.addons[folder])
@@ -699,11 +775,18 @@ local function RepointAllDBs(profileName)
         end
     end
     -- Restore unlock layout from the profile.
-    -- If the profile has no unlockLayout yet (e.g. created before this key
-    -- existed), leave the live unlock data untouched so the current
-    -- positions are preserved. Only restore when the profile explicitly
-    -- contains layout data from a previous save.
+    -- Callers stamp a missing snapshot BEFORE flipping activeProfile (see
+    -- StampUnlockLayoutIfMissing); this is the last-resort stamp for any
+    -- flow that missed it. By now the flip already happened, so the baseline
+    -- source resolves against the INCOMING store -- for a truly snapshot-less
+    -- profile that store is empty and the stamp records raw live (the old
+    -- inherit, but RECORDED: the links stop mutating on every switch and the
+    -- baseline restore contract holds from here on).
     local ul = profileData.unlockLayout
+    if not ul then
+        StampUnlockLayoutIfMissing(profileData)
+        ul = profileData.unlockLayout
+    end
     if ul then
         EllesmereUIDB.unlockAnchors     = DeepCopy(ul.anchors      or {})
         EllesmereUIDB.unlockWidthMatch  = DeepCopy(ul.widthMatch   or {})
@@ -731,29 +814,10 @@ local function RepointAllDBs(profileName)
             EllesmereUI._TBBRestoreUnlockLinks()
         end
     end
-    -- Seed castbar anchor defaults ONLY on brand-new profiles (no unlockLayout
-    -- yet). Re-seeding every load would clobber a user's deliberate un-anchor
-    -- or manual position with the default "target BOTTOM" anchor the next
-    -- time the profile is applied (e.g. via spec profile assignment).
-    if not ul then
-        local anchors = EllesmereUIDB.unlockAnchors
-        local wMatch  = EllesmereUIDB.unlockWidthMatch
-        if anchors and wMatch then
-            local CB_DEFAULTS = {
-                { cb = "playerCastbar", parent = "player" },
-                { cb = "targetCastbar", parent = "target" },
-                { cb = "focusCastbar",  parent = "focus" },
-            }
-            for _, def in ipairs(CB_DEFAULTS) do
-                if not anchors[def.cb] then
-                    anchors[def.cb] = { target = def.parent, side = "BOTTOM" }
-                end
-                if not wMatch[def.cb] then
-                    wMatch[def.cb] = def.parent
-                end
-            end
-        end
-    end
+    -- (Castbar anchor defaults for brand-new profiles are seeded into the
+    -- stamped snapshot by StampUnlockLayoutIfMissing and arrive via the
+    -- restore above -- re-seeding live on every load would clobber a user's
+    -- deliberate un-anchor the next time the profile is applied.)
     -- Restore fonts and custom colors from the profile
     if profileData.fonts then
         local fontsDB = EllesmereUI.GetFontsDB()
@@ -863,6 +927,9 @@ function EllesmereUI.PreSeedSpecProfile()
         return
     end
 
+    -- Stamp BEFORE the flip: the baseline source must resolve against the
+    -- OUTGOING store the live link tables belong to.
+    StampUnlockLayoutIfMissing(EllesmereUIDB.profiles and EllesmereUIDB.profiles[targetProfile])
     EllesmereUIDB.activeProfile = targetProfile
     RepointAllDBs(targetProfile)
     EllesmereUI._preSeedComplete = true
@@ -937,14 +1004,10 @@ function EllesmereUI.SnapshotAllAddons()
             data.specBmOverrides = DeepCopy(prof.specBmOverrides)
         end
     end
-    -- Include unlock mode layout data (anchors, size matches)
+    -- Include unlock mode layout data (anchors, size matches). Baseline-
+    -- sourced while a group layer is live (see SnapshotUnlockLayout).
     if EllesmereUIDB then
-        data.unlockLayout = {
-            anchors       = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
-            widthMatch    = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
-            heightMatch   = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
-            phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds     or {}),
-        }
+        data.unlockLayout = SnapshotUnlockLayout()
         -- UI accent color (per-profile). Serialize the RESOLVED accent so an
         -- imported profile reproduces the source's visible accent regardless of
         -- whether it came from an explicit per-profile value or the fallback.
@@ -1004,6 +1067,13 @@ end
 --- For normal profile switching, use SwitchProfile (which calls RepointAllDBs).
 function EllesmereUI.ApplyProfileData(profileData)
     if not profileData or not profileData.addons then return end
+
+    -- An open unlock session's snapshots and pending edits belong to the
+    -- OUTGOING data about to be replaced: discard-close before the wipe
+    -- (mirrors SwitchProfile / spec changes / condition flips).
+    if EllesmereUI._unlockModeActive and EllesmereUI.ForceCloseUnlockDiscard then
+        EllesmereUI.ForceCloseUnlockDiscard()
+    end
 
     -- Any open editing-as session (spec group / conditional / Default view)
     -- must close BEFORE the live tables are wiped and refilled: the exits
@@ -1162,13 +1232,16 @@ function EllesmereUI.ApplyProfileData(profileData)
             end
         end
     end
-    -- Apply fonts and colors
-    do
+    -- Apply fonts (account-wide store) ONLY when the profile carries a font
+    -- snapshot. A partial import nils profileData.fonts to keep the recipient's
+    -- own fonts -- wiping unconditionally here reset them to the default
+    -- (Expressway/shadow) instead. Mirrors SwitchProfile's guarded restore.
+    -- Custom colours are getter-redirected (GetCustomColorsDB) and must NEVER be
+    -- wiped/restored here (see the custom-colours global-mode design).
+    if profileData.fonts then
         local fontsDB = EllesmereUI.GetFontsDB()
         for k in pairs(fontsDB) do fontsDB[k] = nil end
-        if profileData.fonts then
-            for k, v in pairs(profileData.fonts) do fontsDB[k] = DeepCopy(v) end
-        end
+        for k, v in pairs(profileData.fonts) do fontsDB[k] = DeepCopy(v) end
         if fontsDB.global      == nil then fontsDB.global      = "Expressway" end
         if fontsDB.outlineMode == nil then fontsDB.outlineMode = "shadow"     end
     end
@@ -1399,12 +1472,15 @@ local function EnsureProfileBindBtn(profileName)
         if active == profileName then return end
         local _, profiles = EllesmereUI.GetProfileList()
         local fontWillChange = EllesmereUI.ProfileChangesFont(profiles and profiles[profileName])
+        local skinsWillChange = EllesmereUI.ProfileChangesWindowSkins(profiles and profiles[profileName])
         EllesmereUI.SwitchProfile(profileName)
         EllesmereUI.RefreshAllAddons()
-        if fontWillChange then
+        if fontWillChange or skinsWillChange then
             EllesmereUI:ShowConfirmPopup({
                 title       = "Reload Required",
-                message     = "Font changed. A UI reload is needed to apply the new font.",
+                message     = fontWillChange
+                    and "Font changed. A UI reload is needed to apply the new font."
+                    or "Window skins changed for this profile. A UI reload is needed to apply them.",
                 confirmText = "Reload Now",
                 cancelText  = "Later",
                 onConfirm   = function() ReloadUI() end,
@@ -1490,6 +1566,19 @@ function EllesmereUI.ProfileChangesFont(profileData)
     return curFont ~= newFont or curOutline ~= newOutline
 end
 
+--- Returns true if switching to profileData would cross the per-profile
+--- "Disable Window Skins" flag in either direction. Skins install at load,
+--- so a crossing needs a UI reload to fully apply -- callers pair this with
+--- the same reload popup as the font check above. Must be called BEFORE
+--- the switch (compares the CURRENT active profile root against the target).
+function EllesmereUI.ProfileChangesWindowSkins(profileData)
+    if type(profileData) ~= "table" then return false end
+    local cur = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    local a = (cur and cur.disableWindowSkins) and true or false
+    local b = profileData.disableWindowSkins and true or false
+    return a ~= b
+end
+
 --[[ ADDON-SPECIFIC EXPORT DISABLED
 --- Apply a partial profile (specific addons only) by merging into active
 function EllesmereUI.ApplyPartialProfile(profileData)
@@ -1539,6 +1628,15 @@ local EXPORT_PREFIX = "!EUI_"
 -- itself isn't part of a subset export.
 local function SnapshotProfileCDMSpells(profileName, includedFolders, cdmSpecs)
     if includedFolders and not includedFolders["EllesmereUICooldownManager"] then return nil end
+    -- Reconcile the ACTIVE spec's default-bar store against the live icons
+    -- before snapshotting: untouched base-bar spells render via the
+    -- frames-as-truth fallback without being recorded, and an export taken
+    -- before the login reseed ran would ship them missing (the importer's
+    -- ghost pass then hides them). No-ops when the CDM child is disabled,
+    -- when an import's ghosting is pending, or when no live icons exist.
+    if EllesmereUI.CDMReconcileActiveSpecSpells then
+        EllesmereUI.CDMReconcileActiveSpecSpells()
+    end
     local sa = EllesmereUIDB and EllesmereUIDB.spellAssignments
     local bucket = sa and sa.profiles and sa.profiles[profileName]
     if not bucket or type(bucket.specProfiles) ~= "table" or not next(bucket.specProfiles) then
@@ -1577,9 +1675,10 @@ local function CollectAssignedSpecs(profileName)
     return list
 end
 
-function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, includeCDM, cdmSpecs)
+function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, includeCDM, cdmSpecs, includeGlobals)
     if includeLayout == nil then includeLayout = true end  -- default ON
     if includeCDM == nil then includeCDM = false end  -- default OFF (opt-in, spec-picked)
+    if includeGlobals == nil then includeGlobals = true end  -- default ON ("Include Global Settings")
     local db = GetProfilesDB()
     local profileData = db.profiles[profileName]
     if not profileData then return nil end
@@ -1588,14 +1687,12 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
         profileData.fonts = DeepCopy(EllesmereUI.GetFontsDB())
         profileData.customColors = DeepCopy(EllesmereUI.GetCustomColorsDB())
         profileData.darkMode = DeepCopy(EllesmereUI.GetDarkModeDB())
-        profileData.unlockLayout = {
-            anchors       = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
-            widthMatch    = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
-            heightMatch   = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
-            phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds     or {}),
-        }
+        profileData.unlockLayout = SnapshotUnlockLayout()
     end
     local exportData = DeepCopy(profileData)
+    -- Import-window guard flag (see ImportProfile) is recipient-local state;
+    -- never let it ride an export string.
+    exportData._importEstablishPending = nil
     -- UI accent color (per-profile): serialize the RESOLVED accent for THIS
     -- profile (works for active and non-active profiles; never mutates the
     -- stored profile, and is rename-immune since it is a data-root field, not
@@ -1605,6 +1702,12 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
         -- Serialize useClass explicitly (see SnapshotAllAddons).
         exportData.euiAccent = { useClass = u, custom = (not u) and { r = r, g = g, b = b } or nil }
     end
+    -- UI scale (account-wide) rides with a FULL profile so an importer can opt
+    -- to match the scale the profile was designed at. Concrete number; absent
+    -- when never set (old profiles carry no scale to exclude). Dropped on a
+    -- subset export below alongside the other profile-global appearance.
+    exportData.uiScale = (EllesmereUIDB and type(EllesmereUIDB.ppUIScale) == "number")
+        and EllesmereUIDB.ppUIScale or nil
     -- Only export addons that are actually loaded (supports standalone installs)
     -- When includedFolders is provided, further filter to user's selection
     if exportData.addons then
@@ -1640,10 +1743,18 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
     -- not separable per-addon, so a subset export must not carry them (they'd
     -- clobber the recipient's). Only a full-profile export carries them.
     if includedFolders then
-        exportData.fonts        = nil
-        exportData.customColors = nil
-        exportData.darkMode     = nil
-        exportData.euiAccent    = nil
+        -- UI scale has its own dedicated import toggle and never rides a subset
+        -- export (it is not part of "Include Global Settings").
+        exportData.uiScale = nil
+        -- Profile-global appearance (fonts, custom colours, dark mode, accent)
+        -- rides a per-addon export only when "Include Global Settings" is on
+        -- (default). Off = the recipient keeps their own look.
+        if not includeGlobals then
+            exportData.fonts        = nil
+            exportData.customColors = nil
+            exportData.darkMode     = nil
+            exportData.euiAccent    = nil
+        end
     end
     -- Layout relationships (unlockLayout) are governed by the "Include layout"
     -- toggle and FILTERED per-module: only relationships whose both endpoints are
@@ -1655,6 +1766,29 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
         exportData.unlockLayout, includeLayout, includedFolders)
     exportData.unlockLayout     = fLayout      -- nil when includeLayout is off
     exportData.unlockLayoutMeta = layoutMeta   -- nil when includeLayout is off
+    -- Spec-group / conditional unlock-layer FORKS (whole cross-module position
+    -- layers, specUnlockOverrides/condUnlockOverrides): governed by the same
+    -- "Include layout" toggle, and they NEVER ride a subset export -- the
+    -- layers are not per-module separable, and the import-side subset strip
+    -- only triggers when the RECIPIENT deselects payload modules, so an
+    -- export-side subset used to smuggle the exporter's full fork set through
+    -- (wiping or replacing the recipient's own group layouts on import).
+    if not includeLayout or includedFolders then
+        exportData.specUnlockOverrides = nil
+        exportData.condUnlockOverrides = nil
+    end
+    -- Layout deliberately excluded: mark it so the store merge KEEPS the
+    -- recipient's fork stores instead of reading the stripped (nil) tables
+    -- as "exporter had none, wipe yours" (see MergeImportedStores).
+    if not includeLayout then
+        exportData.layoutExcluded = true
+    end
+    -- A subset export IS a partial import regardless of what the recipient
+    -- checks: stamp it at the source so the store merge takes the same
+    -- keep-existing subset path the import dialog stamps on deselection.
+    if includedFolders then
+        exportData.partialImport = true
+    end
     -- Normalize local db.folder keys -> canonical (suite) keys so the string
     -- imports correctly into any build. No-op in the suite (canon == folder).
     exportData.addons = AddonsToCanon(exportData.addons)
@@ -1884,6 +2018,9 @@ function EllesmereUI.ExportCurrentProfile(includeLayout, includeCDM, cdmSpecs)
     profileData.assignedSpecs = CollectAssignedSpecs(activeName)
     -- HoverCast (click-cast) bindings are account-global, not per-profile; never export.
     profileData.clickCast = nil
+    -- UI scale (account-wide) rides with the full profile (see ExportProfile).
+    profileData.uiScale = (EllesmereUIDB and type(EllesmereUIDB.ppUIScale) == "number")
+        and EllesmereUIDB.ppUIScale or nil
     -- Layout: honor the "Include layout" toggle, and even on a full export drop the
     -- no-checkbox-module (Dragon Riding) + stale (deleted-bar) edges. folderSet=nil
     -- keeps all checkbox modules. Attach the canonical keyToFolder meta.
@@ -2316,6 +2453,21 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         -- payload so an import can never overwrite the user's own click-cast setup.
         imported.clickCast = nil
 
+        -- UI scale (account-wide) is applied ONLY when the importer explicitly
+        -- opted in: the import page's "Exclude UI Scale" toggle defaults ON, so
+        -- the applyUIScale marker is absent by default, and a raw-string / Wago
+        -- import (no options UI) never sets it either -- the user's own scale is
+        -- left untouched. Writing the account keys here lets the caller's imminent
+        -- reload apply the new scale (EllesmereUI_Startup reads ppUIScale). Range
+        -- matches PP.PixelBestSize's clamp; out-of-range values are ignored.
+        if payload.data.applyUIScale and type(payload.data.uiScale) == "number" and EllesmereUIDB then
+            local s = payload.data.uiScale
+            if s >= 0.40 and s <= 1.15 then
+                EllesmereUIDB.ppUIScale = s
+                EllesmereUIDB.ppUIScaleAuto = false
+            end
+        end
+
         -- Base: deep-copy current active profile, then overlay imported addons
         local current = db.profiles[db.activeProfile or "Default"]
         local merged = current and DeepCopy(current) or {}
@@ -2357,9 +2509,21 @@ function EllesmereUI.ImportProfile(importStr, profileName)
                 if type(live) == "table" then for k, v in pairs(live) do dst[k] = DeepCopy(v) end end
             end
             if EllesmereUIDB then
-                overlayLive(baseUL.anchors,     EllesmereUIDB.unlockAnchors)
-                overlayLive(baseUL.widthMatch,  EllesmereUIDB.unlockWidthMatch)
-                overlayLive(baseUL.heightMatch, EllesmereUIDB.unlockHeightMatch)
+                -- CONTRACT (see SnapshotUnlockLayout): while a spec/cond
+                -- group's unlock layer is LIVE, the raw globals hold that
+                -- FORK's links -- overlaying them raw stamped the fork as
+                -- the new profile's baseline (the one snapshot writer the
+                -- Cluster-A hardening missed: importing while playing a
+                -- forked spec leaked its geometry onto every spec of the
+                -- new profile). Source through the same baseline-resolved
+                -- snapshot every other writer uses; TBB child entries are
+                -- carried from live inside it.
+                local liveSnap = SnapshotUnlockLayout()
+                if liveSnap then
+                    overlayLive(baseUL.anchors,     liveSnap.anchors)
+                    overlayLive(baseUL.widthMatch,  liveSnap.widthMatch)
+                    overlayLive(baseUL.heightMatch, liveSnap.heightMatch)
+                end
             end
             merged.unlockLayout = baseUL  -- current full layout (kept when no import layout)
 
@@ -2489,6 +2653,15 @@ function EllesmereUI.ImportProfile(importStr, profileName)
             if EllesmereUI.MigrateRBAdvancedProfile then
                 EllesmereUI.MigrateRBAdvancedProfile(db.profiles[profileName])
             end
+            -- Import window guard, spec_locked flavor: the merged profile was
+            -- built on the dirty active profile all the same, so its first
+            -- ACTIVATION (e.g. a later login preseeding onto an auto-assigned
+            -- spec) hits the same unguarded pre-apply harvest as a direct
+            -- import. The flag sits inert while the profile is stored;
+            -- whichever session first activates it clears it at its first
+            -- apply. Runtime armed flag deliberately NOT set here: this
+            -- session keeps its own active profile.
+            db.profiles[profileName]._importEstablishPending = true
             return true, nil, "spec_locked"
         end
         -- Flush the OUTGOING (currently active) profile's LIVE unlock data into its
@@ -2509,16 +2682,39 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         end
         local outgoing = db.profiles[db.activeProfile or "Default"]
         if outgoing and EllesmereUIDB then
-            outgoing.unlockLayout = {
-                anchors       = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
-                widthMatch    = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
-                heightMatch   = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
-                phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds     or {}),
-            }
+            outgoing.unlockLayout = SnapshotUnlockLayout()
         end
-        -- Make it the active profile and re-point db references
+        -- Make it the active profile and re-point db references (stamp a
+        -- missing unlockLayout before the flip -- see StampUnlockLayoutIfMissing)
+        StampUnlockLayoutIfMissing(db.profiles[profileName])
         db.activeProfile = profileName
         RepointAllDBs(profileName)
+        -- Import window guard: suppress unlock/BM LAYOUT banks from now until
+        -- the first apply of a later session. The imported store already holds
+        -- the exporter's layers verbatim; live geometry in this window is
+        -- mid-import residue (inherited link tables, unconverged anchors), and
+        -- any boundary harvest -- the import-tail Conditions recheck, the
+        -- caller's ReloadUI firing PLAYER_LOGOUT, the first post-login spec
+        -- transition -- would wholesale-replace a pristine bucket with it.
+        -- Persisted on the profile root so it survives the reload; the
+        -- companion runtime flag stops THIS session's applies (the
+        -- SpecOverrides_Apply below) from closing the window early. Cleared
+        -- unconditionally at the first apply of any later session; value
+        -- harvests are never suppressed.
+        db.profiles[profileName]._importEstablishPending = true
+        EllesmereUI._importGuardArmedNow = true
+        -- Custom colours resolve live via GetCustomColorsDB. In GLOBAL colour
+        -- mode the shared palette comes from colorsPullFrom (or the first
+        -- profile); a recipient who pinned a specific source would store the
+        -- imported palette but keep seeing their own. When the import actually
+        -- carries colours, point the global source at the imported profile so
+        -- its palette is what shows. Getter-redirect only -- never wipes or
+        -- restores a live colour table (that is banned). Per-profile mode reads
+        -- the active (now imported) profile already, so it needs no change.
+        if imported.customColors and EllesmereUIDB
+           and EllesmereUIDB.colorsApplyToAllProfiles ~= false then
+            EllesmereUIDB.colorsPullFrom = profileName
+        end
         -- Apply imported data into the live db.profile tables. We MUST pass
         -- payload.data here (a SEPARATE table) and NOT merged: RepointAllDBs already
         -- pointed db.profile INTO merged.addons, and ApplyProfileData clears db.profile
@@ -2537,32 +2733,23 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         if EllesmereUI.MigrateRBAdvancedProfile then
             EllesmereUI.MigrateRBAdvancedProfile(db.profiles[profileName])
         end
-        -- Re-bank override DEFAULTS from the freshly-applied imported values,
-        -- synchronously: it must land BEFORE SpecOverrides_Apply writes the
-        -- overlays back over live, and before the caller's ReloadUI (which
-        -- would destroy any deferred in-memory flag -- post-reload, login
-        -- overlays land before the first full refresh, so there is no clean
-        -- window after this one). Scoped to the folders the string actually
-        -- carried: non-imported folders keep the base profile's live tables,
-        -- which can hold ACTIVE override values that must never become
-        -- defaults.
-        if EllesmereUI.SpecOverrides_RebaselineDefaults then
-            local importedFolders = {}
-            if payload.data and payload.data.addons then
-                for folder in pairs(payload.data.addons) do importedFolders[folder] = true end
-            end
-            if next(importedFolders) then
-                EllesmereUI.SpecOverrides_RebaselineDefaults(importedFolders)
-            end
-        end
+        -- NO default re-bank here. The imported entries carry the EXPORTER's
+        -- recorded values.default, consistent with the imported addon blobs
+        -- by construction (MergeImportedStores partitions per folder). The
+        -- old SpecOverrides_RebaselineDefaults pass overwrote those recorded
+        -- defaults with the imported LIVE blob -- which holds the exporter's
+        -- CURRENT SPEC's override values (SnapshotAllAddons restores
+        -- canonical spec values, not defaults) -- permanently destroying the
+        -- exporter's true defaults and bleeding one spec's values into every
+        -- unassigned spec on the recipient.
         -- Spec Overrides: apply the imported profile's stored values for the
         -- current spec on top of the just-applied addon data.
         if EllesmereUI.SpecOverrides_Apply then
             EllesmereUI.SpecOverrides_Apply(curSpecID)
         end
         -- Don't ReloadUI() here: the caller (options panel import flow)
-        -- may need to show the CDM spec picker popup before reloading.
-        -- The caller handles the reload/refresh after the popup completes.
+        -- reloads unconditionally right after this returns. (The old CDM
+        -- spec-picker popup flow is gone -- CDM spells import as-is.)
         return true, nil
     --[[ ADDON-SPECIFIC EXPORT DISABLED
     elseif payload.type == "partial" then
@@ -2683,6 +2870,7 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         if specLocked then
             return true, nil, "spec_locked"
         end
+        StampUnlockLayoutIfMissing(db.profiles[profileName])
         db.activeProfile = profileName
         RepointAllDBs(profileName)
         EllesmereUI.ApplyProfileData(merged)
@@ -2718,16 +2906,13 @@ function EllesmereUI.SaveCurrentAsProfile(name)
     -- Count existing profiles BEFORE adding the new one
     -- Deep-copy the current profile into the new name
     local copy = src and DeepCopy(src) or {}
+    -- Never inherit the import-window guard flag (see ImportProfile).
+    copy._importEstablishPending = nil
     -- Ensure fonts/colors/unlock layout are current
     copy.fonts = DeepCopy(EllesmereUI.GetFontsDB())
     copy.customColors = DeepCopy(EllesmereUI.GetCustomColorsDB())
     copy.darkMode = DeepCopy(EllesmereUI.GetDarkModeDB())
-    copy.unlockLayout = {
-        anchors       = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
-        widthMatch    = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
-        heightMatch   = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
-        phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds     or {}),
-    }
+    copy.unlockLayout = SnapshotUnlockLayout()
     db.profiles[name] = copy
 
     -- CDM spell content lives in the per-profile spell store at
@@ -2802,8 +2987,12 @@ function EllesmereUI.DeleteProfile(name)
     end
     -- Clean up keybind
     EllesmereUI.OnProfileDeleted(name)
-    -- If deleted profile was active, fall back to Default
+    -- If deleted profile was active, fall back to Default. A freshly
+    -- auto-created Default gets the current baseline links STAMPED (the
+    -- deleted profile is gone -- inheriting unrecorded would resurrect the
+    -- mutating-links bug, and wiping would be unrecoverable).
     if db.activeProfile == name then
+        StampUnlockLayoutIfMissing(db.profiles["Default"])
         db.activeProfile = "Default"
         RepointAllDBs("Default")
     end
@@ -2844,6 +3033,9 @@ function EllesmereUI.RenameProfile(oldName, newName)
         end
     end
     if db.activeProfile == oldName then
+        -- Rename repoints the SAME profile table: unlockLayout rides it, so
+        -- the stamp is a no-op unless the table never had one.
+        StampUnlockLayoutIfMissing(db.profiles[newName])
         db.activeProfile = newName
         RepointAllDBs(newName)
     end
@@ -2854,6 +3046,15 @@ end
 function EllesmereUI.SwitchProfile(name)
     local db = GetProfilesDB()
     if not db.profiles[name] then return end
+
+    -- An open unlock session cannot survive a profile switch (same rule as
+    -- spec changes and condition flips): its movers, snapshots, and pending
+    -- edits all belong to the OUTGOING profile's stores -- committing or
+    -- harvesting them after the swap would write them into the WRONG
+    -- profile's layers and snapshots. Discard-close first.
+    if EllesmereUI._unlockModeActive and EllesmereUI.ForceCloseUnlockDiscard then
+        EllesmereUI.ForceCloseUnlockDiscard()
+    end
 
     -- Close any editing-as session against the OUTGOING profile first (the
     -- exits bank their edits), so the harvest below runs unguarded and the
@@ -2876,13 +3077,9 @@ function EllesmereUI.SwitchProfile(name)
     local outgoing = db.profiles[db.activeProfile or "Default"]
     if outgoing then
         outgoing.fonts = DeepCopy(EllesmereUI.GetFontsDB())
-        -- Save unlock layout into outgoing profile
-        outgoing.unlockLayout = {
-            anchors       = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
-            widthMatch    = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
-            heightMatch   = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
-            phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds     or {}),
-        }
+        -- Save unlock layout into outgoing profile (baseline-sourced while
+        -- a group layer is live -- see SnapshotUnlockLayout).
+        outgoing.unlockLayout = SnapshotUnlockLayout()
     end
 
     -- If settings were changed this session and any synced modules have
@@ -2909,6 +3106,7 @@ function EllesmereUI.SwitchProfile(name)
                     end
                 end
                 -- Switch the active profile immediately (persisted on logout)
+                StampUnlockLayoutIfMissing(db.profiles[name])
                 db.activeProfile = name
                 RepointAllDBs(name)
                 -- Prompt for reload
@@ -2924,6 +3122,7 @@ function EllesmereUI.SwitchProfile(name)
         end
     end
 
+    StampUnlockLayoutIfMissing(db.profiles[name])
     db.activeProfile = name
     RepointAllDBs(name)
 end
@@ -3003,13 +3202,17 @@ do
                     if current ~= targetProfile then
                         local fontWillChange = EllesmereUI.ProfileChangesFont(
                             EllesmereUIDB.profiles[targetProfile])
+                        local skinsWillChange = EllesmereUI.ProfileChangesWindowSkins(
+                            EllesmereUIDB.profiles[targetProfile])
                         -- _specProfileSwitching disabled (see doSwitch comment)
                         EllesmereUI.SwitchProfile(targetProfile)
                         EllesmereUI.RefreshAllAddons()
-                        if fontWillChange then
+                        if fontWillChange or skinsWillChange then
                             EllesmereUI:ShowConfirmPopup({
                                 title       = "Reload Required",
-                                message     = "Font changed. A UI reload is needed to apply the new font.",
+                                message     = fontWillChange
+                                    and "Font changed. A UI reload is needed to apply the new font."
+                                    or "Window skins changed for this profile. A UI reload is needed to apply them.",
                                 confirmText = "Reload Now",
                                 cancelText  = "Later",
                                 onConfirm   = function() ReloadUI() end,
@@ -3072,13 +3275,17 @@ do
                             if cur ~= target then
                                 local fontChange = EllesmereUI.ProfileChangesFont(
                                     EllesmereUIDB.profiles[target])
+                                local skinsChange = EllesmereUI.ProfileChangesWindowSkins(
+                                    EllesmereUIDB.profiles[target])
                                 -- _specProfileSwitching disabled (see doSwitch comment)
                                 EllesmereUI.SwitchProfile(target)
                                 EllesmereUI.RefreshAllAddons()
-                                if fontChange then
+                                if fontChange or skinsChange then
                                     EllesmereUI:ShowConfirmPopup({
                                         title       = "Reload Required",
-                                        message     = "Font changed. A UI reload is needed to apply the new font.",
+                                        message     = fontChange
+                                            and "Font changed. A UI reload is needed to apply the new font."
+                                            or "Window skins changed for this profile. A UI reload is needed to apply them.",
                                         confirmText = "Reload Now",
                                         cancelText  = "Later",
                                         onConfirm   = function() ReloadUI() end,
@@ -3179,12 +3386,15 @@ do
                     -- before the flag is set, flag stuck true forever).
                     -- EllesmereUI._specProfileSwitching = true
                     local fontWillChange = EllesmereUI.ProfileChangesFont(db.profiles[targetProfile])
+                    local skinsWillChange = EllesmereUI.ProfileChangesWindowSkins(db.profiles[targetProfile])
                     EllesmereUI.SwitchProfile(targetProfile)
                     EllesmereUI.RefreshAllAddons()
-                    if not isFirstLogin and fontWillChange then
+                    if not isFirstLogin and (fontWillChange or skinsWillChange) then
                         EllesmereUI:ShowConfirmPopup({
                             title       = "Reload Required",
-                            message     = "Font changed. A UI reload is needed to apply the new font.",
+                            message     = fontWillChange
+                                and "Font changed. A UI reload is needed to apply the new font."
+                                or "Window skins changed for this profile. A UI reload is needed to apply them.",
                             confirmText = "Reload Now",
                             cancelText  = "Later",
                             onConfirm   = function() ReloadUI() end,
@@ -3435,12 +3645,7 @@ do
                 profileData.fonts = DeepCopy(EllesmereUI.GetFontsDB())
                 profileData.customColors = DeepCopy(EllesmereUI.GetCustomColorsDB())
                 profileData.darkMode = DeepCopy(EllesmereUI.GetDarkModeDB())
-                profileData.unlockLayout = {
-                    anchors       = DeepCopy(EllesmereUIDB.unlockAnchors     or {}),
-                    widthMatch    = DeepCopy(EllesmereUIDB.unlockWidthMatch  or {}),
-                    heightMatch   = DeepCopy(EllesmereUIDB.unlockHeightMatch or {}),
-                    phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds     or {}),
-                }
+                profileData.unlockLayout = SnapshotUnlockLayout()
             end
             -- Track the last active profile that was NOT spec-assigned so
             -- characters without a spec assignment can fall back to it.

@@ -475,6 +475,37 @@ end
 --  ability is on cooldown. A cooldown ENDING has no reliable event, so this is a
 --  throttled poll -- but only while at least one preset actually uses it.
 -- ---------------------------------------------------------------------------
+-- Read an item's real (non-GCD) cooldown, container query first then C_Item,
+-- mirroring ProcessPresetCooldowns. Returns start,dur (dur nil / <=1.5 = ready).
+-- Secret Values are dropped HERE, before any truth-test or comparison: both
+-- this helper and the alt-walk in PresetOnCD compare dur ahead of PresetOnCD's
+-- tail guard, and comparing a secret raises a Lua error inside the poll ticker.
+local function ReadItemCD(itemID)
+    local start, dur
+    if C_Container and C_Container.GetItemCooldown then start, dur = C_Container.GetItemCooldown(itemID) end
+    if issecretvalue and (issecretvalue(start) or issecretvalue(dur)) then start, dur = nil, nil end
+    if not (start and dur and dur > 1.5) and C_Item and C_Item.GetItemCooldown then
+        start, dur = C_Item.GetItemCooldown(itemID)
+        if issecretvalue and (issecretvalue(start) or issecretvalue(dur)) then start, dur = nil, nil end
+    end
+    return start, dur
+end
+
+-- itemID -> its preset's alternate item IDs. A preset (e.g. Light's Potential)
+-- covers several ranks of the same consumable; the player owns one alternate and
+-- the cooldown ticks on THAT id, not the primary. ProcessPresetCooldowns already
+-- walks these, so PresetOnCD must too or the "CD Ready" glow never turns off.
+local _presetAltMap
+local function PresetAltItemIDs(itemID)
+    if not _presetAltMap then
+        _presetAltMap = {}
+        for _, pr in ipairs(ns.CDM_ITEM_PRESETS or {}) do
+            if pr.itemID and pr.altItemIDs then _presetAltMap[pr.itemID] = pr.altItemIDs end
+        end
+    end
+    return _presetAltMap[itemID]
+end
+
 -- Unified "is this preset on a real (non-GCD) cooldown right now?" read.
 -- Trinkets/items read the ITEM cooldown (its on-use spell can have a shorter
 -- cooldown that would fire the ready edge early). Bail on nil / Secret Values.
@@ -499,9 +530,18 @@ PresetOnCD = function(key)
         if GetInventoryItemCooldown then start, dur, enable = GetInventoryItemCooldown("player", -key) end
     else
         local itemID = -key
-        if C_Container and C_Container.GetItemCooldown then start, dur = C_Container.GetItemCooldown(itemID) end
-        if (start == nil or dur == nil) and C_Item and C_Item.GetItemCooldown then
-            start, dur = C_Item.GetItemCooldown(itemID)
+        start, dur = ReadItemCD(itemID)
+        -- The primary id often reads ready because the player owns one of the
+        -- preset's alternates and the cooldown ticks on THAT id -- walk them,
+        -- matching ProcessPresetCooldowns, so the glow can turn off.
+        if not (start and dur and dur > 1.5) then
+            local alts = PresetAltItemIDs(itemID)
+            if alts then
+                for i = 1, #alts do
+                    start, dur = ReadItemCD(alts[i])
+                    if start and dur and dur > 1.5 then break end
+                end
+            end
         end
     end
     if start == nil or dur == nil then return false end
@@ -513,8 +553,12 @@ end
 
 -- Normal (shown) alpha for a frame, from its bar's opacity (out-of-combat
 -- fade folded in via EffectiveBarAlpha so restores don't clobber the fade).
+-- Overflow-diverted frames render inside the target bar, so their restore
+-- alpha follows that bar's opacity (same source the visibility/layout
+-- passes use), not the identity bar's.
 local function FrameBaseAlpha(fc)
-    local bd = fc and fc.barKey and ns.barDataByKey and ns.barDataByKey[fc.barKey]
+    local bk = fc and (fc._overflowLayoutBar or fc.barKey)
+    local bd = bk and ns.barDataByKey and ns.barDataByKey[bk]
     return ns.EffectiveBarAlpha(bd)
 end
 

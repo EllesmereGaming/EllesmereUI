@@ -456,6 +456,83 @@ do
         end
     end
 
+    -- Merged exclusion set for ONE src->dst copy of ONE folder: the static
+    -- registry above plus every setting EITHER profile holds a spec or
+    -- conditional OVERRIDE entry for. Override-owned settings never sync --
+    -- each profile's override system stays the sole owner of its keys (a
+    -- pushed blob would carry the source's current-spec value, and the
+    -- destination's recorded values would drift against a synced base).
+    -- PURE READ: walks the stored profile tables directly and never calls
+    -- into the override system (no store creation, no harvest/apply/
+    -- capture), so it cannot perturb override state. Returns staticEx
+    -- UNCHANGED (same table, zero allocation) when neither profile carries
+    -- override data for the folder; otherwise a FRESH table -- the shared
+    -- registry is never mutated. Callers pcall this and fall back to
+    -- staticEx on any error (sync is never blocked).
+    -- fkey anatomy (mirrors SplitFKey in EllesmereUI_SpecOverrides.lua,
+    -- deliberately inlined so this file never touches the override code):
+    -- fkey = folder .. "\31" .. path, path segments joined with "\30". The
+    -- sync matcher walks the same table tree dot-joined with tostring(k),
+    -- so gsub("\30", ".") is the complete byte-precise translation.
+    EllesmereUI._SyncExclusionsWithOverrides = function(folder, staticEx, srcProf, dstProf)
+        local merged
+        local function ensure()
+            if not merged then
+                merged = {}
+                if staticEx then for k in pairs(staticEx) do merged[k] = true end end
+            end
+        end
+        local function addStore(store)
+            if type(store) ~= "table" then return end
+            for _, entry in ipairs(store) do
+                local vals = type(entry) == "table" and entry.values
+                if type(vals) == "table" then
+                    for _, m in pairs(vals) do  -- default map + every spec/gid map
+                        if type(m) == "table" then
+                            for fkey in pairs(m) do
+                                if type(fkey) == "string" then
+                                    local f, path = fkey:match("^([^\31]+)\31(.*)$")
+                                    if f == folder and path and path ~= "" then
+                                        ensure()
+                                        merged[path:gsub("\30", ".")] = true
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        local function addProf(prof)
+            if type(prof) ~= "table" then return end
+            addStore(prof.specOverrides)
+            addStore(prof.condOverrides)
+            if folder == "EllesmereUIRaidFrames" then
+                -- Buff Manager forks are layer-shaped, not fkey-shaped: the
+                -- fork system writes bmIndicators/bmSimple/bmDisplayMode/
+                -- bmIconZoom straight into the live RF blob, so when either
+                -- profile carries ANY BM layer those keys are fork territory
+                -- and must not sync. Emptiness predicate mirrors the BM
+                -- harvest's own zero-cost gate. Profiles with no BM layers
+                -- keep syncing their Buff Manager settings normally.
+                local s, c = prof.specBmOverrides, prof.condBmOverrides
+                if (type(s) == "table" and (s.active or s.baselineLayout
+                        or (type(s.layouts) == "table" and next(s.layouts))))
+                   or (type(c) == "table" and type(c.layouts) == "table"
+                        and next(c.layouts)) then
+                    ensure()
+                    merged.bmIndicators  = true
+                    merged.bmSimple      = true
+                    merged.bmDisplayMode = true
+                    merged.bmIconZoom    = true
+                end
+            end
+        end
+        addProf(srcProf)
+        addProf(dstProf)
+        return merged or staticEx
+    end
+
     -- Selective deep-copy: copies src but skips excluded keys.
     -- exclusions is a set of strings. Flat keys ("barPositions") skip that key.
     -- Wildcard keys ("bars.*.growDirection") skip growDirection inside any
@@ -625,12 +702,21 @@ do
         local DeepCopy = EllesmereUI.Lite and EllesmereUI.Lite.DeepCopy
         if not DeepCopy then return end
 
-        local exclusions = syncExclusions[folder]
+        local staticEx = syncExclusions[folder]
+        local exFn = EllesmereUI._SyncExclusionsWithOverrides
         for profName in pairs(targetProfiles) do
             if profName ~= active then
                 local prof = EllesmereUIDB.profiles[profName]
                 if prof then
                     if not prof.addons then prof.addons = {} end
+                    -- Override-owned settings never sync: merge both profiles'
+                    -- override-entry paths into the static set (fail-open --
+                    -- any derive error keeps today's static-only behavior).
+                    local exclusions = staticEx
+                    if exFn then
+                        local ok, m = pcall(exFn, folder, staticEx, src, prof)
+                        if ok and m then exclusions = m end
+                    end
                     if exclusions and next(exclusions) then
                         local dst = prof.addons[folder]
                         if not dst then
@@ -677,12 +763,20 @@ do
         local srcData = srcProf and srcProf.addons and srcProf.addons[folder]
         if not srcData then return end
 
-        local exclusions = syncExclusions[folder]
+        local staticEx = syncExclusions[folder]
+        local exFn = EllesmereUI._SyncExclusionsWithOverrides
         for profName in pairs(targets) do
             if profName ~= srcName then
                 local prof = EllesmereUIDB.profiles[profName]
                 if prof then
                     if not prof.addons then prof.addons = {} end
+                    -- Override-owned settings never sync (see SyncModuleToProfiles);
+                    -- the user-initiated seed honors the same ownership rule.
+                    local exclusions = staticEx
+                    if exFn then
+                        local ok, m = pcall(exFn, folder, staticEx, srcProf, prof)
+                        if ok and m then exclusions = m end
+                    end
                     local dst = prof.addons[folder]
                     if profName == active then
                         -- Live profile: adopt in place, never replace the table
@@ -836,10 +930,52 @@ EllesmereUI.RegisterSyncExclusions("EllesmereUIDragonRiding", {
 
 -- Secondary Stats + FPS counter live in the QoL profile blob. Their on-screen
 -- positions stay per-profile on sync (still exported intact, just never
--- overwritten by a mirror-group push), matching the convention above.
+-- overwritten by a mirror-group push), matching the convention above. The
+-- cursor slice (GCD ring / cast circle) stores its unlock positions at
+-- profile.cursor inside the same blob.
 EllesmereUI.RegisterSyncExclusions("EllesmereUIQoL", {
     "secondaryStatsPos",
     "fpsPos",
+    "cursor.gcd.pos",
+    "cursor.castCircle.pos",
+})
+
+-- Minimap settings nest under profile.minimap.
+EllesmereUI.RegisterSyncExclusions("EllesmereUIMinimap", {
+    "minimap.position",      -- unlock-element drag position
+    "minimap.btnPositions",  -- per-button shift-drag offsets
+})
+
+-- Chat settings nest under profile.chat.
+EllesmereUI.RegisterSyncExclusions("EllesmereUIChat", {
+    "chat.chatPosition",   -- unlock drag position
+    "chat.chatWidth",      -- unlock resize-handle width
+    "chat.chatHeight",     -- unlock resize-handle height
+    "chat.toastPosition",  -- BNet toast unlock position
+    "chat.iconPositions",  -- per-sidebar-icon shift-drag offsets
+})
+
+-- Damage Meters settings nest under profile.dm.
+EllesmereUI.RegisterSyncExclusions("EllesmereUIDamageMeters", {
+    "dm.standaloneTimerPos",  -- drag-written standalone timer position
+    "dm.windows.*.position",  -- per-window drag position
+    "dm.windows.*.width",     -- per-window drag-resize width
+    "dm.windows.*.height",    -- per-window drag-resize height
+})
+
+-- DataBars store per-bar geometry in the top-level bars array (same wildcard
+-- shape as the ActionBars registration above).
+EllesmereUI.RegisterSyncExclusions("EllesmereUIDataBars", {
+    "bars.*.savedPos",   -- unlock drag position
+    "bars.*.length",     -- unlock resize owned
+    "bars.*.thickness",  -- unlock resize owned
+    "bars.*.snapEdge",   -- mutated by the drag save itself
+})
+
+-- Bags is the one auto-synced module: without this the bank window position
+-- mirrors across profiles by default.
+EllesmereUI.RegisterSyncExclusions("EllesmereUIBags", {
+    "bankPosition",  -- bank window shift-drag position
 })
 
 -------------------------------------------------------------------------------
@@ -1940,7 +2076,12 @@ do
         local m = PP.mult
         if m == 1 then return x end
         local pixels = x / m
-        pixels = x > 0 and math.floor(pixels) or math.ceil(pixels)
+        -- Epsilon-guarded truncation: values saved by pixel-unit sliders sit
+        -- exactly ON a grid boundary (px * mult), and float dust from the
+        -- multiply/divide round trip can land them a hair below it -- without
+        -- the guard the floor drops a whole pixel. 0.001 px is far below any
+        -- legitimate mid-interval distance, so ordinary values are unaffected.
+        pixels = x > 0 and math.floor(pixels + 0.001) or math.ceil(pixels - 0.001)
         return pixels * m
     end
 
@@ -2369,8 +2510,15 @@ do
                 local bd = _ppBorderData[f]
                 local ok = pcall(SnapBorderTextures, c, f, bd and bd.borderSize or 1)
                 if not ok then
-                    entry.container = nil
-                    entry.frame = nil
+                    -- Only evict when the failure is real (dead frame). While
+                    -- auras are secret (12.1), rect reads inside engine aura
+                    -- button subtrees are denied -- a transient state that
+                    -- must not permanently drop a live border.
+                    local AKR = EllesmereUI and EllesmereUI.AuraKit
+                    if not (AKR and AKR.AurasRestricted and AKR.AurasRestricted()) then
+                        entry.container = nil
+                        entry.frame = nil
+                    end
                 end
             end
         end
@@ -2382,6 +2530,13 @@ do
     function PP.ResnapBordersUnder(root)
         if not root then return PP.ResnapAllBorders() end
         local count = 0
+        -- Shared method ref for the climb: 12.1 engine aura buttons deny
+        -- access from addon code while auras are secret, and border hosts
+        -- living inside aura button subtrees climb through one. Calling via
+        -- the shared ref under pcall treats a denied step as a chain
+        -- dead-end = not under root (aura button subtrees are never inside
+        -- the options panel, so skipping them is correct, not just safe).
+        local GetParentFn = root.GetParent
         for i = 1, allBordersN do
             local entry = allBorders[i]
             local f = entry.frame
@@ -2390,8 +2545,9 @@ do
                 local parent = f
                 local found = false
                 for _ = 1, 10 do
-                    parent = parent:GetParent()
-                    if not parent then break end
+                    local ok, p = pcall(GetParentFn, parent)
+                    if not ok or not p then break end
+                    parent = p
                     if parent == root then found = true; break end
                 end
                 if found then
@@ -2399,8 +2555,12 @@ do
                     local bd = _ppBorderData[f]
                     local ok = pcall(SnapBorderTextures, entry.container, f, bd and bd.borderSize or 1)
                     if not ok then
-                        entry.container = nil
-                        entry.frame = nil
+                        -- Same transient-vs-dead distinction as ResnapAllBorders.
+                        local AKR = EllesmereUI and EllesmereUI.AuraKit
+                        if not (AKR and AKR.AurasRestricted and AKR.AurasRestricted()) then
+                            entry.container = nil
+                            entry.frame = nil
+                        end
                     end
                 end
             end
@@ -2841,6 +3001,9 @@ do
         return DEFAULT_LSM_OFFSET
     end
 
+    -- Textured border edgeSize per size step (1-4).
+    local EDGE_MAP = { 12, 16, 24, 32 }
+
     --- Check if a border texture uses scaled offset (edgeSize/2 base).
     function EllesmereUI.BorderTextureUsesScaleOffset(key)
         if not key or key == "" or key == "solid" then return false end
@@ -2888,7 +3051,17 @@ do
     --- offsetOverride/offsetYOverride: optional user override (nil = use per-addon or global default).
     --- shiftX/shiftY: optional user override (nil = use per-addon default or 0).
     --- addonKey/sizeKey: optional per-addon registry lookup key pair for defaults.
-    function EllesmereUI.ApplyBorderStyle(borderFrame, size, r, g, b, a, textureKey, offsetOverride, offsetYOverride, shiftX, shiftY, addonKey, sizeKey)
+    --- normalizeScale: opt-in, textured borders only. Cancels the frame's scale
+    ---   chain below UIParent so the border matches an unscaled frame's. Pass it
+    ---   ONLY where that scale is an implementation detail the caller already
+    ---   cancels elsewhere -- CDM cancels Blizzard's per-icon scale for the
+    ---   icon's size (iS = 1/iconScale) but not for its border, which is the bug
+    ---   this exists for. Never pass it where the scale is the user's intent
+    ---   (nameplate target/cast scale, buff-bar position scale): those borders
+    ---   are meant to scale with the frame, and because ratio is sampled once at
+    ---   style time, a frame whose scale changes afterwards would bake in a
+    ---   transient value.
+    function EllesmereUI.ApplyBorderStyle(borderFrame, size, r, g, b, a, textureKey, offsetOverride, offsetYOverride, shiftX, shiftY, addonKey, sizeKey, normalizeScale)
         local PP = EllesmereUI.PP
         if not PP or not borderFrame then return end
         a = a or 1
@@ -2949,8 +3122,20 @@ do
                 _bdBorderData[borderFrame] = bdFrame
             end
             bdFrame:SetFrameLevel(borderFrame:GetFrameLevel())
-            local EDGE_MAP = { 12, 16, 24, 32 }
-            local edgeSize = EDGE_MAP[size] or 12
+            -- edgeSize is in local units, so SetBackdrop renders it at
+            -- edgeSize x effectiveScale: a scaled frame draws a proportionally
+            -- scaled border. That is correct by default, hence opt-in only.
+            -- uiES/es is exactly 1 / (scale chain below UIParent), so ratio is
+            -- 1 (and everything below a no-op) for an unscaled frame at any
+            -- resolution or UI scale. The 0.01 floor mirrors CDM's own
+            -- iconScale guard and keeps a degenerate scale from exploding it.
+            local ratio = 1
+            if normalizeScale then
+                local eok, es = pcall(bdFrame.GetEffectiveScale, bdFrame)
+                local uiES = UIParent and UIParent:GetEffectiveScale() or 1
+                if eok and es and es > 0.01 and uiES > 0 then ratio = uiES / es end
+            end
+            local edgeSize = (EDGE_MAP[size] or EDGE_MAP[1]) * ratio
             -- Resolve offset/shift defaults: per-addon registry first, then global fallback.
             local adjX, adjY, sx, sy
             if addonKey and sizeKey then
@@ -2965,6 +3150,10 @@ do
                 sx   = shiftX or 0
                 sy   = shiftY or 0
             end
+            -- Same factor as edgeSize, or a normalized edge would be positioned
+            -- by offsets still in the frame's scaled units.
+            adjX, adjY = adjX * ratio, adjY * ratio
+            sx, sy = sx * ratio, sy * ratio
             -- Custom textures (scaleOffset): base = edgeSize/2 so border tracks
             -- the edge at any size, plus a small fine-tune adjustment.
             -- Other textures: absolute offset (no edgeSize base).
@@ -4372,7 +4561,9 @@ do
             -- If the game echoes the Fervor-of-Battle Slam as a real cast
             -- event, skip it -- the charge was already counted above. A
             -- player-pressed Slam can't land inside the 0.3 s window (GCD).
-            if spellID == 1464 and GetTime() < fobWindow then return end
+            -- 1269383: Master of Warfare replaces Slam with Heroic Strike,
+            -- so the echo carries that id instead.
+            if (spellID == 1464 or spellID == 1269383) and GetTime() < fobWindow then return end
             -- No sweep partner in range -> the game doesn't consume a charge
             if not EnemiesInReach(2) then return end
             stacks = max(0, stacks - SPENDERS[spellID])
@@ -4380,12 +4571,32 @@ do
         end
     end
 
+    -- NO aura validation here, on purpose. v8.4.9 tried to correct
+    -- prediction drift against the real buff (first by name, then by
+    -- C_UnitAuras.GetPlayerAuraBySpellID), treating a missing aura as
+    -- "buff gone" and wiping the stacks. But Sweeping Strikes (260708) is
+    -- NOT a whitelisted aura, and non-whitelisted player buffs are
+    -- invisible to the aura read surface -- verified in-game 2026-07-17:
+    -- with the buff visibly active, GetPlayerAuraBySpellID(260708)
+    -- returned nil and a GetAuraDataByIndex("player", i, "HELPFUL") sweep
+    -- enumerated zero auras. So any validation on this buff reads it as
+    -- absent and zeroes the bar (the v8.4.9 bug: stacks wiped in combat,
+    -- pinned at 0 in M+). Whitelisted buffs ARE readable -- see
+    -- GetMaelstromWeapon / GetSoulFragments below and the
+    -- NON_SECRET_SPELL_IDS catalogue + C_Secrets.ShouldSpellAuraBeSecret
+    -- probe in EllesmereUIAuraBuffReminders. If Blizzard ever whitelists
+    -- 260708, validation becomes possible again; until then the
+    -- cast-event prediction plus the duration timer IS the tracker.
     function EllesmereUI.GetSweepingStrikes()
         if not sweepKnown then return 0, 0 end
         if expiresAt and GetTime() >= expiresAt then
             stacks, expiresAt = 0, nil
         end
-        return stacks, MaxStacks()
+        -- Clamp: a mid-window respec out of Improved drops MaxStacks 18->12
+        -- while the predicted stacks upvalue keeps its old value.
+        local m = MaxStacks()
+        if stacks > m then stacks = m end
+        return stacks, m
     end
 end
 
@@ -4823,6 +5034,11 @@ function EllesmereUI.MakeUnlockElement(opts)
         -- noSizeMatchTarget: other elements may NOT size-match TO this one.
         allowMatchSource  = opts.allowMatchSource,
         noSizeMatchTarget = opts.noSizeMatchTarget,
+        -- keepMoverWhenAnchored: elements whose isAnchored() reflects a module
+        -- option (e.g. ERB "Anchor To") still get a mover while anchored --
+        -- position-locked (no drag/nudge/anchor link), but resize and
+        -- width/height matching stay available.
+        keepMoverWhenAnchored = opts.keepMoverWhenAnchored,
     }
 end
 
@@ -7173,7 +7389,8 @@ local function CreateMainFrame()
                 end
             end)
             pwrBtn:SetScript("OnLeave", function(self)
-                self._tex:SetVertexColor(1, 1, 1, 1)
+                local enabled = IsAddonLoaded(self._folder)
+                self._tex:SetVertexColor(1, 1, 1, enabled and 1 or 0.5)
                 if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
             end)
             pwrBtn:SetScript("OnClick", function(self)
@@ -9344,32 +9561,36 @@ function EllesmereUI:RegisterModule(folderName, config)
     -- Extract the addon folder name from the caller's file path.
     local caller = debugstack(2, 1, 0) or ""
     local callerFolder = caller:match("AddOns/([^/]+)/")
-    if callerFolder then
-        local ALLOWED = {
-            EllesmereUI = true,
-            EllesmereUIActionBars = true,
-            EllesmereUIAuraBuffReminders = true,
-            EllesmereUIBasics = true,
-            EllesmereUICooldownManager = true,
-            EllesmereUINameplates = true,
-            EllesmereUIPartyMode = true,
-            EllesmereUIRaidFrames = true,
-            EllesmereUIResourceBars = true,
-            EllesmereUIUnitFrames = true,
-            EllesmereUIMythicTimer = true,
-            -- v6.6 split
-            EllesmereUIQoL = true,
-            EllesmereUIBlizzardSkin = true,
-            EllesmereUIQuestTracker = true,
-            EllesmereUIMinimap = true,
-            EllesmereUIFriends = true,
-            EllesmereUIChat = true,
-            EllesmereUIDamageMeters = true,
-            EllesmereUIBags = true,
-            EllesmereUIDataBars = true,
-        }
-        if not ALLOWED[callerFolder] then return end
-    end
+    local ALLOWED = {
+        EllesmereUI = true,
+        EllesmereUIActionBars = true,
+        EllesmereUIAuraBuffReminders = true,
+        EllesmereUIBasics = true,
+        EllesmereUICooldownManager = true,
+        EllesmereUINameplates = true,
+        EllesmereUIPartyMode = true,
+        EllesmereUIRaidFrames = true,
+        EllesmereUIResourceBars = true,
+        EllesmereUIUnitFrames = true,
+        EllesmereUIMythicTimer = true,
+        -- v6.6 split
+        EllesmereUIQoL = true,
+        EllesmereUIBlizzardSkin = true,
+        EllesmereUIQuestTracker = true,
+        EllesmereUIMinimap = true,
+        EllesmereUIFriends = true,
+        EllesmereUIChat = true,
+        EllesmereUIDamageMeters = true,
+        EllesmereUIBags = true,
+        EllesmereUIDataBars = true,
+    }
+    if callerFolder and not ALLOWED[callerFolder] then return end
+    -- Suite-core marker (module key is a suite folder): gates the toolbar
+    -- whitelists -- the overrides icon renders for core modules only; the
+    -- inline search renders for core modules + Global Settings. Companion/
+    -- external pages keep their own folder keys and stay unmarked, so
+    -- neither control renders for them (see SelectModule).
+    config._euiCore = ALLOWED[folderName] == true
     modules[folderName] = config
     -- If UI is already built, update sidebar button immediately
     -- Otherwise, RefreshSidebarStates will handle it when the panel first opens
@@ -9661,6 +9882,17 @@ function EllesmereUI:RefreshPage(force)
         for i = 1, #_widgetRefreshList do _widgetRefreshList[i]() end
         return
     end
+    -- Panel hidden: a rebuild here would run buildPage with nothing on
+    -- screen, firing page-open side effects (preview flags, placeholder
+    -- shows) AFTER the OnHide cleanup already cleared them -- they then
+    -- stick until the next open (e.g. CDM buff previews staying visible
+    -- when an override edit session tears down on panel close). Defer the
+    -- rebuild to the next show instead; the on-show callback below consumes
+    -- the flag before module OnShow handlers run.
+    if not (mainFrame and mainFrame:IsShown()) then
+        EllesmereUI._pendingForceRefresh = true
+        return
+    end
     -- Slow path: full teardown + rebuild
     local savedScroll = scrollFrame and scrollFrame:GetVerticalScroll() or 0
     local savedTarget = scrollTarget
@@ -9738,6 +9970,17 @@ function EllesmereUI:RefreshPage(force)
         UpdateScrollThumb()
     end
 end
+
+-- Consume a rebuild that was requested while the panel was hidden (see the
+-- deferral inside RefreshPage). Registered here, before any module files
+-- load, so it runs ahead of module OnShow callbacks -- they then observe
+-- the freshly rebuilt page.
+EllesmereUI:RegisterOnShow(function()
+    if EllesmereUI._pendingForceRefresh then
+        EllesmereUI._pendingForceRefresh = nil
+        EllesmereUI:RefreshPage(true)
+    end
+end)
 
 -- Public: snap the settings scroll back to the top
 -- (e.g. in resource bars clicking on a simple section
@@ -9821,6 +10064,20 @@ function EllesmereUI:SelectModule(folderName)
     end
     headerFrame._desc:SetText(EllesmereUI.L(config.description or ""))
     BuildTabs(config.pages, config.disabledPages, config.disabledPageTooltips)
+    -- Toolbar whitelists: the overrides icon and the inline search operate
+    -- on suite data only (override capture, search index), so they render
+    -- solely for whitelisted pages -- overrides: core modules; search: core
+    -- modules + Global Settings. Foreign/companion pages get neither.
+    -- (BuildTabs unconditionally shows the search frame; gate it here.)
+    if tabBar then
+        local core = config._euiCore == true
+        if tabBar._searchFrame then
+            tabBar._searchFrame:SetShown(core or folderName == EllesmereUI.GLOBAL_KEY)
+        end
+        if tabBar._specOvBtn then
+            tabBar._specOvBtn:SetShown(core)
+        end
+    end
     local savedPage = _lastPagePerModule[folderName]
     -- Validate saved page still exists in this module's page list
     local validPage = nil
@@ -10229,7 +10486,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.4.7"
+EllesmereUI.VERSION = "8.5.1"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -11486,7 +11743,7 @@ initFrame:SetScript("OnEvent", function(self, event)
                     _, h = W:SectionHeader(parent, "LAYOUT", y);                                          y = y - h
                     _, h = W:Slider(parent, "Button Spacing", y, 0, 12, 1,
                         function() return dS[k].spacing end,
-                        function(v) dS[k].spacing = v end);                                              y = y - h
+                        function(v) dS[k].spacing = v end, nil, true);                                   y = y - h
                     _, h = W:Slider(parent, "Global Scale", y, 50, 200, 5,
                         function() return dS[k].scale end,
                         function(v) dS[k].scale = v end);                                                y = y - h

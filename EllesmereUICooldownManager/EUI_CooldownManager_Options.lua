@@ -208,6 +208,12 @@ initFrame:SetScript("OnEvent", function(self)
     -- glow-assignable: the Bar Glows preview leaves their buttons inert.
     local function IsNonGlowableCDMIcon(frame)
         if not frame then return false end
+        -- Overflow-diverted icons render on this bar only for the session;
+        -- their glow identity (and any slot-index fallback key) belongs to
+        -- the source bar, so they are not listed/assignable while diverted.
+        -- Existing cdm_-keyed glows still RENDER on them (the render pass is
+        -- key-driven, not list-driven).
+        if ns.CdmFrameOverflowBar and ns.CdmFrameOverflowBar(frame) then return true end
         return (frame._isRacialFrame or frame._isTrinketFrame
             or frame._isPresetFrame or frame._isItemPresetFrame
             or frame._isCustomSpellFrame or frame._isCustomBuffFrame) and true or false
@@ -909,10 +915,18 @@ initFrame:SetScript("OnEvent", function(self)
                 barSettings = EAB_ADDON.db.profile.bars[barKeyStr]
             end
 
-            -- CDM bars: count icons dynamically; action bars: always 12
+            -- CDM bars: count icons dynamically; action bars: always 12.
+            -- Overflow-diverted icons are tail-appended to the target's array
+            -- and excluded here, so every native icon keeps its slot index
+            -- (stable glow-assignment fallback keys).
             local NUM_BUTTONS = 12
             if isCDMBar and ns.cdmBarIcons and ns.cdmBarIcons[cdmBarKey] then
-                NUM_BUTTONS = #ns.cdmBarIcons[cdmBarKey]
+                NUM_BUTTONS = 0
+                for _, ic in ipairs(ns.cdmBarIcons[cdmBarKey]) do
+                    if not (ns.CdmFrameOverflowBar and ns.CdmFrameOverflowBar(ic)) then
+                        NUM_BUTTONS = NUM_BUTTONS + 1
+                    end
+                end
                 if NUM_BUTTONS == 0 then NUM_BUTTONS = 1 end
             end
             local prefix = (not isCDMBar) and (BAR_BUTTON_PREFIXES[barIdx] or "ActionButton") or nil
@@ -1988,22 +2002,62 @@ initFrame:SetScript("OnEvent", function(self)
             local wrap = _tbbPopoutBars[n]
             if not wrap then
                 wrap = ns.CreateTBBBarFrame(oc, "Pv" .. n)
-                -- The live constructor pins HIGH strata; lift the preview into
-                -- the popout's strata and re-assert the child levels the
-                -- constructor established (a parent strata change can reset
-                -- child frame levels).
+                _tbbPopoutBars[n] = wrap
+                -- Width-gated geometry (charge hash lines, threshold ticks)
+                -- silently skips while the fill's anchor-derived size is
+                -- still 0 on a fresh pool bar. Live bars re-drive from the
+                -- timer tick; previews have no tick, so re-drive when the
+                -- size resolves.
+                if wrap._bar then
+                    wrap._bar:SetScript("OnSizeChanged", function(sbSelf)
+                        local cfg = wrap._pvCfg
+                        if not cfg then return end
+                        if ns.ApplyTBBChargeHashLines then
+                            local mc = ns.GetTBBMaxCharges and ns.GetTBBMaxCharges(cfg)
+                            ns.ApplyTBBChargeHashLines(wrap, cfg, mc)
+                        end
+                        if ns.ApplyTBBTickMarks then
+                            ns.ApplyTBBTickMarks(sbSelf, cfg, wrap._threshTicks,
+                                cfg.verticalOrientation, wrap._tickOverlay)
+                            wrap._ticksDirty = nil
+                        end
+                    end)
+                end
+            end
+            wrap._pvCfg = e.cfg
+            ns.ApplyTBBBarSettings(wrap, e.cfg)
+            -- The apply path pins the wrap to the bar's own strata (cfg.strata,
+            -- MEDIUM default); lift the preview into the popout's strata AFTER
+            -- each apply and re-assert the child levels the constructor
+            -- established (a parent strata change resets child frame levels).
+            -- Guarded so refreshes that didn't touch strata skip the re-stack
+            -- (level checked too: a bar whose OWN strata is the popout's would
+            -- otherwise dodge the lift and keep the apply-path level).
+            local base = oc:GetFrameLevel() + 20
+            if wrap:GetFrameStrata() ~= "FULLSCREEN_DIALOG" or wrap:GetFrameLevel() ~= base then
                 wrap:SetFrameStrata("FULLSCREEN_DIALOG")
-                local base = oc:GetFrameLevel() + 20
                 wrap:SetFrameLevel(base)
                 local sb = wrap._bar
                 if sb then sb:SetFrameLevel(base + 1) end
+                if wrap._gradClip and sb then wrap._gradClip:SetFrameLevel(sb:GetFrameLevel() + 1) end
+                if wrap._chargeHashFillClip and sb then wrap._chargeHashFillClip:SetFrameLevel(sb:GetFrameLevel() + 1) end
+                if wrap._threshOverlay and sb then wrap._threshOverlay:SetFrameLevel(sb:GetFrameLevel() + 2) end
                 if wrap._sparkOverlay and sb then wrap._sparkOverlay:SetFrameLevel(sb:GetFrameLevel() + 2) end
-                if wrap._textOverlay and sb then wrap._textOverlay:SetFrameLevel(sb:GetFrameLevel() + 7) end
+                if wrap._chargeHashOverlay and sb then wrap._chargeHashOverlay:SetFrameLevel(sb:GetFrameLevel() + 4) end
+                if wrap._barBorder then wrap._barBorder:SetFrameLevel(base + 5) end
                 if wrap._pandemicGlowOverlay then wrap._pandemicGlowOverlay:SetFrameLevel(base + 7) end
-                _tbbPopoutBars[n] = wrap
+                if wrap._textOverlay and sb then wrap._textOverlay:SetFrameLevel(sb:GetFrameLevel() + 7) end
             end
-            ns.ApplyTBBBarSettings(wrap, e.cfg)
             DressTBBPopoutBar(wrap, e.cfg)
+            -- Reused pool bars already have a resolved size, so OnSizeChanged
+            -- may never fire for this refresh: consume the deferred tick-mark
+            -- pass here (the apply path drew hash lines itself when sized).
+            local psb = wrap._bar
+            if wrap._ticksDirty and psb and psb:GetWidth() > 0 and ns.ApplyTBBTickMarks then
+                ns.ApplyTBBTickMarks(psb, e.cfg, wrap._threshTicks,
+                    e.cfg.verticalOrientation, wrap._tickOverlay)
+                wrap._ticksDirty = nil
+            end
             wrap:Show()
         end
         for n = #list + 1, #_tbbPopoutBars do
@@ -2954,6 +3008,12 @@ initFrame:SetScript("OnEvent", function(self)
             local t = ns.GetTrackedBuffBars()
             if _tbbSelectedBar < 1 or _tbbSelectedBar > #t.bars then return nil end
             return t.bars[_tbbSelectedBar]
+        end
+
+        local function SelectedTBBSupportsChargeHash()
+            local bd = SelectedTBB()
+            return bd and ns.GetTBBMaxCharges
+                and ns.GetTBBMaxCharges(bd) ~= nil
         end
 
         -- Validate the group selection against the live group list (groups
@@ -4223,7 +4283,7 @@ initFrame:SetScript("OnEvent", function(self)
                       ns.BuildTrackedBuffBars()
                       EllesmereUI:RefreshPage()
                   end },
-                { type = "slider", text = "Bar Spacing", min = -2, max = 20, step = 1,
+                { type = "slider", pixel = true, text = "Bar Spacing", min = -2, max = 20, step = 1,
                   getValue = function() return ns.TBBGroupSpacing(gid) end,
                   setValue = function(v)
                       ns.TBBSetGroupSpacing(gid, v)
@@ -4845,25 +4905,111 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Smooth Bars: PROFILE-wide checkbox dropdown (all bars, all specs
-        -- -- deliberately NOT per bar or per spec). Buffs = buff mirrors +
-        -- self-timed presets; Cooldowns = cooldown-tracking bars. Read by
-        -- the tick each pass, so changes apply instantly with no rebuild.
+        -- Charge Hash Lines | Smooth Bars. The number and orientation of hash
+        -- separators are resolved automatically from the tracked spell's max
+        -- charges. Smooth Bars remains profile-wide rather than per bar/spec.
         local SMOOTH_ITEMS = {
             { key = "buffs",     label = "Buffs" },
             { key = "cooldowns", label = "Cooldowns" },
         }
         local SMOOTH_DEFAULT = { buffs = true, cooldowns = false }
-        local smoothRow
-        smoothRow, h = W:DualRow(parent, y,
+        local chargeHashRow
+        chargeHashRow, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Charge Hash Lines",
+              tooltip = "Divides a cooldown-tracking bar into one recovery section per ability charge. The timer shows the next charge's cooldown.",
+              disabled = function()
+                  local bd = SelectedTBB()
+                  return not bd or bd.trackType ~= "cooldown"
+                      or not SelectedTBBSupportsChargeHash()
+              end,
+              disabledTooltip = function()
+                  local bd = SelectedTBB()
+                  if not bd or bd.trackType ~= "cooldown" then
+                      return "This option requires a cooldown-tracking bar"
+                  end
+                  return "This option is only available for abilities with multiple charges"
+              end,
+              getValue = function()
+                  local bd = SelectedTBB()
+                  return bd and bd.chargeHashLines == true
+                      and SelectedTBBSupportsChargeHash()
+              end,
+              setValue = function(v)
+                  local bd = SelectedTBB(); if not bd then return end
+                  if v and not SelectedTBBSupportsChargeHash() then return end
+                  bd.chargeHashLines = v and true or nil
+                  RefreshTBB(); EllesmereUI:RefreshPage()
+              end },
             { type = "dropdown", text = "Smooth Bars",
               tooltip = "Eases bar movement instead of snapping. Affects all Tracking Bars of that type, in every spec of this profile.",
               values = { __placeholder = "..." }, order = { "__placeholder" },
               getValue = function() return "__placeholder" end,
-              setValue = function() end },
-            { type = "label", text = "" });  y = y - h
+              setValue = function() end });  y = y - h
         do
-            local rgn = smoothRow._leftRegion
+            local rgn = chargeHashRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Charge Hash Line Settings",
+                rows = {
+                    { type = "slider", label = "Line Width", min = 1, max = 10, step = 1,
+                      get = function()
+                          local bd = SelectedTBB()
+                          return bd and bd.chargeHashLineWidth or 2
+                      end,
+                      set = function(v)
+                          local bd = SelectedTBB(); if not bd then return end
+                          bd.chargeHashLineWidth = v
+                          RefreshTBB()
+                      end },
+                    { type = "colorpicker", label = "Line Color", hasAlpha = true,
+                      get = function()
+                          local bd = SelectedTBB()
+                          if not bd then return 0, 0, 0, 1 end
+                          local a = bd.chargeHashLineA
+                          if a == nil then a = 1 end
+                          return bd.chargeHashLineR or 0, bd.chargeHashLineG or 0,
+                              bd.chargeHashLineB or 0, a
+                      end,
+                      set = function(r, g, b, a)
+                          local bd = SelectedTBB(); if not bd then return end
+                          bd.chargeHashLineR, bd.chargeHashLineG = r, g
+                          bd.chargeHashLineB, bd.chargeHashLineA = b, a
+                          RefreshTBB()
+                      end },
+                },
+            })
+            local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.COGS_ICON)
+            local cogBlock = CreateFrame("Frame", nil, cogBtn)
+            cogBlock:SetAllPoints()
+            cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
+            cogBlock:EnableMouse(true)
+            cogBlock:SetScript("OnEnter", function()
+                local bd = SelectedTBB()
+                local tip
+                if not bd or bd.trackType ~= "cooldown" then
+                    tip = "This option requires a cooldown-tracking bar"
+                elseif not SelectedTBBSupportsChargeHash() then
+                    tip = "This option is only available for abilities with multiple charges"
+                else
+                    tip = "Enable Charge Hash Lines first"
+                end
+                EllesmereUI.ShowWidgetTooltip(cogBtn, tip)
+            end)
+            cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function UpdateChargeHashCog()
+                local bd = SelectedTBB()
+                local disabled = not bd or bd.trackType ~= "cooldown"
+                    or not SelectedTBBSupportsChargeHash()
+                    or bd.chargeHashLines ~= true
+                cogBtn:SetAlpha(disabled and 0.15 or 0.4)
+                if disabled then cogBlock:Show() else cogBlock:Hide() end
+            end
+            cogBtn:HookScript("OnShow", UpdateChargeHashCog)
+            EllesmereUI.RegisterWidgetRefresh(UpdateChargeHashCog)
+            UpdateChargeHashCog()
+        end
+
+        do
+            local rgn = chargeHashRow._rightRegion
             if rgn._control then rgn._control:Hide() end
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                 rgn, 210, rgn:GetFrameLevel() + 2,
@@ -4882,6 +5028,32 @@ initFrame:SetScript("OnEvent", function(self)
             rgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
         end
+
+        -- Bar Strata
+        local barStrataRow
+        barStrataRow, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Bar Strata",
+              tooltip = "Screen layer the bar renders on; changing a grouped bar changes its whole group.",
+              values = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium",
+                         HIGH = "High", DIALOG = "Dialog", FULLSCREEN = "Fullscreen",
+                         FULLSCREEN_DIALOG = "Fullscreen Dialog", TOOLTIP = "Tooltip" },
+              order = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG",
+                        "FULLSCREEN", "FULLSCREEN_DIALOG", "TOOLTIP" },
+              getValue = function() local bd = SelectedTBB(); return bd and bd.strata or "MEDIUM" end,
+              setValue = function(v)
+                  local bd = SelectedTBB(); if not bd then return end
+                  bd.strata = v
+                  -- Grouped bars share one strata: write the rest of the group too.
+                  local gid = ns.TBBBarGroupID(bd)
+                  if gid ~= 0 then
+                      local t = ns.GetTrackedBuffBars()
+                      for _, b in ipairs(t.bars or {}) do
+                          if b ~= bd and ns.TBBBarGroupID(b) == gid then b.strata = v end
+                      end
+                  end
+                  RefreshTBB()
+              end },
+            { type = "label", text = "" });  y = y - h
 
         -------------------------------------------------------------------
         --  DISPLAY
@@ -5168,7 +5340,111 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "EXTRAS", y);  y = y - h
 
-        -- Row 1: Enable Max Stacks (toggle + inline slider) | Ticks at Stacks (label + inline input)
+        -- Row 1: Pandemic Glow (dropdown + swatch + cog + sync) | Stack Based
+        -- Bar (buff bars only; page rebuilds on selection change, so cd/utility
+        -- bars get a blank slot). Stack Based Bar is inert until Max Stacks is
+        -- enabled below.
+        do
+            local function tbbPandemicOff()
+                local bd = SelectedTBB(); return not bd or bd.pandemicGlow ~= true
+            end
+            local function tbbAntsOff()
+                if tbbPandemicOff() then return true end
+                local bd = SelectedTBB()
+                -- Pixel-glow "ants" settings apply for every bar style except
+                -- Auto-Cast Shine (4). Any non-{1,4} stored value (e.g. the legacy
+                -- -1 "Blizzard Default", which is meaningless on a rectangle)
+                -- renders as Pixel Glow, so its ants settings stay editable.
+                return not bd or bd.pandemicGlowStyle == 4
+            end
+
+            local bd0 = SelectedTBB()
+            local rightSlot
+            if bd0 and bd0.trackType ~= "cooldown" then
+                rightSlot = { type = "toggle", text = "Stack Based Bar",
+                    tooltip = "Fill this bar from current stacks out of Max Stacks instead of remaining time (requires Enable Max Stacks below).",
+                    getValue = function() local bd = SelectedTBB(); return bd and bd.stackBasedBar end,
+                    setValue = function(v)
+                        local bd = SelectedTBB(); if not bd then return end
+                        bd.stackBasedBar = v and true or false; RefreshTBB()
+                    end }
+            else
+                rightSlot = { type = "label", text = "" }
+            end
+
+            local tbbPanRow
+            tbbPanRow, h = W:DualRow(parent, y,
+                { type = "dropdown", text = "Pandemic Glow",
+                  values = PAN_GLOW_BAR_VALUES, order = PAN_GLOW_BAR_ORDER,
+                  getValue = function()
+                      local bd = SelectedTBB(); if not bd then return 0 end
+                      if bd.pandemicGlow ~= true then return 0 end
+                      -- Bars only render Pixel Glow (1) or Auto-Cast Shine (4).
+                      -- Any other stored style (e.g. the -1 "Blizzard Default"
+                      -- default, which has no meaning on a rectangle) renders as
+                      -- Pixel Glow, so show it as Pixel Glow instead of a raw -1.
+                      local style = bd.pandemicGlowStyle
+                      if style ~= 4 then style = 1 end
+                      return style
+                  end,
+                  setValue = function(v)
+                      local bd = SelectedTBB(); if not bd then return end
+                      if v == 0 then bd.pandemicGlow = false
+                      else bd.pandemicGlow = true; bd.pandemicGlowStyle = v end
+                      RefreshTBB()
+                      C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
+                  end,
+                  tooltip = "Show a glow on the bar when the remaining duration is in the pandemic window (last 30%)" },
+                rightSlot);  y = y - h
+
+            -- Inline color swatch
+            do
+                local tbbLR = tbbPanRow._leftRegion
+                local tbbCtrl = tbbLR and tbbLR._control
+                if tbbCtrl and EllesmereUI.BuildColorSwatch then
+                    local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
+                        tbbLR, tbbPanRow:GetFrameLevel() + 3,
+                        function()
+                            local bd = SelectedTBB(); local c = bd and bd.pandemicGlowColor
+                            if c then return c.r or 1, c.g or 1, c.b or 0 end; return 1, 1, 0
+                        end,
+                        function(r, g, b)
+                            local bd = SelectedTBB(); if not bd then return end
+                            bd.pandemicGlowColor = { r = r, g = g, b = b }; RefreshTBB()
+                        end, nil, 20)
+                    PP.Point(swatch, "RIGHT", tbbCtrl, "LEFT", -12, 0)
+                    tbbLR._lastInline = swatch
+                    EllesmereUI.RegisterWidgetRefresh(function()
+                        local off = tbbPandemicOff()
+                        swatch:SetAlpha(off and 0.15 or 1); swatch:EnableMouse(not off)
+                        if updateSwatch then updateSwatch() end
+                    end)
+                    swatch:SetAlpha(tbbPandemicOff() and 0.15 or 1)
+                    swatch:EnableMouse(not tbbPandemicOff())
+                end
+            end
+
+            BuildPandemicCogButton(tbbPanRow, tbbAntsOff, SelectedTBB, function() RefreshTBB() end)
+
+            -- Apply All
+            if EllesmereUI.BuildSyncIcon and EllesmereUI.ApplyPandemicGlowToAll then
+                EllesmereUI.BuildSyncIcon({
+                    region = tbbPanRow._leftRegion,
+                    tooltip = "Apply this pandemic glow to Nameplates, all CDM bars, and other tracking bars. A surface that can't show a style uses its closest match.",
+                    isSynced = function()
+                        local src = SelectedTBB(); if not src then return true end
+                        return EllesmereUI.IsPandemicGlowSyncedToAll(EllesmereUI.PandemicPayloadFromRectBar(src), { skipTbbBar = src })
+                    end,
+                    onClick = function()
+                        local src = SelectedTBB(); if not src then return end
+                        EllesmereUI.ApplyPandemicGlowToAll(EllesmereUI.PandemicPayloadFromRectBar(src), { skipTbbBar = src })
+                        RefreshTBB()
+                    end,
+                })
+            end
+        end
+
+        -- Row 2: Enable Max Stacks (toggle + inline slider) | Ticks at Stacks (label + inline input)
         local function maxStacksOff()
             local bd = SelectedTBB()
             return not bd or not bd.stackThresholdMaxEnabled
@@ -5190,7 +5466,7 @@ initFrame:SetScript("OnEvent", function(self)
             local SL = EllesmereUI.SL or {}
             local trackFrame, valBox, _, slThumb = EllesmereUI.BuildSliderCore(
                 rgn, 90, 4, 14, 36, 26, 13, SL.INPUT_A or 0.6,
-                1, 50, 1,
+                1, 100, 1,
                 function() local bd = SelectedTBB(); return bd and bd.stackThresholdMax or 10 end,
                 function(v) local bd = SelectedTBB(); if bd then bd.stackThresholdMax = v; RefreshTBB() end end,
                 true)
@@ -5288,7 +5564,7 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateTicksInput()
         end
 
-        -- Row 2: Enable Stack Threshold (toggle + inline swatch) | Stack Threshold (slider)
+        -- Row 3: Enable Stack Threshold (toggle + inline swatch) | Stack Threshold (slider)
         local threshRow
         threshRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Enable Stack Threshold",
@@ -5340,97 +5616,6 @@ initFrame:SetScript("OnEvent", function(self)
             end
             EllesmereUI.RegisterWidgetRefresh(function() updateThreshSwatch(); UpdateThreshSwatchState() end)
             UpdateThreshSwatchState()
-        end
-
-        -- Row 3: Pandemic Glow | Pandemic Glow Preview
-        do
-            local function tbbPandemicOff()
-                local bd = SelectedTBB(); return not bd or bd.pandemicGlow ~= true
-            end
-            local function tbbAntsOff()
-                if tbbPandemicOff() then return true end
-                local bd = SelectedTBB()
-                -- Pixel-glow "ants" settings apply for every bar style except
-                -- Auto-Cast Shine (4). Any non-{1,4} stored value (e.g. the legacy
-                -- -1 "Blizzard Default", which is meaningless on a rectangle)
-                -- renders as Pixel Glow, so its ants settings stay editable.
-                return not bd or bd.pandemicGlowStyle == 4
-            end
-
-            local tbbPanRow
-            tbbPanRow, h = W:DualRow(parent, y,
-                { type = "dropdown", text = "Pandemic Glow",
-                  values = PAN_GLOW_BAR_VALUES, order = PAN_GLOW_BAR_ORDER,
-                  getValue = function()
-                      local bd = SelectedTBB(); if not bd then return 0 end
-                      if bd.pandemicGlow ~= true then return 0 end
-                      -- Bars only render Pixel Glow (1) or Auto-Cast Shine (4).
-                      -- Any other stored style (e.g. the -1 "Blizzard Default"
-                      -- default, which has no meaning on a rectangle) renders as
-                      -- Pixel Glow, so show it as Pixel Glow instead of a raw -1.
-                      local style = bd.pandemicGlowStyle
-                      if style ~= 4 then style = 1 end
-                      return style
-                  end,
-                  setValue = function(v)
-                      local bd = SelectedTBB(); if not bd then return end
-                      if v == 0 then bd.pandemicGlow = false
-                      else bd.pandemicGlow = true; bd.pandemicGlowStyle = v end
-                      RefreshTBB()
-                      if tbbPanRow and tbbPanRow._refreshPreview then tbbPanRow._refreshPreview() end
-                      C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
-                  end,
-                  tooltip = "Show a glow on the bar when the remaining duration is in the pandemic window (last 30%)" },
-                { type = "label", text = "Pandemic Glow Preview" });  y = y - h
-
-            BuildPandemicPreview(tbbPanRow, tbbPandemicOff, SelectedTBB)
-
-            -- Inline color swatch
-            do
-                local tbbLR = tbbPanRow._leftRegion
-                local tbbCtrl = tbbLR and tbbLR._control
-                if tbbCtrl and EllesmereUI.BuildColorSwatch then
-                    local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
-                        tbbLR, tbbPanRow:GetFrameLevel() + 3,
-                        function()
-                            local bd = SelectedTBB(); local c = bd and bd.pandemicGlowColor
-                            if c then return c.r or 1, c.g or 1, c.b or 0 end; return 1, 1, 0
-                        end,
-                        function(r, g, b)
-                            local bd = SelectedTBB(); if not bd then return end
-                            bd.pandemicGlowColor = { r = r, g = g, b = b }; RefreshTBB()
-                            if tbbPanRow._refreshPreview then tbbPanRow._refreshPreview() end
-                        end, nil, 20)
-                    PP.Point(swatch, "RIGHT", tbbCtrl, "LEFT", -12, 0)
-                    tbbLR._lastInline = swatch
-                    EllesmereUI.RegisterWidgetRefresh(function()
-                        local off = tbbPandemicOff()
-                        swatch:SetAlpha(off and 0.15 or 1); swatch:EnableMouse(not off)
-                        if updateSwatch then updateSwatch() end
-                    end)
-                    swatch:SetAlpha(tbbPandemicOff() and 0.15 or 1)
-                    swatch:EnableMouse(not tbbPandemicOff())
-                end
-            end
-
-            BuildPandemicCogButton(tbbPanRow, tbbAntsOff, SelectedTBB, function() RefreshTBB() end)
-
-            -- Apply All
-            if EllesmereUI.BuildSyncIcon and EllesmereUI.ApplyPandemicGlowToAll then
-                EllesmereUI.BuildSyncIcon({
-                    region = tbbPanRow._leftRegion,
-                    tooltip = "Apply this pandemic glow to Nameplates, all CDM bars, and other tracking bars. A surface that can't show a style uses its closest match.",
-                    isSynced = function()
-                        local src = SelectedTBB(); if not src then return true end
-                        return EllesmereUI.IsPandemicGlowSyncedToAll(EllesmereUI.PandemicPayloadFromRectBar(src), { skipTbbBar = src })
-                    end,
-                    onClick = function()
-                        local src = SelectedTBB(); if not src then return end
-                        EllesmereUI.ApplyPandemicGlowToAll(EllesmereUI.PandemicPayloadFromRectBar(src), { skipTbbBar = src })
-                        RefreshTBB()
-                    end,
-                })
-            end
         end
 
         -- Preview click-navigation map: preview element -> section + row.
@@ -5800,6 +5985,14 @@ initFrame:SetScript("OnEvent", function(self)
                 -- for the same spell (the buff frame's id resolves positive).
                 local _fdLI = ns._hookFrameData and ns._hookFrameData[icon]
                 if icon._isPlaceholderFrame or (_fdLI and _fdLI._isBuffViewerFrame) then
+                    _sid = nil
+                end
+                -- Skip overflow-diverted icons outright: they render on this
+                -- bar only for the session but BELONG to their source bar's
+                -- assignedSpells -- materializing (or advancing the insertion
+                -- cursor on) them would write the diversion into this bar's
+                -- saved list.
+                if _sid and ns.CdmFrameOverflowBar and ns.CdmFrameOverflowBar(icon) then
                     _sid = nil
                 end
                 if _sid and _sid ~= 0 then
@@ -7475,7 +7668,24 @@ initFrame:SetScript("OnEvent", function(self)
         -- (see RefreshCDMIconAppearance), so writer and reader agree. Custom/injected
         -- buffs have their own positive id as _previewSpellID, which works too.
         local function ResolveBuffSettingsKey(af)
-            return af and af._previewSpellID
+            local sid = af and af._previewSpellID
+            if not sid then return nil end
+            -- Same-spellID collision (Diabolist Demonic Art vs Diabolic Ritual):
+            -- when two viewer slots share this displayed id, key THIS slot by its
+            -- own cooldownID so each is configured independently. Non-collided
+            -- buffs keep the stable spellID key (survives talent swaps).
+            local cdID = af and (af._previewCdID or af.cooldownID)
+            if type(cdID) == "number" then
+                local ckey = "c" .. cdID
+                -- Read-your-writes: once a per-cooldownID entry exists, keep
+                -- editing it even if the collision later ends (re-talent), so the
+                -- menu never splits from what the runtime resolver reads (which
+                -- prefers an existing c-entry whenever one is present).
+                local bstore = ns.GetSpellSettingsStore and ns.GetSpellSettingsStore("buffs")
+                if bstore and bstore[ckey] then return ckey end
+                if ns.IsCollidedBuffSid and ns.IsCollidedBuffSid(sid) then return ckey end
+            end
+            return sid
         end
 
         local allSpells = {}
@@ -7750,6 +7960,12 @@ initFrame:SetScript("OnEvent", function(self)
                     local function EnsureSS()
                         if store and not store[spellID] then
                             store[spellID] = ss
+                            -- Flip the runtime hot-path gate the moment a
+                            -- cooldownID-scoped buff entry is first persisted.
+                            if type(spellID) == "string" and string.byte(spellID, 1) == 99
+                               and ns.MarkBuffFamHasCdKey then
+                                ns.MarkBuffFamHasCdKey()
+                            end
                         end
                         return ss
                     end
@@ -8433,14 +8649,17 @@ initFrame:SetScript("OnEvent", function(self)
                             -- so Apply to Bar / All Specs here means "rejoin the bar" -- the
                             -- same as Include This Spell. Do that instead of re-applying the
                             -- value already on the bar (which would just toggle it off).
-                            -- For a scalar popup value (Threshold Seconds) the flyout item is
-                            -- a fixed identifier, not the bar's number, so "sits on the bar's
-                            -- value" is only true when the entered number actually matches
-                            -- this scope's value -- rejoin then (keeps the bar apply for other
-                            -- spells); otherwise fall through and push the new number, which
-                            -- rejoining would silently discard.
+                            -- Some items carry a payload the flyout val doesn't capture:
+                            -- a scalar popup value (Threshold Seconds), a custom colour
+                            -- ("custom" is a fixed identifier, the RGB lives in ss), and
+                            -- the + Border Color toggle (an on/off flag plus its RGBA).
+                            -- For those "sits on the bar's value" only holds when the
+                            -- payload actually matches this scope -- rejoin then (keeps
+                            -- the bar apply for other spells); otherwise fall through and
+                            -- push it, which rejoining would silently discard.
                             if AB.KeysBarApplied(keys) and AB.SpellHasOwn(keys)
-                               and (not ctx.scalarApply or (scopeActive and valuesMatch)) then
+                               and (not (ctx.scalarApply or ctx.payloadValue)
+                                    or (scopeActive and valuesMatch)) then
                                 AB.IncludeSpell(keys)
                                 if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
                                 if ns.QueueReanchor then ns.QueueReanchor() end
@@ -8449,10 +8668,16 @@ initFrame:SetScript("OnEvent", function(self)
                                 return
                             end
                             -- Toggle OFF: clicking a scope that already holds this
-                            -- exact value un-applies it. Binary toggles un-apply on
-                            -- ANY active value (their valueOf flips each click, so
-                            -- an equality gesture doesn't exist for them).
-                            if scopeActive and (valuesMatch or ctx.isToggle) then
+                            -- exact value un-applies it. Binary toggles carry no value
+                            -- of their own, so any active scope is an un-apply gesture.
+                            -- The + Border Color toggle carries an RGBA payload, so
+                            -- equality IS meaningful: un-apply only when the colour
+                            -- matches, otherwise fall through and push the new one --
+                            -- un-applying there would discard it and snap back to the
+                            -- default. (Custom-colour value items aren't toggles, so
+                            -- isToggle already gates them here; only the rejoin branch
+                            -- above needed the payloadValue guard for them.)
+                            if scopeActive and (valuesMatch or (ctx.isToggle and not ctx.payloadValue)) then
                                 AB.RunBarUnapply(keys, allSpecs)
                                 if ctx.refresh then ctx.refresh() end
                                 if s._updateActive then s._updateActive() end
@@ -8792,6 +9017,23 @@ initFrame:SetScript("OnEvent", function(self)
                             -- Reachable from onItemCreated closures (color swatches),
                             -- which live outside this scope but capture `sub`.
                             sub._refreshSelection = RefreshFlyoutSelection
+                            -- True when apply keys contain an R/G/B triple, i.e. the item
+                            -- carries a per-spell colour the flyout val doesn't capture.
+                            -- Structural on purpose: keying off val == "custom" missed
+                            -- payload toggles that use a different discriminator (Threshold
+                            -- Color, + Border Color), silently reintroducing the reset bug.
+                            local function hasColourPayload(ks)
+                                if not ks then return false end
+                                local set = {}
+                                for _, k in ipairs(ks) do set[k] = true end
+                                for _, k in ipairs(ks) do
+                                    local base = k:match("^(.+)R$")
+                                    if base and set[base .. "G"] and set[base .. "B"] then
+                                        return true
+                                    end
+                                end
+                                return false
+                            end
                             for _, item in ipairs(items) do
                                 if item.divider then
                                     -- Thin separator line (e.g. between built-in sounds
@@ -8926,6 +9168,14 @@ initFrame:SetScript("OnEvent", function(self)
                                             write = applyWrite,
                                             scalarApply = item.scalarApply,
                                             isToggle = isChargeToggle or isActiveBorder or isFnToggle,
+                                            -- Item whose val is only a discriminator while
+                                            -- the real value carries a per-spell colour
+                                            -- payload (an R/G/B triple in applyKeys). For
+                                            -- those, equality must be judged by valuesMatch,
+                                            -- not the identifier, or the rejoin/toggle-off
+                                            -- shortcuts discard the colour (see the two
+                                            -- branches in the apply handler above).
+                                            payloadValue = hasColourPayload(applyKeys),
                                             -- Toggles: "Apply to Bar" ENABLES the feature
                                             -- on the bar (apply true). Disabling is the
                                             -- toggle-off press -- ctx.isToggle un-applies
@@ -10699,10 +10949,11 @@ initFrame:SetScript("OnEvent", function(self)
                         end)
                     end
 
-                    -- 3a. Max Stacks Glow (default = nil / none). 1:1 with Active
+                    -- 3a. Max Charges Glow (default = nil / none). 1:1 with Active
                     -- State Glow; glows the icon while a charge spell is at max
-                    -- charges. Shares the unified Glow Effect Color below.
-                    local maxStacksGlowRow = MakeSubnavRow("Max Stacks Glow", ACTIVE_GLOW_ITEMS,
+                    -- charges. Shares the unified Glow Effect Color below. The
+                    -- stored key stays maxStacksGlow (label-only rename).
+                    local maxStacksGlowRow = MakeSubnavRow("Max Charges Glow", ACTIVE_GLOW_ITEMS,
                         function() return ss.maxStacksGlow end,
                         function(v) EnsureSS(); SetOwn("maxStacksGlow", v); if v and v > 0 then ns._cdmAnyMaxStacksGlow = true end end,
                         function() return ss.maxStacksGlow == nil end,
@@ -15609,6 +15860,134 @@ initFrame:SetScript("OnEvent", function(self)
             MakeCogBtn(rgn, oocCogShow, ctrl, EllesmereUI.COGS_ICON)
         end
 
+        -- Max Icons + Overflow To: excess icons (beyond Max, the tail of this
+        -- bar's order) render on the target bar for the session. Identity,
+        -- per-spell settings and the options preview stay on this bar.
+        -- Legacy profiles carry nil barType on default bars -- resolve the
+        -- family via the shared helper, never the raw field.
+        local ofBarType = ns.GetBarType and ns.GetBarType(barData) or barData.barType
+        local isOverflowBar = (ofBarType == "cooldowns" or ofBarType == "utility")
+            and not barData.isGhostBar
+            and barData.key ~= (ns.FOCUSKICK_BAR_KEY or "focuskick")
+        if isOverflowBar then
+            local function OverflowShiftBlocked()
+                return (ns.CdmBarHasShiftCdState and ns.CdmBarHasShiftCdState(BD().key)) or false
+            end
+            -- A bar may not BOTH receive overflow and have its own overflow
+            -- config: incoming icons ignore the recipient's cap and never
+            -- chain onward, so a cap on a recipient would promise behavior
+            -- that does not exist. Recipient = ANY bar (enabled or not --
+            -- re-enabling must not create the forbidden state) with an
+            -- active cap+target pair pointing here.
+            local function BarIsOverflowRecipient(key)
+                local pp = DB()
+                if not (pp and pp.cdmBars) then return false end
+                for _, b in ipairs(pp.cdmBars.bars) do
+                    if b.key ~= key and b.maxIcons and b.maxIcons > 0
+                       and b.overflowTarget == key then
+                        return true
+                    end
+                end
+                return false
+            end
+            local ofVals, ofOrder = { [""] = "None" }, { "" }
+            do
+                local pp = DB()
+                if pp and pp.cdmBars then
+                    for _, b in ipairs(pp.cdmBars.bars) do
+                        local bt = ns.GetBarType and ns.GetBarType(b) or b.barType
+                        -- Bars with their own active overflow config are not
+                        -- offered as targets (the recipient rule, other door).
+                        local hasOwnOverflow = b.maxIcons and b.maxIcons > 0 and b.overflowTarget ~= nil
+                        if b.key ~= barData.key and not b.isGhostBar
+                           and b.key ~= (ns.FOCUSKICK_BAR_KEY or "focuskick")
+                           and b.key ~= "buffs"
+                           and bt ~= "buffs" and bt ~= "custom_buff"
+                           and not hasOwnOverflow then
+                            ofVals[b.key] = EllesmereUI.L(b.name or b.key)
+                            ofOrder[#ofOrder + 1] = b.key
+                        end
+                    end
+                    -- A stored target that the filter (or a bar delete) now
+                    -- excludes still displays -- and can be cleared -- rather
+                    -- than masquerading as "None" while active at runtime
+                    -- (pre-rule configs keep working under no-chaining).
+                    local cur = barData.overflowTarget
+                    if cur and not ofVals[cur] then
+                        local curName = cur
+                        for _, b in ipairs(pp.cdmBars.bars) do
+                            if b.key == cur then curName = b.name or cur; break end
+                        end
+                        ofVals[cur] = EllesmereUI.L(curName)
+                        ofOrder[#ofOrder + 1] = cur
+                    end
+                end
+            end
+            _, h = W:DualRow(parent, y,
+                { type="slider", text="Max Icons (0 = Off)",
+                  min=0, max=20, step=1,
+                  -- A blocked bar with a value already set can still lower/
+                  -- clear it -- a disabled control must never trap an
+                  -- existing value on.
+                  disabled=function()
+                      local b = BD()
+                      return (OverflowShiftBlocked() or BarIsOverflowRecipient(b.key))
+                          and not (b.maxIcons and b.maxIcons > 0)
+                  end,
+                  disabledTooltip=function()
+                      if BarIsOverflowRecipient(BD().key) then
+                          return "Not available while another bar overflows into this bar"
+                      end
+                      return "Not available while a spell on this bar uses a Cooldown State Shift Icons setting"
+                  end,
+                  rawTooltip=true,
+                  getValue=function() return BD().maxIcons or 0 end,
+                  setValue=function(v)
+                      if v == 0 then v = nil end
+                      BD().maxIcons = v
+                      ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+                      C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
+                  end },
+                { type="dropdown", text="Overflow To",
+                  values=ofVals, order=ofOrder,
+                  -- Recipient bars cannot pick a fresh target (third door);
+                  -- one with a stale target set stays enabled so it can be
+                  -- cleared back to None.
+                  disabled=function()
+                      local b = BD()
+                      return OverflowShiftBlocked()
+                          or (BarIsOverflowRecipient(b.key) and not b.overflowTarget)
+                          or not (b.maxIcons and b.maxIcons > 0)
+                  end,
+                  -- Tooltip priority: recipient block, then the plain Max
+                  -- Icons requirement. The Shift Icons message only shows
+                  -- when it is the ACTUAL blocker (Max Icons already above 0
+                  -- but a spell carries a shift cooldown-state setting) --
+                  -- most users never touch that setting, so the default
+                  -- tooltip stays basic.
+                  disabledTooltip=function()
+                      local b = BD()
+                      if BarIsOverflowRecipient(b.key) then
+                          return "Not available while another bar overflows into this bar"
+                      end
+                      if not (b.maxIcons and b.maxIcons > 0) then
+                          return "Requires Max Icons to be above 0"
+                      end
+                      return "Not available while a spell on this bar uses a Cooldown State Shift Icons setting"
+                  end,
+                  rawTooltip=true,
+                  getValue=function()
+                      local t = BD().overflowTarget
+                      if t and ofVals[t] then return t end
+                      return ""
+                  end,
+                  setValue=function(v)
+                      if v == "" then v = nil end
+                      BD().overflowTarget = v
+                      ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+                  end });  y = y - h
+        end
+
         -- Hide Buffs When Inactive (global setting, applies to all buff bars)
         if ns.IsBarBuffFamily(barData) then
             local prof = ns.ECME and ns.ECME.db and ns.ECME.db.profile
@@ -16094,7 +16473,7 @@ initFrame:SetScript("OnEvent", function(self)
                       BD().buffGlowType = v; ns.BuildAllCDMBars(); Refresh()
                       C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
                   end },
-                { type="slider", text="Icon Spacing",
+                { type="slider", pixel=true, text="Icon Spacing",
                   min=-10, max=20, step=1,
                   getValue=function() return BD().spacing or 2 end,
                   setValue=function(v)
@@ -16550,7 +16929,7 @@ initFrame:SetScript("OnEvent", function(self)
                   bd._matchStrideH = nil
                   ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
               end },
-            { type="slider", text="Icon Spacing",
+            { type="slider", pixel=true, text="Icon Spacing",
               min=-10, max=20, step=1,
               getValue=function() return BD().spacing or 2 end,
               setValue=function(v)

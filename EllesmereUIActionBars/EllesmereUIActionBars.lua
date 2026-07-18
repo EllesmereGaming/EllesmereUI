@@ -1710,6 +1710,25 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
                 if f == btn then ActionBarButtonEventsFrame.frames[k] = nil end
             end
         end
+        -- Desaturate-on-cooldown / on-CD alpha: re-evaluate the icon's visual
+        -- state the moment the main cooldown display completes. The
+        -- SetDesaturation/SetAlpha writes are static between events, so
+        -- without this edge the icon only recovered at the NEXT cooldown
+        -- event -- and a charge spell's recharge end (at 0 charges the
+        -- recharge IS the main cooldown) is exactly such an edge. The handler
+        -- re-evaluates from live data rather than blind-clearing, so a GCD
+        -- display completing on a banked-charge spell is a no-op. HookScript
+        -- (never SetScript): the template's own charge/LoC handling may own
+        -- the script slot. Guarded: bar rebuilds reuse these frames and
+        -- HookScript stacks.
+        if btn.cooldown and not EFD(btn).cdDoneHooked then
+            EFD(btn).cdDoneHooked = true
+            btn.cooldown:HookScript("OnCooldownDone", function(cd)
+                if EAB._RefreshCooldownVisuals then
+                    EAB._RefreshCooldownVisuals(cd:GetParent())
+                end
+            end)
+        end
         -- When the pickup modifier is held (shift-click to move abilities),
         -- temporarily disable useOnKeyDown so the action doesn't fire on
         -- mouse down. The pickup happens before the up event, so the
@@ -2551,6 +2570,19 @@ function EAB_VTABLE.ForceButtonRefresh(btn, action)
         local display = C_ActionBar.GetActionDisplayCount(action)
         btn.Count:SetText(display or "")
     end
+    -- Macro / action text. The mixin's Update() maintains this normally, but
+    -- we suppress its per-button events, so a moved macro leaves its name
+    -- stuck on the old slot (and the new slot stays blank) until a hover runs
+    -- Blizzard's secure Update. Mirror that logic here: set the name only for
+    -- slots that use action text, clear it otherwise.
+    if btn.Name and C_ActionBar and C_ActionBar.UsesActionText then
+        if C_ActionBar.UsesActionText(action) then
+            local nm = C_ActionBar.GetActionText and C_ActionBar.GetActionText(action)
+            btn.Name:SetText(nm or "")
+        else
+            btn.Name:SetText("")
+        end
+    end
     local cd = btn.cooldown
     if cd and C_ActionBar and C_ActionBar.GetActionCooldown then
         local cdInfo = C_ActionBar.GetActionCooldown(action)
@@ -2589,6 +2621,111 @@ do
             desatCurveReal:SetType(Enum.LuaCurveType.Step)
             desatCurveReal:AddPoint(0, 0)
             desatCurveReal:AddPoint(1.6, 1)
+        end
+        -- On-CD alpha curve for charge spells / items: keyed on TOTAL
+        -- duration like desatCurveReal (GCD-length cooldown = full alpha,
+        -- real cooldown = the user's dim value). Rebuilt only when the
+        -- user's alpha setting changes.
+        local cdAlphaCurve, cdAlphaCurveFor
+        local function GetCdAlphaCurve(cdAlpha)
+            if cdAlphaCurveFor ~= cdAlpha and C_CurveUtil and C_CurveUtil.CreateCurve then
+                cdAlphaCurve = C_CurveUtil.CreateCurve()
+                cdAlphaCurve:SetType(Enum.LuaCurveType.Step)
+                cdAlphaCurve:AddPoint(0, 1)
+                cdAlphaCurve:AddPoint(1.6, cdAlpha / 100)
+                cdAlphaCurveFor = cdAlpha
+            end
+            return cdAlphaCurve
+        end
+        -- Desaturation + on-CD alpha for ONE button, from live cooldown data.
+        -- Called from the cooldown event loop (data prefetched; false = known
+        -- absent) and from each button's OnCooldownDone edge + the infrequent
+        -- full-update path (nil = fetched fresh here). Early-outs before any
+        -- API call when both features are off.
+        -- Why TOTAL duration for charge spells and items: the desat/alpha
+        -- writes are static, and the old code evaluated the 1.6s "real
+        -- cooldown" step against the REMAINING duration -- correct at
+        -- cooldown start, but any cooldown event landing in the final 1.6s
+        -- (in combat every cast fires one) read 0 and re-saturated the icon
+        -- early. The TOTAL duration never decays, so the classification
+        -- holds for the cooldown's entire life; the OnCooldownDone edge then
+        -- restores the icon the moment the cooldown actually completes.
+        local function RefreshCooldownVisuals(btn, action, cdInfo, durObj, chargeInfo)
+            local desatOn = EAB.db.profile.desaturateOnCooldown
+            local cdAlpha = EAB.db.profile.alphaWhenOnCD or 100
+            local alphaOn = cdAlpha ~= 100
+            if not desatOn and not alphaOn then return end
+            local icon = btn.icon
+            if not icon then return end
+            if not action then
+                action = btn:GetAttribute("action")
+                if not action or not HasAction(action) then return end
+            end
+            if cdInfo == nil then
+                cdInfo = C_ActionBar.GetActionCooldown(action)
+                if cdInfo and cdInfo.isActive then
+                    durObj = C_ActionBar.GetActionCooldownDuration(action)
+                end
+            end
+            if chargeInfo == nil then
+                chargeInfo = C_ActionBar.GetActionCharges(action)
+            end
+            local useRealCurve = chargeInfo and chargeInfo.maxCharges and chargeInfo.maxCharges > 1
+            if not useRealCurve and GetActionInfo(action) == "item" then
+                useRealCurve = true
+            end
+            local active = cdInfo and cdInfo.isActive and durObj
+            if desatOn then
+                local val = 0
+                if active then
+                    if useRealCurve then
+                        if durObj.EvaluateTotalDuration and desatCurveReal then
+                            val = durObj:EvaluateTotalDuration(desatCurveReal, 0)
+                        elseif durObj.EvaluateRemainingDuration and desatCurveReal then
+                            -- Client without the total evaluator: remaining is
+                            -- start-accurate and the Done edge fixes the tail.
+                            val = durObj:EvaluateRemainingDuration(desatCurveReal, 0)
+                        end
+                    elseif not cdInfo.isOnGCD then
+                        if durObj.EvaluateRemainingDuration and desatCurveAny then
+                            val = durObj:EvaluateRemainingDuration(desatCurveAny, 0)
+                        end
+                    end
+                end
+                -- val may be SECRET: never compare it; SetDesaturation
+                -- accepts secret numbers.
+                icon:SetDesaturation(val or 0)
+            end
+            if alphaOn then
+                if active then
+                    if useRealCurve and durObj.EvaluateTotalDuration then
+                        -- Same total-duration classification as desat. Also
+                        -- fixes banked-charge spells dimming during the GCD:
+                        -- the old IsZero gate had no real-vs-GCD test for the
+                        -- charge/item class.
+                        local curve = GetCdAlphaCurve(cdAlpha)
+                        if curve then
+                            icon:SetAlpha(durObj:EvaluateTotalDuration(curve, 1) or 1)
+                        else
+                            icon:SetAlpha(1)
+                        end
+                    elseif icon.SetAlphaFromBoolean and durObj.IsZero
+                       and (useRealCurve or not cdInfo.isOnGCD) then
+                        -- IsZero() is a secret boolean; SetAlphaFromBoolean
+                        -- consumes it without any Lua comparison.
+                        icon:SetAlphaFromBoolean(durObj:IsZero(), 1, cdAlpha / 100)
+                    else
+                        icon:SetAlpha(1)
+                    end
+                else
+                    icon:SetAlpha(1)
+                end
+            end
+        end
+        -- Exposed for the per-button OnCooldownDone edge hooks (installed at
+        -- button creation).
+        EAB._RefreshCooldownVisuals = function(btn)
+            if btn and btn.GetAttribute then RefreshCooldownVisuals(btn) end
         end
         dispatcher:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
         dispatcher:RegisterEvent("ACTIONBAR_UPDATE_STATE")
@@ -2650,62 +2787,12 @@ do
                                     -- desaturation and charge-cooldown updates below, so the
                                     -- desaturation fix adds no redundant per-button API calls.
                                     local chargeInfo = C_ActionBar.GetActionCharges(action)
-                                    -- Desaturate on a real cooldown, but NOT on the GCD (and NOT
-                                    -- while a charge spell still has a charge banked). isOnGCD is
-                                    -- reliable for plain spells but reads FALSE during the GCD for
-                                    -- charge spells AND items (on-use trinkets/consumables), so for
-                                    -- those we classify by the main-cooldown DURATION instead --
-                                    -- secret-safe via curves, and a GCD-length cooldown reads as 0:
-                                    --  * charge spells (maxCharges > 1) and items use the "real CD"
-                                    --    curve (a banked charge / a ready trinket only shows the GCD
-                                    --    on the main cooldown so it stays colored; the real recharge
-                                    --    or trinket cooldown is longer and desaturates).
-                                    --  * plain spells keep the original isOnGCD gate so they
-                                    --    desaturate for the whole cooldown, not just past the GCD.
-                                    -- Desaturate and/or lower alpha on a real cooldown.
-                                    -- Both read the same secret-safe val; the alpha gate
-                                    -- is value ~= 100 so it stays fully 0-cost at 100.
-                                    local desatOn = EAB.db.profile.desaturateOnCooldown
-                                    local cdAlpha = EAB.db.profile.alphaWhenOnCD or 100
-                                    local alphaOn = cdAlpha ~= 100
-                                    if desatOn or alphaOn then
-                                        local icon = btn.icon
-                                        if icon then
-                                            local val = 0
-                                            if cdInfo and cdInfo.isActive and durObj and durObj.EvaluateRemainingDuration then
-                                                local useRealCurve = chargeInfo and chargeInfo.maxCharges and chargeInfo.maxCharges > 1
-                                                if not useRealCurve and GetActionInfo(action) == "item" then
-                                                    useRealCurve = true
-                                                end
-                                                if useRealCurve then
-                                                    if desatCurveReal then val = durObj:EvaluateRemainingDuration(desatCurveReal, 0) end
-                                                elseif not cdInfo.isOnGCD then
-                                                    if desatCurveAny then val = durObj:EvaluateRemainingDuration(desatCurveAny, 0) end
-                                                end
-                                            end
-                                            if desatOn then icon:SetDesaturation(val or 0) end
-                                            if alphaOn then
-                                                -- val is a SECRET number, so never compare it (that
-                                                -- taints, unlike SetDesaturation which accepts secrets).
-                                                -- Feed the duration's IsZero() boolean into the
-                                                -- secret-safe SetAlphaFromBoolean instead. Same real-CD
-                                                -- gating as desat: GCD excluded for plain spells.
-                                                if icon.SetAlphaFromBoolean and cdInfo and cdInfo.isActive
-                                                   and durObj and durObj.IsZero then
-                                                    local realCd = (chargeInfo and chargeInfo.maxCharges and chargeInfo.maxCharges > 1)
-                                                        or (GetActionInfo(action) == "item")
-                                                        or (not cdInfo.isOnGCD)
-                                                    if realCd then
-                                                        icon:SetAlphaFromBoolean(durObj:IsZero(), 1, cdAlpha / 100)
-                                                    else
-                                                        icon:SetAlpha(1)
-                                                    end
-                                                else
-                                                    icon:SetAlpha(1)
-                                                end
-                                            end
-                                        end
-                                    end
+                                    -- Desaturate and/or dim on a real cooldown, but NOT on the
+                                    -- GCD (and NOT while a charge spell has a charge banked).
+                                    -- Full rules + the total-duration rationale live on
+                                    -- RefreshCooldownVisuals; `or false` marks known-absent data
+                                    -- so the shared function never re-fetches here.
+                                    RefreshCooldownVisuals(btn, action, cdInfo or false, durObj, chargeInfo or false)
                                     -- Update count text (charges, item stacks, etc.)
                                     -- C_ActionBar.GetActionDisplayCount handles both
                                     -- charged spells and consumable items correctly.
@@ -2813,6 +2900,16 @@ do
                             local canSetAttr = not InCombatLockdown()
                             for _, btn in ipairs(btns) do
                                 if btn.UpdateAction then btn:UpdateAction() end
+                                -- Covers SPELL_UPDATE_CHARGES (previously never
+                                -- re-evaluated desat: a regained charge only
+                                -- resaturated at the next cooldown event) plus
+                                -- form/stance/world entries. Early-outs when
+                                -- both features are off. Target changes share
+                                -- this branch but cannot change cooldown
+                                -- state -- skip them (tab-target spam).
+                                if event ~= "PLAYER_TARGET_CHANGED" then
+                                    RefreshCooldownVisuals(btn)
+                                end
                                 if not EFD(btn).rangeTinted then
                                 local action = btn:GetAttribute("action")
                                 if action and HasAction(action) then
@@ -8775,11 +8872,49 @@ function EAB:OnInitialize()
         local _qPending = false
         local function QualityScan()
                 _qPending = false
-                local bars = EAB.db.profile.bars
+                local bars = EAB.db and EAB.db.profile and EAB.db.profile.bars
+                if not bars then return end
                 for _, info in ipairs(BAR_CONFIG) do
                     local btns = barButtons[info.key]
                     local s = bars[info.key]
-                    if btns and s and not s.showRankIcon then
+                    if btns and s and s.showRankIcon then
+                        -- Feature ON: Blizzard does NOT refresh the quality
+                        -- overlay when an item is swapped in place (rank 1 ->
+                        -- rank 2 potion in the same slot), so it keeps showing
+                        -- the previous item's rank until a hover forces the
+                        -- button's own update. Re-run that update here so the
+                        -- rank tracks the new item immediately.
+                        for _, btn in ipairs(btns) do
+                            -- Rank icons only apply to items, so only run the
+                            -- (item-info-querying) refresh on item slots -- an
+                            -- ACTIONBAR_SLOT_CHANGED storm from mouseover-macros
+                            -- re-resolving fires in combat, and this must not
+                            -- do a quality lookup on every spell button per
+                            -- frame. A non-item slot (spell swapped in, or the
+                            -- slot cleared) just gets any lingering rank hidden.
+                            local action = btn:GetAttribute("action") or 0
+                            if action > 0 and GetActionInfo
+                               and GetActionInfo(action) == "item" then
+                                -- Only refresh when the overlay ALREADY exists:
+                                -- UpdateProfessionQuality lazily CREATES the
+                                -- overlay and writes it onto the secure action
+                                -- button's table -- under our execution that
+                                -- is a tainted field write (and a combat-time
+                                -- frame creation during slot-changed storms).
+                                -- A stale WRONG rank always has an existing
+                                -- overlay, so the gate loses nothing; a slot
+                                -- that never had one stays on Blizzard's own
+                                -- lazy creation, exactly as before this fix.
+                                if btn.ProfessionQualityOverlayFrame
+                                   and btn.UpdateProfessionQuality then
+                                    btn:UpdateProfessionQuality()
+                                end
+                            else
+                                local ov = btn.ProfessionQualityOverlayFrame
+                                if ov and ov:IsShown() then ov:SetShown(false) end
+                            end
+                        end
+                    elseif btns and s and not s.showRankIcon then
                         for _, btn in ipairs(btns) do
                             local ov = btn.ProfessionQualityOverlayFrame
                             if ov and ov:IsShown() then
@@ -8800,6 +8935,13 @@ function EAB:OnInitialize()
                 end
         end
         qf:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+        -- Loadout/spec swap changes slot CONTENTS but does not reliably fire
+        -- ACTIONBAR_SLOT_CHANGED for our EABButtons (same reason the spell
+        -- refresh sweep exists), so a rank icon from the old spec's item can
+        -- persist on a slot the new spec leaves empty or fills with a spell.
+        -- SPELLS_CHANGED covers that swap; the macro name is handled by the
+        -- ForceButtonRefresh sweep on the same event.
+        qf:RegisterEvent("SPELLS_CHANGED")
         qf:SetScript("OnEvent", function()
             if not _qPending then
                 _qPending = true

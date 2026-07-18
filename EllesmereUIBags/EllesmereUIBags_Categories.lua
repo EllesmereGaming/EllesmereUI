@@ -463,7 +463,6 @@ end
 function CategoryManager:RenameCategory(index, newName)
     local cats = self:GetCategories()
     if not cats[index] then return false end
-    if cats[index].isCatchAll then return false end
     if not newName or newName == "" then return false end
     local oldGroup = cats[index].groupName
     local shouldRegenerate = oldGroup and not self:IsGroupNameCustom(oldGroup)

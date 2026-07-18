@@ -541,6 +541,10 @@ end
 -- matching: non-Latin localized names pass through unchanged, which is the
 -- safe outcome. Display-only -- the index keeps the raw name for matching.
 local function TitleCaseSection(s)
+    -- Only ALL-CAPS names need the conversion. Already mixed-case section
+    -- labels (window-skin card titles like "LFG Menu") pass through
+    -- untouched -- lowering them first would mangle acronyms ("Lfg Menu").
+    if s ~= s:upper() then return s end
     return (s:lower():gsub("(%a)([%w']*)", function(first, rest)
         return first:upper() .. rest
     end))

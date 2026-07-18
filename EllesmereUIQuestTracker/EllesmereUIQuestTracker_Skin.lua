@@ -822,27 +822,28 @@ local function ProcessBlockChildren(frame, depth)
 
 end
 
--- Suppress a POI button permanently. Hooks Show + SetAlpha so Blizzard
--- can never make it visible again. The _euiSuppressed flag is on the
--- frame object itself, so it persists even if the button is pooled.
-local _poiHiddenParent = CreateFrame("Frame")
-_poiHiddenParent:Hide()
+-- Weak-keyed so pooled/recycled poiButtons don't leak or get double-hooked.
+local _hookedPOIButtons = setmetatable({}, { __mode = "k" })
 
 local function SuppressPOI(block)
-    -- "Show Quest Icons" on: leave Blizzard's native POI button visible and
-    -- skip installing the keep-hidden hook entirely. Reload-gated, so this is
-    -- read fresh per block; no live un-suppression needed.
     if EQT.Cfg("showQuestIcons") then return end
     local pb = block and block.poiButton
-    if not pb or EllesmereUI._GetFFD(pb).suppressed then return end
-    EllesmereUI._GetFFD(pb).suppressed = true
-    pb:SetParent(_poiHiddenParent)
+    if not pb then return end
+    if pb:IsShown() then pb:Hide() end
     pb:EnableMouse(false)
-    hooksecurefunc(pb, "SetParent", function(self, parent)
-        if parent ~= _poiHiddenParent then
-            self:SetParent(_poiHiddenParent)
-        end
-    end)
+
+    -- Re-hide synchronously whenever Blizzard shows this button again (e.g.
+    -- on SUPER_TRACKING_CHANGED from clicking a quest) so there's no visible
+    -- flash before the next SkinBlock/suppression pass. Hide() only, never
+    -- SetParent -- that's the taint-safe version of this pattern (see
+    -- InstallShowHook's otf Show-hook above, which does the same thing).
+    if not _hookedPOIButtons[pb] then
+        _hookedPOIButtons[pb] = true
+        hooksecurefunc(pb, "Show", function(self)
+            if EQT.Cfg("showQuestIcons") then return end
+            self:Hide()
+        end)
+    end
 end
 
 local function SkinBlock(block)
@@ -979,6 +980,41 @@ local function SkinExistingBlocks(tracker)
 end
 
 -------------------------------------------------------------------------------
+-- Blizzard anchors whichever module currently sits in the top slot with a
+-- fixed TOP/TOP offset relative to ObjectiveTrackerFrame. Verified via /dump
+-- across QuestObjectiveTracker and ProfessionsRecipeTracker: always -38,
+-- independent of module type and independent of Header's height (ruled out
+-- separately). We tighten this gap after each layout pass.
+-------------------------------------------------------------------------------
+local TOP_ANCHOR_OFFSET = -6  -- starting value, tuned by eye
+-- Shared with EllesmereUIQuestTracker_Visibility.lua (BG/top-divider offset)
+-- so both files derive the top gap from a single source instead of two
+-- independent magic numbers drifting apart.
+EQT.TOP_ANCHOR_OFFSET = TOP_ANCHOR_OFFSET
+
+-- Reentry guard: TightenTopAnchor's own SetPoint fires the SetPoint hook
+-- installed in HookTracker below.
+local _tighteningAnchor = false
+
+local function TightenTopAnchor(tracker)
+    if _tighteningAnchor then return end
+    if not tracker or not tracker.GetPoint or not tracker.SetPoint then return end
+    if InCombatLockdown and InCombatLockdown() then return end
+    -- Do not interfere during Blizzard's collapse/expand slide animation,
+    -- or our SetPoint collides with ObjectiveTrackerSlidingMixin.
+    if tracker.IsSliding and tracker:IsSliding() then return end
+
+    local point, relativeTo, relativePoint, xOfs, yOfs = tracker:GetPoint(1)
+    if point == "TOP" and relativePoint == "TOP" and relativeTo == _G.ObjectiveTrackerFrame then
+        if yOfs and math.abs(yOfs - TOP_ANCHOR_OFFSET) > 0.01 then
+            _tighteningAnchor = true
+            tracker:SetPoint("TOP", relativeTo, "TOP", xOfs or 0, TOP_ANCHOR_OFFSET)
+            _tighteningAnchor = false
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
 -- Hook a single sub-tracker.
 -------------------------------------------------------------------------------
 local function HookTracker(tracker)
@@ -1038,6 +1074,7 @@ local function HookTracker(tracker)
                 if ShouldSkipSkin() then return end
             
                 if tracker.Header then EnsureAccentDivider(tracker.Header) end
+                TightenTopAnchor(tracker)
                 if EQT.QueueResize then EQT.QueueResize() end
                 if tracker.usedBlocks then
                     for _, byTemplate in pairs(tracker.usedBlocks) do
@@ -1051,6 +1088,38 @@ local function HookTracker(tracker)
             end)
         end)
     end
+
+    -- ObjectiveTrackerSlidingMixin (SUPER_TRACKING_CHANGED can trigger a
+    -- reorder slide, not just collapse/expand) calls tracker:OnEndSlide()
+    -- from EndSlide() right after clearing slideInfo -- i.e. exactly when
+    -- IsSliding() flips back to false. TightenTopAnchor bails out entirely
+    -- while IsSliding() is true (see comment there), so without this hook
+    -- the anchor sits at Blizzard's untightened -38 for the ~0.2-0.3s slide
+    -- duration and only snaps to TOP_ANCHOR_OFFSET on the next Update() call,
+    -- which is what showed up as the whole tracker shifting down briefly on
+    -- quest click. Verified against Blizzard_ObjectiveTrackerShared.lua:
+    -- EndSlide() -> self.slideInfo = nil -> self:OnEndSlide(...).
+    if tracker.OnEndSlide then
+        hooksecurefunc(tracker, "OnEndSlide", function(self)
+            if ShouldSkipSkin() then return end
+            TightenTopAnchor(self)
+        end)
+    end
+
+    -- Blizzard assigns the top-slot TOP/TOP/-38 anchor at some point AFTER
+    -- tracker:Update() returns (GetPoint(1) is still nil inside the Update
+    -- hook), and a burst of native Update() passes can re-assign it several
+    -- times in quick succession. Hooking SetPoint catches every assignment at
+    -- the exact moment it happens and re-tightens synchronously, before the
+    -- frame renders -- no visible drop to -38, no polling. _tighteningAnchor
+    -- keeps our own SetPoint inside TightenTopAnchor from re-entering the
+    -- hook. Combat/slide cases bail inside TightenTopAnchor and are caught
+    -- up by the OnEndSlide hook and the deferred Update pass above.
+    hooksecurefunc(tracker, "SetPoint", function(self)
+        if _tighteningAnchor then return end
+        if ShouldSkipSkin() then return end
+        TightenTopAnchor(self)
+    end)
 
     -- ContentsFrame:HookScript("OnSizeChanged") REMOVED: HookScript injects
     -- addon code into Blizzard's execution context, tainting ANY secure call
@@ -1130,7 +1199,11 @@ function EQT.InitSkin()
         end
         if otf.Header and otf.Header ~= headerMenu then
             otf.Header:Hide()
-            otf.Header:HookScript("OnShow", function(self) self:Hide() end)
+            if otf.Header.SetHeight then otf.Header:SetHeight(0.001) end
+            otf.Header:HookScript("OnShow", function(self)
+                self:Hide()
+                if self.SetHeight then self:SetHeight(0.001) end
+            end)
         end
         -- Strip the parchment / nine-slice background behind the whole tracker.
         if otf.NineSlice then otf.NineSlice:Hide() end

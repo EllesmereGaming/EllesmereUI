@@ -256,8 +256,16 @@ local function ApplyUFText(button, d, style)
         end
         local c = style.cdTextColor
         d.duration:SetTextColor(c and c.r or 1, c and c.g or 1, c and c.b or 1)
-        d.duration:ClearAllPoints()
-        d.duration:SetPoint("CENTER", button, "CENTER", style.cdOffX or 0, style.cdOffY or 0)
+        -- Anchor change-guarded (stamp AFTER the calls): SetPoint with the
+        -- button as the relative frame is policed by the 12.1 button access
+        -- restriction while auras are secret; unchanged offsets must make
+        -- zero button-involving calls so restyles stay live in-instance.
+        local aKey = (style.cdOffX or 0) .. "|" .. (style.cdOffY or 0)
+        if d.ufDurAnchor ~= aKey then
+            d.duration:ClearAllPoints()
+            d.duration:SetPoint("CENTER", button, "CENTER", style.cdOffX or 0, style.cdOffY or 0)
+            d.ufDurAnchor = aKey
+        end
     end
     if d.stack then
         local fontKey = path .. "|" .. (style.stackSize or 14)
@@ -268,8 +276,12 @@ local function ApplyUFText(button, d, style)
         local c = style.stackColor
         d.stack:SetTextColor(c and c.r or 1, c and c.g or 1, c and c.b or 1)
         local sp = STACK_POINTS[style.stackPos or "bottomright"] or STACK_POINTS.bottomright
-        d.stack:ClearAllPoints()
-        d.stack:SetPoint(sp[1], button, sp[1], sp[2] + (style.stackOffX or 0), style.stackOffY or 0)
+        local sKey = sp[1] .. "|" .. (sp[2] + (style.stackOffX or 0)) .. "|" .. (style.stackOffY or 0)
+        if d.ufStackAnchor ~= sKey then
+            d.stack:ClearAllPoints()
+            d.stack:SetPoint(sp[1], button, sp[1], sp[2] + (style.stackOffX or 0), style.stackOffY or 0)
+            d.ufStackAnchor = sKey
+        end
     end
 end
 
@@ -646,7 +658,16 @@ local function ApplyDispelSlotStyle(button, d, style)
     local c = style.color
     local alpha = (style.opacity or 100) / 100
 
-    button:SetFrameLevel(health:GetFrameLevel() + 1 + (style.level or 1))
+    -- Change-guarded, stamped AFTER the call: SetFrameLevel on the slot
+    -- button is denied while auras are secret (12.1 access restriction).
+    -- At creation this runs inside the initializeFrame window (always
+    -- legal); on later restyles the level rarely changes, and a denied
+    -- attempt throws so the worker defers this key to the lift re-queue.
+    local lvl = health:GetFrameLevel() + 1 + (style.level or 1)
+    if d.lvl ~= lvl then
+        button:SetFrameLevel(lvl)
+        d.lvl = lvl
+    end
 
     tex:ClearAllPoints()
     if style.mode == "gradient" or style.mode == "gradient_sharp" then
@@ -678,15 +699,32 @@ local function BuildDispelStyles(frame)
     local p = ns.UF_GetProfile and ns.UF_GetProfile()
     if not p then return "none" end
     local mode = p.dispelOverlay or "none"
+    -- "Only Dispellable by You": slot filters are fixed at declaration and
+    -- containers are never swapped (engine buttons leak), so BOTH filter
+    -- variants exist as slots from creation and the INACTIVE variant is
+    -- styled to opacity 0. Toggling the option only restyles.
+    local byMe = p.dispelOverlayByMe == true
+    local op = p.dispelOverlayOpacity or 100
     for i = 1, #DISPEL_SLOTS do
         local slot = DISPEL_SLOTS[i]
         local col = p[slot.colorKey]
+        local color = { r = col and col.r or slot.fallback[1], g = col and col.g or slot.fallback[2], b = col and col.b or slot.fallback[3] }
         AK.styles[DispelStyleKey(slot.key)] = {
             width = 1, height = 1,
             noRegions = true,
             mode = mode,
-            color = { r = col and col.r or slot.fallback[1], g = col and col.g or slot.fallback[2], b = col and col.b or slot.fallback[3] },
-            opacity = p.dispelOverlayOpacity or 100,
+            color = color,
+            opacity = byMe and 0 or op,
+            level = slot.level,
+            healthFrame = frame.Health,
+            applyExtra = ApplyDispelSlotStyle,
+        }
+        AK.styles[DispelStyleKey(slot.key .. "_byme")] = {
+            width = 1, height = 1,
+            noRegions = true,
+            mode = mode,
+            color = color,
+            opacity = byMe and op or 0,
             level = slot.level,
             healthFrame = frame.Health,
             applyExtra = ApplyDispelSlotStyle,
@@ -711,31 +749,46 @@ local function CreateDispelSlots(frame, entry)
         })
     end
 
-    local slotFrames = {}
     for i = 1, #DISPEL_SLOTS do
         local slot = DISPEL_SLOTS[i]
-        slotFrames[slot.key] = AK.AddSlotToContainer(container, {
+        local function ParkSlot(slotButton)
+            -- Park the slot button on the health bar center (the overlay
+            -- textures anchor to the health bar independently). Anchored
+            -- HERE, inside the creation window: SetPoint on the returned
+            -- button is denied while auras are secret (12.1 button
+            -- access restriction), and this build path runs on
+            -- in-instance reloads.
+            slotButton:SetPoint("CENTER", frame.Health or frame, "CENTER")
+        end
+        AK.AddSlotToContainer(container, {
             key = slot.key,
             filter = { "HARMFUL" },
             candidateFilters = { includeDispelTypes = { [DISPEL_TYPE_TOKENS[slot.key]] = true } },
             style = DispelStyleKey(slot.key),
+            extraInit = ParkSlot,
+        })
+        -- "Only Dispellable by You" variant: identical slot with the engine
+        -- by-me filter token added. Declared upfront -- slot filters cannot
+        -- change after declaration -- and mutually exclusive with the plain
+        -- slot via style opacity (BuildDispelStyles zeroes the inactive one).
+        AK.AddSlotToContainer(container, {
+            key = slot.key .. "_byme",
+            filter = { "HARMFUL", "RAID_PLAYER_DISPELLABLE" },
+            candidateFilters = { includeDispelTypes = { [DISPEL_TYPE_TOKENS[slot.key]] = true } },
+            style = DispelStyleKey(slot.key .. "_byme"),
+            extraInit = ParkSlot,
         })
     end
     AK.FinishContainer(container, "player")
     entry.dispel = container
-
-    -- Slot buttons are manually anchored; park them on the health bar center
-    -- (their overlays anchor to the health bar independently).
-    for _, f in pairs(slotFrames) do
-        f:SetPoint("CENTER", frame.Health or frame, "CENTER")
-    end
 
     container:SetShown(mode ~= "none")
     ns.UF_DispelOverlayDisabled = true
 end
 
 local function DispelFP(p)
-    return FP(p.dispelOverlay, p.dispelOverlayOpacity, CK(p.dispelColorMagic), CK(p.dispelColorCurse),
+    return FP(p.dispelOverlay, p.dispelOverlayOpacity, p.dispelOverlayByMe == true,
+        CK(p.dispelColorMagic), CK(p.dispelColorCurse),
         CK(p.dispelColorDisease), CK(p.dispelColorPoison), CK(p.dispelColorBleed))
 end
 
@@ -749,9 +802,20 @@ local function ReloadDispelSlots(frame, entry)
         BuildDispelStyles(frame)
         for i = 1, #DISPEL_SLOTS do
             AK.RestyleSoon(DispelStyleKey(DISPEL_SLOTS[i].key))
+            AK.RestyleSoon(DispelStyleKey(DISPEL_SLOTS[i].key .. "_byme"))
         end
     end
     entry.dispel:SetShown((p.dispelOverlay or "none") ~= "none")
+end
+
+-- Options-panel poke (via ns.UpdatePlayerDispelOverlay): re-run the
+-- fingerprinted dispel reload for the live player frame so dropdown/cog
+-- edits apply without waiting for a full container pass.
+function ns.UF_ReloadPlayerDispelSlots()
+    local entry = registry.player
+    if entry and entry.frame then
+        ReloadDispelSlots(entry.frame, entry)
+    end
 end
 
 -- Boss preview (fake auras) suppresses the real containers; ReloadFrames
@@ -989,6 +1053,12 @@ local function BuildUnitContainers(frame, unit)
 
     if unit == "player" then
         CreateDispelSlots(frame, entry)
+        -- Prime the dispel fingerprint: creation just applied these exact
+        -- settings, so the creation-tail reload below must not queue a
+        -- redundant restyle (harmless noise OOC, but denied button writes
+        -- when built under restriction -- the in-instance /reload case).
+        local p = ns.UF_GetProfile and ns.UF_GetProfile()
+        if p then ufFP.dispel = DispelFP(p) end
     end
 
     ns.UF_ReloadAuraContainers(frame, unit)

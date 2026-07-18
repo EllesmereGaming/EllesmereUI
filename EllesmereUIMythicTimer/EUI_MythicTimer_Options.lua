@@ -451,7 +451,7 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip="Show Dungeon Name", requireState="disabled",
               get=function() return Cfg("showKeyLevelOnTimer") == true end,
               set=function(v) Set("showKeyLevelOnTimer", v); Refresh() end },
-            { type="slider", label="Spacing", min=0, max=40, step=1,
+            { type="slider", pixel=true, label="Spacing", min=0, max=40, step=1,
               disabled=function() return Cfg("showKeyLevelOnTimer") ~= true end,
               disabledTooltip="Show Key Level on Timer",
               get=function() return Cfg("keyLevelTimerSpacing") or 8 end,
@@ -485,17 +485,17 @@ initFrame:SetScript("OnEvent", function(self)
         }, function() return Cfg("enabled") == false or Cfg("showAffixes") == false end)
         -- Title/Affix Spacing cog on Position (now the right-side widget)
         _AttachPopupButton(row._rightRegion, EllesmereUI.RESIZE_ICON, "Title/Affix Spacing", {
-            { type="slider", label="Death Gap", min=-10, max=30, step=1,
+            { type="slider", pixel=true, label="Death Gap", min=-10, max=30, step=1,
               disabled=function() return (Cfg("titleAffixPosition") or "ABOVE_TIMER") == "BELOW_TIMER" end,
               disabledTooltip="Above Timer",
               get=function() return Cfg("titleAffixDeathGap") or 11 end,
               set=function(v) Set("titleAffixDeathGap", v); Refresh() end },
-            { type="slider", label="Timer Gap", min=-10, max=30, step=1,
+            { type="slider", pixel=true, label="Timer Gap", min=-10, max=30, step=1,
               disabled=function() return (Cfg("titleAffixPosition") or "ABOVE_TIMER") ~= "BELOW_TIMER" end,
               disabledTooltip="Below Timer",
               get=function() return Cfg("titleAffixTimerGap") or Cfg("titleAffixSandwichGap") or 6 end,
               set=function(v) Set("titleAffixTimerGap", v); Refresh() end },
-            { type="slider", label="Bar Gap", min=-10, max=30, step=1,
+            { type="slider", pixel=true, label="Bar Gap", min=-10, max=30, step=1,
               disabled=function() return (Cfg("titleAffixPosition") or "ABOVE_TIMER") ~= "BELOW_TIMER" end,
               disabledTooltip="Below Timer",
               get=function() return Cfg("titleAffixBarGap") or Cfg("titleAffixSandwichGap") or 6 end,
@@ -791,7 +791,7 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip="Ticks",
               get=function() return Cfg("tickAlpha") or 1 end,
               set=function(v) Set("tickAlpha", v); Refresh() end },
-            { type="slider", label="Gap Size", min=0, max=12, step=1,
+            { type="slider", pixel=true, label="Gap Size", min=0, max=12, step=1,
               disabled=function() return (Cfg("timerBarStyle") or "TICKS") ~= "SEGMENTS" end,
               disabledTooltip="Gaps",
               get=function() return Cfg("timerBarSegmentGap") or 2 end,
@@ -915,7 +915,7 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h
 
         row, h = W:DualRow(parent, y,
-            { type="slider", text="Objective Spacing",
+            { type="slider", pixel=true, text="Objective Spacing",
               disabled=function() return Cfg("enabled") == false or Cfg("showObjectives") == false end,
               disabledTooltip="Show Boss Objectives",
               min=0, max=12, step=1, isPercent=false,

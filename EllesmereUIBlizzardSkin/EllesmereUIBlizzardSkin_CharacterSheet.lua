@@ -1638,6 +1638,15 @@ local function SkinCharacterSheet()
         scrollFrame:HookScript("OnSizeChanged",    UpdateThumb)
         scrollChild:HookScript("OnSizeChanged",    UpdateThumb)
 
+        local function refreshVerticalScroll()
+            local _, _, maxScroll = _info()
+            -- No check on maxScroll, this is intentionnal. It ensures that after a collapse and scroll
+            -- being disabled, it will still works.
+            local newScroll = math.max(0, math.min(maxScroll, scrollFrame:GetVerticalScroll()))
+            scrollFrame:SetVerticalScroll(newScroll)
+        end
+        track._refreshVerticalScroll = refreshVerticalScroll
+
         scrollFrame:EnableMouseWheel(true)
         scrollFrame:SetScript("OnMouseWheel", function(_, delta)
             local _, _, maxScroll = _info()
@@ -1697,8 +1706,9 @@ local function SkinCharacterSheet()
         trackOwner = statsPanel,
         topInset   = -HEADER_H,
     })
-    GetFFD(frame).scrollBar         = scrollTrack
-    GetFFD(frame).updateScrollThumb = scrollTrack._update
+    GetFFD(frame).scrollBar              = scrollTrack
+    GetFFD(frame).updateScrollThumb      = scrollTrack._update
+    GetFFD(frame).refreshVerticalScroll  = scrollTrack._refreshVerticalScroll
 
     -- Re-anchor the scroll frame + track top edge based on whether the
     -- PvP iLvl and M+ Score lines are visible. Each hidden line collapses
@@ -1838,7 +1848,7 @@ local function SkinCharacterSheet()
                 settingKey = "SecondaryStats",
                 color = GetCategoryColor("Secondary Stats"),
                 stats = {
-                    { name = "Crit", func = function() return GetCritChance("player") or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_CRIT_MELEE) or 0 end },
+                    { name = "Critical Strike", func = function() return GetCritChance("player") or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_CRIT_MELEE) or 0 end },
                     { name = "Haste", func = function() return UnitSpellHaste("player") or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_HASTE_MELEE) or 0 end },
                     { name = "Mastery", func = function() return GetMasteryEffect() or 0 end, format = "%.2f%%", rawFunc = function() return GetCombatRating(CR_MASTERY) or 0 end },
                     { name = "Versatility", func = function()
@@ -2166,6 +2176,7 @@ local function SkinCharacterSheet()
             end
         end
         scrollChild:SetHeight(-yOffset)
+        if GetFFD(frame).refreshVerticalScroll then GetFFD(frame).refreshVerticalScroll() end
     end
     GetFFD(frame).recalculateSections = RecalculateSectionPositions
 
@@ -2330,7 +2341,7 @@ local function SkinCharacterSheet()
                         )
                         -- Description for secondary stats
                         local description = ""
-                        if stat.name == "Crit" then
+                        if stat.name == "Critical Strike" then
                             description = string.format(L("Increases your chance to critically hit by %.2f%%."), percentValue)
                         elseif stat.name == "Haste" then
                             description = string.format(L("Increases attack and casting speed by %.2f%%."), percentValue)
@@ -2364,7 +2375,7 @@ local function SkinCharacterSheet()
                         end
                         GameTooltip:AddLine(description, 1, 1, 1, true)
 
-                        if stat.name == "Crit" and GetCritChanceProvidesParryEffect() then
+                        if stat.name == "Critical Strike" and GetCritChanceProvidesParryEffect() then
                             local critToParry = GetCombatRatingBonusForCombatRatingValue(CR_PARRY, GetCombatRating(CR_CRIT_MELEE))
                             GameTooltip:AddLine(" ")
                             GameTooltip:AddLine(string.format(L("Increases parry chance by %.2f%%."), critToParry), 1, 1, 1, true)
@@ -2683,6 +2694,10 @@ local function SkinCharacterSheet()
 
     -- Apply initial visibility settings
     UpdateStatCategoryVisibility()
+    -- Defer a call as some settings may not be fully initialized like section visibility
+    C_Timer.After(0, function()
+        UpdateStatCategoryVisibility()
+    end)
 
     -- Function to update all stats
     local function UpdateAllStats()
@@ -2796,7 +2811,7 @@ local function SkinCharacterSheet()
 
         -- Add border directly on the slot with item color (2px thickness)
         if EllesmereUI and EllesmereUI.PanelPP then
-            EllesmereUI.PanelPP.CreateBorder(slot, borderR, borderG, borderB, 1, 2, "OVERLAY", 7)
+            EllesmereUI.PanelPP.CreateBorder(slot, borderR, borderG, borderB, 1, 2, "OVERLAY", 1)
             local bdrFrame = EllesmereUI.PanelPP.GetBorders(slot)
             if bdrFrame then bdrFrame:SetFrameLevel(slot:GetFrameLevel()) end
         end
@@ -4125,7 +4140,7 @@ local function SkinCharacterSheet()
                 overlay:SetAllPoints(slot)
                 overlay:SetFrameLevel(slot:GetFrameLevel())
                 if EllesmereUI and EllesmereUI.PanelPP then
-                    EllesmereUI.PanelPP.CreateBorder(overlay, 0.898, 0.286, 0.286, 1, 2, "OVERLAY", 7)  -- #e54949
+                    EllesmereUI.PanelPP.CreateBorder(overlay, 0.898, 0.286, 0.286, 1, 2, "OVERLAY", 1)  -- #e54949
                     local enchBdr = EllesmereUI.PanelPP.GetBorders(overlay)
                     if enchBdr then enchBdr:SetFrameLevel(slot:GetFrameLevel()) end
                 end
@@ -4200,7 +4215,7 @@ local function SkinCharacterSheet()
             -- 2px pixel-perfect border, recolored per-gem in UpdateSocketIcons.
             PP_GEM.CreateBorder(gemFrame, 1, 1, 1, 1, 2, "OVERLAY", 1)
             local gemBdr = PP_GEM.GetBorders(gemFrame)
-            if gemBdr then gemBdr:SetFrameLevel(gemFrame:GetFrameLevel() + 1) end
+            if gemBdr then gemBdr:SetFrameLevel(gemFrame:GetFrameLevel()) end
 
             GetFFD(slot).charSocketsFrames[i] = gemFrame
             GetFFD(slot).charSocketsIcons[i]  = icon
@@ -4365,7 +4380,7 @@ local function SkinCharacterSheet()
     end
 
     local function CharSheetGemsActive()
-        if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return false end
+        if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return false end
         if EllesmereUIDB and EllesmereUIDB.showGems == false then return false end
         return true
     end
@@ -4702,7 +4717,7 @@ local function SkinCharacterSheet()
     -- redundant work; the events guarantee we catch upgrade / enchant /
     -- socket changes without per-frame polling.
     local function RefreshAllSlotLabels()
-        if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+        if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
         if not (frame and frame:IsShown()) then return end
         for _, slotName in ipairs(itemSlots) do
             local itemLink = GetInventoryItemLink("player", _G[slotName]:GetID())
@@ -4826,7 +4841,7 @@ end
 
 -- Main function to apply themed character sheet
 local function ApplyThemedCharacterSheet()
-    if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then
+    if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then
         return
     end
 
@@ -4848,14 +4863,14 @@ if EllesmereUI then
             -- Lightweight pre-skin (chrome hides, bg, border) runs early
             -- while CharacterFrame is still hidden. Running these mid-OnShow
             -- prevents Rep/Currency ScrollBox from completing its data render.
-            if not EllesmereUIDB or EllesmereUIDB.themedCharacterSheet ~= false then
+            if not EllesmereUIDB or (EllesmereUIDB.themedCharacterSheet ~= false and not EllesmereUI.BlizzWindowSkinsKilled()) then
                 PreSkinCharacterSheet()
                 -- PreSkin hides the portrait once; Blizzard's CharacterFrameMixin:UpdatePortrait
                 -- (RefreshDisplay / UNIT_PORTRAIT_UPDATE / spec icon) runs after OnShow hooks and
                 -- redraws it. Re-hide via secure hook + deferred passes on GetPortrait() as well.
                 if not GetFFD(CharacterFrame)._euiPortraitSuppressRegistered then
                     local function SuppressCharacterFramePortrait()
-                        if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+                        if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
                         if not CharacterFrame then return end
                         -- Blizzard re-anchors CharacterFrameInsetRight on each open; it parents
                         -- PaperDollSidebarTabs (Tab1 uses a circular player/spec portrait). Re-apply
@@ -4897,20 +4912,20 @@ if EllesmereUI then
                         end)
 
                         hooksecurefunc(CharacterFrame, "UpdatePortrait", function()
-                            if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+                            if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
                             SuppressCharacterFramePortrait()
                         end)
 
                         if CharacterFrame.RefreshDisplay then
                             hooksecurefunc(CharacterFrame, "RefreshDisplay", function()
-                                if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+                                if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
                                 SuppressCharacterFramePortrait()
                             end)
                         end
 
                         if CharacterFrame.SetPortraitToSpecIcon then
                             hooksecurefunc(CharacterFrame, "SetPortraitToSpecIcon", function()
-                                if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+                                if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
                                 SuppressCharacterFramePortrait()
                             end)
                         end
@@ -4918,7 +4933,7 @@ if EllesmereUI then
                         local portrait = _G.CharacterFramePortrait
                         if portrait then
                             portrait:HookScript("OnShow", function(self)
-                                if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+                                if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
                                 self:SetShown(false)
                                 self:SetAlpha(0)
                             end)
@@ -5165,7 +5180,7 @@ end
 function EllesmereUI._refreshCharSheetIconZoom()
     -- Only the themed sheet crops its slot icons; if it is off the slots show
     -- Blizzard's default icons, which we must not re-crop.
-    if EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false then return end
+    if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
     local z = (EllesmereUIDB and EllesmereUIDB.charSheetIconZoom) or 0.07
     for _, slotName in ipairs(EUI_ALL_SLOTS) do
         local slot = _G[slotName]

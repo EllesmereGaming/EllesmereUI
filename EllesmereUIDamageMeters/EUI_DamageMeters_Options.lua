@@ -598,7 +598,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Bar Spacing | Icon Style
         local iconRow, h = W:DualRow(parent, y,
-            { type="slider", text="Spacing", min = -1, max = 10, step = 1,
+            { type="slider", pixel=true, text="Spacing", min = -1, max = 10, step = 1,
             getValue = function() return Cfg("barSpacing") or 2 end,
             setValue = function(v) Set("barSpacing", v); Refresh() end },
             { type="dropdown", text="Icon Style",
@@ -1451,7 +1451,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Row 4: Icon Spacing | Opacity
         _, h = W:DualRow(parent, y,
-            { type = "slider", text = "Icon Spacing",
+            { type = "slider", pixel = true, text = "Icon Spacing",
               min = 0, max = 10, step = 1,
               disabled = iconOff, disabledTooltip = "Icon History",
               getValue = function() return SHDB().iconSpacing or 1 end,

@@ -26,6 +26,14 @@ local _bgFrame
 
 local function GetTracker() return _G.ObjectiveTrackerFrame end
 
+-- Shared with EllesmereUIQuestTracker_Skin.lua's TightenTopAnchor: the BG
+-- and top accent divider must start at the same Y offset the content's top
+-- module is anchored to, otherwise the divider renders inside/below the
+-- first block instead of above it. Fallback matches Skin.lua's default.
+local function TopGapOffset()
+    return EQT.TOP_ANCHOR_OFFSET or -6
+end
+
 -------------------------------------------------------------------------------
 -- Top-level collapse / expand via SetParent. No child recursion.
 -------------------------------------------------------------------------------
@@ -197,23 +205,26 @@ local function EnsureBG()
     _bgFrame = CreateFrame("Frame", "EllesmereUIQTBackground", UIParent)
     _bgFrame:SetFrameStrata(otf:GetFrameStrata() or "MEDIUM")
     _bgFrame:SetFrameLevel(math.max(0, otf:GetFrameLevel() - 1))
-    -- Cut 30px off the top so the background doesn't bleed behind the
-    -- master header area. Bottom edge extends 6px past the last block.
-    _bgFrame:SetPoint("TOPLEFT", otf, "TOPLEFT", -6, -30)
+    -- Start the background at the same Y offset the top module is anchored
+    -- to (see TightenTopAnchor in Skin.lua), so it doesn't bleed above the
+    -- content or leave a gap below it. Bottom edge extends past the last
+    -- block (re-anchored dynamically below).
+    local topOfs = TopGapOffset()
+    _bgFrame:SetPoint("TOPLEFT", otf, "TOPLEFT", -6, topOfs)
     -- Bottom is re-anchored dynamically in ResizeBGToContent(); this is
-    -- only the fallback extent when no content has loaded yet.
-    _bgFrame:SetPoint("BOTTOMRIGHT", otf, "TOPRIGHT", 11, -60)
+    -- only the fallback extent when no content has loaded yet (30px tall).
+    _bgFrame:SetPoint("BOTTOMRIGHT", otf, "TOPRIGHT", 11, topOfs - 30)
     local tex = _bgFrame:CreateTexture(nil, "BACKGROUND")
     tex:SetAllPoints()
     _bgFrame._tex = tex
 
     -- 1px physical-pixel-perfect accent divider at the very top of the BG
-    -- (i.e. at the -30px cutoff line). Full width of the tracker, anchored
+    -- (i.e. at the topOfs cutoff line). Full width of the tracker, anchored
     -- directly to it so the line matches tracker width regardless of BG
     -- padding. Same snap pattern as PP.CreateBorder.
     local divider = _bgFrame:CreateTexture(nil, "OVERLAY")
-    divider:SetPoint("TOPLEFT",  otf, "TOPLEFT",  -6, -30)
-    divider:SetPoint("TOPRIGHT", otf, "TOPRIGHT",  11, -30)
+    divider:SetPoint("TOPLEFT",  otf, "TOPLEFT",  -6, topOfs)
+    divider:SetPoint("TOPRIGHT", otf, "TOPRIGHT",  11, topOfs)
     _bgFrame._divider = divider
     return _bgFrame
 end
@@ -357,20 +368,21 @@ local function ResizeBGToContent()
     end
     bg._hideCheck = nil
     if not bg:IsShown() then bg:Show() end
+    local topOfs = TopGapOffset()
     local otfTop = otf:GetTop()
     local lowestBottom = lowest:GetBottom()
     if otfTop and lowestBottom then
-        local h = otfTop - 30 - lowestBottom + 15
+        local h = otfTop + topOfs - lowestBottom + 15
         if h < 1 then h = 1 end
         bg:ClearAllPoints()
-        bg:SetPoint("TOPLEFT",  otf, "TOPLEFT",  -6, -30)
-        bg:SetPoint("TOPRIGHT", otf, "TOPRIGHT", 11, -30)
+        bg:SetPoint("TOPLEFT",  otf, "TOPLEFT",  -6, topOfs)
+        bg:SetPoint("TOPRIGHT", otf, "TOPRIGHT", 11, topOfs)
         bg:SetHeight(h)
         bg._lastHeight = h
     elseif bg._lastHeight then
         bg:ClearAllPoints()
-        bg:SetPoint("TOPLEFT",  otf, "TOPLEFT",  -6, -30)
-        bg:SetPoint("TOPRIGHT", otf, "TOPRIGHT", 11, -30)
+        bg:SetPoint("TOPLEFT",  otf, "TOPLEFT",  -6, topOfs)
+        bg:SetPoint("TOPRIGHT", otf, "TOPRIGHT", 11, topOfs)
         bg:SetHeight(bg._lastHeight)
     end
     bg._lastLowest = lowest

@@ -194,10 +194,12 @@ local defaults = {
     -- Mini Coloring M+ Only: on = restrict the Mini Enemies color to 5-man
     -- dungeons; off = apply it everywhere (default; see GetReactionColor).
     miniColoringMPlusOnly = false,
-    -- Open World Basic Coloring (inline cog on Enemy Types): off by default.
-    -- On: outside instances, the mob-type special colors (Mini Enemies,
+    -- Full Coloring M+ Only (inline cog on Enemy Types): off by default.
+    -- On: outside 5-man dungeons, the mob-type special colors (Mini Enemies,
     -- Spell Casters, Mini-Bosses, Bosses) collapse into the single flat
     -- owBasicColor; Neutral keeps its own color (see GetReactionColor).
+    -- Keys keep their original owBasic* names (formerly "Open World Basic
+    -- Coloring", which gated on any instance instead of dungeons).
     owBasicColoring = false,
     owBasicColor = { r = 0.800, g = 0.137, b = 0.137 },
     darkenEnemiesOOC = true,
@@ -3404,10 +3406,58 @@ function ns.RefreshAllSettings()
             plate:SetUnit(plate.unit, plate.nameplate)
         end
     end
+    if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
     if ns.ApplyClassPowerSetting then ns.ApplyClassPowerSetting() end
     -- 12.1 aura containers: fingerprint-guarded, near-free when no aura
     -- settings changed.
     if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
+end
+
+-------------------------------------------------------------------------------
+--  Non-Target Opacity: while the player has a target, every skinned plate
+--  that is not the target, the focus, or the player fades to the configured
+--  opacity (profile key nonTargetAlpha, 0-100). 100 = feature OFF: every
+--  hook below reduces to a single numeric compare, and no plate is ever
+--  touched. The alpha rides the plate ROOT (our own frame, parented to the
+--  Blizzard nameplate), so Blizzard's own occlusion fade still multiplies in.
+-------------------------------------------------------------------------------
+ns._ntAlpha = 1   -- cached 0..1 from the profile; 1 = inert
+
+-- Applies the correct root alpha to ONE plate. Value-guarded via
+-- _ntCurAlpha so redundant SetAlpha calls are skipped and pooled frames
+-- reset cheaply (nil = never faded).
+function ns.NT_Apply(plate)
+    local unit = plate.unit
+    if not unit then return end
+    local a = 1
+    local nt = ns._ntAlpha
+    if nt < 1 and UnitExists("target")
+       and not UnitIsUnit(unit, "target")
+       and not UnitIsUnit(unit, "focus")
+       and not UnitIsUnit(unit, "player") then
+        a = nt
+    end
+    if (plate._ntCurAlpha or 1) ~= a then
+        plate._ntCurAlpha = a
+        plate:SetAlpha(a)
+    end
+end
+
+function ns.NT_ApplyAll()
+    for _, plate in pairs(ns.plates) do
+        ns.NT_Apply(plate)
+    end
+end
+
+-- Re-derives the cached opacity from the profile and reapplies every plate
+-- (also un-fades everything when the slider returns to 100). Called from
+-- the options slider, OnInitialize, and RefreshAllSettings -- the latter
+-- covers profile swaps and Spec Overrides applies.
+function ns.NT_RefreshSetting()
+    local v = tonumber(p and p.nonTargetAlpha) or 100
+    if v < 0 then v = 0 elseif v > 100 then v = 100 end
+    ns._ntAlpha = v / 100
+    ns.NT_ApplyAll()
 end
 
 function ns.HideHoverEffect(plate)
@@ -4556,10 +4606,6 @@ local function RefreshThreatCache()
     -- instanceType "party"; excludes raids/delves/open world). Cached here so the
     -- per-plate color path costs one field read, not a GetInstanceInfo call.
     ns._inDungeon = (instanceType == "party")
-    -- Any-instance flag for Open World Basic Coloring (dungeons, raids, delves,
-    -- scenarios, arenas, battlegrounds all count as instanced; only true open
-    -- world is "none").
-    ns._inInstance = (instanceType ~= nil and instanceType ~= "none")
     if difficultyID == 0
     or (C_Garrison and C_Garrison.IsOnGarrisonMap and C_Garrison.IsOnGarrisonMap()) then
         _inThreatContent = false
@@ -4862,14 +4908,15 @@ local function GetReactionColor(unit)
     -- still returned at their own priority steps (7, 8, 10b) further down.
     local inCombat = UnitAffectingCombat(unit)
     local classification = UnitClassification(unit)
-    -- Open World Basic Coloring (inline cog on Enemy Types): outside instances,
-    -- collapse the mob-type special colors (Mini Enemies, Spell Casters,
-    -- Mini-Bosses, Bosses) into the single flat owBasicColor at the enemy
-    -- fallback (step 11). Neutral is unaffected: outside dungeons it already
-    -- returned at step 5. Off by default -- when off (or in any instance)
-    -- every step below behaves exactly as before.
+    -- Full Coloring M+ Only (inline cog on Enemy Types): outside 5-man
+    -- dungeons, collapse the mob-type special colors (Mini Enemies, Spell
+    -- Casters, Mini-Bosses, Bosses) into the single flat owBasicColor at the
+    -- enemy fallback (step 11). Neutral is unaffected: outside dungeons it
+    -- already returned at step 5. Off by default -- when off (or in a 5-man
+    -- dungeon) every step below behaves exactly as before. Same dungeon gate
+    -- as Mini Coloring M+ Only (ns._inDungeon).
     local owBasic = false
-    if not ns._inInstance then
+    if not ns._inDungeon then
         owBasic = defaults.owBasicColoring
         if db.owBasicColoring ~= nil then owBasic = db.owBasicColoring end
     end
@@ -5054,8 +5101,8 @@ local function GetReactionColor(unit)
     if isNeutral then
         return ResolveNeutralColor(unit)
     end
-    -- 11. Fallback: enemy in combat / out of combat. With Open World Basic
-    -- Coloring active, every mob-type special above was suppressed, so all
+    -- 11. Fallback: enemy in combat / out of combat. With Full Coloring M+
+    -- Only active, every mob-type special above was suppressed, so all
     -- hostile mobs land here and share the flat "All Enemies" color.
     local eic = _C(owBasic and "owBasicColor" or "enemyInCombat")
     return MaybeDarken(eic.r, eic.g, eic.b, inCombat)
@@ -5832,6 +5879,8 @@ function NameplateFrame:SetUnit(unit, nameplate)
     self:RegisterUnitEvent("UNIT_THREAT_LIST_UPDATE", unit)
     -- 12.1: attach a pooled aura-container bundle for this unit.
     if ns.NPC_AttachPlate then ns.NPC_AttachPlate(self, unit) end
+    -- Non-Target Opacity (zero cost while off: one numeric compare).
+    if ns._ntAlpha < 1 then ns.NT_Apply(self) end
     -- Critical: health bar must display immediately
     self:UpdateHealth()
     -- PERF: defer non-critical work 1 frame. Stacking bounds, name, cast bar,
@@ -5921,6 +5970,13 @@ function NameplateFrame:SetUnit(unit, nameplate)
 end
 function NameplateFrame:ClearUnit()
     self:UnregisterAllEvents()
+
+    -- Non-Target Opacity: released pool frames always go back at full
+    -- alpha (nil _ntCurAlpha = never faded, keeps this a no-op).
+    if self._ntCurAlpha and self._ntCurAlpha < 1 then
+        self:SetAlpha(1)
+    end
+    self._ntCurAlpha = nil
 
     if self.isCasting then
         self.isCasting = false
@@ -8094,10 +8150,7 @@ function NameplateFrame:ShowInterrupted(interrupterGUID)
     local fc = (p and p.interruptedFlashColor) or defaults.interruptedFlashColor
     self.cast:GetStatusBarTexture():SetVertexColor(fc.r, fc.g, fc.b)
 
-    -- Resolve the interrupter's name + class from the GUID, exactly as PR #398
-    -- does. Class-color is applied via an embedded hex code when the class
-    -- resolves; if it doesn't (e.g. a secret GUID), the `if interrupterClass`
-    -- check simply skips coloring and the name shows uncolored.
+    -- Resolve the interrupter's name + class from the GUID.
     local interrupterName
     local interrupterClass
     if interrupterGUID then
@@ -8121,11 +8174,11 @@ function NameplateFrame:ShowInterrupted(interrupterGUID)
     -- FontString; the cast-target / timer slots are cleared during the flash.
     local castW = self.cast:GetWidth()
     if castW and castW > 0 then
-        -- Interrupter name uses near-full bar width to fit "Interrupted (Name)";
-        -- the plain "Interrupted" flash falls back to the configured name width %.
         local cnWPct = (p and p.castNameWidthPct) or defaults.castNameWidthPct
         self.castName:SetWidth(interrupterName and math.max(castW - 8, 20) or castW * cnWPct / 100)
     end
+
+    local interruptedText = (EllesmereUI and EllesmereUI.L and EllesmereUI.L("Interrupted")) or "Interrupted"
     if interrupterName then
         local sourceText = interrupterName
         if useClassColor and interrupterClass and C_ClassColor then
@@ -8138,10 +8191,11 @@ function NameplateFrame:ShowInterrupted(interrupterGUID)
                 if hex then sourceText = "|c" .. hex .. interrupterName .. "|r" end
             end
         end
-        self.castName:SetText("Interrupted (" .. sourceText .. ")")
+        self.castName:SetText(interruptedText .. " (" .. sourceText .. ")")
     else
-        self.castName:SetText("Interrupted")
+        self.castName:SetText(interruptedText)
     end
+
     self.castTarget:SetText("")
     self.castTarget:Hide()
     self.castTimer:Hide()
@@ -8841,6 +8895,10 @@ manager:SetScript("OnEvent", function(self, event, unit)
             ns._cachedTargetPlate:ApplyTarget()
             ns._cachedTargetPlate:UpdateHealthColor()
         end
+        -- Non-Target Opacity: gaining/losing a target flips every plate's
+        -- fade state, so this is the one full-iteration site. Zero cost
+        -- while off (single compare); value-guarded SetAlpha when on.
+        if ns._ntAlpha < 1 then ns.NT_ApplyAll() end
     elseif event == "PLAYER_FOCUS_CHANGED" then
         -- PERF: only update old + new focus plates instead of iterating all
         local oldFocus = ns._cachedFocusPlate
@@ -8870,6 +8928,14 @@ manager:SetScript("OnEvent", function(self, event, unit)
         UpdateFocusPlate(oldFocus)
         if ns._cachedFocusPlate and ns._cachedFocusPlate ~= oldFocus then
             UpdateFocusPlate(ns._cachedFocusPlate)
+        end
+        -- Non-Target Opacity: only the old and new focus plates change
+        -- fade state on a focus swap.
+        if ns._ntAlpha < 1 then
+            if oldFocus then ns.NT_Apply(oldFocus) end
+            if ns._cachedFocusPlate and ns._cachedFocusPlate ~= oldFocus then
+                ns.NT_Apply(ns._cachedFocusPlate)
+            end
         end
     elseif event == "UPDATE_MOUSEOVER_UNIT" then
         ns._UpdateMouseover()
@@ -9031,6 +9097,10 @@ function npAddon:OnInitialize()
     ENP.db = EllesmereUI.Lite.NewDB("EllesmereUINameplatesDB", { profile = defaults })
     p = ENP.db.profile
     ns.db = ENP.db
+    -- Non-Target Opacity: derive the cached value at login (no plates exist
+    -- yet, so the apply loop is a no-op; SetUnit fades new plates as they
+    -- spawn).
+    if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
     -- Append SharedMedia textures to runtime tables so SM texture keys resolve at runtime
     if EllesmereUI.AppendSharedMediaTextures then
         EllesmereUI.AppendSharedMediaTextures(

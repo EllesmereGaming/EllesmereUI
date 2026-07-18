@@ -1010,7 +1010,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 4: Icon Spacing (+ directions cog) | Attach Important Buffs to Cursor
         local row3
         row3, h = W:DualRow(parent, y,
-            { type="slider", text="Icon Spacing", min=0, max=50, step=1,
+            { type="slider", pixel=true, text="Icon Spacing", min=0, max=50, step=1,
               getValue=function() local d = DDB(); return d and d.iconSpacing or 8 end,
               setValue=function(v)
                   local d = DDB(); if not d then return end; d.iconSpacing = v
