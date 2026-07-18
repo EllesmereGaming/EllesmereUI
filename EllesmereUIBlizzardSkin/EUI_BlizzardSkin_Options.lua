@@ -13,9 +13,76 @@ initFrame:SetScript("OnEvent", function(self)
     if not EllesmereUI or not EllesmereUI.RegisterModule then return end
 
     local function BuildTooltipsPage(pageName, parent, yOffset)
+        if not EllesmereUIDB then EllesmereUIDB = {} end
         local W = EllesmereUI.Widgets
         local y = yOffset
         local _, h
+        local BORDER_VALUES = { none="None", thin="Thin", normal="Normal", heavy="Heavy", strong="Strong" }
+        local BORDER_ORDER = { "none", "thin", "normal", "heavy", "strong" }
+
+        local function AttachBorderControls(row, prefix, disabledFn)
+            local PP = EllesmereUI.PanelPP
+            local left = row._leftRegion
+            local _, showOffset = EllesmereUI.BuildCogPopup({
+                title="Border Offset",
+                rows={
+                    { type="slider", label="Offset X", min=-10, max=10, step=1,
+                      get=function()
+                          local value = EllesmereUIDB and EllesmereUIDB[prefix .. "BorderOffsetX"]
+                          if value ~= nil then return value end
+                          return EllesmereUI.GetBorderTextureDefaultOffset((EllesmereUIDB and EllesmereUIDB[prefix .. "BorderTexture"]) or "solid")
+                      end,
+                      set=function(v) EllesmereUIDB[prefix .. "BorderOffsetX"] = v end },
+                    { type="slider", label="Offset Y", min=-10, max=10, step=1,
+                      get=function()
+                          local value = EllesmereUIDB and EllesmereUIDB[prefix .. "BorderOffsetY"]
+                          if value ~= nil then return value end
+                          return EllesmereUI.GetBorderTextureDefaultOffsetY((EllesmereUIDB and EllesmereUIDB[prefix .. "BorderTexture"]) or "solid")
+                      end,
+                      set=function(v) EllesmereUIDB[prefix .. "BorderOffsetY"] = v end },
+                    { type="slider", label="Shift X", min=-10, max=10, step=1,
+                      get=function() return (EllesmereUIDB and EllesmereUIDB[prefix .. "BorderShiftX"]) or 0 end,
+                      set=function(v) EllesmereUIDB[prefix .. "BorderShiftX"] = v == 0 and nil or v end },
+                    { type="slider", label="Shift Y", min=-10, max=10, step=1,
+                      get=function() return (EllesmereUIDB and EllesmereUIDB[prefix .. "BorderShiftY"]) or 0 end,
+                      set=function(v) EllesmereUIDB[prefix .. "BorderShiftY"] = v == 0 and nil or v end },
+                },
+            })
+            local offsetBtn = CreateFrame("Button", nil, left)
+            offsetBtn:SetSize(26, 26)
+            offsetBtn:SetPoint("RIGHT", left._control, "LEFT", -8, 0)
+            offsetBtn:SetFrameLevel(left:GetFrameLevel() + 5)
+            offsetBtn:SetAlpha(0.4)
+            local icon = offsetBtn:CreateTexture(nil, "OVERLAY")
+            icon:SetAllPoints(); icon:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+            offsetBtn:SetScript("OnClick", function(self) showOffset(self) end)
+            offsetBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            offsetBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            left._lastInline = offsetBtn
+
+            local right = row._rightRegion
+            local swatch, refresh = EllesmereUI.BuildColorSwatch(right, right:GetFrameLevel() + 5,
+                function()
+                    local color = EllesmereUIDB and EllesmereUIDB[prefix .. "BorderColor"]
+                    local alpha = (EllesmereUIDB and EllesmereUIDB[prefix .. "BorderOpacity"])
+                    if alpha == nil then alpha = EllesmereUI.RESKIN.BRD_ALPHA end
+                    return (color and color.r) or 1, (color and color.g) or 1, (color and color.b) or 1, alpha
+                end,
+                function(r, g, b, a)
+                    EllesmereUIDB[prefix .. "BorderColor"] = { r=r, g=g, b=b }
+                    EllesmereUIDB[prefix .. "BorderOpacity"] = a
+                end, true, 20)
+            PP.Point(swatch, "RIGHT", right._control, "LEFT", -12, 0)
+            right._lastInline = swatch
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = disabledFn and disabledFn()
+                offsetBtn:SetAlpha(off and 0.15 or 0.4)
+                offsetBtn:EnableMouse(not off)
+                swatch:SetAlpha(off and 0.15 or 1)
+                swatch:EnableMouse(not off)
+                refresh()
+            end)
+        end
 
         if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
         parent._showRowDivider = true
@@ -55,6 +122,28 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUIDB.accentReskinElements = v
               end }
         );  y = y - h
+
+        local function popupReskinOff()
+            return EllesmereUIDB and EllesmereUIDB.reskinPopupsMenus == false
+        end
+        do
+            local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
+            local popupBorderRow
+            popupBorderRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Border Style", disabled=popupReskinOff,
+                  disabledTooltip="Reskin Popups and Menus", values=texValues, order=texOrder,
+                  getValue=function() return (EllesmereUIDB and EllesmereUIDB.popupMenuBorderTexture) or "solid" end,
+                  setValue=function(v)
+                      EllesmereUIDB.popupMenuBorderTexture = v
+                      EllesmereUIDB.popupMenuBorderOffsetX = nil; EllesmereUIDB.popupMenuBorderOffsetY = nil
+                      EllesmereUIDB.popupMenuBorderShiftX = nil; EllesmereUIDB.popupMenuBorderShiftY = nil
+                  end },
+                { type="dropdown", text="Border Size", disabled=popupReskinOff,
+                  disabledTooltip="Reskin Popups and Menus", values=BORDER_VALUES, order=BORDER_ORDER,
+                  getValue=function() return (EllesmereUIDB and EllesmereUIDB.popupMenuBorderThickness) or "thin" end,
+                  setValue=function(v) EllesmereUIDB.popupMenuBorderThickness = v end }); y = y - h
+            AttachBorderControls(popupBorderRow, "popupMenu", popupReskinOff)
+        end
 
         local queueRow
         queueRow, h = W:DualRow(parent, y,
@@ -517,24 +606,34 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateShowModState()
         end
 
-        -- Border: size slider with an inline colour + opacity swatch. Part of the
-        -- tooltip reskin, so it grays with "Reskin Tooltip". Defaults to the
-        -- historical hardcoded look (white @ 18% alpha, 1px) -- unset = unchanged.
+        -- Configurable tooltip border style, thickness, offsets and colour.
+        do
+            local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
+            local tooltipBorderRow
+            tooltipBorderRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Border Style", disabled=ttReskinOff,
+                  disabledTooltip="Reskin Tooltip", values=texValues, order=texOrder,
+                  getValue=function() return (EllesmereUIDB and EllesmereUIDB.tooltipBorderTexture) or "solid" end,
+                  setValue=function(v)
+                      EllesmereUIDB.tooltipBorderTexture = v
+                      EllesmereUIDB.tooltipBorderOffsetX = nil; EllesmereUIDB.tooltipBorderOffsetY = nil
+                      EllesmereUIDB.tooltipBorderShiftX = nil; EllesmereUIDB.tooltipBorderShiftY = nil
+                  end },
+                { type="dropdown", text="Border Size", disabled=ttReskinOff,
+                  disabledTooltip="Reskin Tooltip", values=BORDER_VALUES, order=BORDER_ORDER,
+                  getValue=function()
+                      if EllesmereUIDB and EllesmereUIDB.tooltipBorderThickness then
+                          return EllesmereUIDB.tooltipBorderThickness
+                      end
+                      local legacy = EllesmereUIDB and EllesmereUIDB.tooltipBorderSize
+                      return ({ [0]="none", [1]="thin", [2]="normal", [3]="heavy", [4]="strong" })[legacy or 1] or "thin"
+                  end,
+                  setValue=function(v) EllesmereUIDB.tooltipBorderThickness = v end }); y = y - h
+            AttachBorderControls(tooltipBorderRow, "tooltip", ttReskinOff)
+        end
+
         local borderRow
         borderRow, h = W:DualRow(parent, y,
-            { type="slider", text="Border", min=0, max=4, step=1,
-              disabled=ttReskinOff, disabledTooltip="Reskin Tooltip",
-              getValue=function()
-                  local s = EllesmereUIDB and EllesmereUIDB.tooltipBorderSize
-                  if s == nil then return 1 end
-                  return s
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.tooltipBorderSize = v
-              end },
-            -- Independent of the reskin, so it is NOT gated by "Reskin
-            -- Tooltip" -- like Show Spell ID.
             { type="toggle", text="Show Max Stack for Items",
               tooltip="Appends an item's max stack count on tooltip.",
               getValue=function()
@@ -544,44 +643,15 @@ initFrame:SetScript("OnEvent", function(self)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.showItemMaxStacks = v
                   EllesmereUI:RefreshPage()  -- update the Use Modifier cog disabled state
-              end }
+              end },
+            { type="label", text="" }
         );  y = y - h
-        -- Inline colour + opacity swatch on the Border slider (left region).
-        do
-            local PP = EllesmereUI.PanelPP
-            local rgn = borderRow._leftRegion
-            local swGet = function()
-                local c = EllesmereUIDB and EllesmereUIDB.tooltipBorderColor
-                local r = (c and c.r) or 1
-                local g = (c and c.g) or 1
-                local b = (c and c.b) or 1
-                local a = (EllesmereUIDB and EllesmereUIDB.tooltipBorderOpacity) or EllesmereUI.RESKIN.BRD_ALPHA
-                return r, g, b, a
-            end
-            local swSet = function(r, g, b, a)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.tooltipBorderColor = { r = r, g = g, b = b }
-                if a ~= nil then EllesmereUIDB.tooltipBorderOpacity = a end
-            end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, true, 20)
-            PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            rgn._lastInline = swatch
-            EllesmereUI.RegisterWidgetRefresh(function()
-                local off = ttReskinOff()
-                swatch:SetAlpha(off and 0.15 or 1)
-                swatch:EnableMouse(not off)
-                updateSwatch()
-            end)
-            local off = ttReskinOff()
-            swatch:SetAlpha(off and 0.15 or 1)
-            swatch:EnableMouse(not off)
-        end
 
         -- "Use Modifier" cog on Show Max Stack for Items (right region): the Max
         -- Stack line only shows while the chosen modifier is held. Disabled
         -- (blocked + dimmed) when the toggle is off, mirroring the Spell ID cog.
         do
-            local rightRgn = borderRow._rightRegion
+            local rightRgn = borderRow._leftRegion
             local function iStacksOff()
                 return not (EllesmereUIDB and EllesmereUIDB.showItemMaxStacks)
             end

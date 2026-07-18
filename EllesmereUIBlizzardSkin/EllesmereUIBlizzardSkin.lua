@@ -119,6 +119,36 @@ end
         return not EllesmereUIDB or EllesmereUIDB.reskinPopupsMenus ~= false
     end
 
+    local function _applyConfiguredBorder(owner, prefix, legacySize)
+        if not owner or not EllesmereUI or not EllesmereUI.ApplyBorderStyle then return end
+        local db = EllesmereUIDB or {}
+        local key = db[prefix .. "BorderThickness"]
+        local sizeMap = { none=0, thin=1, normal=2, heavy=3, strong=4 }
+        local size
+        if key then
+            size = sizeMap[key] or 1
+        else
+            size = legacySize ~= nil and legacySize or 1
+            key = ({ [0]="none", [1]="thin", [2]="normal", [3]="heavy", [4]="strong" })[size] or "thin"
+        end
+        local color = db[prefix .. "BorderColor"] or { r=1, g=1, b=1 }
+        local alpha = db[prefix .. "BorderOpacity"]
+        if alpha == nil then alpha = EllesmereUI.RESKIN.BRD_ALPHA end
+        local data = GetFFD(owner)
+        if not data.configBorder then
+            data.configBorder = CreateFrame("Frame", nil, owner, "BackdropTemplate")
+            data.configBorder:SetAllPoints(owner)
+            data.configBorder:SetFrameLevel(owner:GetFrameLevel() + 5)
+            data.configBorder:EnableMouse(false)
+            if _PP and _PP.HideBorder then _PP.HideBorder(owner) end
+        end
+        EllesmereUI.ApplyBorderStyle(data.configBorder, size,
+            color.r or 1, color.g or 1, color.b or 1, alpha,
+            db[prefix .. "BorderTexture"] or "solid",
+            db[prefix .. "BorderOffsetX"], db[prefix .. "BorderOffsetY"],
+            db[prefix .. "BorderShiftX"], db[prefix .. "BorderShiftY"])
+    end
+
     local function _ttSkin(tt, _, isEmbedded)
         if not tt or tt:IsForbidden() or not _enabled() then return end
         -- Embedded tooltips (e.g. EmbeddedItemTooltip, the reward-item block
@@ -132,10 +162,6 @@ end
         if not GetFFD(tt).bg then
             GetFFD(tt).bg = tt:CreateTexture(nil, "BACKGROUND", nil, -8)
             GetFFD(tt).bg:SetAllPoints()
-            if _PP and _PP.CreateBorder then
-                local bR, bG, bB, bA, bSize = EllesmereUI.GetTooltipBorder()
-                _PP.CreateBorder(tt, bR, bG, bB, bA, bSize, "OVERLAY", 7)
-            end
         end
         -- Unified, user-customizable background (shared with the EUI custom
         -- tooltips via EllesmereUI.GetTooltipBg). Re-applied each skin call so a
@@ -145,16 +171,8 @@ end
         -- Border size + colour are user-customizable (Blizz UI Enhanced >
         -- Blizzard Tooltip > Border). Re-applied each call like the bg so a
         -- change shows on the next tooltip; size 0 hides the border.
-        if _PP and _PP.GetBorders and _PP.GetBorders(tt) then
-            local bR, bG, bB, bA, bSize = EllesmereUI.GetTooltipBorder()
-            if bSize and bSize > 0 then
-                _PP.SetBorderSize(tt, bSize)
-                _PP.SetBorderColor(tt, bR, bG, bB, bA)
-                _PP.ShowBorder(tt)
-            else
-                _PP.HideBorder(tt)
-            end
-        end
+        local _, _, _, _, legacySize = EllesmereUI.GetTooltipBorder()
+        _applyConfiguredBorder(tt, "tooltip", legacySize)
     end
 
     local function _ttFonts(tt, startFrom)
@@ -640,13 +658,8 @@ end
                 region:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
             end
         end
-        if not _menuSkinned[frame] then
-            _menuSkinned[frame] = true
-            if _PP and _PP.CreateBorder then
-                local RS = EllesmereUI.RESKIN
-                _PP.CreateBorder(frame, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
-            end
-        end
+        if not _menuSkinned[frame] then _menuSkinned[frame] = true end
+        _applyConfiguredBorder(frame, "popupMenu", 1)
     end
 
     local function _menuOnOpen(manager, _, menuDescription)
@@ -705,12 +718,10 @@ end
             GetFFD(popup).bg:SetAllPoints()
             GetFFD(popup).bg:SetColorTexture(RS.BG_R, RS.BG_G, RS.BG_B, RS.QT_ALPHA)
             GetFFD(GetFFD(popup).bg).owned = true
-            if not _PP then _PP = EllesmereUI and EllesmereUI.PP end
-            if _PP and _PP.CreateBorder then
-                _PP.CreateBorder(popup, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
-            end
         end
         GetFFD(popup).bg:Show()
+        if not _PP then _PP = EllesmereUI and EllesmereUI.PP end
+        _applyConfiguredBorder(popup, "popupMenu", 1)
         -- Skin buttons (1-4 plus the optional extra action button)
         local popupBtns = {}
         for i = 1, 4 do
