@@ -11401,9 +11401,6 @@ initFrame:SetScript("OnEvent", function(self, event)
             if not showUnlock then unlockBtn:Hide() end
             if not showEUI and not showUnlock then return end
 
-            local eg = ELLESMERE_GREEN
-            local hex = string.format("|cff%02x%02x%02x", (eg.r or 0.05) * 255, (eg.g or 0.82) * 255, (eg.b or 0.62) * 255)
-
             -- Find the Shop button to anchor below (fall back to Options)
             local anchorBtn
             for menuBtn in GameMenuFrame.buttonPool:EnumerateActive() do
@@ -11432,10 +11429,16 @@ initFrame:SetScript("OnEvent", function(self, event)
 
             if showEUI then
                 btn:Show()
-                btn:SetText(hex .. "Ellesmere|r|cffffffff" .. "UI|r")
+                btn:SetText("EllesmereUI")
                 if _reskinMenu then
                     local fs = btn:GetFontString()
-                    if fs then fs:SetFont(euiFont, btnFontSize, "") end
+                    if fs then
+                        fs:SetFont(euiFont, btnFontSize, "")
+                        if EllesmereUI._getPopupMenuButtonTextColor then
+                            local r, g, b = EllesmereUI._getPopupMenuButtonTextColor()
+                            fs:SetTextColor(r, g, b, 1)
+                        end
+                    end
                 end
                 btn:ClearAllPoints()
                 btn:SetPoint("TOP", lastBtn, "BOTTOM", 0, -12)
@@ -11444,10 +11447,16 @@ initFrame:SetScript("OnEvent", function(self, event)
             end
             if showUnlock then
                 unlockBtn:Show()
-                unlockBtn:SetText(hex .. "EUI|r |cffffffffUnlock Mode|r")
+                unlockBtn:SetText("EUI Unlock Mode")
                 if _reskinMenu then
                     local fs2 = unlockBtn:GetFontString()
-                    if fs2 then fs2:SetFont(euiFont, btnFontSize, "") end
+                    if fs2 then
+                        fs2:SetFont(euiFont, btnFontSize, "")
+                        if EllesmereUI._getPopupMenuButtonTextColor then
+                            local r, g, b = EllesmereUI._getPopupMenuButtonTextColor()
+                            fs2:SetTextColor(r, g, b, 1)
+                        end
+                    end
                 end
                 unlockBtn:ClearAllPoints()
                 unlockBtn:SetPoint("TOP", lastBtn, "BOTTOM", 0, showEUI and -4 or -12)

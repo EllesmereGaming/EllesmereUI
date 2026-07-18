@@ -248,6 +248,20 @@ initFrame:SetScript("OnEvent", function(self)
                     refreshAlpha=function()
                         return EllesmereUIDB and EllesmereUIDB.popupMenuButtonTextColorMode == "custom" and 1 or 0.3
                     end },
+                  { tooltip="Class Color", hasAlpha=false,
+                    getValue=function()
+                        local _, class = UnitClass("player")
+                        local c = class and RAID_CLASS_COLORS[class]
+                        return (c and c.r) or 1, (c and c.g) or 1, (c and c.b) or 1
+                    end,
+                    setValue=function() end,
+                    onClick=function()
+                        EllesmereUIDB.popupMenuButtonTextColorMode = "class"
+                        EllesmereUI:RefreshPage()
+                    end,
+                    refreshAlpha=function()
+                        return EllesmereUIDB and EllesmereUIDB.popupMenuButtonTextColorMode == "class" and 1 or 0.3
+                    end },
               } }
         ); y = y - h
 

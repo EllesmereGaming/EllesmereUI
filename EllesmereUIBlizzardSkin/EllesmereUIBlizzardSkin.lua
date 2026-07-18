@@ -175,6 +175,11 @@ end
             local color = db.popupMenuButtonTextColor or { r=1, g=1, b=1 }
             return color.r or 1, color.g or 1, color.b or 1
         end
+        if mode == "class" then
+            local _, class = UnitClass("player")
+            local color = class and _RAID_CC[class]
+            if color then return color.r, color.g, color.b end
+        end
         local accent = EllesmereUI.ELLESMERE_GREEN or { r=0.27, g=0.86, b=0.49 }
         return accent.r, accent.g, accent.b
     end
