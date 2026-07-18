@@ -2881,7 +2881,8 @@ local function GetOrCreateTrinketFrame(slotID)
     f._trinketSlot = slotID
     f.cooldownID = nil
     f.cooldownInfo = nil
-    f.layoutIndex = slotID == 13 and 99990 or 99991
+    f.layoutIndex = (slotID == 13 and 99990) or (slotID == 14 and 99991)
+        or (99900 + slotID)
     f.auraInstanceID = nil
     f.cooldownDuration = 0
 
@@ -2944,6 +2945,40 @@ local function UpdateTrinketFrame(slotID)
     if icon and f._tex then f._tex:SetTexture(icon) end
     local _, spellID = C_Item.GetItemSpell(itemID)
     f._trinketSpellID = spellID
+    if slotID ~= 13 and slotID ~= 14 then
+        -- User-added equipment slot: the use effect usually comes from an
+        -- ENCHANT (engineering tinkers like Nitro Boosts), which exists only
+        -- on the equipped INSTANCE -- the base item has no use spell, so the
+        -- trinket path's GetItemSpell/GetItemByID scan can never see it.
+        -- Scan the instance tooltip for a localized "Use:" line instead.
+        local hasUse = nil
+        local tip = C_TooltipInfo and C_TooltipInfo.GetInventoryItem
+            and C_TooltipInfo.GetInventoryItem("player", slotID)
+        if tip and tip.lines then
+            hasUse = false
+            local prefix = ITEM_SPELL_TRIGGER_ONUSE
+            for _, tipLine in ipairs(tip.lines) do
+                local lt = tipLine.leftText
+                if lt and prefix and lt:sub(1, #prefix) == prefix then
+                    hasUse = true
+                    break
+                end
+            end
+        end
+        if spellID and spellID > 0 then
+            -- Base item carries its own use spell (on-use gear).
+            f._trinketIsOnUse = true
+            f._slotScanPending = nil
+        elseif hasUse == nil then
+            -- Tooltip data not cached yet: keep the previous state and let
+            -- the login/equip retry timers re-run the scan.
+            f._slotScanPending = true
+        else
+            f._trinketIsOnUse = hasUse
+            f._slotScanPending = nil
+        end
+        return
+    end
     local isRealOnUse = false
     local scanConclusive = false
     if spellID and spellID > 0 then
@@ -3006,13 +3041,20 @@ local _trinketEventFrame = CreateFrame("Frame")
 _trinketEventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 _trinketEventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
 _trinketEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+-- True when a slot frame's on-use detection needs another pass: trinkets whose
+-- item has a spell the tooltip scan couldn't confirm yet, and user-added slots
+-- whose instance tooltip wasn't cached (enchant/tinker lines).
+local function SlotScanIncomplete(f)
+    return (f._trinketSpellID and not f._trinketIsOnUse) or f._slotScanPending
+end
+
 _trinketEventFrame:SetScript("OnEvent", function(_, event, arg1)
     if event == "PLAYER_EQUIPMENT_CHANGED" then
-        if arg1 == 13 or arg1 == 14 then
+        if arg1 == 13 or arg1 == 14 or _trinketFrames[arg1] then
             UpdateTrinketFrame(arg1)
             if ns.QueueReanchor then ns.QueueReanchor() end
             local f = _trinketFrames[arg1]
-            if f and f._trinketSpellID and not f._trinketIsOnUse then
+            if f and SlotScanIncomplete(f) then
                 local slot = arg1
                 C_Timer.After(1, function()
                     UpdateTrinketFrame(slot)
@@ -3023,26 +3065,27 @@ _trinketEventFrame:SetScript("OnEvent", function(_, event, arg1)
     elseif event == "PLAYER_ENTERING_WORLD" then
         UpdateTrinketFrame(13)
         UpdateTrinketFrame(14)
+        for slot in pairs(_trinketFrames) do
+            if slot ~= 13 and slot ~= 14 then UpdateTrinketFrame(slot) end
+        end
         -- Tooltip data may not be cached yet on login, causing on-use
-        -- detection to fail. Retry only for trinkets that have a spell
-        -- but weren't detected as on-use (tooltip wasn't ready).
+        -- detection to fail. Retry only for slots whose scan is incomplete
+        -- (tooltip wasn't ready).
         local needsRetry = false
-        for _, slot in ipairs({13, 14}) do
-            local f = _trinketFrames[slot]
-            if f and f._trinketSpellID and not f._trinketIsOnUse then
-                needsRetry = true
-            end
+        for _, f in pairs(_trinketFrames) do
+            if SlotScanIncomplete(f) then needsRetry = true end
         end
         if needsRetry then
             C_Timer.After(2, function()
-                UpdateTrinketFrame(13)
-                UpdateTrinketFrame(14)
+                for slot in pairs(_trinketFrames) do
+                    UpdateTrinketFrame(slot)
+                end
                 if ns.QueueReanchor then ns.QueueReanchor() end
             end)
         end
     elseif event == "SPELL_UPDATE_COOLDOWN" then
-        for _, slot in ipairs({13, 14}) do
-            if _trinketFrames[slot] and _trinketFrames[slot]._trinketIsOnUse then
+        for slot, f in pairs(_trinketFrames) do
+            if f._trinketIsOnUse then
                 UpdateTrinketCooldown(slot)
             end
         end
@@ -4748,13 +4791,16 @@ local function CollectAndReanchor()
                             -- path (route map -> cdFrames), never as an injected
                             -- custom frame. Must be tested before the item-preset
                             -- branch (markers are also <= -100).
-                        elseif sid and (sid == -13 or sid == -14) then
-                            -- Trinket
-                            local slot = -sid
+                        elseif sid and ns.SlotIDFromKey(sid) then
+                            -- Equipment slot (trinkets -13/-14, user-added slots)
+                            local slot = ns.SlotIDFromKey(sid)
                             local tf = _trinketFrames[slot]
                             if not tf then tf = GetOrCreateTrinketFrame(slot) end
                             UpdateTrinketFrame(slot)
-                            local showPassive = barData and barData.showPassiveTrinkets
+                            -- Show Passive Trinkets covers the trinket slots only;
+                            -- user-added slots auto-hide without a use effect.
+                            local showPassive = (slot == 13 or slot == 14)
+                                and barData and barData.showPassiveTrinkets
                             if _trinketItemCache[slot] and (tf._trinketIsOnUse or showPassive) then
                                 UpdateTrinketCooldown(slot)
                                 frames[#frames + 1] = tf

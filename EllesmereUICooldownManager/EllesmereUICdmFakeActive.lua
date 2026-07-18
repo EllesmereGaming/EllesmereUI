@@ -457,8 +457,9 @@ ResolveCastSpells = function(key)
         end
     else
         local itemID
-        if key == -13 or key == -14 then
-            itemID = GetInventoryItemID and GetInventoryItemID("player", -key)
+        local slot = ns.SlotIDFromKey and ns.SlotIDFromKey(key)
+        if slot then
+            itemID = GetInventoryItemID and GetInventoryItemID("player", slot)
         else
             itemID = -key
         end
@@ -526,8 +527,9 @@ PresetOnCD = function(key)
     end
 
     local start, dur, enable
-    if key == -13 or key == -14 then
-        if GetInventoryItemCooldown then start, dur, enable = GetInventoryItemCooldown("player", -key) end
+    local invSlot = ns.SlotIDFromKey and ns.SlotIDFromKey(key)
+    if invSlot then
+        if GetInventoryItemCooldown then start, dur, enable = GetInventoryItemCooldown("player", invSlot) end
     else
         local itemID = -key
         start, dur = ReadItemCD(itemID)

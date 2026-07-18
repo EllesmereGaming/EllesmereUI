@@ -743,6 +743,33 @@ end
 -------------------------------------------------------------------------------
 ns.HOSTED_BUFF_MARKER_BASE = 2000000000
 
+-------------------------------------------------------------------------------
+--  Equipment-slot entries. A bar entry can store a negated INVENTORY SLOT id
+--  (-1..-19) to track whatever item is equipped in that slot -- the trinket
+--  slots (-13/-14) have always worked this way; user-added slots (belt -6,
+--  cloak -15, ...) reuse the same frame/update machinery. The range is safe:
+--  item presets are <= -100 and the custom-item popup rejects IDs below 100,
+--  so nothing else can occupy -1..-19.
+--
+--  Localized display names, keyed by slot id. Slot 18 (obsolete ranged) is
+--  deliberately absent -- SlotIDFromKey treats absence as "not a slot".
+-------------------------------------------------------------------------------
+ns.INV_SLOT_NAMES = {
+    [1] = HEADSLOT,   [2] = NECKSLOT,      [3] = SHOULDERSLOT, [4] = SHIRTSLOT,
+    [5] = CHESTSLOT,  [6] = WAISTSLOT,     [7] = LEGSSLOT,     [8] = FEETSLOT,
+    [9] = WRISTSLOT,  [10] = HANDSSLOT,    [11] = FINGER0SLOT, [12] = FINGER1SLOT,
+    [13] = TRINKET0SLOT, [14] = TRINKET1SLOT, [15] = BACKSLOT,
+    [16] = MAINHANDSLOT, [17] = SECONDARYHANDSLOT, [19] = TABARDSLOT,
+}
+
+-- Decode an equipment-slot entry to its inventory slot id; nil for anything else.
+function ns.SlotIDFromKey(key)
+    if type(key) == "number" and key < 0 and ns.INV_SLOT_NAMES[-key] then
+        return -key
+    end
+    return nil
+end
+
 function ns.HostedBuffMarker(spellID)
     return -(ns.HOSTED_BUFF_MARKER_BASE + spellID)
 end
@@ -1066,35 +1093,38 @@ function ns.GetCustomActiveState(spellID, create)
     return e
 end
 
--- Map an icon's identity token to its SETTINGS key. Trinket SLOTS (-13/-14) key
--- their per-spell settings by the EQUIPPED item (-itemID) so each trinket tracks
--- separately -- bar allocation is untouched (still slot-based). Everything else
--- (item presets, racials, custom spells) keys by its own token.
+-- Map an icon's identity token to its SETTINGS key. Equipment SLOTS (trinkets
+-- -13/-14 and user-added slots) key their per-spell settings by the EQUIPPED
+-- item (-itemID) so each item tracks separately -- bar allocation is untouched
+-- (still slot-based). Everything else (item presets, racials, custom spells)
+-- keys by its own token.
 function ns.ResolveCustomActiveKey(frameKey)
-    if frameKey == -13 or frameKey == -14 then
-        local itemID = GetInventoryItemID("player", -frameKey)
+    local slot = ns.SlotIDFromKey(frameKey)
+    if slot then
+        local itemID = GetInventoryItemID("player", slot)
         if itemID then return -itemID end
     end
     return frameKey
 end
 
 -- EFFECTIVE Custom Active State for an icon identity token -- READ paths only.
--- Non-trinket tokens resolve their own entry directly. Trinket SLOTS (-13/-14)
--- resolve the EQUIPPED item's own entry (per-trinket settings, the key the
--- per-spell menu writes via ResolveCustomActiveKey) chained per-key over the
--- SLOT entry -- the "Apply to Bar" stamp, slot-keyed so ONE bar application
--- covers whatever trinket is equipped, without minting an entry per item.
--- The chain is re-asserted lazily on every resolve (metatables never
--- serialize), mirroring ResolveSpellSettings. An explicit false own value is
--- render-equivalent to nil but BLOCKS the slot value showing through (the
--- per-trinket "None" exclusion); nil-off consumers are all falsy-safe, and
+-- Non-slot tokens resolve their own entry directly. Equipment SLOTS (trinkets
+-- -13/-14 and user-added slots) resolve the EQUIPPED item's own entry (per-item
+-- settings, the key the per-spell menu writes via ResolveCustomActiveKey)
+-- chained per-key over the SLOT entry -- the "Apply to Bar" stamp, slot-keyed
+-- so ONE bar application covers whatever item is equipped, without minting an
+-- entry per item. The chain is re-asserted lazily on every resolve (metatables
+-- never serialize), mirroring ResolveSpellSettings. An explicit false own value
+-- is render-equivalent to nil but BLOCKS the slot value showing through (the
+-- per-item "None" exclusion); nil-off consumers are all falsy-safe, and
 -- cdStateEffect consumers normalize false to nil explicitly.
 function ns.GetEffectiveCustomActiveState(frameKey)
     local store = ns.GetCustomActiveStates()
     if not store then return nil end
-    if frameKey == -13 or frameKey == -14 then
+    local slot = ns.SlotIDFromKey(frameKey)
+    if slot then
         local slotE = store[frameKey]
-        local itemID = GetInventoryItemID("player", -frameKey)
+        local itemID = GetInventoryItemID("player", slot)
         local itemE = itemID and store[-itemID] or nil
         if itemE then
             ns.ChainSettings(itemE, slotE)

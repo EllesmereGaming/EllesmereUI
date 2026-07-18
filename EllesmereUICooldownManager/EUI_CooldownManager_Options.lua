@@ -7171,7 +7171,9 @@ initFrame:SetScript("OnEvent", function(self)
         local function DoAdd()
             local text = popup._editBox:GetText()
             local itemID = tonumber(text)
-            if not itemID or itemID <= 0 then
+            -- IDs below 100 are reserved: the -1..-19 range encodes equipment
+            -- slots (never renderable as items before this cutoff existed).
+            if not itemID or itemID < 100 then
                 SetStatus("Enter a valid item ID")
                 return
             end
@@ -7201,6 +7203,174 @@ initFrame:SetScript("OnEvent", function(self)
         popup._editBox:SetScript("OnEnterPressed", DoAdd)
         popup._editBox:SetText("")
         popup._status:SetText("")
+        popup._dimmer:Show()
+        popup._editBox:SetFocus()
+    end
+
+    ---------------------------------------------------------------------------
+    --  Equipment Slot popup. Adds a slot-tracked entry (stored as -slotID, the
+    --  same encoding the trinket slots -13/-14 use) so the icon follows
+    --  whatever item is equipped there -- e.g. slot 6 tracks the belt and its
+    --  engineering tinker regardless of which belt is worn. The name line
+    --  echoes the typed slot back (localized slot name + equipped item) so a
+    --  bare number is confirmed before it is added.
+    ---------------------------------------------------------------------------
+    local function ShowEquipmentSlotPopup(barKey, onAdded)
+        local popupName = "EUI_CDM_SlotIDPopup"
+        local popup = _G[popupName]
+        if not popup then
+            local POPUP_W, POPUP_H = 320, 184
+            local dimmer = CreateFrame("Frame", popupName .. "Dimmer", UIParent)
+            dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
+            dimmer:SetAllPoints(UIParent)
+            dimmer:EnableMouse(true)
+            dimmer:Hide()
+            local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
+            dimTex:SetAllPoints(); dimTex:SetColorTexture(0, 0, 0, 0.25)
+            dimmer:SetScript("OnMouseDown", function(self) self:Hide() end)
+
+            popup = CreateFrame("Frame", popupName, dimmer)
+            popup:SetSize(POPUP_W, POPUP_H)
+            popup:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
+            popup:SetFrameStrata("FULLSCREEN_DIALOG")
+            popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
+            popup:EnableMouse(true)
+            local popBg = popup:CreateTexture(nil, "BACKGROUND")
+            popBg:SetAllPoints(); popBg:SetColorTexture(0.06, 0.08, 0.10, 1)
+            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
+
+            local title = popup:CreateFontString(nil, "OVERLAY")
+            title:SetFont(FONT_PATH, 14, GetCDMOptOutline())
+            title:SetPoint("TOP", popup, "TOP", 0, -18)
+            title:SetTextColor(1, 1, 1, 1)
+            title:SetText(EllesmereUI.L("Add Equipment Slot"))
+            popup._title = title
+
+            local editBox = CreateFrame("EditBox", nil, popup)
+            editBox:SetSize(180, 28)
+            editBox:SetPoint("TOP", title, "BOTTOM", 0, -16)
+            editBox:SetAutoFocus(true)
+            editBox:SetNumeric(true)
+            editBox:SetMaxLetters(2)
+            editBox:SetFont(FONT_PATH, 13, GetCDMOptOutline())
+            editBox:SetTextColor(1, 1, 1, 0.9)
+            editBox:SetJustifyH("CENTER")
+            local ebBg = editBox:CreateTexture(nil, "BACKGROUND")
+            ebBg:SetAllPoints(); ebBg:SetColorTexture(0.04, 0.06, 0.08, 1)
+            EllesmereUI.MakeBorder(editBox, 1, 1, 1, 0.12, EllesmereUI.PP)
+
+            local placeholder = editBox:CreateFontString(nil, "ARTWORK")
+            placeholder:SetFont(FONT_PATH, 12, GetCDMOptOutline())
+            placeholder:SetPoint("CENTER")
+            placeholder:SetTextColor(0.5, 0.5, 0.5, 0.5)
+            placeholder:SetText(EllesmereUI.L("Slot ID"))
+            popup._editBox = editBox
+
+            -- Live echo: localized slot name + the item currently equipped
+            -- there, so the bare number is confirmed before Add.
+            local nameLine = popup:CreateFontString(nil, "OVERLAY")
+            nameLine:SetFont(FONT_PATH, 12, GetCDMOptOutline())
+            nameLine:SetPoint("TOP", editBox, "BOTTOM", 0, -8)
+            nameLine:SetWidth(POPUP_W - 24)
+            nameLine:SetText("")
+            popup._nameLine = nameLine
+
+            editBox:SetScript("OnTextChanged", function(self)
+                if self:GetText() == "" then placeholder:Show() else placeholder:Hide() end
+                local slot = tonumber(self:GetText())
+                local slotName = slot and ns.INV_SLOT_NAMES[slot]
+                if slotName then
+                    local itemID = GetInventoryItemID("player", slot)
+                    local itemName = itemID and C_Item.GetItemNameByID(itemID)
+                    nameLine:SetTextColor(0.6, 1, 0.6, 1)
+                    nameLine:SetText(slotName .. " - " .. (itemName or EMPTY or ""))
+                elseif slot then
+                    nameLine:SetTextColor(1, 0.4, 0.4, 0.9)
+                    nameLine:SetText("Enter a slot ID from 1 to 19")
+                else
+                    nameLine:SetText("")
+                end
+            end)
+
+            local status = popup:CreateFontString(nil, "OVERLAY")
+            status:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+            status:SetPoint("TOP", nameLine, "BOTTOM", 0, -4)
+            status:SetTextColor(1, 0.3, 0.3, 1)
+            status:SetText("")
+            popup._status = status
+            popup._statusTimer = nil
+
+            local ar, ag, ab = EllesmereUI.GetAccentColor()
+            local addBtn = CreateFrame("Button", nil, popup)
+            addBtn:SetSize(80, 28)
+            addBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOM", -4, 16)
+            local addBg = addBtn:CreateTexture(nil, "BACKGROUND")
+            addBg:SetAllPoints(); addBg:SetColorTexture(ar, ag, ab, 0.15)
+            EllesmereUI.MakeBorder(addBtn, ar, ag, ab, 0.3, EllesmereUI.PP)
+            local addLbl = addBtn:CreateFontString(nil, "OVERLAY")
+            addLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
+            addLbl:SetPoint("CENTER"); addLbl:SetText(EllesmereUI.L("Add"))
+            addLbl:SetTextColor(ar, ag, ab, 0.9)
+            addBtn:SetScript("OnEnter", function() addLbl:SetTextColor(1, 1, 1, 1) end)
+            addBtn:SetScript("OnLeave", function() addLbl:SetTextColor(ar, ag, ab, 0.9) end)
+            popup._addBtn = addBtn
+
+            local cancelBtn = CreateFrame("Button", nil, popup)
+            cancelBtn:SetSize(80, 28)
+            cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 16)
+            local cBg = cancelBtn:CreateTexture(nil, "BACKGROUND")
+            cBg:SetAllPoints(); cBg:SetColorTexture(0.12, 0.12, 0.12, 0.5)
+            EllesmereUI.MakeBorder(cancelBtn, 1, 1, 1, 0.10, EllesmereUI.PP)
+            local cLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
+            cLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
+            cLbl:SetPoint("CENTER"); cLbl:SetText(EllesmereUI.L("Cancel"))
+            cLbl:SetTextColor(0.7, 0.7, 0.7, 0.8)
+            cancelBtn:SetScript("OnEnter", function() cLbl:SetTextColor(1, 1, 1, 1) end)
+            cancelBtn:SetScript("OnLeave", function() cLbl:SetTextColor(0.7, 0.7, 0.7, 0.8) end)
+            popup._cancelBtn = cancelBtn
+
+            editBox:SetScript("OnEscapePressed", function() dimmer:Hide() end)
+
+            popup._dimmer = dimmer
+            _G[popupName] = popup
+        end
+
+        local function SetStatus(text, r, g, b)
+            popup._status:SetText(text)
+            popup._status:SetTextColor(r or 1, g or 0.3, b or 0.3, 1)
+            if popup._statusTimer then popup._statusTimer:Cancel() end
+            if text ~= "" then
+                popup._statusTimer = C_Timer.NewTimer(2.5, function()
+                    popup._status:SetText("")
+                end)
+            end
+        end
+
+        local function DoAdd()
+            local slot = tonumber(popup._editBox:GetText())
+            if not slot or not ns.INV_SLOT_NAMES[slot] then
+                SetStatus("Enter a slot ID from 1 to 19")
+                return
+            end
+            local marker = -slot
+            local sdChk = ns.GetBarSpellData(barKey)
+            if sdChk and sdChk.assignedSpells then
+                for _, existing in ipairs(sdChk.assignedSpells) do
+                    if existing == marker then
+                        SetStatus("Already tracked")
+                        return
+                    end
+                end
+            end
+            popup._dimmer:Hide()
+            if onAdded then onAdded(marker) end
+        end
+
+        popup._addBtn:SetScript("OnClick", DoAdd)
+        popup._editBox:SetScript("OnEnterPressed", DoAdd)
+        popup._editBox:SetText("")
+        popup._status:SetText("")
+        popup._nameLine:SetText("")
         popup._dimmer:Show()
         popup._editBox:SetFocus()
     end
@@ -8558,9 +8728,9 @@ initFrame:SetScript("OnEvent", function(self)
                                 -- for them.
                                 and not (ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(sid2))
                             if isInj then
-                                if sid2 == -13 or sid2 == -14 then
-                                    -- Trinket slots stamp the SLOT entry: one bar
-                                    -- application that covers whatever trinket is
+                                if ns.SlotIDFromKey(sid2) then
+                                    -- Equipment slots stamp the SLOT entry: one bar
+                                    -- application that covers whatever item is
                                     -- equipped, now or after any swap -- no entry
                                     -- minted per equipped item.
                                     local e = ns.GetCustomActiveState(sid2, true)
@@ -8834,10 +9004,10 @@ initFrame:SetScript("OnEvent", function(self)
                                         or (bsX.customSpellIDs and bsX.customSpellIDs[sid2]))
                                         and not (ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(sid2))
                                     if isInj then
-                                        if sid2 == -13 or sid2 == -14 then
-                                            -- Trinket slots: the stamp lives on the SLOT
-                                            -- entry. Also sweep the equipped trinket's
-                                            -- item entry -- it may carry a legacy
+                                        if ns.SlotIDFromKey(sid2) then
+                                            -- Equipment slots: the stamp lives on the SLOT
+                                            -- entry. Also sweep the equipped item's
+                                            -- own entry -- it may carry a legacy
                                             -- per-item stamp from before slot stamping.
                                             unstampEntry(ns.GetCustomActiveState(sid2))
                                             local itemID = GetInventoryItemID("player", -sid2)
@@ -10743,7 +10913,7 @@ initFrame:SetScript("OnEvent", function(self)
                         -- spellID means no item is equipped (writes then target the
                         -- slot entry itself); never chain an entry to itself.
                         local casSlot = nil
-                        if (spellID == -13 or spellID == -14) and casKey ~= spellID
+                        if ns.SlotIDFromKey(spellID) and casKey ~= spellID
                            and ns.GetCustomActiveState then
                             casSlot = ns.GetCustomActiveState(spellID)
                         end
@@ -12212,6 +12382,44 @@ initFrame:SetScript("OnEvent", function(self)
             end)
 
             allItems[#allItems + 1] = ciItem
+            mH = mH + ITEM_H
+
+            -- "Equipment Slot" option -- tracks whatever item is equipped in a
+            -- slot the user picks by inventory slot ID (stored as -slotID, the
+            -- trinket-slot encoding). Covers enchant/tinker use effects (e.g.
+            -- Nitro Boosts on any belt) without re-adding per item.
+            local esItem = CreateFrame("Button", nil, inner)
+            esItem:SetHeight(ITEM_H)
+            esItem:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+            esItem:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+            esItem:SetFrameLevel(menu:GetFrameLevel() + 2)
+
+            local esHl = esItem:CreateTexture(nil, "ARTWORK")
+            esHl:SetAllPoints(); esHl:SetColorTexture(1, 1, 1, 0); esHl:SetAlpha(0)
+
+            local esLbl = esItem:CreateFontString(nil, "OVERLAY")
+            esLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+            esLbl:SetPoint("LEFT", 10, 0)
+            esLbl:SetJustifyH("LEFT")
+            esLbl:SetText(EllesmereUI.L("Equipment Slot"))
+            esLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+
+            esItem:SetScript("OnEnter", function()
+                esLbl:SetTextColor(1, 1, 1, 1)
+                esHl:SetColorTexture(1, 1, 1, hlA); esHl:SetAlpha(1)
+            end)
+            esItem:SetScript("OnLeave", function()
+                esLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                esHl:SetAlpha(0)
+            end)
+            esItem:SetScript("OnClick", function()
+                menu:Hide()
+                ShowEquipmentSlotPopup(bd and bd.key, function(marker)
+                    if onSelect then onSelect(marker, true) end
+                end)
+            end)
+
+            allItems[#allItems + 1] = esItem
             mH = mH + ITEM_H
         end
 
