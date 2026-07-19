@@ -5655,3 +5655,5 @@ if GetLocale() == "koKR" and EllesmereUI then
         ["윈첨"] = "첨탑",
     }
 end
+L["Header Bottom Border"] = "헤더 하단 테두리"
+L["Include Headerbar"] = "헤더 바 포함"

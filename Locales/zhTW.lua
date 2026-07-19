@@ -4391,3 +4391,5 @@ L["|cffff6060[EllesmereUI]|r Cannot open options during combat. Use /eui to view
 -- First Install setup popup
 L["FIRST TIME SETUP"] = "首次設定"
 L["Choose which addons you want enabled. You can change any of these later in the EllesmereUI settings panel."] = "選擇你想啟用的插件。之後都可在 EllesmereUI 設定面板中變更這些選項。"
+L["Header Bottom Border"] = "標題列底部邊框"
+L["Include Headerbar"] = "包含標題列"
