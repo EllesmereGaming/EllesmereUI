@@ -318,7 +318,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
                 { type="dropdown", text="Border Size",
                   values=thicknessValues, order=thicknessOrder,
-                  getValue=function() return Cfg("panelBorderThickness") or "thin" end,
+                  getValue=function() return Cfg("panelBorderThickness") or "none" end,
                   setValue=function(v)
                       Set("panelBorderThickness", v)
                       if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
@@ -338,7 +338,7 @@ initFrame:SetScript("OnEvent", function(self)
                               if v ~= nil then return v end
                               return EllesmereUI.GetBorderDefaults("chat",
                                   Cfg("panelBorderTexture") or "solid",
-                                  Cfg("panelBorderThickness") or "thin")
+                                  Cfg("panelBorderThickness") or "none")
                           end,
                           set=function(v)
                               Set("panelBorderOffsetX", v)
@@ -350,7 +350,7 @@ initFrame:SetScript("OnEvent", function(self)
                               if v ~= nil then return v end
                               local _, value = EllesmereUI.GetBorderDefaults("chat",
                                   Cfg("panelBorderTexture") or "solid",
-                                  Cfg("panelBorderThickness") or "thin")
+                                  Cfg("panelBorderThickness") or "none")
                               return value
                           end,
                           set=function(v)
@@ -363,7 +363,7 @@ initFrame:SetScript("OnEvent", function(self)
                               if v ~= nil then return v end
                               local _, _, value = EllesmereUI.GetBorderDefaults("chat",
                                   Cfg("panelBorderTexture") or "solid",
-                                  Cfg("panelBorderThickness") or "thin")
+                                  Cfg("panelBorderThickness") or "none")
                               return value
                           end,
                           set=function(v)
@@ -376,7 +376,7 @@ initFrame:SetScript("OnEvent", function(self)
                               if v ~= nil then return v end
                               local _, _, _, value = EllesmereUI.GetBorderDefaults("chat",
                                   Cfg("panelBorderTexture") or "solid",
-                                  Cfg("panelBorderThickness") or "thin")
+                                  Cfg("panelBorderThickness") or "none")
                               return value
                           end,
                           set=function(v)
@@ -994,7 +994,7 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="dropdown", text="Border Size",
                   disabled=tabBordersDisabled, disabledTooltip=TabBorderDisabledTip,
                   values=thicknessValues, order={"none","thin","normal","heavy","strong"},
-                  getValue=function() return Cfg("tabBorderThickness") or "thin" end,
+                  getValue=function() return Cfg("tabBorderThickness") or "none" end,
                   setValue=function(v)
                       Set("tabBorderThickness", v)
                       if ECHAT.ApplyTabBorders then ECHAT.ApplyTabBorders() end
@@ -1009,25 +1009,25 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Offset X", min=-10, max=10, step=1,
                           get=function()
                               local v=Cfg("tabBorderOffsetX"); if v~=nil then return v end
-                              return EllesmereUI.GetBorderDefaults("chat",Cfg("tabBorderTexture") or "solid",Cfg("tabBorderThickness") or "thin")
+                              return EllesmereUI.GetBorderDefaults("chat",Cfg("tabBorderTexture") or "solid",Cfg("tabBorderThickness") or "none")
                           end,
                           set=function(v) Set("tabBorderOffsetX", v); ECHAT.ApplyTabBorders() end },
                         { type="slider", label="Offset Y", min=-10, max=10, step=1,
                           get=function()
                               local v=Cfg("tabBorderOffsetY"); if v~=nil then return v end
-                              local _,d=EllesmereUI.GetBorderDefaults("chat",Cfg("tabBorderTexture") or "solid",Cfg("tabBorderThickness") or "thin"); return d
+                              local _,d=EllesmereUI.GetBorderDefaults("chat",Cfg("tabBorderTexture") or "solid",Cfg("tabBorderThickness") or "none"); return d
                           end,
                           set=function(v) Set("tabBorderOffsetY", v); ECHAT.ApplyTabBorders() end },
                         { type="slider", label="Shift X", min=-10, max=10, step=1,
                           get=function()
                               local v=Cfg("tabBorderShiftX"); if v~=nil then return v end
-                              local _,_,d=EllesmereUI.GetBorderDefaults("chat",Cfg("tabBorderTexture") or "solid",Cfg("tabBorderThickness") or "thin"); return d
+                              local _,_,d=EllesmereUI.GetBorderDefaults("chat",Cfg("tabBorderTexture") or "solid",Cfg("tabBorderThickness") or "none"); return d
                           end,
                           set=function(v) Set("tabBorderShiftX", v == 0 and nil or v); ECHAT.ApplyTabBorders() end },
                         { type="slider", label="Shift Y", min=-10, max=10, step=1,
                           get=function()
                               local v=Cfg("tabBorderShiftY"); if v~=nil then return v end
-                              local _,_,_,d=EllesmereUI.GetBorderDefaults("chat",Cfg("tabBorderTexture") or "solid",Cfg("tabBorderThickness") or "thin"); return d
+                              local _,_,_,d=EllesmereUI.GetBorderDefaults("chat",Cfg("tabBorderTexture") or "solid",Cfg("tabBorderThickness") or "none"); return d
                           end,
                           set=function(v) Set("tabBorderShiftY", v == 0 and nil or v); ECHAT.ApplyTabBorders() end },
                     },

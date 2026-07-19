@@ -72,7 +72,7 @@ local CHAT_DEFAULTS = {
             innerBorderColor = { r=1, g=1, b=1, a=0.06 },
             extendBgBehindTabs = false,
             panelBorderTexture = "solid",
-            panelBorderThickness = "thin",
+            panelBorderThickness = "none",
             panelBorderColorMode = "custom",
             panelBorderColor = { r=1, g=1, b=1 },
             panelBorderOpacity = 0.18,
@@ -80,7 +80,7 @@ local CHAT_DEFAULTS = {
             tabPadding = 0,
             syncTabBorder = true,
             tabBorderTexture = "solid",
-            tabBorderThickness = "thin",
+            tabBorderThickness = "none",
             tabBorderColorMode = "custom",
             tabBorderColor = { r=1, g=1, b=1 },
             tabBorderOpacity = 0.18,
@@ -576,7 +576,7 @@ function ECHAT.ApplyExtendedBackground()
 
         if EllesmereUI.ApplyBorderStyle then
             local sizes = { none=0, thin=1, normal=2, heavy=3, strong=4 }
-            local thicknessKey = cfg.panelBorderThickness or "thin"
+            local thicknessKey = cfg.panelBorderThickness or "none"
             local mode = cfg.panelBorderColorMode or "custom"
             local color
             if mode == "accent" then
@@ -2353,7 +2353,7 @@ function ECHAT.ApplyTabBorders()
     end
     local show = cfg.extendBgBehindTabs ~= true
     local sizes = { none=0, thin=1, normal=2, heavy=3, strong=4 }
-    local thicknessKey = B("Thickness", "thin")
+    local thicknessKey = B("Thickness", "none")
     local size = sizes[thicknessKey] or 1
     local mode = B("ColorMode", "custom")
     local r, g, b
