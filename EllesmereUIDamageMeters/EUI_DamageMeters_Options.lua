@@ -76,7 +76,13 @@ initFrame:SetScript("OnEvent", function(self)
         local function Refresh() if ns.RefreshMeter then ns.RefreshMeter() end end
         local function ApplyHdr() if ns.ApplyHeader then ns.ApplyHeader() end end
         local function ApplyBrd() if ns.ApplyBorder then ns.ApplyBorder() end end
+        local function ApplyWindowBrd() if ns.ApplyWindowBorder then ns.ApplyWindowBorder() end end
         local function ApplyIconBrd() if ns.ApplyIconBorder then ns.ApplyIconBorder() end end
+        local borderSizeValues = {
+            ["0"]="None", ["1"]="Thin", ["2"]="Normal",
+            ["3"]="Heavy", ["4"]="Strong",
+        }
+        local borderSizeOrder = { "0", "1", "2", "3", "4" }
 
         -- ── DISPLAY ─────────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
@@ -105,6 +111,79 @@ initFrame:SetScript("OnEvent", function(self)
             rightRgn._control = cbDD
             rightRgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+        end
+        y = y - h
+
+        -- Window Border Style (+ directions submenu) | Border Size (+ color)
+        local windowTexValues, windowTexOrder = EllesmereUI.GetBorderTextureDropdown()
+        windowTexValues.shadow = nil
+        for i = #windowTexOrder, 1, -1 do
+            if windowTexOrder[i] == "shadow" then table.remove(windowTexOrder, i) end
+        end
+        local windowBorderRow
+        windowBorderRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Border Style",
+              values=windowTexValues, order=windowTexOrder,
+              getValue=function() return Cfg("windowBorderTexture") or "solid" end,
+              setValue=function(v)
+                  Set("windowBorderTexture", v)
+                  Set("windowBorderOffsetX", 0); Set("windowBorderOffsetY", 0)
+                  if v == "solid" then
+                      Set("windowBorderColor", { r=0, g=0, b=0, a=1 })
+                  else
+                      Set("windowBorderColor", { r=1, g=1, b=1, a=1 })
+                  end
+                  local defaultSize = EllesmereUI.GetBorderDefaultSize("damagemeters", v)
+                  if defaultSize then Set("windowBorderSize", defaultSize) end
+                  ApplyWindowBrd(); EllesmereUI:RefreshPage()
+              end },
+            { type="dropdown", text="Border Size",
+              values=borderSizeValues, order=borderSizeOrder,
+              getValue=function() return tostring(Cfg("windowBorderSize") or 0) end,
+              setValue=function(v) Set("windowBorderSize", tonumber(v) or 0); ApplyWindowBrd() end })
+        do
+            local rgn = windowBorderRow._leftRegion
+            local _, popupShow = EllesmereUI.BuildCogPopup({
+                title="Border Offset",
+                rows={
+                    { type="slider", label="Offset X", min=-10, max=10, step=1,
+                      get=function() return Cfg("windowBorderOffsetX") or 0 end,
+                      set=function(v) Set("windowBorderOffsetX", v); ApplyWindowBrd() end },
+                    { type="slider", label="Offset Y", min=-10, max=10, step=1,
+                      get=function() return Cfg("windowBorderOffsetY") or 0 end,
+                      set=function(v) Set("windowBorderOffsetY", v); ApplyWindowBrd() end },
+                    { type="toggle", label="Include Headerbar",
+                      get=function() return Cfg("windowBorderIncludeHeader") ~= false end,
+                      set=function(v) Set("windowBorderIncludeHeader", v); ApplyWindowBrd() end },
+                },
+            })
+            local directionBtn = CreateFrame("Button", nil, rgn)
+            directionBtn:SetSize(26, 26)
+            directionBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+            directionBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            directionBtn:SetAlpha(0.4)
+            local directionTex = directionBtn:CreateTexture(nil, "OVERLAY")
+            directionTex:SetAllPoints(); directionTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+            directionBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            directionBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            directionBtn:SetScript("OnClick", function(self) popupShow(self) end)
+            rgn._lastInline = directionBtn
+        end
+        do
+            local rgn, ctrl = windowBorderRow._rightRegion, windowBorderRow._rightRegion._control
+            local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, windowBorderRow:GetFrameLevel() + 3,
+                function()
+                    local c = Cfg("windowBorderColor") or {}
+                    return c.r or 0, c.g or 0, c.b or 0, c.a or 1
+                end,
+                function(r, g, b, a)
+                    Set("windowBorderColor", { r=r, g=g, b=b, a=a or 1 })
+                    ApplyWindowBrd()
+                end,
+                true, 20)
+            PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
         end
         y = y - h
 
@@ -677,10 +756,10 @@ initFrame:SetScript("OnEvent", function(self)
                   if defSz then Set("borderSize", defSz) end
                   ApplyBrd(); EllesmereUI:RefreshPage()
               end },
-            { type="slider", text="Border Size",
-              min=0, max=4, step=1,
-              getValue=function() return Cfg("borderSize") or 1 end,
-              setValue=function(v) Set("borderSize", v); ApplyBrd() end })
+            { type="dropdown", text="Border Size",
+              values=borderSizeValues, order=borderSizeOrder,
+              getValue=function() return tostring(Cfg("borderSize") or 0) end,
+              setValue=function(v) Set("borderSize", tonumber(v) or 0); ApplyBrd() end })
         y = y - h
         -- Inline cog for border offset (left region)
         do
