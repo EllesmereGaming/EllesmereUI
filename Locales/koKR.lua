@@ -5655,3 +5655,5 @@ if GetLocale() == "koKR" and EllesmereUI then
         ["윈첨"] = "첨탑",
     }
 end
+L["Button Background"] = "버튼 배경"
+L["Button Border Style"] = "버튼 테두리 스타일"

@@ -142,11 +142,12 @@ end
         if not data.configBorder then
             data.configBorder = CreateFrame("Frame", nil, owner, "BackdropTemplate")
             data.configBorder:SetAllPoints(owner)
-            data.configBorder:SetFrameLevel(owner:GetFrameLevel() + 5)
             data.configBorder:EnableMouse(false)
             if not _PP then _PP = EllesmereUI.PP end
             if _PP and _PP.HideBorder then _PP.HideBorder(owner) end
         end
+        data.configBorder:SetFrameLevel(db[prefix .. "BorderBehind"]
+            and math.max(0, owner:GetFrameLevel() - 1) or (owner:GetFrameLevel() + 5))
         EllesmereUI.ApplyBorderStyle(data.configBorder, size, color.r, color.g, color.b, alpha,
             db[prefix .. "BorderTexture"] or "solid", db[prefix .. "BorderOffsetX"],
             db[prefix .. "BorderOffsetY"], db[prefix .. "BorderShiftX"], db[prefix .. "BorderShiftY"],

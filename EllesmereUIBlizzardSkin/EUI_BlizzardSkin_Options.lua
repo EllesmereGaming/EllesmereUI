@@ -20,17 +20,25 @@ initFrame:SetScript("OnEvent", function(self)
         local BORDER_VALUES = { none="None", thin="Thin", normal="Normal", heavy="Heavy", strong="Strong" }
         local BORDER_ORDER = { "none", "thin", "normal", "heavy", "strong" }
 
-        local function AttachBorderControls(row, prefix, disabledFn)
+        local function AttachBorderControls(row, prefix, disabledFn, allowBehind)
             local PP = EllesmereUI.PanelPP
             local left, right = row._leftRegion, row._rightRegion
-            local _, showOffset = EllesmereUI.BuildCogPopup({ title="Border Offset", rows={
+            local popupRows = {
                 { type="slider", label="Offset X", min=-10,max=10,step=1,
                   get=function() local v=EllesmereUIDB[prefix.."BorderOffsetX"]; if v~=nil then return v end return EllesmereUI.GetBorderTextureDefaultOffset(EllesmereUIDB[prefix.."BorderTexture"] or "solid") end,
                   set=function(v) EllesmereUIDB[prefix.."BorderOffsetX"]=v end },
                 { type="slider", label="Offset Y", min=-10,max=10,step=1,
                   get=function() local v=EllesmereUIDB[prefix.."BorderOffsetY"]; if v~=nil then return v end return EllesmereUI.GetBorderTextureDefaultOffsetY(EllesmereUIDB[prefix.."BorderTexture"] or "solid") end,
                   set=function(v) EllesmereUIDB[prefix.."BorderOffsetY"]=v end },
-            }})
+            }
+            if allowBehind then
+                popupRows[#popupRows + 1] = {
+                    type="toggle", label="Show Behind",
+                    get=function() return EllesmereUIDB[prefix.."BorderBehind"] or false end,
+                    set=function(v) EllesmereUIDB[prefix.."BorderBehind"]=v end,
+                }
+            end
+            local _, showOffset = EllesmereUI.BuildCogPopup({ title="Border Offset", rows=popupRows })
             local cog=CreateFrame("Button",nil,left); cog:SetSize(26,26); cog:SetPoint("RIGHT",left._control,"LEFT",-8,0); cog:SetAlpha(.4)
             local ico=cog:CreateTexture(nil,"OVERLAY"); ico:SetAllPoints(); ico:SetTexture(EllesmereUI.DIRECTIONS_ICON)
             cog:SetScript("OnClick",function(self) showOffset(self) end); left._lastInline=cog
@@ -97,9 +105,9 @@ initFrame:SetScript("OnEvent", function(self)
             local texValues,texOrder=EllesmereUI.GetBorderTextureDropdown()
             local outer
             outer,h=W:DualRow(parent,y,
-                {type="dropdown",text="Border Style",disabled=popupOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.popupMenuBorderTexture or "solid" end,setValue=function(v) EllesmereUIDB.popupMenuBorderTexture=v; EllesmereUIDB.popupMenuBorderOffsetX=nil; EllesmereUIDB.popupMenuBorderOffsetY=nil end},
+                {type="dropdown",text="Border Style",disabled=popupOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.popupMenuBorderTexture or "solid" end,setValue=function(v) local c,b=EllesmereUI.GetBorderStyleSelectDefaults(v); EllesmereUIDB.popupMenuBorderTexture=v; EllesmereUIDB.popupMenuBorderOffsetX=nil; EllesmereUIDB.popupMenuBorderOffsetY=nil; EllesmereUIDB.popupMenuBorderBehind=b; EllesmereUIDB.popupMenuBorderColor=c end},
                 {type="dropdown",text="Border Size",disabled=popupOff,values=BORDER_VALUES,order=BORDER_ORDER,getValue=function() return EllesmereUIDB.popupMenuBorderThickness or "thin" end,setValue=function(v) EllesmereUIDB.popupMenuBorderThickness=v end}); y=y-h
-            AttachBorderControls(outer,"popupMenu",popupOff)
+            AttachBorderControls(outer,"popupMenu",popupOff,true)
             local buttons
             buttons,h=W:DualRow(parent,y,
                 {type="dropdown",text="Button Border Style",disabled=popupOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.popupMenuButtonBorderTexture or "solid" end,setValue=function(v) EllesmereUIDB.popupMenuButtonBorderTexture=v; EllesmereUIDB.popupMenuButtonBorderOffsetX=nil; EllesmereUIDB.popupMenuButtonBorderOffsetY=nil end},
@@ -594,9 +602,9 @@ initFrame:SetScript("OnEvent", function(self)
             local texValues,texOrder=EllesmereUI.GetBorderTextureDropdown()
             local tooltipBorder
             tooltipBorder,h=W:DualRow(parent,y,
-                {type="dropdown",text="Border Style",disabled=ttReskinOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.tooltipBorderTexture or "solid" end,setValue=function(v) EllesmereUIDB.tooltipBorderTexture=v; EllesmereUIDB.tooltipBorderOffsetX=nil; EllesmereUIDB.tooltipBorderOffsetY=nil end},
+                {type="dropdown",text="Border Style",disabled=ttReskinOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.tooltipBorderTexture or "solid" end,setValue=function(v) local c,b=EllesmereUI.GetBorderStyleSelectDefaults(v); EllesmereUIDB.tooltipBorderTexture=v; EllesmereUIDB.tooltipBorderOffsetX=nil; EllesmereUIDB.tooltipBorderOffsetY=nil; EllesmereUIDB.tooltipBorderBehind=b; EllesmereUIDB.tooltipBorderColor=c end},
                 {type="dropdown",text="Border Size",disabled=ttReskinOff,values=BORDER_VALUES,order=BORDER_ORDER,getValue=function() return EllesmereUIDB.tooltipBorderThickness or ({[0]="none",[1]="thin",[2]="normal",[3]="heavy",[4]="strong"})[EllesmereUIDB.tooltipBorderSize or 1] or "thin" end,setValue=function(v) EllesmereUIDB.tooltipBorderThickness=v end}); y=y-h
-            AttachBorderControls(tooltipBorder,"tooltip",ttReskinOff)
+            AttachBorderControls(tooltipBorder,"tooltip",ttReskinOff,true)
         end
 
         local borderRow
