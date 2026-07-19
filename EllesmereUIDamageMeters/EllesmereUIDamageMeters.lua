@@ -218,6 +218,7 @@ local DM_DEFAULTS = {
             windowBorderOffsetY = 0,
             windowBorderColor = { r = 0, g = 0, b = 0, a = 1 },
             windowBorderIncludeHeader = true,
+            windowBorderBehind = false,
             barBgR = 0, barBgG = 0, barBgB = 0, barBgAlpha = 0,
             barBgUseClassColor = false,
             standaloneTimer       = false,
@@ -4450,12 +4451,14 @@ ns.ApplyWindowBorder = function()
     local color = cfg.windowBorderColor or {}
     local r, g, b, a = color.r or 0, color.g or 0, color.b or 0, color.a or 1
     local includeHeader = cfg.windowBorderIncludeHeader ~= false
-    local offsetX = tonumber(cfg.windowBorderOffsetX) or 0
-    local offsetY = tonumber(cfg.windowBorderOffsetY) or 0
+    local offsetX = texture ~= "solid" and (tonumber(cfg.windowBorderOffsetX) or 0) or 0
+    local offsetY = texture ~= "solid" and (tonumber(cfg.windowBorderOffsetY) or 0) or 0
 
     for _, w in ipairs(_windows) do
         local target = w.windowBorderTarget
         if target and w.frame and w.header then
+            local frameLevel = w.frame:GetFrameLevel()
+            target:SetFrameLevel(cfg.windowBorderBehind and math.max(0, frameLevel - 1) or (w.header:GetFrameLevel() + 4))
             target:ClearAllPoints()
             if includeHeader then
                 target:SetPoint("TOPLEFT", w.frame, "TOPLEFT", -offsetX, offsetY)
