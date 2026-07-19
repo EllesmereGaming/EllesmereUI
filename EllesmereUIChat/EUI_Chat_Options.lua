@@ -30,7 +30,7 @@ initFrame:SetScript("OnEvent", function(self)
         if ECHAT.RefreshVisibility then ECHAT.RefreshVisibility() end
     end
 
-    local function BuildPage(_, parent, yOffset)
+    local function BuildPage(pageName, parent, yOffset)
         local W  = EllesmereUI.Widgets
         local PP = EllesmereUI.PP
         local y  = yOffset
@@ -38,6 +38,12 @@ initFrame:SetScript("OnEvent", function(self)
 
         if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
         parent._showRowDivider = true
+
+        local isChat = pageName == "Chat"
+        local isTabs = pageName == "Tabs"
+        local isSidebar = pageName == "Sidebar"
+
+        if isChat then
 
         -- Edit Mode reposition label + "Reset Chat Position" link
         do
@@ -125,6 +131,8 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("bgAlpha", v); RefreshAll() end },
             { type="slider", text="Idle Fade Delay",
               min = 5, max = 30, step = 1,
+              disabled=function() return Cfg("idleFadeEnabled") == false end,
+              disabledTooltip="Enable Idle Fade",
               getValue=function() return Cfg("idleFadeDelay") or 15 end,
               setValue=function(v)
                   Set("idleFadeDelay", v)
@@ -155,6 +163,8 @@ initFrame:SetScript("OnEvent", function(self)
             fontRow, h = W:DualRow(parent, y,
                 { type="slider", text="Idle Fade Strength",
                   min = 0, max = 100, step = 1,
+                  disabled=function() return Cfg("idleFadeEnabled") == false end,
+                  disabledTooltip="Enable Idle Fade",
                   getValue=function() return Cfg("idleFadeStrength") or 40 end,
                   setValue=function(v)
                       Set("idleFadeStrength", v)
@@ -217,7 +227,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 4: Timestamps | Extend Background Behind Tabs
+        -- Row 4: Timestamps | (empty)
         do
             local tsValues = {
                 ["__blizzard"]  = { text = "Use Blizzard Setting" },
@@ -242,18 +252,12 @@ initFrame:SetScript("OnEvent", function(self)
                       Set("timestampFormat", v)
                       if ECHAT.ApplyTimestampCVar then ECHAT.ApplyTimestampCVar() end
                   end },
-                { type="toggle", text="Extend Background Behind Tabs",
-                  tooltip="Extends the chat background up behind the tabs, and the sidebar to match, for one seamless panel.",
-                  getValue=function() return Cfg("extendBgBehindTabs") or false end,
+                { type="toggle", text="Enable Idle Fade",
+                  getValue=function() return Cfg("idleFadeEnabled") ~= false end,
                   setValue=function(v)
-                      Set("extendBgBehindTabs", v)
-                      EllesmereUI:ShowConfirmPopup({
-                          title       = "Reload Required",
-                          message     = "A UI reload is needed to apply the extended chat background.",
-                          confirmText = "Reload Now",
-                          cancelText  = "Later",
-                          onConfirm   = function() ReloadUI() end,
-                      })
+                      Set("idleFadeEnabled",v)
+                      if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
+                      EllesmereUI:RefreshPage()
                   end })
         end
         y = y - h
@@ -286,8 +290,202 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="label", text="" })
             y = y - h
         end
+        -- Outer panel border. Without the extended background, visible tabs get
+        -- matching individual borders instead of outlining empty tab-strip space.
+            local thicknessValues = {
+                none   = { text = "None" },
+                thin   = { text = "Thin" },
+                normal = { text = "Normal" },
+                heavy  = { text = "Heavy" },
+                strong = { text = "Strong" },
+            }
+            local thicknessOrder = { "none", "thin", "normal", "heavy", "strong" }
+            local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
+            local borderRow
+            borderRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Border Style",
+                  values=texValues, order=texOrder,
+                  getValue=function() return Cfg("panelBorderTexture") or "solid" end,
+                  setValue=function(v)
+                      Set("panelBorderTexture", v)
+                      Set("panelBorderOffsetX", nil); Set("panelBorderOffsetY", nil)
+                      Set("panelBorderShiftX", nil); Set("panelBorderShiftY", nil)
+                      local defSize = EllesmereUI.GetBorderDefaultSize("chat", v)
+                          or EllesmereUI.GetBorderTextureDefaultThickness(v)
+                      if defSize then Set("panelBorderThickness", defSize) end
+                      if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="dropdown", text="Border Size",
+                  values=thicknessValues, order=thicknessOrder,
+                  getValue=function() return Cfg("panelBorderThickness") or "thin" end,
+                  setValue=function(v)
+                      Set("panelBorderThickness", v)
+                      if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
+                  end })
+            y = y - h
+
+            -- Border offset dropdown on Border Style.
+            do
+                local rgn = borderRow._leftRegion
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Border Offset",
+                    captureRegion = rgn,
+                    rows = {
+                        { type="slider", label="Offset X", min=-10, max=10, step=1,
+                          get=function()
+                              local v = Cfg("panelBorderOffsetX")
+                              if v ~= nil then return v end
+                              return EllesmereUI.GetBorderDefaults("chat",
+                                  Cfg("panelBorderTexture") or "solid",
+                                  Cfg("panelBorderThickness") or "thin")
+                          end,
+                          set=function(v)
+                              Set("panelBorderOffsetX", v)
+                              if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
+                          end },
+                        { type="slider", label="Offset Y", min=-10, max=10, step=1,
+                          get=function()
+                              local v = Cfg("panelBorderOffsetY")
+                              if v ~= nil then return v end
+                              local _, value = EllesmereUI.GetBorderDefaults("chat",
+                                  Cfg("panelBorderTexture") or "solid",
+                                  Cfg("panelBorderThickness") or "thin")
+                              return value
+                          end,
+                          set=function(v)
+                              Set("panelBorderOffsetY", v)
+                              if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
+                          end },
+                        { type="slider", label="Shift X", min=-10, max=10, step=1,
+                          get=function()
+                              local v = Cfg("panelBorderShiftX")
+                              if v ~= nil then return v end
+                              local _, _, value = EllesmereUI.GetBorderDefaults("chat",
+                                  Cfg("panelBorderTexture") or "solid",
+                                  Cfg("panelBorderThickness") or "thin")
+                              return value
+                          end,
+                          set=function(v)
+                              Set("panelBorderShiftX", v == 0 and nil or v)
+                              if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
+                          end },
+                        { type="slider", label="Shift Y", min=-10, max=10, step=1,
+                          get=function()
+                              local v = Cfg("panelBorderShiftY")
+                              if v ~= nil then return v end
+                              local _, _, _, value = EllesmereUI.GetBorderDefaults("chat",
+                                  Cfg("panelBorderTexture") or "solid",
+                                  Cfg("panelBorderThickness") or "thin")
+                              return value
+                          end,
+                          set=function(v)
+                              Set("panelBorderShiftY", v == 0 and nil or v)
+                              if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
+                          end },
+                    },
+                })
+                local cogBtn = CreateFrame("Button", nil, rgn)
+                cogBtn:SetSize(26, 26)
+                cogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+                rgn._lastInline = cogBtn
+                cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                cogTex:SetAllPoints()
+                cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+                local function RefreshCog() cogBtn:SetAlpha(0.4) end
+                cogBtn:SetScript("OnEnter", function(self)
+                    self:SetAlpha(0.7)
+                end)
+                cogBtn:SetScript("OnLeave", function()
+                    EllesmereUI.HideWidgetTooltip()
+                    RefreshCog()
+                end)
+                cogBtn:SetScript("OnClick", function(self)
+                    cogShow(self)
+                end)
+                EllesmereUI.RegisterWidgetRefresh(RefreshCog)
+                RefreshCog()
+            end
+
+            -- Accent, custom, and class-color selectors beside Border Size.
+            do
+                local rgn = borderRow._rightRegion
+                local ctrl = rgn._control
+                local function ApplyMode(mode)
+                    Set("panelBorderColorMode", mode)
+                    if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
+                    EllesmereUI:RefreshPage()
+                end
+
+                local classSwatch, refreshClass = EllesmereUI.BuildColorSwatch(
+                    rgn, borderRow:GetFrameLevel() + 3,
+                    function()
+                        local _, class = UnitClass("player")
+                        local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+                        return c and c.r or 1, c and c.g or 1, c and c.b or 1
+                    end,
+                    function() end, false, 20)
+                PP.Point(classSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+                classSwatch:SetScript("OnClick", function() ApplyMode("class") end)
+                classSwatch:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(classSwatch, "Class Color")
+                end)
+                classSwatch:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
+
+                local accentSwatch, refreshAccent = EllesmereUI.BuildColorSwatch(
+                    rgn, borderRow:GetFrameLevel() + 3,
+                    function() return EllesmereUI.GetAccentColor() end,
+                    function() end, false, 20)
+                PP.Point(accentSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
+                accentSwatch:SetScript("OnClick", function() ApplyMode("accent") end)
+                accentSwatch:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(accentSwatch, "Accent Color")
+                end)
+                accentSwatch:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
+
+                local customSwatch, refreshCustom = EllesmereUI.BuildColorSwatch(
+                    rgn, borderRow:GetFrameLevel() + 3,
+                    function()
+                        local c = Cfg("panelBorderColor") or { r=1, g=1, b=1 }
+                        return c.r, c.g, c.b, Cfg("panelBorderOpacity") or 0.18
+                    end,
+                    function(r, g, b, a)
+                        Set("panelBorderColor", { r=r, g=g, b=b })
+                        Set("panelBorderOpacity", a)
+                        Set("panelBorderColorMode", "custom")
+                        if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
+                    end,
+                    true, 20)
+                PP.Point(customSwatch, "RIGHT", accentSwatch, "LEFT", -8, 0)
+                local customClick = customSwatch:GetScript("OnClick")
+                customSwatch:SetScript("OnClick", function(self, ...)
+                    if (Cfg("panelBorderColorMode") or "custom") ~= "custom" then
+                        ApplyMode("custom")
+                        return
+                    end
+                    if customClick then customClick(self, ...) end
+                end)
+                customSwatch:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(customSwatch, "Custom Color")
+                end)
+                customSwatch:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
+
+                local function RefreshBorderSwatches()
+                    refreshCustom(); refreshAccent(); refreshClass()
+                    local mode = Cfg("panelBorderColorMode") or "custom"
+                    customSwatch:SetAlpha(mode == "custom" and 1 or 0.3)
+                    accentSwatch:SetAlpha(mode == "accent" and 1 or 0.3)
+                    classSwatch:SetAlpha(mode == "class" and 1 or 0.3)
+                end
+                EllesmereUI.RegisterWidgetRefresh(RefreshBorderSwatches)
+                RefreshBorderSwatches()
+            end
+
+        end -- isChat
 
         -- -- SIDEBAR -----------------------------------------------------------
+        if isSidebar then
         _, h = W:SectionHeader(parent, "SIDEBAR", y); y = y - h
 
         -- Row 1: Sidebar Visibility (+ cog) | Sidebar Icons
@@ -530,7 +728,360 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
+        end -- isSidebar
+
+        if isTabs then
+            _, h = W:SectionHeader(parent, "LAYOUT", y); y = y - h
+
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Tabs Inside Chat Panel",
+                  tooltip="Places the tabs inside one continuous chat panel background, including the sidebar when visible.",
+                  getValue=function() return Cfg("extendBgBehindTabs") or false end,
+                  setValue=function(v)
+                      Set("extendBgBehindTabs", v)
+                      if ECHAT.ApplyTabPadding then ECHAT.ApplyTabPadding() end
+                      if ECHAT.ApplyTabSpacing then ECHAT.ApplyTabSpacing() end
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="toggle", text="Align Tabs to Full Panel",
+                  tooltip="Aligns the tab bar to the outer sidebar edge instead of only the chat panel edge.",
+                  disabled=function()
+                      return Cfg("extendBgBehindTabs") == true
+                          or (Cfg("sidebarVisibility") or "always") == "never"
+                  end,
+                  disabledTooltip=function()
+                      if Cfg("extendBgBehindTabs") then return "Tabs Inside Chat Panel" end
+                      return "Sidebar Visibility"
+                  end,
+                  getValue=function() return Cfg("alignTabsToPanel") or false end,
+                  setValue=function(v)
+                      Set("alignTabsToPanel", v)
+                      if ECHAT.ApplyTabPadding then ECHAT.ApplyTabPadding() end
+                  end })
+            y = y - h
+
+            _, h = W:DualRow(parent, y,
+                { type="slider", text="Tab Spacing", min=0, max=10, step=1,
+                  disabled=function() return Cfg("extendBgBehindTabs") == true end,
+                  disabledTooltip="Tabs Inside Chat Panel",
+                  getValue=function() return Cfg("tabSpacing") or 1 end,
+                  setValue=function(v)
+                      Set("tabSpacing", v)
+                      if ECHAT.ApplyTabSpacing then ECHAT.ApplyTabSpacing() end
+                  end },
+                { type="slider", text="Bottom Spacing to Panel", min=0, max=20, step=1,
+                  disabled=function() return Cfg("extendBgBehindTabs") == true end,
+                  disabledTooltip="Tabs Inside Chat Panel",
+                  getValue=function() return Cfg("tabPadding") or 0 end,
+                  setValue=function(v)
+                      Set("tabPadding", v)
+                      if ECHAT.ApplyTabPadding then ECHAT.ApplyTabPadding() end
+                  end })
+            y = y - h
+
+            _, h = W:DualRow(parent, y,
+                { type="slider", text="Tab Height", min=18, max=40, step=1,
+                  getValue=function() return Cfg("tabHeight") or 24 end,
+                  setValue=function(v)
+                      Set("tabHeight", v)
+                      if ECHAT.ApplyTabLayout then ECHAT.ApplyTabLayout() end
+                  end },
+                { type="slider", text="Inner Padding X", min=0, max=30, step=1,
+                  getValue=function() return Cfg("tabInnerPaddingX") or 12 end,
+                  setValue=function(v)
+                      Set("tabInnerPaddingX", v)
+                      if ECHAT.ApplyTabLayout then ECHAT.ApplyTabLayout() end
+                  end })
+            y = y - h
+
+            _, h = W:SectionHeader(parent, "TYPOGRAPHY", y); y = y - h
+            do
+                local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
+                _, h = W:DualRow(parent, y,
+                    { type="dropdown", text="Tab Font",
+                      values=fontValues, order=fontOrder,
+                      getValue=function() return Cfg("tabFont") or "__global" end,
+                      setValue=function(v)
+                          Set("tabFont", v)
+                          if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
+                          if ECHAT.ApplyTabLayout then ECHAT.ApplyTabLayout() end
+                      end },
+                    { type="slider", text="Tab Font Size", min=8, max=24, step=1,
+                      getValue=function() return Cfg("tabFontSize") or 11 end,
+                      setValue=function(v)
+                          Set("tabFontSize", v)
+                          if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
+                          if ECHAT.ApplyTabLayout then ECHAT.ApplyTabLayout() end
+                      end })
+                y = y - h
+            end
+
+            local function FontColorSwatch(active)
+                local key = active and "tabFontColorActive" or "tabFontColor"
+                local fallback = active and {r=1,g=1,b=1,a=1} or {r=1,g=1,b=1,a=.65}
+                return {
+                    { tooltip=active and "Active Tab Font Color" or "Tab Font Color", hasAlpha=true,
+                      getValue=function()
+                          local c=Cfg(key) or fallback
+                          return c.r,c.g,c.b,c.a == nil and fallback.a or c.a
+                      end,
+                      setValue=function(r,g,b,a)
+                          Set(key,{r=r,g=g,b=b,a=a})
+                          if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
+                      end },
+                }
+            end
+            _, h = W:DualRow(parent, y,
+                { type="multiSwatch", text="Tab Font Color", swatches=FontColorSwatch(false) },
+                { type="multiSwatch", text="Tab Font Color Active", swatches=FontColorSwatch(true) })
+            y = y - h
+
+            _, h = W:SectionHeader(parent, "APPEARANCE", y); y = y - h
+            local function TabBackgroundSwatch(active)
+                local key = active and "tabBackgroundColorActive" or "tabBackgroundColor"
+                local fallback = active
+                    and {r=.03,g=.045,b=.05,a=.65}
+                    or {r=.03,g=.045,b=.05,a=.44}
+                return {
+                    { tooltip=active and "Active Tab Background Color" or "Tab Background Color", hasAlpha=true,
+                      getValue=function()
+                          local c=Cfg(key) or fallback
+                          return c.r,c.g,c.b,c.a == nil and fallback.a or c.a
+                      end,
+                      setValue=function(r,g,b,a)
+                          Set(key,{r=r,g=g,b=b,a=a})
+                          if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
+                      end,
+                    },
+                }
+            end
+            _, h = W:DualRow(parent, y,
+                { type="multiSwatch", text="Tab Background Color", swatches=TabBackgroundSwatch(false) },
+                { type="multiSwatch", text="Tab Background Color Active", swatches=TabBackgroundSwatch(true) })
+            y = y - h
+
+            local function UnderlineSwatches()
+                return {
+                    { tooltip="Custom Color", hasAlpha=true,
+                      getValue=function()
+                          local c=Cfg("activeUnderlineColor") or {r=.05,g=.82,b=.61,a=1}
+                          return c.r,c.g,c.b,c.a == nil and 1 or c.a
+                      end,
+                      setValue=function(r,g,b,a)
+                          Set("activeUnderlineColor",{r=r,g=g,b=b,a=a})
+                          Set("activeUnderlineColorMode","custom")
+                          if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
+                      end,
+                      onClick=function(self)
+                          if (Cfg("activeUnderlineColorMode") or "accent") ~= "custom" then
+                              Set("activeUnderlineColorMode","custom")
+                              if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
+                              EllesmereUI:RefreshPage(); return
+                          end
+                          if self._eabOrigClick then self._eabOrigClick(self) end
+                      end,
+                      refreshAlpha=function() return (Cfg("activeUnderlineColorMode") or "accent") == "custom" and 1 or .3 end },
+                    { tooltip="Accent Color", hasAlpha=false,
+                      getValue=function() return EllesmereUI.GetAccentColor() end,
+                      setValue=function() end,
+                      onClick=function()
+                          Set("activeUnderlineColorMode","accent")
+                          if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
+                          EllesmereUI:RefreshPage()
+                      end,
+                      refreshAlpha=function() return (Cfg("activeUnderlineColorMode") or "accent") == "accent" and 1 or .3 end },
+                    { tooltip="Border Color", hasAlpha=false,
+                      getValue=function()
+                          local mode=Cfg("panelBorderColorMode") or "custom"
+                          if mode=="accent" then return EllesmereUI.GetAccentColor() end
+                          if mode=="class" then
+                              local _,cl=UnitClass("player"); local c=cl and RAID_CLASS_COLORS and RAID_CLASS_COLORS[cl]
+                              return c and c.r or 1,c and c.g or 1,c and c.b or 1
+                          end
+                          local c=Cfg("panelBorderColor") or {r=1,g=1,b=1}; return c.r,c.g,c.b
+                      end,
+                      setValue=function() end,
+                      onClick=function()
+                          Set("activeUnderlineColorMode","border")
+                          if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
+                          EllesmereUI:RefreshPage()
+                      end,
+                      refreshAlpha=function() return (Cfg("activeUnderlineColorMode") or "accent") == "border" and 1 or .3 end },
+                }
+            end
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Active Underline",
+                  getValue=function() return Cfg("activeUnderline") ~= false end,
+                  setValue=function(v)
+                      Set("activeUnderline",v)
+                      if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
+                  end },
+                { type="multiSwatch", text="Underline Color", swatches=UnderlineSwatches() })
+            y = y - h
+
+            _, h = W:SectionHeader(parent, "IDLE FADE", y); y = y - h
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Enable Idle Fade",
+                  getValue=function() return Cfg("tabIdleFadeEnabled") ~= false end,
+                  setValue=function(v)
+                      Set("tabIdleFadeEnabled", v)
+                      if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="label", text="" })
+            y = y - h
+            _, h = W:DualRow(parent, y,
+                { type="slider", text="Idle Fade Delay", min=5, max=30, step=1,
+                  disabled=function() return Cfg("tabIdleFadeEnabled") == false end,
+                  disabledTooltip="Enable Idle Fade",
+                  getValue=function() return Cfg("tabIdleFadeDelay") or 15 end,
+                  setValue=function(v)
+                      Set("tabIdleFadeDelay", v)
+                      if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
+                  end },
+                { type="slider", text="Idle Fade Strength", min=0, max=100, step=1,
+                  disabled=function() return Cfg("tabIdleFadeEnabled") == false end,
+                  disabledTooltip="Enable Idle Fade",
+                  getValue=function() return Cfg("tabIdleFadeStrength") or 40 end,
+                  setValue=function(v)
+                      Set("tabIdleFadeStrength", v)
+                      if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
+                  end })
+            y = y - h
+
+            _, h = W:SectionHeader(parent, "BORDER", y); y = y - h
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Sync Border with Chat Panel",
+                  disabled=function() return Cfg("extendBgBehindTabs") == true end,
+                  disabledTooltip="Tabs Inside Chat Panel",
+                  getValue=function() return Cfg("syncTabBorder") ~= false end,
+                  setValue=function(v)
+                      Set("syncTabBorder", v)
+                      if ECHAT.ApplyTabBorders then ECHAT.ApplyTabBorders() end
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="label", text="" })
+            y = y - h
+            local syncTabs = function() return Cfg("syncTabBorder") ~= false end
+            local tabBordersDisabled = function()
+                return Cfg("extendBgBehindTabs") == true or syncTabs()
+            end
+            local function TabBorderDisabledTip()
+                if Cfg("extendBgBehindTabs") then return "Tabs Inside Chat Panel" end
+                return "Sync Border with Chat Panel"
+            end
+            local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
+            local thicknessValues = {
+                none={text="None"}, thin={text="Thin"}, normal={text="Normal"},
+                heavy={text="Heavy"}, strong={text="Strong"},
+            }
+            local borderRow
+            borderRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Border Style",
+                  disabled=tabBordersDisabled, disabledTooltip=TabBorderDisabledTip,
+                  values=texValues, order=texOrder,
+                  getValue=function() return Cfg("tabBorderTexture") or "solid" end,
+                  setValue=function(v)
+                      Set("tabBorderTexture", v)
+                      Set("tabBorderOffsetX", nil); Set("tabBorderOffsetY", nil)
+                      Set("tabBorderShiftX", nil); Set("tabBorderShiftY", nil)
+                      local def = EllesmereUI.GetBorderDefaultSize("chat", v)
+                          or EllesmereUI.GetBorderTextureDefaultThickness(v)
+                      if def then Set("tabBorderThickness", def) end
+                      if ECHAT.ApplyTabBorders then ECHAT.ApplyTabBorders() end
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="dropdown", text="Border Size",
+                  disabled=tabBordersDisabled, disabledTooltip=TabBorderDisabledTip,
+                  values=thicknessValues, order={"none","thin","normal","heavy","strong"},
+                  getValue=function() return Cfg("tabBorderThickness") or "thin" end,
+                  setValue=function(v)
+                      Set("tabBorderThickness", v)
+                      if ECHAT.ApplyTabBorders then ECHAT.ApplyTabBorders() end
+                  end })
+            y = y - h
+
+            do
+                local rgn = borderRow._leftRegion
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title="Tab Border Offset", captureRegion=rgn,
+                    rows={
+                        { type="slider", label="Offset X", min=-10, max=10, step=1,
+                          get=function()
+                              local v=Cfg("tabBorderOffsetX"); if v~=nil then return v end
+                              return EllesmereUI.GetBorderDefaults("chat",Cfg("tabBorderTexture") or "solid",Cfg("tabBorderThickness") or "thin")
+                          end,
+                          set=function(v) Set("tabBorderOffsetX", v); ECHAT.ApplyTabBorders() end },
+                        { type="slider", label="Offset Y", min=-10, max=10, step=1,
+                          get=function()
+                              local v=Cfg("tabBorderOffsetY"); if v~=nil then return v end
+                              local _,d=EllesmereUI.GetBorderDefaults("chat",Cfg("tabBorderTexture") or "solid",Cfg("tabBorderThickness") or "thin"); return d
+                          end,
+                          set=function(v) Set("tabBorderOffsetY", v); ECHAT.ApplyTabBorders() end },
+                        { type="slider", label="Shift X", min=-10, max=10, step=1,
+                          get=function()
+                              local v=Cfg("tabBorderShiftX"); if v~=nil then return v end
+                              local _,_,d=EllesmereUI.GetBorderDefaults("chat",Cfg("tabBorderTexture") or "solid",Cfg("tabBorderThickness") or "thin"); return d
+                          end,
+                          set=function(v) Set("tabBorderShiftX", v == 0 and nil or v); ECHAT.ApplyTabBorders() end },
+                        { type="slider", label="Shift Y", min=-10, max=10, step=1,
+                          get=function()
+                              local v=Cfg("tabBorderShiftY"); if v~=nil then return v end
+                              local _,_,_,d=EllesmereUI.GetBorderDefaults("chat",Cfg("tabBorderTexture") or "solid",Cfg("tabBorderThickness") or "thin"); return d
+                          end,
+                          set=function(v) Set("tabBorderShiftY", v == 0 and nil or v); ECHAT.ApplyTabBorders() end },
+                    },
+                })
+                local btn = CreateFrame("Button", nil, rgn)
+                btn:SetSize(26,26); btn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+                btn:SetFrameLevel(rgn:GetFrameLevel()+5)
+                local tex = btn:CreateTexture(nil,"OVERLAY"); tex:SetAllPoints(); tex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+                local function Refresh() btn:SetAlpha(tabBordersDisabled() and 0.15 or 0.4) end
+                btn:SetScript("OnEnter", function(self)
+                    if tabBordersDisabled() then EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip(TabBorderDisabledTip()))
+                    else self:SetAlpha(0.7) end
+                end)
+                btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip(); Refresh() end)
+                btn:SetScript("OnClick", function(self) if not tabBordersDisabled() then cogShow(self) end end)
+                EllesmereUI.RegisterWidgetRefresh(Refresh); Refresh()
+            end
+
+            do
+                local rgn, ctrl = borderRow._rightRegion, borderRow._rightRegion._control
+                local function SetMode(mode)
+                    if tabBordersDisabled() then return end
+                    Set("tabBorderColorMode", mode); ECHAT.ApplyTabBorders(); EllesmereUI:RefreshPage()
+                end
+                local classSw, refreshClass = EllesmereUI.BuildColorSwatch(rgn, borderRow:GetFrameLevel()+3,
+                    function() local _,cl=UnitClass("player"); local c=cl and RAID_CLASS_COLORS and RAID_CLASS_COLORS[cl]; return c and c.r or 1,c and c.g or 1,c and c.b or 1 end,
+                    function() end, false, 20)
+                PP.Point(classSw,"RIGHT",ctrl,"LEFT",-8,0); classSw:SetScript("OnClick",function() SetMode("class") end)
+                local accentSw, refreshAccent = EllesmereUI.BuildColorSwatch(rgn, borderRow:GetFrameLevel()+3,
+                    function() return EllesmereUI.GetAccentColor() end, function() end, false, 20)
+                PP.Point(accentSw,"RIGHT",classSw,"LEFT",-8,0); accentSw:SetScript("OnClick",function() SetMode("accent") end)
+                local customSw, refreshCustom = EllesmereUI.BuildColorSwatch(rgn, borderRow:GetFrameLevel()+3,
+                    function() local c=Cfg("tabBorderColor") or {r=1,g=1,b=1}; return c.r,c.g,c.b,Cfg("tabBorderOpacity") or 0.18 end,
+                    function(r,g,b,a) Set("tabBorderColor",{r=r,g=g,b=b}); Set("tabBorderOpacity",a); Set("tabBorderColorMode","custom"); ECHAT.ApplyTabBorders() end,
+                    true,20)
+                PP.Point(customSw,"RIGHT",accentSw,"LEFT",-8,0)
+                local orig=customSw:GetScript("OnClick")
+                customSw:SetScript("OnClick",function(self,...)
+                    if tabBordersDisabled() then return end
+                    if (Cfg("tabBorderColorMode") or "custom") ~= "custom" then SetMode("custom") elseif orig then orig(self,...) end
+                end)
+                local function Refresh()
+                    refreshClass(); refreshAccent(); refreshCustom()
+                    local off, mode=tabBordersDisabled(), Cfg("tabBorderColorMode") or "custom"
+                    customSw:SetAlpha(off and .15 or (mode=="custom" and 1 or .3))
+                    accentSw:SetAlpha(off and .15 or (mode=="accent" and 1 or .3))
+                    classSw:SetAlpha(off and .15 or (mode=="class" and 1 or .3))
+                end
+                EllesmereUI.RegisterWidgetRefresh(Refresh); Refresh()
+            end
+        end -- isTabs
+
         -- -- EXTRAS ------------------------------------------------------------
+        if isChat then
         _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
 
         -- Row 1: Remember Last Chat Lines (+ cog: Max Lines) | Hide Tooltip on Hover
@@ -578,7 +1129,8 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h ]]
 
         -- Row 1: Hide Tooltip on Hover | Hide Borders
-        _, h = W:DualRow(parent, y,
+        local extrasBorderRow
+        extrasBorderRow, h = W:DualRow(parent, y,
             { type="toggle", text="Hide Tooltip on Hover",
               getValue=function() return Cfg("hideTooltipOnHover") or false end,
               setValue=function(v) Set("hideTooltipOnHover", v) end },
@@ -587,7 +1139,33 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   Set("hideBorders", v)
                   if ECHAT.ApplyBorders then ECHAT.ApplyBorders() end
+                  EllesmereUI:RefreshPage()
               end })
+        do
+            local rgn = extrasBorderRow._rightRegion
+            local ctrl = rgn._control
+            local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, extrasBorderRow:GetFrameLevel() + 3,
+                function()
+                    local c = Cfg("innerBorderColor") or { r=1, g=1, b=1, a=0.06 }
+                    return c.r, c.g, c.b, c.a == nil and 0.06 or c.a
+                end,
+                function(r, g, b, a)
+                    Set("innerBorderColor", { r=r, g=g, b=b, a=a })
+                    if ECHAT.ApplyBorders then ECHAT.ApplyBorders() end
+                end,
+                true, 20)
+            PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            swatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(swatch, "Inner Border Color")
+            end)
+            swatch:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                refreshSwatch()
+                swatch:SetAlpha(Cfg("hideBorders") and 0.3 or 1)
+            end)
+            swatch:SetAlpha(Cfg("hideBorders") and 0.3 or 1)
+        end
         y = y - h
 
         -- Row 2: Input on Top | Lock Main Chat Size
@@ -642,6 +1220,8 @@ initFrame:SetScript("OnEvent", function(self)
             { type="label", text="" })
         y = y - h
 
+        end -- isChat
+
         return math.abs(y)
     end
 
@@ -650,9 +1230,9 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUIChat", {
         title       = "Chat",
         description = "Chat frame reskin, clickable URLs, copy chat, sidebar icons.",
-        pages       = { "Chat" },
+        pages       = { "Chat", "Tabs", "Sidebar" },
         buildPage   = function(pageName, p, yOffset) return BuildPage(pageName, p, yOffset) end,
-        searchTerms = "chat url copy whisper sidebar friends voice",
+        searchTerms = "chat tabs border spacing background sidebar friends voice url copy whisper",
         onReset = function()
             local d = _G._ECHAT_DB
             if d and d.ResetProfile then d:ResetProfile() end
