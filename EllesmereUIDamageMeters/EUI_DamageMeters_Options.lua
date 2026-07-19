@@ -408,6 +408,32 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
+        -- Solid separator along the bottom edge of the header bar.
+        local hdrBorderRow
+        hdrBorderRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Header Bottom Border",
+              values=borderSizeValues, order=borderSizeOrder,
+              getValue=function() return tostring(Cfg("hdrBottomBorderSize") or 0) end,
+              setValue=function(v) Set("hdrBottomBorderSize", tonumber(v) or 0); ApplyHdr() end },
+            { type="label", text="" })
+        do
+            local rgn, ctrl = hdrBorderRow._leftRegion, hdrBorderRow._leftRegion._control
+            local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, hdrBorderRow:GetFrameLevel() + 3,
+                function()
+                    local c = Cfg("hdrBottomBorderColor") or {}
+                    return c.r or 0, c.g or 0, c.b or 0, c.a or 1
+                end,
+                function(r, g, b, a)
+                    Set("hdrBottomBorderColor", { r=r, g=g, b=b, a=a or 1 })
+                    ApplyHdr()
+                end,
+                true, 20)
+            PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
+        end
+        y = y - h
+
         -- Row 2: Top Text Size (+ inline dual swatches) | Icon Size (+ inline dual swatches)
         local hdrRow2
         hdrRow2, h = W:DualRow(parent, y,

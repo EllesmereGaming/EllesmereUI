@@ -231,6 +231,8 @@ local DM_DEFAULTS = {
             hideResetButton = false, -- display the "reset data" button on the damage meter header
             hdrBgColor      = { r = 0x1B/255, g = 0x1B/255, b = 0x1B/255 },
             hdrBgAlpha      = 1,
+            hdrBottomBorderSize = 0,
+            hdrBottomBorderColor = { r = 0, g = 0, b = 0, a = 1 },
             hdrHeight       = 22,
             hdrFontSize     = 11,
             hdrTextOffX     = 0,
@@ -2460,6 +2462,16 @@ local function CreateDMWindow(winIdx)
 
     do local hc = cfg.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
     header._hdrBg = header:CreateTexture(nil, "BACKGROUND"); header._hdrBg:SetAllPoints(); header._hdrBg:SetColorTexture(hR, hG, hB, cfg.hdrBgAlpha or 1) end
+    header._bottomBorder = header:CreateTexture(nil, "OVERLAY", nil, 7)
+    header._bottomBorder:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
+    header._bottomBorder:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
+    do
+        local size = cfg.hdrBottomBorderSize or 0
+        local color = cfg.hdrBottomBorderColor or {}
+        header._bottomBorder:SetHeight(PhysicalPixels(size))
+        header._bottomBorder:SetColorTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
+        header._bottomBorder:SetShown(size > 0)
+    end
 
     local hdrFS = cfg.hdrFontSize or 11
     local txOX, txOY = cfg.hdrTextOffX or 0, cfg.hdrTextOffY or 0
@@ -4487,6 +4499,13 @@ ns.ApplyHeader = function()
         if w.header then
             w.header:SetHeight(hdrH)
             if w.header._hdrBg then w.header._hdrBg:SetColorTexture(hR, hG, hB, hA) end
+            if w.header._bottomBorder then
+                local size = cfg.hdrBottomBorderSize or 0
+                local color = cfg.hdrBottomBorderColor or {}
+                w.header._bottomBorder:SetHeight(PhysicalPixels(size))
+                w.header._bottomBorder:SetColorTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
+                w.header._bottomBorder:SetShown(size > 0)
+            end
         end
         if w.frame and w.frame._bg then
             w.frame._bg:ClearAllPoints()
