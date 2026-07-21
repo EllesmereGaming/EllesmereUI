@@ -903,6 +903,7 @@ initFrame:SetScript("OnEvent", function(self)
                       Set("extendBgBehindTabs", v)
                       if ECHAT.ApplyTabPadding then ECHAT.ApplyTabPadding() end
                       if ECHAT.ApplyTabSpacing then ECHAT.ApplyTabSpacing() end
+                      if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
                       EllesmereUI:RefreshPage()
                   end },
                 { type="toggle", text="Align Tabs to Full Panel",
@@ -932,6 +933,7 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v)
                       Set("tabHeight", v)
                       if ECHAT.ApplyTabLayout then ECHAT.ApplyTabLayout() end
+                      if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
                   end },
                 { type="slider", text="Inner Padding X", min=0, max=30, step=1,
                   getValue=function() return Cfg("tabInnerPaddingX") or 12 end,
@@ -1188,9 +1190,29 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 2: Input on Top | Lock Main Chat Size
+        -- Row 2: Input in Tab Bar | (empty)
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Input in Tab Bar",
+              tooltip="Places the chat input inside the tab bar. Tabs fade out while the input is active.",
+              disabled=function() return Cfg("extendBgBehindTabs") ~= true end,
+              disabledTooltip="Tabs Inside Chat Panel",
+              getValue=function() return Cfg("inputInTabBar") == true end,
+              setValue=function(v)
+                  Set("inputInTabBar", v)
+                  if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="label", text="" })
+        y = y - h
+
+        -- Row 3: Input on Top | Lock Main Chat Size
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Input on Top",
+              disabled=function()
+                  return Cfg("extendBgBehindTabs") == true
+                      and Cfg("inputInTabBar") == true
+              end,
+              disabledTooltip="Input in Tab Bar",
               getValue=function() return Cfg("inputOnTop") or false end,
               setValue=function(v)
                   Set("inputOnTop", v)
@@ -1205,7 +1227,7 @@ initFrame:SetScript("OnEvent", function(self)
               end })
         y = y - h
 
-        -- Row 3: Whisper Sound | (empty)
+        -- Row 4: Whisper Sound | (empty)
         -- Sound dropdown: shallow-copy the runtime tables so _menuOpts
         -- (preview icon) doesn't pollute the shared tables.
         local whisperSoundValues = {}

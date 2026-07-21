@@ -113,6 +113,7 @@ local CHAT_DEFAULTS = {
             idleFadeStrength = 40,
             idleFadeEnabled = true,
             inputOnTop = false,
+            inputInTabBar = false,
             lockChatSize = false,
             hideSidebarBg = false,
             sidebarIconScale = 1.0,
@@ -212,11 +213,12 @@ local _tabFadeFrame = CreateFrame("Frame")
 _tabFadeFrame:Hide()
 local _euiDockStyled
 local _dockAlphaHooked = false
+local _inputInTabBarActive = false
 
 -- Tabs never idle-fade. This fixed target also lets the SetAlpha hooks below
 -- override Blizzard's own dock/tab fade while preserving visibility rules.
 local function GetEffectiveTabAlpha()
-    return 1
+    return _inputInTabBarActive and 0 or 1
 end
 
 local function SetTabAlphaTarget(alpha)
@@ -237,6 +239,8 @@ local function ApplyTabFadeAlpha(alpha)
             if border then border:SetAlpha(border:GetParent() == tab and 1 or alpha) end
         end
     end
+    local overflow = _G.GeneralDockManagerOverflowButton
+    if overflow then overflow:SetAlpha(alpha * 0.5) end
     if ns._tabPanelBottomSeparator then ns._tabPanelBottomSeparator:SetAlpha(alpha) end
     ECHAT._applyingTabAlpha = false
 end
@@ -696,6 +700,8 @@ end
 function ECHAT.ApplyBorders()
     local cfg = ECHAT.DB()
     local hide = cfg.hideBorders
+    local inputInTabBar = cfg.extendBgBehindTabs == true
+        and cfg.inputInTabBar == true
     local r, g, b, a = GetInnerBorderColor(cfg)
 
     for i = 1, 20 do
@@ -706,7 +712,7 @@ function ECHAT.ApplyBorders()
         end
         if cf and CFD(cf).inputDiv then
             CFD(cf).inputDiv:SetColorTexture(r, g, b, a)
-            CFD(cf).inputDiv:SetShown(not hide)
+            CFD(cf).inputDiv:SetShown(not hide and not inputInTabBar)
         end
     end
     local cf1 = _G.ChatFrame1
@@ -1631,10 +1637,12 @@ function ECHAT.TogglePortalFlyout(anchorBtn)
     end
 end
 
--- Flip edit box between bottom (default) and top of chat panel
+-- Flip edit box between bottom (default), top of chat, or the internal tab bar.
 function ECHAT.ApplyInputPosition()
     local cfg = ECHAT.DB()
     local onTop = cfg.inputOnTop
+    local inTabBar = cfg.extendBgBehindTabs == true
+        and cfg.inputInTabBar == true
 
     for i = 1, 20 do
         local cf = _G["ChatFrame" .. i]
@@ -1649,30 +1657,40 @@ function ECHAT.ApplyInputPosition()
 
             if eb then
                 eb:ClearAllPoints()
-                if onTop then
+                if inTabBar then
+                    eb:SetPoint("BOTTOMLEFT", cf, "TOPLEFT", -10, 3)
+                    eb:SetPoint("BOTTOMRIGHT", cf, "TOPRIGHT", 5, 3)
+                    eb:SetHeight(GetTabHeight())
+                elseif onTop then
                     eb:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, 3)
                     eb:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, 3)
+                    eb:SetHeight(23)
                 else
                     eb:SetPoint("TOPLEFT", cf, "BOTTOMLEFT", -10, -8)
                     eb:SetPoint("TOPRIGHT", cf, "BOTTOMRIGHT", 5, -8)
+                    eb:SetHeight(23)
                 end
             end
 
             if div then
                 div:ClearAllPoints()
-                if onTop then
+                if inTabBar then
+                    div:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, 3)
+                    div:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 10, 3)
+                elseif onTop then
                     div:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, -20)
                     div:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 10, -20)
                 else
                     div:SetPoint("BOTTOMLEFT", cf, "BOTTOMLEFT", -10, -8)
                     div:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 10, -8)
                 end
+                div:SetShown(not cfg.hideBorders and not inTabBar)
             end
 
             if bg then
                 bg:ClearAllPoints()
                 bg:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, 3)
-                if onTop then
+                if inTabBar or onTop then
                     bg:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 10, -6)
                 else
                     bg:SetPoint("BOTTOMRIGHT", eb or cf, "BOTTOMRIGHT", 5, eb and -4 or -6)
@@ -1681,7 +1699,7 @@ function ECHAT.ApplyInputPosition()
 
             if fsc then
                 fsc:ClearAllPoints()
-                if onTop then
+                if onTop and not inTabBar then
                     fsc:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, -22)
                 else
                     fsc:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, -6)
@@ -1691,7 +1709,7 @@ function ECHAT.ApplyInputPosition()
 
             if bar then
                 bar:ClearAllPoints()
-                if onTop then
+                if onTop and not inTabBar then
                     bar:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, -22)
                 else
                     bar:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, -2)
@@ -1700,6 +1718,33 @@ function ECHAT.ApplyInputPosition()
             end
         end
     end
+    if ECHAT.RefreshInputInTabBarState then
+        ECHAT.RefreshInputInTabBarState()
+    end
+end
+
+-- Tabs yield the shared strip while a chat edit box is active. Scan instead of
+-- trusting a single focus-lost callback so switching between docked chat edit
+-- boxes cannot briefly restore the tabs over the new input box.
+function ECHAT.RefreshInputInTabBarState()
+    local cfg = ECHAT.DB()
+    local enabled = cfg.extendBgBehindTabs == true
+        and cfg.inputInTabBar == true
+    local focused = false
+    if enabled then
+        for i = 1, 10 do
+            local eb = _G["ChatFrame" .. i .. "EditBox"]
+            if eb then
+                local hasFocus = eb:HasFocus()
+                if not (issecretvalue and issecretvalue(hasFocus)) and hasFocus then
+                    focused = true
+                    break
+                end
+            end
+        end
+    end
+    _inputInTabBarActive = enabled and focused
+    SetTabAlphaTarget(min(_visAlpha, GetEffectiveTabAlpha()))
 end
 
 -- Internal: immediately apply alpha to all chat elements
@@ -2921,7 +2966,19 @@ local function SkinEditBox(cf)
     -- skinning only. (This matches the function header's stated intent and the
     -- 1-10 header-font gate in ECHAT.ApplyFonts.)
     if idx <= 10 then
-        eb:HookScript("OnEditFocusGained", function(self) ApplyEditBoxHeaderFont(self) end)
+        eb:HookScript("OnEditFocusGained", function(self)
+            ApplyEditBoxHeaderFont(self)
+            if ECHAT.RefreshInputInTabBarState then
+                ECHAT.RefreshInputInTabBarState()
+            end
+        end)
+        eb:HookScript("OnEditFocusLost", function()
+            C_Timer.After(0, function()
+                if ECHAT.RefreshInputInTabBarState then
+                    ECHAT.RefreshInputInTabBarState()
+                end
+            end)
+        end)
 
         -- Plain Up/Down input recall. The Midnight edit box performs no
         -- native recall on plain arrows regardless of alt-arrow mode, so the
@@ -3914,7 +3971,7 @@ initFrame:SetScript("OnEvent", function(self)
             if _visChatVisible then
                 ECHAT.SetIdleFadeAlpha(1)
             end
-            SetTabAlphaTarget(min(_visAlpha, 1))
+            SetTabAlphaTarget(min(_visAlpha, GetEffectiveTabAlpha()))
         end
 
         function ECHAT.ResetIdleTimer()
