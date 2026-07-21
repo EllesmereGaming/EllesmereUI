@@ -112,8 +112,7 @@ local CHAT_DEFAULTS = {
             idleFadeDelay = 15,
             idleFadeStrength = 40,
             idleFadeEnabled = true,
-            inputOnTop = false,
-            inputInTabBar = false,
+            inputPosition = "bottom",
             lockChatSize = false,
             hideSidebarBg = false,
             sidebarIconScale = 1.0,
@@ -294,6 +293,16 @@ local function GetTabPadding()
 end
 local function GetTabAreaHeight()
     return GetTabHeight() + GetTabPadding()
+end
+
+-- Read the new enum while retaining a defensive bridge for profiles that reach
+-- runtime before the registered/import migration has converted the old flags.
+local function GetInputPosition(cfg)
+    local mode = cfg.inputPosition
+    if mode == "top" or mode == "bottom" or mode == "inner" then return mode end
+    if cfg.inputInTabBar == true then return "inner" end
+    if cfg.inputOnTop == true then return "top" end
+    return "bottom"
 end
 
 -- Batch cursor check: reads cursor position once, tests a frame using
@@ -701,7 +710,7 @@ function ECHAT.ApplyBorders()
     local cfg = ECHAT.DB()
     local hide = cfg.hideBorders
     local inputInTabBar = cfg.extendBgBehindTabs == true
-        and cfg.inputInTabBar == true
+        and GetInputPosition(cfg) == "inner"
     local r, g, b, a = GetInnerBorderColor(cfg)
 
     for i = 1, 20 do
@@ -1640,9 +1649,10 @@ end
 -- Flip edit box between bottom (default), top of chat, or the internal tab bar.
 function ECHAT.ApplyInputPosition()
     local cfg = ECHAT.DB()
-    local onTop = cfg.inputOnTop
+    local inputPosition = GetInputPosition(cfg)
+    local onTop = inputPosition == "top"
     local inTabBar = cfg.extendBgBehindTabs == true
-        and cfg.inputInTabBar == true
+        and inputPosition == "inner"
 
     for i = 1, 20 do
         local cf = _G["ChatFrame" .. i]
@@ -1729,7 +1739,7 @@ end
 function ECHAT.RefreshInputInTabBarState()
     local cfg = ECHAT.DB()
     local enabled = cfg.extendBgBehindTabs == true
-        and cfg.inputInTabBar == true
+        and GetInputPosition(cfg) == "inner"
     local focused = false
     if enabled then
         for i = 1, 10 do

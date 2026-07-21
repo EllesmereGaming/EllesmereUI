@@ -1221,15 +1221,27 @@ function EllesmereUI.ApplyProfileData(profileData)
                 -- Modern exports carry the marker and retain their sparse/default
                 -- semantics; explicit values from either format always win.
                 if entry.folder == "EllesmereUIChat"
-                    and type(profile.chat) == "table"
-                    and profile.chat._featureOptionsVersion == nil then
-                    if profile.chat.tabFontSize == nil then
-                        profile.chat.tabFontSize = 10
+                    and type(profile.chat) == "table" then
+                    local chat = profile.chat
+                    -- Convert both legacy input flags before the new default can
+                    -- mask their absence. inputInTabBar had priority at runtime.
+                    if chat.inputPosition == nil then
+                        if chat.inputInTabBar == true then
+                            chat.inputPosition = "inner"
+                        elseif chat.inputOnTop == true then
+                            chat.inputPosition = "top"
+                        else
+                            chat.inputPosition = "bottom"
+                        end
                     end
-                    if profile.chat.syncTabBorder == nil then
-                        profile.chat.syncTabBorder = false
+                    chat.inputOnTop = nil
+                    chat.inputInTabBar = nil
+
+                    if chat._featureOptionsVersion == nil then
+                        if chat.tabFontSize == nil then chat.tabFontSize = 10 end
+                        if chat.syncTabBorder == nil then chat.syncTabBorder = false end
+                        chat._featureOptionsVersion = 1
                     end
-                    profile.chat._featureOptionsVersion = 1
                 end
                 if db._profileDefaults then
                     EllesmereUI.Lite.DeepMergeDefaults(profile, db._profileDefaults)

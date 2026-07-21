@@ -2134,6 +2134,33 @@ EllesmereUI.RegisterMigration({
 })
 
 EllesmereUI.RegisterMigration({
+    id          = "chat_input_position_v1",
+    scope       = "global",
+    description = "Convert Chat inputOnTop/inputInTabBar booleans to the top/bottom/inner inputPosition dropdown without changing existing layouts.",
+    body = function(ctx)
+        local profiles = ctx.db and ctx.db.profiles
+        if not profiles then return end
+        for _, profileData in pairs(profiles) do
+            local addon = profileData.addons and profileData.addons.EllesmereUIChat
+            local chat = addon and addon.chat
+            if chat and chat.inputPosition == nil then
+                if chat.inputInTabBar == true then
+                    chat.inputPosition = "inner"
+                elseif chat.inputOnTop == true then
+                    chat.inputPosition = "top"
+                else
+                    chat.inputPosition = "bottom"
+                end
+            end
+            if chat then
+                chat.inputOnTop = nil
+                chat.inputInTabBar = nil
+            end
+        end
+    end,
+})
+
+EllesmereUI.RegisterMigration({
     id          = "np_border_ellesmere_to_simple_v3",
     scope       = "profile",
     description = "No-op (superseded by np_border_v5).",

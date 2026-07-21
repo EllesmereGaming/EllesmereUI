@@ -1190,32 +1190,34 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 2: Input in Tab Bar | (empty)
+        -- Row 2: Input Position | Lock Main Chat Size
+        local inputPositionValues = {
+            top    = { text="Top" },
+            bottom = { text="Bottom" },
+            inner  = { text="Inner" },
+        }
         _, h = W:DualRow(parent, y,
-            { type="toggle", text="Input in Tab Bar",
-              tooltip="Places the chat input inside the tab bar. Tabs fade out while the input is active.",
-              disabled=function() return Cfg("extendBgBehindTabs") ~= true end,
-              disabledTooltip="Tabs Inside Chat Panel",
-              getValue=function() return Cfg("inputInTabBar") == true end,
-              setValue=function(v)
-                  Set("inputInTabBar", v)
-                  if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
-                  EllesmereUI:RefreshPage()
-              end },
-            { type="label", text="" })
-        y = y - h
-
-        -- Row 3: Input on Top | Lock Main Chat Size
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Input on Top",
-              disabled=function()
-                  return Cfg("extendBgBehindTabs") == true
-                      and Cfg("inputInTabBar") == true
+            { type="dropdown", text="Input Position",
+              tooltip="Inner places the chat input inside the tab bar and fades the tabs while input is active.",
+              values=inputPositionValues, order={"top", "bottom", "inner"},
+              itemDisabled=function(v)
+                  return v == "inner" and Cfg("extendBgBehindTabs") ~= true
               end,
-              disabledTooltip="Input in Tab Bar",
-              getValue=function() return Cfg("inputOnTop") or false end,
+              itemDisabledTooltip=function(v)
+                  if v == "inner" then return "Tabs Inside Chat Panel" end
+              end,
+              getValue=function()
+                  local mode = Cfg("inputPosition")
+                  if mode == "top" or mode == "bottom" or mode == "inner" then
+                      return mode
+                  end
+                  if Cfg("inputInTabBar") == true then return "inner" end
+                  return Cfg("inputOnTop") == true and "top" or "bottom"
+              end,
               setValue=function(v)
-                  Set("inputOnTop", v)
+                  Set("inputPosition", v)
+                  Set("inputOnTop", nil)
+                  Set("inputInTabBar", nil)
                   if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
               end },
             { type="toggle", text="Lock Main Chat Size",
@@ -1227,7 +1229,7 @@ initFrame:SetScript("OnEvent", function(self)
               end })
         y = y - h
 
-        -- Row 4: Whisper Sound | (empty)
+        -- Row 3: Whisper Sound | (empty)
         -- Sound dropdown: shallow-copy the runtime tables so _menuOpts
         -- (preview icon) doesn't pollute the shared tables.
         local whisperSoundValues = {}
