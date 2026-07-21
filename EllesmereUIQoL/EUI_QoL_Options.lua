@@ -2130,6 +2130,270 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         ---------------------------------------------------------------------------
+        --  HEALER MANA
+        ---------------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "HEALER MANA", y);  y = y - h
+
+        if EllesmereUI._registerHealerManaUnlockElement then
+            pcall(EllesmereUI._registerHealerManaUnlockElement)
+        end
+        if EllesmereUI._healerManaHidePreview then
+            pcall(EllesmereUI._healerManaHidePreview)
+        end
+
+        local function ApplyHealerMana()
+            if not EllesmereUI._applyHealerMana then return end
+            local ok, err = pcall(EllesmereUI._applyHealerMana)
+            if not ok and geterrorhandler then
+                geterrorhandler()(err)
+            end
+        end
+        local function HideHealerManaPreview()
+            if not EllesmereUI._healerManaHidePreview then return end
+            local ok, err = pcall(EllesmereUI._healerManaHidePreview)
+            if not ok and geterrorhandler then
+                geterrorhandler()(err)
+            end
+        end
+        local function ShowHealerManaPreview()
+            if not EllesmereUI._healerManaPreview then return end
+            local ok, err = pcall(EllesmereUI._healerManaPreview)
+            if not ok and geterrorhandler then
+                geterrorhandler()(err)
+            end
+        end
+
+        local healerManaRow
+        healerManaRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Healer Mana",
+              tooltip="Shows your assigned healer's mana percentage in 5-player groups. Use Unlock Mode to reposition it.",
+              getValue=function()
+                  return EllesmereUI.QoLExtrasGet("healerManaEnabled") or false
+              end,
+              setValue=function(v)
+                  EllesmereUI.QoLExtrasSet("healerManaEnabled", v)
+                  if not v then
+                      HideHealerManaPreview()
+                  end
+                  ApplyHealerMana()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="dropdown", text="Visibility",
+              tooltip="Choose when the healer mana text is shown.",
+              disabled=function()
+                  return not EllesmereUI.QoLExtrasGet("healerManaEnabled")
+              end,
+              disabledTooltip="Enable Healer Mana to set its visibility.", rawTooltip=true,
+              values={ ["_placeholder"]="..." }, order={ "_placeholder" },
+              getValue=function() return "_placeholder" end,
+              setValue=function() end }
+        );  y = y - h
+
+        -- Match the Crosshair visibility control: 200px checkbox dropdown,
+        -- with exclusive choices for this feature's single visibility mode.
+        do
+            local visRgn = healerManaRow._rightRegion
+            if visRgn._control then visRgn._control:Hide() end
+
+            local visItems = {
+                { key = "always", label = "Always",
+                  tooltip = "Always show healer mana when a 5-player healer is found." },
+                { key = "combat", label = "Combat",
+                  tooltip = "Show healer mana only while in combat." },
+                { key = "instance", label = "Instance",
+                  tooltip = "Show healer mana only while inside an instance." },
+            }
+            local visCB, visCBRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                visRgn, 200, visRgn:GetFrameLevel() + 2,
+                visItems,
+                function(k)
+                    return (EllesmereUI.QoLExtrasGet("healerManaVisibility") or "always") == k
+                end,
+                function(k, on)
+                    local nextValue = on and k or "always"
+                    EllesmereUI.QoLExtrasSet("healerManaVisibility", nextValue)
+                    ApplyHealerMana()
+                end)
+            PP.Point(visCB, "RIGHT", visRgn, "RIGHT", -20, 0)
+            visRgn._control = visCB
+            visRgn._lastInline = nil
+
+            local visBlock = CreateFrame("Frame", nil, visCB)
+            visBlock:SetAllPoints()
+            visBlock:SetFrameLevel(visCB:GetFrameLevel() + 20)
+            visBlock:EnableMouse(true)
+            visBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(visCB, "Enable Healer Mana to set its visibility.")
+            end)
+            visBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            local function visUpdateDisabled()
+                if not EllesmereUI.QoLExtrasGet("healerManaEnabled") then
+                    visCB:SetAlpha(0.4)
+                    visBlock:Show()
+                else
+                    visCB:SetAlpha(1)
+                    visBlock:Hide()
+                end
+            end
+            EllesmereUI.RegisterWidgetRefresh(visCBRefresh)
+            EllesmereUI.RegisterWidgetRefresh(visUpdateDisabled)
+            visUpdateDisabled()
+        end
+
+        do
+            local leftRgn = healerManaRow._leftRegion
+            local function healerManaOff()
+                return not EllesmereUI.QoLExtrasGet("healerManaEnabled")
+            end
+
+            local hmSwGet = function()
+                local c = EllesmereUI.QoLExtrasGet("healerManaColor")
+                if c then return c.r, c.g, c.b, c.a end
+                return 0.55, 0.78, 1, 1
+            end
+            local hmSwSet = function(r, g, b, a)
+                EllesmereUI.QoLExtrasSet("healerManaColor", { r = r, g = g, b = b, a = a or 1 })
+                ApplyHealerMana()
+            end
+            local hmSwatch, hmUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, hmSwGet, hmSwSet, true, 20)
+            PP.Point(hmSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
+            leftRgn._lastInline = hmSwatch
+
+            local hmSwBlock = CreateFrame("Frame", nil, hmSwatch)
+            hmSwBlock:SetAllPoints()
+            hmSwBlock:SetFrameLevel(hmSwatch:GetFrameLevel() + 10)
+            hmSwBlock:EnableMouse(true)
+            hmSwBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(hmSwatch, EllesmereUI.DisabledTooltip("Healer Mana"))
+            end)
+            hmSwBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            local _, hmCogShow = EllesmereUI.BuildCogPopup({
+                title = "Healer Mana Settings",
+                rows = {
+                    { type="slider", label="Text Size",
+                      min=8, max=48, step=1,
+                      get=function()
+                          return EllesmereUI.QoLExtrasGet("healerManaTextSize") or 24
+                      end,
+                      set=function(v)
+                          EllesmereUI.QoLExtrasSet("healerManaTextSize", v)
+                          ApplyHealerMana()
+                      end },
+                    { type="dropdown", label="Text Alignment",
+                      values={ LEFT="Left", CENTER="Center", RIGHT="Right" },
+                      order={ "LEFT", "CENTER", "RIGHT" },
+                      get=function()
+                          local value = EllesmereUI.QoLExtrasGet("healerManaTextAlignment")
+                          value = type(value) == "string" and value:upper() or "CENTER"
+                          return (value == "LEFT" or value == "RIGHT") and value or "CENTER"
+                      end,
+                      set=function(v)
+                          EllesmereUI.QoLExtrasSet("healerManaTextAlignment", v or "CENTER")
+                          ApplyHealerMana()
+                      end },
+                },
+            })
+            local hmCogBtn = CreateFrame("Button", nil, leftRgn)
+            hmCogBtn:SetSize(26, 26)
+            hmCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
+            leftRgn._lastInline = hmCogBtn
+            hmCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+            hmCogBtn:SetAlpha(healerManaOff() and 0.15 or 0.4)
+            local hmCogTex = hmCogBtn:CreateTexture(nil, "OVERLAY")
+            hmCogTex:SetAllPoints()
+            hmCogTex:SetTexture(EllesmereUI.COGS_ICON)
+            hmCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            hmCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(healerManaOff() and 0.15 or 0.4) end)
+            hmCogBtn:SetScript("OnClick", function(self) hmCogShow(self) end)
+
+            local hmCogBlock = CreateFrame("Frame", nil, hmCogBtn)
+            hmCogBlock:SetAllPoints()
+            hmCogBlock:SetFrameLevel(hmCogBtn:GetFrameLevel() + 10)
+            hmCogBlock:EnableMouse(true)
+            hmCogBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(hmCogBtn, EllesmereUI.DisabledTooltip("Healer Mana"))
+            end)
+            hmCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            local EYE_VISIBLE   = EllesmereUI.MEDIA_PATH .. "icons\\eui-visible.png"
+            local EYE_INVISIBLE = EllesmereUI.MEDIA_PATH .. "icons\\eui-invisible.png"
+            local healerManaPreviewShown = false
+            local hmEyeBtn = CreateFrame("Button", nil, leftRgn)
+            hmEyeBtn:SetSize(26, 26)
+            hmEyeBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+            leftRgn._lastInline = hmEyeBtn
+            hmEyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+            hmEyeBtn:SetAlpha(healerManaOff() and 0.15 or 0.4)
+            local hmEyeTex = hmEyeBtn:CreateTexture(nil, "OVERLAY")
+            hmEyeTex:SetAllPoints()
+            local function RefreshHealerManaEye()
+                hmEyeTex:SetTexture(healerManaPreviewShown and EYE_INVISIBLE or EYE_VISIBLE)
+            end
+            RefreshHealerManaEye()
+            hmEyeBtn:SetScript("OnEnter", function(self)
+                self:SetAlpha(0.7)
+                EllesmereUI.ShowWidgetTooltip(self, "Preview healer mana")
+            end)
+            hmEyeBtn:SetScript("OnLeave", function(self)
+                EllesmereUI.HideWidgetTooltip()
+                self:SetAlpha(healerManaOff() and 0.15 or 0.4)
+            end)
+            hmEyeBtn:SetScript("OnClick", function()
+                healerManaPreviewShown = not healerManaPreviewShown
+                RefreshHealerManaEye()
+                if healerManaPreviewShown then
+                    ShowHealerManaPreview()
+                else
+                    HideHealerManaPreview()
+                end
+            end)
+
+            local hmEyeBlock = CreateFrame("Frame", nil, hmEyeBtn)
+            hmEyeBlock:SetAllPoints()
+            hmEyeBlock:SetFrameLevel(hmEyeBtn:GetFrameLevel() + 10)
+            hmEyeBlock:EnableMouse(true)
+            hmEyeBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(hmEyeBtn, EllesmereUI.DisabledTooltip("Healer Mana"))
+            end)
+            hmEyeBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = healerManaOff()
+                if off then
+                    healerManaPreviewShown = false
+                    RefreshHealerManaEye()
+                    hmSwatch:SetAlpha(0.3)
+                    hmSwBlock:Show()
+                    hmCogBtn:SetAlpha(0.15)
+                    hmCogBlock:Show()
+                    hmEyeBtn:SetAlpha(0.15)
+                    hmEyeBlock:Show()
+                    HideHealerManaPreview()
+                else
+                    hmSwatch:SetAlpha(1)
+                    hmSwBlock:Hide()
+                    hmCogBtn:SetAlpha(0.4)
+                    hmCogBlock:Hide()
+                    hmEyeBtn:SetAlpha(0.4)
+                    hmEyeBlock:Hide()
+                end
+                hmUpdateSwatch()
+            end)
+
+            local hmInitOff = healerManaOff()
+            hmSwatch:SetAlpha(hmInitOff and 0.3 or 1)
+            if hmInitOff then hmSwBlock:Show() else hmSwBlock:Hide() end
+            hmCogBtn:SetAlpha(hmInitOff and 0.15 or 0.4)
+            if hmInitOff then hmCogBlock:Show() else hmCogBlock:Hide() end
+            hmEyeBtn:SetAlpha(hmInitOff and 0.15 or 0.4)
+            if hmInitOff then hmEyeBlock:Show() else hmEyeBlock:Hide() end
+        end
+
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+
+        ---------------------------------------------------------------------------
         --  UI
         ---------------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "UI", y);  y = y - h
@@ -2252,7 +2516,7 @@ initFrame:SetScript("OnEvent", function(self)
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
         pages       = { PAGE_QOL, PAGE_CURSOR, PAGE_AUTOLOG, PAGE_UPGCALC, PAGE_SHIFTER },
-        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger" },
+        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "healer", "healer mana", "mana", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger" },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_QOL then
                 return BuildQoLPage(pageName, parent, yOffset)
@@ -2271,6 +2535,14 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end,
         onReset = function()
+            if EllesmereUI.QoLExtrasSet then
+                EllesmereUI.QoLExtrasSet("healerManaEnabled", false)
+                EllesmereUI.QoLExtrasSet("healerManaColor", nil)
+                EllesmereUI.QoLExtrasSet("healerManaTextSize", nil)
+                EllesmereUI.QoLExtrasSet("healerManaTextAlignment", nil)
+                EllesmereUI.QoLExtrasSet("healerManaVisibility", nil)
+                EllesmereUI.QoLExtrasSet("healerManaPos", nil)
+            end
             if EllesmereUIDB then
                 EllesmereUIDB.hideBlizzardPartyFrame = false
                 EllesmereUIDB.quickLoot = false
@@ -2323,6 +2595,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyHideErrorMessages then EllesmereUI._applyHideErrorMessages() end
             if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
             if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
+            if EllesmereUI._applyHealerMana then EllesmereUI._applyHealerMana() end
             if EllesmereUI._applyHideTransforms then EllesmereUI._applyHideTransforms() end
             if EllesmereUI._applyQuickSignup then EllesmereUI._applyQuickSignup() end
             if EllesmereUI._applyPersistSignupNote then EllesmereUI._applyPersistSignupNote() end

@@ -5,7 +5,7 @@
 -------------------------------------------------------------------------------
 
 -------------------------------------------------------------------------------
---  Per-profile storage for QoL "extras" (Secondary Stats + FPS counter).
+--  Per-profile storage for QoL "extras" (Secondary Stats, FPS, Healer Mana).
 --  These were account-wide on the EllesmereUIDB root; they now live in the QoL
 --  profile DB (folder EllesmereUIQoL) so they travel with profiles, export/
 --  import, and module sync. The migration in EllesmereUI_Migration.lua seeds
@@ -37,10 +37,499 @@ function EllesmereUI.QoLExtrasSet(k, v)
     EllesmereUIDB[k] = v
 end
 
+do
+-------------------------------------------------------------------------------
+--  Healer Mana
+--  Lightweight text display for the assigned healer's mana in 5-player groups.
+-------------------------------------------------------------------------------
+local manaPowerType = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
+local scaleTo100Curve = rawget(_G, "CurveConstants") and CurveConstants.ScaleTo100
+
+local DEFAULT_POS = { point = "CENTER", relPoint = "CENTER", x = 0, y = 0 }
+local DEFAULT_COLOR = { r = 0.55, g = 0.78, b = 1, a = 1 }
+local DEFAULT_TEXT_SIZE = 24
+local HEALER_UNITS = { "player", "party1", "party2", "party3", "party4" }
+
+local healerManaFrame
+local eventFrame
+local trackedUnit
+local powerEventUnit
+local previewActive = false
+local frameInitialized = false
+local eventsInstalled = false
+
+local function GetSetting(key, fallback)
+    if EllesmereUI and EllesmereUI.QoLExtrasGet then
+        local value = EllesmereUI.QoLExtrasGet(key)
+        if value ~= nil then return value end
+    end
+    return fallback
+end
+
+local function SetSetting(key, value)
+    if EllesmereUI and EllesmereUI.QoLExtrasSet then
+        EllesmereUI.QoLExtrasSet(key, value)
+    end
+end
+
+local function IsEnabled()
+    return GetSetting("healerManaEnabled", false) or false
+end
+
+local function IsUnlockActive()
+    local unlockActive = EllesmereUI and EllesmereUI._unlockActive
+    if EllesmereUI and EllesmereUI.IsUnlockModeActive then
+        unlockActive = EllesmereUI.IsUnlockModeActive()
+    end
+    return unlockActive == true
+end
+
+local function ShouldShowPreview()
+    return IsEnabled() and (previewActive or IsUnlockActive())
+end
+
+local function GetColor()
+    local c = GetSetting("healerManaColor", DEFAULT_COLOR)
+    if type(c) ~= "table" then c = DEFAULT_COLOR end
+    return c.r or DEFAULT_COLOR.r, c.g or DEFAULT_COLOR.g, c.b or DEFAULT_COLOR.b, c.a or 1
+end
+
+local function GetTextSize()
+    return tonumber(GetSetting("healerManaTextSize", DEFAULT_TEXT_SIZE)) or DEFAULT_TEXT_SIZE
+end
+
+local function GetTextAlignment()
+    local alignment = GetSetting("healerManaTextAlignment", "CENTER")
+    alignment = type(alignment) == "string" and alignment:upper() or "CENTER"
+    if alignment ~= "LEFT" and alignment ~= "RIGHT" then
+        alignment = "CENTER"
+    end
+    return alignment
+end
+
+local function GetPosition()
+    local pos = GetSetting("healerManaPos", nil)
+    if type(pos) == "table" and pos.point then
+        -- Migrate the original pre-release default to the requested screen center.
+        local relPoint = pos.relPoint or pos.relativePoint or pos.point
+        if pos.point == "CENTER" and relPoint == "CENTER"
+            and (pos.x or 0) == 0 and (pos.y or 0) == 220 then
+            return DEFAULT_POS
+        end
+        return pos
+    end
+    return DEFAULT_POS
+end
+
+local function InTrackedInstance()
+    if not IsInInstance then return false end
+    local inInstance, instanceType = IsInInstance()
+    if not inInstance then return false end
+    return instanceType == "party" or instanceType == "raid" or instanceType == "scenario"
+        or instanceType == "pvp" or instanceType == "arena"
+end
+
+local function VisibilityPasses()
+    local mode = GetSetting("healerManaVisibility", "always")
+    if mode == "combat" then
+        return (UnitAffectingCombat and UnitAffectingCombat("player")) or (InCombatLockdown and InCombatLockdown()) or false
+    elseif mode == "instance" then
+        return InTrackedInstance()
+    end
+    return true
+end
+
+local function IsFiveManParty()
+    if IsInRaid and IsInRaid() then
+        return false
+    end
+    if not IsInGroup or not IsInGroup() then
+        return false
+    end
+    local members = GetNumGroupMembers and GetNumGroupMembers() or 0
+    return members > 0 and members <= 5
+end
+
+local function FindHealerUnit()
+    if not IsFiveManParty() then return nil end
+
+    for _, unit in ipairs(HEALER_UNITS) do
+        if UnitExists(unit) and UnitGroupRolesAssigned(unit) == "HEALER" then
+            return unit
+        end
+    end
+    return nil
+end
+
+local function ReadPowerPercentCurve(unit)
+    local percent = UnitPowerPercent(unit, manaPowerType, true, scaleTo100Curve)
+    return percent ~= nil, percent
+end
+
+local function ReadPowerPercentPredicted(unit)
+    local percent = UnitPowerPercent(unit, manaPowerType, true)
+    return percent ~= nil, percent
+end
+
+local function ReadPowerPercentCurveUnpredicted(unit)
+    local percent = UnitPowerPercent(unit, manaPowerType, nil, scaleTo100Curve)
+    return percent ~= nil, percent
+end
+
+local function ReadPowerPercentBase(unit)
+    local percent = UnitPowerPercent(unit, manaPowerType)
+    return percent ~= nil, percent
+end
+
+local function TryPowerPercent(reader, unit)
+    local ok, hasValue, percent = pcall(reader, unit)
+    if ok and hasValue then return true, percent end
+    return false
+end
+
+local function ReadLegacyManaPercent(unit)
+    local current = UnitPower(unit, manaPowerType, true)
+    local maxPower = UnitPowerMax(unit, manaPowerType, true)
+    if maxPower and maxPower > 0 then
+        return true, (current / maxPower) * 100
+    end
+    return false
+end
+
+local function GetManaPercent(unit)
+    if not unit or not UnitExists(unit) then return nil end
+    if UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit) then return 0 end
+
+    if UnitPowerPercent then
+        local found, percent = TryPowerPercent(ReadPowerPercentCurve, unit)
+        if found then return percent end
+        found, percent = TryPowerPercent(ReadPowerPercentPredicted, unit)
+        if found then return percent end
+        found, percent = TryPowerPercent(ReadPowerPercentCurveUnpredicted, unit)
+        if found then return percent end
+        found, percent = TryPowerPercent(ReadPowerPercentBase, unit)
+        if found then return percent end
+    end
+
+    local ok, hasValue, percent = pcall(ReadLegacyManaPercent, unit)
+    if ok and hasValue then return percent end
+    return nil
+end
+
+local function SetManaPercentText(fontString, percent)
+    if percent == nil then return false end
+    fontString:SetFormattedText("%.0f%%", percent)
+    return true
+end
+
+local function ApplyPosition()
+    if not healerManaFrame then return end
+    local pos = GetPosition()
+    healerManaFrame:ClearAllPoints()
+    healerManaFrame:SetPoint(pos.point or "CENTER", UIParent, pos.relPoint or pos.relativePoint or pos.point or "CENTER", pos.x or 0, pos.y or 0)
+end
+
+local function EnsureTextRegion()
+    if not healerManaFrame then return end
+
+    if not healerManaFrame._text then
+        local fs = healerManaFrame:CreateFontString(nil, "OVERLAY")
+        fs:SetAllPoints(healerManaFrame)
+        healerManaFrame._text = fs
+    end
+    if not healerManaFrame._measureText then
+        local measure = healerManaFrame:CreateFontString(nil, "OVERLAY")
+        measure:Hide()
+        healerManaFrame._measureText = measure
+    end
+end
+
+local function SizeFrameToPreview()
+    if not healerManaFrame or not healerManaFrame._measureText then return end
+    local width = healerManaFrame._measureText:GetStringWidth() or 0
+    local height = healerManaFrame._measureText:GetStringHeight() or 0
+    healerManaFrame:SetSize(math.max(1, math.ceil(width)), math.max(1, math.ceil(height)))
+end
+
+local function ApplyStyle()
+    if not healerManaFrame then return end
+    EnsureTextRegion()
+    if not healerManaFrame._text then return end
+    local r, g, b, a = GetColor()
+    local size = GetTextSize()
+    local fontPath = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or STANDARD_TEXT_FONT
+    local outline = (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("extras")) or "OUTLINE"
+    healerManaFrame._text:SetFont(fontPath, size, outline)
+    healerManaFrame._text:SetTextColor(r, g, b, a)
+    healerManaFrame._text:SetJustifyH(GetTextAlignment())
+    healerManaFrame._measureText:SetFont(fontPath, size, outline)
+    healerManaFrame._measureText:SetText("100%")
+    SizeFrameToPreview()
+end
+
+local function CreateFrameIfNeeded()
+    healerManaFrame = healerManaFrame or _G.EUI_HealerManaFrame
+    if not healerManaFrame then
+        healerManaFrame = CreateFrame("Frame", "EUI_HealerManaFrame", UIParent)
+    end
+
+    -- Create this first so a later setup failure cannot leave an unusable frame.
+    EnsureTextRegion()
+    healerManaFrame:SetFrameStrata("HIGH")
+    healerManaFrame:SetFrameLevel(50)
+    healerManaFrame:EnableMouse(false)
+
+    if not frameInitialized then
+        frameInitialized = true
+        ApplyPosition()
+        healerManaFrame:Hide()
+    end
+end
+
+local function ShowPreviewText()
+    CreateFrameIfNeeded()
+    if not IsUnlockActive() then
+        ApplyPosition()
+    end
+    ApplyStyle()
+    healerManaFrame._text:SetText("100%")
+    healerManaFrame:Show()
+end
+
+local function SetTrackedUnit(unit)
+    if trackedUnit == unit and powerEventUnit == unit then return end
+
+    trackedUnit = unit
+    if eventFrame and powerEventUnit then
+        eventFrame:UnregisterEvent("UNIT_POWER_UPDATE")
+        eventFrame:UnregisterEvent("UNIT_MAXPOWER")
+        eventFrame:UnregisterEvent("UNIT_DISPLAYPOWER")
+    end
+    powerEventUnit = nil
+
+    if eventFrame and eventsInstalled and unit then
+        pcall(eventFrame.RegisterUnitEvent, eventFrame, "UNIT_POWER_UPDATE", unit)
+        pcall(eventFrame.RegisterUnitEvent, eventFrame, "UNIT_MAXPOWER", unit)
+        pcall(eventFrame.RegisterUnitEvent, eventFrame, "UNIT_DISPLAYPOWER", unit)
+        powerEventUnit = unit
+    end
+end
+
+local function UpdateMana()
+    if not healerManaFrame then return end
+
+    if not IsEnabled() then
+        SetTrackedUnit(nil)
+        previewActive = false
+        healerManaFrame:Hide()
+        return
+    end
+
+    if ShouldShowPreview() then
+        ShowPreviewText()
+        return
+    end
+
+    if not trackedUnit then
+        healerManaFrame:Hide()
+        return
+    end
+
+    local percent = GetManaPercent(trackedUnit)
+    local ok, hasValue = pcall(SetManaPercentText, healerManaFrame._text, percent)
+    if not ok or not hasValue then
+        healerManaFrame._text:SetText("--%")
+    end
+    healerManaFrame:Show()
+end
+
+local function Refresh()
+    if not IsEnabled() then
+        previewActive = false
+        SetTrackedUnit(nil)
+        if healerManaFrame then healerManaFrame:Hide() end
+        return
+    end
+
+    CreateFrameIfNeeded()
+    if not IsUnlockActive() then
+        ApplyPosition()
+    end
+    ApplyStyle()
+
+    if ShouldShowPreview() then
+        SetTrackedUnit(nil)
+        ShowPreviewText()
+        return
+    end
+
+    if not VisibilityPasses() then
+        SetTrackedUnit(nil)
+        healerManaFrame:Hide()
+        return
+    end
+
+    SetTrackedUnit(FindHealerUnit())
+    if trackedUnit then
+        UpdateMana()
+    else
+        healerManaFrame:Hide()
+    end
+end
+
+local function OnHealerManaEvent(_, event, arg1, arg2)
+    if event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" or event == "UNIT_DISPLAYPOWER" then
+        if arg1 == trackedUnit and (event == "UNIT_DISPLAYPOWER" or not arg2 or arg2 == "MANA") then
+            UpdateMana()
+        end
+        return
+    end
+    Refresh()
+end
+
+local function EnsureEventFrame()
+    if eventFrame then return end
+    eventFrame = CreateFrame("Frame")
+    eventFrame:SetScript("OnEvent", OnHealerManaEvent)
+end
+
+local function RegisterEvent(event)
+    pcall(eventFrame.RegisterEvent, eventFrame, event)
+end
+
+local function InstallEvents()
+    if eventsInstalled then return end
+    EnsureEventFrame()
+    RegisterEvent("PLAYER_ENTERING_WORLD")
+    RegisterEvent("ZONE_CHANGED_NEW_AREA")
+    RegisterEvent("GROUP_ROSTER_UPDATE")
+    RegisterEvent("PLAYER_ROLES_ASSIGNED")
+    RegisterEvent("ROLE_CHANGED_INFORM")
+    RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    RegisterEvent("PLAYER_REGEN_DISABLED")
+    RegisterEvent("PLAYER_REGEN_ENABLED")
+    eventsInstalled = true
+end
+
+local function RemoveEvents()
+    if eventFrame then eventFrame:UnregisterAllEvents() end
+    eventsInstalled = false
+    powerEventUnit = nil
+    trackedUnit = nil
+end
+
+local function ApplyFeatureState()
+    if IsEnabled() then
+        InstallEvents()
+        Refresh()
+    else
+        previewActive = false
+        RemoveEvents()
+        if healerManaFrame then healerManaFrame:Hide() end
+    end
+end
+
+EllesmereUI._applyHealerMana = ApplyFeatureState
+
+EllesmereUI._setHealerManaEnabled = function(enabled)
+    SetSetting("healerManaEnabled", enabled)
+    if not enabled then
+        previewActive = false
+    end
+    ApplyFeatureState()
+end
+
+EllesmereUI._healerManaPreview = function()
+    if not IsEnabled() then return end
+    previewActive = true
+    Refresh()
+end
+
+EllesmereUI._healerManaHidePreview = function()
+    previewActive = false
+    Refresh()
+end
+
+local function RegisterHealerManaUnlockElement()
+    if not (EllesmereUI and EllesmereUI.RegisterUnlockElements and EllesmereUI.MakeUnlockElement) then return end
+
+    if EllesmereUI.RegisterUnlockModeListener then
+        EllesmereUI:RegisterUnlockModeListener("EUI_HealerMana", function()
+            if IsEnabled() then Refresh() end
+        end)
+    end
+
+    local registered = EllesmereUI._unlockRegisteredElements
+    if registered and registered.EUI_HealerMana then return true end
+
+    local MK = EllesmereUI.MakeUnlockElement
+    EllesmereUI:RegisterUnlockElements({
+        MK({
+            key = "EUI_HealerMana",
+            label = "Healer Mana",
+            group = "Quality of Life",
+            order = 722,
+            noResize = true,
+            isHidden = function()
+                return not IsEnabled()
+            end,
+            getFrame = function()
+                if not IsEnabled() then return nil end
+                CreateFrameIfNeeded()
+                if IsUnlockActive() then
+                    ShowPreviewText()
+                end
+                return healerManaFrame
+            end,
+            getSize = function()
+                if not IsEnabled() then return 1, 1 end
+                CreateFrameIfNeeded()
+                if IsUnlockActive() then
+                    ShowPreviewText()
+                end
+                return healerManaFrame:GetWidth(), healerManaFrame:GetHeight()
+            end,
+            savePos = function(_, point, relPoint, x, y)
+                if not point then return end
+                SetSetting("healerManaPos", { point = point, relPoint = relPoint, x = x, y = y })
+                if healerManaFrame then
+                    healerManaFrame:ClearAllPoints()
+                    healerManaFrame:SetPoint(point, UIParent, relPoint or point, x or 0, y or 0)
+                end
+            end,
+            loadPos = function()
+                local pos = GetPosition()
+                return { point = pos.point, relPoint = pos.relPoint or pos.relativePoint or pos.point, x = pos.x or 0, y = pos.y or 0 }
+            end,
+            clearPos = function()
+                SetSetting("healerManaPos", nil)
+                if healerManaFrame then ApplyPosition() end
+            end,
+            applyPos = function()
+                if not IsEnabled() and not healerManaFrame then return end
+                CreateFrameIfNeeded()
+                ApplyPosition()
+            end,
+        }),
+    }, "EllesmereUIQoL")
+    return EllesmereUI._unlockRegisteredElements
+        and EllesmereUI._unlockRegisteredElements.EUI_HealerMana ~= nil
+end
+
+EllesmereUI._registerHealerManaUnlockElement = RegisterHealerManaUnlockElement
+
+-- Register mover metadata immediately; its frame remains lazy until enabled.
+RegisterHealerManaUnlockElement()
+end
+
 local qolFrame = CreateFrame("Frame")
 qolFrame:RegisterEvent("PLAYER_LOGIN")
 qolFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
+
+    if EllesmereUI._applyHealerMana then
+        EllesmereUI._applyHealerMana()
+    end
 
     ---------------------------------------------------------------------------
     --  Auto Unwrap Collections (Mounts / Pets / Toys)
