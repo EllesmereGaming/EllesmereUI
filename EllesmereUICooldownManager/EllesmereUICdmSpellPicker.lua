@@ -1014,10 +1014,9 @@ function ns.CollectDefaultBuffTrackEntries()
                             if type(sid) == "number" and sid > 0 then diverted[sid] = true end
                         end
                     end
-                    if otherSd and otherSd.assignedBuffCdIDs then
-                        for cdID in pairs(otherSd.assignedBuffCdIDs) do
-                            if type(cdID) == "number" then divertedCd[cdID] = true end
-                        end
+                    local otherClaims = otherSd and ns.CollectCdClaimSet(otherSd)
+                    if otherClaims then
+                        for cdID in pairs(otherClaims) do divertedCd[cdID] = true end
                     end
                 elseif otherSd and otherSd.hostedBuffSpellIDs then
                     for sid in pairs(otherSd.hostedBuffSpellIDs) do
@@ -1282,6 +1281,13 @@ function ns.ResolveBuffDisplaySortIndex(entry, buffOrder, isDefaultBuffs)
         return nil
     end
     local ef = entry.frame
+    -- Collided-buff slot (cd-claim marker, see ns.CdClaimMarker): both
+    -- runtime frames of the pair share one spellID, so a spellID-keyed
+    -- lookup can't tell them apart and both would miss. cooldownID is
+    -- unique per slot -- check it first, same stable-key convention as the
+    -- default bar's isDefaultBuffs branch above.
+    local cdKey = ef and ef.cooldownID and BuffDisplayStableKey(nil, ef.cooldownID)
+    if cdKey and buffOrder[cdKey] then return buffOrder[cdKey] end
     local canon = ef and ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(ef)
     return (canon and buffOrder[canon])
         or (entry.spellID and buffOrder[entry.spellID])
@@ -1655,45 +1661,29 @@ end
 
 --- Track a single buff-viewer SLOT (cooldownID) on a buff-family bar.
 --- Collision escape hatch: two viewer slots can share one canonical spellID
---- (Diabolist Demonic Art vs Diabolic Ritual), and AddTrackedSpell's
---- variant dedup makes the second slot un-addable by sid. Storing the
---- cooldownID in sd.assignedBuffCdIDs routes exactly ONE slot to this bar
---- (ResolveCDIDToBar checks the cd-level map before the sid map) while its
---- twin keeps its own routing. Same one-home-per-family sweep as
---- AddTrackedSpell. Collision-gated by the caller: non-collided buffs keep
---- the sid path, whose identity survives talent swaps (cooldownIDs drift --
---- the same accepted limitation as the per-cooldownID settings keys).
+--- (Diabolist Demonic Art vs Diabolic Ritual), and AddTrackedSpell's own
+--- variant dedup would make the second slot un-addable by sid. Claiming it
+--- by a cd-claim MARKER (ns.CdClaimMarker) instead -- a distinct negative id
+--- per cooldownID -- sidesteps that dedup while reusing AddTrackedSpell's
+--- one-home-per-family sweep, insertion, and route/reanchor plumbing
+--- unchanged, and gives the claim a real assignedSpells index (so it drags,
+--- reorders and removes exactly like any other entry). Collision-gated by
+--- the caller: non-collided buffs keep the sid path, whose identity
+--- survives talent swaps (cooldownIDs drift -- the same accepted limitation
+--- as the per-cooldownID settings keys). Never valid on the default "buffs"
+--- bar: its preview enumerates the live viewer pool directly and never
+--- reads assignedSpells for buff content.
 function ns.AddTrackedBuffByCdID(barKey, cdID)
-    if type(cdID) ~= "number" or cdID <= 0 then return false end
-    local sd = ns.GetBarSpellData(barKey)
-    if not sd then return false end
-    sd.assignedBuffCdIDs = sd.assignedBuffCdIDs or {}
-    if sd.assignedBuffCdIDs[cdID] then return false end
-
-    local p = ECME.db.profile
-    if p and p.cdmBars and p.cdmBars.bars then
-        for _, b in ipairs(p.cdmBars.bars) do
-            if b.key ~= barKey and b.barType ~= "custom_buff" and IsBarBuffFamily(b) then
-                local osd = ns.GetBarSpellData(b.key)
-                if osd and osd.assignedBuffCdIDs then osd.assignedBuffCdIDs[cdID] = nil end
-            end
-        end
-    end
-
-    sd.assignedBuffCdIDs[cdID] = true
-    local frame = cdmBarFrames[barKey]
-    if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
-    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
-    if ns.QueueReanchor then ns.QueueReanchor() end
-    return true
+    if type(cdID) ~= "number" or cdID <= 0 or barKey == "buffs" then return false end
+    return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
 end
 
 function ns.RemoveTrackedBuffCdID(barKey, cdID)
-    local sd = ns.GetBarSpellData(barKey)
-    if not sd or not sd.assignedBuffCdIDs or not sd.assignedBuffCdIDs[cdID] then return false end
-    sd.assignedBuffCdIDs[cdID] = nil
-    local frame = cdmBarFrames[barKey]
-    if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+    if type(cdID) ~= "number" then return false end
+    -- RemoveSpellFromBar does not itself trigger a route/reanchor pass --
+    -- every caller does, same as AddTrackedSpell does internally for adds.
+    local removed = ns.RemoveSpellFromBar(barKey, ns.CdClaimMarker(cdID))
+    if not removed then return false end
     if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
     if ns.QueueReanchor then ns.QueueReanchor() end
     return true
@@ -1731,6 +1721,40 @@ function ns.AddBuffToCDUtilBar(barKey, spellID)
     -- frame still resolves regardless of its talent/override form.
     if not sd.hostedBuffSpellIDs then sd.hostedBuffSpellIDs = {} end
     sd.hostedBuffSpellIDs[spellID] = true
+    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+    if ns.QueueReanchor then ns.QueueReanchor() end
+    return true
+end
+
+--- Host a single collided-buff SLOT (cooldownID) on a CD/util bar. Same
+--- collision escape hatch as ns.AddTrackedBuffByCdID (buff-family bars): two
+--- viewer slots can share one canonical spellID (Diabolist Demonic Art vs
+--- Diabolic Ritual), so AddBuffToCDUtilBar's spellID-keyed idempotency guard
+--- would treat the second slot as "already hosted" and silently no-op it.
+--- Claiming by the cd-claim MARKER instead sidesteps that, reusing
+--- AddTrackedSpell's sweep/insertion/route/reanchor plumbing unchanged.
+--- Collision-gated by the caller: non-collided buffs keep AddBuffToCDUtilBar's
+--- sid path, whose identity survives talent swaps.
+function ns.AddHostedBuffByCdID(barKey, cdID)
+    if type(cdID) ~= "number" or cdID <= 0 then return false end
+    local sd = ns.GetBarSpellData(barKey)
+    if not sd then return false end
+    -- Empty-table sentinel: ResolveSpellSettings' hostedFrame gate
+    -- (EllesmereUICdmHooks.lua) short-circuits on this table being non-nil
+    -- to skip the (more expensive) frame-flag checks below it. A cd-claimed
+    -- hosted buff doesn't need a spellID key in it -- it resolves its own
+    -- "c"..cooldownID settings key independently -- just the table's
+    -- existence so that gate still fires for this bar.
+    sd.hostedBuffSpellIDs = sd.hostedBuffSpellIDs or {}
+    return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
+end
+
+function ns.RemoveHostedBuffByCdID(barKey, cdID)
+    if type(cdID) ~= "number" then return false end
+    -- RemoveSpellFromBar does not itself trigger a route/reanchor pass --
+    -- every caller does, same as AddTrackedSpell does internally for adds.
+    local removed = ns.RemoveSpellFromBar(barKey, ns.CdClaimMarker(cdID))
+    if not removed then return false end
     if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
     if ns.QueueReanchor then ns.QueueReanchor() end
     return true
@@ -1880,7 +1904,6 @@ function ns.AddCDMBar(barType, name, numRows)
         outOfRangeOverlay = false,
         pandemicGlow = true,
         pandemicGlowStyle = -1,
-        pandemicGlowColor = { r = 1, g = 1, b = 0 },
         pandemicGlowLines = 8,
         pandemicGlowThickness = 2,
         pandemicGlowSpeed = 4,

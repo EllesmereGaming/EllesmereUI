@@ -115,6 +115,24 @@ function EQT.ApplySuppression(on)
     if EQT.UpdateVisibility then EQT.UpdateVisibility() end
 end
 
+-- ObjectiveTrackerFrame is EditMode-managed: Hide()/Show() route through
+-- the system template's protected HideBase/ShowBase, so calling either from
+-- addon execution during combat is blocked (ADDON_ACTION_BLOCKED) -- and
+-- the raid/encounter auto-hide fires exactly at combat start (vehicle boss
+-- pulls hit this). In combat fall back to alpha suppression: top-level
+-- frame only, never children, never mouse state. The shared visibility
+-- dispatcher re-runs UpdateVisibility on PLAYER_REGEN_ENABLED, where the
+-- real Hide() lands -- same recovery shape as the M+ timer's HideTracker,
+-- minus the private regen listener it needs (we are dispatcher-driven).
+local function HardHide(otf)
+    if InCombatLockdown() then
+        otf:SetAlpha(0)
+    else
+        otf:SetAlpha(1)  -- clear any combat alpha-suppression before hiding
+        otf:Hide()
+    end
+end
+
 local _showHookInstalled = false
 local function InstallShowHook()
     if _showHookInstalled then return end
@@ -125,7 +143,7 @@ local function InstallShowHook()
     -- stacks); the M+ timer installs its own similar hook for M+.
     hooksecurefunc(otf, "Show", function(self)
         if _eqtSuppressed then return end
-        if ShouldAutoHide() then self:Hide() end
+        if ShouldAutoHide() then HardHide(self) end
     end)
     -- BG follows the tracker's actual IsShown() state, regardless of who
     -- hid it (us, M+ timer, Blizzard). OnHide fires after the Hide lands,
@@ -151,13 +169,18 @@ local function UpdateVisibility()
     -- processing skin/resize/classify work for a hidden tracker.
     if ShouldAutoHide() then
         SuspendQTEvents()
-        otf:Hide()
+        HardHide(otf)
         if _bgFrame then _bgFrame:Hide() end
         return
     end
 
     ResumeQTEvents()
-    if not otf:IsShown() then otf:Show() end
+    if not otf:IsShown() then
+        -- Show() is protected in combat like Hide() (see HardHide). Skip;
+        -- the dispatcher's PLAYER_REGEN_ENABLED pass re-runs us and the
+        -- real Show() lands then.
+        if not InCombatLockdown() then otf:Show() end
+    end
 
     -- User visibility: enabled flag, visibility mode, and the visHide* opts.
     -- EvalVisibility returns true / false / "mouseover".

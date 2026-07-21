@@ -300,6 +300,19 @@ initFrame:SetScript("OnEvent", function(self)
                     pc._barFill:SetVertexColor(pr, pg, pb, 1)
                     UnsnapTex(pc._barFill)
                     pc._barFill:Show()
+                    -- Fill Opacity preview: translucent fill + bg over the
+                    -- empty portion only (mirrors the live bar)
+                    local _pvOp = (sp.fillOpacity or 100) / 100
+                    pc._barFill:SetAlpha(_pvOp)
+                    if pc._barBg then
+                        pc._barBg:ClearAllPoints()
+                        if _pvOp < 1 then
+                            pc._barBg:SetPoint("TOPLEFT", pc._barFill, "TOPRIGHT", 0, 0)
+                            pc._barBg:SetPoint("BOTTOMRIGHT", pc, "BOTTOMRIGHT", 0, 0)
+                        else
+                            pc._barBg:SetAllPoints(pc)
+                        end
+                    end
                 end
 
                 -- Tick marks on bar preview
@@ -420,7 +433,6 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Expose to the count-text block below so the number always
                 -- matches the lit segments
                 pc._pvShownCount = filledCount
-                pc._pvShownMax = numPips
                 local useThresh = _pvTsEnabled
 				-- use current spec threshold color if configured
 				local tr = _pvTsEntry2 and _pvTsEntry2.thresholdR or sp.thresholdR
@@ -490,6 +502,12 @@ initFrame:SetScript("OnEvent", function(self)
                     else
                         pip._fill:Hide()
                     end
+                    -- Fill Opacity preview: translucent fill; active pips hide
+                    -- their bg so the fill reveals what is behind (mirrors the
+                    -- live pips)
+                    local _pvPipOp = (sp.fillOpacity or 100) / 100
+                    pip._fill:SetAlpha(_pvPipOp)
+                    pip._bg:SetAlpha((active and _pvPipOp < 1) and 0 or 1)
 
                     -- DK rune duration preview: show fake cooldown numbers on unfilled pips
                     if cf == "DEATHKNIGHT" and sp.showText then
@@ -602,14 +620,12 @@ initFrame:SetScript("OnEvent", function(self)
                 else
                     -- Mirror the pip loop's filled count (threshold-resolved
                     -- and rescaled to the spec's pip count) so the number
-                    -- always matches the lit segments; "cur / max" like the
-                    -- live bar unless Show Max Stacks is off.
+                    -- always matches the lit segments. Live pip resources
+                    -- render the bare count only -- the "cur / max" format
+                    -- belongs exclusively to bar-type stack bars (Show Max
+                    -- Stacks), which the isBar branch above previews.
                     local shown = pc._pvShownCount or _previewPipCount
-                    if sp.showMaxStacks == false then
-                        pc._countText:SetText(tostring(shown))
-                    else
-                        pc._countText:SetText(shown .. " / " .. (pc._pvShownMax or shown))
-                    end
+                    pc._countText:SetText(tostring(shown))
                 end
                 pc._countText:Show()
             elseif pc._countText then
@@ -2884,11 +2900,15 @@ initFrame:SetScript("OnEvent", function(self)
         healthEnableRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Show Health Bar",
               getValue = function() local c = cfg(); return c and c.enabled end,
-              setValue = function(v)
-                  local c = cfg(); if not c then return end
-                  c.enabled = v; RebuildHealth()
-                  EllesmereUI:RefreshPage()
-              end },
+              -- DependentSetValue: the rows below Row 1 are hidden while the
+              -- bar is off; the flip forces the full rebuild.
+              setValue = EllesmereUI.DependentSetValue(
+                  function() local c = cfg(); return c and c.enabled end,
+                  function(v)
+                      local c = cfg(); if not c then return end
+                      c.enabled = v; RebuildHealth()
+                      EllesmereUI:RefreshPage()
+                  end) },
             { type = "dropdown", text = "Orientation",
               disabled = healthOff,
               disabledTooltip = "Health Bar",
@@ -2908,6 +2928,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- (Per-spec enable picker removed: per-spec enables now live in Spec
         -- Overrides -- capture "Show Health Bar" while editing as a group.)
 
+        -- Everything below Row 1 is HIDDEN entirely while the bar is off (the
+        -- toggle's DependentSetValue forces the rebuild on flips).
+        if not healthOff() then
         -- Row 2: Height | Width. MatchGuard (dimension matched to ANOTHER element
         -- via Unlock Mode) is a global relationship that greys the slider in BOTH
         -- modes -- you can't per-spec override a matched dimension. Only the
@@ -3286,7 +3309,7 @@ initFrame:SetScript("OnEvent", function(self)
         do
             local rgn = healthBorderRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Gradient Settings",
+                title = "Fill Settings",
                 rows = {
                     { type = "toggle", label = "Enable Gradient",
                       get = function() local c = cfg(); return c and c.gradientEnabled end,
@@ -3302,6 +3325,13 @@ initFrame:SetScript("OnEvent", function(self)
                       set = function(v)
                           local c = cfg(); if not c then return end
                           c.gradientDir = v; RebuildHealth()
+                      end },
+                    { type = "slider", label = "Fill Opacity", min = 0, max = 100, step = 1,
+                      tooltip = "Opacity of the bar fill; below 100 the world shows through the fill instead of the background.",
+                      get = function() local c = cfg(); return (c and c.fillOpacity) or 100 end,
+                      set = function(v)
+                          local c = cfg(); if not c then return end
+                          c.fillOpacity = v; RebuildHealth()
                       end },
                 },
             })
@@ -3566,6 +3596,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.SpecOverrides_AttachEditLock(healthColorRow._rightRegion,
                 "Thresholds have their own per-spec system and can't be edited while editing a spec group")
         end
+        end   -- close Health Bar hidden-while-disabled gate
 
         -- Synced overlay: cover the fully-built content (near-opaque, controls
         -- barely visible) so the section is the same height synced or not.
@@ -3639,11 +3670,15 @@ initFrame:SetScript("OnEvent", function(self)
         powerEnableRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Show Power Bar",
               getValue = function() local c = cfg(); return c and c.enabled end,
-              setValue = function(v)
-                  local c = cfg(); if not c then return end
-                  c.enabled = v; RebuildPower()
-                  EllesmereUI:RefreshPage()
-              end },
+              -- DependentSetValue: the rows below Row 1 are hidden while the
+              -- bar is off; the flip forces the full rebuild.
+              setValue = EllesmereUI.DependentSetValue(
+                  function() local c = cfg(); return c and c.enabled end,
+                  function(v)
+                      local c = cfg(); if not c then return end
+                      c.enabled = v; RebuildPower()
+                      EllesmereUI:RefreshPage()
+                  end) },
             { type = "dropdown", text = "Orientation",
               disabled = powerOff,
               disabledTooltip = powerDisTip,
@@ -3663,6 +3698,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- (Per-spec enable picker removed: per-spec enables now live in Spec
         -- Overrides -- capture "Show Power Bar" while editing as a group.)
 
+        -- Everything below Row 1 is HIDDEN entirely while the bar is off (the
+        -- toggle's DependentSetValue forces the rebuild on flips).
+        if not powerOff() then
         -- Row 2: Height | Width (MatchGuard both modes; sync icons Simple-only).
         local function guard(propKey)
             return EllesmereUI.MatchGuard("ERB_Power", propKey, powerOff, powerDisTip)
@@ -4030,7 +4068,7 @@ initFrame:SetScript("OnEvent", function(self)
         do
             local rgn = powerBorderRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Gradient Settings",
+                title = "Fill Settings",
                 rows = {
                     { type = "toggle", label = "Enable Gradient",
                       get = function() local c = cfg(); return c and c.gradientEnabled end,
@@ -4046,6 +4084,13 @@ initFrame:SetScript("OnEvent", function(self)
                       set = function(v)
                           local c = cfg(); if not c then return end
                           c.gradientDir = v; RebuildPower()
+                      end },
+                    { type = "slider", label = "Fill Opacity", min = 0, max = 100, step = 1,
+                      tooltip = "Opacity of the bar fill; below 100 the world shows through the fill instead of the background.",
+                      get = function() local c = cfg(); return (c and c.fillOpacity) or 100 end,
+                      set = function(v)
+                          local c = cfg(); if not c then return end
+                          c.fillOpacity = v; RebuildPower()
                       end },
                 },
             })
@@ -4315,6 +4360,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.SpecOverrides_AttachEditLock(powerColorRow._rightRegion,
                 "Thresholds have their own per-spec system and can't be edited while editing a spec group")
         end
+        end   -- close Power Bar hidden-while-disabled gate
 
         -- Synced overlay: cover the fully-built content so size is constant.
         if ctx.advanced and ctx.synced and _advTop then
@@ -4488,11 +4534,15 @@ initFrame:SetScript("OnEvent", function(self)
         classEnableRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Show Class Resource",
               getValue = function() local c = cfg(); return c and c.enabled end,
-              setValue = function(v)
-                  local c = cfg(); if not c then return end
-                  c.enabled = v; RebuildClass()
-                  EllesmereUI:RefreshPage()
-              end },
+              -- DependentSetValue: the rows below Row 1 are hidden while the
+              -- bar is off; the flip forces the full rebuild.
+              setValue = EllesmereUI.DependentSetValue(
+                  function() local c = cfg(); return c and c.enabled end,
+                  function(v)
+                      local c = cfg(); if not c then return end
+                      c.enabled = v; RebuildClass()
+                      EllesmereUI:RefreshPage()
+                  end) },
             { type = "dropdown", text = "Orientation",
               disabled = classOff,
               disabledTooltip = "Class Resource",
@@ -4549,6 +4599,12 @@ initFrame:SetScript("OnEvent", function(self)
         -- or the toggle itself in Advanced.
         AddFormBarBtn(classEnableRow._leftRegion, cfg, RebuildClass)
 
+        -- Everything below Row 1 is HIDDEN entirely while the bar is off (the
+        -- toggle's DependentSetValue forces the rebuild on flips).
+        -- classColorRow is hoisted above the gate: the section returns it for
+        -- the Simple page's count-text click mapping (nil while hidden).
+        local classColorRow
+        if not classOff() then
         -- Row 2: Height | Width (MatchGuard both modes; sync icons Simple-only).
         local function classGuard(propKey)
             return EllesmereUI.MatchGuard("ERB_ClassResource", propKey, classOff, "Class Resource")
@@ -4992,7 +5048,7 @@ initFrame:SetScript("OnEvent", function(self)
         do
             local rgn = classBorderRow._rightRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Charged Points",
+                title = "Fill Settings",
                 rows = {
                     { type = "colorpicker", label = "Charged Color", hasAlpha = false,
                       get = function()
@@ -5006,6 +5062,13 @@ initFrame:SetScript("OnEvent", function(self)
                           c.chargedR, c.chargedG = cr, cg
                           c.chargedB, c.chargedA = cb, ca
                           RebuildClass(); SmoothRefresh()
+                      end },
+                    { type = "slider", label = "Fill Opacity", min = 0, max = 100, step = 1,
+                      tooltip = "Opacity of the resource fill; below 100 the world shows through the fill instead of the background.",
+                      get = function() local c = cfg(); return (c and c.fillOpacity) or 100 end,
+                      set = function(v)
+                          local c = cfg(); if not c then return end
+                          c.fillOpacity = v; RebuildClass(); SmoothRefresh()
                       end },
                 },
                 footer = false,
@@ -5110,7 +5173,6 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Row 5: Resource Text | Threshold & Hash Lines
-        local classColorRow
         classColorRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Resource Text",
               disabled = classOff,
@@ -7042,6 +7104,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
         end
+        end   -- close Class Resource hidden-while-disabled gate
 
         -- Synced overlay (advanced + synced): cover the built content.
         if ctx.advanced and ctx.synced and _advTop then
@@ -7067,9 +7130,10 @@ initFrame:SetScript("OnEvent", function(self)
         -- Advanced, cover these controls so edits here aren't silently ignored.
         if not ctx.advanced then ns.ERB_SimpleOverrideOverlay(parent, _advTop, y, "secondary") end
 
-        -- Return the header + enable-row frames so the Simple page can wire its
-        -- preview click-mappings (classSection/classEnableRow).
-        return y, hdr, classEnableRow
+        -- Return the header + row frames so the Simple page can wire its
+        -- preview click-mappings (classSection/classEnableRow, and the
+        -- Resource Text row for the count-text overlay).
+        return y, hdr, classEnableRow, classColorRow
     end
 --- [class resource end]
     ---------------------------------------------------------------------------
@@ -7219,7 +7283,8 @@ initFrame:SetScript("OnEvent", function(self)
             local p0 = DB()
             if p0 and p0.secondary.darkTheme then bgLabel = "Background (Health & Power)" end
         end
-        _, h = W:DualRow(parent, y,
+        local bgRow
+        bgRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Dark Mode Class Resource",
               getValue = function()
                   local p = DB(); if not p then return false end
@@ -7232,23 +7297,45 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Force a full rebuild so the Background label re-renders.
                   EllesmereUI:RefreshPage(true)
               end },
-            { type = "colorpicker", text = bgLabel, hasAlpha = true,
+            { type = "slider", text = bgLabel, min = 0, max = 100, step = 1,
               getValue = function()
-                  local p = DB()
-                  if not p then return 0x11/255, 0x11/255, 0x11/255, 0.75 end
-                  return p.health.bgR, p.health.bgG, p.health.bgB, p.health.bgA
+                  local p = DB(); return math.floor(((p and p.health.bgA or 0.75) * 100) + 0.5)
               end,
-              setValue = function(r, g, b, a)
+              setValue = function(v)
                   local p = DB(); if not p then return end
-                  p.health.bgR, p.health.bgG, p.health.bgB, p.health.bgA = r, g, b, a
-                  p.primary.bgR, p.primary.bgG, p.primary.bgB, p.primary.bgA = r, g, b, a
-                  p.secondary.barBgR, p.secondary.barBgG, p.secondary.barBgB, p.secondary.barBgA = r, g, b, a
-                  if not p.health.customColored then p.health.customColored = true end
-                  if not p.primary.customColored then p.primary.customColored = true end
+                  local a = v / 100
+                  p.health.bgA = a
+                  p.primary.bgA = a
+                  p.secondary.barBgA = a
                   SmoothRefresh()
                   EllesmereUI:RefreshPage()
               end }
         );  y = y - h
+        -- Inline color swatch on Background (right region). Opacity lives in
+        -- the slider (a view over the same bgA keys the old picker wrote), so
+        -- the swatch is color-only.
+        do
+            local rgn = bgRow._rightRegion
+            local ctrl = rgn._control
+            local bgSwatch, bgUpdateSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, bgRow:GetFrameLevel() + 3,
+                function()
+                    local p = DB()
+                    return (p and p.health.bgR or 0x11/255), (p and p.health.bgG or 0x11/255),
+                           (p and p.health.bgB or 0x11/255)
+                end,
+                function(r, g, b)
+                    local p = DB(); if not p then return end
+                    p.health.bgR, p.health.bgG, p.health.bgB = r, g, b
+                    p.primary.bgR, p.primary.bgG, p.primary.bgB = r, g, b
+                    p.secondary.barBgR, p.secondary.barBgG, p.secondary.barBgB = r, g, b
+                    SmoothRefresh()
+                    EllesmereUI:RefreshPage()
+                end,
+                nil, 20)
+            PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            EllesmereUI.RegisterWidgetRefresh(bgUpdateSwatch)
+        end
 
         -- Row 3: Texture | Frame Strata
         local strataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
@@ -7326,7 +7413,7 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip = function()
                   local p = DB()
                   if p and not p.primary.enabled then return "Power Bar" end
-	              if EllesmereUI.GetHeightMatchTarget and EllesmereUI.GetHeightMatchTarget("ERB_Power") then
+                  if EllesmereUI.GetHeightMatchTarget and EllesmereUI.GetHeightMatchTarget("ERB_Power") then
                       return "This option can't be used while you have the Power Bar Height Matched in the Unlock Mode."
                   end
                   return "This option can't be used while Shift Elements if No Resource is enabled."
@@ -7443,20 +7530,20 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         --  CLASS RESOURCE BAR  (header + Row 1 etc. now via the shared builder)
         -----------------------------------------------------------------------
-        local classSection, classEnableRow
-        y, classSection, classEnableRow = ns.ERB_BuildClassResourceSection(parent, y, {
+        local classSection, classEnableRow, classResourceTextRow
+        y, classSection, classEnableRow, classResourceTextRow = ns.ERB_BuildClassResourceSection(parent, y, {
             cfg = function() return DB().secondary end, advanced = false, syncRows = _syncRows,
         })
 
-        -- Row: Anchor to Cursor | Cursor Position (cog: X + Y)
-        do
+        -- Row: Anchor to Cursor | Cursor Position (cog: X + Y). Appended
+        -- outside the shared section builder, so it carries its own
+        -- hidden-while-disabled gate (the builder's toggle rebuilds on flips).
+        if DB().secondary.enabled then
             local _, cursorH = EllesmereUI.BuildCursorAnchorRow({
                 W = W, parent = parent, y = y,
                 getData = function() local p = DB(); return p and p.secondary or {} end,
                 onApply = function() RebuildClass(); SmoothRefresh() end,
                 makeCogBtn = MakeCogBtn,
-                disabledFn = function() local p = DB(); return p and not p.secondary.enabled end,
-                disabledTip = "Class Resource",
             })
             y = y - cursorH
         end
@@ -7470,26 +7557,23 @@ initFrame:SetScript("OnEvent", function(self)
             cfg = function() return DB().primary end, advanced = false, syncRows = _syncRows,
         })
 
-        local powerOff = function() local p = DB(); return p and not p.primary.enabled end
-        local powerDisTip = "Power Bar"
-
-        -- Row: Anchor to Cursor | Cursor Position (cog: X + Y)
-        do
+        -- Row: Anchor to Cursor | Cursor Position (cog: X + Y). Appended
+        -- outside the shared section builder, so it carries its own
+        -- hidden-while-disabled gate (the builder's toggle rebuilds on flips).
+        if DB().primary.enabled then
             local _, cursorH = EllesmereUI.BuildCursorAnchorRow({
                 W = W, parent = parent, y = y,
                 getData = function() local p = DB(); return p and p.primary or {} end,
                 onApply = function() RebuildPower(); SmoothRefresh() end,
                 makeCogBtn = MakeCogBtn,
-                disabledFn = function()
-                      local p = DB(); return p and not p.primary.enabled
-                end,
-                disabledTip = "Power Bar",
             })
             y = y - cursorH
         end
 
-        -- Row 7: Power Type override (spec-dependent, like UF Power Type dropdown)
-        do
+        -- Row 7: Power Type override (spec-dependent, like UF Power Type
+        -- dropdown). Hidden with the rest of the Power section while the bar
+        -- is off.
+        if DB().primary.enabled then
             local _, playerClass = UnitClass("player")
             local SPEC_POWER_ALTS = {
                 DRUID  = { [1] = { "Mana", "Astral Power" }, [2] = { "Energy", "Mana" }, [3] = { "Rage", "Mana" } },
@@ -7507,8 +7591,6 @@ initFrame:SetScript("OnEvent", function(self)
                     local powerTypeRow
                     powerTypeRow, h = W:DualRow(parent, y,
                         { type="dropdown", text="Power Type",
-                          disabled = powerOff,
-                          disabledTooltip = powerDisTip,
                           values = ptValues, order = ptOrder,
                           getValue = function()
                               local s = GetSpecialization and GetSpecialization()
@@ -7555,15 +7637,15 @@ initFrame:SetScript("OnEvent", function(self)
             cfg = function() return DB().health end, advanced = false, syncRows = _syncRows,
         })
 
-        -- Row: Anchor to Cursor | Cursor Position (cog: X + Y)
-        do
+        -- Row: Anchor to Cursor | Cursor Position (cog: X + Y). Appended
+        -- outside the shared section builder, so it carries its own
+        -- hidden-while-disabled gate (the builder's toggle rebuilds on flips).
+        if DB().health.enabled then
             local _, cursorH = EllesmereUI.BuildCursorAnchorRow({
                 W = W, parent = parent, y = y,
                 getData = function() local p = DB(); return p and p.health or {} end,
                 onApply = function() RebuildHealth(); SmoothRefresh() end,
                 makeCogBtn = MakeCogBtn,
-                disabledFn = function() local p = DB(); return p and not p.health.enabled end,
-                disabledTip = "Health Bar",
             })
             y = y - cursorH
         end
@@ -7575,7 +7657,11 @@ initFrame:SetScript("OnEvent", function(self)
         -- off-screen rows).
         if not EllesmereUI._prebuilding then
             _clickMappings.classResource = { section = classSection, target = classEnableRow }
-            _clickMappings.countText = { section = classSection, target = classColorRow }
+            -- The Resource Text row lives inside the shared class-resource
+            -- section builder, so it must be returned from there -- naming a
+            -- local from that scope here silently resolves to nil and the
+            -- count-text click does nothing.
+            _clickMappings.countText = { section = classSection, target = classResourceTextRow, slotSide = "left" }
         end
 
 		-- local thresholdPage = CreateFrame("Frame", nil, root)
@@ -7746,11 +7832,24 @@ initFrame:SetScript("OnEvent", function(self)
             local cc = cf and RAID_CLASS_COLORS and RAID_CLASS_COLORS[cf]
             if cc then fR, fG, fB = cc.r, cc.g, cc.b end
         end
+        local fillOp = (cb.fillOpacity or 100) / 100
         if cb.gradientEnabled then
             local dir = cb.gradientDir or "HORIZONTAL"
-            fillTex:SetGradient(dir, CreateColor(fR, fG, fB, fA), CreateColor(cb.gradientR, cb.gradientG, cb.gradientB, cb.gradientA))
+            fillTex:SetGradient(dir, CreateColor(fR, fG, fB, fA * fillOp), CreateColor(cb.gradientR, cb.gradientG, cb.gradientB, cb.gradientA * fillOp))
         else
-            fillTex:SetVertexColor(fR, fG, fB, fA)
+            fillTex:SetVertexColor(fR, fG, fB, fA * fillOp)
+        end
+        -- Mirror the live bar's Fill Opacity bg behavior: below 100 the bg
+        -- covers only the empty portion so the translucent fill shows what is
+        -- behind the bar; at 100 it spans the whole bar frame.
+        if texKey ~= "blizzard" then
+            pf.bg:ClearAllPoints()
+            if (cb.fillOpacity or 100) < 100 then
+                pf.bg:SetPoint("TOPLEFT", fillTex, "TOPRIGHT", 0, 0)
+                pf.bg:SetPoint("BOTTOMRIGHT", pf.barFrame, "BOTTOMRIGHT", 0, 0)
+            else
+                pf.bg:SetAllPoints(pf.barFrame)
+            end
         end
 
         -- Spark
@@ -8096,44 +8195,8 @@ initFrame:SetScript("OnEvent", function(self)
                   p.castBar.frameStrata = v; RefreshCast()
               end }
         );  y = y - h
-        -- Inline cog (DIRECTIONS) on Enable for x/y position
-        do
-            local rgn = castEnableRow._leftRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Cast Bar Position",
-                rows = {
-                    { type = "slider", label = "X Offset", min = -600, max = 600, step = 1,
-                      get = function() local p = DB(); return p and p.castBar.anchorX or 0 end,
-                      set = function(v)
-                          local p = DB(); if not p then return end
-                          p.castBar.anchorX = v; RefreshCast()
-                      end },
-                    { type = "slider", label = "Y Offset", min = -600, max = 600, step = 1,
-                      get = function() local p = DB(); return p and p.castBar.anchorY or -54 end,
-                      set = function(v)
-                          local p = DB(); if not p then return end
-                          p.castBar.anchorY = v; RefreshCast()
-                      end },
-                },
-                footer = { unlockKey = "ERB_CastBar" },
-            })
-            local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
-            local cogDis = CreateFrame("Frame", nil, rgn)
-            cogDis:SetAllPoints(cogBtn)
-            cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
-            cogDis:EnableMouse(true)
-            cogDis:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Player Cast Bar"))
-            end)
-            cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateCogDisCB1()
-                local p = DB()
-                if p and not p.castBar.enabled then cogDis:Show() else cogDis:Hide() end
-            end
-            cogBtn:HookScript("OnShow", UpdateCogDisCB1)
-            EllesmereUI.RegisterWidgetRefresh(UpdateCogDisCB1)
-            UpdateCogDisCB1()
-        end
+        -- (No position cog here: the cast bar is positioned via Unlock Mode;
+        -- the old X/Y offset cog wrote anchor keys the runtime never reads.)
 
         -- Row 2: Height | Width (sync icons push to power + health bars)
         local classSizeRow
@@ -8680,6 +8743,20 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateCogDisTimer)
             UpdateCogDisTimer()
         end
+
+        -- Row 5: Fill Opacity | (empty)
+        _, h = W:DualRow(parent, y,
+            { type = "slider", text = "Fill Opacity", min = 0, max = 100, step = 1,
+              tooltip = "Opacity of the bar fill; below 100 the world shows through the fill instead of the background.",
+              disabled = castOff,
+              disabledTooltip = "Player Cast Bar",
+              getValue = function() local p = DB(); return p and (p.castBar.fillOpacity or 100) or 100 end,
+              setValue = function(v)
+                  local p = DB(); if not p then return end
+                  p.castBar.fillOpacity = v; RefreshCast()
+              end },
+            { type = "label", text = "" }
+        );  y = y - h
 
         -- ── MARKS section ───────────────────────────────────────────
         _, h = W:SectionHeader(parent, "TICK MARKERS", y);  y = y - h

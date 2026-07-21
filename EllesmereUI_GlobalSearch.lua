@@ -656,6 +656,13 @@ local function EnsureSearchUI()
         -- Coarse module/page results show immediately; when the pass
         -- finishes, re-run the query so newly indexed rows appear without
         -- retyping.
+        -- While a search is active, every "Show Less Common" section renders
+        -- force-expanded with no link line; clearing the box collapses them
+        -- back to their session state (transitions rebuild -- see
+        -- SetLessCommonSearchActive in EllesmereUI_Widgets.lua).
+        if EllesmereUI.SetLessCommonSearchActive then
+            EllesmereUI.SetLessCommonSearchActive(query ~= "")
+        end
         if query ~= "" and not _prebuildDone then
             RunPrebuildPass(function()
                 if sidebarSearchBox:GetText() ~= "" then RunSearch() end

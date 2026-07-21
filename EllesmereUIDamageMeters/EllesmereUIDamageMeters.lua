@@ -212,6 +212,13 @@ local DM_DEFAULTS = {
             rightTextUseClassColor = false,
             rightTextColor  = { r = 1, g = 1, b = 1 },
             bgR = 0, bgG = 0, bgB = 0, bgAlpha = 0.75,
+            windowBorderTexture = "solid",
+            windowBorderSize = 0,
+            windowBorderOffsetX = 0,
+            windowBorderOffsetY = 0,
+            windowBorderColor = { r = 0, g = 0, b = 0, a = 1 },
+            windowBorderIncludeHeader = true,
+            windowBorderBehind = false,
             barBgR = 0, barBgG = 0, barBgB = 0, barBgAlpha = 0,
             barBgUseClassColor = false,
             standaloneTimer       = false,
@@ -224,6 +231,8 @@ local DM_DEFAULTS = {
             hideResetButton = false, -- display the "reset data" button on the damage meter header
             hdrBgColor      = { r = 0x1B/255, g = 0x1B/255, b = 0x1B/255 },
             hdrBgAlpha      = 1,
+            hdrBottomBorderSize = 0,
+            hdrBottomBorderColor = { r = 0, g = 0, b = 0, a = 1 },
             hdrHeight       = 22,
             hdrFontSize     = 11,
             hdrTextOffX     = 0,
@@ -1495,8 +1504,31 @@ local _activeRow = nil
 
 local TT_HDR_H = 20
 
+local function BlizzardSkinBordersAvailable()
+    return C_AddOns and C_AddOns.IsAddOnLoaded
+        and C_AddOns.IsAddOnLoaded("EllesmereUIBlizzardSkin")
+        and EUI and EUI._applyBlizzardConfiguredBorder
+end
+
+local function ApplyInheritedBlizzardBorder(frame, prefix)
+    if not frame or not BlizzardSkinBordersAvailable() then return false end
+    if prefix == "tooltip" and frame._bg and EUI.GetTooltipBg then
+        frame._bg:SetColorTexture(EUI.GetTooltipBg())
+    end
+    local ok = pcall(EUI._applyBlizzardConfiguredBorder, frame, prefix, 1)
+    if ok and frame._legacyBorder and frame._legacyBorder._frame then
+        frame._legacyBorder._frame:Hide()
+    elseif not ok and frame._legacyBorder and frame._legacyBorder._frame then
+        frame._legacyBorder._frame:Show()
+    end
+    return ok
+end
+
 local function EnsureTooltipFrame()
-    if _ttFrame then return end
+    if _ttFrame then
+        ApplyInheritedBlizzardBorder(_ttFrame, "tooltip")
+        return
+    end
     _ttFrame = CreateFrame("Frame", nil, UIParent)
     _ttFrame:SetFrameStrata("TOOLTIP")
     _ttFrame:SetSize(TT_WIDTH, 10)
@@ -1504,7 +1536,8 @@ local function EnsureTooltipFrame()
     _ttFrame._bg = _ttFrame:CreateTexture(nil, "BACKGROUND")
     _ttFrame._bg:SetAllPoints()
     _ttFrame._bg:SetColorTexture(0, 0, 0, 0.95)
-    if EUI.MakeBorder then EUI.MakeBorder(_ttFrame, 0, 0, 0, 1) end
+    if EUI.MakeBorder then _ttFrame._legacyBorder = EUI.MakeBorder(_ttFrame, 0, 0, 0, 1) end
+    ApplyInheritedBlizzardBorder(_ttFrame, "tooltip")
 
     -- Header bar
     _ttFrame._hdr = CreateFrame("Frame", nil, _ttFrame)
@@ -1932,6 +1965,7 @@ local function MakeMenuPanel(level)
     bg:SetColorTexture(RS.BG_R or 0.067, RS.BG_G or 0.067, RS.BG_B or 0.067, RS.CTX_ALPHA or 0.95)
     local PP_L = EUI.PP
     if PP_L and PP_L.CreateBorder then PP_L.CreateBorder(f, 1, 1, 1, RS.BRD_ALPHA or 0.18, 1) end
+    ApplyInheritedBlizzardBorder(f, "popupMenu")
     f._pool = {}; f:Hide()
     f:RegisterEvent("PLAYER_REGEN_DISABLED")
     f:SetScript("OnEvent", function(self) self:Hide() end)
@@ -1960,6 +1994,7 @@ local function EnsureMenuRow(menu, idx)
 end
 
 local function LayoutMenu(menu, items, onDismiss, isChild)
+    ApplyInheritedBlizzardBorder(menu, "popupMenu")
     local fontPath = (EUI.GetFontPath and EUI.GetFontPath("damageMeters")) or "Fonts\\FRIZQT__.TTF"
     local outline = (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("damageMeters")) or ""
     local EG = EUI.ELLESMERE_GREEN
@@ -2418,8 +2453,25 @@ local function CreateDMWindow(winIdx)
     header:SetFrameLevel(frame:GetFrameLevel() + 5)
     W.header = header
 
+    -- Independent overlay target so the frame border can start either at the
+    -- window top or exactly below the header without affecting window layout.
+    local windowBorderTarget = CreateFrame("Frame", nil, frame)
+    windowBorderTarget:EnableMouse(false)
+    windowBorderTarget:SetFrameLevel(header:GetFrameLevel() + 4)
+    W.windowBorderTarget = windowBorderTarget
+
     do local hc = cfg.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
     header._hdrBg = header:CreateTexture(nil, "BACKGROUND"); header._hdrBg:SetAllPoints(); header._hdrBg:SetColorTexture(hR, hG, hB, cfg.hdrBgAlpha or 1) end
+    header._bottomBorder = header:CreateTexture(nil, "OVERLAY", nil, 7)
+    header._bottomBorder:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
+    header._bottomBorder:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
+    do
+        local size = cfg.hdrBottomBorderSize or 0
+        local color = cfg.hdrBottomBorderColor or {}
+        header._bottomBorder:SetHeight(PhysicalPixels(size))
+        header._bottomBorder:SetColorTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
+        header._bottomBorder:SetShown(size > 0)
+    end
 
     local hdrFS = cfg.hdrFontSize or 11
     local txOX, txOY = cfg.hdrTextOffX or 0, cfg.hdrTextOffY or 0
@@ -2676,6 +2728,7 @@ local function CreateDMWindow(winIdx)
             nwdb.position = { x = srcLeft2, y = newTop2 }
             local nw = CreateDMWindow(newIdx2)
             _windows[newIdx2] = nw
+            if ns.ApplyWindowBorder then ns.ApplyWindowBorder() end
             -- Persist count
             local c = DB(); c.windowCount = newIdx2
             ns.RegisterDMUnlock()
@@ -4403,6 +4456,35 @@ ns.ApplyBackground = function()
     end
 end
 
+ns.ApplyWindowBorder = function()
+    local cfg = DB()
+    local size = tonumber(cfg.windowBorderSize) or 0
+    local texture = cfg.windowBorderTexture or "solid"
+    local color = cfg.windowBorderColor or {}
+    local r, g, b, a = color.r or 0, color.g or 0, color.b or 0, color.a or 1
+    local includeHeader = cfg.windowBorderIncludeHeader ~= false
+    local offsetX = texture ~= "solid" and (tonumber(cfg.windowBorderOffsetX) or 0) or 0
+    local offsetY = texture ~= "solid" and (tonumber(cfg.windowBorderOffsetY) or 0) or 0
+
+    for _, w in ipairs(_windows) do
+        local target = w.windowBorderTarget
+        if target and w.frame and w.header then
+            local frameLevel = w.frame:GetFrameLevel()
+            target:SetFrameLevel(cfg.windowBorderBehind and math.max(0, frameLevel - 1) or (w.header:GetFrameLevel() + 4))
+            target:ClearAllPoints()
+            if includeHeader then
+                target:SetPoint("TOPLEFT", w.frame, "TOPLEFT", -offsetX, offsetY)
+            else
+                target:SetPoint("TOPLEFT", w.header, "BOTTOMLEFT", -offsetX, offsetY)
+            end
+            target:SetPoint("BOTTOMRIGHT", w.frame, "BOTTOMRIGHT", offsetX, -offsetY)
+            -- Offsets are represented by the target geometry itself, which also
+            -- makes them work for the solid four-strip border implementation.
+            EUI.ApplyBorderStyle(target, size, r, g, b, a, texture)
+        end
+    end
+end
+
 ns.ApplyHeader = function()
     local cfg = DB()
     local hc = cfg.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
@@ -4417,6 +4499,13 @@ ns.ApplyHeader = function()
         if w.header then
             w.header:SetHeight(hdrH)
             if w.header._hdrBg then w.header._hdrBg:SetColorTexture(hR, hG, hB, hA) end
+            if w.header._bottomBorder then
+                local size = cfg.hdrBottomBorderSize or 0
+                local color = cfg.hdrBottomBorderColor or {}
+                w.header._bottomBorder:SetHeight(PhysicalPixels(size))
+                w.header._bottomBorder:SetColorTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
+                w.header._bottomBorder:SetShown(size > 0)
+            end
         end
         if w.frame and w.frame._bg then
             w.frame._bg:ClearAllPoints()
@@ -4445,6 +4534,7 @@ ns.ApplyHeader = function()
         ApplyHeaderButtonsHoverVisibility(w, cfg)
         if w.FitTitle then w.FitTitle() end
     end
+    ns.ApplyWindowBorder()
 end
 
 ns.ApplyIconColor = function()
@@ -5023,6 +5113,7 @@ initFrame:SetScript("OnEvent", function(self)
             return
         end
         _windows[winIdx] = CreateDMWindow(winIdx)
+        ns.ApplyWindowBorder()
         C_Timer.After(0, CreateNextWindow)
     end
     C_Timer.After(0, CreateNextWindow)
@@ -5059,6 +5150,7 @@ initFrame:SetScript("OnEvent", function(self)
         for i = wc + 1, MAX_WINDOWS do c.windows[i] = nil end
         for i = 1, wc do
             _windows[i] = CreateDMWindow(i)
+            ns.ApplyWindowBorder()
         end
         -- Refresh unlock registrations for the new profile's window count
         ns.RegisterDMUnlock()

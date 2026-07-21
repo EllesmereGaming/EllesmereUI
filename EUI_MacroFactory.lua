@@ -189,7 +189,8 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             name = "EUI_Health",
             icon = "Interface\\Icons\\inv_potion_131",
             label = "Health / Recuperate (Combat Based)",
-            fixedBody = "/stopcasting\n/cast [nocombat] Recuperate\n/use [combat] item:241304\n/use [combat] item:241305",
+            spells = {1231418}, -- Recuperate (universal campfire self-heal)
+            fixedBody = "/stopcasting\n/cast [nocombat] {1}\n/use [combat] item:241304\n/use [combat] item:241305",
             fixedTooltip = "item:241304",
         },
         {
@@ -249,241 +250,244 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
 
     -- Death Knight (250=Blood, 251=Frost, 252=Unholy)
     local DK_GEN = {
-        { name="EUI_MindFreeze", icon="Interface\\Icons\\spell_deathknight_mindfreeze", label="Mind Freeze\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Mind Freeze", fixedTooltip="Mind Freeze" },
-        { name="EUI_Asphyxiate", icon="Interface\\Icons\\ability_deathknight_asphixiate", label="Asphyxiate\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Asphyxiate", fixedTooltip="Asphyxiate" },
+        { name="EUI_MindFreeze", icon="Interface\\Icons\\spell_deathknight_mindfreeze", label="Mind Freeze\n(Focus)", spells={47528}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Mind Freeze
+        { name="EUI_Asphyxiate", icon="Interface\\Icons\\ability_deathknight_asphixiate", label="Asphyxiate\n(Focus)", spells={221562}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Asphyxiate
     }
     local DK_BLOOD = {
-        { name="EUI_DnDCursor", icon="Interface\\Icons\\spell_shadow_deathanddecay", label="Death and Decay\n(Cursor)", fixedBody="/cast [@cursor] Death and Decay", fixedTooltip="Death and Decay" },
-        { name="EUI_GorefiendCursor", icon="Interface\\Icons\\ability_deathknight_aoedeathgrip", label="Gorefiend's Grasp\n(Cursor)", fixedBody="/cast [@cursor] Gorefiend's Grasp", fixedTooltip="Gorefiend's Grasp" },
-        { name="EUI_AbomLimb", icon="Interface\\Icons\\ability_maldraxxus_deathknight", label="Abomination Limb\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Abomination Limb", fixedTooltip="Abomination Limb" },
+        { name="EUI_DnDCursor", icon="Interface\\Icons\\spell_shadow_deathanddecay", label="Death and Decay\n(Cursor)", spells={43265}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Death and Decay
+        { name="EUI_GorefiendCursor", icon="Interface\\Icons\\ability_deathknight_aoedeathgrip", label="Gorefiend's Grasp\n(Cursor)", spells={108199}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Gorefiend's Grasp
+        { name="EUI_AbomLimb", icon="Interface\\Icons\\ability_maldraxxus_deathknight", label="Abomination Limb\n(Focus)", spells={315443}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Abomination Limb
     }
     local DK_FROST = {
-        { name="EUI_PFObliterate", icon="Interface\\Icons\\spell_deathknight_pillaroffrost", label="PF Obliterate", fixedBody="/cast Pillar of Frost\n/cast Obliterate\n/cast Raise Dead" },
-        { name="EUI_PFReapersMark", icon="Interface\\Icons\\spell_deathknight_pillaroffrost", label="PF Reaper's Mark", fixedBody="/cast Pillar of Frost\n/cast Reaper's Mark\n/cast Raise Dead" },
+        { name="EUI_PFObliterate", icon="Interface\\Icons\\spell_deathknight_pillaroffrost", label="PF Obliterate", spells={51271, 49020, 46584}, fixedBody="/cast {1}\n/cast {2}\n/cast {3}" }, -- Pillar of Frost / Obliterate / Raise Dead
+        { name="EUI_PFReapersMark", icon="Interface\\Icons\\spell_deathknight_pillaroffrost", label="PF Reaper's Mark", spells={51271, 439843, 46584}, fixedBody="/cast {1}\n/cast {2}\n/cast {3}" }, -- Pillar of Frost / Reaper's Mark / Raise Dead
     }
     local DK_UNHOLY = {
-        { name="EUI_DarkTransform", icon="Interface\\Icons\\achievement_boss_festergutrotface", label="Dark Transform\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Dark Transformation", fixedTooltip="Dark Transformation" },
-        { name="EUI_PetSwap", icon="Interface\\Icons\\ability_devour", label="Pet Target\nSwap", fixedBody="/cast Leap\n/petattack\n/startattack" },
-        { name="EUI_PetMove", icon="Interface\\Icons\\achievement_boss_festergutrotface", label="Pet Move", fixedBody="/petmoveto", fixedTooltip="dark transformation" },
-        { name="EUI_PetResummon", icon="Interface\\Icons\\spell_shadow_animatedead", label="Pet Resummon", fixedBody="/script PetDismiss()\n/cast [nopet] Raise Dead" },
+        { name="EUI_DarkTransform", icon="Interface\\Icons\\achievement_boss_festergutrotface", label="Dark Transform\n(Focus)", spells={63560}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Dark Transformation
+        { name="EUI_PetSwap", icon="Interface\\Icons\\ability_devour", label="Pet Target\nSwap", spells={91809}, fixedBody="/cast {1}\n/petattack\n/startattack" }, -- Leap (ghoul pet; ID low-confidence, verify in-game)
+        { name="EUI_PetMove", icon="Interface\\Icons\\achievement_boss_festergutrotface", label="Pet Move", spells={63560}, fixedBody="/petmoveto", fixedTooltip="{1}" }, -- tooltip: Dark Transformation
+        { name="EUI_PetResummon", icon="Interface\\Icons\\spell_shadow_animatedead", label="Pet Resummon", spells={46584}, fixedBody="/script PetDismiss()\n/cast [nopet] {1}" }, -- Raise Dead
     }
 
     -- Demon Hunter (577=Havoc, 581=Vengeance)
     local DH_GEN = {
-        { name="EUI_Disrupt", icon="Interface\\Icons\\ability_demonhunter_consumemagic", label="Disrupt\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Disrupt", fixedTooltip="Disrupt" },
-        { name="EUI_ConsumeMagic", icon="Interface\\Icons\\spell_shadow_manaburn", label="Consume Magic\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Consume Magic", fixedTooltip="Consume Magic" },
-        { name="EUI_MetaCursor", icon="Interface\\Icons\\ability_demonhunter_metamorphasisdps", label="Metamorphosis\n(Cursor)", fixedBody="/cast [@cursor] Metamorphosis", fixedTooltip="Metamorphosis" },
-        { name="EUI_SigilFlame", icon="Interface\\Icons\\ability_demonhunter_sigilofinquisition", label="Sigil of Flame\n(Cursor)", fixedBody="/cast [@cursor] Sigil of Flame", fixedTooltip="Sigil of Flame" },
-        { name="EUI_SigilMisery", icon="Interface\\Icons\\ability_demonhunter_sigilofmisery", label="Sigil of Misery\n(Cursor)", fixedBody="/cast [@cursor] Sigil of Misery", fixedTooltip="Sigil of Misery" },
+        { name="EUI_Disrupt", icon="Interface\\Icons\\ability_demonhunter_consumemagic", label="Disrupt\n(Focus)", spells={183752}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Disrupt
+        { name="EUI_ConsumeMagic", icon="Interface\\Icons\\spell_shadow_manaburn", label="Consume Magic\n(Focus)", spells={278326}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Consume Magic
+        { name="EUI_MetaCursor", icon="Interface\\Icons\\ability_demonhunter_metamorphasisdps", label="Metamorphosis\n(Cursor)", spells={191427}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Metamorphosis (Havoc)
+        { name="EUI_SigilFlame", icon="Interface\\Icons\\ability_demonhunter_sigilofinquisition", label="Sigil of Flame\n(Cursor)", spells={204596}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Sigil of Flame
+        { name="EUI_SigilMisery", icon="Interface\\Icons\\ability_demonhunter_sigilofmisery", label="Sigil of Misery\n(Cursor)", spells={207684}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Sigil of Misery
     }
     local DH_DEVOURER = {
-        { name="EUI_VoidMeta", icon="Interface\\Icons\\ability_demonhunter_metamorphasisdps", label="Void Metamorphosis\n+ Trinket 1", fixedBody="/cast Void Metamorphosis\n/use 13", fixedTooltip="Void Metamorphosis" },
-        { name="EUI_ShiftCursor", icon="Interface\\Icons\\inv_12_dh_void_ability_shift", label="Shift\n(Cursor)", fixedBody="/cast [@cursor] Shift", fixedTooltip="Shift" },
+        { name="EUI_VoidMeta", icon="Interface\\Icons\\ability_demonhunter_metamorphasisdps", label="Void Metamorphosis\n+ Trinket 1", spells={1225789}, fixedBody="/cast {1}\n/use 13", fixedTooltip="{1}" }, -- Void Metamorphosis (Midnight/Devourer)
+        { name="EUI_ShiftCursor", icon="Interface\\Icons\\inv_12_dh_void_ability_shift", label="Shift\n(Cursor)", spells={1234796}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Shift (Midnight/Devourer)
     }
     local DH_HAVOC = {
-        { name="EUI_TheHunt", icon="Interface\\Icons\\ability_ardenweald_demonhunter", label="The Hunt\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] The Hunt", fixedTooltip="The Hunt" },
-        { name="EUI_VRGlide", icon="Interface\\Icons\\ability_demonhunter_vengefulretreat2", label="Vengeful Retreat\n& Glide", fixedBody="/cast Vengeful Retreat\n/cast !Glide", fixedTooltip="Vengeful Retreat" },
+        { name="EUI_TheHunt", icon="Interface\\Icons\\ability_ardenweald_demonhunter", label="The Hunt\n(Focus)", spells={370965}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- The Hunt
+        { name="EUI_VRGlide", icon="Interface\\Icons\\ability_demonhunter_vengefulretreat2", label="Vengeful Retreat\n& Glide", spells={198793, 131347}, fixedBody="/cast {1}\n/cast !{2}", fixedTooltip="{1}" }, -- Vengeful Retreat / Glide
     }
     local DH_VENG = {
-        { name="EUI_InfernalStrike", icon="Interface\\Icons\\ability_demonhunter_infernalstrike1", label="Infernal Strike\n(Cursor)", fixedBody="/cast [@cursor] Infernal Strike", fixedTooltip="Infernal Strike" },
-        { name="EUI_SigilChains", icon="Interface\\Icons\\ability_demonhunter_sigilofchains", label="Sigil of Chains\n(Cursor)", fixedBody="/cast [@cursor] Sigil of Chains", fixedTooltip="Sigil of Chains" },
-        { name="EUI_SigilSilence", icon="Interface\\Icons\\ability_demonhunter_sigilofsilence", label="Sigil of Silence\n(Cursor)", fixedBody="/cast [@cursor] Sigil of Silence" },
+        { name="EUI_InfernalStrike", icon="Interface\\Icons\\ability_demonhunter_infernalstrike1", label="Infernal Strike\n(Cursor)", spells={189110}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Infernal Strike
+        { name="EUI_SigilChains", icon="Interface\\Icons\\ability_demonhunter_sigilofchains", label="Sigil of Chains\n(Cursor)", spells={202138}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Sigil of Chains
+        { name="EUI_SigilSilence", icon="Interface\\Icons\\ability_demonhunter_sigilofsilence", label="Sigil of Silence\n(Cursor)", spells={202137}, fixedBody="/cast [@cursor] {1}" }, -- Sigil of Silence
     }
 
     -- Druid (102=Balance, 103=Feral, 104=Guardian, 105=Restoration)
     local DRUID_GEN = {
-        { name="EUI_UrsolVortex", icon="Interface\\Icons\\spell_druid_ursolsvortex", label="Ursol's Vortex\n(Cursor)", fixedBody="/cast [@cursor] Ursol's Vortex" },
-        { name="EUI_Innervate", icon="Interface\\Icons\\spell_nature_lightning", label="Innervate\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Innervate", fixedTooltip="Innervate" },
-        { name="EUI_RemoveCorrupt", icon="Interface\\Icons\\spell_holy_removecurse", label="Remove Corruption\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Remove Corruption", fixedTooltip="Remove Corruption" },
+        { name="EUI_UrsolVortex", icon="Interface\\Icons\\spell_druid_ursolsvortex", label="Ursol's Vortex\n(Cursor)", spells={102793}, fixedBody="/cast [@cursor] {1}" }, -- Ursol's Vortex
+        { name="EUI_Innervate", icon="Interface\\Icons\\spell_nature_lightning", label="Innervate\n(Focus)", spells={29166}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Innervate
+        { name="EUI_RemoveCorrupt", icon="Interface\\Icons\\spell_holy_removecurse", label="Remove Corruption\n(Focus)", spells={2782}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Remove Corruption
     }
     local DRUID_BAL = {
-        { name="EUI_SolarBeam", icon="Interface\\Icons\\ability_vehicle_sonicshockwave", label="Solar Beam\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Solar Beam", fixedTooltip="Solar Beam" },
-        { name="EUI_ForceOfNature", icon="Interface\\Icons\\ability_druid_forceofnature", label="Force of Nature\n(Cursor)", fixedBody="/cast [@cursor] Force of Nature", fixedTooltip="Force of Nature" },
-        { name="EUI_CelestialAlign", icon="Interface\\Icons\\spell_nature_natureguardian", label="Celestial Alignment\n(Cursor)", fixedBody="/cast [@cursor] Celestial Alignment", fixedTooltip="Celestial Alignment" },
+        { name="EUI_SolarBeam", icon="Interface\\Icons\\ability_vehicle_sonicshockwave", label="Solar Beam\n(Focus)", spells={78675}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Solar Beam
+        { name="EUI_ForceOfNature", icon="Interface\\Icons\\ability_druid_forceofnature", label="Force of Nature\n(Cursor)", spells={205636}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Force of Nature
+        { name="EUI_CelestialAlign", icon="Interface\\Icons\\spell_nature_natureguardian", label="Celestial Alignment\n(Cursor)", spells={194223}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Celestial Alignment
     }
     local DRUID_FERAL = {
-        { name="EUI_SkullBash", icon="Interface\\Icons\\inv_bone_skull_04", label="Skull Bash\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Skull Bash", fixedTooltip="Skull Bash" },
+        { name="EUI_SkullBash", icon="Interface\\Icons\\inv_bone_skull_04", label="Skull Bash\n(Focus)", spells={106839}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Skull Bash
     }
     local DRUID_GUARD = {
-        { name="EUI_SkullBash", icon="Interface\\Icons\\inv_bone_skull_04", label="Skull Bash\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Skull Bash", fixedTooltip="Skull Bash" },
+        { name="EUI_SkullBash", icon="Interface\\Icons\\inv_bone_skull_04", label="Skull Bash\n(Focus)", spells={106839}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Skull Bash
     }
     local DRUID_RESTO = {
-        { name="EUI_Ironbark", icon="Interface\\Icons\\spell_druid_ironbark", label="Ironbark\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Ironbark", fixedTooltip="Ironbark" },
-        { name="EUI_InnervateSelf", icon="Interface\\Icons\\spell_nature_lightning", label="Innervate\n(Player)", fixedBody="/cast [@player] Innervate" },
-        { name="EUI_NSConvoke", icon="Interface\\Icons\\ability_ardenweald_druid", label="Nature's Swiftness\nConvoke", fixedBody="/cast [nochanneling] Nature's Swiftness\n/cast Convoke the Spirits\n/cqs", fixedTooltip="Convoke the Spirits" },
+        { name="EUI_Ironbark", icon="Interface\\Icons\\spell_druid_ironbark", label="Ironbark\n(Focus)", spells={102342}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Ironbark
+        { name="EUI_InnervateSelf", icon="Interface\\Icons\\spell_nature_lightning", label="Innervate\n(Player)", spells={29166}, fixedBody="/cast [@player] {1}" }, -- Innervate
+        { name="EUI_NSConvoke", icon="Interface\\Icons\\ability_ardenweald_druid", label="Nature's Swiftness\nConvoke", spells={132158, 391528}, fixedBody="/cast [nochanneling] {1}\n/cast {2}\n/cqs", fixedTooltip="{2}" }, -- Nature's Swiftness / Convoke the Spirits
     }
 
     -- Evoker (1467=Devastation, 1468=Preservation, 1473=Augmentation)
     local EVOKER_GEN = {
-        { name="EUI_CautFlame", icon="Interface\\Icons\\ability_evoker_fontofmagic_red", label="Cauterizing Flame\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Cauterizing Flame", fixedTooltip="Cauterizing Flame" },
-        { name="EUI_RescueCursor", icon="Interface\\Icons\\ability_evoker_flywithme", label="Rescue\n(Cursor)", fixedBody="/tar [@focus]\n/cast [@cursor] Rescue\n/targetlasttarget", fixedTooltip="Rescue" },
-        { name="EUI_RescueToYou", icon="Interface\\Icons\\ability_evoker_flywithme", label="Rescue\n(To You)", fixedBody="/tar [@focus]\n/cast [@player] Rescue\n/targetlasttarget", fixedTooltip="Rescue" },
-        { name="EUI_SleepWalk", icon="Interface\\Icons\\ability_xavius_dreamsimulacrum", label="Sleep Walk\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Sleep Walk", fixedTooltip="Sleep Walk" },
+        { name="EUI_CautFlame", icon="Interface\\Icons\\ability_evoker_fontofmagic_red", label="Cauterizing Flame\n(Focus)", spells={374251}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Cauterizing Flame
+        { name="EUI_RescueCursor", icon="Interface\\Icons\\ability_evoker_flywithme", label="Rescue\n(Cursor)", spells={370665}, fixedBody="/tar [@focus]\n/cast [@cursor] {1}\n/targetlasttarget", fixedTooltip="{1}" }, -- Rescue
+        { name="EUI_RescueToYou", icon="Interface\\Icons\\ability_evoker_flywithme", label="Rescue\n(To You)", spells={370665}, fixedBody="/tar [@focus]\n/cast [@player] {1}\n/targetlasttarget", fixedTooltip="{1}" }, -- Rescue
+        { name="EUI_SleepWalk", icon="Interface\\Icons\\ability_xavius_dreamsimulacrum", label="Sleep Walk\n(Focus)", spells={360806}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Sleep Walk
     }
     local EVOKER_AUG = {
-        { name="EUI_Quell", icon="Interface\\Icons\\ability_evoker_quell", label="Quell\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Quell", fixedTooltip="Quell" },
-        { name="EUI_BlistScales", icon="Interface\\Icons\\ability_evoker_blisteringscales", label="Blistering Scales\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Blistering Scales", fixedTooltip="Blistering Scales" },
+        { name="EUI_Quell", icon="Interface\\Icons\\ability_evoker_quell", label="Quell\n(Focus)", spells={351338}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Quell
+        { name="EUI_BlistScales", icon="Interface\\Icons\\ability_evoker_blisteringscales", label="Blistering Scales\n(Focus)", spells={360827}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Blistering Scales
     }
     local EVOKER_DEV = {
-        { name="EUI_Quell", icon="Interface\\Icons\\ability_evoker_quell", label="Quell\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Quell", fixedTooltip="Quell" },
-        { name="EUI_DragonrageBurst", icon="Interface\\Icons\\ability_evoker_dragonrage2", label="Dragonrage\nBurst", fixedBody="/cast Dragonrage\n/use 13", fixedTooltip="Dragonrage" },
+        { name="EUI_Quell", icon="Interface\\Icons\\ability_evoker_quell", label="Quell\n(Focus)", spells={351338}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Quell
+        { name="EUI_DragonrageBurst", icon="Interface\\Icons\\ability_evoker_dragonrage2", label="Dragonrage\nBurst", spells={375087}, fixedBody="/cast {1}\n/use 13", fixedTooltip="{1}" }, -- Dragonrage
     }
     local EVOKER_PRES = {
-        { name="EUI_DreamFlight", icon="Interface\\Icons\\ability_evoker_dreamflight", label="Dream Flight\n(Cursor)", fixedBody="/cast [@cursor] Dream Flight", fixedTooltip="Dream Flight" },
+        { name="EUI_DreamFlight", icon="Interface\\Icons\\ability_evoker_dreamflight", label="Dream Flight\n(Cursor)", spells={359816}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Dream Flight
     }
 
     -- Hunter (253=BeastMastery, 254=Marksmanship, 255=Survival)
     local HUNTER_GEN = {
-        { name="EUI_CounterMuzzle", icon="Interface\\Icons\\ability_kick", label="Counter Shot\nMuzzle (Focus)", fixedBody="/cast [@focus,harm,nodead][] Counter Shot\n/cast [@focus,harm,nodead][] Muzzle" },
-        { name="EUI_CancelTurtle", icon="Interface\\Icons\\ability_hunter_pet_turtle", label="Cancel/Cast\nTurtle", fixedBody="/cancelaura Aspect of the Turtle\n/cast Aspect of the Turtle", fixedTooltip="Aspect of the Turtle" },
-        { name="EUI_Misdirection", icon="Interface\\Icons\\ability_hunter_misdirection", label="Misdirection\n(Focus)", fixedBody="/cast [@focus,help,nodead][@pet,exists] Misdirection", fixedTooltip="Misdirection" },
-        { name="EUI_FreezeTrap", icon="Interface\\Icons\\spell_frost_chainsofice", label="Freezing Trap\n(Cursor)", fixedBody="/cast [@cursor] Freezing Trap", fixedTooltip="Freezing Trap" },
-        { name="EUI_FlareCursor", icon="Interface\\Icons\\spell_frost_stun", label="Flare\n(Cursor)", fixedBody="/cast [@cursor] Flare", fixedTooltip="Flare" },
-        { name="EUI_TarTrap", icon="Interface\\Icons\\spell_nature_stranglevines", label="Tar Trap\n(Cursor)", fixedBody="/cast [@cursor] Tar Trap", fixedTooltip="Tar Trap" },
-        { name="EUI_BindingShot", icon="Interface\\Icons\\spell_shaman_bindelemental", label="Binding Shot\n(Cursor)", fixedBody="/cast [@cursor] Binding Shot", fixedTooltip="Binding Shot" },
+        { name="EUI_CounterMuzzle", icon="Interface\\Icons\\ability_kick", label="Counter Shot\nMuzzle (Focus)", spells={147362, 187707}, fixedBody="/cast [@focus,harm,nodead][] {1}\n/cast [@focus,harm,nodead][] {2}" }, -- Counter Shot / Muzzle
+        { name="EUI_CancelTurtle", icon="Interface\\Icons\\ability_hunter_pet_turtle", label="Cancel/Cast\nTurtle", spells={186265}, fixedBody="/cancelaura {1}\n/cast {1}", fixedTooltip="{1}" }, -- Aspect of the Turtle
+        { name="EUI_Misdirection", icon="Interface\\Icons\\ability_hunter_misdirection", label="Misdirection\n(Focus)", spells={34477}, fixedBody="/cast [@focus,help,nodead][@pet,exists] {1}", fixedTooltip="{1}" }, -- Misdirection
+        { name="EUI_FreezeTrap", icon="Interface\\Icons\\spell_frost_chainsofice", label="Freezing Trap\n(Cursor)", spells={187650}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Freezing Trap
+        { name="EUI_FlareCursor", icon="Interface\\Icons\\spell_frost_stun", label="Flare\n(Cursor)", spells={1543}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Flare
+        { name="EUI_TarTrap", icon="Interface\\Icons\\spell_nature_stranglevines", label="Tar Trap\n(Cursor)", spells={187698}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Tar Trap
+        { name="EUI_BindingShot", icon="Interface\\Icons\\spell_shaman_bindelemental", label="Binding Shot\n(Cursor)", spells={109248}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Binding Shot
     }
     local HUNTER_BM = {
-        { name="EUI_RoarSacrifice", icon="Interface\\Icons\\ability_hunter_ferociouswild", label="Roar of\nSacrifice", fixedBody="/target[@focus, help, nodead]\n/cast Roar of Sacrifice\n/targetlasttarget\n/cast [@pet] Misdirection", fixedTooltip="Roar of Sacrifice" },
-        { name="EUI_SpiritMend", icon="Interface\\Icons\\ability_hunter_spiritmend", label="Spirit Mend", fixedBody="/cast [@target,help,nodead][@mouseover,help,nodead][@player] Spirit Mend", fixedTooltip="Spirit Mend" },
+        { name="EUI_RoarSacrifice", icon="Interface\\Icons\\ability_hunter_ferociouswild", label="Roar of\nSacrifice", spells={53480, 34477}, fixedBody="/target[@focus, help, nodead]\n/cast {1}\n/targetlasttarget\n/cast [@pet] {2}", fixedTooltip="{1}" }, -- Roar of Sacrifice / Misdirection
+        { name="EUI_SpiritMend", icon="Interface\\Icons\\ability_hunter_spiritmend", label="Spirit Mend", spells={90361}, fixedBody="/cast [@target,help,nodead][@mouseover,help,nodead][@player] {1}", fixedTooltip="{1}" }, -- Spirit Mend
     }
     local HUNTER_MM = {
     }
     local HUNTER_SURV = {
-        { name="EUI_Harpoon", icon="Interface\\Icons\\ability_hunter_harpoon", label="Harpoon\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Harpoon", fixedTooltip="Harpoon" },
+        { name="EUI_Harpoon", icon="Interface\\Icons\\ability_hunter_harpoon", label="Harpoon\n(Focus)", spells={190925}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Harpoon
     }
 
     -- Mage (62=Arcane, 63=Fire, 64=Frost)
     local MAGE_GEN = {
-        { name="EUI_Counterspell", icon="Interface\\Icons\\spell_frost_iceshock", label="Counterspell\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Counterspell", fixedTooltip="Counterspell" },
-        { name="EUI_Spellsteal", icon="Interface\\Icons\\spell_arcane_arcane02", label="Spellsteal\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Spellsteal", fixedTooltip="Spellsteal" },
-        { name="EUI_RemoveCurse", icon="Interface\\Icons\\spell_holy_removecurse", label="Remove Curse\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Remove Curse", fixedTooltip="Remove Curse" },
+        { name="EUI_Counterspell", icon="Interface\\Icons\\spell_frost_iceshock", label="Counterspell\n(Focus)", spells={2139}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Counterspell
+        { name="EUI_Spellsteal", icon="Interface\\Icons\\spell_arcane_arcane02", label="Spellsteal\n(Focus)", spells={30449}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Spellsteal
+        { name="EUI_RemoveCurse", icon="Interface\\Icons\\spell_holy_removecurse", label="Remove Curse\n(Focus)", spells={475}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Remove Curse
     }
     local MAGE_ARCANE = {
-        { name="EUI_PoMBlast", icon="Interface\\Icons\\spell_nature_enchantarmor", label="Presence of Mind\nArcane Blast", fixedBody="/cast Presence of Mind\n/cast Arcane Blast\n/cqs" },
+        { name="EUI_PoMBlast", icon="Interface\\Icons\\spell_nature_enchantarmor", label="Presence of Mind\nArcane Blast", spells={205025, 30451}, fixedBody="/cast {1}\n/cast {2}\n/cqs" }, -- Presence of Mind / Arcane Blast
     }
     local MAGE_FIRE = {
-        { name="EUI_Flamestrike", icon="Interface\\Icons\\spell_fire_selfdestruct", label="Flamestrike\n(Cursor)", fixedBody="/cast [@cursor] Flamestrike" },
-        { name="EUI_MeteorCursor", icon="Interface\\Icons\\spell_mage_meteor", label="Meteor\n(Cursor)", fixedBody="/cast [@cursor] Meteor" },
+        { name="EUI_Flamestrike", icon="Interface\\Icons\\spell_fire_selfdestruct", label="Flamestrike\n(Cursor)", spells={2120}, fixedBody="/cast [@cursor] {1}" }, -- Flamestrike
+        { name="EUI_MeteorCursor", icon="Interface\\Icons\\spell_mage_meteor", label="Meteor\n(Cursor)", spells={153561}, fixedBody="/cast [@cursor] {1}" }, -- Meteor (cast spell, not 153564 damage)
     }
     local MAGE_FROST_SPEC = {
-        { name="EUI_BlizzardCursor", icon="Interface\\Icons\\spell_frost_icestorm", label="Blizzard\n(Cursor)", fixedBody="/cast [@cursor] Blizzard" },
+        { name="EUI_BlizzardCursor", icon="Interface\\Icons\\spell_frost_icestorm", label="Blizzard\n(Cursor)", spells={190356}, fixedBody="/cast [@cursor] {1}" }, -- Blizzard (modern Frost)
     }
 
     -- Monk (268=Brewmaster, 270=Mistweaver, 269=Windwalker)
     local MONK_GEN = {
-        { name="EUI_Detox", icon="Interface\\Icons\\ability_rogue_imrovedrecuperate", label="Detox\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Detox", fixedTooltip="Detox" },
-        { name="EUI_TigersLust", icon="Interface\\Icons\\ability_monk_tigerslust", label="Tiger's Lust\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Tiger's Lust", fixedTooltip="Tiger's Lust" },
-        { name="EUI_RingOfPeace", icon="Interface\\Icons\\spell_monk_ringofpeace", label="Ring of Peace\n(Cursor)", fixedBody="/cast [@cursor] Ring of Peace" },
+        { name="EUI_Detox", icon="Interface\\Icons\\ability_rogue_imrovedrecuperate", label="Detox\n(Focus)", spells={115450}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Detox (MW id; WW/Brew 218164 share name)
+        { name="EUI_TigersLust", icon="Interface\\Icons\\ability_monk_tigerslust", label="Tiger's Lust\n(Focus)", spells={116841}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Tiger's Lust
+        { name="EUI_RingOfPeace", icon="Interface\\Icons\\spell_monk_ringofpeace", label="Ring of Peace\n(Cursor)", spells={116844}, fixedBody="/cast [@cursor] {1}" }, -- Ring of Peace
     }
     local MONK_BREW = {
-        { name="EUI_SpearHand", icon="Interface\\Icons\\ability_monk_spearhand", label="Spear Hand Strike\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Spear Hand Strike", fixedTooltip="Spear Hand Strike" },
-        { name="EUI_BlackOxStatue", icon="Interface\\Icons\\monk_ability_summonoxstatue", label="Black Ox Statue\n(Cursor)", fixedBody="/cast [@cursor] Summon Black Ox Statue" },
+        { name="EUI_SpearHand", icon="Interface\\Icons\\ability_monk_spearhand", label="Spear Hand Strike\n(Focus)", spells={116705}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Spear Hand Strike
+        { name="EUI_BlackOxStatue", icon="Interface\\Icons\\monk_ability_summonoxstatue", label="Black Ox Statue\n(Cursor)", spells={115315}, fixedBody="/cast [@cursor] {1}" }, -- Summon Black Ox Statue
     }
     local MONK_WW = {
-        { name="EUI_SpearHand", icon="Interface\\Icons\\ability_monk_spearhand", label="Spear Hand Strike\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Spear Hand Strike", fixedTooltip="Spear Hand Strike" },
+        { name="EUI_SpearHand", icon="Interface\\Icons\\ability_monk_spearhand", label="Spear Hand Strike\n(Focus)", spells={116705}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Spear Hand Strike
     }
     local MONK_MW = {
-        { name="EUI_LifeCocoon", icon="Interface\\Icons\\ability_monk_chicocoon", label="Life Cocoon\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Life Cocoon", fixedTooltip="Life Cocoon" },
-        { name="EUI_JadeSerpent", icon="Interface\\Icons\\ability_monk_summonserpentstatue", label="Jade Serpent\nStatue (Cursor)", fixedBody="/cast [@cursor] Summon Jade Serpent Statue", fixedTooltip="Summon Jade Serpent Statue" },
+        { name="EUI_LifeCocoon", icon="Interface\\Icons\\ability_monk_chicocoon", label="Life Cocoon\n(Focus)", spells={116849}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Life Cocoon
+        { name="EUI_JadeSerpent", icon="Interface\\Icons\\ability_monk_summonserpentstatue", label="Jade Serpent\nStatue (Cursor)", spells={115313}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Summon Jade Serpent Statue
     }
 
     -- Paladin (65=Holy, 66=Protection, 70=Retribution)
     local PALA_GEN = {
-        { name="EUI_BoFreedom", icon="Interface\\Icons\\spell_holy_sealofvalor", label="Blessing of\nFreedom (Focus)", fixedBody="/cast [@focus,help,nodead][] Blessing of Freedom", fixedTooltip="Blessing of Freedom" },
-        { name="EUI_BoProtection", icon="Interface\\Icons\\spell_holy_sealofprotection", label="Blessing of\nProtection (Focus)", fixedBody="/cast [@focus,help,nodead][] Blessing of Protection", fixedTooltip="Blessing of Protection" },
-        { name="EUI_DivineShield", icon="Interface\\Icons\\spell_holy_divineshield", label="Divine Shield\nCancel/Cast", fixedBody="/stopcasting\n/cancelaura Divine Shield\n/cast Divine Shield", fixedTooltip="Divine Shield" },
-        { name="EUI_ToTLayOnHands", icon="Interface\\Icons\\spell_holy_layonhands", label="Lay on Hands\n(Target of Target)", fixedBody="/cast [@targettarget] Lay on Hands" },
-        { name="EUI_Cleanse", icon="Interface\\Icons\\spell_holy_purify", label="Cleanse\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Cleanse", fixedTooltip="Cleanse" },
-        { name="EUI_LayOnHands", icon="Interface\\Icons\\spell_holy_layonhands", label="Lay on Hands\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Lay on Hands", fixedTooltip="Lay on Hands" },
+        { name="EUI_BoFreedom", icon="Interface\\Icons\\spell_holy_sealofvalor", label="Blessing of\nFreedom (Focus)", spells={1044}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Blessing of Freedom
+        { name="EUI_BoProtection", icon="Interface\\Icons\\spell_holy_sealofprotection", label="Blessing of\nProtection (Focus)", spells={1022}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Blessing of Protection
+        { name="EUI_DivineShield", icon="Interface\\Icons\\spell_holy_divineshield", label="Divine Shield\nCancel/Cast", spells={642}, fixedBody="/stopcasting\n/cancelaura {1}\n/cast {1}", fixedTooltip="{1}" }, -- Divine Shield
+        { name="EUI_ToTLayOnHands", icon="Interface\\Icons\\spell_holy_layonhands", label="Lay on Hands\n(Target of Target)", spells={633}, fixedBody="/cast [@targettarget] {1}" }, -- Lay on Hands
+        { name="EUI_Cleanse", icon="Interface\\Icons\\spell_holy_purify", label="Cleanse\n(Focus)", spells={4987}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Cleanse
+        { name="EUI_LayOnHands", icon="Interface\\Icons\\spell_holy_layonhands", label="Lay on Hands\n(Focus)", spells={633}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Lay on Hands
     }
     local PALA_HOLY = {
     }
     local PALA_PROT = {
-        { name="EUI_Rebuke", icon="Interface\\Icons\\spell_holy_rebuke", label="Rebuke\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Rebuke", fixedTooltip="Rebuke" },
+        { name="EUI_Rebuke", icon="Interface\\Icons\\spell_holy_rebuke", label="Rebuke\n(Focus)", spells={96231}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Rebuke
     }
     local PALA_RET = {
-        { name="EUI_Rebuke", icon="Interface\\Icons\\spell_holy_rebuke", label="Rebuke\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Rebuke", fixedTooltip="Rebuke" },
+        { name="EUI_Rebuke", icon="Interface\\Icons\\spell_holy_rebuke", label="Rebuke\n(Focus)", spells={96231}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Rebuke
     }
 
     -- Priest (256=Discipline, 257=Holy, 258=Shadow)
     local PRIEST_GEN = {
-        { name="EUI_DispelMagic", icon="Interface\\Icons\\spell_holy_dispelmagic", label="Dispel Magic\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Dispel Magic", fixedTooltip="Dispel Magic" },
-        { name="EUI_PowerInfusion", icon="Interface\\Icons\\spell_holy_powerinfusion", label="Power Infusion\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Power Infusion", fixedTooltip="Power Infusion" },
-        { name="EUI_LeapOfFaith", icon="Interface\\Icons\\priest_spell_leapoffaith_a", label="Leap of Faith\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Leap of Faith", fixedTooltip="Leap of Faith" },
-        { name="EUI_MassDispel", icon="Interface\\Icons\\spell_arcane_massdispel", label="Mass Dispel\n(Cursor)", fixedBody="/cast [@cursor] Mass Dispel", fixedTooltip="Mass Dispel" },
-        { name="EUI_FeatherSelf", icon="Interface\\Icons\\ability_priest_angelicfeather", label="Angelic Feather\n(Self)", fixedBody="/cast [@player] Angelic Feather\n/stopspelltarget", fixedTooltip="Angelic Feather" },
-        { name="EUI_FeatherCursor", icon="Interface\\Icons\\ability_priest_angelicfeather", label="Angelic Feather\n(Cursor)", fixedBody="/cast [@cursor] Angelic Feather\n/stopspelltarget", fixedTooltip="Angelic Feather" },
-        { name="EUI_Purify", icon="Interface\\Icons\\spell_holy_purify", label="Purify\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Purify", fixedTooltip="Purify" },
+        { name="EUI_DispelMagic", icon="Interface\\Icons\\spell_holy_dispelmagic", label="Dispel Magic\n(Focus)", spells={528}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Dispel Magic
+        { name="EUI_PowerInfusion", icon="Interface\\Icons\\spell_holy_powerinfusion", label="Power Infusion\n(Focus)", spells={10060}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Power Infusion
+        { name="EUI_LeapOfFaith", icon="Interface\\Icons\\priest_spell_leapoffaith_a", label="Leap of Faith\n(Focus)", spells={73325}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Leap of Faith
+        { name="EUI_MassDispel", icon="Interface\\Icons\\spell_arcane_massdispel", label="Mass Dispel\n(Cursor)", spells={32375}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Mass Dispel
+        { name="EUI_FeatherSelf", icon="Interface\\Icons\\ability_priest_angelicfeather", label="Angelic Feather\n(Self)", spells={121536}, fixedBody="/cast [@player] {1}\n/stopspelltarget", fixedTooltip="{1}" }, -- Angelic Feather
+        { name="EUI_FeatherCursor", icon="Interface\\Icons\\ability_priest_angelicfeather", label="Angelic Feather\n(Cursor)", spells={121536}, fixedBody="/cast [@cursor] {1}\n/stopspelltarget", fixedTooltip="{1}" }, -- Angelic Feather
+        { name="EUI_Purify", icon="Interface\\Icons\\spell_holy_purify", label="Purify\n(Focus)", spells={527}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Purify
     }
     local PRIEST_DISC = {
-        { name="EUI_PainSuppress", icon="Interface\\Icons\\spell_holy_painsupression", label="Pain Suppression\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Pain Suppression", fixedTooltip="Pain Suppression" },
-        { name="EUI_PWBarrier", icon="Interface\\Icons\\spell_holy_powerwordbarrier", label="PW: Barrier\n(Cursor)", fixedBody="/cast [@cursor] Power Word: Barrier", fixedTooltip="Power Word: Barrier" },
+        { name="EUI_PainSuppress", icon="Interface\\Icons\\spell_holy_painsupression", label="Pain Suppression\n(Focus)", spells={33206}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Pain Suppression
+        { name="EUI_PWBarrier", icon="Interface\\Icons\\spell_holy_powerwordbarrier", label="PW: Barrier\n(Cursor)", spells={62618}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Power Word: Barrier
     }
     local PRIEST_HOLY = {
-        { name="EUI_GuardSpirit", icon="Interface\\Icons\\spell_holy_guardianspirit", label="Guardian Spirit\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Guardian Spirit", fixedTooltip="Guardian Spirit" },
-        { name="EUI_HWSanctify", icon="Interface\\Icons\\spell_holy_divineprovidence", label="Holy Word:\nSanctify (Cursor)", fixedBody="/cast [@cursor] Holy Word: Sanctify", fixedTooltip="Holy Word: Sanctify" },
+        { name="EUI_GuardSpirit", icon="Interface\\Icons\\spell_holy_guardianspirit", label="Guardian Spirit\n(Focus)", spells={47788}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Guardian Spirit
+        { name="EUI_HWSanctify", icon="Interface\\Icons\\spell_holy_divineprovidence", label="Holy Word:\nSanctify (Cursor)", spells={34861}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Holy Word: Sanctify
     }
     local PRIEST_SHADOW = {
-        { name="EUI_Silence", icon="Interface\\Icons\\ability_priest_silence", label="Silence\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Silence", fixedTooltip="Silence" },
-        { name="EUI_PurifyDisease", icon="Interface\\Icons\\spell_holy_nullifydisease", label="Purify Disease\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Purify Disease", fixedTooltip="Purify Disease" },
+        { name="EUI_Silence", icon="Interface\\Icons\\ability_priest_silence", label="Silence\n(Focus)", spells={15487}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Silence
+        { name="EUI_PurifyDisease", icon="Interface\\Icons\\spell_holy_nullifydisease", label="Purify Disease\n(Focus)", spells={213634}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Purify Disease
     }
 
     -- Rogue (259=Assassination, 260=Outlaw, 261=Subtlety)
     local ROGUE_GEN = {
-        { name="EUI_Kick", icon="Interface\\Icons\\ability_kick", label="Kick\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Kick", fixedTooltip="Kick" },
-        { name="EUI_TricksOfTrade", icon="Interface\\Icons\\ability_rogue_tricksofthetrade", label="Tricks of Trade\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Tricks of the Trade", fixedTooltip="Tricks of the Trade" },
-        { name="EUI_DistractCursor", icon="Interface\\Icons\\ability_rogue_distract", label="Distract\n(Cursor)", fixedBody="/cast [@cursor] Distract", fixedTooltip="Distract" },
+        { name="EUI_Kick", icon="Interface\\Icons\\ability_kick", label="Kick\n(Focus)", spells={1766}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Kick
+        { name="EUI_TricksOfTrade", icon="Interface\\Icons\\ability_rogue_tricksofthetrade", label="Tricks of Trade\n(Focus)", spells={57934}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Tricks of the Trade
+        { name="EUI_DistractCursor", icon="Interface\\Icons\\ability_rogue_distract", label="Distract\n(Cursor)", spells={1725}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Distract
     }
     local ROGUE_ASS = {
     }
     local ROGUE_OUTLAW = {
-        { name="EUI_GrapplingHook", icon="Interface\\Icons\\ability_rogue_grapplinghook", label="Grappling Hook\n(Cursor)", fixedBody="/cast [@cursor] Grappling Hook", fixedTooltip="Grappling Hook" },
+        { name="EUI_GrapplingHook", icon="Interface\\Icons\\ability_rogue_grapplinghook", label="Grappling Hook\n(Cursor)", spells={195457}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Grappling Hook
     }
     local ROGUE_SUB = {
-        { name="EUI_CoupDeGrace", icon="Interface\\Icons\\ability_rogue_coupdetat", label="Coup de Grace\n+ Black Powder", fixedBody="/cast Coup de Grace\n/cast Black Powder" },
-        { name="EUI_EasyStealth", icon="Interface\\Icons\\ability_stealth", label="Easy Stealth", fixedBody="/cancelaura [nocombat] Shadow Dance\n/cast !Stealth", fixedTooltip="Stealth" },
+        { name="EUI_CoupDeGrace", icon="Interface\\Icons\\ability_rogue_coupdetat", label="Coup de Grace\n+ Black Powder", spells={37171, 319175}, fixedBody="/cast {1}\n/cast {2}" }, -- Coup de Grace / Black Powder
+        { name="EUI_EasyStealth", icon="Interface\\Icons\\ability_stealth", label="Easy Stealth", spells={185313, 1784}, fixedBody="/cancelaura [nocombat] {1}\n/cast !{2}", fixedTooltip="{2}" }, -- Shadow Dance / Stealth
     }
 
     -- Shaman (262=Elemental, 263=Enhancement, 264=Restoration)
     local SHAMAN_GEN = {
-        { name="EUI_WindShear", icon="Interface\\Icons\\spell_nature_cyclonestrikes", label="Wind Shear\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Wind Shear", fixedTooltip="Wind Shear" },
-        { name="EUI_Purge", icon="Interface\\Icons\\spell_nature_purge", label="Purge\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Purge", fixedTooltip="Purge" },
-        { name="EUI_CleanseSpirit", icon="Interface\\Icons\\ability_shaman_cleansespirit", label="Cleanse Spirit\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Cleanse Spirit", fixedTooltip="Cleanse Spirit" },
-        { name="EUI_WindrushTotem", icon="Interface\\Icons\\ability_shaman_windwalktotem", label="Windrush Totem\n(Cursor)", fixedBody="/cast [@cursor] Wind Rush Totem", fixedTooltip="Wind Rush Totem" },
-        { name="EUI_CapacitorTotem", icon="Interface\\Icons\\spell_nature_brilliance", label="Capacitor Totem\n(Cursor)", fixedBody="/cast [@cursor] Capacitor Totem", fixedTooltip="Capacitor Totem" },
+        { name="EUI_WindShear", icon="Interface\\Icons\\spell_nature_cyclonestrikes", label="Wind Shear\n(Focus)", spells={57994}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Wind Shear
+        { name="EUI_Purge", icon="Interface\\Icons\\spell_nature_purge", label="Purge\n(Focus)", spells={370}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Purge
+        { name="EUI_CleanseSpirit", icon="Interface\\Icons\\ability_shaman_cleansespirit", label="Cleanse Spirit\n(Focus)", spells={51886}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Cleanse Spirit
+        { name="EUI_WindrushTotem", icon="Interface\\Icons\\ability_shaman_windwalktotem", label="Windrush Totem\n(Cursor)", spells={192077}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Wind Rush Totem
+        { name="EUI_CapacitorTotem", icon="Interface\\Icons\\spell_nature_brilliance", label="Capacitor Totem\n(Cursor)", spells={192058}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Capacitor Totem
     }
     local SHAMAN_ELE = {
-        { name="EUI_EarthquakeCursor", icon="Interface\\Icons\\spell_shaman_earthquake", label="Earthquake\n(Cursor)", fixedBody="/cast [@cursor] Earthquake", fixedTooltip="Earthquake" },
+        { name="EUI_EarthquakeCursor", icon="Interface\\Icons\\spell_shaman_earthquake", label="Earthquake\n(Cursor)", spells={61882}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Earthquake
     }
     local SHAMAN_ENH = {
-        { name="EUI_AutoTotemMove", icon="Interface\\Icons\\ability_shaman_totemrelocation", label="Auto Totem Move\nfor Totemic", fixedBody="/cast Stormstrike\n/cast [@player] Totemic Projection" },
+        { name="EUI_AutoTotemMove", icon="Interface\\Icons\\ability_shaman_totemrelocation", label="Auto Totem Move\nfor Totemic", spells={17364, 108287}, fixedBody="/cast {1}\n/cast [@player] {2}" }, -- Stormstrike / Totemic Projection
     }
     local SHAMAN_RESTO = {
-        { name="EUI_HealingRain", icon="Interface\\Icons\\spell_nature_giftofthewaterspirit", label="Healing Rain\n(Cursor)", fixedBody="/cast [@cursor] Healing Rain", fixedTooltip="Healing Rain" },
-        { name="EUI_SpiritLink", icon="Interface\\Icons\\spell_shaman_spiritlink", label="Spirit Link Totem\n(Cursor)", fixedBody="/cast [@cursor] Spirit Link Totem", fixedTooltip="Spirit Link Totem" },
+        { name="EUI_HealingRain", icon="Interface\\Icons\\spell_nature_giftofthewaterspirit", label="Healing Rain\n(Cursor)", spells={73920}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Healing Rain
+        { name="EUI_SpiritLink", icon="Interface\\Icons\\spell_shaman_spiritlink", label="Spirit Link Totem\n(Cursor)", spells={98008}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Spirit Link Totem
     }
 
     -- Warlock (265=Affliction, 266=Demonology, 267=Destruction)
     local LOCK_GEN = {
-        { name="EUI_Shadowfury", icon="Interface\\Icons\\spell_shadow_shadowfury", label="Shadowfury\n(Cursor)", fixedBody="/cast [@cursor] Shadowfury" },
-        { name="EUI_DemonicGateway", icon="Interface\\Icons\\spell_warlock_demonicportal_green", label="Demonic Gateway\n(Cursor)", fixedBody="/cast [@cursor] Demonic Gateway" },
-        { name="EUI_SoulburnHS", icon="Interface\\Icons\\spell_warlock_soulburn", label="Soulburn\nHealthstone", fixedBody="/cast [known:Soulburn] Soulburn\n/use [known:Pact of Gluttony] Demonic Healthstone; Healthstone", fixedTooltip="[known:Pact of Gluttony] Demonic Healthstone; Healthstone" },
+        { name="EUI_Shadowfury", icon="Interface\\Icons\\spell_shadow_shadowfury", label="Shadowfury\n(Cursor)", spells={30283}, fixedBody="/cast [@cursor] {1}" }, -- Shadowfury
+        { name="EUI_DemonicGateway", icon="Interface\\Icons\\spell_warlock_demonicportal_green", label="Demonic Gateway\n(Cursor)", spells={111771}, fixedBody="/cast [@cursor] {1}" }, -- Demonic Gateway
+        -- Soulburn (385899) resolved as {1}; [known:] uses spell/talent IDs directly
+        -- (385899 Soulburn, 386689 Pact of Gluttony); Healthstones are items by ID
+        -- (224464 Demonic Healthstone, 5512 Healthstone).
+        { name="EUI_SoulburnHS", icon="Interface\\Icons\\spell_warlock_soulburn", label="Soulburn\nHealthstone", spells={385899}, fixedBody="/cast [known:385899] {1}\n/use [known:386689] item:224464; item:5512", fixedTooltip="[known:386689] item:224464; item:5512" },
     }
     local LOCK_DEMO = {
-        { name="EUI_AxeToss", icon="Interface\\Icons\\ability_warrior_titansgrip", label="Axe Toss\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Axe Toss", fixedTooltip="Axe Toss" },
+        { name="EUI_AxeToss", icon="Interface\\Icons\\ability_warrior_titansgrip", label="Axe Toss\n(Focus)", spells={89766}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Axe Toss (Felguard)
     }
     local LOCK_DESTRO = {
-        { name="EUI_Havoc", icon="Interface\\Icons\\ability_warlock_baneofhavoc", label="Havoc\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Havoc", fixedTooltip="Havoc" },
-        { name="EUI_SummonInfernal", icon="Interface\\Icons\\spell_shadow_summoninfernal", label="Summon Infernal\n(Cursor)", fixedBody="/cast [@cursor] Summon Infernal" },
-        { name="EUI_RainOfFire", icon="Interface\\Icons\\spell_shadow_rainoffire", label="Rain of Fire\n(Cursor)", fixedBody="/cast [@cursor] Rain of Fire" },
-        { name="EUI_Cataclysm", icon="Interface\\Icons\\achievement_zone_cataclysm", label="Cataclysm\n(Cursor)", fixedBody="/cast [@cursor] Cataclysm" },
+        { name="EUI_Havoc", icon="Interface\\Icons\\ability_warlock_baneofhavoc", label="Havoc\n(Focus)", spells={80240}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Havoc
+        { name="EUI_SummonInfernal", icon="Interface\\Icons\\spell_shadow_summoninfernal", label="Summon Infernal\n(Cursor)", spells={1122}, fixedBody="/cast [@cursor] {1}" }, -- Summon Infernal
+        { name="EUI_RainOfFire", icon="Interface\\Icons\\spell_shadow_rainoffire", label="Rain of Fire\n(Cursor)", spells={5740}, fixedBody="/cast [@cursor] {1}" }, -- Rain of Fire
+        { name="EUI_Cataclysm", icon="Interface\\Icons\\achievement_zone_cataclysm", label="Cataclysm\n(Cursor)", spells={152108}, fixedBody="/cast [@cursor] {1}" }, -- Cataclysm
     }
 
     -- Warrior (71=Arms, 72=Fury, 73=Protection)
     local WARRIOR_GEN = {
-        { name="EUI_Pummel", icon="Interface\\Icons\\inv_gauntlets_04", label="Pummel\n(Focus)", fixedBody="/cast [@focus,harm,nodead][] Pummel", fixedTooltip="Pummel" },
-        { name="EUI_Intervene", icon="Interface\\Icons\\ability_warrior_safeguard", label="Intervene\n(Focus)", fixedBody="/cast [@focus,help,nodead][] Intervene", fixedTooltip="Intervene" },
-        { name="EUI_HeroicLeap", icon="Interface\\Icons\\ability_heroicleap", label="Heroic Leap\n(Cursor)", fixedBody="/cast [@cursor] Heroic Leap", fixedTooltip="Heroic Leap" },
+        { name="EUI_Pummel", icon="Interface\\Icons\\inv_gauntlets_04", label="Pummel\n(Focus)", spells={6552}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Pummel
+        { name="EUI_Intervene", icon="Interface\\Icons\\ability_warrior_safeguard", label="Intervene\n(Focus)", spells={3411}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Intervene
+        { name="EUI_HeroicLeap", icon="Interface\\Icons\\ability_heroicleap", label="Heroic Leap\n(Cursor)", spells={6544}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Heroic Leap
     }
     local WARRIOR_ARMS = {
     }
@@ -497,9 +501,10 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         [250] = mergeMacros(DK_BLOOD, DK_GEN),
         [251] = mergeMacros(DK_FROST, DK_GEN),
         [252] = mergeMacros(DK_UNHOLY, DK_GEN),
-        -- Demon Hunter
-        [577] = mergeMacros(DH_HAVOC, DH_DEVOURER, DH_GEN),
-        [581] = mergeMacros(DH_VENG, DH_DEVOURER, DH_GEN),
+        -- Demon Hunter (577=Havoc, 581=Vengeance, 1480=Devourer -- Midnight Void spec)
+        [577] = mergeMacros(DH_HAVOC, DH_GEN),
+        [581] = mergeMacros(DH_VENG, DH_GEN),
+        [1480] = mergeMacros(DH_DEVOURER, DH_GEN),
         -- Druid
         [102] = mergeMacros(DRUID_BAL, DRUID_GEN),
         [103] = mergeMacros(DRUID_FERAL, DRUID_GEN),
@@ -554,8 +559,9 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         activeSpecID, activeSpecName = GetSpecializationInfo(specIndex)
     end
     local activeClassName = UnitClass("player") or "Unknown"
-    local isEnglishClient = (GetLocale() == "enUS" or GetLocale() == "enGB")
-    local activeSpecDefs = isEnglishClient and activeSpecID and SPEC_DEFS[activeSpecID] or {}
+    -- All spec macro bodies use spell-ID {n} tokens (localized at build time via
+    -- ResolveSpellTokens), so they work on every client locale.
+    local activeSpecDefs = activeSpecID and SPEC_DEFS[activeSpecID] or {}
 
     ---------------------------------------------------------------------------
     --  DB helper (shared across all buttons and event handlers)
@@ -598,6 +604,29 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         return GetFirstAvailableItemID(def, db)
     end
 
+    -- Replace {n} placeholders in a macro string with the client-localized name of
+    -- the nth entry in def.spells, resolved from its spell ID via C_Spell.GetSpellInfo.
+    -- Spec macros store spell IDs instead of hard-coded English names because /cast
+    -- only accepts the client's own language; this makes them work on any locale.
+    -- Returns nil if a referenced spell's data is not cached yet (kicks off an async
+    -- load so a later refresh completes it); callers skip the macro write on nil.
+    local function ResolveSpellTokens(text, spells)
+        if not text then return nil end
+        if not spells or not text:find("{%d+}") then return text end
+        local missing = false
+        local out = text:gsub("{(%d+)}", function(n)
+            local id = spells[tonumber(n)]
+            if not id then return "{" .. n .. "}" end
+            local info = C_Spell.GetSpellInfo(id)
+            if info and info.name then return info.name end
+            C_Spell.RequestLoadSpellData(id)
+            missing = true
+            return ""
+        end)
+        if missing then return nil end
+        return out
+    end
+
     local function BuildMacroBody(def, db)
         if def.checkboxes then
             local cbs = def.checkboxes
@@ -636,15 +665,32 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         elseif def.healthRecovery then
             return EllesmereUI.BuildHealthRecoveryMacroBody(db, nil)
         elseif def.fixedBody then
+            local fbody = ResolveSpellTokens(def.fixedBody, def.spells)
+            if fbody == nil then return nil end -- spell data not cached; skip write
             local body = ""
             if db.showTooltip ~= false and def.fixedTooltip then
-                body = "#showtooltip " .. def.fixedTooltip .. "\n"
+                local tip = ResolveSpellTokens(def.fixedTooltip, def.spells)
+                if tip == nil then return nil end
+                body = "#showtooltip " .. tip .. "\n"
             elseif db.showTooltip ~= false then
                 body = "#showtooltip\n"
             end
-            return body .. def.fixedBody
+            return body .. fbody
         end
         return ""
+    end
+
+    -- Pick the icon stored on the created WoW macro. Single-spell / item macros
+    -- keep the "?" placeholder so the game shows a live icon from their
+    -- #showtooltip line. Multi-spell combo macros have no #showtooltip to derive
+    -- from, so they'd show a bare "?" -- give them their first spell's texture.
+    local function ResolveMacroIcon(def)
+        if def.macroIcon then return def.macroIcon end
+        if def.spells and def.fixedBody and not def.fixedTooltip then
+            local tex = def.spells[1] and C_Spell.GetSpellTexture(def.spells[1])
+            if tex then return tex end
+        end
+        return "INV_MISC_QUESTIONMARK"
     end
 
     local pendingMacroUpdates = {}
@@ -659,7 +705,8 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             if InCombatLockdown() then
                 pendingMacroUpdates[def.name] = true
             else
-                EditMacro(idx, nil, nil, BuildMacroBody(def, db))
+                local body = BuildMacroBody(def, db)
+                if body then EditMacro(idx, nil, nil, body) end
             end
         end
     end
@@ -677,7 +724,8 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 local idx = GetMacroIndexByName(mdef.name)
                 if idx ~= 0 then
                     local db = GetMacroDB(mdef.name)
-                    EditMacro(idx, nil, nil, BuildMacroBody(mdef, db))
+                    local body = BuildMacroBody(mdef, db)
+                    if body then EditMacro(idx, nil, nil, body) end
                 end
             end
             pendingMacroUpdates[macroName] = nil
@@ -689,9 +737,10 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     ---------------------------------------------------------------------------
     local MAX_SPEC_VISIBLE_ROWS = 3
     local generalRows = math.ceil(#GENERAL_DEFS / ICONS_PER_ROW)
-    local specRows = #activeSpecDefs > 0 and math.ceil(#activeSpecDefs / SPEC_ICONS_PER_ROW) or 0
-    local visibleSpecRows = math.min(specRows, MAX_SPEC_VISIBLE_ROWS)
-    local maxRows = math.max(generalRows, visibleSpecRows)
+    -- Reserve a constant height (general side vs the max spec viewport) so a spec
+    -- change can rebuild this section in place without shifting the sections
+    -- below it on the page.
+    local maxRows = math.max(generalRows, MAX_SPEC_VISIBLE_ROWS)
     local SECTION_H = 102 + ROW_STRIDE * (maxRows - 1)
 
     local container = CreateFrame("Frame", nil, parent)
@@ -1020,7 +1069,9 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                         if def.healthRecovery then lastHealthRecoveryKey = nil end
                     else
                         local db = GetDB()
-                        CreateMacro(def.name, def.macroIcon or "INV_MISC_QUESTIONMARK", BuildMacroBody(def, db), nil)
+                        local body = BuildMacroBody(def, db)
+                        if body == nil then return end -- spell data not cached yet
+                        CreateMacro(def.name, ResolveMacroIcon(def), body, nil)
                         if def.healthRecovery then
                             lastHealthRecoveryKey = nil
                             ApplyHealthRecoveryMacro()
@@ -1272,7 +1323,9 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 if self._isGray then return end
                 if InCombatLockdown() then return end
                 local db = GetDB()
-                CreateMacro(def.name, def.macroIcon or "INV_MISC_QUESTIONMARK", BuildMacroBody(def, db), nil)
+                local body = BuildMacroBody(def, db)
+                if body == nil then return end -- spell data not cached yet
+                CreateMacro(def.name, ResolveMacroIcon(def), body, nil)
                 if def.healthRecovery then
                     lastHealthRecoveryKey = nil
                     ApplyHealthRecoveryMacro()
@@ -1296,17 +1349,13 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
 
     -- Build spec macros on right side
     if #activeSpecDefs > 0 then
-        BuildMacroGroup(activeSpecDefs, "RIGHT", (activeSpecName or "Spec") .. " " .. activeClassName .. " Macro Factory", SPEC_ICONS_PER_ROW, SPEC_ICON_GAP, MAX_SPEC_VISIBLE_ROWS)
+        BuildMacroGroup(activeSpecDefs, "RIGHT", (activeSpecName or EllesmereUI.L("Spec")) .. " " .. activeClassName .. " " .. EllesmereUI.L("Macro Factory"), SPEC_ICONS_PER_ROW, SPEC_ICON_GAP, MAX_SPEC_VISIBLE_ROWS)
     else
         local emptyFS = container:CreateFontString(nil, "OVERLAY")
         emptyFS:SetFont(fontPath, 16, "")
         emptyFS:SetTextColor(1, 1, 1, 0.25)
         emptyFS:SetPoint("CENTER", container, "TOPLEFT", halfW + halfW / 2, -SECTION_H / 2)
-        if not isEnglishClient then
-            emptyFS:SetText(EllesmereUI.L("Spec Macros are currently not supported\nfor non-English clients. Support coming soon!"))
-        else
-            emptyFS:SetText(EllesmereUI.L("No spec macros for ") .. (activeSpecName or EllesmereUI.L("this spec")))
-        end
+        emptyFS:SetText(EllesmereUI.L("No spec macros for ") .. (activeSpecName or EllesmereUI.L("this spec")))
         emptyFS:SetJustifyH("CENTER")
     end
 
@@ -1365,16 +1414,16 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     -- Update macros when bag changes (throttled), spec changes, login, or combat ends
     local eventFrame = CreateFrame("Frame", nil, container)
     local bagUpdatePending = false
+    -- Spec changes are handled by a single persistent watcher (see end of file)
+    -- that rebuilds only this section, not here -- registering per build would
+    -- stack up handlers and multi-flash on every subsequent spec change.
     eventFrame:RegisterEvent("BAG_UPDATE")
     eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:SetScript("OnEvent", function(self, event)
         if event == "PLAYER_REGEN_ENABLED" then
             ProcessPendingMacroUpdates()
             UpdateInventoryDependentMacros()
-        elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
-            EllesmereUI:RefreshPage()
         elseif event == "PLAYER_ENTERING_WORLD" then
             C_Timer.After(1, UpdateInventoryDependentMacros)
         elseif not bagUpdatePending then
@@ -1386,5 +1435,60 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         end
     end)
 
+    -- Remember this build so a spec change can rebuild just this section in place
+    -- (constant SECTION_H keeps the rest of the page from shifting). Retire the
+    -- previous build's inventory event frame so its handlers don't stack up.
+    local mf = EllesmereUI._macroFactory
+    if not mf then mf = {}; EllesmereUI._macroFactory = mf end
+    if mf.eventFrame and mf.eventFrame ~= eventFrame then
+        mf.eventFrame:UnregisterAllEvents()
+        mf.eventFrame:SetScript("OnEvent", nil)
+    end
+    mf.parent, mf.startY, mf.PP = parent, startY, PP
+    mf.container, mf.eventFrame = container, eventFrame
+    mf.builtSpecID = activeSpecID
+
     return SECTION_H
 end
+
+-- Rebuild only the Macro Factory section when the player's spec changes, so its
+-- spec suggestions update without a full options-page rebuild (which flashed the
+-- whole page). The new section is built before the old one is removed, and its
+-- height is constant, so there is no visible gap or layout shift. Works whether
+-- the options panel is open (user sees it refresh) or closed (the cached page's
+-- section is updated in place, so reopening already shows the new spec).
+function EllesmereUI.RefreshMacroFactory()
+    local mf = EllesmereUI._macroFactory
+    if not mf or not mf.parent or not mf.parent.IsObjectType then return end
+    -- PLAYER_SPECIALIZATION_CHANGED can fire several times for one switch; skip
+    -- the rebuild if the spec that's already built hasn't actually changed.
+    local idx = GetSpecialization()
+    local curSpecID = idx and GetSpecializationInfo(idx) or nil
+    if curSpecID == mf.builtSpecID then return end
+    local oldContainer = mf.container
+
+    -- Keep macro-factory rows out of the global search index, same as the
+    -- original BuildQoLPage call site does. pcall so an error mid-rebuild can't
+    -- leave the global suppress flag stuck on.
+    EllesmereUI._searchIndexSuppress = true
+    pcall(EllesmereUI.BuildMacroFactory, mf.parent, mf.startY, mf.PP)
+    EllesmereUI._searchIndexSuppress = nil
+
+    -- The new section is built (constant SECTION_H, same anchor) before the old
+    -- one is dropped, so there is no gap or layout shift -- both apply in one frame.
+    if oldContainer and oldContainer ~= mf.container then
+        oldContainer:Hide()
+        oldContainer:SetParent(nil)
+    end
+end
+
+EllesmereUI._macroSpecWatcher = EllesmereUI._macroSpecWatcher or CreateFrame("Frame")
+EllesmereUI._macroSpecWatcher:UnregisterAllEvents()
+EllesmereUI._macroSpecWatcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+EllesmereUI._macroSpecWatcher:SetScript("OnEvent", function()
+    if EllesmereUI.RefreshMacroFactory then EllesmereUI.RefreshMacroFactory() end
+    -- Also re-run the active page's in-place widget refreshers so other
+    -- spec-dependent controls update, as the old per-build event frame did.
+    -- No-arg (fast path) => re-reads values only, no frame teardown, no flash.
+    if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage() end
+end)

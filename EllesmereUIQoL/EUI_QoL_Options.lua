@@ -890,6 +890,117 @@ initFrame:SetScript("OnEvent", function(self)
             if caInitOff then caCogBlock:Show() else caCogBlock:Hide() end
         end
 
+        -- Row: Target Distance Text (left, with settings cog)
+        local targetDistRow
+        targetDistRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Target Distance Text",
+              tooltip="Shows the approximate distance to your current target as movable on-screen text (default 30-35). Use the cog for format, alignment, and text size; use Unlock Mode to position or Anchor to your Player Frame.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.targetDistanceEnabled = v
+                  if EllesmereUI._applyTargetDistance then EllesmereUI._applyTargetDistance() end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="label", text="" }
+        );  y = y - h
+
+        do
+            local leftRgn = targetDistRow._leftRegion
+            local function tdOff()
+                return not (EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled)
+            end
+
+            local tdFormatValues = {
+                range = "Range (30-35)",
+                plus  = "Lower Bound (30+)",
+                min   = "Minimum (30)",
+            }
+            local tdFormatOrder = { "range", "plus", "min" }
+            local tdAlignValues = {
+                LEFT   = "Left",
+                CENTER = "Center",
+                RIGHT  = "Right",
+            }
+            local tdAlignOrder = { "LEFT", "CENTER", "RIGHT" }
+
+            local _, targetDistCogShow = EllesmereUI.BuildCogPopup({
+                title = "Target Distance Settings",
+                minWidth = 280,
+                rows = {
+                    { type="dropdown", label="Format",
+                      values=tdFormatValues, order=tdFormatOrder,
+                      get=function()
+                        local f = EllesmereUIDB and EllesmereUIDB.targetDistanceFormat
+                        if f == "plus" or f == "min" or f == "range" then return f end
+                        return "range"
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.targetDistanceFormat = v
+                        if EllesmereUI._applyTargetDistanceFrame then EllesmereUI._applyTargetDistanceFrame() end
+                      end },
+                    { type="dropdown", label="Text Align",
+                      values=tdAlignValues, order=tdAlignOrder,
+                      get=function()
+                        local a = EllesmereUIDB and EllesmereUIDB.targetDistanceAlign
+                        if a == "LEFT" or a == "CENTER" or a == "RIGHT" then return a end
+                        return "CENTER"
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.targetDistanceAlign = v
+                        if EllesmereUI._applyTargetDistanceFrame then EllesmereUI._applyTargetDistanceFrame() end
+                      end },
+                    { type="slider", label="Text Size",
+                      min=10, max=48, step=1,
+                      get=function()
+                        return (EllesmereUIDB and EllesmereUIDB.targetDistanceTextSize) or 18
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.targetDistanceTextSize = v
+                        if EllesmereUI._applyTargetDistanceFrame then EllesmereUI._applyTargetDistanceFrame() end
+                      end },
+                },
+                footer = { unlockKey = "EUI_TargetDistance" },
+            })
+            local tdCogBtn = CreateFrame("Button", nil, leftRgn)
+            tdCogBtn:SetSize(26, 26)
+            tdCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
+            leftRgn._lastInline = tdCogBtn
+            tdCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+            tdCogBtn:SetAlpha(tdOff() and 0.15 or 0.4)
+            local tdCogTex = tdCogBtn:CreateTexture(nil, "OVERLAY")
+            tdCogTex:SetAllPoints()
+            tdCogTex:SetTexture(EllesmereUI.COGS_ICON or EllesmereUI.DIRECTIONS_ICON)
+            tdCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            tdCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            tdCogBtn:SetScript("OnClick", function(self) targetDistCogShow(self) end)
+
+            local tdCogBlock = CreateFrame("Frame", nil, tdCogBtn)
+            tdCogBlock:SetAllPoints()
+            tdCogBlock:SetFrameLevel(tdCogBtn:GetFrameLevel() + 10)
+            tdCogBlock:EnableMouse(true)
+            tdCogBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(tdCogBtn, EllesmereUI.DisabledTooltip("Target Distance Text"))
+            end)
+            tdCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if tdOff() then
+                    tdCogBtn:SetAlpha(0.15); tdCogBlock:Show()
+                else
+                    tdCogBtn:SetAlpha(0.4); tdCogBlock:Hide()
+                end
+            end)
+            local tdInitOff = tdOff()
+            tdCogBtn:SetAlpha(tdInitOff and 0.15 or 0.4)
+            if tdInitOff then tdCogBlock:Show() else tdCogBlock:Hide() end
+        end
+
         -- Inline picker cog on Hide Item Transforms (right slot of the death
         -- row): opens the item checklist popup. Dimmed and inert while the
         -- toggle is off, mirroring the resource-bar spec-picker button.
@@ -2252,7 +2363,7 @@ initFrame:SetScript("OnEvent", function(self)
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
         pages       = { PAGE_QOL, PAGE_CURSOR, PAGE_AUTOLOG, PAGE_UPGCALC, PAGE_SHIFTER },
-        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger" },
+        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards" },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_QOL then
                 return BuildQoLPage(pageName, parent, yOffset)
@@ -2313,6 +2424,17 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.combatAlertLeaveColor = nil
                 EllesmereUIDB.combatAlertEnterUseClassColor = nil
                 EllesmereUIDB.combatAlertLeaveUseClassColor = nil
+                EllesmereUIDB.targetDistanceEnabled = false
+                EllesmereUIDB.targetDistanceFormat = nil
+                EllesmereUIDB.targetDistanceAlign = nil
+                EllesmereUIDB.targetDistanceAttach = nil
+                EllesmereUIDB.targetDistanceOffsetX = nil
+                EllesmereUIDB.targetDistanceOffsetY = nil
+                EllesmereUIDB.targetDistanceTextSize = nil
+                EllesmereUIDB.targetDistancePos = nil
+                if EllesmereUIDB.unlockAnchors then
+                    EllesmereUIDB.unlockAnchors.EUI_TargetDistance = nil
+                end
                 EllesmereUIDB.hideTransforms = false
                 EllesmereUIDB.hideTransformItems = nil
             end
@@ -2323,6 +2445,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyHideErrorMessages then EllesmereUI._applyHideErrorMessages() end
             if EllesmereUI._applyAnnounceGroupDeaths then EllesmereUI._applyAnnounceGroupDeaths() end
             if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
+            if EllesmereUI._applyTargetDistance then EllesmereUI._applyTargetDistance() end
             if EllesmereUI._applyHideTransforms then EllesmereUI._applyHideTransforms() end
             if EllesmereUI._applyQuickSignup then EllesmereUI._applyQuickSignup() end
             if EllesmereUI._applyPersistSignupNote then EllesmereUI._applyPersistSignupNote() end

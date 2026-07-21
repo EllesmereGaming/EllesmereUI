@@ -51,13 +51,12 @@ local function InstallAutoQuests()
     local autoPreventNPCGUID = nil
     autoFrame:RegisterEvent("QUEST_DETAIL")
     autoFrame:RegisterEvent("QUEST_COMPLETE")
-    autoFrame:RegisterEvent("QUEST_AUTOCOMPLETE")
     autoFrame:RegisterEvent("GOSSIP_SHOW")
     if not EQT._eventFrames then EQT._eventFrames = {} end
     if not EQT._eventRegistrations then EQT._eventRegistrations = {} end
     local aidx = #EQT._eventFrames + 1
     EQT._eventFrames[aidx] = autoFrame
-    EQT._eventRegistrations[aidx] = {"QUEST_DETAIL", "QUEST_COMPLETE", "QUEST_AUTOCOMPLETE", "GOSSIP_SHOW"}
+    EQT._eventRegistrations[aidx] = {"QUEST_DETAIL", "QUEST_COMPLETE", "GOSSIP_SHOW"}
     autoFrame:SetScript("OnEvent", function(_, event, ...)
         if Cfg("enabled") == false then return end
 
@@ -99,13 +98,14 @@ local function InstallAutoQuests()
             return
         end
 
-        if event == "QUEST_AUTOCOMPLETE" then
-            local qID = ...
-            if qID and ShowQuestComplete and type(ShowQuestComplete) == "function" then
-                pcall(ShowQuestComplete, qID)
-            end
-            return
-        end
+        -- QUEST_AUTOCOMPLETE handling removed: calling ShowQuestComplete()
+        -- from addon execution runs Blizzard's quest-complete panel flow
+        -- (ShowUIPanel, UIPanel attribute writes on WorldMapFrame) under
+        -- our taint, and that state is read by every later map open --
+        -- confirmed in tester taint logs as blocked map-pin calls in
+        -- combat. Blizzard's native auto-quest popup in the tracker covers
+        -- this securely: the player clicks it, and if the reward has no
+        -- choice, the QUEST_COMPLETE auto-turn-in below still fires.
 
         if event == "QUEST_DETAIL" then
             if not Cfg("autoAccept") then return end

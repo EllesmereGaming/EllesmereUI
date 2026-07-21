@@ -6,6 +6,7 @@
 ---@diagnostic disable:undefined-global
 local L = EllesmereUI.RegisterLocale("ruRU")
 if not L then return end
+L["Behind Unit Frame"] = "За рамкой юнита"
 
 -- == Common vocabulary (highest frequency) =================================
 L["Enable"]            = "Включить"
@@ -53,6 +54,8 @@ L["Never"]             = "Никогда"
 L["Text Size"]         = "Размер текста"
 L["Text Color"]        = "Цвет текста"
 L["Border Style"]      = "Стиль рамки"
+L["Border Style is only configurable when the Power Bar is detached. Attached Power Bars always use Solid."] = "Стиль рамки можно настроить только для откреплённой полосы ресурса. Для прикреплённых полос ресурса всегда используется сплошной стиль."
+L["Border is only available when the Power Bar is shown."] = "Рамка доступна только тогда, когда отображается полоса ресурса."
 L["Fill Color"]        = "Цвет заливки"
 L["Bar Color"]         = "Цвет полосы"
 L["Bar Texture"]       = "Текстура полосы"
@@ -1593,6 +1596,7 @@ L["Shift Elements if No Power"] = "Сдвигать без ресурса"
 L["Extra Y Offset"] = "Доп. смещение по Y"
 L["Hide Power Bar if Resource"] = "Скрывать полосу ресурса, если есть основной ресурс"
 L["Show Behind"] = "Показывать сзади"
+L["Show Expand Button"] = "Показывать кнопку разворачивания"
 
 -- Gradient Settings
 L["Enable Gradient"] = "Включить градиент"
@@ -4489,8 +4493,13 @@ L["Power-colored bars and power text now show the correct color on target, focus
 L["Abilities with multiple charges now show the recharge countdown number while charging when cooldown numbers are on, and you can toggle cooldown numbers from the Action Bars options."] = "Способности с зарядами отображают время восстановления при включенном КД, который можно настроить в панелях команд."
 L["Fixed a taint issue with the chat box that could cause Lua errors, most often when receiving a whisper during combat."] = "Исправлен баг блокировки (taint) поля чата, приводивший к ошибкам Lua (чаще при получении сообщений в бою)."
 L["Custom class, power, and resource colors no longer reset to default after switching specs or profiles."] = "Свои цвета классов, энергии и ресурсов больше не сбрасываются после смены спека или профиля."
+L["Fade-Out Time"] = "Время исчезновения"
 
 L["Colon (5:32)"] = "Двоеточие (5:32)"
 L["Duration Format"] = "Формат длительности"
 L["Seconds (152)"] = "Секунды (152)"
 L["Standard (5m / 32)"] = "Стандарт (5m / 32)"
+L["Header Bottom Border"] = "Нижняя граница заголовка"
+L["Include Headerbar"] = "Включить панель заголовка"
+L["Button Background"] = "Фон кнопки"
+L["Button Border Style"] = "Стиль рамки кнопки"

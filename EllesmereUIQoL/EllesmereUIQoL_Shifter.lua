@@ -767,15 +767,21 @@ end
 --  re-anchors them on every show through the GroupLootContainer docking and
 --  the UIParent managed-frame-position system. Instead each gets a mover in
 --  Unlock Mode. The mover drags a proxy frame we own; the saved position is
---  pushed onto the Blizzard window with plain ClearAllPoints/SetPoint (both
+--  pushed onto the Blizzard window with plain ClearAllPoints/SetPoint (the
 --  windows are unprotected) and re-applied whenever Blizzard repositions
 --  them. ignoreFramePositionManager is the sanctioned per-frame opt-out from
 --  the managed position system. Protected or forbidden frames are skipped
 --  entirely, and no mouse state is ever touched.
+--
+--  AlertFrame is the anchor every toast banner stacks up from (loot and
+--  currency toasts, achievements, gold, recipes, Trading Post activities).
+--  It rides the same enforcement; its own rect is a bare anchor rather than
+--  a toast-sized box, so its mover uses a fixed size (fixedSize).
 -------------------------------------------------------------------------------
 local LOOT_WINDOWS = {
-    { name = "BonusRollFrame",     key = "EUI_BonusRoll", label = "Bonus Roll", order = 640, defW = 330, defH = 120, defY = 240 },
-    { name = "GroupLootContainer", key = "EUI_GroupLoot", label = "Group Loot", order = 641, defW = 300, defH = 80,  defY = 340 },
+    { name = "BonusRollFrame",     key = "EUI_BonusRoll",   label = "Bonus Roll",   order = 640, defW = 330, defH = 120, defY = 240 },
+    { name = "GroupLootContainer", key = "EUI_GroupLoot",   label = "Group Loot",   order = 641, defW = 300, defH = 80,  defY = 340 },
+    { name = "AlertFrame",         key = "EUI_AlertToasts", label = "Alert Toasts", order = 642, defW = 300, defH = 100, defY = 160, fixedSize = true },
 }
 
 local lootProxies = {}
@@ -881,6 +887,11 @@ local function RegisterLootUnlockElements()
             noAnchorTarget    = true,
             noAnchorTo        = true,
             noSizeMatchTarget = true,
+            -- Loot movers position hidden proxies, so their overlays linger
+            -- until the user turns them off: brown tint + reminder subtitle
+            -- to tell them apart from live-frame movers.
+            moverBg  = { r = 0.165, g = 0.11, b = 0.055 },
+            subtitle = "Disable Loot unlock mode overlays in Shifter once done positioning",
             isHidden = function()
                 if not LootEnabled() or not _G[info.name] then return true end
                 -- "Hide Unlock Mode Overlays": the movers stay out of unlock
@@ -892,6 +903,7 @@ local function RegisterLootUnlockElements()
                 return EnsureLootProxy(info)
             end,
             getSize = function()
+                if info.fixedSize then return info.defW, info.defH end
                 local frame = _G[info.name]
                 local w = frame and frame.GetWidth and frame:GetWidth() or 0
                 local h = frame and frame.GetHeight and frame:GetHeight() or 0
@@ -943,6 +955,190 @@ local function RegisterLootUnlockElements()
 end
 
 -------------------------------------------------------------------------------
+--  Blizzard Top Bar Event Text (UIWidgetTopCenterContainerFrame) via an
+--  Unlock Mode mover -- the loot-window recipe (hidden proxy + mover +
+--  ignoreFramePositionManager + SetPoint/OnShow re-assert, no mouse state
+--  ever touched) with ONE substitution: every position write on the live
+--  frame runs through SecureSetPoint. The container hosts encounter and
+--  scenario status-bar widgets whose Blizzard code compares SECRET values in
+--  instanced combat; an insecure ClearAllPoints/SetPoint would taint that
+--  tree and throw "attempt to compare a secret number" (the PVEFrame
+--  lesson). The plain-SetPoint shortcut the loot windows use is safe there
+--  only because their subtrees never touch secrets.
+--
+--  SecureSetPoint bails in combat, and Blizzard re-anchors this container
+--  exactly then (widgets spawn mid-fight) -- missed re-asserts set a dirty
+--  flag and re-apply on PLAYER_REGEN_ENABLED.
+-------------------------------------------------------------------------------
+local TOPBAR_NAME = "UIWidgetTopCenterContainerFrame"
+local TOPBAR_KEY, TOPBAR_LABEL = "EUI_TopBarEventText", "Top Bar Event Text"
+local TOPBAR_DEFW, TOPBAR_DEFH, TOPBAR_DEFY = 400, 60, -120
+
+local topBarProxy
+local topBarHooked = false
+local topBarDirty  = false
+local topBarRegen
+
+local function TopBarEnabled()
+    return EllesmereUIDB and EllesmereUIDB.shifterTopBarUnlock or false
+end
+
+local function GetTopBarPos()
+    return EllesmereUIDB and EllesmereUIDB.shifterTopBarPos
+end
+
+local function SaveTopBarPos(point, relPoint, x, y)
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    EllesmereUIDB.shifterTopBarPos = { point = point, relPoint = relPoint, x = x, y = y }
+end
+
+-- Returns the live Blizzard frame only when it is safe to reposition.
+local function TopBarFrame()
+    local frame = _G[TOPBAR_NAME]
+    if not frame or not frame.HookScript then return nil end
+    if frame.IsForbidden and frame:IsForbidden() then return nil end
+    if frame:IsProtected() then return nil end
+    return frame
+end
+
+local function ApplyTopBarPos()
+    if not TopBarEnabled() then return end
+    local pos = GetTopBarPos()
+    if not pos then return end
+    local frame = TopBarFrame()
+    if not frame then return end
+    local ffd = GetFFD(frame)
+    if ffd._shTopBarIgnoreSP then return end
+    ffd._shTopBarIgnoreSP = true
+    frame.ignoreFramePositionManager = true
+    -- SECURE write only (see block comment); false = in combat, defer.
+    if not SecureSetPoint(frame, pos.point, pos.relPoint, pos.x, pos.y) then
+        topBarDirty = true
+    end
+    ffd._shTopBarIgnoreSP = false
+end
+
+local function HookTopBar()
+    if topBarHooked then return end
+    local frame = TopBarFrame()
+    if not frame then return end
+    topBarHooked = true
+    hooksecurefunc(frame, "SetPoint", function()
+        if GetFFD(frame)._shTopBarIgnoreSP then return end
+        ApplyTopBarPos()
+    end)
+    frame:HookScript("OnShow", function()
+        ApplyTopBarPos()
+    end)
+    topBarRegen = CreateFrame("Frame")
+    topBarRegen:RegisterEvent("PLAYER_REGEN_ENABLED")
+    topBarRegen:SetScript("OnEvent", function()
+        if topBarDirty then
+            topBarDirty = false
+            ApplyTopBarPos()
+        end
+    end)
+end
+
+-- Hidden rect-only ghost the unlock mover attaches to; never visible.
+local function EnsureTopBarProxy()
+    if topBarProxy then return topBarProxy end
+    topBarProxy = CreateFrame("Frame", nil, UIParent)
+    topBarProxy:Hide()
+    topBarProxy:SetSize(TOPBAR_DEFW, TOPBAR_DEFH)
+    local pos = GetTopBarPos()
+    if pos then
+        topBarProxy:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
+    else
+        topBarProxy:SetPoint("TOP", UIParent, "TOP", 0, TOPBAR_DEFY)
+    end
+    return topBarProxy
+end
+
+local function RegisterTopBarUnlockElement()
+    local MK = EllesmereUI.MakeUnlockElement
+    if not MK or not EllesmereUI.RegisterUnlockElements then return end
+    EllesmereUI:RegisterUnlockElements({
+        MK({
+            key   = TOPBAR_KEY,
+            label = TOPBAR_LABEL,
+            group = "Quality of Life",
+            order = 643,
+            noResize          = true,
+            noAnchorTarget    = true,
+            noAnchorTo        = true,
+            noSizeMatchTarget = true,
+            moverBg  = { r = 0.165, g = 0.11, b = 0.055 },
+            subtitle = "Disable the Top Bar Event Text overlay in Shifter once done positioning",
+            isHidden = function()
+                if not TopBarEnabled() or not _G[TOPBAR_NAME] then return true end
+                -- "Hide Unlock Mode Overlay": mover stays out of unlock mode
+                -- but the saved position keeps applying (the SetPoint/OnShow
+                -- enforcement never depends on the mover existing).
+                return EllesmereUIDB and EllesmereUIDB.shifterTopBarHideOverlay or false
+            end,
+            getFrame = EnsureTopBarProxy,
+            -- Bare/dynamic rect (empty without widgets): fixed mover box.
+            getSize = function()
+                return TOPBAR_DEFW, TOPBAR_DEFH
+            end,
+            savePos = function(_, point, relPoint, x, y)
+                SaveTopBarPos(point, relPoint, x, y)
+                local proxy = EnsureTopBarProxy()
+                proxy:ClearAllPoints()
+                proxy:SetPoint(point, UIParent, relPoint, x, y)
+                HookTopBar()
+                ApplyTopBarPos()
+            end,
+            loadPos = function()
+                local pos = GetTopBarPos()
+                if pos then
+                    return { point = pos.point, relPoint = pos.relPoint, x = pos.x, y = pos.y }
+                end
+                return nil
+            end,
+            clearPos = function()
+                if EllesmereUIDB then EllesmereUIDB.shifterTopBarPos = nil end
+                local proxy = topBarProxy
+                if proxy then
+                    proxy:ClearAllPoints()
+                    proxy:SetPoint("TOP", UIParent, "TOP", 0, TOPBAR_DEFY)
+                end
+                local frame = TopBarFrame()
+                if frame then frame.ignoreFramePositionManager = nil end
+            end,
+            applyPos = function()
+                local pos = GetTopBarPos()
+                local proxy = EnsureTopBarProxy()
+                proxy:ClearAllPoints()
+                if pos then
+                    proxy:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
+                else
+                    proxy:SetPoint("TOP", UIParent, "TOP", 0, TOPBAR_DEFY)
+                end
+                ApplyTopBarPos()
+            end,
+        }),
+    }, "EllesmereUIQoL")
+end
+
+-- Exposed for the options toggle (mid-session enable without /reload)
+function EllesmereUI._InitShifterTopBar()
+    HookTopBar()
+    local frame = TopBarFrame()
+    if frame and frame:IsVisible() then
+        ApplyTopBarPos()
+    end
+end
+
+-- Exposed for the options toggle. Releases the container back to Blizzard's
+-- position management; existing hooks go dormant via the TopBarEnabled gate.
+function EllesmereUI._DisableShifterTopBar()
+    local frame = TopBarFrame()
+    if frame then frame.ignoreFramePositionManager = nil end
+end
+
+-------------------------------------------------------------------------------
 --  Event-driven initialization
 -------------------------------------------------------------------------------
 local pendingAddons = {}
@@ -973,6 +1169,8 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         if IsEnabled() then InitShifter() end
         RegisterLootUnlockElements()
         if LootEnabled() then InitLootWindows() end
+        RegisterTopBarUnlockElement()
+        if TopBarEnabled() then EllesmereUI._InitShifterTopBar() end
     elseif event == "ADDON_LOADED" then
         local frames = pendingAddons[arg1]
         if frames then
@@ -1014,6 +1212,7 @@ function EllesmereUI._ResetShifterPositions()
     if EllesmereUIDB then
         EllesmereUIDB.shifterPositions = nil
         EllesmereUIDB.shifterLootPositions = nil
+        EllesmereUIDB.shifterTopBarPos = nil
         EllesmereUIDB.shifterScales = nil
     end
     wipe(tempPos)

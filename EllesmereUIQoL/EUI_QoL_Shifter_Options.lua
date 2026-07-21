@@ -158,7 +158,7 @@ _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Move Loot Windows in Unlock Mode",
-          tooltip = "Adds Bonus Roll and Group Loot movers to Unlock Mode.",
+          tooltip = "Adds Bonus Roll, Group Loot, and Alert Toast movers to Unlock Mode.",
           getValue = function()
               return EllesmereUIDB and EllesmereUIDB.shifterLootUnlock or false
           end,
@@ -185,6 +185,47 @@ _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
           setValue = function(v)
               if not EllesmereUIDB then EllesmereUIDB = {} end
               EllesmereUIDB.shifterLootHideOverlays = v
+          end }
+    );  y = y - h
+
+    ---------------------------------------------------------------------------
+    --  BLIZZARD TOP BAR EVENT TEXT
+    ---------------------------------------------------------------------------
+    _, h = W:SectionHeader(parent, "BLIZZARD TOP BAR EVENT TEXT", y);  y = y - h
+
+    local function topBarUnlockOff()
+        return not (EllesmereUIDB and EllesmereUIDB.shifterTopBarUnlock)
+    end
+
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Move Top Bar Event Text in Unlock Mode",
+          tooltip = "Adds a mover for Blizzard's top-center event text and widgets (scenario, event, and encounter bars).",
+          getValue = function()
+              return EllesmereUIDB and EllesmereUIDB.shifterTopBarUnlock or false
+          end,
+          setValue = function(v)
+              if not EllesmereUIDB then EllesmereUIDB = {} end
+              EllesmereUIDB.shifterTopBarUnlock = v
+              if v then
+                  if EllesmereUI._InitShifterTopBar then
+                      EllesmereUI._InitShifterTopBar()
+                  end
+              else
+                  if EllesmereUI._DisableShifterTopBar then
+                      EllesmereUI._DisableShifterTopBar()
+                  end
+              end
+              EllesmereUI:RefreshPage()  -- update the overlay toggle disabled state
+          end },
+        { type = "toggle", text = "Hide Unlock Mode Overlay",
+          tooltip = "Hides the Top Bar Event Text mover in Unlock Mode while keeping its saved position applied.",
+          disabled = topBarUnlockOff, disabledTooltip = "Move Top Bar Event Text in Unlock Mode",
+          getValue = function()
+              return EllesmereUIDB and EllesmereUIDB.shifterTopBarHideOverlay or false
+          end,
+          setValue = function(v)
+              if not EllesmereUIDB then EllesmereUIDB = {} end
+              EllesmereUIDB.shifterTopBarHideOverlay = v
           end }
     );  y = y - h
 
