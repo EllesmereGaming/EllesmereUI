@@ -3654,13 +3654,61 @@ do
         distFrame:Show()
     end
 
-    local function Tick()
+    local function IsEnabled()
+        return EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled
+    end
+
+    local Tick -- forward decl for StartDriver closures
+
+    local function StopDriver()
+        if evt then evt:UnregisterAllEvents() end
+        if drv then
+            drv:SetScript("OnUpdate", nil)
+            drv:Hide()
+        end
+        installed = false
+        acc = 0
+        if distFrame then distFrame:Hide() end
+    end
+
+    local function StartDriver()
+        if not drv then
+            drv = CreateFrame("Frame")
+            drv:Hide()
+        end
+        if not evt then
+            evt = CreateFrame("Frame")
+            evt:SetScript("OnEvent", function(_, event)
+                if not IsEnabled() then return end
+                if event == "SPELLS_CHANGED" then
+                    spellLadderBuilt = false
+                else
+                    Tick()
+                end
+            end)
+        end
+        drv:SetScript("OnUpdate", function(_, dt)
+            if not IsEnabled() then return end
+            acc = acc + dt
+            if acc < 0.2 then return end
+            acc = 0
+            Tick()
+        end)
+        evt:RegisterEvent("PLAYER_TARGET_CHANGED")
+        -- Spell ladder only used by the "plus" format.
+        if GetFormat() == "plus" then
+            evt:RegisterEvent("SPELLS_CHANGED")
+        else
+            evt:UnregisterEvent("SPELLS_CHANGED")
+        end
+        drv:Show()
+        installed = true
+    end
+
+    Tick = function()
+        if not IsEnabled() then return end
         if EllesmereUI._unlockActive then
             ShowSample()
-            return
-        end
-        if not (EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled) then
-            if distFrame then distFrame:Hide() end
             return
         end
         if not UnitExists("target") then
@@ -3680,53 +3728,27 @@ do
     end
 
     local function ApplyTargetDistance()
-        local on = EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled
-        if on and not installed then
-            if not drv then
-                drv = CreateFrame("Frame")
-                drv:Hide()
-                drv:SetScript("OnUpdate", function(_, dt)
-                    acc = acc + dt
-                    if acc < 0.2 then return end
-                    acc = 0
-                    Tick()
-                end)
+        if IsEnabled() then
+            if not installed then StartDriver() end
+            -- Format may have changed while already running.
+            if GetFormat() == "plus" then
+                evt:RegisterEvent("SPELLS_CHANGED")
+            else
+                evt:UnregisterEvent("SPELLS_CHANGED")
             end
-            if not evt then
-                evt = CreateFrame("Frame")
-                evt:SetScript("OnEvent", function(_, event)
-                    if event == "SPELLS_CHANGED" then
-                        spellLadderBuilt = false
-                    else
-                        Tick()
-                    end
-                end)
-            end
-            evt:RegisterEvent("PLAYER_TARGET_CHANGED")
-            evt:RegisterEvent("SPELLS_CHANGED")
-            drv:Show()
-            installed = true
             Tick()
-        elseif not on and installed then
-            evt:UnregisterAllEvents()
-            drv:Hide()
-            installed = false
-            if distFrame and not EllesmereUI._unlockActive then
-                distFrame:Hide()
-            end
-        elseif on then
-            Tick()
+            if distFrame then ApplyFrameSettings() end
+        else
+            StopDriver()
         end
-        if distFrame then ApplyFrameSettings() end
     end
     EllesmereUI._applyTargetDistance = ApplyTargetDistance
 
     EllesmereUI._applyTargetDistanceFrame = function()
+        if not IsEnabled() then return end
         CreateDistFrame()
         ApplyFrameSettings()
-        if EllesmereUI._unlockActive or (EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled) then
-            Tick()
-        end
+        Tick()
     end
 
     C_Timer.After(2, function()
@@ -3741,9 +3763,10 @@ do
                 order    = 722,
                 noResize = true,
                 isHidden = function()
-                    return not (EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled)
+                    return not IsEnabled()
                 end,
                 getFrame = function()
+                    if not IsEnabled() then return nil end
                     CreateDistFrame()
                     if EllesmereUI._unlockActive then ShowSample() end
                     return distFrame
@@ -3770,6 +3793,7 @@ do
                     if distFrame then ApplyFrameSettings() end
                 end,
                 applyPos = function()
+                    if not IsEnabled() then return end
                     CreateDistFrame()
                     ApplyFrameSettings()
                     if EllesmereUI._unlockActive then ShowSample() end
@@ -3778,13 +3802,13 @@ do
         })
     end)
 
+    -- One-shot login: only starts the driver when the option is already on.
     local boot = CreateFrame("Frame")
     boot:RegisterEvent("PLAYER_LOGIN")
     boot:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
-        if EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled then
-            ApplyTargetDistance()
-        end
+        self:SetScript("OnEvent", nil)
+        if IsEnabled() then ApplyTargetDistance() end
     end)
 end
 
