@@ -2210,11 +2210,29 @@ function EABR.LayoutProviderCastHome()
     local sz = floor(ICON_SIZE * baseScale + 0.5)
     btn:SetSize(sz, sz)
     btn:ClearAllPoints()
-    -- Anchor to iconAnchor (same spot as combat row slot 0). Parent is UIParent
-    -- so combatAnchor's EnableMouse(false) cannot swallow clicks.
+    -- Parent is UIParent so combatAnchor's EnableMouse(false) cannot swallow clicks.
     btn:SetPoint("TOPLEFT", iconAnchor, "TOPLEFT", 0, 0)
     EABR.SizeIconQuality(btn, sz)
     EABR.SizeIconBagCount(btn, sz)
+end
+
+function EABR.ParkProviderCastButton()
+    local btn = EABR._providerCastBtn
+    if not btn then return end
+    EABR._providerCastVisible = false
+    btn:SetAlpha(0)
+    if btn._text then btn._text:SetText(""); btn._text:Hide() end
+    if btn._eabrGlowWrapper then btn._eabrGlowWrapper:Hide() end
+    if InCombatLockdown() then
+        pcall(function() -- EnableMouse/SetPoint protected under lockdown
+            if btn.SetMouseClickEnabled then btn:SetMouseClickEnabled(false) end
+            if btn.SetMouseMotionEnabled then btn:SetMouseMotionEnabled(false) end
+        end)
+        return
+    end
+    btn:EnableMouse(false)
+    btn:ClearAllPoints()
+    btn:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10000, 10000)
 end
 
 function EABR.EnsureProviderCastButton()
@@ -2248,12 +2266,10 @@ function EABR.EnsureProviderCastButton()
     EABR.CreateIconBagCountOverlay(btn)
     EABR.AttachIconHover(btn)
     EABR.AttachIconTooltip(btn)
-    btn:SetAlpha(0)
-    btn:EnableMouse(true)
-    btn:Show() -- stay shown; combat toggles alpha only
-    btn:SetPoint("TOPLEFT", iconAnchor, "TOPLEFT", 0, 0)
+    btn:Show()
     EABR._providerCastBtn = btn
     EABR._providerCastVisible = false
+    EABR.ParkProviderCastButton()
     return btn
 end
 
@@ -2280,13 +2296,14 @@ function EABR.SyncProviderCastSpell()
         btn._icon:SetTexture(Tex(spellID) or 134400)
         btn._tooltipSpell = spellID
         btn._tooltipItem = nil
-        btn:EnableMouse(true)
     end
-    EABR.LayoutProviderCastHome()
+    if not EABR._providerCastVisible then
+        EABR.ParkProviderCastButton()
+    end
 end
 
--- Combat path may only change alpha + child visuals. EnableMouse / SetFrameLevel /
--- SetAttribute are protected on this SecureActionButton under lockdown.
+-- Show/hide the provider cast button. OOC: full place/mouse control. Combat:
+-- alpha + child visuals only (EnableMouse/SetPoint/SetFrameLevel are protected).
 function EABR.SetProviderCastCombatVisible(visible, m)
     local btn = EABR._providerCastBtn
     if not btn then
@@ -2294,10 +2311,7 @@ function EABR.SetProviderCastCombatVisible(visible, m)
         return
     end
     if not visible or not m or not EABR._providerCastSpell then
-        EABR._providerCastVisible = false
-        btn:SetAlpha(0)
-        if btn._text then btn._text:SetText(""); btn._text:Hide() end
-        if btn._eabrGlowWrapper then btn._eabrGlowWrapper:Hide() end
+        EABR.ParkProviderCastButton()
         return
     end
     EABR._providerCastVisible = true
@@ -2324,6 +2338,15 @@ function EABR.SetProviderCastCombatVisible(visible, m)
         EABR.ApplyIconGroupCoverage(btn, m.groupHave, m.groupTotal)
     else
         EABR.ApplyIconBagCount(btn, nil, nil, nil)
+    end
+    if not InCombatLockdown() then
+        EABR.LayoutProviderCastHome()
+        btn:EnableMouse(true)
+    else
+        pcall(function()
+            if btn.SetMouseClickEnabled then btn:SetMouseClickEnabled(true) end
+            if btn.SetMouseMotionEnabled then btn:SetMouseMotionEnabled(true) end
+        end)
     end
     btn:SetAlpha((p and p.opacity) or 1)
 end
@@ -2718,6 +2741,10 @@ local function LayoutIcons()
     -- Beacon logic is untouched; we just include visible beacon frames in positioning.
     local allIcons = _layoutScratch
     wipe(allIcons)
+    -- Provider raid-buff button is a separate UIParent secure btn; slot 0 when shown.
+    if EABR._providerCastVisible and EABR._providerCastBtn then
+        allIcons[#allIcons+1] = EABR._providerCastBtn
+    end
     for _, btn in ipairs(activeIcons) do allIcons[#allIcons+1] = btn end
     local beaconsOnCursor = db and db.profile.display.cursorAttach and cursorAnchor
     if _B.icons and not beaconsOnCursor then
@@ -3830,12 +3857,17 @@ local function Refresh()
         -- before, which read as "works only in combat"). Cursor icons are
         -- visual-only: an important buff routed here trades its secure
         -- click-to-cast for the at-cursor placement, same as in combat.
+        -- Own raid buff always uses the provider secure button (not cursor)
+        -- so it stays clickable into combat.
         local useCursor = db.profile.display.cursorAttach and cursorAnchor
         local iconIdx, cursorIdx = 0, 0
+        local providerEntry
         for _, m in ipairs(missing) do
             local dk = m.dismissKey or (m.data and m.data.key and (m.cat .. ":" .. m.data.key)) or nil
             if not dk or not _dismissedUntilLoad[dk] then
-                if useCursor and IsImportantBuff(m) then
+                if m.cat == "raidbuff" and m.mode == "spell" then
+                    providerEntry = m
+                elseif useCursor and IsImportantBuff(m) then
                     cursorIdx = cursorIdx + 1
                     ShowCursorIcon(cursorIdx, m)
                     local f = cursorActiveIcons[#cursorActiveIcons]
@@ -3853,18 +3885,32 @@ local function Refresh()
                 end
             end
         end
+        if providerEntry then
+            EABR.SetProviderCastCombatVisible(true, providerEntry)
+            local pBtn = EABR._providerCastBtn
+            if pBtn then
+                local p = db.profile.display
+                local gc = p.glowColor or DEFAULT_GLOW_COLOR
+                local sz = pBtn:GetWidth() or ICON_SIZE
+                if pBtn._eabrGlowWrapper then pBtn._eabrGlowWrapper:Hide() end
+                ApplyGlow(pBtn, p.glowType or 0, gc.r, gc.g, gc.b, sz)
+            end
+        else
+            EABR.ParkProviderCastButton()
+        end
         if cursorIdx > 0 then
             cursorAnchor:Show()
             EllesmereUI.SetElementVisibility(cursorAnchor, true)
             LayoutCursorIcons()
         end
-        if iconIdx > 0 then
+        if iconIdx > 0 or providerEntry then
             LayoutIcons()
             EllesmereUI.SetElementVisibility(iconAnchor, true)
         else
             EllesmereUI.SetElementVisibility(iconAnchor, false)
         end
     else
+        EABR.ParkProviderCastButton()
         EllesmereUI.SetElementVisibility(iconAnchor, false)
     end
 
