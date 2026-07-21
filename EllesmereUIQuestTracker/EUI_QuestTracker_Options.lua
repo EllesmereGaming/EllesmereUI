@@ -277,6 +277,9 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="toggle", label="Prevent Multi Quest Accept",
                       get=function() return Cfg("autoAcceptPreventMulti") ~= false end,
                       set=function(v) Set("autoAcceptPreventMulti", v) end },
+                    { type="toggle", label="Hold Shift to Skip",
+                      get=function() return Cfg("autoAcceptShiftSkip") ~= false end,
+                      set=function(v) Set("autoAcceptShiftSkip", v) end },
                 },
             })
             MakeCogBtn(lrgn, cogShowL)

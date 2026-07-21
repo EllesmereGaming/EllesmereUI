@@ -119,6 +119,82 @@ end
         return not EllesmereUIDB or EllesmereUIDB.reskinPopupsMenus ~= false
     end
 
+    local function _applyConfiguredBorder(owner, prefix, legacySize)
+        if not owner or not EllesmereUI.ApplyBorderStyle then return end
+        local db = EllesmereUIDB or {}
+        local key = db[prefix .. "BorderThickness"]
+        local sizes = { none=0, thin=1, normal=2, heavy=3, strong=4 }
+        local size = key and (sizes[key] or 1) or (legacySize or 1)
+        key = key or ({ [0]="none", [1]="thin", [2]="normal", [3]="heavy", [4]="strong" })[size] or "thin"
+        local mode = db[prefix .. "BorderColorMode"] or "custom"
+        local color
+        if mode == "accent" then
+            color = EllesmereUI.ELLESMERE_GREEN or { r=.27, g=.86, b=.49 }
+        elseif mode == "class" then
+            local _, class = UnitClass("player")
+            color = class and RAID_CLASS_COLORS[class] or { r=1, g=1, b=1 }
+        else
+            color = db[prefix .. "BorderColor"] or { r=1, g=1, b=1 }
+        end
+        local alpha = db[prefix .. "BorderOpacity"]
+        if alpha == nil then alpha = (mode == "custom") and EllesmereUI.RESKIN.BRD_ALPHA or .5 end
+        local data = GetFFD(owner)
+        if not data.configBorder then
+            data.configBorder = CreateFrame("Frame", nil, owner, "BackdropTemplate")
+            data.configBorder:SetAllPoints(owner)
+            data.configBorder:EnableMouse(false)
+            if not _PP then _PP = EllesmereUI.PP end
+            if _PP and _PP.HideBorder then _PP.HideBorder(owner) end
+        end
+        -- Recomputed on every apply so the Show Behind toggle works live.
+        -- +4, not +5: the resurrect-accept glow overlay sits at +5 on the
+        -- same popup buttons; at the same level the later-created sibling
+        -- wins the tie, and the border must never bury the glow.
+        data.configBorder:SetFrameLevel(db[prefix .. "BorderBehind"]
+            and math.max(0, owner:GetFrameLevel() - 1) or (owner:GetFrameLevel() + 4))
+        EllesmereUI.ApplyBorderStyle(data.configBorder, size, color.r, color.g, color.b, alpha,
+            db[prefix .. "BorderTexture"] or "solid", db[prefix .. "BorderOffsetX"],
+            db[prefix .. "BorderOffsetY"], db[prefix .. "BorderShiftX"], db[prefix .. "BorderShiftY"],
+            "blizzardSkin", key)
+    end
+    EllesmereUI._applyBlizzardConfiguredBorder = _applyConfiguredBorder
+
+    -- Element & Text Color mode. "native" = the pre-8.5.2 shipped look:
+    -- each surface keeps its original coloring (most are not recolored at
+    -- all; the Game Menu header keeps its branded green). UNSET resolves to
+    -- native unless the user had opted into the old Accent Colored Elements
+    -- toggle -- their accent choice carries forward without a migration
+    -- write; a default install sees zero appearance change.
+    local function _elementColorMode()
+        local db = EllesmereUIDB or {}
+        local mode = db.popupMenuButtonTextColorMode
+        if mode == nil then
+            mode = db.accentReskinElements and "accent" or "native"
+        end
+        return mode
+    end
+    EllesmereUI._getPopupMenuElementMode = _elementColorMode
+
+    local function _getElementColor()
+        local db = EllesmereUIDB or {}
+        local mode = _elementColorMode()
+        if mode == "custom" then
+            local c = db.popupMenuButtonTextColor or { r=1, g=1, b=1 }
+            return c.r, c.g, c.b
+        elseif mode == "class" then
+            local _, class = UnitClass("player")
+            local c = class and RAID_CLASS_COLORS[class]
+            if c then return c.r, c.g, c.b end
+        end
+        -- accent AND native both land here: the only surface that calls
+        -- this unconditionally under native is the Game Menu header, whose
+        -- pre-8.5.2 look was branded green. Every other surface gates on
+        -- the mode first and never reaches this in native.
+        local c = EllesmereUI.ELLESMERE_GREEN or { r=.27, g=.86, b=.49 }
+        return c.r, c.g, c.b
+    end
+    EllesmereUI._getPopupMenuButtonTextColor = _getElementColor
+
     local function _ttSkin(tt, _, isEmbedded)
         if not tt or tt:IsForbidden() or not _enabled() then return end
         -- Embedded tooltips (e.g. EmbeddedItemTooltip, the reward-item block
@@ -132,10 +208,6 @@ end
         if not GetFFD(tt).bg then
             GetFFD(tt).bg = tt:CreateTexture(nil, "BACKGROUND", nil, -8)
             GetFFD(tt).bg:SetAllPoints()
-            if _PP and _PP.CreateBorder then
-                local bR, bG, bB, bA, bSize = EllesmereUI.GetTooltipBorder()
-                _PP.CreateBorder(tt, bR, bG, bB, bA, bSize, "OVERLAY", 7)
-            end
         end
         -- Unified, user-customizable background (shared with the EUI custom
         -- tooltips via EllesmereUI.GetTooltipBg). Re-applied each skin call so a
@@ -145,16 +217,8 @@ end
         -- Border size + colour are user-customizable (Blizz UI Enhanced >
         -- Blizzard Tooltip > Border). Re-applied each call like the bg so a
         -- change shows on the next tooltip; size 0 hides the border.
-        if _PP and _PP.GetBorders and _PP.GetBorders(tt) then
-            local bR, bG, bB, bA, bSize = EllesmereUI.GetTooltipBorder()
-            if bSize and bSize > 0 then
-                _PP.SetBorderSize(tt, bSize)
-                _PP.SetBorderColor(tt, bR, bG, bB, bA)
-                _PP.ShowBorder(tt)
-            else
-                _PP.HideBorder(tt)
-            end
-        end
+        local _, _, _, _, legacySize = EllesmereUI.GetTooltipBorder()
+        _applyConfiguredBorder(tt, "tooltip", legacySize)
     end
 
     local function _ttFonts(tt, startFrom)
@@ -197,7 +261,9 @@ end
     end
 
     local function _accentEnabled()
-        return EllesmereUIDB and EllesmereUIDB.accentReskinElements
+        -- False in native mode so every gated surface keeps its pre-8.5.2
+        -- else-branch look (unrecolored or plain white).
+        return _elementColorMode() ~= "native"
     end
 
     -- Unified inspect system: one NotifyInspect per GUID, one INSPECT_READY
@@ -381,6 +447,67 @@ end
         return guid, token
     end
 
+    -- "Targeting" line: who the hovered unit is currently targeting. Opt-in
+    -- (default off). Needs a live unit token for the relational target token,
+    -- so hovers that only resolve a GUID (our raid/party frames in Midnight)
+    -- skip it. Identity-secret targets are skipped entirely. Refresh passes
+    -- re-run the postprocessor while the tip is up, so an existing line is
+    -- updated IN PLACE (never appended twice) and the value stays current.
+    local function _ttTargetLine(tt, unit)
+        local db = EllesmereUIDB
+        if not (unit and db and db.tooltipShowTarget) then return end
+        local tu = unit .. "target"
+        if C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret then
+            local s = C_Secrets.ShouldUnitIdentityBeSecret(tu)
+            if (_isSecret and _isSecret(s)) or s == true then return end
+        end
+        local label = EllesmereUI.L("Targeting:")
+        local tName, r, g, b
+        if UnitExists(tu) then
+            if UnitIsUnit(tu, "player") then
+                tName = EllesmereUI.L("You")
+                r, g, b = 0.1, 1, 0.1
+            else
+                local n = UnitName(tu)
+                if n and not (_isSecret and _isSecret(n)) then
+                    tName = n
+                    r, g, b = 0.9, 0.9, 0.9
+                    if UnitIsPlayer(tu) then
+                        local _, cf = UnitClass(tu)
+                        local cc = cf and not (_isSecret and _isSecret(cf)) and _RAID_CC and _RAID_CC[cf]
+                        if cc then r, g, b = cc.r, cc.g, cc.b end
+                    else
+                        local reaction = UnitReaction and UnitReaction(tu, "player")
+                        local fc = reaction and not (_isSecret and _isSecret(reaction))
+                            and FACTION_BAR_COLORS and FACTION_BAR_COLORS[reaction]
+                        if fc then r, g, b = fc.r, fc.g, fc.b end
+                    end
+                end
+            end
+        end
+        for i = 2, (tt.NumLines and tt:NumLines() or 0) do
+            local lineL = _G["GameTooltipTextLeft" .. i]
+            local txt = lineL and lineL:GetText()
+            if txt and not (_isSecret and _isSecret(txt)) and txt == label then
+                local lineR = _G["GameTooltipTextRight" .. i]
+                if lineR then
+                    if tName then
+                        lineR:SetText(tName)
+                        lineR:SetTextColor(r, g, b)
+                    else
+                        -- Target dropped mid-hover: blank the value, keep the row.
+                        lineR:SetText("-")
+                        lineR:SetTextColor(0.6, 0.6, 0.6)
+                    end
+                end
+                return
+            end
+        end
+        if tName then
+            tt:AddDoubleLine(label, tName, 1, 1, 1, r, g, b)
+        end
+    end
+
     local function _ttUnitColor(tt, data)
         if tt ~= _GameTooltip or tt:IsForbidden() then return end
         local nLinesBefore = tt.NumLines and tt:NumLines() or 0
@@ -406,7 +533,13 @@ end
             end
         end
         if not classFile and unit then
-            if not UnitIsPlayer(unit) then return end
+            if not UnitIsPlayer(unit) then
+                -- Non-player hover: no class additions apply, but the Targeting
+                -- line still does (checking a boss's target is the core case).
+                _ttTargetLine(tt, unit)
+                _ttFonts(tt, nLinesBefore)
+                return
+            end
             local _, cf = UnitClass(unit)
             if cf and not (_isSecret and _isSecret(cf)) then
                 classFile = cf
@@ -514,6 +647,8 @@ end
                 tt:AddDoubleLine("Mount:", valText, 1, 1, 1, 1, 1, 1)
             end
         end
+        -- Who the hovered player currently targets (opt-in, default off).
+        _ttTargetLine(tt, unit)
         -- Item Level. Cache is keyed strictly by the authoritative GUID so a
         -- read or write can never land under a different person than is shown.
         if db and db.tooltipItemLevel ~= false then
@@ -607,8 +742,7 @@ end
             if tt ~= _GameTooltip or tt:IsForbidden() or not _accentEnabled() then return end
             if not _nameL1 then _nameL1 = _G.GameTooltipTextLeft1 end
             if _nameL1 then
-                local EG = EllesmereUI.ELLESMERE_GREEN
-                if EG then _nameL1:SetTextColor(EG.r, EG.g, EG.b) end
+                local r,g,b=_getElementColor(); _nameL1:SetTextColor(r,g,b)
             end
         end
         if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType then
@@ -640,13 +774,8 @@ end
                 region:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
             end
         end
-        if not _menuSkinned[frame] then
-            _menuSkinned[frame] = true
-            if _PP and _PP.CreateBorder then
-                local RS = EllesmereUI.RESKIN
-                _PP.CreateBorder(frame, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
-            end
-        end
+        _menuSkinned[frame] = true
+        _applyConfiguredBorder(frame, "popupMenu", 1)
     end
 
     local function _menuOnOpen(manager, _, menuDescription)
@@ -711,6 +840,7 @@ end
             end
         end
         GetFFD(popup).bg:Show()
+        _applyConfiguredBorder(popup, "popupMenu", 1)
         -- Skin buttons (1-4 plus the optional extra action button)
         local popupBtns = {}
         for i = 1, 4 do
@@ -730,22 +860,10 @@ end
                         if r.SetAtlas then r:SetAtlas("") end
                     end
                 end
-                local RS = EllesmereUI.RESKIN
-                local EG = EllesmereUI.ELLESMERE_GREEN
-                local useAccent = _accentEnabled() and EG
                 local btnBg = btn:CreateTexture(nil, "BACKGROUND", nil, -6)
                 btnBg:SetAllPoints()
-                btnBg:SetColorTexture(0.1, 0.1, 0.1, 0.8)
                 GetFFD(btnBg).owned = true
                 GetFFD(btn).bg = btnBg
-                if not _PP then _PP = EllesmereUI and EllesmereUI.PP end
-                if _PP and _PP.CreateBorder then
-                    if useAccent then
-                        _PP.CreateBorder(btn, EG.r, EG.g, EG.b, 0.5, 1, "OVERLAY", 7)
-                    else
-                        _PP.CreateBorder(btn, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
-                    end
-                end
                 -- House hover: 10% white wash (HIGHLIGHT layer only renders
                 -- while the button is enabled and hovered).
                 local hov = btn:CreateTexture(nil, "HIGHLIGHT")
@@ -760,11 +878,12 @@ end
                     local enabled = (self.IsEnabled and self:IsEnabled()) and true or false
                     if fs then
                         if enabled then
-                            local EG2 = EllesmereUI.ELLESMERE_GREEN
-                            if _accentEnabled() and EG2 then
-                                fs:SetTextColor(EG2.r, EG2.g, EG2.b, 1)
-                            else
+                            -- Native mode: pre-8.5.2 enabled color was white.
+                            if _elementColorMode() == "native" then
                                 fs:SetTextColor(1, 1, 1, 1)
+                            else
+                                local r, g, b = _getElementColor()
+                                fs:SetTextColor(r, g, b, 1)
                             end
                         else
                             fs:SetTextColor(0.4, 0.4, 0.4, 1)
@@ -778,6 +897,11 @@ end
                 btn:HookScript("OnEnable",  _euiRefreshEnabled)
                 btn:HookScript("OnDisable", _euiRefreshEnabled)
                 _euiRefreshEnabled(btn)
+            end
+            if btn then
+                local c = EllesmereUIDB and EllesmereUIDB.popupMenuButtonBackgroundColor or { r=.1,g=.1,b=.1,a=.8 }
+                if GetFFD(btn).bg then GetFFD(btn).bg:SetColorTexture(c.r, c.g, c.b, c.a == nil and .8 or c.a) end
+                _applyConfiguredBorder(btn, "popupMenuButton", 1)
             end
         end
 
@@ -821,16 +945,15 @@ end
             ebBg:SetAllPoints()
             ebBg:SetColorTexture(0.05, 0.05, 0.05, 0.9)
             GetFFD(ebBg).owned = true
-            -- Border matching the popup buttons (accent or white).
-            local RS2 = EllesmereUI.RESKIN
-            local EG3 = EllesmereUI.ELLESMERE_GREEN
+            -- Border matching the popup buttons (accent or white). Native
+            -- mode keeps the pre-8.5.2 white border.
+            local borderR, borderG, borderB = 1, 1, 1
+            if _elementColorMode() ~= "native" then
+                borderR, borderG, borderB = _getElementColor()
+            end
             if not _PP then _PP = EllesmereUI and EllesmereUI.PP end
             if _PP and _PP.CreateBorder then
-                if _accentEnabled() and EG3 then
-                    _PP.CreateBorder(eb, EG3.r, EG3.g, EG3.b, 0.5, 1, "OVERLAY", 7)
-                else
-                    _PP.CreateBorder(eb, 1, 1, 1, RS2.BRD_ALPHA, 1, "OVERLAY", 7)
-                end
+                _PP.CreateBorder(eb, borderR, borderG, borderB, 0.5, 1, "OVERLAY", 7)
             end
         end
     end
@@ -842,6 +965,128 @@ end
                 popup:HookScript("OnShow", function(self) _popupSkin(self) end)
             end
         end
+    end
+
+    ---------------------------------------------------------------------------
+    --  Resurrect Accept Glow (resurrectAcceptGlow, default OFF)
+    --  Pulsating border around button1 of the RESURRECT StaticPopups so a
+    --  pending resurrect is hard to miss. Independent of reskinPopupsMenus.
+    --  Zero cost until first enable: no hooks or frames exist before then.
+    --  The overlay is our own frame (state in FFD); the pulse is a C-side
+    --  Alpha AnimationGroup, so there is no per-frame Lua while it runs.
+    ---------------------------------------------------------------------------
+    local RES_WHICH = {
+        RESURRECT             = true,
+        RESURRECT_NO_SICKNESS = true,
+        RESURRECT_NO_TIMER    = true,
+    }
+    local _resGlowHooked = false
+
+    local function _resGlowEnabled()
+        return EllesmereUIDB and EllesmereUIDB.resurrectAcceptGlow or false
+    end
+
+    local function _resGlowButton(popup)
+        return popup.button1
+            or (popup.GetName and popup:GetName() and _G[popup:GetName() .. "Button1"])
+    end
+
+    -- Addon-owned overlay anchored 3px outside the button, built once per
+    -- button on first glow; state lives in FFD, never on the Blizzard frame.
+    local function _resGlowGet(btn)
+        local d = GetFFD(btn)
+        if not d.resGlow then
+            local ov = CreateFrame("Frame", nil, btn)
+            ov:SetPoint("TOPLEFT", btn, "TOPLEFT", -3, 3)
+            ov:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 3, -3)
+            ov:SetFrameLevel(btn:GetFrameLevel() + 5)
+            ov:Hide()
+            if not _PP then _PP = EllesmereUI and EllesmereUI.PP end
+            if _PP and _PP.CreateBorder then
+                _PP.CreateBorder(ov, 1, 1, 1, 1, 2, "OVERLAY", 7)
+            end
+            local ag = ov:CreateAnimationGroup()
+            ag:SetLooping("BOUNCE")
+            local pulse = ag:CreateAnimation("Alpha")
+            pulse:SetFromAlpha(1); pulse:SetToAlpha(0.15)
+            pulse:SetDuration(0.7); pulse:SetSmoothing("IN_OUT")
+            d.resGlow = ov
+            d.resGlowAG = ag
+        end
+        return d.resGlow, d.resGlowAG
+    end
+
+    local function _resGlowStart(btn)
+        local ov, ag = _resGlowGet(btn)
+        if not ov then return end
+        -- Color resolved at every start so re-shows follow the current
+        -- Accent Colored Elements setting (same source as the popup skin).
+        local EG = EllesmereUI.ELLESMERE_GREEN
+        if _PP and _PP.SetBorderColor then
+            if _accentEnabled() and EG then
+                _PP.SetBorderColor(ov, EG.r, EG.g, EG.b, 1)
+            else
+                _PP.SetBorderColor(ov, 1, 1, 1, 1)
+            end
+        end
+        ov:SetAlpha(1)
+        ov:Show()
+        if ag and not ag:IsPlaying() then ag:Play() end
+    end
+
+    -- Raw FFD read (not GetFFD): stopping must never allocate state for a
+    -- button that never glowed.
+    local function _resGlowStop(btn)
+        local d = btn and FFD[btn]
+        local ov = d and d.resGlow
+        if ov then
+            if d.resGlowAG then d.resGlowAG:Stop() end
+            ov:Hide()
+        end
+    end
+
+    local function _resGlowRefresh(popup)
+        local btn = _resGlowButton(popup)
+        if not btn then return end
+        if _resGlowEnabled() and RES_WHICH[popup.which] and popup:IsShown() then
+            _resGlowStart(btn)
+        else
+            _resGlowStop(btn)
+        end
+    end
+
+    local function _resGlowRefreshAll()
+        for i = 1, STATICPOPUP_NUMDIALOGS or 4 do
+            local popup = _G["StaticPopup" .. i]
+            if popup and not popup:IsForbidden() then _resGlowRefresh(popup) end
+        end
+    end
+
+    -- Install OnShow/OnHide hooks once. Hooks cannot be uninstalled, so they
+    -- self-gate: OnShow early-returns when the toggle is off, OnHide is a raw
+    -- weak-table lookup. Never called before the first enable.
+    local function _resGlowInit()
+        if _resGlowHooked then return end
+        _resGlowHooked = true
+        for i = 1, STATICPOPUP_NUMDIALOGS or 4 do
+            local popup = _G["StaticPopup" .. i]
+            if popup then
+                popup:HookScript("OnShow", function(self)
+                    if not _resGlowEnabled() then return end
+                    _resGlowRefresh(self)
+                end)
+                popup:HookScript("OnHide", function(self)
+                    _resGlowStop(_resGlowButton(self))
+                end)
+            end
+        end
+    end
+
+    -- Options-panel entry point: installs hooks on first enable and syncs
+    -- currently visible popups on any flip, so no reload is ever needed.
+    EllesmereUI._EnsureResurrectGlow = function()
+        if _resGlowEnabled() then _resGlowInit() end
+        if _resGlowHooked then _resGlowRefreshAll() end
     end
 
     do
@@ -864,6 +1109,12 @@ end
             if _pmEnabled() then
                 _menuInit()
                 _popupInit()
+            end
+            -- Resurrect Accept Glow: independent of both reskin masters.
+            -- Default OFF; disabled users pay only this boolean check
+            -- (no hooks, no frames).
+            if _resGlowEnabled() then
+                _resGlowInit()
             end
         end)
     end
@@ -946,10 +1197,8 @@ end
                 GetFFD(popup).bg:SetAllPoints()
                 GetFFD(popup).bg:SetColorTexture(RS.BG_R, RS.BG_G, RS.BG_B, RS.QT_ALPHA)
                 GetFFD(GetFFD(popup).bg).owned = true
-                if _PP and _PP.CreateBorder then
-                    _PP.CreateBorder(bgFrame, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
-                end
             end
+            _applyConfiguredBorder(GetFFD(popup).bgFrame, "popupMenu", 1)
 
             -- Skin buttons (Enter Dungeon / Leave Queue).
             -- Re-strip textures every show (Blizzard re-applies art on each popup).
@@ -989,15 +1238,8 @@ end
                             local RS2 = EllesmereUI.RESKIN
                             local btnBg = btn:CreateTexture(nil, "BACKGROUND", nil, -6)
                             btnBg:SetAllPoints()
-                            btnBg:SetColorTexture(0.1, 0.1, 0.1, 0.8)
                             GetFFD(btnBg).owned = true
-                            if _PP and _PP.CreateBorder then
-                                if useAccent then
-                                    _PP.CreateBorder(btn, EG.r, EG.g, EG.b, 0.5, 1, "OVERLAY", 7)
-                                else
-                                    _PP.CreateBorder(btn, 1, 1, 1, RS2.BRD_ALPHA, 1, "OVERLAY", 7)
-                                end
-                            end
+                            GetFFD(btn).bg = btnBg
                             -- House hover: 10% white wash (owned, so the
                             -- every-show re-strip above leaves it alone).
                             local hov = btn:CreateTexture(nil, "HIGHLIGHT")
@@ -1006,11 +1248,18 @@ end
                             GetFFD(hov).owned = true
                         end
                         -- Accent-color the button text (every show)
-                        local EG = EllesmereUI.ELLESMERE_GREEN
-                        local useAccent = _accentEnabled() and EG
+                        local c = EllesmereUIDB and EllesmereUIDB.popupMenuButtonBackgroundColor or { r=.1,g=.1,b=.1,a=.8 }
+                        if GetFFD(btn).bg then GetFFD(btn).bg:SetColorTexture(c.r,c.g,c.b,c.a == nil and .8 or c.a) end
+                        _applyConfiguredBorder(btn, "popupMenuButton", 1)
                         local fs = btn:GetFontString()
-                        if fs and useAccent then
-                            fs:SetTextColor(EG.r, EG.g, EG.b, 1)
+                        if fs then
+                            -- Native mode: pre-8.5.2 look was plain white.
+                            if _elementColorMode() == "native" then
+                                fs:SetTextColor(1, 1, 1, 1)
+                            else
+                                local r, g, b = _getElementColor()
+                                fs:SetTextColor(r, g, b, 1)
+                            end
                         end
                     end
                 end
@@ -1235,8 +1484,9 @@ do
 
         -- Reskin buttons (Okay, Cancel, Defaults, UseCharacterBindings)
         local btnNames = { "OkayButton", "CancelButton", "DefaultsButton" }
-        local EG = EllesmereUI.ELLESMERE_GREEN
-        local useAccent = (EllesmereUIDB and EllesmereUIDB.accentReskinElements) and EG
+        -- Native mode: keep the pre-8.5.2 look (text not recolored).
+        local er,eg,eb=EllesmereUI._getPopupMenuButtonTextColor(); local EG={r=er,g=eg,b=eb}
+        local useAccent = (EllesmereUI._getPopupMenuElementMode() ~= "native") and EG
         for _, name in ipairs(btnNames) do
             local btn = qkb[name]
             if btn and not GetFFD(btn).skinned then
@@ -1350,7 +1600,8 @@ do
 
         -- Skin buttons
         local function _accentOn()
-            return EllesmereUIDB and EllesmereUIDB.accentReskinElements
+            -- False in native mode: pre-8.5.2 look (text/border not accented).
+            return EllesmereUI._getPopupMenuElementMode() ~= "native"
         end
         for _, btnName in ipairs({ "AcceptButton", "DeclineButton", "AcknowledgeButton" }) do
             local btn = dialog[btnName]
@@ -1375,7 +1626,7 @@ do
                             end)
                         end
                     end
-                    local EG = EllesmereUI.ELLESMERE_GREEN
+                    local er,eg,eb=EllesmereUI._getPopupMenuButtonTextColor(); local EG={r=er,g=eg,b=eb}
                     local useAccent = _accentOn() and EG
                     local btnBg = btn:CreateTexture(nil, "BACKGROUND", nil, -6)
                     btnBg:SetAllPoints()
@@ -1390,7 +1641,7 @@ do
                     end
                 end
                 -- Accent text (every show)
-                local EG = EllesmereUI.ELLESMERE_GREEN
+                local er,eg,eb=EllesmereUI._getPopupMenuButtonTextColor(); local EG={r=er,g=eg,b=eb}
                 local useAccent = _accentOn() and EG
                 local fs = btn:GetFontString()
                 if fs and useAccent then
@@ -1460,7 +1711,8 @@ do
         end
 
         local function _accentOn()
-            return EllesmereUIDB and EllesmereUIDB.accentReskinElements
+            -- False in native mode: pre-8.5.2 look (text/border not accented).
+            return EllesmereUI._getPopupMenuElementMode() ~= "native"
         end
         for _, btnName in ipairs({ "SignUpButton", "CancelButton" }) do
             local btn = dialog[btnName]
@@ -1483,7 +1735,7 @@ do
                         end)
                     end
                 end
-                local EG = EllesmereUI.ELLESMERE_GREEN
+                local er,eg,eb=EllesmereUI._getPopupMenuButtonTextColor(); local EG={r=er,g=eg,b=eb}
                 local useAccent = _accentOn() and EG
                 local btnBg = btn:CreateTexture(nil, "BACKGROUND", nil, -6)
                 btnBg:SetAllPoints()
@@ -1530,8 +1782,6 @@ do
         if EllesmereUIDB and EllesmereUIDB.reskinGameMenu == false then return end
 
         local RS = EllesmereUI.RESKIN
-        local PP = EllesmereUI.PP
-        local ELLESMERE_GREEN = EllesmereUI.ELLESMERE_GREEN or { r = 0.27, g = 0.86, b = 0.49 }
 
         -- Strip decorative textures
         for i = 1, select("#", GameMenuFrame:GetRegions()) do
@@ -1549,7 +1799,8 @@ do
             end
             local headerText = header.Text or (header.GetRegions and select(1, header:GetRegions()))
             if headerText and headerText.SetTextColor then
-                headerText:SetTextColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
+                local r, g, b = EllesmereUI._getPopupMenuButtonTextColor()
+                headerText:SetTextColor(r, g, b, 1)
                 local euiFont = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or "Fonts\\FRIZQT__.TTF"
                 local _, hSize = headerText:GetFont()
                 headerText:SetFont(euiFont, hSize or 16, "")
@@ -1561,9 +1812,35 @@ do
         local gmBg = GameMenuFrame:CreateTexture(nil, "BACKGROUND")
         gmBg:SetAllPoints()
         gmBg:SetColorTexture(RS.BG_R, RS.BG_G, RS.BG_B, RS.QT_ALPHA)
-        if PP and PP.CreateBorder then
-            PP.CreateBorder(GameMenuFrame, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
+        local function ApplyButtonStyle(btn)
+            local d = GetFFD(btn)
+            if not d.gameMenuInset then return end
+            local c = EllesmereUIDB and EllesmereUIDB.popupMenuButtonBackgroundColor or { r=.1,g=.1,b=.1,a=.8 }
+            d.gameMenuButtonBg:SetColorTexture(c.r, c.g, c.b, c.a == nil and .8 or c.a)
+            EllesmereUI._applyBlizzardConfiguredBorder(d.gameMenuInset, "popupMenuButton", 1)
+            local fs = btn:GetFontString()
+            -- Native mode: pooled Game Menu buttons were never text-recolored
+            -- pre-8.5.2 (Blizzard's own gold on our dark inset) -- keep that.
+            if fs and EllesmereUI._getPopupMenuElementMode() ~= "native" then
+                local r, g, b = EllesmereUI._getPopupMenuButtonTextColor()
+                fs:SetTextColor(r, g, b, 1)
+            end
         end
+        local function ApplyMenuStyle()
+            EllesmereUI._applyBlizzardConfiguredBorder(GameMenuFrame, "popupMenu", 1)
+            if GameMenuFrame.buttonPool then
+                for btn in GameMenuFrame.buttonPool:EnumerateActive() do ApplyButtonStyle(btn) end
+            end
+            -- The EUI/Unlock custom buttons are created by the PARENT addon,
+            -- which stores them in ITS namespace FFD (EllesmereUI._GetFFD),
+            -- not this file's local FFD table -- reading the local table
+            -- here made these two refreshes permanently dead code.
+            local pd = EllesmereUI._GetFFD and EllesmereUI._GetFFD(GameMenuFrame)
+            if pd and pd.euiBtn then ApplyButtonStyle(pd.euiBtn) end
+            if pd and pd.unlockBtn then ApplyButtonStyle(pd.unlockBtn) end
+        end
+        ApplyMenuStyle()
+        GameMenuFrame:HookScript("OnShow", ApplyMenuStyle)
         -- Skin pooled buttons via InitButtons hook
         hooksecurefunc(GameMenuFrame, "InitButtons", function(menu)
             if not menu.buttonPool then return end
@@ -1595,10 +1872,8 @@ do
                     inset:SetFrameLevel(menuBtn:GetFrameLevel())
                     local btnBg = inset:CreateTexture(nil, "BACKGROUND", nil, -6)
                     btnBg:SetAllPoints()
-                    btnBg:SetColorTexture(0.1, 0.1, 0.1, 0.8)
-                    if PP and PP.CreateBorder then
-                        PP.CreateBorder(inset, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
-                    end
+                    GetFFD(menuBtn).gameMenuInset = inset
+                    GetFFD(menuBtn).gameMenuButtonBg = btnBg
                     local hl = menuBtn:CreateTexture(nil, "HIGHLIGHT")
                     hl:SetAllPoints(inset)
                     hl:SetColorTexture(1, 1, 1, 0.1)
@@ -1609,6 +1884,7 @@ do
                         fs:SetFont(euiFont or "Fonts\\FRIZQT__.TTF", (size or 14) - 2, flags or "")
                     end
                 end
+                ApplyButtonStyle(menuBtn)
             end
         end)
     end)
@@ -1774,6 +2050,346 @@ do
     f:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
         EllesmereUI._applyTooltipCursorAnchor()
+    end)
+end
+
+-------------------------------------------------------------------------------
+--  Fixed Tooltip Position (EUI-owned, movable in Unlock Mode)
+--  EUI permanently owns the default GameTooltip's screen position: every
+--  default-anchored tooltip is re-pointed onto OUR own anchor frame, which the
+--  user drags freely via a real Unlock Mode mover. The position is PER PROFILE
+--  (profiles[name].tooltipFixedPos); a profile with no saved position gets a
+--  ONE-TIME seed captured from wherever Blizzard's own Edit Mode container
+--  currently sits, so the takeover is visually a no-op until the user drags
+--  the box. We only ever READ GameTooltipDefaultContainer -- never write it --
+--  so the user's Blizzard/Edit Mode tooltip position stays exactly as they
+--  left it, and stands again if "Reskin Tooltip" is turned off. Same
+--  GameTooltip_SetDefaultAnchor post-hook family as the cursor anchor and
+--  growth direction: the tooltip is unprotected and its content is never
+--  touched, so there is no taint surface. Anchor to Cursor takes precedence.
+--  This block is placed BEFORE the growth-direction block so its hook
+--  registers first and growth enforcement composes on top of our corner.
+-------------------------------------------------------------------------------
+do
+    -- Representative size for the mover box (real tooltips vary; the tooltip
+    -- pins corner-to-corner to the box so it renders inside this footprint).
+    local FIXED_W, FIXED_H = 280, 165
+    local anchorFrame
+
+    local function ActiveProfile()
+        return EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    end
+
+    -- Fixed mode is the permanent baseline: no toggle. Only the tooltip reskin
+    -- master (off = fully vanilla tooltips, Blizzard position stands) and
+    -- Anchor to Cursor (tooltip rides the mouse) sideline it.
+    local function WantFixed()
+        if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return false end
+        if EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor then return false end
+        return true
+    end
+
+    local function EnsureFixedFrame()
+        if anchorFrame then return anchorFrame end
+        anchorFrame = CreateFrame("Frame", "EllesmereUI_TooltipFixedAnchor", UIParent)
+        anchorFrame:SetSize(FIXED_W, FIXED_H)
+        anchorFrame:EnableMouse(false)
+        -- Placeholder point; PositionFromSaved overrides from the profile pos.
+        anchorFrame:SetPoint("CENTER", UIParent, "CENTER", -350, -150)
+        return anchorFrame
+    end
+
+    -- One-time per-profile seed: capture where Blizzard's Edit Mode container
+    -- puts the tooltip RIGHT NOW and store that as the profile's position, so
+    -- taking over changes nothing visually until the user drags the mover.
+    -- READ only -- the container is never modified. Retries harmlessly until
+    -- the container has a real rect (Edit Mode layouts land after login) and
+    -- the profiles table exists. A stored position -- seeded or user-dragged --
+    -- is never overwritten, so this runs at most once per profile ever.
+    local function EnsureSeeded()
+        local prof = ActiveProfile()
+        if not prof or prof.tooltipFixedPos then return end
+        -- Adopt a position saved by the short-lived account-global build.
+        if EllesmereUIDB and EllesmereUIDB.tooltipFixedPos then
+            prof.tooltipFixedPos = EllesmereUIDB.tooltipFixedPos
+            EllesmereUIDB.tooltipFixedPos = nil
+            return
+        end
+        local c = _G.GameTooltipDefaultContainer
+        if not c or not c.GetLeft then return end
+        local l, b = c:GetLeft(), c:GetBottom()
+        if not l or not b then return end
+        local w, ch = c:GetWidth() or 0, c:GetHeight() or 0
+        local us = UIParent:GetEffectiveScale() or 1
+        if us <= 0 then return end
+        local r = (c:GetEffectiveScale() or us) / us
+        -- Blizzard pins the tooltip's corner to the container corner nearest
+        -- the closest screen corner. Find that corner point, then park our box
+        -- so ITS matching corner sits exactly there. (An idle container may be
+        -- collapsed to a sliver; its corners all coincide then, still correct.)
+        local uw, uh = UIParent:GetWidth(), UIParent:GetHeight()
+        local ccx = (l + w / 2) * r - uw / 2
+        local ccy = (b + ch / 2) * r - uh / 2
+        local px = (ccx < 0) and (l * r) or ((l + w) * r)
+        local py = (ccy < 0) and (b * r) or ((b + ch) * r)
+        prof.tooltipFixedPos = {
+            centerX = px + ((ccx < 0) and (FIXED_W / 2) or (-FIXED_W / 2)) - uw / 2,
+            centerY = py + ((ccy < 0) and (FIXED_H / 2) or (-FIXED_H / 2)) - uh / 2,
+        }
+    end
+
+    -- Park the anchor frame at the ACTIVE profile's position (center offsets
+    -- from UIParent center, matching how the mover stores CENTER coords).
+    -- Reading the profile live on every call is what makes profile switches
+    -- work with zero extra wiring: the next tooltip show self-heals.
+    local function PositionFromSaved()
+        local af = EnsureFixedFrame()
+        EnsureSeeded()
+        local prof = ActiveProfile()
+        local pos = prof and prof.tooltipFixedPos
+        af:ClearAllPoints()
+        if pos and pos.centerX and pos.centerY then
+            af:SetPoint("CENTER", UIParent, "CENTER", pos.centerX, pos.centerY)
+        else
+            af:SetPoint("CENTER", UIParent, "CENTER", -350, -150)
+        end
+    end
+
+    -- Corner of the box the tooltip pins to: the one nearest the closest
+    -- screen corner, so growth always runs INTO the screen (and into the box).
+    -- Growth Direction, when set, forces the vertical component -- the same
+    -- rule its own enforcement block applies on top, so the two never fight.
+    local function CornerFor(af)
+        local cx, cy = -350, -150
+        local l, b = af:GetLeft(), af:GetBottom()
+        if l and b then
+            cx = l + (af:GetWidth() or 0) / 2 - UIParent:GetWidth() / 2
+            cy = b + (af:GetHeight() or 0) / 2 - UIParent:GetHeight() / 2
+        else
+            local prof = ActiveProfile()
+            local pos = prof and prof.tooltipFixedPos
+            if pos and pos.centerX and pos.centerY then cx, cy = pos.centerX, pos.centerY end
+        end
+        local dir = EllesmereUIDB and EllesmereUIDB.tooltipGrowthDirection
+        local vert = (dir == "down" and "TOP") or (dir == "up" and "BOTTOM")
+            or ((cy < 0) and "BOTTOM" or "TOP")
+        return vert .. ((cx < 0) and "LEFT" or "RIGHT")
+    end
+
+    -- Blizzard's container logic can re-anchor a default-anchored tooltip a
+    -- few frames after show WITHOUT clearing points first (see the Growth
+    -- Direction block below), which would pin a second corner and stretch the
+    -- tooltip between our box and Blizzard's container. Enforcement rides the
+    -- same armed/disarmed SetPoint pattern: never reads hook args (hooked
+    -- secure setters can receive secret values), re-derives everything, and
+    -- only rewrites on deviation so it converges instead of looping.
+    local _fixedEnforcing = false
+    local _fixedArmed = false
+
+    local function EnforceFixed(tooltip)
+        if not WantFixed() then return end
+        if tooltip:IsForbidden() then return end
+        local af = anchorFrame
+        if not af then return end
+        local corner = CornerFor(af)
+        local point, relTo = tooltip:GetPoint(1)
+        if tooltip:GetNumPoints() == 1 and point == corner and relTo == af then return end
+        _fixedEnforcing = true
+        tooltip:ClearAllPoints()
+        tooltip:SetPoint(corner, af, corner, 0, 0)
+        _fixedEnforcing = false
+    end
+
+    local function ApplyFixedAnchor(tooltip, parent)
+        if tooltip ~= GameTooltip then return end
+        if not WantFixed() then return end
+        if not parent or tooltip:IsForbidden() then return end
+        -- While an Unlock Mode session is open, the session owns the anchor
+        -- frame (live drags + uncommitted pending edits); re-parking from the
+        -- saved position would snap the frame back mid-session. Pin the
+        -- tooltip to the frame wherever the session currently has it.
+        if EllesmereUI._unlockActive then
+            EnsureSeeded()
+        else
+            PositionFromSaved()
+        end
+        tooltip:SetOwner(parent, "ANCHOR_NONE")
+        EnforceFixed(tooltip)
+    end
+
+    hooksecurefunc("GameTooltip_SetDefaultAnchor", function(tooltip, parent)
+        if tooltip ~= GameTooltip then return end
+        _fixedArmed = true
+        ApplyFixedAnchor(tooltip, parent)
+    end)
+    -- Every explicit tooltip build starts with SetOwner (it runs BEFORE the
+    -- SetDefaultAnchor post-hook re-arms the flag), so explicitly-anchored
+    -- uses (bags, other addons) never get their anchors rewritten.
+    hooksecurefunc(GameTooltip, "SetOwner", function()
+        _fixedArmed = false
+    end)
+    hooksecurefunc(GameTooltip, "SetPoint", function(tt)
+        if _fixedEnforcing or not _fixedArmed then return end
+        if tt ~= GameTooltip then return end
+        EnforceFixed(tt)
+    end)
+
+    -- Reposition (and seed if needed) now: login, world entry, reset paths.
+    EllesmereUI._applyTooltipFixedAnchor = function()
+        PositionFromSaved()
+    end
+
+    -- Unlock Mode element: a real draggable mover for the tooltip position.
+    -- Writes ONLY our per-profile key and never touches Blizzard's tooltip
+    -- container. Hidden (no mover) while Anchor to Cursor is on or the tooltip
+    -- reskin master is off -- both leave the fixed anchor inactive.
+    local function RegisterUnlock()
+        if not (EllesmereUI and EllesmereUI.RegisterUnlockElements and EllesmereUI.MakeUnlockElement) then return end
+        local MK = EllesmereUI.MakeUnlockElement
+        EllesmereUI:RegisterUnlockElements({
+            MK({
+                key      = "EUI_TooltipAnchor",
+                label    = "Tooltip",
+                group    = "Blizzard Windows",
+                order    = 650,
+                subtitle = "Fixed Position",
+                noResize          = true,  -- tooltip size is dynamic; nothing to resize
+                noAnchorTarget    = true,
+                noAnchorTo        = true,
+                noSizeMatchTarget = true,
+                isHidden = function()
+                    return not WantFixed()
+                end,
+                getFrame = function()
+                    -- MUST stay side-effect-free: unlock mode calls getFrame
+                    -- from its drag machinery (OnUpdate/OnDragStop), so parking
+                    -- the frame from the saved position here would snap a live
+                    -- drag back to its old spot the moment the user lets go.
+                    -- Boot, applyPos, and loadPos handle parking + seeding.
+                    return EnsureFixedFrame()
+                end,
+                getSize  = function() return FIXED_W, FIXED_H end,
+                savePos = function(_, _point, _relPoint, x, y)
+                    local prof = ActiveProfile()
+                    if not prof then return end
+                    local af = EnsureFixedFrame()
+                    if af:GetLeft() then
+                        local fw, fh = af:GetSize()
+                        local cx = af:GetLeft() + fw / 2 - UIParent:GetWidth() / 2
+                        local cy = af:GetBottom() + fh / 2 - UIParent:GetHeight() / 2
+                        prof.tooltipFixedPos = { centerX = cx, centerY = cy }
+                    else
+                        prof.tooltipFixedPos = { centerX = x, centerY = y }
+                    end
+                end,
+                loadPos = function()
+                    EnsureSeeded()
+                    local prof = ActiveProfile()
+                    local pos = prof and prof.tooltipFixedPos
+                    if pos and pos.centerX and pos.centerY then
+                        return { point = "CENTER", relPoint = "CENTER", x = pos.centerX, y = pos.centerY }
+                    end
+                    return nil
+                end,
+                clearPos = function()
+                    -- Clearing the profile key means the next apply re-seeds
+                    -- from Blizzard's CURRENT Edit Mode spot: "reset position"
+                    -- = back to wherever Blizzard would put it today.
+                    local prof = ActiveProfile()
+                    if prof then prof.tooltipFixedPos = nil end
+                    PositionFromSaved()
+                end,
+                applyPos = function()
+                    PositionFromSaved()
+                end,
+            })
+        })
+    end
+
+    local boot = CreateFrame("Frame")
+    boot:RegisterEvent("PLAYER_LOGIN")
+    boot:RegisterEvent("PLAYER_ENTERING_WORLD")
+    boot:SetScript("OnEvent", function(self, event)
+        if event == "PLAYER_LOGIN" then
+            EnsureFixedFrame()
+            PositionFromSaved()
+            RegisterUnlock()
+        else
+            -- Edit Mode layouts land after login, so the one-time seed may
+            -- have found no container rect yet. Retry once in-world, then
+            -- stop listening (later seeds happen lazily at tooltip show).
+            self:UnregisterAllEvents()
+            PositionFromSaved()
+        end
+    end)
+end
+
+-------------------------------------------------------------------------------
+--  Growth Direction (default screen-anchored tooltip)
+--  Blizzard picks the default tooltip's anchored corner dynamically from the
+--  tooltip container's screen position, and the pinned corner decides which
+--  way added lines grow (TOP pinned = expands down, BOTTOM pinned = expands
+--  up). tooltipGrowthDirection "up"/"down" forces the vertical component of
+--  whatever corner Blizzard chose, keeping its horizontal side; "default"
+--  (or unset) leaves Blizzard's dynamic pick alone. Re-point only, in the
+--  same GameTooltip_SetDefaultAnchor post-hook family as the cursor anchor:
+--  the tooltip is unprotected and content is never touched, so there is no
+--  taint surface. Cursor-anchored mode re-points the tooltip itself and
+--  takes precedence.
+-------------------------------------------------------------------------------
+do
+    local function WantForcedDir()
+        if EllesmereUIDB and EllesmereUIDB.customTooltips == false then return nil end
+        local dir = EllesmereUIDB and EllesmereUIDB.tooltipGrowthDirection
+        if dir ~= "up" and dir ~= "down" then return nil end
+        if EllesmereUIDB.tooltipAnchorCursor then return nil end
+        return dir
+    end
+
+    -- Blizzard's container logic RE-ANCHORS the tooltip a few frames after
+    -- show (and on size changes) WITHOUT clearing points first. SetPoint
+    -- only replaces a same-keyword point, so its re-assert ADDED a second
+    -- corner next to the forced one -- top and bottom both pinned, tooltip
+    -- stretched to fill the gap. Enforcement therefore rides a SetPoint
+    -- hook: any anchor write that isn't ours while a default-anchored
+    -- tooltip is up gets collapsed back to the single forced corner. The
+    -- hook never reads its args (hooked setters can receive secret values);
+    -- it re-derives everything from GetPoint. _growthEnforcing guards the
+    -- re-entry from our own SetPoint inside the hook.
+    local _growthEnforcing = false
+    local _growthDefaultAnchored = false
+
+    local function Enforce(tooltip)
+        local dir = WantForcedDir()
+        if not dir then return end
+        if tooltip:IsForbidden() then return end
+        local point, relTo, _, x, y = tooltip:GetPoint(1)
+        if not point then return end
+        relTo = relTo or GameTooltipDefaultContainer
+        if not relTo then return end
+        local horiz = (point:find("LEFT") and "LEFT") or (point:find("RIGHT") and "RIGHT") or ""
+        local newPoint = ((dir == "down") and "TOP" or "BOTTOM") .. horiz
+        if tooltip:GetNumPoints() == 1 and point == newPoint then return end
+        _growthEnforcing = true
+        tooltip:ClearAllPoints()
+        tooltip:SetPoint(newPoint, relTo, newPoint, x or 0, y or 0)
+        _growthEnforcing = false
+    end
+
+    hooksecurefunc("GameTooltip_SetDefaultAnchor", function(tooltip)
+        if tooltip ~= GameTooltip then return end
+        _growthDefaultAnchored = true
+        Enforce(tooltip)
+    end)
+    -- Every tooltip build starts with SetOwner (it runs BEFORE the
+    -- SetDefaultAnchor post-hook re-arms the flag), so explicitly-anchored
+    -- uses (bags, other addons) never get their anchors rewritten.
+    hooksecurefunc(GameTooltip, "SetOwner", function()
+        _growthDefaultAnchored = false
+    end)
+    hooksecurefunc(GameTooltip, "SetPoint", function(tt)
+        if _growthEnforcing or not _growthDefaultAnchored then return end
+        Enforce(tt)
     end)
 end
 

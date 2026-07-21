@@ -743,6 +743,33 @@ end
 -------------------------------------------------------------------------------
 ns.HOSTED_BUFF_MARKER_BASE = 2000000000
 
+-------------------------------------------------------------------------------
+--  Equipment-slot entries. A bar entry can store a negated INVENTORY SLOT id
+--  (-1..-19) to track whatever item is equipped in that slot -- the trinket
+--  slots (-13/-14) have always worked this way; user-added slots (belt -6,
+--  cloak -15, ...) reuse the same frame/update machinery. The range is safe:
+--  item presets are <= -100 and the custom-item popup rejects IDs below 100,
+--  so nothing else can occupy -1..-19.
+--
+--  Localized display names, keyed by slot id. Slot 18 (obsolete ranged) is
+--  deliberately absent -- SlotIDFromKey treats absence as "not a slot".
+-------------------------------------------------------------------------------
+ns.INV_SLOT_NAMES = {
+    [1] = HEADSLOT,   [2] = NECKSLOT,      [3] = SHOULDERSLOT, [4] = SHIRTSLOT,
+    [5] = CHESTSLOT,  [6] = WAISTSLOT,     [7] = LEGSSLOT,     [8] = FEETSLOT,
+    [9] = WRISTSLOT,  [10] = HANDSSLOT,    [11] = FINGER0SLOT, [12] = FINGER1SLOT,
+    [13] = TRINKET0SLOT, [14] = TRINKET1SLOT, [15] = BACKSLOT,
+    [16] = MAINHANDSLOT, [17] = SECONDARYHANDSLOT, [19] = TABARDSLOT,
+}
+
+-- Decode an equipment-slot entry to its inventory slot id; nil for anything else.
+function ns.SlotIDFromKey(key)
+    if type(key) == "number" and key < 0 and ns.INV_SLOT_NAMES[-key] then
+        return -key
+    end
+    return nil
+end
+
 function ns.HostedBuffMarker(spellID)
     return -(ns.HOSTED_BUFF_MARKER_BASE + spellID)
 end
@@ -1066,35 +1093,38 @@ function ns.GetCustomActiveState(spellID, create)
     return e
 end
 
--- Map an icon's identity token to its SETTINGS key. Trinket SLOTS (-13/-14) key
--- their per-spell settings by the EQUIPPED item (-itemID) so each trinket tracks
--- separately -- bar allocation is untouched (still slot-based). Everything else
--- (item presets, racials, custom spells) keys by its own token.
+-- Map an icon's identity token to its SETTINGS key. Equipment SLOTS (trinkets
+-- -13/-14 and user-added slots) key their per-spell settings by the EQUIPPED
+-- item (-itemID) so each item tracks separately -- bar allocation is untouched
+-- (still slot-based). Everything else (item presets, racials, custom spells)
+-- keys by its own token.
 function ns.ResolveCustomActiveKey(frameKey)
-    if frameKey == -13 or frameKey == -14 then
-        local itemID = GetInventoryItemID("player", -frameKey)
+    local slot = ns.SlotIDFromKey(frameKey)
+    if slot then
+        local itemID = GetInventoryItemID("player", slot)
         if itemID then return -itemID end
     end
     return frameKey
 end
 
 -- EFFECTIVE Custom Active State for an icon identity token -- READ paths only.
--- Non-trinket tokens resolve their own entry directly. Trinket SLOTS (-13/-14)
--- resolve the EQUIPPED item's own entry (per-trinket settings, the key the
--- per-spell menu writes via ResolveCustomActiveKey) chained per-key over the
--- SLOT entry -- the "Apply to Bar" stamp, slot-keyed so ONE bar application
--- covers whatever trinket is equipped, without minting an entry per item.
--- The chain is re-asserted lazily on every resolve (metatables never
--- serialize), mirroring ResolveSpellSettings. An explicit false own value is
--- render-equivalent to nil but BLOCKS the slot value showing through (the
--- per-trinket "None" exclusion); nil-off consumers are all falsy-safe, and
+-- Non-slot tokens resolve their own entry directly. Equipment SLOTS (trinkets
+-- -13/-14 and user-added slots) resolve the EQUIPPED item's own entry (per-item
+-- settings, the key the per-spell menu writes via ResolveCustomActiveKey)
+-- chained per-key over the SLOT entry -- the "Apply to Bar" stamp, slot-keyed
+-- so ONE bar application covers whatever item is equipped, without minting an
+-- entry per item. The chain is re-asserted lazily on every resolve (metatables
+-- never serialize), mirroring ResolveSpellSettings. An explicit false own value
+-- is render-equivalent to nil but BLOCKS the slot value showing through (the
+-- per-item "None" exclusion); nil-off consumers are all falsy-safe, and
 -- cdStateEffect consumers normalize false to nil explicitly.
 function ns.GetEffectiveCustomActiveState(frameKey)
     local store = ns.GetCustomActiveStates()
     if not store then return nil end
-    if frameKey == -13 or frameKey == -14 then
+    local slot = ns.SlotIDFromKey(frameKey)
+    if slot then
         local slotE = store[frameKey]
-        local itemID = GetInventoryItemID("player", -frameKey)
+        local itemID = GetInventoryItemID("player", slot)
         local itemE = itemID and store[-itemID] or nil
         if itemE then
             ns.ChainSettings(itemE, slotE)
@@ -1343,6 +1373,25 @@ function ns.RescanThresholdTextFlag()
             end
         end
     end
+end
+
+-- Custom Icon gate: set ns._cdmAnyCustomIcon once if any saved spell (any
+-- spec) has a per-spell replacement icon configured. The re-stamp in
+-- DecorateFrame and the RefreshSpellTexture post-hooks are skipped entirely
+-- for anyone who never uses the feature -- 0 cost when off. Same monotonic,
+-- scanned-once contract as the flags above (the options popup flips the flag
+-- live on save). Purely per-spell: customIcon is never written to bar tiers,
+-- but ForEachSavedSettingsBlock walks per-spell entries anyway.
+function ns.RescanCustomIconFlag()
+    if ns._cdmAnyCustomIcon or ns._customIconFlagScanned then return end
+    if not EllesmereUIDB then return end
+    ns._customIconFlagScanned = true
+    ns.ForEachSavedSettingsBlock(function(ss)
+        if type(ss.customIcon) == "number" and ss.customIcon > 0 then
+            ns._cdmAnyCustomIcon = true
+            return true
+        end
+    end)
 end
 
 -------------------------------------------------------------------------------
@@ -2210,6 +2259,8 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     local pW, pH = parent:GetWidth(), parent:GetHeight()
     if pW < 5 then pW = 36 end
     if pH < 5 then pH = 36 end
+    local noColor = (cr == nil)
+    if noColor then cr, cg, cb = 1.0, 0.788, 0.137 end
     cr = cr or 1; cg = cg or 1; cb = cb or 1
 
     if entry.shapeGlow then
@@ -2264,6 +2315,7 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     elseif entry.autocast then
         _G_Glows.StartAutoCastShine(overlay, pW, cr, cg, cb, 1.0, pH)
     else
+        if noColor then cr, cg, cb = nil, nil, nil end
         _G_Glows.StartFlipBookGlow(overlay, pW, entry, cr, cg, cb, pH)
     end
 
@@ -2290,6 +2342,21 @@ local cdmBarFrames = {}
 local cdmBarIcons = {}
 -- Fast barData lookup by key (rebuilt in BuildAllCDMBars, avoids linear scan per tick)
 local barDataByKey = {}
+
+-- Shown-alpha for cd-state / fake-active restore paths: EffectiveBarAlpha,
+-- except 0 while the icon's bar is visibility-hidden. Restores that painted
+-- EffectiveBarAlpha directly resurrected icons on bars the visibility
+-- engine had hidden (alpha 0): any cooldown/aura flip repainted them
+-- visible until the next visibility pass. Overflow-diverted frames follow
+-- the bar they are painted on (same rule as the fake-active engine's
+-- FrameBaseAlpha, which routes through here).
+local function IconShownAlpha(fc, barData)
+    local bk = fc and (fc._overflowLayoutBar or fc.barKey)
+    local bf = bk and cdmBarFrames[bk]
+    if bf and bf._visHidden then return 0 end
+    return EffectiveBarAlpha(barData or (bk and barDataByKey[bk]))
+end
+ns.IconShownAlpha = IconShownAlpha
 
 -- Expose our CDM bar frames so the glow system can reference them
 ns.GetCDMBarFrame = function(barKey)
@@ -2484,9 +2551,6 @@ local function StopProcGlow(icon)
     if fd then fd.procGlowActive = false end
 end
 
--- Proc glow color: hardcoded gold (#ffc923)
-local PROC_GLOW_COLOR = { 1.0, 0.788, 0.137 }
-
 -- Install hooks on ActionButtonSpellAlertManager (called once during init)
 local _procGlowHooksInstalled = false
 local function InstallProcGlowHooks()
@@ -2508,8 +2572,7 @@ local function InstallProcGlowHooks()
         -- No defer needed -- icon mapping is current from the last reanchor.
         local ourIcon = FindOurIconForBlizzChild(barKey, cdmChild)
         if not ourIcon then return end
-        local cr, cg, cb = PROC_GLOW_COLOR[1], PROC_GLOW_COLOR[2], PROC_GLOW_COLOR[3]
-        ShowProcGlow(ourIcon, cr, cg, cb)
+        ShowProcGlow(ourIcon)
         -- Force icon texture re-evaluation so override textures apply immediately
         FC(ourIcon).lastTex = nil
     end)
@@ -3320,7 +3383,8 @@ BuildCDMBar = function(barIndex)
 
     if not frame then
         frame = CreateFrame("Frame", "ECME_CDMBar_" .. key, UIParent)
-        frame:SetFrameStrata("MEDIUM")
+        -- Per-bar Bar Strata (Extras); MEDIUM = the historical hardcoded value.
+        frame:SetFrameStrata(barData.barStrata or "MEDIUM")
         frame:SetFrameLevel(5)
         if frame.SetSnapToPixelGrid then frame:SetSnapToPixelGrid(false) end
         if frame.SetTexelSnappingBias then frame:SetTexelSnappingBias(0) end
@@ -3354,9 +3418,9 @@ BuildCDMBar = function(barIndex)
     -- Scale removed -- all sizing is width/height based now
     if not InCombatLockdown() then frame:SetScale(1) end
 
-    -- Restore default strata/level (skip if cursor-anchored; that path uses TOOLTIP/9980)
+    -- Restore configured strata/level (skip if cursor-anchored; that path uses TOOLTIP/9980)
     if not frame._mouseTrack then
-        frame:SetFrameStrata("MEDIUM")
+        frame:SetFrameStrata(barData.barStrata or "MEDIUM")
         frame:SetFrameLevel(5)
     end
 
@@ -3370,7 +3434,7 @@ BuildCDMBar = function(barIndex)
         end
         frame._preMousePos = nil
         -- Restore saved frame level when leaving cursor anchor
-        frame:SetFrameStrata("MEDIUM")
+        frame:SetFrameStrata(barData.barStrata or "MEDIUM")
         frame:SetFrameLevel(5)
         -- Restore mouse on frame and all children
         SetFrameClickThrough(frame, false)
@@ -3452,7 +3516,7 @@ BuildCDMBar = function(barIndex)
                 if icons then
                     for ii = 1, #icons do
                         if icons[ii] and icons[ii]:GetFrameStrata() == "TOOLTIP" then
-                            icons[ii]:SetFrameStrata("MEDIUM")
+                            icons[ii]:SetFrameStrata(barData.barStrata or "MEDIUM")
                             icons[ii]:SetFrameLevel(5 + ii)
                         end
                     end
@@ -3472,6 +3536,30 @@ BuildCDMBar = function(barIndex)
                 end
                 _CDMApplyVisibility()
             end
+            -- Visibility-hidden: park the bar offscreen instead of tracking
+            -- the cursor. Alpha alone cannot keep the icons invisible -- the
+            -- engine re-raises item alpha through paths no hook can see
+            -- (SetAlphaFromBoolean, alpha animations) whenever cooldown/aura
+            -- state changes, so a hidden bar kept flashing back mid-screen
+            -- riding the cursor (same lesson as the unclaimed-frame park in
+            -- EllesmereUICdmHooks). Icons are anchored to this container, so
+            -- the park carries them along; position is immune to every alpha
+            -- path. The lastMX reset forces a re-SetPoint on the first frame
+            -- after the visibility engine un-hides the bar.
+            -- The GetLeft probe re-asserts the park if anything moved the
+            -- container back on-screen while hidden (LayoutCDMBar, a
+            -- rebuild, or a stale _mouseParked flag surviving an
+            -- unanchor/re-anchor cycle -- teardown never clears it).
+            if frame._visHidden then
+                if not frame._mouseParked or (frame:GetLeft() or 0) > -9000 then
+                    frame._mouseParked = true
+                    lastMX, lastMY = nil, nil
+                    frame:ClearAllPoints()
+                    frame:SetPoint(pointFrom, UIParent, "BOTTOMLEFT", -10000, -10000)
+                end
+                return
+            end
+            frame._mouseParked = false
             -- Throttled mouse-through re-assert: the Decorate/Show/Cooldown
             -- path can re-enable mouse on icons mid-session, and an icon
             -- riding the cursor with mouse enabled intermittently kills
@@ -4111,7 +4199,7 @@ LayoutCDMBar = function(barKey)
                 icon:SetFrameStrata("TOOLTIP")
                 icon:SetFrameLevel(9980 + i)
             else
-                icon:SetFrameStrata("MEDIUM")
+                icon:SetFrameStrata(barData.barStrata or "MEDIUM")
                 icon:SetFrameLevel(5 + i)
             end
             icon:ClearAllPoints()
@@ -4234,7 +4322,7 @@ LayoutCDMBar = function(barKey)
             icon:SetFrameStrata("TOOLTIP")
             icon:SetFrameLevel(9980 + i)
         else
-            icon:SetFrameStrata("MEDIUM")
+            icon:SetFrameStrata(barData.barStrata or "MEDIUM")
             icon:SetFrameLevel(5 + i)
         end
         icon:ClearAllPoints()
@@ -4837,6 +4925,8 @@ function ns.StyleOverlayCooldownText(oCd, barData, ssb, iconScale)
     local fontScale = 1 / iconScale
     local showCD = barData and barData.showCooldownText
     if ssb and ssb.showCooldownText ~= nil then showCD = ssb.showCooldownText end
+    -- Only Show Numbers (bar setting): the countdown IS the icon on these bars.
+    if barData and barData.onlyShowNumbers then showCD = true end
     oCd:SetHideCountdownNumbers(not showCD)
     if not showCD then return end
     local cdFont = GetCDMFont()
@@ -5021,9 +5111,13 @@ function ns.StyleCustomChargeText(icon, barKey)
     local scY = (barData.stackCountY or 0) / iconScale
     local scPoint = barData.stackCountPosition or "bottomright"
     if scPoint == "bottomleft" then scPoint = "BOTTOMLEFT"; scY = scY + 2
+    elseif scPoint == "bottom" then scPoint = "BOTTOM"; scY = scY + 2
     elseif scPoint == "topright" then scPoint = "TOPRIGHT"
+    elseif scPoint == "top" then scPoint = "TOP"
     elseif scPoint == "topleft" then scPoint = "TOPLEFT"
     elseif scPoint == "center" then scPoint = "CENTER"
+    elseif scPoint == "left" then scPoint = "LEFT"
+    elseif scPoint == "right" then scPoint = "RIGHT"
     else scPoint = "BOTTOMRIGHT"; scY = scY + 2 end
     SetBlizzCDMFont(fs, GetCDMFont(), scSize,
         barData.stackCountR or 1, barData.stackCountG or 1, barData.stackCountB or 1)
@@ -5169,6 +5263,9 @@ local function RefreshCDMIconAppearance(barKey)
             -- Per-icon Duration Text override (ssb) falls back to the bar's values.
             local showCD = barData.showCooldownText
             if ssb and ssb.showCooldownText ~= nil then showCD = ssb.showCooldownText end
+            -- Only Show Numbers (bar setting): the countdown IS the icon, so it
+            -- overrides both the bar's Cooldown Text toggle and per-icon offs.
+            if barData.onlyShowNumbers then showCD = true end
             cd:SetSwipeColor(0, 0, 0, barData.swipeAlpha or 0.7)
             -- Per-spell Reverse Swipe: flips this icon's swipe direction away from
             -- the bar default (buffs fill up, cooldowns deplete). Entire block is
@@ -5304,9 +5401,13 @@ local function RefreshCDMIconAppearance(barKey)
         -- top and center positions sit flush with no baseline nudge.
         local scPoint = (ssb and ssb.stackCountPosition) or barData.stackCountPosition or "bottomright"
         if scPoint == "bottomleft" then scPoint = "BOTTOMLEFT"; scY = scY + 2
+        elseif scPoint == "bottom" then scPoint = "BOTTOM"; scY = scY + 2
         elseif scPoint == "topright" then scPoint = "TOPRIGHT"
+        elseif scPoint == "top" then scPoint = "TOP"
         elseif scPoint == "topleft" then scPoint = "TOPLEFT"
         elseif scPoint == "center" then scPoint = "CENTER"
+        elseif scPoint == "left" then scPoint = "LEFT"
+        elseif scPoint == "right" then scPoint = "RIGHT"
         else scPoint = "BOTTOMRIGHT"; scY = scY + 2 end
         local showItemCount = barData.showItemCount ~= false
         if ssb and ssb.showItemCount ~= nil then showItemCount = ssb.showItemCount end
@@ -5392,7 +5493,7 @@ local function RefreshCDMIconAppearance(barKey)
             -- Stop then restart with per-spell settings
             StopNativeGlow(glowOv)
             if ifd then ifd.procGlowActive = false end
-            ShowProcGlow(icon, PROC_GLOW_COLOR[1], PROC_GLOW_COLOR[2], PROC_GLOW_COLOR[3])
+            ShowProcGlow(icon)
         elseif hadActiveGlow then
             -- Don't touch: active glow is managed by the SetSwipeColor hook.
             -- Stopping it here causes a visible blink.
@@ -5485,7 +5586,7 @@ local function RefreshCDMIconAppearance(barKey)
                 local onCD = cseInfo and cseInfo.isActive and not cseInfo.isOnGCD
                 if cse == "hiddenOnCD" or cse == "hiddenReady" then
                     local hide = (cse == "hiddenOnCD") == onCD
-                    icon:SetAlpha(hide and 0 or EffectiveBarAlpha(barData))
+                    icon:SetAlpha(hide and 0 or IconShownAlpha(fc, barData))
                     if fc then
                         fc._cdStateHidden = hide or false
                         if ns.SetCdStateShiftHidden then
@@ -5496,7 +5597,10 @@ local function RefreshCDMIconAppearance(barKey)
                     -- Identical to hiddenOnCD but with a customizable opacity instead
                     -- of 0. Reuse the _cdStateHidden flag as "cd-state owns this alpha"
                     -- so the opacity appliers leave the lowered value alone.
-                    icon:SetAlpha(onCD and (csSs.cdStateLowerAlpha or 0.5) or EffectiveBarAlpha(barData))
+                    -- A visibility-hidden bar stays at 0 in both states.
+                    local csBase = IconShownAlpha(fc, barData)
+                    icon:SetAlpha(csBase == 0 and 0
+                        or (onCD and (csSs.cdStateLowerAlpha or 0.5) or csBase))
                     if fc then
                         fc._cdStateHidden = onCD or false
                         if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, false) end
@@ -5505,7 +5609,7 @@ local function RefreshCDMIconAppearance(barKey)
                     -- Clear stale hidden state when switching to a glow effect
                     if fc and fc._cdStateHidden then
                         fc._cdStateHidden = false
-                        icon:SetAlpha(EffectiveBarAlpha(barData))
+                        icon:SetAlpha(IconShownAlpha(fc, barData))
                     end
                     if fc and ns.SetCdStateShiftHidden then
                         ns.SetCdStateShiftHidden(fc, false)
@@ -5557,11 +5661,16 @@ local function RefreshCDMIconAppearance(barKey)
                 -- so don't clear it here or the icon flashes visible.
                 if not (ns.PresetHasCdState and ns.PresetHasCdState(icon)) then
                     fc._cdStateHidden = false
-                    icon:SetAlpha(EffectiveBarAlpha(barData))
+                    icon:SetAlpha(IconShownAlpha(fc, barData))
                     if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, false) end
                 end
             end
         end
+        -- Only Show Numbers (bar setting): re-hide the icon art AFTER the
+        -- passes above re-applied borders/shapes/textures, so the countdown
+        -- number is all that remains. One field read when the bar is off;
+        -- also restores one-shot right after the bar toggles off.
+        if ns.ApplyOnlyNumbers then ns.ApplyOnlyNumbers(icon, fd, barData) end
     end
 end
 ns.RefreshCDMIconAppearance = RefreshCDMIconAppearance
@@ -6490,9 +6599,11 @@ _CDMApplyVisibility = function()
                                 end
                             end
                             local icfc = _ecmeFC[ic]
-                            -- Off-by-default flag tested first: non-users short-circuit
-                            -- straight to the original branch (identical code, no added work).
-                            if barData.hidePlaceholderIcon and ic._isPlaceholderFrame then
+                            -- Off-by-default flags tested first: non-users short-circuit
+                            -- straight to the original branch (identical code, no added
+                            -- work). _missingHidden = hosted "Visibility When Missing:
+                            -- Hidden" placeholder (slot reserved, rendered invisible).
+                            if (barData.hidePlaceholderIcon or ic._missingHidden) and ic._isPlaceholderFrame then
                                 -- Hide Icon: an Always-Show placeholder keeps its reserved
                                 -- layout slot but stays fully invisible (icon, border, bg).
                                 ic:SetAlpha(0)
@@ -6579,9 +6690,11 @@ local function ApplyBarOpacity(barKey)
             local ic = icons[i]
             if ic then
                 local icfc = _ecmeFC[ic]
-                -- Off-by-default flag tested first: non-users short-circuit straight
+                -- Off-by-default flags tested first: non-users short-circuit straight
                 -- to the original branch (identical code, no added work).
-                if barData.hidePlaceholderIcon and ic._isPlaceholderFrame then
+                -- _missingHidden = hosted "Visibility When Missing: Hidden"
+                -- placeholder (slot reserved, rendered invisible).
+                if (barData.hidePlaceholderIcon or ic._missingHidden) and ic._isPlaceholderFrame then
                     -- Hide Icon: an Always-Show placeholder keeps its reserved
                     -- layout slot but stays fully invisible (icon, border, bg).
                     ic:SetAlpha(0)
@@ -6851,6 +6964,7 @@ BuildAllCDMBars = function()
     ns.RescanCustomForceCountFlag() -- set the "Show Charges" custom-spell gate (once)
     ns.RescanReverseSwipeFlag()   -- set the Reverse Swipe gate (once) before refresh
     ns.RescanThresholdTextFlag()  -- set the Threshold Text gate (once) before refresh
+    ns.RescanCustomIconFlag()     -- set the per-spell Custom Icon gate (once) before refresh
 
     local p = ECME.db.profile
 
@@ -6908,6 +7022,25 @@ BuildAllCDMBars = function()
     ns._cdmAnyOverflowCfg = nil
     for i, barData in ipairs(p.cdmBars.bars) do
         barDataByKey[barData.key] = barData
+        -- Live migration: buffGlowMode replaced buffGlowClassColor + "buffGlowR set" nil checks
+        if not barData.buffGlowMode then
+            if barData.buffGlowClassColor then
+                barData.buffGlowMode = "class"
+            elseif barData.buffGlowR ~= nil then
+                barData.buffGlowMode = "custom"
+            else
+                barData.buffGlowMode = "default"
+            end
+        end
+        -- Live migration: pandemicGlowMode replaced pandemicGlowColor always being set
+        if not barData.pandemicGlowMode then
+            local c = barData.pandemicGlowColor
+            if c and not (c.r == 1 and c.g == 1 and c.b == 0) then
+                barData.pandemicGlowMode = "custom"
+            else
+                barData.pandemicGlowMode = "default"
+            end
+        end
         -- Max Icons overflow: cheap session gate. Validity of the target is
         -- checked at reanchor time (Phase 3b); this only answers "is it
         -- worth looking" so the feature is two nil-checks when unused.
@@ -7305,6 +7438,24 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
     local ghostList = ghostSd and ghostSd.assignedSpells
     local FindVar = ns.FindVariantIndexInList
 
+    -- Cd-claimed collided-buff slots (sd.assignedBuffCdIDs) are tracked by
+    -- COOLDOWN ID, deliberately outside assignedSpells. Materializing such
+    -- an icon's shared spellID here would, at the next route rebuild, drag
+    -- the UNCLAIMED twin onto the claiming bar too -- defeating the claim's
+    -- one-slot-only contract. Built once; stays nil (guard inert, zero
+    -- cost) unless a collided claim exists anywhere.
+    local claimedCd
+    if aprof and aprof.barSpells then
+        for _, bsd in pairs(aprof.barSpells) do
+            if type(bsd) == "table" and type(bsd.assignedBuffCdIDs) == "table" then
+                for cdID in pairs(bsd.assignedBuffCdIDs) do
+                    claimedCd = claimedCd or {}
+                    claimedCd[cdID] = true
+                end
+            end
+        end
+    end
+
     for _, barData in ipairs(p.cdmBars.bars) do
         -- cdUtilOnly (the automatic reseed path): buff-family bars are
         -- picker-authoritative -- materializing live buff icons would
@@ -7320,25 +7471,52 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
             local icons = ns.cdmBarIcons and ns.cdmBarIcons[barData.key]
             if sd and icons then
                 if not sd.assignedSpells then sd.assignedSpells = {} end
-                local seen = {}
-                for _, existing in ipairs(sd.assignedSpells) do
-                    seen[existing] = true
-                end
                 -- Insert each missing spell right after its left neighbour in the
                 -- live icon order (which CollectAndReanchor has already placed in
                 -- Blizzard-layout order), instead of appending at the end. This keeps
                 -- the seeded list matching what the player sees so re-talenting a
                 -- cooldown restores it to its Blizzard-CDM slot rather than the tail.
-                local insertAfterSid = nil
+                --
+                -- Presence is VARIANT-AWARE and the cursor is a POSITION, not an id.
+                -- The old exact-match seen set missed a stored entry when the live
+                -- icon reported a different variant form (fc.spellID can be the
+                -- talent override, e.g. Mongoose Bite 259387, while the stored slot
+                -- holds the base Raptor Strike 186270 the options normalize pass
+                -- wrote). Every reload then re-inserted the live form at Blizzard's
+                -- position, the order map ranked the frame by that copy, and the
+                -- next options normalize deduped in favor of it -- permanently
+                -- snapping the user's saved order back to Blizzard order (the
+                -- Raptor Strike / Kill Command swap, 8.4.9). The by-value cursor
+                -- lookup failed the same way and dumped inserts at slot 1.
+                local insertPos = nil
                 for _, icon in ipairs(icons) do
                     local fc = ns._ecmeFC and ns._ecmeFC[icon]
                     local sid = fc and fc.spellID
                     -- Skip hosted-buff frames and their placeholders: their bar
                     -- membership is the hosted MARKER entry, and their positive
                     -- spellID would materialize the same spell's COOLDOWN form.
+                    -- But DO advance the cursor over their marker: on a mixed
+                    -- bar (spells + hosted buffs) a spell re-inserted after a
+                    -- buff must land after the buff's marker, not squeezed back
+                    -- next to the previous CD spell (reported: Shift snapping
+                    -- to right after Voidray, jumping its three buffs).
                     local fdRS = ns._hookFrameData and ns._hookFrameData[icon]
                     if (fc and fc.isHostedBuff) or icon._isPlaceholderFrame
                        or (fdRS and fdRS._isBuffViewerFrame) then
+                        local hSid = fc and fc.spellID
+                        if type(hSid) == "number" and hSid > 0
+                           and ns.HostedBuffMarkerToSpell
+                           and not (fc and fc._overflowLayoutBar) then
+                            for i = 1, #sd.assignedSpells do
+                                local dec = ns.HostedBuffMarkerToSpell(sd.assignedSpells[i])
+                                if dec and (dec == hSid
+                                    or (ns.IsVariantOf and ns.IsVariantOf(dec, hSid))) then
+                                    -- Forward-only: never drag the cursor backward.
+                                    if not insertPos or i > insertPos then insertPos = i end
+                                    break
+                                end
+                            end
+                        end
                         sid = nil
                     end
                     -- Skip overflow-diverted icons: they render on this bar
@@ -7347,12 +7525,23 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
                     if sid and fc and fc._overflowLayoutBar then
                         sid = nil
                     end
+                    -- Skip cd-claimed collided-buff icons: their membership
+                    -- is the cooldownID claim, never a spellID slot (mirrors
+                    -- the hosted-buff membership rule above).
+                    if sid and claimedCd and icon.cooldownID
+                       and claimedCd[icon.cooldownID] then
+                        sid = nil
+                    end
                     if type(sid) == "number" and sid ~= 0 then
-                        if seen[sid] then
-                            -- Already has a slot (Blizzard spell OR a custom trinket/
-                            -- item marker): advance the cursor so the next NEW spell
-                            -- lands after it, matching the on-screen order.
-                            insertAfterSid = sid
+                        -- FindVar handles negatives by exact scan internally, and
+                        -- variant matching is a strict superset of exact equality
+                        -- for stored positives -- no exact fallback needed.
+                        local at = FindVar and FindVar(sd.assignedSpells, sid)
+                        if at then
+                            -- Already has a slot (any variant form, or a custom
+                            -- trinket/item marker): advance the cursor so the next
+                            -- NEW spell lands after it, matching on-screen order.
+                            insertPos = at
                         elseif sid > 0 then
                             -- Never materialize a hidden (ghosted) spell, or a spell a
                             -- DIFFERENT bar already owns (variant-aware).
@@ -7360,19 +7549,18 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
                                           and ns.ResolveVariantValue(ownerOf, sid)
                             local ghosted = ghostList and FindVar and FindVar(ghostList, sid)
                             if not ghosted and not (owner and owner ~= barData.key) then
-                                local pos
-                                if insertAfterSid then
-                                    for i = 1, #sd.assignedSpells do
-                                        if sd.assignedSpells[i] == insertAfterSid then pos = i; break end
-                                    end
+                                -- Store the BASE form, matching what the options
+                                -- normalize pass writes -- otherwise this pass
+                                -- persists the talent-override form and the two
+                                -- writers diverge (exports could ship either).
+                                local nsid = sid
+                                if C_Spell and C_Spell.GetBaseSpell then
+                                    local b = C_Spell.GetBaseSpell(sid)
+                                    if b and b > 0 then nsid = b end
                                 end
-                                if pos then
-                                    table.insert(sd.assignedSpells, pos + 1, sid)
-                                else
-                                    table.insert(sd.assignedSpells, 1, sid)
-                                end
-                                seen[sid] = true
-                                insertAfterSid = sid
+                                local pos = insertPos and (insertPos + 1) or 1
+                                table.insert(sd.assignedSpells, pos, nsid)
+                                insertPos = pos
                             end
                         end
                     end
@@ -7939,7 +8127,7 @@ function ECME:CDMFinishSetup()
                             local frame = cdmBarFrames[key]
                             if not frame then
                                 frame = CreateFrame("Frame", "ECME_CDMBar_" .. key, UIParent)
-                                frame:SetFrameStrata("MEDIUM")
+                                frame:SetFrameStrata(barData.barStrata or "MEDIUM")
                                 frame:SetFrameLevel(5)
                                 if frame.SetSnapToPixelGrid then frame:SetSnapToPixelGrid(false) end
                                 if frame.SetTexelSnappingBias then frame:SetTexelSnappingBias(0) end
@@ -8172,21 +8360,33 @@ local function UpdateRotationHighlights()
 
     local newSet = {}
     if suggestedSpell then
-        -- Icons store BASE spell ids while GetNextCastSpell returns the
-        -- OVERRIDE (e.g. Maul stored, Raze suggested). Resolve the
-        -- suggestion's base ONCE per pass instead of querying an override
-        -- per icon -- this runs every assisted-highlight change in combat.
-        local suggestedBase = C_Spell and C_Spell.GetBaseSpell
-            and C_Spell.GetBaseSpell(suggestedSpell)
-        if suggestedBase == suggestedSpell then suggestedBase = nil end
+        -- A CDM icon and GetNextCastSpell can each hold EITHER the base or an
+        -- override spell id (e.g. Maul <-> Raze), and which side is which
+        -- varies by spec. The old code only resolved the suggestion's base and
+        -- compared it to the stored id, so it matched "icon=base, suggested=
+        -- override" but missed the reverse ("icon=override, suggested=base"),
+        -- leaving those icons un-highlighted. Compare on base ids in BOTH
+        -- directions. This is strictly a superset of the old exact-id match, so
+        -- anything that highlighted before still does.
+        local GetBaseSpell = C_Spell and C_Spell.GetBaseSpell
+        local suggestedBase = (GetBaseSpell and GetBaseSpell(suggestedSpell)) or suggestedSpell
         for _, icons in pairs(cdmBarIcons) do
             for _, icon in ipairs(icons) do
                 local ifc = _ecmeFC[icon]
                 local sid = ifc and ifc.spellID
-                if sid and (sid == suggestedSpell or (suggestedBase and sid == suggestedBase))
-                   and icon:IsShown() then
-                    _rotShow(icon)
-                    newSet[icon] = true
+                if sid and icon:IsShown() then
+                    -- Direct/base match first (cheap); only resolve the icon's
+                    -- own base if those miss, to keep the common path light.
+                    -- sid > 0: item/trinket icons store -itemID / -13 / -14,
+                    -- which must not be fed to GetBaseSpell.
+                    local match = (sid == suggestedSpell) or (sid == suggestedBase)
+                    if not match and GetBaseSpell and sid > 0 then
+                        match = GetBaseSpell(sid) == suggestedBase
+                    end
+                    if match then
+                        _rotShow(icon)
+                        newSet[icon] = true
+                    end
                 end
             end
         end
@@ -8883,6 +9083,49 @@ SlashCmdList.EUIORDER = function()
             end
             P("   rendered(" .. (icons and #icons or 0) .. "): "
                 .. (next(rparts) and table.concat(rparts, "  ") or (DIM .. "(none)" .. OFF)))
+            -- Per-icon identity probes: every id the OrderKeyFor chain can match
+            -- against the spellOrder map, so a wrong sortOrder can be traced to
+            -- the exact colliding/missing probe.
+            if icons then
+                local fso = C_SpellBook and C_SpellBook.FindSpellOverrideByID
+                for i = 1, #icons do
+                    local frame = icons[i]
+                    local fc = ns._ecmeFC and ns._ecmeFC[frame]
+                    local sid = fc and fc.spellID
+                    local ovr = (fso and type(sid) == "number" and sid > 0) and fso(sid) or nil
+                    local gbase = (C_Spell and C_Spell.GetBaseSpell and type(sid) == "number" and sid > 0)
+                        and C_Spell.GetBaseSpell(sid) or nil
+                    local canon = ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(frame) or nil
+                    local linked = ""
+                    if fc and fc.linkedSpellIDs then
+                        local lp = {}
+                        for _, lid in ipairs(fc.linkedSpellIDs) do lp[#lp + 1] = tostring(lid) end
+                        linked = table.concat(lp, "/")
+                    end
+                    P(string.format("   probe %d) sid=%s base=%s fOvr=%s gBase=%s canon=%s rsv=%s linked=[%s] cdID=%s LI=%s so=%s",
+                        i, tostring(sid), tostring(fc and fc.baseSpellID), tostring(ovr),
+                        tostring(gbase), tostring(canon), tostring(fc and fc.resolvedSid), linked,
+                        tostring(frame.cooldownID), tostring(frame.layoutIndex),
+                        tostring(fc and fc.sortOrder)))
+                end
+            end
+            -- The bar's cached spellOrder map (id -> assignedSpells idx). Two ids
+            -- landing on the same idx, or a rendered sid absent here, IS the bug.
+            local container = cdmBarFrames[bd.key]
+            local om = container and container._cachedSpellOrder
+            if om and next(om) then
+                local entries = {}
+                for id, idx in pairs(om) do entries[#entries + 1] = { id = id, idx = idx } end
+                table.sort(entries, function(a, b)
+                    if a.idx ~= b.idx then return a.idx < b.idx end
+                    return a.id < b.id
+                end)
+                local mp = {}
+                for _, e in ipairs(entries) do mp[#mp + 1] = e.idx .. "<-" .. NM(e.id) end
+                P("   orderMap: " .. DIM .. table.concat(mp, "  ") .. OFF)
+            else
+                P("   orderMap: " .. DIM .. "(empty/stale)" .. OFF)
+            end
         end
     end
 end

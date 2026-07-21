@@ -5,6 +5,7 @@
 ---@diagnostic disable:undefined-global
 local L = EllesmereUI.RegisterLocale("zhCN")
 if not L then return end
+L["Behind Unit Frame"] = "显示在单位框体后方"
 
 -- == Common vocabulary (highest frequency) =================================
 L["Enable"]            = "启用"
@@ -52,6 +53,8 @@ L["Never"]             = "从不"
 L["Text Size"]         = "文字大小"
 L["Text Color"]        = "文字颜色"
 L["Border Style"]      = "边框样式"
+L["Border Style is only configurable when the Power Bar is detached. Attached Power Bars always use Solid."] = "仅当资源条分离时才能配置边框样式。附着的资源条始终使用纯色样式。"
+L["Border is only available when the Power Bar is shown."] = "仅当资源条显示时才能使用边框。"
 L["Fill Color"]        = "填充颜色"
 L["Bar Color"]         = "状态条颜色"
 L["Bar Texture"]       = "状态条材质"
@@ -1700,6 +1703,7 @@ L["Shift Elements if No Power"] = "无能量条时移动元素"
 L["Extra Y Offset"] = "额外 Y 偏移"
 L["Hide Power Bar if Resource"] = "显示职业资源条时隐藏能量条"
 L["Show Behind"] = "置于后方"
+L["Show Expand Button"] = "显示展开按钮"
 
 -- Gradient Settings
 L["Enable Gradient"] = "启用渐变"
@@ -4560,7 +4564,12 @@ L["March on Quel'Danas (Raid)"] = "进军奎尔丹纳斯（团队）"
 L["Sporefall (Raid)"] = "孢陨幽境（团队）"
 L["The Dreamrift (Raid)"] = "梦境裂隙（团队）"
 L["The Voidspire (Raid)"] = "虚影尖塔（团队）"
+L["Fade-Out Time"] = "淡出时间"
 L["Colon (5:32)"] = "冒号（5:32）"
 L["Duration Format"] = "持续时间格式"
 L["Seconds (152)"] = "秒（152）"
 L["Standard (5m / 32)"] = "标准（5m/32）"
+L["Header Bottom Border"] = "标题栏底部边框"
+L["Include Headerbar"] = "包含标题栏"
+L["Button Background"] = "按钮背景"
+L["Button Border Style"] = "按钮边框样式"

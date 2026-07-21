@@ -258,6 +258,35 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
+        -- Row: Background Texture (Unit Frames bar texture catalogue incl.
+        -- SharedMedia, with per-item texture preview backgrounds) | (empty)
+        do
+            if ECHAT.RefreshBgTextureCatalogue then ECHAT.RefreshBgTextureCatalogue() end
+            local btValues, btOrder = {}, {}
+            local texNames = ns.chatBgTextureNames or {}
+            for _, key in ipairs(ns.chatBgTextureOrder or {}) do
+                if key ~= "---" then
+                    btValues[key] = texNames[key] or key
+                    btOrder[#btOrder + 1] = key
+                end
+            end
+            local texLookup = ns.chatBgTextures or {}
+            btValues._menuOpts = {
+                itemHeight = 28,
+                background = function(key)
+                    return texLookup[key]
+                end,
+            }
+            _, h = W:DualRow(parent, y,
+                { type="dropdown", text="Background Texture",
+                  tooltip="Texture drawn over the chat background color.",
+                  values=btValues, order=btOrder,
+                  getValue=function() return Cfg("bgTexture") or "none" end,
+                  setValue=function(v) Set("bgTexture", v); RefreshAll() end },
+                { type="label", text="" })
+            y = y - h
+        end
+
         -- -- SIDEBAR -----------------------------------------------------------
         _, h = W:SectionHeader(parent, "SIDEBAR", y); y = y - h
 
@@ -270,6 +299,7 @@ initFrame:SetScript("OnEvent", function(self)
         local sidebarVisOrder = { "always", "mouseover", "never" }
         local SIDEBAR_ICON_LABELS = {
             showFriends    = "Friends",
+            showGuild      = "Guild",
             showDurability = "Durability",
             showCopy       = "Copy Chat",
             showPortals    = "M+ Portals",
@@ -280,7 +310,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Scroll is pinned to the sidebar bottom, so its row is fixed.
         local sidebarIconItems = {}
         local sidebarOrderedKeys = ECHAT.ResolveSidebarIconOrder and ECHAT.ResolveSidebarIconOrder()
-            or { "showFriends", "showDurability", "showCopy", "showPortals", "showVoice", "showSettings" }
+            or { "showFriends", "showGuild", "showDurability", "showCopy", "showPortals", "showVoice", "showSettings" }
         for _, k in ipairs(sidebarOrderedKeys) do
             sidebarIconItems[#sidebarIconItems + 1] = { key = k, label = SIDEBAR_ICON_LABELS[k] }
         end

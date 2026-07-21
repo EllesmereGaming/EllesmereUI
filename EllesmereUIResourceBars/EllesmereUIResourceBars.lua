@@ -1013,6 +1013,7 @@ local DEFAULTS = {
             darkTheme   = false,
             customColored = false,
             fillR       = CUSTOM_FILL_DEFAULT[1], fillG = CUSTOM_FILL_DEFAULT[2], fillB = CUSTOM_FILL_DEFAULT[3], fillA = 1,
+            fillOpacity = 100,  -- 0-100; below 100 the world shows through the fill
             bgR         = 0x11/255, bgG = 0x11/255, bgB = 0x11/255, bgA = 0.75,
             textFormat  = "none",  -- "none","both","curhpshort","perhp"
             textSize    = 11,
@@ -1059,6 +1060,7 @@ local DEFAULTS = {
             darkTheme   = false,
             customColored = false,
             fillR       = CUSTOM_FILL_DEFAULT[1], fillG = CUSTOM_FILL_DEFAULT[2], fillB = CUSTOM_FILL_DEFAULT[3], fillA = 1,
+            fillOpacity = 100,  -- 0-100; below 100 the world shows through the fill
             bgR         = 0x11/255, bgG = 0x11/255, bgB = 0x11/255, bgA = 0.75,
             textFormat  = "perpp",  -- "none","smart","curpp","perpp","both"
             showPercent = true,
@@ -1115,6 +1117,7 @@ local DEFAULTS = {
             classColored = true,
             resourceColored = false,  -- "Class Resource Color" fill mode (per-spec resource/power color); takes precedence over classColored when on
             fillR       = 0.95, fillG = 0.90, fillB = 0.60, fillA = 1,
+            fillOpacity = 100,  -- 0-100; below 100 the world shows through the fill
             bgR         = 1, bgG = 1, bgB = 1, bgA = 0.1,
             showText    = true,
             showTextOnlyIfNoPower = false,  -- only show the resource text while the power bar is hidden (see IsPowerBarHidden)
@@ -1182,6 +1185,7 @@ local DEFAULTS = {
             anchorY       = -54,
             classColored  = false,
             fillR         = 0.898, fillG = 0.729, fillB = 0.267, fillA = 1,
+            fillOpacity   = 100,  -- 0-100; below 100 the world shows through the fill
             gradientEnabled = false,
             gradientR     = 0.20, gradientG = 0.20, gradientB = 0.80, gradientA = 1,
             gradientDir   = "HORIZONTAL",  -- "HORIZONTAL","VERTICAL"
@@ -1348,7 +1352,13 @@ local _gradColorA = CreateColor(1, 1, 1, 1)
 local _gradColorB = CreateColor(1, 1, 1, 1)
 
 local function ApplyBarGradient(ft, dir, br, bg, bb, ba, er, eg, eb, ea)
-    ft:SetVertexColor(1, 1, 1, 1)
+    -- Bypass the Fill Opacity SetVertexColor wrapper (if installed): gradient
+    -- opacity is carried in the endpoint alphas below, and the wrapper's
+    -- re-assert would fight the corner alphas.
+    local rawVC = ft._erbSetVC or ft.SetVertexColor
+    rawVC(ft, 1, 1, 1, 1)
+    local _fop = ft._erbFillOp
+    if _fop then ba = (ba or 1) * _fop; ea = (ea or 1) * _fop end
     _gradColorA:SetRGBA(br, bg, bb, ba)
     _gradColorB:SetRGBA(er, eg, eb, ea)
     ft:SetGradient(dir, _gradColorA, _gradColorB)
@@ -1357,6 +1367,107 @@ end
 -- Flat-color a bar fill (no gradient).
 local function ApplyBarFlat(ft, r, g, b, a)
     ft:SetVertexColor(r, g, b, a or 1)
+end
+
+-- Fill Opacity (continuous bars). Below 100 the fill turns translucent via
+-- texture REGION alpha (survives every runtime SetVertexColor/SetGradient
+-- writer) and the bg is re-anchored to cover ONLY the empty portion of the
+-- bar, so the world shows through the fill instead of the background. Fully
+-- inert at 100: nothing is touched unless the option was previously applied
+-- (_fillOpApplied), so default profiles run the exact legacy path. Value-blind
+-- by design (region alpha + relational anchors only), so it renders
+-- identically when bar values are secret. On ns to respect the 200-local cap.
+-- Anchor a bg texture to cover ONLY the empty portion of a fill. The empty
+-- side depends on fill direction: VERTICAL_UP fills bottom-up (empty top),
+-- VERTICAL_DOWN fills top-down (empty bottom), horizontal fills
+-- left-to-right (empty right). The anchor is relational to the fill
+-- texture's moving edge, so it tracks value changes with no per-frame work.
+ns.AnchorBgToFillEdge = function(bg, tex, container, orientation)
+    bg:ClearAllPoints()
+    if orientation == "VERTICAL_UP" then
+        bg:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+        bg:SetPoint("BOTTOMRIGHT", tex, "TOPRIGHT", 0, 0)
+    elseif orientation == "VERTICAL_DOWN" or orientation == "VERTICAL" then
+        bg:SetPoint("TOPLEFT", tex, "BOTTOMLEFT", 0, 0)
+        bg:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
+    else
+        bg:SetPoint("TOPLEFT", tex, "TOPRIGHT", 0, 0)
+        bg:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
+    end
+end
+
+ns.ApplyFillOpacity = function(bar, orientation, fillOpacity)
+    local op = fillOpacity or 100
+    local sb, bg = bar._sb, bar._bg
+    if not sb or not bg then return end
+    if op >= 100 then
+        if bar._fillOpApplied then
+            bar._fillOpApplied = nil
+            local tex = sb:GetStatusBarTexture()
+            if tex then
+                tex._erbFillOp = nil
+                -- Uninstall the SetVertexColor wrapper: clearing the shadow
+                -- key restores the metatable method, back to the legacy path.
+                if tex._erbVCWrapped then
+                    tex.SetVertexColor = nil
+                    tex._erbVCWrapped = nil
+                    tex._erbSetVC = nil
+                end
+                tex:SetAlpha(1)
+            end
+            bg:ClearAllPoints()
+            bg:SetAllPoints(sb)
+        end
+        return
+    end
+    local tex = sb:GetStatusBarTexture()
+    if not tex then return end
+    bar._fillOpApplied = true
+    -- The alpha channel is UNIFIED on this client: SetAlpha and
+    -- SetVertexColor's 4th arg write the same slot, so every runtime color
+    -- writer (threshold curves, band colors, power-type recolors) would wipe
+    -- a build-time alpha. Shadow SetVertexColor on this one fill texture
+    -- (our own object) with a wrapper that passes args through UNTOUCHED --
+    -- no arithmetic, so secret color components flow through safely -- and
+    -- re-asserts the opacity afterward. Installed only while below 100, so
+    -- default profiles never see it. Gradient writers bypass the wrapper and
+    -- carry the opacity in their endpoint alphas (see ApplyBarGradient).
+    tex._erbFillOp = op / 100
+    if not tex._erbVCWrapped then
+        tex._erbVCWrapped = true
+        tex._erbSetVC = tex.SetVertexColor
+        tex.SetVertexColor = function(t, ...)
+            t._erbSetVC(t, ...)
+            local o = t._erbFillOp
+            if o then t:SetAlpha(o) end
+        end
+    end
+    tex:SetAlpha(op / 100)
+    ns.AnchorBgToFillEdge(bg, tex, sb, orientation)
+end
+
+-- Restore a pip/rune to full-opacity legacy state after Fill Opacity was on.
+-- Only ever called on the 100-or-above build pass when _fillOp is still set,
+-- so untouched profiles never run it.
+ns.ClearPipFillOpacity = function(pip)
+    pip._fillOp = nil
+    pip._fill:SetAlpha(1)
+    pip._bg:SetAlpha(1)
+    local function reset(sb)
+        if sb then
+            local t = sb:GetStatusBarTexture()
+            if t then t:SetAlpha(1) end
+        end
+    end
+    reset(pip._secretBar); reset(pip._secretThreshBar); reset(pip._bandResetBar)
+    if pip._bandBars then
+        for k = 1, #pip._bandBars do reset(pip._bandBars[k]) end
+    end
+    if pip._sbgAnchored then
+        pip._sbgAnchored = nil
+        pip._bg:ClearAllPoints()
+        pip._bg:SetAllPoints(pip)
+    end
 end
 
 -- Returns the current empowered stage (0-based) based on progress and cached thresholds
@@ -1618,9 +1729,19 @@ local function CreatePip(parent, w, h, idx, borderSize, borderR, borderG, border
         self._active = active
         if active then
             self._fill:SetVertexColor(r, g, b, a or 1)
+            -- Fill Opacity on: re-assert the fill alpha (the alpha channel is
+            -- unified, so the SetVertexColor above just wiped it) and hide the
+            -- bg so the translucent fill shows the world, not the background.
+            -- _fillOp is nil unless the option is below 100, so this whole
+            -- branch is inert by default.
+            if self._fillOp then
+                self._fill:SetAlpha(self._fillOp)
+                self._bg:SetAlpha(0)
+            end
             self._fill:Show()
         else
             self._fill:Hide()
+            if self._fillOp then self._bg:SetAlpha(1) end
         end
     end
 
@@ -2631,6 +2752,7 @@ local function BuildBars()
         healthBar:Show()
         healthBar:SetAlpha(ns.ResolveBarAlpha(hp))
         ApplyBarOrientation(healthBar, hpOri)
+        ns.ApplyFillOpacity(healthBar, hpOri, hp.fillOpacity)
         if IsSpecDisabled(hp) then
             EllesmereUI.SetElementVisibility(healthBar, false)
         end
@@ -2810,6 +2932,7 @@ local function BuildBars()
             primaryBar:SetAlpha(ns.ResolveBarAlpha(pp))
         end
         ApplyBarOrientation(primaryBar, ppOri)
+        ns.ApplyFillOpacity(primaryBar, ppOri, pp.fillOpacity)
         if IsSpecDisabled(pp) then
             EllesmereUI.SetElementVisibility(primaryBar, false)
         end
@@ -3035,6 +3158,7 @@ local function BuildBars()
                 secondaryBar:GetStatusBarTexture():SetVertexColor(sp.fillR, sp.fillG, sp.fillB, sp.fillA)
                 secondaryBar._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
             end
+            ns.ApplyFillOpacity(secondaryBar, pipOri, sp.fillOpacity)
             secondaryBar:ApplyBorder(0, 0, 0, 0, 0)
             if cachedSecondary.power == "IRONFUR_BAR" then
                 -- Guardian Ironfur: no static threshold hash lines; the moving
@@ -3133,6 +3257,15 @@ local function BuildBars()
                 else
                     runeFrames[i]._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
                 end
+                -- Fill Opacity: same stamp as regular pips (consumed by
+                -- SetActive in the rune update). Inert at 100 unless restoring.
+                local _runeOp = sp.fillOpacity or 100
+                if _runeOp < 100 then
+                    runeFrames[i]._fillOp = _runeOp / 100
+                    runeFrames[i]._fill:SetAlpha(_runeOp / 100)
+                elseif runeFrames[i]._fillOp then
+                    ns.ClearPipFillOpacity(runeFrames[i])
+                end
                 runeFrames[i]:Show()
             end
             for i = 7, #pips do if pips[i] then pips[i]:Hide() end end
@@ -3193,6 +3326,15 @@ local function BuildBars()
                 else
                     pips[i]._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
                 end
+                -- Fill Opacity: stamp the per-pip factor (consumed by SetActive
+                -- and the secret renderer). Inert at 100 unless restoring.
+                local _pipOp = sp.fillOpacity or 100
+                if _pipOp < 100 then
+                    pips[i]._fillOp = _pipOp / 100
+                    pips[i]._fill:SetAlpha(_pipOp / 100)
+                elseif pips[i]._fillOp then
+                    ns.ClearPipFillOpacity(pips[i])
+                end
                 pips[i]:Show()
             end
             for i = maxPts + 1, #pips do if pips[i] then pips[i]:Hide() end end
@@ -3235,7 +3377,15 @@ local function BuildBars()
             secondaryFrame._barBg = secondaryFrame:CreateTexture(nil, "BACKGROUND", nil, -1)
         end
         secondaryFrame._barBg:ClearAllPoints()
-        secondaryFrame._barBg:SetAllPoints(secondaryFrame)
+        if secondaryBar and secondaryBar._fillOpApplied and secondaryBar:IsShown() then
+            -- Bar-type Fill Opacity active: the full-bar backdrop must also
+            -- retreat to the empty portion, or it would tint the translucent
+            -- fill from behind and defeat the world-show-through.
+            ns.AnchorBgToFillEdge(secondaryFrame._barBg, secondaryBar:GetStatusBarTexture(),
+                secondaryFrame, sp.pipOrientation or "HORIZONTAL")
+        else
+            secondaryFrame._barBg:SetAllPoints(secondaryFrame)
+        end
         if sp.darkTheme then
             secondaryFrame._barBg:SetColorTexture(0, 0, 0, 1)
         else
@@ -4959,6 +5109,44 @@ local function UpdateSecondaryResource()
 
                     -- Hide the normal fill; the StatusBar replaces it
                     pip._fill:Hide()
+
+                    -- Fill Opacity in secret contexts: same look as the clean
+                    -- path. Region alpha on the overlay fills + bg anchored to
+                    -- the base fill's moving edge so it covers only the empty
+                    -- remainder -- never reads the (secret) value. _fillOp is
+                    -- nil at 100, so this whole block is inert by default.
+                    if pip._fillOp then
+                        local _sft = pip._secretBar:GetStatusBarTexture()
+                        if _sft then
+                            _sft:SetAlpha(pip._fillOp)
+                            if not pip._sbgAnchored then
+                                pip._sbgAnchored = true
+                                pip._bg:ClearAllPoints()
+                                pip._bg:SetPoint("TOPLEFT", _sft, "TOPRIGHT", 0, 0)
+                                pip._bg:SetPoint("BOTTOMRIGHT", pip, "BOTTOMRIGHT", 0, 0)
+                                pip._bg:SetAlpha(1)
+                            end
+                        end
+                        local _stb = pip._secretThreshBar
+                        if _stb and _stb:IsShown() then
+                            local t = _stb:GetStatusBarTexture()
+                            if t then t:SetAlpha(pip._fillOp) end
+                        end
+                        local _srb = pip._bandResetBar
+                        if _srb and _srb:IsShown() then
+                            local t = _srb:GetStatusBarTexture()
+                            if t then t:SetAlpha(pip._fillOp) end
+                        end
+                        if pip._bandBars then
+                            for k = 1, #pip._bandBars do
+                                local bb = pip._bandBars[k]
+                                if bb:IsShown() then
+                                    local t = bb:GetStatusBarTexture()
+                                    if t then t:SetAlpha(pip._fillOp) end
+                                end
+                            end
+                        end
+                    end
                 end
             end
             -- Count text: derive from UnitPowerPercent when it reads clean
@@ -4983,6 +5171,13 @@ local function UpdateSecondaryResource()
                     if p._secretThreshBar then p._secretThreshBar:Hide() end
                     if p._bandResetBar then p._bandResetBar:Hide() end
                     if p._bandBars then for k = 1, #p._bandBars do p._bandBars[k]:Hide() end end
+                    -- Leaving a secret Fill Opacity pass: restore the full-pip
+                    -- bg anchor (SetActive owns bg visibility from here).
+                    if p._sbgAnchored then
+                        p._sbgAnchored = nil
+                        p._bg:ClearAllPoints()
+                        p._bg:SetAllPoints(p)
+                    end
                 end
             end
             -- Enhance 5-bar overflow: stacks 6-10 recolor pips 1-5
@@ -5051,6 +5246,13 @@ local function UpdateSecondaryResource()
                 if p._secretThreshBar then p._secretThreshBar:Hide() end
                 if p._bandResetBar then p._bandResetBar:Hide() end
                 if p._bandBars then for k = 1, #p._bandBars do p._bandBars[k]:Hide() end end
+                -- Leaving a secret Fill Opacity pass: restore the full-pip
+                -- bg anchor (SetActive owns bg visibility from here).
+                if p._sbgAnchored then
+                    p._sbgAnchored = nil
+                    p._bg:ClearAllPoints()
+                    p._bg:SetAllPoints(p)
+                end
             end
         end
         -- Direction: "From" (>=, default) or "Up to" (<=, thresholdReverse).
@@ -5901,8 +6103,14 @@ BuildCastBar = function()
     local bar = castBarFrame._bar
     local bdrInset = (PP and PP.mult) or 1
     clipFrame:ClearAllPoints()
-    clipFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", ((hasIcon and not iconOnRight) and h or 0) + bdrInset, -bdrInset)
-    clipFrame:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", -((iconOnRight and h or 0)) - bdrInset, bdrInset)
+    -- The icon-adjacent side sits FLUSH against the icon (no inset): that seam
+    -- is interior, no border draws there, and insetting it exposed a 1px
+    -- background column next to the icon (visible with light bg colors).
+    -- Outer edges keep the inset so the fill never bleeds past the border.
+    local clipLeft  = (hasIcon and not iconOnRight) and h or bdrInset
+    local clipRight = iconOnRight and h or bdrInset
+    clipFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", clipLeft, -bdrInset)
+    clipFrame:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", -clipRight, bdrInset)
     clipFrame:SetFrameLevel(castBarFrame:GetFrameLevel() + 1)
     bar:ClearAllPoints()
     bar:SetAllPoints(clipFrame)
@@ -5921,10 +6129,25 @@ BuildCastBar = function()
         bar:SetStatusBarTexture(texPath)
         castBarFrame._bg:SetTexture(nil)
         castBarFrame._bg:SetColorTexture(cb.bgR, cb.bgG, cb.bgB, cb.bgA)
+        -- Fill Opacity below 100: anchor the bg to cover ONLY the empty
+        -- portion of the bar so the translucent fill reveals the world behind
+        -- it instead of the background. The anchor is relational to the fill
+        -- texture's moving edge, so it tracks the cast progress on its own.
+        -- At 100 the bg spans the whole frame (original behavior).
+        castBarFrame._bg:ClearAllPoints()
+        if (cb.fillOpacity or 100) < 100 then
+            castBarFrame._bg:SetPoint("TOPLEFT", bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+            castBarFrame._bg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0)
+        else
+            castBarFrame._bg:SetAllPoints(castBarFrame)
+        end
     end
 
-    -- Bar color / gradient
+    -- Bar color / gradient. Fill Opacity multiplies into the fill alpha
+    -- (solid color and both gradient endpoints) so the fill turns translucent
+    -- without double-dimming through a separate region alpha.
 local fillTex = bar:GetStatusBarTexture()
+local fillOp = (cb.fillOpacity or 100) / 100
 
 if cb.gradientEnabled then
     local dir = cb.gradientDir or "HORIZONTAL"
@@ -5936,8 +6159,8 @@ if cb.gradientEnabled then
     end
     fillTex:SetVertexColor(1, 1, 1, 1)
     fillTex:SetGradient(dir,
-        CreateColor(fR, fG, fB, fA),
-        CreateColor(cb.gradientR, cb.gradientG, cb.gradientB, cb.gradientA)
+        CreateColor(fR, fG, fB, fA * fillOp),
+        CreateColor(cb.gradientR, cb.gradientG, cb.gradientB, cb.gradientA * fillOp)
     )
 
     -- Hide the old clip-frame gradient if it exists from a prior session
@@ -5961,7 +6184,7 @@ else
             local cc = CLASS_COLORS[cachedClass]
             if cc then fR, fG, fB = cc[1], cc[2], cc[3] end
         end
-        fillTex:SetVertexColor(fR, fG, fB, fA)
+        fillTex:SetVertexColor(fR, fG, fB, fA * fillOp)
     end
 end
 
@@ -6223,13 +6446,13 @@ UpdateCastBar = function(dt)
             local stage = GetCurrentEmpowerStage(progress, numStages)
             local r, g, b = GetEmpowerStageColor(stage, numStages)
 
-            -- Apply color to bar or gradient
+            -- Apply color to bar or gradient (fill alpha keeps Fill Opacity)
             if castBarFrame._gradientFullBar and castBarFrame._gradTex then
                 empowerColorA:SetRGBA(r, g, b, 1)
                 empowerColorB:SetRGBA(r, g, b, 1)
                 castBarFrame._gradTex:SetGradient("HORIZONTAL", empowerColorA, empowerColorB)
             else
-                bar:GetStatusBarTexture():SetVertexColor(r, g, b, 1)
+                bar:GetStatusBarTexture():SetVertexColor(r, g, b, (cb.fillOpacity or 100) / 100)
             end
             castBarFrame._empowerColorApplied = true
         end
@@ -6533,9 +6756,14 @@ local function OnEmpowerStop(eventCastID)
             empowerColorA:SetRGBA(fR, fG, fB, fA)
             empowerColorB:SetRGBA(cb.gradientR or fR, cb.gradientG or fG, cb.gradientB or fB, cb.gradientA or fA)
             castBarFrame._gradTex:SetGradient(cb.gradientDir or "HORIZONTAL", empowerColorA, empowerColorB)
+        elseif cb.gradientEnabled then
+            -- Gradient colors live in the SetGradient endpoints (with Fill
+            -- Opacity baked in); the vertex color must return to plain white
+            -- or the empower tint would keep coloring the gradient.
+            castBarFrame._bar:GetStatusBarTexture():SetVertexColor(1, 1, 1, 1)
         else
             local fillTex = castBarFrame._bar:GetStatusBarTexture()
-            fillTex:SetVertexColor(fR, fG, fB, fA)
+            fillTex:SetVertexColor(fR, fG, fB, fA * ((cb.fillOpacity or 100) / 100))
         end
     end
     cachedStageThresholds = nil

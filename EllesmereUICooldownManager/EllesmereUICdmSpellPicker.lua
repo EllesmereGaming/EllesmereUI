@@ -1002,6 +1002,7 @@ end
 --- minus spells diverted to other buff-family or hosted CD/utility bars.
 function ns.CollectDefaultBuffTrackEntries()
     local diverted = {}
+    local divertedCd = {}  -- cooldownID-level diversions (collided-buff slots)
     local p = ECME and ECME.db and ECME.db.profile
     if p and p.cdmBars and p.cdmBars.bars then
         for _, otherBd in ipairs(p.cdmBars.bars) do
@@ -1011,6 +1012,11 @@ function ns.CollectDefaultBuffTrackEntries()
                     if otherSd and otherSd.assignedSpells then
                         for _, sid in ipairs(otherSd.assignedSpells) do
                             if type(sid) == "number" and sid > 0 then diverted[sid] = true end
+                        end
+                    end
+                    if otherSd and otherSd.assignedBuffCdIDs then
+                        for cdID in pairs(otherSd.assignedBuffCdIDs) do
+                            if type(cdID) == "number" then divertedCd[cdID] = true end
                         end
                     end
                 elseif otherSd and otherSd.hostedBuffSpellIDs then
@@ -1031,7 +1037,9 @@ function ns.CollectDefaultBuffTrackEntries()
         -- (Diabolist Demonic Art vs Diabolic Ritual). Keying on sid here would
         -- re-merge what EnumerateCDMViewerSpells now keeps separate.
         local key = BuffDisplayStableKey(e.sid, e.cdID)
-        if e.sid and not diverted[e.sid] and key and not seen[key] then
+        if e.sid and not diverted[e.sid]
+           and not (e.cdID and divertedCd[e.cdID])
+           and key and not seen[key] then
             seen[key] = true
             out[#out + 1] = {
                 key         = key,
@@ -1645,6 +1653,52 @@ function ns.AddTrackedSpell(barKey, id)
     return true
 end
 
+--- Track a single buff-viewer SLOT (cooldownID) on a buff-family bar.
+--- Collision escape hatch: two viewer slots can share one canonical spellID
+--- (Diabolist Demonic Art vs Diabolic Ritual), and AddTrackedSpell's
+--- variant dedup makes the second slot un-addable by sid. Storing the
+--- cooldownID in sd.assignedBuffCdIDs routes exactly ONE slot to this bar
+--- (ResolveCDIDToBar checks the cd-level map before the sid map) while its
+--- twin keeps its own routing. Same one-home-per-family sweep as
+--- AddTrackedSpell. Collision-gated by the caller: non-collided buffs keep
+--- the sid path, whose identity survives talent swaps (cooldownIDs drift --
+--- the same accepted limitation as the per-cooldownID settings keys).
+function ns.AddTrackedBuffByCdID(barKey, cdID)
+    if type(cdID) ~= "number" or cdID <= 0 then return false end
+    local sd = ns.GetBarSpellData(barKey)
+    if not sd then return false end
+    sd.assignedBuffCdIDs = sd.assignedBuffCdIDs or {}
+    if sd.assignedBuffCdIDs[cdID] then return false end
+
+    local p = ECME.db.profile
+    if p and p.cdmBars and p.cdmBars.bars then
+        for _, b in ipairs(p.cdmBars.bars) do
+            if b.key ~= barKey and b.barType ~= "custom_buff" and IsBarBuffFamily(b) then
+                local osd = ns.GetBarSpellData(b.key)
+                if osd and osd.assignedBuffCdIDs then osd.assignedBuffCdIDs[cdID] = nil end
+            end
+        end
+    end
+
+    sd.assignedBuffCdIDs[cdID] = true
+    local frame = cdmBarFrames[barKey]
+    if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+    if ns.QueueReanchor then ns.QueueReanchor() end
+    return true
+end
+
+function ns.RemoveTrackedBuffCdID(barKey, cdID)
+    local sd = ns.GetBarSpellData(barKey)
+    if not sd or not sd.assignedBuffCdIDs or not sd.assignedBuffCdIDs[cdID] then return false end
+    sd.assignedBuffCdIDs[cdID] = nil
+    local frame = cdmBarFrames[barKey]
+    if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
+    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+    if ns.QueueReanchor then ns.QueueReanchor() end
+    return true
+end
+
 --- Place a BUFF on a CD/utility bar. The buff is HOSTED: RebuildSpellRouteMap
 --- diverts its real Blizzard buff-viewer frame onto this bar, and the reanchor
 --- reparents that frame into the bar's layout when active / a placeholder when
@@ -1826,7 +1880,6 @@ function ns.AddCDMBar(barType, name, numRows)
         outOfRangeOverlay = false,
         pandemicGlow = true,
         pandemicGlowStyle = -1,
-        pandemicGlowColor = { r = 1, g = 1, b = 0 },
         pandemicGlowLines = 8,
         pandemicGlowThickness = 2,
         pandemicGlowSpeed = 4,

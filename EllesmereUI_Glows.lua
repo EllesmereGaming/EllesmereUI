@@ -201,42 +201,49 @@ end
 local DASH_H = [[Interface\AddOns\EllesmereUI\media\glow-dash-h.tga]]
 local DASH_V = [[Interface\AddOns\EllesmereUI\media\glow-dash-v.tga]]
 
+-- Resolve the wrapper's pixel-snapped size and precompute the per-edge phase
+-- endpoints (invariant until the next resize). Returns false while the size is
+-- still 0 (layout not resolved), so the caller retries on a later tick. Shared
+-- by the animated (_AntsOnUpdate) and static (_AntsStaticSettle) paths.
+local function _AntsResolveSize(self, d)
+    local w, h = self:GetSize()
+    -- Taint-strip (reparented frames can return secret-number sizes).
+    w = tonumber(tostring(w)) or 0
+    h = tonumber(tostring(h)) or 0
+    if w * h == 0 and d.fallbackW and d.fallbackW > 0 then
+        w = d.fallbackW; h = d.fallbackH or d.fallbackW
+    end
+    if w * h == 0 then return false end
+    -- Snap dimensions AND thickness to physical pixels so every edge renders
+    -- the same whole-pixel thickness (unsnapped SetHeight/SetWidth lets some
+    -- sides round thicker than others at fractional effective scale).
+    local PP = EllesmereUI.PP
+    local onePixel = PP.perfect / self:GetEffectiveScale()
+    w = floor(w / onePixel + 0.5) * onePixel
+    h = floor(h / onePixel + 0.5) * onePixel
+    local sTh = floor(d.th / onePixel + 0.5) * onePixel
+    if sTh < onePixel then sTh = onePixel end
+    d.top:SetHeight(sTh); d.bottom:SetHeight(sTh)
+    d.left:SetWidth(sTh); d.right:SetWidth(sTh)
+    d.w = w; d.h = h
+    -- Precompute the per-edge phase endpoints; they are invariant until the
+    -- next resize/restart, so only the scroll offset o changes per tick.
+    -- ph(P) = P * N / perim is the perimeter position in dash-period units;
+    -- the four edges share it so dashes stay continuous around every corner.
+    local k = d.N / (2 * (w + h))
+    d.wk   = w * k
+    d.whk  = (w + h) * k
+    d.wwhk = (2 * w + h) * k
+    return true
+end
+
 local function _AntsOnUpdate(self, elapsed)
     local d = self._euiScrollData
     if not d then return end
     d.timer = d.timer + elapsed
     if d.timer >= d.period then d.timer = d.timer - d.period end
-    local w, h = d.w, d.h
-    if w * h == 0 then
-        w, h = self:GetSize()
-        -- Same taint-strip as the ants engine (reparented frames can return
-        -- secret-number sizes).
-        w = tonumber(tostring(w)) or 0
-        h = tonumber(tostring(h)) or 0
-        if w * h == 0 and d.fallbackW and d.fallbackW > 0 then
-            w = d.fallbackW; h = d.fallbackH or d.fallbackW
-        end
-        if w * h == 0 then return end
-        -- Snap dimensions AND thickness to physical pixels so every edge renders
-        -- the same whole-pixel thickness (unsnapped SetHeight/SetWidth lets some
-        -- sides round thicker than others at fractional effective scale).
-        local PP = EllesmereUI.PP
-        local onePixel = PP.perfect / self:GetEffectiveScale()
-        w = floor(w / onePixel + 0.5) * onePixel
-        h = floor(h / onePixel + 0.5) * onePixel
-        local sTh = floor(d.th / onePixel + 0.5) * onePixel
-        if sTh < onePixel then sTh = onePixel end
-        d.top:SetHeight(sTh); d.bottom:SetHeight(sTh)
-        d.left:SetWidth(sTh); d.right:SetWidth(sTh)
-        d.w = w; d.h = h
-        -- Precompute the per-edge phase endpoints; they are invariant until the
-        -- next resize/restart, so only the scroll offset o changes per tick.
-        -- ph(P) = P * N / perim is the perimeter position in dash-period units;
-        -- the four edges share it so dashes stay continuous around every corner.
-        local k = d.N / (2 * (w + h))
-        d.wk   = w * k
-        d.whk  = (w + h) * k
-        d.wwhk = (2 * w + h) * k
+    if d.w * d.h == 0 then
+        if not _AntsResolveSize(self, d) then return end
     end
     local N = d.N
     local o = (d.timer / d.period) * N   -- scroll offset (N integer -> seamless wrap)
@@ -248,9 +255,34 @@ local function _AntsOnUpdate(self, elapsed)
     d.left:SetTexCoord(0, 1, N - o, wwhk - o)
 end
 
+-- Static (non-marching) dashes: draw once at the frozen base phase (scroll
+-- offset 0). These are exactly the animated coords evaluated at o = 0, so the
+-- dashes stay corner-continuous -- a dashed border rather than marching ants.
+local function _AntsDrawStatic(self, d)
+    local N = d.N
+    local wk, whk, wwhk = d.wk, d.whk, d.wwhk
+    d.top:SetTexCoord(0, wk, 0, 1)
+    d.right:SetTexCoord(0, 1, wk, whk)
+    d.bottom:SetTexCoord(wwhk, whk, 0, 1)
+    d.left:SetTexCoord(0, 1, N, wwhk)
+end
+
+-- One-shot settler for static mode when the size was not resolved at Start time
+-- (SetAllPoints wrappers can read 0 before layout resolves). Resolves, draws
+-- once, then unregisters so a static border costs nothing per frame thereafter.
+local function _AntsStaticSettle(self, elapsed)
+    local d = self._euiScrollData
+    if not d then _Unregister(self, "ants"); return end
+    if d.w * d.h == 0 then
+        if not _AntsResolveSize(self, d) then return end
+    end
+    _AntsDrawStatic(self, d)
+    _Unregister(self, "ants")
+end
+
 -- lineLen is accepted for call-signature compatibility but unused: the dash
 -- length is the texture's duty cycle, not a runtime segment length.
-local function StartProceduralAnts(wrapper, N, th, period, lineLen, cr, cg, cb, szOrW, szH, bgR, bgG, bgB, bgA)
+local function StartProceduralAnts(wrapper, N, th, period, lineLen, cr, cg, cb, szOrW, szH, bgR, bgG, bgB, bgA, static)
     if not wrapper._euiScrollData then
         local function mk(p1, p1f, p2, p2f)
             local t = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -307,7 +339,19 @@ local function StartProceduralAnts(wrapper, N, th, period, lineLen, cr, cg, cb, 
     d.bottom:SetVertexColor(cr, cg, cb, 1); d.bottom:Show()
     d.left:SetVertexColor(cr, cg, cb, 1);   d.left:Show()
     d.right:SetVertexColor(cr, cg, cb, 1);  d.right:Show()
-    _Register(wrapper, _AntsOnUpdate, "ants")
+    if static then
+        -- Frozen dashes: draw once now (size permitting) and stay off the
+        -- animation driver. If layout has not resolved yet, a one-shot settler
+        -- draws on the first tick that reads a real size, then unregisters.
+        if _AntsResolveSize(wrapper, d) then
+            _AntsDrawStatic(wrapper, d)
+            _Unregister(wrapper, "ants")   -- clear any prior animated registration
+        else
+            _Register(wrapper, _AntsStaticSettle, "ants")
+        end
+    else
+        _Register(wrapper, _AntsOnUpdate, "ants")
+    end
 end
 
 local function StopProceduralAnts(wrapper)
@@ -317,6 +361,19 @@ local function StopProceduralAnts(wrapper)
         d.top:Hide(); d.bottom:Hide(); d.left:Hide(); d.right:Hide()
         if d.bgTop then d.bgTop:Hide(); d.bgBottom:Hide(); d.bgLeft:Hide(); d.bgRight:Hide() end
     end
+end
+
+-- Recolor active dashes in place. Secret-safe: r,g,b,a flow straight into
+-- SetVertexColor with no arithmetic, so a secret (restricted) color is fine.
+-- Used by the Raid Frames Frame-Border threshold recolor.
+local function SetProceduralAntsColor(wrapper, r, g, b, a)
+    local d = wrapper._euiScrollData
+    if not d then return end
+    a = a or 1
+    d.top:SetVertexColor(r, g, b, a)
+    d.bottom:SetVertexColor(r, g, b, a)
+    d.left:SetVertexColor(r, g, b, a)
+    d.right:SetVertexColor(r, g, b, a)
 end
 
 -------------------------------------------------------------------------------
@@ -631,8 +688,14 @@ local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH)
     elseif entry.texture then
         d.tex:SetTexture(entry.texture)
     end
-    d.tex:SetDesaturated(true)
-    d.tex:SetVertexColor(cr, cg, cb)
+    if cr then
+        d.tex:SetDesaturated(true)
+        d.tex:SetVertexColor(cr, cg, cb)
+    else
+        -- no color requested - just show atlas untinted
+        d.tex:SetDesaturated(false)
+        d.tex:SetVertexColor(1, 1, 1)
+    end
     d.tex:Show()
     d.anim:SetFlipBookRows(entry.rows or 6)
     d.anim:SetFlipBookColumns(entry.columns or 5)
@@ -795,6 +858,7 @@ EllesmereUI.Glows = {
     -- Low-level engines (for addons that need direct control)
     StartProceduralAnts = StartProceduralAnts,
     StopProceduralAnts  = StopProceduralAnts,
+    SetProceduralAntsColor = SetProceduralAntsColor,
     StartButtonGlow     = StartButtonGlow,
     StopButtonGlow      = StopButtonGlow,
     StartAutoCastShine  = StartAutoCastShine,

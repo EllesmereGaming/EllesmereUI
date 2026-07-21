@@ -950,14 +950,11 @@ local PREVIEW_RUN = {
 }
 
 _G._EMT_Apply = function()
-    -- Re-apply scale + center-anchored position so a Scale slider drag
-    -- doesn't make the frame "fly" rightward (TOPLEFT-anchor scaling).
-    -- Use the _G hook because the local ApplyStandalonePosition isn't in
-    -- scope at this point in the file.
+    -- Render before CENTER re-apply so height is known (placeholder is 200px).
+    if _G._EMT_StandaloneRefresh then _G._EMT_StandaloneRefresh() end
     if _G._EMT_ApplyStandalonePosition then
         _G._EMT_ApplyStandalonePosition()
     end
-    if _G._EMT_StandaloneRefresh then _G._EMT_StandaloneRefresh() end
 end
 
 -- Preset system removed. Users tweak settings directly.
@@ -986,6 +983,7 @@ end
 -- Standalone frame
 local standaloneFrame
 local standaloneCreated = false
+local unlockLayoutActive = false -- force preview layout while Unlock Mode is open
 
 -- NOTE: this function must be defined HERE (after the "local standaloneFrame"
 -- and "local db" declarations). Placed earlier in the file (before those
@@ -1439,7 +1437,9 @@ local function CreateStandaloneFrame()
 
     -- Apply saved scale and position immediately so the frame never flashes at default
     if db and db.profile then
-        f:SetScale(db.profile.scale or 1.0)
+        local scale = db.profile.scale or 1.0
+        if scale == 0 then scale = 1.0 end
+        f:SetScale(scale)
         if db.profile.standalonePos then
             local pos = db.profile.standalonePos
             local cx, cy = pos.centerX, pos.centerY
@@ -1451,7 +1451,7 @@ local function CreateStandaloneFrame()
                     pos.x or 0, pos.y or 0)
             else
                 f:ClearAllPoints()
-                f:SetPoint("CENTER", UIParent, "CENTER", cx, cy)
+                f:SetPoint("CENTER", UIParent, "CENTER", cx / scale, cy / scale)
             end
         end
     end
@@ -1476,7 +1476,7 @@ local function RenderStandalone()
     local isPreview = false
     local run = currentRun
     if not run.active and not run.completed then
-        if p.showPreview then
+        if p.showPreview or unlockLayoutActive then
             run = PREVIEW_RUN
             isPreview = true
         else
@@ -2585,7 +2585,7 @@ local function RenderStandalone()
     local totalH = abs(y) + PAD
     f:SetHeight(totalH)
 
-    if isPreview then
+    if isPreview and p.showPreview then
         SetFS(f._previewFS, 8)
         f._previewFS:SetTextColor(0.5, 0.5, 0.5, 0.6)
         f._previewFS:SetText("PREVIEW")
@@ -2639,21 +2639,29 @@ local function _ensureCenterPos()
     f:SetScale(prevScale)
 end
 
+local function _centerPosFromSaved(pos)
+    if not pos or pos.centerX == nil or pos.centerY == nil then return end
+    local scale = (db and db.profile and db.profile.scale) or 1.0
+    if scale == 0 then scale = 1.0 end
+    return pos.centerX / scale, pos.centerY / scale
+end
+
 local function ApplyStandalonePosition()
     if not db then return end
     if not standaloneFrame then return end
     _ensureCenterPos()
     local pos = db.profile.standalonePos
     local scale = db.profile.scale or 1.0
+    if scale == 0 then scale = 1.0 end
 
     -- SetPoint offsets are in the frame's OWN scaled coord space, so the
     -- effective on-screen offset = stored * scale. To keep the visual
     -- center pinned regardless of scale, divide the stored offset by scale.
     standaloneFrame:SetScale(scale)
-    if pos and pos.centerX and pos.centerY then
+    local sx, sy = _centerPosFromSaved(pos)
+    if sx ~= nil then
         standaloneFrame:ClearAllPoints()
-        standaloneFrame:SetPoint("CENTER", UIParent, "CENTER",
-            pos.centerX / scale, pos.centerY / scale)
+        standaloneFrame:SetPoint("CENTER", UIParent, "CENTER", sx, sy)
     end
 end
 _G._EMT_ApplyStandalonePosition = ApplyStandalonePosition
@@ -2810,6 +2818,30 @@ end
 function EMT:OnEnable()
     if not db or not db.profile.enabled then return end
 
+    if EllesmereUI and EllesmereUI.RegisterUnlockModeListener then
+        EllesmereUI:RegisterUnlockModeListener("EMT_MythicTimer", function(active)
+            unlockLayoutActive = active == true
+            -- When the element is anchor-linked to another unlock element,
+            -- the anchor system owns the frame's position; re-applying our
+            -- stored absolute standalonePos would snap it away from the
+            -- anchor-derived spot on every unlock open/close.
+            local anchored = EllesmereUI.IsUnlockAnchored
+                and EllesmereUI.IsUnlockAnchored("EMT_MythicTimer")
+            if unlockLayoutActive then
+                RenderStandalone()
+                if not anchored then ApplyStandalonePosition() end
+            else
+                if not db.profile.showPreview
+                    and not currentRun.active and not currentRun.completed then
+                    if standaloneFrame then standaloneFrame:Hide() end
+                else
+                    RenderStandalone()
+                end
+                if not anchored then ApplyStandalonePosition() end
+            end
+        end)
+    end
+
     if EllesmereUI and EllesmereUI.RegisterUnlockElements and EllesmereUI.MakeUnlockElement then
         local MK = EllesmereUI.MakeUnlockElement
         EllesmereUI:RegisterUnlockElements({
@@ -2857,14 +2889,24 @@ function EMT:OnEnable()
                     end
                     if f and not EllesmereUI._unlockActive then
                         local sx, sy = _centerPosFromSaved(db.profile.standalonePos)
-                        if sx then
+                        if sx ~= nil then
                             f:ClearAllPoints()
                             f:SetPoint("CENTER", UIParent, "CENTER", sx, sy)
                         end
                     end
                 end,
                 loadPos = function()
-                    return db.profile.standalonePos
+                    -- Unlock Mode expects { point, relPoint, x, y }; we store
+                    -- centerX/centerY in UIParent-logical units.
+                    local pos = db.profile.standalonePos
+                    local sx, sy = _centerPosFromSaved(pos)
+                    if sx == nil then return nil end
+                    return {
+                        point = "CENTER",
+                        relPoint = "CENTER",
+                        x = sx,
+                        y = sy,
+                    }
                 end,
                 clearPos = function()
                     db.profile.standalonePos = nil

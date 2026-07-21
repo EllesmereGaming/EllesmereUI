@@ -3591,6 +3591,38 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+EllesmereUI.RegisterMigration({
+    id          = "uf_clear_stale_attached_power_border_v1",
+    scope       = "profile",
+    description = "Zero stale powerBorderSize on attached power bars so the new attached divider does not appear uninvited for users who set a border size while detached and later reattached.",
+    body = function(ctx)
+        -- Before attached dividers existed, the Border Size slider was
+        -- disabled while the bar was attached, so a stored size > 0 with an
+        -- attached position is always a leftover from a detached phase --
+        -- never a divider the user asked for. Clearing it back to the
+        -- default (0 = off) keeps frames looking identical across the
+        -- update; opting into the divider is one slider drag.
+        -- Positions other than above/below are untouched: detached keeps
+        -- its full border, and "none" renders nothing either way.
+        local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
+        if type(uf) ~= "table" then return end
+        -- Units whose powerPosition DEFAULT is attached ("below"); for them a
+        -- missing powerPosition key still means attached. The mini frames
+        -- default to "none", so a missing key there renders no border.
+        local attachedDefault = { player = true, target = true, focus = true, boss = true }
+        for unitKey, s in pairs(uf) do
+            if type(s) == "table"
+                and type(s.powerBorderSize) == "number" and s.powerBorderSize > 0 then
+                local pos = s.powerPosition
+                if pos == nil and attachedDefault[unitKey] then pos = "below" end
+                if pos == "above" or pos == "below" then
+                    s.powerBorderSize = nil
+                end
+            end
+        end
+    end,
+})
+
 local migrationFrame = CreateFrame("Frame")
 migrationFrame:RegisterEvent("ADDON_LOADED")
 migrationFrame:SetScript("OnEvent", function(self, event, addonName)

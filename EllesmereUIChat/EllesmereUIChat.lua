@@ -40,6 +40,7 @@ local CHAT_DEFAULTS = {
             bgR        = 0.03,
             bgG        = 0.045,
             bgB        = 0.05,
+            bgTexture  = "none",  -- chat background texture key (Unit Frames bar texture catalogue)
             timestampFormat = "%I:%M ",
             font = "__global",
             outlineMode = "__global",
@@ -50,6 +51,7 @@ local CHAT_DEFAULTS = {
             extendBgBehindTabs = false,
             forceOnScreen = false,
             showFriends = true,
+            showGuild = false,
             showDurability = false,
             showCopy = true,
             showPortals = true,
@@ -190,6 +192,72 @@ local function GetFrameFontSize(id)
 end
 -- GetTabFontSize removed: tab font size hardcoded to 11
 
+-- Chat background texture catalogue: the same set as the Unit Frames bar
+-- texture dropdown (same shared media files), with SharedMedia statusbar
+-- textures appended through the shared EllesmereUI helper.
+local CHAT_TEX_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
+ns.chatBgTextures = {
+    ["none"]          = nil,
+    ["melli"]         = CHAT_TEX_BASE .. "melli.tga",
+    ["beautiful"]     = CHAT_TEX_BASE .. "beautiful.tga",
+    ["plating"]       = CHAT_TEX_BASE .. "plating.tga",
+    ["atrocity"]      = CHAT_TEX_BASE .. "atrocity.tga",
+    ["divide"]        = CHAT_TEX_BASE .. "divide.tga",
+    ["glass"]         = CHAT_TEX_BASE .. "glass.tga",
+    ["fade-right"]    = CHAT_TEX_BASE .. "fade-right.tga",
+    ["thin-line-top"]    = CHAT_TEX_BASE .. "thin-line-top.tga",
+    ["thin-line-bottom"] = CHAT_TEX_BASE .. "thin-line-bottom.tga",
+    ["fade"]          = CHAT_TEX_BASE .. "fade.tga",
+    ["gradient-lr"]   = CHAT_TEX_BASE .. "gradient-lr.tga",
+    ["gradient-rl"]   = CHAT_TEX_BASE .. "gradient-rl.tga",
+    ["gradient-bt"]   = CHAT_TEX_BASE .. "gradient-bt.tga",
+    ["gradient-tb"]   = CHAT_TEX_BASE .. "gradient-tb.tga",
+    ["matte"]         = CHAT_TEX_BASE .. "matte.tga",
+    ["sheer"]         = CHAT_TEX_BASE .. "sheer.tga",
+    ["blinkii-diamonds"] = CHAT_TEX_BASE .. "blinkii-diamonds.tga",
+    ["kringel-window"]   = CHAT_TEX_BASE .. "kringel-window.tga",
+}
+ns.chatBgTextureOrder = {
+    "none", "melli", "atrocity",
+    "fade", "fade-right",
+    "thin-line-top", "thin-line-bottom",
+    "beautiful", "plating",
+    "divide", "glass",
+    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
+    "matte", "sheer",
+    "blinkii-diamonds", "kringel-window",
+}
+ns.chatBgTextureNames = {
+    ["none"]        = "None",
+    ["melli"]       = "Melli (ElvUI)",
+    ["beautiful"]   = "Beautiful",
+    ["plating"]     = "Plating",
+    ["atrocity"]    = "Atrocity",
+    ["divide"]      = "Divide",
+    ["glass"]       = "Glass",
+    ["fade-right"]  = "Fade Right",
+    ["thin-line-top"]    = "Thin Line Top",
+    ["thin-line-bottom"] = "Thin Line Bottom",
+    ["fade"]        = "Fade",
+    ["gradient-lr"] = "Gradient Right",
+    ["gradient-rl"] = "Gradient Left",
+    ["gradient-bt"] = "Gradient Up",
+    ["gradient-tb"] = "Gradient Down",
+    ["matte"]       = "Matte",
+    ["sheer"]       = "Sheer",
+    ["blinkii-diamonds"] = "Blinkii Diamonds",
+    ["kringel-window"]   = "Kringel Window",
+}
+
+-- Refresh the catalogue from SharedMedia (idempotent; registers the
+-- late-registration callback on first call, same as the other modules).
+function ECHAT.RefreshBgTextureCatalogue()
+    if EllesmereUI.AppendSharedMediaTextures then
+        EllesmereUI.AppendSharedMediaTextures(
+            ns.chatBgTextureNames, ns.chatBgTextureOrder, nil, ns.chatBgTextures)
+    end
+end
+
 -- Apply background settings from DB to all skinned chat frames
 function ECHAT.ApplyBackground()
     local p = ECHAT.DB()
@@ -198,13 +266,33 @@ function ECHAT.ApplyBackground()
     BG_B = p.bgB or 0.05
     BG_A = p.bgAlpha or 0.65
 
+    -- Resolve the background texture ("none" = legacy solid color)
+    local texKey = p.bgTexture or "none"
+    local texPath
+    if texKey ~= "none" then
+        ECHAT.RefreshBgTextureCatalogue()
+        if EllesmereUI.ResolveTexturePath then
+            texPath = EllesmereUI.ResolveTexturePath(ns.chatBgTextures, texKey, nil)
+        else
+            texPath = ns.chatBgTextures[texKey]
+        end
+    end
+
     for i = 1, 20 do
         local cf = _G["ChatFrame" .. i]
         if cf and CFD(cf).bg then
             -- Update main bg texture
             local bgTex = CFD(cf).bg:GetRegions()
-            if bgTex and bgTex.SetColorTexture then
-                bgTex:SetColorTexture(BG_R, BG_G, BG_B, BG_A)
+            if bgTex then
+                if texPath and bgTex.SetTexture then
+                    bgTex:SetTexture(texPath)
+                    bgTex:SetVertexColor(BG_R, BG_G, BG_B, BG_A)
+                elseif bgTex.SetColorTexture then
+                    -- Clear any texture-mode tint before returning to solid,
+                    -- or the color would double-tint through the vertex color.
+                    if bgTex.SetVertexColor then bgTex:SetVertexColor(1, 1, 1, 1) end
+                    bgTex:SetColorTexture(BG_R, BG_G, BG_B, BG_A)
+                end
             end
         end
         -- Update skinned Blizzard tab backgrounds
@@ -435,6 +523,7 @@ function ECHAT.ApplySidebarIcons()
     -- skipped so the chain hangs off the last icon that actually exists.
     local CHAIN_REFS = {
         showFriends    = { btn = "friendsBtn",    tail = "friendsCount" },
+        showGuild      = { btn = "guildBtn",      tail = "guildCount" },
         showDurability = { btn = "durabilityBtn", tail = "durabilityPct" },
         showCopy       = { btn = "copyBtn" },
         showPortals    = { btn = "portalBtn" },
@@ -478,6 +567,7 @@ end
 -- brand-new icon (scrollBtn is always created, so it never needs one).
 local SIDEBAR_ICON_REFS = {
     showFriends    = "friendsBtn",
+    showGuild      = "guildBtn",
     showDurability = "durabilityBtn",
     showCopy       = "copyBtn",
     showPortals    = "portalBtn",
@@ -493,10 +583,10 @@ local SIDEBAR_ICON_REFS = {
 -- Friends, Durability, then the middle group. Scroll is not part of the
 -- chain -- it stays pinned at the sidebar bottom.
 local SIDEBAR_CHAIN_KEYS = {
-    "showFriends", "showDurability", "showCopy", "showPortals", "showVoice", "showSettings",
+    "showFriends", "showGuild", "showDurability", "showCopy", "showPortals", "showVoice", "showSettings",
 }
 local SIDEBAR_FALLBACK_ORDER = {
-    showFriends = -20, showDurability = -10,
+    showFriends = -20, showGuild = -15, showDurability = -10,
     showCopy = 1, showPortals = 2, showVoice = 3, showSettings = 4,
 }
 
@@ -637,13 +727,14 @@ function ECHAT.ApplyIconColor()
     local ICON_HOVER_ALPHA = 0.9
     local d = CFD(cf1)
     local ICON_LABELS = {
-        friendsBtn = "Friends", durabilityBtn = "Durability", copyBtn = "Copy Chat",
+        friendsBtn = "Friends", guildBtn = "Guild", durabilityBtn = "Durability", copyBtn = "Copy Chat",
         portalBtn = "M+ Portals", voiceBtn = "Voice/Channels", settingsBtn = "Settings",
         scrollBtn = "Scroll to Bottom",
     }
     local fc = d.friendsCount
+    local gc = d.guildCount
     local dp = d.durabilityPct
-    for _, key in ipairs({ "friendsBtn", "durabilityBtn", "copyBtn", "portalBtn", "voiceBtn", "settingsBtn", "scrollBtn" }) do
+    for _, key in ipairs({ "friendsBtn", "guildBtn", "durabilityBtn", "copyBtn", "portalBtn", "voiceBtn", "settingsBtn", "scrollBtn" }) do
         local btn = CFD(cf1)[key]
         if btn and btn._icon then
             btn._icon:SetVertexColor(r, g, b, ICON_ALPHA)
@@ -660,6 +751,20 @@ function ECHAT.ApplyIconColor()
                 btn:SetScript("OnLeave", function()
                     btn._icon:SetVertexColor(r, g, b, ICON_ALPHA)
                     fc:SetTextColor(r, g, b, 0.5)
+                    if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+                end)
+            elseif key == "guildBtn" and gc then
+                gc:SetTextColor(r, g, b, 0.5)
+                btn:SetScript("OnEnter", function(self)
+                    btn._icon:SetVertexColor(r, g, b, ICON_HOVER_ALPHA)
+                    gc:SetTextColor(r, g, b, 0.9)
+                    if not self._freeMoveJustDragged and EUI.ShowWidgetTooltip then
+                        EUI.ShowWidgetTooltip(self, label)
+                    end
+                end)
+                btn:SetScript("OnLeave", function()
+                    btn._icon:SetVertexColor(r, g, b, ICON_ALPHA)
+                    gc:SetTextColor(r, g, b, 0.5)
                     if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
                 end)
             elseif key == "durabilityBtn" and dp then
@@ -740,6 +845,15 @@ function ECHAT.ApplySidebarIconScale()
     if CFD(cf1).friendsCount then
         CFD(cf1).friendsCount:SetFont(GetFont(), max(7, BASE_FONT * scale), "")
         CFD(cf1).friendsCount._freeMoveH = max(7, BASE_FONT * scale)
+    end
+
+    if CFD(cf1).guildBtn then
+        CFD(cf1).guildBtn:SetSize(BASE_FRIEND * scale, BASE_FRIEND * scale)
+        CFD(cf1).guildBtn._freeMoveH = BASE_FRIEND * scale
+    end
+    if CFD(cf1).guildCount then
+        CFD(cf1).guildCount:SetFont(GetFont(), max(7, BASE_FONT * scale), "")
+        CFD(cf1).guildCount._freeMoveH = max(7, BASE_FONT * scale)
     end
 
     if CFD(cf1).durabilityPct then
@@ -900,6 +1014,7 @@ function ECHAT.ApplyIconFreeMove()
 
     local btns = {
         { ref = "friendsBtn",    key = "friends" },
+        { ref = "guildBtn",      key = "guild" },
         { ref = "durabilityBtn", key = "durability" },
         { ref = "copyBtn",       key = "copy" },
         { ref = "portalBtn",     key = "portals" },
@@ -2325,6 +2440,7 @@ local function SkinChatFrame(cf)
         -- Read visibility + ordering config at creation time
         local icfg = ECHAT.DB()
         local showFriends    = icfg.showFriends ~= false
+        local showGuild      = icfg.showGuild ~= false
         local showDurability = icfg.showDurability ~= false
 
         -- When the background is extended behind the tabs, the sidebar panel
@@ -2338,6 +2454,7 @@ local function SkinChatFrame(cf)
         -- the options dropdown; a new order takes effect on the next reload).
         local anchor = nil
         local friendsBtn, friendsCount, durabilityBtn, durabilityPct, copyBtn, portalBtn, voiceBtn, settingsBtn
+        local guildBtn, guildCount
 
         local function ChainAnchor(btn)
             btn:ClearAllPoints()
@@ -2387,6 +2504,53 @@ local function SkinChatFrame(cf)
             anchor = friendsCount
         end
 
+        local function CreateGuildIcon()
+            guildBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_guild.png")
+            guildBtn:SetSize(26, 26)
+            ChainAnchor(guildBtn)
+
+            guildCount = sidebar:CreateFontString(nil, "OVERLAY")
+            guildCount:SetFont(GetFont(), 9, "")
+            guildCount:SetTextColor(1, 1, 1, 0.5)
+            guildCount:SetPoint("TOP", guildBtn, "BOTTOM", 0, 7)
+            guildCount:SetText("0")
+
+            guildBtn:HookScript("OnEnter", function(self)
+                guildCount:SetTextColor(1, 1, 1, 0.9)
+                if not self._freeMoveJustDragged and EUI.ShowWidgetTooltip then
+                    EUI.ShowWidgetTooltip(self, "Guild")
+                end
+            end)
+            guildBtn:HookScript("OnLeave", function()
+                guildCount:SetTextColor(1, 1, 1, 0.5)
+                if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+            end)
+
+            -- Online guildmate count (GetNumGuildMembers 2nd return), like
+            -- Friends. Roster request is throttled: GuildRoster() itself fires
+            -- GUILD_ROSTER_UPDATE, which re-enters this; unthrottled that loops.
+            local lastRoster = 0
+            local function UpdateGuildCount()
+                if not IsInGuild() then guildCount:SetText(0); return end
+                local now = GetTime()
+                if not InCombatLockdown() and (now - lastRoster) >= 15 then
+                    lastRoster = now
+                    C_GuildInfo.GuildRoster()
+                end
+                local _, online = GetNumGuildMembers()
+                guildCount:SetText(online)
+            end
+
+            local gcEvents = CreateFrame("Frame")
+            gcEvents:RegisterEvent("GUILD_ROSTER_UPDATE")
+            gcEvents:RegisterEvent("PLAYER_GUILD_UPDATE")
+            gcEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+            gcEvents:SetScript("OnEvent", UpdateGuildCount)
+
+            CFD(cf).guildCount = guildCount
+            anchor = guildCount
+        end
+
         local function CreateDurabilityIcon()
             durabilityBtn = MakeSidebarIcon(sidebar, MEDIA .. "chat_durability.png")
             ChainAnchor(durabilityBtn)
@@ -2434,6 +2598,7 @@ local function SkinChatFrame(cf)
         -- plain sidebar icons.
         local SPECIAL_CREATORS = {
             showFriends    = { show = showFriends,    create = CreateFriendsIcon },
+            showGuild      = { show = showGuild,      create = CreateGuildIcon },
             showDurability = { show = showDurability, create = CreateDurabilityIcon },
         }
         local MIDDLE_DEFS = {
@@ -2514,6 +2679,17 @@ local function SkinChatFrame(cf)
         end)
         end
 
+        -- Guild button click handler
+        if guildBtn then
+        guildBtn:SetScript("OnClick", function()
+            if InCombatLockdown() then
+                UIErrorsFrame:AddMessage(ERR_NOT_IN_COMBAT, 1.0, 0.3, 0.3, 1.0)
+                return
+            end
+            ToggleGuildFrame()
+        end)
+        end
+
         -- Portals button click handler
 
         if portalBtn then
@@ -2562,6 +2738,7 @@ local function SkinChatFrame(cf)
 
         local sbd = CFD(cf)
         sbd.friendsBtn = friendsBtn
+        sbd.guildBtn = guildBtn
         sbd.durabilityBtn = durabilityBtn
         sbd.copyBtn = copyBtn
         sbd.portalBtn = portalBtn
@@ -2880,6 +3057,9 @@ initFrame:SetScript("OnEvent", function(self)
         local cf = _G["ChatFrame" .. i]
         if cf then SkinChatFrame(cf) end
     end
+    -- Re-run the background pass so a saved Background Texture applies at
+    -- login (the skin loop creates the bg textures with the solid color).
+    ECHAT.ApplyBackground()
     ---------------------------------------------------------------------------
     --  2b. Expanded font size options. Font is applied at skin time only.
     --      The global hooksecurefunc("FCF_SetChatWindowFontSize") was removed

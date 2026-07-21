@@ -176,6 +176,40 @@ qolFrame:SetScript("OnEvent", function(self)
         -- or re-opening the lingering one -- while that window is up strands it.
         -- Gate all opens on this and resume on LOOT_CLOSED.
         local _lootOpen = false
+        -- Attribution for loot windows our own opens spawn. _pendingOpen is
+        -- stamped just before UseContainerItem and cleared at that open's
+        -- 0.5s recheck; LOOT_OPENED captures it into _lootSource. When the
+        -- window closes, the source slot is re-read: a linger-until-looted
+        -- container still sitting there with an un-decremented count means
+        -- its loot could not be taken (bags full / unique item cap), and
+        -- re-opening it would just re-spawn the same un-lootable window in
+        -- an endless loop the user cannot escape. It is skipped for the
+        -- rest of the session instead (a reload retries it, so freed bag
+        -- space recovers naturally).
+        local _pendingOpen, _lootSource
+        -- Global single-flight: only one open cycle runs at a time. This -- not
+        -- the per-slot _openInProgress guard -- is what stops two overlapping
+        -- passes from double-using a slow container. A payout container's server
+        -- lock latency outlasts the per-slot guard's 0.5s window, so a second
+        -- concurrent chain would read the slot as unlocked and use it again,
+        -- stranding it greyed. Only one chain ever exists now.
+        local _openBusy = false
+        local _scanScheduled = false
+        -- Cycle generation: bumped when a new cycle starts AND on disable.
+        -- Every deferred closure (step timers, the 0.5s open recheck, finish)
+        -- captures its own generation and self-aborts when stale. IsEnabled()
+        -- alone is not enough: a disable->re-enable inside the 0.5s recheck
+        -- window would otherwise resurrect the abandoned chain alongside a
+        -- freshly-started one -- two concurrent chains, the exact double-use
+        -- bug the single-flight design exists to prevent.
+        local _cycleGen = 0
+        -- A scan request arrived while a cycle was busy; finish() honors it
+        -- even when its own cycle made no progress.
+        local _missedScan = false
+        -- Forward-declared: scanFrame's OnUpdate (created below) calls ScanAndOpen
+        -- once the cache is built, so both must be upvalues in scope before that
+        -- closure is defined. Assigned (not re-declared) further down.
+        local ScanAndOpen, RequestScan
         local function SlotKey(bag, slot) return bag * 1000 + slot end
         local function IsEnabled()
             return EllesmereUIDB and EllesmereUIDB.autoOpenContainers == true
@@ -231,7 +265,6 @@ qolFrame:SetScript("OnEvent", function(self)
         -- Once all bags are scanned, hides itself (zero CPU when idle).
         local _scanBag = BACKPACK_CONTAINER
         local _scanSlot = 1
-        local _pendingOpens = {}
 
         local scanFrame = CreateFrame("Frame")
         scanFrame:Hide()
@@ -244,61 +277,19 @@ qolFrame:SetScript("OnEvent", function(self)
                     _scanBag = _scanBag + 1
                     _scanSlot = 1
                     if _scanBag > NUM_BAG_SLOTS then
-                        -- Full scan complete
+                        -- Full scan complete: the openable cache is warm. Hand off
+                        -- to the single open cycle, which re-scans the bags itself.
                         _cacheBuilt = true
                         self:Hide()
-                        -- Open any containers found during scan
-                        if #_pendingOpens > 0 and not InCombatLockdown() and not MerchantOpen() then
-                            local function OpenNext(idx)
-                                if idx > #_pendingOpens then wipe(_pendingOpens); return end
-                                if not IsEnabled() then wipe(_pendingOpens); return end
-                                if InCombatLockdown() or MerchantOpen() then wipe(_pendingOpens); return end
-                                -- A loot window is up: stop here rather than opening
-                                -- over it. LOOT_CLOSED re-runs ScanAndOpen, which
-                                -- picks up whatever is left in the bags.
-                                if _lootOpen then return end
-                                local item = _pendingOpens[idx]
-                                local key = SlotKey(item.bag, item.slot)
-                                local info = C_Container.GetContainerItemInfo(item.bag, item.slot)
-                                -- Never act on a slot mid-action: our own _openInProgress
-                                -- flag (set synchronously below) or Blizzard's isLocked.
-                                -- Re-using a container that's still resolving a previous
-                                -- open leaves it stuck greyed/unopenable. A slot still
-                                -- locked at the post-open check is in-progress, not a real
-                                -- failure, so it isn't cached as failed -- a later pass retries.
-                                if info and info.itemID and not info.isLocked and not _openInProgress[key] then
-                                    if IsWarboundExcluded(item.bag, item.slot) then
-                                        OpenNext(idx + 1)
-                                        return
-                                    end
-                                    if _openableCache[info.itemID] and not _failedItems[info.itemID] then
-                                        local prevID = info.itemID
-                                        local prevCount = info.stackCount or 1
-                                        _openInProgress[key] = true
-                                        C_Container.UseContainerItem(item.bag, item.slot)
-                                        C_Timer.After(0.5, function()
-                                            _openInProgress[key] = nil
-                                            local after = C_Container.GetContainerItemInfo(item.bag, item.slot)
-                                            if after and after.itemID == prevID and not after.isLocked and not _lootOpen and (after.stackCount or 1) >= prevCount then
-                                                _failedItems[prevID] = true
-                                            end
-                                            OpenNext(idx + 1)
-                                        end)
-                                        return
-                                    end
-                                end
-                                C_Timer.After(0.5, function() OpenNext(idx + 1) end)
-                            end
-                            OpenNext(1)
-                        end
+                        if ScanAndOpen then ScanAndOpen(false) end
                         return
                     end
                 else
                     local info = C_Container.GetContainerItemInfo(_scanBag, _scanSlot)
                     if info and info.itemID then
-                        if IsOpenableByID(info.itemID, _scanBag, _scanSlot) then
-                            _pendingOpens[#_pendingOpens + 1] = { bag = _scanBag, slot = _scanSlot }
-                        end
+                        -- Warm the openable cache during the incremental scan so the
+                        -- open cycle doesn't tooltip-scan on its hot path.
+                        IsOpenableByID(info.itemID, _scanBag, _scanSlot)
                     end
                     _scanSlot = _scanSlot + 1
                     checked = checked + 1
@@ -328,7 +319,6 @@ qolFrame:SetScript("OnEvent", function(self)
                 if not _cacheBuilt then
                     _scanBag = BACKPACK_CONTAINER
                     _scanSlot = 1
-                    wipe(_pendingOpens)
                     scanFrame:Show()
                 end
             else
@@ -337,6 +327,16 @@ qolFrame:SetScript("OnEvent", function(self)
                 containerFrame:UnregisterEvent("LOOT_OPENED")
                 containerFrame:UnregisterEvent("LOOT_CLOSED")
                 _lootOpen = false
+                _pendingOpen = nil
+                _lootSource = nil
+                -- Clear single-flight state so a mid-cycle disable can't strand
+                -- _openBusy true and block a later re-enable. The generation
+                -- bump kills every in-flight timer of the old cycle outright,
+                -- so a quick re-enable cannot resurrect an abandoned chain.
+                _openBusy = false
+                _scanScheduled = false
+                _missedScan = false
+                _cycleGen = _cycleGen + 1
                 scanFrame:Hide()
             end
         end
@@ -348,14 +348,27 @@ qolFrame:SetScript("OnEvent", function(self)
         -- skipMerchantGate: the MERCHANT_CLOSED re-run fires before Blizzard's
         -- MerchantFrame finishes hiding, so its entry check would still read
         -- "merchant open" and bail. That run skips only THIS gate -- actual
-        -- safety comes from the chain's 0.5s pre-open delay plus the per-open
-        -- MerchantOpen() re-check in OpenNext (by which time the frame has
-        -- hidden, or a genuinely re-opened merchant correctly aborts).
-        local function ScanAndOpen(skipMerchantGate)
+        -- safety comes from the 0.15s pre-open delay plus the per-step
+        -- MerchantOpen() re-check (by which time the frame has hidden, or a
+        -- genuinely re-opened merchant correctly aborts).
+        --
+        -- Single-flight open cycle: builds the candidate list, then opens one
+        -- container at a time. When the pass is exhausted it re-scans once IF
+        -- anything progressed -- that subsumes nested containers (a bag yielding
+        -- more bags) and lingering payout containers without ever running a
+        -- second concurrent chain. _openBusy guards the whole cycle.
+        ScanAndOpen = function(skipMerchantGate)
             if not _cacheBuilt then return end
             if not IsEnabled() then return end
             if InCombatLockdown() then return end
             if not skipMerchantGate and MerchantOpen() then return end
+            -- A loot window is up (payout container lingering): LOOT_CLOSED
+            -- restarts a clean cycle once it has left the bag.
+            if _lootOpen then return end
+            -- A cycle is already running; its finish() re-scan will pick up
+            -- anything this trigger would have started.
+            if _openBusy then return end
+
             local toOpen = {}
             for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
                 for slot = 1, C_Container.GetContainerNumSlots(bag) do
@@ -372,53 +385,139 @@ qolFrame:SetScript("OnEvent", function(self)
                 end
             end
             if #toOpen == 0 then return end
-            local function OpenNext(idx)
-                if idx > #toOpen then return end
-                if not IsEnabled() then return end
-                if InCombatLockdown() then return end
-                if MerchantOpen() then return end
-                -- Loot window up: stop; LOOT_CLOSED restarts this pass.
-                if _lootOpen then return end
+
+            _openBusy = true
+            _cycleGen = _cycleGen + 1
+            local myGen = _cycleGen
+            local madeProgress = false
+
+            -- The single place _openBusy is cleared. Every step() exit routes
+            -- through here so the flag can never leak (a leak would freeze
+            -- auto-open until reload). A stale generation must NOT clear the
+            -- flag -- it belongs to the newer cycle by then.
+            local function finish()
+                if myGen ~= _cycleGen then return end
+                _openBusy = false
+                if (madeProgress or _missedScan) and IsEnabled()
+                    and not InCombatLockdown()
+                    and not MerchantOpen() and not _lootOpen then
+                    _missedScan = false
+                    C_Timer.After(0.3, function() ScanAndOpen(false) end)
+                end
+            end
+
+            local function step(idx)
+                if myGen ~= _cycleGen then return end
+                if idx > #toOpen then return finish() end
+                if not IsEnabled() or InCombatLockdown() or MerchantOpen() then return finish() end
+                -- Loot window opened mid-cycle: stop; LOOT_CLOSED restarts cleanly.
+                if _lootOpen then return finish() end
                 local item = toOpen[idx]
                 local key = SlotKey(item.bag, item.slot)
-                local info2 = C_Container.GetContainerItemInfo(item.bag, item.slot)
-                -- Skip mid-action slots (our in-flight flag or isLocked) -- see the scan pass above.
-                if info2 and info2.itemID and not info2.isLocked and not _openInProgress[key] then
+                local info = C_Container.GetContainerItemInfo(item.bag, item.slot)
+                -- Never act on a slot mid-action: our own _openInProgress flag
+                -- (set synchronously below) or Blizzard's isLocked. Re-using a
+                -- container that's still resolving a previous open strands it.
+                if info and info.itemID and not info.isLocked and not _openInProgress[key] then
                     if IsWarboundExcluded(item.bag, item.slot) then
-                        OpenNext(idx + 1)
-                        return
+                        return step(idx + 1)
                     end
-                    if _openableCache[info2.itemID] and not _failedItems[info2.itemID] then
-                        local prevID = info2.itemID
-                        local prevCount = info2.stackCount or 1
+                    if _openableCache[info.itemID] and not _failedItems[info.itemID] then
+                        local prevID = info.itemID
+                        local prevCount = info.stackCount or 1
                         _openInProgress[key] = true
+                        _pendingOpen = { bag = item.bag, slot = item.slot,
+                            itemID = prevID, count = prevCount }
                         C_Container.UseContainerItem(item.bag, item.slot)
                         C_Timer.After(0.5, function()
+                            -- Always release the slot flag (global bookkeeping),
+                            -- but a stale-generation chain goes no further: its
+                            -- progress/failure verdicts would race the cycle
+                            -- that replaced it.
                             _openInProgress[key] = nil
+                            -- The open resolved without spawning a loot window
+                            -- (LOOT_OPENED would have claimed it by now): drop
+                            -- the attribution so an unrelated later loot window
+                            -- (a mob, a chest) can't inherit it.
+                            if _pendingOpen and _pendingOpen.bag == item.bag
+                                and _pendingOpen.slot == item.slot then
+                                _pendingOpen = nil
+                            end
+                            if myGen ~= _cycleGen then return end
                             local after = C_Container.GetContainerItemInfo(item.bag, item.slot)
-                            if after and after.itemID == prevID and not after.isLocked and not _lootOpen and (after.stackCount or 1) >= prevCount then
+                            local progressed = (not after) or after.itemID ~= prevID
+                                or (after.stackCount or 1) < prevCount
+                            if progressed then
+                                madeProgress = true
+                            elseif after and after.itemID == prevID and not after.isLocked
+                                and not _lootOpen then
+                                -- Unchanged, unlocked, no loot window => genuine
+                                -- failure. A still-locked slot is in-flight (slow
+                                -- container), not failed, so it isn't cached -- a
+                                -- later cycle retries it.
                                 _failedItems[prevID] = true
                             end
-                            OpenNext(idx + 1)
+                            step(idx + 1)
                         end)
                         return
                     end
                 end
-                C_Timer.After(0.5, function() OpenNext(idx + 1) end)
+                C_Timer.After(0.1, function() step(idx + 1) end)
             end
-            C_Timer.After(0.5, function() OpenNext(1) end)
+
+            C_Timer.After(0.15, function() step(1) end)
+        end
+
+        -- Coalesce a burst of BAG_UPDATE_DELAYED (a single open fires several)
+        -- into one next-frame scan; skips entirely while a cycle is in flight.
+        RequestScan = function()
+            -- Dropped because a cycle is mid-flight: remember it so finish()
+            -- reruns the scan even when its own cycle made no progress.
+            if _openBusy then _missedScan = true; return end
+            if _scanScheduled then return end
+            _scanScheduled = true
+            C_Timer.After(0, function()
+                _scanScheduled = false
+                ScanAndOpen(false)
+            end)
         end
 
         containerFrame:SetScript("OnEvent", function(_, event)
             if event == "LOOT_OPENED" then
                 _lootOpen = true
+                -- Claim the window for the container we just used (if any) so
+                -- the LOOT_CLOSED verdict knows which slot to re-examine.
+                _lootSource = _pendingOpen
+                _pendingOpen = nil
                 return
             end
             if event == "LOOT_CLOSED" then
                 _lootOpen = false
                 -- Resume opens that were deferred while the window was up. Delay
                 -- so the looted container has left the bag before we re-scan.
-                C_Timer.After(0.5, function() ScanAndOpen(false) end)
+                C_Timer.After(0.5, function()
+                    -- Verdict on the container whose open spawned that window:
+                    -- still in its slot with an un-decremented count means the
+                    -- loot could not be taken (bags full / unique item cap).
+                    -- Skip it for the session BEFORE the re-scan below, or the
+                    -- re-scan re-opens it and the window loops forever. A
+                    -- locked slot is still resolving server-side and gets no
+                    -- verdict -- the next window re-attributes it.
+                    local src = _lootSource
+                    _lootSource = nil
+                    if src then
+                        local now = C_Container.GetContainerItemInfo(src.bag, src.slot)
+                        if now and now.itemID == src.itemID and not now.isLocked
+                            and (now.stackCount or 1) >= src.count then
+                            _failedItems[src.itemID] = true
+                        end
+                    end
+                    ScanAndOpen(false)
+                end)
+                return
+            end
+            if event == "BAG_UPDATE_DELAYED" then
+                RequestScan()
                 return
             end
             -- MERCHANT_CLOSED: the interaction is over but the frame may not
@@ -1966,6 +2065,60 @@ do
     local _, _chPlayerClass = UnitClass("player")
     local _crosshairCutoffRange = 5
 
+    -- Spell probes: the player's own top-range harmful spells, used as the
+    -- PRIMARY range test for ranged cutoffs. Probing real spellbook spells is
+    -- ground truth -- range-extension talents are included automatically
+    -- (reported: priest with extended range stayed "out of range" at the
+    -- hardcoded 40). The item ladder below remains as the fallback whenever
+    -- no probe answers (ground-targeted spells return nil, early login, or a
+    -- spec whose book yields no candidates), so behavior can never be worse
+    -- than before. Melee cutoffs (5) never probe: today's behavior preserved.
+    local _crosshairProbes = {}
+
+    local function RefreshCrosshairProbeSpells()
+        wipe(_crosshairProbes)
+        local cutoff = _crosshairCutoffRange
+        if cutoff <= 5 then return end
+        if not (C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines
+                and C_Spell and C_Spell.IsSpellHarmful and C_Spell.GetSpellInfo) then
+            return
+        end
+        local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
+        if not bank then return end
+        -- Candidate window: at least the spec's baseline reach, at most a
+        -- talent-extension envelope above it (keeps outlier long-range utility
+        -- spells from widening the crosshair beyond the spec's real kit).
+        local maxWindow = cutoff + 10
+        local found = {}
+        local numTabs = C_SpellBook.GetNumSpellBookSkillLines() or 0
+        for tab = 1, numTabs do
+            local lineInfo = C_SpellBook.GetSpellBookSkillLineInfo(tab)
+            if lineInfo and not (lineInfo.offSpecID and lineInfo.offSpecID ~= 0)
+               and not lineInfo.shouldHide then
+                local offset = lineInfo.itemIndexOffset or 0
+                local count = lineInfo.numSpellBookItems or 0
+                for si = offset + 1, offset + count do
+                    local spellType, actionId, spellId = C_SpellBook.GetSpellBookItemType(si, bank)
+                    if spellType == Enum.SpellBookItemType.Spell then
+                        local sid = spellId or actionId
+                        if sid and not (C_Spell.IsSpellPassive and C_Spell.IsSpellPassive(sid))
+                           and C_Spell.IsSpellHarmful(sid) then
+                            local info = C_Spell.GetSpellInfo(sid)
+                            local mr = info and info.maxRange
+                            if mr and mr >= cutoff and mr <= maxWindow then
+                                found[#found + 1] = { sid = sid, range = mr }
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        table.sort(found, function(a, b) return a.range > b.range end)
+        for i = 1, math.min(4, #found) do
+            _crosshairProbes[i] = found[i].sid
+        end
+    end
+
     local function RefreshCrosshairCutoffRange()
         local _, classFile = UnitClass("player")
         local specIndex = GetSpecialization()
@@ -2039,6 +2192,12 @@ do
         else -- WARRIOR, ROGUE, DEATHKNIGHT
             _crosshairCutoffRange = 5
         end
+        -- Rebuild the spell probes for the (possibly new) cutoff. Runs on the
+        -- same cadence as the cutoff itself: login, spec change, talent change
+        -- (TRAIT_CONFIG_UPDATED -- exactly when range talents flip), and the
+        -- options toggle. The early returns above leave a stale list, but the
+        -- check-time gate (effective cutoff > 5) never consults it then.
+        RefreshCrosshairProbeSpells()
     end
     RefreshCrosshairCutoffRange()
     -- Exposed so the crosshair options toggle can re-resolve the cutoff live.
@@ -2058,7 +2217,23 @@ do
             return false
         end
         local cutoff = EllesmereUI._getCrosshairCutoffRange()
-        
+
+        -- PRIMARY: probe the player's own top-range harmful spells -- exact,
+        -- and talented range extensions are reflected automatically. A nil
+        -- answer (spell can't unit-target right now) cascades to the next
+        -- probe, then to the item ladder below. Melee cutoffs (5, including
+        -- druid melee forms via the effective getter) skip straight to the
+        -- ladder -- unchanged behavior.
+        if cutoff > 5 and _crosshairProbes[1] and C_Spell and C_Spell.IsSpellInRange then
+            local FindOvr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
+            for i = 1, #_crosshairProbes do
+                local sid = _crosshairProbes[i]
+                local live = (FindOvr and FindOvr(sid)) or sid
+                local r = C_Spell.IsSpellInRange(live, "target")
+                if r ~= nil then return r == false end
+            end
+        end
+
         local maxRange = nil
         for _, item in ipairs(checkItems) do
             local inRange

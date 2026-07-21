@@ -26,6 +26,18 @@ local AURA_SCAN_LIMIT = 255  -- Midnight supports more than the legacy 40 buff l
 local DEFAULT_GLOW_COLOR = {r=1, g=0.776, b=0.376}
 local DEFAULT_TEXT_COLOR = {r=1, g=1, b=1}
 
+local function ResolveGlowTint(p)
+    if not p then return nil end
+    if p.glowColorMode == "class" then
+        local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+        return cc.r, cc.g, cc.b
+    end
+    if p.glowColorMode ~= "custom" then return nil end
+    local c = p.glowColor
+    if not c then return nil end
+    return c.r or 1, c.g or 0.776, c.b or 0.376
+end
+
 local TEXT_ANCHOR_POINTS = {
     BOTTOM = { "TOP",    "BOTTOM" },
     TOP    = { "BOTTOM", "TOP"    },
@@ -1729,7 +1741,6 @@ local defaults = {
         display = {
             remindersEnabled = true,
             glowType = 0,
-            glowColor = {r=1, g=0.776, b=0.376},
             scale = 1.0,
             xOffset = 0,
             yOffset = 200,
@@ -2470,6 +2481,9 @@ end
 local function ApplyGlow(btn, glowType, cr, cg, cb, overrideSz)
     if glowType == 0 then return end
     local entry = GLOW_TYPES[glowType]; if not entry then return end
+    if cr == nil and (entry.procedural or entry.buttonGlow or entry.autocast) then
+        cr, cg, cb = 1.0, 0.788, 0.137
+    end
     if not btn._eabrGlowWrapper then
         local w = CreateFrame("Frame", nil, btn); w:SetAllPoints(btn); w:SetFrameLevel(btn:GetFrameLevel()+4)
         btn._eabrGlowWrapper = w
@@ -2780,11 +2794,11 @@ local function ShowIcon(iconIdx, m)
     ApplySetup(btn, m)
     local p = db.profile.display
     local glowType = p.glowType or 0
-    local gc = p.glowColor or DEFAULT_GLOW_COLOR
+    local gr, gg, gb = ResolveGlowTint(p)
     local baseScale = p.scale or 1.0
     local sz = floor(ICON_SIZE * baseScale + 0.5)
     RemoveGlow(btn)
-    ApplyGlow(btn, glowType, gc.r, gc.g, gc.b, sz)
+    ApplyGlow(btn, glowType, gr, gg, gb, sz)
     if p.showText and not m.isEating then
         local tc = p.textColor or DEFAULT_TEXT_COLOR
         local fontPath = ResolveFontPath(p.textFont)
@@ -3811,10 +3825,10 @@ local function Refresh()
                         if f then
                             RemoveGlow(f)
                             local p = db.profile.display
-                            local gc = p.glowColor or DEFAULT_GLOW_COLOR
+                            local gr, gg, gb = ResolveGlowTint(p)
                             local baseScale = p.scale or 1.0
                             local sz = floor(ICON_SIZE * baseScale + 0.5)
-                            ApplyGlow(f, p.glowType or 0, gc.r, gc.g, gc.b, sz)
+                            ApplyGlow(f, p.glowType or 0, gr, gg, gb, sz)
                         end
                     end
                 end
@@ -3824,10 +3838,10 @@ local function Refresh()
                 local pBtn = EABR._providerCastBtn
                 if pBtn then
                     local p = db.profile.display
-                    local gc = p.glowColor or DEFAULT_GLOW_COLOR
+                    local gr, gg, gb = ResolveGlowTint(p)
                     local sz = pBtn:GetWidth() or ICON_SIZE
                     if pBtn._eabrGlowWrapper then pBtn._eabrGlowWrapper:Hide() end
-                    ApplyGlow(pBtn, p.glowType or 0, gc.r, gc.g, gc.b, sz)
+                    ApplyGlow(pBtn, p.glowType or 0, gr, gg, gb, sz)
                 end
             end
             if (combatIdx > 0 or providerEntry) and combatAnchor then
@@ -3874,10 +3888,10 @@ local function Refresh()
                     if f then
                         RemoveGlow(f)
                         local p = db.profile.display
-                        local gc = p.glowColor or DEFAULT_GLOW_COLOR
+                        local gr, gg, gb = ResolveGlowTint(p)
                         local baseScale = p.scale or 1.0
                         local sz = floor(ICON_SIZE * baseScale + 0.5)
-                        ApplyGlow(f, p.glowType or 0, gc.r, gc.g, gc.b, sz)
+                        ApplyGlow(f, p.glowType or 0, gr, gg, gb, sz)
                     end
                 else
                     iconIdx = iconIdx + 1
@@ -3890,10 +3904,10 @@ local function Refresh()
             local pBtn = EABR._providerCastBtn
             if pBtn then
                 local p = db.profile.display
-                local gc = p.glowColor or DEFAULT_GLOW_COLOR
+                local gr, gg, gb = ResolveGlowTint(p)
                 local sz = pBtn:GetWidth() or ICON_SIZE
                 if pBtn._eabrGlowWrapper then pBtn._eabrGlowWrapper:Hide() end
-                ApplyGlow(pBtn, p.glowType or 0, gc.r, gc.g, gc.b, sz)
+                ApplyGlow(pBtn, p.glowType or 0, gr, gg, gb, sz)
             end
         else
             EABR.ParkProviderCastButton()
@@ -4248,10 +4262,10 @@ local function BeaconApplyGlow(f, show)
         local p = db and db.profile.display
         local glowType = p and p.glowType or 0
         if glowType > 0 then
-            local gc = p and p.glowColor or DEFAULT_GLOW_COLOR
+            local gr, gg, gb = ResolveGlowTint(p)
             local baseScale = p and p.scale or 1.0
             local sz = floor(ICON_SIZE * baseScale + 0.5)
-            ApplyGlow(f, glowType, gc.r, gc.g, gc.b, sz)
+            ApplyGlow(f, glowType, gr, gg, gb, sz)
         end
         _B.glowState[f._spellID] = true
     else
@@ -4540,6 +4554,17 @@ function EABR:OnInitialize()
     if rb then rb.scale = nil end
     if au then au.scale = nil end
     if co then co.scale = nil end
+
+    -- Live migration: glowColorMode replaced glowColor always being set
+    local d = db.profile.display
+    if d and not d.glowColorMode then
+        local c = d.glowColor
+        if c and not (c.r == 1 and c.g == 0.776 and c.b == 0.376) then
+            d.glowColorMode = "custom"
+        else
+            d.glowColorMode = "default"
+        end
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -4571,6 +4596,7 @@ function EABR:OnEnable()
     _G._EABR_StartAutoCastShine = StartAutoCastShine
     _G._EABR_StartFlipBookGlow = StartFlipBookGlow
     _G._EABR_StopAllGlows = StopAllGlows
+    _G._EABR_ResolveGlowTint = ResolveGlowTint
     _G._EABR_RegisterUnlock = RegisterUnlockElements
     _G._EABR_ApplyUnlockPos = ApplyUnlockPos
     _G._EABR_RAID_BUFFS = RAID_BUFFS

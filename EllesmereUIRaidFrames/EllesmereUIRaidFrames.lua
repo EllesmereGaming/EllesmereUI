@@ -488,6 +488,7 @@ local defaults = {
         -- Uniform Icon Anchoring: icons/text anchor as if no power bar existed,
         -- so frames with and without a per-role power bar line up identically.
         powerUniformAnchors = false,
+        extendHealthBehindPower = false,  -- health spans full frame; power bar overlays it
 
         -- Top Name Bar (reserves height from the TOP of the frame, the way the
         -- power bar reserves from the bottom; shows the unit name in a dedicated
@@ -1240,6 +1241,17 @@ function ns.RF_AnchorHost(health, s)
     return health
 end
 
+-- "Extend Health Bar Behind Power": the health-height inset every layout site
+-- subtracts for the power bar. Returns 0 when the option is on -- the health
+-- bar then spans the full frame and the power bar (higher frame level, own
+-- bg) draws over its bottom strip. Additive by construction: default off
+-- returns the passed powerH untouched, so every site computes the exact
+-- legacy value.
+function ns.RF_HealthPowerInset(s, powerH)
+    if s and s.extendHealthBehindPower then return 0 end
+    return powerH
+end
+
 -- Live-render convenience: resolves the button's settings source (party/extra
 -- proxies) before delegating to ns.RF_AnchorHost.
 function ns.RF_AnchorHostFor(d)
@@ -1586,6 +1598,13 @@ local function ResolveDisplayName(unit, applyCap)
             display = dn
         end
     end
+	if not display and RG_UnitName and RG_ALTS_SETTINGS and RG_ALTS_SETTINGS.settings["ellesmereui"] then
+		local ok, dn = pcall(RG_UnitName, unit)
+		if ok and type(dn) == "string"
+		   and not (issecretvalue and issecretvalue(dn)) and dn ~= "" then
+			display = dn
+		end
+	end
     if not display then
         if Ambiguate then name = Ambiguate(name, "short") end
         display = name
@@ -1664,7 +1683,7 @@ local function LayoutTopNameBar(s, baseH, powerH, healthBar, tnb, tnbBg, tnbText
         healthBar:ClearAllPoints()
         healthBar:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -topBarH)
         healthBar:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, -topBarH)
-        healthBar:SetHeight(PixelSnap(baseH - powerH - topBarH))
+        healthBar:SetHeight(PixelSnap(baseH - ns.RF_HealthPowerInset(s, powerH) - topBarH))
     end
     if not tnb then return topBarH end
     if not enabled then
@@ -4296,7 +4315,7 @@ local function UpdateButton(button)
             -- Restore health bar height with power bar space (and Top Name Bar)
             local powerH = PixelSnap(s.powerHeight or 4)
             if d.health then
-                d.health:SetHeight(PixelSnap(frameH - powerH - tnbH))
+                d.health:SetHeight(PixelSnap(frameH - ns.RF_HealthPowerInset(s, powerH) - tnbH))
             end
             -- Was the bar already visible before this update? Smooth
             -- interpolation only animates correctly on a bar that was already
@@ -7286,7 +7305,7 @@ XF.Layout = function()
         -- correct the height/width-derived pieces for the offset size.
         local d = GetFFD(b)
         if d.health then
-            d.health:SetHeight(((d.power and d.power:IsShown()) and PixelSnap(h - powerH) or h) - topBarH)
+            d.health:SetHeight(((d.power and d.power:IsShown()) and PixelSnap(h - ns.RF_HealthPowerInset(s, powerH)) or h) - topBarH)
         end
 
         -- Scaled visual pass: re-apply every ratio-affected element through
@@ -8685,7 +8704,7 @@ ns._ResizeButtons = function(w, h)
     local bh = PixelSnap(h)
     local s = db.profile
     local powerH = IsPowerBarEnabled(s) and PixelSnap(s.powerHeight or 4) or 0
-    local healthH = PixelSnap(bh - powerH)
+    local healthH = PixelSnap(bh - ns.RF_HealthPowerInset(s, powerH))
     local topBarH = (s.topNameBarEnabled and PixelSnap(s.topNameBarHeight or 20)) or 0
     local xfset = s.extraFrames
     for _, btn in ipairs(allButtons) do
@@ -8697,7 +8716,7 @@ ns._ResizeButtons = function(w, h)
             if d._isExtra and xfset then
                 xbw = PixelSnap(math.max(10, w + (xfset.extraWidth or 0)))
                 xbh = PixelSnap(math.max(10, h + (xfset.extraHeight or 0)))
-                xhealthH = PixelSnap(xbh - powerH)
+                xhealthH = PixelSnap(xbh - ns.RF_HealthPowerInset(s, powerH))
             end
             btn:SetSize(xbw, xbh)
             -- Full height when the power bar is hidden for this button's role
@@ -8730,7 +8749,7 @@ ns._ResizePartyButtons = function(w, h)
     local bh = PixelSnap(h)
     local s = db.profile
     local powerH = IsPowerBarEnabled(s) and PixelSnap(s.powerHeight or 4) or 0
-    local healthH = PixelSnap(bh - powerH)
+    local healthH = PixelSnap(bh - ns.RF_HealthPowerInset(s, powerH))
     local topBarH = (s.topNameBarEnabled and PixelSnap(s.topNameBarHeight or 20)) or 0
     -- Auto Resize scale depends on frame size; recompute on this lightweight
     -- width/height slider path (which skips the full reload).
@@ -10131,7 +10150,7 @@ do
             "showPowerBar", "powerHeight", "powerBgDarkness", "powerBgColor", "powerBgPowerColored",
             "powerBorderStyle", "powerBorderSize", "powerBorderColor", "powerBorderAlpha",
             "powerShowForHealer", "powerShowForTank", "powerShowForDPS", "smoothPowerBars",
-            "powerUniformAnchors",
+            "powerUniformAnchors", "extendHealthBehindPower",
         },
         textDisplay = {
             "nameSize", "nameColorMode", "nameCustomColor",
@@ -12255,7 +12274,7 @@ local function CreatePreviewFrame(index)
     local w = PixelSnap(s.frameWidth or 72)
     local h = PixelSnap(s.frameHeight or 46)
     local powerH = IsPowerBarEnabled(s) and PixelSnap(s.powerHeight or 4) or 0
-    local healthH = PixelSnap(h - powerH)
+    local healthH = PixelSnap(h - ns.RF_HealthPowerInset(s, powerH))
 
     local f = CreateFrame("Frame", nil, previewContainer or containerFrame)
     f:SetSize(w, h)
@@ -13027,7 +13046,7 @@ local function ApplyPreviewData(f, index)
     local w = PixelSnap(s.frameWidth or 72)
     local h = PixelSnap(s.frameHeight or 46)
     local powerH = IsPowerBarEnabled(s) and PixelSnap(s.powerHeight or 4) or 0
-    local healthH = PixelSnap(h - powerH)
+    local healthH = PixelSnap(h - ns.RF_HealthPowerInset(s, powerH))
     local topBarH = (s.topNameBarEnabled and PixelSnap(s.topNameBarHeight or 20)) or 0
 
     f:SetSize(w, h)
@@ -15981,17 +16000,40 @@ function ERF:OnEnable()
         end
         return false
     end
+	local function RegisterRGALIASNicknames()
+		if ns._rgaliasNickHooked then return true end
+		local RGA = _G.RG_ALIAS
+		if RGA and RGA.RegisterCallback then
+			RGA.RegisterCallback("DbUpdated", function(event)
+				if ns.RefreshAllNames then ns.RefreshAllNames() end
+			end)
+			RGA.RegisterCallback("ModuleEnabled", function(event, moduleName)
+				if moduleName ~= "ellesmereui" then return end
+				if ns.RefreshAllNames then ns.RefreshAllNames() end
+			end)
+			RGA.RegisterCallback("ModuleDisabled", function(event, moduleName)
+				if moduleName ~= "ellesmereui" then return end
+				if ns.RefreshAllNames then ns.RefreshAllNames() end
+			end)
+			ns._rgaliasNickHooked = true
+			return true
+		end
+		return false
+	end
+
     local nsrtHooked = RegisterNSRTNicknames()
     local trHooked = RegisterTRNicknames()
-    if not (nsrtHooked and trHooked) then
+	local rgaliasHooked = RegisterRGALIASNicknames()
+    if not (nsrtHooked and trHooked and rgaliasHooked) then
         local nickFrame = CreateFrame("Frame")
         nickFrame:RegisterEvent("PLAYER_LOGIN")
         nickFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         nickFrame:SetScript("OnEvent", function(self, event)
             local a = RegisterNSRTNicknames()
             local b = RegisterTRNicknames()
+			local c = RegisterRGALIASNicknames()
             -- Anything not loaded by first PLAYER_ENTERING_WORLD is not coming.
-            if (a and b) or event == "PLAYER_ENTERING_WORLD" then self:UnregisterAllEvents() end
+            if (a and b and c) or event == "PLAYER_ENTERING_WORLD" then self:UnregisterAllEvents() end
         end)
     end
 

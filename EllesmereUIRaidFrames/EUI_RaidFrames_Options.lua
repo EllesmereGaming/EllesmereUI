@@ -1898,6 +1898,10 @@ initFrame:SetScript("OnEvent", function(self)
                           tooltip="Anchor icons and text as if no power bar existed, so frames with and without one line up identically.",
                           get=function() return SVal("powerUniformAnchors", false) end,
                           set=function(v) SSet("powerUniformAnchors", v) end },
+                        { type="toggle", label="Extend Health Bar Behind Power",
+                          tooltip="Health bar spans the full frame height and the power bar draws on top of it.",
+                          get=function() return SVal("extendHealthBehindPower", false) end,
+                          set=function(v) SSet("extendHealthBehindPower", v) end },
                     },
                 })
                 local cogBtn = CreateFrame("Button", nil, rgn)
@@ -2157,7 +2161,11 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSet("namePosition", v) end },
             { type="dropdown", text="Health Text", values=healthTextValues, order=healthTextOrder,
               getValue=function() return SVal("healthTextMode", "none") end,
-              setValue=function(v) SSet("healthTextMode", v) end });  y = y - h
+              -- DependentSetValue: rebuilds the page when the None <-> not-None
+              -- state flips so the hidden Position/Size row below appears/vanishes.
+              setValue=EllesmereUI.DependentSetValue(
+                  function() return SVal("healthTextMode", "none") ~= "none" end,
+                  function(v) SSet("healthTextMode", v) end) });  y = y - h
         -- Cog for name offset X/Y
         do
             local rgn = row._leftRegion
@@ -2247,16 +2255,15 @@ initFrame:SetScript("OnEvent", function(self)
                 function() end, "accent", false, "Accent Color")
         end
 
-        -- Row 3: Health Text Position (+ cog for X/Y) | Health Text Size
+        -- Row 3: Health Text Position (+ cog for X/Y) | Health Text Size.
+        -- Hidden entirely while Health Text is None (DependentSetValue on that
+        -- dropdown rebuilds the page when the state flips).
+        if SVal("healthTextMode", "none") ~= "none" then
         row, h = W:DualRow(parent, y,
             { type="dropdown", text="Health Text Position", values=namePositionValues, order=namePositionOrder,
-              disabled=function() return SVal("healthTextMode", "none") == "none" end,
-              disabledTooltip="Health Text",
               getValue=function() return SVal("healthTextPosition", "center") end,
               setValue=function(v) SSet("healthTextPosition", v) end },
             { type="slider", text="Health Text Size", min=6, max=26, step=1,
-              disabled=function() return SVal("healthTextMode", "none") == "none" end,
-              disabledTooltip="Health Text",
               getValue=function() return SVal("healthTextSize", 9) end,
               setValue=function(v) SSet("healthTextSize", v) end });  y = y - h
         -- Cog for health text offset X/Y
@@ -2278,16 +2285,14 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = cogBtn
             cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            local htOff = SVal("healthTextMode", "none") == "none"
-            cogBtn:SetAlpha(htOff and 0.15 or 0.4)
+            cogBtn:SetAlpha(0.4)
             local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
             cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
             cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(s)
-                s:SetAlpha(SVal("healthTextMode", "none") == "none" and 0.15 or 0.4)
-            end)
+            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
             cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
+        end   -- close Health Text dependent-row gate
 
         -- Row 4: Heal Absorb Text (+ color swatches) | Heal Absorb Text Position
         -- (+ offset cog). Row 5: Heal Absorb Text Size. 1:1 with Health Text; the
@@ -2297,7 +2302,11 @@ initFrame:SetScript("OnEvent", function(self)
               values={ ["none"]="None", ["short"]="Short (240k)", ["amount"]="Amount" },
               order={ "none", "short", "amount" },
               getValue=function() return SVal("healAbsorbTextMode", "none") end,
-              setValue=function(v) SSet("healAbsorbTextMode", v); EllesmereUI:RefreshPage() end },
+              -- DependentSetValue: rebuilds the page when the None <-> not-None
+              -- state flips so the hidden Text Size row below appears/vanishes.
+              setValue=EllesmereUI.DependentSetValue(
+                  function() return SVal("healAbsorbTextMode", "none") ~= "none" end,
+                  function(v) SSet("healAbsorbTextMode", v); EllesmereUI:RefreshPage() end) },
             { type="dropdown", text="Heal Absorb Text Position", values=namePositionValues, order=namePositionOrder,
               disabled=function() return SVal("healAbsorbTextMode", "none") == "none" end,
               disabledTooltip="Heal Absorb Text",
@@ -2390,14 +2399,16 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
-        -- Row 5: Heal Absorb Text Size | (blank odd last slot)
-        row, h = W:DualRow(parent, y,
-            { type="slider", text="Heal Absorb Text Size", min=6, max=26, step=1,
-              disabled=function() return SVal("healAbsorbTextMode", "none") == "none" end,
-              disabledTooltip="Heal Absorb Text",
-              getValue=function() return SVal("healAbsorbTextSize", 9) end,
-              setValue=function(v) SSet("healAbsorbTextSize", v) end },
-            { type="label", text="" });  y = y - h
+        -- Row 5: Heal Absorb Text Size | (blank odd last slot). Hidden entirely
+        -- while Heal Absorb Text is None (DependentSetValue on that dropdown
+        -- rebuilds the page when the state flips).
+        if SVal("healAbsorbTextMode", "none") ~= "none" then
+            row, h = W:DualRow(parent, y,
+                { type="slider", text="Heal Absorb Text Size", min=6, max=26, step=1,
+                  getValue=function() return SVal("healAbsorbTextSize", 9) end,
+                  setValue=function(v) SSet("healAbsorbTextSize", v) end },
+                { type="label", text="" });  y = y - h
+        end
 
         -------------------------------------------------------------------
         --  INDICATORS
@@ -2693,10 +2704,16 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- The rows below Marker Position are the less-common indicators. On the
-        -- RAID tab they collapse behind a session-only "Show More" toggle (state
-        -- held in EllesmereUI._rfShowLessCommonIndicators, not a saved variable);
-        -- the party tab (_partyCtx) always shows them.
-        if _partyCtx or EllesmereUI._rfShowLessCommonIndicators then
+        -- RAID tab they collapse behind the shared session expander (see
+        -- BuildLessCommonExpander in EllesmereUI_Widgets.lua; honors the global
+        -- Auto Expand Less Common Settings toggle); the party tab (_partyCtx)
+        -- always shows them.
+        local lessCommonOpen = true
+        if not _partyCtx then
+            lessCommonOpen, y = EllesmereUI.BuildLessCommonExpander(parent, y,
+                "rfIndicators", "Show Less Common Indicator Options")
+        end
+        if lessCommonOpen then
 
         -- Ready Check / Summon / Rez icon position + size (the three indicators
         -- share a single texture, so one set of controls drives all of them).
@@ -3052,31 +3069,11 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
         end   -- close the less-common-indicators collapse wrapper
-
-        -- Raid tab only: the session expander shown while the less-common
-        -- indicator rows above are collapsed. White text, accent on hover;
-        -- clicking reveals them for the rest of the session (not saved).
-        if (not _partyCtx) and not EllesmereUI._rfShowLessCommonIndicators then
-            local cpad = EllesmereUI.CONTENT_PAD or 45
-            local moreBtn = CreateFrame("Button", nil, parent)
-            moreBtn:SetHeight(22)
-            moreBtn:SetPoint("TOPLEFT", parent, "TOPLEFT", cpad, y - 4)
-            moreBtn:SetFrameLevel(parent:GetFrameLevel() + 5)
-            local moreFS = EllesmereUI.MakeFont(moreBtn, 13, nil, 1, 1, 1)
-            moreFS:SetPoint("LEFT")
-            moreFS:SetText("+ " .. EllesmereUI.L("Show Less Common Indicator Options"))
-            moreBtn:SetWidth(math.max((moreFS:GetStringWidth() or 0) + 8, 120))
-            local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
-            moreBtn:SetScript("OnEnter", function() moreFS:SetTextColor(EG.r, EG.g, EG.b) end)
-            moreBtn:SetScript("OnLeave", function() moreFS:SetTextColor(1, 1, 1) end)
-            moreBtn:SetScript("OnClick", function()
-                EllesmereUI._rfShowLessCommonIndicators = true
-                -- force=true: full teardown+rebuild. RefreshPage() without it takes
-                -- the values-only fast path and never re-runs the page builder, so
-                -- the collapsed rows would not appear.
-                EllesmereUI:RefreshPage(true)
-            end)
-            y = y - 30
+        -- While expanded, the shared link re-renders here (below the rows) in
+        -- its "Hide ..." form; no-op while collapsed or party ctx.
+        if not _partyCtx then
+            y = EllesmereUI.FinishLessCommonExpander(parent, y,
+                "rfIndicators", "Show Less Common Indicator Options")
         end
 
         -------------------------------------------------------------------
@@ -3306,7 +3303,7 @@ initFrame:SetScript("OnEvent", function(self)
                 title = "Dispellable Debuff Location",
                 rows = {
                     -- 0 = match the main Debuff Size (the pre-existing behavior).
-                    { type="slider", label="Icon Size", min=0, max=40, step=1,
+                    { type="slider", label="Icon Size", min=0, max=60, step=1,
                       get=function() return SVal("dispellableDebuffSize", 0) end,
                       set=function(v) SSet("dispellableDebuffSize", v) end },
                     { type="dropdown", label="Growth Direction", values=dispGrowValues, order=dispGrowOrder,
@@ -3381,25 +3378,28 @@ initFrame:SetScript("OnEvent", function(self)
 
         local function TNBOff() return not SVal("topNameBarEnabled", false) end
 
-        -- Row 1: Enable Top Name Bar | Height
+        -- Row 1: Enable Top Name Bar | Height. The master toggle HIDES the
+        -- dependent rows entirely while off (SectionToggleSetValue forces the
+        -- page rebuild that reveals/hides them).
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Enable Top Name Bar",
               getValue=function() return SVal("topNameBarEnabled", false) end,
-              setValue=function(v) SSet("topNameBarEnabled", v); EllesmereUI:RefreshPage() end },
+              setValue=EllesmereUI.SectionToggleSetValue(function(v)
+                  SSet("topNameBarEnabled", v)
+              end) },
+            TNBOff() and { type="label", text="" } or
             { type="slider", text="Height", min=8, max=40, step=1,
-              disabled=TNBOff,
               getValue=function() return SVal("topNameBarHeight", 20) end,
               setValue=function(v) SSet("topNameBarHeight", v) end });  y = y - h
 
+        if not TNBOff() then
         -- Row 2: Background (+ bg color swatch) | Text Size (+ text swatch + offset cog)
         local tnbRow2
         tnbRow2, h = W:DualRow(parent, y,
             { type="slider", text="Background", min=0, max=100, step=1,
-              disabled=TNBOff,
               getValue=function() return SVal("topNameBarBgOpacity", 80) end,
               setValue=function(v) SSet("topNameBarBgOpacity", v) end },
             { type="slider", text="Text Size", min=6, max=30, step=1,
-              disabled=TNBOff,
               getValue=function() return SVal("topNameBarTextSize", 11) end,
               setValue=function(v) SSet("topNameBarTextSize", v) end });  y = y - h
         -- Inline bg color swatch (left region)
@@ -3418,8 +3418,6 @@ initFrame:SetScript("OnEvent", function(self)
                 end, false, 20)
             bgSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = bgSwatch
-            local function UpdateVis() bgSwatch:SetAlpha(TNBOff() and 0.3 or 1) end
-            EllesmereUI.RegisterWidgetRefresh(UpdateVis); UpdateVis()
         end
         -- Inline text offset cog (DIRECTIONS) in the Text Size slot
         do
@@ -3457,7 +3455,6 @@ initFrame:SetScript("OnEvent", function(self)
             { type="dropdown", text="Alignment & Color",
               values={ center="Center", left="Left", right="Right" },
               order={ "center", "left", "right" },
-              disabled=TNBOff,
               getValue=function() return SVal("topNameBarTextAlign", "center") end,
               setValue=function(v) SSet("topNameBarTextAlign", v) end },
             { type="label", text="" });  y = y - h
@@ -3485,7 +3482,7 @@ initFrame:SetScript("OnEvent", function(self)
                     sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 end
                 local function vis()
-                    sw:SetAlpha((not TNBOff() and SVal("topNameBarTextColorMode", "class") == mode) and 1 or 0.3)
+                    sw:SetAlpha(SVal("topNameBarTextColorMode", "class") == mode and 1 or 0.3)
                 end
                 EllesmereUI.RegisterWidgetRefresh(vis); vis()
             end
@@ -3512,6 +3509,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end,
                 function() end, "class", false, "Class Color")
         end
+        end   -- close Top Name Bar hidden-while-disabled gate
 
         if onSection then onSection("topNameBar", _secY, y) end; _secY = y
 
@@ -3539,16 +3537,17 @@ initFrame:SetScript("OnEvent", function(self)
                   values = { never="Never", healers="Healers", always="Always" },
                   order  = { "never", "healers", "always" },
                   getValue = function() return FBSet().display or "never" end,
-                  setValue = function(v)
+                  -- DependentSetValue: rows below are HIDDEN while Never; only
+                  -- the Never <-> enabled flip forces the full rebuild.
+                  setValue = EllesmereUI.DependentSetValue(FBEnabled, function(v)
                       FBSet().display = v
                       if ns.FB_Apply then ns.FB_Apply() end
                       EllesmereUI:RefreshPage()
-                  end },
+                  end) },
+                (not FBEnabled()) and { type="label", text="" } or
                 { type="dropdown", text="Position",
                   values = { left="Before First Group", right="After Last Group", free="Free Move" },
                   order  = { "left", "right", "free" },
-                  disabled = function() return not FBEnabled() end,
-                  disabledTooltip = FB_DISABLED_TIP,
                   getValue = function() return FBSet().position or "right" end,
                   setValue = function(v)
                       FBSet().position = v
@@ -3556,6 +3555,7 @@ initFrame:SetScript("OnEvent", function(self)
                       if ns.FB_Apply then ns.FB_Apply() end
                       EllesmereUI:RefreshPage()
                   end }); y = y - h
+            if FBEnabled() then
             -- Free Move Position: label left, Move Frames button right (standard
             -- setting layout; Free Move only). Right slot: Boss Health Color.
             row, h = W:DualRow(parent, y,
@@ -3688,8 +3688,6 @@ initFrame:SetScript("OnEvent", function(self)
             row, h = W:DualRow(parent, y,
                 { type="slider", text="Extra Width", min=-50, max=100, step=1,
                   tooltip="Widens or narrows the boss frames relative to the raid frame size.",
-                  disabled = function() return not FBEnabled() end,
-                  disabledTooltip = FB_DISABLED_TIP,
                   getValue = function() return FBSet().extraWidth or 0 end,
                   setValue = function(v)
                       FBSet().extraWidth = v
@@ -3701,8 +3699,6 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
                 { type="slider", text="Extra Height", min=-50, max=100, step=1,
                   tooltip="Makes the boss frames taller or shorter relative to the raid frame size.",
-                  disabled = function() return not FBEnabled() end,
-                  disabledTooltip = FB_DISABLED_TIP,
                   getValue = function() return FBSet().extraHeight or 0 end,
                   setValue = function(v)
                       FBSet().extraHeight = v
@@ -3712,6 +3708,7 @@ initFrame:SetScript("OnEvent", function(self)
                           ns.FB_SetMoverShown(true)
                       end
                   end }); y = y - h
+            end   -- close Friendly Boss Frames hidden-while-disabled gate
 
             if onSection then onSection("friendlyBossFrames", _secY, y) end; _secY = y
 
@@ -3733,21 +3730,26 @@ initFrame:SetScript("OnEvent", function(self)
                 return XFSet().showTanks == true
                     or (EllesmereUIDB and EllesmereUIDB.extraFramesKey) ~= nil
             end
-            local XF_DISABLED_TIP = "This option requires Show Tanks in Extra Group or a bound hotkey."
-
-            -- Row 1: Show Tanks toggle | Add to Extra Group Hotkey (capture)
+            -- Row 1: Add to Extra Group Hotkey (capture) | Show Tanks toggle
             row, h = W:DualRow(parent, y,
+                { type="label", text="Add to Extra Group Hotkey" },
                 { type="toggle", text="Show Tanks in Extra Group",
                   tooltip="Automatically duplicates the raid's tanks into the Extra Frames group. Shares the frame cap with hotkey picks.",
                   getValue = function() return XFSet().showTanks == true end,
-                  setValue = function(v)
+                  -- DependentSetValue: the rows below are HIDDEN while the
+                  -- section is unconfigured (no tanks toggle AND no hotkey);
+                  -- only a configured-state flip forces the full rebuild.
+                  setValue = EllesmereUI.DependentSetValue(XFConfigured, function(v)
                       XFSet().showTanks = v
                       if ns.XF_Apply then ns.XF_Apply() end
+                      -- Feature may have just gone dark; the mover can't stay up.
+                      if not XFConfigured() and ns.XF_SetMoverShown then
+                          ns.XF_SetMoverShown(false)
+                      end
                       EllesmereUI:RefreshPage()
-                  end },
-                { type="label", text="Add to Extra Group Hotkey" }); y = y - h
+                  end) }); y = y - h
             do
-                local rgn = row._rightRegion
+                local rgn = row._leftRegion
                 local kbBtn = CreateFrame("Button", nil, row)
                 kbBtn:SetSize(140, 26)
                 kbBtn:SetPoint("RIGHT", rgn, "RIGHT", -20, 0)
@@ -3792,6 +3794,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if EllesmereUIDB.extraFramesKey and _G["ERFExtraFramesBindBtn"] then
                             ClearOverrideBindings(_G["ERFExtraFramesBindBtn"])
                         end
+                        local wasConfigured = XFConfigured()
                         EllesmereUIDB.extraFramesKey = nil
                         RefreshLabel()
                         -- Position settings gate on tanks-toggle/hotkey; the
@@ -3799,7 +3802,13 @@ initFrame:SetScript("OnEvent", function(self)
                         if not XFConfigured() and ns.XF_SetMoverShown then
                             ns.XF_SetMoverShown(false)
                         end
-                        EllesmereUI:RefreshPage()
+                        -- Rows below are hidden while unconfigured: a state
+                        -- flip needs the full rebuild, not the fast refresh.
+                        if XFConfigured() ~= wasConfigured then
+                            EllesmereUI:RefreshPage(true)
+                        else
+                            EllesmereUI:RefreshPage()
+                        end
                         return
                     end
                     if listening then return end
@@ -3843,12 +3852,19 @@ initFrame:SetScript("OnEvent", function(self)
                         ClearOverrideBindings(bindBtn)
                         SetOverrideBindingClick(bindBtn, true, fullKey, "ERFExtraFramesBindBtn")
                     end
+                    local wasConfigured = XFConfigured()
                     EllesmereUIDB.extraFramesKey = fullKey
 
                     listening = false
                     self:EnableKeyboard(false)
                     RefreshLabel()
-                    EllesmereUI:RefreshPage()
+                    -- Rows below are hidden while unconfigured: binding the
+                    -- first hotkey flips the state and needs the full rebuild.
+                    if XFConfigured() ~= wasConfigured then
+                        EllesmereUI:RefreshPage(true)
+                    else
+                        EllesmereUI:RefreshPage()
+                    end
                 end)
 
                 kbBtn:SetScript("OnEnter", function(self)
@@ -3868,13 +3884,15 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
             end
 
+            -- Rows 2-4 are HIDDEN entirely while the section is unconfigured
+            -- (no tanks toggle AND no hotkey); the triggers above force the
+            -- rebuild whenever the configured state flips.
+            if XFConfigured() then
             -- Row 2: Position | Free Move Position (Move Frames)
             row, h = W:DualRow(parent, y,
                 { type="dropdown", text="Position",
                   values = { left="Before First Group", right="After Last Group", free="Free Move" },
                   order  = { "left", "right", "free" },
-                  disabled = function() return not XFConfigured() end,
-                  disabledTooltip = XF_DISABLED_TIP,
                   getValue = function() return XFSet().position or "right" end,
                   setValue = function(v)
                       XFSet().position = v
@@ -3911,16 +3929,9 @@ initFrame:SetScript("OnEvent", function(self)
                     local active = ns.XF_IsMoverShown and ns.XF_IsMoverShown()
                     lbl:SetText(active and EllesmereUI.L("Stop Moving") or EllesmereUI.L("Move Frames"))
                     btn:SetAlpha(MoveAllowed() and 1 or 0.35)
-                    -- Plain-label slots have no native disabled handling; dim
-                    -- the "Free Move Position" label with the rest of the row
-                    if rgn._label then
-                        rgn._label:SetAlpha(XFConfigured() and 1 or 0.3)
-                    end
                 end
                 btn:SetScript("OnEnter", function(self)
-                    if not XFConfigured() then
-                        EllesmereUI.ShowWidgetTooltip(self, XF_DISABLED_TIP)
-                    elseif not MoveAllowed() then
+                    if not MoveAllowed() then
                         EllesmereUI.ShowWidgetTooltip(self,
                             EllesmereUI.DisabledTooltip("Position must be set to Free Move"))
                     else
@@ -3970,8 +3981,6 @@ initFrame:SetScript("OnEvent", function(self)
                   tooltip="Direction the frames are laid out.",
                   values = { DOWN="Down", UP="Up", RIGHT="Right", LEFT="Left" },
                   order  = { "DOWN", "UP", "RIGHT", "LEFT" },
-                  disabled = function() return not XFConfigured() end,
-                  disabledTooltip = XF_DISABLED_TIP,
                   getValue = XFGrowDir,
                   setValue = function(v)
                       local set = XFSet()
@@ -3985,8 +3994,6 @@ initFrame:SetScript("OnEvent", function(self)
                   tooltip="Direction each new row or column stacks. Set Wrap After in the cog to enable wrapping.",
                   values = xfHoriz and { DOWN="Down", UP="Up" } or { RIGHT="Right", LEFT="Left" },
                   order  = xfHoriz and { "DOWN", "UP" } or { "RIGHT", "LEFT" },
-                  disabled = function() return not XFConfigured() end,
-                  disabledTooltip = XF_DISABLED_TIP,
                   getValue = function()
                       local wd = XFSet().wrapDirection
                       if XFGrowDir() == "RIGHT" or XFGrowDir() == "LEFT" then
@@ -4031,8 +4038,6 @@ initFrame:SetScript("OnEvent", function(self)
             row, h = W:DualRow(parent, y,
                 { type="slider", text="Extra Width", min=-50, max=100, step=1,
                   tooltip="Widens or narrows the extra frames relative to the raid frame size.",
-                  disabled = function() return not XFConfigured() end,
-                  disabledTooltip = XF_DISABLED_TIP,
                   getValue = function() return XFSet().extraWidth or 0 end,
                   setValue = function(v)
                       XFSet().extraWidth = v
@@ -4044,8 +4049,6 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
                 { type="slider", text="Extra Height", min=-50, max=100, step=1,
                   tooltip="Makes the extra frames taller or shorter relative to the raid frame size.",
-                  disabled = function() return not XFConfigured() end,
-                  disabledTooltip = XF_DISABLED_TIP,
                   getValue = function() return XFSet().extraHeight or 0 end,
                   setValue = function(v)
                       XFSet().extraHeight = v
@@ -4055,6 +4058,7 @@ initFrame:SetScript("OnEvent", function(self)
                           ns.XF_SetMoverShown(true)
                       end
                   end }); y = y - h
+            end   -- close Extra Frames hidden-while-unconfigured gate
 
             if onSection then onSection("extraFrames", _secY, y) end; _secY = y
         end
@@ -4130,16 +4134,19 @@ initFrame:SetScript("OnEvent", function(self)
                   values={ never="Never", whenHealing="When Healing", always="Always" },
                   order={ "never", "whenHealing", "always" },
                   getValue=function() return SVal("tsRaidMode", "never") end,
-                  setValue=function(v) SSet("tsRaidMode", v); TSApply(); EllesmereUI:RefreshPage() end },
+                  -- DependentSetValue: rows below are HIDDEN while Never; only
+                  -- the Never <-> enabled flip forces the full rebuild.
+                  setValue=EllesmereUI.DependentSetValue(
+                      function() return SVal("tsRaidMode", "never") ~= "never" end,
+                      function(v) SSet("tsRaidMode", v); TSApply(); EllesmereUI:RefreshPage() end) },
+                (SVal("tsRaidMode", "never") == "never") and { type="label", text="" } or
                 { type="slider", text="Icon Size", min=12, max=48, step=1,
-                  disabled=function() return SVal("tsRaidMode", "never") == "never" end,
-                  disabledTooltip="Enable Targeted Spells",
                   getValue=function() return SVal("tsRaidIconSize", 24) end,
                   setValue=function(v) SSet("tsRaidIconSize", v); TSApply() end });  y = y - h
+            if SVal("tsRaidMode", "never") ~= "never" then
             -- Inline cog on Icon Size: Icon Zoom
             do
                 local rgn = row._rightRegion
-                local function TSOff() return SVal("tsRaidMode", "never") == "never" end
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Icon Zoom",
                     rows = {
@@ -4153,13 +4160,12 @@ initFrame:SetScript("OnEvent", function(self)
                 cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = cogBtn
                 cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                cogBtn:SetAlpha(TSOff() and 0.15 or 0.4)
+                cogBtn:SetAlpha(0.4)
                 local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
                 cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-                cogBtn:SetScript("OnEnter", function(self) if not TSOff() then self:SetAlpha(0.7) end end)
-                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(TSOff() and 0.15 or 0.4) end)
-                cogBtn:SetScript("OnClick", function(self) if not TSOff() then cogShow(self) end end)
-                EllesmereUI.RegisterWidgetRefresh(function() cogBtn:SetAlpha(TSOff() and 0.15 or 0.4) end)
+                cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+                cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
             end
 
             -- Row 2: Icon Position (+ cog for X/Y) | Growth Direction
@@ -4189,8 +4195,6 @@ initFrame:SetScript("OnEvent", function(self)
 
             row, h = W:DualRow(parent, y,
                 { type="dropdown", text="Icon Position", values=tsPositionValues, order=tsPositionOrder,
-                  disabled=function() return SVal("tsRaidMode", "never") == "never" end,
-                  disabledTooltip="Enable Targeted Spells",
                   getValue=function() return string.lower(SVal("tsRaidPosition", "center")) end,
                   setValue=function(v)
                       SSet("tsRaidPosition", v)
@@ -4199,8 +4203,6 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI:RefreshPage()
                   end },
                 { type="dropdown", text="Growth Direction", values=tsGrowValues, order=tsGrowOrder,
-                  disabled=function() return SVal("tsRaidMode", "never") == "never" end,
-                  disabledTooltip="Enable Targeted Spells",
                   getValue=function() return SVal("tsRaidGrowDirection", "CENTER") end,
                   setValue=function(v) SSet("tsRaidGrowDirection", v); TSApply() end });  y = y - h
             -- Cog for targeted spells offset X/Y
@@ -4222,13 +4224,14 @@ initFrame:SetScript("OnEvent", function(self)
                 cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = cogBtn
                 cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                cogBtn:SetAlpha((SVal("tsRaidMode", "never") ~= "never") and 0.4 or 0.15)
+                cogBtn:SetAlpha(0.4)
                 local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
                 cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
                 cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha((SVal("tsRaidMode", "never") ~= "never") and 0.4 or 0.15) end)
+                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
                 cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
             end
+            end   -- close Targeted Spells (raid) hidden-while-disabled gate
 
             _secY = y
         end
@@ -5479,16 +5482,19 @@ initFrame:SetScript("OnEvent", function(self)
                   values={ never="Never", whenHealing="When Healing", always="Always" },
                   order={ "never", "whenHealing", "always" },
                   getValue=function() return SVal("tsMode", "whenHealing") end,
-                  setValue=function(v) SSet("tsMode", v); TSApply(); EllesmereUI:RefreshPage() end },
+                  -- DependentSetValue: rows below are HIDDEN while Never; only
+                  -- the Never <-> enabled flip forces the full rebuild.
+                  setValue=EllesmereUI.DependentSetValue(
+                      function() return SVal("tsMode", "whenHealing") ~= "never" end,
+                      function(v) SSet("tsMode", v); TSApply(); EllesmereUI:RefreshPage() end) },
+                (SVal("tsMode", "whenHealing") == "never") and { type="label", text="" } or
                 { type="slider", text="Icon Size", min=12, max=48, step=1,
-                  disabled=function() return SVal("tsMode", "whenHealing") == "never" end,
-                  disabledTooltip="Enable Targeted Spells",
                   getValue=function() return SVal("tsIconSize", 24) end,
                   setValue=function(v) SSet("tsIconSize", v); TSApply() end });  y = y - h
+            if SVal("tsMode", "whenHealing") ~= "never" then
             -- Inline cog on Icon Size: Icon Zoom
             do
                 local rgn = row._rightRegion
-                local function TSOff() return SVal("tsMode", "whenHealing") == "never" end
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Icon Zoom",
                     rows = {
@@ -5502,13 +5508,12 @@ initFrame:SetScript("OnEvent", function(self)
                 cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = cogBtn
                 cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                cogBtn:SetAlpha(TSOff() and 0.15 or 0.4)
+                cogBtn:SetAlpha(0.4)
                 local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
                 cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-                cogBtn:SetScript("OnEnter", function(self) if not TSOff() then self:SetAlpha(0.7) end end)
-                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(TSOff() and 0.15 or 0.4) end)
-                cogBtn:SetScript("OnClick", function(self) if not TSOff() then cogShow(self) end end)
-                EllesmereUI.RegisterWidgetRefresh(function() cogBtn:SetAlpha(TSOff() and 0.15 or 0.4) end)
+                cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+                cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
             end
 
             -- Row 2: Icon Position (+ cog for X/Y) | Growth Direction
@@ -5538,8 +5543,6 @@ initFrame:SetScript("OnEvent", function(self)
 
             row, h = W:DualRow(parent, y,
                 { type="dropdown", text="Icon Position", values=tsPositionValues, order=tsPositionOrder,
-                  disabled=function() return SVal("tsMode", "whenHealing") == "never" end,
-                  disabledTooltip="Enable Targeted Spells",
                   getValue=function() return string.lower(SVal("tsPosition", "center")) end,
                   setValue=function(v)
                       SSet("tsPosition", v)
@@ -5548,8 +5551,6 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI:RefreshPage()
                   end },
                 { type="dropdown", text="Growth Direction", values=tsGrowValues, order=tsGrowOrder,
-                  disabled=function() return SVal("tsMode", "whenHealing") == "never" end,
-                  disabledTooltip="Enable Targeted Spells",
                   getValue=function() return SVal("tsGrowDirection", "CENTER") end,
                   setValue=function(v) SSet("tsGrowDirection", v); TSApply() end });  y = y - h
             -- Cog for targeted spells offset X/Y
@@ -5571,13 +5572,14 @@ initFrame:SetScript("OnEvent", function(self)
                 cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = cogBtn
                 cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                cogBtn:SetAlpha((SVal("tsMode", "whenHealing") ~= "never") and 0.4 or 0.15)
+                cogBtn:SetAlpha(0.4)
                 local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
                 cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
                 cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha((SVal("tsMode", "whenHealing") ~= "never") and 0.4 or 0.15) end)
+                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
                 cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
             end
+            end   -- close Targeted Spells (party) hidden-while-disabled gate
         end
 
         -------------------------------------------------------------------
@@ -5809,7 +5811,7 @@ initFrame:SetScript("OnEvent", function(self)
               disabled=DefDisabled, disabledTooltip="Show Defensives & Externals",
               getValue=function() return SVal("defGrowDirection", "CENTER") end,
               setValue=function(v) SSet("defGrowDirection", v) end },
-            { type="slider", text="Size", min=10, max=40, step=1,
+            { type="slider", text="Size", min=10, max=60, step=1,
               disabled=DefDisabled, disabledTooltip="Show Defensives & Externals",
               getValue=function() return SVal("defSize", 22) end,
               setValue=function(v) SSet("defSize", v) end });  y = y - h
@@ -6053,7 +6055,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Row 2: Icon Size | Spacing
         _, h = W:DualRow(parent, y,
-            { type="slider", text="Icon Size", min=10, max=40, step=1,
+            { type="slider", text="Icon Size", min=10, max=60, step=1,
               getValue=function() return SVal("paSize", 20) end,
               setValue=function(v) SSet("paSize", v) end },
             { type="slider", pixel=true, text="Spacing", min=-1, max=10, step=1,
@@ -6260,7 +6262,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 1: Debuff Size | Border Size (+ swatch)
         local dbBorderRow
         dbBorderRow, h = W:DualRow(parent, y,
-            { type="slider", text="Debuff Size", min=10, max=40, step=1,
+            { type="slider", text="Debuff Size", min=10, max=60, step=1,
               disabled=function() return SVal("debuffFilter", "all") == "none" end,
               disabledTooltip="Show Debuffs",
               getValue=function() return SVal("debuffSize", 18) end,

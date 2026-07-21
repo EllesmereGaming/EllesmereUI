@@ -76,6 +76,23 @@ function ns.GetBarGlows()
             assignments = {},
         }
     end
+    -- Live migration: colorMode replaced classColor + "glowColor set" nil check
+    if not prof.barGlows._colorModeMigrated then
+        prof.barGlows._colorModeMigrated = true
+        for _, buffList in pairs(prof.barGlows.assignments) do
+            for _, entry in ipairs(buffList) do
+                if not entry.colorMode then
+                    if entry.classColor then
+                        entry.colorMode = "class"
+                    elseif entry.glowColor then
+                        entry.colorMode = "custom"
+                    else
+                        entry.colorMode = "default"
+                    end
+                end
+            end
+        end
+    end
     return prof.barGlows
 end
 
@@ -270,17 +287,14 @@ local function UpdateOverlayVisuals()
                     if shapeName and shapeName ~= "square" and shapeName ~= "csquare" and shapeName ~= "none" then
                         style = 2
                     end
-                    local cr, cg, cb = 1, 0.82, 0.1
-                    if entry.classColor then
-                        local _, ct = UnitClass("player")
-                        if ct then
-                            local cc = RAID_CLASS_COLORS[ct]
-                            if cc then cr, cg, cb = cc.r, cc.g, cc.b end
-                        end
-                    elseif entry.glowColor then
+                    local cr, cg, cb
+                    if entry.colorMode == "class" then
+                        local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+                        cr, cg, cb = cc.r, cc.g, cc.b
+                    elseif entry.colorMode == "custom" and entry.glowColor then
                         cr = entry.glowColor.r or 1
-                        cg = entry.glowColor.g or 0.82
-                        cb = entry.glowColor.b or 0.1
+                        cg = entry.glowColor.g or 0.788
+                        cb = entry.glowColor.b or 0.137
                     end
                     StartNativeGlow(overlay, style, cr, cg, cb)
                 else

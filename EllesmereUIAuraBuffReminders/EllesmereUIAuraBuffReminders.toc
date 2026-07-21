@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Simple raid buff, auras, consumables and talent reminders.
 ## Author: Ellesmere
-## Version: 8.5.1
+## Version: 8.5.2
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIAuraBuffRemindersDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
