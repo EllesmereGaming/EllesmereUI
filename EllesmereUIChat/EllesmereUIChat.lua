@@ -138,6 +138,12 @@ local function EnsureDB()
     if not EUI.Lite then return nil end
     _chatDB = EUI.Lite.NewDB("EllesmereUIChatDB", CHAT_DEFAULTS)
     _G._ECHAT_DB = _chatDB
+    -- Persisted outside CHAT_DEFAULTS on purpose: StripDefaults must retain the
+    -- marker so a later profile export/import can distinguish this schema from
+    -- a pre-feature profile whose missing values meant the old visual defaults.
+    if _chatDB.profile and _chatDB.profile.chat then
+        _chatDB.profile.chat._featureOptionsVersion = 1
+    end
     -- One-time migration: mouseover -> always (idle fade replaces it)
     if _chatDB.profile and _chatDB.profile.chat
         and _chatDB.profile.chat.visibility == "mouseover" then
@@ -2352,6 +2358,9 @@ function ECHAT.ApplyTabBorders()
     -- Sync Style applies only while tabs are freestanding. In-panel tabs share
     -- the panel already and therefore never need an inherited per-tab style.
     local sync = cfg.extendBgBehindTabs ~= true and cfg.syncTabBorder ~= false
+    -- A synced tab border is the panel border rendered around each freestanding
+    -- tab, so inherit its layer as well as its texture, size, and color.
+    local showBehind = sync and cfg.panelBorderBehind == true
     local prefix = sync and "panelBorder" or "tabBorder"
     local function B(suffix, fallback)
         local value = cfg[prefix .. suffix]
@@ -2403,8 +2412,8 @@ function ECHAT.ApplyTabBorders()
                 host:ClearAllPoints()
                 host:SetAllPoints(tab)
             end
-            host:SetFrameStrata("DIALOG")
-            local level = max(100, tab:GetFrameLevel() + 20)
+            host:SetFrameStrata(showBehind and "BACKGROUND" or "DIALOG")
+            local level = showBehind and 0 or max(100, tab:GetFrameLevel() + 20)
             host:SetFrameLevel(level)
             host:SetAlpha(host:GetParent() == tab and 1 or tab:GetAlpha())
             EllesmereUI.ApplyBorderStyle(host, show and size or 0,
@@ -2412,7 +2421,9 @@ function ECHAT.ApplyTabBorders()
                 B("OffsetX", nil), B("OffsetY", nil),
                 B("ShiftX", nil), B("ShiftY", nil), "chat", thicknessKey)
             local solidBorder = PP and PP.GetBorders and PP.GetBorders(host)
-            if solidBorder then solidBorder:SetFrameLevel(level + 1) end
+            if solidBorder then
+                solidBorder:SetFrameLevel(level + (showBehind and 0 or 1))
+            end
             host:SetShown(show and size > 0 and tab:IsShown())
         end
     end

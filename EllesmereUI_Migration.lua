@@ -2113,6 +2113,27 @@ EllesmereUI.RegisterMigration({
 })
 
 EllesmereUI.RegisterMigration({
+    id          = "chat_feature_options_v1",
+    scope       = "global",
+    description = "Preserve the pre-feature Chat tab font size and independent inactive-tab background for existing profiles while adding the new Chat options.",
+    body = function(ctx)
+        local profiles = ctx.db and ctx.db.profiles
+        if not profiles then return end
+        for _, profileData in pairs(profiles) do
+            local addon = profileData.addons and profileData.addons.EllesmereUIChat
+            local chat = addon and addon.chat
+            -- A chat table means this profile existed before these options.
+            -- Only fill absent values: explicit user settings always win.
+            if chat and chat._featureOptionsVersion == nil then
+                if chat.tabFontSize == nil then chat.tabFontSize = 10 end
+                if chat.syncTabBorder == nil then chat.syncTabBorder = false end
+                chat._featureOptionsVersion = 1
+            end
+        end
+    end,
+})
+
+EllesmereUI.RegisterMigration({
     id          = "np_border_ellesmere_to_simple_v3",
     scope       = "profile",
     description = "No-op (superseded by np_border_v5).",

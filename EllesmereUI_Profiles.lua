@@ -1215,6 +1215,22 @@ function EllesmereUI.ApplyProfileData(profileData)
                         mm.omniumFolioMode = (mm.showOmniumFolio == false) and "never" or "always"
                     end
                 end
+                -- Old Chat exports predate the feature-options schema marker.
+                -- Seed the two legacy visual defaults before DeepMergeDefaults
+                -- can replace them with the defaults intended for new profiles.
+                -- Modern exports carry the marker and retain their sparse/default
+                -- semantics; explicit values from either format always win.
+                if entry.folder == "EllesmereUIChat"
+                    and type(profile.chat) == "table"
+                    and profile.chat._featureOptionsVersion == nil then
+                    if profile.chat.tabFontSize == nil then
+                        profile.chat.tabFontSize = 10
+                    end
+                    if profile.chat.syncTabBorder == nil then
+                        profile.chat.syncTabBorder = false
+                    end
+                    profile.chat._featureOptionsVersion = 1
+                end
                 if db._profileDefaults then
                     EllesmereUI.Lite.DeepMergeDefaults(profile, db._profileDefaults)
                 end
