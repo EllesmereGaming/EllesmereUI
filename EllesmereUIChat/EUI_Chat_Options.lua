@@ -122,13 +122,25 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 2: Background Opacity (+ inline color swatch) | Idle Fade Delay
-        local bgRow
-        bgRow, h = W:DualRow(parent, y,
-            { type="slider", text="Background Opacity",
-              min = 0, max = 1, step = 0.05,
-              getValue=function() return Cfg("bgAlpha") or 0.65 end,
-              setValue=function(v) Set("bgAlpha", v); RefreshAll() end },
+        -- Row 2: Background Color (including opacity) | Idle Fade Delay.
+        -- Keep the legacy split bgR/bgG/bgB/bgAlpha storage so existing profiles
+        -- retain their exact values without a data migration.
+        local backgroundSwatches = {
+            { tooltip="Background Color", hasAlpha=true,
+              getValue=function()
+                  local a = Cfg("bgAlpha")
+                  if a == nil then a = 0.65 end
+                  return Cfg("bgR") or 0.03, Cfg("bgG") or 0.045,
+                      Cfg("bgB") or 0.05, a
+              end,
+              setValue=function(r, g, b, a)
+                  Set("bgR", r); Set("bgG", g); Set("bgB", b); Set("bgAlpha", a)
+                  RefreshAll()
+              end,
+            },
+        }
+        _, h = W:DualRow(parent, y,
+            { type="multiSwatch", text="Background Color", swatches=backgroundSwatches },
             { type="slider", text="Idle Fade Delay",
               min = 5, max = 30, step = 1,
               disabled=function() return Cfg("idleFadeEnabled") == false end,
@@ -138,22 +150,6 @@ initFrame:SetScript("OnEvent", function(self)
                   Set("idleFadeDelay", v)
                   if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
               end })
-        do
-            local rgn = bgRow._leftRegion
-            local ctrl = rgn._control
-            local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
-                rgn, bgRow:GetFrameLevel() + 3,
-                function()
-                    return (Cfg("bgR") or 0.03), (Cfg("bgG") or 0.045), (Cfg("bgB") or 0.05)
-                end,
-                function(r, g, b)
-                    Set("bgR", r); Set("bgG", g); Set("bgB", b)
-                    RefreshAll()
-                end,
-                false, 20)
-            PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-            EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
-        end
         y = y - h
 
         -- Row 3: Idle Fade Strength | Font (+ cog: Outline Mode)
