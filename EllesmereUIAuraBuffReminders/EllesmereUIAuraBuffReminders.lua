@@ -2187,17 +2187,18 @@ local function ShowCombatIcon(iconIdx, m)
     combatActiveIcons[#combatActiveIcons+1] = f
 end
 
--- Left-align like OOC LayoutIcons so the pre-positioned provider cast button
--- (pinned TOPLEFT of combatAnchor OOC) stays slot 0 without SetPoint in combat.
+-- Left-align like OOC LayoutIcons. Slot 0 is reserved while the provider
+-- secure button is shown, and stays reserved after mid-combat hide until OOC
+-- park — SetPoint/EnableMouse are locked, so other icons must not slide under it.
 local function LayoutCombatIcons()
-    local providerVisible = EABR._providerCastVisible
+    local reserveSlot = EABR._providerCastVisible or EABR._providerCastCombatReserved
     local count = #combatActiveIcons
-    if count == 0 and not providerVisible then return end
+    if count == 0 and not reserveSlot then return end
     local p = db.profile.display
     local spacing = p.iconSpacing or 8
     local baseScale = p.scale or 1.0
     local sz = floor(ICON_SIZE * baseScale + 0.5)
-    local xOff = providerVisible and (sz + spacing) or 0
+    local xOff = reserveSlot and (sz + spacing) or 0
     for i, f in ipairs(combatActiveIcons) do
         f:SetSize(sz, sz)
         f:SetAlpha(p.opacity or 1.0)
@@ -2230,17 +2231,19 @@ end
 function EABR.ParkProviderCastButton()
     local btn = EABR._providerCastBtn
     if not btn then return end
+    local wasVisible = EABR._providerCastVisible
     EABR._providerCastVisible = false
     btn:SetAlpha(0)
     if btn._text then btn._text:SetText(""); btn._text:Hide() end
     if btn._eabrGlowWrapper then btn._eabrGlowWrapper:Hide() end
     if InCombatLockdown() then
-        pcall(function() -- EnableMouse/SetPoint protected under lockdown
-            if btn.SetMouseClickEnabled then btn:SetMouseClickEnabled(false) end
-            if btn.SetMouseMotionEnabled then btn:SetMouseMotionEnabled(false) end
-        end)
+        -- Slot stays reserved; move/mouse changes are protected under lockdown.
+        if wasVisible or EABR._providerCastCombatReserved then
+            EABR._providerCastCombatReserved = true
+        end
         return
     end
+    EABR._providerCastCombatReserved = false
     btn:EnableMouse(false)
     btn:ClearAllPoints()
     btn:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10000, 10000)
@@ -2326,6 +2329,7 @@ function EABR.SetProviderCastCombatVisible(visible, m)
         return
     end
     EABR._providerCastVisible = true
+    EABR._providerCastCombatReserved = true
     btn._dismissKey = m.dismissKey or nil
     local spellID = m.spellID or EABR._providerCastSpell
     btn._icon:SetTexture(m.texture or Tex(spellID) or 134400)
@@ -2353,11 +2357,6 @@ function EABR.SetProviderCastCombatVisible(visible, m)
     if not InCombatLockdown() then
         EABR.LayoutProviderCastHome()
         btn:EnableMouse(true)
-    else
-        pcall(function()
-            if btn.SetMouseClickEnabled then btn:SetMouseClickEnabled(true) end
-            if btn.SetMouseMotionEnabled then btn:SetMouseMotionEnabled(true) end
-        end)
     end
     btn:SetAlpha((p and p.opacity) or 1)
 end
