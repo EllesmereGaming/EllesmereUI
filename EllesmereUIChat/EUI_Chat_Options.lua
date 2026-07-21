@@ -484,6 +484,67 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshBorderSwatches()
             end
 
+            _, h = W:SectionHeader(parent, "INPUT BOX", y); y = y - h
+            do
+                local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
+                fontValues["__chat"] = { text="Use Chat Font" }
+                table.insert(fontOrder, 1, "__chat")
+                _, h = W:DualRow(parent, y,
+                    { type="dropdown", text="Input Font",
+                      values=fontValues, order=fontOrder,
+                      getValue=function()
+                          return Cfg("inputFont") or "__chat"
+                      end,
+                      setValue=function(v)
+                          Set("inputFont", v)
+                          if ECHAT.ApplyFonts then ECHAT.ApplyFonts() end
+                      end },
+                    { type="slider", text="Input Font Size",
+                      min=8, max=24, step=1,
+                      getValue=function()
+                          if Cfg("inputFontSize") then
+                              return Cfg("inputFontSize")
+                          end
+                          return ECHAT.GetInputFontSize
+                              and ECHAT.GetInputFontSize(1) or 12
+                      end,
+                      setValue=function(v)
+                          Set("inputFontSize", v)
+                          if ECHAT.ApplyFonts then ECHAT.ApplyFonts() end
+                      end })
+                y = y - h
+
+                local inputPositionValues = {
+                    top    = { text="Top" },
+                    bottom = { text="Bottom" },
+                    inner  = { text="On Tab Bar" },
+                }
+                _, h = W:DualRow(parent, y,
+                    { type="dropdown", text="Input Position",
+                      tooltip="On Tab Bar places the chat input inside the tab row and fades the tabs while input is active.",
+                      values=inputPositionValues,
+                      order={"top", "bottom", "inner"},
+                      getValue=function()
+                          local mode = Cfg("inputPosition")
+                          if mode == "top" or mode == "bottom"
+                              or mode == "inner" then
+                              return mode
+                          end
+                          if Cfg("inputInTabBar") == true then return "inner" end
+                          return Cfg("inputOnTop") == true and "top" or "bottom"
+                      end,
+                      setValue=function(v)
+                          Set("inputPosition", v)
+                          Set("inputOnTop", nil)
+                          Set("inputInTabBar", nil)
+                          if ECHAT.ApplyInputPosition then
+                              ECHAT.ApplyInputPosition()
+                          end
+                      end },
+                    { type="label", text="" })
+                y = y - h
+            end
+
         end -- isChat
 
         -- -- SIDEBAR -----------------------------------------------------------
@@ -606,7 +667,88 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 2: Sidebar Icons Color | (empty)
+        -- Row 2: detach the sidebar from the chat panel. Its cog controls the
+        -- physical gap while the detached panel inherits chat styling.
+        local separateRow
+        separateRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Separate Sidebar",
+              tooltip="Separates the sidebar from the chat panel and gives it the same background and border.",
+              getValue=function() return Cfg("sidebarSeparate") or false end,
+              setValue=function(v)
+                  Set("sidebarSeparate", v)
+                  if ECHAT.ApplySidebarPosition then ECHAT.ApplySidebarPosition() end
+                  if ECHAT.ApplySidebarIcons then ECHAT.ApplySidebarIcons() end
+                  if ECHAT.ApplyBorders then ECHAT.ApplyBorders() end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="toggle", text="Align Tabs to Sidebar",
+              tooltip="Extends the tab bar to the outer edge of a visible left sidebar.",
+              disabled=function()
+                  return Cfg("sidebarSeparate") == true
+                      or Cfg("extendBgBehindTabs") == true
+                      or (Cfg("sidebarVisibility") or "always") ~= "always"
+                      or Cfg("sidebarRight") == true
+              end,
+              disabledTooltip=function()
+                  if Cfg("extendBgBehindTabs") then
+                      return "Tabs Inside Chat Panel"
+                  end
+                  if Cfg("sidebarRight") then
+                      return "Requires the sidebar on the left"
+                  end
+                  if (Cfg("sidebarVisibility") or "always") ~= "always" then
+                      return "Requires a visible sidebar"
+                  end
+                  if Cfg("sidebarSeparate") then return "Separate Sidebar" end
+                  return "Requires the sidebar on the left"
+              end,
+              getValue=function()
+                  return Cfg("extendBgBehindTabs") ~= true
+                      and Cfg("sidebarRight") ~= true
+                      and (Cfg("sidebarVisibility") or "always") == "always"
+                      and (Cfg("sidebarSeparate") == true
+                          or Cfg("alignTabsToPanel") or false)
+              end,
+              setValue=function(v)
+                  Set("alignTabsToPanel", v)
+                  if ECHAT.ApplyTabPadding then ECHAT.ApplyTabPadding() end
+              end })
+        do
+            local lrgn = separateRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Separate Sidebar",
+                rows = {
+                    { type="slider", pixel=true, label="Sidebar Spacing",
+                      min=0, max=30, step=1,
+                      get=function() return Cfg("sidebarSeparateSpacing") or 8 end,
+                      set=function(v)
+                          Set("sidebarSeparateSpacing", v)
+                          if ECHAT.ApplySidebarPosition then ECHAT.ApplySidebarPosition() end
+                      end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, lrgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
+            lrgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(lrgn:GetFrameLevel() + 5)
+            local function CogAlpha(hover)
+                if not Cfg("sidebarSeparate") then return 0.2 end
+                return hover and 0.7 or 0.4
+            end
+            cogBtn:SetAlpha(CogAlpha(false))
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(CogAlpha(true)) end)
+            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(CogAlpha(false)) end)
+            cogBtn:SetScript("OnClick", function(s)
+                if Cfg("sidebarSeparate") then cogShow(s) end
+            end)
+        end
+        y = y - h
+
+        -- Row 3: Sidebar Icons Color | (empty)
         local function MakeIconColorSwatches()
             return {
                 { tooltip = "Custom Color",
@@ -733,37 +875,58 @@ initFrame:SetScript("OnEvent", function(self)
         end -- isSidebar
 
         if isTabs then
-            local function FontColorSwatch(active)
-                local key = active and "tabFontColorActive" or "tabFontColor"
-                local fallback = active and {r=1,g=1,b=1,a=1} or {r=1,g=1,b=1,a=.65}
+            local function ActiveColorSwatches(valueKey, modeKey, fallback)
+                local function Mode() return Cfg(modeKey) or "custom" end
+                local function ApplyMode(mode)
+                    Set(modeKey, mode)
+                    if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
+                    EllesmereUI:RefreshPage()
+                end
                 return {
-                    { tooltip=active and "Active Tab Font Color" or "Tab Font Color", hasAlpha=true,
+                    { tooltip="Accent Color", hasAlpha=false,
+                      getValue=function() return EllesmereUI.GetAccentColor() end,
+                      setValue=function() end,
+                      onClick=function() ApplyMode("accent") end,
+                      refreshAlpha=function() return Mode()=="accent" and 1 or .3 end },
+                    { tooltip="Class Color", hasAlpha=false,
                       getValue=function()
-                          local c=Cfg(key) or fallback
+                          local _,cl=UnitClass("player")
+                          local c=cl and RAID_CLASS_COLORS and RAID_CLASS_COLORS[cl]
+                          return c and c.r or 1,c and c.g or 1,c and c.b or 1
+                      end,
+                      setValue=function() end,
+                      onClick=function() ApplyMode("class") end,
+                      refreshAlpha=function() return Mode()=="class" and 1 or .3 end },
+                    { tooltip="Custom Color", hasAlpha=true,
+                      getValue=function()
+                          local c=Cfg(valueKey) or fallback
                           return c.r,c.g,c.b,c.a == nil and fallback.a or c.a
                       end,
                       setValue=function(r,g,b,a)
-                          Set(key,{r=r,g=g,b=b,a=a})
+                          Set(valueKey,{r=r,g=g,b=b,a=a})
+                          Set(modeKey,"custom")
                           if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
-                      end },
+                      end,
+                      onClick=function(self)
+                          if Mode() ~= "custom" then ApplyMode("custom"); return end
+                          if self._eabOrigClick then self._eabOrigClick(self) end
+                      end,
+                      refreshAlpha=function() return Mode()=="custom" and 1 or .3 end },
                 }
             end
             local function TabStyleSynced()
                 return Cfg("extendBgBehindTabs") ~= true and Cfg("syncTabBorder") ~= false
             end
-            local function TabBackgroundSwatch(active)
-                local key = active and "tabBackgroundColorActive" or "tabBackgroundColor"
-                local fallback = active
-                    and {r=.03,g=.045,b=.05,a=.65}
-                    or {r=.03,g=.045,b=.05,a=.44}
+            local function TabBackgroundSwatch()
+                local fallback = {r=.03,g=.045,b=.05,a=.44}
                 return {
-                    { tooltip=active and "Active Tab Background Color" or "Tab Background Color", hasAlpha=true,
+                    { tooltip="Tab Background Color", hasAlpha=true,
                       getValue=function()
-                          local c=Cfg(key) or fallback
+                          local c=Cfg("tabBackgroundColor") or fallback
                           return c.r,c.g,c.b,c.a == nil and fallback.a or c.a
                       end,
                       setValue=function(r,g,b,a)
-                          Set(key,{r=r,g=g,b=b,a=a})
+                          Set("tabBackgroundColor",{r=r,g=g,b=b,a=a})
                           if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
                       end,
                     },
@@ -824,10 +987,14 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
                 y = y - h
             end
-            _, h = W:SectionHeader(parent, "ACTIVE INDICATOR", y); y = y - h
+            _, h = W:SectionHeader(parent, "ACTIVE TAB INDICATOR", y); y = y - h
             _, h = W:DualRow(parent, y,
-                { type="multiSwatch", text="Active Font Color", swatches=FontColorSwatch(true) },
-                { type="multiSwatch", text="Active Background Color", swatches=TabBackgroundSwatch(true) })
+                { type="multiSwatch", text="Active Font Color",
+                  swatches=ActiveColorSwatches("tabFontColorActive",
+                      "tabFontColorActiveMode", {r=1,g=1,b=1,a=1}) },
+                { type="multiSwatch", text="Active Background Color",
+                  swatches=ActiveColorSwatches("tabBackgroundColorActive",
+                      "tabBackgroundColorActiveMode", {r=.03,g=.045,b=.05,a=.65}) })
             y = y - h
 
             local function UnderlineSwatches()
@@ -877,24 +1044,55 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local underlineRow
             underlineRow, h = W:DualRow(parent, y,
-                { type="multiSwatch", text="Active Underline", swatches=UnderlineSwatches(), rightInset=48 },
-                { type="multiSwatch", text="Active Border Color", swatches=ActiveBorderSwatch() })
+                { type="multiSwatch", text="Active Underline", swatches=UnderlineSwatches(), rightInset=48,
+                  disabled=function() return Cfg("extendBgBehindTabs") ~= true end,
+                  disabledTooltip="Tabs Inside Chat Panel" },
+                { type="multiSwatch", text="Active Border Color", swatches=ActiveBorderSwatch(), rightInset=48,
+                  disabled=function() return Cfg("extendBgBehindTabs") == true end,
+                  disabledTooltip="Available only while tabs are outside the chat panel." })
             do
                 local rgn = underlineRow._leftRegion
                 local toggle, _, refreshToggle = EllesmereUI.BuildToggleControl(
                     rgn, underlineRow:GetFrameLevel() + 3,
                     function() return Cfg("activeUnderline") ~= false end,
                     function(v)
+                        if Cfg("extendBgBehindTabs") ~= true then return end
                         Set("activeUnderline", v)
                         if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
                     end)
                 toggle:SetPoint("RIGHT", rgn, "RIGHT", -20, 0)
                 rgn._lastInline = toggle
-                EllesmereUI.RegisterWidgetRefresh(refreshToggle)
+                local function Refresh()
+                    refreshToggle()
+                    local enabled = Cfg("extendBgBehindTabs") == true
+                    if toggle.SetEnabled then toggle:SetEnabled(enabled) end
+                    toggle:SetAlpha(enabled and 1 or .25)
+                end
+                EllesmereUI.RegisterWidgetRefresh(Refresh); Refresh()
+            end
+            do
+                local rgn = underlineRow._rightRegion
+                local toggle, _, refreshToggle = EllesmereUI.BuildToggleControl(
+                    rgn, underlineRow:GetFrameLevel() + 3,
+                    function() return Cfg("activeTabBorder") ~= false end,
+                    function(v)
+                        if Cfg("extendBgBehindTabs") == true then return end
+                        Set("activeTabBorder", v)
+                        if ECHAT.ApplyTabBorders then ECHAT.ApplyTabBorders() end
+                    end)
+                toggle:SetPoint("RIGHT", rgn, "RIGHT", -20, 0)
+                rgn._lastInline = toggle
+                local function Refresh()
+                    refreshToggle()
+                    local enabled = Cfg("extendBgBehindTabs") ~= true
+                    if toggle.SetEnabled then toggle:SetEnabled(enabled) end
+                    toggle:SetAlpha(enabled and 1 or .25)
+                end
+                EllesmereUI.RegisterWidgetRefresh(Refresh); Refresh()
             end
             y = y - h
 
-            _, h = W:SectionHeader(parent, "LAYOUT & BORDER", y); y = y - h
+            _, h = W:SectionHeader(parent, "LAYOUT", y); y = y - h
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Tabs Inside Chat Panel",
                   tooltip="Places the tabs inside one continuous chat panel background, including the sidebar when visible.",
@@ -906,25 +1104,7 @@ initFrame:SetScript("OnEvent", function(self)
                       if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
                       EllesmereUI:RefreshPage()
                   end },
-                { type="toggle", text="Align Tabs to Full Panel",
-                  tooltip="Aligns the tab bar to the outer sidebar edge instead of only the chat panel edge.",
-                  disabled=function()
-                      return Cfg("extendBgBehindTabs") == true
-                          or (Cfg("sidebarVisibility") or "always") == "never"
-                          or Cfg("sidebarRight") == true
-                  end,
-                  disabledTooltip=function()
-                      if Cfg("extendBgBehindTabs") then return "Tabs Inside Chat Panel" end
-                      if (Cfg("sidebarVisibility") or "always") == "never" then
-                          return "Requires a visible sidebar"
-                      end
-                      return "Requires the sidebar on the left"
-                  end,
-                  getValue=function() return Cfg("alignTabsToPanel") or false end,
-                  setValue=function(v)
-                      Set("alignTabsToPanel", v)
-                      if ECHAT.ApplyTabPadding then ECHAT.ApplyTabPadding() end
-                  end })
+                { type="label", text="" })
             y = y - h
 
             _, h = W:DualRow(parent, y,
@@ -966,11 +1146,6 @@ initFrame:SetScript("OnEvent", function(self)
                 return Cfg("extendBgBehindTabs") ~= true and Cfg("syncTabBorder") ~= false
             end
             _, h = W:DualRow(parent, y,
-                { type="multiSwatch", text="Tab Background Color", swatches=TabBackgroundSwatch(false),
-                  disabled=TabStyleSynced, disabledTooltip="Sync Style with Chat Panel" },
-                { type="label", text="" })
-            y = y - h
-            _, h = W:DualRow(parent, y,
                 { type="toggle", text="Sync Style with Chat Panel",
                   tooltip="Synchronizes both the tab border and background with the chat panel. This is available only while the tabs are outside the chat panel.",
                   disabled=function() return Cfg("extendBgBehindTabs") == true end,
@@ -984,6 +1159,43 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
                 { type="label", text="" })
             y = y - h
+            do
+                if ECHAT.RefreshBgTextureCatalogue then
+                    ECHAT.RefreshBgTextureCatalogue()
+                end
+                local textureValues, textureOrder = {}, {}
+                local textureNames = ns.chatBgTextureNames or {}
+                for _, key in ipairs(ns.chatBgTextureOrder or {}) do
+                    if key ~= "---" then
+                        textureValues[key] = textureNames[key] or key
+                        textureOrder[#textureOrder + 1] = key
+                    end
+                end
+                local textureLookup = ns.chatBgTextures or {}
+                textureValues._menuOpts = {
+                    itemHeight = 28,
+                    background = function(key) return textureLookup[key] end,
+                }
+                _, h = W:DualRow(parent, y,
+                    { type="multiSwatch", text="Tab Background Color", swatches=TabBackgroundSwatch(),
+                      disabled=TabStyleSynced, disabledTooltip="Sync Style with Chat Panel" },
+                    { type="dropdown", text="Tab Background Texture",
+                      tooltip="Texture drawn over the tab background color.",
+                      disabled=TabStyleSynced,
+                      disabledTooltip="Sync Style with Chat Panel",
+                      values=textureValues, order=textureOrder,
+                      getValue=function()
+                          return Cfg("tabBackgroundTexture") or "none"
+                      end,
+                      setValue=function(v)
+                          Set("tabBackgroundTexture", v)
+                          if ECHAT.ApplyTabAppearance then
+                              ECHAT.ApplyTabAppearance()
+                          end
+                      end })
+                y = y - h
+            end
+
             local tabBordersDisabled = function()
                 return Cfg("extendBgBehindTabs") == true or syncTabs()
             end
@@ -1190,43 +1402,16 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 2: Input Position | Lock Main Chat Size
-        local inputPositionValues = {
-            top    = { text="Top" },
-            bottom = { text="Bottom" },
-            inner  = { text="Inner" },
-        }
+        -- Row 2: Lock Main Chat Size | (empty)
         _, h = W:DualRow(parent, y,
-            { type="dropdown", text="Input Position",
-              tooltip="Inner places the chat input inside the tab bar and fades the tabs while input is active.",
-              values=inputPositionValues, order={"top", "bottom", "inner"},
-              itemDisabled=function(v)
-                  return v == "inner" and Cfg("extendBgBehindTabs") ~= true
-              end,
-              itemDisabledTooltip=function(v)
-                  if v == "inner" then return "Tabs Inside Chat Panel" end
-              end,
-              getValue=function()
-                  local mode = Cfg("inputPosition")
-                  if mode == "top" or mode == "bottom" or mode == "inner" then
-                      return mode
-                  end
-                  if Cfg("inputInTabBar") == true then return "inner" end
-                  return Cfg("inputOnTop") == true and "top" or "bottom"
-              end,
-              setValue=function(v)
-                  Set("inputPosition", v)
-                  Set("inputOnTop", nil)
-                  Set("inputInTabBar", nil)
-                  if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
-              end },
             { type="toggle", text="Lock Main Chat Size",
               tooltip="Hides the resize handle on the main chat frame, preventing accidental resizing.",
               getValue=function() return Cfg("lockChatSize") or false end,
               setValue=function(v)
                   Set("lockChatSize", v)
                   if ECHAT.ApplyLockChatSize then ECHAT.ApplyLockChatSize() end
-              end })
+              end },
+            { type="label", text="" })
         y = y - h
 
         -- Row 3: Whisper Sound | (empty)

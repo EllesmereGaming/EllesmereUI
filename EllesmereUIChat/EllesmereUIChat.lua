@@ -67,7 +67,10 @@ local CHAT_DEFAULTS = {
             tabFontSize = 11,
             tabFontColor = { r=1, g=1, b=1, a=0.65 },
             tabFontColorActive = { r=1, g=1, b=1, a=1 },
+            tabFontColorActiveMode = "custom",
             sidebarVisibility = "always",
+            sidebarSeparate = false,
+            sidebarSeparateSpacing = 8,
             hideBorders = false,
             innerBorderColor = { r=1, g=1, b=1, a=0.06 },
             extendBgBehindTabs = false,
@@ -86,11 +89,14 @@ local CHAT_DEFAULTS = {
             tabBorderColor = { r=1, g=1, b=1 },
             tabBorderOpacity = 0.18,
             tabBorderColorActive = { r=1, g=1, b=1, a=0.18 },
+            activeTabBorder = true,
             alignTabsToPanel = false,
             tabHeight = 24,
             tabInnerPaddingX = 12,
+            tabBackgroundTexture = "none",
             tabBackgroundColor = { r=0.03, g=0.045, b=0.05, a=0.44 },
             tabBackgroundColorActive = { r=0.03, g=0.045, b=0.05, a=0.65 },
+            tabBackgroundColorActiveMode = "custom",
             activeUnderline = true,
             activeUnderlineColorMode = "accent",
             activeUnderlineColor = { r=0.05, g=0.82, b=0.61, a=1 },
@@ -112,6 +118,7 @@ local CHAT_DEFAULTS = {
             idleFadeDelay = 15,
             idleFadeStrength = 40,
             idleFadeEnabled = true,
+            inputFont = "__chat",
             inputPosition = "bottom",
             lockChatSize = false,
             hideSidebarBg = false,
@@ -201,6 +208,7 @@ local _idleFadeActive = false
 local FADE_IN_DURATION = 0.35
 local FADE_OUT_DURATION = 1.0
 local IDLE_FADE_OUT_DURATION = 2.0
+local INPUT_TAB_FADE_OUT_DURATION = 0.12
 local _chatAlphaTarget = 1
 local _chatAlphaCurrent = 1
 local _chatFadeFrame = CreateFrame("Frame")
@@ -213,12 +221,6 @@ _tabFadeFrame:Hide()
 local _euiDockStyled
 local _dockAlphaHooked = false
 local _inputInTabBarActive = false
-
--- Tabs never idle-fade. This fixed target also lets the SetAlpha hooks below
--- override Blizzard's own dock/tab fade while preserving visibility rules.
-local function GetEffectiveTabAlpha()
-    return _inputInTabBarActive and 0 or 1
-end
 
 local function SetTabAlphaTarget(alpha)
     _tabAlphaTarget = min(alpha, _visAlpha)
@@ -244,6 +246,70 @@ local function ApplyTabFadeAlpha(alpha)
     ECHAT._applyingTabAlpha = false
 end
 
+local GetFrameFontSize
+
+local function GetInputFont()
+    local cfg = ECHAT.DB()
+    local fontKey = cfg.inputFont or "__chat"
+    if fontKey == "__chat" then return GetFont() end
+    if fontKey == "__global" then
+        return (EUI.GetFontPath and EUI.GetFontPath("chat"))
+            or STANDARD_TEXT_FONT
+    end
+    return (EUI.ResolveFontName and EUI.ResolveFontName(fontKey))
+        or STANDARD_TEXT_FONT
+end
+
+local function GetInputFontSize(id)
+    local configured = ECHAT.DB().inputFontSize
+    if configured then return configured end
+    return GetFrameFontSize(id)
+end
+ECHAT.GetInputFontSize = GetInputFontSize
+
+-- Blizzard can rewrite individual dock-tab alpha after its chat update. The
+-- deferred SetAlpha hook below is safe but leaves the wrong value visible for
+-- one rendered frame. This late addon-owned OnUpdate guard runs outside the
+-- secure Blizzard call chain and restores only values that actually changed,
+-- preventing that one-frame flash without mutating from inside the hook.
+local _tabAlphaGuardFrame = CreateFrame("Frame")
+_tabAlphaGuardFrame:SetScript("OnUpdate", function()
+    local wanted = _tabAlphaCurrent
+    ECHAT._applyingTabAlpha = true
+
+    local dock = _G.GeneralDockManager
+    if _euiDockStyled and dock and abs((dock:GetAlpha() or 1) - 1) > 0.001 then
+        dock:SetAlpha(1)
+    end
+
+    for i = 1, 20 do
+        local tab = _G["ChatFrame" .. i .. "Tab"]
+        if tab and CFD(tab).skinned then
+            if abs((tab:GetAlpha() or 1) - wanted) > 0.001 then
+                tab:SetAlpha(wanted)
+            end
+            local border = CFD(tab).panelBorder
+            if border then
+                local borderAlpha = border:GetParent() == tab and 1 or wanted
+                if abs((border:GetAlpha() or 1) - borderAlpha) > 0.001 then
+                    border:SetAlpha(borderAlpha)
+                end
+            end
+        end
+    end
+
+    local overflow = _G.GeneralDockManagerOverflowButton
+    local overflowAlpha = wanted * 0.5
+    if overflow and abs((overflow:GetAlpha() or 1) - overflowAlpha) > 0.001 then
+        overflow:SetAlpha(overflowAlpha)
+    end
+    local separator = ns._tabPanelBottomSeparator
+    if separator and abs((separator:GetAlpha() or 1) - wanted) > 0.001 then
+        separator:SetAlpha(wanted)
+    end
+    ECHAT._applyingTabAlpha = false
+end)
+
 -- Blizzard continuously writes dock/tab alpha for its own idle fade. Reassert
 -- our final alpha on the next tick, outside Blizzard's secure update chain.
 local _tabAlphaEnforceQueued = false
@@ -258,8 +324,16 @@ end
 
 _tabFadeFrame:SetScript("OnUpdate", function(self, dt)
     if _tabAlphaCurrent == _tabAlphaTarget then self:Hide(); return end
-    local duration = _tabAlphaTarget > _tabAlphaCurrent and FADE_IN_DURATION
-        or FADE_OUT_DURATION
+    local duration
+    if _tabAlphaTarget > _tabAlphaCurrent then
+        duration = FADE_IN_DURATION
+    elseif _inputInTabBarActive then
+        -- The edit box occupies the tab row immediately; make the hand-off feel
+        -- responsive instead of using the deliberately slow normal fade-out.
+        duration = INPUT_TAB_FADE_OUT_DURATION
+    else
+        duration = FADE_OUT_DURATION
+    end
     local speed = dt / duration
     if _tabAlphaTarget > _tabAlphaCurrent then
         _tabAlphaCurrent = min(_tabAlphaTarget, _tabAlphaCurrent + speed)
@@ -334,7 +408,7 @@ end
 _euiDockStyled = false
 -- Chat frame text size is controlled by Blizzard's per-frame setting
 -- (right-click tab -> Font Size). We only control font family + outline.
-local function GetFrameFontSize(id)
+GetFrameFontSize = function(id)
     if FCF_GetChatWindowInfo then
         local _, fontSize = FCF_GetChatWindowInfo(id)
         if fontSize and fontSize > 0 then return fontSize end
@@ -447,17 +521,293 @@ function ECHAT.ApplyBackground()
             end
         end
     end
-    -- Update sidebar bg
+    -- Update sidebar bg with the same color and texture as the chat panel.
     local cf1 = _G.ChatFrame1
     if cf1 and CFD(cf1).sidebar then
         local sbBg = CFD(cf1).sidebar:GetRegions()
-        if sbBg and sbBg.SetColorTexture then
-            sbBg:SetColorTexture(BG_R, BG_G, BG_B, BG_A)
+        if sbBg then
+            if texPath and sbBg.SetTexture then
+                sbBg:SetTexture(texPath)
+                sbBg:SetVertexColor(BG_R, BG_G, BG_B, BG_A)
+            elseif sbBg.SetColorTexture then
+                if sbBg.SetVertexColor then sbBg:SetVertexColor(1, 1, 1, 1) end
+                sbBg:SetColorTexture(BG_R, BG_G, BG_B, BG_A)
+            end
         end
     end
     -- Keep the behind-tabs extension in sync with the new color/opacity.
     if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
+    if ECHAT.ApplyExternalInputBar then ECHAT.ApplyExternalInputBar() end
     if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
+end
+
+local function ResolveChatBackgroundTexture(textureKey)
+    if not textureKey or textureKey == "none" then return nil end
+    ECHAT.RefreshBgTextureCatalogue()
+    if EllesmereUI.ResolveTexturePath then
+        return EllesmereUI.ResolveTexturePath(
+            ns.chatBgTextures, textureKey, nil)
+    end
+    return ns.chatBgTextures[textureKey]
+end
+
+local function ApplyChatBackgroundTexture(texture, textureKey, r, g, b, a)
+    if not texture then return end
+    local path = ResolveChatBackgroundTexture(textureKey)
+    if path and texture.SetTexture then
+        texture:SetTexture(path)
+        texture:SetVertexColor(r, g, b, a)
+    elseif texture.SetColorTexture then
+        -- Remove the previous file-texture tint before returning to a solid.
+        if texture.SetVertexColor then texture:SetVertexColor(1, 1, 1, 1) end
+        texture:SetColorTexture(r, g, b, a)
+    end
+end
+
+-- Horizontal span used by the tab-row input. A connected, visible sidebar is
+-- part of the same panel; a detached or disabled sidebar is not.
+local function GetTabInputEdges(cfg, bg)
+    local cf1 = _G.ChatFrame1
+    if not cf1 or bg ~= CFD(cf1).bg then
+        return bg, "TOPLEFT", bg, "TOPRIGHT"
+    end
+    local sb = cf1 and CFD(cf1).sidebar
+    local includeSidebar = sb and not cfg.sidebarSeparate
+        and (cfg.sidebarVisibility or "always") ~= "never"
+    if includeSidebar and cfg.sidebarRight then
+        return bg, "TOPLEFT", sb, "TOPRIGHT"
+    elseif includeSidebar then
+        return sb, "TOPLEFT", bg, "TOPRIGHT"
+    end
+    return bg, "TOPLEFT", bg, "TOPRIGHT"
+end
+
+-- The edit box is parented to ChatFrame1 and therefore cannot anchor directly
+-- to the sidebar (the sidebar itself depends on ChatFrame1's background).
+-- Represent the same combined span as numeric offsets to avoid an anchor loop.
+local function GetTabInputOffsets(cfg, cf)
+    local leftOffset, rightOffset = -10, 10
+    local cf1 = _G.ChatFrame1
+    if cf ~= cf1 then return leftOffset, rightOffset end
+    local sb = CFD(cf1).sidebar
+    local includeSidebar = sb and not cfg.sidebarSeparate
+        and (cfg.sidebarVisibility or "always") ~= "never"
+    if includeSidebar then
+        local width = sb:GetWidth() or 40
+        if cfg.sidebarRight then
+            rightOffset = rightOffset + width
+        else
+            leftOffset = leftOffset - width
+        end
+    end
+    return leftOffset, rightOffset
+end
+
+-- A detached sidebar gets its own copy of the chat panel's outer border. It is
+-- parented to the sidebar so mouseover visibility and chat fading are inherited.
+function ECHAT.ApplySeparateSidebarBorder()
+    local cfg = ECHAT.DB()
+    local cf1 = _G.ChatFrame1
+    local sb = cf1 and CFD(cf1).sidebar
+    if not sb then return end
+    local border = CFD(cf1).sidebarPanelBorder
+    local show = cfg.sidebarSeparate == true
+        and (cfg.sidebarVisibility or "always") ~= "never"
+        and not cfg.hideSidebarBg
+    if show and not border then
+        border = CreateFrame("Frame", nil, sb, "BackdropTemplate")
+        border:EnableMouse(false)
+        CFD(cf1).sidebarPanelBorder = border
+    end
+    if not border then return end
+
+    border:ClearAllPoints()
+    local sidebarExt = CFD(cf1).sidebarExt
+    if cfg.extendBgBehindTabs and sidebarExt then
+        border:SetPoint("TOPLEFT", sidebarExt, "TOPLEFT", 0, 0)
+        border:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0)
+    else
+        border:SetAllPoints(sb)
+    end
+
+    local behind = cfg.panelBorderBehind == true
+    border:SetFrameStrata(behind and "BACKGROUND" or "DIALOG")
+    local level = behind and 0 or max(100, cf1:GetFrameLevel() + 20)
+    border:SetFrameLevel(level)
+    local sizes = { none=0, thin=1, normal=2, heavy=3, strong=4 }
+    local thicknessKey = cfg.panelBorderThickness or "none"
+    local mode = cfg.panelBorderColorMode or "custom"
+    local color
+    if mode == "accent" then
+        local r, g, b = EllesmereUI.GetAccentColor()
+        color = { r=r, g=g, b=b }
+    elseif mode == "class" then
+        local _, class = UnitClass("player")
+        color = class and RAID_CLASS_COLORS[class] or { r=1, g=1, b=1 }
+    else
+        color = cfg.panelBorderColor or { r=1, g=1, b=1 }
+    end
+    local alpha = cfg.panelBorderOpacity
+    if alpha == nil then alpha = mode == "custom" and 0.18 or 0.5 end
+    if EllesmereUI.ApplyBorderStyle then
+        EllesmereUI.ApplyBorderStyle(border, sizes[thicknessKey] or 1,
+            color.r, color.g, color.b, alpha, cfg.panelBorderTexture or "solid",
+            cfg.panelBorderOffsetX, cfg.panelBorderOffsetY,
+            cfg.panelBorderShiftX, cfg.panelBorderShiftY, "chat", thicknessKey)
+    end
+    local solidBorder = PP and PP.GetBorders and PP.GetBorders(border)
+    if solidBorder then solidBorder:SetFrameLevel(level + (behind and 0 or 1)) end
+    border:SetShown(show and sizes[thicknessKey] ~= 0)
+end
+
+-- While Inner input is active with freestanding tabs, replace their visual
+-- area with a full-width bar that mirrors the chat panel's background and
+-- border. Background and border use separate hosts so Show Behind retains the
+-- same layer behavior as the main panel without covering the edit box.
+function ECHAT.ApplyExternalInputBar()
+    local cfg = ECHAT.DB()
+    local show = _inputInTabBarActive
+        and GetInputPosition(cfg) == "inner"
+        and cfg.extendBgBehindTabs ~= true
+    local cf1 = _G.ChatFrame1
+    local bg = cf1 and CFD(cf1).bg
+    if not bg then return end
+
+    local bar = ns._chatExternalInputBar
+    if show and not bar then
+        bar = CreateFrame("Frame", nil, UIParent)
+        bar:EnableMouse(false)
+        local tex = bar:CreateTexture(nil, "BACKGROUND")
+        tex._euiOwned = true
+        tex:SetAllPoints()
+        ns._chatExternalInputBar = bar
+        ns._chatExternalInputBarTex = tex
+    end
+
+    local border = ns._chatExternalInputBorder
+    if show and not border then
+        border = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+        border:EnableMouse(false)
+        ns._chatExternalInputBorder = border
+    end
+
+    if bar then
+        bar:ClearAllPoints()
+        local left, leftPoint, right, rightPoint = GetTabInputEdges(cfg, bg)
+        bar:SetPoint("BOTTOMLEFT", left, leftPoint, 0, GetTabPadding())
+        bar:SetPoint("BOTTOMRIGHT", right, rightPoint, 0, GetTabPadding())
+        bar:SetHeight(GetTabHeight())
+        bar:SetFrameStrata("BACKGROUND")
+        bar:SetFrameLevel(1)
+        bar:SetAlpha(_chatAlphaCurrent or 1)
+
+        local tex = ns._chatExternalInputBarTex
+        if tex then
+            local texKey = cfg.bgTexture or "none"
+            local texPath
+            if texKey ~= "none" then
+                ECHAT.RefreshBgTextureCatalogue()
+                if EllesmereUI.ResolveTexturePath then
+                    texPath = EllesmereUI.ResolveTexturePath(
+                        ns.chatBgTextures, texKey, nil)
+                else
+                    texPath = ns.chatBgTextures[texKey]
+                end
+            end
+            if texPath and tex.SetTexture then
+                tex:SetTexture(texPath)
+                tex:SetVertexColor(BG_R, BG_G, BG_B, BG_A)
+            elseif tex.SetColorTexture then
+                if tex.SetVertexColor then tex:SetVertexColor(1, 1, 1, 1) end
+                tex:SetColorTexture(BG_R, BG_G, BG_B, BG_A)
+            end
+        end
+        bar:SetShown(show)
+    end
+
+    if border then
+        border:ClearAllPoints()
+        border:SetPoint("TOPLEFT", bar or bg, "TOPLEFT", 0, 0)
+        border:SetPoint("BOTTOMRIGHT", bar or bg, "BOTTOMRIGHT", 0, 0)
+        local behind = cfg.panelBorderBehind == true
+        local level = behind and 0 or max(100, cf1:GetFrameLevel() + 20)
+        border:SetFrameStrata(behind and "BACKGROUND" or "DIALOG")
+        border:SetFrameLevel(level)
+        border:SetAlpha(_chatAlphaCurrent or 1)
+
+        local sizes = { none=0, thin=1, normal=2, heavy=3, strong=4 }
+        local thicknessKey = cfg.panelBorderThickness or "none"
+        local mode = cfg.panelBorderColorMode or "custom"
+        local r, g, b
+        if mode == "accent" then
+            r, g, b = EllesmereUI.GetAccentColor()
+        elseif mode == "class" then
+            local _, class = UnitClass("player")
+            local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+            r, g, b = c and c.r or 1, c and c.g or 1, c and c.b or 1
+        else
+            local c = cfg.panelBorderColor or { r=1, g=1, b=1 }
+            r, g, b = c.r, c.g, c.b
+        end
+        local alpha = cfg.panelBorderOpacity
+        if alpha == nil then alpha = mode == "custom" and 0.18 or 0.5 end
+        EllesmereUI.ApplyBorderStyle(border, sizes[thicknessKey] or 1,
+            r, g, b, alpha, cfg.panelBorderTexture or "solid",
+            cfg.panelBorderOffsetX, cfg.panelBorderOffsetY,
+            cfg.panelBorderShiftX, cfg.panelBorderShiftY, "chat", thicknessKey)
+        local solidBorder = PP and PP.GetBorders and PP.GetBorders(border)
+        if solidBorder then
+            solidBorder:SetFrameLevel(level + (behind and 0 or 1))
+        end
+        border:SetShown(show and sizes[thicknessKey] ~= 0)
+    end
+end
+
+-- Dedicated lower inner border for the On Tab Bar edit box. The normal tab
+-- separator fades together with the tabs, so it cannot double as the input
+-- boundary while the edit box is active.
+function ECHAT.ApplyInputBottomSeparator()
+    local cfg = ECHAT.DB()
+    local show = _inputInTabBarActive
+        and GetInputPosition(cfg) == "inner"
+        and cfg.extendBgBehindTabs == true
+        and not cfg.hideBorders
+    local cf1 = _G.ChatFrame1
+    local bg = cf1 and CFD(cf1).bg
+    if not bg then return end
+
+    local separator = ns._chatInputBottomSeparator
+    if show and not separator then
+        separator = CreateFrame("Frame", nil, UIParent)
+        separator:SetHeight((PP and PP.mult) or 1)
+        separator:SetFrameStrata("DIALOG")
+        separator:SetFrameLevel(90)
+        separator:EnableMouse(false)
+        local tex = separator:CreateTexture(nil, "OVERLAY", nil, 7)
+        tex:SetAllPoints()
+        tex._euiOwned = true
+        if PP and PP.DisablePixelSnap then PP.DisablePixelSnap(tex) end
+        ns._chatInputBottomSeparator = separator
+        ns._chatInputBottomSeparatorTex = tex
+    end
+
+    if separator then
+        separator:ClearAllPoints()
+        local externalBar = cfg.extendBgBehindTabs ~= true
+            and ns._chatExternalInputBar
+        if externalBar then
+            separator:SetPoint("BOTTOMLEFT", externalBar, "BOTTOMLEFT", 0, 0)
+            separator:SetPoint("BOTTOMRIGHT", externalBar, "BOTTOMRIGHT", 0, 0)
+        else
+            local left, leftPoint, right, rightPoint = GetTabInputEdges(cfg, bg)
+            separator:SetPoint("BOTTOMLEFT", left, leftPoint, 0, 0)
+            separator:SetPoint("BOTTOMRIGHT", right, rightPoint, 0, 0)
+        end
+        local tex = ns._chatInputBottomSeparatorTex
+        if tex then tex:SetColorTexture(GetInnerBorderColor(cfg)) end
+        separator:SetAlpha(_chatAlphaCurrent or 1)
+        separator:SetShown(show)
+    end
 end
 
 -- Extend the chat background up behind the tab strip (and the sidebar by the
@@ -495,7 +845,8 @@ function ECHAT.ApplyExtendedBackground()
     end
     if ext then
         ext:SetHeight(GetTabAreaHeight())
-        if ns._chatBgExtTex then ns._chatBgExtTex:SetColorTexture(BG_R, BG_G, BG_B, BG_A) end
+        ApplyChatBackgroundTexture(ns._chatBgExtTex, cfg.bgTexture,
+            BG_R, BG_G, BG_B, BG_A)
         -- Sit at the very bottom of the UI so the tabs (and their own dark
         -- backgrounds) always render in front of this strip. BACKGROUND is still
         -- above the 3D world, and the strip never overlaps the chat text or the
@@ -537,7 +888,8 @@ function ECHAT.ApplyExtendedBackground()
         end
         if sext then
             sext:SetHeight(GetTabAreaHeight())
-            if d1.sidebarExtTex then d1.sidebarExtTex:SetColorTexture(BG_R, BG_G, BG_B, BG_A) end
+            ApplyChatBackgroundTexture(d1.sidebarExtTex, cfg.bgTexture,
+                BG_R, BG_G, BG_B, BG_A)
             local div = d1.sidebarExtDiv
             if div then
                 div:SetColorTexture(GetInnerBorderColor(cfg))
@@ -549,7 +901,7 @@ function ECHAT.ApplyExtendedBackground()
                     div:SetPoint("TOPRIGHT", sext, "TOPRIGHT", 0, 0)
                     div:SetPoint("BOTTOMRIGHT", sext, "BOTTOMRIGHT", 0, 0)
                 end
-                div:SetShown(not cfg.hideBorders)
+                div:SetShown(not cfg.hideBorders and not cfg.sidebarSeparate)
             end
             sext:SetShown(showSb)
         end
@@ -567,7 +919,8 @@ function ECHAT.ApplyExtendedBackground()
         border:ClearAllPoints()
         local includeSidebar = sb
             and not cfg.hideSidebarBg
-            and (cfg.sidebarVisibility or "always") ~= "never"
+            and not cfg.sidebarSeparate
+            and (cfg.sidebarVisibility or "always") == "always"
         local topExtension = extend and GetTabAreaHeight() or 0
         if includeSidebar and not cfg.sidebarRight then
             border:SetPoint("TOPLEFT", sb, "TOPLEFT", 0, topExtension)
@@ -621,6 +974,7 @@ function ECHAT.ApplyExtendedBackground()
             border:Hide()
         end
     end
+    ECHAT.ApplySeparateSidebarBorder()
     if ECHAT.ApplyTabBorders then ECHAT.ApplyTabBorders() end
     if ECHAT.ApplyTabSeparators then ECHAT.ApplyTabSeparators() end
     if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
@@ -631,6 +985,7 @@ end
 -- font family + outline. Tab size is our own setting.
 function ECHAT.ApplyFonts()
     local font = GetFont()
+    local inputFont = GetInputFont()
     local outline = GetOutlineFlag()
     for i = 1, 20 do
         local cf = _G["ChatFrame" .. i]
@@ -640,11 +995,13 @@ function ECHAT.ApplyFonts()
         end
         local eb = _G["ChatFrame" .. i .. "EditBox"]
         if eb then
-            local size = GetFrameFontSize(i)
-            eb:SetFont(font, size, outline)
+            local size = GetInputFontSize(i)
+            eb:SetFont(inputFont, size, outline)
             if i <= 10 then
-                if eb.header then eb.header:SetFont(font, size, outline) end
-                if eb.headerSuffix then eb.headerSuffix:SetFont(font, size, outline) end
+                if eb.header then eb.header:SetFont(inputFont, size, outline) end
+                if eb.headerSuffix then
+                    eb.headerSuffix:SetFont(inputFont, size, outline)
+                end
             end
         end
     end
@@ -709,8 +1066,7 @@ end
 function ECHAT.ApplyBorders()
     local cfg = ECHAT.DB()
     local hide = cfg.hideBorders
-    local inputInTabBar = cfg.extendBgBehindTabs == true
-        and GetInputPosition(cfg) == "inner"
+    local inputInTabBar = GetInputPosition(cfg) == "inner"
     local r, g, b, a = GetInnerBorderColor(cfg)
 
     for i = 1, 20 do
@@ -729,16 +1085,19 @@ function ECHAT.ApplyBorders()
         local sbBgHidden = cfg.hideSidebarBg
         if PP.GetBorders(CFD(cf1).sidebar) then
             PP.SetBorderColor(CFD(cf1).sidebar, r, g, b, a)
-            PP.GetBorders(CFD(cf1).sidebar):SetShown(not hide and not sbBgHidden)
+            PP.GetBorders(CFD(cf1).sidebar):SetShown(not hide and not sbBgHidden and not cfg.sidebarSeparate)
         end
         if CFD(cf1).sidebarDiv then
             CFD(cf1).sidebarDiv:SetColorTexture(r, g, b, a)
-            CFD(cf1).sidebarDiv:SetShown(not hide)
+            CFD(cf1).sidebarDiv:SetShown(not hide and not cfg.sidebarSeparate)
         end
     end
     -- Mirror border visibility onto the behind-tabs divider continuation.
     if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
     if ECHAT.ApplyTabSeparators then ECHAT.ApplyTabSeparators() end
+    if ECHAT.ApplyInputBottomSeparator then
+        ECHAT.ApplyInputBottomSeparator()
+    end
 end
 
 -- Show/hide individual sidebar icons and re-anchor visible ones to close gaps
@@ -751,7 +1110,8 @@ function ECHAT.ApplySidebarIcons()
     local ICON_GAP = cfg.sidebarIconSpacing or 10
     -- Shift the chain up by the tab-strip height when the background is extended
     -- (and free-move is off). Matches the offset applied at icon creation time.
-    local iconTopShift = (cfg.extendBgBehindTabs and not cfg.freeMoveIcons) and GetTabAreaHeight() or 0
+    local iconTopShift = (cfg.extendBgBehindTabs and not cfg.freeMoveIcons)
+        and GetTabAreaHeight() or 0
     local sbd = CFD(cf1)
 
     -- Re-anchor the chain icons in the creation-time order snapshot. Order
@@ -925,13 +1285,14 @@ function ECHAT.ApplySidebarPosition()
     if not sb or not CFD(cf1).bg then return end
     local PP = EllesmereUI and EllesmereUI.PP
     local onePx = (PP and PP.mult) or 1
+    local gap = cfg.sidebarSeparate and (cfg.sidebarSeparateSpacing or 8) or 0
     sb:ClearAllPoints()
     if cfg.sidebarRight then
-        sb:SetPoint("TOPLEFT", CFD(cf1).bg, "TOPRIGHT", 0, 0)
-        sb:SetPoint("BOTTOMLEFT", CFD(cf1).bg, "BOTTOMRIGHT", 0, 0)
+        sb:SetPoint("TOPLEFT", CFD(cf1).bg, "TOPRIGHT", gap, 0)
+        sb:SetPoint("BOTTOMLEFT", CFD(cf1).bg, "BOTTOMRIGHT", gap, 0)
     else
-        sb:SetPoint("TOPRIGHT", CFD(cf1).bg, "TOPLEFT", 0, 0)
-        sb:SetPoint("BOTTOMRIGHT", CFD(cf1).bg, "BOTTOMLEFT", 0, 0)
+        sb:SetPoint("TOPRIGHT", CFD(cf1).bg, "TOPLEFT", -gap, 0)
+        sb:SetPoint("BOTTOMRIGHT", CFD(cf1).bg, "BOTTOMLEFT", -gap, 0)
     end
     -- Move the divider to the correct edge
     if CFD(cf1).sidebarDiv then
@@ -944,6 +1305,7 @@ function ECHAT.ApplySidebarPosition()
             CFD(cf1).sidebarDiv:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0)
         end
     end
+    ECHAT.ApplySeparateSidebarBorder()
 
     -- Re-place the behind-tabs divider continuation onto the new edge.
     if ECHAT.ApplyTabPadding then
@@ -1051,10 +1413,11 @@ function ECHAT.ApplySidebarBackground()
         sbBg:SetShown(show)
     end
     if PP.GetBorders(sb) then
-        PP.GetBorders(sb):SetShown(show)
+        PP.GetBorders(sb):SetShown(show and not cfg.sidebarSeparate)
     end
     -- Hide the sidebar extension too when the sidebar background is hidden.
     if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
+    ECHAT.ApplySeparateSidebarBorder()
 end
 
 -- Scale sidebar icon buttons and friends count text
@@ -1651,8 +2014,8 @@ function ECHAT.ApplyInputPosition()
     local cfg = ECHAT.DB()
     local inputPosition = GetInputPosition(cfg)
     local onTop = inputPosition == "top"
-    local inTabBar = cfg.extendBgBehindTabs == true
-        and inputPosition == "inner"
+    local inTabBar = inputPosition == "inner"
+    local innerOffset = 3 + (cfg.extendBgBehindTabs == true and 0 or GetTabPadding())
 
     for i = 1, 20 do
         local cf = _G["ChatFrame" .. i]
@@ -1668,12 +2031,16 @@ function ECHAT.ApplyInputPosition()
             if eb then
                 eb:ClearAllPoints()
                 if inTabBar then
-                    eb:SetPoint("BOTTOMLEFT", cf, "TOPLEFT", -10, 3)
-                    eb:SetPoint("BOTTOMRIGHT", cf, "TOPRIGHT", 5, 3)
+                    local leftOffset, rightOffset = GetTabInputOffsets(cfg, cf)
+                    eb:SetPoint("BOTTOMLEFT", cf, "TOPLEFT", leftOffset, innerOffset)
+                    eb:SetPoint("BOTTOMRIGHT", cf, "TOPRIGHT", rightOffset, innerOffset)
                     eb:SetHeight(GetTabHeight())
                 elseif onTop then
-                    eb:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, 3)
-                    eb:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, 3)
+                    -- Mirror Bottom: attach above the chat frame and let the
+                    -- owned panel background expand around it. Chat content
+                    -- keeps its full height instead of being pushed downward.
+                    eb:SetPoint("BOTTOMLEFT", cf, "TOPLEFT", -10, 3)
+                    eb:SetPoint("BOTTOMRIGHT", cf, "TOPRIGHT", 5, 3)
                     eb:SetHeight(23)
                 else
                     eb:SetPoint("TOPLEFT", cf, "BOTTOMLEFT", -10, -8)
@@ -1685,11 +2052,11 @@ function ECHAT.ApplyInputPosition()
             if div then
                 div:ClearAllPoints()
                 if inTabBar then
+                    div:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, innerOffset)
+                    div:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 10, innerOffset)
+                elseif onTop then
                     div:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, 3)
                     div:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 10, 3)
-                elseif onTop then
-                    div:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, -20)
-                    div:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 10, -20)
                 else
                     div:SetPoint("BOTTOMLEFT", cf, "BOTTOMLEFT", -10, -8)
                     div:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 10, -8)
@@ -1699,7 +2066,11 @@ function ECHAT.ApplyInputPosition()
 
             if bg then
                 bg:ClearAllPoints()
-                bg:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, 3)
+                if onTop and eb then
+                    bg:SetPoint("TOPLEFT", eb, "TOPLEFT", 0, 0)
+                else
+                    bg:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, 3)
+                end
                 if inTabBar or onTop then
                     bg:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 10, -6)
                 else
@@ -1709,21 +2080,13 @@ function ECHAT.ApplyInputPosition()
 
             if fsc then
                 fsc:ClearAllPoints()
-                if onTop and not inTabBar then
-                    fsc:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, -22)
-                else
-                    fsc:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, -6)
-                end
+                fsc:SetPoint("TOPLEFT", cf, "TOPLEFT", 0, -6)
                 fsc:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 0, 0)
             end
 
             if bar then
                 bar:ClearAllPoints()
-                if onTop and not inTabBar then
-                    bar:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, -22)
-                else
-                    bar:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, -2)
-                end
+                bar:SetPoint("TOPRIGHT", cf, "TOPRIGHT", 5, -2)
                 bar:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 5, 2)
             end
         end
@@ -1738,8 +2101,7 @@ end
 -- boxes cannot briefly restore the tabs over the new input box.
 function ECHAT.RefreshInputInTabBarState()
     local cfg = ECHAT.DB()
-    local enabled = cfg.extendBgBehindTabs == true
-        and GetInputPosition(cfg) == "inner"
+    local enabled = GetInputPosition(cfg) == "inner"
     local focused = false
     if enabled then
         for i = 1, 10 do
@@ -1754,7 +2116,11 @@ function ECHAT.RefreshInputInTabBarState()
         end
     end
     _inputInTabBarActive = enabled and focused
-    SetTabAlphaTarget(min(_visAlpha, GetEffectiveTabAlpha()))
+    SetTabAlphaTarget(_inputInTabBarActive and 0 or _chatAlphaCurrent)
+    if ECHAT.ApplyExternalInputBar then ECHAT.ApplyExternalInputBar() end
+    if ECHAT.ApplyInputBottomSeparator then
+        ECHAT.ApplyInputBottomSeparator()
+    end
 end
 
 -- Internal: immediately apply alpha to all chat elements
@@ -1805,6 +2171,20 @@ local function _ApplyAlpha(alpha)
     -- the chat frame alpha -- fade it directly alongside the chat).
     if ns._chatBgExt then ns._chatBgExt:SetAlpha(alpha) end
     if ns._chatPanelBorder then ns._chatPanelBorder:SetAlpha(alpha) end
+    if ns._chatExternalInputBar then ns._chatExternalInputBar:SetAlpha(alpha) end
+    if ns._chatExternalInputBorder then ns._chatExternalInputBorder:SetAlpha(alpha) end
+    if ns._chatInputBottomSeparator then
+        ns._chatInputBottomSeparator:SetAlpha(alpha)
+    end
+    -- Keep tabs on the exact same sampled fade value as the chat panel. Do not
+    -- run their independent animation here; that produced visibly mismatched
+    -- curves. Active On-Tab-Bar input retains its dedicated fast fade to zero.
+    if not _inputInTabBarActive then
+        _tabFadeFrame:Hide()
+        _tabAlphaCurrent = alpha
+        _tabAlphaTarget = alpha
+        ApplyTabFadeAlpha(alpha)
+    end
     -- Sidebar (mode cached at build time)
     local sb = _alphaFrames._sidebar
     if sb then
@@ -1857,7 +2237,6 @@ function ECHAT.SetChatAlpha(alpha)
     _visAlpha = alpha
     _visChatVisible = (alpha >= 1)
     _SetAlphaTarget(alpha)
-    SetTabAlphaTarget(min(alpha, GetEffectiveTabAlpha()))
 end
 
 -- Set alpha for idle fade (animated), clamped to visibility alpha
@@ -2313,6 +2692,21 @@ local TAB_TEX_SUFFIXES = {
     "HighlightLeft", "HighlightMiddle", "HighlightRight",
 }
 
+local function ResolveActiveTabColor(mode, custom, fallback)
+    custom = custom or fallback
+    local alpha = custom.a == nil and fallback.a or custom.a
+    if mode == "accent" then
+        local r, g, b = EllesmereUI.GetAccentColor()
+        return { r=r, g=g, b=b, a=alpha }
+    elseif mode == "class" then
+        local _, class = UnitClass("player")
+        local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+        return { r=c and c.r or 1, g=c and c.g or 1,
+            b=c and c.b or 1, a=alpha }
+    end
+    return custom
+end
+
 -- Update visual state of one skinned tab.
 local function UpdateTabStyle(tab)
     if not tab or not CFD(tab).skinned then return end
@@ -2344,8 +2738,9 @@ local function UpdateTabStyle(tab)
         fs:ClearAllPoints()
         fs:SetPoint("CENTER", tab, 0, 0)
         local cfg = ECHAT.DB()
-        local tc = isActive
-            and (cfg.tabFontColorActive or { r=1, g=1, b=1, a=1 })
+        local tc = isActive and ResolveActiveTabColor(
+                cfg.tabFontColorActiveMode or "custom",
+                cfg.tabFontColorActive, { r=1, g=1, b=1, a=1 })
             or (cfg.tabFontColor or { r=1, g=1, b=1, a=.65 })
         fs:SetTextColor(tc.r or 1, tc.g or 1, tc.b or 1, tc.a == nil and 1 or tc.a)
     end
@@ -2358,11 +2753,18 @@ local function UpdateTabStyle(tab)
             c = { r=cfg.bgR or .03, g=cfg.bgG or .045, b=cfg.bgB or .05,
                 a=cfg.bgAlpha or .65 }
         else
-            c = isActive
-                and (cfg.tabBackgroundColorActive or {r=.03,g=.045,b=.05,a=.65})
+            c = isActive and ResolveActiveTabColor(
+                    cfg.tabBackgroundColorActiveMode or "custom",
+                    cfg.tabBackgroundColorActive,
+                    {r=.03,g=.045,b=.05,a=.65})
                 or (cfg.tabBackgroundColor or {r=.03,g=.045,b=.05,a=.44})
         end
-        CFD(tab).bg:SetColorTexture(c.r or .03, c.g or .045, c.b or .05, c.a == nil and 1 or c.a)
+        local textureKey = syncStyle
+            and (cfg.bgTexture or "none")
+            or (cfg.tabBackgroundTexture or "none")
+        ApplyChatBackgroundTexture(CFD(tab).bg, textureKey,
+            c.r or .03, c.g or .045, c.b or .05,
+            c.a == nil and 1 or c.a)
     end
 
     local underline = CFD(tab).activeUnderline
@@ -2393,7 +2795,8 @@ local function UpdateTabStyle(tab)
             r, g, b, a = c.r, c.g, c.b, c.a == nil and 1 or c.a
         end
         underline:SetColorTexture(r, g, b, a)
-        underline:SetShown(cfg.activeUnderline ~= false and isActive)
+        underline:SetShown(cfg.extendBgBehindTabs == true
+            and cfg.activeUnderline ~= false and isActive)
     end
 
 end
@@ -2456,7 +2859,8 @@ function ECHAT.ApplyTabBorders()
             local isActive = (chatFrame and chatFrame == selected)
                 or (chatFrame and undocked and chatFrame:IsShown())
             local br, bg, bb, ba = r, g, b, alpha
-            local activeColor = isActive and cfg.tabBorderColorActive
+            local activeColor = isActive and cfg.activeTabBorder ~= false
+                and cfg.tabBorderColorActive
             if activeColor then
                 br, bg, bb = activeColor.r or r, activeColor.g or g, activeColor.b or b
                 ba = activeColor.a == nil and alpha or activeColor.a
@@ -2671,8 +3075,9 @@ local function SkinTab(cf)
         tab.conversationIcon:SetParent(_hiddenParent)
     end
 
-    -- Hook SetPoint: zero out Blizzard's y=-1 on LEFT/LEFT anchors
-    -- (tabs anchored to ScrollFrameChild). Skip tabs 1-2.
+    -- Custom tabs (IDs 3+) are re-chained by Blizzard with either LEFT/LEFT
+    -- or LEFT/RIGHT anchors and a y=-1 offset. Normalize both variants so
+    -- their visual top/bottom edges stay identical to the first two tabs.
     if tab:GetID() >= 3 then
         local _spIgnore = false
         hooksecurefunc(tab, "SetPoint", function(self, point, rel, relPoint, x, y)
@@ -2683,12 +3088,16 @@ local function SkinTab(cf)
                 local ok, value = pcall(FCF_IsDocked, chatFrame)
                 if ok then docked = value end
             end
-            if docked and point == "LEFT" and relPoint == "LEFT" and y and y ~= 0 then
+            local horizontalChain = point == "LEFT"
+                and (relPoint == "LEFT" or relPoint == "RIGHT")
+            if docked and horizontalChain and y and y ~= 0 then
                 _spIgnore = true
-                local es = self:GetEffectiveScale()
-                local onePx = PP and PP.SnapForES and PP.SnapForES(1, es) or 1
-                self:SetPoint(point, rel, relPoint, (x or 0) + onePx, 0)
+                self:SetPoint(point, rel, relPoint, x or 0, 0)
                 _spIgnore = false
+            end
+            if docked and horizontalChain and not ECHAT._applyingTabLayout
+                and ECHAT.EnforceTabLayout then
+                ECHAT.EnforceTabLayout()
             end
         end)
     end
@@ -2714,7 +3123,12 @@ function ECHAT.ApplyTabSpacing()
         if tab and tab:IsShown() then
             if prev then
                 tab:ClearAllPoints()
-                tab:SetPoint("LEFT", prev, "RIGHT", spacing, 0)
+                -- Blizzard chains custom tabs from their vertical centers.
+                -- At fractional UI scales that makes IDs 3+ round one pixel
+                -- shorter at the top. Bottom-edge anchoring keeps every tab on
+                -- the same pixel row while the explicit height fixes the top.
+                tab:SetPoint("BOTTOMLEFT", prev, "BOTTOMRIGHT", spacing, 0)
+                tab:SetHeight(GetTabHeight())
             end
             prev = tab
         end
@@ -2851,22 +3265,24 @@ function ECHAT.ApplyTabPadding()
         local padding = GetTabPadding()
         local cfg = ECHAT.DB()
         local sidebar = cf1 and CFD(cf1).sidebar
-        local sidebarActive = sidebar and (cfg.sidebarVisibility or "always") ~= "never"
-        local alignFull = cfg.alignTabsToPanel and not cfg.extendBgBehindTabs
+        local sidebarActive = sidebar
+            and (cfg.sidebarVisibility or "always") == "always"
+        -- A detached sidebar always uses the full panel span. Keep the saved
+        -- manual preference untouched so disabling separation restores it.
+        local alignFull = (cfg.alignTabsToPanel or cfg.sidebarSeparate)
+            and cfg.extendBgBehindTabs ~= true
             and sidebarActive and not cfg.sidebarRight
         gdm:ClearAllPoints()
         if alignFull and not cfg.sidebarRight then
             gdm:SetPoint("BOTTOMLEFT", sidebar, "TOPLEFT", 0, padding)
             gdm:SetPoint("BOTTOMRIGHT", bg, "TOPRIGHT", 0, padding)
-        elseif alignFull and cfg.sidebarRight then
-            gdm:SetPoint("BOTTOMLEFT", bg, "TOPLEFT", 0, padding)
-            gdm:SetPoint("BOTTOMRIGHT", sidebar, "TOPRIGHT", 0, padding)
         else
             gdm:SetPoint("BOTTOMLEFT", bg, "TOPLEFT", 0, padding)
             gdm:SetPoint("BOTTOMRIGHT", bg, "TOPRIGHT", 0, padding)
         end
     end
     if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
+    if ECHAT.ApplyInputPosition then ECHAT.ApplyInputPosition() end
     if ECHAT.ApplySidebarIcons then ECHAT.ApplySidebarIcons() end
 end
 
@@ -2943,12 +3359,10 @@ local function SkinEditBox(cf)
     eb:SetPoint("TOPRIGHT", cf, "BOTTOMRIGHT", 5, -8)
     eb:SetHeight(23)
 
-    -- Font: use the SAME outline as the chat frames + ECHAT.ApplyFonts (which
-    -- reads GetOutlineFlag too), so the input box always matches the rest of
-    -- chat. Hardcoding "" here left it un-outlined (drop shadow showed through)
-    -- whenever the user picked an outline for chat.
-    local ebSize = GetFrameFontSize(cf:GetID())
-    eb:SetFont(GetFont(), ebSize, GetOutlineFlag())
+    -- Input font family/size can be configured independently, while outline
+    -- continues to follow Chat's outline setting for a consistent text style.
+    local ebSize = GetInputFontSize(cf:GetID())
+    eb:SetFont(GetInputFont(), ebSize, GetOutlineFlag())
     eb:SetTextInsets(8, 8, 0, 0)
 
     -- Apply custom font to the header ("Say:", "Party:", etc.) and suffix.
@@ -2956,13 +3370,13 @@ local function SkinEditBox(cf)
     -- switches). Never from inside UpdateHeader -- calling SetFont in that
     -- secure chain taints the execution context and blocks SendChatMessage.
     local function ApplyEditBoxHeaderFont(editBox)
-        local sz = GetFrameFontSize(editBox:GetParent():GetID())
+        local sz = GetInputFontSize(editBox:GetParent():GetID())
         local ol = GetOutlineFlag()
         if editBox.header then
-            editBox.header:SetFont(GetFont(), sz, ol)
+            editBox.header:SetFont(GetInputFont(), sz, ol)
         end
         if editBox.headerSuffix then
-            editBox.headerSuffix:SetFont(GetFont(), sz, ol)
+            editBox.headerSuffix:SetFont(GetInputFont(), sz, ol)
         end
     end
     ApplyEditBoxHeaderFont(eb)
@@ -3168,7 +3582,8 @@ local function SkinChatFrame(cf)
         -- up the same amount so the top icon keeps its gap from the new top edge.
         -- Skipped when free-move is on -- those icons are user-positioned, not
         -- chained, so they stay exactly where the user dropped them.
-        local iconTopShift = (icfg.extendBgBehindTabs and not icfg.freeMoveIcons) and GetTabAreaHeight() or 0
+        local iconTopShift = (icfg.extendBgBehindTabs and not icfg.freeMoveIcons)
+            and GetTabAreaHeight() or 0
 
         -- Chain icons are created below in the saved order (drag-to-reorder in
         -- the options dropdown; a new order takes effect on the next reload).
@@ -3981,7 +4396,6 @@ initFrame:SetScript("OnEvent", function(self)
             if _visChatVisible then
                 ECHAT.SetIdleFadeAlpha(1)
             end
-            SetTabAlphaTarget(min(_visAlpha, GetEffectiveTabAlpha()))
         end
 
         function ECHAT.ResetIdleTimer()
