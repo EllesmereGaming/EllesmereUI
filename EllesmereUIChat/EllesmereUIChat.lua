@@ -72,6 +72,7 @@ local CHAT_DEFAULTS = {
             sidebarSeparate = false,
             sidebarSeparateSpacing = 8,
             hideBorders = false,
+            innerBorderColorMode = "custom",
             innerBorderColor = { r=1, g=1, b=1, a=0.06 },
             extendBgBehindTabs = false,
             panelBorderTexture = "solid",
@@ -441,7 +442,18 @@ local EDIT_BG_R, EDIT_BG_G, EDIT_BG_B = 0.05, 0.065, 0.08
 
 local function GetInnerBorderColor(cfg)
     local c = cfg.innerBorderColor or { r=1, g=1, b=1, a=0.06 }
-    return c.r or 1, c.g or 1, c.b or 1, c.a == nil and 0.06 or c.a
+    local mode = cfg.innerBorderColorMode or "custom"
+    local alpha = c.a == nil and 0.06 or c.a
+    if mode == "accent" then
+        local r, g, b = EllesmereUI.GetAccentColor()
+        return r, g, b, alpha
+    elseif mode == "class" then
+        local _, class = UnitClass("player")
+        local cc = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+        return cc and cc.r or 1, cc and cc.g or 1,
+            cc and cc.b or 1, alpha
+    end
+    return c.r or 1, c.g or 1, c.b or 1, alpha
 end
 
 -- Set true once GeneralDockManager has been positioned and styled as our tab bar

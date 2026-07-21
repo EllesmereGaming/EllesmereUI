@@ -410,7 +410,7 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshCog()
             end
 
-            -- Accent, custom, and class-color selectors beside Border Size.
+            -- Color selectors are consistently ordered Accent, Class, Custom.
             do
                 local rgn = borderRow._rightRegion
                 local ctrl = rgn._control
@@ -428,7 +428,6 @@ initFrame:SetScript("OnEvent", function(self)
                         return c and c.r or 1, c and c.g or 1, c and c.b or 1
                     end,
                     function() end, false, 20)
-                PP.Point(classSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 classSwatch:SetScript("OnClick", function() ApplyMode("class") end)
                 classSwatch:SetScript("OnEnter", function()
                     EllesmereUI.ShowWidgetTooltip(classSwatch, "Class Color")
@@ -439,7 +438,6 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, borderRow:GetFrameLevel() + 3,
                     function() return EllesmereUI.GetAccentColor() end,
                     function() end, false, 20)
-                PP.Point(accentSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
                 accentSwatch:SetScript("OnClick", function() ApplyMode("accent") end)
                 accentSwatch:SetScript("OnEnter", function()
                     EllesmereUI.ShowWidgetTooltip(accentSwatch, "Accent Color")
@@ -459,7 +457,9 @@ initFrame:SetScript("OnEvent", function(self)
                         if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
                     end,
                     true, 20)
-                PP.Point(customSwatch, "RIGHT", accentSwatch, "LEFT", -8, 0)
+                PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+                PP.Point(classSwatch, "RIGHT", customSwatch, "LEFT", -8, 0)
+                PP.Point(accentSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
                 local customClick = customSwatch:GetScript("OnClick")
                 customSwatch:SetScript("OnClick", function(self, ...)
                     if (Cfg("panelBorderColorMode") or "custom") ~= "custom" then
@@ -751,6 +751,21 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 3: Sidebar Icons Color | (empty)
         local function MakeIconColorSwatches()
             return {
+                { tooltip = "Accent Color",
+                  hasAlpha = false,
+                  getValue = function()
+                      local ar, ag, ab = EllesmereUI.GetAccentColor()
+                      return ar, ag, ab
+                  end,
+                  setValue = function() end,
+                  onClick = function()
+                      Set("iconUseAccent", true)
+                      if ECHAT.ApplyIconColor then ECHAT.ApplyIconColor() end
+                      EllesmereUI:RefreshPage()
+                  end,
+                  refreshAlpha = function()
+                      return Cfg("iconUseAccent") and 1 or 0.3
+                  end },
                 { tooltip = "Custom Color",
                   hasAlpha = false,
                   getValue = function()
@@ -771,21 +786,6 @@ initFrame:SetScript("OnEvent", function(self)
                   end,
                   refreshAlpha = function()
                       return Cfg("iconUseAccent") and 0.3 or 1
-                  end },
-                { tooltip = "Accent Color",
-                  hasAlpha = false,
-                  getValue = function()
-                      local ar, ag, ab = EllesmereUI.GetAccentColor()
-                      return ar, ag, ab
-                  end,
-                  setValue = function() end,
-                  onClick = function()
-                      Set("iconUseAccent", true)
-                      if ECHAT.ApplyIconColor then ECHAT.ApplyIconColor() end
-                      EllesmereUI:RefreshPage()
-                  end,
-                  refreshAlpha = function()
-                      return Cfg("iconUseAccent") and 1 or 0.3
                   end },
             }
         end
@@ -1288,15 +1288,17 @@ initFrame:SetScript("OnEvent", function(self)
                 local classSw, refreshClass = EllesmereUI.BuildColorSwatch(rgn, borderRow:GetFrameLevel()+3,
                     function() local _,cl=UnitClass("player"); local c=cl and RAID_CLASS_COLORS and RAID_CLASS_COLORS[cl]; return c and c.r or 1,c and c.g or 1,c and c.b or 1 end,
                     function() end, false, 20)
-                PP.Point(classSw,"RIGHT",ctrl,"LEFT",-8,0); classSw:SetScript("OnClick",function() SetMode("class") end)
+                classSw:SetScript("OnClick",function() SetMode("class") end)
                 local accentSw, refreshAccent = EllesmereUI.BuildColorSwatch(rgn, borderRow:GetFrameLevel()+3,
                     function() return EllesmereUI.GetAccentColor() end, function() end, false, 20)
-                PP.Point(accentSw,"RIGHT",classSw,"LEFT",-8,0); accentSw:SetScript("OnClick",function() SetMode("accent") end)
+                accentSw:SetScript("OnClick",function() SetMode("accent") end)
                 local customSw, refreshCustom = EllesmereUI.BuildColorSwatch(rgn, borderRow:GetFrameLevel()+3,
                     function() local c=Cfg("tabBorderColor") or {r=1,g=1,b=1}; return c.r,c.g,c.b,Cfg("tabBorderOpacity") or 0.18 end,
                     function(r,g,b,a) Set("tabBorderColor",{r=r,g=g,b=b}); Set("tabBorderOpacity",a); Set("tabBorderColorMode","custom"); ECHAT.ApplyTabBorders() end,
                     true,20)
-                PP.Point(customSw,"RIGHT",accentSw,"LEFT",-8,0)
+                PP.Point(customSw,"RIGHT",ctrl,"LEFT",-8,0)
+                PP.Point(classSw,"RIGHT",customSw,"LEFT",-8,0)
+                PP.Point(accentSw,"RIGHT",classSw,"LEFT",-8,0)
                 local orig=customSw:GetScript("OnClick")
                 customSw:SetScript("OnClick",function(self,...)
                     if tabBordersDisabled() then return end
@@ -1378,7 +1380,40 @@ initFrame:SetScript("OnEvent", function(self)
         do
             local rgn = extrasBorderRow._rightRegion
             local ctrl = rgn._control
-            local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
+            local function SetInnerBorderMode(mode)
+                Set("innerBorderColorMode", mode)
+                if ECHAT.ApplyBorders then ECHAT.ApplyBorders() end
+                EllesmereUI:RefreshPage()
+            end
+            local accentSwatch, refreshAccent = EllesmereUI.BuildColorSwatch(
+                rgn, extrasBorderRow:GetFrameLevel() + 3,
+                function() return EllesmereUI.GetAccentColor() end,
+                function() end, false, 20)
+            accentSwatch:SetScript("OnClick", function()
+                SetInnerBorderMode("accent")
+            end)
+            accentSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(accentSwatch, "Accent Color")
+            end)
+            accentSwatch:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
+
+            local classSwatch, refreshClass = EllesmereUI.BuildColorSwatch(
+                rgn, extrasBorderRow:GetFrameLevel() + 3,
+                function()
+                    local _, class = UnitClass("player")
+                    local c = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+                    return c and c.r or 1, c and c.g or 1, c and c.b or 1
+                end,
+                function() end, false, 20)
+            classSwatch:SetScript("OnClick", function()
+                SetInnerBorderMode("class")
+            end)
+            classSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(classSwatch, "Class Color")
+            end)
+            classSwatch:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
+
+            local customSwatch, refreshCustom = EllesmereUI.BuildColorSwatch(
                 rgn, extrasBorderRow:GetFrameLevel() + 3,
                 function()
                     local c = Cfg("innerBorderColor") or { r=1, g=1, b=1, a=0.06 }
@@ -1386,19 +1421,35 @@ initFrame:SetScript("OnEvent", function(self)
                 end,
                 function(r, g, b, a)
                     Set("innerBorderColor", { r=r, g=g, b=b, a=a })
+                    Set("innerBorderColorMode", "custom")
                     if ECHAT.ApplyBorders then ECHAT.ApplyBorders() end
                 end,
                 true, 20)
-            PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
-            swatch:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(swatch, "Inner Border Color")
+            PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            PP.Point(classSwatch, "RIGHT", customSwatch, "LEFT", -8, 0)
+            PP.Point(accentSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
+            local customClick = customSwatch:GetScript("OnClick")
+            customSwatch:SetScript("OnClick", function(self, ...)
+                if (Cfg("innerBorderColorMode") or "custom") ~= "custom" then
+                    SetInnerBorderMode("custom")
+                    return
+                end
+                if customClick then customClick(self, ...) end
             end)
-            swatch:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
-            EllesmereUI.RegisterWidgetRefresh(function()
-                refreshSwatch()
-                swatch:SetAlpha(Cfg("hideBorders") and 0.3 or 1)
+            customSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(customSwatch, "Custom Color")
             end)
-            swatch:SetAlpha(Cfg("hideBorders") and 0.3 or 1)
+            customSwatch:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
+            local function RefreshInnerBorderSwatches()
+                refreshAccent(); refreshClass(); refreshCustom()
+                local hidden = Cfg("hideBorders") == true
+                local mode = Cfg("innerBorderColorMode") or "custom"
+                accentSwatch:SetAlpha(hidden and 0.15 or (mode == "accent" and 1 or 0.3))
+                classSwatch:SetAlpha(hidden and 0.15 or (mode == "class" and 1 or 0.3))
+                customSwatch:SetAlpha(hidden and 0.15 or (mode == "custom" and 1 or 0.3))
+            end
+            EllesmereUI.RegisterWidgetRefresh(RefreshInnerBorderSwatches)
+            RefreshInnerBorderSwatches()
         end
         y = y - h
 
