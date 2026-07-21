@@ -140,15 +140,55 @@ local CHAT_DEFAULTS = {
 }
 
 local _chatDB
+local function MigrateRawChatProfile(chat)
+    if type(chat) ~= "table" then return end
+
+    -- Legacy profiles used different visual defaults. Seed them before the
+    -- default merge so absent values cannot silently adopt new-profile looks.
+    if chat._featureOptionsVersion == nil then
+        if chat.tabFontSize == nil then chat.tabFontSize = 10 end
+        if chat.syncTabBorder == nil then chat.syncTabBorder = false end
+        chat._featureOptionsVersion = 1
+    end
+
+    -- Convert the old booleans before inputPosition's default (bottom) can
+    -- mask them. inputInTabBar had priority in the former runtime logic.
+    if chat.inputPosition == nil then
+        if chat.inputInTabBar == true then
+            chat.inputPosition = "inner"
+        elseif chat.inputOnTop == true then
+            chat.inputPosition = "top"
+        else
+            chat.inputPosition = "bottom"
+        end
+    end
+    chat.inputOnTop = nil
+    chat.inputInTabBar = nil
+
+    -- Removed experimental option: unknown keys are not handled by
+    -- StripDefaults and would otherwise survive indefinitely.
+    chat.stretchTabs = nil
+end
+
 local function EnsureDB()
     if _chatDB then return _chatDB end
     if not EUI.Lite then return nil end
+
+    -- Work on the sparse saved table before NewDB fills missing defaults.
+    local profileName = EllesmereUIDB and EllesmereUIDB.activeProfile or "Default"
+    local profileData = EllesmereUIDB and EllesmereUIDB.profiles
+        and EllesmereUIDB.profiles[profileName]
+    local rawAddon = profileData and profileData.addons
+        and profileData.addons.EllesmereUIChat
+    MigrateRawChatProfile(rawAddon and rawAddon.chat)
+
     _chatDB = EUI.Lite.NewDB("EllesmereUIChatDB", CHAT_DEFAULTS)
     _G._ECHAT_DB = _chatDB
     -- Persisted outside CHAT_DEFAULTS on purpose: StripDefaults must retain the
     -- marker so a later profile export/import can distinguish this schema from
     -- a pre-feature profile whose missing values meant the old visual defaults.
     if _chatDB.profile and _chatDB.profile.chat then
+        MigrateRawChatProfile(_chatDB.profile.chat)
         _chatDB.profile.chat._featureOptionsVersion = 1
     end
     -- One-time migration: mouseover -> always (idle fade replaces it)

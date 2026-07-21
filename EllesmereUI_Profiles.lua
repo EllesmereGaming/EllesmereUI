@@ -1236,6 +1236,7 @@ function EllesmereUI.ApplyProfileData(profileData)
                     end
                     chat.inputOnTop = nil
                     chat.inputInTabBar = nil
+                    chat.stretchTabs = nil
 
                     if chat._featureOptionsVersion == nil then
                         if chat.tabFontSize == nil then chat.tabFontSize = 10 end
