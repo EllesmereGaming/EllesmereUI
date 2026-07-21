@@ -3718,7 +3718,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
             local SWATCH_SZ = 24
             local SWATCH_GAP = 8
             local swatches = cfg.swatches or {}
-            local anchorX = -SIDE_PAD
+            local anchorX = -SIDE_PAD - (cfg.rightInset or 0)
             local leftmostSwatch
             for i = #swatches, 1, -1 do
                 local sc = swatches[i]
