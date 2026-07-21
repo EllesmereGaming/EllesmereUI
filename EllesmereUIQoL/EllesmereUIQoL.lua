@@ -3391,6 +3391,404 @@ do
 end
 
 -------------------------------------------------------------------------------
+--  Target Distance Text
+--  Floating distance text for the current target, movable in Unlock Mode.
+--  Default format is the familiar item-ladder bracket ("30-35"); optional
+--  "30+" (spell-ladder lower bound) and "30" (minimum yards) formats.
+--  Color is preconfigured by yard bracket. Off by default; zero cost while off.
+-------------------------------------------------------------------------------
+do
+    local distFrame
+    local drv
+    local evt
+    local installed = false
+    local spellLadder, spellLadderBuilt = {}, false
+    local acc = 0
+    local DEFAULT_TEXT_SIZE = 18
+    local DEFAULT_FORMAT = "range" -- "range" (30-35) | "plus" (30+) | "min" (30)
+    local DEFAULT_ALIGN = "CENTER" -- "LEFT" | "CENTER" | "RIGHT"
+    local DEFAULT_POS = { point = "CENTER", relPoint = "CENTER", x = 0, y = 120 }
+
+    -- Item ladder for Range format. Desired display buckets:
+    --   1-10: 1 yd steps (1-2, 2-3, …) · 10-50: 5 yd · 50-80: 10 yd · then 80+.
+    -- Rungs use LibRangeCheck-style harm items; yards with no reliable item
+    -- (1, 6, 9) are omitted and neighboring checks form the bracket.
+    local RANGE_ITEMS = {
+        { range = 2,  ids = { 37727, 168948, 194718 } }, -- Ruby Acorn / Dried Kelp / Salamander Feed
+        { range = 3,  ids = { 42732, 200469 } },         -- Everfrost Razor / Khadgar's Rod
+        { range = 4,  id  = 129055 },                    -- Shoe Shine Kit
+        { range = 5,  ids = { 8149, 136605, 63427 } },   -- Voodoo Charm / Solendra's / Worgsaw
+        { range = 7,  id  = 61323 },                     -- Ruby Seeds
+        { range = 8,  ids = { 34368, 33278 } },          -- Attuned Crystal Cores / Burning Torch
+        { range = 10, ids = { 32321, 17626, 10699 } },   -- Sparrowhawk Net / Frostwolf Muzzle / Yeh'kinya's
+        { range = 15, ids = { 33069, 31129 } },          -- Sturdy Rope / Blackwhelp Net
+        { range = 20, ids = { 10645, 21519 } },          -- Gnomish Death Ray / Mistletoe
+        { range = 25, ids = { 13289, 24268, 41509, 31463 } },
+        { range = 30, ids = { 17202, 835, 7734, 34191 } },
+        { range = 35, ids = { 18904, 24269 } },
+        { range = 40, ids = { 28767, 18640 } },          -- Decapitator / Happy Fun Rock
+        { range = 45, ids = { 32698, 23836 } },          -- Wrangling Rope / Goblin Rocket Launcher
+        { range = 50, id  = 116139 },                    -- Haunting Memento
+        { range = 60, ids = { 32825, 37887 } },          -- Soul Cannon / Seeds of Nature's Wrath
+        { range = 70, id  = 41265 },                     -- Eyesore Blaster
+        { range = 80, id  = 35278 },                     -- Reinforced Net
+    }
+
+    local function GetFormat()
+        local f = EllesmereUIDB and EllesmereUIDB.targetDistanceFormat
+        if f == "plus" or f == "min" or f == "range" then return f end
+        return DEFAULT_FORMAT
+    end
+
+    local function GetAlign()
+        local a = EllesmereUIDB and EllesmereUIDB.targetDistanceAlign
+        if a == "LEFT" or a == "CENTER" or a == "RIGHT" then return a end
+        return DEFAULT_ALIGN
+    end
+
+    local function ColorForYards(yards)
+        if yards <= 8 then
+            return 0.30, 0.95, 0.40
+        elseif yards <= 15 then
+            return 0.85, 0.95, 0.25
+        elseif yards <= 25 then
+            return 1.00, 0.85, 0.20
+        elseif yards <= 40 then
+            return 1.00, 0.55, 0.15
+        end
+        return 0.95, 0.25, 0.20
+    end
+
+    local function ItemInRange(entry, unit)
+        if not (C_Item and C_Item.IsItemInRange) then return nil end
+        if entry.ids then
+            local sawFalse = false
+            for _, iid in ipairs(entry.ids) do
+                local res = C_Item.IsItemInRange(iid, unit)
+                if not (issecretvalue and issecretvalue(res)) then
+                    if res == true then return true end
+                    if res == false then sawFalse = true end
+                end
+            end
+            if sawFalse then return false end
+            return nil
+        end
+        local res = C_Item.IsItemInRange(entry.id, unit)
+        if issecretvalue and issecretvalue(res) then return nil end
+        return res
+    end
+
+    -- Returns minYards, maxYards (max nil when beyond the last rung).
+    local function ItemBracket(unit)
+        if not unit or not UnitExists(unit) then return nil end
+        local minY = 0
+        local found = false
+        for i = 1, #RANGE_ITEMS do
+            local entry = RANGE_ITEMS[i]
+            local inRange = ItemInRange(entry, unit)
+            if inRange ~= nil then
+                found = true
+                if inRange then
+                    return minY, entry.range
+                end
+                minY = entry.range
+            end
+        end
+        if not found then return nil end
+        return minY, nil
+    end
+
+    local function BuildSpellLadder()
+        spellLadderBuilt = true
+        wipe(spellLadder)
+        if not (C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines
+            and C_Spell and C_Spell.GetSpellInfo and Enum and Enum.SpellBookItemType) then
+            return
+        end
+        local seen = {}
+        local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
+        for li = 1, C_SpellBook.GetNumSpellBookSkillLines() do
+            local line = C_SpellBook.GetSpellBookSkillLineInfo(li)
+            if line and not (line.offSpecID and line.offSpecID ~= 0)
+                and not line.shouldHide
+                and line.itemIndexOffset and line.numSpellBookItems then
+                for si = line.itemIndexOffset + 1, line.itemIndexOffset + line.numSpellBookItems do
+                    local itemType, actionID, spellID = C_SpellBook.GetSpellBookItemType(si, bank)
+                    local sid = spellID or actionID
+                    if itemType == Enum.SpellBookItemType.Spell and sid
+                        and not (C_Spell.IsSpellPassive and C_Spell.IsSpellPassive(sid))
+                        and (not C_Spell.IsSpellHarmful or C_Spell.IsSpellHarmful(sid)) then
+                        local sinfo = C_Spell.GetSpellInfo(sid)
+                        local maxR = sinfo and sinfo.maxRange
+                        if maxR and maxR > 0 and maxR <= 100 and not seen[maxR] then
+                            seen[maxR] = true
+                            spellLadder[#spellLadder + 1] = { range = maxR, spell = sid }
+                        end
+                    end
+                end
+            end
+        end
+        table.sort(spellLadder, function(a, b) return a.range < b.range end)
+    end
+
+    local function SpellLowerBound(unit)
+        if not unit or not UnitExists(unit) then return nil end
+        if not (C_Spell and C_Spell.IsSpellInRange) then return nil end
+        if not spellLadderBuilt then BuildSpellLadder() end
+        local FindOvr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
+        local lower = 0
+        local found = false
+        for i = 1, #spellLadder do
+            local r = spellLadder[i]
+            local live = (FindOvr and FindOvr(r.spell)) or r.spell
+            local res = C_Spell.IsSpellInRange(live, unit)
+            if not (issecretvalue and issecretvalue(res)) and res ~= nil then
+                found = true
+                if res then return lower end
+                lower = r.range
+            end
+        end
+        if not found then return nil end
+        return lower
+    end
+
+    local function FormatDistance(fmt, minY, maxY)
+        if fmt == "plus" then
+            if not minY or minY <= 0 then return nil end
+            return minY .. "+"
+        elseif fmt == "min" then
+            if not minY or minY <= 0 then return nil end
+            return tostring(minY)
+        end
+        -- range (default): "30-35", or "80+" beyond the last rung.
+        -- Inside the closest check, show "1-X" (familiar melee band) not "0-X".
+        if maxY then
+            local lo = (minY and minY > 0) and minY or 1
+            return lo .. "-" .. maxY
+        end
+        if minY and minY >= 80 then
+            return "80+"
+        end
+        if minY and minY > 0 then
+            return minY .. "+"
+        end
+        return nil
+    end
+
+    local function ResolveDisplay(unit)
+        local fmt = GetFormat()
+        if fmt == "plus" then
+            local lower = SpellLowerBound(unit)
+            if not lower or lower <= 0 then return nil end
+            return FormatDistance("plus", lower, nil), lower
+        end
+        local minY, maxY = ItemBracket(unit)
+        if minY == nil then return nil end
+        local text = FormatDistance(fmt, minY, maxY)
+        if not text then return nil end
+        local colorY = maxY or minY
+        return text, colorY
+    end
+
+    local function SampleForFormat()
+        local fmt = GetFormat()
+        if fmt == "plus" then return "30+", 30 end
+        if fmt == "min" then return "30", 30 end
+        return "25-30", 25
+    end
+
+    local function ApplyFrameSettings()
+        if not distFrame then return end
+        local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras"))
+            or EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
+        local outline = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("extras")) or ""
+        if not outline:find("OUTLINE") then
+            outline = (outline == "") and "OUTLINE" or (outline .. ", OUTLINE")
+        end
+        local size = (EllesmereUIDB and EllesmereUIDB.targetDistanceTextSize) or DEFAULT_TEXT_SIZE
+        local align = GetAlign()
+        distFrame._text:SetFont(fontPath, size, outline)
+        distFrame._text:SetJustifyH(align)
+        distFrame._text:ClearAllPoints()
+        distFrame._text:SetPoint(align, distFrame, align, 0, 0)
+        distFrame:SetSize(size * 5, size + 10)
+
+        -- Unlock Mode owns anchors while dragging, or when Anchor-to is linked.
+        if EllesmereUI._unlockActive then return end
+        if EllesmereUIDB and EllesmereUIDB.unlockAnchors and EllesmereUIDB.unlockAnchors.EUI_TargetDistance then
+            return
+        end
+
+        distFrame:ClearAllPoints()
+        local pos = EllesmereUIDB and EllesmereUIDB.targetDistancePos
+        if pos and pos.point then
+            distFrame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+        else
+            distFrame:SetPoint(DEFAULT_POS.point, UIParent, DEFAULT_POS.relPoint, DEFAULT_POS.x, DEFAULT_POS.y)
+        end
+    end
+
+    local function CreateDistFrame()
+        if distFrame then return end
+        distFrame = CreateFrame("Frame", nil, UIParent)
+        distFrame:SetSize(100, 28)
+        distFrame:SetFrameStrata("HIGH")
+        distFrame:SetFrameLevel(55)
+        distFrame:EnableMouse(false)
+        distFrame:SetMouseClickEnabled(false)
+        local fs = distFrame:CreateFontString(nil, "OVERLAY")
+        fs:SetPoint("CENTER", distFrame, "CENTER", 0, 0)
+        fs:SetJustifyH("CENTER")
+        distFrame._text = fs
+        ApplyFrameSettings()
+        distFrame:Hide()
+    end
+
+    local function ShowSample()
+        CreateDistFrame()
+        ApplyFrameSettings()
+        local text, colorY = SampleForFormat()
+        distFrame._text:SetText(text)
+        distFrame._text:SetTextColor(ColorForYards(colorY))
+        distFrame:SetAlpha(1)
+        distFrame:Show()
+    end
+
+    local function Tick()
+        if EllesmereUI._unlockActive then
+            ShowSample()
+            return
+        end
+        if not (EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled) then
+            if distFrame then distFrame:Hide() end
+            return
+        end
+        if not UnitExists("target") then
+            if distFrame then distFrame:Hide() end
+            return
+        end
+        local text, colorY = ResolveDisplay("target")
+        if not text then
+            if distFrame then distFrame:Hide() end
+            return
+        end
+        CreateDistFrame()
+        ApplyFrameSettings()
+        distFrame._text:SetText(text)
+        distFrame._text:SetTextColor(ColorForYards(colorY))
+        distFrame:Show()
+    end
+
+    local function ApplyTargetDistance()
+        local on = EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled
+        if on and not installed then
+            if not drv then
+                drv = CreateFrame("Frame")
+                drv:Hide()
+                drv:SetScript("OnUpdate", function(_, dt)
+                    acc = acc + dt
+                    if acc < 0.2 then return end
+                    acc = 0
+                    Tick()
+                end)
+            end
+            if not evt then
+                evt = CreateFrame("Frame")
+                evt:SetScript("OnEvent", function(_, event)
+                    if event == "SPELLS_CHANGED" then
+                        spellLadderBuilt = false
+                    else
+                        Tick()
+                    end
+                end)
+            end
+            evt:RegisterEvent("PLAYER_TARGET_CHANGED")
+            evt:RegisterEvent("SPELLS_CHANGED")
+            drv:Show()
+            installed = true
+            Tick()
+        elseif not on and installed then
+            evt:UnregisterAllEvents()
+            drv:Hide()
+            installed = false
+            if distFrame and not EllesmereUI._unlockActive then
+                distFrame:Hide()
+            end
+        elseif on then
+            Tick()
+        end
+        if distFrame then ApplyFrameSettings() end
+    end
+    EllesmereUI._applyTargetDistance = ApplyTargetDistance
+
+    EllesmereUI._applyTargetDistanceFrame = function()
+        CreateDistFrame()
+        ApplyFrameSettings()
+        if EllesmereUI._unlockActive or (EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled) then
+            Tick()
+        end
+    end
+
+    C_Timer.After(2, function()
+        if not (EllesmereUI and EllesmereUI.RegisterUnlockElements) then return end
+        local MK = EllesmereUI.MakeUnlockElement
+        if not MK then return end
+        EllesmereUI:RegisterUnlockElements({
+            MK({
+                key      = "EUI_TargetDistance",
+                label    = "Target Distance",
+                group    = "Quality of Life",
+                order    = 722,
+                noResize = true,
+                isHidden = function()
+                    return not (EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled)
+                end,
+                getFrame = function()
+                    CreateDistFrame()
+                    if EllesmereUI._unlockActive then ShowSample() end
+                    return distFrame
+                end,
+                getSize = function()
+                    local size = (EllesmereUIDB and EllesmereUIDB.targetDistanceTextSize) or DEFAULT_TEXT_SIZE
+                    return size * 5, size + 10
+                end,
+                savePos = function(_, point, relPoint, x, y)
+                    if not point then return end
+                    if not EllesmereUIDB then EllesmereUIDB = {} end
+                    EllesmereUIDB.targetDistancePos = { point = point, relPoint = relPoint, x = x, y = y }
+                    if distFrame and not EllesmereUI._unlockActive then
+                        ApplyFrameSettings()
+                    end
+                end,
+                loadPos = function()
+                    local pos = EllesmereUIDB and EllesmereUIDB.targetDistancePos
+                    if pos and pos.point then return pos end
+                    return { point = DEFAULT_POS.point, relPoint = DEFAULT_POS.relPoint, x = DEFAULT_POS.x, y = DEFAULT_POS.y }
+                end,
+                clearPos = function()
+                    if EllesmereUIDB then EllesmereUIDB.targetDistancePos = nil end
+                    if distFrame then ApplyFrameSettings() end
+                end,
+                applyPos = function()
+                    CreateDistFrame()
+                    ApplyFrameSettings()
+                    if EllesmereUI._unlockActive then ShowSample() end
+                end,
+            }),
+        })
+    end)
+
+    local boot = CreateFrame("Frame")
+    boot:RegisterEvent("PLAYER_LOGIN")
+    boot:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        if EllesmereUIDB and EllesmereUIDB.targetDistanceEnabled then
+            ApplyTargetDistance()
+        end
+    end)
+end
+
+-------------------------------------------------------------------------------
 --  Hide Item Transforms
 --  Cancels cosmetic transform auras (profession gear, holiday costumes, toys,
 --  consumables) as soon as they land on the player. CancelUnitBuff is blocked
