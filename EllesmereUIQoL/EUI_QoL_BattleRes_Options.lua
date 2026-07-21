@@ -236,7 +236,11 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
         { type="dropdown", text="Enable BattleRes Icon",
           values=VIS_VALUES, order=VIS_ORDER,
           getValue=function() return Cfg("visibility") or "MPLUS_AND_RAID" end,
-          setValue=function(v) Set("visibility", v); Refresh(); EllesmereUI:RefreshPage() end },
+          -- DependentSetValue: the rows below Row 1 are hidden while Never;
+          -- only the Never <-> shown flip forces the full rebuild.
+          setValue=EllesmereUI.DependentSetValue(
+              function() return Cfg("visibility") ~= "NEVER" end,
+              function(v) Set("visibility", v); Refresh(); EllesmereUI:RefreshPage() end) },
         { type="slider", text="Icon Size",
           disabled=function() return Cfg("visibility") == "NEVER" end,
           disabledTooltip="BattleRes Icon",
@@ -245,36 +249,29 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
           setValue=function(v) Set("iconSize", v); Refresh() end })
     y = y - h
 
+    -- Rows below are HIDDEN entirely while the icon is set to Never (the
+    -- dropdown's DependentSetValue forces the rebuild on flips).
+    if Cfg("visibility") ~= "NEVER" then
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Icon Shape",
-          disabled=function() return Cfg("visibility") == "NEVER" end,
-          disabledTooltip="BattleRes Icon",
           values=SHAPE_VALUES, order=SHAPE_ORDER,
           getValue=function() return Cfg("shape") or "none" end,
           setValue=function(v) Set("shape", v); Refresh() end },
         { type="multiSwatch", text="Border Color",
-          disabled=function() return Cfg("visibility") == "NEVER" end,
-          disabledTooltip="BattleRes Icon",
           swatches = MakeBorderColorSwatches() })
     y = y - h
 
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Border Size",
-          disabled=function() return Cfg("visibility") == "NEVER" end,
-          disabledTooltip="BattleRes Icon",
           values=BORDER_VALUES, order=BORDER_ORDER,
           getValue=function() return Cfg("borderSize") or "thin" end,
           setValue=function(v) Set("borderSize", v); Refresh() end },
         { type="slider", text="Icon Zoom",
           disabled=function()
-              if Cfg("visibility") == "NEVER" then return true end
               local s = Cfg("shape") or "none"
               return s ~= "none" and s ~= "cropped"
           end,
-          disabledTooltip=function()
-              if Cfg("visibility") == "NEVER" then return "BattleRes Icon" end
-              return "This option requires Icon Shape to be set to None or Cropped"
-          end,
+          disabledTooltip="This option requires Icon Shape to be set to None or Cropped",
           min=0, max=20, step=0.5, isPercent=false,
           getValue=function() return Cfg("iconZoom") or 11 end,
           setValue=function(v) Set("iconZoom", v); Refresh() end })
@@ -282,14 +279,10 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
 
     row, h = W:DualRow(parent, y,
         { type="slider", text="Duration Size",
-          disabled=function() return Cfg("visibility") == "NEVER" end,
-          disabledTooltip="BattleRes Icon",
           min=8, max=30, step=1, isPercent=false,
           getValue=function() return Cfg("durationSize") or 12 end,
           setValue=function(v) Set("durationSize", v); Refresh() end },
         { type="slider", text="Count Size",
-          disabled=function() return Cfg("visibility") == "NEVER" end,
-          disabledTooltip="BattleRes Icon",
           min=8, max=20, step=1, isPercent=false,
           getValue=function() return Cfg("countSize") or 11 end,
           setValue=function(v) Set("countSize", v); Refresh() end })
@@ -315,21 +308,15 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
             local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
             cogTex:SetAllPoints()
             cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            local function isDisabled() return Cfg("visibility") == "NEVER" end
-            local function UpdateAlpha() cogBtn:SetAlpha(isDisabled() and 0.15 or 0.4) end
-            EllesmereUI.RegisterWidgetRefresh(UpdateAlpha)
-            UpdateAlpha()
-            cogBtn:SetScript("OnClick", function(self)
-                if not isDisabled() then cogShow(self) end
-            end)
-            cogBtn:SetScript("OnEnter", function(self)
-                if not isDisabled() then self:SetAlpha(0.75) end
-            end)
-            cogBtn:SetScript("OnLeave", function(self) UpdateAlpha() end)
+            cogBtn:SetAlpha(0.4)
+            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.75) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
         end
         _attachOffsetCog(row._leftRegion,  "Duration Position", "durationOffsetX", "durationOffsetY")
         _attachOffsetCog(row._rightRegion, "Count Position",    "countOffsetX",    "countOffsetY")
     end
+    end   -- close BattleRes hidden-while-Never gate
 
     _, h = W:Spacer(parent, y, 20); y = y - h
 
@@ -441,14 +428,18 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
         { type="dropdown", text="Enable Bloodlust Icon",
           values=VIS_VALUES, order=VIS_ORDER,
           getValue=function() return BL_Cfg("visibility") or "NEVER" end,
-          setValue=function(v)
-              local was = BL_Cfg("visibility") or "NEVER"
-              BL_Set("visibility", v)
-              if was == "NEVER" and v ~= "NEVER" and _G._EUI_Bloodlust_SeedPos then
-                  _G._EUI_Bloodlust_SeedPos()
-              end
-              BL_Refresh(); EllesmereUI:RefreshPage()
-          end },
+          -- DependentSetValue: the rows below Row 1 are hidden while Never;
+          -- only the Never <-> shown flip forces the full rebuild.
+          setValue=EllesmereUI.DependentSetValue(
+              function() return BL_Cfg("visibility") ~= "NEVER" end,
+              function(v)
+                  local was = BL_Cfg("visibility") or "NEVER"
+                  BL_Set("visibility", v)
+                  if was == "NEVER" and v ~= "NEVER" and _G._EUI_Bloodlust_SeedPos then
+                      _G._EUI_Bloodlust_SeedPos()
+                  end
+                  BL_Refresh(); EllesmereUI:RefreshPage()
+              end) },
         { type="slider", text="Icon Size",
           disabled=function() return BL_Cfg("visibility") == "NEVER" end,
           disabledTooltip="Bloodlust Icon",
@@ -457,36 +448,29 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
           setValue=function(v) BL_Set("iconSize", v); BL_Refresh() end })
     y = y - h
 
+    -- Rows below are HIDDEN entirely while the icon is set to Never (the
+    -- dropdown's DependentSetValue forces the rebuild on flips).
+    if BL_Cfg("visibility") ~= "NEVER" then
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Icon Shape",
-          disabled=function() return BL_Cfg("visibility") == "NEVER" end,
-          disabledTooltip="Bloodlust Icon",
           values=SHAPE_VALUES, order=SHAPE_ORDER,
           getValue=function() return BL_Cfg("shape") or "none" end,
           setValue=function(v) BL_Set("shape", v); BL_Refresh() end },
         { type="multiSwatch", text="Border Color",
-          disabled=function() return BL_Cfg("visibility") == "NEVER" end,
-          disabledTooltip="Bloodlust Icon",
           swatches = MakeBloodlustBorderColorSwatches() })
     y = y - h
 
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Border Size",
-          disabled=function() return BL_Cfg("visibility") == "NEVER" end,
-          disabledTooltip="Bloodlust Icon",
           values=BORDER_VALUES, order=BORDER_ORDER,
           getValue=function() return BL_Cfg("borderSize") or "thin" end,
           setValue=function(v) BL_Set("borderSize", v); BL_Refresh() end },
         { type="slider", text="Icon Zoom",
           disabled=function()
-              if BL_Cfg("visibility") == "NEVER" then return true end
               local s = BL_Cfg("shape") or "none"
               return s ~= "none" and s ~= "cropped"
           end,
-          disabledTooltip=function()
-              if BL_Cfg("visibility") == "NEVER" then return "Bloodlust Icon" end
-              return "This option requires Icon Shape to be set to None or Cropped"
-          end,
+          disabledTooltip="This option requires Icon Shape to be set to None or Cropped",
           min=0, max=20, step=0.5, isPercent=false,
           getValue=function() return BL_Cfg("iconZoom") or 11 end,
           setValue=function(v) BL_Set("iconZoom", v); BL_Refresh() end })
@@ -494,14 +478,10 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
 
     row, h = W:DualRow(parent, y,
         { type="slider", text="Duration Size",
-          disabled=function() return BL_Cfg("visibility") == "NEVER" end,
-          disabledTooltip="Bloodlust Icon",
           min=8, max=30, step=1, isPercent=false,
           getValue=function() return BL_Cfg("durationSize") or 12 end,
           setValue=function(v) BL_Set("durationSize", v); BL_Refresh() end },
         { type="slider", text="Count Size",
-          disabled=function() return BL_Cfg("visibility") == "NEVER" end,
-          disabledTooltip="Bloodlust Icon",
           min=8, max=20, step=1, isPercent=false,
           getValue=function() return BL_Cfg("countSize") or 11 end,
           setValue=function(v) BL_Set("countSize", v); BL_Refresh() end })
@@ -527,21 +507,15 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
             local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
             cogTex:SetAllPoints()
             cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            local function isDisabled() return BL_Cfg("visibility") == "NEVER" end
-            local function UpdateAlpha() cogBtn:SetAlpha(isDisabled() and 0.15 or 0.4) end
-            EllesmereUI.RegisterWidgetRefresh(UpdateAlpha)
-            UpdateAlpha()
-            cogBtn:SetScript("OnClick", function(self)
-                if not isDisabled() then cogShow(self) end
-            end)
-            cogBtn:SetScript("OnEnter", function(self)
-                if not isDisabled() then self:SetAlpha(0.75) end
-            end)
-            cogBtn:SetScript("OnLeave", function(self) UpdateAlpha() end)
+            cogBtn:SetAlpha(0.4)
+            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.75) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
         end
         _attachOffsetCog(row._leftRegion,  "Duration Position", "durationOffsetX", "durationOffsetY")
         _attachOffsetCog(row._rightRegion, "Count Position",    "countOffsetX",    "countOffsetY")
     end
+    end   -- close Bloodlust hidden-while-Never gate
 
     _, h = W:Spacer(parent, y, 20); y = y - h
 

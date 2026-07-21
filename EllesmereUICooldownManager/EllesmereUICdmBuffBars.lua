@@ -294,7 +294,6 @@ local TBB_DEFAULT_BAR = {
     stackBasedBar = false,
     pandemicGlow = true,
     pandemicGlowStyle = -1,
-    pandemicGlowColor = { r = 1, g = 1, b = 0 },
     pandemicGlowLines = 8,
     pandemicGlowThickness = 2,
     pandemicGlowSpeed = 4,
@@ -347,6 +346,20 @@ function ns.GetTrackedBuffBars()
             end
         end
         tbb._iconTotalMigrated = true
+    end
+    -- Live migration: pandemicGlowMode replaced pandemicGlowColor always being set
+    if not tbb._pandemicModeMigrated then
+        for _, b in ipairs(tbb.bars or {}) do
+            if not b.pandemicGlowMode then
+                local c = b.pandemicGlowColor
+                if c and not (c.r == 1 and c.g == 1 and c.b == 0) then
+                    b.pandemicGlowMode = "custom"
+                else
+                    b.pandemicGlowMode = "default"
+                end
+            end
+        end
+        tbb._pandemicModeMigrated = true
     end
     return tbb
 end
@@ -2335,8 +2348,18 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         -- vanishes the moment a threshold is crossed. Tick marks and charge
         -- hash lines shift up in step to keep their existing order.
         if bar._sparkOverlay then bar._sparkOverlay:SetFrameLevel(sb:GetFrameLevel() + 3) end
+        -- Tick overlay was missing from this reassert since it was added:
+        -- SetFrameStrata collapses descendant levels, so without this the
+        -- ticks landed at a default level after any strata change.
+        if bar._tickOverlay then bar._tickOverlay:SetFrameLevel(sb:GetFrameLevel() + 4) end
         if bar._chargeHashOverlay then bar._chargeHashOverlay:SetFrameLevel(sb:GetFrameLevel() + 5) end
-        if bar._barBorder then bar._barBorder:SetFrameLevel(base + 5) end
+        -- base+6, not +5: the spark fix shifted tick marks to sb+4 (= base+5),
+        -- which would TIE the border cross-subtree -- and the lazily-created
+        -- tick overlay wins ties, putting ticks ON TOP of the border. One
+        -- level up keeps the border above ticks (its pre-existing order); the
+        -- charge hash lines tie it and win via later creation, as they always
+        -- have.
+        if bar._barBorder then bar._barBorder:SetFrameLevel(base + 6) end
         if bar._pandemicGlowOverlay then bar._pandemicGlowOverlay:SetFrameLevel(base + 7) end
         if bar._textOverlay then bar._textOverlay:SetFrameLevel(sb:GetFrameLevel() + 7) end
     end
@@ -2596,11 +2619,13 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         bar._barBorder:SetAllPoints(bar)
         local bSz = cfg.borderSize or 0
         local textureKey = cfg.borderTexture or "solid"
-        -- "Show Behind": border container is a child of the bar; +5 draws in
-        -- front of the fill, level-1 draws behind it. Set before ApplyBorderStyle
-        -- so the textured backdrop frame inherits the correct level.
+        -- "Show Behind": border container is a child of the bar; +6 draws in
+        -- front of the fill AND above the tick marks at sb+4 (= bar+5, which
+        -- would otherwise tie and lose to the lazily-created tick overlay);
+        -- level-1 draws behind it. Set before ApplyBorderStyle so the textured
+        -- backdrop frame inherits the correct level.
         local baseLvl = bar:GetFrameLevel()
-        bar._barBorder:SetFrameLevel(cfg.borderBehind and math.max(0, baseLvl - 1) or (baseLvl + 5))
+        bar._barBorder:SetFrameLevel(cfg.borderBehind and math.max(0, baseLvl - 1) or (baseLvl + 6))
         EllesmereUI.ApplyBorderStyle(bar._barBorder, bSz,
             cfg.borderR or 0, cfg.borderG or 0, cfg.borderB or 0, 1,
             textureKey, cfg.borderTextureOffset, cfg.borderTextureOffsetY,
@@ -3274,7 +3299,12 @@ local function UpdatePandemic(bar, cfg)
            and bar._pandemicGlowTarget ~= glowTarget then
             StopGlow(bar._pandemicGlowTarget)
         end
-        local c = cfg.pandemicGlowColor or { r = 1, g = 1, b = 0 }
+        local c
+        if cfg.pandemicGlowMode == "class" then
+            c = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+        elseif cfg.pandemicGlowMode == "custom" then
+            c = cfg.pandemicGlowColor
+        end
         local glowOpts = (style == 1) and {
             N      = cfg.pandemicGlowLines or 8,
             th     = cfg.pandemicGlowThickness or 2,
@@ -3285,7 +3315,7 @@ local function UpdatePandemic(bar, cfg)
                 b = (cfg.pandemicGlowBackgroundColor and cfg.pandemicGlowBackgroundColor.b) or 0,
             } or nil,
         } or nil
-        StartGlow(glowTarget, style, c.r or 1, c.g or 1, c.b or 0, glowOpts)
+        StartGlow(glowTarget, style, c and c.r, c and c.g, c and c.b, glowOpts)
         bar._pandemicGlowActive   = true
         bar._pandemicGlowStyleIdx = style
         bar._pandemicGlowTarget   = glowTarget

@@ -319,13 +319,18 @@ end
 
 -- Fingerprint of a BUILT style table (BuildStyle is a pure function of the
 -- settings, so hashing its scalar output covers every input, including the
--- boss-simple sizing and scale). Constant fields (border, cooldown flags,
--- cancelButtons) are omitted.
+-- boss-simple sizing and scale). Constant cooldown/cancel fields are omitted;
+-- every user-configurable border scalar must participate so layer-only edits
+-- schedule an immediate AuraKit restyle.
 local function StyleTableFP(st, font)
     local tc = st.texCoord
+    local b = st.border
     return FP(font, st.width, st.height, tc[1], tc[2], tc[3], tc[4],
         st.hideDurationText, st.cdTextSize, CK(st.cdTextColor), st.cdOffX, st.cdOffY,
-        st.stackSize, CK(st.stackColor), st.stackPos, st.stackOffX, st.stackOffY)
+        st.stackSize, CK(st.stackColor), st.stackPos, st.stackOffX, st.stackOffY,
+        b and b.texture, b and b.size, b and b[1], b and b[2], b and b[3], b and b[4],
+        b and b.offsetX, b and b.offsetY, b and b.shiftX, b and b.shiftY,
+        b and b.behind, b and b.behindUnitFrame, b and b.unitFrameLevel)
 end
 
 -- Effective engine group key: own-only variants are SEPARATE groups
@@ -392,7 +397,7 @@ local function ElementSize(unit, base, s)
     return size, h, cropped
 end
 
-local function BuildStyle(unit, base, s)
+local function BuildStyle(unit, base, s, unitFrame)
     local isBuff = (base == "HELPFUL")
     local size, h, cropped = ElementSize(unit, base, s)
     local p = Pick(isBuff, "buff", "debuff")
@@ -411,7 +416,18 @@ local function BuildStyle(unit, base, s)
         width = size,
         height = h,
         texCoord = CropCoords(cropped, size, h, Pick(isBuff, s.buffIconZoom, s.debuffIconZoom)),
-        border = { 0, 0, 0, 1 },
+        border = {
+            s.auraBorderR or 0, s.auraBorderG or 0, s.auraBorderB or 0, s.auraBorderA or 1,
+            size = s.auraBorderSize or 1,
+            texture = s.auraBorderTexture or "solid",
+            offsetX = s.auraBorderTextureOffset,
+            offsetY = s.auraBorderTextureOffsetY,
+            shiftX = s.auraBorderTextureShiftX,
+            shiftY = s.auraBorderTextureShiftY,
+            behind = s.auraBorderBehind,
+            behindUnitFrame = s.auraBorderBehindUnitFrame,
+            unitFrameLevel = unitFrame and unitFrame:GetFrameLevel() or 1,
+        },
         cooldownReverse = true,
         cooldownDrawEdge = false,
         noDefaultFonts = true,
@@ -858,7 +874,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
 
         -- Restyle only when the built style actually differs; the deferred
         -- time-sliced restyler spreads the button decoration work out.
-        local style = BuildStyle(unit, base, s)
+        local style = BuildStyle(unit, base, s, entry.frame)
         local styleV = StyleTableFP(style, font)
         if st.style ~= styleV then
             st.style = styleV
@@ -1036,7 +1052,7 @@ local function BuildUnitContainers(frame, unit)
     local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or ""
     for _, base in ipairs({ "HELPFUL", "HARMFUL" }) do
         local key = StyleKey(unit, base)
-        local style = BuildStyle(unit, base, s)
+        local style = BuildStyle(unit, base, s, frame)
         AK.styles[key] = style
         ufFP[key] = { style = StyleTableFP(style, font) }
     end

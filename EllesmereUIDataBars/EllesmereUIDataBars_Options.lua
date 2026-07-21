@@ -43,6 +43,11 @@ initFrame:SetScript("OnEvent", function(self)
                                  -- bar highlight (the watcher must not clear it)
     local _edbStripRelayout      -- set per header build: re-solves + repositions the preview
     local _edbPreviewHost        -- the preview strip frame (live theme feedback)
+    local _edbHeldGlowKey        -- click-target key whose glow pulses until the
+                                 -- setting is filled in; outlives page builds
+    local _edbHeldGlowY          -- its section offset when last shown: sections
+                                 -- follow bar order, so a change means the row
+                                 -- moved and the view has to follow it
     local _cardsExpanded = false -- template card strip open/closed
     local _dividerDragging = false
 
@@ -179,7 +184,7 @@ initFrame:SetScript("OnEvent", function(self)
     local TEMPLATE_CARDS = {
         { key = "empty",      icon = "eui-edit.png",    title = "Start Empty",
           desc = "A blank bar to build from scratch." },
-        { key = "bottom",     icon = "grid.png",        title = "Bottom Info Bar",
+        { key = "bottom",     icon = "grid.png",        title = "Top/Bottom Info Bar",
           desc = "Full-width bar with the classic info blocks." },
         { key = "minimapc",   icon = "coordinates.png", title = "Minimap Companion",
           desc = "Compact clock and FPS readout." },
@@ -1347,6 +1352,10 @@ initFrame:SetScript("OnEvent", function(self)
                     HardRefresh()
                     if nb then
                         local navKey = "block:" .. nb.id
+                        -- A currency block lands unusable until one is picked,
+                        -- so aim at the picker itself: that target pulses until
+                        -- it is filled in, instead of the one-shot section glow.
+                        if typeKey == "currency" then navKey = navKey .. ":currency" end
                         C_Timer.After(0.05, function()
                             if _edbNavigateFn then _edbNavigateFn(navKey) end
                         end)
@@ -1418,7 +1427,13 @@ initFrame:SetScript("OnEvent", function(self)
         --  cached/restored header never fires a stale closure.
         -------------------------------------------------------------------
         local _navGlowFrame
-        local function PlaySettingGlow(targetFrame)
+        -- holdWhile (optional): keeps the glow pulsing for as long as it
+        -- returns true, instead of the one-shot fade. Used when the glow is
+        -- pointing at a setting the player still has to fill in -- a 0.75s
+        -- flash is gone before they have finished reading the page. The pulse
+        -- also releases when the target stops being visible (page rebuilt,
+        -- options closed), so the shared frame can never strand its OnUpdate.
+        local function PlaySettingGlow(targetFrame, holdWhile)
             if not targetFrame then return end
             if not _navGlowFrame then
                 _navGlowFrame = CreateFrame("Frame")
@@ -1444,6 +1459,15 @@ initFrame:SetScript("OnEvent", function(self)
             local elapsed = 0
             _navGlowFrame:SetScript("OnUpdate", function(glowSelf, dt)
                 elapsed = elapsed + dt
+                if holdWhile then
+                    if targetFrame:IsVisible() and holdWhile() then
+                        glowSelf:SetAlpha(0.35 + 0.65 * math.abs(math.sin(elapsed * 3)))
+                        return
+                    end
+                    -- Released: drop the predicate and restart the clock so the
+                    -- fade plays from full alpha instead of expiring at once.
+                    holdWhile, elapsed = nil, 0
+                end
                 if elapsed >= 0.75 then
                     glowSelf:Hide()
                     glowSelf:SetScript("OnUpdate", nil)
@@ -1451,6 +1475,13 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 glowSelf:SetAlpha(1 - elapsed / 0.75)
             end)
+        end
+
+        local function GlowTargetOf(m)
+            if not m.slotSide then return m.target end
+            local region
+            if m.slotSide == "left" then region = m.target._leftRegion else region = m.target._rightRegion end
+            return region or m.target
         end
 
         local function NavigateToSetting(key)
@@ -1461,14 +1492,45 @@ initFrame:SetScript("OnEvent", function(self)
             local _, _, _, _, headerY = m.section:GetPoint(1)
             if not headerY then return end
             EllesmereUI.SmoothScrollTo(math.max(0, math.abs(headerY) - 40))
-            local glowTarget = m.target
-            if m.slotSide then
-                local region
-                if m.slotSide == "left" then region = m.target._leftRegion else region = m.target._rightRegion end
-                if region then glowTarget = region end
-            end
-            C_Timer.After(0.15, function() PlaySettingGlow(glowTarget) end)
+            local glowTarget = GlowTargetOf(m)
+            if m.holdWhile then _edbHeldGlowKey, _edbHeldGlowY = key, headerY end
+            C_Timer.After(0.15, function() PlaySettingGlow(glowTarget, m.holdWhile) end)
         end
+
+        -- A held glow belongs to the SETTING, not to the navigation that first
+        -- showed it. A page rebuild -- reordering a block, switching bars,
+        -- adding or removing one -- destroys the row it was parented to, which
+        -- released the pulse for good even though the setting was still empty.
+        -- Re-attach it to the freshly built row.
+        --
+        -- Scope: rebuilds only. Reopening the panel takes SelectPage's warm
+        -- path (EllesmereUI.lua), which re-shows the cached wrapper without
+        -- running the page builder, so nothing calls this -- the pulse stays
+        -- dead until the next rebuild. Covering that means driving this from
+        -- onPageCacheRestore too, the way _edbStripRelayout is.
+        local function RearmHeldGlow()
+            if not _edbHeldGlowKey then return end
+            local targets = parent._edbClickTargets
+            local m = targets and targets[_edbHeldGlowKey]
+            -- Absent from this build (another bar is selected): keep the key so
+            -- coming back re-arms. Only a satisfied predicate retires it.
+            if not (m and m.section and m.target and m.holdWhile) then return end
+            if not m.holdWhile() then
+                _edbHeldGlowKey = nil
+                return
+            end
+            -- Sections are laid out in bar order, so reordering blocks moves
+            -- this row: re-glowing in place would pulse off-screen. Follow it
+            -- only when it actually moved -- yanking the view on an unrelated
+            -- rebuild (a Fill toggle, a theme change) would be worse.
+            local _, _, _, _, headerY = m.section:GetPoint(1)
+            if headerY ~= _edbHeldGlowY then
+                NavigateToSetting(_edbHeldGlowKey)
+                return
+            end
+            PlaySettingGlow(GlowTargetOf(m), m.holdWhile)
+        end
+
         -- Never retarget the live header's click handler from a hidden
         -- global-search pre-build: its targets belong to an off-screen
         -- wrapper. (SetContentHeader itself is stubbed out during pre-builds
@@ -1730,6 +1792,51 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
+        -- Bar Texture: 1:1 with the Unit Frames picker -- same built-in
+        -- texture set plus SharedMedia statusbars appended live on every
+        -- build (late-registered packs always appear), with texture preview
+        -- backgrounds on the menu items.
+        local function BuildBarTexDropdown()
+            if EllesmereUI.AppendSharedMediaTextures then
+                EllesmereUI.AppendSharedMediaTextures(
+                    ns.barTextureNames or {},
+                    ns.barTextureOrder or {},
+                    nil,
+                    ns.barTextures
+                )
+            end
+            local btValues, btOrder = {}, {}
+            local texNames = ns.barTextureNames or {}
+            local texOrder = ns.barTextureOrder or {}
+            for _, key in ipairs(texOrder) do
+                if key ~= "---" then
+                    btValues[key] = texNames[key] or key
+                    btOrder[#btOrder + 1] = key
+                end
+            end
+            local texLookup = ns.barTextures or {}
+            btValues._menuOpts = {
+                itemHeight = 28,
+                background = function(key)
+                    return texLookup[key]
+                end,
+            }
+            return btValues, btOrder
+        end
+        local btValues, btOrder = BuildBarTexDropdown()
+        local barTexCfg = { type = "dropdown", text = "Bar Texture",
+              tooltip = "Background texture for this bar, tinted by the bar's color and opacity.",
+              -- Textures are a Modern-style feature; the EllesmereUI style
+              -- always renders its own untextured art stack.
+              disabled = function() return (theme and theme.style) ~= "modern" end,
+              disabledTooltip = "Modern Background Style is required.",
+              values = btValues, order = btOrder,
+              getValue = function() return cfg.barTexture or "none" end,
+              setValue = function(v)
+                  cfg.barTexture = v
+                  if ns.ApplyTheme then ns.ApplyTheme(barId) end
+                  Apply()
+              end }
         local scaleCfg = { type = "slider", text = "Text Scale", min = 50, max = 150, step = 5,
               tooltip = "Scales every text element on this bar.",
               getValue = function()
@@ -1780,7 +1887,7 @@ initFrame:SetScript("OnEvent", function(self)
                   ns.ApplyTheme(barId)
                   RefreshPreviewTheme()
               end },
-            hoverBlocksCfg);  y = y - h
+            barTexCfg);  y = y - h
         do
             -- Inline Modern-background swatch: always present, disabled
             -- (house pattern) while the EllesmereUI style is active. Style
@@ -1894,7 +2001,7 @@ initFrame:SetScript("OnEvent", function(self)
                   Apply()
               end });  y = y - h
 
-        _, h = W:DualRow(parent, y, scaleCfg, { type = "label", text = "" });  y = y - h
+        _, h = W:DualRow(parent, y, scaleCfg, hoverBlocksCfg);  y = y - h
 
         -- Bar deletion lives in the selector dropdown's inline delete -- no
         -- body row. Visibility moved to the top of the section; rename =
@@ -2107,15 +2214,17 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
 
-            -- Block Background (inline swatch) | Color (Custom/Class/Accent
-            -- swatches: text + icon tint, status-bar fills unaffected).
+            -- Block Background (inline swatch) | Text Color (Custom/Class/
+            -- Accent swatches: text tint; icon-bearing blocks tint icons via
+            -- the separate Icon Color row below, other icon users -- micro
+            -- menu, social -- still ride this color).
             -- (Hover Highlight is a bar-level setting in BAR SETTINGS now.)
             -- Colors apply during block re-render, so force a full reflow
             -- (a plain apply skips blocks whose width did not change).
             local function ApplyBlockColor()
                 if ns.ReflowBlocks then ns.ReflowBlocks(barId) end
             end
-            local colorCfg = { type = "multiSwatch", text = "Color",
+            local colorCfg = { type = "multiSwatch", text = "Text Color",
                   swatches = {
                     { tooltip = "Custom Color", hasAlpha = false,
                       getValue = function()
@@ -2164,6 +2273,82 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       refreshAlpha = function() return b.useAccentColor and 1 or 0.3 end },
                   } }
+            -- Gold block: 4th "Coin Colored" swatch on Text Color -- white
+            -- numbers, coin-tinted g/s/c letters; the forced default (see
+            -- the factory's coinForced one-shot). Picking any of the three
+            -- standard swatches clears the flag.
+            if b.type == "gold" then
+                local sw = colorCfg.swatches
+                local origCustomClick = sw[1].onClick
+                sw[1].onClick = function(self)
+                    if b.useCoinColor then
+                        b.useCoinColor = nil
+                        ApplyBlockColor(); EllesmereUI:RefreshPage()
+                        return
+                    end
+                    origCustomClick(self)
+                end
+                local origCustomAlpha = sw[1].refreshAlpha
+                sw[1].refreshAlpha = function()
+                    if b.useCoinColor then return 0.3 end
+                    return origCustomAlpha()
+                end
+                for i = 2, 3 do
+                    local origClick = sw[i].onClick
+                    sw[i].onClick = function(...)
+                        b.useCoinColor = nil
+                        return origClick(...)
+                    end
+                end
+                sw[4] = { tooltip = "Coin Colored", hasAlpha = false,
+                    -- E2AC7A -- matches DENOMINATIONS' gold letter (user-set).
+                    getValue = function() return 0.886, 0.675, 0.478 end,
+                    setValue = function() end,
+                    onClick = function()
+                        b.useCoinColor = true
+                        b.useClassColor = nil
+                        b.useAccentColor = nil
+                        ApplyBlockColor(); EllesmereUI:RefreshPage()
+                    end,
+                    refreshAlpha = function() return b.useCoinColor and 1 or 0.3 end }
+            end
+            -- Durability: optional 4th "Dynamic" swatch on Text Color --
+            -- the same red->green durability gradient the icon's Dynamic
+            -- mode uses. NOT the default: nothing-stored stays custom/white.
+            if b.type == "durability" then
+                local sw = colorCfg.swatches
+                local origCustomClick = sw[1].onClick
+                sw[1].onClick = function(self)
+                    if b.useDynamicColor then
+                        b.useDynamicColor = nil
+                        ApplyBlockColor(); EllesmereUI:RefreshPage()
+                        return
+                    end
+                    origCustomClick(self)
+                end
+                local origCustomAlpha = sw[1].refreshAlpha
+                sw[1].refreshAlpha = function()
+                    if b.useDynamicColor then return 0.3 end
+                    return origCustomAlpha()
+                end
+                for i = 2, 3 do
+                    local origClick = sw[i].onClick
+                    sw[i].onClick = function(...)
+                        b.useDynamicColor = nil
+                        return origClick(...)
+                    end
+                end
+                sw[4] = { tooltip = "Dynamic", hasAlpha = false,
+                    getValue = function() return ns.BlockIconDefault("durability") end,
+                    setValue = function() end,
+                    onClick = function()
+                        b.useDynamicColor = true
+                        b.useClassColor = nil
+                        b.useAccentColor = nil
+                        ApplyBlockColor(); EllesmereUI:RefreshPage()
+                    end,
+                    refreshAlpha = function() return b.useDynamicColor and 1 or 0.3 end }
+            end
             local bgRow
             local bgRightCfg
             if isSpacer then bgRightCfg = { type = "label", text = "" } else bgRightCfg = colorCfg end
@@ -2222,6 +2407,193 @@ initFrame:SetScript("OnEvent", function(self)
                 UpdateState()
             end
 
+            -- Icon Color (icon-bearing blocks only): the same three swatches
+            -- as Text Color plus a "Default" swatch. Nothing stored resolves
+            -- to the block's themed default (ns.BlockIconDefault).
+            local ICON_COLOR_BLOCKS = {
+                durability = true, gold = true, travel = true, spec = true,
+                profession = true, profession2 = true, currency = true,
+                greatvault = true, audio = true,
+            }
+            if ICON_COLOR_BLOCKS[b.type] then
+                local function IconFlagsOff()
+                    return not b.useIconClassColor and not b.useIconAccentColor
+                        and not b.useIconDefaultColor
+                end
+                local iconColorCfg = { type = "multiSwatch", text = "Icon Color",
+                  swatches = {
+                    { tooltip = "Custom Color", hasAlpha = false,
+                      getValue = function()
+                          local c = b.iconColor
+                          if c then return c.r or 1, c.g or 1, c.b or 1 end
+                          return ns.BlockIconDefault(b.type)
+                      end,
+                      setValue = function(r, g, bl)
+                          b.iconColor = { r = r, g = g, b = bl }
+                          ApplyBlockColor()
+                      end,
+                      onClick = function(self)
+                          -- Switching from Class/Accent/Default: SEED the
+                          -- custom color (from the themed default) so custom
+                          -- actually lights on this click -- unlike the Text
+                          -- Color row, flag-less with nothing stored means
+                          -- DEFAULT here, so clearing flags alone landed the
+                          -- selection on Default until the picker stored a
+                          -- color. Second click opens the picker as usual.
+                          if not IconFlagsOff() or b.iconColor == nil then
+                              b.useIconClassColor = nil
+                              b.useIconAccentColor = nil
+                              b.useIconDefaultColor = nil
+                              if b.iconColor == nil then
+                                  local dr, dg2, db2 = ns.BlockIconDefault(b.type)
+                                  b.iconColor = { r = dr, g = dg2, b = db2 }
+                              end
+                              ApplyBlockColor(); EllesmereUI:RefreshPage()
+                              return
+                          end
+                          if self._eabOrigClick then self._eabOrigClick(self) end
+                      end,
+                      refreshAlpha = function()
+                          return (IconFlagsOff() and b.iconColor ~= nil) and 1 or 0.3
+                      end },
+                    { tooltip = "Class Colored", hasAlpha = false,
+                      getValue = function()
+                          local _, classFile = UnitClass("player")
+                          local cc = classFile and RAID_CLASS_COLORS
+                              and RAID_CLASS_COLORS[classFile]
+                          if cc then return cc.r, cc.g, cc.b end
+                          return 1, 1, 1
+                      end,
+                      setValue = function() end,
+                      onClick = function()
+                          b.useIconClassColor = true
+                          b.useIconAccentColor = nil
+                          b.useIconDefaultColor = nil
+                          ApplyBlockColor(); EllesmereUI:RefreshPage()
+                      end,
+                      refreshAlpha = function() return b.useIconClassColor and 1 or 0.3 end },
+                    { tooltip = "Accent Color", hasAlpha = false,
+                      getValue = function() return ns.GetAccent() end,
+                      setValue = function() end,
+                      onClick = function()
+                          b.useIconAccentColor = true
+                          b.useIconClassColor = nil
+                          b.useIconDefaultColor = nil
+                          ApplyBlockColor(); EllesmereUI:RefreshPage()
+                      end,
+                      refreshAlpha = function() return b.useIconAccentColor and 1 or 0.3 end },
+                    { tooltip = "Default", hasAlpha = false,
+                      getValue = function() return ns.BlockIconDefault(b.type) end,
+                      setValue = function() end,
+                      onClick = function()
+                          -- Mode switch only -- the stored custom color stays
+                          -- stashed for the Custom swatch.
+                          b.useIconDefaultColor = true
+                          b.useIconClassColor = nil
+                          b.useIconAccentColor = nil
+                          ApplyBlockColor(); EllesmereUI:RefreshPage()
+                      end,
+                      refreshAlpha = function()
+                          return (b.useIconDefaultColor
+                              or (IconFlagsOff() and b.iconColor == nil)) and 1 or 0.3
+                      end },
+                  } }
+                if b.type == "durability" then
+                    -- Durability's default tint is DYNAMIC (red -> green by
+                    -- lowest durability); same mode semantics, clearer name.
+                    iconColorCfg.swatches[4].tooltip = "Dynamic"
+                end
+                if b.type == "spec" then
+                    -- Spec defaults to CLASS color: no Default swatch; the
+                    -- Class swatch reads as selected in the nothing-stored
+                    -- state, and a legacy stored Default-mode flag (from
+                    -- when the swatch existed) lights it too -- both render
+                    -- class color.
+                    iconColorCfg.swatches[4] = nil
+                    iconColorCfg.swatches[2].refreshAlpha = function()
+                        if b.useIconClassColor or b.useIconDefaultColor then return 1 end
+                        return (IconFlagsOff() and b.iconColor == nil) and 1 or 0.3
+                    end
+                end
+                if b.type == "profession" or b.type == "profession2" then
+                    -- Professions default to ACCENT (matches the skill-bar
+                    -- fill), so they carry no Default swatch -- and Accent
+                    -- reads as selected in the nothing-stored state too.
+                    iconColorCfg.swatches[4] = nil
+                    iconColorCfg.swatches[3].refreshAlpha = function()
+                        if b.useIconAccentColor then return 1 end
+                        return (IconFlagsOff() and b.iconColor == nil) and 1 or 0.3
+                    end
+                end
+                -- Gold / travel: a type row rides the Icon Color row's
+                -- otherwise-empty right slot instead of trailing alone below.
+                local iconRowRight = { type = "label", text = "" }
+                if b.type == "travel" then
+                    -- Default ON (nil = shown), so this can't use MkToggle's
+                    -- `== true` read.
+                    iconRowRight = { type = "toggle", text = "Show M+ Portals",
+                      tooltip = "Show the Mythic+ teleport section in the tooltip. Ready rows are click-to-teleport.",
+                      getValue = function() return s.clickableTeleports ~= false end,
+                      setValue = function(v)
+                          s.clickableTeleports = v and true or false
+                          Apply()
+                      end }
+                end
+                if b.type == "audio" then
+                    -- Default ON (nil = shown), so this can't use MkToggle's
+                    -- `== true` read.
+                    iconRowRight = { type = "toggle", text = "Show Icon",
+                      tooltip = "Shows the audio icon next to the volume bar.",
+                      getValue = function() return s.showIcon ~= false end,
+                      setValue = function(v)
+                          s.showIcon = v and true or false
+                          Apply()
+                      end }
+                end
+                if b.type == "profession" or b.type == "profession2" then
+                    -- Default ON (nil = shown), so this can't use MkToggle's
+                    -- `== true` read.
+                    iconRowRight = { type = "toggle", text = "Show Icon",
+                      tooltip = "Shows the profession icons next to the text.",
+                      getValue = function() return s.showIcon ~= false end,
+                      setValue = function(v)
+                          s.showIcon = v and true or false
+                          Apply()
+                      end }
+                end
+                if b.type == "spec" then
+                    -- Default ON (nil = shown), so this can't use MkToggle's
+                    -- `== true` read.
+                    iconRowRight = { type = "toggle", text = "Show Icon",
+                      tooltip = "Shows the spec icon next to the text.",
+                      getValue = function() return s.showIcon ~= false end,
+                      setValue = function(v)
+                          s.showIcon = v and true or false
+                          Apply()
+                      end }
+                end
+                if b.type == "durability" then
+                    iconRowRight = { type = "toggle", text = "Show Icon",
+                      tooltip = "Shows the icon next to the durability readout.",
+                      getValue = function() return s.showIcon == true end,
+                      setValue = function(v)
+                          s.showIcon = v and true or false
+                          Apply()
+                      end }
+                end
+                if b.type == "gold" then
+                    iconRowRight = { type = "toggle", text = "Show Silver and Copper",
+                      tooltip = "Shows silver and copper, not just gold.",
+                      getValue = function() return s.showSmall == true end,
+                      setValue = function(v)
+                          s.showSmall = v and true or false
+                          Apply()
+                      end }
+                end
+                _, h = W:DualRow(parent, y,
+                    iconColorCfg, iconRowRight);  y = y - h
+            end
+
             -- Type-specific rows (sequential DualRow fill; odd tail gets a
             -- blank label in the remaining slot)
             local function MkToggle(label, key, tip)
@@ -2234,10 +2606,49 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             local typeRows = {}
-            if b.type == "clock" then
+            if b.type == "audio" then
                 typeRows = {
-                    MkToggle("Local Time", "localTime", "Local computer time instead of server time."),
-                    MkToggle("24 Hour Clock", "twentyFour", "Use 24-hour time."),
+                    { type = "dropdown", text = "Audio Channel",
+                      tooltip = "Which audio channel the block's volume bar adjusts.",
+                      values = { master = "Master", sfx = "Sound Effects",
+                                 music = "Music", ambience = "Ambience",
+                                 dialog = "Dialog" },
+                      order = { "master", "sfx", "music", "ambience", "dialog" },
+                      getValue = function() return s.channel or "master" end,
+                      setValue = function(v)
+                          s.channel = v
+                          Apply()
+                      end },
+                }
+            elseif b.type == "clock" then
+                -- The two time toggles show the EFFECTIVE mode: untouched,
+                -- the clock follows the game's Time Manager CVars (same as
+                -- the minimap clock); toggling stores a per-block override.
+                typeRows = {
+                    { type = "toggle", text = "Local Time",
+                      tooltip = "Local computer time instead of server time.",
+                      getValue = function()
+                          if s.localTime == nil then
+                              return GetCVar("timeMgrUseLocalTime") == "1"
+                          end
+                          return s.localTime == true
+                      end,
+                      setValue = function(v)
+                          s.localTime = v and true or false
+                          Apply()
+                      end },
+                    { type = "toggle", text = "24 Hour Clock",
+                      tooltip = "Use 24-hour time.",
+                      getValue = function()
+                          if s.twentyFour == nil then
+                              return GetCVar("timeMgrUseMilitaryTime") == "1"
+                          end
+                          return s.twentyFour == true
+                      end,
+                      setValue = function(v)
+                          s.twentyFour = v and true or false
+                          Apply()
+                      end },
                     MkToggle("Mail Alert", "showMail", "Shows an envelope icon when you have unread mail."),
                     MkToggle("Resting Icon", "showResting", "Shows a rest icon while your character is resting."),
                 }
@@ -2245,15 +2656,13 @@ initFrame:SetScript("OnEvent", function(self)
                 typeRows = {
                     MkToggle("World Latency", "useWorldLatency", "Show world latency instead of home latency."),
                 }
-            elseif b.type == "durability" then
-                typeRows = {
-                    MkToggle("Show Icon", "showIcon", "Shows the icon next to the durability readout."),
-                }
             elseif b.type == "gold" then
                 typeRows = {
                     MkToggle("Show Icon", "showIcons", "Shows the coin icon next to the amount."),
                     MkToggle("Show Bag Space", "showBagSpace", "Shows your free bag slots."),
-                    MkToggle("Show Silver and Copper", "showSmall", "Shows silver and copper, not just gold."),
+                    -- Off (default) = the letter suffixes; on = coin textures.
+                    -- Independent of Coin Colored, which tints those letters.
+                    MkToggle("Coin Icons", "coinIcons", "Uses Blizzard's coin textures instead of the letter suffixes."),
                 }
             elseif b.type == "xprep" then
                 typeRows = {
@@ -2274,15 +2683,62 @@ initFrame:SetScript("OnEvent", function(self)
                     MkToggle("Uppercase Text", "useUppercase", "Renders the spec text in uppercase."),
                 }
             elseif b.type == "travel" then
+                -- Hearthstone dropdown: "random" or a specific owned entry
+                -- from the shared pool (ns.TravelHearthstoneIDs). hsChoice
+                -- nil derives from the legacy randomizeHs boolean, which is
+                -- kept mirrored on write for old readers/exports.
+                local hsValues = { random = "Random Hearthstone" }
+                local hsOrder = { "random" }
+                do
+                    local pool = ns.TravelHearthstoneIDs
+                    local usable = ns.TravelIsUsable
+                    local owned = {}
+                    if pool and usable then
+                        for _, id in ipairs(pool) do
+                            if usable(id) then owned[#owned + 1] = id end
+                        end
+                    end
+                    -- Keep the current pick listed even if it went unowned,
+                    -- so the dropdown shows its label instead of a blank.
+                    local cur = s.hsChoice
+                    if cur == nil then cur = s.randomizeHs and "random" or 6948 end
+                    if type(cur) == "number" then
+                        local seen = false
+                        for _, id in ipairs(owned) do
+                            if id == cur then seen = true; break end
+                        end
+                        if not seen then owned[#owned + 1] = cur end
+                    end
+                    local names = {}
+                    for _, id in ipairs(owned) do
+                        local n
+                        if C_ToyBox and C_ToyBox.GetToyInfo then
+                            local _, tn = C_ToyBox.GetToyInfo(id)
+                            n = tn
+                        end
+                        if not n and C_Item and C_Item.GetItemInfo then
+                            n = C_Item.GetItemInfo(id)
+                        end
+                        names[id] = n or ("Item " .. id)
+                    end
+                    table.sort(owned, function(x, y) return names[x] < names[y] end)
+                    for _, id in ipairs(owned) do
+                        hsValues[id] = names[id]
+                        hsOrder[#hsOrder + 1] = id
+                    end
+                end
                 typeRows = {
-                    MkToggle("Random Hearthstone", "randomizeHs", "Uses a random hearthstone toy variant each cast."),
-                    -- Default ON (nil = enabled), so this can't use MkToggle's
-                    -- `== true` read.
-                    { type = "toggle", text = "Clickable Teleports",
-                      tooltip = "Left-click a ready Mythic+ teleport in the tooltip to cast it.",
-                      getValue = function() return s.clickableTeleports ~= false end,
+                    { type = "dropdown", text = "Hearthstone",
+                      tooltip = "Which hearthstone the left-click uses. Random Hearthstone picks a random owned variant each cast.",
+                      values = hsValues, order = hsOrder,
+                      getValue = function()
+                          local c = s.hsChoice
+                          if c == nil then c = s.randomizeHs and "random" or 6948 end
+                          return c
+                      end,
                       setValue = function(v)
-                          s.clickableTeleports = v and true or false
+                          s.hsChoice = v
+                          s.randomizeHs = (v == "random")
                           Apply()
                       end },
                 }
@@ -2354,7 +2810,18 @@ initFrame:SetScript("OnEvent", function(self)
             for k = 1, #typeRows, 2 do
                 local rightCfg = typeRows[k + 1]
                 if not rightCfg then rightCfg = { type = "label", text = "" } end
-                _, h = W:DualRow(parent, y, typeRows[k], rightCfg);  y = y - h
+                row, h = W:DualRow(parent, y, typeRows[k], rightCfg);  y = y - h
+                -- Deep-link target for an unconfigured currency block: clicking
+                -- its "Select a currency" placeholder on the live bar lands on
+                -- the picker itself, not just the section (ns.OpenBlockSettings).
+                -- k == 1 IS the Currency dropdown: it heads the currency
+                -- typeRows built above. Prepend a row there and retarget here.
+                if b.type == "currency" and k == 1 then
+                    parent._edbClickTargets["block:" .. blockId .. ":currency"] =
+                        { section = secHdr, target = row, slotSide = "left",
+                          -- Pulse until the player actually picks one.
+                          holdWhile = function() return s.currencyId == nil end }
+                end
             end
 
             if b.type == "micromenu" then
@@ -2372,8 +2839,8 @@ initFrame:SetScript("OnEvent", function(self)
                     { key = "lfg",     label = "Group Finder" },
                     { key = "pvp",     label = "PvP" },
                     { key = "housing", label = "Housing" },
-                    { key = "journal", label = "Journal" },
-                    { key = "pet",     label = "Pets" },
+                    { key = "journal", label = "Adventure Journal" },
+                    { key = "pet",     label = "Collections" },
                     { key = "shop",    label = "Shop" },
                     { key = "help",    label = "Help" },
                 }
@@ -2468,7 +2935,36 @@ initFrame:SetScript("OnEvent", function(self)
         -- body section.
         W:Spacer(parent, y, 20);  y = y - 20
 
+        -- Every click target of this build is registered by now. Same settle
+        -- delay the navigation paths use, and the same pre-build guard: a
+        -- hidden search pre-build would steal the shared glow frame for rows
+        -- nobody can see.
+        if not EllesmereUI._prebuilding then
+            C_Timer.After(0.05, RearmHeldGlow)
+        end
+
         return math.abs(y)
+    end
+
+    ---------------------------------------------------------------------------
+    --  Deep link from a live block to its own settings row. A block whose
+    --  empty state invites a click (the currency picker's placeholder) calls
+    --  this so the invitation leads to the control that fulfills it; the
+    --  preview strip navigates through _edbNavigateFn directly.
+    ---------------------------------------------------------------------------
+    function ns.OpenBlockSettings(barId, blockId, settingKey)
+        local key = "block:" .. blockId .. ":" .. settingKey
+        EllesmereUI:NavigateToElementSettings("EllesmereUIDataBars", PAGE_DATABARS, nil,
+            function()
+                local p = Profile()
+                if p then p.selectedBarId = barId end
+            end)
+        -- The click-target map belongs to the page build the call above kicks
+        -- off; resolve the scroll target once it has repopulated (same settle
+        -- delay NavigateToElementSettings uses for its own section lookup).
+        C_Timer.After(0.05, function()
+            if _edbNavigateFn then _edbNavigateFn(key) end
+        end)
     end
 
     ---------------------------------------------------------------------------

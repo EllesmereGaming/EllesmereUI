@@ -76,7 +76,13 @@ initFrame:SetScript("OnEvent", function(self)
         local function Refresh() if ns.RefreshMeter then ns.RefreshMeter() end end
         local function ApplyHdr() if ns.ApplyHeader then ns.ApplyHeader() end end
         local function ApplyBrd() if ns.ApplyBorder then ns.ApplyBorder() end end
+        local function ApplyWindowBrd() if ns.ApplyWindowBorder then ns.ApplyWindowBorder() end end
         local function ApplyIconBrd() if ns.ApplyIconBorder then ns.ApplyIconBorder() end end
+        local borderSizeValues = {
+            ["0"]="None", ["1"]="Thin", ["2"]="Normal",
+            ["3"]="Heavy", ["4"]="Strong",
+        }
+        local borderSizeOrder = { "0", "1", "2", "3", "4" }
 
         -- ── DISPLAY ─────────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
@@ -105,6 +111,78 @@ initFrame:SetScript("OnEvent", function(self)
             rightRgn._control = cbDD
             rightRgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+        end
+        y = y - h
+
+        -- Window Border Style (+ directions submenu) | Border Size (+ color)
+        local windowTexValues, windowTexOrder = EllesmereUI.GetBorderTextureDropdown()
+        local windowBorderRow
+        windowBorderRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Border Style",
+              values=windowTexValues, order=windowTexOrder,
+              getValue=function() return Cfg("windowBorderTexture") or "solid" end,
+              setValue=function(v)
+                  Set("windowBorderTexture", v)
+                  Set("windowBorderOffsetX", 0); Set("windowBorderOffsetY", 0)
+                  local color, behind = EllesmereUI.GetBorderStyleSelectDefaults(v)
+                  Set("windowBorderColor", { r=color.r, g=color.g, b=color.b, a=1 })
+                  Set("windowBorderBehind", behind)
+                  local defaultSize = EllesmereUI.GetBorderDefaultSize("damagemeters", v)
+                  if defaultSize then Set("windowBorderSize", defaultSize) end
+                  ApplyWindowBrd(); EllesmereUI:RefreshPage()
+              end },
+            { type="dropdown", text="Border Size",
+              values=borderSizeValues, order=borderSizeOrder,
+              getValue=function() return tostring(Cfg("windowBorderSize") or 0) end,
+              setValue=function(v) Set("windowBorderSize", tonumber(v) or 0); ApplyWindowBrd() end })
+        do
+            local rgn = windowBorderRow._leftRegion
+            local _, popupShow = EllesmereUI.BuildCogPopup({
+                title="Border Offset",
+                rows={
+                    { type="slider", label="Offset X", min=-10, max=10, step=1,
+                      disabled=function() return (Cfg("windowBorderTexture") or "solid") == "solid" end,
+                      get=function() return Cfg("windowBorderOffsetX") or 0 end,
+                      set=function(v) Set("windowBorderOffsetX", v); ApplyWindowBrd() end },
+                    { type="slider", label="Offset Y", min=-10, max=10, step=1,
+                      disabled=function() return (Cfg("windowBorderTexture") or "solid") == "solid" end,
+                      get=function() return Cfg("windowBorderOffsetY") or 0 end,
+                      set=function(v) Set("windowBorderOffsetY", v); ApplyWindowBrd() end },
+                    { type="toggle", label="Include Headerbar",
+                      get=function() return Cfg("windowBorderIncludeHeader") ~= false end,
+                      set=function(v) Set("windowBorderIncludeHeader", v); ApplyWindowBrd() end },
+                    { type="toggle", label="Show Behind",
+                      get=function() return Cfg("windowBorderBehind") or false end,
+                      set=function(v) Set("windowBorderBehind", v); ApplyWindowBrd() end },
+                },
+            })
+            local directionBtn = CreateFrame("Button", nil, rgn)
+            directionBtn:SetSize(26, 26)
+            directionBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+            directionBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            directionBtn:SetAlpha(0.4)
+            local directionTex = directionBtn:CreateTexture(nil, "OVERLAY")
+            directionTex:SetAllPoints(); directionTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+            directionBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            directionBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            directionBtn:SetScript("OnClick", function(self) popupShow(self) end)
+            rgn._lastInline = directionBtn
+        end
+        do
+            local rgn, ctrl = windowBorderRow._rightRegion, windowBorderRow._rightRegion._control
+            local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, windowBorderRow:GetFrameLevel() + 3,
+                function()
+                    local c = Cfg("windowBorderColor") or {}
+                    return c.r or 0, c.g or 0, c.b or 0, c.a or 1
+                end,
+                function(r, g, b, a)
+                    Set("windowBorderColor", { r=r, g=g, b=b, a=a or 1 })
+                    ApplyWindowBrd()
+                end,
+                true, 20)
+            PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
         end
         y = y - h
 
@@ -138,7 +216,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Refresh Rate (+ seconds) | Hide Reset Button
+        -- Refresh Rate (+ seconds) | Reset Data Keybind (+ inline cog: hide reset button)
         local rrRow
         rrRow, h = W:DualRow(parent, y,
             { type="slider", text="Refresh Rate",
@@ -147,10 +225,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return Cfg("refreshRate") or 0.5 end,
               setValue = function(v) Set("refreshRate", v) end,
               fmt = function(v) return format("%.2fs", v) end },
-            { type="toggle", text="Hide Reset Button",
-              tooltip = "Hide the Reset Data button from the damage meter header.",
-              getValue = function() return Cfg("hideResetButton") == true end,
-              setValue = function(v) Set("hideResetButton", v); ApplyHdr() end })
+            { type="label", text="Reset Data Keybind" })
         do
             local rgn = rrRow._leftRegion
             local suffix = rgn:CreateFontString(nil, "OVERLAY")
@@ -172,16 +247,8 @@ initFrame:SetScript("OnEvent", function(self)
             suffix:SetText(EllesmereUI.L("(seconds)"))
         end
 
-        y = y - h
-
-        -- Reset Data Keybind
-        local kbRow
-        kbRow, h = W:DualRow(parent, y,
-            { type="label", text="" },
-            { type="label", text="Reset Data Keybind" })
-
         do
-            local rgn = kbRow._rightRegion
+            local rgn = rrRow._rightRegion
             local KB_W, KB_H = 120, 26
             local kbBtn = CreateFrame("Button", nil, rgn)
             PP.Size(kbBtn, KB_W, KB_H)
@@ -283,6 +350,28 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.HideWidgetTooltip()
             end)
 
+            -- Inline cog: hide reset button
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Reset Button",
+                rows = {
+                    { type = "toggle", label = "Hide Reset Button",
+                      get = function() return Cfg("hideResetButton") == true end,
+                      set = function(v) Set("hideResetButton", v); ApplyHdr() end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", kbBtn, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+
             EllesmereUI.RegisterWidgetRefresh(RefreshLabel)
 
             rgn:HookScript("OnHide", function()
@@ -330,17 +419,131 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 2: Top Text Size (+ inline dual swatches) | Icon Size (+ inline dual swatches)
-        local hdrRow2
-        hdrRow2, h = W:DualRow(parent, y,
-            { type="slider", text="Top Text Size",
-              min = 8, max = 18, step = 1, trackWidth = 120,
-              getValue = function() return Cfg("hdrFontSize") or 11 end,
-              setValue = function(v) Set("hdrFontSize", v); ApplyHdr() end },
+        -- Row 2: Header Bottom Border (+ inline swatch) | Icon Size (+ inline dual swatches)
+        local hdrBorderRow
+        hdrBorderRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Header Bottom Border",
+              values=borderSizeValues, order=borderSizeOrder,
+              getValue=function() return tostring(Cfg("hdrBottomBorderSize") or 0) end,
+              setValue=function(v) Set("hdrBottomBorderSize", tonumber(v) or 0); ApplyHdr() end },
             { type="slider", text="Icon Size",
               min = 20, max = 30, step = 1,
               getValue = function() return Cfg("hdrIconSize") or 22 end,
               setValue = function(v) Set("hdrIconSize", v); ApplyHdr() end })
+        do
+            local rgn, ctrl = hdrBorderRow._leftRegion, hdrBorderRow._leftRegion._control
+            local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, hdrBorderRow:GetFrameLevel() + 3,
+                function()
+                    local c = Cfg("hdrBottomBorderColor") or {}
+                    return c.r or 0, c.g or 0, c.b or 0, c.a or 1
+                end,
+                function(r, g, b, a)
+                    Set("hdrBottomBorderColor", { r=r, g=g, b=b, a=a or 1 })
+                    ApplyHdr()
+                end,
+                true, 20)
+            PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
+        end
+        -- Inline dual swatches on Icon Size: right = Custom, left = Accent
+        do
+            local rgn = hdrBorderRow._rightRegion
+            local ctrl = rgn._control
+
+            local customSwatch, updateCustom = EllesmereUI.BuildColorSwatch(
+                rgn, hdrBorderRow:GetFrameLevel() + 3,
+                function()
+                    local c = Cfg("iconColor")
+                    if c then return c.r or 1, c.g or 1, c.b or 1 end
+                    return 1, 1, 1
+                end,
+                function(r, g, b)
+                    Set("iconColorUseAccent", false)
+                    Set("iconColor", { r = r, g = g, b = b })
+                    if ns.ApplyIconColor then ns.ApplyIconColor() end
+                    EllesmereUI:RefreshPage()
+                end,
+                false, 20)
+            PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            local origIconClick = customSwatch:GetScript("OnClick")
+            customSwatch:SetScript("OnClick", function(self, ...)
+                if Cfg("iconColorUseAccent") then
+                    Set("iconColorUseAccent", false)
+                    if ns.ApplyIconColor then ns.ApplyIconColor() end
+                    EllesmereUI:RefreshPage()
+                    return
+                end
+                if origIconClick then origIconClick(self, ...) end
+            end)
+            customSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(customSwatch, "Custom Color")
+            end)
+            customSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            local accentSwatch, updateAccent = EllesmereUI.BuildColorSwatch(
+                rgn, hdrBorderRow:GetFrameLevel() + 3,
+                function()
+                    return EllesmereUI.ResolveActiveAccent()
+                end,
+                function()
+                    Set("iconColorUseAccent", true)
+                    if ns.ApplyIconColor then ns.ApplyIconColor() end
+                    EllesmereUI:RefreshPage()
+                end,
+                false, 20)
+            PP.Point(accentSwatch, "RIGHT", customSwatch, "LEFT", -8, 0)
+            accentSwatch:SetScript("OnClick", function()
+                Set("iconColorUseAccent", true)
+                if ns.ApplyIconColor then ns.ApplyIconColor() end
+                EllesmereUI:RefreshPage()
+            end)
+            accentSwatch:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(accentSwatch, "Accent Color")
+            end)
+            accentSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Inline cog: icon visibility
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Icon Visibility",
+                rows = {
+                    { type = "toggle", label = "Mouseover Icons",
+                      get = function() return Cfg("hdrMouseoverIcons") or false end,
+                      set = function(v) Set("hdrMouseoverIcons", v); ApplyHdr() end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", accentSwatch, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+
+            local function refreshHdrIcon()
+                updateCustom(); updateAccent()
+                local useAccent = Cfg("iconColorUseAccent")
+                customSwatch:SetAlpha(useAccent and 0.3 or 1)
+                accentSwatch:SetAlpha(useAccent and 1 or 0.3)
+            end
+            EllesmereUI.RegisterWidgetRefresh(refreshHdrIcon)
+            refreshHdrIcon()
+        end
+        y = y - h
+
+        -- Row 3: Top Text Size (+ inline dual swatches)
+        local hdrRow2
+        hdrRow2, h = W:DualRow(parent, y,
+            { type="slider", text="Text Size",
+              min = 8, max = 18, step = 1,
+              getValue = function() return Cfg("hdrFontSize") or 11 end,
+              setValue = function(v) Set("hdrFontSize", v); ApplyHdr() end },
+            { type="label", text="" })
         -- Inline dual swatches on Text Size: right = Custom, left = Accent
         do
             local rgn = hdrRow2._leftRegion
@@ -427,94 +630,6 @@ initFrame:SetScript("OnEvent", function(self)
             end
             EllesmereUI.RegisterWidgetRefresh(refreshHdrText)
             refreshHdrText()
-        end
-        -- Inline dual swatches on Icon Size: right = Custom, left = Accent
-        do
-            local rgn = hdrRow2._rightRegion
-            local ctrl = rgn._control
-
-            local customSwatch, updateCustom = EllesmereUI.BuildColorSwatch(
-                rgn, hdrRow2:GetFrameLevel() + 3,
-                function()
-                    local c = Cfg("iconColor")
-                    if c then return c.r or 1, c.g or 1, c.b or 1 end
-                    return 1, 1, 1
-                end,
-                function(r, g, b)
-                    Set("iconColorUseAccent", false)
-                    Set("iconColor", { r = r, g = g, b = b })
-                    if ns.ApplyIconColor then ns.ApplyIconColor() end
-                    EllesmereUI:RefreshPage()
-                end,
-                false, 20)
-            PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-            local origIconClick = customSwatch:GetScript("OnClick")
-            customSwatch:SetScript("OnClick", function(self, ...)
-                if Cfg("iconColorUseAccent") then
-                    Set("iconColorUseAccent", false)
-                    if ns.ApplyIconColor then ns.ApplyIconColor() end
-                    EllesmereUI:RefreshPage()
-                    return
-                end
-                if origIconClick then origIconClick(self, ...) end
-            end)
-            customSwatch:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(customSwatch, "Custom Color")
-            end)
-            customSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            local accentSwatch, updateAccent = EllesmereUI.BuildColorSwatch(
-                rgn, hdrRow2:GetFrameLevel() + 3,
-                function()
-                    return EllesmereUI.ResolveActiveAccent()
-                end,
-                function()
-                    Set("iconColorUseAccent", true)
-                    if ns.ApplyIconColor then ns.ApplyIconColor() end
-                    EllesmereUI:RefreshPage()
-                end,
-                false, 20)
-            PP.Point(accentSwatch, "RIGHT", customSwatch, "LEFT", -8, 0)
-            accentSwatch:SetScript("OnClick", function()
-                Set("iconColorUseAccent", true)
-                if ns.ApplyIconColor then ns.ApplyIconColor() end
-                EllesmereUI:RefreshPage()
-            end)
-            accentSwatch:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(accentSwatch, "Accent Color")
-            end)
-            accentSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            -- Inline cog: icon visibility
-            local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Icon Visibility",
-                rows = {
-                    { type = "toggle", label = "Mouseover Icons",
-                      get = function() return Cfg("hdrMouseoverIcons") or false end,
-                      set = function(v) Set("hdrMouseoverIcons", v); ApplyHdr() end },
-                },
-            })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", accentSwatch, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-
-            local function refreshHdrIcon()
-                updateCustom(); updateAccent()
-                local useAccent = Cfg("iconColorUseAccent")
-                customSwatch:SetAlpha(useAccent and 0.3 or 1)
-                accentSwatch:SetAlpha(useAccent and 1 or 0.3)
-            end
-            EllesmereUI.RegisterWidgetRefresh(refreshHdrIcon)
-            refreshHdrIcon()
         end
         y = y - h
 
@@ -1463,7 +1578,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v) SHDB().iconOpacity = v; RefreshSH() end }
         );  y = y - h
 
-        -- Row 5: Animation Style | (empty)
+        -- Row 5: Animation Style | Fade-Out Time
         local shAnimValues = {
             none  = "None",
             slide = "Slide In",
@@ -1476,7 +1591,12 @@ initFrame:SetScript("OnEvent", function(self)
               values = shAnimValues, order = shAnimOrder,
               getValue = function() return SHDB().iconAnimation or "slide" end,
               setValue = function(v) SHDB().iconAnimation = v end },
-            { type = "label", text = "" }
+            { type = "slider", text = "Fade-Out Time",
+              tooltip = "Seconds after which history icons fade out. The timer pauses during combat. 0 = never.",
+              min = 0, max = 60, step = 1,
+              disabled = iconOff, disabledTooltip = "Icon History",
+              getValue = function() return SHDB().iconFadeTime or 0 end,
+              setValue = function(v) SHDB().iconFadeTime = v; RefreshSH() end }
         );  y = y - h
 
         -- =====================================================================

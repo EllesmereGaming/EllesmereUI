@@ -234,7 +234,30 @@ local function ApplyStyleToRegions(button, style)
         local PP = EllesmereUI.PP
         local b = style.border
         if PP and b then
-            if d.borderMade then
+            if b.texture and EllesmereUI.ApplyBorderStyle then
+                -- Aura buttons can expose restricted geometry. Give the owned
+                -- border host an explicit public size (change-guarded because
+                -- anchoring to the aura button is denied while restricted).
+                local borderRect = (style.width or 18) .. "|" .. (style.height or style.width or 18)
+                if d.akBorderRect ~= borderRect then
+                    d.borderHost:ClearAllPoints()
+                    d.borderHost:SetPoint("CENTER", button, "CENTER")
+                    d.borderHost:SetSize(style.width or 18, style.height or style.width or 18)
+                    d.akBorderRect = borderRect
+                end
+                if b.behindUnitFrame then
+                    d.borderHost:SetFrameLevel(math.max(0, (b.unitFrameLevel or 1) - 1))
+                else
+                    d.borderHost:SetFrameLevel(b.behind
+                        and math.max(0, button:GetFrameLevel() - 1)
+                        or (d.cooldown:GetFrameLevel() + 1))
+                end
+                EllesmereUI.ApplySecretSafeBorderStyle(d.borderHost, d, b.size or 1,
+                    b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1,
+                    b.texture or "solid", b.offsetX, b.offsetY, b.shiftX, b.shiftY,
+                    "unitframes", b.size or 1)
+                d.borderMade = true
+            elseif d.borderMade then
                 PP.UpdateBorder(d.borderHost, b.size or 1, b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1)
             else
                 PP.CreateBorder(d.borderHost, b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1,

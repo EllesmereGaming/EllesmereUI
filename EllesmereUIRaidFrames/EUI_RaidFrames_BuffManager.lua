@@ -511,7 +511,7 @@ end
 
 -- Fallback icon textures for secret auras (icon field is also secret)
 local SECRET_SPELL_ICONS = {
-    [102342] = 136097,   -- Ironbark
+    [102342] = 572025,   -- Ironbark
     [33206]  = 135936,   -- Pain Suppression
     [10060]  = 135939,   -- Power Infusion
     [47788]  = 237542,   -- Guardian Spirit
@@ -602,7 +602,9 @@ local function NewIndicator(indType, spells)
         ind.ownOnly          = true
         local _ac = EllesmereUI and EllesmereUI.ACCENT_COLOR
         ind.color       = _ac and { r = _ac.r, g = _ac.g, b = _ac.b } or { r = 0.05, g = 0.82, b = 0.62 }
+        ind.borderStyle = "solid"
         ind.borderWidth = 2
+        ind.borderDashCount = 8
         ind.borderOpacity = 100
         ind.showWhen    = "present"
     elseif indType == "framealpha" then
@@ -1287,6 +1289,225 @@ local function BM_ApplyBarLevel(bar, ind, baseLvl)
 end
 
 -------------------------------------------------------------------------------
+--  "Sweep" frame border (Sweep CW / Sweep CCW styles). The border is drawn as
+--  4 edge StatusBars whose FILL is driven by the aura's remaining PERCENT via
+--  a per-edge Linear window curve, so the lit arc retracts around the frame
+--  edge like a cooldown swipe. Between 0.15s Lua ticks the fill animates
+--  C-side (ExponentialEaseOut), so motion is smooth at render framerate for
+--  ~4 curve evals per border per tick. Fully secret-value-safe: the (possibly
+--  secret) evaluated percent only ever flows into SetValue (SecretArguments =
+--  AllowedWhenTainted, BarValue aspect); threshold colors only into
+--  SetStatusBarColor. Mirrors the Icon-Glow gate below.
+-------------------------------------------------------------------------------
+local SWEEP_TEX = "Interface\\Buttons\\WHITE8X8"
+
+-- Linear reveal curve for an edge occupying perimeter span [flo,fhi] in [0,1]:
+-- (0,0)(flo,0)(fhi,1)(1,1). Evaluated at remaining%, it yields that edge's
+-- fill fraction. Cached (shared across frames with the same span).
+local _sweepCurves = {}
+local function GetSweepSegCurve(flo, fhi)
+    if not (C_CurveUtil and C_CurveUtil.CreateCurve and Enum and Enum.LuaCurveType) then return nil end
+    local key = string.format("%.4f|%.4f", flo, fhi)
+    local c = _sweepCurves[key]
+    if c then return c end
+    c = C_CurveUtil.CreateCurve()
+    c:SetType(Enum.LuaCurveType.Linear)
+    c:AddPoint(0, 0)
+    if flo > 0 then c:AddPoint(flo, 0) end
+    c:AddPoint(fhi, 1)
+    if fhi < 1 then c:AddPoint(1, 1) end
+    _sweepCurves[key] = c
+    return c
+end
+
+-- Build/reuse the 4 edge StatusBars on borderFrame at width bw. Corners belong
+-- to the top/bottom bars (bars butt edge-to-edge -- no overlap, so corners
+-- never double-draw at partial opacity). Reveal order runs clockwise from
+-- TOPLEFT (top L->R, right T->B, bottom R->L, left B->T); ccw mirrors both
+-- each edge's curve span AND its in-edge grow end (reverse fill). Returns the
+-- sweep data table, or nil if size isn't ready.
+local function BM_BuildSweep(borderFrame, bw, ccw)
+    local w, h = borderFrame:GetWidth(), borderFrame:GetHeight()
+    if not w or not h or w < 2 or h < 2 then return nil end
+    local sd = borderFrame._euiSweep
+    if sd and sd.w==w and sd.h==h and sd.bw==bw and sd.ccw==ccw then return sd end
+    if not sd then sd = { bars = {}, curves = {}, flo = {}, fhi = {}, cr = 1, cg = 1, cb = 1, ca = 1 }; borderFrame._euiSweep = sd end
+
+    local sideH = h - 2 * bw
+    if sideH < 1 then sideH = 1 end
+    local P = 2 * w + 2 * sideH   -- visible perimeter (corner px counted once)
+
+    -- point/ox/oy/sw/sh: geometry. horiz/rev: fill axis + which end fills
+    -- first (cw). d0/d1: this edge's slice of the perimeter walk.
+    local edges = {
+        { point="TOPLEFT",     ox=0, oy=0,   sw=w,  sh=bw,    horiz=true,  rev=false, d0=0,         d1=w },
+        { point="TOPRIGHT",    ox=0, oy=-bw, sw=bw, sh=sideH, horiz=false, rev=true,  d0=w,         d1=w+sideH },
+        { point="BOTTOMRIGHT", ox=0, oy=0,   sw=w,  sh=bw,    horiz=true,  rev=true,  d0=w+sideH,   d1=2*w+sideH },
+        { point="BOTTOMLEFT",  ox=0, oy=bw,  sw=bw, sh=sideH, horiz=false, rev=false, d0=2*w+sideH, d1=P },
+    }
+    for i, e in ipairs(edges) do
+        local bar = sd.bars[i]
+        if not bar then
+            bar = CreateFrame("StatusBar", nil, borderFrame)
+            bar:SetStatusBarTexture(SWEEP_TEX)
+            bar:SetMinMaxValues(0, 1)
+            bar:SetValue(1)
+            sd.bars[i] = bar
+        end
+        bar:ClearAllPoints()
+        bar:SetPoint(e.point, borderFrame, e.point, e.ox, e.oy)
+        bar:SetSize(e.sw, e.sh)
+        bar:SetOrientation(e.horiz and "HORIZONTAL" or "VERTICAL")
+        local revFill = e.rev
+        if ccw then revFill = not revFill end
+        bar:SetReverseFill(revFill)
+        local flo, fhi = e.d0 / P, e.d1 / P
+        if ccw then flo, fhi = 1 - (e.d1 / P), 1 - (e.d0 / P) end
+        sd.flo[i], sd.fhi[i] = flo, fhi
+        sd.curves[i] = GetSweepSegCurve(flo, fhi)
+    end
+    sd.n = #edges
+    sd.w, sd.h, sd.bw, sd.ccw = w, h, bw, ccw
+    return sd
+end
+
+local function BM_SetSweepColor(borderFrame, r, g, b, a)
+    local sd = borderFrame._euiSweep
+    if not sd then return end
+    a = a or 1
+    sd.cr, sd.cg, sd.cb, sd.ca = r, g, b, a
+    if sd.bars then
+        for i = 1, sd.n do local bar = sd.bars[i]; if bar then bar:SetStatusBarColor(r, g, b, a) end end
+    end
+end
+
+local function BM_ShowSweep(borderFrame)
+    local sd = borderFrame._euiSweep
+    if not sd or not sd.bars then return end
+    for i = 1, sd.n do if sd.bars[i] then sd.bars[i]:Show() end end
+end
+
+local function BM_HideSweep(borderFrame)
+    local sd = borderFrame._euiSweep
+    if not sd or not sd.bars then return end
+    for i = 1, #sd.bars do if sd.bars[i] then sd.bars[i]:Hide() end end
+end
+
+-- Reset the reveal to fully lit. Used when a sweep border is shown with no
+-- aura to drive it (showWhen missing/allPresent/anyMissing) so it can't sit
+-- frozen at a stale partial fill left by an earlier drive. Plain constants.
+local function BM_ResetSweepFill(borderFrame)
+    local sd = borderFrame._euiSweep
+    if not sd or not sd.bars then return end
+    for i = 1, sd.n do if sd.bars[i] then sd.bars[i]:SetValue(1) end end
+end
+
+-- Static preview fill: no aura/ticker -- set each bar's fill from a fixed
+-- fraction using plain-Lua constant math (non-secret; preview only).
+local function BM_PreviewSweep(borderFrame, frac)
+    local sd = borderFrame._euiSweep
+    if not sd or not sd.bars then return end
+    for i = 1, sd.n do
+        local bar = sd.bars[i]
+        if bar then
+            local flo, fhi = sd.flo[i], sd.fhi[i]
+            local v
+            if frac >= fhi then v = 1
+            elseif frac <= flo then v = 0
+            else v = (frac - flo) / (fhi - flo) end
+            bar:SetValue(v)
+        end
+    end
+end
+
+-- Fill ticker (mirrors glowTicker). Secret-safe: per-edge fill from
+-- EvaluateRemainingPercent, gated to 0 when the aura is at zero. Ticks ease
+-- toward the target C-side; snap=true (register/rebuild) jumps immediately so
+-- a fresh ring never animates up from empty or a stale fill.
+local sweepRegistry = {}   -- [borderFrame] = { unit, iid }
+local sweepTicker = CreateFrame("Frame")
+sweepTicker:Hide()
+local sweepElapsed = 0
+local function EvalSweep(borderFrame, e, snap)
+    if not (C_UnitAuras_GetAuraDuration and C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean) then return end
+    local sd = borderFrame._euiSweep
+    if not sd or not sd.bars then return end
+    local durObj = C_UnitAuras_GetAuraDuration(e.unit, e.iid)
+    if not (durObj and durObj.EvaluateRemainingPercent and durObj.IsZero) then return end
+    local okz, isZero = pcall(durObj.IsZero, durObj)
+    if not okz then return end
+    local interp = Enum and Enum.StatusBarInterpolation
+        and (snap and Enum.StatusBarInterpolation.Immediate or Enum.StatusBarInterpolation.ExponentialEaseOut)
+    for i = 1, sd.n do
+        local bar = sd.bars[i]
+        local curve = sd.curves[i]
+        if bar and curve then
+            -- method form + pcall: a recycled duration object can throw.
+            local ok, val = pcall(durObj.EvaluateRemainingPercent, durObj, curve)
+            if ok then
+                -- Single writer: color (may be secret, from threshold) + fill, paired.
+                bar:SetStatusBarColor(sd.cr, sd.cg, sd.cb, sd.ca)
+                if interp then
+                    bar:SetValue(C_CurveUtil.EvaluateColorValueFromBoolean(isZero, 0, val), interp)
+                else
+                    bar:SetValue(C_CurveUtil.EvaluateColorValueFromBoolean(isZero, 0, val))
+                end
+            end
+        end
+    end
+end
+sweepTicker:SetScript("OnUpdate", function(_, dt)
+    sweepElapsed = sweepElapsed + dt
+    if sweepElapsed < 0.15 then return end
+    sweepElapsed = 0
+    local any = false
+    for borderFrame, e in pairs(sweepRegistry) do
+        if borderFrame.IsShown and not borderFrame:IsShown() then
+            sweepRegistry[borderFrame] = nil   -- self-prune hidden / recycled frames
+        else
+            any = true
+            EvalSweep(borderFrame, e)
+        end
+    end
+    if not any then sweepTicker:Hide() end
+end)
+local function RegisterSweep(borderFrame, unit, iid)
+    local e = sweepRegistry[borderFrame]
+    if not e then e = {}; sweepRegistry[borderFrame] = e end
+    e.unit, e.iid = unit, iid
+    sweepTicker:Show()
+    EvalSweep(borderFrame, e, true)   -- immediate snap so we never flash a full border for a tick
+end
+local function UnregisterSweep(borderFrame)
+    sweepRegistry[borderFrame] = nil
+end
+
+-- Options-page preview: no real aura, so loop a fake fraction 1->0 and drive
+-- the same edge fill. Plain-Lua constant math (non-secret). Mirrors how the
+-- duration-swipe preview animates a fake cooldown.
+local previewSweepReg = {}
+local previewSweepTicker = CreateFrame("Frame")
+previewSweepTicker:Hide()
+local previewSweepClock = 0
+previewSweepTicker:SetScript("OnUpdate", function(_, dt)
+    previewSweepClock = previewSweepClock + dt
+    local period = 4
+    local frac = 1 - ((previewSweepClock % period) / period)   -- 1 -> 0, loop
+    local any = false
+    for bf in pairs(previewSweepReg) do
+        if bf.IsShown and not bf:IsShown() then
+            previewSweepReg[bf] = nil
+        else
+            any = true
+            BM_PreviewSweep(bf, frac)
+        end
+    end
+    if not any then previewSweepTicker:Hide() end
+end)
+local function RegisterPreviewSweep(bf) previewSweepReg[bf] = true; previewSweepTicker:Show() end
+local function UnregisterPreviewSweep(bf) previewSweepReg[bf] = nil end
+
+-------------------------------------------------------------------------------
 --  Threshold "expiring soon" recolor -- secret-value-safe via C_CurveUtil.
 --  A Step color curve maps remaining-seconds -> { threshold color below the set
 --  seconds, normal color at/above }. WoW evaluates it C-side against the aura's
@@ -1526,11 +1747,78 @@ end
 local function ApplyOverlayThresholdColor(overlay, colorResult)
     overlay:SetVertexColor(colorResult:GetRGBA())
 end
--- Frame-border effect: PP.SetBorderColor only forwards to SetVertexColor on the
--- border textures (no arithmetic), so a secret color is safe.
+-- Frame-border threshold recolor. Every style recolors via SetVertexColor with
+-- no arithmetic on the channels (dashed -> the ants textures; solid/textured ->
+-- PP or BackdropTemplate, both routed through SetBorderStyleColor), so a secret
+-- (12.1-restricted) color stays safe. The active style is stamped on the frame
+-- by ApplyEffectBorder.
 local function ApplyBorderThresholdColor(borderFrame, colorResult)
-    local PP2 = EllesmereUI.PanelPP or EllesmereUI.PP
-    if PP2 and PP2.SetBorderColor then PP2.SetBorderColor(borderFrame, colorResult:GetRGBA()) end
+    if borderFrame._euiBorderStyle == "sweep" then
+        local sd = borderFrame._euiSweep
+        if sd then sd.cr, sd.cg, sd.cb, sd.ca = colorResult:GetRGBA() end
+        return
+    end
+    if borderFrame._euiBorderStyle == "dashed" then
+        local Glows = EllesmereUI.Glows
+        if Glows and Glows.SetProceduralAntsColor then
+            Glows.SetProceduralAntsColor(borderFrame, colorResult:GetRGBA())
+        end
+        return
+    end
+    if EllesmereUI.SetBorderStyleColor then
+        EllesmereUI.SetBorderStyleColor(borderFrame, colorResult:GetRGBA())
+    end
+end
+
+-- Apply the Frame-Border effect in the configured style. "dashed" draws a static
+-- (non-marching) procedural-ants border from the shared glow engine; every other
+-- style ("solid" plus the textured styles glow/shadow/blizz/lightspark/dialog and
+-- LibSharedMedia borders) is drawn by EllesmereUI.ApplyBorderStyle, which manages
+-- the PP-vs-BackdropTemplate swap internally. Only one renderer is shown at a
+-- time; the active style is stamped on the frame so ApplyBorderThresholdColor
+-- recolors the right texture set. r,g,b,a are the normal (non-secret) configured
+-- color/opacity; the frame is Show()n by callers.
+local function ApplyEffectBorder(borderFrame, ind, r, g, b, a)
+    local style = ind.borderStyle or "solid"
+    local bw = ind.borderWidth or 2
+    local Glows = EllesmereUI.Glows
+    local parent = borderFrame:GetParent()
+    local baseLvl = (parent and parent:GetFrameLevel()) or borderFrame:GetFrameLevel()
+    if style == "sweepcw" or style == "sweepccw" then
+        if Glows and Glows.StopProceduralAnts then Glows.StopProceduralAnts(borderFrame) end
+        if EllesmereUI.HideBorderStyle then EllesmereUI.HideBorderStyle(borderFrame) end
+        local sd = BM_BuildSweep(borderFrame, bw, style == "sweepccw")
+        if sd then
+            -- Buff icons render at parent+ns.LVL_AURA (13); the border is created
+            -- at parent+11. Lift the sweep ring above the icons so its progress
+            -- readout is never occluded. Restored to +11 on any static style below.
+            borderFrame:SetFrameLevel(baseLvl + 14)
+            BM_SetSweepColor(borderFrame, r, g, b, a)
+            BM_ShowSweep(borderFrame)
+            borderFrame._euiBorderStyle = "sweep"
+            return
+        end
+        style = "solid"   -- size not ready this pass; fall back to a plain border
+    end
+    BM_HideSweep(borderFrame)
+    borderFrame:SetFrameLevel(baseLvl + 11)   -- default border level (matches creation)
+    if style == "dashed" and Glows and Glows.StartProceduralAnts then
+        if EllesmereUI.HideBorderStyle then EllesmereUI.HideBorderStyle(borderFrame) end
+        Glows.StartProceduralAnts(borderFrame, ind.borderDashCount or 8, bw, nil, nil,
+            r, g, b, nil, nil, nil, nil, nil, nil, true)
+        Glows.SetProceduralAntsColor(borderFrame, r, g, b, a)
+        borderFrame._euiBorderStyle = "dashed"
+    else
+        if Glows and Glows.StopProceduralAnts then Glows.StopProceduralAnts(borderFrame) end
+        if EllesmereUI.ApplyBorderStyle then
+            -- Solid takes the width as literal pixels (any value); textured
+            -- styles index the engine's edge-size map, which only defines steps
+            -- 1-4, so cap those to avoid the width>4 thin-fallback.
+            local sz = (style == "solid") and bw or math.min(bw, 4)
+            EllesmereUI.ApplyBorderStyle(borderFrame, sz, r, g, b, a, style)
+        end
+        borderFrame._euiBorderStyle = style
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -2591,9 +2879,18 @@ function ns.BM_UpdateIndicators(button, unit, db, updateInfo)
                     if d.bmEffectBorder and PP then
                         local c = ind.color or { r=0, g=1, b=0 }
                         local op = (ind.borderOpacity or 100) / 100
-                        local bw = ind.borderWidth or 2
-                        PP.UpdateBorder(d.bmEffectBorder, bw, c.r, c.g, c.b, op)
+                        ApplyEffectBorder(d.bmEffectBorder, ind, c.r, c.g, c.b, op)
                         d.bmEffectBorder:Show()
+                        if d.bmEffectBorder._euiBorderStyle == "sweep" and presentIid then
+                            RegisterSweep(d.bmEffectBorder, unit, presentIid)
+                        else
+                            UnregisterSweep(d.bmEffectBorder)
+                            -- No aura drives the reveal (missing/allPresent/anyMissing
+                            -- modes): show the ring fully lit, not a stale partial arc.
+                            if d.bmEffectBorder._euiBorderStyle == "sweep" then
+                                BM_ResetSweepFill(d.bmEffectBorder)
+                            end
+                        end
                         local curve
                         if threshOK then
                             local tc = ind.thresholdColor or { r=1, g=0.2, b=0.2 }
@@ -2924,9 +3221,13 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                 f._bmHCOverlay:Show()
                             elseif indType == "border" and f._bmEffectBorder and PP then
                                 local c = ind.color or { r=0, g=1, b=0 }
-                                local bw = ind.borderWidth or 2
-                                PP.UpdateBorder(f._bmEffectBorder, bw, c.r, c.g, c.b, (ind.borderOpacity or 100) / 100)
+                                ApplyEffectBorder(f._bmEffectBorder, ind, c.r, c.g, c.b, (ind.borderOpacity or 100) / 100)
                                 f._bmEffectBorder:Show()
+                                if f._bmEffectBorder._euiBorderStyle == "sweep" then
+                                    RegisterPreviewSweep(f._bmEffectBorder)
+                                else
+                                    UnregisterPreviewSweep(f._bmEffectBorder)
+                                end
                             elseif indType == "framealpha" then
                                 f:SetAlpha(ind.alpha or 0.4)
                             end
@@ -6277,17 +6578,65 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 -----------------------------------------------------------
                 _, h = W:SectionHeader(leftFrame, "DISPLAY", sy); sy = sy - h
 
-                -- Row 1: Border Width | Color (opacity slider + inline swatch)
-                local ac = EllesmereUI.ACCENT_COLOR or { r = 0.05, g = 0.82, b = 0.62 }
-                local bdrColorRow = SettingsRow(
+                -- Offered styles: the shared border-texture set MINUS the two
+                -- built-ins that don't suit the small buff frames -- "shadow"
+                -- (renders identically to glow without behind/black handling) and
+                -- "lightspark" (oversized outward halo) -- with "Dashed" (the
+                -- static ants border) inserted right after Solid. LibSharedMedia
+                -- borders are kept; built per-render so newly registered ones
+                -- appear without a reload.
+                local EXCLUDED_BORDER_STYLES = { shadow = true, lightspark = true }
+                local allVals, allOrder = EllesmereUI.GetBorderTextureDropdown()
+                local bsVals, bsOrder = {}, {}
+                for _, k in ipairs(allOrder) do
+                    if not EXCLUDED_BORDER_STYLES[k] then
+                        bsVals[k] = allVals[k]
+                        bsOrder[#bsOrder + 1] = k
+                        if k == "solid" then
+                            bsVals.dashed = "Dashed"
+                            bsOrder[#bsOrder + 1] = "dashed"
+                            bsVals.sweepcw = "Sweep (CW)"
+                            bsOrder[#bsOrder + 1] = "sweepcw"
+                            bsVals.sweepccw = "Sweep (CCW)"
+                            bsOrder[#bsOrder + 1] = "sweepccw"
+                        end
+                    end
+                end
+
+                -- Row 1: Border Style | Border Width
+                SettingsRow(
+                    { type="dropdown", text="Border Style", values=bsVals, order=bsOrder,
+                      -- Fall back to Solid in the menu if the stored style is no
+                      -- longer offered (e.g. a removed style left over from testing).
+                      getValue=function()
+                          local s = ind.borderStyle or "solid"
+                          return bsVals[s] and s or "solid"
+                      end,
+                      setValue=function(v) ind.borderStyle = v; ReloadAndRebuild() end },
                     { type="slider", text="Border Width", min=1, max=6, step=1, trackWidth=120,
                       getValue=function() return ind.borderWidth or 2 end,
-                      setValue=function(v) ind.borderWidth = v; ReloadAndUpdate() end },
+                      setValue=function(v) ind.borderWidth = v; ReloadAndUpdate() end })
+
+                -- Row 2 (last of section): Color (opacity slider + inline swatch) |
+                -- Dashes. The Dashes count applies only to the dashed style, so its
+                -- slot is a blank label for every other style -- allowed because
+                -- this is the section's last row.
+                local ac = EllesmereUI.ACCENT_COLOR or { r = 0.05, g = 0.82, b = 0.62 }
+                local dashesSlot
+                if (ind.borderStyle or "solid") == "dashed" then
+                    dashesSlot = { type="slider", text="Dashes", min=4, max=16, step=1, trackWidth=120,
+                      getValue=function() return ind.borderDashCount or 8 end,
+                      setValue=function(v) ind.borderDashCount = v; ReloadAndUpdate() end }
+                else
+                    dashesSlot = { type="label", text="" }
+                end
+                local bdrColorRow = SettingsRow(
                     { type="slider", text="Color", min=0, max=100, step=1, trackWidth=120,
                       getValue=function() return ind.borderOpacity or 100 end,
-                      setValue=function(v) ind.borderOpacity = v; ReloadAndUpdate() end })
+                      setValue=function(v) ind.borderOpacity = v; ReloadAndUpdate() end },
+                    dashesSlot)
                 do
-                    local rgn = bdrColorRow._rightRegion
+                    local rgn = bdrColorRow._leftRegion
                     local colorSwatch = EllesmereUI.BuildColorSwatch(
                         rgn, bdrColorRow:GetFrameLevel() + 3,
                         function()

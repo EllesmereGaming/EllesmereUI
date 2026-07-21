@@ -43,6 +43,15 @@
 --   ns.UpdateAllBarVisibility()
 --   ns.MakePreviewBackdrop(host, themeCfg)
 --   ns.BLOCK_TYPES / ns.BLOCK_DEFAULTS / ns.EDB_VIS_CAPS / ns.EDGE_PAD
+--
+--  The one call that runs the other way -- options file -> runtime, so a block
+--  whose empty state invites a click can send the player to the control that
+--  fills it in. Defined from the options file's PLAYER_LOGIN handler, hence
+--  the nil guard at its call site:
+--
+--   ns.OpenBlockSettings(barId, blockId, settingKey)
+--       deep-links to the "block:<blockId>:<settingKey>" click target the
+--       options page registers for that row (see _edbClickTargets).
 
 local ADDON_NAME, ns = ...
 
@@ -56,6 +65,7 @@ local L = {
     SHIFT_MIDDLE_CLICK   = "|cffFFFFFFShift + Middle Click:|r",
     SHIFT_LEFT_CLICK     = "|cffFFFFFFShift + Left Click:|r",
     CTRL_RIGHT_CLICK     = "|cffFFFFFFCtrl + Right Click:|r",
+    CTRL_ALT_LEFT_CLICK  = "|cffFFFFFFCtrl + Alt + Left Click:|r",
     YOU_HAVE_MAIL        = "You've Got Mail!",
     SERVER_TIME          = "Server time",
     SAVED_INSTANCES      = "Saved Raid(s)",
@@ -82,17 +92,28 @@ local L = {
     OPEN_BAGS            = "Open Bags",
     OPEN_CURRENCIES      = "Open Currencies",
     RESET_SESSION        = "Reset Session",
-    GOLD_SUFFIX          = "g",
-    SILVER_SUFFIX        = "s",
-    COPPER_SUFFIX        = "c",
+    REMOVE_CHARACTER     = "Remove Character",
     TRAVEL_COOLDOWNS     = "Travel Cooldowns",
     HEARTHSTONE          = "Hearthstone",
     READY                = "Ready",
+    ON_COOLDOWN          = "On Cooldown",
     MYTHIC_TELEPORTS     = "Mythic+ Teleports",
     USE_HEARTHSTONE      = "Use Hearthstone",
     CURRENT_SPEC         = "Current Specialization",
     CHANGE_SPEC          = "Change Specialization",
+    CHANGE_SPEC_SHORT    = "Change Spec",
     CHANGE_LOOT_SPEC     = "Change Loot Spec",
+    CANNOT_USE_COMBAT    = "Cannot Use While In Combat",
+    AUDIO                = "Audio",
+    AUDIO_MASTER         = "Master",
+    AUDIO_SFX            = "Sound Effects",
+    AUDIO_MUSIC          = "Music",
+    AUDIO_AMBIENCE       = "Ambience",
+    AUDIO_DIALOG         = "Dialog",
+    AUDIO_SET_HINT       = "Set Volume",
+    AUDIO_SCROLL_HINT    = "Adjust Volume",
+    AUDIO_INPUT_HINT     = "Set Exact Volume",
+    SCROLL_WHEEL         = "|cffFFFFFFScroll:|r",
     CHANGE_LOADOUT       = "Change Loadout",
     OPEN_PROFESSION      = "Open Profession",
     OPEN_PROFESSION_BOOK = "Open Profession Book",
@@ -101,6 +122,7 @@ local L = {
     DELVE_JOURNEY        = "Delver's Journey",
     COMPANION_LEVEL      = "Companion Level",
     SELECT_CURRENCY      = "Select a currency",
+    OPEN_SETTINGS        = "Open Settings",
     WHISPER              = "Whisper",
     WHISPER_BNET         = "Whisper BNet",
     INVITE               = "Invite",
@@ -158,6 +180,7 @@ ns.BLOCK_TYPES = {
     { key = "micromenu",  label = "Micro Menu" },
     { key = "currency",   label = "Currency" },
     { key = "greatvault", label = "Great Vault" },
+    { key = "audio",      label = "Audio" },
     { key = "spacer",     label = "Spacer" },
 }
 
@@ -165,7 +188,7 @@ ns.BLOCK_DEFAULTS = {
     clock      = { localTime = true, twentyFour = true, showMail = true, showResting = true, fontSizeClock = nil, fontSizeInfo = nil },
     fps        = {},
     ms         = { useWorldLatency = false },
-    gold       = { showIcons = true, showBagSpace = false, showSmall = false },
+    gold       = { showIcons = true, showBagSpace = false, showSmall = false, coinIcons = false },
     durability = { showIcon = true },
     xprep      = { mode = "auto" },
     spec       = { showLoadout = true, useUppercase = false },
@@ -177,6 +200,7 @@ ns.BLOCK_DEFAULTS = {
                    pvp = true, housing = true, journal = true, pet = true, shop = true, help = true },
     currency   = { currencyId = nil, showIcon = true },
     greatvault = {},
+    audio      = { channel = "master" },
     spacer     = {},
 }
 
@@ -276,12 +300,55 @@ end
 --  Money / time formatting (pure)
 -------------------------------------------------------------------------------
 local DENOMINATIONS = {
-    { divisor = 10000, suffix = "GOLD_SUFFIX",   color = "|cffffd700" },
-    { divisor = 100,   suffix = "SILVER_SUFFIX", color = "|cffc7c7cf" },
-    { divisor = 1,     suffix = "COPPER_SUFFIX", color = "|cffeda55f" },
+    { divisor = 10000, symbol = GOLD_AMOUNT_SYMBOL,   color = "|cffe2ac7a" },  -- E2AC7A (user-set; do not "restore" to ffd700)
+    { divisor = 100,   symbol = SILVER_AMOUNT_SYMBOL, color = "|cffc7c7cf" },
+    { divisor = 1,     symbol = COPPER_AMOUNT_SYMBOL, color = "|cffed8a3f" },  -- copper-orange
 }
 
-function ns.FormatMoneyPlain(amount, showSmall)
+-- Coin textures, one per denomination, same paths the bag module already uses.
+-- ":0:0:2:0" is Blizzard's own sizing in GetCoinTextureString: 0 height means
+-- inherit the font, so the icons follow the bar's and the tooltip's text size.
+-- Split per coin on purpose -- GetCoinTextureString returns all three welded
+-- into one string, which cannot be laid out in aligned columns.
+local COIN_TEX = {
+    "|TInterface\\MoneyFrame\\UI-GoldIcon:0:0:2:0|t",
+    "|TInterface\\MoneyFrame\\UI-SilverIcon:0:0:2:0|t",
+    "|TInterface\\MoneyFrame\\UI-CopperIcon:0:0:2:0|t",
+}
+-- What trails the number for denomination i: a coin texture when Coin Icons is
+-- on, otherwise the localized suffix letter, colored on request. Every money
+-- renderer goes through this, so Coin Icons, Coin Colored and Show Silver and
+-- Copper compose the same way in all of them -- GetCoinTextureString could not
+-- do that, it always emits all three coins in one indivisible string.
+local function CoinMarker(i, coinIcons, coloured)
+    if coinIcons then return COIN_TEX[i] end
+    local d = DENOMINATIONS[i]
+    if coloured then return d.color .. d.symbol .. "|r" end
+    return d.symbol
+end
+
+-- Money split per denomination: one token per coin, so callers can lay them out
+-- in aligned columns (the tooltip) or on separate lines (a vertical bar). A
+-- single formatted string can do neither -- the game font is proportional, so
+-- "9o" and "1 234o" are different widths and everything after the first drifts.
+-- The buffer is reused; Tip_AddColumns copies it, so one buffer serves all rows.
+local _moneyTokens = {}
+
+function ns.MoneyTokens(amount, showSmall, coinIcons, coloured)
+    amount = floor(abs(amount or 0))
+    wipe(_moneyTokens)
+    local gold = floor(amount / DENOMINATIONS[1].divisor)
+    local gStr = BreakUpLargeNumbers and BreakUpLargeNumbers(gold) or tostring(gold)
+    _moneyTokens[1] = gStr .. CoinMarker(1, coinIcons, coloured)
+    if showSmall ~= false then
+        local silver = floor((amount % DENOMINATIONS[1].divisor) / DENOMINATIONS[2].divisor)
+        _moneyTokens[2] = silver .. CoinMarker(2, coinIcons, coloured)
+        _moneyTokens[3] = (amount % DENOMINATIONS[2].divisor) .. CoinMarker(3, coinIcons, coloured)
+    end
+    return _moneyTokens
+end
+
+function ns.FormatMoneyPlain(amount, showSmall, coinIcons)
     amount = floor(abs(amount or 0))
     local parts, foundGold = {}, false
     for i, denom in ipairs(DENOMINATIONS) do
@@ -290,16 +357,16 @@ function ns.FormatMoneyPlain(amount, showSmall)
         if i == 1 and val > 0 then
             foundGold = true
             local display = BreakUpLargeNumbers and BreakUpLargeNumbers(val) or tostring(val)
-            parts[#parts + 1] = display .. L[denom.suffix]
+            parts[#parts + 1] = display .. CoinMarker(i, coinIcons, false)
         elseif i > 1 and (not foundGold or showSmall ~= false) and (val > 0 or (i == 3 and #parts == 0)) then
-            parts[#parts + 1] = val .. L[denom.suffix]
+            parts[#parts + 1] = val .. CoinMarker(i, coinIcons, false)
         end
     end
     if #parts > 0 then return tconcat(parts, " ") end
-    return "0" .. L["COPPER_SUFFIX"]
+    return "0" .. CoinMarker(3, coinIcons, false)
 end
 
-function ns.FormatMoney(amount, useColors, showSmall)
+function ns.FormatMoney(amount, useColors, showSmall, coinIcons)
     amount = floor(abs(amount or 0))
     local coloured = useColors ~= false
     local parts, foundGold = {}, false
@@ -309,34 +376,28 @@ function ns.FormatMoney(amount, useColors, showSmall)
         if i == 1 and val > 0 then
             foundGold = true
             local display = BreakUpLargeNumbers and BreakUpLargeNumbers(val) or tostring(val)
-            local cOpen, cClose = "", ""
-            if coloured then cOpen = denom.color; cClose = "|r" end
-            parts[#parts + 1] = display .. cOpen .. L[denom.suffix] .. cClose
+            parts[#parts + 1] = display .. CoinMarker(i, coinIcons, coloured)
         elseif i > 1 and (not foundGold or showSmall ~= false) and (val > 0 or (i == 3 and #parts == 0)) then
-            local cOpen, cClose = "", ""
-            if coloured then cOpen = denom.color; cClose = "|r" end
-            parts[#parts + 1] = val .. cOpen .. L[denom.suffix] .. cClose
+            parts[#parts + 1] = val .. CoinMarker(i, coinIcons, coloured)
         end
     end
     if #parts == 0 then
-        local cOpen, cClose = "", ""
-        if coloured then cOpen = DENOMINATIONS[3].color; cClose = "|r" end
-        return "0" .. cOpen .. L["COPPER_SUFFIX"] .. cClose
+        return "0" .. CoinMarker(3, coinIcons, coloured)
     end
     return tconcat(parts, " ")
 end
 
-local TIME_UNITS = { { 86400, "d" }, { 3600, "h" }, { 60, "min" } }
+-- Reset countdowns, for the clock tooltip. SecondsToTime is the client's own
+-- duration formatter, so the units are localized -- the hand-rolled "d"/"h"/
+-- "min" this replaces were English on every client. Same call the minimap
+-- already makes for the weekly reset (EllesmereUIMinimap.lua), so the two
+-- modules now render that value identically.
+-- Seconds are suppressed above a minute (3 units is already "2 d 5 h 30 m");
+-- below one they are all that is left to show, and suppressing them there
+-- would return an empty string.
 function ns.FormatTimeLeft(seconds)
     seconds = floor(seconds or 0)
-    local parts = {}
-    for _, unit in ipairs(TIME_UNITS) do
-        local val = floor(seconds / unit[1])
-        seconds = seconds % unit[1]
-        if val > 0 then parts[#parts + 1] = val .. unit[2] end
-    end
-    if #parts > 0 then return tconcat(parts, " ") end
-    return "0min"
+    return SecondsToTime(seconds, seconds >= 60, nil, 3)
 end
 
 function ns.FormatCooldown(cd)
@@ -653,6 +714,9 @@ do
     local actionHost           -- secure container, built with the first button
     local actionsDirty = false -- a teardown landed in combat; regen finishes it
     local interactive = false
+    -- Caller-forced interactive mode (Tip_MarkInteractive): hover-persistent
+    -- even when the shown tip has zero clickable rows. Reset per Tip_Begin.
+    local forceInteractive = false
     local keepAlive
 
     -- Plain clickable rows: an insecure Button overlay running a Lua callback
@@ -767,6 +831,16 @@ do
     -- Grow-only pool; buttons are configured fresh on every Tip_Show. Creation
     -- and reconfiguration only ever run out of combat (the overlay build is
     -- combat-skipped), so the secure attribute writes are always legal.
+    -- House style for an interactive tooltip row: a white 0.10 wash across the
+    -- whole row on hover, HIGHLIGHT layer, no scripts involved. Both overlay
+    -- pools go through this -- when only one of them had it, the two kinds of
+    -- clickable row silently looked different for as long as they existed.
+    local function AddRowHighlight(b)
+        local hl = b:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints()
+        hl:SetColorTexture(1, 1, 1, 0.10)
+    end
+
     local function AcquireActionButton()
         activeActions = activeActions + 1
         local b = actionPool[activeActions]
@@ -780,9 +854,12 @@ do
             -- started -- same rule as the travel block's hearth button.
             b:RegisterForClicks("AnyUp")
             b:SetAttribute("useOnKeyDown", false)
+            AddRowHighlight(b)
+            -- Default type; the overlay build swaps type/payload per row
+            -- (spell rows and toy rows share this pool).
             b:SetAttribute("type", "spell")
             -- Static handler, installed once; pooled reuse only swaps the
-            -- spell attribute and the hover recolor scripts.
+            -- action attributes and the hover recolor scripts.
             b:HookScript("PostClick", function() ns.Tip_Hide() end)
             actionPool[activeActions] = b
         end
@@ -815,9 +892,27 @@ do
             b:SetFrameLevel(tip:GetFrameLevel() + 5)
             b:EnableMouse(true)
             b:RegisterForClicks("AnyUp")
+            AddRowHighlight(b)
             clickPool[activeClicks] = b
         end
         return b
+    end
+
+    -- Lay an overlay button over row i and wire its hover affordance. Shared by
+    -- both kinds -- secure action rows and insecure clickable ones -- because
+    -- they are the same thing to the player: an interactive tooltip row.
+    -- The accent recolor only shows if the row's left text carries no embedded
+    -- |c..|r codes; callers pass the normal color through the left-color args.
+    local function PlaceRowOverlay(b, i, innerW)
+        local d, row = data[i], rows[i]
+        b:ClearAllPoints()
+        b:SetPoint("TOPLEFT", tip, "TOPLEFT", PAD, d._y)
+        b:SetSize(max(1, innerW), max(1, d._h))
+        local ar, ag, ab = ns.GetAccent()
+        local lr, lg, lb = d.lr or 1, d.lg or 1, d.lb or 1
+        b:SetScript("OnEnter", function() row.left:SetTextColor(ar, ag, ab, 1) end)
+        b:SetScript("OnLeave", function() row.left:SetTextColor(lr, lg, lb, 1) end)
+        b:Show()
     end
 
     local function StopKeepAlive()
@@ -855,6 +950,7 @@ do
         EnsureTip()
         owner = ownerFrame
         dataCount = 0
+        forceInteractive = false
     end
 
     -- Secret text must never enter a row: SetText would display it, but
@@ -878,6 +974,9 @@ do
         d.r = nil
         d.wrap = nil
         d.action = nil
+        d.actionToy = nil
+        d.actionMacro = nil
+        d._padBand = nil
         d.onClick = nil
         d.ncols = nil
         return true
@@ -906,6 +1005,9 @@ do
         d.rr = rr; d.rg = rg; d.rb = rb
         d.wrap = nil
         d.action = nil
+        d.actionToy = nil
+        d.actionMacro = nil
+        d._padBand = nil
         d.onClick = nil
         d.ncols = nil
         return true
@@ -932,6 +1034,9 @@ do
         d.r = nil
         d.wrap = nil
         d.action = nil
+        d.actionToy = nil
+        d.actionMacro = nil
+        d._padBand = nil
         d.onClick = nil
         -- nil, never 0: Tip_Show tests `if d.ncols`, and 0 is true in Lua, so a
         -- token-less row would reserve the right column and pad the tip by
@@ -956,6 +1061,32 @@ do
         end
     end
 
+    -- Click-to-use TOY row: same overlay, keep-alive, and combat-degrade
+    -- contract as Tip_AddActionDouble, but the secure button fires
+    -- type="toy" with a STATIC integer toy itemID (the UseToy path -- toy
+    -- effects are not reliably castable through the spell attribute).
+    function ns.Tip_AddToyActionDouble(left, right, toyItemID, lr, lg, lb, rr, rg, rb)
+        if ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb) and toyItemID then
+            data[dataCount].actionToy = toyItemID
+        end
+    end
+
+    -- Click-to-run MACRO row: same overlay/degrade contract. macrotext MUST
+    -- be built from static ids only (the travel hearthstone row passes
+    -- "/use item:NNNN" style text) -- never from API-derived strings.
+    function ns.Tip_AddMacroActionDouble(left, right, macrotext, lr, lg, lb, rr, rg, rb)
+        if ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb) and macrotext then
+            data[dataCount].actionMacro = macrotext
+        end
+    end
+
+    -- Mark the row just added to carry the clickable-row padding band even
+    -- without an action, so a row's spacing stays stable across its
+    -- clickable/plain states (e.g. the travel hearthstone line on cooldown).
+    function ns.Tip_PadRow()
+        if tip and dataCount > 0 then data[dataCount]._padBand = true end
+    end
+
     -- Click-to-act row: like Tip_AddDouble, but Tip_Show overlays an insecure
     -- button that runs onClick(mouseButton) and keeps the tip alive while
     -- hovered. onClick MUST call unprotected functions only (whisper/invite) --
@@ -963,6 +1094,16 @@ do
     -- combat.
     function ns.Tip_AddClickable(left, right, onClick, lr, lg, lb, rr, rg, rb)
         if ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb) and onClick then
+            data[dataCount].onClick = onClick
+        end
+    end
+
+    -- Tip_AddColumns + Tip_AddClickable: sub-column alignment AND a click
+    -- overlay. The two were mutually exclusive only because each add-function
+    -- clears the other's field; the overlay is placed over the row's rectangle
+    -- and never cared how the row was laid out.
+    function ns.Tip_AddClickableColumns(left, tokens, onClick, lr, lg, lb)
+        if ns.Tip_AddColumns(left, tokens, lr, lg, lb) and onClick then
             data[dataCount].onClick = onClick
         end
     end
@@ -1033,6 +1174,10 @@ do
                 if rh > h then h = rh end
             end
             if colH > h then h = colH end
+            -- Clickable (or pad-marked) rows carry 2px of breathing room
+            -- above and below the text; the padded band is the rect the
+            -- overlay button and its hover wash cover.
+            if d.action or d.actionToy or d.actionMacro or d._padBand then h = h + 4 end
             totalH = totalH + h + (i > 1 and ROW_GAP or 0)
             d._h = h
         end
@@ -1060,11 +1205,15 @@ do
         for i = 1, dataCount do
             local d = data[i]
             local row = rows[i]
+            -- Text sits 4px into a clickable row's padded band (centered);
+            -- d._y keeps the band's top so the overlay covers all of it.
+            local ty = y
+            if d.action or d.actionToy or d.actionMacro or d._padBand then ty = y - 2 end
             row.left:ClearAllPoints()
-            row.left:SetPoint("TOPLEFT", tip, "TOPLEFT", PAD, y)
+            row.left:SetPoint("TOPLEFT", tip, "TOPLEFT", PAD, ty)
             if d.r then
                 row.right:ClearAllPoints()
-                row.right:SetPoint("TOPRIGHT", tip, "TOPRIGHT", -PAD, y)
+                row.right:SetPoint("TOPRIGHT", tip, "TOPRIGHT", -PAD, ty)
             end
             if d.ncols then
                 -- Walk the columns right to left so the block ends flush with
@@ -1076,7 +1225,7 @@ do
                     local fs = c <= d.ncols and row.cols[c]
                     if fs then
                         fs:ClearAllPoints()
-                        fs:SetPoint("TOPRIGHT", tip, "TOPRIGHT", -off, y)
+                        fs:SetPoint("TOPRIGHT", tip, "TOPRIGHT", -off, ty)
                     end
                     off = off + (colW[c] or 0) + (c > 1 and TOKEN_GAP or 0)
                 end
@@ -1093,10 +1242,9 @@ do
         HideActionButtons()
         interactive = false
         if not InCombatLockdown() then
-            local ar, ag, ab = ns.GetAccent()
             for i = 1, dataCount do
                 local d = data[i]
-                if d.action then
+                if d.action or d.actionToy or d.actionMacro then
                     interactive = true
                     -- Re-attach the host: the REGEN_DISABLED handler detaches
                     -- it (and the buttons) from the tip at every combat start.
@@ -1106,15 +1254,25 @@ do
                         host:SetAllPoints(tip)
                     end
                     local b = AcquireActionButton()
-                    b:SetAttribute("spell", d.action)
-                    b:ClearAllPoints()
-                    b:SetPoint("TOPLEFT", tip, "TOPLEFT", PAD, d._y)
-                    b:SetSize(max(1, innerW), max(1, d._h))
-                    local row = rows[i]
-                    local lr, lg, lb = d.lr or 1, d.lg or 1, d.lb or 1
-                    b:SetScript("OnEnter", function() row.left:SetTextColor(ar, ag, ab, 1) end)
-                    b:SetScript("OnLeave", function() row.left:SetTextColor(lr, lg, lb, 1) end)
-                    b:Show()
+                    -- Pooled reuse swaps type + payload; the unused payload is
+                    -- cleared so a recycled button can never fire a stale one.
+                    if d.action then
+                        b:SetAttribute("type", "spell")
+                        b:SetAttribute("spell", d.action)
+                        b:SetAttribute("toy", nil)
+                        b:SetAttribute("macrotext", nil)
+                    elseif d.actionToy then
+                        b:SetAttribute("type", "toy")
+                        b:SetAttribute("toy", d.actionToy)
+                        b:SetAttribute("spell", nil)
+                        b:SetAttribute("macrotext", nil)
+                    else
+                        b:SetAttribute("type", "macro")
+                        b:SetAttribute("macrotext", d.actionMacro)
+                        b:SetAttribute("spell", nil)
+                        b:SetAttribute("toy", nil)
+                    end
+                    PlaceRowOverlay(b, i, innerW)
                 end
             end
         end
@@ -1123,30 +1281,18 @@ do
         -- the callbacks are unprotected -- and rebuilt from scratch each show
         -- so a reused tip never carries stale buttons.
         HideClickButtons()
-        local car, cag, cab
         for i = 1, dataCount do
             local d = data[i]
             if d.onClick then
                 interactive = true
-                if not car then car, cag, cab = ns.GetAccent() end
                 local b = AcquireClickButton()
-                b:ClearAllPoints()
-                b:SetPoint("TOPLEFT", tip, "TOPLEFT", PAD, d._y)
-                b:SetSize(max(1, innerW), max(1, d._h))
-                -- Hover affordance: recolor the row's left text to the accent,
-                -- exactly like the M+ teleport rows. For this to show, the row
-                -- text must NOT embed its own |c..|r codes -- callers pass the
-                -- normal color through the left-color args instead.
-                local row = rows[i]
-                local lr, lg, lb = d.lr or 1, d.lg or 1, d.lb or 1
                 local cb = d.onClick
-                b:SetScript("OnEnter", function() row.left:SetTextColor(car, cag, cab, 1) end)
-                b:SetScript("OnLeave", function() row.left:SetTextColor(lr, lg, lb, 1) end)
+                PlaceRowOverlay(b, i, innerW)
                 b:SetScript("OnClick", function(_, mouseButton) cb(mouseButton) end)
-                b:Show()
             end
         end
 
+        if forceInteractive then interactive = true end
         tip:EnableMouse(interactive)
         if interactive then StartKeepAlive() else StopKeepAlive() end
 
@@ -1229,6 +1375,14 @@ do
         if not tip then return false end
         return tip:IsShown() and owner == ownerFrame
     end
+
+    -- Force the tip being built into interactive (hover-persistent) mode
+    -- even when it contains no clickable row: OnLeave then defers to the
+    -- keep-alive poll, so the cursor can travel onto the tip to read it.
+    -- Call anywhere between Tip_Begin and Tip_Show.
+    function ns.Tip_MarkInteractive()
+        forceInteractive = true
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -1304,12 +1458,37 @@ function ns.SolveLayout(barCfg, L, measure)
     if n == 0 then return segs end
 
     if ns.BarSizingMode(barCfg) == "even" then
-        -- Equal shares; cumulative rounding telescopes to EXACTLY L.
-        local prevEdge = 0
+        -- Equal shares among blocks that exist for layout: a collapsed
+        -- block (non-spacer measuring 0 -- e.g. xprep with no XP and no
+        -- watched faction) takes no share, same doesn't-exist rule as the
+        -- auto solver below. Cumulative rounding telescopes to EXACTLY L
+        -- across the sharing blocks.
+        local shares, nShare = {}, 0
         for i = 1, n do
-            local edge = floor(i * L / n + 0.5)
-            segs[i] = { block = barCfg.blocks[i], at = prevEdge, px = edge - prevEdge }
-            prevEdge = edge
+            local b = barCfg.blocks[i]
+            local hasShare = true
+            if b.type ~= "spacer" and measure then
+                hasShare = (measure(b) or 0) > 0
+            end
+            shares[i] = hasShare
+            if hasShare then nShare = nShare + 1 end
+        end
+        if nShare == 0 then
+            -- Everything collapsed: fall back to plain equal shares so the
+            -- solve stays well-defined.
+            nShare = n
+            for i = 1, n do shares[i] = true end
+        end
+        local prevEdge, k = 0, 0
+        for i = 1, n do
+            if shares[i] then
+                k = k + 1
+                local edge = floor(k * L / nShare + 0.5)
+                segs[i] = { block = barCfg.blocks[i], at = prevEdge, px = edge - prevEdge }
+                prevEdge = edge
+            else
+                segs[i] = { block = barCfg.blocks[i], at = prevEdge, px = 0 }
+            end
         end
         return segs
     end
@@ -1338,8 +1517,16 @@ function ns.SolveLayout(barCfg, L, measure)
     -- and bare content width (for exact content-centering).
     local function SizedPx(b)
         local w = 0
-        if b.type ~= "spacer" and measure then w = measure(b) or 0 end
-        if w < 0 then w = 0 end
+        if b.type ~= "spacer" and measure then
+            w = measure(b) or 0
+            if w <= 0 then
+                -- Collapsed block (nothing rendered -- e.g. xprep with no
+                -- XP and no watched faction): contributes nothing at all,
+                -- gaps included, as if it were not in the bar. Spacers are
+                -- exempt: their width IS their gaps.
+                return 0, 0, 0
+            end
+        end
         local gl, gr = ContentGapsOf(b)
         return w + gl + gr, gl, w
     end
@@ -1475,9 +1662,15 @@ local function EnsureThemeTextures(host)
     local modernBg = host:CreateTexture(nil, "BACKGROUND", nil, -7)
     modernBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
     modernBg:SetAllPoints(host)
+    -- Bar Texture layer: when a texture is picked it replaces the flat /
+    -- art background, tinted by the style's color+opacity knobs.
+    local barTex = host:CreateTexture(nil, "BACKGROUND", nil, -6)
+    barTex:SetAllPoints(host)
+    barTex:SetAlpha(0)
     host._edbBgAtlas   = bgAtlas
     host._edbBgOverlay = bgOverlay
     host._edbModernBg  = modernBg
+    host._edbBarTex    = barTex
 
     -- Cover-fit: crop the atlas so it fills the host without stretching.
     local function UpdateBgTexCoords()
@@ -1498,23 +1691,43 @@ local function EnsureThemeTextures(host)
     UpdateBgTexCoords()
 end
 
-local function ApplyThemeToHost(host, theme)
+local function ApplyThemeToHost(host, theme, texKey)
     EnsureThemeTextures(host)
     theme = theme or {}
+    -- Bar Texture (per-bar cfg.barTexture): resolved through the shared
+    -- key -> path table (built-ins + SharedMedia). nil/"none"/unknown key
+    -- falls open to the normal background stack.
+    local texPath
+    if texKey and texKey ~= "none" and ns.barTextures then
+        texPath = ns.barTextures[texKey]
+    end
     local op
     if theme.style == "modern" then
         host._edbBgAtlas:SetAlpha(0)
         host._edbBgOverlay:SetAlpha(0)
         local c = theme.modernColor or {}
-        host._edbModernBg:SetColorTexture(c.r or 0.067, c.g or 0.067, c.b or 0.067, c.a or 0.95)
-        host._edbModernBg:SetAlpha(1)
+        if texPath then
+            -- Texture tinted by the Modern color; the color's alpha rides
+            -- the vertex tint so Bar Opacity keeps working.
+            host._edbBarTex:SetTexture(texPath)
+            host._edbBarTex:SetVertexColor(c.r or 0.067, c.g or 0.067, c.b or 0.067, c.a or 0.95)
+            host._edbBarTex:SetAlpha(1)
+            host._edbModernBg:SetAlpha(0)
+        else
+            host._edbBarTex:SetAlpha(0)
+            host._edbModernBg:SetColorTexture(c.r or 0.067, c.g or 0.067, c.b or 0.067, c.a or 0.95)
+            host._edbModernBg:SetAlpha(1)
+        end
         op = c.a
         if op == nil then op = 0.95 end
     else
         -- euiOpacity fades the WHOLE background stack (art + dim overlay);
         -- euiAlpha stays the darkening amount of the overlay itself.
+        -- Bar Texture never applies here: the EllesmereUI style always
+        -- renders its own untextured art (the picker is Modern-only).
         op = theme.euiOpacity
         if op == nil then op = 1 end
+        host._edbBarTex:SetAlpha(0)
         host._edbBgAtlas:SetAlpha(op)
         host._edbBgOverlay:SetColorTexture(0, 0, 0, theme.euiAlpha or 0.5)
         host._edbBgOverlay:SetAlpha(op)
@@ -1958,7 +2171,7 @@ function ns.ApplyBar(id)
     end
 
     ApplyBarPosition(id)
-    ApplyThemeToHost(rec.bar, cfg.theme)
+    ApplyThemeToHost(rec.bar, cfg.theme, cfg.barTexture)
 
     -- Reconcile block instances against cfg.blocks
     local want = {}
@@ -2019,7 +2232,7 @@ function ns.ApplyTheme(id)
     local rec = live[id]
     local cfg = ns.GetBar(id)
     if not (rec and rec.bar and cfg) then return end
-    ApplyThemeToHost(rec.bar, cfg.theme)
+    ApplyThemeToHost(rec.bar, cfg.theme, cfg.barTexture)
 end
 
 function ns.GetLiveAutoLength(barId, blockId)
@@ -2489,22 +2702,39 @@ end
 -------------------------------------------------------------------------------
 local TEMPLATES = {
     bottom = {
+        -- Mirrors the author's live Bottom Info Bar exactly (snapshotted
+        -- from SavedVariables 2026-07-20): 40px gaps, coin-colored gold,
+        -- accent professions (left-aligned), 90% clock with 12-hour time,
+        -- random-hearthstone travel block on the right edge.
         name = "Bottom Info Bar", orientation = "H", lengthMode = "full",
-        length = 1200, thickness = 30, theme = "eui", snapEdge = "bottom",
+        length = 1200, thickness = 30, theme = "eui", snapEdge = "top",
         sizingMode = "auto", fillType = "clock", centerType = "clock",
         savedPos = { point = "BOTTOM", relPoint = "BOTTOM", x = 0, y = 0 },
         blocks = {
-            { type = "micromenu" },
-            { type = "xprep", contentGapL = 30, contentGapR = 30 },
-            { type = "spec", contentGapL = 20, contentGapR = 20 },
-            { type = "durability" },
-            { type = "clock" },
-            { type = "profession", contentGapL = 30, contentGapR = 30 },
-            { type = "gold", contentGapL = 30, contentGapR = 30,
-              color = { r = 0.9075, g = 0.7125, b = 0.3804 } },
-            { type = "fps", contentGapL = 30, contentGapR = 0 },
-            { type = "ms", contentGapL = 0, contentGapR = 30 },
-            { type = "travel", align = "RIGHT", xOff = -5 },
+            { type = "micromenu", textYOff = 8, contentGapR = 40,
+              settings = { help = false } },
+            { type = "xprep", contentGapL = 40, contentGapR = 40 },
+            { type = "spec", contentGapL = 40, contentGapR = 40 },
+            { type = "durability", contentGapL = 40, contentGapR = 40,
+              useIconDefaultColor = true,
+              iconColor = { r = 1, g = 0.62, b = 0.25 } },
+            { type = "clock", scale = 90,
+              settings = { twentyFour = false } },
+            { type = "profession", contentGapL = 40, contentGapR = 40,
+              align = "LEFT", textXOff = 0,
+              useIconAccentColor = true,
+              iconColor = { r = 1, g = 0.55, b = 0.25 } },
+            { type = "gold", contentGapL = 40, contentGapR = 40,
+              useCoinColor = true, coinForced = true,
+              useIconDefaultColor = true,
+              color = { r = 1, g = 1, b = 1 },
+              iconColor = { r = 1, g = 1, b = 1 } },
+            { type = "fps", contentGapL = 40, contentGapR = 0 },
+            { type = "ms", contentGapL = 0, contentGapR = 40 },
+            { type = "travel", align = "RIGHT", xOff = -5, contentGapL = 40,
+              useIconDefaultColor = true,
+              iconColor = { r = 0.35, g = 0.72, b = 1 },
+              settings = { hsChoice = "random" } },
         },
     },
     minimapc = {

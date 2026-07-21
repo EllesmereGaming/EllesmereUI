@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Temporary legacy addon to help with one time migration of user data, feel free to disable.
 ## Author: Ellesmere
-## Version: 8.5.1
+## Version: 8.5.2
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIBasicsDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga

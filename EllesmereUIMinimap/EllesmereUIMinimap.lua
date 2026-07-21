@@ -5380,6 +5380,14 @@ function EBS:OnInitialize()
     end
     if EllesmereUI.RegisterMouseoverTarget and Minimap then
         EllesmereUI.RegisterMouseoverTarget(Minimap, function()
+            -- Minimap is the one mouseover target that is a raw protected
+            -- Blizzard frame (every other module registers an addon-owned
+            -- proxy). The shared poll calls frame:Show()/Hide() when active,
+            -- which is blocked in combat lockdown -- the second trigger of
+            -- issue #639. Report inactive during combat: the poll then only
+            -- resets its bookkeeping (no Show/Hide), and the visibility
+            -- dispatcher re-applies the correct state on PLAYER_REGEN_ENABLED.
+            if InCombatLockdown() then return false end
             local p = EBS.db and EBS.db.profile and EBS.db.profile.minimap
             if not (p and p.enabled) then return false end
             -- Hover-gated sets only reveal while their conditions pass;

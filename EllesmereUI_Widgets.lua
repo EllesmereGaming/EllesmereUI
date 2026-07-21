@@ -1626,9 +1626,14 @@ local function PixelizeSliderCfg(cfg)
     local px = {}
     for k, v in pairs(cfg) do px[k] = v end
     px.min, px.max = gamePP.ToPixels(cfg.min or 0), gamePP.ToPixels(cfg.max or 0)
-    -- Step is declared in coordinate units like min/max; convert it to whole
-    -- pixels (never below 1) so a coarse-stepped slider keeps its coarseness.
-    px.step = math.max(1, math.floor((cfg.step or 1) / (gamePP.mult or 1) + 0.5))
+    -- A declared step of 1 means "finest available", not "one coordinate
+    -- unit": the pixel unit exists to reach single pixels, so it must stay
+    -- 1 px. Converting it like min/max rounds 1 coord to 2 px whenever
+    -- mult <= 2/3 (e.g. 4K at 0.71 uiScale), which snaps a typed 1 to 2 and
+    -- makes every odd pixel value unreachable. Only genuinely coarse steps
+    -- (> 1 coordinate unit) convert, keeping their physical coarseness.
+    local st = cfg.step or 1
+    px.step = st > 1 and math.max(1, math.floor(st / (gamePP.mult or 1) + 0.5)) or 1
     local get, set = cfg.getValue or cfg.get, cfg.setValue or cfg.set
     local pxGet = get and function()
         local v = get()
@@ -1640,12 +1645,6 @@ local function PixelizeSliderCfg(cfg)
     if cfg.setValue then px.setValue = pxSet end
     if cfg.set then px.set = pxSet end
     return px
-end
-
--- Localized label with the pixel-unit suffix. Label and suffix are localized
--- separately so the L() lookup keys stay untouched English strings.
-local function PixelLabel(text)
-    return EllesmereUI.L(text or "") .. " " .. EllesmereUI.L("(px)")
 end
 
 -------------------------------------------------------------------------------
@@ -2349,7 +2348,7 @@ function WidgetFactory:Slider(parent, text, yOffset, minVal, maxVal, step, getVa
     TagOptionRow(frame, parent, text, tooltip)
     local label = MakeFont(frame, 14, nil, TEXT_WHITE_R, TEXT_WHITE_G, TEXT_WHITE_B)
     PP.Point(label, "LEFT", frame, "LEFT", 20, 0)
-    label:SetText(pixel and PixelLabel(text) or EllesmereUI.L(text))
+    label:SetText(EllesmereUI.L(text))
     local scfg = PixelizeSliderCfg({ pixel = pixel, min = minVal, max = maxVal, step = step, getValue = getValue, setValue = setValue })
     local trackFrame, valBox = BuildSliderCore(frame, 320, 4, 14, 40, 26, 13, SL.INPUT_A, scfg.min, scfg.max, scfg.step, scfg.getValue, scfg.setValue)
     PP.Point(valBox, "RIGHT", frame, "RIGHT", -20, 0)
@@ -2974,6 +2973,8 @@ local function BuildColorPickerPopup()
     local _confirmed = false
     MakeStyledButton(okBtn, "OK", 10, RB_COLOURS, function()
         RecordRecentColor(HSVtoRGB(currentH, currentS, currentV))
+        -- fire callback when "ok" is clicked, even if no color was changed as to confirm selection
+        FireCallbacks()
         _confirmed = true; popup:Hide()
     end)
 
@@ -3271,6 +3272,89 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
     return swatch, UpdateSwatch
 end
 
+-- default/custom/class color swatch widget
+-- callers track a mode string ("default"/"custom"/"class")
+-- opts:
+--   getMode()           -> "default" | "custom" | "class"
+--   setMode(mode)       -> store the new mode
+--   getCustomRGB()      -> r, g, b of the custom color
+--   setCustomRGB(r,g,b) -> store the picked color
+--   onChange()          -> optional, called after any swatch click
+--   disabled()          -> optional, true to disable all swatches
+--   disabledAlpha       -> optional alpha while disabled (default 0.3)
+--   hasAlpha, overrideSize -> forwarded to BuildColorSwatch
+-- Returns customSwatch, defaultSwatch, classSwatch, Update.
+local DEFAULT_UNTINTED_R, DEFAULT_UNTINTED_G, DEFAULT_UNTINTED_B = 1.0, 0.788, 0.137
+local function BuildTrioColorSwatch(parentFrame, baseLevel, opts)
+    local customSwatch, updateCustom = BuildColorSwatch(parentFrame, baseLevel,
+        function()
+            local r, g, b = opts.getCustomRGB()
+            return r, g, b, 1
+        end,
+        function(r, g, b)
+            opts.setCustomRGB(r, g, b)
+            opts.setMode("custom")
+            if opts.onChange then opts.onChange() end
+        end,
+        opts.hasAlpha, opts.overrideSize)
+    customSwatch:HookScript("OnEnter", function()
+        ShowWidgetTooltip(customSwatch, "Custom Color")
+    end)
+    customSwatch:HookScript("OnLeave", function() HideWidgetTooltip() end)
+
+    local defaultSwatch = BuildColorSwatch(parentFrame, baseLevel,
+        function() return DEFAULT_UNTINTED_R, DEFAULT_UNTINTED_G, DEFAULT_UNTINTED_B, 1 end,
+        function() end,
+        opts.hasAlpha, opts.overrideSize)
+    defaultSwatch:SetScript("OnClick", function()
+        opts.setMode("default")
+        if opts.onChange then opts.onChange() end
+    end)
+    defaultSwatch:SetScript("OnEnter", function()
+        ShowWidgetTooltip(defaultSwatch, "Default")
+    end)
+    defaultSwatch:SetScript("OnLeave", function() HideWidgetTooltip() end)
+
+    local classSwatch
+    if opts.hasClassColor then
+        classSwatch = BuildColorSwatch(parentFrame, baseLevel,
+            function()
+                local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+                return cc.r, cc.g, cc.b, 1
+            end,
+            function() end,
+            opts.hasAlpha, opts.overrideSize)
+        classSwatch:SetScript("OnClick", function()
+            opts.setMode("class")
+            if opts.onChange then opts.onChange() end
+        end)
+        classSwatch:SetScript("OnEnter", function()
+            ShowWidgetTooltip(classSwatch, "Class Colored")
+        end)
+        classSwatch:SetScript("OnLeave", function() HideWidgetTooltip() end)
+    end
+
+    local function Update()
+        local disabled = opts.disabled and opts.disabled()
+        local mode = opts.getMode()
+        if disabled then
+            local a = opts.disabledAlpha or 0.3
+            customSwatch:SetAlpha(a)
+            defaultSwatch:SetAlpha(a)
+            if classSwatch then classSwatch:SetAlpha(a) end
+        else
+            customSwatch:SetAlpha(mode == "custom" and 1 or 0.3)
+            defaultSwatch:SetAlpha(mode == "default" and 1 or 0.3)
+            if classSwatch then classSwatch:SetAlpha(mode == "class" and 1 or 0.3) end
+        end
+        updateCustom()
+    end
+    Update()
+    RegisterWidgetRefresh(Update)
+
+    return customSwatch, defaultSwatch, classSwatch, Update
+end
+
 -- Color Picker  (swatch that opens Blizzard's ColorPickerFrame)
 function WidgetFactory:ColorPicker(parent, text, yOffset, getValue, setValue, hasAlpha)
     local ROW_H = 50
@@ -3481,7 +3565,6 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
         if t == "slider" then
             local defaultTrackW = isRussian and 120 or 160
             local scfg = PixelizeSliderCfg(cfg)
-            if scfg ~= cfg then label:SetText(PixelLabel(cfg.text)) end
             local trackFrame, valBox, _, slThumb = BuildSliderCore(region, cfg.trackWidth or defaultTrackW, 4, 14, 40, 26, 13, SL.INPUT_A,
                 scfg.min, scfg.max, scfg.step, scfg.getValue, scfg.setValue, true, cfg.snapPoints)
             PP.Point(valBox, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
@@ -3905,7 +3988,6 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
         if t == "slider" then
             local defaultTrackW = isRussian and 100 or 130
             local scfg = PixelizeSliderCfg(cfg)
-            if scfg ~= cfg then label:SetText(PixelLabel(cfg.text)) end
             local trackFrame, valBox, _, slThumb = BuildSliderCore(region, cfg.trackWidth or defaultTrackW, 4, 14, 40, 26, 13, SL.INPUT_A,
                 scfg.min, scfg.max, scfg.step, scfg.getValue, scfg.setValue, true, cfg.snapPoints)
             PP.Point(valBox, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
@@ -4588,7 +4670,7 @@ local function BuildCogPopup(opts)
         local maxDDLblW = 0
         for _, row in ipairs(opts.rows) do
             if row.type == "slider" or row.type == "input" then
-                tmpFS:SetText(row.pixel and PixelLabel(row.label) or EllesmereUI.L(row.label))
+                tmpFS:SetText(EllesmereUI.L(row.label))
                 local w = tmpFS:GetStringWidth()
                 if w > maxLblW then maxLblW = w end
             elseif row.type == "dropdown" or row.type == "segmented" then
@@ -4676,7 +4758,7 @@ local function BuildCogPopup(opts)
             if row.type == "slider" then
                 local srow = PixelizeSliderCfg(row)
                 local lbl = MakeFont(pf, 11, nil, 1, 1, 1); lbl:SetAlpha(0.6)
-                lbl:SetText(srow ~= row and PixelLabel(row.label) or EllesmereUI.L(row.label))
+                lbl:SetText(EllesmereUI.L(row.label))
                 lbl:SetPoint("LEFT", pf, "TOPLEFT", SIDE_PAD, curY - ROW_H / 2 - 1)
 
                 local track, valBox, updateVisual = BuildSliderCore(pf, SLIDER_W, 4, 12, INPUT_W, ROW_H, 11, POPUP_INPUT_A,
@@ -6623,9 +6705,205 @@ local function BuildInlineToggle(opts)
     return toggle
 end
 
+-------------------------------------------------------------------------------
+--  Less-Common Settings Expander
+--
+--  Centralized collapse link for rarely-customized option rows. Page builders
+--  wrap those rows in:
+--
+--      local expanded
+--      expanded, y = EllesmereUI.BuildLessCommonExpander(parent, y,
+--          "rfIndicators", "Show Less Common Indicator Options")
+--      if expanded then
+--          ... build the less-common rows ...
+--      end
+--      y = EllesmereUI.FinishLessCommonExpander(parent, y,
+--          "rfIndicators", "Show Less Common Indicator Options")
+--
+--  Expansion is session-only per sectionKey (never saved). The global "Auto
+--  Expand Less Common Settings" toggle (EllesmereUIDB.autoExpandLessCommon,
+--  Global Settings -> General -> Display) renders everything expanded and
+--  suppresses the links entirely. Clicking the link must re-run the page
+--  builder, so it forces RefreshPage(true) -- the no-arg fast path only
+--  re-reads values and would never reveal the collapsed rows.
+-------------------------------------------------------------------------------
+local LESS_COMMON_ARROW_DOWN = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.png"
+local LESS_COMMON_ARROW_UP   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-up3.png"
+
+-- Shared link renderer for both expander states. The link always sits at the
+-- BOTTOM of its section: collapsed it renders where the hidden rows would
+-- start (via BuildLessCommonExpander), expanded it renders below the revealed
+-- rows (via FinishLessCommonExpander). Expanded state flips it into the
+-- collapse form: up arrows and a "Hide ..." label -- the Hide key is derived
+-- from the ENGLISH label before localization so both variants are proper L()
+-- lookup keys.
+local function BuildLessCommonLink(parent, y, sectionKey, label, expanded)
+    local ARROW_SZ, ARROW_GAP = 12, 6
+    local btn = CreateFrame("Button", nil, parent)
+    btn:SetHeight(22)
+    btn:SetPoint("TOP", parent, "TOP", 0, y - 12)
+    btn:SetFrameLevel(parent:GetFrameLevel() + 5)
+    btn:RegisterForClicks("LeftButtonUp", "MiddleButtonUp")
+
+    local arrowTex = expanded and LESS_COMMON_ARROW_UP or LESS_COMMON_ARROW_DOWN
+    local text = expanded and (label:gsub("^Show", "Hide", 1)) or label
+
+    local fs = EllesmereUI.MakeFont(btn, 13, nil, 1, 1, 1)
+    fs:SetPoint("LEFT", btn, "LEFT", ARROW_SZ + ARROW_GAP, 0)
+    fs:SetText(EllesmereUI.L(text))
+    fs:SetAlpha(0.7)
+
+    local leftArrow = btn:CreateTexture(nil, "OVERLAY")
+    leftArrow:SetSize(ARROW_SZ, ARROW_SZ)
+    leftArrow:SetTexture(arrowTex)
+    leftArrow:SetPoint("RIGHT", fs, "LEFT", -ARROW_GAP, 0)
+    leftArrow:SetAlpha(0.7)
+
+    local rightArrow = btn:CreateTexture(nil, "OVERLAY")
+    rightArrow:SetSize(ARROW_SZ, ARROW_SZ)
+    rightArrow:SetTexture(arrowTex)
+    rightArrow:SetPoint("LEFT", fs, "RIGHT", ARROW_GAP, 0)
+    rightArrow:SetAlpha(0.7)
+
+    btn:SetWidth(math.max((fs:GetStringWidth() or 0) + 2 * (ARROW_SZ + ARROW_GAP) + 8, 120))
+
+    local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+    btn:SetScript("OnEnter", function(self)
+        fs:SetTextColor(EG.r, EG.g, EG.b); fs:SetAlpha(1)
+        leftArrow:SetVertexColor(EG.r, EG.g, EG.b); leftArrow:SetAlpha(1)
+        rightArrow:SetVertexColor(EG.r, EG.g, EG.b); rightArrow:SetAlpha(1)
+        ShowWidgetTooltip(self, "Shift+Middle Click to always show all settings")
+    end)
+    btn:SetScript("OnLeave", function()
+        fs:SetTextColor(1, 1, 1); fs:SetAlpha(0.7)
+        leftArrow:SetVertexColor(1, 1, 1); leftArrow:SetAlpha(0.7)
+        rightArrow:SetVertexColor(1, 1, 1); rightArrow:SetAlpha(0.7)
+        HideWidgetTooltip()
+    end)
+    btn:SetScript("OnClick", function(_, button)
+        if button == "MiddleButton" then
+            -- Shift+Middle Click = enable the global Auto Expand Less Common
+            -- Settings toggle (Global Settings -> General -> Display). Cached
+            -- pages were built collapsed, so drop them all before rebuilding.
+            if not IsShiftKeyDown() then return end
+            if not EllesmereUIDB then EllesmereUIDB = {} end
+            EllesmereUIDB.autoExpandLessCommon = true
+            HideWidgetTooltip()
+            EllesmereUI:InvalidatePageCache()
+            EllesmereUI:RefreshPage(true)
+            return
+        end
+        local sess = EllesmereUI._lessCommonExpanded
+        if not sess then sess = {}; EllesmereUI._lessCommonExpanded = sess end
+        sess[sectionKey] = (not expanded) and true or nil
+        EllesmereUI:RefreshPage(true)
+    end)
+
+    return y - 40
+end
+
+local function BuildLessCommonExpander(parent, y, sectionKey, label)
+    -- Hidden search pre-build: always build the wrapped rows so they register
+    -- in the global search index; no link (the page is never shown).
+    if EllesmereUI._prebuilding then return true, y end
+    if EllesmereUIDB and EllesmereUIDB.autoExpandLessCommon then return true, y end
+    -- Active search (either box): sections render force-expanded with NO link
+    -- line at all; clearing the search collapses them back. Transient flag --
+    -- the session Show/Hide state below is untouched and restores afterwards
+    -- (see SetLessCommonSearchActive).
+    if EllesmereUI._lessCommonSearchActive then return true, y end
+    local sess = EllesmereUI._lessCommonExpanded
+    if not sess then sess = {}; EllesmereUI._lessCommonExpanded = sess end
+    -- Expanded: render nothing here -- the caller builds the rows, then
+    -- FinishLessCommonExpander places the "Hide ..." link below them.
+    if sess[sectionKey] then return true, y end
+    return false, BuildLessCommonLink(parent, y, sectionKey, label, false)
+end
+
+-- Call after the wrapped rows (safe to call unconditionally: no-ops while the
+-- section is collapsed, during the search pre-build, during an active search,
+-- or when the global auto-expand toggle is on).
+local function FinishLessCommonExpander(parent, y, sectionKey, label)
+    if EllesmereUI._prebuilding then return y end
+    if EllesmereUIDB and EllesmereUIDB.autoExpandLessCommon then return y end
+    if EllesmereUI._lessCommonSearchActive then return y end
+    local sess = EllesmereUI._lessCommonExpanded
+    if not (sess and sess[sectionKey]) then return y end
+    return BuildLessCommonLink(parent, y, sectionKey, label, true)
+end
+
+-- Search-driven expansion (both the sidebar global box and the top-bar module
+-- box call this with query ~= ""). While active, every less-common section
+-- renders expanded with no link; on clear, sections fall back to their
+-- session Show/Hide state. Idempotent -- only transitions rebuild. Cached
+-- pages were built under the old state, so transitions drop every cache and
+-- rebuild the active page in place.
+local function SetLessCommonSearchActive(active)
+    active = active and true or false
+    if (EllesmereUI._lessCommonSearchActive or false) == active then return end
+    EllesmereUI._lessCommonSearchActive = active
+    -- With the global auto-expand toggle on, links never render and sections
+    -- are always expanded: track the flag but skip the rebuild churn.
+    if EllesmereUIDB and EllesmereUIDB.autoExpandLessCommon then return end
+    EllesmereUI:InvalidatePageCache()
+    EllesmereUI:RefreshPage(true)
+end
+
+-------------------------------------------------------------------------------
+--  Hidden-While-Disabled Section Gate
+--
+--  For sections whose master toggle HIDES the dependent rows instead of
+--  graying them: the page builder simply skips building those rows while the
+--  toggle is off, and the toggle's setValue is wrapped with this so flipping
+--  it re-runs the page builder to reveal/hide them:
+--
+--      { type="toggle", text="Enable Top Name Bar",
+--        getValue=...,
+--        setValue=EllesmereUI.SectionToggleSetValue(function(v)
+--            SSet("tnbEnabled", v); ApplyAll()
+--        end) }
+-------------------------------------------------------------------------------
+local function SectionToggleSetValue(fn)
+    return function(v)
+        fn(v)
+        EllesmereUI:RefreshPage(true)
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Dependent-Row Visibility
+--
+--  Row-level version of the section gate: one setting's value hides entire
+--  dependent rows instead of graying them. The builder skips the dependent
+--  rows behind a plain predicate check, and the TRIGGER setting's setValue is
+--  wrapped with this so the page rebuilds only when the predicate actually
+--  flips -- ordinary value changes keep whatever refresh the inner setValue
+--  already does, with no rebuild flash:
+--
+--      -- trigger dropdown:
+--      setValue = EllesmereUI.DependentSetValue(
+--          function() return SVal("healAbsorbTextMode", "none") ~= "none" end,
+--          function(v) SSet("healAbsorbTextMode", v); EllesmereUI:RefreshPage() end),
+--
+--      -- dependent row below (skip building while hidden):
+--      if SVal("healAbsorbTextMode", "none") ~= "none" then
+--          ... build the dependent row(s) ...
+--      end
+-------------------------------------------------------------------------------
+local function DependentSetValue(pred, fn)
+    return function(v)
+        local before = pred() and true or false
+        fn(v)
+        if (pred() and true or false) ~= before then
+            EllesmereUI:RefreshPage(true)
+        end
+    end
+end
+
 EllesmereUI.BuildSliderCore     = BuildSliderCore
 EllesmereUI.BuildDropdownControl = BuildDropdownControl
 EllesmereUI.BuildColorSwatch    = BuildColorSwatch
+EllesmereUI.BuildTrioColorSwatch = BuildTrioColorSwatch
 EllesmereUI.BuildToggleControl   = BuildToggleControl
 EllesmereUI.BuildInlineToggle    = BuildInlineToggle
 EllesmereUI.BuildCheckboxControl = BuildCheckboxControl
@@ -6636,6 +6914,11 @@ EllesmereUI.ShowWidgetTooltip   = ShowWidgetTooltip
 EllesmereUI.HideWidgetTooltip   = HideWidgetTooltip
 EllesmereUI.DisabledTooltip     = DisabledTooltip
 EllesmereUI.BuildSegmentedControl = BuildSegmentedControl
+EllesmereUI.BuildLessCommonExpander   = BuildLessCommonExpander
+EllesmereUI.FinishLessCommonExpander  = FinishLessCommonExpander
+EllesmereUI.SetLessCommonSearchActive = SetLessCommonSearchActive
+EllesmereUI.SectionToggleSetValue     = SectionToggleSetValue
+EllesmereUI.DependentSetValue         = DependentSetValue
 
 -------------------------------------------------------------------------------
 --  ShowContextMenu(anchor, items)

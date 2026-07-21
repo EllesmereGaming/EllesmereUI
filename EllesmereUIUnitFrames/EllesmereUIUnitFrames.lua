@@ -70,12 +70,28 @@ local defaults = {
             iconSize      = 32,
             showText      = true,
             textSize      = 11,
+            borderTexture = "solid",
             borderSize    = 1,
+            borderBehind  = false,
             borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
             noBorderDebuffs = true,
             buffIconZoom   = 0.055,
             debuffIconZoom = 0.055,
             durationFormat = "blizzard",
+        },
+        externalDefensives = {
+            enabled       = false,
+            iconSize      = 32,
+            iconZoom      = 0.055,
+            growDirection = "right",  -- "right" | "left": which way icons extend from the frame edge
+            showText      = true,
+            textSize      = 11,
+            borderTexture = "solid",
+            borderSize    = 1,
+            borderBehind  = false,
+            borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
+            durationFormat = "blizzard",
+            unlockPos     = nil,
         },
         castbarOpacity = 1.0,
         castbarColor = { r = 0.114, g = 0.655, b = 0.514 },
@@ -131,6 +147,11 @@ local defaults = {
             buffSize = 22,
             buffOffsetX = 0,
             buffOffsetY = 0,
+            auraBorderTexture = "solid",
+            auraBorderSize = 1,
+            auraBorderR = 0, auraBorderG = 0, auraBorderB = 0, auraBorderA = 1,
+            auraBorderBehind = false,
+            auraBorderBehindUnitFrame = false,
             buffShowCooldownText = false,
             buffCooldownTextSize = 10,
             debuffAnchor = "none",
@@ -249,6 +270,7 @@ local defaults = {
             showPlayerCastIcon = true,
             playerCastbarIconInWidth = true,
             castReverseFill = false,
+            castFillOpacity = 100,  -- 0-100; below 100 the world shows through the fill
             castbarHideWhenInactive = true,
             lockCastbarToFrame = true,
             playerCastbarX = 0,
@@ -355,7 +377,9 @@ local defaults = {
             showCastbar = true,
             showCastIcon = true,
             castbarIconInWidth = true,
+            castCombineNameTarget = false,  -- render "Spell Name - Target" as one string in the target slot
             castReverseFill = false,
+            castFillOpacity = 100,  -- 0-100; below 100 the world shows through the fill
             castbarHideWhenInactive = true,
             castSpellNameSize = 11,
             castSpellNameColor = { r = 1, g = 1, b = 1 },
@@ -390,6 +414,11 @@ local defaults = {
             buffSize = 22,
             buffOffsetX = 0,
             buffOffsetY = 0,
+            auraBorderTexture = "solid",
+            auraBorderSize = 1,
+            auraBorderR = 0, auraBorderG = 0, auraBorderB = 0, auraBorderA = 1,
+            auraBorderBehind = false,
+            auraBorderBehindUnitFrame = false,
             buffShowCooldownText = false,
             buffCooldownTextSize = 10,
             debuffSize = 22,
@@ -703,7 +732,9 @@ local defaults = {
             showCastbar = true,
             showCastIcon = true,
             castbarIconInWidth = true,
+            castCombineNameTarget = false,  -- render "Spell Name - Target" as one string in the target slot
             castReverseFill = false,
+            castFillOpacity = 100,  -- 0-100; below 100 the world shows through the fill
             castbarHideWhenInactive = true,
             castSpellNameSize = 11,
             castSpellNameColor = { r = 1, g = 1, b = 1 },
@@ -935,6 +966,11 @@ local defaults = {
             simpleDebuffCooldownTextSize = 14,
             simpleDebuffs = "left",  -- "none"/"left"/"right": simple display forces that-side anchor + frame-height-matched debuff size (legacy boolean true=left / false=none honored at read time)
             simpleBuffs = "none",  -- "none"/"left"/"right": simple BUFF display (mirrors simpleDebuffs but defaults off)
+            auraBorderTexture = "solid",
+            auraBorderSize = 1,
+            auraBorderR = 0, auraBorderG = 0, auraBorderB = 0, auraBorderA = 1,
+            auraBorderBehind = false,
+            auraBorderBehindUnitFrame = false,
             simpleBuffShowCooldownText = false,
             simpleBuffCooldownTextSize = 14,
             buffSpacing = 1,
@@ -1262,6 +1298,55 @@ ns.ApplyCastBarTexture = function(castbar, texKey)
     if castbar._shieldedTint then castbar._shieldedTint:SetTexture(path) end
 end
 
+-- Cast bar Fill Opacity (player/target/focus). Below 100 the active-cast
+-- tint layer (the visible fill) turns translucent -- via castbar._fillOp,
+-- consumed by PostCastStart and the shielded-tint toggle -- and the bg
+-- texture is re-anchored to cover ONLY the empty portion of the bar
+-- (reverse-fill aware), so the world shows through the fill instead of the
+-- background. The base StatusBar fill under the tint goes to alpha 0 at the
+-- SetStatusBarColor call sites so it cannot bleed through the translucent
+-- tint. Fully inert at 100: nothing is touched unless previously applied
+-- (_fillOpApplied). Value-blind (relational anchors + plain alphas only),
+-- so secret cast states render identically.
+ns.ApplyCastFillOpacity = function(castbar, settings)
+    local op = (settings and settings.castFillOpacity) or 100
+    local bgHost = castbar:GetParent()
+    local bgTex = bgHost and bgHost._bgTex
+    if op >= 100 then
+        if castbar._fillOpApplied then
+            castbar._fillOpApplied = nil
+            castbar._fillOp = nil
+            if bgTex then
+                bgTex:ClearAllPoints()
+                bgTex:SetAllPoints(bgHost)
+            end
+            -- Mid-cast restore: the tint's alpha is its active/idle state, so
+            -- only lift it back to full when it is currently active.
+            if castbar.castTintLayer and castbar.castTintLayer:GetAlpha() > 0 then
+                castbar.castTintLayer:SetAlpha(1)
+            end
+        end
+        return
+    end
+    castbar._fillOpApplied = true
+    castbar._fillOp = op / 100
+    local tex = castbar:GetStatusBarTexture()
+    if bgTex and tex then
+        bgTex:ClearAllPoints()
+        if castbar.GetReverseFill and castbar:GetReverseFill() then
+            bgTex:SetPoint("TOPLEFT", bgHost, "TOPLEFT", 0, 0)
+            bgTex:SetPoint("BOTTOMRIGHT", tex, "BOTTOMLEFT", 0, 0)
+        else
+            bgTex:SetPoint("TOPLEFT", tex, "TOPRIGHT", 0, 0)
+            bgTex:SetPoint("BOTTOMRIGHT", bgHost, "BOTTOMRIGHT", 0, 0)
+        end
+    end
+    -- Mid-cast application: retune the tint if it is currently active.
+    if castbar.castTintLayer and castbar.castTintLayer:GetAlpha() > 0 then
+        castbar.castTintLayer:SetAlpha(op / 100)
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Health Bar Opacity -- controls the overall alpha of the health bar fill
 -------------------------------------------------------------------------------
@@ -1282,6 +1367,36 @@ end
 -------------------------------------------------------------------------------
 --  Power Bar Opacity -- controls the overall alpha of the power bar
 -------------------------------------------------------------------------------
+-- Power bar analog of AnchorHealthBg, gated on the unit's Fill Opacity:
+-- below 100 the bg covers ONLY the empty portion (reverse-fill aware) so the
+-- translucent fill shows the world instead of the background. At 100 the bg
+-- returns to the legacy full-size layout -- but only if it was previously
+-- re-anchored (_bgOpAnchored), so untouched profiles never see an anchor
+-- write. Full-size restore mirrors the PP.Point calls from creation.
+ns.AnchorPowerBg = function(power, opacity)
+    local bg = power and power.bg
+    local tex = power and power.GetStatusBarTexture and power:GetStatusBarTexture()
+    if not bg or not tex then return end
+    if (opacity or 100) >= 100 then
+        if power._bgOpAnchored then
+            power._bgOpAnchored = nil
+            bg:ClearAllPoints()
+            PP.Point(bg, "TOPLEFT", power, "TOPLEFT", 0, 0)
+            PP.Point(bg, "BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
+        end
+        return
+    end
+    power._bgOpAnchored = true
+    bg:ClearAllPoints()
+    if power.GetReverseFill and power:GetReverseFill() then
+        bg:SetPoint("TOPLEFT", power, "TOPLEFT", 0, 0)
+        bg:SetPoint("BOTTOMRIGHT", tex, "BOTTOMLEFT", 0, 0)
+    else
+        bg:SetPoint("TOPLEFT", tex, "TOPRIGHT", 0, 0)
+        bg:SetPoint("BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
+    end
+end
+
 local function ApplyPowerBarAlpha(power, unitKey)
     if not power then return end
     local s = unitKey and db.profile[unitKey]
@@ -1293,6 +1408,9 @@ local function ApplyPowerBarAlpha(power, unitKey)
     -- Gradient bakes opacity into its endpoints, so keep region alpha at 1 then.
     if fillTex then fillTex:SetAlpha((s and s.powerGradientEnabled) and 1 or fillA) end
     if power.bg then power.bg:SetAlpha((s and (s.customPowerBgAlpha or 100) or 100) / 100) end
+    -- Below 100 the bg retreats to the empty portion so the translucent fill
+    -- shows the world (matches the health bar / cast bar Fill Opacity model).
+    ns.AnchorPowerBg(power, opacity)
 end
 
 -------------------------------------------------------------------------------
@@ -1722,6 +1840,22 @@ oUF.Tags.Methods["eui-healabsorbshort"] = [[function(u)
     return cfg and AbbreviateNumbers(UnitGetTotalHealAbsorbs(u) or 0, cfg) or AbbreviateNumbers(UnitGetTotalHealAbsorbs(u) or 0)
 end]]
 oUF.Tags.Events["eui-healabsorbshort"] = "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
+
+-- eui-level: the unit's effective level (scaling-aware), "??" when unknowable
+-- (skull bosses). A SECRET level is returned RAW -- display-safe as a %s arg
+-- through SetFormattedText, never compared or formatted in Lua (same rule as
+-- the secret target name in eui-tgtname).
+oUF.Tags.Methods["eui-level"] = function(u)
+    if not u or not UnitExists(u) then return "" end
+    local l = UnitEffectiveLevel(u)
+    if UnitIsWildBattlePet(u) or UnitIsBattlePetCompanion(u) then
+        l = UnitBattlePetLevel(u)
+    end
+    if l and issecretvalue and issecretvalue(l) then return l end
+    if not l or l <= 0 then return "??" end
+    return l
+end
+oUF.Tags.Events["eui-level"] = "UNIT_LEVEL PLAYER_LEVEL_UP"
 
 -- Resolve the class/reaction color for a unit's NAME, enemy-aware: players (and
 -- AI party members) get their class color; NPCs use reaction color (hostile red,
@@ -2156,6 +2290,18 @@ local function CastIconOnRight(unit, s)
     return s.castbarIconRight == true
 end
 
+-- Additive X/Y nudge for the cast spell icon. Applies to the icon frame's
+-- anchors only -- the bar fill and footprint never move, so 0/absent keeps
+-- the exact legacy anchoring.
+local function CastIconOffsets(unit, s)
+    s = s or GetSettingsForUnit(unit)
+    if not s then return 0, 0 end
+    if unit == "player" then
+        return s.playerCastIconOffsetX or 0, s.playerCastIconOffsetY or 0
+    end
+    return s.castIconOffsetX or 0, s.castIconOffsetY or 0
+end
+
 -- Anchor the cast spell icon and inset the fill based on whether the icon is
 -- part of the bar width. inWidth=true -> icon at the bar's left edge, fill
 -- inset by the icon width (castbarBg becomes the full footprint, so unlock
@@ -2171,31 +2317,32 @@ end
 -- iconH is the configured cast bar height (castbarHeight / playerCastbarHeight),
 -- used only for the square WIDTH and the matching fill inset so those are
 -- deterministic too; it falls back to bg:GetHeight() when omitted.
-local function LayoutCastbarIcon(castbar, inWidth, iconH, onRight)
+local function LayoutCastbarIcon(castbar, inWidth, iconH, onRight, offX, offY)
     if not castbar then return end
     local bg = castbar:GetParent()
     if not bg then return end
     local side = iconH or bg:GetHeight()
     local iconFrame = castbar._iconFrame
+    offX, offY = offX or 0, offY or 0
     if iconFrame then
         iconFrame:ClearAllPoints()
         if inWidth then
             -- Icon inside the footprint, flush with the chosen edge.
             if onRight then
-                PP.Point(iconFrame, "TOPRIGHT", bg, "TOPRIGHT", 0, 0)
-                PP.Point(iconFrame, "BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
+                PP.Point(iconFrame, "TOPRIGHT", bg, "TOPRIGHT", offX, offY)
+                PP.Point(iconFrame, "BOTTOMRIGHT", bg, "BOTTOMRIGHT", offX, offY)
             else
-                PP.Point(iconFrame, "TOPLEFT", bg, "TOPLEFT", 0, 0)
-                PP.Point(iconFrame, "BOTTOMLEFT", bg, "BOTTOMLEFT", 0, 0)
+                PP.Point(iconFrame, "TOPLEFT", bg, "TOPLEFT", offX, offY)
+                PP.Point(iconFrame, "BOTTOMLEFT", bg, "BOTTOMLEFT", offX, offY)
             end
         else
             -- Icon hangs outside the bar, off the chosen edge.
             if onRight then
-                PP.Point(iconFrame, "TOPLEFT", bg, "TOPRIGHT", 0, 0)
-                PP.Point(iconFrame, "BOTTOMLEFT", bg, "BOTTOMRIGHT", 0, 0)
+                PP.Point(iconFrame, "TOPLEFT", bg, "TOPRIGHT", offX, offY)
+                PP.Point(iconFrame, "BOTTOMLEFT", bg, "BOTTOMRIGHT", offX, offY)
             else
-                PP.Point(iconFrame, "TOPRIGHT", bg, "TOPLEFT", 0, 0)
-                PP.Point(iconFrame, "BOTTOMRIGHT", bg, "BOTTOMLEFT", 0, 0)
+                PP.Point(iconFrame, "TOPRIGHT", bg, "TOPLEFT", offX, offY)
+                PP.Point(iconFrame, "BOTTOMRIGHT", bg, "BOTTOMLEFT", offX, offY)
             end
         end
         iconFrame:SetWidth(side)
@@ -2444,6 +2591,11 @@ local function ContentToTag(content, prefix, settings)
     elseif content == "nametotarget" then
         return BuildShortNameTag(prefix, settings)
             .. BuildTgtSepTag(prefix, settings) .. "[eui-tgtcol][eui-tgtname]"
+    elseif content == "levelname" then
+        return "[eui-level] | " .. BuildShortNameTag(prefix, settings)
+    elseif content == "namelevel" then
+        return BuildShortNameTag(prefix, settings) .. " | [eui-level]"
+    elseif content == "level" then return "[eui-level]"
     elseif content == "both" then return "[curhpshort] | [eui-perhp]%"
     elseif content == "bothdash" then return "[curhpshort] - [eui-perhp]%"
     elseif content == "perhpnum" then return "[eui-perhp]% | [curhpshort]"
@@ -2483,6 +2635,7 @@ local ufTextWidths = {
     curhp_curpp = 75,  -- "132 K | 132"
     perhp_perpp = 75,  -- "86% | 86%"
     absorb      = 38,  -- "12.3 K"
+    level       = 24,  -- "80" / "??"
 }
 local function EstimateUFTextWidth(content)
     return (ufTextWidths[content] or 0) + UF_TEXT_PADDING
@@ -4049,11 +4202,10 @@ local function CreateAbsorbBar(frame, unit, settings)
     return backfillBar
 end
 
--- Detached power bar border: create lazily, then restyle/show/hide from the
--- current settings. Lazy creation is what lets a bar switched to a detached
--- position (or a Border Size raised from 0) gain its border live -- the old
--- create-only-at-spawn path needed a /reload. Shown only while the position is
--- detached AND Border Size > 0. Shared by the creation path and the player/
+-- Power bar border: detached bars use the selected full border style; attached
+-- bars use a solid divider only along the edge shared with the health bar.
+-- Lazy creation lets a newly detached/attached bar (or a Border Size raised
+-- from 0) gain its border live. Shared by the creation path and the player/
 -- target/focus refresh branches (the target branch previously tested a local
 -- that only existed in the player branch, so its border was force-hidden on
 -- every refresh; focus had no refresh at all). On ns (not a new file-scope
@@ -4062,25 +4214,38 @@ function ns.UpdatePowerBorder(power, settings)
     if not power or not settings then return end
     local pos = settings.powerPosition or "below"
     local isDet = (pos == "detached_top" or pos == "detached_bottom")
+    local isAttached = (pos == "above" or pos == "below")
     local size = settings.powerBorderSize or 0
     local border = power._pbBorder
     if not border then
         -- Nothing to render and nothing to hide: stay lazy.
-        if not (isDet and size > 0) then return end
+        if not ((isDet or isAttached) and size > 0) then return end
         border = CreateFrame("Frame", nil, power)
         PP.Point(border, "TOPLEFT", power, "TOPLEFT", 0, 0)
         PP.Point(border, "BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
         power._pbBorder = border
     end
     local c = settings.powerBorderColor or { r = 0, g = 0, b = 0 }
-    EllesmereUI.ApplyBorderStyle(border, size, c.r, c.g, c.b,
-        settings.powerBorderAlpha or 1, settings.powerBorderStyle or "solid",
+    local alpha = settings.powerBorderAlpha or 1
+    -- Attached bars are always Solid. Their unused edges are hidden below so
+    -- only the health/power seam remains visible.
+    local style = isAttached and "solid" or (settings.powerBorderStyle or "solid")
+    EllesmereUI.ApplyBorderStyle(border, size, c.r, c.g, c.b, alpha, style,
         settings.powerBorderOffsetX, settings.powerBorderOffsetY,
         settings.powerBorderShiftX, settings.powerBorderShiftY, "unitframes", size)
+    if isAttached then
+        local edges = PP.GetBorders(border)
+        if edges then
+            if edges._left then edges._left:SetAlpha(0) end
+            if edges._right then edges._right:SetAlpha(0) end
+            if edges._top then edges._top:SetAlpha(pos == "below" and alpha or 0) end
+            if edges._bottom then edges._bottom:SetAlpha(pos == "above" and alpha or 0) end
+        end
+    end
     local borderLevel = settings.powerBorderBehind
         and math.max(0, power:GetFrameLevel() - 1) or (power:GetFrameLevel() + 5)
     border:SetFrameLevel(borderLevel)
-    local showBorder = isDet and size > 0
+    local showBorder = (isDet or isAttached) and size > 0
     if showBorder then border:Show() else border:Hide() end
 
     -- Power text overlay must clear the border: it shares the bar's strata and can
@@ -4404,10 +4569,11 @@ local function CreatePowerBar(frame, unit, settings)
                     if self.bg then self.bg:SetColorTexture(17/255, 17/255, 17/255, 1) end
                 end
             end
-            -- Restore bg alpha from unified opacity setting
+            -- Restore bg alpha from its own setting. (This used to read
+            -- powerBarOpacity, but that is the FILL opacity -- the bg alpha
+            -- is customPowerBgAlpha, matching ApplyPowerBarAlpha.)
             if self.bg then
-                local opacity = s and (s.powerBarOpacity or 100) or 100
-                self.bg:SetAlpha(opacity / 100)
+                self.bg:SetAlpha((s and (s.customPowerBgAlpha or 100) or 100) / 100)
             end
         end
     end
@@ -4451,7 +4617,7 @@ local function CreatePowerBar(frame, unit, settings)
         end
     end
 
-    -- Power bar border (detached positions only; lazily created in the helper)
+    -- Power bar border (full border detached, divider attached; lazily created)
     ns.UpdatePowerBorder(power, settings)
 
     return power
@@ -4740,10 +4906,12 @@ local function ApplyUnitFrameCastColor(castbar)
         local uc = (settings and settings.castbarUninterruptibleColor) or { r = 0.5, g = 0.5, b = 0.5 }
         castbar._shieldedTint:SetVertexColor(uc.r, uc.g, uc.b)
         local uninterruptible = GetCastbarUninterruptible(castbar)
+        -- Visible alpha honors Fill Opacity (castbar._fillOp, nil at 100);
+        -- both branches pass it as a plain number, never touching the secret.
         if castbar._shieldedTint.SetAlphaFromBoolean then
-            castbar._shieldedTint:SetAlphaFromBoolean(uninterruptible, 1, 0)
+            castbar._shieldedTint:SetAlphaFromBoolean(uninterruptible, castbar._fillOp or 1, 0)
         else
-            castbar._shieldedTint:SetAlpha(uninterruptible and 1 or 0)
+            castbar._shieldedTint:SetAlpha(uninterruptible and (castbar._fillOp or 1) or 0)
         end
     end
 end
@@ -5111,13 +5279,15 @@ local function CreateCastBar(frame, unit, settings)
         -- is false with no UI to enable it), the name has the row to itself, so let
         -- it use 80% of the bar before truncating.
         local nameW = (cb._showTarget == false) and (barW * 0.80) or textW
-        -- Spell name
+        -- Spell name. While Combine Spell Name and Target is on, the target
+        -- element is suppressed, so the (combined) name owns the whole row
+        -- and gets the wide width budget.
         cb.Text:ClearAllPoints()
         if nameSide == "none" then
             cb.Text:Hide()
         else
             local pt, xb, jh = ns.GetCastTextAnchor(nameSide, showDur and durSide == nameSide, timerW, false)
-            cb.Text:SetWidth(nameW)
+            cb.Text:SetWidth(cb._combineNT and (barW * 0.80) or nameW)
             cb.Text:SetJustifyH(jh)
             cb.Text:SetPoint(pt, cb, pt, xb + (cb._nameOX or 0), 1 + (cb._nameOY or 0))
             cb.Text:Show()
@@ -5200,10 +5370,13 @@ local function CreateCastBar(frame, unit, settings)
 
     -- Cast bar reuses the unit's health bar texture (overridden donor-aware in ReloadFrames).
     ns.ApplyCastBarTexture(castbar, (settings and settings.healthBarTexture) or db.profile.healthBarTexture or "none")
+    ns.ApplyCastFillOpacity(castbar, settings)
 
     local function OnCastbarCastActive(self)
         if self.castTintLayer then
-            self.castTintLayer:SetAlpha(1)
+            -- _fillOp is nil unless Fill Opacity is below 100 (see
+            -- ns.ApplyCastFillOpacity), so the default path is unchanged.
+            self.castTintLayer:SetAlpha(self._fillOp or 1)
             ApplyUnitFrameCastColor(self)
         end
     end
@@ -5312,7 +5485,7 @@ local function CreateCastBar(frame, unit, settings)
 
     -- Initial icon/fill layout (re-applied on every reload by the per-unit
     -- update paths and whenever the cast-bar height changes).
-    LayoutCastbarIcon(castbar, CastIconInWidth(unit, settings), cbHeight, CastIconOnRight(unit, settings))
+    LayoutCastbarIcon(castbar, CastIconInWidth(unit, settings), cbHeight, CastIconOnRight(unit, settings), CastIconOffsets(unit, settings))
 
     return castbar
 end
@@ -5391,22 +5564,55 @@ local function SetupShowOnCastBar(frame, unit)
                 end
             end
             local hasTarget = spellTarget and true or false
-            self.Target:SetText(spellTarget or "")
-            self.Target:SetShown(hasTarget and self._showTarget ~= false)
-            -- Class color the target name
-            if hasTarget and spellTargetClass and C_ClassColor then
-                local c = C_ClassColor.GetClassColor(spellTargetClass)
-                if c then
-                    self.Target:SetTextColor(c:GetRGB())
-                else
-                    local s2 = db and db.profile and GetSettingsForUnit(ownerUnit)
-                    local tc = (s2 and s2.castSpellTargetColor) or { r=1, g=1, b=1 }
+            local sOwn = ownerUnit and db and db.profile and GetSettingsForUnit(ownerUnit)
+            -- Combine Spell Name and Target (target/focus): one string in the
+            -- TARGET slot ("Spell Name - Target", target class colored); the
+            -- separate Spell Name element is suppressed via _combineNT in
+            -- LayoutCastTextZones. The color code lives in the clean FORMAT
+            -- string and the (possibly secret) names ride through
+            -- SetFormattedText -- never Lua-concatenated.
+            local combine = sOwn and sOwn.castCombineNameTarget == true
+                and (ownerUnit == "target" or ownerUnit == "focus")
+            self._combineNT = combine or nil
+            if combine then
+                -- The separate target element is fully suppressed; the target
+                -- rides appended to the spell NAME element instead.
+                self.Target:SetText("")
+                self.Target:Hide()
+                if self.Text and hasTarget then
+                    local spellName = UnitCastingInfo(ownerUnit)
+                    if not spellName then spellName = UnitChannelInfo(ownerUnit) end
+                    local hex
+                    if spellTargetClass and C_ClassColor then
+                        local c = C_ClassColor.GetClassColor(spellTargetClass)
+                        if c and c.GenerateHexColor then hex = c:GenerateHexColor() end
+                    end
+                    if spellName then
+                        if hex then
+                            self.Text:SetFormattedText("%s - |c" .. hex .. "%s|r", spellName, spellTarget)
+                        else
+                            self.Text:SetFormattedText("%s - %s", spellName, spellTarget)
+                        end
+                    end
+                end
+                -- No cast target: oUF's plain spell name in the Text element
+                -- stands untouched.
+            else
+                self.Target:SetText(spellTarget or "")
+                self.Target:SetShown(hasTarget and self._showTarget ~= false)
+                -- Class color the target name
+                if hasTarget and spellTargetClass and C_ClassColor then
+                    local c = C_ClassColor.GetClassColor(spellTargetClass)
+                    if c then
+                        self.Target:SetTextColor(c:GetRGB())
+                    else
+                        local tc = (sOwn and sOwn.castSpellTargetColor) or { r=1, g=1, b=1 }
+                        self.Target:SetTextColor(tc.r, tc.g, tc.b)
+                    end
+                elseif hasTarget then
+                    local tc = (sOwn and sOwn.castSpellTargetColor) or { r=1, g=1, b=1 }
                     self.Target:SetTextColor(tc.r, tc.g, tc.b)
                 end
-            elseif hasTarget then
-                local s2 = db and db.profile and GetSettingsForUnit(ownerUnit)
-                local tc = (s2 and s2.castSpellTargetColor) or { r=1, g=1, b=1 }
-                self.Target:SetTextColor(tc.r, tc.g, tc.b)
             end
             if self._layoutTextZones then self:_layoutTextZones() end
         end
@@ -5872,6 +6078,45 @@ local function CreateTargetAuras(frame, unit)
         ns.UF_GetProfile = ns.UF_GetProfile or function() return db and db.profile end
         return ns.UF_CreateAuraContainers(frame, unit or "target")
     end
+    -- Live (12.0) oUF recycles aura buttons. Border styling must therefore run
+    -- on updates as well as creation; otherwise pooled buttons keep their old
+    -- border (or no border at all) after settings/profile changes.
+    local function ApplyLegacyAuraBorder(button)
+        if not button then return end
+        local s = GetSettingsForUnit(unit or "target")
+        if not button._euiAuraBorder then
+            button._euiAuraBorder = CreateFrame("Frame", nil, button)
+            button._euiAuraBorder:SetAllPoints()
+        end
+        local border = button._euiAuraBorder
+        local auraBorderSize = (s and s.auraBorderSize) or 1
+        if s and s.auraBorderBehindUnitFrame then
+            border:SetFrameLevel(math.max(0, frame:GetFrameLevel() - 1))
+        else
+            border:SetFrameLevel(s and s.auraBorderBehind
+                and math.max(0, button:GetFrameLevel() - 1) or (button:GetFrameLevel() + 1))
+        end
+        EllesmereUI.ApplyBorderStyle(border, auraBorderSize,
+            (s and s.auraBorderR) or 0, (s and s.auraBorderG) or 0,
+            (s and s.auraBorderB) or 0, (s and s.auraBorderA) or 1,
+            (s and s.auraBorderTexture) or "solid",
+            s and s.auraBorderTextureOffset, s and s.auraBorderTextureOffsetY,
+            s and s.auraBorderTextureShiftX, s and s.auraBorderTextureShiftY,
+            "unitframes", auraBorderSize)
+        -- Some live oUF builds provide their own border region. Retire it so it
+        -- cannot cover the configurable frame, then retain the established
+        -- alias used by the legacy dispel-color code below.
+        if button.Border and button.Border ~= border and button.Border.Hide then
+            button.Border:Hide()
+        end
+        button.Border = border
+        if button.Cooldown then
+            button.Cooldown:SetFrameLevel(border:GetFrameLevel() + 2)
+            local countFrame = button.Count and button.Count:GetParent()
+            if countFrame then countFrame:SetFrameLevel(button.Cooldown:GetFrameLevel() + 1) end
+        end
+    end
+
     local function SetupAuraIcon(container, button)
         if not button then return end
 
@@ -5955,12 +6200,7 @@ local function CreateTargetAuras(frame, unit)
             ns.ApplyStackAnchor(button.Count, button, sPos, sOffX, sOffY)
         end
 
-        if not button.Border then
-            button.Border = CreateFrame("Frame", nil, button)
-            button.Border:SetAllPoints()
-            button.Border:SetFrameLevel(button:GetFrameLevel() + 1)
-            PP.CreateBorder(button.Border, 0, 0, 0, 1)
-        end
+        ApplyLegacyAuraBorder(button)
 
         -- Keep the duration and stack text above the icon border. The PP border
         -- textures live on a container ONE level above button.Border, so lifting
@@ -5970,13 +6210,7 @@ local function CreateTargetAuras(frame, unit)
         -- container, then re-park oUF's stack-count frame one level above that so
         -- the stack number stays on top too (its creation-time level was relative
         -- to the cooldown's OLD level, so it no longer tracks after this bump).
-        if button.Cooldown and button.Border then
-            button.Cooldown:SetFrameLevel(button.Border:GetFrameLevel() + 2)
-            local countFrame = button.Count and button.Count:GetParent()
-            if countFrame then
-                countFrame:SetFrameLevel(button.Cooldown:GetFrameLevel() + 1)
-            end
-        end
+        -- Frame-level ordering is applied by ApplyLegacyAuraBorder above.
     end
 
     local gap = 1
@@ -6075,6 +6309,9 @@ local function CreateTargetAuras(frame, unit)
     buffs.growthY = bgy
     ns.ApplyEUIAuraFilter(buffs, "HELPFUL", settings)
     buffs.PostCreateButton = SetupAuraIcon
+    buffs.PostUpdateButton = function(_, button)
+        ApplyLegacyAuraBorder(button)
+    end
     if not showBuffs and not simpleBuffOn then
         buffs:Hide()
         buffs.num = 0
@@ -6160,6 +6397,7 @@ local function CreateTargetAuras(frame, unit)
         -- Dispel-type border recolor; reads the per-unit setting live so the
         -- options toggle applies on the next aura update without a rebuild.
         debuffs.PostUpdateButton = function(_, button, u, data)
+            ApplyLegacyAuraBorder(button)
             if ns.UF_ColorDebuffDispelBorder then ns.UF_ColorDebuffDispelBorder(button, u, data) end
         end
         if settings and settings.onlyPlayerDebuffs then
@@ -8877,7 +9115,7 @@ local function ReloadFrames()
                                     local cbg = settings.castBgColor
                                     castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                                 end
-                                LayoutCastbarIcon(frame.Castbar, CastIconInWidth("player", settings), nil, CastIconOnRight("player", settings))
+                                LayoutCastbarIcon(frame.Castbar, CastIconInWidth("player", settings), nil, CastIconOnRight("player", settings), CastIconOffsets("player", settings))
                                 -- Resize cast icon to match castbar height
                                 if frame.Castbar._iconFrame then
                                     PP.Size(frame.Castbar._iconFrame, cbH, cbH)
@@ -8905,7 +9143,12 @@ local function ReloadFrames()
                             elseif settings.castbarFillColor then
                                 pCbColor = settings.castbarFillColor
                             end
-                            frame.Castbar:SetStatusBarColor(pCbColor.r, pCbColor.g, pCbColor.b, castbarOpacity)
+                            -- Fill Opacity below 100: the tint layer is the visible
+                            -- fill at that opacity; zero the base fill so it cannot
+                            -- bleed through the translucent tint.
+                            frame.Castbar:SetStatusBarColor(pCbColor.r, pCbColor.g, pCbColor.b,
+                                ((settings.castFillOpacity or 100) < 100) and 0 or castbarOpacity)
+                            ns.ApplyCastFillOpacity(frame.Castbar, settings)
                             -- Apply cast bar text settings
                             if frame.Castbar.Text then
                                 local snSz = settings.castSpellNameSize or 11
@@ -9345,7 +9588,7 @@ local function ReloadFrames()
                                     local cbg = settings.castBgColor
                                     castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                                 end
-                                LayoutCastbarIcon(frame.Castbar, CastIconInWidth("target", settings), nil, CastIconOnRight("target", settings))
+                                LayoutCastbarIcon(frame.Castbar, CastIconInWidth("target", settings), nil, CastIconOnRight("target", settings), CastIconOffsets("target", settings))
                                 if frame.Castbar._iconFrame then
                                     PP.Size(frame.Castbar._iconFrame, cbH2, cbH2)
                                     if not frame.Castbar:IsShown() then
@@ -9378,7 +9621,11 @@ local function ReloadFrames()
                         if settings.castbarFillColor then
                             tCbColor = settings.castbarFillColor
                         end
-                        frame.Castbar:SetStatusBarColor(tCbColor.r, tCbColor.g, tCbColor.b, castbarOpacity)
+                        -- Fill Opacity below 100: tint layer carries the visible
+                        -- fill; zero the base so it cannot bleed through.
+                        frame.Castbar:SetStatusBarColor(tCbColor.r, tCbColor.g, tCbColor.b,
+                            ((settings.castFillOpacity or 100) < 100) and 0 or castbarOpacity)
+                        ns.ApplyCastFillOpacity(frame.Castbar, settings)
                         if frame.Castbar:IsShown() then
                             ApplyUnitFrameCastColor(frame.Castbar)
                             UpdateUnitFrameKickTick(frame.Castbar)
@@ -9708,7 +9955,7 @@ local function ReloadFrames()
                                 local cbg = settings.castBgColor
                                 castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                             end
-                            LayoutCastbarIcon(frame.Castbar, CastIconInWidth("focus", settings), nil, CastIconOnRight("focus", settings))
+                            LayoutCastbarIcon(frame.Castbar, CastIconInWidth("focus", settings), nil, CastIconOnRight("focus", settings), CastIconOffsets("focus", settings))
                             if frame.Castbar._iconFrame then
                                 PP.Size(frame.Castbar._iconFrame, cbH3, cbH3)
                                 if not frame.Castbar:IsShown() then
@@ -9741,7 +9988,11 @@ local function ReloadFrames()
                     if settings.castbarFillColor then
                         fCbColor = settings.castbarFillColor
                     end
-                    frame.Castbar:SetStatusBarColor(fCbColor.r, fCbColor.g, fCbColor.b, castbarOpacity)
+                    -- Fill Opacity below 100: tint layer carries the visible
+                    -- fill; zero the base so it cannot bleed through.
+                    frame.Castbar:SetStatusBarColor(fCbColor.r, fCbColor.g, fCbColor.b,
+                        ((settings.castFillOpacity or 100) < 100) and 0 or castbarOpacity)
+                    ns.ApplyCastFillOpacity(frame.Castbar, settings)
                     if frame.Castbar:IsShown() then
                         ApplyUnitFrameCastColor(frame.Castbar)
                         UpdateUnitFrameKickTick(frame.Castbar)
@@ -10033,7 +10284,7 @@ local function ReloadFrames()
                             local bCbW = settings.castbarWidth or 0
                             if bCbW > 0 and bCbW < 30 then bCbW = 30 end
                             PP.Size(castbarBg, bCbW > 0 and bCbW or totalWidth, settings.castbarHeight or 14)
-                            LayoutCastbarIcon(frame.Castbar, CastIconInWidth("boss1", settings), nil, CastIconOnRight("boss1", settings))
+                            LayoutCastbarIcon(frame.Castbar, CastIconInWidth("boss1", settings), nil, CastIconOnRight("boss1", settings), CastIconOffsets("boss1", settings))
                             if frame.Castbar._iconFrame then
                                 local cbH = settings.castbarHeight or 14
                                 PP.Size(frame.Castbar._iconFrame, cbH, cbH)
@@ -10435,6 +10686,11 @@ local function ReloadFrames()
                     frame.Power.bg:SetColorTexture(17/255, 17/255, 17/255, 1)
                 end
                 frame.Power:SetReverseFill(settings.powerReverseFill and true or false)
+                -- The reverse-fill direction is only final here; re-derive the
+                -- Fill Opacity state (ApplyPowerBarAlpha at the top of this
+                -- block ran before this SetReverseFill, so a direction change
+                -- would otherwise leave the bg anchored to the wrong side).
+                ApplyPowerBarAlpha(frame.Power, UnitToSettingsKey(unit))
                 if frame.Power.ForceUpdate then frame.Power:ForceUpdate() end
             end
 
@@ -13936,7 +14192,9 @@ do
         -- recycle across auras; never churn untouched borders).
         if button._euiDispelTinted then
             button._euiDispelTinted = nil
-            PP.SetBorderColor(border, 0, 0, 0, 1)
+            PP.SetBorderColor(border,
+                (s and s.auraBorderR) or 0, (s and s.auraBorderG) or 0,
+                (s and s.auraBorderB) or 0, (s and s.auraBorderA) or 1)
         end
     end
 

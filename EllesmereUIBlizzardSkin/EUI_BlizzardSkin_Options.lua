@@ -20,20 +20,37 @@ initFrame:SetScript("OnEvent", function(self)
         local BORDER_VALUES = { none="None", thin="Thin", normal="Normal", heavy="Heavy", strong="Strong" }
         local BORDER_ORDER = { "none", "thin", "normal", "heavy", "strong" }
 
-        local function AttachBorderControls(row, prefix, disabledFn)
+        local function AttachBorderControls(row, prefix, disabledFn, allowBehind)
             local PP = EllesmereUI.PanelPP
             local left, right = row._leftRegion, row._rightRegion
-            local _, showOffset = EllesmereUI.BuildCogPopup({ title="Border Offset", rows={
+            local popupRows = {
                 { type="slider", label="Offset X", min=-10,max=10,step=1,
                   get=function() local v=EllesmereUIDB[prefix.."BorderOffsetX"]; if v~=nil then return v end return EllesmereUI.GetBorderTextureDefaultOffset(EllesmereUIDB[prefix.."BorderTexture"] or "solid") end,
                   set=function(v) EllesmereUIDB[prefix.."BorderOffsetX"]=v end },
                 { type="slider", label="Offset Y", min=-10,max=10,step=1,
                   get=function() local v=EllesmereUIDB[prefix.."BorderOffsetY"]; if v~=nil then return v end return EllesmereUI.GetBorderTextureDefaultOffsetY(EllesmereUIDB[prefix.."BorderTexture"] or "solid") end,
                   set=function(v) EllesmereUIDB[prefix.."BorderOffsetY"]=v end },
-            }})
+            }
+            if allowBehind then
+                popupRows[#popupRows + 1] = {
+                    type="toggle", label="Show Behind",
+                    get=function() return EllesmereUIDB[prefix.."BorderBehind"] or false end,
+                    set=function(v) EllesmereUIDB[prefix.."BorderBehind"]=v end,
+                }
+            end
+            local _, showOffset = EllesmereUI.BuildCogPopup({ title="Border Offset", rows=popupRows })
             local cog=CreateFrame("Button",nil,left); cog:SetSize(26,26); cog:SetPoint("RIGHT",left._control,"LEFT",-8,0); cog:SetAlpha(.4)
             local ico=cog:CreateTexture(nil,"OVERLAY"); ico:SetAllPoints(); ico:SetTexture(EllesmereUI.DIRECTIONS_ICON)
             cog:SetScript("OnClick",function(self) showOffset(self) end); left._lastInline=cog
+            -- Gray + mouse-off with the row like the mode swatches below
+            -- (canonical cog disabled alphas: .15 off, .4 on). Applied once at
+            -- build time too -- widget refresh only fires on later changes.
+            local function UpdCogState()
+                local off=disabledFn and disabledFn()
+                cog:SetAlpha(off and .15 or .4); cog:EnableMouse(not off)
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdCogState)
+            UpdCogState()
 
             local function AddModeSwatch(anchor, mode, tip, getColor, custom)
                 local sw, refresh=EllesmereUI.BuildColorSwatch(right,right:GetFrameLevel()+5,getColor,
@@ -49,10 +66,14 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
                 sw:HookScript("OnEnter",function(self) EllesmereUI.ShowWidgetTooltip(self,tip) end)
                 sw:HookScript("OnLeave",function() EllesmereUI.HideWidgetTooltip() end)
-                EllesmereUI.RegisterWidgetRefresh(function()
+                -- Applied once at build time too -- widget refresh only fires
+                -- on later changes, so without this every swatch opened lit.
+                local function UpdSwatchState()
                     local off=disabledFn and disabledFn(); local active=(EllesmereUIDB[prefix.."BorderColorMode"] or "custom")==mode
                     sw:SetAlpha(off and .15 or (active and 1 or .3)); sw:EnableMouse(not off); refresh()
-                end)
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdSwatchState)
+                UpdSwatchState()
                 return sw
             end
             local accent=AddModeSwatch(right._control,"accent","Accent Color",function() local c=EllesmereUI.ELLESMERE_GREEN; return c.r,c.g,c.b,1 end,false)
@@ -89,7 +110,16 @@ initFrame:SetScript("OnEvent", function(self)
                       })
                   end
               end },
-            { type="spacer", text="" }
+            { type="toggle", text="Resurrect Accept Glow",
+              tooltip="Adds a glowing, pulsating border around the Accept button of resurrection popups so a pending resurrect is hard to miss. Follows the Element & Text Color setting. Applies instantly, no reload needed.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.resurrectAcceptGlow or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.resurrectAcceptGlow = v
+                  if EllesmereUI._EnsureResurrectGlow then EllesmereUI._EnsureResurrectGlow() end
+              end }
         );  y = y - h
 
         local function popupOff() return EllesmereUIDB.reskinPopupsMenus == false end
@@ -97,9 +127,9 @@ initFrame:SetScript("OnEvent", function(self)
             local texValues,texOrder=EllesmereUI.GetBorderTextureDropdown()
             local outer
             outer,h=W:DualRow(parent,y,
-                {type="dropdown",text="Border Style",disabled=popupOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.popupMenuBorderTexture or "solid" end,setValue=function(v) EllesmereUIDB.popupMenuBorderTexture=v; EllesmereUIDB.popupMenuBorderOffsetX=nil; EllesmereUIDB.popupMenuBorderOffsetY=nil end},
+                {type="dropdown",text="Border Style",disabled=popupOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.popupMenuBorderTexture or "solid" end,setValue=function(v) local c,b=EllesmereUI.GetBorderStyleSelectDefaults(v); EllesmereUIDB.popupMenuBorderTexture=v; EllesmereUIDB.popupMenuBorderOffsetX=nil; EllesmereUIDB.popupMenuBorderOffsetY=nil; EllesmereUIDB.popupMenuBorderBehind=b; EllesmereUIDB.popupMenuBorderColor=c end},
                 {type="dropdown",text="Border Size",disabled=popupOff,values=BORDER_VALUES,order=BORDER_ORDER,getValue=function() return EllesmereUIDB.popupMenuBorderThickness or "thin" end,setValue=function(v) EllesmereUIDB.popupMenuBorderThickness=v end}); y=y-h
-            AttachBorderControls(outer,"popupMenu",popupOff)
+            AttachBorderControls(outer,"popupMenu",popupOff,true)
             local buttons
             buttons,h=W:DualRow(parent,y,
                 {type="dropdown",text="Button Border Style",disabled=popupOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.popupMenuButtonBorderTexture or "solid" end,setValue=function(v) EllesmereUIDB.popupMenuButtonBorderTexture=v; EllesmereUIDB.popupMenuButtonBorderOffsetX=nil; EllesmereUIDB.popupMenuButtonBorderOffsetY=nil end},
@@ -110,9 +140,14 @@ initFrame:SetScript("OnEvent", function(self)
         _,h=W:DualRow(parent,y,
             {type="colorpicker",text="Button Background",hasAlpha=true,disabled=popupOff,getValue=function() local c=EllesmereUIDB.popupMenuButtonBackgroundColor or {r=.1,g=.1,b=.1,a=.8}; return c.r,c.g,c.b,c.a end,setValue=function(r,g,b,a) EllesmereUIDB.popupMenuButtonBackgroundColor={r=r,g=g,b=b,a=a} end},
             {type="multiSwatch",text="Element & Text Color",disabled=popupOff,swatches={
-                {tooltip="Accent Color",hasAlpha=false,getValue=function() local c=EllesmereUI.ELLESMERE_GREEN; return c.r,c.g,c.b end,setValue=function() end,onClick=function() EllesmereUIDB.popupMenuButtonTextColorMode="accent"; EllesmereUI:RefreshPage() end,refreshAlpha=function() return (EllesmereUIDB.popupMenuButtonTextColorMode or "accent")=="accent" and 1 or .3 end},
-                {tooltip="Custom Color",hasAlpha=false,getValue=function() local c=EllesmereUIDB.popupMenuButtonTextColor or {r=1,g=1,b=1}; return c.r,c.g,c.b end,setValue=function(r,g,b) EllesmereUIDB.popupMenuButtonTextColorMode="custom"; EllesmereUIDB.popupMenuButtonTextColor={r=r,g=g,b=b} end,onClick=function(self) if (EllesmereUIDB.popupMenuButtonTextColorMode or "accent")~="custom" then EllesmereUIDB.popupMenuButtonTextColorMode="custom"; EllesmereUI:RefreshPage(); return end self._eabOrigClick(self) end,refreshAlpha=function() return EllesmereUIDB.popupMenuButtonTextColorMode=="custom" and 1 or .3 end},
-                {tooltip="Class Color",hasAlpha=false,getValue=function() local _,k=UnitClass("player"); local c=RAID_CLASS_COLORS[k]; return c.r,c.g,c.b end,setValue=function() end,onClick=function() EllesmereUIDB.popupMenuButtonTextColorMode="class"; EllesmereUI:RefreshPage() end,refreshAlpha=function() return EllesmereUIDB.popupMenuButtonTextColorMode=="class" and 1 or .3 end},
+                -- Effective mode comes from the skin file's resolver: unset =
+                -- native unless the legacy Accent Colored Elements opt-in is
+                -- present. All four highlights read it so the default state
+                -- is shown truthfully.
+                {tooltip="Native Colors",hasAlpha=false,getValue=function() return 1,1,1 end,setValue=function() end,onClick=function() EllesmereUIDB.popupMenuButtonTextColorMode="native"; EllesmereUI:RefreshPage() end,refreshAlpha=function() local m=EllesmereUI._getPopupMenuElementMode and EllesmereUI._getPopupMenuElementMode() or "native"; return m=="native" and 1 or .3 end},
+                {tooltip="Accent Color",hasAlpha=false,getValue=function() local c=EllesmereUI.ELLESMERE_GREEN; return c.r,c.g,c.b end,setValue=function() end,onClick=function() EllesmereUIDB.popupMenuButtonTextColorMode="accent"; EllesmereUI:RefreshPage() end,refreshAlpha=function() local m=EllesmereUI._getPopupMenuElementMode and EllesmereUI._getPopupMenuElementMode() or "native"; return m=="accent" and 1 or .3 end},
+                {tooltip="Custom Color",hasAlpha=false,getValue=function() local c=EllesmereUIDB.popupMenuButtonTextColor or {r=1,g=1,b=1}; return c.r,c.g,c.b end,setValue=function(r,g,b) EllesmereUIDB.popupMenuButtonTextColorMode="custom"; EllesmereUIDB.popupMenuButtonTextColor={r=r,g=g,b=b} end,onClick=function(self) local m=EllesmereUI._getPopupMenuElementMode and EllesmereUI._getPopupMenuElementMode() or "native"; if m~="custom" then EllesmereUIDB.popupMenuButtonTextColorMode="custom"; EllesmereUI:RefreshPage(); return end self._eabOrigClick(self) end,refreshAlpha=function() local m=EllesmereUI._getPopupMenuElementMode and EllesmereUI._getPopupMenuElementMode() or "native"; return m=="custom" and 1 or .3 end},
+                {tooltip="Class Color",hasAlpha=false,getValue=function() local _,k=UnitClass("player"); local c=RAID_CLASS_COLORS[k]; return c.r,c.g,c.b end,setValue=function() end,onClick=function() EllesmereUIDB.popupMenuButtonTextColorMode="class"; EllesmereUI:RefreshPage() end,refreshAlpha=function() local m=EllesmereUI._getPopupMenuElementMode and EllesmereUI._getPopupMenuElementMode() or "native"; return m=="class" and 1 or .3 end},
             }}); y=y-h
 
         local queueRow
@@ -203,20 +238,6 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Resurrect Accept Glow",
-              tooltip="Adds a glowing, pulsating border around the Accept button of resurrection popups so a pending resurrect is hard to miss. Uses your UI Accent Color when Accent Colored Elements is enabled. Applies instantly, no reload needed.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.resurrectAcceptGlow or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.resurrectAcceptGlow = v
-                  if EllesmereUI._EnsureResurrectGlow then EllesmereUI._EnsureResurrectGlow() end
-              end },
-            { type="label", text="" }
-        );  y = y - h
-
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         _, h = W:SectionHeader(parent, "BLIZZARD TOOLTIP", y);  y = y - h
@@ -254,7 +275,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end },
             { type="toggle", text="Anchor to Cursor",
-              tooltip="Makes the game tooltip follow your mouse cursor instead of appearing in the default screen corner. Use the arrows icon to pick the position relative to the cursor and fine-tune the X/Y offset.",
+              tooltip="Makes the game tooltip follow your mouse cursor instead of showing at its fixed screen position (drag the Tooltip box in Unlock Mode to change that). Use the arrows icon to pick the position relative to the cursor and fine-tune the X/Y offset.",
               disabled=ttReskinOff, disabledTooltip="Reskin Tooltip",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor or false
@@ -263,6 +284,10 @@ initFrame:SetScript("OnEvent", function(self)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.tooltipAnchorCursor = v
                   if EllesmereUI._applyTooltipCursorAnchor then EllesmereUI._applyTooltipCursorAnchor() end
+                  -- Re-park the fixed anchor (and seed it if this profile never
+                  -- has) so turning the cursor mode off resumes cleanly.
+                  if EllesmereUI._applyTooltipFixedAnchor then EllesmereUI._applyTooltipFixedAnchor() end
+                  EllesmereUI:RefreshPage()  -- update the position cog + Growth Direction disabled states
               end }
         );  y = y - h
 
@@ -388,6 +413,16 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v)
                           if not EllesmereUIDB then EllesmereUIDB = {} end
                           EllesmereUIDB.tooltipShowGuildRank = v
+                      end },
+                    { type="toggle", label="Show Unit Target",
+                      tooltip="Adds a Targeting line showing who the hovered player or NPC is targeting, in green when it's you.",
+                      disabled=ttReskinOff, disabledTooltip="Reskin Tooltip",
+                      get=function()
+                          return EllesmereUIDB and EllesmereUIDB.tooltipShowTarget or false
+                      end,
+                      set=function(v)
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.tooltipShowTarget = v
                       end },
                     -- CVar-backed; only enforced on login after the user has
                     -- toggled it once (uberTooltipsManual).
@@ -594,14 +629,13 @@ initFrame:SetScript("OnEvent", function(self)
             local texValues,texOrder=EllesmereUI.GetBorderTextureDropdown()
             local tooltipBorder
             tooltipBorder,h=W:DualRow(parent,y,
-                {type="dropdown",text="Border Style",disabled=ttReskinOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.tooltipBorderTexture or "solid" end,setValue=function(v) EllesmereUIDB.tooltipBorderTexture=v; EllesmereUIDB.tooltipBorderOffsetX=nil; EllesmereUIDB.tooltipBorderOffsetY=nil end},
+                {type="dropdown",text="Border Style",disabled=ttReskinOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.tooltipBorderTexture or "solid" end,setValue=function(v) local c,b=EllesmereUI.GetBorderStyleSelectDefaults(v); EllesmereUIDB.tooltipBorderTexture=v; EllesmereUIDB.tooltipBorderOffsetX=nil; EllesmereUIDB.tooltipBorderOffsetY=nil; EllesmereUIDB.tooltipBorderBehind=b; EllesmereUIDB.tooltipBorderColor=c end},
                 {type="dropdown",text="Border Size",disabled=ttReskinOff,values=BORDER_VALUES,order=BORDER_ORDER,getValue=function() return EllesmereUIDB.tooltipBorderThickness or ({[0]="none",[1]="thin",[2]="normal",[3]="heavy",[4]="strong"})[EllesmereUIDB.tooltipBorderSize or 1] or "thin" end,setValue=function(v) EllesmereUIDB.tooltipBorderThickness=v end}); y=y-h
-            AttachBorderControls(tooltipBorder,"tooltip",ttReskinOff)
+            AttachBorderControls(tooltipBorder,"tooltip",ttReskinOff,true)
         end
 
         local borderRow
         borderRow, h = W:DualRow(parent, y,
-            { type="spacer", text="" },
             -- Independent of the reskin, so it is NOT gated by "Reskin
             -- Tooltip" -- like Show Spell ID.
             { type="toggle", text="Show Max Stack for Items",
@@ -613,6 +647,30 @@ initFrame:SetScript("OnEvent", function(self)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.showItemMaxStacks = v
                   EllesmereUI:RefreshPage()  -- update the Use Modifier cog disabled state
+              end },
+            -- Default screen-anchored tooltip only (see ApplyGrowthDirection
+            -- in EllesmereUIBlizzardSkin.lua): Blizzard picks the anchored
+            -- corner dynamically from the tooltip's screen position; "Expand
+            -- Up"/"Expand Down" force the vertical component of that corner.
+            -- The cursor anchor re-points the tooltip itself, so this grays
+            -- out while Anchor to Cursor is on.
+            { type="dropdown", text="Growth Direction",
+              tooltip="Forces which way the default screen-anchored tooltip expands as lines are added. Default lets Blizzard decide from the tooltip's screen position.",
+              disabled=function()
+                  return ttReskinOff() or (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor and true or false)
+              end,
+              disabledTooltip=function()
+                  if ttReskinOff() then return "Reskin Tooltip" end
+                  return "This option does not apply while Anchor to Cursor is enabled"
+              end,
+              values={ default="Default", up="Expand Up", down="Expand Down" },
+              order={ "default", "up", "down" },
+              getValue=function()
+                  return (EllesmereUIDB and EllesmereUIDB.tooltipGrowthDirection) or "default"
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.tooltipGrowthDirection = v
               end }
         );  y = y - h
 
@@ -620,7 +678,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- Stack line only shows while the chosen modifier is held. Disabled
         -- (blocked + dimmed) when the toggle is off, mirroring the Spell ID cog.
         do
-            local rightRgn = borderRow._rightRegion
+            -- The toggle now lives in the LEFT slot (slot swap above).
+            local rightRgn = borderRow._leftRegion
             local function iStacksOff()
                 return not (EllesmereUIDB and EllesmereUIDB.showItemMaxStacks)
             end
@@ -1204,7 +1263,71 @@ initFrame:SetScript("OnEvent", function(self)
         local W = EllesmereUI.Widgets
         local _, h
 
+        local function themedOff()
+            return EllesmereUIDB and EllesmereUIDB.reskinMerchant == false
+        end
+
+        local function AttachDisabledOverlay(target)
+            local block = CreateFrame("Frame", nil, target)
+            block:SetAllPoints(target)
+            block:SetFrameLevel(target:GetFrameLevel() + 10)
+            block:EnableMouse(true)
+            local bg = EllesmereUI.SolidTex(block, "BACKGROUND", 0, 0, 0, 0)
+            bg:SetAllPoints()
+            block:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(block, EllesmereUI.DisabledTooltip("Merchant"))
+            end)
+            block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function refresh()
+                if themedOff() then block:Show(); target:SetAlpha(0.3)
+                else block:Hide(); target:SetAlpha(1) end
+            end
+            EllesmereUI.RegisterWidgetRefresh(refresh); refresh()
+        end
+
         _, h = WSCardSection(parent, "QUALITY OF LIFE", y);  y = y - h
+
+        function merchantShowAsListOff()
+            return EllesmereUIDB and EllesmereUIDB.merchantShowAsList == false
+        end
+
+        local row
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Show As List",
+              tooltip="Shows the items as a list instead of pages.",
+              getValue=function()
+                return EllesmereUIDB and EllesmereUIDB.merchantShowAsList == true
+              end,
+              setValue=function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                local previousValue = EllesmereUIDB.merchantShowAsList
+                EllesmereUIDB.merchantShowAsList = v
+
+                -- Enabling the setting breaks the UI immediately, a reload is required
+                if EllesmereUI.ShowConfirmPopup then
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Reload Required",
+                          message     = "Merchant Show As List setting requires a UI reload to fully apply.",
+                          confirmText = "Reload Now",
+                          cancelText  = "Cancel",
+                          onConfirm   = function() ReloadUI() end,
+                          onCancel    = function()
+                              EllesmereUIDB.merchantShowAsList = previousValue;
+                              EllesmereUI:RefreshPage()
+                          end,
+                      })
+                  end
+              end },
+            { type="slider", text="Row Height", min=24, max=40, step=1,
+              disabled=merchantShowAsListOff, disabledTooltip="Show As List",
+              getValue=function() return (EllesmereUIDB and EllesmereUIDB.merchantListRowHeight) or 32 end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.merchantListRowHeight = v
+                  if EllesmereUI._Merchant_RefreshRowHeight then EllesmereUI._Merchant_RefreshRowHeight() end
+              end }
+        ); y = y - h
+        AttachDisabledOverlay(row)
 
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Show Item Level",
@@ -1217,8 +1340,8 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUIDB.merchantShowItemLevel = v
                   if EllesmereUI._Merchant_RefreshItemLevels then EllesmereUI._Merchant_RefreshItemLevels() end
               end },
-            { type="label", text="" }
-        );  y = y - h
+            { type="text", text="" }
+        ); y = y - h
 
         return y
     end
@@ -2293,11 +2416,21 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Enable Dragon Riding Bar",
               getValue = function() return EDR_Cfg("enabled") == true end,
-              setValue = function(v) EDR_Set("enabled", v); EDR_Rebuild() end },
+              -- DependentSetValue: everything below Row 1 is hidden while the
+              -- bar is off; the flip forces the full rebuild.
+              setValue = EllesmereUI.DependentSetValue(
+                  function() return EDR_Cfg("enabled") == true end,
+                  function(v) EDR_Set("enabled", v); EDR_Rebuild() end) },
             { type = "toggle", text = "Hide in Combat",
+              disabled = function() return EDR_Cfg("enabled") ~= true end,
+              disabledTooltip = "Dragon Riding Bar",
               getValue = function() return EDR_Cfg("hideInCombat") == true end,
               setValue = function(v) EDR_Set("hideInCombat", v); EDR_Rebuild() end }
         ); y = y - h
+
+        -- Everything below Row 1 (the rest of GENERAL plus the LAYOUT and
+        -- SPEED BAR sections) is HIDDEN entirely while the bar is off.
+        if EDR_Cfg("enabled") == true then
         _, h = W:DualRow(parent, y,
             { type = "slider", text = "Width", min = 80, max = 600, step = 1,
               getValue = function() return EDR_Cfg("width") end,
@@ -2449,6 +2582,7 @@ initFrame:SetScript("OnEvent", function(self)
         cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         y = y - h
         _, h = W:Spacer(parent, y, 20); y = y - h
+        end   -- close Dragon Riding hidden-while-disabled gate
 
         -- The wrapper is SetAllPoints-anchored, so SetHeight on it is inert;
         -- return the measured height so the scroll range is correct.
@@ -2493,6 +2627,13 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.tooltipCursorPosition = nil
                 EllesmereUIDB.tooltipCursorOffsetX = nil
                 EllesmereUIDB.tooltipCursorOffsetY = nil
+                EllesmereUIDB.tooltipFixedPos = nil  -- stale key from the account-global build
+                -- Per-profile fixed tooltip position: clearing it re-seeds from
+                -- Blizzard's CURRENT Edit Mode spot on the next tooltip show.
+                do
+                    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+                    if prof then prof.tooltipFixedPos = nil end
+                end
                 EllesmereUIDB.uberTooltips = nil
                 EllesmereUIDB.uberTooltipsManual = nil
                 EllesmereUIDB.tooltipHideHealthStrip = nil
@@ -2500,16 +2641,24 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.itemStackModifier = nil
                 EllesmereUIDB.tooltipShowGuildRank = nil
                 EllesmereUIDB.tooltipShowMount = nil
+                EllesmereUIDB.tooltipShowTarget = nil
                 EllesmereUIDB.reskinQueuePopup = nil
+                EllesmereUIDB.resurrectAcceptGlow = nil
+                -- Clear any glow on a currently visible popup (the setting
+                -- just went nil = off; hooks stay installed but inert).
+                if EllesmereUI._EnsureResurrectGlow then EllesmereUI._EnsureResurrectGlow() end
                 EllesmereUIDB.reskinGameMenu = nil
                 EllesmereUIDB.popupMenuButtonBackgroundColor=nil
                 EllesmereUIDB.popupMenuButtonTextColorMode=nil
                 EllesmereUIDB.popupMenuButtonTextColor=nil
                 for _,prefix in ipairs({"popupMenu","popupMenuButton","tooltip"}) do
-                    for _,suffix in ipairs({"BorderTexture","BorderThickness","BorderColor","BorderColorMode","BorderOpacity","BorderOffsetX","BorderOffsetY","BorderShiftX","BorderShiftY"}) do
+                    for _,suffix in ipairs({"BorderTexture","BorderThickness","BorderColor","BorderColorMode","BorderOpacity","BorderOffsetX","BorderOffsetY","BorderShiftX","BorderShiftY","BorderBehind"}) do
                         EllesmereUIDB[prefix..suffix]=nil
                     end
                 end
+                -- Legacy numeric key the tooltip Border Size still falls back
+                -- to when tooltipBorderThickness is unset.
+                EllesmereUIDB.tooltipBorderSize = nil
                 EllesmereUIDB.reskinGreatVault = nil
                 EllesmereUIDB.reskinLFGMenu = nil
                 EllesmereUIDB.showQueueTimer = nil
@@ -2558,6 +2707,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.friendsFramePos = nil
             end
             if EllesmereUI._applyTooltipCursorAnchor then EllesmereUI._applyTooltipCursorAnchor() end
+            if EllesmereUI._applyTooltipFixedAnchor then EllesmereUI._applyTooltipFixedAnchor() end
             if EllesmereUI._applyTooltipHealthStrip then EllesmereUI._applyTooltipHealthStrip() end
         end,
     })

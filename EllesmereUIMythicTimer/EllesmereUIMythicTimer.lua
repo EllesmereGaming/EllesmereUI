@@ -2821,9 +2821,15 @@ function EMT:OnEnable()
     if EllesmereUI and EllesmereUI.RegisterUnlockModeListener then
         EllesmereUI:RegisterUnlockModeListener("EMT_MythicTimer", function(active)
             unlockLayoutActive = active == true
+            -- When the element is anchor-linked to another unlock element,
+            -- the anchor system owns the frame's position; re-applying our
+            -- stored absolute standalonePos would snap it away from the
+            -- anchor-derived spot on every unlock open/close.
+            local anchored = EllesmereUI.IsUnlockAnchored
+                and EllesmereUI.IsUnlockAnchored("EMT_MythicTimer")
             if unlockLayoutActive then
                 RenderStandalone()
-                ApplyStandalonePosition()
+                if not anchored then ApplyStandalonePosition() end
             else
                 if not db.profile.showPreview
                     and not currentRun.active and not currentRun.completed then
@@ -2831,7 +2837,7 @@ function EMT:OnEnable()
                 else
                     RenderStandalone()
                 end
-                ApplyStandalonePosition()
+                if not anchored then ApplyStandalonePosition() end
             end
         end)
     end
