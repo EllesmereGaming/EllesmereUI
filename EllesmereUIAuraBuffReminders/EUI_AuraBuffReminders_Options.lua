@@ -904,6 +904,10 @@ initFrame:SetScript("OnEvent", function(self)
                 {
                     getMode = function()
                         local d = DDB()
+                        -- Read-path migration: a profile activated mid-session
+                        -- may not have a mode key yet; derive it from the
+                        -- stored color so the trio highlights correctly.
+                        if d and _G._EABR_EnsureGlowModeMigrated then _G._EABR_EnsureGlowModeMigrated(d) end
                         return (d and d.glowColorMode) or "default"
                     end,
                     setMode = function(m)

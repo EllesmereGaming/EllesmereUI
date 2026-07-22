@@ -2610,12 +2610,14 @@ initFrame:SetScript("OnEvent", function(self)
 
             local bgOptionsRow
             bgOptionsRow, h = W:DualRow(parent, y,
-                { type="toggle", text="Enable",
+                { type="toggle", text="Enable Bar Background",
                   getValue=function() return SVal("bgEnabled", false) end,
-                  setValue=function(v)
+                  -- Section gate: dependent rows below are hidden (not grayed)
+                  -- while disabled; the wrapper forces the page rebuild.
+                  setValue=EllesmereUI.SectionToggleSetValue(function(v)
                       SSet("bgEnabled", v, function(k) EAB:ApplyBackgroundForBar(k) end)
                       SUpdatePreview()
-                  end },
+                  end) },
                 { type="slider", text="Spacing", min=0, max=20, step=1,
                   disabled=BgDisabled,
                   disabledTooltip="Bar Background",
@@ -2712,6 +2714,12 @@ initFrame:SetScript("OnEvent", function(self)
                 local color = settings.bgColor
                 return ((color and color.a) or 0.5) * 100
             end
+
+            -- Hidden-while-disabled section gate: everything below the master
+            -- row is only built while Bar Background is enabled for the
+            -- selected bar (the Enable toggle's SectionToggleSetValue wrapper
+            -- rebuilds the page on flip).
+            if SVal("bgEnabled", false) then
 
             local bgColorRow
             bgColorRow, h = W:DualRow(parent, y,
@@ -3081,6 +3089,8 @@ initFrame:SetScript("OnEvent", function(self)
                 })
                 MakeCogBtn(region, showDirectionY, nil, EllesmereUI.DIRECTIONS_ICON)
             end
+
+            end -- bgEnabled section gate
             end
 
             -------------------------------------------------------------------

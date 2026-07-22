@@ -234,10 +234,10 @@ EUI.VIS_AXES = {
 -- In Party and In Raid Group are disjoint here, same as every other module --
 -- checking one does not implicitly check the other. Kept on the namespace so
 -- files at the Lua 5.1 200-local cap don't need a new local.
-EUI.VIS_CAPS_INCLUSIVE = { partyIncludesRaid = false }
+EUI.VIS_CAPS_DEFAULT = { partyIncludesRaid = false }
 
 -- Copy-target caps for elements that cannot express group modes (Pet Bar).
-EUI.VIS_CAPS_NO_GROUP = { partyIncludesRaid = true, noGroupModes = true }
+EUI.VIS_CAPS_NO_GROUP = { partyIncludesRaid = false, noGroupModes = true }
 
 -- Canonical priority order for the representative scalar: the single legacy
 -- mode written alongside a multi-selection so older addon versions and every

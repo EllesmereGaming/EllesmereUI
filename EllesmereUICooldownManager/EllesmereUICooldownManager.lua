@@ -397,6 +397,13 @@ local BUFF_BAR_PRESETS = {
 ns.BUFF_BAR_PRESETS = BUFF_BAR_PRESETS
 
 -- Item presets for CD/utility bars (potions that track cooldowns)
+-- displayOrder (combat pots only): dynamic-display priority. The icon resolves
+-- to the FIRST id in this list with a bag count and shows that variant's icon,
+-- exact count, and tooltip. Rank 2 before rank 1, Fleeting before regular at
+-- the same rank (cheap pots get burned first). Id-to-rank mapping is
+-- user-verified 2026-07-20. swapWith names the partner preset whose
+-- displayOrder is appended when the profile-level "Swap Light/Reckless Pots
+-- When Missing" toggle is on and the own family is fully out of bags.
 local CDM_ITEM_PRESETS = {
     {
         key      = "lights_potential",
@@ -404,6 +411,13 @@ local CDM_ITEM_PRESETS = {
         icon     = 7548911,
         itemID   = 241308,
         altItemIDs = { 245898, 245897, 241309 },
+        displayOrder = {
+            245898,  -- Fleeting Light's Potential r2
+            241308,  -- Light's Potential r2
+            245897,  -- Fleeting Light's Potential r1
+            241309,  -- Light's Potential r1
+        },
+        swapWith = "potion_recklessness",
     },
     {
         key      = "potion_recklessness",
@@ -411,6 +425,13 @@ local CDM_ITEM_PRESETS = {
         icon     = 7548916,
         itemID   = 241288,
         altItemIDs = { 241289, 245902, 245903 },
+        displayOrder = {
+            245902,  -- Fleeting Potion of Recklessness r2
+            241288,  -- Potion of Recklessness r2
+            245903,  -- Fleeting Potion of Recklessness r1
+            241289,  -- Potion of Recklessness r1
+        },
+        swapWith = "lights_potential",
     },
     {
         key      = "silvermoon_health",
@@ -6556,7 +6577,7 @@ _CDMApplyVisibility = function()
             -- Multi-select / dragonriding path: non-nil owns the mode step
             -- (priority 3); the legacy single-mode chain below is untouched.
             local visExt = EllesmereUI.EvalVisibilityExtended
-                and EllesmereUI.EvalVisibilityExtended(barData, "barVisibility", visState, EllesmereUI.VIS_CAPS_INCLUSIVE)
+                and EllesmereUI.EvalVisibilityExtended(barData, "barVisibility", visState, EllesmereUI.VIS_CAPS_DEFAULT)
 
             -- Priority 1: vehicle always hides
             if inVehicle then
@@ -6947,6 +6968,12 @@ local function ApplyCachedKeybinds()
                     end
                     local name = sid > 0 and C_Spell.GetSpellName and C_Spell.GetSpellName(sid)
                     if not key and name then key = _cdmKeybindCache[name] end
+                    -- Item presets: the resolved display variant first (pot
+                    -- presets may be showing another rank / Fleeting / the
+                    -- swapped-in partner pot), then the static alt ids.
+                    if not key and icon._isItemPresetFrame and icon._displayItemID then
+                        key = _cdmKeybindCache[-icon._displayItemID]
+                    end
                     -- Item presets: check alt item IDs (user may have a
                     -- different rank of the same potion on their bar).
                     if not key and icon._isItemPresetFrame and icon._presetData and icon._presetData.altItemIDs then

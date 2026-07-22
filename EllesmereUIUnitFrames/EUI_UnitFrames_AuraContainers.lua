@@ -109,8 +109,11 @@ local function ChainSignature(chain)
     return table.concat(sig, ",")
 end
 
-local registry = {} -- [unitKey] = { frame, buffs, debuffs, dispel, sig = {buffs=,debuffs=}, pendingSwap }
-local CreateElementContainer -- forward-declared; defined after the style builders
+-- [unitKey] = { frame, buffs, debuffs, dispel, sig = {buffs=,debuffs=} }.
+-- Entries carry `building = true` while the deferred stepper is still
+-- constructing them; every reload/refresh path skips building entries (the
+-- stepper's final stage clears the flag and runs the first real reload).
+local registry = {}
 
 -- Shell stash: bare container shells for every migrated unit, born
 -- SYNCHRONOUSLY at PLAYER_LOGIN -- the early load window where combat
@@ -752,19 +755,28 @@ end
 local function CreateDispelSlots(frame, entry)
     local mode = BuildDispelStyles(frame)
 
-    local container = shellStash.dispel
-    if container then
-        -- Adopt the pre-born shell (combat-safe: parent/point on our frame).
-        shellStash.dispel = nil
-        container:SetParent(frame)
-        container:ClearAllPoints()
-        container:SetPoint("CENTER", frame, "CENTER")
-    else
-        container = AK.CreateContainerShell(frame, {
-            point = { "CENTER", frame, "CENTER" },
-        })
+    local container = entry.dispel
+    if not container then
+        container = shellStash.dispel
+        if container then
+            -- Adopt the pre-born shell (combat-safe: parent/point on our frame).
+            shellStash.dispel = nil
+            container:SetParent(frame)
+            container:ClearAllPoints()
+            container:SetPoint("CENTER", frame, "CENTER")
+        else
+            container = AK.CreateContainerShell(frame, {
+                point = { "CENTER", frame, "CENTER" },
+            })
+        end
+        -- Stashed BEFORE the slot adds so a watchdog-killed build resumes on
+        -- the same container instead of birthing a second one.
+        entry.dispel = container
     end
 
+    -- `dispelAdds` counts completed slot declarations: a resumed build skips
+    -- what already landed instead of re-declaring existing slot keys.
+    local n = 0
     for i = 1, #DISPEL_SLOTS do
         local slot = DISPEL_SLOTS[i]
         local function ParkSlot(slotButton)
@@ -776,27 +788,34 @@ local function CreateDispelSlots(frame, entry)
             -- in-instance reloads.
             slotButton:SetPoint("CENTER", frame.Health or frame, "CENTER")
         end
-        AK.AddSlotToContainer(container, {
-            key = slot.key,
-            filter = { "HARMFUL" },
-            candidateFilters = { includeDispelTypes = { [DISPEL_TYPE_TOKENS[slot.key]] = true } },
-            style = DispelStyleKey(slot.key),
-            extraInit = ParkSlot,
-        })
+        n = n + 1
+        if n > (entry.dispelAdds or 0) then
+            AK.AddSlotToContainer(container, {
+                key = slot.key,
+                filter = { "HARMFUL" },
+                candidateFilters = { includeDispelTypes = { [DISPEL_TYPE_TOKENS[slot.key]] = true } },
+                style = DispelStyleKey(slot.key),
+                extraInit = ParkSlot,
+            })
+            entry.dispelAdds = n
+        end
         -- "Only Dispellable by You" variant: identical slot with the engine
         -- by-me filter token added. Declared upfront -- slot filters cannot
         -- change after declaration -- and mutually exclusive with the plain
         -- slot via style opacity (BuildDispelStyles zeroes the inactive one).
-        AK.AddSlotToContainer(container, {
-            key = slot.key .. "_byme",
-            filter = { "HARMFUL", "RAID_PLAYER_DISPELLABLE" },
-            candidateFilters = { includeDispelTypes = { [DISPEL_TYPE_TOKENS[slot.key]] = true } },
-            style = DispelStyleKey(slot.key .. "_byme"),
-            extraInit = ParkSlot,
-        })
+        n = n + 1
+        if n > (entry.dispelAdds or 0) then
+            AK.AddSlotToContainer(container, {
+                key = slot.key .. "_byme",
+                filter = { "HARMFUL", "RAID_PLAYER_DISPELLABLE" },
+                candidateFilters = { includeDispelTypes = { [DISPEL_TYPE_TOKENS[slot.key]] = true } },
+                style = DispelStyleKey(slot.key .. "_byme"),
+                extraInit = ParkSlot,
+            })
+            entry.dispelAdds = n
+        end
     end
     AK.FinishContainer(container, "player")
-    entry.dispel = container
 
     container:SetShown(mode ~= "none")
     ns.UF_DispelOverlayDisabled = true
@@ -829,7 +848,7 @@ end
 -- edits apply without waiting for a full container pass.
 function ns.UF_ReloadPlayerDispelSlots()
     local entry = registry.player
-    if entry and entry.frame then
+    if entry and entry.frame and not entry.building then
         ReloadDispelSlots(entry.frame, entry)
     end
 end
@@ -853,6 +872,9 @@ function ns.UF_ReloadAuraContainers(frame, unit)
     local s = SettingsFor(unit)
     local entry = registry[unit]
     if not s or not entry then return end
+    -- Still under construction by the deferred stepper: its final stage
+    -- runs this reload once the containers are complete.
+    if entry.building then return end
 
     if unit:match("^boss") and ns._bossPreviewActive then
         if entry.buffs then entry.buffs:Hide() end
@@ -931,7 +953,7 @@ end
 -- container exposes UpdateAllAuras for exactly this; poke it on unit changes.
 local function RefreshUnit(unitKey)
     local entry = registry[unitKey]
-    if not entry then return end
+    if not entry or entry.building then return end
     if entry.buffs then entry.buffs:UpdateAllAuras() end
     if entry.debuffs then entry.debuffs:UpdateAllAuras() end
     if entry.dispel then entry.dispel:UpdateAllAuras() end
@@ -994,17 +1016,12 @@ function ns.UF_ReloadAllAuraContainers()
     end
 end
 
--- Builds one element container carrying the "all" group plus the given class
--- chain, recording every declared group in `declared`. Own Only appends the
--- PLAYER token to every group's filter string (via the variant key).
-function CreateElementContainer(frame, unit, base, chain, own, declared)
-    local styleKey = StyleKey(unit, base)
-    local field = "debuffs"
-    if base == "HELPFUL" then field = "buffs" end
+-- Adopts the pre-born PLAYER_LOGIN shell for one element (falling back to a
+-- fresh shell), parented/pointed on our frame (combat-safe).
+local function AdoptShell(frame, unit, field)
     local stash = shellStash[unit]
     local container = stash and stash[field]
     if container then
-        -- Adopt the pre-born shell (combat-safe: parent/point on our frame).
         stash[field] = nil
         container:SetParent(frame)
         container:ClearAllPoints()
@@ -1014,78 +1031,120 @@ function CreateElementContainer(frame, unit, base, chain, own, declared)
             point = { "CENTER", frame, "CENTER" }, -- provisional; reload anchors properly
         })
     end
-    DeclareElementGroup(container, declared, styleKey, base, "all", { base }, nil, own)
-    for i = 1, #chain do
-        local c = chain[i]
-        DeclareElementGroup(container, declared, styleKey, base, c.key, c.tokens, c.cand, own)
-    end
-    AK.FinishContainer(container, unit)
     return container
 end
 
--- Builds one unit's containers. Runs from the time-sliced worker below,
--- never synchronously from frame spawn: every group declaration eagerly
--- creates a 10-button engine batch through AuraKit's full region
--- initializer (parent-addon billed), and the spawn-time builds for all
--- eight units stacked ~300 engine buttons into the login frames.
+local ELEMENT_ORDER = { { "HELPFUL", "buffs" }, { "HARMFUL", "debuffs" } }
+
+-- Builds one unit's containers as a RESUMABLE STEPPER: each invocation does
+-- one bounded atom of work and returns "again" until done. The expensive
+-- atom is a single group declaration (an eager 10-button engine batch
+-- through AuraKit's full region initializer); running them one per
+-- invocation lets the shared worker's per-frame budget apply between atoms,
+-- where the old whole-unit job could balloon past the client watchdog under
+-- login contention ("script ran too long" -- and the killed job left the
+-- unit half-built). Every stage is existence-guarded, so a watchdog-killed
+-- invocation resumes cleanly: an aborted engine declare never stamps its
+-- declared/progress mark and simply re-runs.
 local function BuildUnitContainers(frame, unit)
     local s = SettingsFor(unit)
     if not (AK and s) then return end
-    if registry[unit] then return end
+    local entry = registry[unit]
+    if entry and not entry.building then return end
 
+    -- Stage 1: entry + both element shells (cheap; no engine batches).
     -- Container FRAMES cannot be born in combat (probe T3 zombie). With the
     -- PLAYER_LOGIN stash intact this build is pure adds on existing shells
     -- (combat-legal); if any needed shell is missing while locked down,
     -- hold the whole unit until regen rather than half-building it.
-    if InCombatLockdown() then
-        local stash = shellStash[unit]
-        if not (stash and stash.buffs and stash.debuffs)
-            or (unit == "player" and not shellStash.dispel) then
-            return "hold"
+    if not entry then
+        if InCombatLockdown() then
+            local stash = shellStash[unit]
+            if not (stash and stash.buffs and stash.debuffs)
+                or (unit == "player" and not shellStash.dispel) then
+                return "hold"
+            end
+        end
+
+        -- Styles must exist before group declaration: initializeFrame
+        -- consumes them for the pre-created button batches. Prime their
+        -- fingerprints too: the final-stage reload would otherwise queue a
+        -- restyle of buttons that were decorated from these exact tables.
+        local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or ""
+        for _, base in ipairs({ "HELPFUL", "HARMFUL" }) do
+            local key = StyleKey(unit, base)
+            local style = BuildStyle(unit, base, s, frame)
+            AK.styles[key] = style
+            ufFP[key] = { style = StyleTableFP(style, font) }
+        end
+
+        entry = { frame = frame, building = true, sig = {}, groups = { buffs = {}, debuffs = {} } }
+        entry.buffs = AdoptShell(frame, unit, "buffs")
+        entry.debuffs = AdoptShell(frame, unit, "debuffs")
+        registry[unit] = entry
+        return "again"
+    end
+
+    -- Stage 2: one missing group declaration per invocation (the expensive
+    -- atom). Own Only appends the PLAYER token via the variant key.
+    for e = 1, 2 do
+        local base, field = ELEMENT_ORDER[e][1], ELEMENT_ORDER[e][2]
+        local own = EffectiveOwnOnly(unit, base, s)
+        local chain = BuildChain(base, base == "HELPFUL", s)
+        local declared = entry.groups[field]
+        local styleKey = StyleKey(unit, base)
+        if not declared[EffKey("all", own)] then
+            DeclareElementGroup(entry[field], declared, styleKey, base, "all", { base }, nil, own)
+            return "again"
+        end
+        for i = 1, #chain do
+            local c = chain[i]
+            if not declared[EffKey(c.key, own)] then
+                DeclareElementGroup(entry[field], declared, styleKey, base, c.key, c.tokens, c.cand, own)
+                return "again"
+            end
         end
     end
 
-    -- Styles must exist before group declaration: initializeFrame consumes
-    -- them for the pre-created button batch. Prime their fingerprints too:
-    -- the creation-tail reload just below would otherwise queue a restyle
-    -- of buttons that were decorated from these exact tables.
-    local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or ""
-    for _, base in ipairs({ "HELPFUL", "HARMFUL" }) do
-        local key = StyleKey(unit, base)
-        local style = BuildStyle(unit, base, s, frame)
-        AK.styles[key] = style
-        ufFP[key] = { style = StyleTableFP(style, font) }
+    -- Stage 3: finish both containers (SetUnit + full refresh). Stamped
+    -- after the calls; re-finishing on a resumed run is harmless.
+    if not entry.finished then
+        AK.FinishContainer(entry.buffs, unit)
+        AK.FinishContainer(entry.debuffs, unit)
+        entry.finished = true
+        return "again"
     end
 
-    local entry = { frame = frame, sig = {}, groups = { buffs = {}, debuffs = {} } }
-    registry[unit] = entry
-
-    for base, field in pairs({ HELPFUL = "buffs", HARMFUL = "debuffs" }) do
-        local own = EffectiveOwnOnly(unit, base, s)
-        local chain = BuildChain(base, base == "HELPFUL", s)
-        entry[field] = CreateElementContainer(frame, unit, base, chain, own, entry.groups[field])
-        entry.sig[field] = ChainSignature(chain) .. (own and "|own" or "")
-    end
-
-    if unit == "player" then
+    -- Stage 4: player dispel slots (batch-1 slot adds; internally resumable
+    -- via entry.dispel / entry.dispelAdds).
+    if unit == "player" and not entry.dispelDone then
+        if InCombatLockdown() and not (entry.dispel or shellStash.dispel) then
+            return "hold"
+        end
         CreateDispelSlots(frame, entry)
+        entry.dispelDone = true
         -- Prime the dispel fingerprint: creation just applied these exact
-        -- settings, so the creation-tail reload below must not queue a
-        -- redundant restyle (harmless noise OOC, but denied button writes
-        -- when built under restriction -- the in-instance /reload case).
+        -- settings, so the final-stage reload must not queue a redundant
+        -- restyle (harmless noise OOC, but denied button writes when built
+        -- under restriction -- the in-instance /reload case).
         local p = ns.UF_GetProfile and ns.UF_GetProfile()
         if p then ufFP.dispel = DispelFP(p) end
+        return "again"
     end
 
+    -- Final stage: the first real reload declares nothing new (entry.sig is
+    -- still unset, so its additive path walks the declared sets as no-ops,
+    -- stamps the signatures, and force-applies anchor/config/visibility).
+    entry.building = nil
     ns.UF_ReloadAuraContainers(frame, unit)
 end
 
 -- Deferred through the shared AuraKit build scheduler (budgeted per frame,
 -- never ticks during loading screens; combat-runnable via the stash
--- shells). One job per unit is fine-grained enough here: an element
--- container carries only the enabled filter classes (typically 1-2
--- groups), so a unit's whole build is a couple of 10-button engine
--- batches. The return propagates BuildUnitContainers' "hold" verdict.
+-- shells). One QUEUED job per unit, but the job is a stepper: it returns
+-- "again" after each bounded atom (one engine group batch) so the worker's
+-- budget check runs between atoms, and "hold" when shells are missing in
+-- combat -- the return propagates BuildUnitContainers' verdict.
 function ns.UF_CreateAuraContainers(frame, unit)
     AK = AK or EllesmereUI.AuraKit
     if not (AK and AK.QueueBuildJob) then return end

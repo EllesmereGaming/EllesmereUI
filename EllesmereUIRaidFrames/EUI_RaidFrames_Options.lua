@@ -1,4 +1,4 @@
--------------------------------------------------------------------------------
+﻿-------------------------------------------------------------------------------
 --  EUI_RaidFrames_Options.lua
 --  Registers the Raid Frames module with EllesmereUI options panel.
 --  Two tabs: Raid Frames (layout, health, power, text, border, absorbs,
@@ -10,6 +10,11 @@ local PAGE_MAIN = "Frames"
 local PAGE_PARTY = "Party"
 local PAGE_DEBUFFS = "Auras"
 local PAGE_BUFFS = "Buff Manager"
+-- 12.1 only: the Debuff Manager page registers exclusively on 12.1 clients
+-- (its builder lives in the self-gated manager-pages file); every reference
+-- below is either inside a 12.1-selected pages list or guarded on state
+-- that stays nil on 12.0, so retail behavior is byte-identical.
+local PAGE_DM = "Debuff Manager"
 local PAGE_CLICKCAST = "HoverCast"
 
 local initFrame = CreateFrame("Frame")
@@ -3243,28 +3248,34 @@ initFrame:SetScript("OnEvent", function(self)
         -- editable, so no onClick/refreshAlpha (default click opens the picker).
         _, h = W:DualRow(parent, y,
             { type="multiSwatch", text="Dispel Colors",
+              -- Alpha per type: 0 hides that type's dispel border/overlay
+              -- entirely (an opt-out per dispel type).
               swatches = {
-                { tooltip = "Magic", hasAlpha = false,
-                  getValue = function() local c = SGet("dispelColorMagic"); if c then return c.r, c.g, c.b end return 0.354, 0.396, 0.74 end,
-                  setValue = function(r, g, b) SWrite("dispelColorMagic", { r=r, g=g, b=b }); ReloadAndUpdate() end },
-                { tooltip = "Curse", hasAlpha = false,
-                  getValue = function() local c = SGet("dispelColorCurse"); if c then return c.r, c.g, c.b end return 0.636, 0.0, 0.64 end,
-                  setValue = function(r, g, b) SWrite("dispelColorCurse", { r=r, g=g, b=b }); ReloadAndUpdate() end },
-                { tooltip = "Disease", hasAlpha = false,
-                  getValue = function() local c = SGet("dispelColorDisease"); if c then return c.r, c.g, c.b end return 0.71, 0.379, 0.0 end,
-                  setValue = function(r, g, b) SWrite("dispelColorDisease", { r=r, g=g, b=b }); ReloadAndUpdate() end },
-                { tooltip = "Poison", hasAlpha = false,
-                  getValue = function() local c = SGet("dispelColorPoison"); if c then return c.r, c.g, c.b end return 0.052, 0.586, 0.62 end,
-                  setValue = function(r, g, b) SWrite("dispelColorPoison", { r=r, g=g, b=b }); ReloadAndUpdate() end },
-                { tooltip = "Bleed", hasAlpha = false,
-                  getValue = function() local c = SGet("dispelColorBleed"); if c then return c.r, c.g, c.b end return 0.75, 0.15, 0.15 end,
-                  setValue = function(r, g, b) SWrite("dispelColorBleed", { r=r, g=g, b=b }); ReloadAndUpdate() end },
+                { tooltip = "Magic", hasAlpha = true,
+                  getValue = function() local c = SGet("dispelColorMagic"); if c then return c.r, c.g, c.b, c.a or 1 end return 0.354, 0.396, 0.74, 1 end,
+                  setValue = function(r, g, b, a) SWrite("dispelColorMagic", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end },
+                { tooltip = "Curse", hasAlpha = true,
+                  getValue = function() local c = SGet("dispelColorCurse"); if c then return c.r, c.g, c.b, c.a or 1 end return 0.636, 0.0, 0.64, 1 end,
+                  setValue = function(r, g, b, a) SWrite("dispelColorCurse", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end },
+                { tooltip = "Disease", hasAlpha = true,
+                  getValue = function() local c = SGet("dispelColorDisease"); if c then return c.r, c.g, c.b, c.a or 1 end return 0.71, 0.379, 0.0, 1 end,
+                  setValue = function(r, g, b, a) SWrite("dispelColorDisease", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end },
+                { tooltip = "Poison", hasAlpha = true,
+                  getValue = function() local c = SGet("dispelColorPoison"); if c then return c.r, c.g, c.b, c.a or 1 end return 0.052, 0.586, 0.62, 1 end,
+                  setValue = function(r, g, b, a) SWrite("dispelColorPoison", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end },
+                { tooltip = "Bleed", hasAlpha = true,
+                  getValue = function() local c = SGet("dispelColorBleed"); if c then return c.r, c.g, c.b, c.a or 1 end return 0.75, 0.15, 0.15, 1 end,
+                  setValue = function(r, g, b, a) SWrite("dispelColorBleed", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end },
               } },
             { type="toggle", text="Only Show Dispellable",
               -- Front-end inverse of dispelShowAll: toggle ON = only-mine (dispelShowAll=false).
               getValue=function() return not SVal("dispelShowAll", true) end,
               setValue=function(v) SSet("dispelShowAll", not v) end });  y = y - h
 
+        -- 12.1: the split location is a Debuff Manager tile, the clock
+        -- border is a per-tile Debuff Manager setting, and the private
+        -- dispel overlay position was removed -- none of these rows build.
+        if not EllesmereUI.IS_121 then
         -- Dispellable Debuff Location: route dispellable debuffs to their own
         -- anchor + growth (separate from the main debuff display). "Same as
         -- Debuffs" keeps them in the normal debuff layout (no change).
@@ -3377,6 +3388,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSet("dispelOverlayPosition", v); ReloadAndUpdate() end },
             { type="label", text="" }
         ); y = y - h
+        end -- not IS_121 (split location / clock border / private overlay rows)
 
         if onSection then onSection("dispels", _secY, y) end; _secY = y
 
@@ -5056,6 +5068,13 @@ initFrame:SetScript("OnEvent", function(self)
 
         y = BuildVisualSections(parent, y, W)
 
+        -- 12.1: the Auras page is retired; its surviving Private Auras
+        -- section renders here (the shared builder gates everything else
+        -- out on 12.1). Resolved through ns -- this function is defined
+        -- above the builder's forward declaration.
+        if EllesmereUI.IS_121 and ns._RF_BuildDebuffSections then
+            y = ns._RF_BuildDebuffSections(parent, y, W)
+        end
 
         return math.abs(y)
     end
@@ -5662,6 +5681,11 @@ initFrame:SetScript("OnEvent", function(self)
     BuildDebuffSections = function(parent, y, W, onSection)
         local row, h, _
         local _secY = y
+        -- 12.1 redesign: only the PRIVATE AURAS section survives here (it
+        -- renders on the Frames/Party pages; the Auras page is retired).
+        -- Defensives/externals and the debuff display/style are owned by
+        -- the Buff/Debuff Managers on 12.1. The 12.0 page is untouched.
+        if not EllesmereUI.IS_121 then
         -------------------------------------------------------------------
         --  DEFENSIVES & EXTERNALS
         -------------------------------------------------------------------
@@ -5933,11 +5957,13 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
 
+        if onSection then onSection("defensives", _secY, y) end
+        end -- not IS_121 (defensives section)
         -------------------------------------------------------------------
         --  PRIVATE AURAS
         -------------------------------------------------------------------
         local paHeader
-        if onSection then onSection("defensives", _secY, y) end; _secY = y
+        _secY = y
         paHeader, h = W:SectionHeader(parent, "PRIVATE AURAS", y); y = y - h
 
         -- Eyeball: toggle private aura visibility on preview (raid + party)
@@ -6081,13 +6107,17 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("paHideTooltip", true) end,
               setValue=function(v) SSet("paHideTooltip", v) end });  y = y - h
 
+        if onSection then onSection("privateAuras", _secY, y) end
+        -- 12.1 redesign: everything below is retired here (see the gate at
+        -- the top of this function).
+        if not EllesmereUI.IS_121 then
         -------------------------------------------------------------------
         --  DEBUFFS
         -------------------------------------------------------------------
         --  DEBUFF DISPLAY
         -------------------------------------------------------------------
         local debuffHeader
-        if onSection then onSection("privateAuras", _secY, y) end; _secY = y
+        _secY = y
         debuffHeader, h = W:SectionHeader(parent, "DEBUFF DISPLAY", y); y = y - h
 
         -- Eyeball: toggle debuff visibility on preview (raid + party)
@@ -6572,8 +6602,13 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         if onSection then onSection("debuffStyle", _secY, y) end
+        end -- not IS_121 (debuff display/style sections)
         return y
     end
+    -- 12.1: the Frames page appends the surviving Private Auras section via
+    -- this export (BuildMainPage is defined above the forward declaration,
+    -- so it resolves through ns at call time).
+    ns._RF_BuildDebuffSections = BuildDebuffSections
 
     ---------------------------------------------------------------------------
     --  Defensives & Debuffs page
@@ -6601,6 +6636,10 @@ initFrame:SetScript("OnEvent", function(self)
     --  Buff Manager page (placeholder)
     ---------------------------------------------------------------------------
     local function BuildBuffManagerPage(pageName, parent, yOffset)
+        -- 12.1 Buff Manager v2 runs INSIDE the legacy page shell (the
+        -- storage accessor swaps under the activation flag) -- the
+        -- from-scratch replacement page was rejected in field review and
+        -- is no longer routed to.
         if ns.BM_BuildPage then
             return ns.BM_BuildPage(pageName, parent, yOffset)
         end
@@ -7123,7 +7162,12 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUIRaidFrames", {
         title       = "Raid Frames",
         description = "Configure raid frame appearance and behavior.",
-        pages       = { PAGE_MAIN, PAGE_DEBUFFS, PAGE_PARTY, PAGE_BUFFS, PAGE_CLICKCAST },
+        -- 12.1: the Auras page is retired entirely (debuffs and
+        -- defensives/externals live in the managers; private auras moved to
+        -- the Frames page).
+        pages       = EllesmereUI.IS_121
+            and { PAGE_MAIN, PAGE_PARTY, PAGE_BUFFS, PAGE_DM, PAGE_CLICKCAST }
+            or  { PAGE_MAIN, PAGE_DEBUFFS, PAGE_PARTY, PAGE_BUFFS, PAGE_CLICKCAST },
         searchTerms = rfSearchTerms,
         buildPage   = function(pageName, parent, yOffset)
             -- All of the cleanup/preview logic below acts on live, real state
@@ -7163,6 +7207,13 @@ initFrame:SetScript("OnEvent", function(self)
                 ns._bmRoot:Hide()
                 ns._bmRoot:SetParent(nil)
                 ns._bmRoot = nil
+            end
+            -- Clean up Debuff Manager root when switching away (12.1 only;
+            -- ns._dmRoot is never set on 12.0)
+            if pageName ~= PAGE_DM and ns._dmRoot then
+                ns._dmRoot:Hide()
+                ns._dmRoot:SetParent(nil)
+                ns._dmRoot = nil
             end
             -- Clean up Click Cast root when switching away
             if pageName ~= PAGE_CLICKCAST and ns._ccRoot then
@@ -7214,6 +7265,13 @@ initFrame:SetScript("OnEvent", function(self)
                 return BuildPartyPage(pageName, parent, yOffset)
             elseif pageName == PAGE_DEBUFFS then
                 return BuildDebuffsPage(pageName, parent, yOffset)
+            elseif pageName == PAGE_DM then
+                -- 12.1 only (the page is only registered there); builder
+                -- lives in the self-gated manager-pages file.
+                if ns.DMP_BuildPage then
+                    return ns.DMP_BuildPage(pageName, parent, yOffset)
+                end
+                return math.abs(yOffset)
             elseif pageName == PAGE_BUFFS then
                 return BuildBuffManagerPage(pageName, parent, yOffset)
             elseif pageName == PAGE_CLICKCAST then
@@ -7235,6 +7293,11 @@ initFrame:SetScript("OnEvent", function(self)
                 ns._bmRoot:Hide()
                 ns._bmRoot:SetParent(nil)
                 ns._bmRoot = nil
+            end
+            if pageName ~= PAGE_DM and ns._dmRoot then
+                ns._dmRoot:Hide()
+                ns._dmRoot:SetParent(nil)
+                ns._dmRoot = nil
             end
             if pageName ~= PAGE_CLICKCAST and ns._ccRoot then
                 if ns._ccGridPopup then ns._ccGridPopup:Hide(); ns._ccGridPopup = nil end
@@ -7272,6 +7335,16 @@ initFrame:SetScript("OnEvent", function(self)
                     C_Timer.After(0, function()
                         if EllesmereUI:GetActiveModule() == "EllesmereUIRaidFrames" then
                             BuildBuffManagerPage(pageName, nil, -6)
+                        end
+                    end)
+                end
+            elseif pageName == PAGE_DM then
+                if ns.HidePreview then ns.HidePreview() end
+                if ns.HidePartyPreview then ns.HidePartyPreview() end
+                if not ns._dmRoot then
+                    C_Timer.After(0, function()
+                        if EllesmereUI:GetActiveModule() == "EllesmereUIRaidFrames" and ns.DMP_BuildPage then
+                            ns.DMP_BuildPage(PAGE_DM, nil, -6)
                         end
                     end)
                 end
@@ -7313,6 +7386,14 @@ initFrame:SetScript("OnEvent", function(self)
                             end
                         end)
                     end
+                elseif page == PAGE_DM then
+                    if not ns._dmRoot then
+                        C_Timer.After(0, function()
+                            if EllesmereUI:GetActiveModule() == "EllesmereUIRaidFrames" and ns.DMP_BuildPage then
+                                ns.DMP_BuildPage(PAGE_DM, nil, -6)
+                            end
+                        end)
+                    end
                 elseif page == PAGE_CLICKCAST then
                     if not ns._ccRoot then
                         C_Timer.After(0, function()
@@ -7345,6 +7426,12 @@ initFrame:SetScript("OnEvent", function(self)
             if ns._bmRoot then
                 ns._bmRoot:Hide(); ns._bmRoot:SetParent(nil); ns._bmRoot = nil
             end
+            if ns._dmAddPopup then ns._dmAddPopup:Hide() end
+            if ns._bm2FilterEditor then ns._bm2FilterEditor:Hide(); ns._bm2FilterEditor = nil end
+            if ns._bm2Menu then ns._bm2Menu:Hide(); ns._bm2Menu = nil end
+            if ns._dmRoot then
+                ns._dmRoot:Hide(); ns._dmRoot:SetParent(nil); ns._dmRoot = nil
+            end
             if ns._ccRoot then
                 if ns._ccGridPopup then ns._ccGridPopup:Hide(); ns._ccGridPopup = nil end
                 if ns._ccSpecPopup then ns._ccSpecPopup:Hide(); ns._ccSpecPopup = nil end
@@ -7360,6 +7447,10 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI._hideScrollFrameRoots = function()
         if ns._addNewPopup then ns._addNewPopup:Hide() end
         if ns._bmRoot then ns._bmRoot:Hide(); ns._bmRoot:SetParent(nil); ns._bmRoot = nil end
+        if ns._dmAddPopup then ns._dmAddPopup:Hide() end
+            if ns._bm2FilterEditor then ns._bm2FilterEditor:Hide(); ns._bm2FilterEditor = nil end
+            if ns._bm2Menu then ns._bm2Menu:Hide(); ns._bm2Menu = nil end
+        if ns._dmRoot then ns._dmRoot:Hide(); ns._dmRoot:SetParent(nil); ns._dmRoot = nil end
         if ns._ccRoot then
             if ns._ccGridPopup then ns._ccGridPopup:Hide(); ns._ccGridPopup = nil end
             if ns._ccSpecPopup then ns._ccSpecPopup:Hide(); ns._ccSpecPopup = nil end
@@ -7380,6 +7471,12 @@ initFrame:SetScript("OnEvent", function(self)
                 if ns._addNewPopup then ns._addNewPopup:Hide() end
                 if ns._bmRoot then
                     ns._bmRoot:Hide(); ns._bmRoot:SetParent(nil); ns._bmRoot = nil
+                end
+                if ns._dmAddPopup then ns._dmAddPopup:Hide() end
+            if ns._bm2FilterEditor then ns._bm2FilterEditor:Hide(); ns._bm2FilterEditor = nil end
+            if ns._bm2Menu then ns._bm2Menu:Hide(); ns._bm2Menu = nil end
+                if ns._dmRoot then
+                    ns._dmRoot:Hide(); ns._dmRoot:SetParent(nil); ns._dmRoot = nil
                 end
                 if ns._ccRoot then
                     if ns._ccGridPopup then ns._ccGridPopup:Hide(); ns._ccGridPopup = nil end
@@ -7481,7 +7578,7 @@ initFrame:SetScript("OnEvent", function(self)
             if ns.ResetPreviewRandomization then ns.ResetPreviewRandomization() end
 
             -- Switching to Buff Manager or Click Casting: hide raid frame preview
-            if pageName == PAGE_BUFFS or pageName == PAGE_CLICKCAST then
+            if pageName == PAGE_BUFFS or pageName == PAGE_DM or pageName == PAGE_CLICKCAST then
                 if ns.HidePreview then ns.HidePreview() end
             end
             -- Switching to main or debuffs tab: show preview if enabled
@@ -7494,6 +7591,13 @@ initFrame:SetScript("OnEvent", function(self)
             -- Switching away from Buff Manager: clean up BM root
             if pageName ~= PAGE_BUFFS and ns._bmRoot then
                 ns._bmRoot:Hide(); ns._bmRoot:SetParent(nil); ns._bmRoot = nil
+            end
+            -- Switching away from Debuff Manager: clean up DM root
+            if pageName ~= PAGE_DM and ns._dmRoot then
+                if ns._dmAddPopup then ns._dmAddPopup:Hide() end
+            if ns._bm2FilterEditor then ns._bm2FilterEditor:Hide(); ns._bm2FilterEditor = nil end
+            if ns._bm2Menu then ns._bm2Menu:Hide(); ns._bm2Menu = nil end
+                ns._dmRoot:Hide(); ns._dmRoot:SetParent(nil); ns._dmRoot = nil
             end
             -- Switching away from Click Cast: clean up CC root
             if pageName ~= PAGE_CLICKCAST and ns._ccRoot then
@@ -7530,3 +7634,6 @@ initFrame:SetScript("OnEvent", function(self)
         ns._InitEUIModule()
     end
 end)
+
+
+

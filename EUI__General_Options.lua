@@ -406,6 +406,134 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "8.5.3",
+        heroes = {
+            {
+                module = "Raid Frames",
+                title  = "PTR 12.1 Advanced Aura Filtering",
+                desc   = "Midnight's 12.1 client reworks how raid frame auras are filtered, and EllesmereUI is ready: the Buff and Debuff Managers are rebuilt to let you choose exactly which buffs and debuffs your frames show. Already testable on the 12.1 PTR client, with more coming before launch.",
+            },
+            {
+                module = "Quality of Life",
+                title  = "Movement Alerts",
+                desc   = "Watch your mobility cooldowns count down on screen as text, an icon, or a bar, enabled per class with a preset spell list covering every spec plus your own added spells.",
+                nav    = { module = "EllesmereUIQoL", page = "Movement Alerts" },
+            },
+            {
+                module = "Chat",
+                title  = "Tabs & Sidebar Customization",
+                desc   = "Chat tabs get their own options page for layout, typography, and per-tab colors, and the whole panel can now wear a styled border. The old Extend Background Behind Tabs toggle becomes Tabs Inside Chat Panel and applies without a reload.",
+                nav    = { module = "EllesmereUIChat", page = "Tabs", section = "LAYOUT", highlight = "Tabs Inside Chat Panel" },
+            },
+        },
+        features = {
+            {
+                module = "Action Bars",
+                title  = "Bar Background Rework",
+                desc   = "Spacing, color, opacity, and a border, tiling across bars",
+                nav    = { module = "EllesmereUIActionBars", page = "Bar Display", section = "BAR BACKGROUND", highlight = "Enable Bar Background" },
+            },
+            {
+                module = "Aura Reminders & Cooldown Manager",
+                title  = "Glow Class Color",
+                desc   = "Reminder glows and CDM Pandemic Glow can now follow your class color",
+                nav    = { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "DISPLAY", highlight = "Glow Type" },
+            },
+            {
+                module = "Blizzard Windows",
+                title  = "Merchant List View",
+                desc   = "Show the vendor window as a scrollable list with adjustable row height",
+                nav    = { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins" },
+            },
+            {
+                module = "Chat",
+                title  = "Guild Sidebar Icon",
+                desc   = "Optional Guild icon in the sidebar with online count, opens on click",
+                nav    = { module = "EllesmereUIChat", page = "Sidebar", section = "SIDEBAR", highlight = "Sidebar Icons" },
+            },
+            {
+                module = "Cooldown Manager",
+                title  = "Equipment Slot Tracking",
+                desc   = "Track on-use effects from any of 19 equipped gear slots",
+                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars",
+                    preSelect = function()
+                        if EllesmereUI._setCDMBar then EllesmereUI._setCDMBar("cooldowns") end
+                    end },
+            },
+            {
+                module = "Cooldown Manager",
+                title  = "Potion Presets Match Your Bags",
+                desc   = "Presets show the exact pot variant you carry and swap when one runs out",
+                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars", section = "EXTRAS", highlight = "Swap Light/Reckless Pots When Missing",
+                    preSelect = function()
+                        if EllesmereUI._setCDMBar then EllesmereUI._setCDMBar("cooldowns") end
+                    end },
+            },
+            {
+                module = "Damage Meters",
+                title  = "Combat Timer Out of Combat",
+                desc   = "Keep the Combat Timer visible after a fight, now placeable in Unlock Mode",
+                nav    = { module = "EllesmereUIDamageMeters", page = "Damage Meters", section = "STANDALONE COMBAT TIMER", highlight = "Show Out of Combat" },
+            },
+            {
+                module = "Quality of Life",
+                title  = "Target Distance Text",
+                desc   = "Movable yard readout for your target, off by default",
+                nav    = { module = "EllesmereUIQoL", page = "Quality of Life", section = "EXTRAS", highlight = "Target Distance Text" },
+            },
+            {
+                module = "Raid Frames",
+                title  = "Dashed & Sweep Border Indicators",
+                desc   = "Buff Manager border indicators gain animated Dashed and Sweep styles",
+                nav    = { module = "EllesmereUIRaidFrames", page = "Buff Manager", section = "DISPLAY", highlight = "Border Style" },
+            },
+            {
+                module = "Raid Frames",
+                title  = "Missing Number Health Text",
+                desc   = "New Health Text mode shows missing health, hidden at full health",
+                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "TEXT DISPLAY", highlight = "Health Text" },
+            },
+            {
+                module = "Raid Frames",
+                title  = "Per-Type Dispel Opacity",
+                desc   = "Each dispel color gets its own opacity; set to 0 to opt a type out",
+                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "DISPELS", highlight = "Dispel Colors" },
+            },
+            {
+                module = "Unit Frames",
+                title  = "Aura Border Style Picker",
+                desc   = "Aura icon borders can now use the full border style texture picker",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Blizzard Aura Frames", section = "PLAYER BUFFS & DEBUFFS", highlight = "Border Style" },
+            },
+        },
+        fixes = {
+            { module = "Chat", text = "Fixed chat tabs occasionally flashing back to Blizzard's default unstyled color instead of staying styled." },
+            { module = "Chat", text = "Idle fade can now be turned off entirely with a new Enable Idle Fade toggle; Fade Delay and Fade Strength gray out while it is off." },
+            { module = "Chat", text = "Added a color and opacity swatch for the chat frame's inner border and divider lines, next to Hide Borders." },
+            { module = "Cooldown Manager", text = "Demonic Art and Diabolic Ritual, which share one spell ID, can now each be assigned to a bar, hosted on a Cooldown or Utility bar, and dragged to reorder individually instead of collapsing into one fixed slot." },
+            { module = "Data Bars", text = "Gold suffixes, the clock tooltip's date and reset countdowns, and the unconfigured Currency block's text now use your client's language instead of hardcoded English." },
+            { module = "Data Bars", text = "Renamed or deleted characters can be dropped from the Gold tooltip's per-character list with Ctrl+Alt+Left-Click." },
+            { module = "Data Bars", text = "Clickable Gold and Social or Guild tooltip rows now get the same full-row hover highlight as the Mythic+ teleport rows." },
+            { module = "Data Bars", text = "New Coin Icons toggle on the Gold block renders amounts with Blizzard's coin textures instead of letter suffixes." },
+            { module = "General", text = "Updated French, Simplified and Traditional Chinese, German, and Korean translations." },
+            { module = "Quest Tracker", text = "Fixed a taint error from clicking a tracker section title to collapse it, and the tracker's top padding jumping or flickering during combat." },
+            { module = "Raid Frames", text = "Name display now recognizes custom nicknames set with the RaidGaming Aliases addon, alongside the existing nickname sources." },
+            { module = "Resource Bars", text = "Fixed the Custom Colored fill's transparency fighting the separate Fill Opacity control on health, power, class resource, and cast bar fills, and the empty-slot backdrop and pip spacing not matching a translucent fill on pip resources like Combo Points and Runes." },
+            { module = "Spec Overrides", text = "New Promote Override to Profile tool bakes an override's settings into your profile, then clears all overrides." },
+            { module = "Spec Overrides", text = "Data Bars settings captured in an override group now repaint the moment the override applies, instead of waiting for another refresh to poke them." },
+            { module = "Unit Frames", text = "New Show Expand Button toggle can hide Blizzard's buff collapse and expand button and keep every buff visible instead." },
+            { module = "Blizzard Windows", text = "Fixed guild rank reordering being blocked and a cascade of errors on guild roster refresh while the Guild window skin was enabled." },
+            { module = "General", text = "\"In Party\" visibility now means party only across every module's visibility settings; check \"In Raid Group\" as well if something should also show in raids." },
+            { module = "Nameplates", text = "Fixed the name raid marker erroring and landing in the wrong spot beside names Midnight protects; it now sits cleanly at the name's edge." },
+            { module = "Profiles & Presets", text = "Export and import can now carry your Blizzard window and tooltip skins." },
+            { module = "Quality of Life", text = "Fixed Target Distance Text triggering blocked-action errors on friendly targets in combat; the readout now pauses for friendlies in restricted situations instead." },
+            { module = "Quality of Life", text = "The Keys, Logs & Brez tab merged into the bottom of the main Quality of Life page; the Battle Res and Bloodlust settings live there now." },
+            { module = "Raid Frames", text = "Fixed an error that could spam when a dispellable debuff appeared while the dispel overlay was enabled." },
+            { module = "Raid Frames", text = "Fixed party power bars freezing mid-combat when the Power Bar section was unsynced with power off for raid but on for party." },
+            { module = "Resource Bars", text = "Fixed Anchor to Cursor turning itself off on reload; the bar now keeps following the cursor across sessions." },
+        },
+    },
+    {
         version = "8.5.2",
         heroes = {
             {
@@ -1233,12 +1361,6 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 desc   = "Big customizable on-screen text that fires the moment you enter or leave combat, with your own message, size, colors, and screen position.",
                 nav    = { module = "EllesmereUIQoL", page = "Quality of Life", section = "GENERAL", highlight = "Combat Alert" },
             },
-            {
-                module = "Quality of Life",
-                title  = "Target Distance Text",
-                desc   = "Movable left-aligned distance text for your current target (default 30-35, optional 30+ / 30), colored by yard distance. Off by default; position or Anchor to a unit frame in Unlock Mode.",
-                nav    = { module = "EllesmereUIQoL", page = "Quality of Life", section = "GENERAL", highlight = "Target Distance Text" },
-            },
         },
         features = {
             {
@@ -1392,24 +1514,6 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Quality of Life", text = "Holy Paladins get a new Show Melee Range for Hpal crosshair toggle that checks range at 5 yards instead of 40." },
             { module = "Quality of Life", text = "The crosshair's 40 yard range check now also works from The Decapitator toy, fixing false out-of-range coloring for players without the Happy Fun Rock toy." },
             { module = "Unit Frames", text = "The Buffs Max Count and Max Per Row sliders now go up to 40 (previously 20)." },
-        },
-    },
-    {
-        version = "8.3.8",
-        mini = true,
-        -- Mini-patch fixes render as plain bullets: no `module` field means no
-        -- "Module: " prefix, and SortByModule keeps this authored order.
-        fixes = {
-            { text = "The NPC quest window is now skinned" },
-            { text = "Fixed the black quest and greeting text in the NPC dialog window" },
-            { text = "Added options to show your character level and raw XP values on the XP bar" },
-            { text = "Health, power, class resource, and cast bars can now be widened up to 800px" },
-            { text = "Fixed the Ironfur bar ignoring advanced-mode colours and showing stale stacks after leaving and re-entering Bear Form" },
-            { text = "Tracked Buff Bar stack count offset sliders now reach up to 250 in either direction" },
-            { text = "The Group Death alert text is now always outlined so it stays readable" },
-            { text = "The character sheet no longer reloads your 3D model during combat while it's closed" },
-            { text = "Fixed certain anchored bars re-positioning every frame instead of sitting still, fixing a performance issue introduced in 8.3.7" },
-            { text = "Performance optimizations for Blizzard skins" },
         },
     },
 }
@@ -4481,6 +4585,15 @@ initFrame:SetScript("OnEvent", function(self)
                 and (payload.data.overridesIncluded == true
                     or (payload.data.partialImport ~= true and payload.data.overridesExcluded ~= true))
                 or false
+            -- "Include Window Skins": the exporter's Blizz UI Enhanced
+            -- account-global bundle (Window Skins + Tooltips, Menus & Popups
+            -- tabs). Default OFF and confirmation-gated -- applying it
+            -- overwrites the recipient's settings across ALL profiles. Grayed
+            -- out when the string carries no bundle (the exporter left its
+            -- own opt-in unchecked).
+            local stringHasBlizzSkin = (payload and payload.data
+                and type(payload.data.blizzSkinGlobals) == "table") or false
+            local includeWindowSkinsImport = false
             local autoAssignImport = false       -- "Auto Assign to Specs" toggle (default off)
             local importVisuals = {}
             local importCountFs
@@ -4893,6 +5006,9 @@ initFrame:SetScript("OnEvent", function(self)
                 local lbl = EllesmereUI.MakeFont(ilBtn, 12, nil, 1, 1, 1, 0.6)
                 lbl:SetPoint("LEFT", box, "RIGHT", 6, 0)
                 lbl:SetText(EllesmereUI.L("Include layout"))
+                -- Fit the button to box + label so the next toggle's anchor
+                -- doesn't inherit this frame's dead space as a visible gap.
+                ilBtn:SetWidth(CHK_SZ + 6 + math.ceil(lbl:GetStringWidth()))
                 local function vis() mark:SetShown(includeLayoutImport) end
                 vis()
                 ilBtn:SetScript("OnClick", function() includeLayoutImport = not includeLayoutImport; vis() end)
@@ -4909,7 +5025,7 @@ initFrame:SetScript("OnEvent", function(self)
             if layoutChkBtn then
                 local ovBtn = CreateFrame("Button", nil, footerFrame)
                 ovBtn:SetSize(170, 24)
-                PP.Point(ovBtn, "LEFT", layoutChkBtn, "RIGHT", 8, 0)
+                PP.Point(ovBtn, "LEFT", layoutChkBtn, "RIGHT", 16, 0)
                 local box = CreateFrame("Frame", nil, ovBtn)
                 box:SetSize(CHK_SZ, CHK_SZ)
                 box:SetPoint("LEFT", ovBtn, "LEFT", 0, 0)
@@ -4923,6 +5039,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local lbl = EllesmereUI.MakeFont(ovBtn, 12, nil, 1, 1, 1, 0.6)
                 lbl:SetPoint("LEFT", box, "RIGHT", 6, 0)
                 lbl:SetText(EllesmereUI.L("Include Overrides"))
+                ovBtn:SetWidth(CHK_SZ + 6 + math.ceil(lbl:GetStringWidth()))
                 if stringHasOverrides then
                     local function vis() mark:SetShown(includeOverridesImport) end
                     vis()
@@ -4938,6 +5055,61 @@ initFrame:SetScript("OnEvent", function(self)
                         EllesmereUI.ShowWidgetTooltip(ovBtn, EllesmereUI.L("This profile string does not carry any override data."))
                     end)
                     ovBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                end
+
+                -- "Include Window Skins" beside Include Overrides: applies the
+                -- sharer's Blizz UI Enhanced account-global settings (Window
+                -- Skins + Tooltips, Menus & Popups tabs). Confirmation-gated
+                -- on enable -- these keys overwrite the recipient across ALL
+                -- profiles. Grayed out when the string carries no bundle.
+                local wsBtn = CreateFrame("Button", nil, footerFrame)
+                wsBtn:SetSize(170, 24)
+                PP.Point(wsBtn, "LEFT", ovBtn, "RIGHT", 16, 0)
+                local wsBox = CreateFrame("Frame", nil, wsBtn)
+                wsBox:SetSize(CHK_SZ, CHK_SZ)
+                wsBox:SetPoint("LEFT", wsBtn, "LEFT", 0, 0)
+                local wsBg = wsBox:CreateTexture(nil, "BACKGROUND"); wsBg:SetAllPoints()
+                wsBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                EllesmereUI.MakeBorder(wsBox, 0.25, 0.25, 0.28, 0.6, PP)
+                local wsMark = wsBox:CreateTexture(nil, "ARTWORK")
+                wsMark:SetPoint("TOPLEFT", wsBox, "TOPLEFT", 3, -3)
+                wsMark:SetPoint("BOTTOMRIGHT", wsBox, "BOTTOMRIGHT", -3, 3)
+                wsMark:SetColorTexture(EG.r, EG.g, EG.b, 1)
+                local wsLbl = EllesmereUI.MakeFont(wsBtn, 12, nil, 1, 1, 1, 0.6)
+                wsLbl:SetPoint("LEFT", wsBox, "RIGHT", 6, 0)
+                wsLbl:SetText(EllesmereUI.L("Include Window Skins"))
+                wsBtn:SetWidth(CHK_SZ + 6 + math.ceil(wsLbl:GetStringWidth()))
+                if stringHasBlizzSkin then
+                    local function vis() wsMark:SetShown(includeWindowSkinsImport) end
+                    vis()
+                    wsBtn:SetScript("OnClick", function()
+                        if includeWindowSkinsImport then
+                            includeWindowSkinsImport = false
+                            vis()
+                            return
+                        end
+                        EllesmereUI:ShowConfirmPopup({
+                            title       = EllesmereUI.L("Overwrite Window & Tooltip Settings?"),
+                            message     = EllesmereUI.L("This will replace YOUR Blizz UI Enhanced settings (the Window Skins and Tooltips, Menus & Popups tabs) with the sharer's, across ALL of your profiles. Your current settings on those two tabs cannot be recovered afterward."),
+                            confirmText = EllesmereUI.L("OK"),
+                            cancelText  = EllesmereUI.L("Cancel"),
+                            onConfirm   = function()
+                                includeWindowSkinsImport = true
+                                vis()
+                            end,
+                        })
+                    end)
+                    wsBtn:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(wsBtn, EllesmereUI.L("Apply the sharer's Blizz UI Enhanced Window Skins and Tooltips, Menus & Popups settings. These are account-wide and will overwrite yours across ALL profiles. Off = keep your own."))
+                    end)
+                    wsBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                else
+                    wsMark:Hide()
+                    wsBtn:SetAlpha(0.35)
+                    wsBtn:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(wsBtn, EllesmereUI.L("This profile string does not carry any Window & Tooltip Skins settings."))
+                    end)
+                    wsBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 end
             end
 
@@ -5074,11 +5246,13 @@ initFrame:SetScript("OnEvent", function(self)
                     filteredPayload.data.assignedSpecs = nil
                 end
                 -- UI scale (account-wide): applied by ImportProfile ONLY when this
-                -- opt-in marker is set -- the user accepted the scale-mismatch
-                -- popup (MaybeConfirmUIScale) shown before this page. Declined
-                -- or matching scales set nothing and keep the user's own scale.
-                if filteredPayload and filteredPayload.data and hasUIScale and applyImportedScale then
-                    filteredPayload.data.applyUIScale = true
+                -- opt-in came from the scale-mismatch popup (MaybeConfirmUIScale)
+                -- shown before this page. PRESENCE IS CONSENT at ImportProfile
+                -- (2026-07-20): accepted keeps the payload's uiScale; declined
+                -- or matching scales STRIP it so the user's own scale stands.
+                if filteredPayload and filteredPayload.data and hasUIScale and not applyImportedScale then
+                    filteredPayload.data.uiScale = nil
+                    filteredPayload.data.applyUIScale = nil
                 end
                 -- Layout relationships: keep only the anchor/size-match
                 -- relationships whose BOTH endpoints are in the selected modules
@@ -5153,6 +5327,19 @@ initFrame:SetScript("OnEvent", function(self)
                         filteredPayload.data.condBmOverrides     = nil
                         filteredPayload.data.overridesExcluded   = true
                         filteredPayload.data.overridesIncluded   = nil
+                    end
+                end
+                -- Include Window Skins: checked -> stamp the opt-in marker so
+                -- ImportProfile applies the Blizz UI Enhanced account-global
+                -- bundle before the reload; unchecked -> strip the bundle
+                -- wholesale so nothing can apply and the recipient keeps
+                -- their own settings.
+                if filteredPayload and filteredPayload.data then
+                    if includeWindowSkinsImport and stringHasBlizzSkin then
+                        filteredPayload.data.applyBlizzSkinGlobals = true
+                    else
+                        filteredPayload.data.blizzSkinGlobals      = nil
+                        filteredPayload.data.applyBlizzSkinGlobals = nil
                     end
                 end
 
@@ -6636,6 +6823,11 @@ initFrame:SetScript("OnEvent", function(self)
             -- EffectiveIncludeOverrides (assigned in the footer block below).
             local includeOverridesExport = nil
             local EffectiveIncludeOverrides
+            -- "Window & Tooltip Skins" include: the Blizz UI Enhanced
+            -- account-global bundle (Window Skins + Tooltips, Menus & Popups
+            -- tabs). Default OFF -- these settings are account-wide, so an
+            -- importer who opts in gets them across ALL of their profiles.
+            local includeWindowSkinsExport = false
             local addonItems = {}
             local addonVisuals = {}
             local footerCountFs
@@ -7022,19 +7214,23 @@ initFrame:SetScript("OnEvent", function(self)
                 PP.Point(incLbl, "RIGHT", ddBtn, "LEFT", -8, 0)
                 incLbl:SetText(EllesmereUI.L("Include:"))
 
+                -- The Window & Tooltip Skins row only exists when the Blizz UI
+                -- Enhanced module is loaded (its bundle can't be built otherwise).
+                local hasBlizzSkinRow = EllesmereUI.IsModuleAddonLoaded("EllesmereUIBlizzardSkin")
+
                 local function Summary()
                     local parts = {}
+                    local total = hasBlizzSkinRow and 4 or 3
                     if EffectiveIncludeOverrides() then parts[#parts + 1] = EllesmereUI.L("Overrides") end
                     if includeLayoutExport then parts[#parts + 1] = EllesmereUI.L("Layout") end
                     if includeGlobalsExport then parts[#parts + 1] = EllesmereUI.L("Globals") end
+                    if hasBlizzSkinRow and includeWindowSkinsExport then parts[#parts + 1] = EllesmereUI.L("Window Skins") end
                     if #parts == 0 then return EllesmereUI.L("Nothing Extra") end
-                    if #parts == 3 then return EllesmereUI.L("Everything") end
+                    if #parts == total then return EllesmereUI.L("Everything") end
                     return table.concat(parts, ", ")
                 end
                 local function RefreshSummary() ddLabelFS:SetText(Summary()) end
 
-                local menu = MakeDropdownMenu(ddBtn, 240)
-                menu:SetSize(240, 3 * 26 + 8)
                 local rowDefs = {
                     { label = "Overrides",
                       tip   = "Include your complete override setup: spec and conditional override values, groups, their custom Unlock Mode layouts, and Buff Manager overrides. On import this replaces the recipient's overrides entirely.",
@@ -7049,6 +7245,15 @@ initFrame:SetScript("OnEvent", function(self)
                       get   = function() return includeGlobalsExport end,
                       set   = function() includeGlobalsExport = not includeGlobalsExport end },
                 }
+                if hasBlizzSkinRow then
+                    rowDefs[#rowDefs + 1] = {
+                        label = "Window & Tooltip Skins",
+                        tip   = "Include your Blizz UI Enhanced settings from the Window Skins and Tooltips, Menus & Popups tabs. These are account-wide: if the importer opts in, they overwrite that player's settings across ALL of their profiles.",
+                        get   = function() return includeWindowSkinsExport end,
+                        set   = function() includeWindowSkinsExport = not includeWindowSkinsExport end }
+                end
+                local menu = MakeDropdownMenu(ddBtn, 240)
+                menu:SetSize(240, #rowDefs * 26 + 8)
                 local marks = {}
                 local function RefreshMenu()
                     for i, def in ipairs(rowDefs) do marks[i]:SetShown(def.get()) end
@@ -7140,7 +7345,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local exportFolders = (not allSelected) and folders or nil
                 local includeOverrides = EffectiveIncludeOverrides and EffectiveIncludeOverrides() or false
                 local function finishExport(includeCDM, cdmSpecs)
-                    local str = EllesmereUI.ExportProfile(activeName, exportFolders, includeLayoutExport, includeCDM, cdmSpecs, includeGlobalsExport, includeOverrides)
+                    local str = EllesmereUI.ExportProfile(activeName, exportFolders, includeLayoutExport, includeCDM, cdmSpecs, includeGlobalsExport, includeOverrides, includeWindowSkinsExport)
                     if str then EllesmereUI:ShowExportPopup(str) end
                 end
                 -- If the CDM module is selected, run the shared flow (ask -> spec

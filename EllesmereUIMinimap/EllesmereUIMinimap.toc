@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: A new age minimap with clean styling and square layout options.
 ## Author: Ellesmere
-## Version: 8.5.2
+## Version: 8.5.3
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIMinimapDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga

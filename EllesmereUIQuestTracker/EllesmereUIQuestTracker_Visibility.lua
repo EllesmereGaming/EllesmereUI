@@ -26,10 +26,11 @@ local _bgFrame
 
 local function GetTracker() return _G.ObjectiveTrackerFrame end
 
--- Shared with EllesmereUIQuestTracker_Skin.lua's TightenTopAnchor: the BG
--- and top accent divider must start at the same Y offset the content's top
--- module is anchored to, otherwise the divider renders inside/below the
--- first block instead of above it. Fallback matches Skin.lua's default.
+-- Shared with EllesmereUIQuestTracker_Skin.lua's TOP_MODULE_PADDING (via
+-- EQT.TOP_ANCHOR_OFFSET = -padding): the BG and top accent divider must
+-- start at the same Y offset the content's top module is anchored to,
+-- otherwise the divider renders inside/below the first block instead of
+-- above it. Fallback matches Skin.lua's default.
 local function TopGapOffset()
     return EQT.TOP_ANCHOR_OFFSET or -6
 end
@@ -229,8 +230,8 @@ local function EnsureBG()
     _bgFrame:SetFrameStrata(otf:GetFrameStrata() or "MEDIUM")
     _bgFrame:SetFrameLevel(math.max(0, otf:GetFrameLevel() - 1))
     -- Start the background at the same Y offset the top module is anchored
-    -- to (see TightenTopAnchor in Skin.lua), so it doesn't bleed above the
-    -- content or leave a gap below it. Bottom edge extends past the last
+    -- to (see ApplyTopModulePadding in Skin.lua), so it doesn't bleed above
+    -- the content or leave a gap below it. Bottom edge extends past the last
     -- block (re-anchored dynamically below).
     local topOfs = TopGapOffset()
     _bgFrame:SetPoint("TOPLEFT", otf, "TOPLEFT", -6, topOfs)

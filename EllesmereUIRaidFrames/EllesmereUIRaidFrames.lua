@@ -1598,13 +1598,19 @@ local function ResolveDisplayName(unit, applyCap)
             display = dn
         end
     end
-	if not display and RG_UnitName and RG_ALTS_SETTINGS and RG_ALTS_SETTINGS.settings["ellesmereui"] then
-		local ok, dn = pcall(RG_UnitName, unit)
-		if ok and type(dn) == "string"
-		   and not (issecretvalue and issecretvalue(dn)) and dn ~= "" then
-			display = dn
-		end
-	end
+    -- RakGaming Aliases (consulted last). Gated on ns._rgaNick, maintained
+    -- by RegisterRGALIASNicknames and RGA's module callbacks: true only while
+    -- RGA is present AND its "ellesmereui" module is enabled. Everyone
+    -- without the addon pays exactly one flag read here; the RGA settings
+    -- shape is never dereferenced in this hot path. dn ~= name keeps the
+    -- Ambiguate short-realm path for units RGA has no alias for.
+    if not display and ns._rgaNick then
+        local ok, dn = pcall(RG_UnitName, unit)
+        if ok and type(dn) == "string"
+           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" and dn ~= name then
+            display = dn
+        end
+    end
     if not display then
         if Ambiguate then name = Ambiguate(name, "short") end
         display = name
@@ -5268,13 +5274,25 @@ local function HideDispelVisuals(d)
     if d.dispelIcon then d.dispelIcon:Hide() end
 end
 
-local function ApplyDispelOverlay(d, dc, s)
+local function ApplyDispelOverlay(d, dc, s, olA)
     local olTex = d.dispelOLTex
     if not olTex then return end
     local mode = s.dispelOverlay or "fill"
     if mode == "none" then olTex:Hide(); return end
 
-    local alpha = (s.dispelOverlayOpacity or 100) / 100
+    -- Combined overlay alpha (user opacity x per-type opt-out alpha). The
+    -- curve path hands in olA already combined at curve-build time -- it may
+    -- be SECRET, which setters accept but arithmetic and boolean tests do
+    -- not, so it is never touched here. Only the plain fallback combines.
+    local alpha = olA
+    if type(alpha) == "nil" then
+        local dcA = dc.a
+        if issecretvalue and issecretvalue(dcA) then
+            alpha = dcA
+        else
+            alpha = ((s.dispelOverlayOpacity or 100) / 100) * (dcA or 1)
+        end
+    end
     local health = d.dispelOLHealth or d.health
 
     olTex:ClearAllPoints()
@@ -5692,12 +5710,15 @@ ns._dispelScratchDark = ns._dispelScratchDark or {}
 -- (not file locals) to respect the 200-local main-chunk cap.
 function ns._RebuildDispelCurves()
     if not (C_CurveUtil and C_CurveUtil.CreateColorCurve) then return end
-    local function build(profile, mult)
+    local function build(profile, mult, alphaMult)
         local c = C_CurveUtil.CreateColorCurve()
         c:SetType(Enum.LuaCurveType.Step)
         local function add(idx, key, dr, dg, db)
             local col = profile and profile[key]
-            c:AddPoint(idx, CreateColor((col and col.r or dr) * mult, (col and col.g or dg) * mult, (col and col.b or db) * mult))
+            -- Per-type alpha rides the curve too (0 = user opted this type
+            -- out of the dispel border/overlay). Never darkened by mult.
+            c:AddPoint(idx, CreateColor((col and col.r or dr) * mult, (col and col.g or dg) * mult,
+                (col and col.b or db) * mult, ((col and col.a) or 1) * (alphaMult or 1)))
         end
         add(0,  "dispelColorMagic",   0.349, 0.475, 1.0)   -- none: harmless default
         add(1,  "dispelColorMagic",   0.349, 0.475, 1.0)
@@ -5715,6 +5736,14 @@ function ns._RebuildDispelCurves()
     ns._dispelCurveParty     = build(ns._scaledPartyProxy, 1)
     ns._dispelCurveDark      = build(ns._scaledProfile,    0.5)
     ns._dispelCurveDarkParty = build(ns._scaledPartyProxy, 0.5)
+    -- Overlay curves: per-type alpha premultiplied by the user's overlay
+    -- opacity HERE, on plain saved numbers. The evaluated per-frame alpha is
+    -- SECRET, and arithmetic on it is a hard error -- it may only ever flow
+    -- straight into setters.
+    local rOp = ((ns._scaledProfile    and ns._scaledProfile.dispelOverlayOpacity)    or 100) / 100
+    local pOp = ((ns._scaledPartyProxy and ns._scaledPartyProxy.dispelOverlayOpacity) or 100) / 100
+    ns._dispelCurveOL      = build(ns._scaledProfile,    1, rOp)
+    ns._dispelCurveOLParty = build(ns._scaledPartyProxy, 1, pOp)
 end
 
 -- Per-type visibility curves for the dispel-type icons. Each curve is white at
@@ -5780,16 +5809,23 @@ local function UpdateDispelBorder(button, unit, updateInfo)
     end
 
     -- Apply the dispel visuals (border/overlay/icon) for a chosen aura.
-    local function ShowDispelFor(auraData, dc)
+    -- olA: overlay alpha from the opacity-premultiplied curve (may be SECRET;
+    -- nil on the plain fallback path, where ApplyDispelOverlay combines).
+    local function ShowDispelFor(auraData, dc, olA)
         d.dispelInstanceID = auraData.auraInstanceID
+        -- Per-type alpha (0 = user opted this type out). May be a SECRET
+        -- value from the curve path: only nil-heal when readably nil, and
+        -- feed it straight into setters otherwise.
+        local dcA = dc.a
+        if not issecretvalue(dcA) and dcA == nil then dcA = 1 end
         if wantBorder and d.dispelFrame and PP then
-            PP.UpdateBorder(d.dispelFrame, borderSize, dc.r, dc.g, dc.b, 1)
+            PP.UpdateBorder(d.dispelFrame, borderSize, dc.r, dc.g, dc.b, dcA)
             d.dispelFrame:Show()
         elseif d.dispelFrame then
             d.dispelFrame:Hide()
         end
         if wantOverlay then
-            ApplyDispelOverlay(d, dc, s)
+            ApplyDispelOverlay(d, dc, s, olA)
         elseif d.dispelOLTex then
             d.dispelOLTex:Hide()
         end
@@ -5827,17 +5863,34 @@ local function UpdateDispelBorder(button, unit, updateInfo)
             -- handled the same way (per-type alpha curves) inside ShowDispelFor.
             local iid = auraData.auraInstanceID
             local curve = d._isParty and ns._dispelCurveParty or ns._dispelCurve
-            local dc
+            local dc, olA
             if curve and C_UnitAuras.GetAuraDispelTypeColor then
                 local col = C_UnitAuras.GetAuraDispelTypeColor(unit, iid, curve)
                 if col then
                     local sc = ns._dispelScratch
-                    sc.r, sc.g, sc.b = col:GetRGB()
+                    -- Alpha carries the per-type opt-out (may be SECRET --
+                    -- it flows only into setters, never boolean tests).
+                    if col.GetRGBA then
+                        sc.r, sc.g, sc.b, sc.a = col:GetRGBA()
+                    else
+                        sc.r, sc.g, sc.b = col:GetRGB()
+                        sc.a = 1
+                    end
                     dc = sc
+                    -- Overlay alpha via the opacity-premultiplied curve, so
+                    -- the (secret) result needs no arithmetic downstream.
+                    if wantOverlay then
+                        local olCurve = d._isParty and ns._dispelCurveOLParty or ns._dispelCurveOL
+                        local ocol = olCurve and C_UnitAuras.GetAuraDispelTypeColor(unit, iid, olCurve)
+                        if ocol and ocol.GetRGBA then
+                            local _, _, _, oa = ocol:GetRGBA()
+                            olA = oa
+                        end
+                    end
                 end
             end
             if not dc then dc = GetDispelColor("Magic", s) end
-            ShowDispelFor(auraData, dc)
+            ShowDispelFor(auraData, dc, olA)
             return
         end
     end
@@ -11031,6 +11084,11 @@ ns.ReloadPartyFrames = function()
     -- Re-layout header
     ns._LayoutPartyFrames()
     ns._RebuildPartyUnitMap()
+    -- Re-sync UNIT_POWER_UPDATE registration: a Power Bar section sync/unsync
+    -- (or a party-side role-flag edit) changes the party's effective power
+    -- gating, same reasoning as UpdateCombatEventRegistration above. Must run
+    -- after the temp-swap restore so raid reads see raid values.
+    if ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration() end
     ns._UpdateAllPartyButtons()
 
     -- Re-register private aura anchors
@@ -13614,10 +13672,12 @@ local function ApplyPreviewData(f, index)
     local dispelType = dispelMap and dispelMap[index]
     local dispelDC = dispelType and GetDispelColor(dispelType, s)
     if dispVis and dispelDC then
+        -- Per-type alpha (plain saved value in the preview path)
+        local dcA = dispelDC.a or 1
         -- Dispel border (PP.UpdateBorder handles physical pixel sizing internally)
         local dbs = s.dispelBorderSize or 2
         if f._dispelBdrFrame and PP and dbs > 0 then
-            PP.UpdateBorder(f._dispelBdrFrame, dbs, dispelDC.r, dispelDC.g, dispelDC.b, 1)
+            PP.UpdateBorder(f._dispelBdrFrame, dbs, dispelDC.r, dispelDC.g, dispelDC.b, dcA)
             f._dispelBdrFrame:Show()
         elseif f._dispelBdrFrame then
             f._dispelBdrFrame:Hide()
@@ -13625,7 +13685,7 @@ local function ApplyPreviewData(f, index)
         -- Dispel overlay
         local olMode = s.dispelOverlay or "fill"
         if olMode ~= "none" and f._dispelOLTex and f._health then
-            local olAlpha = (s.dispelOverlayOpacity or 100) / 100
+            local olAlpha = (s.dispelOverlayOpacity or 100) / 100 * dcA
             local olTex = f._dispelOLTex
             olTex:ClearAllPoints()
             -- Reset any prior vertex tint so fill/full render their explicit color cleanly.
@@ -15968,18 +16028,33 @@ function ERF:OnEnable()
 
     -- Dynamically register/unregister UNIT_POWER_UPDATE per unit based on
     -- role and power display settings. Called after roster changes and
-    -- when the user changes power bar role filters.
+    -- when the user changes power bar role filters. The trackers are shared
+    -- by raid AND party frames: player/party1-4 tokens also drive the party
+    -- buttons, whose Power Bar section can be unsynced from raid -- those
+    -- must consult the party proxy too, or raid-off/party-on would strip
+    -- their events and freeze the party power bars mid-combat.
     local function UpdatePowerEventRegistration()
-        local s = db.profile
-        local anyPower = IsPowerBarEnabled(s)
+        local rs = db.profile
+        local ps = ns._partyProxy
+        local function wantsPower(s, role)
+            return (role == "HEALER" and s.powerShowForHealer)
+                or (role == "TANK" and s.powerShowForTank)
+                or (role == "DAMAGER" and s.powerShowForDPS)
+                or (role == "NONE" and s.powerShowForDPS)
+        end
         for unit, tracker in pairs(unitTrackers) do
             local wantPower = false
-            if anyPower and UnitExists(unit) then
+            if UnitExists(unit) then
                 local role = ns._ResolvePowerRole(unit)
-                wantPower = (role == "HEALER" and s.powerShowForHealer)
-                    or (role == "TANK" and s.powerShowForTank)
-                    or (role == "DAMAGER" and s.powerShowForDPS)
-                    or (role == "NONE" and s.powerShowForDPS)
+                wantPower = IsPowerBarEnabled(rs) and wantsPower(rs, role)
+                -- player/party tokens always count as party-displayable; the
+                -- routing-map check additionally covers arena, where the party
+                -- header binds raid1-5.
+                if not wantPower and IsPowerBarEnabled(ps)
+                    and (unit == "player" or unit:match("^party%d$")
+                        or (ns._partyUnitToButton and ns._partyUnitToButton[unit])) then
+                    wantPower = wantsPower(ps, role)
+                end
             end
             if wantPower then
                 tracker:RegisterUnitEvent("UNIT_POWER_UPDATE", unit)
@@ -16045,30 +16120,41 @@ function ERF:OnEnable()
         end
         return false
     end
-	local function RegisterRGALIASNicknames()
-		if ns._rgaliasNickHooked then return true end
-		local RGA = _G.RG_ALIAS
-		if RGA and RGA.RegisterCallback then
-			RGA.RegisterCallback("DbUpdated", function(event)
-				if ns.RefreshAllNames then ns.RefreshAllNames() end
-			end)
-			RGA.RegisterCallback("ModuleEnabled", function(event, moduleName)
-				if moduleName ~= "ellesmereui" then return end
-				if ns.RefreshAllNames then ns.RefreshAllNames() end
-			end)
-			RGA.RegisterCallback("ModuleDisabled", function(event, moduleName)
-				if moduleName ~= "ellesmereui" then return end
-				if ns.RefreshAllNames then ns.RefreshAllNames() end
-			end)
-			ns._rgaliasNickHooked = true
-			return true
-		end
-		return false
-	end
+    local function RegisterRGALIASNicknames()
+        if ns._rgaliasNickHooked then return true end
+        local RGA = _G.RG_ALIAS
+        if RGA and RGA.RegisterCallback and _G.RG_UnitName then
+            -- ns._rgaNick gates the ResolveDisplayName consult. The settings
+            -- shape is nil-guarded and only read here and in callbacks, never
+            -- per name resolve; a fresh RGA install with no settings table
+            -- yet simply reads as module-off.
+            local function SyncRGAFlag()
+                local s = RG_ALTS_SETTINGS and RG_ALTS_SETTINGS.settings
+                ns._rgaNick = (s and s["ellesmereui"]) and true or nil
+                if ns.RefreshAllNames then ns.RefreshAllNames() end
+            end
+            -- pcall: RGA owns its RegisterCallback signature; a mismatch or
+            -- future change must not error our OnEnable. If registration
+            -- fails, the flag is still seeded once below -- module toggles
+            -- then need a /reload to be noticed (degraded, never broken).
+            pcall(RGA.RegisterCallback, "DbUpdated", SyncRGAFlag)
+            pcall(RGA.RegisterCallback, "ModuleEnabled", function(event, moduleName)
+                if moduleName == "ellesmereui" then SyncRGAFlag() end
+            end)
+            pcall(RGA.RegisterCallback, "ModuleDisabled", function(event, moduleName)
+                if moduleName == "ellesmereui" then SyncRGAFlag() end
+            end)
+            local s = RG_ALTS_SETTINGS and RG_ALTS_SETTINGS.settings
+            ns._rgaNick = (s and s["ellesmereui"]) and true or nil
+            ns._rgaliasNickHooked = true
+            return true
+        end
+        return false
+    end
 
     local nsrtHooked = RegisterNSRTNicknames()
     local trHooked = RegisterTRNicknames()
-	local rgaliasHooked = RegisterRGALIASNicknames()
+    local rgaliasHooked = RegisterRGALIASNicknames()
     if not (nsrtHooked and trHooked and rgaliasHooked) then
         local nickFrame = CreateFrame("Frame")
         nickFrame:RegisterEvent("PLAYER_LOGIN")
@@ -16076,7 +16162,7 @@ function ERF:OnEnable()
         nickFrame:SetScript("OnEvent", function(self, event)
             local a = RegisterNSRTNicknames()
             local b = RegisterTRNicknames()
-			local c = RegisterRGALIASNicknames()
+            local c = RegisterRGALIASNicknames()
             -- Anything not loaded by first PLAYER_ENTERING_WORLD is not coming.
             if (a and b and c) or event == "PLAYER_ENTERING_WORLD" then self:UnregisterAllEvents() end
         end)

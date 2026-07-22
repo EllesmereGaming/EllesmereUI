@@ -2,7 +2,7 @@
 ## Title: |cff0cd29fEllesmereUI|r
 ## Notes: Shared framework for the EllesmereUI addon suite
 ## Author: Ellesmere
-## Version: 8.5.2
+## Version: 8.5.3
 ## SavedVariables: EllesmereUIDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 ## X-Curse-Project-ID: 1477613
@@ -59,12 +59,14 @@ EUI__General_Options.lua
 EUI_UnlockMode.lua
 EUI_PartyMode_Options.lua
 EllesmereUI_Glows.lua
+EllesmereUI_Range.lua
 EllesmereUI_AuraKit.lua
 EllesmereUI_FirstInstall.lua
 EllesmereUI_RaidFramesPopup.lua
 EllesmereUI_PatchNotesPopup.lua
 EllesmereUI_WindowSkinsPopup.lua
 EllesmereUI_SpecOverridesPopup.lua
+EllesmereUI_PTRManagersPopup.lua
 EllesmereUI_VideoGuides.lua
 
 # Spec Overrides (per-spec setting overrides within a profile)

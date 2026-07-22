@@ -3618,7 +3618,9 @@ local function GetOrCreateItemPresetFrame(barKey, itemID)
         if EllesmereUI and EllesmereUI._tooltipSuppressedByMode
            and EllesmereUI._tooltipSuppressedByMode(GameTooltip) then return end
         GameTooltip_SetDefaultAnchor(GameTooltip, self)
-        GameTooltip:SetItemByID(self._presetItemID)
+        -- Pot presets tooltip the resolved display variant (may be another
+        -- rank / Fleeting / the swapped-in partner pot), not the primary.
+        GameTooltip:SetItemByID(self._displayItemID or self._presetItemID)
         -- Re-assert the cursor anchor after content is set (item setters can drop
         -- it under "Anchor to Cursor", leaving the tip invisible). No-op otherwise.
         if EllesmereUI and EllesmereUI._repointTooltipAtCursor then
@@ -3631,6 +3633,112 @@ local function GetOrCreateItemPresetFrame(barKey, itemID)
     return f
 end
 ns.GetOrCreateItemPresetFrame = GetOrCreateItemPresetFrame
+
+-- ---------------------------------------------------------------------------
+-- Dynamic potion display for the two combat-pot presets (Light's Potential /
+-- Potion of Recklessness). The preset icon resolves to the best variant
+-- actually in bags (preset.displayOrder, best first) and shows THAT variant's
+-- icon, exact bag count, and tooltip -- 2 Fleeting pots show "2" even with 50
+-- regular ones in the bank of another rank. With the profile-level "Swap
+-- Light/Reckless Pots When Missing" toggle on, a preset whose own family is
+-- fully out of bags resolves the partner family's chain instead. Identity is
+-- untouched: the frame key, assigned-spell key, saved settings, and active
+-- states all stay on the preset's primary item; only the DISPLAY resolves, so
+-- a running cooldown swipe survives the icon swapping variants.
+-- Re-resolution is generation-gated: bag events, the options toggle, and
+-- profile changes bump/miss the gate; steady-state 10Hz ticks cost one compare.
+local PotSwap = {}
+do
+    local byKey, byPrimary, chains
+
+    function PotSwap.Enabled()
+        local p = ECME and ECME.db and ECME.db.profile
+        return (p and p.cdmBars and p.cdmBars.swapPotionsWhenMissing) == true
+    end
+
+    local function PresetByKey(key)
+        if not byKey then
+            byKey = {}
+            for _, pr in ipairs(ns.CDM_ITEM_PRESETS or {}) do byKey[pr.key] = pr end
+        end
+        return byKey[key]
+    end
+
+    -- Preset for a pot's PRIMARY item id (nil for every non-pot preset).
+    function PotSwap.ByPrimary(itemID)
+        if not byPrimary then
+            byPrimary = {}
+            for _, pr in ipairs(ns.CDM_ITEM_PRESETS or {}) do
+                if pr.displayOrder then byPrimary[pr.itemID] = pr end
+            end
+        end
+        return byPrimary[itemID]
+    end
+
+    -- Ordered id list to walk for a preset: own displayOrder, with the partner
+    -- family's appended while the swap toggle is on. Static data, built once
+    -- per preset; the live toggle read just picks which cached list to return.
+    function PotSwap.Chain(preset)
+        if not chains then chains = {} end
+        local c = chains[preset]
+        if not c then
+            c = { own = preset.displayOrder }
+            local partner = preset.swapWith and PresetByKey(preset.swapWith)
+            if partner and partner.displayOrder then
+                local both = {}
+                for i = 1, #preset.displayOrder do both[#both + 1] = preset.displayOrder[i] end
+                for i = 1, #partner.displayOrder do both[#both + 1] = partner.displayOrder[i] end
+                c.both = both
+            end
+            chains[preset] = c
+        end
+        return (c.both and PotSwap.Enabled()) and c.both or c.own
+    end
+
+    PotSwap.gen = 1
+    function PotSwap.Bump() PotSwap.gen = PotSwap.gen + 1 end
+
+    -- Resolve + stamp a pot-preset frame's display variant. Returns the display
+    -- item id, or nil when the frame is not a resolving pot preset (every other
+    -- item preset and user-added custom items -- their paths are untouched).
+    -- The primary-id check matters: a user who manually adds one specific
+    -- variant's item id gets that literal item, never the dynamic display.
+    -- Nothing owned anywhere in the chain falls back to the primary item at
+    -- count 0, so the icon keeps its slot (greyed) instead of vanishing.
+    function PotSwap.Ensure(f)
+        local preset = f._presetData
+        if not (preset and preset.displayOrder and f._presetItemID == preset.itemID) then return nil end
+        local en = PotSwap.Enabled()
+        if f._potResolveGen == PotSwap.gen and f._potResolveSwap == en then
+            return f._displayItemID
+        end
+        f._potResolveGen, f._potResolveSwap = PotSwap.gen, en
+        local chain = PotSwap.Chain(preset)
+        local id, count
+        for i = 1, #chain do
+            local c = C_Item.GetItemCount(chain[i], false, true) or 0
+            if c > 0 then id, count = chain[i], c; break end
+        end
+        if not id then id, count = preset.itemID, 0 end
+        f._displayCount = count
+        if f._displayItemID ~= id then
+            f._displayItemID = id
+            local icon = (id == preset.itemID) and preset.icon
+                or (C_Item.GetItemIconByID and C_Item.GetItemIconByID(id))
+                or preset.icon
+            if f._tex then f._tex:SetTexture(icon) end
+        end
+        return id
+    end
+end
+-- FakeActive (cooldown-state poll + cast-trigger mapping) reads the swap-aware
+-- chain for a pot preset's primary item id; nil for anything else.
+ns.GetPresetPotChain = function(itemID)
+    local pr = PotSwap.ByPrimary(itemID)
+    return pr and PotSwap.Chain(pr) or nil
+end
+-- Options toggle: force every pot frame to re-resolve on the next pass.
+ns._BumpPotResolveGen = PotSwap.Bump
 
 -- Guard: after ENCOUNTER_END clears item-preset caches, subsequent events
 -- fire before Blizzard has finished resetting potion CDs. Without this guard
@@ -3754,20 +3862,38 @@ local function ProcessPresetCooldowns()
                     end
                 end
             elseif f._isItemPresetFrame and f._presetItemID and now >= _encounterResetUntil then
-                local itemID = f._presetItemID
+                -- Pot presets: re-resolve the display variant (generation-gated,
+                -- one compare when nothing changed) and drive count/cooldown off
+                -- the resolved chain. Every other item preset keeps the legacy
+                -- primary-then-alts walk byte-identically.
+                local dispID = PotSwap.Ensure(f)
+                local itemID = dispID or f._presetItemID
+                local potChain = dispID and PotSwap.Chain(f._presetData) or nil
                 local getContainerCD = C_Container and C_Container.GetItemCooldown
                 local start, dur
-                if getContainerCD then
-                    start, dur = getContainerCD(itemID)
-                end
-                if not (start and dur and dur > 1.5) then
-                    start, dur = C_Item.GetItemCooldown(itemID)
-                end
-                if not (start and dur and dur > 1.5) and f._presetData and f._presetData.altItemIDs then
-                    for _, altID in ipairs(f._presetData.altItemIDs) do
-                        if getContainerCD then start, dur = getContainerCD(altID) end
-                        if not (start and dur and dur > 1.5) then start, dur = C_Item.GetItemCooldown(altID) end
+                if potChain then
+                    -- Only the owned/used item id reports the shared potion
+                    -- cooldown, so walk the full active chain (partner family
+                    -- included while the swap toggle is on).
+                    for i = 1, #potChain do
+                        local cid = potChain[i]
+                        if getContainerCD then start, dur = getContainerCD(cid) end
+                        if not (start and dur and dur > 1.5) then start, dur = C_Item.GetItemCooldown(cid) end
                         if start and dur and dur > 1.5 then break end
+                    end
+                else
+                    if getContainerCD then
+                        start, dur = getContainerCD(itemID)
+                    end
+                    if not (start and dur and dur > 1.5) then
+                        start, dur = C_Item.GetItemCooldown(itemID)
+                    end
+                    if not (start and dur and dur > 1.5) and f._presetData and f._presetData.altItemIDs then
+                        for _, altID in ipairs(f._presetData.altItemIDs) do
+                            if getContainerCD then start, dur = getContainerCD(altID) end
+                            if not (start and dur and dur > 1.5) then start, dur = C_Item.GetItemCooldown(altID) end
+                            if start and dur and dur > 1.5 then break end
+                        end
                     end
                 end
                 if start and dur and dur > 1.5 then
@@ -3778,10 +3904,18 @@ local function ProcessPresetCooldowns()
                     f._cdStart = nil; f._cdDur = nil
                 end
                 local itemOnCD = f._cdStart and f._cdDur and (now < f._cdStart + f._cdDur)
-                local total = C_Item.GetItemCount(f._presetItemID, false, true) or 0
-                if total == 0 and f._presetData and f._presetData.altItemIDs then
-                    for _, altID in ipairs(f._presetData.altItemIDs) do
-                        total = total + (C_Item.GetItemCount(altID, false, true) or 0)
+                local total
+                if dispID then
+                    -- Exact count of the resolved variant only -- never a sum
+                    -- across ranks/families (2 Fleeting shows 2, even with 50
+                    -- regular rank 1s in the bags).
+                    total = f._displayCount or 0
+                else
+                    total = C_Item.GetItemCount(f._presetItemID, false, true) or 0
+                    if total == 0 and f._presetData and f._presetData.altItemIDs then
+                        for _, altID in ipairs(f._presetData.altItemIDs) do
+                            total = total + (C_Item.GetItemCount(altID, false, true) or 0)
+                        end
                     end
                 end
                 if f._itemCountText then
@@ -3881,10 +4015,17 @@ local function CheckItemPresenceForHide()
         if f._isItemPresetFrame and f._presetItemID then
             local bd = f._ownerBarKey and barDataByKey[f._ownerBarKey]
             if bd and bd.hideItemsIfMissing then
-                local total = C_Item.GetItemCount(f._presetItemID, false, true) or 0
-                if total == 0 and f._presetData and f._presetData.altItemIDs then
-                    for _, altID in ipairs(f._presetData.altItemIDs) do
-                        total = total + (C_Item.GetItemCount(altID, false, true) or 0)
+                local total
+                if PotSwap.Ensure(f) then
+                    -- Pot presets: present = the resolved chain owns anything
+                    -- (partner family counts while the swap toggle is on).
+                    total = f._displayCount or 0
+                else
+                    total = C_Item.GetItemCount(f._presetItemID, false, true) or 0
+                    if total == 0 and f._presetData and f._presetData.altItemIDs then
+                        for _, altID in ipairs(f._presetData.altItemIDs) do
+                            total = total + (C_Item.GetItemCount(altID, false, true) or 0)
+                        end
                     end
                 end
                 if (total > 0) ~= f._hidePresenceCached then changed = true end
@@ -3897,6 +4038,9 @@ end
 _racialCdListener:SetScript("OnEvent", function(_, event, unit, _, spellID)
     -- Infrequent events: handle immediately and return
     if event == "BAG_UPDATE_DELAYED" then
+        -- Bag contents changed: pot-preset display variants must re-resolve
+        -- (before the presence check below, which reads the resolution).
+        PotSwap.Bump()
         CheckItemPresenceForHide()
         _presetCdDirty = true
         return
@@ -4521,6 +4665,10 @@ local function CollectAndReanchor()
                                 _injectedCustomBuffFrames[f] = true
                                 f._ownerBarKey = injKey
                                 f.layoutIndex = 6000 + idx
+                                -- Pot presets: resolve the display variant here too
+                                -- (generation-gated, ~free when clean) so a rebuild
+                                -- or profile change restamps the icon immediately.
+                                local dispID = PotSwap.Ensure(f)
                                 -- "Hide Items if Missing": mirror the CD/utility item
                                 -- path. When the bar opts in and the item (plus alts)
                                 -- isn't in bags, skip injection so it drops out of the
@@ -4531,10 +4679,15 @@ local function CollectAndReanchor()
                                 -- reanchor on every loot/sell/craft for the session.
                                 local skipMissing = false
                                 if bd.hideItemsIfMissing then
-                                    local total = C_Item.GetItemCount(itemID, false, true) or 0
-                                    if total == 0 and f._presetData and f._presetData.altItemIDs then
-                                        for _, altID in ipairs(f._presetData.altItemIDs) do
-                                            total = total + (C_Item.GetItemCount(altID, false, true) or 0)
+                                    local total
+                                    if dispID then
+                                        total = f._displayCount or 0
+                                    else
+                                        total = C_Item.GetItemCount(itemID, false, true) or 0
+                                        if total == 0 and f._presetData and f._presetData.altItemIDs then
+                                            for _, altID in ipairs(f._presetData.altItemIDs) do
+                                                total = total + (C_Item.GetItemCount(altID, false, true) or 0)
+                                            end
                                         end
                                     end
                                     f._hidePresenceCached = (total > 0)
@@ -5025,6 +5178,10 @@ local function CollectAndReanchor()
                                 -- Remember the bar that owns this frame so bag
                                 -- events can re-evaluate it even while hidden.
                                 f._ownerBarKey = barKey
+                                -- Pot presets: resolve the display variant here
+                                -- too (generation-gated, ~free when clean) so a
+                                -- rebuild or profile change restamps immediately.
+                                local dispID = PotSwap.Ensure(f)
                                 -- "Hide Items if Missing": when the bar opts in
                                 -- and the item (plus its alts) isn't in bags,
                                 -- skip injection entirely so it drops out of the
@@ -5032,10 +5189,15 @@ local function CollectAndReanchor()
                                 -- queues a reanchor, so it reappears on acquire.
                                 local skipMissing = false
                                 if barData and barData.hideItemsIfMissing then
-                                    local total = C_Item.GetItemCount(itemID, false, true) or 0
-                                    if total == 0 and f._presetData and f._presetData.altItemIDs then
-                                        for _, altID in ipairs(f._presetData.altItemIDs) do
-                                            total = total + (C_Item.GetItemCount(altID, false, true) or 0)
+                                    local total
+                                    if dispID then
+                                        total = f._displayCount or 0
+                                    else
+                                        total = C_Item.GetItemCount(itemID, false, true) or 0
+                                        if total == 0 and f._presetData and f._presetData.altItemIDs then
+                                            for _, altID in ipairs(f._presetData.altItemIDs) do
+                                                total = total + (C_Item.GetItemCount(altID, false, true) or 0)
+                                            end
                                         end
                                     end
                                     f._hidePresenceCached = (total > 0)

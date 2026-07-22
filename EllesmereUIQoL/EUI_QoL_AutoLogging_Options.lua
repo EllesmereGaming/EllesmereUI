@@ -47,13 +47,15 @@ local function TeleCfg()
     return EllesmereUIDB.teleportPrompt
 end
 
+-- Built as the tail of the Quality of Life page (chained from BuildQoLPage),
+-- not as its own tab. Lays out from yOffset and returns the height used,
+-- like every other section builder.
 local function BuildAutoLoggingPage(pageName, parent, yOffset)
     local W  = EllesmereUI.Widgets
     local PP = EllesmereUI.PanelPP
     local y  = yOffset
     local _, h
 
-    if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
     parent._showRowDivider = true
 
     ---------------------------------------------------------------------------
@@ -260,7 +262,7 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
         y = y - lustH
     end
 
-    parent:SetHeight(math.abs(y - yOffset))
+    return math.abs(y - yOffset)
 end
 
 _G._EUI_BuildAutoLoggingPage = BuildAutoLoggingPage

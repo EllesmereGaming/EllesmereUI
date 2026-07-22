@@ -6211,7 +6211,7 @@ function EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s)
     -- Multi-select path (nil = legacy single mode below; the dragonriding
     -- scalar also routes here, same predicate CheckVisibilityMode uses)
     if EllesmereUI and EllesmereUI.EvalVisibilityExtended then
-        local ext = EllesmereUI.EvalVisibilityExtended(s, "barVisibility", state, EllesmereUI.VIS_CAPS_INCLUSIVE)
+        local ext = EllesmereUI.EvalVisibilityExtended(s, "barVisibility", state, EllesmereUI.VIS_CAPS_DEFAULT)
         if ext ~= nil then return ext end
     end
     if EllesmereUI and EllesmereUI.CheckVisibilityMode then

@@ -658,7 +658,6 @@ initFrame:SetScript("OnEvent", function(self)
         -- it with Bar Opacity, exactly like the live bar.
         strip._edbBorder = PP.CreateBorder(strip, 0, 0, 0, 0.8, 1, "OVERLAY", 7)
         ns.MakePreviewBackdrop(strip, cfg.theme)
-        if cfg.enabled == false then strip:SetAlpha(0.45) end
         _edbPreviewHost = strip
 
         local stripUsable = stripLen - SEDGE * 2
@@ -1326,6 +1325,9 @@ initFrame:SetScript("OnEvent", function(self)
                 for bi = 1, #cfg.blocks do
                     if cfg.blocks[bi].type == t.key then onBar = true break end
                 end
+                -- Spacers are the one type meant to repeat on a bar, so the
+                -- already-on-bar dim cue never applies to them.
+                if t.key == "spacer" then onBar = false end
                 local baseA = tDimA
                 local hoverA = 1
                 if onBar then baseA = 0.28; hoverA = 0.55 end
@@ -2728,8 +2730,8 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
                 typeRows = {
-                    { type = "dropdown", text = "Hearthstone",
-                      tooltip = "Which hearthstone the left-click uses. Random Hearthstone picks a random owned variant each cast.",
+                    { type = "dropdown", text = "Left Click",
+                      tooltip = "Which hearthstone the left click uses. Random Hearthstone picks a random owned variant each cast. Right click always rolls a random one.",
                       values = hsValues, order = hsOrder,
                       getValue = function()
                           local c = s.hsChoice

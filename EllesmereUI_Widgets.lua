@@ -3301,6 +3301,18 @@ local function BuildTrioColorSwatch(parentFrame, baseLevel, opts)
         ShowWidgetTooltip(customSwatch, "Custom Color")
     end)
     customSwatch:HookScript("OnLeave", function() HideWidgetTooltip() end)
+    -- House multiSwatch convention: clicking an INACTIVE custom swatch only
+    -- selects custom mode; the picker opens on a second click while custom
+    -- is already active (matches every mode-swatch row suite-wide).
+    customSwatch._eabOrigClick = customSwatch:GetScript("OnClick")
+    customSwatch:SetScript("OnClick", function(self)
+        if opts.getMode() ~= "custom" then
+            opts.setMode("custom")
+            if opts.onChange then opts.onChange() end
+            return
+        end
+        if self._eabOrigClick then self._eabOrigClick(self) end
+    end)
 
     local defaultSwatch = BuildColorSwatch(parentFrame, baseLevel,
         function() return DEFAULT_UNTINTED_R, DEFAULT_UNTINTED_G, DEFAULT_UNTINTED_B, 1 end,
@@ -5092,28 +5104,40 @@ local function BuildCogPopup(opts)
                 local SAVE_W = 34
                 local SAVE_GAP = 4
 
-                -- Save button (always visible, right of input)
-                local EG = ELLESMERE_GREEN
-                local saveBtn = CreateFrame("Button", nil, pf)
-                saveBtn:SetSize(SAVE_W, ROW_H - 4)
-                saveBtn:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
-                saveBtn:SetFrameLevel(pf:GetFrameLevel() + 3)
-                local saveBg = SolidTex(saveBtn, "BACKGROUND", EG.r, EG.g, EG.b, 0.85)
-                saveBg:SetAllPoints()
-                local saveLbl = MakeFont(saveBtn, 10, nil, 1, 1, 1)
-                saveLbl:SetAlpha(0.9)
-                saveLbl:SetText(EllesmereUI.L("Save"))
-                saveLbl:SetPoint("CENTER")
-                saveBtn:SetScript("OnEnter", function()
-                    saveBg:SetColorTexture(EG.r + (1 - EG.r) * 0.25, EG.g + (1 - EG.g) * 0.25, EG.b + (1 - EG.b) * 0.25, 0.95)
-                    saveLbl:SetAlpha(1)
-                end)
-                saveBtn:SetScript("OnLeave", function() saveBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85); saveLbl:SetAlpha(0.9) end)
+                -- commitOnBlur mode: no Save button; commit on Enter and on focus
+                -- loss (matches the threshold EditBoxes). Otherwise the classic
+                -- explicit Save button.
+                local commitOnBlur = row.commitOnBlur
 
-                -- Input box (left of save button)
+                -- Save button (right of input) -- omitted in commitOnBlur mode.
+                local EG = ELLESMERE_GREEN
+                local saveBtn, saveBg, saveLbl
+                if not commitOnBlur then
+                    saveBtn = CreateFrame("Button", nil, pf)
+                    saveBtn:SetSize(SAVE_W, ROW_H - 4)
+                    saveBtn:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
+                    saveBtn:SetFrameLevel(pf:GetFrameLevel() + 3)
+                    saveBg = SolidTex(saveBtn, "BACKGROUND", EG.r, EG.g, EG.b, 0.85)
+                    saveBg:SetAllPoints()
+                    saveLbl = MakeFont(saveBtn, 10, nil, 1, 1, 1)
+                    saveLbl:SetAlpha(0.9)
+                    saveLbl:SetText(EllesmereUI.L("Save"))
+                    saveLbl:SetPoint("CENTER")
+                    saveBtn:SetScript("OnEnter", function()
+                        saveBg:SetColorTexture(EG.r + (1 - EG.r) * 0.25, EG.g + (1 - EG.g) * 0.25, EG.b + (1 - EG.b) * 0.25, 0.95)
+                        saveLbl:SetAlpha(1)
+                    end)
+                    saveBtn:SetScript("OnLeave", function() saveBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85); saveLbl:SetAlpha(0.9) end)
+                end
+
+                -- Input box (left of save button, or flush right in commitOnBlur mode)
                 local box = CreateFrame("EditBox", nil, pf)
                 box:SetSize(inputW, ROW_H - 4)
-                box:SetPoint("RIGHT", saveBtn, "LEFT", -SAVE_GAP, 0)
+                if commitOnBlur then
+                    box:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
+                else
+                    box:SetPoint("RIGHT", saveBtn, "LEFT", -SAVE_GAP, 0)
+                end
                 box:SetAutoFocus(false)
                 box:SetFont(EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 11, "")
                 box:SetTextColor(1, 1, 1, POPUP_INPUT_A)
@@ -5122,25 +5146,40 @@ local function BuildCogPopup(opts)
                 boxBg:SetAllPoints()
                 box:SetText(row.get and row.get() or "")
 
+                local _committing = false  -- guard ClearFocus -> OnEditFocusLost reentry
                 local function ApplyInput()
+                    if _committing then return end
+                    _committing = true
                     box:ClearFocus()
                     if row.set then row.set(box:GetText()) end
                     if pf._refresh then pf._refresh() end
                     -- Brief white flash on save button as confirmation
-                    saveBg:SetColorTexture(1, 1, 1, 0.9)
-                    saveLbl:SetText(EllesmereUI.L("Saved"))
-                    C_Timer.After(0.4, function()
-                        saveBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
-                        saveLbl:SetText(EllesmereUI.L("Save"))
-                    end)
+                    if saveBg then
+                        saveBg:SetColorTexture(1, 1, 1, 0.9)
+                        saveLbl:SetText(EllesmereUI.L("Saved"))
+                        C_Timer.After(0.4, function()
+                            saveBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
+                            saveLbl:SetText(EllesmereUI.L("Save"))
+                        end)
+                    end
+                    _committing = false
                 end
 
                 box:SetScript("OnEnterPressed", function(self) ApplyInput() end)
                 box:SetScript("OnEscapePressed", function(self)
-                    self:ClearFocus()
+                    -- Cancel: guard + restore BEFORE ClearFocus -- in
+                    -- commitOnBlur mode ClearFocus fires OnEditFocusLost,
+                    -- which would otherwise SAVE the discarded text.
+                    _committing = true
                     self:SetText(row.get and row.get() or "")
+                    self:ClearFocus()
+                    _committing = false
                 end)
-                saveBtn:SetScript("OnClick", function() ApplyInput() end)
+                if commitOnBlur then
+                    box:SetScript("OnEditFocusLost", function() ApplyInput() end)
+                else
+                    saveBtn:SetScript("OnClick", function() ApplyInput() end)
+                end
 
                 -- Disabled overlay for input
                 local inputDis
@@ -6850,6 +6889,80 @@ local function SetLessCommonSearchActive(active)
 end
 
 -------------------------------------------------------------------------------
+--  BuildInlineSwatches(region, swatches, opts)
+--
+--  Inline form of the multiSwatch half: builds the same swatch list (tooltip,
+--  hasAlpha, getValue/setValue, onClick override, per-swatch disabled +
+--  disabledTooltip, refreshAlpha) to the LEFT of the region's control, so a
+--  slider (or any control half) can host its color swatches on the same row.
+--  Chains region._lastInline, so a cog button built afterwards lands left of
+--  the swatches. opts.disabled/opts.disabledTooltip mirror the row-level
+--  disabled state of the multiSwatch form.
+-------------------------------------------------------------------------------
+local function BuildInlineSwatches(region, swatches, opts)
+    opts = opts or {}
+    local level = region:GetFrameLevel() + 3
+    local anchorTo = region._lastInline or region._control
+    for i = #swatches, 1, -1 do
+        local sc = swatches[i]
+        local swatch, updateSwatch = BuildColorSwatch(region, level, sc.getValue, sc.setValue, sc.hasAlpha)
+        PP.Point(swatch, "RIGHT", anchorTo, "LEFT", -8, 0)
+        anchorTo = swatch
+        region._lastInline = swatch
+        if sc.onClick then
+            swatch._eabOrigClick = swatch:GetScript("OnClick")
+            swatch:SetScript("OnClick", sc.onClick)
+        end
+        local function SwatchEffectiveDisabled()
+            if opts.disabled and opts.disabled() then return true end
+            if sc.disabled ~= nil then
+                if type(sc.disabled) == "function" then return sc.disabled() end
+                return sc.disabled
+            end
+            return false
+        end
+        if opts.disabled or sc.disabled then
+            local swatchBlock = CreateFrame("Frame", nil, swatch)
+            swatchBlock:SetAllPoints()
+            swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
+            swatchBlock:EnableMouse(true)
+            swatchBlock:SetScript("OnEnter", function()
+                local src = (sc.disabledTooltip ~= nil) and sc or opts
+                local tip = ResolveDisabledTip(src)
+                if tip then ShowWidgetTooltip(swatch, tip) end
+            end)
+            swatchBlock:SetScript("OnLeave", function() HideWidgetTooltip() end)
+            local function UpdateSwatchDisabled()
+                if SwatchEffectiveDisabled() then
+                    swatch:SetAlpha(0.3)
+                    swatchBlock:Show()
+                else
+                    swatch:SetAlpha(1)
+                    swatchBlock:Hide()
+                end
+            end
+            UpdateSwatchDisabled()
+            RegisterWidgetRefresh(UpdateSwatchDisabled)
+        end
+        if sc.tooltip then
+            swatch:HookScript("OnEnter", function() ShowWidgetTooltip(swatch, sc.tooltip) end)
+            swatch:HookScript("OnLeave", function() HideWidgetTooltip() end)
+        end
+        if sc.refreshAlpha then
+            local _sw, _ra = swatch, sc.refreshAlpha
+            local function UpdateAlpha()
+                if SwatchEffectiveDisabled() then return end
+                _sw:SetAlpha(_ra())
+            end
+            UpdateAlpha()
+            RegisterWidgetRefresh(UpdateAlpha)
+        end
+        RegisterWidgetRefresh(function() updateSwatch() end)
+    end
+end
+EllesmereUI.BuildInlineSwatches = BuildInlineSwatches
+
+-------------------------------------------------------------------------------
 --  Hidden-While-Disabled Section Gate
 --
 --  For sections whose master toggle HIDES the dependent rows instead of
@@ -7203,6 +7316,14 @@ end  -- end deferred init
 -------------------------------------------------------------------------------
 function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, getFn, setFn, onChanged, maxVisibleItems, searchable, closeButton, onMenuClosed)
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
+    -- Opt-in dynamic items: pass a FUNCTION returning the items array and
+    -- it re-evaluates on every menu OPEN (the menu rebuilds), so lists
+    -- that depend on other settings never go stale. A table stays static.
+    local itemsFn
+    if type(items) == "function" then
+        itemsFn = items
+        items = itemsFn() or {}
+    end
     local ddBtn = CreateFrame("Button", nil, parentFrame)
     PP.Size(ddBtn, ddW, 30)
     ddBtn:SetFrameLevel(fLevel)
@@ -7226,7 +7347,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         local names = {}
         local total = 0
         for _, item in ipairs(items) do
-            if not item.isHeader then
+            if not item.isHeader and not item.isTopAction then
                 total = total + 1
                 if getFn(item.key) then names[#names + 1] = EllesmereUI.L(item.label) end
             end
@@ -7244,10 +7365,21 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         if menu then return end
         local ITEM_H = 28
         local HDR_H = 22
+        -- Opt-in top-action rows (item.isTopAction with label + onClick):
+        -- accent clickable entries pinned ABOVE the search box with a
+        -- divider under the group -- the "Custom Spell ID at the top"
+        -- pattern from the CDM spell pickers. Excluded from the scroll
+        -- list, the checkable count, and the summary label.
+        local topActions = {}
+        for _, item in ipairs(items) do
+            if item.isTopAction then topActions[#topActions + 1] = item end
+        end
+        local TOP_H = (#topActions > 0) and (#topActions * ITEM_H + 7) or 0
         local checkableCount = 0
         local contentH = 8
         for _, item in ipairs(items) do
-            if item.isHeader then contentH = contentH + HDR_H
+            if item.isTopAction then -- rendered above the search box
+            elseif item.isHeader then contentH = contentH + HDR_H
             else contentH = contentH + ITEM_H; checkableCount = checkableCount + 1 end
         end
         local SEARCH_H = searchable and 26 or 0
@@ -7255,7 +7387,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         contentH = contentH + CLOSE_BTN_H
         local needsScroll = maxVisibleItems and checkableCount > maxVisibleItems
         -- +2 accounts for scroll frame 1px top + 1px bottom insets so non-scrolling menus don't scroll
-        local menuH = (needsScroll and (4 + maxVisibleItems * ITEM_H + 4 + CLOSE_BTN_H) or (contentH + 4)) + SEARCH_H
+        local menuH = (needsScroll and (4 + maxVisibleItems * ITEM_H + 4 + CLOSE_BTN_H) or (contentH + 4)) + SEARCH_H + TOP_H
         menu = CreateFrame("Frame", nil, UIParent)
         menu:SetFrameStrata("FULLSCREEN_DIALOG")
         menu:SetFrameLevel(200)
@@ -7271,12 +7403,49 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         local ppScale = EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale() or 1
         menu:SetScale(ppScale)
 
+        -- Top-action rows above the search box, divider under the group.
+        if #topActions > 0 then
+            local ay = -4
+            for i = 1, #topActions do
+                local item = topActions[i]
+                local row = CreateFrame("Button", nil, menu)
+                row:SetHeight(ITEM_H)
+                row:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, ay)
+                row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, ay)
+                row:SetFrameLevel(menu:GetFrameLevel() + 2)
+                local lbl = row:CreateFontString(nil, "OVERLAY")
+                lbl:SetFont(fontPath, 13, "")
+                lbl:SetTextColor(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 0.8)
+                lbl:SetPoint("LEFT", row, "LEFT", 10, 0)
+                lbl:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+                lbl:SetJustifyH("LEFT")
+                lbl:SetWordWrap(false)
+                lbl:SetMaxLines(1)
+                lbl:SetText(EllesmereUI.L(item.label))
+                local hl = row:CreateTexture(nil, "ARTWORK")
+                hl:SetAllPoints()
+                hl:SetColorTexture(1, 1, 1, 0)
+                row:SetScript("OnEnter", function() hl:SetColorTexture(1, 1, 1, 0.06) end)
+                row:SetScript("OnLeave", function() hl:SetColorTexture(1, 1, 1, 0) end)
+                row:SetScript("OnClick", function()
+                    menu:Hide()
+                    if item.onClick then item.onClick() end
+                end)
+                ay = ay - ITEM_H
+            end
+            local divider = menu:CreateTexture(nil, "ARTWORK")
+            divider:SetHeight(1)
+            divider:SetPoint("TOPLEFT", menu, "TOPLEFT", 10, ay - 3)
+            divider:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -10, ay - 3)
+            divider:SetColorTexture(0.3, 0.3, 0.3, 0.5)
+        end
+
         -- Search box (optional)
         local searchEdit, searchPlaceholder
         if searchable then
             searchEdit = CreateFrame("EditBox", nil, menu)
             searchEdit:SetSize(ddW - 16, SEARCH_H)
-            searchEdit:SetPoint("TOP", menu, "TOP", 0, -4)
+            searchEdit:SetPoint("TOP", menu, "TOP", 0, -4 - TOP_H)
             searchEdit:SetFrameLevel(menu:GetFrameLevel() + 3)
             searchEdit:SetFont(fontPath, 11, "")
             searchEdit:SetTextColor(1, 1, 1, 0.9)
@@ -7297,7 +7466,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
 
         -- Scroll frame for items
         local sf = CreateFrame("ScrollFrame", nil, menu)
-        local sfTop = -(SEARCH_H > 0 and (SEARCH_H + 8) or 1)
+        local sfTop = -((SEARCH_H > 0 and (SEARCH_H + 8) or 1) + TOP_H)
         sf:SetPoint("TOPLEFT", 1, sfTop)
         sf:SetPoint("BOTTOMRIGHT", -1, 1)
         sf:EnableMouseWheel(true)
@@ -7384,8 +7553,10 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         local yOff = -4
         local _allRows = {}  -- { frame, isHeader, label(string), height }
         for _, item in ipairs(items) do
+            -- Top-action items render above the search box, never here.
+            if item.isTopAction then -- luacheck: ignore (intentional empty)
             -- Header/divider items: non-interactive label
-            if item.isHeader then
+            elseif item.isHeader then
                 local hdrH = 22
                 local hdr = CreateFrame("Frame", nil, itemParent)
                 hdr:SetHeight(hdrH)
@@ -7714,6 +7885,18 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
     end)
 
     local function ShowMenu()
+        -- Dynamic items: re-evaluate and rebuild the menu on every open
+        -- (only when about to show -- a toggle-close never rebuilds).
+        if itemsFn and not (menu and menu:IsShown()) then
+            items = itemsFn() or {}
+            if menu then
+                menu:Hide()
+                menu:SetParent(nil)
+                menu = nil
+                ddBtn._ddMenu = nil
+            end
+            UpdateLabel()
+        end
         EnsureMenu()
         if menu:IsShown() then
             menu:Hide()

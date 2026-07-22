@@ -25,7 +25,13 @@ local FALLBACK_FONT = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.
 ns.RFC_OwnsDebuffs = true
 ns.RFC_OwnsDefensives = true
 ns.RFC_OwnsDispel = true
-ns.RFC_OwnsBM = true -- custom display mode only; simple grid is still legacy
+ns.RFC_OwnsBM = true -- both BM display modes (custom slots/chains + simple grid group)
+
+-- 12.1 redesign (Auras tab retired): the standalone defensives/externals
+-- row no longer renders -- the Buff Manager owns those displays. The flag
+-- keeps every def-container build/config site inert without deleting the
+-- machinery (flip to nil to resurrect for comparison testing).
+ns.RFC_DefensivesRetired = true
 
 -- Migration scaffolding: the NOT-yet-migrated legacy aura paths (defensives,
 -- dispel border, BuffManager) hard-error while auras are secret, and those
@@ -53,6 +59,9 @@ local SATED_DEBUFFS = {
     [160455] = true, [264689] = true, [390435] = true, [428628] = true,
 }
 local ALWAYS_HIDE_DEBUFFS = { [1254550] = true, [308312] = true }
+-- Shared with the Debuff Manager file (same exclude semantics there).
+ns.RFC_SatedDebuffs = SATED_DEBUFFS
+ns.RFC_AlwaysHideDebuffs = ALWAYS_HIDE_DEBUFFS
 
 -- The "raid" preset is a union (RAID or RAID_IN_COMBAT), so the container
 -- declares both as negation-chained groups; presets enable groups by count,
@@ -96,7 +105,11 @@ for i = 1, #DEBUFF_GROUPS do DEBUFF_GROUP_BY_KEY[DEBUFF_GROUPS[i].key] = DEBUFF_
 local DISPLOC_TYPES = { Magic = true, Curse = true, Disease = true, Poison = true, Bleed = true }
 
 local function DispLocActive(s)
-    return (s.dispellableDebuffLocation or "same") ~= "same"
+    -- 12.1 redesign: the dispellable-location split retired with the Auras
+    -- tab (route Dispellable to a Debuff Manager tile instead). Constant
+    -- false keeps every consumer (shell gating, config, shown state,
+    -- candidate excludes, fingerprints) uniformly inert.
+    return false
 end
 
 -- Phase A cannot know a button's final class (party creation stamps
@@ -151,6 +164,7 @@ local DEF_GROUPS = {
 local DEF_CAP = 4
 
 local registry = {} -- array of buttons with containers (iterate for reload)
+ns._rfcRegistry = registry -- DEBUG: /euidm dump reads this; remove with the slash
 
 local function ProxyFor(d)
     if d._isParty then return ns._scaledPartyProxy end
@@ -166,6 +180,100 @@ end
 
 -- Debuff text pass: duration text centered (cooldown-countdown style), stack
 -- text bottom-right, both through the shared icon-text font pipeline.
+-- DM EFFECTS: per-filter effect BLOCKS (style.fxList). Buttons know their
+-- record category via d.dmCat (stamped at group declare); cc-group buttons
+-- identify through the cc style (its ccGlowType field is always set
+-- there). The combined boss/role record matches either check; the FIRST
+-- matching block wins. Each block carries an optional Icon Glow (CC-glow
+-- overlay mechanics: child rides button visibility, driver styles remap to
+-- FlipBook under restriction, params cached) and an optional Border
+-- override (own PP border host one level over the style border -- equal or
+-- larger size covers it).
+local function DmFxBlockFor(list, cat)
+    if not (list and cat) then return nil end
+    for i = 1, #list do
+        local f = list[i].filters
+        if f and (f[cat] or (cat == "bossrole" and (f.boss or f.role))) then
+            return list[i]
+        end
+    end
+end
+
+local function ApplyDmFx(button, d, style)
+    local cat = d.dmCat
+    if not cat and style.ccGlowType ~= nil then cat = "cc" end
+    local e = style.fxList and DmFxBlockFor(style.fxList, cat) or nil
+
+    -- Icon Glow
+    local Glows = EllesmereUI.Glows
+    local gType = (e and e.glowType) or 0
+    if gType > 0 and Glows and Glows.RestrictionSafeStyle then
+        gType = Glows.RestrictionSafeStyle(gType)
+    end
+    local gov = d.dmFxgHost
+    if gType > 0 and Glows and Glows.StartGlow then
+        if not gov then
+            gov = CreateFrame("Frame", nil, button)
+            gov:SetAllPoints(button)
+            -- Above BOTH borders (style border at cooldown+1; the fx
+            -- border override rides one over it), below the text: the AK
+            -- text carrier sits only one level over the style border, so
+            -- lift it too -- final order is border < fx border < glow <
+            -- text. (Creation-window calls; our frames.)
+            local base = (d.borderHost and d.borderHost:GetFrameLevel())
+                or (button:GetFrameLevel() + 1)
+            gov:SetFrameLevel(base + 2)
+            if d.stackCarrier then d.stackCarrier:SetFrameLevel(base + 3) end
+            gov:EnableMouse(false)
+            d.dmFxgHost = gov
+        end
+        gov:Show()
+        local cr, cg, cb = e.glowR or 1.0, e.glowG or 0.776, e.glowB or 0.376
+        if e.glowClassColor then
+            local _, classFile = UnitClass("player")
+            local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+            if cc then cr, cg, cb = cc.r, cc.g, cc.b end
+        end
+        local sz = style.width or 18
+        if (not gov._euiGlowActive) or gov._fxStyle ~= gType or gov._fxW ~= sz
+           or gov._fxCR ~= cr or gov._fxCG ~= cg or gov._fxCB ~= cb then
+            Glows.StartGlow(gov, gType, sz, cr, cg, cb)
+            gov._fxStyle, gov._fxW = gType, sz
+            gov._fxCR, gov._fxCG, gov._fxCB = cr, cg, cb
+        end
+    elseif gov then
+        if gov._euiGlowActive and Glows and Glows.StopGlow then Glows.StopGlow(gov) end
+        gov:Hide()
+    end
+
+    -- Border override
+    local PP = EllesmereUI.PP
+    local bSize = (e and e.borderSize) or 0
+    if bSize > 0 and PP then
+        local host = d.dmFxBdr
+        if not host then
+            host = CreateFrame("Frame", nil, button)
+            host:SetAllPoints(button)
+            local base = (d.borderHost and d.borderHost:GetFrameLevel())
+                or (button:GetFrameLevel() + 1)
+            host:SetFrameLevel(base + 1)
+            host:EnableMouse(false)
+            PP.CreateBorder(host, 0, 0, 0, 1, 1)
+            d.dmFxBdr = host
+        end
+        local bc = e.borderColor or { r = 0, g = 0, b = 0 }
+        PP.UpdateBorder(host, bSize, bc.r or 0, bc.g or 0, bc.b or 0, 1)
+        host:Show()
+    elseif d.dmFxBdr then
+        d.dmFxBdr:Hide()
+    end
+end
+-- Exported for the DM record/group extraInits: the style applier runs
+-- BEFORE extraInit at button creation, so the dmCat stamp is not yet set
+-- there -- the stamping extraInit re-arms the effects inside the creation
+-- window (the only context where subtree writes are guaranteed legal).
+ns.RFC_ApplyDmFx = ApplyDmFx
+
 local function ApplyRFDebuffText(button, d, style)
     -- Restyles hit every registered button, so the expensive setters are
     -- change-guarded: SetFont costs real time even with identical values,
@@ -218,6 +326,27 @@ local function ApplyRFDebuffText(button, d, style)
             d.stack:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", style.stackOffX or 0, style.stackOffY or 0)
             d.rfStackAnchor = sKey
         end
+    end
+    -- DM Effects: per-filter blocks (flag only on DM styles; the extra
+    -- clauses tear existing visuals down when the blocks turn off).
+    if style.fxList or d.dmFxgHost or d.dmFxBdr then
+        ApplyDmFx(button, d, style)
+    end
+    -- DM Square grid tiles: a flat color block covering the spell icon
+    -- (swipe/border/texts render above it as usual). Flag exists only on
+    -- square tile styles = zero cost everywhere else.
+    if style.squareColor then
+        local tex = d.dmSqTex
+        if not tex then
+            tex = button:CreateTexture(nil, "ARTWORK", nil, 3)
+            tex:SetAllPoints(button)
+            d.dmSqTex = tex
+        end
+        local c = style.squareColor
+        tex:SetColorTexture(c.r or 1, c.g or 0.35, c.b or 0.35, c.a or 1)
+        tex:Show()
+    elseif d.dmSqTex then
+        d.dmSqTex:Hide()
     end
 end
 
@@ -305,6 +434,9 @@ local function BuildDebuffStyle(s, sizeOverride)
         stackOffX = s.debuffStacksOffsetX,
         stackOffY = s.debuffStacksOffsetY,
         noTooltips = s.debuffHideTooltips ~= false,
+        -- Base DM Effects (per-filter blocks); tile styles override this
+        -- after the build with their own (or nil).
+        fxList = (ns.DM_FxList and ns.DM_FxList()) or nil,
         applyExtra = ApplyRFDebuffText,
     }
 end
@@ -388,6 +520,9 @@ local function BuildDebuffCCStyle(s, sizeOverride)
     st.ccGlowBgB = s.debuffCCGlowBackgroundB
     return st
 end
+-- Shared with the Debuff Manager file: custom tiles render with the debuff
+-- style at their own size (same derivation the dispellable split uses).
+ns.RFC_BuildDebuffStyle = BuildDebuffStyle
 
 -- Container anchoring that mirrors DebuffGridPoint: the flow's start corner
 -- sits on the same corner of the health bar; CENTER growth anchors the
@@ -525,6 +660,12 @@ local function AnchorDefContainer(container, health, s)
 end
 
 local function ApplyDefConfig(container, s, d)
+    -- 12.1 redesign: defensives row retired (see RFC_DefensivesRetired) --
+    -- the container is never built, and any stale one stays parked.
+    if ns.RFC_DefensivesRetired then
+        if container then container:SetShown(false) end
+        return
+    end
     local size = s.defSize or 22
     local spacing = s.defSpacing or 1
     local layout = {
@@ -625,7 +766,9 @@ local function ApplyRFDispelSlot(button, dd, style)
 
     local c = style.typeColors and style.typeColors[def.token]
     local r, g, b = c and c.r or 1, c and c.g or 1, c and c.b or 1
-    local alpha = (style.opacity or 100) / 100
+    -- Per-type alpha (0 = user opted this type out of the dispel visuals)
+    local typeA = (c and c.a) or 1
+    local alpha = (style.opacity or 100) / 100 * typeA
 
     -- Overlay texture (fill / full / gradient), legacy ARTWORK sublevel 3.
     if not dd.overlay then
@@ -666,9 +809,9 @@ local function ApplyRFDispelSlot(button, dd, style)
         end
         dd.borderHost:SetFrameLevel(health:GetFrameLevel() + 6 + def.level)
         if dd.borderMade then
-            PP.UpdateBorder(dd.borderHost, style.borderSize, r, g, b, 1)
+            PP.UpdateBorder(dd.borderHost, style.borderSize, r, g, b, typeA)
         else
-            PP.CreateBorder(dd.borderHost, r, g, b, 1, style.borderSize, "OVERLAY", 7)
+            PP.CreateBorder(dd.borderHost, r, g, b, typeA, style.borderSize, "OVERLAY", 7)
             dd.borderMade = true
         end
         dd.borderHost:Show()
@@ -708,6 +851,7 @@ local function BuildDispelStyle(s)
             r = c and c.r or def.fallback[1],
             g = c and c.g or def.fallback[2],
             b = c and c.b or def.fallback[3],
+            a = (c and c.a) or 1,
         }
     end
     return {
@@ -745,15 +889,22 @@ local function DebuffStyleFP(s, font)
         CK(s.debuffStacksTextColor), s.debuffStacksOffsetX, s.debuffStacksOffsetY, s.debuffHideTooltips,
         s.debuffCCGlowType, s.debuffCCGlowClassColor, s.debuffCCGlowR, s.debuffCCGlowG, s.debuffCCGlowB,
         s.debuffCCGlowLines, s.debuffCCGlowThickness, s.debuffCCGlowSpeed, s.debuffCCGlowBackground,
-        s.debuffCCGlowBackgroundR, s.debuffCCGlowBackgroundG, s.debuffCCGlowBackgroundB)
+        s.debuffCCGlowBackgroundR, s.debuffCCGlowBackgroundG, s.debuffCCGlowBackgroundB,
+        -- Base DM Effects ride the debuff style (BuildDebuffStyle injects
+        -- them), so their config is part of this fingerprint.
+        (ns.DM_FxFP and ns.DM_FxFP()) or "")
 end
+-- Shared with the Debuff Manager file: tile styles derive from the debuff
+-- style, so their restyle fingerprints must include this exact value.
+ns.RFC_DebuffStyleFP = DebuffStyleFP
 
 local function DebuffCfgFP(s)
     -- DispLocActive: the split toggles excludeDispelTypes on the MAIN groups'
     -- candidate filters, so flipping it must re-drive the main config too.
     return FP(s.debuffPosition, s.debuffGrowDirection, s.debuffWrapDirection, s.debuffOffsetX,
         s.debuffOffsetY, s.debuffSize, s.debuffSpacing, s.debuffPerRow, s.debuffFilter,
-        s.debuffCap, s.hideLustDebuff, DispLocActive(s), s.powerUniformAnchors)
+        s.debuffCap, s.hideLustDebuff, DispLocActive(s), s.powerUniformAnchors,
+        (ns.DM_CfgFP and ns.DM_CfgFP()) or "")
 end
 
 local function DispLocStyleFP(s, font)
@@ -778,11 +929,16 @@ local function DefCfgFP(s)
         s.showExternals, s.showDefensives, s.powerUniformAnchors)
 end
 
+-- Color key + per-type alpha (the dispel swatches carry an opt-out alpha).
+local function CKA(c)
+    return CK(c) .. "," .. tostring((c and c.a) or 1)
+end
+
 local function DispelStyleFP(s)
     return FP(s.dispelOverlay, s.dispelOverlayOpacity, s.dispelBorderSize, s.showDispelIcons,
         s.dispelIconSize, s.dispelIconPosition, s.dispelIconOffsetX, s.dispelIconOffsetY,
-        CK(s.dispelColorMagic), CK(s.dispelColorCurse), CK(s.dispelColorDisease),
-        CK(s.dispelColorPoison), CK(s.dispelColorBleed), s.powerUniformAnchors)
+        CKA(s.dispelColorMagic), CKA(s.dispelColorCurse), CKA(s.dispelColorDisease),
+        CKA(s.dispelColorPoison), CKA(s.dispelColorBleed), s.powerUniformAnchors)
 end
 
 -- Stores the current fingerprints without restyling. Called at button
@@ -804,85 +960,21 @@ local function PrimeClassFP(styleKey, s)
 end
 
 local function ApplyDebuffConfig(container, d, s)
-    local preset = s.debuffFilter or "all"
-    local cap = 0
-    if preset ~= "none" then cap = s.debuffCap or 3 end
-
-    local enabled = {}
-    if preset == "all" then
-        enabled.all = true
-    elseif preset == "raid" then
-        enabled.raid = true
-        enabled.raidcombat = true
-    elseif preset == "dispellable" then
-        enabled.dispellable = true
+    -- Debuff Manager (12.1 redesign): while active it owns every group on
+    -- this container (legacy preset groups park at 0 inside it).
+    if ns.DM_Active and ns.DM_Active() and ns.DM_ApplyDebuffConfig then
+        ns.DM_ApplyDebuffConfig(container, d, s, StyleKeyFor(d))
+        return
     end
-    -- CC debuffs display under every active preset (they carry the glow).
-    enabled.cc = (preset ~= "none")
-
-    -- Excludes are engine-identity-gated (inert on friendly units), so the
-    -- sated/always-hide lists only bite where legal; the raid/dispellable
-    -- presets exclude those auras naturally. Known delta on "all".
-    local ex = {}
-    for id in pairs(ALWAYS_HIDE_DEBUFFS) do ex[id] = true end
-    if s.hideLustDebuff ~= false then
-        for id in pairs(SATED_DEBUFFS) do ex[id] = true end
-    end
-    local cand = { excludeSpellIDs = ex }
-    -- Dispellable-location split: the main groups exclude every typed
-    -- (dispellable) debuff; the location container includes exactly those,
-    -- so each aura renders in exactly one of the two containers.
-    if DispLocActive(s) then cand.excludeDispelTypes = DISPLOC_TYPES end
-
-    local size = s.debuffSize or 18
-    local layout = {
-        elementWidth = size, elementHeight = size,
-        elementSpacingX = s.debuffSpacing or 1, elementSpacingY = s.debuffSpacing or 1,
-    }
-
-    -- Live setters only touch DECLARED groups (setters on unknown keys
-    -- error). A preset needing not-yet-declared groups queues their
-    -- declaration on the combat-legal live lane and re-applies itself.
+    -- 12.1 redesign: the legacy preset display retired with the Auras tab.
+    -- The Debuff Manager (default-ON) is the only debuff renderer; with it
+    -- explicitly disabled the debuff row is EMPTY by design. Park every
+    -- group (record variants and tile containers park via DM_ParkGroups).
     local declared = d.rfcDebuffGroups or {}
-    local needLazy = DEBUFF_PRESET_GROUPS[preset]
-    if needLazy then
-        local missing = false
-        for i = 1, #needLazy do
-            if not declared[needLazy[i]] then missing = true end
-        end
-        if missing and not d.rfcDebuffEnsure then
-            d.rfcDebuffEnsure = true
-            AK.QueueLiveBuildJob(function()
-                d.rfcDebuffEnsure = nil
-                local c2 = d.rfcDebuffs
-                if not c2 then return end
-                local s2 = ProxyFor(d)
-                if not s2 then return end
-                local need2 = DEBUFF_PRESET_GROUPS[s2.debuffFilter or "all"]
-                if need2 then
-                    for i = 1, #need2 do
-                        local k = need2[i]
-                        if not d.rfcDebuffGroups[k] then
-                            local g = DEBUFF_GROUP_BY_KEY[k]
-                            AK.AddGroupToContainer(c2, { key = g.key, filter = g.filter,
-                                maxFrameCount = 0, style = StyleKeyFor(d) })
-                            d.rfcDebuffGroups[k] = true
-                        end
-                    end
-                end
-                ApplyDebuffConfig(c2, d, s2)
-            end, "rf:debuff-ensure")
-        end
+    for k in pairs(declared) do
+        container:SetAuraGroupMaxFrameCount(k, 0)
     end
-
-    for i = 1, #DEBUFF_GROUPS do
-        local g = DEBUFF_GROUPS[i]
-        if declared[g.key] then
-            container:SetAuraGroupMaxFrameCount(g.key, enabled[g.key] and cap or 0)
-            container:SetAuraGroupCandidateFilters(g.key, cand)
-            container:SetAuraGroupLayout(g.key, layout)
-        end
-    end
+    if ns.DM_ParkGroups then ns.DM_ParkGroups(container, declared, d) end
 end
 
 -- Config for the dispellable-location container: same preset/cap/exclude
@@ -997,15 +1089,23 @@ local function BmScaleFor(d)
 end
 
 local function BmIndicators()
+    -- Buff Manager v2 (spell -> filter -> indicator): the adapter returns
+    -- legacy-shaped indicators with resolved spell unions. Gated on the
+    -- activation flag -- dormant v2 leaves the legacy system untouched.
+    if ns.BM2_Enabled and ns.BM2_SpecIndicators then
+        return ns.BM2_SpecIndicators()
+    end
     if not (ns.BM_GetSpecIndicators and ns.db) then return nil, nil, "custom" end
     local specKey = ns.BM_CurrentSpecKey and ns.BM_CurrentSpecKey()
-    local mode = (ns.db.profile and ns.db.profile.bmDisplayMode) or "custom"
-    if mode == "simple" then
-        -- The simple grid resolves through BM_SimpleSpecKey so Show Own on
-        -- All Specs can lift the tracked-spec restriction (class fallback on
-        -- untracked specs). Indicator lists are custom-mode-only data.
-        local simpleKey = (ns.BM_SimpleSpecKey and ns.BM_SimpleSpecKey()) or specKey
-        return nil, simpleKey, mode
+    -- Coexistence (manager redesign): the base grid and the custom
+    -- indicators are INDEPENDENT subsystems -- this function serves only
+    -- the custom side (nil inds parks the chains/slots). The base grid
+    -- resolves through BM_BaseActive/BM_SimpleSpecKey at its own sites.
+    -- The legacy either/or bmDisplayMode key is consulted only inside the
+    -- effective accessors (shim defaults; the key itself is never written).
+    local mode = "custom"
+    if ns.BM_CustomActive and not ns.BM_CustomActive() then
+        return nil, specKey, mode
     end
     if not specKey then
         -- Untracked spec: indicators flagged Show Own on All Specs still
@@ -1032,6 +1132,15 @@ local function BmIncludeMap(spellID)
     if ns.BM_PrimaryByAlt then
         for alt, prim in pairs(ns.BM_PrimaryByAlt) do
             if prim == spellID then map[alt] = true end
+        end
+    end
+    -- v2 curated alternates (same buff under talent/rank ids): resolution
+    -- keeps ONE entry per buff family, so the family's alt ids must all
+    -- match the primary's slot here.
+    if ns.BM2_PresetAlts then
+        local alts = ns.BM2_PresetAlts[spellID]
+        if alts then
+            for i = 1, #alts do map[alts[i]] = true end
         end
     end
     return map
@@ -1227,6 +1336,51 @@ local function BmRebindDurationCurve(button, dd, style)
     end
 end
 
+-- Display-level Icon Glow (v2 DISPLAY section): a PERMANENT glow on every
+-- visible icon of the group -- not threshold-gated. Same mechanics as the
+-- CC debuff glow overlay: our child frame rides the button's visibility,
+-- driver-based styles remap to their FlipBook equivalents so restricted
+-- content animates identically, and params are cached on the overlay (our
+-- frame, custom fields allowed) so a steady glow never resets on restyles.
+local function ApplyBmIconGlow(button, dd, style)
+    local Glows = EllesmereUI.Glows
+    if not Glows then return end
+    local gType = style.bmGlowType or 0
+    if gType > 0 and Glows.RestrictionSafeStyle then
+        gType = Glows.RestrictionSafeStyle(gType)
+    end
+    if gType > 0 and Glows.StartGlow then
+        local gov = dd.bmGlow
+        if not gov then
+            gov = CreateFrame("Frame", nil, button)
+            gov:SetAllPoints(button)
+            -- Just above the border, below the duration/stack text.
+            if dd.stackCarrier then
+                gov:SetFrameLevel(dd.stackCarrier:GetFrameLevel() - 1)
+            else
+                gov:SetFrameLevel(button:GetFrameLevel() + 1)
+            end
+            gov:EnableMouse(false)
+            dd.bmGlow = gov
+        end
+        local cr, cg, cb = style.bmGlowR or 1.0, style.bmGlowG or 0.776, style.bmGlowB or 0.376
+        if style.bmGlowClassColor then
+            local _, classFile = UnitClass("player")
+            local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+            if cc then cr, cg, cb = cc.r, cc.g, cc.b end
+        end
+        local sz = style.width or 18
+        if (not gov._euiGlowActive) or gov._bmStyle ~= gType or gov._bmW ~= sz
+           or gov._bmCR ~= cr or gov._bmCG ~= cg or gov._bmCB ~= cb then
+            Glows.StartGlow(gov, gType, sz, cr, cg, cb)
+            gov._bmStyle, gov._bmW = gType, sz
+            gov._bmCR, gov._bmCG, gov._bmCB = cr, cg, cb
+        end
+    elseif dd.bmGlow and dd.bmGlow._euiGlowActive and Glows.StopGlow then
+        Glows.StopGlow(dd.bmGlow)
+    end
+end
+
 -- applyExtra for icon slots: shared text pass + opacity + BM frame levels.
 -- hideIcon = legacy text-only mode: icon, swipe and border hidden (via the
 -- style flags), duration text and stacks unaffected.
@@ -1257,6 +1411,7 @@ local function ApplyBmIconExtra(button, dd, style)
     if dd.borderHost then dd.borderHost:SetFrameLevel(lvl + 1) end
     if dd.stackCarrier then dd.stackCarrier:SetFrameLevel(base + BM_FRAMELVL_TEXT) end
     BmRebindDurationCurve(button, dd, style)
+    ApplyBmIconGlow(button, dd, style)
 end
 
 -- Buff/HoT tooltip gate (profile-root "Hide Buff Tooltips" toggle, default
@@ -1297,6 +1452,11 @@ local function BuildBmIconStyle(ind, iscale, size)
         alpha = (ind.iconOpacity or 100) / 100,
         levelOffset = BM_FRAMELVL[ind.frameLevel or "medium"] or 13,
         noTooltips = BmTipsOff(),
+        bmGlowType = ind.displayGlowType or 0,
+        bmGlowClassColor = ind.displayGlowClassColor,
+        bmGlowR = ind.displayGlowR,
+        bmGlowG = ind.displayGlowG,
+        bmGlowB = ind.displayGlowB,
         applyExtra = ApplyBmIconExtra,
     }
 end
@@ -1585,7 +1745,13 @@ end
 -- the usable list.
 local function BuildBmSlots(inds, d, health, iscale, styleBase)
     local slots, meta, chains = {}, {}, {}
-    local borrow = ns.BM_BorrowSpellFilter and ns.BM_BorrowSpellFilter()
+    -- Borrow-spec castability filtering is a LEGACY healer-tracking notion:
+    -- v2 groups deliberately include other classes' spells (externals/raid
+    -- CDs, any caster), so the filter would gut them on borrow specs.
+    local borrow
+    if not ns.BM2_Enabled and ns.BM_BorrowSpellFilter then
+        borrow = ns.BM_BorrowSpellFilter()
+    end
     for i = 1, #inds do
         local ind = inds[i]
         if ind.enabled and ind.type ~= "framealpha"
@@ -2050,11 +2216,42 @@ end
 
 local function ReloadBmSimple(button, d, cls)
     local bs = BmSimpleSettings()
+    if not bs then return end
+    -- Coexistence: the base grid resolves its own state -- effective
+    -- base-enabled (shim over the legacy mode key) plus its own spec key.
+    local baseOn = (ns.BM_BaseActive and ns.BM_BaseActive()) or false
+    local simpleKey = (ns.BM_SimpleSpecKey and ns.BM_SimpleSpecKey())
+        or (ns.BM_CurrentSpecKey and ns.BM_CurrentSpecKey())
     local c = d.rfcBmSimple
-    if not (bs and c) then return end
+    if not c then
+        -- Enabled mid-session with no container: build on the queue. Shell
+        -- consumption is combat-legal; fresh creation must hold to OOC.
+        if baseOn and simpleKey and bs.showBuffs and not d.rfcBmSimplePend then
+            d.rfcBmSimplePend = true
+            AK.QueueBuildJob(function()
+                d.rfcBmSimplePend = nil
+                if d.rfcBmSimple then return end
+                if not (ns.BM_BaseActive and ns.BM_BaseActive()) then return end
+                if InCombatLockdown() and not d.rfcBmSimpleShell then return "hold" end
+                local sk = (ns.BM_SimpleSpecKey and ns.BM_SimpleSpecKey())
+                    or (ns.BM_CurrentSpecKey and ns.BM_CurrentSpecKey())
+                if not (sk and d.rfcHealth and d.rfcUnit) then return end
+                CreateBmSimpleContainer(button, d.rfcHealth, d, d.rfcUnit, sk)
+                -- Per-button visibility re-drive (same pattern as the
+                -- rebuild path): clears the readable cache so SetShown and
+                -- the secret range alpha re-apply to the fresh container.
+                d.rfcAssist = nil
+                if ns.RFC_ApplyAssistGate then
+                    ns.RFC_ApplyAssistGate(button, d, d.rfcUnit)
+                end
+            end, "rf:bmsimple-ensure")
+        end
+        return
+    end
     -- Untracked specs have no whitelist; an empty include-map's semantics
     -- are unverified, so the grid simply hides there.
-    c:SetShown(d.rfcAssist ~= false and cls.specKey ~= nil and (bs.showBuffs and true or false))
+    c:SetShown(d.rfcAssist ~= false and baseOn and simpleKey ~= nil
+        and (bs.showBuffs and true or false))
 
     if not cls.simpleChecked then
         cls.simpleChecked = true
@@ -2068,7 +2265,10 @@ local function ReloadBmSimple(button, d, cls)
             AK.styles[cls.simpleKey] = BuildBmSimpleStyle(bs, cls.iscale)
             AK.RestyleSoon(cls.simpleKey)
         end
-        v = BmSimpleCandFP(bs)
+        -- The whitelist is spec-resolved, so a spec change must re-drive
+        -- the candidates even with unchanged settings (the old container
+        -- REBUILD on spec change went away with the coexistence rework).
+        v = BmSimpleCandFP(bs) .. "|" .. tostring(simpleKey)
         if st.cand ~= v then st.cand = v; cls.simpleCandDirty = true end
         v = BmSimpleGeoFP(bs, cls.iscale, ProxyFor(d))
         if st.geo ~= v then st.geo = v; cls.simpleGeoDirty = true end
@@ -2204,18 +2404,20 @@ end
 local function CreateBmContainer(button, health, d, unit)
     local inds, specKey, mode = BmIndicators()
     local sig = BmSignature(inds, specKey, mode)
-    if mode == "simple" or not inds then
+    -- Base grid: independent of the custom side (coexistence). Built here
+    -- when active; mid-session enables build via ReloadBmSimple's ensure.
+    local simpleKey = (ns.BM_SimpleSpecKey and ns.BM_SimpleSpecKey()) or specKey
+    if ns.BM_BaseActive and ns.BM_BaseActive() and simpleKey then
+        CreateBmSimpleContainer(button, health, d, unit, simpleKey)
+    elseif d.rfcBmSimple then
+        d.rfcBmSimple:SetShown(false)
+    end
+    if not inds then
         d.rfcBmSig = sig
-        BmParkUnbound(d, nil) -- custom-mode chain pool parks
-        if mode == "simple" and specKey then
-            CreateBmSimpleContainer(button, health, d, unit, specKey)
-        elseif d.rfcBmSimple then
-            d.rfcBmSimple:SetShown(false)
-        end
+        BmParkUnbound(d, nil) -- custom-side chain pool parks
         return
     end
 
-    if d.rfcBmSimple then d.rfcBmSimple:SetShown(false) end
     local iscale = BmScaleFor(d)
     local styleBase = StyleKeyFor(d):gsub("debuff", "bm")
     local slots, meta, chains = BuildBmSlots(inds, d, health, iscale, styleBase)
@@ -2297,7 +2499,11 @@ local function BmRebindPendingChains(button, d, cls)
     if not cls.inds or not d.rfcHealth then return end
     local health = d.rfcHealth
     local iscale = cls.iscale
-    local borrow = ns.BM_BorrowSpellFilter and ns.BM_BorrowSpellFilter()
+    -- Legacy-only castability filter (see BuildBmSlots).
+    local borrow
+    if not ns.BM2_Enabled and ns.BM_BorrowSpellFilter then
+        borrow = ns.BM_BorrowSpellFilter()
+    end
     local counters = {}
     local meta = {}
     local old = d.rfcBmMeta or {}
@@ -2429,10 +2635,9 @@ local function ReloadBm(button, d, s, cls)
         return
     end
 
-    if cls.mode == "simple" then
-        ReloadBmSimple(button, d, cls)
-        return
-    end
+    -- Coexistence: the base grid reloads on every pass regardless of the
+    -- custom side (it self-resolves enabled/spec state and no-ops cheaply).
+    ReloadBmSimple(button, d, cls)
 
     BmRebindPendingChains(button, d, cls)
 
@@ -2514,7 +2719,7 @@ local function CreateButtonShells(button, health, d)
         d.rfcDispLocGroups = {}
     end
 
-    if not (d.rfcDefShell or d.rfcDefs) then
+    if not ns.RFC_DefensivesRetired and not (d.rfcDefShell or d.rfcDefs) then
         local c = AK.CreateContainerShell(button, { point = { "CENTER", health, "CENTER" } })
         c:SetFrameLevel(button:GetFrameLevel() + (ns.LVL_AURA or 13))
         d.rfcDefShell = c
@@ -2601,6 +2806,11 @@ local function QueueDebuffPhase(button, health, d)
             if not c or d.rfcDebuffGroups[g.key] then return end
             local sNow = ProxyFor(d)
             if not sNow then return end
+            -- 12.1 redesign: the Debuff Manager owns the debuff row; only
+            -- the cc group (its Crowd Control record + glow carrier) is
+            -- still declared here. The retired preset groups would be
+            -- permanent parse consumers even parked at 0.
+            if g.key ~= "cc" then return end
             if g.lazy then
                 local need = DEBUFF_PRESET_GROUPS[sNow.debuffFilter or "all"]
                 local wanted = false
@@ -2690,6 +2900,7 @@ local function QueueButtonGroups(button, health, d)
         QueueDispLocPhase(button, health, d)
     end
 
+    if not ns.RFC_DefensivesRetired then
     for i = 1, #DEF_GROUPS do
         local g = DEF_GROUPS[i]
         AK.QueueBuildJob(function()
@@ -2715,6 +2926,7 @@ local function QueueButtonGroups(button, health, d)
         AnchorDefContainer(c, health, sNow)
         ApplyDefConfig(c, sNow, d)
     end, "rf:def-finish")
+    end -- RFC_DefensivesRetired
 
     AK.QueueBuildJob(function()
         local c = d.rfcDispelShell
@@ -2916,17 +3128,20 @@ local function ApplyAssistGate(button, d, unit)
         for _, cc in pairs(d.rfcBmChain) do cc:SetShown(assist) end
     end
     if d.rfcBmSimple then
-        -- The simple container PERSISTS across display-mode swaps now, so
-        -- the gate must be mode-aware: re-showing it in custom mode
-        -- resurrected the grid next to the custom indicators.
+        -- The simple container PERSISTS, so the gate must be state-aware:
+        -- coexistence resolves through the effective base-enabled accessor
+        -- (shim over the legacy mode key), never the mode key directly.
         local bs = BmSimpleSettings()
-        local mode = (ns.db and ns.db.profile and ns.db.profile.bmDisplayMode) or "custom"
+        local baseOn = (ns.BM_BaseActive and ns.BM_BaseActive()) or false
         -- Same option-aware key the grid tracks with (Show Own on All Specs).
         local specKey = (ns.BM_SimpleSpecKey and ns.BM_SimpleSpecKey())
             or (ns.BM_CurrentSpecKey and ns.BM_CurrentSpecKey())
-        d.rfcBmSimple:SetShown(assist and mode == "simple" and specKey ~= nil
+        d.rfcBmSimple:SetShown(assist and baseOn and specKey ~= nil
             and (bs and bs.showBuffs) and true or false)
     end
+    -- Debuff Manager: its identity-gated (candidate-boolean) records hide
+    -- for untrusted units; token records stay on like the legacy row.
+    if ns.DM_OnAssistChanged then ns.DM_OnAssistChanged(d) end
 end
 ns.RFC_ApplyAssistGate = ApplyAssistGate
 
@@ -2989,6 +3204,8 @@ function ns.RFC_OnUnitAssigned(button, d, unit)
         d.rfcBmSimple:SetUnit(unit)
         d.rfcBmSimple:UpdateAllAuras()
     end
+    -- Debuff Manager tile containers re-point with everything else.
+    if ns.DM_OnUnitAssigned then ns.DM_OnUnitAssigned(d, unit) end
     ApplyAssistGate(button, d, unit)
 end
 

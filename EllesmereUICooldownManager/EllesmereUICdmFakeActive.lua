@@ -464,8 +464,24 @@ ResolveCastSpells = function(key)
             itemID = -key
         end
         if itemID and C_Item and C_Item.GetItemSpell then
-            local _, spID = C_Item.GetItemSpell(itemID)
-            if spID then out[#out + 1] = spID end
+            -- Pot presets: map EVERY variant's on-use spell so drinking any
+            -- rank / Fleeting / (swap toggle on) other-family pot opens the
+            -- window, not just the primary item. Different variants can share
+            -- an on-use spell, hence the dedupe.
+            local chain = ns.GetPresetPotChain and ns.GetPresetPotChain(itemID)
+            if chain then
+                local seen = {}
+                for i = 1, #chain do
+                    local _, spID = C_Item.GetItemSpell(chain[i])
+                    if spID and not seen[spID] then
+                        seen[spID] = true
+                        out[#out + 1] = spID
+                    end
+                end
+            else
+                local _, spID = C_Item.GetItemSpell(itemID)
+                if spID then out[#out + 1] = spID end
+            end
         end
     end
     return out
@@ -532,16 +548,28 @@ PresetOnCD = function(key)
         if GetInventoryItemCooldown then start, dur, enable = GetInventoryItemCooldown("player", invSlot) end
     else
         local itemID = -key
-        start, dur = ReadItemCD(itemID)
-        -- The primary id often reads ready because the player owns one of the
-        -- preset's alternates and the cooldown ticks on THAT id -- walk them,
-        -- matching ProcessPresetCooldowns, so the glow can turn off.
-        if not (start and dur and dur > 1.5) then
-            local alts = PresetAltItemIDs(itemID)
-            if alts then
-                for i = 1, #alts do
-                    start, dur = ReadItemCD(alts[i])
-                    if start and dur and dur > 1.5 then break end
+        -- Pot presets walk the swap-aware variant chain (partner family
+        -- included while the toggle is on) -- only the owned/used id reports
+        -- the shared potion cooldown. Everything else keeps the legacy
+        -- primary-then-alts walk.
+        local chain = ns.GetPresetPotChain and ns.GetPresetPotChain(itemID)
+        if chain then
+            for i = 1, #chain do
+                start, dur = ReadItemCD(chain[i])
+                if start and dur and dur > 1.5 then break end
+            end
+        else
+            start, dur = ReadItemCD(itemID)
+            -- The primary id often reads ready because the player owns one of the
+            -- preset's alternates and the cooldown ticks on THAT id -- walk them,
+            -- matching ProcessPresetCooldowns, so the glow can turn off.
+            if not (start and dur and dur > 1.5) then
+                local alts = PresetAltItemIDs(itemID)
+                if alts then
+                    for i = 1, #alts do
+                        start, dur = ReadItemCD(alts[i])
+                        if start and dur and dur > 1.5 then break end
+                    end
                 end
             end
         end

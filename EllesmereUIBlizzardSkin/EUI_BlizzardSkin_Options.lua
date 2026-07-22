@@ -1287,7 +1287,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = WSCardSection(parent, "QUALITY OF LIFE", y);  y = y - h
 
-        function merchantShowAsListOff()
+        local function merchantShowAsListOff()
             return EllesmereUIDB and EllesmereUIDB.merchantShowAsList == false
         end
 
@@ -1340,7 +1340,7 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUIDB.merchantShowItemLevel = v
                   if EllesmereUI._Merchant_RefreshItemLevels then EllesmereUI._Merchant_RefreshItemLevels() end
               end },
-            { type="text", text="" }
+            { type="label", text="" }
         ); y = y - h
 
         return y
@@ -2617,6 +2617,11 @@ initFrame:SetScript("OnEvent", function(self)
                 if prof then prof.disableWindowSkins = nil end
             end
             if EllesmereUIDB then
+                -- NOTE: these account-global keys also travel in profile
+                -- exports via BLIZZ_SKIN_GLOBAL_KEYS in EllesmereUI_Profiles.lua
+                -- (the "Window & Tooltip Skins" include). A new account-global
+                -- setting on the Window Skins or Tooltips, Menus & Popups tab
+                -- must be added to BOTH lists.
                 EllesmereUIDB.customTooltips = nil
                 EllesmereUIDB.reskinPopupsMenus = nil
                 EllesmereUIDB.accentReskinElements = nil

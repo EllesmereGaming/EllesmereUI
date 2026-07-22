@@ -7337,6 +7337,7 @@ initFrame:SetScript("OnEvent", function(self)
             cLbl:SetTextColor(0.7, 0.7, 0.7, 0.8)
             cancelBtn:SetScript("OnEnter", function() cLbl:SetTextColor(1, 1, 1, 1) end)
             cancelBtn:SetScript("OnLeave", function() cLbl:SetTextColor(0.7, 0.7, 0.7, 0.8) end)
+            cancelBtn:SetScript("OnClick", function() dimmer:Hide() end)
             popup._cancelBtn = cancelBtn
 
             editBox:SetScript("OnEscapePressed", function() dimmer:Hide() end)
@@ -8256,6 +8257,7 @@ initFrame:SetScript("OnEvent", function(self)
             cLbl:SetTextColor(0.7, 0.7, 0.7, 0.8)
             cancelBtn:SetScript("OnEnter", function() cLbl:SetTextColor(1, 1, 1, 1) end)
             cancelBtn:SetScript("OnLeave", function() cLbl:SetTextColor(0.7, 0.7, 0.7, 0.8) end)
+            cancelBtn:SetScript("OnClick", function() dimmer:Hide() end)
 
             local function Commit()
                 local v = tonumber(box:GetText())
@@ -8372,6 +8374,7 @@ initFrame:SetScript("OnEvent", function(self)
             cLbl:SetTextColor(0.7, 0.7, 0.7, 0.8)
             cancelBtn:SetScript("OnEnter", function() cLbl:SetTextColor(1, 1, 1, 1) end)
             cancelBtn:SetScript("OnLeave", function() cLbl:SetTextColor(0.7, 0.7, 0.7, 0.8) end)
+            cancelBtn:SetScript("OnClick", function() dimmer:Hide() end)
 
             local function Commit()
                 local v = tonumber(box:GetText())
@@ -18709,7 +18712,7 @@ initFrame:SetScript("OnEvent", function(self)
                       ns.BuildAllCDMBars(); if ns.RefreshBuffGlows then ns.RefreshBuffGlows() end; Refresh()
                   end },
                 { type="toggle", text="Only Show Numbers",
-                  tooltip="Hide this bar's icons and show only the cooldown numbers.",
+                  tooltip="Hide this bar's icons and show only the duration text.",
                   getValue=function() return BD().onlyShowNumbers == true end,
                   setValue=function(v)
                       BD().onlyShowNumbers = v and true or nil
@@ -19019,7 +19022,23 @@ initFrame:SetScript("OnEvent", function(self)
                   BD().barStrata = v
                   ns.BuildAllCDMBars(); Refresh()
               end },
-            { type = "label", text = "" });  y = y - h
+            -- Profile-wide (one switch covers the Light's Potential and
+            -- Recklessness presets on every CD/utility bar): a pot preset whose
+            -- own family is fully out of bags swaps its icon/count/cooldown to
+            -- the best pot of the other family instead of sitting greyed.
+            { type = "toggle", text = "Swap Light/Reckless Pots When Missing",
+              tooltip = "When your bags have none of one potion type, its icon swaps to track the other type.",
+              getValue = function()
+                  local p = DB(); return p and p.cdmBars and p.cdmBars.swapPotionsWhenMissing == true
+              end,
+              setValue = function(v)
+                  local p = DB()
+                  if p and p.cdmBars then
+                      p.cdmBars.swapPotionsWhenMissing = v
+                      if ns._BumpPotResolveGen then ns._BumpPotResolveGen() end
+                      if ns.FullCDMRebuild then ns.FullCDMRebuild("pot_swap_toggle") end
+                  end
+              end });  y = y - h
 
         end -- custom_buff extras guard
 

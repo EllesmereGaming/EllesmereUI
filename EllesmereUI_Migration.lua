@@ -3623,43 +3623,49 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- Shared body: convert collided-buff cooldownID claims (bs.assignedBuffCdIDs,
+-- a side-table with no order) into cd-claim markers stored inside
+-- assignedSpells. Naturally idempotent: assignedBuffCdIDs is cleared after
+-- migrating, so a second run finds nothing per bar. Also called at
+-- profile-import time (EllesmereUI_Profiles.lua) so old export strings
+-- carrying the side-table keep their claims.
+--
+-- Mirrors ns.CD_CLAIM_MARKER_BASE / ns.CdClaimMarker in
+-- EllesmereUICooldownManager.lua (-(3000000000 + cooldownID)). Inlined
+-- rather than called: the CDM child addon loads AFTER the login migration
+-- runs, so its ns table isn't available yet.
+function EllesmereUI.MigrateCdmBuffCdClaims(specProf)
+    local CD_CLAIM_MARKER_BASE = 3000000000
+    local barSpells = type(specProf) == "table" and specProf.barSpells
+    if type(barSpells) ~= "table" then return end
+    for _, bs in pairs(barSpells) do
+        if type(bs) == "table" and type(bs.assignedBuffCdIDs) == "table"
+           and next(bs.assignedBuffCdIDs) then
+            if not bs.assignedSpells then bs.assignedSpells = {} end
+            -- Dedup against any marker already present (e.g. a prior
+            -- partial run interrupted by an error).
+            local present = {}
+            for _, id in ipairs(bs.assignedSpells) do
+                if type(id) == "number" and id <= -CD_CLAIM_MARKER_BASE then
+                    present[-id - CD_CLAIM_MARKER_BASE] = true
+                end
+            end
+            for cdID in pairs(bs.assignedBuffCdIDs) do
+                if type(cdID) == "number" and not present[cdID] then
+                    bs.assignedSpells[#bs.assignedSpells + 1] = -(CD_CLAIM_MARKER_BASE + cdID)
+                end
+            end
+            bs.assignedBuffCdIDs = nil
+        end
+    end
+end
+
 EllesmereUI.RegisterMigration({
     id          = "cdm_buff_cd_claim_markers",
     scope       = "specProfile",
     description = "Convert collided-buff cooldownID claims (bs.assignedBuffCdIDs, a side-table with no order) into cd-claim markers stored inside assignedSpells, so a claimed slot gets a real position and can be drag-reordered like any other tracked buff.",
     body = function(ctx)
-        -- Naturally idempotent: assignedBuffCdIDs is cleared after
-        -- migrating, so a second run finds nothing per bar. The runner's
-        -- per-spec-profile flag also stops further runs after the first
-        -- pass.
-        --
-        -- Mirrors ns.CD_CLAIM_MARKER_BASE / ns.CdClaimMarker in
-        -- EllesmereUICooldownManager.lua (-(3000000000 + cooldownID)).
-        -- Inlined rather than called: the CDM child addon loads AFTER
-        -- this migration runs, so its ns table isn't available yet.
-        local CD_CLAIM_MARKER_BASE = 3000000000
-        local barSpells = ctx.specProfile.barSpells
-        if type(barSpells) ~= "table" then return end
-        for _, bs in pairs(barSpells) do
-            if type(bs) == "table" and type(bs.assignedBuffCdIDs) == "table"
-               and next(bs.assignedBuffCdIDs) then
-                if not bs.assignedSpells then bs.assignedSpells = {} end
-                -- Dedup against any marker already present (e.g. a prior
-                -- partial run interrupted by an error).
-                local present = {}
-                for _, id in ipairs(bs.assignedSpells) do
-                    if type(id) == "number" and id <= -CD_CLAIM_MARKER_BASE then
-                        present[-id - CD_CLAIM_MARKER_BASE] = true
-                    end
-                end
-                for cdID in pairs(bs.assignedBuffCdIDs) do
-                    if type(cdID) == "number" and not present[cdID] then
-                        bs.assignedSpells[#bs.assignedSpells + 1] = -(CD_CLAIM_MARKER_BASE + cdID)
-                    end
-                end
-                bs.assignedBuffCdIDs = nil
-            end
-        end
+        EllesmereUI.MigrateCdmBuffCdClaims(ctx.specProfile)
     end,
 })
 

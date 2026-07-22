@@ -9205,9 +9205,9 @@ end
 --  Distance to Target Text (EXTRAS): shows a range BUCKET on the current
 --  target's nameplate -- "15+" means the target is beyond the 15yd rung and
 --  inside the next longer one. Exact enemy distance is not exposed by the
---  API, so a ladder of the player's own harmful spellbook ranges is walked
---  with C_Spell.IsSpellInRange: the largest rung the target is beyond is
---  the displayed lower bound. Anchoring: 5px left of whatever text occupies
+--  API; the lower bound comes from the shared range engine's spell ladder
+--  (EllesmereUI_Range.lua), activated only while this feature is enabled.
+--  Anchoring: 5px left of whatever text occupies
 --  the Right Text core slot, else just outside the health bar's right edge.
 --  Zero cost while disabled (nothing is created until first enabled); while
 --  enabled a single OnUpdate driver ticks 5x/s and hides when toggled off.
@@ -9218,67 +9218,7 @@ do
     -- Single-table state: this file sits at Lua 5.1's 200-local chunk cap,
     -- so the whole feature uses ONE chunk local (RT) with everything else
     -- as table fields.
-    local RT = { ladder = {}, ladderBuilt = false, acc = 0 }
-
-    function RT.BuildLadder()
-        RT.ladderBuilt = true
-        wipe(RT.ladder)
-        if not (C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines
-            and C_Spell and C_Spell.GetSpellInfo and Enum and Enum.SpellBookItemType) then
-            return
-        end
-        local seen = {}
-        local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
-        for li = 1, C_SpellBook.GetNumSpellBookSkillLines() do
-            local line = C_SpellBook.GetSpellBookSkillLineInfo(li)
-            -- offSpecID is 0 (not nil) on active-spec lines -- mirror the
-            -- crosshair probe builder's guard exactly (EllesmereUIQoL).
-            if line and not (line.offSpecID and line.offSpecID ~= 0)
-                and not line.shouldHide
-                and line.itemIndexOffset and line.numSpellBookItems then
-                for si = line.itemIndexOffset + 1, line.itemIndexOffset + line.numSpellBookItems do
-                    local itemType, actionID, spellID = C_SpellBook.GetSpellBookItemType(si, bank)
-                    local sid = spellID or actionID
-                    if itemType == Enum.SpellBookItemType.Spell and sid
-                        and not (C_Spell.IsSpellPassive and C_Spell.IsSpellPassive(sid))
-                        and (not C_Spell.IsSpellHarmful or C_Spell.IsSpellHarmful(sid)) then
-                        local sinfo = C_Spell.GetSpellInfo(sid)
-                        local maxR = sinfo and sinfo.maxRange
-                        if maxR and maxR > 0 and maxR <= 100 and not seen[maxR] then
-                            seen[maxR] = true
-                            RT.ladder[#RT.ladder + 1] = { range = maxR, spell = sid }
-                        end
-                    end
-                end
-            end
-        end
-        table.sort(RT.ladder, function(a, b) return a.range < b.range end)
-    end
-
-    -- Largest rung the unit is BEYOND (0 = inside the smallest rung), or
-    -- nil when no rung produced a usable answer (no checkable spells, or
-    -- every result secret/inapplicable).
-    function RT.LowerBound(unit)
-        if not (C_Spell and C_Spell.IsSpellInRange) then return nil end
-        local FindOvr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
-        local lower = 0
-        local found = false
-        for i = 1, #RT.ladder do
-            local r = RT.ladder[i]
-            -- Check the LIVE override spell: IsSpellInRange on a base
-            -- spellbook id that a talent replaced returns nil (same
-            -- resolution the crosshair probes use).
-            local live = (FindOvr and FindOvr(r.spell)) or r.spell
-            local res = C_Spell.IsSpellInRange(live, unit)
-            if not (issecretvalue and issecretvalue(res)) and res ~= nil then
-                found = true
-                if res then return lower end
-                lower = r.range
-            end
-        end
-        if not found then return nil end
-        return lower
-    end
+    local RT = { acc = 0 }
 
     function RT.Anchor(plate)
         RT.fs:ClearAllPoints()
@@ -9327,7 +9267,6 @@ do
             if RT.plate then RT.Detach() end
             return
         end
-        if not RT.ladderBuilt then RT.BuildLadder() end
         if plate ~= RT.plate then
             if not RT.carrier then
                 RT.carrier = CreateFrame("Frame")
@@ -9347,7 +9286,10 @@ do
         end
         -- "0+" (inside the shortest rung, i.e. basically melee) shows
         -- nothing -- the indicator only matters when there is distance.
-        local lower = RT.LowerBound(plate.unit)
+        -- Queried as "target" rather than plate.unit: this is the target's
+        -- plate by definition, and the token lets the shared engine serve
+        -- the QoL distance text from the same cached walk.
+        local lower = EllesmereUI.Range_LowerBound("target")
         if lower and lower > 0 then
             RT.fs:SetText(lower .. "+")
             RT.fs:Show()
@@ -9375,15 +9317,12 @@ do
                     RT.acc = 0
                     RT.Tick()
                 end)
-                RT.evt = CreateFrame("Frame")
-                RT.evt:SetScript("OnEvent", function()
-                    RT.ladderBuilt = false
-                end)
             end
-            RT.evt:RegisterEvent("SPELLS_CHANGED")
+            -- Ladder builds and invalidation live in the shared range engine.
+            EllesmereUI.Range_SetActive("npRangeText", true)
             RT.drv:Show()
         elseif RT.drv then
-            RT.evt:UnregisterEvent("SPELLS_CHANGED")
+            EllesmereUI.Range_SetActive("npRangeText", false)
             RT.drv:Hide()
             RT.Detach()
         end
@@ -9425,23 +9364,7 @@ do
                     tostring(tp.health and tp.health:GetFrameLevel()),
                     tostring(GetTextSlot("textSlotRight"))))
         end
-        if not RT.ladderBuilt then RT.BuildLadder() end
-        out("ladder rungs=" .. #RT.ladder)
         local unit = ns._cachedTargetPlate and ns._cachedTargetPlate.unit
-        local FindOvr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
-        for i = 1, #RT.ladder do
-            local r = RT.ladder[i]
-            local res = "no-unit"
-            if unit then
-                local live = (FindOvr and FindOvr(r.spell)) or r.spell
-                local raw = C_Spell.IsSpellInRange and C_Spell.IsSpellInRange(live, unit)
-                if issecretvalue and issecretvalue(raw) then
-                    res = "SECRET"
-                else
-                    res = tostring(raw)
-                end
-            end
-            out(("rung %d: %syd spell=%s -> %s"):format(i, tostring(r.range), tostring(r.spell), res))
-        end
+        EllesmereUI.Range_DebugDump(unit, out)
     end
 end

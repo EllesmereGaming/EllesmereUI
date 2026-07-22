@@ -38,7 +38,7 @@ local inCombat = false
 --  EllesmereUICdmBuffBars.lua's TIME_SPIRAL_GLOW_FILTERS -- keep both in sync.
 -------------------------------------------------------------------------------
 local MOVEMENT_ABILITIES = {
-    DEATHKNIGHT = {[250] = {48265}, [251] = {48265}, [252] = {48265, 444010, 444347}},
+    DEATHKNIGHT = {[250] = {48265, 212552}, [251] = {48265, 212552}, [252] = {48265, 444010, 444347, 212552}},
     DEMONHUNTER = {
         [577] = {195072}, [581] = {189110}, [1480] = {1234796},
         filter = {
@@ -50,25 +50,26 @@ local MOVEMENT_ABILITIES = {
     EVOKER = {[1467] = {358267}, [1468] = {358267}, [1473] = {358267}},
     HUNTER = {[253] = {186257, 781}, [254] = {186257, 781}, [255] = {186257, 781}},
     MAGE = {[62] = {212653, 1953}, [63] = {212653, 1953}, [64] = {212653, 1953}},
-    MONK = {[268] = {115008, 109132, 119085, 361138}, [269] = {109132, 119085, 361138}, [270] = {109132, 119085, 361138}},
+    MONK = {[268] = {115008, 109132, 119085, 361138}, [269] = {109132, 119085, 361138, 101545}, [270] = {109132, 119085, 361138}},
     PALADIN = {[65] = {190784}, [66] = {190784}, [70] = {190784}},
     PRIEST = {[256] = {121536, 73325}, [257] = {121536, 73325}, [258] = {121536, 73325}},
     ROGUE = {[259] = {36554, 2983}, [260] = {195457, 2983}, [261] = {36554, 2983}},
     SHAMAN = {[262] = {79206, 90328, 192063, 58875}, [263] = {90328, 192063, 58875}, [264] = {79206, 90328, 192063, 58875}},
     WARLOCK = {
-        [265] = {48020, 111400}, [266] = {48020, 111400}, [267] = {48020, 111400},
+        [265] = {48020}, [266] = {48020}, [267] = {48020},
         filter = {[385899] = {385899}},
     },
     WARRIOR = {[71] = {6544}, [72] = {6544}, [73] = {6544}},
 }
 
-local BUFF_ACTIVE_SPELLS = {
-    [111400] = "Burning Rush Active!",
-}
+-- Buff-active spells (label shown while the aura is up instead of a
+-- cooldown countdown). Currently empty -- Burning Rush was removed from
+-- tracking -- but the machinery stays for future aura-style mobility spells.
+local BUFF_ACTIVE_SPELLS = {}
 
 local SPELL_ALIAS_GROUPS = {
     {102401, 16979, 102417, 252216},
-    {106898, 77761},
+    {106898, 77761, 77764},
 }
 
 local SPELL_CATEGORY_DURATION = {
@@ -87,6 +88,31 @@ for _, mod in ipairs(TALENT_CD_REDUCTIONS) do
 end
 
 EllesmereUI.MOVEMENT_ABILITIES = MOVEMENT_ABILITIES
+
+-- Preset spells that default to DISABLED: with no saved override, these are
+-- not tracked (checking their box writes an explicit enabled=true override;
+-- everything else stays enabled-by-absence). Shared with the options grid
+-- via the export so the checkboxes and the tracker read the same truth.
+local MOVEMENT_DEFAULT_OFF = {
+    [2983]   = true,               -- Sprint
+    [73325]  = true,               -- Leap of Faith
+    [106898] = true, [77761] = true, [77764] = true, -- Stampeding Roar
+    [1850]   = true,               -- Dash
+    [252216] = true,               -- Tiger Dash
+    [212552] = true,               -- Wraith Walk
+    [79206]  = true,               -- Spiritwalker's Grace
+    [58875]  = true, [90328] = true, -- Spirit Walk
+}
+EllesmereUI._MovementDefaultOff = MOVEMENT_DEFAULT_OFF
+
+-- Effective enabled state for a preset/tracked spell id: an explicit saved
+-- enabled wins; otherwise absence means enabled unless default-off.
+local function SpellEffectivelyEnabled(override, spellId)
+    if override and override.enabled ~= nil then
+        return override.enabled ~= false
+    end
+    return not MOVEMENT_DEFAULT_OFF[spellId]
+end
 
 local SPELL_ALIAS_MAP = {}
 do
@@ -122,23 +148,26 @@ end
 local defaults = {
     profile = {
         movementAlert = {
-            enabled          = false,
+            -- nil = feature fully disabled (zero cost); { WARRIOR = true, ... }
+            -- = enabled while playing a checked class (Totem Bar convention).
+            enabledClasses   = nil,
             combatOnly       = false,
-            disabledClasses  = {},
-            displayMode      = "text",   -- text | icon | bar
+            -- text_nd = "Name Duration", text_dn = "Duration Name"; the
+            -- legacy "text" value renders identically to text_dn.
+            displayMode      = "text",   -- text (legacy) | text_nd | text_dn | icon | bar
             textSize         = 24,
+            iconSize         = 40,
             textColorR       = 1, textColorG = 1, textColorB = 1,
             textColorUseClass = false,
-            pollRate         = 100,       -- ms
-            textFormat       = "%t\\nNo %a",   -- %t = time remaining, %a = ability name
             barShowIcon      = true,
+            barShowDuration  = true,     -- bar mode's countdown number
+            barTexture       = "none",   -- key into the bar texture catalog
             precision        = 1,
             spellOverrides   = {},        -- [spellId] = { enabled, customText, class }
             pos              = nil,       -- { point, relPoint, x, y, width, height }
             maSoundKey       = "none",   -- EllesmereUI._groupDeathSoundPaths key
-            maTtsEnabled     = false,   -- takes priority over maSoundKey when on; speaks once when a tracked spell comes off cooldown
+            maTtsEnabled     = false,   -- takes priority over maSoundKey when on; speaks the ability name once when it comes off cooldown
             maTtsVoiceID     = 0,
-            maTtsMessage     = "%a ready",
             maTtsVolume      = 100,
 
             tsEnabled        = false,
@@ -169,6 +198,18 @@ local defaults = {
 
 local db = EllesmereUI.Lite.NewDB("EllesmereUIQoLDB", defaults)
 local function MA() return db.profile.movementAlert end
+
+-- Movement Cooldown Alert enable state: enabledClasses is a per-class
+-- checkbox set (nil = nothing checked = fully disabled). Everything at
+-- runtime keys off the PLAYER's class -- a character whose class is
+-- unchecked pays exactly the same zero cost as the feature being off.
+local function MovementEnabled()
+    local ma = MA()
+    local ec = ma and ma.enabledClasses
+    if not ec then return false end
+    local _, class = UnitClass("player")
+    return ec[class] == true
+end
 _G._EUI_MovementAlert_DB = function() return db end
 EllesmereUI._ResetMovementAlert = function()
     db:ResetProfile()
@@ -236,12 +277,12 @@ local function PlayAlertSound(key)
     if value then PlayLSMSound(value) end
 end
 
--- Text-to-speech: local-only playback via C_VoiceChat. Mirrors Naowh QOL's
--- proven-working call exactly -- (voiceID, text, destination, volume,
--- interrupt), NOT (voiceID, text, destination, rate, volume) as the
--- Enum.VoiceTtsDestination-based version assumed. Enum.VoiceTtsDestination
--- doesn't exist on live clients either, so destination is just the literal
--- 1 Naowh uses. Silently no-ops if TTS isn't available instead of erroring.
+-- Text-to-speech: local-only playback via C_VoiceChat. The live-client
+-- argument order is (voiceID, text, destination, volume, interrupt), NOT
+-- (voiceID, text, destination, rate, volume) as older API docs suggest.
+-- Enum.VoiceTtsDestination doesn't exist on live clients either, so
+-- destination is the literal 1 (local playback). Silently no-ops if TTS
+-- isn't available instead of erroring.
 local function SpeakAlertText(voiceId, text, volume)
     if not (C_VoiceChat and C_VoiceChat.SpeakText) then return end
     if not text or text == "" then return end
@@ -256,10 +297,10 @@ end
 local function FireTrackerAlert(prefix, abilityName)
     local ma = MA()
     if ma[prefix .. "TtsEnabled"] then
-        local msg = ma[prefix .. "TtsMessage"]
-        -- abilityName is free-form user text (per-spell Custom Text); escape
-        -- literal "%" so it can't be misread as another gsub pattern/capture.
-        if msg and abilityName then msg = msg:gsub("%%a", (abilityName:gsub("%%", "%%%%"))) end
+        -- The Movement Cooldown Alert always speaks the ability name (or its
+        -- per-spell Custom Text) -- there is no message setting for it. The
+        -- other trackers speak their fixed configured message.
+        local msg = abilityName or ma[prefix .. "TtsMessage"]
         SpeakAlertText(ma[prefix .. "TtsVoiceID"], msg, ma[prefix .. "TtsVolume"])
     else
         PlayAlertSound(ma[prefix .. "SoundKey"])
@@ -274,6 +315,67 @@ local movementFrame = CreateFrame("Frame", "EUI_MovementAlertFrame", UIParent)
 movementFrame:SetSize(200, 40)
 movementFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 50)
 movementFrame:Hide()
+
+-- Bar texture catalog: the same curated set the CDM Tracking Bars "Bar
+-- Texture" dropdown uses (EllesmereUICooldownManager\EllesmereUICdmBuffBars.lua);
+-- the options page appends SharedMedia statusbar textures into these tables.
+-- Rendering resolves through ResolveTexturePath ("none" = flat WHITE8x8).
+local BAR_TEX_BASE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\"
+local BAR_TEXTURES = {
+    ["none"]          = nil,
+    ["melli"]         = BAR_TEX_BASE .. "melli.tga",
+    ["beautiful"]     = BAR_TEX_BASE .. "beautiful.tga",
+    ["plating"]       = BAR_TEX_BASE .. "plating.tga",
+    ["atrocity"]      = BAR_TEX_BASE .. "atrocity.tga",
+    ["divide"]        = BAR_TEX_BASE .. "divide.tga",
+    ["glass"]         = BAR_TEX_BASE .. "glass.tga",
+    ["fade-right"]    = BAR_TEX_BASE .. "fade-right.tga",
+    ["thin-line-top"]    = BAR_TEX_BASE .. "thin-line-top.tga",
+    ["thin-line-bottom"] = BAR_TEX_BASE .. "thin-line-bottom.tga",
+    ["fade"]          = BAR_TEX_BASE .. "fade.tga",
+    ["gradient-lr"]   = BAR_TEX_BASE .. "gradient-lr.tga",
+    ["gradient-rl"]   = BAR_TEX_BASE .. "gradient-rl.tga",
+    ["gradient-bt"]   = BAR_TEX_BASE .. "gradient-bt.tga",
+    ["gradient-tb"]   = BAR_TEX_BASE .. "gradient-tb.tga",
+    ["matte"]         = BAR_TEX_BASE .. "matte.tga",
+    ["sheer"]         = BAR_TEX_BASE .. "sheer.tga",
+}
+local BAR_TEXTURE_ORDER = {
+    "none", "melli", "atrocity",
+    "fade", "fade-right",
+    "thin-line-top", "thin-line-bottom",
+    "beautiful", "plating",
+    "divide", "glass",
+    "gradient-lr", "gradient-rl", "gradient-bt", "gradient-tb",
+    "matte", "sheer",
+}
+local BAR_TEXTURE_NAMES = {
+    ["none"]        = "None",
+    ["melli"]       = "Melli (ElvUI)",
+    ["beautiful"]   = "Beautiful",
+    ["plating"]     = "Plating",
+    ["atrocity"]    = "Atrocity",
+    ["divide"]      = "Divide",
+    ["glass"]       = "Glass",
+    ["fade-right"]  = "Fade Right",
+    ["thin-line-top"]    = "Thin Line Top",
+    ["thin-line-bottom"] = "Thin Line Bottom",
+    ["fade"]        = "Fade",
+    ["gradient-lr"] = "Gradient Right",
+    ["gradient-rl"] = "Gradient Left",
+    ["gradient-bt"] = "Gradient Up",
+    ["gradient-tb"] = "Gradient Down",
+    ["matte"]       = "Matte",
+    ["sheer"]       = "Sheer",
+}
+EllesmereUI._MovementBarTextures = {
+    lookup = BAR_TEXTURES, order = BAR_TEXTURE_ORDER, names = BAR_TEXTURE_NAMES,
+}
+
+-- Named font object for the icon mode's cooldown countdown numbers --
+-- SetCountdownFont takes the NAME of a named font object, and StyleSlot
+-- re-points this one at the user's font/size.
+local movementCdFont = CreateFont("EUI_MovementAlertCdFont")
 
 local displayPool = {}
 local activeSlotCount = 0
@@ -302,12 +404,15 @@ local function CreateDisplaySlot()
     slot.icon.cooldown = CreateFrame("Cooldown", nil, slot.icon, "CooldownFrameTemplate")
     slot.icon.cooldown:SetAllPoints(slot.icon.tex)
     slot.icon.cooldown:SetDrawEdge(false)
+    if slot.icon.cooldown.SetCountdownFont then
+        slot.icon.cooldown:SetCountdownFont("EUI_MovementAlertCdFont")
+    end
     slot.icon:Hide()
 
     slot.bar = CreateFrame("StatusBar", nil, slot)
     slot.bar:SetSize(150, 20)
     slot.bar:SetPoint("CENTER")
-    slot.bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    slot.bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
     slot.bar:SetMinMaxValues(0, 1)
     slot.bar:SetValue(0)
     slot.bar.bg = slot.bar:CreateTexture(nil, "BACKGROUND")
@@ -349,7 +454,7 @@ local function StyleSlot(slot)
     local ma = MA()
     local fontPath, outline = AlertFontPath(), AlertFontOutline()
     local frameH, frameW = movementFrame:GetHeight(), movementFrame:GetWidth()
-    local fontSize = math.max(10, math.min(72, math.floor(frameH * 0.55)))
+    local fontSize = math.max(8, math.min(72, ma.textSize or 24))
     local tR, tG, tB = ResolveAlertColor("textColor", "textColorUseClass")
 
     if not slot.text:SetFont(fontPath, fontSize, outline) then
@@ -361,11 +466,28 @@ local function StyleSlot(slot)
     local barW = frameW - (ma.barShowIcon ~= false and (barH + 8) or 0) - 10
     slot.bar:SetSize(math.max(50, barW), barH)
     slot.bar.icon:SetSize(barH, barH)
-    if not slot.bar.text:SetFont(fontPath, math.max(8, math.min(24, math.floor(barH * 0.6))), outline) then
-        slot.bar.text:SetFont(FALLBACK_FONT, math.max(8, math.min(24, math.floor(barH * 0.6))), outline)
+    -- Text Size drives every mode's text: the free text, the bar's number,
+    -- and (via the named countdown font) the icon's countdown numbers.
+    -- Font-object SetFont has no success return; reuse the fontstring's
+    -- validation to pick the path that actually loaded.
+    if not slot.bar.text:SetFont(fontPath, fontSize, outline) then
+        slot.bar.text:SetFont(FALLBACK_FONT, fontSize, outline)
+        movementCdFont:SetFont(FALLBACK_FONT, fontSize, outline)
+    else
+        movementCdFont:SetFont(fontPath, fontSize, outline)
     end
 
-    slot.icon:SetSize(math.max(20, math.min(frameW, frameH) - 4), math.max(20, math.min(frameW, frameH) - 4))
+    -- Bar texture (change-guarded: StyleSlot runs on every poll tick)
+    local texPath = (EllesmereUI.ResolveTexturePath
+        and EllesmereUI.ResolveTexturePath(BAR_TEXTURES, ma.barTexture or "none", "Interface\\Buttons\\WHITE8x8"))
+        or "Interface\\Buttons\\WHITE8x8"
+    if slot.bar._lastTexPath ~= texPath then
+        slot.bar:SetStatusBarTexture(texPath)
+        slot.bar._lastTexPath = texPath
+    end
+
+    local iconSz = math.max(16, math.min(128, ma.iconSize or 40))
+    slot.icon:SetSize(iconSz, iconSz)
 end
 
 -------------------------------------------------------------------------------
@@ -433,6 +555,7 @@ local spellCastTime = {}
 local trackedSpellSet = {}
 local cacheResetTime = 0
 local movementCountdownTimer = nil
+local movementPreviewTicker = nil -- options-panel preview loop (nil = off)
 local CheckMovementCooldown
 local CancelAllRechargeTimers
 
@@ -452,7 +575,7 @@ local function GetPlayerMovementSpells()
     for _, spellId in ipairs(specAbilities) do
         if not seen[spellId] then
             local override = overrides[spellId]
-            if not override or override.enabled ~= false then
+            if SpellEffectivelyEnabled(override, spellId) then
                 if (IsPlayerSpell and IsPlayerSpell(spellId))
                    or (C_SpellBook and C_SpellBook.IsSpellKnown and C_SpellBook.IsSpellKnown(spellId)) then
                     local displayId = spellId
@@ -705,7 +828,7 @@ local function CacheMovementSpells(fullReset)
     if specAbilities then
         for _, spellId in ipairs(specAbilities) do
             local spellOverride = overrides[spellId]
-            if not (spellOverride and spellOverride.enabled == false) and not trackedSpellSet[spellId] then
+            if SpellEffectivelyEnabled(spellOverride, spellId) and not trackedSpellSet[spellId] then
                 local group = SPELL_ALIAS_MAP[spellId]
                 if group then
                     for _, aliasId in ipairs(group) do
@@ -806,14 +929,20 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
     local precision   = ma.precision or 1
     local spellName   = spellEntry.customText or spellEntry.spellName or "Movement"
     local spellIcon   = spellEntry.spellIcon
-    local textFormat  = ma.textFormat or "%t\\nNo %a"
-    local precFmt     = "%%." .. precision .. "f"
+    local precFmt     = "%." .. precision .. "f"
     -- spellName is free-form user text (per-spell Custom Text); escape
-    -- literal "%" before using it as a gsub replacement, or a custom text
-    -- containing e.g. "%t" would get re-matched by the next gsub and leave
-    -- fmtStr needing 2 args when SetFormattedText only supplies 1.
+    -- literal "%" so SetFormattedText cannot misread it as a format
+    -- directive expecting arguments it never gets.
     local escapedName = (spellName:gsub("%%", "%%%%"))
-    local fmtStr      = textFormat:gsub("\\n", "\n"):gsub("%%a", escapedName):gsub("%%t", precFmt)
+    -- Two fixed text arrangements, both reading as "No <ability>" (the
+    -- alert shows while the spell is unavailable); the legacy "text" value
+    -- keeps the old default's duration-first order.
+    local fmtStr
+    if displayMode == "text_nd" then
+        fmtStr = "No " .. escapedName .. " " .. precFmt
+    else
+        fmtStr = precFmt .. " No " .. escapedName
+    end
 
     slot.text:Hide(); slot.icon:Hide(); slot.bar:Hide()
 
@@ -829,7 +958,10 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
             slot.bar:SetValue(cdInfo.timeUntilEndOfStartRecovery)
             local r, g, b = ResolveAlertColor("textColor", "textColorUseClass")
             slot.bar:SetStatusBarColor(r, g, b)
-            slot.bar.text:SetFormattedText("%." .. precision .. "f", cdInfo.timeUntilEndOfStartRecovery)
+            slot.bar.text:SetShown(ma.barShowDuration ~= false)
+            if ma.barShowDuration ~= false then
+                slot.bar.text:SetFormattedText("%." .. precision .. "f", cdInfo.timeUntilEndOfStartRecovery)
+            end
             if ma.barShowIcon ~= false and spellIcon then slot.bar.icon:SetTexture(spellIcon); slot.bar.icon:Show() else slot.bar.icon:Hide() end
             slot.bar:Show()
         else
@@ -868,10 +1000,7 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
     if not cdRemaining then return false end
     if not hasSecretDuration and cdRemaining <= 0 then return false end
 
-    if displayMode == "text" then
-        slot.text:SetFormattedText(fmtStr, cdRemaining)
-        slot.text:Show()
-    elseif displayMode == "icon" then
+    if displayMode == "icon" then
         if spellIcon then
             slot.icon.tex:SetTexture(spellIcon)
             if duration and slot.icon.cooldown.SetCooldownFromDurationObject then
@@ -890,9 +1019,15 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
         slot.bar:SetValue(cdRemaining)
         local r, g, b = ResolveAlertColor("textColor", "textColorUseClass")
         slot.bar:SetStatusBarColor(r, g, b)
-        slot.bar.text:SetFormattedText("%." .. precision .. "f", cdRemaining)
+        slot.bar.text:SetShown(ma.barShowDuration ~= false)
+        if ma.barShowDuration ~= false then
+            slot.bar.text:SetFormattedText("%." .. precision .. "f", cdRemaining)
+        end
         if ma.barShowIcon ~= false and spellIcon then slot.bar.icon:SetTexture(spellIcon); slot.bar.icon:Show() else slot.bar.icon:Hide() end
         slot.bar:Show()
+    else -- any text mode (text_nd / text_dn / legacy "text")
+        slot.text:SetFormattedText(fmtStr, cdRemaining)
+        slot.text:Show()
     end
 
     slot:Show()
@@ -918,6 +1053,9 @@ local function ShowBuffActiveSlot(index, spellEntry)
         slot.bar:SetMinMaxValues(0, 1); slot.bar:SetValue(1)
         local r, g, b = ResolveAlertColor("textColor", "textColorUseClass")
         slot.bar:SetStatusBarColor(r, g, b)
+        -- Name label, not a duration -- always shown (and the shared
+        -- fontstring may have been hidden by the Show Duration Text gate).
+        slot.bar.text:Show()
         slot.bar.text:SetText(spellName)
         if ma.barShowIcon ~= false and spellIcon then slot.bar.icon:SetTexture(spellIcon); slot.bar.icon:Show() else slot.bar.icon:Hide() end
         slot.bar:Show()
@@ -931,11 +1069,12 @@ local function ShowBuffActiveSlot(index, spellEntry)
 end
 
 CheckMovementCooldown = function()
+    -- The options-panel preview owns the display while it runs; the real
+    -- renderer resumes from the preview's stop path. Costs one nil-check.
+    if movementPreviewTicker then return end
     local ma = MA()
-    if not ma.enabled then HideMovementDisplay(); return end
+    if not MovementEnabled() then HideMovementDisplay(); return end
     if ma.combatOnly and not inCombat then HideMovementDisplay(); return end
-    local playerClass = select(2, UnitClass("player"))
-    if ma.disabledClasses and ma.disabledClasses[playerClass] then HideMovementDisplay(); return end
     if #cachedMovementSpells == 0 then HideMovementDisplay(); return end
 
     local count = 0
@@ -987,8 +1126,8 @@ CheckMovementCooldown = function()
         LayoutDisplaySlots(count)
         movementFrame:Show()
         CancelMovementCountdown()
-        local pollMs = math.max(50, ma.pollRate or 100)
-        movementCountdownTimer = C_Timer.NewTimer(pollMs / 1000, CheckMovementCooldown)
+        -- Fixed 100ms display refresh (smooth 1-decimal countdown).
+        movementCountdownTimer = C_Timer.NewTimer(0.1, CheckMovementCooldown)
     else
         activeSlotCount = 0
         HideMovementDisplay()
@@ -1009,9 +1148,98 @@ local function ApplyMovementFrame()
         movementFrame:SetSize(200, 40)
     end
     for _, slot in ipairs(displayPool) do StyleSlot(slot) end
-    if ma.enabled and not (EllesmereUI._unlockActive) then CheckMovementCooldown() end
+    if MovementEnabled() and not (EllesmereUI._unlockActive) then CheckMovementCooldown() end
 end
 EllesmereUI._applyMovementAlert = ApplyMovementFrame
+
+-------------------------------------------------------------------------------
+--  Options-panel preview: loops a fake cooldown through the real display
+--  path, so every user setting (mode, size, color, format, precision, poll
+--  rate) renders exactly as it will live. Zero cost while off: nothing here
+--  exists but the functions, one ticker is created on activation, and the
+--  real renderer pays a single nil-check. The tick self-terminates when the
+--  options window closes or the user leaves the Movement Alerts page.
+-------------------------------------------------------------------------------
+local PREVIEW_CD = 8
+local previewEnds = 0
+local previewEntry = nil
+local previewCdInfo = { startTime = 0, duration = PREVIEW_CD, modRate = 1 }
+
+local function PreviewEntry()
+    -- Prefer the player's first real tracked cooldown so the preview shows a
+    -- familiar name/icon; fall back to any known class mobility spell.
+    local e = cachedMovementSpells[1]
+    if e and e.checkType ~= "buffActive" then return e end
+    local class = select(2, UnitClass("player"))
+    local classAbilities = MOVEMENT_ABILITIES[class]
+    if classAbilities then
+        for key, list in pairs(classAbilities) do
+            if type(key) == "number" and type(list) == "table" then
+                for _, sid in ipairs(list) do
+                    local info = C_Spell.GetSpellInfo(sid)
+                    if info then
+                        return { spellId = sid, spellName = info.name, spellIcon = info.iconID }
+                    end
+                end
+            end
+        end
+    end
+    local info = C_Spell.GetSpellInfo(2983) -- Sprint: any-class fallback art
+    return { spellId = 2983, spellName = (info and info.name) or "Movement",
+        spellIcon = info and info.iconID }
+end
+
+local function StopMovementPreview()
+    if not movementPreviewTicker then return end
+    movementPreviewTicker:Cancel()
+    movementPreviewTicker = nil
+    previewEntry = nil
+    HideMovementDisplay()
+    -- Hand the display back to the real tracker state.
+    CheckMovementCooldown()
+end
+
+local function PreviewTick()
+    local ma = MA()
+    -- Auto-shutoff: options window closed, or the user navigated to another
+    -- page/module. (Page name must match PAGE_MOVEMENT in EUI_QoL_Options.lua.)
+    local shown = EllesmereUI._mainFrame and EllesmereUI._mainFrame:IsShown()
+    local onPage = shown
+        and EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule() == "EllesmereUIQoL"
+        and EllesmereUI.GetActivePage and EllesmereUI:GetActivePage() == "Movement Alerts"
+    if not ma or not onPage then StopMovementPreview(); return end
+
+    local now = GetTime()
+    if now >= previewEnds then previewEnds = now + PREVIEW_CD end
+    previewCdInfo.startTime = previewEnds - PREVIEW_CD
+    if ShowMovementSlot(1, previewCdInfo, previewEntry) then
+        for i = 2, activeSlotCount do
+            local slot = displayPool[i]
+            if slot then slot.text:Hide(); slot.icon:Hide(); slot.icon.cooldown:Clear(); slot.bar:Hide(); slot:Hide() end
+        end
+        activeSlotCount = 1
+        LayoutDisplaySlots(1)
+        movementFrame:Show()
+    end
+end
+
+local function StartMovementPreview()
+    if movementPreviewTicker then return end
+    local ma = MA()
+    if not ma then return end
+    previewEntry = PreviewEntry()
+    previewEnds = GetTime() + PREVIEW_CD
+    -- The preview owns the display: stop the real poll loop (its state
+    -- resumes from StopMovementPreview's CheckMovementCooldown call).
+    CancelMovementCountdown()
+    movementPreviewTicker = C_Timer.NewTicker(0.1, PreviewTick)
+    PreviewTick()
+end
+
+EllesmereUI._MovementAlertPreviewActive = function() return movementPreviewTicker ~= nil end
+EllesmereUI._MovementAlertPreview = function(on)
+    if on then StartMovementPreview() else StopMovementPreview() end
+end
 
 -------------------------------------------------------------------------------
 --  Time Spiral -- flashes when a tracked mobility spell's cooldown is
@@ -1253,15 +1481,18 @@ EllesmereUI._applyGateway = ApplyGatewayFrame
 -------------------------------------------------------------------------------
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
-loader:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-loader:RegisterEvent("PLAYER_TALENT_UPDATE")
-loader:RegisterEvent("TRAIT_CONFIG_UPDATED")
-loader:RegisterEvent("PLAYER_REGEN_DISABLED")
-loader:RegisterEvent("PLAYER_REGEN_ENABLED")
-loader:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
-loader:RegisterEvent("PLAYER_ENTERING_WORLD")
-loader:RegisterEvent("PLAYER_DEAD")
 
+-- Baseline events (spec/talent/combat/world transitions) drive the shared
+-- caches all three trackers read. They are registered only while at least
+-- one tracker is enabled, so a user with the whole page off pays for
+-- nothing: no events fire and no spellbook cache work ever runs.
+local BASELINE_EVENTS = {
+    "PLAYER_SPECIALIZATION_CHANGED", "PLAYER_TALENT_UPDATE", "TRAIT_CONFIG_UPDATED",
+    "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "UPDATE_SHAPESHIFT_FORM",
+    "PLAYER_ENTERING_WORLD", "PLAYER_DEAD",
+}
+
+local baselineEventsRegistered = false
 local movementEventsRegistered = false
 local timeSpiralEventsRegistered = false
 
@@ -1269,7 +1500,31 @@ local function UpdateEventRegistration()
     local ma = MA()
     if not ma then return end
 
-    if ma.enabled and not movementEventsRegistered then
+    local moveOn = MovementEnabled()
+    local anyEnabled = moveOn or ma.tsEnabled or ma.gwEnabled
+    if anyEnabled and not baselineEventsRegistered then
+        for _, ev in ipairs(BASELINE_EVENTS) do loader:RegisterEvent(ev) end
+        baselineEventsRegistered = true
+        -- The lookup/cache passes are skipped at login while everything is
+        -- off, so the first enable must build them (and pick up the real
+        -- combat state) before any tracker logic runs.
+        inCombat = UnitAffectingCombat("player")
+        RebuildMobilitySpellLookup()
+        CacheMovementSpells(true)
+        -- Register the bar-texture tables with SharedMedia (idempotent; also
+        -- installs the session-long late-registration callback), matching the
+        -- CDM Tracking Bars setup: a saved SM texture renders correctly
+        -- without the options panel ever opening.
+        if EllesmereUI.AppendSharedMediaTextures then
+            EllesmereUI.AppendSharedMediaTextures(BAR_TEXTURE_NAMES, BAR_TEXTURE_ORDER, nil, BAR_TEXTURES)
+        end
+    elseif not anyEnabled and baselineEventsRegistered then
+        for _, ev in ipairs(BASELINE_EVENTS) do loader:UnregisterEvent(ev) end
+        baselineEventsRegistered = false
+        CancelAllRechargeTimers()
+    end
+
+    if moveOn and not movementEventsRegistered then
         loader:RegisterEvent("SPELL_UPDATE_USABLE")
         loader:RegisterEvent("SPELL_UPDATE_COOLDOWN")
         loader:RegisterEvent("SPELL_UPDATE_CHARGES")
@@ -1281,7 +1536,7 @@ local function UpdateEventRegistration()
         -- the next aura change, since it's normally only synced on
         -- PLAYER_REGEN_DISABLED/PLAYER_ENTERING_WORLD.
         if inCombat then SyncBuffActiveOnCombatStart() end
-    elseif not ma.enabled and movementEventsRegistered then
+    elseif not moveOn and movementEventsRegistered then
         loader:UnregisterEvent("SPELL_UPDATE_USABLE")
         loader:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
         loader:UnregisterEvent("SPELL_UPDATE_CHARGES")
@@ -1314,16 +1569,19 @@ loader:SetScript("OnEvent", function(self, event, ...)
     if not ma then return end
 
     if event == "PLAYER_LOGIN" then
-        RebuildMobilitySpellLookup()
-        CacheMovementSpells(true)
-        inCombat = UnitAffectingCombat("player")
-        ApplyMovementFrame(); ApplyTimeSpiralFrame(); ApplyGatewayFrame()
+        -- Zero cost while every tracker is off: UpdateEventRegistration does
+        -- the lookup/cache build when the first tracker registers baseline
+        -- events (now, or later from the options toggle) -- nothing below
+        -- runs for a user with the whole page disabled except the cheap
+        -- unlock-mover registration.
         UpdateEventRegistration()
-        CheckMovementCooldown()
-        StartGatewayPolling()
-        C_Timer.After(0.5, function()
-            if ResolvePlayerSpecId() then CacheMovementSpells(true); CheckMovementCooldown() end
-        end)
+        if MovementEnabled() or ma.tsEnabled or ma.gwEnabled then
+            ApplyMovementFrame(); ApplyTimeSpiralFrame(); ApplyGatewayFrame()
+            CheckMovementCooldown()
+            C_Timer.After(0.5, function()
+                if ResolvePlayerSpecId() then CacheMovementSpells(true); CheckMovementCooldown() end
+            end)
+        end
         -- Unlock Mode elements: RegisterUnlockElements/MakeUnlockElement are
         -- safe to call immediately at login (no need for the extra delay
         -- some older modules used) -- registration itself just stores the
@@ -1337,7 +1595,12 @@ loader:SetScript("OnEvent", function(self, event, ...)
                     label = label,
                     group = "Quality of Life",
                     order = order,
-                    isHidden = function() return not MA()[isHiddenKey] end,
+                    -- isHiddenKey: profile key name, or a predicate function
+                    -- (the movement tracker's enable state is per-class).
+                    isHidden = function()
+                        if type(isHiddenKey) == "function" then return not isHiddenKey() end
+                        return not MA()[isHiddenKey]
+                    end,
                     getFrame = getFrameFn,
                     getSize = function()
                         local pos = MA()[posKey]
@@ -1375,7 +1638,7 @@ loader:SetScript("OnEvent", function(self, event, ...)
             end
 
             EllesmereUI:RegisterUnlockElements({
-                MakeMoverEntry("EUI_MovementAlert", "Movement Alerts", 750, "enabled", function() return movementFrame end, ApplyMovementFrame, "pos"),
+                MakeMoverEntry("EUI_MovementAlert", "Movement Alerts", 750, MovementEnabled, function() return movementFrame end, ApplyMovementFrame, "pos"),
                 MakeMoverEntry("EUI_TimeSpiralAlert", "Movement Alerts - Time Spiral", 751, "tsEnabled", function() return timeSpiralFrame end, ApplyTimeSpiralFrame, "tsPos"),
                 MakeMoverEntry("EUI_GatewayShardAlert", "Movement Alerts - Gateway Shard", 752, "gwEnabled", function() return gatewayFrame end, ApplyGatewayFrame, "gwPos"),
             })
