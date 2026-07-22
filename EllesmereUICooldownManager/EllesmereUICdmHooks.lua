@@ -591,9 +591,10 @@ local _divertedSpellsBuff = {}
 local _divertedSpellsCD   = {}
 -- cooldownID-level buff diversions: a collided buff (two viewer slots sharing
 -- one canonical spellID, e.g. Diabolist Demonic Art vs Diabolic Ritual) is
--- tracked on a custom bar by its cooldownID (sd.assignedBuffCdIDs), routing
--- exactly one slot there. Checked by ResolveCDIDToBar BEFORE the sid-level
--- map so the cd-level claim outranks a whole-pair sid claim.
+-- tracked on a custom bar by its cooldownID (a cd-claim marker in
+-- assignedSpells, see ns.CdClaimMarker), routing exactly one slot there.
+-- Checked by ResolveCDIDToBar BEFORE the sid-level map so the cd-level claim
+-- outranks a whole-pair sid claim.
 local _divertedBuffCdIDs  = {}
 ns._divertedSpellsBuff = _divertedSpellsBuff
 ns._divertedSpellsCD   = _divertedSpellsCD
@@ -675,12 +676,12 @@ function ns.RebuildSpellRouteMap()
                     end
                 end
             end
-            -- cooldownID-level claims (collided buffs tracked by slot)
-            if sd and sd.assignedBuffCdIDs then
-                for cdID in pairs(sd.assignedBuffCdIDs) do
-                    if type(cdID) == "number" then
-                        _divertedBuffCdIDs[cdID] = bd.key
-                    end
+            -- cooldownID-level claims (collided buffs tracked by slot, via
+            -- a cd-claim marker in assignedSpells)
+            local claims = sd and ns.CollectCdClaimSet(sd)
+            if claims then
+                for cdID in pairs(claims) do
+                    _divertedBuffCdIDs[cdID] = bd.key
                 end
             end
         end
@@ -727,6 +728,19 @@ function ns.RebuildSpellRouteMap()
                     if type(sid) == "number" and sid > 0 then
                         SVV(_divertedSpellsBuff, sid, bd.key, false)
                     end
+                end
+            end
+            -- Cd-claimed hosted buffs (collided slots, e.g. Diabolist Demonic
+            -- Art vs Diabolic Ritual, hosted via a cd-claim marker instead of
+            -- the sid-keyed hostedBuffSpellIDs flag): claim the cooldownID
+            -- directly in _divertedBuffCdIDs, same map + same priority the
+            -- buff-family-bar cd-claims (Pass 1) use. ResolveCDIDToBar checks
+            -- this map before any sid-level map, so it works regardless of
+            -- target bar type.
+            local claims = sd and ns.CollectCdClaimSet(sd)
+            if claims then
+                for cdID in pairs(claims) do
+                    _divertedBuffCdIDs[cdID] = bd.key
                 end
             end
         end
@@ -4497,7 +4511,10 @@ local function CollectAndReanchor()
                 local spellList = sdInj and sdInj.assignedSpells
                 if spellList then
                     for idx, sid in ipairs(spellList) do
-                        if type(sid) == "number" and sid <= -100 then
+                        -- Cd-claim markers (collided-buff slots) are also
+                        -- <= -100; they are not items.
+                        if type(sid) == "number" and sid <= -100
+                           and not ns.CdClaimMarkerToCdID(sid) then
                             local itemID = -sid
                             local f = GetOrCreateItemPresetFrame(injKey, itemID)
                             if f then
@@ -4624,9 +4641,19 @@ local function CollectAndReanchor()
                             if orderList then
                                 local oidx = 0
                                 for _, sid in ipairs(orderList) do
+                                    -- Cd-claim marker (collided-buff slot): both
+                                    -- runtime frames of a collided pair share one
+                                    -- spellID, so order by the stable "c"..cooldownID
+                                    -- key instead (matches ResolveBuffDisplaySortIndex's
+                                    -- cooldownID-first lookup for these slots).
+                                    local cdClaim = ns.CdClaimMarkerToCdID(sid)
+                                    if cdClaim then
+                                        oidx = oidx + 1
+                                        local key = "c" .. cdClaim
+                                        if not buffOrder[key] then buffOrder[key] = oidx end
                                     -- Negative IDs are custom-item markers: order them
                                     -- by their slot too (no override/base variants).
-                                    if type(sid) == "number" and sid <= -100 then
+                                    elseif type(sid) == "number" and sid <= -100 then
                                         oidx = oidx + 1
                                         if not buffOrder[sid] then buffOrder[sid] = oidx end
                                     elseif type(sid) == "number" and sid > 0 then

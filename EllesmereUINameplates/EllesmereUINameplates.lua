@@ -6550,10 +6550,14 @@ function NameplateFrame:UpdateNameWidth()
     -- Width % scales the computed (bar-derived) width; 100 = historical behaviour.
     local pct = (p and p.enemyNameWidthPct) or defaults.enemyNameWidthPct
     local nameSlot = FindSlotForElement("enemyName")
-    local nameMarkerReserve = (self.nameRaidFrame and self.nameRaidFrame:IsShown()) and (((p and p.nameRaidMarkerSize) or defaults.nameRaidMarkerSize or 14) + 3) or 0
+    -- Auto-size marked names so the client can position the marker without exposing secret text width.
+    if self._nameRaidMarkerShown == true then
+        self.name:SetWidth(0)
+        return
+    end
     if nameSlot == "textSlotTop" then
-        -- Above the bar: full bar width minus raid marker if shown
-        local nameW = barW - nameMarkerReserve
+        -- Above the bar: full bar width
+        local nameW = barW
         local rmPos = GetRaidMarkerPos()
         if rmPos ~= "none" and self.raidFrame:IsShown() then
             nameW = nameW - 2 * (GetRaidMarkerSize() - 2) - 7
@@ -6576,7 +6580,7 @@ function NameplateFrame:UpdateNameWidth()
                 end
             end
         end
-        local nameW = barW - usedWidth - nameMarkerReserve
+        local nameW = barW - usedWidth
         PP.Width(self.name, math.max(nameW * pct / 100, 20))
     else
         -- Name not in any slot, use minimal width
@@ -6680,18 +6684,7 @@ function NameplateFrame:RefreshNamePosition(localOnly)
         nameRaid:SetFrameStrata("MEDIUM")
         nameRaid:SetFrameLevel(901)
         nameRaid:ClearAllPoints()
-        local textW = self.name:GetWidth() or 0
-        local ok, renderedW = pcall(self.name.GetStringWidth, self.name)
-        if ok and type(renderedW) == "number" and not (issecretvalue and issecretvalue(renderedW)) then
-            textW = math.min(renderedW, textW)
-        end
-        if nameSlot == "textSlotLeft" then
-            nameRaid:SetPoint("RIGHT", self.name, "LEFT", -3, 0)
-        elseif nameSlot == "textSlotRight" then
-            nameRaid:SetPoint("RIGHT", self.name, "RIGHT", -textW - 3, 0)
-        else
-            nameRaid:SetPoint("RIGHT", self.name, "CENTER", -(textW * 0.5) - 3, 0)
-        end
+        nameRaid:SetPoint("RIGHT", self.name, "LEFT", -3, 0)
         nameRaid:Show()
     elseif nameRaid then
         nameRaid:Hide()

@@ -12240,7 +12240,7 @@ function InitializeFrames()
                     elseif vis == "in_raid" then
                         shouldShow = inRaid
                     elseif vis == "in_party" then
-                        shouldShow = inRaid or inParty
+                        shouldShow = inParty
                     elseif vis == "solo" then
                         shouldShow = solo
                     else

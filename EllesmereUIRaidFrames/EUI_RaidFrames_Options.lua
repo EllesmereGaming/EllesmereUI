@@ -505,8 +505,9 @@ initFrame:SetScript("OnEvent", function(self)
         ["number"]        = "Number",
         ["numberPercent"] = "Number | Percent",
         ["percentNumber"] = "Percent | Number",
+        ["missing"]       = "Missing Number",
     }
-    local healthTextOrder = { "none", "percent", "percentNoSign", "number", "numberPercent", "percentNumber" }
+    local healthTextOrder = { "none", "percent", "percentNoSign", "number", "numberPercent", "percentNumber", "missing" }
 
     local absorbStyleValues = {
         ["none"]            = "None",
@@ -822,6 +823,14 @@ initFrame:SetScript("OnEvent", function(self)
                                         local fakeHP = st.current * 12000
                                         local numStr = AbbreviateNumbers and AbbreviateNumbers(fakeHP) or tostring(fakeHP)
                                         f._healthText:SetFormattedText("%d%% | %s", st.current, numStr)
+                                    elseif mode == "missing" then
+                                        local fakeHP = (100 - st.current) * 12000
+                                        f._healthText:SetText(C_StringUtil.TruncateWhenZero(fakeHP))
+                                        if f._healthText:GetText() then
+                                            if AbbreviateNumbers then
+                                                f._healthText:SetText(AbbreviateNumbers(fakeHP))
+                                            end
+                                        end
                                     end
                                 end
 

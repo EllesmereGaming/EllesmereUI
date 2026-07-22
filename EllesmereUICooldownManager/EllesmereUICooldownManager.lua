@@ -774,9 +774,12 @@ function ns.HostedBuffMarker(spellID)
     return -(ns.HOSTED_BUFF_MARKER_BASE + spellID)
 end
 
--- Decode a hosted-buff marker to its spellID; nil for anything else.
+-- Decode a hosted-buff marker to its spellID; nil for anything else. Bounded
+-- above by CD_CLAIM_MARKER_BASE so a cd-claim marker (below) never misdecodes
+-- as a hosted-buff spellID.
 function ns.HostedBuffMarkerToSpell(id)
-    if type(id) == "number" and id <= -ns.HOSTED_BUFF_MARKER_BASE then
+    if type(id) == "number" and id <= -ns.HOSTED_BUFF_MARKER_BASE
+       and id > -ns.CD_CLAIM_MARKER_BASE then
         return -id - ns.HOSTED_BUFF_MARKER_BASE
     end
     return nil
@@ -790,6 +793,49 @@ function ns.ListHasHostedMarker(list, spellID)
         if list[i] == marker then return true end
     end
     return false
+end
+
+-------------------------------------------------------------------------------
+--  Cd-claim markers: a collided buff (two Blizzard buff-viewer slots sharing
+--  one canonical spellID, e.g. Diabolist Demonic Art vs Diabolic Ritual)
+--  cannot be told apart by spellID, so a claimed slot is tracked by its
+--  cooldownID instead. Same marker-in-assignedSpells pattern as hosted-buff
+--  markers above, so add/remove/drag/reorder all work through the existing
+--  index-based assignedSpells machinery for free.
+--
+--  Encoding: -(BASE + cooldownID). BASE sits beyond HOSTED_BUFF_MARKER_BASE
+--  (+ the max plausible spellID), so every existing "is this a hosted-buff
+--  marker?" check (which bounds itself at HOSTED_BUFF_MARKER_BASE) already
+--  excludes cd-claim markers too, with no changes needed at those sites.
+-------------------------------------------------------------------------------
+ns.CD_CLAIM_MARKER_BASE = 3000000000
+
+function ns.CdClaimMarker(cdID)
+    return -(ns.CD_CLAIM_MARKER_BASE + cdID)
+end
+
+-- Decode a cd-claim marker to its cooldownID; nil for anything else.
+function ns.CdClaimMarkerToCdID(id)
+    if type(id) == "number" and id <= -ns.CD_CLAIM_MARKER_BASE then
+        return -id - ns.CD_CLAIM_MARKER_BASE
+    end
+    return nil
+end
+
+-- Collect every cd-claim marker in a bar's assignedSpells as a set
+-- ({[cdID]=true,...}), or nil if none. Drop-in replacement for reading the
+-- old sd.assignedBuffCdIDs side-table directly.
+function ns.CollectCdClaimSet(sd)
+    if not sd or not sd.assignedSpells then return nil end
+    local set
+    for _, id in ipairs(sd.assignedSpells) do
+        local cd = ns.CdClaimMarkerToCdID(id)
+        if cd then
+            set = set or {}
+            set[cd] = true
+        end
+    end
+    return set
 end
 
 -- Family store key for a bar ("spellSettingsBuff" for buff-family bars,
@@ -6530,7 +6576,7 @@ _CDMApplyVisibility = function()
             elseif vis == "in_raid" then
                 shouldHide = not inRaid
             elseif vis == "in_party" then
-                shouldHide = not (inParty or inRaid)
+                shouldHide = not inParty
             elseif vis == "solo" then
                 shouldHide = inRaid or inParty
             end
@@ -7438,17 +7484,19 @@ function ns.ReseedAssignedSpellsFromLiveIcons(cdUtilOnly)
     local ghostList = ghostSd and ghostSd.assignedSpells
     local FindVar = ns.FindVariantIndexInList
 
-    -- Cd-claimed collided-buff slots (sd.assignedBuffCdIDs) are tracked by
-    -- COOLDOWN ID, deliberately outside assignedSpells. Materializing such
-    -- an icon's shared spellID here would, at the next route rebuild, drag
-    -- the UNCLAIMED twin onto the claiming bar too -- defeating the claim's
-    -- one-slot-only contract. Built once; stays nil (guard inert, zero
-    -- cost) unless a collided claim exists anywhere.
+    -- Cd-claimed collided-buff slots (cd-claim markers in assignedSpells,
+    -- see ns.CdClaimMarker) are tracked by COOLDOWN ID, not by the shared
+    -- spellID. Materializing such an icon's shared spellID here would, at
+    -- the next route rebuild, drag the UNCLAIMED twin onto the claiming bar
+    -- too -- defeating the claim's one-slot-only contract. Built once;
+    -- stays nil (guard inert, zero cost) unless a collided claim exists
+    -- anywhere.
     local claimedCd
     if aprof and aprof.barSpells then
         for _, bsd in pairs(aprof.barSpells) do
-            if type(bsd) == "table" and type(bsd.assignedBuffCdIDs) == "table" then
-                for cdID in pairs(bsd.assignedBuffCdIDs) do
+            local bsdClaims = type(bsd) == "table" and ns.CollectCdClaimSet(bsd)
+            if bsdClaims then
+                for cdID in pairs(bsdClaims) do
                     claimedCd = claimedCd or {}
                     claimedCd[cdID] = true
                 end

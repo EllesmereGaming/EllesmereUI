@@ -387,17 +387,17 @@ function ns.FormatMoney(amount, useColors, showSmall, coinIcons)
     return tconcat(parts, " ")
 end
 
-local TIME_UNITS = { { 86400, "d" }, { 3600, "h" }, { 60, "min" } }
+-- Reset countdowns, for the clock tooltip. SecondsToTime is the client's own
+-- duration formatter, so the units are localized -- the hand-rolled "d"/"h"/
+-- "min" this replaces were English on every client. Same call the minimap
+-- already makes for the weekly reset (EllesmereUIMinimap.lua), so the two
+-- modules now render that value identically.
+-- Seconds are suppressed above a minute (3 units is already "2 d 5 h 30 m");
+-- below one they are all that is left to show, and suppressing them there
+-- would return an empty string.
 function ns.FormatTimeLeft(seconds)
     seconds = floor(seconds or 0)
-    local parts = {}
-    for _, unit in ipairs(TIME_UNITS) do
-        local val = floor(seconds / unit[1])
-        seconds = seconds % unit[1]
-        if val > 0 then parts[#parts + 1] = val .. unit[2] end
-    end
-    if #parts > 0 then return tconcat(parts, " ") end
-    return "0min"
+    return SecondsToTime(seconds, seconds >= 60, nil, 3)
 end
 
 function ns.FormatCooldown(cd)
@@ -2291,7 +2291,7 @@ end
 --  one enabled bar exists. Mouseover reveal goes through per-bar plain-table
 --  poll proxies (never EnableMouse on the real bar).
 -------------------------------------------------------------------------------
-ns.EDB_VIS_CAPS = { partyIncludesRaid = true, luaDragonriding = true }
+ns.EDB_VIS_CAPS = { partyIncludesRaid = false, luaDragonriding = true }
 
 -- Bar visibility = ALPHA ONLY, applied directly. A bar hosting a secure
 -- block (micromenu passthrough buttons, travel hearth) is an IMPLICITLY
@@ -2387,7 +2387,7 @@ do
     }
 
     -- Legacy scalar evaluation for the modes the multi engine declines.
-    -- in_party matches party-or-raid (caps.partyIncludesRaid semantics).
+    -- in_party and in_raid are disjoint: a raid group only matches in_raid.
     local function LegacyScalar(mode)
         mode = mode or "always"
         if mode == "always" then return true end
@@ -2398,7 +2398,7 @@ do
         local inRaid = IsInRaid()
         local inGroup = IsInGroup()
         if mode == "in_raid" then return inRaid end
-        if mode == "in_party" then return inGroup end
+        if mode == "in_party" then return inGroup and not inRaid end
         if mode == "solo" then return not inGroup end
         return true
     end

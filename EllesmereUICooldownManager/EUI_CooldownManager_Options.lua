@@ -7623,7 +7623,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- collided pair renders two identical rows, and only the cd-level
             -- claim tells them apart.
             local sdRows = ns.GetBarSpellData(targetBarKey)
-            local cdTracked = sdRows and sdRows.assignedBuffCdIDs
+            local cdTracked = sdRows and ns.CollectCdClaimSet(sdRows)
             for _, sp in ipairs(knownSpells) do
                 local item = MakeSpellRow(sp)
                 if cdTracked and sp.cdID and cdTracked[sp.cdID] then
@@ -7769,9 +7769,15 @@ initFrame:SetScript("OnEvent", function(self)
         if sdCur and sdCur.hostedBuffSpellIDs then
             for sid in pairs(sdCur.hostedBuffSpellIDs) do already[sid] = true end
         end
+        -- Collided-buff slots (Diabolist Demonic Art vs Diabolic Ritual) are
+        -- hosted by cooldownID, not by the shared spellID in `already` --
+        -- filter those out per-slot so only the specific claimed slot
+        -- disappears, not both.
+        local alreadyCd = sdCur and ns.CollectCdClaimSet(sdCur)
         local knownSpells = {}
         for _, sp in ipairs(allSpells) do
-            if sp.cdmCatGroup == "buff" and sp.spellID and not already[sp.spellID] then
+            if sp.cdmCatGroup == "buff" and sp.spellID and not already[sp.spellID]
+               and not (sp.cdID and alreadyCd and alreadyCd[sp.cdID]) then
                 knownSpells[#knownSpells + 1] = sp
             end
         end
@@ -7872,7 +7878,16 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             item:SetScript("OnClick", function()
                 if notLearned then EllesmereUI.HideWidgetTooltip() end
-                ns.AddBuffToCDUtilBar(targetBarKey, sp.spellID)
+                -- Collided pair (two viewer slots, one shared spellID): claim
+                -- by cooldownID so each slot is hostable on its own. Non-
+                -- collided buffs keep the sid path (identity survives talent
+                -- swaps, cooldownIDs drift).
+                if sp.cdID and ns.IsCollidedBuffSid and ns.IsCollidedBuffSid(sp.spellID)
+                   and ns.AddHostedBuffByCdID then
+                    ns.AddHostedBuffByCdID(targetBarKey, sp.cdID)
+                else
+                    ns.AddBuffToCDUtilBar(targetBarKey, sp.spellID)
+                end
                 AfterAdd()
                 -- Gray this row in place; keep the picker open.
                 lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA * 0.4)
@@ -8575,15 +8590,13 @@ initFrame:SetScript("OnEvent", function(self)
                         if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
                         if ns.QueueReanchor then ns.QueueReanchor() end
                     end
-                elseif anchorFrame and anchorFrame._previewCdOnly and ns.RemoveTrackedBuffCdID then
-                    -- cooldownID-claimed slot (collided buff): remove by cdID.
-                    -- slotIndex points past assignedSpells for these slots, so
-                    -- the index path below would remove nothing (or worse).
-                    ns.RemoveTrackedBuffCdID(barKey, anchorFrame._previewCdOnly)
                 else
                     -- A legacy-duplicate buff slot covers >1 assignedSpells entry
                     -- (anchorFrame._dataGroup); remove them all, highest index
-                    -- first. Normal slots have one entry (or no group) -> plain remove.
+                    -- first. Normal slots -- including cd-claim marker slots
+                    -- (collided buffs), which carry a real single-entry
+                    -- assignedSpells index just like any other entry -- have
+                    -- one entry (or no group) -> plain remove.
                     local grp = anchorFrame and anchorFrame._dataGroup
                     if grp and #grp > 1 then
                         local order = {}
@@ -8662,10 +8675,20 @@ initFrame:SetScript("OnEvent", function(self)
                     if (not spellID or spellID == 0) and anchorFrame and anchorFrame._previewSpellID then
                         spellID = anchorFrame._previewSpellID
                     end
+                    -- Cd-claimed collided-buff slot: settings key is the
+                    -- collision "c"..cooldownID form directly -- the marker's
+                    -- mere presence already proves this slot's identity is the
+                    -- cooldownID (no ambiguity to gate on, unlike
+                    -- ResolveBuffSettingsKey's buff-bar case). Matches
+                    -- ResolveSpellSettings' runtime key exactly
+                    -- (EllesmereUICdmHooks.lua, settings["c"..cdID]).
+                    local cdClaimS = spellID and ns.CdClaimMarkerToCdID and ns.CdClaimMarkerToCdID(spellID)
+                    if cdClaimS then
+                        spellID = "c" .. cdClaimS
                     -- Hosted-buff MARKER slot: settings key by the DECODED spell id
                     -- (the id the render resolver and the buffs bar key by), never
                     -- the raw marker.
-                    if spellID and ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(spellID) then
+                    elseif spellID and ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(spellID) then
                         spellID = ns.HostedBuffMarkerToSpell(spellID)
                     end
                 end
@@ -14392,13 +14415,6 @@ initFrame:SetScript("OnEvent", function(self)
                     if _spellPickerMenu and _spellPickerMenu:IsShown() then
                         _spellPickerMenu:Hide()
                     end
-                    -- cooldownID-claimed slot (collided buff): remove by cdID --
-                    -- it has no assignedSpells index to remove by.
-                    if self._previewCdOnly and ns.RemoveTrackedBuffCdID then
-                        ns.RemoveTrackedBuffCdID(bd.key, self._previewCdOnly)
-                        RefreshCDPreview()
-                        return
-                    end
                     if isDefaultBuffs then
                         -- Custom item slot (negative -itemID marker): remove it
                         -- directly. slotIndex maps to the mixed preview list, so
@@ -14548,18 +14564,12 @@ initFrame:SetScript("OnEvent", function(self)
                             end
                         end
                     end
-                    -- Cd-claimed collided-buff slots carry no assignedSpells
-                    -- index (their membership is the cooldownID claim), and
-                    -- BuffDataIdx's raw-display-index fallback would address
-                    -- assignedSpells past its real length for them. Drag-
-                    -- START on claimed slots is already blocked; this closes
-                    -- the drop-TARGET side at the single commit point: any
-                    -- resolved index that is a claimed slot or out of range
-                    -- refuses the commit (drag snaps back, no write). Inert
-                    -- unless a claimed slot exists on this bar.
+                    -- Resolved index refuses the commit when out of range
+                    -- (drag snaps back, no write). Cd-claimed collided-buff
+                    -- slots carry a real assignedSpells index (a cd-claim
+                    -- marker, see ns.CdClaimMarker) same as any other entry,
+                    -- so no special-casing is needed for them here.
                     local function SafeDataIdx(dispIdx)
-                        local s = previewSlots[dispIdx]
-                        if s and s._previewCdOnly then return nil end
                         local di = BuffDataIdx(dispIdx)
                         local sdChk = ns.GetBarSpellData and ns.GetBarSpellData(bd.key)
                         local n = sdChk and sdChk.assignedSpells and #sdChk.assignedSpells or 0
@@ -14799,9 +14809,6 @@ initFrame:SetScript("OnEvent", function(self)
                 -- icon order is driven by nameplate state, not user order.
                 local bdDrag = SelectedCDMBar()
                 if bdDrag and bdDrag.key == ns.FOCUSKICK_BAR_KEY then return end
-                -- cooldownID-claimed slots have no assignedSpells index, so the
-                -- index-based reorder cannot move them; don't start a drag.
-                if self._previewCdOnly then return end
                 local cx, cy = GetCursorPosition()
                 pendingDragSlot = self
                 pendingStartX = cx
@@ -15038,7 +15045,6 @@ initFrame:SetScript("OnEvent", function(self)
             local trackedCd
             pf._buffDispGroups = nil
             pf._buffSlotKeys = nil
-            pf._cdOnlySlots = nil  -- slot idx -> cooldownID (collided-buff claims)
             if bd.key == "buffs" then
                 if ns.ReconcileBuffDisplayOrder then ns.ReconcileBuffDisplayOrder() end
                 local entries = ns.CollectDefaultBuffTrackEntries
@@ -15078,18 +15084,16 @@ initFrame:SetScript("OnEvent", function(self)
                     -- Collapse legacy duplicate buff ids in the PREVIEW only (the
                     -- stored data is left intact so routing is untouched).
                     tracked, pf._buffDispGroups = BuildBuffDisplayDedup(raw)
-                    -- Append cooldownID-level claims (collided buffs tracked by
-                    -- slot, sd.assignedBuffCdIDs). Their sid comes from the clean
-                    -- cache (never a secret); slot idx is marked in _cdOnlySlots
-                    -- so click/remove/drag handlers don't treat it as an
-                    -- assignedSpells index.
-                    if sdUpd and sdUpd.assignedBuffCdIDs and next(sdUpd.assignedBuffCdIDs) then
-                        local cds = {}
-                        for cdID in pairs(sdUpd.assignedBuffCdIDs) do
-                            if type(cdID) == "number" then cds[#cds + 1] = cdID end
-                        end
-                        table.sort(cds)
-                        for _, cdID in ipairs(cds) do
+                    -- Resolve cooldownID-level claims (collided buffs tracked by
+                    -- slot, a cd-claim marker embedded in assignedSpells -- see
+                    -- ns.CdClaimMarker) to their display sid IN PLACE, at the
+                    -- marker's own position in `tracked`. This is what makes the
+                    -- claim's preview slot -- and therefore its drag/reorder
+                    -- position -- fall directly out of its assignedSpells index,
+                    -- same as any other entry.
+                    for i = 1, #tracked do
+                        local cdID = ns.CdClaimMarkerToCdID(tracked[i])
+                        if cdID then
                             local csid = ns._cdmCleanSidByCDID and ns._cdmCleanSidByCDID[cdID]
                             if not (type(csid) == "number" and csid > 0) then
                                 -- Clean cache not primed yet (fresh login, buff
@@ -15111,11 +15115,9 @@ initFrame:SetScript("OnEvent", function(self)
                                 end
                             end
                             if type(csid) == "number" and csid > 0 then
-                                tracked[#tracked + 1] = csid
+                                tracked[i] = csid
                                 trackedCd = trackedCd or {}
-                                trackedCd[#tracked] = cdID
-                                pf._cdOnlySlots = pf._cdOnlySlots or {}
-                                pf._cdOnlySlots[#tracked] = cdID
+                                trackedCd[i] = cdID
                             end
                         end
                     end
@@ -15288,13 +15290,50 @@ initFrame:SetScript("OnEvent", function(self)
                     local id = tracked[i]
                     slot._previewSpellID = nil  -- reset each update
                     slot._previewCdID = trackedCd and trackedCd[i] or nil
-                    slot._previewCdOnly = pf._cdOnlySlots and pf._cdOnlySlots[i] or nil
                     slot._previewItemID = nil
                     slot._previewHostedBuff = nil
                     if id then
                         local tex
-                        local hostedSid = ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(id)
-                        if hostedSid then
+                        local cdClaim = ns.CdClaimMarkerToCdID and ns.CdClaimMarkerToCdID(id)
+                        local hostedSid = (not cdClaim) and ns.HostedBuffMarkerToSpell
+                            and ns.HostedBuffMarkerToSpell(id)
+                        if cdClaim then
+                            -- Cd-claimed collided-buff slot hosted on a CD/util bar
+                            -- (Diabolist Demonic Art vs Diabolic Ritual): `tracked`
+                            -- aliases sd.assignedSpells directly here (unlike the
+                            -- buff-bar branch above, which builds a fresh dedup
+                            -- list), so the marker is resolved to a display sid
+                            -- IN THIS RENDER STEP ONLY -- never written back into
+                            -- `id`/`tracked[i]`, which would corrupt the saved
+                            -- marker. Same clean-cache + cooldownInfo fallback the
+                            -- buff-bar preview uses.
+                            local csid = ns._cdmCleanSidByCDID and ns._cdmCleanSidByCDID[cdClaim]
+                            if not (type(csid) == "number" and csid > 0) then
+                                local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+                                local info = gci and gci(cdClaim)
+                                local raw2 = info and info.overrideSpellID
+                                if not (type(raw2) == "number"
+                                        and not (issecretvalue and issecretvalue(raw2))
+                                        and raw2 > 0) then
+                                    raw2 = info and info.spellID
+                                end
+                                if type(raw2) == "number"
+                                   and not (issecretvalue and issecretvalue(raw2))
+                                   and raw2 > 0 then
+                                    csid = raw2
+                                end
+                            end
+                            if type(csid) == "number" and csid > 0 then
+                                local displayID = ResolveToLive(csid)
+                                tex = C_Spell.GetSpellTexture(displayID)
+                                if not tex and displayID ~= csid then
+                                    tex = C_Spell.GetSpellTexture(csid)
+                                end
+                                slot._previewSpellID = csid
+                                slot._previewCdID = cdClaim
+                                slot._previewHostedBuff = true
+                            end
+                        elseif hostedSid then
                             -- Hosted-buff marker: previews as its spell, flagged so
                             -- the per-icon menu takes the buff branch while the same
                             -- id's cooldown slot keeps the cd/util one.
@@ -15335,7 +15374,6 @@ initFrame:SetScript("OnEvent", function(self)
                     slot._icon:SetTexture(nil)
                     slot._previewSpellID = nil
                     slot._previewCdID = nil
-                    slot._previewCdOnly = nil
                     slot._previewItemID = nil
                     slot._previewHostedBuff = nil
                 end
@@ -16576,7 +16614,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- matching the old VIS_VALUES_CDM list.
         local visRow, visH = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
             { getStore = BD, legacyKey = "barVisibility",
-              caps = { partyIncludesRaid = true, noMouseover = true, luaDragonriding = true },
+              caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
               onChanged = function()
                   ns.CDMApplyVisibility()
               end },

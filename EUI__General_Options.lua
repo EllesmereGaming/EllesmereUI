@@ -1233,6 +1233,12 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 desc   = "Big customizable on-screen text that fires the moment you enter or leave combat, with your own message, size, colors, and screen position.",
                 nav    = { module = "EllesmereUIQoL", page = "Quality of Life", section = "GENERAL", highlight = "Combat Alert" },
             },
+            {
+                module = "Quality of Life",
+                title  = "Target Distance Text",
+                desc   = "Movable left-aligned distance text for your current target (default 30-35, optional 30+ / 30), colored by yard distance. Off by default; position or Anchor to a unit frame in Unlock Mode.",
+                nav    = { module = "EllesmereUIQoL", page = "Quality of Life", section = "GENERAL", highlight = "Target Distance Text" },
+            },
         },
         features = {
             {

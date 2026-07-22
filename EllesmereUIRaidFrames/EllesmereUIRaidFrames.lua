@@ -4414,6 +4414,18 @@ local function UpdateButton(button)
             d.healthText:SetFormattedText("%.0f%% | %s", pct, numStr)
             local htr, htg, htb = GetHealthTextColor(unit, s)
             d.healthText:SetTextColor(htr, htg, htb, 0.9)
+        elseif mode == "missing" then
+            local curr = UnitHealthMissing(unit, true)
+            d.healthText:SetText(C_StringUtil.TruncateWhenZero(curr))
+            if d.healthText:GetText() then
+                if curr and AbbreviateNumbers then
+                    d.healthText:SetText(AbbreviateNumbers(curr))
+                elseif curr then
+                    d.healthText:SetFormattedText("%s", curr)
+                end
+            end
+            local htr, htg, htb = GetHealthTextColor(unit, s)
+            d.healthText:SetTextColor(htr, htg, htb, 0.9)
         else
             d.healthText:SetText("")
         end
@@ -6208,6 +6220,18 @@ ns._UpdateButtonHealth = function(button)
             d.healthText:SetFormattedText("%.0f%% | %s", pct, numStr)
             local htr, htg, htb = GetHealthTextColor(unit, s)
             d.healthText:SetTextColor(htr, htg, htb, 0.9)
+        elseif mode == "missing" then
+            local curr = UnitHealthMissing(unit, true)
+            d.healthText:SetText(C_StringUtil.TruncateWhenZero(curr))
+            if d.healthText:GetText() then
+                if curr and AbbreviateNumbers then
+                    d.healthText:SetText(AbbreviateNumbers(curr))
+                elseif curr then
+                    d.healthText:SetFormattedText("%s", curr)
+                end
+            end
+            local htr, htg, htb = GetHealthTextColor(unit, s)
+            d.healthText:SetTextColor(htr, htg, htb, 0.9)
         else
             d.healthText:SetText("")
         end
@@ -6479,6 +6503,18 @@ FB.Update = function(b)
             local curr = UnitHealth(unit, true)
             local numStr = (curr and AbbreviateNumbers) and AbbreviateNumbers(curr) or tostring(curr or 0)
             b._healthText:SetFormattedText("%.0f%% | %s", pct, numStr)
+        elseif mode == "missing" then
+            local curr = UnitHealthMissing(unit, true)
+            b._healthText:SetText(C_StringUtil.TruncateWhenZero(curr))
+            if b._healthText:GetText() then
+                if curr and AbbreviateNumbers then
+                    b._healthText:SetText(AbbreviateNumbers(curr))
+                elseif curr then
+                    b._healthText:SetFormattedText("%s", curr)
+                end
+            end
+            local htr, htg, htb = GetHealthTextColor(unit, s)
+            b._healthText:SetTextColor(htr, htg, htb, 0.9)
         else
             b._healthText:SetText("")
         end
@@ -14003,6 +14039,15 @@ local function ApplyPreviewData(f, index)
             local fakeHP = healthPct * 12000
             local numStr = AbbreviateNumbers and AbbreviateNumbers(fakeHP) or tostring(fakeHP)
             f._healthText:SetFormattedText("%d%% | %s", healthPct, numStr)
+            f._healthText:SetTextColor(htr, htg, htb, 0.9)
+        elseif mode == "missing" then
+            local fakeHP = (100 - healthPct) * 12000
+            f._healthText:SetText(C_StringUtil.TruncateWhenZero(fakeHP))
+            if f._healthText:GetText() then
+                if AbbreviateNumbers then
+                    f._healthText:SetText(AbbreviateNumbers(fakeHP))
+                end
+            end
             f._healthText:SetTextColor(htr, htg, htb, 0.9)
         else
             f._healthText:SetText("")

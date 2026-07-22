@@ -1286,7 +1286,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end,
                   legacyKey = "barVisibility",
                   label = leftLabel,
-                  caps = { partyIncludesRaid = true, luaDragonriding = true },
+                  caps = { partyIncludesRaid = false, luaDragonriding = true },
                   applyScalarFn = function(s, mode) ApplyVisibilityKey(s, mode) end,
                   disabledFn = disabledFn, disabledTooltip = disTip, rawTooltip = disTip and true or nil,
                   onChanged = function()
@@ -1700,7 +1700,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Pet Bar structurally cannot express group modes: lock them
             -- with an explanation instead of offering silent no-ops.
-            local visCaps = { partyIncludesRaid = true }
+            local visCaps = { partyIncludesRaid = false }
             if SelectedKey() == "PetBar" then
                 visCaps.noGroupModes = true
                 visCaps.lockedTooltips = {

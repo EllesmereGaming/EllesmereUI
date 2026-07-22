@@ -9003,14 +9003,14 @@ CreateTabButton = function(index, name)
     btn:SetHeight(TAB_BAR_H)
     btn:SetFrameLevel(tabBar:GetFrameLevel() + 1)
 
-    local label = MakeFont(btn, 16, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
+    local label = MakeFont(btn, 14, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
     label:SetPoint("CENTER", 0, 0)
     label:SetText(EllesmereUI.L(name))
     btn._label = label
     btn._name  = name
 
     local textW = label:GetStringWidth() or 60
-    btn:SetWidth(textW + 30)
+    btn:SetWidth(textW + 24)
 
     -- Teal underline for active tab
     local underline = SolidTex(btn, "ARTWORK", ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
@@ -9043,7 +9043,7 @@ BuildTabs = function(pageNames, disabledPages, disabledTooltips)
     for i, name in ipairs(pageNames) do
         local btn = CreateTabButton(i, name)
         btn:SetPoint("BOTTOMLEFT", tabBar, "BOTTOMLEFT", xOff, 0)
-        xOff = xOff + btn:GetWidth() + 6
+        xOff = xOff + btn:GetWidth() + 4
         tabBar._tabButtons[i] = btn
         -- Disable tab if in disabledPages list
         if disabledSet[name] then
@@ -9081,12 +9081,12 @@ BuildTabs = function(pageNames, disabledPages, disabledTooltips)
         local editBox = CreateFrame("EditBox", nil, searchFrame)
         editBox:SetAllPoints()
         editBox:SetAutoFocus(false)
-        editBox:SetFont(EllesmereUI.EXPRESSWAY, 13, "")
+        editBox:SetFont(EllesmereUI.EXPRESSWAY, 12, "")
         editBox:SetTextColor(TEXT_WHITE_R, TEXT_WHITE_G, TEXT_WHITE_B, 1)
         editBox:SetTextInsets(10, 24, 0, 0)
         editBox:SetMaxLetters(40)
 
-        local placeholder = MakeFont(searchFrame, 12, nil, TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, 0.3)
+        local placeholder = MakeFont(searchFrame, 11, nil, TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, 0.3)
         placeholder:SetPoint("LEFT", searchFrame, "LEFT", 10, 0)
         placeholder:SetText(EllesmereUI.L("Search Module Settings..."))
 
@@ -12358,7 +12358,7 @@ function EllesmereUI.CheckVisibilityMode(mode, state)
     if mode == "in_combat" then return state.inCombat end
     if mode == "out_of_combat" then return not state.inCombat end
     if mode == "in_raid" then return state.inRaid end
-    if mode == "in_party" then return state.inParty or state.inRaid end
+    if mode == "in_party" then return state.inParty end
     if mode == "solo" then return not state.inRaid and not state.inParty end
     if mode == "show_dragonriding" then
         -- Approximates the secure-macro [advflyable,flying] driver: show only

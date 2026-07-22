@@ -6145,7 +6145,9 @@ local function BuildVisibilityString(info, s, visOverride)
     elseif vis == "in_raid" then
         return hidePrefix .. "[group:raid] show; hide"
     elseif vis == "in_party" then
-        return hidePrefix .. "[group:party] show; [group:raid] show; hide"
+        -- [group:party] alone is TRUE inside a raid; nogroup:raid narrows it
+        -- to a real party so unchecking In Raid Group actually hides in raids.
+        return hidePrefix .. "[group:party,nogroup:raid] show; hide"
     elseif vis == "solo" then
         return hidePrefix .. "[nogroup] show; hide"
     elseif vis == "show_dragonriding" then

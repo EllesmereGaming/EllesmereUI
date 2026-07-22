@@ -4341,7 +4341,7 @@ initFrame:SetScript("OnEvent", function(self)
             local g1, g2, g3 = vm.in_raid, vm.in_party, vm.solo
             if not (g1 or g2 or g3) or (g1 and g2 and g3) then return true end
             if g1 and inRaid then return true end
-            if g2 and (inParty or inRaid) then return true end
+            if g2 and inParty then return true end
             if g3 and not inRaid and not inParty then return true end
             return false
         end
@@ -4364,7 +4364,7 @@ initFrame:SetScript("OnEvent", function(self)
             elseif v == "in_raid" then
                 s.showInRaid = true; s.showInParty = false; s.showSolo = false
             elseif v == "in_party" then
-                s.showInRaid = true; s.showInParty = true; s.showSolo = false
+                s.showInRaid = false; s.showInParty = true; s.showSolo = false
             elseif v == "solo" then
                 s.showInRaid = false; s.showInParty = false; s.showSolo = true
             end
@@ -4373,7 +4373,7 @@ initFrame:SetScript("OnEvent", function(self)
         visRow, h = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
             { getStore = function() return UNIT_DB_MAP[selectedUnit]() end,
               legacyKey = "barVisibility",
-              caps = { partyIncludesRaid = true, luaDragonriding = true },
+              caps = { partyIncludesRaid = false, luaDragonriding = true },
               refreshPageArg = true,
               -- Visibility owns only the hidden/not-hidden axis: "never"
               -- disables the frame; any visible mode re-enables it. The

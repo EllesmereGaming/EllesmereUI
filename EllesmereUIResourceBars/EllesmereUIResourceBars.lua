@@ -5443,7 +5443,7 @@ local function ShouldShowSecondary()
     if vis == "in_raid" then return IsInRaid and IsInRaid() or false end
     if vis == "in_party" then
         local inRaid = IsInRaid and IsInRaid() or false
-        return inRaid or (IsInGroup and IsInGroup() or false)
+        return not inRaid and (IsInGroup and IsInGroup() or false)
     end
     if vis == "solo" then
         return not (IsInRaid and IsInRaid()) and not (IsInGroup and IsInGroup())
@@ -5475,7 +5475,7 @@ local function ShouldShowBar(barProfile)
     if vis == "in_raid" then return IsInRaid and IsInRaid() or false end
     if vis == "in_party" then
         local inRaid = IsInRaid and IsInRaid() or false
-        return inRaid or (IsInGroup and IsInGroup() or false)
+        return not inRaid and (IsInGroup and IsInGroup() or false)
     end
     if vis == "solo" then
         return not (IsInRaid and IsInRaid()) and not (IsInGroup and IsInGroup())
