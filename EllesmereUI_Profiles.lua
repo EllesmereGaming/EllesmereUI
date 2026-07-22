@@ -1675,7 +1675,127 @@ local function CollectAssignedSpecs(profileName)
     return list
 end
 
-function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, includeCDM, cdmSpecs, includeGlobals, includeOverrides)
+-------------------------------------------------------------------------------
+-- Blizz UI Enhanced account-global settings ("Window & Tooltip Skins").
+-- These keys live at the TOP LEVEL of EllesmereUIDB (account-wide, shared by
+-- every profile) and cover exactly the first two Blizz UI Enhanced tabs:
+-- Window Skins and Tooltips, Menus & Popups. The bundle is OPT-IN on export
+-- (Include dropdown, default off) and OPT-IN on import (Include Window Skins
+-- checkbox + confirmation), because applying it overwrites the recipient's
+-- settings across ALL of their profiles.
+--
+-- CO-MAINTAIN with the module onReset key list in
+-- EllesmereUIBlizzardSkin/EUI_BlizzardSkin_Options.lua: a new account-global
+-- setting added to either tab must be added here too or it will not travel.
+--
+-- Deliberately absent (state, not settings): lfgSavedRoles (the player's
+-- saved LFG roles), charSheetCollapsedSections (transient UI state),
+-- characterFramePos / friendsFramePos (dragged panel positions, resolution-
+-- bound), tooltipFixedPos (stale account key; the live one is per-profile
+-- and rides the profile itself), blizzWindowModernBG (dead key, read
+-- nowhere).
+-------------------------------------------------------------------------------
+local BLIZZ_SKIN_GLOBAL_KEYS = {}
+do
+    local keys = BLIZZ_SKIN_GLOBAL_KEYS
+    local function add(list)
+        for _, k in ipairs(list) do keys[#keys + 1] = k end
+    end
+    -- Tooltips, Menus & Popups tab
+    add({
+        "customTooltips", "tooltipFontScale", "tooltipPlayerTitles",
+        "tooltipItemLevel", "tooltipMythicScore", "tooltipShowMount",
+        "tooltipShowGuildRank", "tooltipShowTarget", "tooltipShowMode",
+        "tooltipShowModifier", "tooltipGrowthDirection",
+        "uberTooltips", "uberTooltipsManual", "tooltipHideHealthStrip",
+        "tooltipAnchorCursor", "tooltipCursorPosition",
+        "tooltipCursorOffsetX", "tooltipCursorOffsetY",
+        "tooltipBgColor", "tooltipBgOpacity", "tooltipBorderSize",
+        "showSpellID", "spellIDModifier",
+        "showItemMaxStacks", "itemStackModifier",
+        "reskinPopupsMenus", "reskinGameMenu", "reskinQueuePopup",
+        "showQueueTimer", "resurrectAcceptGlow",
+        "popupMenuButtonBackgroundColor", "popupMenuButtonTextColorMode",
+        "popupMenuButtonTextColor",
+        "accentReskinElements",
+    })
+    -- Shared border-editor key sets (tooltip / popup menu / popup menu button)
+    for _, prefix in ipairs({ "tooltip", "popupMenu", "popupMenuButton" }) do
+        for _, suffix in ipairs({
+            "BorderTexture", "BorderThickness", "BorderColor",
+            "BorderColorMode", "BorderOpacity", "BorderOffsetX",
+            "BorderOffsetY", "BorderShiftX", "BorderShiftY", "BorderBehind",
+        }) do
+            keys[#keys + 1] = prefix .. suffix
+        end
+    end
+    -- Window Skins tab: per-window enables + skin styles + shared look
+    add({
+        "themedCharacterSheet", "themedInspectSheet",
+        "reskinLFGMenu", "reskinGreatVault", "reskinCollections",
+        "reskinPlayerSpells", "reskinAdventureGuide", "reskinProfessionsBook",
+        "reskinProfessions", "reskinWorldMap", "reskinGuild", "reskinCalendar",
+        "reskinAchievements", "reskinMail", "reskinCatalyst", "reskinSocket",
+        "reskinMicroMenu", "reskinHousing", "reskinDressUp", "reskinTransmog",
+        "reskinMerchant", "reskinAuctionHouse", "reskinMacros",
+        "reskinSettings", "reskinAddonList", "reskinCraftOrders",
+        "reskinTrainer", "reskinGossip", "reskinQuest", "reskinInspectRecipe",
+        "reskinDelves",
+        "blizzWindowSkinStyles", "blizzWindowModernDefault",
+        "blizzWinAccentBar", "blizzWinBarFill", "blizzWinLinks",
+    })
+    -- Window Skins tab: per-window card options
+    add({
+        -- Character Sheet card
+        "statCategoryColors", "statCategoryUseColor", "statSectionsOrder",
+        "showMythicRating", "showItemLevel", "showUpgradeTrack", "showGems",
+        "showEnchants", "showPvpItemLevel", "charSheetSocketPanel",
+        "charSheetIconZoom", "charSheetEnchantNames", "charSheetEnchantSize",
+        "flyoutItemLevels", "showSecondaryRaw", "showSecondaryBoth",
+        "showTertiaryRaw", "showTertiaryBoth", "showAdjustedStats",
+        -- Inspect card
+        "inspectShowEnchants", "inspectShowItemLevel", "inspectShowUpgradeTrack",
+        -- LFG / Merchant cards
+        "lfgRememberRoles",
+        "merchantShowAsList", "merchantListRowHeight", "merchantShowItemLevel",
+    })
+end
+
+-- Snapshot the bundle for export. nil-valued keys are simply absent from the
+-- snapshot; the import side clears keys absent from the bundle, so the
+-- recipient lands on the exporter's EXACT two-tab configuration (absent =
+-- that setting's default).
+local function SnapshotBlizzSkinGlobals()
+    if not EllesmereUIDB then return nil end
+    local out = {}
+    for _, k in ipairs(BLIZZ_SKIN_GLOBAL_KEYS) do
+        local v = EllesmereUIDB[k]
+        if v ~= nil then out[k] = DeepCopy(v) end
+    end
+    return out
+end
+
+-- Apply an imported bundle: every allowlisted key takes the bundle's value,
+-- INCLUDING nil (absent = exporter default), so mixed old/new state can't
+-- linger. Bundle keys this build doesn't know yet apply too (a newer
+-- exporter's keys are inert on builds that never read them). Callers reload
+-- right after -- these settings install at load, so no live re-apply is
+-- needed or attempted.
+function EllesmereUI.ApplyBlizzSkinGlobals(bundle)
+    if type(bundle) ~= "table" or not EllesmereUIDB then return end
+    local known = {}
+    for _, k in ipairs(BLIZZ_SKIN_GLOBAL_KEYS) do
+        known[k] = true
+        EllesmereUIDB[k] = DeepCopy(bundle[k])
+    end
+    for k, v in pairs(bundle) do
+        if not known[k] then
+            EllesmereUIDB[k] = DeepCopy(v)
+        end
+    end
+end
+
+function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, includeCDM, cdmSpecs, includeGlobals, includeOverrides, includeBlizzSkin)
     if includeLayout == nil then includeLayout = true end  -- default ON
     -- Overrides (value stores + groups + unlock-layer forks + BM forks)
     -- default ON: headless full calls (Wago, partner installers) keep
@@ -1692,6 +1812,12 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
     -- flow passes explicit values.)
     if includeCDM == nil then includeCDM = true end
     if includeGlobals == nil then includeGlobals = true end  -- default ON ("Include Global Settings")
+    -- Blizz UI Enhanced account-global bundle: headless full calls (the Wago
+    -- creator export, partner installers) default ON so a pack delivers the
+    -- creator's complete look -- there is no UI in that path to opt in. The
+    -- export UI always passes its explicit "Window Skins" Include choice
+    -- (default off there: manual sharers opt in deliberately).
+    if includeBlizzSkin == nil then includeBlizzSkin = true end
     local db = GetProfilesDB()
     local profileData = db.profiles[profileName]
     if not profileData then return nil end
@@ -1712,6 +1838,9 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
     exportData.overridesExcluded = nil
     exportData.partialImport     = nil
     exportData.layoutExcluded    = nil
+    exportData.blizzSkinGlobals      = nil
+    exportData.applyBlizzSkinGlobals = nil
+    exportData.applyUIScale          = nil
     -- UI accent color (per-profile): serialize the RESOLVED accent for THIS
     -- profile (works for active and non-active profiles; never mutates the
     -- stored profile, and is rename-immune since it is a data-root field, not
@@ -1774,6 +1903,18 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
         exportData.darkMode     = nil
         exportData.euiAccent    = nil
         exportData.uiScale      = nil
+    end
+    -- Blizz UI Enhanced account-global bundle ("Window & Tooltip Skins"):
+    -- rides when includeBlizzSkin resolves true -- explicit opt-in from the
+    -- export UI's "Window Skins" Include item, or the headless default (see
+    -- the nil-default above: Wago packs deliver the creator's complete look).
+    -- Gated on the module being loaded so a build without Blizz UI Enhanced
+    -- never ships an empty bundle. Bundle presence in a string is therefore
+    -- always deliberate, which is what lets the importer treat presence as
+    -- the apply signal (the import dialog's checkbox strips the bundle for
+    -- recipient-side opt-out).
+    if includeBlizzSkin and EllesmereUI.IsModuleAddonLoaded("EllesmereUIBlizzardSkin") then
+        exportData.blizzSkinGlobals = SnapshotBlizzSkinGlobals()
     end
     -- Layout relationships (unlockLayout) are governed by the "Include layout"
     -- toggle and FILTERED per-module: only relationships whose both endpoints are
@@ -2482,6 +2623,13 @@ local function BuildImportedCDMSpellBucket(profileName, activeName, incomingSpec
             if EllesmereUI.MigrateCdmHostedBuffSettings then
                 EllesmereUI.MigrateCdmHostedBuffSettings(specProf)
             end
+            -- Collided-buff cooldownID claims moved from the
+            -- assignedBuffCdIDs side-table to cd-claim markers inside
+            -- assignedSpells; convert old-format imports too (idempotent),
+            -- or their claims sit unread and the slots silently unclaim.
+            if EllesmereUI.MigrateCdmBuffCdClaims then
+                EllesmereUI.MigrateCdmBuffCdClaims(specProf)
+            end
             -- Strings exported before _buffDisplayOrderUserModified
             -- existed carry a drag-arranged buffDisplayOrder without
             -- the flag; stamp it or the first live reconcile resyncs
@@ -2561,20 +2709,44 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         -- global), never inside a profile. Strip any stray clickCast from the
         -- payload so an import can never overwrite the user's own click-cast setup.
         imported.clickCast = nil
+        -- The Blizz UI Enhanced bundle + its opt-in marker are payload-root
+        -- transport, never profile data -- strip so they can't ride into the
+        -- stored profile (applied separately below).
+        imported.blizzSkinGlobals      = nil
+        imported.applyBlizzSkinGlobals = nil
 
-        -- UI scale (account-wide) is applied ONLY when the importer explicitly
-        -- opted in: the import page's "Exclude UI Scale" toggle defaults ON, so
-        -- the applyUIScale marker is absent by default, and a raw-string / Wago
-        -- import (no options UI) never sets it either -- the user's own scale is
-        -- left untouched. Writing the account keys here lets the caller's imminent
-        -- reload apply the new scale (EllesmereUI_Startup reads ppUIScale). Range
-        -- matches PP.PixelBestSize's clamp; out-of-range values are ignored.
-        if payload.data.applyUIScale and type(payload.data.uiScale) == "number" and EllesmereUIDB then
+        -- UI scale (account-wide): PRESENCE IS CONSENT (2026-07-20, matching
+        -- Window Skins). The import dialog's scale-mismatch popup runs before
+        -- its commit and STRIPS uiScale from the payload when the user picks
+        -- Keep Mine (or the scales already match), so a value still present
+        -- is either the dialog's accepted Match Scale choice or a headless
+        -- (Wago / partner / silent API) full-string import -- which applies
+        -- the creator's scale by default, matching overrides, CDM spell
+        -- layouts, and window skins. Writing the account keys here lets the
+        -- caller's imminent reload apply the new scale (EllesmereUI_Startup
+        -- reads ppUIScale). Range matches PP.PixelBestSize's clamp;
+        -- out-of-range values are ignored.
+        if type(payload.data.uiScale) == "number" and EllesmereUIDB then
             local s = payload.data.uiScale
             if s >= 0.40 and s <= 1.15 then
                 EllesmereUIDB.ppUIScale = s
                 EllesmereUIDB.ppUIScaleAuto = false
             end
+        end
+
+        -- Blizz UI Enhanced account-global bundle ("Window & Tooltip Skins"):
+        -- applied whenever the string CARRIES it -- presence is consent
+        -- (2026-07-20): a bundle only ever rides via the exporter's explicit
+        -- "Window Skins" Include choice or the headless full-export default,
+        -- and the import dialog's "Include Window Skins" checkbox STRIPS the
+        -- bundle when unchecked (after its overwrite confirmation), so the
+        -- recipient-side opt-out still holds. Headless (Wago / partner /
+        -- silent API) full-string imports therefore apply the creator's
+        -- window skins by default, matching overrides and CDM spell layouts.
+        -- Writes the account-wide keys now; the caller's imminent reload
+        -- applies them (these skins install at load).
+        if type(payload.data.blizzSkinGlobals) == "table" then
+            EllesmereUI.ApplyBlizzSkinGlobals(payload.data.blizzSkinGlobals)
         end
 
         -- Base: deep-copy current active profile, then overlay imported addons

@@ -26,8 +26,24 @@ local AURA_SCAN_LIMIT = 255  -- Midnight supports more than the legacy 40 buff l
 local DEFAULT_GLOW_COLOR = {r=1, g=0.776, b=0.376}
 local DEFAULT_TEXT_COLOR = {r=1, g=1, b=1}
 
+-- Live migration: glowColorMode replaced "glowColor always being set". Runs
+-- at the read path (not only OnInitialize) because profile swaps repoint
+-- db.profile without re-running init -- an unmigrated profile activated
+-- mid-session must still honor its stored custom color. Idempotent: writes
+-- the mode key once per profile, never touches the stored color.
+local function EnsureGlowModeMigrated(p)
+    if not p or p.glowColorMode then return end
+    local c = p.glowColor
+    if c and not (c.r == 1 and c.g == 0.776 and c.b == 0.376) then
+        p.glowColorMode = "custom"
+    else
+        p.glowColorMode = "default"
+    end
+end
+
 local function ResolveGlowTint(p)
     if not p then return nil end
+    EnsureGlowModeMigrated(p)
     if p.glowColorMode == "class" then
         local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
         return cc.r, cc.g, cc.b
@@ -845,6 +861,24 @@ local BUFF_BENEFICIARIES = {
 _G._EABR_SpellName = function(spellID, fallback)
     local n = spellID and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
     return n or fallback
+end
+
+-- Weapon enchant summary in the legacy GetWeaponEnchantInfo tuple shape:
+-- hasMH, mhExpireMs, mhCharges, mhEnchantID, hasOH, ohExpireMs, ohCharges,
+-- ohEnchantID. Prefers C_PaperDollInfo.GetTemporaryEnchantmentInfo where it
+-- exists (12.1: GetWeaponEnchantInfo is a deprecation-CVar shim there);
+-- remainingTimeMs matches the legacy ms expiration values one to one.
+-- Stored on EABR, not a file local (this file runs at the 200-local cap).
+EABR.WeaponEnchants = function()
+    if C_PaperDollInfo and C_PaperDollInfo.GetTemporaryEnchantmentInfo then
+        local mh = C_PaperDollInfo.GetTemporaryEnchantmentInfo(INVSLOT_MAINHAND)
+        local oh = C_PaperDollInfo.GetTemporaryEnchantmentInfo(INVSLOT_OFFHAND)
+        return (mh and true or false), mh and mh.remainingTimeMs,
+            mh and mh.chargesRemaining, mh and mh.enchantID,
+            (oh and true or false), oh and oh.remainingTimeMs,
+            oh and oh.chargesRemaining, oh and oh.enchantID
+    end
+    return GetWeaponEnchantInfo()
 end
 
 local RAID_BUFFS = {
@@ -3304,7 +3338,7 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
             if playerClass == "PALADIN" then
                 for _, rite in ipairs(PALADIN_RITES) do
                     if co.enabled[rite.key] and Known(rite.castSpell) then
-                        local hasMH, mhExpire = GetWeaponEnchantInfo()
+                        local hasMH, mhExpire = EABR.WeaponEnchants()
                         local show = false
                         if EABR._previewForce then
                             show = true
@@ -3327,10 +3361,10 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
             end
 
             -- Shaman Imbues: match each imbue by its wepEnchID against
-            -- both weapon slots. GetWeaponEnchantInfo returns the specific
+            -- both weapon slots. The enchant summary carries the specific
             -- enchant ID on each hand (4th and 8th return values).
             if playerClass == "SHAMAN" then
-                local hasMH, mhExpire, _, mhEnchID, hasOH, ohExpire, _, ohEnchID = GetWeaponEnchantInfo()
+                local hasMH, mhExpire, _, mhEnchID, hasOH, ohExpire, _, ohEnchID = EABR.WeaponEnchants()
                 for _, imbue in ipairs(SHAMAN_IMBUES) do
                     if co.enabled[imbue.key] and Known(imbue.castSpell) then
                         local found = false
@@ -4554,16 +4588,9 @@ function EABR:OnInitialize()
     if au then au.scale = nil end
     if co then co.scale = nil end
 
-    -- Live migration: glowColorMode replaced glowColor always being set
-    local d = db.profile.display
-    if d and not d.glowColorMode then
-        local c = d.glowColor
-        if c and not (c.r == 1 and c.g == 0.776 and c.b == 0.376) then
-            d.glowColorMode = "custom"
-        else
-            d.glowColorMode = "default"
-        end
-    end
+    -- Migrate the login-active profile eagerly; profiles activated later are
+    -- covered by the read-path call in ResolveGlowTint.
+    EnsureGlowModeMigrated(db.profile.display)
 end
 
 -------------------------------------------------------------------------------
@@ -4596,6 +4623,7 @@ function EABR:OnEnable()
     _G._EABR_StartFlipBookGlow = StartFlipBookGlow
     _G._EABR_StopAllGlows = StopAllGlows
     _G._EABR_ResolveGlowTint = ResolveGlowTint
+    _G._EABR_EnsureGlowModeMigrated = EnsureGlowModeMigrated
     _G._EABR_RegisterUnlock = RegisterUnlockElements
     _G._EABR_ApplyUnlockPos = ApplyUnlockPos
     _G._EABR_RAID_BUFFS = RAID_BUFFS

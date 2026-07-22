@@ -2044,80 +2044,10 @@ do
     end
     EllesmereUI.GetCrosshairValue = CrosshairGet
 
-    -- Item-based range detection for all specs
-    local checkItems = {
-        { range = 5,   id = 37727 }, -- Ruby Acorn
-        { range = 8,   id = 34368 }, -- Attuned Crystal Cores
-        { range = 10,  id = 10699 }, -- Handful of Snowflakes
-        { range = 15,  id = 31129 }, -- Blackwhelp Net
-        { range = 20,  id = 21519 }, -- Mistletoe
-        { range = 25,  id = 13289 }, -- Egan's Blaster
-        { range = 30,  id = 17202 }, -- Snowball
-        { range = 35,  id = 18904 }, -- Zorbin's Ultra-Shrinker
-        { range = 40,  ids = { 18640, 28767 } }, -- Happy Fun Rock / The Decapitator (either works)
-        { range = 45,  id = 32698 }, -- Wrangling Rope
-        { range = 60,  id = 32825 }, -- Soul Cannon
-        { range = 80,  id = 35278 }, -- Reinforced Net
-    }
-
     local DRUID_MELEE_FORMS = { [1] = true, [2] = true }  -- Bear, Cat
 
     local _, _chPlayerClass = UnitClass("player")
     local _crosshairCutoffRange = 5
-
-    -- Spell probes: the player's own top-range harmful spells, used as the
-    -- PRIMARY range test for ranged cutoffs. Probing real spellbook spells is
-    -- ground truth -- range-extension talents are included automatically
-    -- (reported: priest with extended range stayed "out of range" at the
-    -- hardcoded 40). The item ladder below remains as the fallback whenever
-    -- no probe answers (ground-targeted spells return nil, early login, or a
-    -- spec whose book yields no candidates), so behavior can never be worse
-    -- than before. Melee cutoffs (5) never probe: today's behavior preserved.
-    local _crosshairProbes = {}
-
-    local function RefreshCrosshairProbeSpells()
-        wipe(_crosshairProbes)
-        local cutoff = _crosshairCutoffRange
-        if cutoff <= 5 then return end
-        if not (C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines
-                and C_Spell and C_Spell.IsSpellHarmful and C_Spell.GetSpellInfo) then
-            return
-        end
-        local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
-        if not bank then return end
-        -- Candidate window: at least the spec's baseline reach, at most a
-        -- talent-extension envelope above it (keeps outlier long-range utility
-        -- spells from widening the crosshair beyond the spec's real kit).
-        local maxWindow = cutoff + 10
-        local found = {}
-        local numTabs = C_SpellBook.GetNumSpellBookSkillLines() or 0
-        for tab = 1, numTabs do
-            local lineInfo = C_SpellBook.GetSpellBookSkillLineInfo(tab)
-            if lineInfo and not (lineInfo.offSpecID and lineInfo.offSpecID ~= 0)
-               and not lineInfo.shouldHide then
-                local offset = lineInfo.itemIndexOffset or 0
-                local count = lineInfo.numSpellBookItems or 0
-                for si = offset + 1, offset + count do
-                    local spellType, actionId, spellId = C_SpellBook.GetSpellBookItemType(si, bank)
-                    if spellType == Enum.SpellBookItemType.Spell then
-                        local sid = spellId or actionId
-                        if sid and not (C_Spell.IsSpellPassive and C_Spell.IsSpellPassive(sid))
-                           and C_Spell.IsSpellHarmful(sid) then
-                            local info = C_Spell.GetSpellInfo(sid)
-                            local mr = info and info.maxRange
-                            if mr and mr >= cutoff and mr <= maxWindow then
-                                found[#found + 1] = { sid = sid, range = mr }
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        table.sort(found, function(a, b) return a.range > b.range end)
-        for i = 1, math.min(4, #found) do
-            _crosshairProbes[i] = found[i].sid
-        end
-    end
 
     local function RefreshCrosshairCutoffRange()
         local _, classFile = UnitClass("player")
@@ -2192,12 +2122,9 @@ do
         else -- WARRIOR, ROGUE, DEATHKNIGHT
             _crosshairCutoffRange = 5
         end
-        -- Rebuild the spell probes for the (possibly new) cutoff. Runs on the
-        -- same cadence as the cutoff itself: login, spec change, talent change
-        -- (TRAIT_CONFIG_UPDATED -- exactly when range talents flip), and the
-        -- options toggle. The early returns above leave a stale list, but the
-        -- check-time gate (effective cutoff > 5) never consults it then.
-        RefreshCrosshairProbeSpells()
+        -- Probe spells for the cutoff live in the shared range engine
+        -- (EllesmereUI_Range.lua); it rebuilds them itself on spec/talent
+        -- changes and whenever the cutoff value here moves.
     end
     RefreshCrosshairCutoffRange()
     -- Exposed so the crosshair options toggle can re-resolve the cutoff live.
@@ -2218,44 +2145,23 @@ do
         end
         local cutoff = EllesmereUI._getCrosshairCutoffRange()
 
-        -- PRIMARY: probe the player's own top-range harmful spells -- exact,
-        -- and talented range extensions are reflected automatically. A nil
-        -- answer (spell can't unit-target right now) cascades to the next
-        -- probe, then to the item ladder below. Melee cutoffs (5, including
+        -- PRIMARY: probe the player's own top-range harmful spells (shared
+        -- range engine) -- exact, and talented range extensions are reflected
+        -- automatically. A nil answer (no probe could target right now)
+        -- cascades to the item ladder below. Melee cutoffs (5, including
         -- druid melee forms via the effective getter) skip straight to the
         -- ladder -- unchanged behavior.
-        if cutoff > 5 and _crosshairProbes[1] and C_Spell and C_Spell.IsSpellInRange then
-            local FindOvr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
-            for i = 1, #_crosshairProbes do
-                local sid = _crosshairProbes[i]
-                local live = (FindOvr and FindOvr(sid)) or sid
-                local r = C_Spell.IsSpellInRange(live, "target")
-                if r ~= nil then return r == false end
-            end
+        if cutoff > 5 then
+            local beyond = EllesmereUI.Range_BeyondCutoff("target", cutoff)
+            if beyond ~= nil then return beyond end
         end
 
-        local maxRange = nil
-        for _, item in ipairs(checkItems) do
-            local inRange
-            if item.ids then
-                -- Either item satisfies the check: one may be invalid/removed on
-                -- some clients, so try each and take an in-range result.
-                for _, iid in ipairs(item.ids) do
-                    if C_Item.IsItemInRange(iid, "target") == true then inRange = true; break end
-                end
-            else
-                inRange = C_Item.IsItemInRange(item.id, "target")
-            end
-            if inRange == true then
-                maxRange = item.range
-                break
-            end
-            if item.range >= cutoff then
-                break
-            end
-        end
-        
-        return (maxRange == nil) or (maxRange > cutoff)
+        -- FALLBACK: shared item ladder, stopped at the cutoff -- the beyond/
+        -- within verdict never needs rungs past it. nil = nothing answered,
+        -- treated as out of range (unchanged).
+        local minY, maxY = EllesmereUI.Range_ItemBracket("target", cutoff)
+        if minY == nil then return true end
+        return (maxY == nil) or (maxY > cutoff)
     end
 
     local function CreateCrosshair()
@@ -2292,6 +2198,7 @@ do
             local nc = self._normalColor
             if not nc then return end
             if not CrosshairGet("crosshairMeleeColorEnabled") then
+                EllesmereUI.Range_SetActive("crosshair", false)
                 if self._meleeActive then
                     self._meleeActive = false
                     self._hBar:SetColorTexture(nc.r, nc.g, nc.b, nc.a)
@@ -2299,6 +2206,9 @@ do
                 end
                 return
             end
+            -- Cheap and idempotent: keeps the shared engine's activation in
+            -- step with this live toggle read on every path that checks range.
+            EllesmereUI.Range_SetActive("crosshair", true)
             local outOfRange = TargetOutOfRange()
             if outOfRange ~= self._meleeActive then
                 self._meleeActive = outOfRange
@@ -2355,10 +2265,14 @@ do
         local size = G("crosshairSize") or "None"
         if size == "None" then
             SyncVisWatch(false)
+            -- OnUpdate stops with the frame hidden, so it cannot release the
+            -- shared range engine itself -- release it here.
+            EllesmereUI.Range_SetActive("crosshair", false)
             if crosshairFrame then crosshairFrame:Hide() end
             return
         end
         SyncVisWatch(true)
+        EllesmereUI.Range_SetActive("crosshair", G("crosshairMeleeColorEnabled") and true or false)
 
         CreateCrosshair()
 
@@ -3395,6 +3309,8 @@ end
 --  Floating distance text for the current target, movable in Unlock Mode.
 --  Default format is the familiar item-ladder bracket ("30-35"); optional
 --  "30+" (spell-ladder lower bound) and "30" (minimum yards) formats.
+--  Range answers come from the shared engine (EllesmereUI_Range.lua), which
+--  this block activates only while the feature is enabled.
 --  Color is preconfigured by yard bracket. Off by default; zero cost while off.
 -------------------------------------------------------------------------------
 do
@@ -3402,37 +3318,11 @@ do
     local drv
     local evt
     local installed = false
-    local spellLadder, spellLadderBuilt = {}, false
     local acc = 0
     local DEFAULT_TEXT_SIZE = 18
     local DEFAULT_FORMAT = "range" -- "range" (30-35) | "plus" (30+) | "min" (30)
     local DEFAULT_ALIGN = "CENTER" -- "LEFT" | "CENTER" | "RIGHT"
     local DEFAULT_POS = { point = "CENTER", relPoint = "CENTER", x = 0, y = 120 }
-
-    -- Item ladder for Range format. Desired display buckets:
-    --   1-10: 1 yd steps (1-2, 2-3, …) · 10-50: 5 yd · 50-80: 10 yd · then 80+.
-    -- Rungs use LibRangeCheck-style harm items; yards with no reliable item
-    -- (1, 6, 9) are omitted and neighboring checks form the bracket.
-    local RANGE_ITEMS = {
-        { range = 2,  ids = { 37727, 168948, 194718 } }, -- Ruby Acorn / Dried Kelp / Salamander Feed
-        { range = 3,  ids = { 42732, 200469 } },         -- Everfrost Razor / Khadgar's Rod
-        { range = 4,  id  = 129055 },                    -- Shoe Shine Kit
-        { range = 5,  ids = { 8149, 136605, 63427 } },   -- Voodoo Charm / Solendra's / Worgsaw
-        { range = 7,  id  = 61323 },                     -- Ruby Seeds
-        { range = 8,  ids = { 34368, 33278 } },          -- Attuned Crystal Cores / Burning Torch
-        { range = 10, ids = { 32321, 17626, 10699 } },   -- Sparrowhawk Net / Frostwolf Muzzle / Yeh'kinya's
-        { range = 15, ids = { 33069, 31129 } },          -- Sturdy Rope / Blackwhelp Net
-        { range = 20, ids = { 10645, 21519 } },          -- Gnomish Death Ray / Mistletoe
-        { range = 25, ids = { 13289, 24268, 41509, 31463 } },
-        { range = 30, ids = { 17202, 835, 7734, 34191 } },
-        { range = 35, ids = { 18904, 24269 } },
-        { range = 40, ids = { 28767, 18640 } },          -- Decapitator / Happy Fun Rock
-        { range = 45, ids = { 32698, 23836 } },          -- Wrangling Rope / Goblin Rocket Launcher
-        { range = 50, id  = 116139 },                    -- Haunting Memento
-        { range = 60, ids = { 32825, 37887 } },          -- Soul Cannon / Seeds of Nature's Wrath
-        { range = 70, id  = 41265 },                     -- Eyesore Blaster
-        { range = 80, id  = 35278 },                     -- Reinforced Net
-    }
 
     local function GetFormat()
         local f = EllesmereUIDB and EllesmereUIDB.targetDistanceFormat
@@ -3457,99 +3347,6 @@ do
             return 1.00, 0.55, 0.15
         end
         return 0.95, 0.25, 0.20
-    end
-
-    local function ItemInRange(entry, unit)
-        if not (C_Item and C_Item.IsItemInRange) then return nil end
-        if entry.ids then
-            local sawFalse = false
-            for _, iid in ipairs(entry.ids) do
-                local res = C_Item.IsItemInRange(iid, unit)
-                if not (issecretvalue and issecretvalue(res)) then
-                    if res == true then return true end
-                    if res == false then sawFalse = true end
-                end
-            end
-            if sawFalse then return false end
-            return nil
-        end
-        local res = C_Item.IsItemInRange(entry.id, unit)
-        if issecretvalue and issecretvalue(res) then return nil end
-        return res
-    end
-
-    -- Returns minYards, maxYards (max nil when beyond the last rung).
-    local function ItemBracket(unit)
-        if not unit or not UnitExists(unit) then return nil end
-        local minY = 0
-        local found = false
-        for i = 1, #RANGE_ITEMS do
-            local entry = RANGE_ITEMS[i]
-            local inRange = ItemInRange(entry, unit)
-            if inRange ~= nil then
-                found = true
-                if inRange then
-                    return minY, entry.range
-                end
-                minY = entry.range
-            end
-        end
-        if not found then return nil end
-        return minY, nil
-    end
-
-    local function BuildSpellLadder()
-        spellLadderBuilt = true
-        wipe(spellLadder)
-        if not (C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines
-            and C_Spell and C_Spell.GetSpellInfo and Enum and Enum.SpellBookItemType) then
-            return
-        end
-        local seen = {}
-        local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
-        for li = 1, C_SpellBook.GetNumSpellBookSkillLines() do
-            local line = C_SpellBook.GetSpellBookSkillLineInfo(li)
-            if line and not (line.offSpecID and line.offSpecID ~= 0)
-                and not line.shouldHide
-                and line.itemIndexOffset and line.numSpellBookItems then
-                for si = line.itemIndexOffset + 1, line.itemIndexOffset + line.numSpellBookItems do
-                    local itemType, actionID, spellID = C_SpellBook.GetSpellBookItemType(si, bank)
-                    local sid = spellID or actionID
-                    if itemType == Enum.SpellBookItemType.Spell and sid
-                        and not (C_Spell.IsSpellPassive and C_Spell.IsSpellPassive(sid))
-                        and (not C_Spell.IsSpellHarmful or C_Spell.IsSpellHarmful(sid)) then
-                        local sinfo = C_Spell.GetSpellInfo(sid)
-                        local maxR = sinfo and sinfo.maxRange
-                        if maxR and maxR > 0 and maxR <= 100 and not seen[maxR] then
-                            seen[maxR] = true
-                            spellLadder[#spellLadder + 1] = { range = maxR, spell = sid }
-                        end
-                    end
-                end
-            end
-        end
-        table.sort(spellLadder, function(a, b) return a.range < b.range end)
-    end
-
-    local function SpellLowerBound(unit)
-        if not unit or not UnitExists(unit) then return nil end
-        if not (C_Spell and C_Spell.IsSpellInRange) then return nil end
-        if not spellLadderBuilt then BuildSpellLadder() end
-        local FindOvr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
-        local lower = 0
-        local found = false
-        for i = 1, #spellLadder do
-            local r = spellLadder[i]
-            local live = (FindOvr and FindOvr(r.spell)) or r.spell
-            local res = C_Spell.IsSpellInRange(live, unit)
-            if not (issecretvalue and issecretvalue(res)) and res ~= nil then
-                found = true
-                if res then return lower end
-                lower = r.range
-            end
-        end
-        if not found then return nil end
-        return lower
     end
 
     local function FormatDistance(fmt, minY, maxY)
@@ -3578,11 +3375,11 @@ do
     local function ResolveDisplay(unit)
         local fmt = GetFormat()
         if fmt == "plus" then
-            local lower = SpellLowerBound(unit)
+            local lower = EllesmereUI.Range_LowerBound(unit)
             if not lower or lower <= 0 then return nil end
             return FormatDistance("plus", lower, nil), lower
         end
-        local minY, maxY = ItemBracket(unit)
+        local minY, maxY = EllesmereUI.Range_ItemBracket(unit)
         if minY == nil then return nil end
         local text = FormatDistance(fmt, minY, maxY)
         if not text then return nil end
@@ -3661,6 +3458,7 @@ do
     local Tick -- forward decl for StartDriver closures
 
     local function StopDriver()
+        EllesmereUI.Range_SetActive("qolTargetDistance", false)
         if evt then evt:UnregisterAllEvents() end
         if drv then
             drv:SetScript("OnUpdate", nil)
@@ -3678,13 +3476,9 @@ do
         end
         if not evt then
             evt = CreateFrame("Frame")
-            evt:SetScript("OnEvent", function(_, event)
+            evt:SetScript("OnEvent", function()
                 if not IsEnabled() then return end
-                if event == "SPELLS_CHANGED" then
-                    spellLadderBuilt = false
-                else
-                    Tick()
-                end
+                Tick()
             end)
         end
         drv:SetScript("OnUpdate", function(_, dt)
@@ -3695,12 +3489,8 @@ do
             Tick()
         end)
         evt:RegisterEvent("PLAYER_TARGET_CHANGED")
-        -- Spell ladder only used by the "plus" format.
-        if GetFormat() == "plus" then
-            evt:RegisterEvent("SPELLS_CHANGED")
-        else
-            evt:UnregisterEvent("SPELLS_CHANGED")
-        end
+        -- Ladder builds and invalidation live in the shared range engine.
+        EllesmereUI.Range_SetActive("qolTargetDistance", true)
         drv:Show()
         installed = true
     end
@@ -3730,12 +3520,6 @@ do
     local function ApplyTargetDistance()
         if IsEnabled() then
             if not installed then StartDriver() end
-            -- Format may have changed while already running.
-            if GetFormat() == "plus" then
-                evt:RegisterEvent("SPELLS_CHANGED")
-            else
-                evt:UnregisterEvent("SPELLS_CHANGED")
-            end
             Tick()
             if distFrame then ApplyFrameSettings() end
         else

@@ -6000,7 +6000,70 @@ function EllesmereUI:ShowConfirmPopup(opts)
         popup._cbRow:Hide()
     end
 
-    popup:SetHeight((popup._baseH or 176) + scaleWarnH + cbH)
+    -- Optional type-to-confirm gate (lazy, like the macro overlay): an edit
+    -- box the user must type the given word into (case-insensitive) before
+    -- the confirm button accepts clicks. Not supported together with
+    -- confirmMacro (secure overlay clicks cannot be gated).
+    local typeH = 0
+    popup._typeGateOn = nil
+    if opts.typeToConfirm then
+        if not popup._typeRow then
+            local row = CreateFrame("Frame", nil, popup)
+            row:SetSize(220, 26)
+            row:SetFrameLevel(popup:GetFrameLevel() + 2)
+            local tLbl = MakeFont(row, 12, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
+            tLbl:SetPoint("LEFT", row, "LEFT", 0, 0)
+            local box = CreateFrame("EditBox", nil, row)
+            box:SetSize(110, 26)
+            box:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+            box:SetAutoFocus(false)
+            box:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 13, "")
+            box:SetTextColor(1, 1, 1, 1)
+            box:SetTextInsets(8, 8, 0, 0)
+            box:SetMaxLetters(24)
+            SolidTex(box, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
+            MakeBorder(box, 1, 1, 1, 0.12)
+            box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+            box:SetScript("OnTextChanged", function(self)
+                if not popup._typeGateOn then return end
+                local ok = strlower(strtrim(self:GetText() or "")) == popup._typeWant
+                popup._typeGateOk = ok
+                popup._confirmBtn:SetAlpha(ok and 1 or 0.3)
+            end)
+            box:SetScript("OnEnterPressed", function(self)
+                self:ClearFocus()
+                if popup._typeGateOk then
+                    local click = popup._confirmBtn:GetScript("OnClick")
+                    if click then click(popup._confirmBtn) end
+                end
+            end)
+            row._label = tLbl
+            row._box = box
+            popup._typeRow = row
+        end
+        local row = popup._typeRow
+        popup._typeGateOn = true
+        popup._typeGateOk = false
+        popup._typeWant = strlower(strtrim(tostring(opts.typeToConfirm)))
+        row._label:SetText(string.format(EllesmereUI.L('Type "%s" to enable:'), tostring(opts.typeToConfirm)))
+        row._box:SetText("")
+        row:SetWidth(row._label:GetStringWidth() + 10 + 110)
+        row:ClearAllPoints()
+        row:SetPoint("BOTTOM", popup, "BOTTOM", 0, 13 + 27 + 10 + cbH)
+        row:Show()
+        -- The base height affords roughly three message lines; gated popups
+        -- carry long warnings, so grow by the measured overflow too.
+        local extra = popup._msg:GetStringHeight() or 0
+        if opts.disclaimer then
+            extra = extra + (popup._disclaimer:GetStringHeight() or 0) + 8
+        end
+        typeH = 36 + math.max(0, extra - 44)
+    elseif popup._typeRow then
+        popup._typeRow._box:ClearFocus()
+        popup._typeRow:Hide()
+    end
+
+    popup:SetHeight((popup._baseH or 176) + scaleWarnH + cbH + typeH)
     popup._cancelBtn._lbl:SetText(EllesmereUI.L(opts.cancelText or "Cancel"))
     popup._confirmBtn._lbl:SetText(EllesmereUI.L(opts.confirmText or "Confirm"))
     -- onDismiss: called on escape/click-outside. Falls back to onCancel if not provided.
@@ -6021,6 +6084,7 @@ function EllesmereUI:ShowConfirmPopup(opts)
     -- Reset hover states
     popup._cancelBtn._resetAnim()
     popup._confirmBtn._resetAnim()
+    popup._confirmBtn:SetAlpha(popup._typeGateOn and 0.3 or 1)
 
     popup._cancelBtn:SetScript("OnClick", function()
         popup._dimmer:Hide()
@@ -6055,6 +6119,7 @@ function EllesmereUI:ShowConfirmPopup(opts)
     else
         if popup._macroOverlay then popup._macroOverlay:Hide() end
         popup._confirmBtn:SetScript("OnClick", function()
+            if popup._typeGateOn and not popup._typeGateOk then return end
             popup._dimmer:Hide()
             if opts.onConfirm then opts.onConfirm(popup._cbChecked) end
         end)
@@ -10806,7 +10871,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.5.2"
+EllesmereUI.VERSION = "8.5.3"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -11091,9 +11156,10 @@ C_Timer.After(2, function()
     if EllesmereUIDB and EllesmereUIDB.firstInstallPopupShown then
         -- Defer while any intro popup is still pending/open; each runs the
         -- conflict check itself when dismissed (RaidFrames / PatchNotes /
-        -- WindowSkins / SpecOverrides popup files).
+        -- WindowSkins / SpecOverrides / PTRManagers popup files).
         if EllesmereUI._raidFramesIntroPending or EllesmereUI._patchNotesIntroPending
-           or EllesmereUI._windowSkinsIntroPending or EllesmereUI._specOvIntroPending then return end
+           or EllesmereUI._windowSkinsIntroPending or EllesmereUI._specOvIntroPending
+           or EllesmereUI._ptrManagersIntroPending then return end
         if EllesmereUI._RunConflictCheck then EllesmereUI._RunConflictCheck() end
     end
 end)
@@ -12358,7 +12424,7 @@ function EllesmereUI.CheckVisibilityMode(mode, state)
     if mode == "in_combat" then return state.inCombat end
     if mode == "out_of_combat" then return not state.inCombat end
     if mode == "in_raid" then return state.inRaid end
-    if mode == "in_party" then return state.inParty or state.inRaid end
+    if mode == "in_party" then return state.inParty end
     if mode == "solo" then return not state.inRaid and not state.inParty end
     if mode == "show_dragonriding" then
         -- Approximates the secure-macro [advflyable,flying] driver: show only

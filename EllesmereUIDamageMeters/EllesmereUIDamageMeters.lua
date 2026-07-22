@@ -227,6 +227,8 @@ local DM_DEFAULTS = {
             standaloneTimerColor  = { r = 1, g = 1, b = 1 },
             standaloneTimerPos    = nil,
             standaloneTimerAnchor = "free",
+            standaloneTimerShowOOC  = false,
+            standaloneTimerDesatOOC = false,
             refreshRate = 1,
             hideResetButton = false, -- display the "reset data" button on the damage meter header
             hdrBgColor      = { r = 0x1B/255, g = 0x1B/255, b = 0x1B/255 },
@@ -588,11 +590,20 @@ ns.RegisterDMUnlock = function()
             end,
         })
     end
+    -- Standalone combat timer rides the master toggle (the factory is
+    -- defined in the timer section, resolved via ns at call time)
+    if DB().standaloneTimer and ns.MakeSATimerUnlockElement then
+        elements[#elements + 1] = ns.MakeSATimerUnlockElement(MK)
+    end
     EUI:RegisterUnlockElements(elements, "EllesmereUIDamageMeters")
-    -- Drop registrations for window slots beyond the live count
+    -- Drop registrations for window slots beyond the live count, and for the
+    -- timer while it is disabled (kept symmetric across profile swaps)
     if EUI.UnregisterUnlockElement then
         for i = #_windows + 1, MAX_WINDOWS do
             EUI:UnregisterUnlockElement("EDM_Win" .. i)
+        end
+        if not DB().standaloneTimer then
+            EUI:UnregisterUnlockElement("EDM_CombatTimer")
         end
     end
 end
@@ -4582,6 +4593,7 @@ end
 local _saTimer  -- frame reference
 local _saTimerFS -- fontstring
 local _saTimerPreview = false
+local _saTimerLive = false  -- last live/idle state seen (drives OOC desaturation)
 
 local function GetSATimerColor()
     local cfg = DB()
@@ -4590,12 +4602,23 @@ local function GetSATimerColor()
     return c and c.r or 1, c and c.g or 1, c and c.b or 1
 end
 
+local function ApplySATimerColor()
+    if not _saTimerFS then return end
+    local cfg = DB()
+    local r, g, b = GetSATimerColor()
+    if cfg.standaloneTimerDesatOOC and not (_inCombat or _needsFinalRefresh) then
+        -- Luminance gray: desaturation keeps the configured color's brightness
+        local l = 0.299 * r + 0.587 * g + 0.114 * b
+        r, g, b = l, l, l
+    end
+    _saTimerFS:SetTextColor(r, g, b, 1)
+end
+
 local function ApplySATimerStyle()
     if not _saTimer or not _saTimerFS then return end
     local cfg = DB()
     SetDMFont(_saTimerFS, cfg.standaloneTimerSize or 14)
-    local r, g, b = GetSATimerColor()
-    _saTimerFS:SetTextColor(r, g, b, 1)
+    ApplySATimerColor()
     _saTimerFS:ClearAllPoints()
     local anchor = cfg.standaloneTimerAnchor or "free"
     local alignLeft
@@ -4618,22 +4641,35 @@ UpdateSATimerText = function()
     local cfg = DB()
     if not cfg.standaloneTimer then return end
     -- Same source as the window's Current timer so the two can never disagree.
-    -- Visible while combat is live (or while polling a group fight we are not in),
-    -- hidden out of combat.
-    if _inCombat or _needsFinalRefresh then
+    -- Visible while combat is live (or while polling a group fight we are not in);
+    -- out of combat it hides unless Show Out of Combat keeps it up (showing the
+    -- last fight's frozen duration).
+    local live = _inCombat or _needsFinalRefresh
+    if live or cfg.standaloneTimerShowOOC then
         if not _saTimer:IsShown() and not _saTimerPreview then _saTimer:Show() end
-        _saTimerFS:SetText(FormatTimer(GetCurrentViewDuration()))
+        if live or not _saTimerPreview then
+            _saTimerFS:SetText(FormatTimer(GetCurrentViewDuration()))
+        end
     else
         if not _saTimerPreview then
             if _saTimer:IsShown() then _saTimer:Hide() end
             _saTimerFS:SetText("")
         end
     end
+    if _saTimerLive ~= live then
+        _saTimerLive = live
+        ApplySATimerColor()
+    end
 end
 
 local function RepositionSATimer()
     if not _saTimer then return end
     local cfg = DB()
+    -- While the timer has a live unlock anchor link, the anchor system owns
+    -- its position -- do not fight it.
+    if EUI.IsUnlockAnchored and EUI.IsUnlockAnchored("EDM_CombatTimer") then
+        return
+    end
     local anchor = cfg.standaloneTimerAnchor or "free"
 
     _saTimer:ClearAllPoints()
@@ -4642,7 +4678,10 @@ local function RepositionSATimer()
         _saTimer:SetMovable(true)
         _saTimer:EnableMouse(true)
         local pos = cfg.standaloneTimerPos
-        if pos and pos.x and pos.y then
+        if pos and pos.point then
+            _saTimer:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+        elseif pos and pos.x and pos.y then
+            -- Legacy drag format: TOPLEFT offset from UIParent's BOTTOMLEFT
             _saTimer:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", pos.x, pos.y)
         else
             local W1 = _windows[1]
@@ -4734,6 +4773,7 @@ local function CreateSATimer()
     RepositionSATimer()
 
     _saTimer:Hide()  -- starts hidden; combat state controls visibility
+    UpdateSATimerText()  -- Show Out of Combat can bring it straight back up
 end
 
 ns.ApplySATimer = function()
@@ -4762,25 +4802,85 @@ end
 ns.ShowSATimerPreview = function()
     if not _saTimer then CreateSATimer() end
     if not _saTimer then return end
+    -- Show Out of Combat already keeps real data on screen (last segment
+    -- duration, or 0:00) -- never clobber it with the preview value.
+    if DB().standaloneTimerShowOOC then
+        UpdateSATimerText()
+        return
+    end
     _saTimerPreview = true
     _saTimerFS:SetText("11:37")
     _saTimer:Show()
 end
 ns.HideSATimerPreview = function()
+    local wasPreview = _saTimerPreview
     _saTimerPreview = false
     if not _saTimer then return end
+    local cfg = DB()
+    if cfg.standaloneTimer and cfg.standaloneTimerShowOOC then
+        -- Show Out of Combat was enabled during this preview session: swap
+        -- the preview value for the real one (last segment, or 0:00 when no
+        -- segment exists yet).
+        if wasPreview then UpdateSATimerText() end
+        return
+    end
     if not _inCombat then _saTimer:Hide() end
 end
 
 -- Accent color callback for standalone timer
 if EUI.RegAccent then
-    EUI.RegAccent({ type = "callback", fn = function(r, g, b)
+    EUI.RegAccent({ type = "callback", fn = function()
         if not _saTimer or not _saTimerFS then return end
         local cfg = DB()
         if cfg.standaloneTimerUseAccent then
-            _saTimerFS:SetTextColor(r, g, b, 1)
+            ApplySATimerColor()
         end
     end })
+end
+
+-- Unlock-mode element for the standalone timer, built on demand by
+-- ns.RegisterDMUnlock (lives here because the closures need the _saTimer
+-- upvalues declared above). The frame sizes itself to its text and would
+-- shift any children, so it may anchor TO elements but never serve as an
+-- anchor target.
+ns.MakeSATimerUnlockElement = function(MK)
+    return MK({
+        key   = "EDM_CombatTimer",
+        label = "Combat Timer",
+        group = "Damage Meters",
+        order = 650 + MAX_WINDOWS + 1,
+        noResize = true,
+        noAnchorTarget = true,
+        getFrame = function() return _saTimer end,
+        getSize = function()
+            if _saTimer then return _saTimer:GetWidth(), _saTimer:GetHeight() end
+            return 60, 20
+        end,
+        isHidden = function() return not DB().standaloneTimer end,
+        savePos = function(_, point, relPoint, x, y)
+            local cfg = DB()
+            cfg.standaloneTimerPos = { point = point, relPoint = relPoint or point, x = x, y = y }
+            -- A manual unlock-mode move implies free placement: un-snap the
+            -- window-anchor mode or RepositionSATimer would fight the drag.
+            if (cfg.standaloneTimerAnchor or "free") ~= "free" then
+                cfg.standaloneTimerAnchor = "free"
+            end
+        end,
+        loadPos = function()
+            local pos = DB().standaloneTimerPos
+            if not pos then return nil end
+            if pos.point then
+                return { point = pos.point, relPoint = pos.relPoint, x = pos.x, y = pos.y }
+            end
+            if pos.x and pos.y then
+                -- Legacy drag format: TOPLEFT offset from UIParent's BOTTOMLEFT
+                return { point = "TOPLEFT", relPoint = "BOTTOMLEFT", x = pos.x, y = pos.y }
+            end
+            return nil
+        end,
+        clearPos = function() DB().standaloneTimerPos = nil end,
+        applyPos = function() RepositionSATimer() end,
+    })
 end
 
 -------------------------------------------------------------------------------

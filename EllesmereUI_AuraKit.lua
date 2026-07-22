@@ -273,13 +273,17 @@ local function ApplyStyleToRegions(button, style)
     -- Engine dispel-type border (style.dispelBorder): one texture the engine
     -- shows only on typed (dispellable) auras and tints via AuraUtil's
     -- dispel palette. Per-aura dispel data is secret, so the engine picks
-    -- the color -- user-custom dispel colors cannot apply here. The texture
-    -- rides the text carrier: above the static border strips (which it
-    -- covers while shown), below the duration/stack text. Registration
-    -- state is guarded -- engine setters are dirty marks -- and follows the
-    -- static border: no border configured, no dispel recolor (live parity).
+    -- the color (custom color maps exist since build 68824 but are not
+    -- wired here yet). The texture rides the text carrier: above the
+    -- static border strips (which it covers while shown), below the
+    -- duration/stack text. Registration state is guarded -- engine setters
+    -- are dirty marks -- and follows the static border: no border
+    -- configured, no dispel recolor (live parity). The style enum moved to
+    -- Enum.CustomAuraButtonBorderStyle in 68824; the old global is only a
+    -- deprecation-CVar shim, so resolve the enum first.
+    local borderStyle = (Enum and Enum.CustomAuraButtonBorderStyle) or AuraButtonBorderStyle
     if style.dispelBorder and not d.dispelBorder and d.stackCarrier
-        and button.SetAuraBorder and AuraButtonBorderStyle then
+        and button.SetAuraBorder and borderStyle then
         d.dispelBorder = d.stackCarrier:CreateTexture(nil, "BACKGROUND")
         d.dispelBorder:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\portraits\\square_border.tga")
     end
@@ -309,7 +313,7 @@ local function ApplyStyleToRegions(button, style)
             -- A restricted failure defers this style key to the lift drain.
             if want then
                 if pcall(button.SetAuraBorder, button, d.dispelBorder,
-                    { style = AuraButtonBorderStyle.Color, showWhenHarmful = true, showWhenHelpful = false }) then
+                    { style = borderStyle.Color, showWhenHarmful = true, showWhenHelpful = false }) then
                     d.dispelBorderOn = want
                 elseif d.styleKey and AK.AurasRestricted() then
                     deferredRestyles[d.styleKey] = true
@@ -481,6 +485,20 @@ restyler:SetScript("OnUpdate", function(self)
                 if style then
                     local ok, err = pcall(ApplyStyleToRegions, button, style)
                     if not ok then
+                        if type(err) == "string" and w.wd ~= false
+                            and string.find(err, "script ran too long", 1, true) then
+                            -- The client watchdog killed the slice, not this
+                            -- button: rewind, keep the work item, and resume
+                            -- next frame on a fresh execution budget. Capped
+                            -- so a pathological button still falls through to
+                            -- the normal error handling below.
+                            w.wd = (w.wd or 0) + 1
+                            if w.wd > 3 then w.wd = false end
+                            if w.wd then
+                                w.index = w.index - 1
+                                return
+                            end
+                        end
                         if restricted then
                             -- Expected under secrecy: button-object writes
                             -- are denied. Re-run the whole key at lift.
@@ -701,8 +719,27 @@ local loginStamp = -LOGIN_WINDOW_S
 local buildQueue, buildHead, buildTail = {}, 1, 0
 local holdQueue, holdHead, holdTail = {}, 1, 0
 
+-- Job verdicts: nil = done; "hold" = prerequisite blocked in combat (re-held
+-- for the regen drain); "again" = the job is a multi-atom stepper with more
+-- bounded work left (front-requeued so it finishes before newer work, with a
+-- budget check between atoms); "watchdog" = synthesized here, never returned
+-- by jobs. The pcall exists for the client watchdog ("script ran too long"):
+-- login contention can balloon one job's engine batches past the
+-- per-execution limit, which previously aborted the whole tick AND lost the
+-- dequeued job mid-flight (half-built unit). Jobs are written resumable
+-- (existence-guarded stages), so a watchdog-killed job front-requeues and the
+-- tick ends -- it resumes with a fresh execution budget next frame. Real
+-- errors surface once and drop the job; the rest of the tick keeps draining.
+local WATCHDOG_RETRIES = 3
 local function RunJob(entry)
-    return entry.fn()
+    local ok, verdict = pcall(entry.fn)
+    if ok then return verdict end
+    if type(verdict) == "string"
+        and string.find(verdict, "script ran too long", 1, true) then
+        entry.watchdogged = (entry.watchdogged or 0) + 1
+        if entry.watchdogged <= WATCHDOG_RETRIES then return "watchdog" end
+    end
+    geterrorhandler()(verdict)
 end
 
 local buildWorker = CreateFrame("Frame")
@@ -735,6 +772,13 @@ buildWorker:SetScript("OnUpdate", function(self)
                 if verdict == "hold" then
                     holdTail = holdTail + 1
                     holdQueue[holdTail] = entry
+                elseif verdict == "again" then
+                    holdHead = holdHead - 1
+                    holdQueue[holdHead] = entry
+                elseif verdict == "watchdog" then
+                    holdHead = holdHead - 1
+                    holdQueue[holdHead] = entry
+                    return
                 end
             end
             if debugprofilestop() - t0 >= budget then return end
@@ -754,6 +798,13 @@ buildWorker:SetScript("OnUpdate", function(self)
                 if verdict == "hold" then
                     holdTail = holdTail + 1
                     holdQueue[holdTail] = entry
+                elseif verdict == "again" then
+                    buildHead = buildHead - 1
+                    buildQueue[buildHead] = entry
+                elseif verdict == "watchdog" then
+                    buildHead = buildHead - 1
+                    buildQueue[buildHead] = entry
+                    return
                 end
             end
         end

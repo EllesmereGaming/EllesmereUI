@@ -24,7 +24,6 @@
 --   ns.CreateBar(templateKey) -> barCfg    "bottom"|"minimapc"|"microstrip"|"empty"
 --   ns.DeleteBar(id)                       no confirm (UI confirms)
 --   ns.RenameBar(id, name)
---   ns.SetBarEnabled(id, on)
 --   ns.ApplyBar(id)                        idempotent cfg -> runtime
 --   ns.ApplyTheme(id)                      theme-only fast path
 --   ns.RequestLayout(id)                   coalesced relayout
@@ -99,6 +98,7 @@ local L = {
     ON_COOLDOWN          = "On Cooldown",
     MYTHIC_TELEPORTS     = "Mythic+ Teleports",
     USE_HEARTHSTONE      = "Use Hearthstone",
+    RANDOM_HEARTHSTONE   = "Random Hearthstone",
     CURRENT_SPEC         = "Current Specialization",
     CHANGE_SPEC          = "Change Specialization",
     CHANGE_SPEC_SHORT    = "Change Spec",
@@ -387,17 +387,17 @@ function ns.FormatMoney(amount, useColors, showSmall, coinIcons)
     return tconcat(parts, " ")
 end
 
-local TIME_UNITS = { { 86400, "d" }, { 3600, "h" }, { 60, "min" } }
+-- Reset countdowns, for the clock tooltip. SecondsToTime is the client's own
+-- duration formatter, so the units are localized -- the hand-rolled "d"/"h"/
+-- "min" this replaces were English on every client. Same call the minimap
+-- already makes for the weekly reset (EllesmereUIMinimap.lua), so the two
+-- modules now render that value identically.
+-- Seconds are suppressed above a minute (3 units is already "2 d 5 h 30 m");
+-- below one they are all that is left to show, and suppressing them there
+-- would return an empty string.
 function ns.FormatTimeLeft(seconds)
     seconds = floor(seconds or 0)
-    local parts = {}
-    for _, unit in ipairs(TIME_UNITS) do
-        local val = floor(seconds / unit[1])
-        seconds = seconds % unit[1]
-        if val > 0 then parts[#parts + 1] = val .. unit[2] end
-    end
-    if #parts > 0 then return tconcat(parts, " ") end
-    return "0min"
+    return SecondsToTime(seconds, seconds >= 60, nil, 3)
 end
 
 function ns.FormatCooldown(cd)
@@ -2119,8 +2119,11 @@ function ns.ApplyBar(id)
     end
 
     -- "Never" visibility = fully disabled: the bar does NO work (no
-    -- instances, no events, no ticks), identical to enabled == false.
-    if not cfg or cfg.enabled == false or cfg.visibility == "never" then
+    -- instances, no events, no ticks). A cfg.enabled key may exist in
+    -- stored data (a caller-less setter once allowed field stores to pick
+    -- up enabled=false with no UI to recover) -- it is deliberately
+    -- IGNORED everywhere; visibility is the only disable channel.
+    if not cfg or cfg.visibility == "never" then
         if rec and rec.enabled then
             for _, inst in pairs(rec.insts) do
                 if inst.Disable then inst:Disable() end
@@ -2291,7 +2294,7 @@ end
 --  one enabled bar exists. Mouseover reveal goes through per-bar plain-table
 --  poll proxies (never EnableMouse on the real bar).
 -------------------------------------------------------------------------------
-ns.EDB_VIS_CAPS = { partyIncludesRaid = true, luaDragonriding = true }
+ns.EDB_VIS_CAPS = { partyIncludesRaid = false, luaDragonriding = true }
 
 -- Bar visibility = ALPHA ONLY, applied directly. A bar hosting a secure
 -- block (micromenu passthrough buttons, travel hearth) is an IMPLICITLY
@@ -2387,7 +2390,7 @@ do
     }
 
     -- Legacy scalar evaluation for the modes the multi engine declines.
-    -- in_party matches party-or-raid (caps.partyIncludesRaid semantics).
+    -- in_party and in_raid are disjoint: a raid group only matches in_raid.
     local function LegacyScalar(mode)
         mode = mode or "always"
         if mode == "always" then return true end
@@ -2398,7 +2401,7 @@ do
         local inRaid = IsInRaid()
         local inGroup = IsInGroup()
         if mode == "in_raid" then return inRaid end
-        if mode == "in_party" then return inGroup end
+        if mode == "in_party" then return inGroup and not inRaid end
         if mode == "solo" then return not inGroup end
         return true
     end
@@ -2410,7 +2413,7 @@ do
         for i = 1, #bars do
             local cfg = bars[i]
             local rec = live[cfg.id]
-            if rec and rec.enabled and cfg.enabled ~= false then
+            if rec and rec.enabled then
                 local vis
                 if EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(cfg) then
                     vis = false
@@ -2455,7 +2458,7 @@ do
         if not profile then return false end
         local bars = profile.bars
         for i = 1, #bars do
-            if bars[i].enabled ~= false and bars[i].visibility ~= "never" then
+            if bars[i].visibility ~= "never" then
                 return true
             end
         end
@@ -2532,7 +2535,7 @@ do
         if not profile then return false end
         local bars = profile.bars
         for i = 1, #bars do
-            if bars[i].enabled ~= false and bars[i].visibility ~= "never"
+            if bars[i].visibility ~= "never"
                and bars[i].lengthMode == "full" then
                 return true
             end
@@ -2546,7 +2549,7 @@ do
         ns.WipeFitCache()
         local bars = profile.bars
         for i = 1, #bars do
-            if bars[i].enabled ~= false and bars[i].lengthMode == "full" then
+            if bars[i].lengthMode == "full" then
                 ns.ApplyBar(bars[i].id)
             end
         end
@@ -2603,7 +2606,7 @@ local function MakeBarElement(barId, orderIdx)
         getFrame = function()
             local rec = live[barId]
             local cfg = cfgOf()
-            if rec and rec.enabled and cfg and cfg.enabled ~= false then
+            if rec and rec.enabled and cfg then
                 return rec.bar
             end
             return nil
@@ -2672,9 +2675,7 @@ local function MakeBarElement(barId, orderIdx)
             ns.ApplyBar(barId)
         end,
         isHidden = function()
-            local cfg = cfgOf()
-            if not cfg then return true end
-            return cfg.enabled == false
+            return cfgOf() == nil
         end,
         allowMatchSource = true,
     })
@@ -2901,7 +2902,6 @@ function ns.CreateBar(templateKey)
     local cfg = {
         id          = id,
         name        = UniqueBarName(t.name),
-        enabled     = true,
         orientation = t.orientation,
         lengthMode  = t.lengthMode,
         length      = t.length,
@@ -2998,13 +2998,6 @@ function ns.RenameBar(id, name)
     cfg.name = name
     -- Re-registration is a safe overwrite; it refreshes the mover label.
     ns.RegisterAllUnlockElements()
-end
-
-function ns.SetBarEnabled(id, on)
-    local cfg = ns.GetBar(id)
-    if not cfg then return end
-    cfg.enabled = on and true or false
-    ns.ApplyBar(id)
 end
 
 -------------------------------------------------------------------------------

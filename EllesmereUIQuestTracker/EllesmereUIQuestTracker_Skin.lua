@@ -362,22 +362,19 @@ local function SkinHeader(header)
     EnsureAccentDivider(header)
 
     -- Click-anywhere-on-header overlay: clicking the title text (not just
-    -- the +/- button) toggles the section. The overlay is a secure
-    -- click-redirect button: type="click" + clickbutton executes the
-    -- MinimizeButton's native handler in Blizzard's own (secure) context.
-    -- Never call MinimizeButton:Click() from our code -- a programmatic
-    -- Click() runs the entire collapse cascade (including a full tracker
-    -- relayout) under our taint, which poisons shared quest tables the
-    -- world map reads later (see the FORBIDDEN comment near the top of
-    -- this file). Headers without a MinimizeButton get no overlay for the
-    -- same reason. Setup is combat-deferred: creating/configuring a secure
-    -- button in lockdown is blocked, and SkinHeader runs again from the
-    -- SetCollapsed hook and RestyleAll, so a header first seen in combat
-    -- picks its overlay up on the next out-of-combat pass.
-    -- Click-anywhere-on-header overlay (taint-safe)
-    if not _headerClickOverlays[header] and header.MinimizeButton then							  	  
+    -- the +/- button) toggles the section, by forwarding to the
+    -- MinimizeButton via a plain button's Click() out of combat.
+    -- History (2026-07-20, PR #879): this WAS a SecureActionButtonTemplate
+    -- click-redirect under the belief that a programmatic Click() taints the
+    -- collapse cascade. That evidence was confounded: the constant taint
+    -- injector was TightenTopAnchor's insecure SetPoint inside its SetPoint
+    -- hook (since removed, see the topModulePadding comment below), and the
+    -- secure redirect threw combat errors of its own. The plain-Click() form
+    -- shipped here is the field-tested-clean one -- do not "fix" it back to
+    -- a secure redirect without fresh taint-log evidence.
+    if not _headerClickOverlays[header] and header.MinimizeButton then
         local minBtn = header.MinimizeButton
-        local overlay = CreateFrame("Button", nil, header)							 							 
+        local overlay = CreateFrame("Button", nil, header)
         overlay:SetFrameLevel(header:GetFrameLevel() + 1)
         overlay:RegisterForClicks("LeftButtonUp")
         overlay:SetPoint("TOPLEFT", header, "TOPLEFT", 0, 0)
@@ -955,6 +952,22 @@ end
 -- catch-up event.
 -------------------------------------------------------------------------------
 local TOP_MODULE_PADDING = 6 -- tuned by eye; Blizzard's default is 38
+-- 12.1: NEVER write topModulePadding -- even writing the default value
+-- taints it. ObjectiveTrackerContainerMixin:Update() reads the field at the
+-- top of every layout pass (GetAvailableHeight), a read of an addon-written
+-- value taints the whole pass, and ScenarioObjectiveTracker:LayoutContents
+-- then calls ShouldShowMawBuffs -> C_UnitAuras.GetAuraDataByIndex, a
+-- RequiresUnitAuraAccess API that hard-errors from tainted execution while
+-- auras are secret (load screens into instances, Delves/M+/scenarios --
+-- LayoutContents calls it unconditionally, even mid-scenario). The 12.0
+-- write below is field-verified taint-clean there (taint only bites
+-- protected calls on 12.0; the module SetPoint consuming this value is not
+-- protected). On 12.1 the padding stays Blizzard's untainted 38 and the
+-- skin chrome follows TOP_ANCHOR_OFFSET, so the BG/divider still hug the
+-- content -- the tracker content just sits 32px lower there. The frame
+-- itself is EditMode-managed, so compensating via our own SetPoint is not
+-- an option (managed-frame-position taint).
+if EllesmereUI and EllesmereUI.IS_121 then TOP_MODULE_PADDING = 38 end
 -- Shared with EllesmereUIQuestTracker_Visibility.lua (BG/top-divider offset)
 -- so both files derive the top gap from a single source instead of two
 -- independent magic numbers drifting apart. Sign convention (negative Y
@@ -962,6 +975,7 @@ local TOP_MODULE_PADDING = 6 -- tuned by eye; Blizzard's default is 38
 EQT.TOP_ANCHOR_OFFSET = -TOP_MODULE_PADDING
 
 local function ApplyTopModulePadding()
+    if EllesmereUI and EllesmereUI.IS_121 then return end -- see above: never taint the field on 12.1
     local otf = _G.ObjectiveTrackerFrame
     if not otf then return end
     otf.topModulePadding = TOP_MODULE_PADDING

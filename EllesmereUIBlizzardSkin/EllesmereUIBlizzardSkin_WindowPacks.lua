@@ -3367,10 +3367,23 @@ local function Skin_Guild()
         -- elsewhere in this file: ForEachFrame errors inside Blizzard's code
         -- if the view doesn't exist yet (e.g. this pass runs at ADDON_LOADED,
         -- before the roster has ever been shown).
-        local function SyncRowWidths()
+        --
+        -- box2:ForEachFrame walks Blizzard's secure row pool internally; a
+        -- hooksecurefunc post-hook only guarantees Blizzard won't block the
+        -- *call*, not that we've left the secure chain that triggered the
+        -- Update (guild-frame open, tab switch) -- calling ForEachFrame here
+        -- still runs nested inside it and taints later secret-value reads on
+        -- the roster (confirmed via bisection). So this only flags dirty; the
+        -- OnUpdate watcher below applies it on its own tick, outside any
+        -- secure call chain.
+        local rowsDirty = false
+        local function ApplyRowSync()
             if box2.ForEachFrame and box2.GetView and box2:GetView() then
                 pcall(box2.ForEachFrame, box2, ApplyRowLayout)
             end
+        end
+        local function SyncRowWidths()
+            rowsDirty = true
         end
         hooksecurefunc(box2, "Update", WSkin.Debounce(SyncRowWidths))
         -- Swap column widths on roster<->chat view change WITHOUT a HookScript
@@ -3380,6 +3393,7 @@ local function Skin_Guild()
         -- root-caused via bisection). A self-driven throttled OnUpdate on OUR
         -- OWN frame polls cd2's shown state and applies the swap, so it never
         -- runs inside that secure execution. Idles when the window is closed.
+        -- Row-width sync (above) rides the same OnUpdate for the same reason.
         if not GetFFD(cd2)._euiWidthWatcher then
             GetFFD(cd2)._euiWidthWatcher = true
             -- Parented to the window: the OnUpdate handler stops entirely
@@ -3388,6 +3402,10 @@ local function Skin_Guild()
             local wasShown, acc = nil, 0
             watcher:SetScript("OnUpdate", function(_, elapsed)
                 if f and not f:IsShown() then return end
+                if rowsDirty then
+                    rowsDirty = false
+                    ApplyRowSync()
+                end
                 acc = acc + elapsed
                 if acc < 0.1 then return end
                 acc = 0
@@ -3399,7 +3417,7 @@ local function Skin_Guild()
                 else
                     applyPts(box2, boxStock); ml:SetWidth(mlStockWidth)
                 end
-                SyncRowWidths()
+                ApplyRowSync()
             end)
         end
         if cd2:IsShown() then
@@ -7581,14 +7599,31 @@ WSkin.RegisterWindow({
 --  Shell + tabs + item tiles as flat cards (mail-row treatment). The repair /
 --  sell-junk icon buttons and the buyback money display stay stock content.
 -------------------------------------------------------------------------------
--- Completely hide Blizzard's native pagination and 10-slot grid
+-- Completely hide Blizzard's native pagination and 10-slot grid.
+-- Permanence via the achievements-pack Kill pattern: a reentry-safe
+-- hooksecurefunc that re-hides on every Blizzard Show (MerchantFrame_Update
+-- re-Shows the tiles each pass) -- never a method overwrite on a Blizzard
+-- frame table. Registry lives on WSkin so re-runs of Skin_Merchant cannot
+-- double-hook.
+local function KillFrameShow(frame)
+    if not frame then return end
+    local killed = WSkin._merchantKilledShow
+    if not killed then
+        killed = setmetatable({}, { __mode = "k" })
+        WSkin._merchantKilledShow = killed
+    end
+    if killed[frame] then frame:Hide() return end
+    killed[frame] = true
+    frame:Hide()
+    hooksecurefunc(frame, "Show", function(self) self:Hide() end)
+end
+
 local function HideNativeMerchantGrid()
     for i = 1, 12 do
         local item = _G["MerchantItem" .. i]
         if item then
-            item:Hide()
             item:SetAlpha(0)
-            item.Show = function() end
+            KillFrameShow(item)
         end
     end
 
@@ -7598,10 +7633,7 @@ local function HideNativeMerchantGrid()
         _G.MerchantPageText
     }
     for _, ctrl in ipairs(controls) do
-        if ctrl then
-            ctrl:Hide()
-            ctrl.Show = function() end
-        end
+        KillFrameShow(ctrl)
     end
 end
 

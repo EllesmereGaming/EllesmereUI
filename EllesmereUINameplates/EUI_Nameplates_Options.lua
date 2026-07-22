@@ -1346,15 +1346,6 @@ initFrame:SetScript("OnEvent", function(self)
             local pvNameMarkerReserve = pvNameMarkerEnabled and (pvNameMarkerSize + NAME_RAID_MARKER_GAP) or 0
             local pvNameSlotKey
 
-            local function PreviewNameTextWidth()
-                local fallback = nameFS:GetWidth() or 0
-                local ok, w = pcall(nameFS.GetStringWidth, nameFS)
-                if ok and type(w) == "number" then
-                    return math.min(w, fallback > 0 and fallback or w)
-                end
-                return fallback
-            end
-
             local function LayoutPreviewNameRaidMarker()
                 if not (pvNameMarkerEnabled and pvNameSlotKey and nameFS:IsShown()) then
                     nameRaidFrame:Hide()
@@ -1364,14 +1355,7 @@ initFrame:SetScript("OnEvent", function(self)
                 nameRaidFrame:SetFrameLevel(health:GetFrameLevel() + 8)
                 nameRaidFrame:SetSize(pvNameMarkerSize, pvNameMarkerSize)
                 nameRaidFrame:ClearAllPoints()
-                local textW = PreviewNameTextWidth()
-                if pvNameSlotKey == "textSlotLeft" then
-                    nameRaidFrame:SetPoint("RIGHT", nameFS, "LEFT", -NAME_RAID_MARKER_GAP, 0)
-                elseif pvNameSlotKey == "textSlotRight" then
-                    nameRaidFrame:SetPoint("RIGHT", nameFS, "RIGHT", -textW - NAME_RAID_MARKER_GAP, 0)
-                else
-                    nameRaidFrame:SetPoint("RIGHT", nameFS, "CENTER", -(textW * 0.5) - NAME_RAID_MARKER_GAP, 0)
-                end
+                nameRaidFrame:SetPoint("RIGHT", nameFS, "LEFT", -NAME_RAID_MARKER_GAP, 0)
                 if SetRaidTargetIconTexture then SetRaidTargetIconTexture(nameRaidIcon, 1) end
                 nameRaidFrame:Show()
             end
@@ -1404,7 +1388,7 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     end
                 end
-                nameFS:SetWidth(math.max((barW - usedWidth - pvNameMarkerReserve) * pvNameWPct / 100, 20))
+                nameFS:SetWidth(pvNameMarkerEnabled and 0 or math.max((barW - usedWidth) * pvNameWPct / 100, 20))
                 nameFS:SetTextColor(cr, cg, cb, 1)
                 nameFS:Show()
             end
@@ -1427,7 +1411,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if showCL and clPos ~= "none" then
                     nameW = nameW - (reIconSz + 4)
                 end
-                nameFS:SetWidth(math.max(nameW * pvNameWPct / 100, 20))
+                nameFS:SetWidth(pvNameMarkerEnabled and 0 or math.max(nameW * pvNameWPct / 100, 20))
                 nameFS:SetTextColor(topC.r, topC.g, topC.b, 1)
                 nameFS:Show()
             else

@@ -828,6 +828,104 @@ local function StopGlow(wrapper)
 end
 
 -------------------------------------------------------------------------------
+--  Animation-driven glow (engine aura buttons)
+--  The 12.1 slot-button subtree is forbidden to addon code outside its
+--  creation window, so the driver-ticked engines above (Lua OnUpdate)
+--  freeze there. This variant reproduces the Pixel Glow march with C-side
+--  AnimationGroups: created and started once in the creation window, it
+--  animates forever with zero per-frame Lua -- identically in and out of
+--  secret contexts.
+-------------------------------------------------------------------------------
+local ANIM_MASK_TEX = [[Interface\Buttons\WHITE8X8]]
+
+-- Marching dashes: per edge, a dash strip one pattern-cycle longer than the
+-- edge slides by exactly one cycle and loops; a rect mask clips it to the
+-- edge, so the snap-back is invisible and the march is seamless. Strip
+-- texcoords carry the cumulative perimeter phase, keeping dashes
+-- corner-continuous exactly like the driver-ticked ants (phase matters
+-- modulo one cycle, so the one-cycle anchor offsets cancel out).
+local function StartAnimatedAnts(wrapper, N, th, period, cr, cg, cb, w, h)
+    N = (N and N > 0) and N or 8
+    th = th or 2
+    period = period or 4
+    w = w or 36; h = h or w
+    local perim = 2 * (w + h)
+    local P = perim / N              -- pixels per dash cycle
+    local step = period / N          -- seconds per dash cycle
+    local d = wrapper._euiAnimAnts
+    if not d then
+        d = { strips = {}, masks = {}, groups = {}, trs = {} }
+        wrapper._euiAnimAnts = d
+        for i = 1, 4 do
+            local mask = wrapper:CreateMaskTexture()
+            mask:SetTexture(ANIM_MASK_TEX, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            local strip = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
+            strip:AddMaskTexture(mask)
+            local ag = strip:CreateAnimationGroup()
+            ag:SetLooping("REPEAT")
+            local tr = ag:CreateAnimation("Translation")
+            tr:SetSmoothing("NONE")
+            d.masks[i], d.strips[i], d.groups[i], d.trs[i] = mask, strip, ag, tr
+        end
+    end
+    -- Edge order (clockwise): 1 top scrolls right, 2 right scrolls down,
+    -- 3 bottom scrolls left, 4 left scrolls up. base = cumulative
+    -- perimeter phase in cycles at the edge's visual start.
+    local edges = {
+        { tex = DASH_H, len = w, dx = P,  dy = 0,  vert = false, base = 0 },
+        { tex = DASH_V, len = h, dx = 0,  dy = -P, vert = true,  base = w / P },
+        { tex = DASH_H, len = w, dx = -P, dy = 0,  vert = false, base = (w + h) / P },
+        { tex = DASH_V, len = h, dx = 0,  dy = P,  vert = true,  base = (w + h + w) / P },
+    }
+    for i = 1, 4 do
+        local e = edges[i]
+        local mask, strip, ag, tr = d.masks[i], d.strips[i], d.groups[i], d.trs[i]
+        ag:Stop()
+        strip:SetTexture(e.tex, "REPEAT", "REPEAT")
+        strip:SetVertexColor(cr or 1, cg or 1, cb or 1, 1)
+        mask:ClearAllPoints()
+        strip:ClearAllPoints()
+        local cyc = (e.len + P) / P
+        if not e.vert then
+            mask:SetSize(e.len, th)
+            strip:SetSize(e.len + P, th)
+            if i == 1 then
+                mask:SetPoint("TOPLEFT", wrapper, "TOPLEFT", 0, 0)
+                strip:SetPoint("TOPLEFT", wrapper, "TOPLEFT", -P, 0)
+            else
+                mask:SetPoint("BOTTOMLEFT", wrapper, "BOTTOMLEFT", 0, 0)
+                strip:SetPoint("BOTTOMLEFT", wrapper, "BOTTOMLEFT", 0, 0)
+            end
+            strip:SetTexCoord(e.base, e.base + cyc, 0, 1)
+        else
+            mask:SetSize(th, e.len)
+            strip:SetSize(th, e.len + P)
+            if i == 2 then
+                mask:SetPoint("TOPRIGHT", wrapper, "TOPRIGHT", 0, 0)
+                strip:SetPoint("TOPRIGHT", wrapper, "TOPRIGHT", 0, P)
+            else
+                mask:SetPoint("BOTTOMLEFT", wrapper, "BOTTOMLEFT", 0, 0)
+                strip:SetPoint("BOTTOMLEFT", wrapper, "BOTTOMLEFT", 0, -P)
+            end
+            strip:SetTexCoord(0, 1, e.base, e.base + cyc)
+        end
+        strip:Show()
+        tr:SetOffset(e.dx, e.dy)
+        tr:SetDuration(step)
+        ag:Play()
+    end
+end
+
+local function StopAnimatedAnts(wrapper)
+    local d = wrapper._euiAnimAnts
+    if not d then return end
+    for i = 1, 4 do
+        d.groups[i]:Stop()
+        d.strips[i]:Hide()
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Public API — attached to EllesmereUI.Glows
 -------------------------------------------------------------------------------
 -- Styles that render through C-side FlipBook AnimationGroups (GCD, Modern
@@ -863,6 +961,8 @@ EllesmereUI.Glows = {
     StopButtonGlow      = StopButtonGlow,
     StartAutoCastShine  = StartAutoCastShine,
     StopAutoCastShine   = StopAutoCastShine,
+    StartAnimatedAnts   = StartAnimatedAnts,
+    StopAnimatedAnts    = StopAnimatedAnts,
     StartShapeGlow      = StartShapeGlow,
     StopShapeGlow       = StopShapeGlow,
     StartFlipBookGlow   = StartFlipBookGlow,

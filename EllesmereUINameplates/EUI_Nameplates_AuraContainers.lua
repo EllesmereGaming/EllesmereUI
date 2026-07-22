@@ -223,8 +223,14 @@ local function ApplyNPBuffExtra(button, d, style)
     local Glows = EllesmereUI.Glows
     if style.purgeGlow and Glows and Glows.StartGlow then
         if not d.npPurgeRegistered then
+            -- Color style is mandatory: the signal texture is contentless
+            -- by design, and the Atlas default (style enum omitted) would
+            -- stamp real atlas art onto it. The enum moved to
+            -- Enum.CustomAuraButtonBorderStyle in build 68824; the old
+            -- global is only a deprecation-CVar shim.
             local opts = { showWhenHelpful = true, showWhenHarmful = false }
-            if AuraButtonBorderStyle then opts.style = AuraButtonBorderStyle.Color end
+            local borderStyle = (Enum and Enum.CustomAuraButtonBorderStyle) or AuraButtonBorderStyle
+            if borderStyle then opts.style = borderStyle.Color end
             -- Stamp only on SUCCESS: the registration is a button call,
             -- denied while auras are secret (12.1 access restriction). A
             -- denied attempt parks the key for the restriction-lift drain

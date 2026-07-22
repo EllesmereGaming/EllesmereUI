@@ -1048,6 +1048,11 @@ local DEFAULTS = {
             bandMode = "percent",  -- "percent" | "value" (bar/health/power only)
             bandReverse = false,
             bands = {},            -- ordered ascending by `to`: { { to=N, r,g,b,a }, ... }
+            hashEnabled = false,
+            hashValues  = "",          -- e.g. "25, 50, 75"
+            hashMode    = "percent",
+            hashWidth   = 1,
+            hashColorR  = 1, hashColorG = 1, hashColorB = 1, hashColorA = 0.7,
         },
         primary = {
             enabled     = true,
@@ -1097,6 +1102,12 @@ local DEFAULTS = {
             bandMode = "percent",
             bandReverse = false,
             bands = {},
+            -- User hash lines (opt-in). See health.hashEnabled for semantics.
+            hashEnabled = false,
+            hashValues  = "",
+            hashMode    = "percent",
+            hashWidth   = 1,
+            hashColorR  = 1, hashColorG = 1, hashColorB = 1, hashColorA = 0.7,
             expandIfNoResource = false,
             -- Shift elements anchored to the power bar when the spec has no
             -- primary power (e.g. BM/MM Hunter, whose Focus shows as the class
@@ -1757,14 +1768,58 @@ end
 --  changes pip sizing or spacing geometry.
 -------------------------------------------------------------------------------
 -- Attached to ERB (not a new file-scope local) -- this file is at the Lua 200-local cap.
+
+-- Per-pip empty-slot backdrop color. At Fill Opacity 100 this is just the
+-- Empty Bar Overlay tint (bgR/G/B/A, dark theme override). Below 100 the
+-- full-bar backdrop is hidden (it cannot hole itself behind active pips and
+-- would tint the translucent fills), so the overlay texture -- which already
+-- covers exactly the empty regions via SetActive / the secret fill-edge
+-- anchor -- takes over the backdrop's job: composite the bar background
+-- UNDER the overlay tint so empty slots keep the exact stacked look.
+function ERB.PipBgColor(sp)
+    local ovR, ovG, ovB, ovA = sp.bgR, sp.bgG, sp.bgB, sp.bgA
+    if sp.darkTheme then
+        local dr, dg, db = EllesmereUI.GetDarkModeBg()
+        ovR, ovG, ovB, ovA = dr, dg, db, DARK_BG_A
+    end
+    ovR, ovG, ovB, ovA = ovR or 0, ovG or 0, ovB or 0, ovA or 0
+    if (sp.fillOpacity or 100) >= 100 then
+        return ovR, ovG, ovB, ovA
+    end
+    local bbR, bbG, bbB, bbA
+    if sp.darkTheme then
+        bbR, bbG, bbB, bbA = 0, 0, 0, 1
+    else
+        bbR, bbG, bbB, bbA = sp.barBgR or 0, sp.barBgG or 0, sp.barBgB or 0, sp.barBgA or 0.5
+    end
+    -- Standard alpha compositing: overlay OVER bar background
+    local a = ovA + bbA * (1 - ovA)
+    if a <= 0 then return bbR, bbG, bbB, 0 end
+    local r = (ovR * ovA + bbR * bbA * (1 - ovA)) / a
+    local g = (ovG * ovA + bbG * bbA * (1 - ovA)) / a
+    local b = (ovB * ovA + bbB * bbA * (1 - ovA)) / a
+    return r, g, b, a
+end
+
 function ERB.ApplyGapFills(frame, slots, count, isVertical, isReversed, sp)
     local fills = frame._gapFills
-    if not (sp.gapColorEnabled and slots and count and count > 1) then
+    -- Pip/rune Fill Opacity hides the full-bar backdrop (it would tint the
+    -- translucent fills from behind), so the gap strips take over its job:
+    -- draw them in the bar-bg color even with "Bar Spacing" color disabled.
+    local fillOpActive = (sp.fillOpacity or 100) < 100
+    if not ((sp.gapColorEnabled or fillOpActive) and slots and count and count > 1) then
         if fills then for i = 1, #fills do fills[i]:Hide() end end
         return
     end
     if not fills then fills = {}; frame._gapFills = fills end
-    local r, g, b, a = sp.gapR or 0, sp.gapG or 0, sp.gapB or 0, sp.gapA or 1
+    local r, g, b, a
+    if sp.gapColorEnabled then
+        r, g, b, a = sp.gapR or 0, sp.gapG or 0, sp.gapB or 0, sp.gapA or 1
+    elseif sp.darkTheme then
+        r, g, b, a = 0, 0, 0, 1
+    else
+        r, g, b, a = sp.barBgR or 0, sp.barBgG or 0, sp.barBgB or 0, sp.barBgA or 0.5
+    end
     local n = 0
     for i = 1, count - 1 do
         local x1 = slots[i].x1          -- trailing edge of pip i
@@ -2521,7 +2576,10 @@ end
 --   Bar-type only; pip resources always use counts. Default false (legacy).
 -- maxRenderVal (optional): suppress any tick whose resource-value position exceeds
 -- it (e.g. Devourer in Void Meta caps at 39 so nothing renders at the 40 edge).
-local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, hashR, hashG, hashB, hashA, hashIsPercent, maxRenderVal)
+-- vInset (optional): amount to shrink each tick vertically at the top and
+-- bottom, so hash lines sit inside the border instead of spanning over it. Default
+-- 0. Callers pass borderSize * PP.mult.
+local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, hashR, hashG, hashB, hashA, hashIsPercent, maxRenderVal, vInset)
     local vals = ParseTickValues(tickStr)
 
     for i = 1, #tickCache do tickCache[i]:Hide() end
@@ -2557,6 +2615,10 @@ local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, 
     local pxW = PP and (tickW * PP.mult) or tickW
     local barW = sb:GetWidth()
     local barH = sb:GetHeight()
+    local vI = vInset or 0
+    -- Clamp so a fat border on a short bar can never invert the height.
+    if vI * 2 >= barH then vI = math.max(0, (barH - 1) / 2) end
+    local tickH = barH - vI * 2
     for i, v in ipairs(vals) do
         local frac, inRange
         if hashIsPercent then
@@ -2576,11 +2638,43 @@ local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, 
             t:SetColorTexture(tR, tG, tB, tA)
             t:ClearAllPoints()
             local off = PP and PP.Scale(barW * frac) or (barW * frac)
-            t:SetSize(pxW, barH)
-            t:SetPoint("TOPLEFT", sb, "TOPLEFT", off, 0)
+            t:SetSize(pxW, tickH)
+            t:SetPoint("TOPLEFT", sb, "TOPLEFT", off, -vI)
             t:Show()
         end
     end
+end
+
+-- Value mode needs a readable max: getMaxFn returns the current max, if
+-- it is secret we fall back to a last-known-good value cached on the bar frame
+function ns.ApplyHashLines(sb, cfg, getMaxFn)
+    if not sb then return end
+    local tickCache = sb._userHashTicks
+    if not (cfg and cfg.hashEnabled) then
+        if tickCache then for i = 1, #tickCache do tickCache[i]:Hide() end end
+        return
+    end
+    if not tickCache then tickCache = {}; sb._userHashTicks = tickCache end
+    local isPercent = (cfg.hashMode or "percent") == "percent"
+    local maxVal
+    if isPercent then
+        maxVal = 100
+    else
+        local mx = getMaxFn and getMaxFn() or nil
+        if mx and issecretvalue and issecretvalue(mx) then mx = nil end
+        if mx and mx > 0 then
+            sb._hashMaxCache = mx
+        else
+            mx = sb._hashMaxCache  -- last-known-good, or nil on first secret read
+        end
+        maxVal = mx or 0
+    end
+    -- Shrink the hash vertically by the border so it sits inside the bar
+    local PP = EllesmereUI and EllesmereUI.PP
+    local vInset = (cfg.borderSize or 0) * ((PP and PP.mult) or 1)
+    ApplyResourceBarTicks(sb, maxVal, cfg.hashValues, tickCache,
+        cfg.hashWidth, cfg.hashColorR, cfg.hashColorG, cfg.hashColorB, cfg.hashColorA,
+        isPercent, nil, vInset)
 end
 
 -- Moving-hash overlay for the Guardian Ironfur bar. Lives above the inner
@@ -2717,7 +2811,7 @@ local function BuildBars()
         do
             local fR, fG, fB, fA
             if hp.customColored then
-                fR, fG, fB, fA = hp.fillR, hp.fillG, hp.fillB, hp.fillA
+                fR, fG, fB, fA = hp.fillR, hp.fillG, hp.fillB, 1
             else
                 local cc = CLASS_COLORS[cachedClass]
                 if cc then fR, fG, fB, fA = cc[1], cc[2], cc[3], 1
@@ -2892,7 +2986,7 @@ local function BuildBars()
         do
             local fR, fG, fB, fA
             if pp.customColored then
-                fR, fG, fB, fA = pp.fillR, pp.fillG, pp.fillB, pp.fillA
+                fR, fG, fB, fA = pp.fillR, pp.fillG, pp.fillB, 1
             else
                 local pc = POWER_COLORS[cachedPrimary]
                 if pc then fR, fG, fB, fA = pc[1], pc[2], pc[3], 1
@@ -3139,23 +3233,23 @@ local function BuildBars()
                     local cc = CLASS_COLORS[cachedClass]
                     if cc then rr, rg, rb = cc[1], cc[2], cc[3] else rr, rg, rb = 1, 1, 1 end
                 end
-                secondaryBar:GetStatusBarTexture():SetVertexColor(rr, rg, rb, sp.fillA or 1)
+                secondaryBar:GetStatusBarTexture():SetVertexColor(rr, rg, rb, 1)
                 secondaryBar._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
             elseif sp.classColored ~= false then
                 -- Power types in secondary slot use power color; class resources use class color
                 local pc2 = POWER_COLORS[cachedSecondary.power]
                 if pc2 then
-                    secondaryBar:GetStatusBarTexture():SetVertexColor(pc2[1], pc2[2], pc2[3], sp.fillA or 1)
+                    secondaryBar:GetStatusBarTexture():SetVertexColor(pc2[1], pc2[2], pc2[3], 1)
                 else
                     local cc = CLASS_COLORS[cachedClass]
                     if cc then
-                        secondaryBar:GetStatusBarTexture():SetVertexColor(cc[1], cc[2], cc[3], sp.fillA or 1)
+                        secondaryBar:GetStatusBarTexture():SetVertexColor(cc[1], cc[2], cc[3], 1)
                     end
                 end
                 secondaryBar._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
             else
                 -- classColored explicitly false -- use custom fill color
-                secondaryBar:GetStatusBarTexture():SetVertexColor(sp.fillR, sp.fillG, sp.fillB, sp.fillA)
+                secondaryBar:GetStatusBarTexture():SetVertexColor(sp.fillR, sp.fillG, sp.fillB, 1)
                 secondaryBar._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
             end
             ns.ApplyFillOpacity(secondaryBar, pipOri, sp.fillOpacity)
@@ -3249,14 +3343,7 @@ local function BuildBars()
                 ApplyRunePos()
                 runeFrames[i]:ApplyBorder(0, 0, 0, 0, 0)
                 runeFrames[i]:ApplyTexture(g.barTexture or "none")
-                if sp.darkTheme then
-                    local _dbr, _dbg, _dbb = EllesmereUI.GetDarkModeBg()
-                    runeFrames[i]._bg:SetColorTexture(_dbr, _dbg, _dbb, DARK_BG_A)
-                elseif sp.classColored then
-                    runeFrames[i]._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
-                else
-                    runeFrames[i]._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
-                end
+                runeFrames[i]._bg:SetColorTexture(ERB.PipBgColor(sp))
                 -- Fill Opacity: same stamp as regular pips (consumed by
                 -- SetActive in the rune update). Inert at 100 unless restoring.
                 local _runeOp = sp.fillOpacity or 100
@@ -3318,14 +3405,7 @@ local function BuildBars()
                 ApplyPipPos()
                 pips[i]:ApplyBorder(0, 0, 0, 0, 0)
                 pips[i]:ApplyTexture(g.barTexture or "none")
-                if sp.darkTheme then
-                    local _dbr, _dbg, _dbb = EllesmereUI.GetDarkModeBg()
-                    pips[i]._bg:SetColorTexture(_dbr, _dbg, _dbb, DARK_BG_A)
-                elseif sp.classColored then
-                    pips[i]._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
-                else
-                    pips[i]._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
-                end
+                pips[i]._bg:SetColorTexture(ERB.PipBgColor(sp))
                 -- Fill Opacity: stamp the per-pip factor (consumed by SetActive
                 -- and the secret renderer). Inert at 100 unless restoring.
                 local _pipOp = sp.fillOpacity or 100
@@ -3383,8 +3463,17 @@ local function BuildBars()
             -- fill from behind and defeat the world-show-through.
             ns.AnchorBgToFillEdge(secondaryFrame._barBg, secondaryBar:GetStatusBarTexture(),
                 secondaryFrame, sp.pipOrientation or "HORIZONTAL")
+            secondaryFrame._barBg:Show()
+        elseif (sp.fillOpacity or 100) < 100 then
+            -- Pip/rune-type Fill Opacity active: a full-frame backdrop cannot
+            -- hole itself behind each active pip, so it would tint every
+            -- translucent pip fill from behind. Hide it entirely; ApplyGapFills
+            -- draws the gap strips in the bar-bg color instead, and inactive
+            -- pips keep their own per-pip background.
+            secondaryFrame._barBg:Hide()
         else
             secondaryFrame._barBg:SetAllPoints(secondaryFrame)
+            secondaryFrame._barBg:Show()
         end
         if sp.darkTheme then
             secondaryFrame._barBg:SetColorTexture(0, 0, 0, 1)
@@ -3447,6 +3536,17 @@ local function BuildBars()
             end
         end
         EllesmereUI.SetElementVisibility(secondaryFrame, false)
+    end
+
+    -- Hash lines on the health and power bars 
+    do
+        local _prof = ERB.db and ERB.db.profile
+        if _prof then
+            ns.ApplyHashLines(healthBar, _prof.health,
+                function() return UnitHealthMax("player") end)
+            ns.ApplyHashLines(primaryBar, _prof.primary,
+                function() return UnitPowerMax("player", GetPrimaryPowerType()) end)
+        end
     end
 
     ReapplyInternalBarAnchors()
@@ -3999,13 +4099,13 @@ local function UpdateIronfurBar()
     local r, g, b, a
     if sp.darkTheme then
         local _dfr, _dfg, _dfb = EllesmereUI.GetDarkModeFill()
-        r, g, b, a = _dfr, _dfg, _dfb, sp.fillA or 1
+        r, g, b, a = _dfr, _dfg, _dfb, 1
     elseif sp.classColored ~= false then
         local cc = CLASS_COLORS[cachedClass]
         if cc then r, g, b = cc[1], cc[2], cc[3] else r, g, b = 1, 1, 1 end
-        a = sp.fillA or 1
+        a = 1
     else
-        r, g, b, a = sp.fillR, sp.fillG, sp.fillB, sp.fillA or 1
+        r, g, b, a = sp.fillR, sp.fillG, sp.fillB, 1
     end
     local tsEntry = ResolveThresholdSpecEntry(sp)
     -- Capture "recolor text instead" before the buff nils tsEntry below, so the flag
@@ -4325,7 +4425,7 @@ local function UpdateSecondaryResource()
             local cc = CLASS_COLORS[cachedClass]
             if cc then r, g, b = cc[1], cc[2], cc[3] end
         end
-        a = sp.fillA or 1
+        a = 1
     elseif sp.classColored ~= false then
         -- Power types in secondary slot use power color; class resources use class color
         local pc = POWER_COLORS[powerType]
@@ -4334,10 +4434,10 @@ local function UpdateSecondaryResource()
             local cc = CLASS_COLORS[cachedClass]
             if cc then r, g, b = cc[1], cc[2], cc[3] end
         end
-        a = sp.fillA or 1
+        a = 1
     else
         -- classColored explicitly false -- custom fill
-        r, g, b, a = sp.fillR, sp.fillG, sp.fillB, sp.fillA or 1
+        r, g, b, a = sp.fillR, sp.fillG, sp.fillB, 1
     end
 
     -- While the tracked buff is up, override the fill (buff wins over threshold).
@@ -5430,7 +5530,7 @@ local function ShouldShowSecondary()
         st.inCombat = isInCombat
         st.inRaid = inRaid
         st.inParty = not inRaid and (IsInGroup and IsInGroup() or false)
-        local ext = EllesmereUI.EvalVisibilityExtended(sp, "visibility", st, EllesmereUI.VIS_CAPS_INCLUSIVE)
+        local ext = EllesmereUI.EvalVisibilityExtended(sp, "visibility", st, EllesmereUI.VIS_CAPS_DEFAULT)
         if ext ~= nil then return ext end
     end
     local vis = sp.visibility
@@ -5443,7 +5543,7 @@ local function ShouldShowSecondary()
     if vis == "in_raid" then return IsInRaid and IsInRaid() or false end
     if vis == "in_party" then
         local inRaid = IsInRaid and IsInRaid() or false
-        return inRaid or (IsInGroup and IsInGroup() or false)
+        return not inRaid and (IsInGroup and IsInGroup() or false)
     end
     if vis == "solo" then
         return not (IsInRaid and IsInRaid()) and not (IsInGroup and IsInGroup())
@@ -5462,7 +5562,7 @@ local function ShouldShowBar(barProfile)
         st.inCombat = isInCombat
         st.inRaid = inRaid
         st.inParty = not inRaid and (IsInGroup and IsInGroup() or false)
-        local ext = EllesmereUI.EvalVisibilityExtended(barProfile, "visibility", st, EllesmereUI.VIS_CAPS_INCLUSIVE)
+        local ext = EllesmereUI.EvalVisibilityExtended(barProfile, "visibility", st, EllesmereUI.VIS_CAPS_DEFAULT)
         if ext ~= nil then return ext end
     end
     local vis = barProfile.visibility or "always"
@@ -5475,7 +5575,7 @@ local function ShouldShowBar(barProfile)
     if vis == "in_raid" then return IsInRaid and IsInRaid() or false end
     if vis == "in_party" then
         local inRaid = IsInRaid and IsInRaid() or false
-        return inRaid or (IsInGroup and IsInGroup() or false)
+        return not inRaid and (IsInGroup and IsInGroup() or false)
     end
     if vis == "solo" then
         return not (IsInRaid and IsInRaid()) and not (IsInGroup and IsInGroup())
@@ -6152,7 +6252,7 @@ local fillOp = (cb.fillOpacity or 100) / 100
 if cb.gradientEnabled then
     local dir = cb.gradientDir or "HORIZONTAL"
 
-    local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, cb.fillA
+    local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, 1
     if cb.classColored then
         local cc = CLASS_COLORS[cachedClass]
         if cc then fR, fG, fB = cc[1], cc[2], cc[3] end
@@ -6179,7 +6279,7 @@ else
     castBarFrame._timerText:SetParent(castBarFrame._textFrame)
 
     do
-        local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, cb.fillA
+        local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, 1
         if cb.classColored then
             local cc = CLASS_COLORS[cachedClass]
             if cc then fR, fG, fB = cc[1], cc[2], cc[3] end
@@ -6193,13 +6293,13 @@ end
     if cb.showSpark then
         spark:SetSize(8, h)
         spark:ClearAllPoints()
-    
+
         if cb.gradientEnabled and castBarFrame._gradClip then
             spark:SetPoint("CENTER", castBarFrame._gradClip, "RIGHT", 0, 0)
         else
             spark:SetPoint("CENTER", fillTex, "RIGHT", 0, 0)
         end
-    
+
         spark:Show()
     else
         spark:Hide()
@@ -6501,7 +6601,7 @@ UpdateCastBar = function(dt)
     -- Update spark position
     if castBarFrame._spark:IsShown() then
         castBarFrame._spark:ClearAllPoints()
-    
+
         if castBarFrame._gradientFullBar and castBarFrame._gradClip and castBarFrame._gradClip:IsShown() then
             castBarFrame._spark:SetPoint("CENTER", castBarFrame._gradClip, "RIGHT", 0, 0)
         else
@@ -6747,7 +6847,7 @@ local function OnEmpowerStop(eventCastID)
     if castBarFrame._empowerColorApplied then
         castBarFrame._empowerColorApplied = false
         local cb = ERB.db.profile.castBar
-        local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, cb.fillA
+        local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, 1
         if cb.classColored then
             local cc = CLASS_COLORS[cachedClass]
             if cc then fR, fG, fB = cc[1], cc[2], cc[3] end
@@ -7559,7 +7659,11 @@ do
         if not p then return nil end
         local list
         local function add(s, f)
-            if s and s.anchorTo and s.anchorTo ~= "none" then
+            -- "mouse" is the LIVE Anchor to Cursor setting (BuildCursorAnchorRow),
+            -- not a retired legacy frame anchor -- migrating it froze the bar at
+            -- its momentary position and nil'd the setting on every login, so
+            -- cursor anchoring never survived a reload.
+            if s and s.anchorTo and s.anchorTo ~= "none" and s.anchorTo ~= "mouse" then
                 list = list or {}
                 list[#list + 1] = { cfg = s, frame = f }
             end

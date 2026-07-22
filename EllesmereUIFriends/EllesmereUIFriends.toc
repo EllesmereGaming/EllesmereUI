@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: A modern friends list with built-in organization tools.
 ## Author: Ellesmere
-## Version: 8.5.2
+## Version: 8.5.3
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIFriendsDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga

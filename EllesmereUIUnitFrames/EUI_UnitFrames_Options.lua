@@ -4341,7 +4341,7 @@ initFrame:SetScript("OnEvent", function(self)
             local g1, g2, g3 = vm.in_raid, vm.in_party, vm.solo
             if not (g1 or g2 or g3) or (g1 and g2 and g3) then return true end
             if g1 and inRaid then return true end
-            if g2 and (inParty or inRaid) then return true end
+            if g2 and inParty then return true end
             if g3 and not inRaid and not inParty then return true end
             return false
         end
@@ -4364,7 +4364,7 @@ initFrame:SetScript("OnEvent", function(self)
             elseif v == "in_raid" then
                 s.showInRaid = true; s.showInParty = false; s.showSolo = false
             elseif v == "in_party" then
-                s.showInRaid = true; s.showInParty = true; s.showSolo = false
+                s.showInRaid = false; s.showInParty = true; s.showSolo = false
             elseif v == "solo" then
                 s.showInRaid = false; s.showInParty = false; s.showSolo = true
             end
@@ -4373,7 +4373,7 @@ initFrame:SetScript("OnEvent", function(self)
         visRow, h = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
             { getStore = function() return UNIT_DB_MAP[selectedUnit]() end,
               legacyKey = "barVisibility",
-              caps = { partyIncludesRaid = true, luaDragonriding = true },
+              caps = { partyIncludesRaid = false, luaDragonriding = true },
               refreshPageArg = true,
               -- Visibility owns only the hidden/not-hidden axis: "never"
               -- disables the frame; any visible mode re-enables it. The
@@ -15235,11 +15235,11 @@ initFrame:SetScript("OnEvent", function(self)
         parent._showRowDivider = true
 
         -- Row 1: Enable Styled Buffs & Debuffs | Icon Size
+        local function PAOff() return not PAGet("enabled") end
         local paRow1
         paRow1, h = W:DualRow(parent, y,
             { type = "toggle", text = "Enable Styled Buffs & Debuffs",
-              getValue = function() return PAGet("enabled") or false end,
-              setValue = function(v)
+              setValue = EllesmereUI.SectionToggleSetValue(function(v)
                   PASet("enabled", v)
                   EllesmereUI:ShowConfirmPopup({
                       title   = "Reload Required",
@@ -15248,8 +15248,10 @@ initFrame:SetScript("OnEvent", function(self)
                       cancelText  = "Later",
                       onConfirm = function() ReloadUI() end,
                   })
-              end },
+              end),
+              getValue = function() return PAGet("enabled") or false end },
             { type = "slider", text = "Icon Size", min = 16, max = 60, step = 1,
+              disabled = PAOff, disabledTooltip = "Enable Styled Buffs & Debuffs first", rawTooltip = true,
               getValue = function() return PAGet("iconSize") or 32 end,
               setValue = function(v) PASet("iconSize", v) end }
         );  y = y - h
@@ -15274,14 +15276,32 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = cogBtn
             cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
+            cogBtn:SetAlpha(PAOff() and 0.15 or 0.4)
             local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
             cogTex:SetAllPoints()
             cogTex:SetTexture(EllesmereUI.COGS_ICON)
             cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(PAOff() and 0.15 or 0.4) end)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            local cogBlock = CreateFrame("Frame", nil, cogBtn)
+            cogBlock:SetAllPoints()
+            cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
+            cogBlock:EnableMouse(true)
+            cogBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Enable Styled Buffs & Debuffs"))
+            end)
+            cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = PAOff()
+                cogBtn:SetAlpha(off and 0.15 or 0.4)
+                if off then cogBlock:Show() else cogBlock:Hide() end
+            end)
+            if PAOff() then cogBlock:Show() else cogBlock:Hide() end
         end
+
+        -- Rows 2-4 are hidden entirely while the section is disabled (the
+        -- enable toggle's SectionToggleSetValue wrapper forces the rebuild).
+        if PAGet("enabled") then
 
         -- Row 2: Show Text | Text Size (+ inline Duration Format cog)
         local paRow2
@@ -15465,6 +15485,8 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v) PASet("showExpandButton", v) end }
         );  y = y - h
 
+        end -- PAGet("enabled") section gate
+
         -----------------------------------------------------------------------
         --  External Defensives Frame (our own frame; live enable, no reload)
         -----------------------------------------------------------------------
@@ -15483,13 +15505,15 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, "EXTERNAL DEFENSIVES FRAME", y);  y = y - h
 
         -- Row 1: Enable | Icon Size (+ Icon Zoom cog)
+        local function EDOff() return not EDGet("enabled") end
         local edRow1
         edRow1, h = W:DualRow(parent, y,
             { type = "toggle", text = "Enable External Defensives Frame",
               tooltip = "Shows external defensives cast on you (Pain Suppression, Ironbark, etc.) in its own movable frame; position it via Unlock Mode.",
               getValue = function() return EDGet("enabled") or false end,
-              setValue = function(v) EDSet("enabled", v) end },
+              setValue = EllesmereUI.SectionToggleSetValue(function(v) EDSet("enabled", v) end) },
             { type = "slider", text = "Icon Size", min = 16, max = 60, step = 1,
+              disabled = EDOff, disabledTooltip = "Enable External Defensives Frame first", rawTooltip = true,
               getValue = function() return EDGet("iconSize") or 32 end,
               setValue = function(v) EDSet("iconSize", v) end }
         );  y = y - h
@@ -15508,14 +15532,32 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = cogBtn
             cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
+            cogBtn:SetAlpha(EDOff() and 0.15 or 0.4)
             local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
             cogTex:SetAllPoints()
             cogTex:SetTexture(EllesmereUI.COGS_ICON)
             cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(EDOff() and 0.15 or 0.4) end)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            local cogBlock = CreateFrame("Frame", nil, cogBtn)
+            cogBlock:SetAllPoints()
+            cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
+            cogBlock:EnableMouse(true)
+            cogBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Enable External Defensives Frame"))
+            end)
+            cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = EDOff()
+                cogBtn:SetAlpha(off and 0.15 or 0.4)
+                if off then cogBlock:Show() else cogBlock:Hide() end
+            end)
+            if EDOff() then cogBlock:Show() else cogBlock:Hide() end
         end
+
+        -- Rows 2-4 are hidden entirely while the section is disabled (the
+        -- enable toggle's SectionToggleSetValue wrapper forces the rebuild).
+        if EDGet("enabled") then
 
         -- Row 2: Show Text | Text Size (+ Duration Format cog)
         local edRow2
@@ -15664,8 +15706,10 @@ initFrame:SetScript("OnEvent", function(self)
               values = { right = "Right", left = "Left" }, order = { "right", "left" },
               getValue = function() return EDGet("growDirection") or "right" end,
               setValue = function(v) EDSet("growDirection", v) end },
-            nil
+            { type = "label", text = "" }
         ); y = y - h
+
+        end -- EDGet("enabled") section gate
 
         return math.abs(y)
     end

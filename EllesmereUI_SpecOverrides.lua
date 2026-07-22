@@ -98,6 +98,7 @@ local REFRESH_FNS = {
     EllesmereUIFriends           = { "_EFR_ApplyFriends" },
     EllesmereUIMythicTimer       = { "_EMT_Apply" },
     EllesmereUIDamageMeters      = { "_EDM_Apply" },
+    EllesmereUIDataBars          = { "_EDB_Apply" },
     EllesmereUIAuraBuffReminders = { "_EABR_RequestRefresh", "_EABR_ApplyUnlockPos" },
 }
 
@@ -4212,7 +4213,7 @@ local function AutoCapture(changes)
     -- Excluded contexts (whole modules, pages, or single sections) never
     -- factor into spec overrides: absorb, and shield these paths from the
     -- exit sweep. The slot's section is derived up front so section-scoped
-    -- exclusions (e.g. Keys, Logs & Brez -> Keystone Check Popup) apply.
+    -- (nested-table) EXCLUDED_CONTEXTS entries apply when one is listed.
     local row = region._isOptionRow and region or region:GetParent()
     local hdr = row and row._sectionHeader
     local section = hdr and hdr._sectionName or nil
@@ -6933,6 +6934,181 @@ local BM_ROW_COND = {
     removeFn = function(gid) EllesmereUI.Conditions_RemoveBmLayout(gid) end,
 }
 
+-------------------------------------------------------------------------------
+--  Promote Override to Profile (one-shot rescue)
+--
+--  Makes the selected spec group's stored state the profile's own: its
+--  captured values become the shared defaults, its custom unlock mode and
+--  Buff Manager forks (where present) become the baseline layouts, and EVERY
+--  spec override group on the profile is then deleted. For profiles that were
+--  accidentally built entirely inside an override group. Purely additive:
+--  only existing writers repaint live, and the final state is
+--  indistinguishable from a profile that never had spec overrides.
+--  Conditional overrides are untouched and keep riding the new baseline.
+-------------------------------------------------------------------------------
+local _promoteSelGid = nil   -- list-page dropdown selection (runtime only)
+
+local function PromoteGroupToProfile(g)
+    if not g or not g.specs or #g.specs == 0 then return end
+    -- Combat re-check (the typed-confirm popup can sit open while combat
+    -- starts): the tail must flush secure-frame repositioning synchronously
+    -- before the reload, and that is blocked in lockdown. Nothing has been
+    -- written yet, so refusing here is a clean abort.
+    if InCombatLockdown() then
+        EllesmereUI:ShowConfirmPopup({
+            title = L("In Combat"),
+            message = L("Promoting an override reloads the UI and cannot run in combat. Leave combat and try again."),
+            confirmText = L("OK"),
+            hideCancel = true,
+        })
+        return
+    end
+    -- Bank any open editing session and leave the Default view so the stores
+    -- hold the freshest session edits and live holds canonical spec values.
+    if EllesmereUI.SpecOverrides_CloseEditSessions then
+        EllesmereUI.SpecOverrides_CloseEditSessions()
+    end
+
+    -- 1) VALUES: the group's stored values become the recorded defaults.
+    --    Per-entry resolution mirrors WriteGroupValues exactly (first member
+    --    spec's map, per-fkey fallback to the current default), so the
+    --    promoted baseline is exactly what "editing as" the group shows.
+    local store = GetStore()
+    local seed = g.specs[1]
+    if store then
+        for _, entry in ipairs(store) do
+            local def = entry.values and entry.values.default
+            local m = entry.values and entry.values[seed]
+            if def and m then
+                for fkey in pairs(def) do
+                    local v = m[fkey]
+                    -- Blacklisted paths never apply anywhere; match-owned
+                    -- size keys belong to the match engine (the layer
+                    -- promote below carries the real geometry). NIL_SENT
+                    -- markers promote as-is: the default writer decodes
+                    -- them behind its own nil-poison guard.
+                    if v ~= nil and type(v) ~= "table"
+                       and not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey) then
+                        def[fkey] = v
+                    end
+                end
+            end
+        end
+    end
+    -- Write the promoted defaults live while the entries still exist (the
+    -- store is wiped below and nothing could repaint them afterwards).
+    -- Writes are value-equal no-ops for specs already living on the group's
+    -- values, so members of the promoted group see zero churn.
+    WriteDefaultValues()
+
+    -- 2) UNLOCK LAYOUT: the group's fork becomes the baseline, resolved the
+    --    way ApplyLayer resolves a live fork: links wholesale, position
+    --    stores with per-key baseline gap-fill, grow keys under the
+    --    authority rule, elems overlaid onto the baseline's. All copies --
+    --    the new baseline shares no tables with the wiped fork buckets.
+    local s = GetUnlockStore()
+    if s then
+        local layer = s.layouts and s.layouts[g.id]
+        local base = s.baselineLayout
+        if layer then
+            local nb = { anchors = {}, widthMatch = {}, heightMatch = {},
+                         cdmGrow = {}, abGrow = {}, elems = {} }
+            for k, v in pairs(layer.anchors or {}) do
+                if not IsTBBChildKey(k) then nb.anchors[k] = DeepCopy(v) end
+            end
+            for k, v in pairs(layer.widthMatch or {}) do
+                if not IsTBBChildKey(k) then nb.widthMatch[k] = v end
+            end
+            for k, v in pairs(layer.heightMatch or {}) do
+                if not IsTBBChildKey(k) then nb.heightMatch[k] = v end
+            end
+            local function MergePos(lp, bp)
+                local out = lp and DeepCopy(lp) or (bp and DeepCopy(bp) or nil)
+                if lp and bp then
+                    for k, v in pairs(bp) do
+                        if out[k] == nil then out[k] = DeepCopy(v) end
+                    end
+                end
+                return out
+            end
+            nb.cdmPos = MergePos(layer.cdmPos, base and base.cdmPos)
+            nb.abPos = MergePos(layer.abPos, base and base.abPos)
+            -- A grow store is authoritative only when its layer was
+            -- harvested with the owning module loaded (pos store present);
+            -- effective = layer's grow, else the baseline's.
+            local function MergeGrow(out, lAuth, lg, bAuth, bg)
+                if bAuth and bg then
+                    for k, v in pairs(bg) do out[k] = v end
+                end
+                if lAuth and lg then
+                    for k, v in pairs(lg) do out[k] = v end
+                end
+            end
+            MergeGrow(nb.cdmGrow, layer.cdmPos ~= nil, layer.cdmGrow,
+                      base and base.cdmPos ~= nil, base and base.cdmGrow)
+            MergeGrow(nb.abGrow, layer.abPos ~= nil, layer.abGrow,
+                      base and base.abPos ~= nil, base and base.abGrow)
+            if base and base.elems then
+                for k, e in pairs(base.elems) do
+                    if not LayerSkipsKey(k) then nb.elems[k] = DeepCopy(e) end
+                end
+            end
+            for k, e in pairs(layer.elems or {}) do
+                if not LayerSkipsKey(k) then nb.elems[k] = DeepCopy(e) end
+            end
+            s.baselineLayout = nb
+        end
+        wipe(s.layouts)
+        s.active = nil
+    end
+
+    -- 3) BUFF MANAGER: BM layers are complete wholesale subtrees; the fork
+    --    (when present) becomes the baseline verbatim.
+    local bs = GetBmStore()
+    if bs then
+        local bl = bs.layouts and bs.layouts[g.id]
+        if bl then bs.baselineLayout = DeepCopy(bl) end
+        wipe(bs.layouts)
+        bs.active = nil
+    end
+
+    -- 4) DELETE the spec override system: every group and every entry. The
+    --    promoted values are already live and the promoted layouts are the
+    --    baselines, so from here the profile simply IS the override.
+    local groups = GetGroups()
+    if groups then wipe(groups) end
+    if store then wipe(store) end
+    RebuildFKeyIndex()
+
+    -- 5) CONVERGE live onto the new baselines, forced: with the groups gone
+    --    the resolver wants the baseline (or a live conditional fork over
+    --    it), and the same-layer early-out would otherwise skip the repaint
+    --    for a spec that was NOT on the promoted fork. Where live already
+    --    matches, every write is value-equal and the flush's equality
+    --    guards no-op. pcall like the import converge: an error must not
+    --    strand the cleanup half-done.
+    local sid = CurrentSpecID()
+    if sid then
+        if EllesmereUI.SpecOverrides_ApplyUnlock then
+            pcall(EllesmereUI.SpecOverrides_ApplyUnlock, sid, true)
+        end
+        if EllesmereUI.SpecOverrides_ApplyBm then
+            pcall(EllesmereUI.SpecOverrides_ApplyBm, sid, true)
+        end
+    end
+    -- 6) RELOAD. The converge's element writes are DEFERRED (FlushUnlock);
+    --    reloading inside that window strands them: the logout bank keeps
+    --    the intent in the bucket, but the post-reload login early-outs on
+    --    the nil active pointer and never paints it back into module DBs.
+    --    Flush synchronously first (out of combat by the gate above) so
+    --    every store is settled, then reload -- every runtime cache, ticker,
+    --    and session structure rebuilds from the clean promoted state.
+    if EllesmereUI.SpecOverrides_FlushUnlock then
+        pcall(EllesmereUI.SpecOverrides_FlushUnlock)
+    end
+    ReloadUI()
+end
+
 --- Page builder for the "Spec Overrides" tab (called from the Profiles &
 --- Presets module registration).
 function EllesmereUI.SpecOverrides_BuildListPage(parent, startY)
@@ -7078,6 +7254,118 @@ function EllesmereUI.SpecOverrides_BuildListPage(parent, startY)
             local _, rh = BuildStrandedRow(parent, y, s.entry, s.spec)
             y = y - rh
         end
+    end
+
+    -- DANGER ZONE: one-shot "this override IS my profile" rescue. Only
+    -- rendered while a group exists to promote.
+    if #groups > 0 then
+        y = y - 14
+        local _, hh = W:SectionHeader(parent, "Promote Override to Profile", y);  y = y - hh
+        local CONTENT_PAD = EllesmereUI.CONTENT_PAD or 40
+        local hint = EllesmereUI.MakeFont(parent, 11, nil, 1, 1, 1, 0.45)
+        hint:SetPoint("TOPLEFT", parent, "TOPLEFT", CONTENT_PAD + 20, y)
+        hint:SetWidth(parent:GetWidth() - CONTENT_PAD * 2 - 40)
+        hint:SetJustifyH("LEFT")
+        hint:SetText(L("Rescue tool for a profile built inside an override: the selected group's settings and layouts become this profile's own baseline, then ALL spec override groups are deleted. Conditional overrides are not affected."))
+        y = y - 44
+        local ddValues, ddOrder = {}, {}
+        for _, gg in ipairs(groups) do
+            ddValues[gg.id] = gg.name or ("Group " .. gg.id)
+            ddOrder[#ddOrder + 1] = gg.id
+        end
+        if not _promoteSelGid or not GroupById(_promoteSelGid) then
+            _promoteSelGid = groups[1].id
+        end
+        local _, dh = W:WideDropdown(parent, "Override to Promote", y, ddValues,
+            function() return _promoteSelGid end,
+            function(v) _promoteSelGid = v end,
+            ddOrder, 300)
+        y = y - dh
+        y = y - 6
+        local BTN_W, BTN_H = 300, 38
+        local lerp = EllesmereUI.lerp
+        local DARK_BG = EllesmereUI.DARK_BG or { r = 0.05, g = 0.07, b = 0.09 }
+        local btn = CreateFrame("Button", nil, parent)
+        btn:SetSize(BTN_W, BTN_H)
+        btn:SetPoint("TOP", parent, "TOP", 0, y)
+        btn:SetFrameLevel(parent:GetFrameLevel() + 5)
+        btn:SetAlpha(0.85)
+        local brd = EllesmereUI.MakeBorder(btn, 0.8, 0.2, 0.2, 0.5, EllesmereUI.PanelPP)
+        local bg = EllesmereUI.SolidTex(btn, "BACKGROUND", DARK_BG.r, DARK_BG.g, DARK_BG.b, 0.92)
+        bg:SetAllPoints()
+        local lbl = EllesmereUI.MakeFont(btn, 13, nil, 0.9, 0.3, 0.3)
+        lbl:SetAlpha(0.7)
+        lbl:SetPoint("CENTER")
+        lbl:SetText(L("Promote Override & Delete ALL Overrides"))
+        do
+            local FADE_DUR = 0.1
+            local progress, target = 0, 0
+            local function Apply(t)
+                lbl:SetTextColor(lerp(0.9, 1, t), lerp(0.3, 0.35, t), lerp(0.3, 0.35, t), lerp(0.7, 1, t))
+                brd:SetColor(0.8, 0.2, 0.2, lerp(0.5, 0.8, t))
+            end
+            local function OnUpdate(self, elapsed)
+                local dir = (target == 1) and 1 or -1
+                progress = progress + dir * (elapsed / FADE_DUR)
+                if (dir == 1 and progress >= 1) or (dir == -1 and progress <= 0) then
+                    progress = target; self:SetScript("OnUpdate", nil)
+                end
+                Apply(progress)
+            end
+            btn:SetScript("OnEnter", function(self) target = 1; self:SetScript("OnUpdate", OnUpdate) end)
+            btn:SetScript("OnLeave", function(self) target = 0; self:SetScript("OnUpdate", OnUpdate) end)
+        end
+        btn:SetScript("OnClick", function()
+            local pg = GroupById(_promoteSelGid)
+            if not pg then return end
+            -- The promote ends in a synchronous flush + ReloadUI, neither
+            -- of which belongs in combat lockdown.
+            if InCombatLockdown() then
+                EllesmereUI:ShowConfirmPopup({
+                    title = L("In Combat"),
+                    message = L("Promoting an override reloads the UI and cannot run in combat. Leave combat and try again."),
+                    confirmText = L("OK"),
+                    hideCancel = true,
+                })
+                return
+            end
+            -- Modules with captured overrides must be loaded: promoted
+            -- values for an unloaded module cannot be written live, and the
+            -- store they lived in is deleted at the end -- silent loss.
+            local missingSet, missingList
+            for _, entry in ipairs(GetStore() or {}) do
+                for fkey in pairs(entry.values and entry.values.default or {}) do
+                    if not BlacklistedFKey(fkey) and not FKeyLoaded(fkey) then
+                        local folder = SplitFKey(fkey)
+                        if folder and not (missingSet and missingSet[folder]) then
+                            missingSet = missingSet or {}
+                            missingSet[folder] = true
+                            missingList = missingList or {}
+                            missingList[#missingList + 1] = folder:gsub("^EllesmereUI", "")
+                        end
+                    end
+                end
+            end
+            if missingList then
+                EllesmereUI:ShowConfirmPopup({
+                    title = L("Enable Modules First"),
+                    message = string.format(L("Captured overrides reference disabled modules (%s). Enable them and reload before promoting, or those settings would be lost."), table.concat(missingList, ", ")),
+                    confirmText = L("OK"),
+                    hideCancel = true,
+                })
+                return
+            end
+            EllesmereUI:ShowConfirmPopup({
+                title = L("Promote Override to Profile"),
+                message = string.format(L("This permanently overwrites this profile's settings with the override '%s': its captured settings and its custom Unlock Mode and Buff Manager layouts (where present) become the profile's own baseline for every spec. ALL spec override groups on this profile are then deleted and the UI reloads. Conditional overrides are not affected."), pg.name or "?"),
+                disclaimer = L("This cannot be undone. Consider exporting this profile as a backup first."),
+                typeToConfirm = "Confirm",
+                confirmText = L("Promote & Reload"),
+                cancelText = L("Cancel"),
+                onConfirm = function() PromoteGroupToProfile(pg) end,
+            })
+        end)
+        y = y - BTN_H - 10
     end
 
     return -y + 40

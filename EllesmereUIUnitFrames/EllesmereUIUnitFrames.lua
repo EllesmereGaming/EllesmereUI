@@ -6083,6 +6083,14 @@ local function CreateTargetAuras(frame, unit)
     -- border (or no border at all) after settings/profile changes.
     local function ApplyLegacyAuraBorder(button)
         if not button then return end
+        -- Settings-generation guard: the border style only changes on a real
+        -- reload (options edit, profile/spec swap), which bumps
+        -- ns._auraBorderGen in the reload throttle. PostUpdateButton fires on
+        -- every aura update, and pooled recycling keeps the styled border
+        -- frame on the button, so a same-generation reapply is pure repeat
+        -- work (settings fetch + border restyle + frame-level churn) -- skip.
+        local gen = ns._auraBorderGen or 1
+        if button._euiABGen == gen then return end
         local s = GetSettingsForUnit(unit or "target")
         if not button._euiAuraBorder then
             button._euiAuraBorder = CreateFrame("Frame", nil, button)
@@ -6115,6 +6123,7 @@ local function CreateTargetAuras(frame, unit)
             local countFrame = button.Count and button.Count:GetParent()
             if countFrame then countFrame:SetFrameLevel(button.Cooldown:GetFrameLevel() + 1) end
         end
+        button._euiABGen = gen  -- stamped after the apply, never before
     end
 
     local function SetupAuraIcon(container, button)
@@ -10887,7 +10896,7 @@ local function UnitFrame_OnEnter(self)
         -- legacy single "mouseover" reveals unconditionally as before.
         local eligible = true
         if EllesmereUI.VisWantsMouseover then
-            eligible = EllesmereUI.VisWantsMouseover(s, "barVisibility", nil, EllesmereUI.VIS_CAPS_INCLUSIVE)
+            eligible = EllesmereUI.VisWantsMouseover(s, "barVisibility", nil, EllesmereUI.VIS_CAPS_DEFAULT)
         end
         if eligible then
             local a = ns.ResolveFrameAlpha(s, InCombatLockdown())
@@ -12097,7 +12106,7 @@ function InitializeFrames()
                 -- Multi-select / dragonriding path: non-nil = engine-owned.
                 -- nil = legacy single mode, untouched.
                 local ext = EllesmereUI.EvalVisibilityExtended
-                    and EllesmereUI.EvalVisibilityExtended(s, "barVisibility", visState, EllesmereUI.VIS_CAPS_INCLUSIVE)
+                    and EllesmereUI.EvalVisibilityExtended(s, "barVisibility", visState, EllesmereUI.VIS_CAPS_DEFAULT)
 
                 -- Secure condition driver: an engine-owned selection
                 -- compiles into a state-visibility driver (the action bar
@@ -12240,7 +12249,7 @@ function InitializeFrames()
                     elseif vis == "in_raid" then
                         shouldShow = inRaid
                     elseif vis == "in_party" then
-                        shouldShow = inRaid or inParty
+                        shouldShow = inParty
                     elseif vis == "solo" then
                         shouldShow = solo
                     else
@@ -12610,6 +12619,10 @@ function SetupOptionsPanel()
     reloadThrottle:SetScript("OnUpdate", function(self)
         self:Hide()
         reloadPending = false
+        -- Invalidate the per-button legacy aura border stamp (see
+        -- ApplyLegacyAuraBorder): every real reload restyles borders once,
+        -- then per-aura-update calls no-op until the next reload.
+        ns._auraBorderGen = (ns._auraBorderGen or 1) + 1
         ReloadFrames()
         ApplyBlizzCastbarState()
         -- A reload restyles the boss frames and re-colors their health to the

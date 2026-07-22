@@ -6145,7 +6145,9 @@ local function BuildVisibilityString(info, s, visOverride)
     elseif vis == "in_raid" then
         return hidePrefix .. "[group:raid] show; hide"
     elseif vis == "in_party" then
-        return hidePrefix .. "[group:party] show; [group:raid] show; hide"
+        -- [group:party] alone is TRUE inside a raid; nogroup:raid narrows it
+        -- to a real party so unchecking In Raid Group actually hides in raids.
+        return hidePrefix .. "[group:party,nogroup:raid] show; hide"
     elseif vis == "solo" then
         return hidePrefix .. "[nogroup] show; hide"
     elseif vis == "show_dragonriding" then
@@ -6209,7 +6211,7 @@ function EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s)
     -- Multi-select path (nil = legacy single mode below; the dragonriding
     -- scalar also routes here, same predicate CheckVisibilityMode uses)
     if EllesmereUI and EllesmereUI.EvalVisibilityExtended then
-        local ext = EllesmereUI.EvalVisibilityExtended(s, "barVisibility", state, EllesmereUI.VIS_CAPS_INCLUSIVE)
+        local ext = EllesmereUI.EvalVisibilityExtended(s, "barVisibility", state, EllesmereUI.VIS_CAPS_DEFAULT)
         if ext ~= nil then return ext end
     end
     if EllesmereUI and EllesmereUI.CheckVisibilityMode then

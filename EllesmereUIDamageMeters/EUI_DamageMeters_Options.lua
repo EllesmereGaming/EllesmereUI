@@ -1325,11 +1325,13 @@ initFrame:SetScript("OnEvent", function(self)
         satRow, h = W:DualRow(parent, y,
             { type="toggle", text="Standalone Combat Timer",
               getValue = function() return Cfg("standaloneTimer") or false end,
-              setValue = function(v)
-                  Set("standaloneTimer", v); ApplySAT(); EllesmereUI:RefreshPage()
+              setValue = EllesmereUI.SectionToggleSetValue(function(v)
+                  Set("standaloneTimer", v); ApplySAT()
+                  -- Timer unlock element rides this toggle: (un)register live
+                  if ns.RegisterDMUnlock then ns.RegisterDMUnlock() end
                   if v and ns.ShowSATimerPreview then ns.ShowSATimerPreview()
                   elseif not v and ns.HideSATimerPreview then ns.HideSATimerPreview() end
-              end },
+              end) },
             { type="multiSwatch", text="Timer Text Color",
               disabled = function() return not Cfg("standaloneTimer") end,
               disabledTooltip = "Standalone Combat Timer",
@@ -1410,18 +1412,61 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- "Hold Shift+Click..." label | Anchor to Windows
-        _, h = W:DualRow(parent, y,
-            { type="label", text="Hold Shift+Click to Freely Move Standalone Timer" },
-            { type="dropdown", text="Anchor to Windows",
-              disabled = function() return not Cfg("standaloneTimer") end,
-              disabledTooltip = "Standalone Combat Timer",
-              values = { free = "Free Move", topleft = "Top Left", topright = "Top Right",
-                         bottomleft = "Bottom Left", bottomright = "Bottom Right" },
-              order = { "free", "topleft", "topright", "bottomleft", "bottomright" },
-              getValue = function() return Cfg("standaloneTimerAnchor") or "free" end,
-              setValue = function(v) Set("standaloneTimerAnchor", v); ApplySAT() end })
-        y = y - h
+        -- Dependent rows: hidden entirely while the timer is disabled
+        -- (SectionToggleSetValue on the master rebuilds the page).
+        if Cfg("standaloneTimer") then
+            -- "Hold Shift+Click..." label | Anchor to Windows
+            _, h = W:DualRow(parent, y,
+                { type="label", text="Hold Shift+Click to Freely Move Standalone Timer" },
+                { type="dropdown", text="Anchor to Windows",
+                  values = { free = "Free Move", topleft = "Top Left", topright = "Top Right",
+                             bottomleft = "Bottom Left", bottomright = "Bottom Right" },
+                  order = { "free", "topleft", "topright", "bottomleft", "bottomright" },
+                  getValue = function() return Cfg("standaloneTimerAnchor") or "free" end,
+                  setValue = function(v) Set("standaloneTimerAnchor", v); ApplySAT() end })
+            y = y - h
+
+            -- Show Out of Combat (with inline cog) | Add to Unlock Mode
+            local oocRow
+            oocRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Show Out of Combat",
+                  tooltip = "Keep the timer visible out of combat, showing the last fight's duration.",
+                  getValue = function() return Cfg("standaloneTimerShowOOC") or false end,
+                  setValue = function(v)
+                      Set("standaloneTimerShowOOC", v); ApplySAT()
+                      -- Turning it OFF mid-session: resume the preview (it was
+                      -- skipped at panel-open while Show OOC covered the display)
+                      if not v and ns.ShowSATimerPreview then ns.ShowSATimerPreview() end
+                  end },
+                { type="label", text="" })
+            -- Inline cog on Show Out of Combat for the desaturation option
+            do
+                local rgn = oocRow._leftRegion
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Out of Combat Settings",
+                    rows = {
+                        { type = "toggle", label = "Desaturate Out of Combat",
+                          disabled = function() return not Cfg("standaloneTimerShowOOC") end,
+                          disabledTooltip = "Show Out of Combat",
+                          get = function() return Cfg("standaloneTimerDesatOOC") or false end,
+                          set = function(v) Set("standaloneTimerDesatOOC", v); ApplySAT() end },
+                    },
+                })
+                local cogBtn = CreateFrame("Button", nil, rgn)
+                cogBtn:SetSize(26, 26)
+                cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                rgn._lastInline = cogBtn
+                cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+                cogBtn:SetAlpha(0.4)
+                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                cogTex:SetAllPoints()
+                cogTex:SetTexture(EllesmereUI.COGS_ICON)
+                cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+                cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            end
+            y = y - h
+        end
 
         -- ── EXTRAS ───────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
