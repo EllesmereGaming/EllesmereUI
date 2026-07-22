@@ -423,6 +423,12 @@ EllesmereUI._WHATSNEW_PATCHES = {
         },
         features = {
             {
+                module = "Unit Frames",
+                title  = "Boss Cast Bar Kick Support",
+                desc   = "Boss cast bars now show interrupt-aware colors, kick-ready tick marks, and mid-cast fill so you can see at a glance whether your interrupt will be ready before the boss finishes casting.",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Boss Frames", section = "CAST BAR", highlight = "Show Cast Bar" },
+            },
+            {
                 module = "Blizzard Windows",
                 title  = "Movable Tooltip Position",
                 desc   = "Drag the game tooltip anywhere in Unlock Mode",

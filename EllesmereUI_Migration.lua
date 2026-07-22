@@ -3683,6 +3683,45 @@ migrationFrame:SetScript("OnEvent", function(self, event, addonName)
     ---------------------------------------------------------------------------
     EllesmereUI.RunRegisteredMigrations()
 
+    ---------------------------------------------------------------------------
+    --  Boss Frames Cast Bar: seed kick-related keys for existing profiles.
+    --  Brand-new profiles get these from DEFAULTS.boss; older profiles carry
+    --  nil for all five keys. The runtime has per-key fallbacks that match
+    --  Target's defaults exactly, so behaviour is identical with or without
+    --  this migration -- it just makes the keys visible to profile
+    --  export/import/copy. Naturally idempotent: only nil keys are filled.
+    ---------------------------------------------------------------------------
+    if EllesmereUIDB and EllesmereUIDB.profiles then
+        local TARGET_DEFAULTS = {
+            castbarInterruptReadyColor     = { r = 0.92, g = 0.35, b = 0.20 },
+            castbarKickTickEnabled         = true,
+            castbarInterruptMidCastEnabled = false,
+            castbarInterruptMidCastColor   = { r = 0.318, g = 0.820, b = 0.357 },
+            castbarUninterruptibleColor    = { r = 0.5, g = 0.5, b = 0.5 },
+        }
+        for _, profData in pairs(EllesmereUIDB.profiles) do
+            local uf = profData.addons and profData.addons.EllesmereUIUnitFrames
+            if type(uf) == "table" and type(uf.boss) == "table" then
+                for key, fallback in pairs(TARGET_DEFAULTS) do
+                    if uf.boss[key] == nil then
+                        -- Copy from target if the user customized it; otherwise
+                        -- use the hardcoded Target default.
+                        local src = uf.target and uf.target[key]
+                        if src ~= nil then
+                            if type(src) == "table" then
+                                uf.boss[key] = { r = src.r, g = src.g, b = src.b }
+                            else
+                                uf.boss[key] = src
+                            end
+                        else
+                            uf.boss[key] = fallback
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     -- DM: fontSize was split into leftFontSize + rightFontSize.
     -- DeepMergeDefaults fills new keys with default 11 before the runtime
     -- fallback chain (c.leftFontSize or c.fontSize or 11) can reach the old

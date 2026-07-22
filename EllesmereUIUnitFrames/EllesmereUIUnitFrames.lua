@@ -933,6 +933,11 @@ local defaults = {
             showCastDuration = true,
             showCastTarget = false,
             castbarFillColor = { r = 0.863, g = 0.820, b = 0.639 },
+            castbarInterruptReadyColor = { r = 0.92, g = 0.35, b = 0.20 },
+            castbarKickTickEnabled = true,
+            castbarInterruptMidCastEnabled = false,
+            castbarInterruptMidCastColor = { r = 0.318, g = 0.820, b = 0.357 },
+            castbarUninterruptibleColor = { r = 0.5, g = 0.5, b = 0.5 },
             castbarClassColored = false,
             healthDisplay = "perhp",
             showPortrait = false,
@@ -4847,7 +4852,7 @@ local function ComputeCastBarTint(readyTint, baseTint)
     return baseTint.r, baseTint.g, baseTint.b
 end
 local function IsKickCastbarUnit(unit)
-    return unit == "target" or unit == "focus"
+    return unit == "target" or unit == "focus" or (unit and unit:match("^boss%d+$"))
 end
 local function GetCastbarKickTickEnabled(settings)
     if not settings then return true end
@@ -5275,9 +5280,8 @@ local function CreateCastBar(frame, unit, settings)
         local durSide  = cb._durSide or "right"
         local textW = barW * 0.42
         -- Spell name width: the 42% above reserves the opposite half for the cast
-        -- target. When this unit never shows a target (boss frames -- showCastTarget
-        -- is false with no UI to enable it), the name has the row to itself, so let
-        -- it use 80% of the bar before truncating.
+        -- target. When showCastTarget is false with no target text to display, the
+        -- name has the row to itself, so let it use 80% of the bar before truncating.
         local nameW = (cb._showTarget == false) and (barW * 0.80) or textW
         -- Spell name. While Combine Spell Name and Target is on, the target
         -- element is suppressed, so the (combined) name owns the whole row

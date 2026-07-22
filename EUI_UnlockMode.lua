@@ -585,6 +585,7 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["playerCastbar"] = { module = "EllesmereUIUnitFrames",      page = "Main Frames",   sectionName = "CAST BAR",         preSelectFn = SelectUnitFrame("player"),                   highlightText = "Show Cast Bar" },
     ["targetCastbar"] = { module = "EllesmereUIUnitFrames",      page = "Main Frames",   sectionName = "CAST BAR",         preSelectFn = SelectUnitFrame("target"),                   highlightText = "Show Cast Bar" },
     ["focusCastbar"]  = { module = "EllesmereUIUnitFrames",      page = "Main Frames",   sectionName = "CAST BAR",         preSelectFn = SelectUnitFrame("focus"),                    highlightText = "Show Cast Bar" },
+    ["bossCastbar"]   = { module = "EllesmereUIUnitFrames",      page = "Boss Frames",   sectionName = "CAST BAR",                                      highlightText = "Show Cast Bar" },
 
     -- Resource Bars (no dropdown — each bar has its own section)
     ["ERB_Health"]        = { module = "EllesmereUIResourceBars",       page = "Class, Power and Health Bars", sectionName = "HEALTH BAR",           highlightText = "Bar Height" },
