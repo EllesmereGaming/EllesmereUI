@@ -659,34 +659,48 @@ local function GetRealmMiniRegion(realmName)
     return primary[clean] or secondary[clean] or REALMS_ASIA[clean]
 end
 
+local REGION_ID_DEFAULT_MINI = {
+    [1] = "namerica",
+    [2] = "korea",
+    [3] = "europe",
+    [4] = "taiwan",
+    [5] = "china",
+}
+
+local REGION_ID_TO_REALMS = {
+    [1] = REALMS_NA,
+    [2] = REALMS_ASIA,
+    [3] = REALMS_EU,
+    [4] = REALMS_ASIA,
+    [5] = REALMS_ASIA,
+}
+
 -- Get the mini region for a BNet friend's game account
 local function GetFriendMiniRegion(gameAccountInfo)
     if not gameAccountInfo then return nil end
-    -- Try realmName first
+    -- realmName is empty for friends on another WoW project (even same-region);
+    -- richPresence ("Zone - Realm") is the realm fallback for those
     local realm = gameAccountInfo.realmName
-    if realm and realm ~= "" then
-        local result = GetRealmMiniRegion(realm)
-        if result then return result end
+    if not realm or realm == "" then
+        local rich = gameAccountInfo.richPresence
+        realm = rich and rich:match("%s%-%s(.+)$")
     end
-    -- Fallback: parse richPresence ("Zone - Realm" format)
-    -- If realmName was empty, the friend is likely cross-region, so check OTHER tables first
-    local rich = gameAccountInfo.richPresence
-    if rich and rich ~= "" then
-        local realmFromRich = rich:match("%s%-%s(.+)$")
-        if realmFromRich and realmFromRich ~= "" then
-            local clean = realmFromRich:gsub("%s+", "")
-            local myRegion = GetCurrentRegion()
-            -- Check the opposite region first since empty realmName = cross-region friend
-            if myRegion == 1 then
-                return REALMS_EU[clean] or REALMS_ASIA[clean] or REALMS_NA[clean]
-            elseif myRegion == 3 then
-                return REALMS_NA[clean] or REALMS_ASIA[clean] or REALMS_EU[clean]
-            else
-                return REALMS_NA[clean] or REALMS_EU[clean] or REALMS_ASIA[clean]
-            end
-        end
+    local clean = realm and realm ~= "" and realm:gsub("%s+", "") or nil
+
+    -- regionID is Battle.net presence data, populated even cross-project;
+    -- realm tables only refine the mini region within it (realm names repeat
+    -- across regions, so they cannot decide the region themselves)
+    local regionID = gameAccountInfo.regionID
+    local full = regionID and REGION_ID_TO_FULL[regionID]
+    if full then
+        local mini = clean and REGION_ID_TO_REALMS[regionID][clean]
+        if mini and MINI_TO_FULL[mini] == full then return mini end
+        return REGION_ID_DEFAULT_MINI[regionID]
     end
-    return nil
+
+    -- No regionID: realm-table guess, own region first (a wrong cross-region
+    -- icon is worse than none, and same-region matches show no icon anyway)
+    return clean and GetRealmMiniRegion(clean) or nil
 end
 
 -- Get the full region for a mini region
