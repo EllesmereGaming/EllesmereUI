@@ -2060,6 +2060,8 @@ local function LayoutIcons()
     local sz = floor(ICON_SIZE * baseScale + 0.5)
     local totalW = (count * sz) + ((count-1) * spacing)
     for i, btn in ipairs(allIcons) do
+        btn:SetIgnoreParentScale(true)
+        btn:SetScale(UIParent:GetEffectiveScale())
         btn:SetSize(sz, sz)
         btn:SetAlpha(p.opacity or 1.0)
         btn:ClearAllPoints()
