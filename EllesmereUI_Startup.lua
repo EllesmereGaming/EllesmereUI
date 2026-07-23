@@ -12,9 +12,9 @@ local ADDON_NAME = ...
 --  SavedVariables (EllesmereUIDB) aren't available at file scope — they load
 --  at ADDON_LOADED. So we use events:
 --    ADDON_LOADED  -> DB is available. If we have a saved scale, apply it.
---    PLAYER_ENTERING_WORLD -> Blizzard has applied the user's CVar scale.
---                    If no saved scale yet (first install / reset), snapshot
---                    the user's current Blizzard scale and save it.
+--    PLAYER_ENTERING_WORLD -> Re-assert a saved scale after Blizzard finishes
+--                    world setup, or snapshot the current Blizzard scale for
+--                    a first install / reset.
 -------------------------------------------------------------------------------
 do
     local GetPhysicalScreenSize = GetPhysicalScreenSize
@@ -77,8 +77,8 @@ do
             self:UnregisterEvent("PLAYER_LOGIN")
 
             if scaleKnown and EllesmereUIDB.ppUIScale then
-                -- Returning user: single SetScale at PLAYER_LOGIN.
-                -- No timers, no repeated calls.
+                -- Apply early, then PLAYER_ENTERING_WORLD re-asserts once after
+                -- Blizzard finishes world setup.
                 ApplyScaleSafe(EllesmereUIDB.ppUIScale)
 
                 -- Re-apply our scale whenever Blizzard fires UI_SCALE_CHANGED
@@ -106,9 +106,14 @@ do
             if not dbReady then return end
             if not EllesmereUIDB then EllesmereUIDB = {} end
 
-            -- Returning user: scale was applied once at PLAYER_LOGIN,
-            -- nothing else needed.
-            if scaleKnown then return end
+            -- Blizzard can restore UIParent to scale 1 while entering an
+            -- instance without firing UI_SCALE_CHANGED. Re-assert the saved
+            -- scale after the initial world entry so addon frames do not load
+            -- at 1 / savedScale times their intended size.
+            if scaleKnown then
+                ApplyScaleSafe(EllesmereUIDB.ppUIScale)
+                return
+            end
 
             -- First install or reset: snapshot the user's Blizzard scale
             if EllesmereUIDB.ppUIScale == nil then
