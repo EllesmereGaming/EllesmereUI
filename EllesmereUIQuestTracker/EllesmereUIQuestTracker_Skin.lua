@@ -68,8 +68,31 @@ end
 
 -- Shared font sizes -- read from DB so the options panel can tweak them.
 -- Defaults are seeded in the loader's QT_DEFAULTS table.
-local function GetTitleSize() return EQT.Cfg("titleFontSize")     or 13 end
-local function GetObjSize()   return EQT.Cfg("objectiveFontSize") or 11 end
+--
+-- Divided by the tracker's current scale (EQT.GetTrackerScale, see
+-- EllesmereUIQuestTracker.lua / EQT.ApplyTrackerScale) and rounded to a
+-- whole pixel: the tracker frame gets SetScale()'d directly from the DB
+-- value (deliberately not derived from a measured pixel width anymore --
+-- see EQT.GetTrackerScale's comment), so on-screen font size = raw size *
+-- scale. Pre-dividing here cancels that out, keeping the configured font
+-- size visually constant regardless of tracker scale. Rounding avoids
+-- feeding SetFont a fractional size.
+local function RoundFontSize(v)
+    if not v or v <= 0 then return 1 end
+    return math.floor(v + 0.5)
+end
+local function GetTitleSize()
+    local size = EQT.Cfg("titleFontSize") or 13
+    local scale = (EQT.GetTrackerScale and EQT.GetTrackerScale()) or 1
+    if not scale or scale <= 0 then scale = 1 end
+    return RoundFontSize(size / scale)
+end
+local function GetObjSize()
+    local size = EQT.Cfg("objectiveFontSize") or 11
+    local scale = (EQT.GetTrackerScale and EQT.GetTrackerScale()) or 1
+    if not scale or scale <= 0 then scale = 1 end
+    return RoundFontSize(size / scale)
+end
 
 -------------------------------------------------------------------------------
 -- External weak-keyed flag tables. Never write custom fields onto Blizzard-
@@ -131,12 +154,16 @@ local function ApplyShadow(fs)
 end
 
 -- Registry of every FontString we've styled. Lets us re-template in bulk
--- when the user changes font path / outline / shadow settings.
+-- when the user changes font path / outline / shadow settings, or when the
+-- tracker's scale changes (see EQT.RefreshFonts below). Maps
+-- fs -> "title" | "objective" | "generic", so a bulk refresh can recompute
+-- the correct target size per string instead of just re-applying whatever
+-- size happened to already be set.
 local _eqtFontRegistry = setmetatable({}, { __mode = "k" })
 
 -- Reapplies EUI font path with explicit size + outline + shadow.
 -- If `size` is nil, preserves Blizzard's current size.
-local function StyleFontStringSized(fs, size)
+local function StyleFontStringSized(fs, size, kind)
     if not fs or not fs.GetFont then return end
     if not size then
         local _, cur = fs:GetFont()
@@ -145,32 +172,52 @@ local function StyleFontStringSized(fs, size)
     local ok = pcall(fs.SetFont, fs, GetFont(), size, GetOutline())
     if not ok then fs:SetFont("Fonts/FRIZQT__.TTF", size, GetOutline()) end
     ApplyShadow(fs)
-    _eqtFontRegistry[fs] = true
+    _eqtFontRegistry[fs] = kind or "generic"
 end
 
 -- Convenience wrappers so every title / objective uses the shared sizes.
-local function StyleFontString(fs)     StyleFontStringSized(fs, nil)            end
-local function StyleTitleFS(fs)        StyleFontStringSized(fs, GetTitleSize()) end
-local function StyleObjectiveFS(fs)    StyleFontStringSized(fs, GetObjSize())   end
+local function StyleFontString(fs)     StyleFontStringSized(fs, nil, "generic")             end
+local function StyleTitleFS(fs)        StyleFontStringSized(fs, GetTitleSize(), "title")     end
+local function StyleObjectiveFS(fs)    StyleFontStringSized(fs, GetObjSize(), "objective")   end
 
 -- Walk every FontString region on a frame (top-level only) and restyle it.
 -- No recursion: child frames each go through their own skin call.
+--
+-- Skips regions already registered as "title"/"objective": those were just
+-- sized via StyleTitleFS/StyleObjectiveFS (e.g. from StyleObjectiveLine),
+-- and this generic sweep would otherwise immediately downgrade them back to
+-- "generic" in the registry -- which makes EQT.RefreshFonts stop recomputing
+-- their size against the current tracker scale and freeze them at whatever
+-- pixel size happened to be set at that moment.
 local function StyleAllFontStrings(frame)
     if not frame or not frame.GetRegions then return end
     for _, region in ipairs({ frame:GetRegions() }) do
         if region and region:GetObjectType() == "FontString" then
-            StyleFontString(region)
+            local existingKind = _eqtFontRegistry[region]
+            if existingKind ~= "title" and existingKind ~= "objective" then
+                StyleFontString(region)
+            end
         end
     end
 end
 
 -- Bulk re-template everything we've touched. Called when user changes font
--- settings in options.
+-- settings in options, AND whenever the tracker's scale changes (via
+-- EQT.ApplyTrackerScale), so title/objective sizes get recomputed against
+-- the new scale rather than keeping whatever size was last baked in.
 function EQT.RefreshFonts()
-    for fs in pairs(_eqtFontRegistry) do
+    for fs, kind in pairs(_eqtFontRegistry) do
         if fs and fs.GetFont then
-            local _, size = fs:GetFont()
-            pcall(fs.SetFont, fs, GetFont(), size or 12, GetOutline())
+            local size
+            if kind == "title" then
+                size = GetTitleSize()
+            elseif kind == "objective" then
+                size = GetObjSize()
+            else
+                local _, cur = fs:GetFont()
+                size = cur or 12
+            end
+            pcall(fs.SetFont, fs, GetFont(), size, GetOutline())
             ApplyShadow(fs)
         end
     end
@@ -1110,6 +1157,31 @@ EQT._SuppressAllPOIs = function()
                 end
             end
         end
+    end)
+end
+
+-- Forces every Blizzard sub-tracker to immediately recompute its layout
+-- (block/line heights and positions) against current font metrics. Plain
+-- SetFont() changes glyph size but doesn't make Blizzard re-measure block
+-- heights -- that only happens on Blizzard's own Update pass, which
+-- otherwise only runs on quest/scenario events. Without this, a live font
+-- or scale change leaves stale (too-short/too-tall) block heights until the
+-- next such event or a /reload, and lines visibly overlap in the meantime.
+--
+-- Deferred one frame via C_Timer.After(0), same pattern as the dirty-flag
+-- Update hook above: calling tracker:Update() directly from our own call
+-- stack could carry taint into any secure code Blizzard's layout touches;
+-- a fresh timer callback starts a clean stack instead.
+function EQT.ForceLayoutUpdate()
+    if InCombatLockdown and InCombatLockdown() then return end
+    C_Timer.After(0, function()
+        if InCombatLockdown and InCombatLockdown() then return end
+        EachTracker(function(tracker)
+            if tracker.Update then
+                pcall(tracker.Update, tracker)
+            end
+        end)
+        if EQT.QueueResize then EQT.QueueResize() end
     end)
 end
 

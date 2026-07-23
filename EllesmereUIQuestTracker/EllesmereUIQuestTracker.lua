@@ -35,6 +35,11 @@ local QT_DEFAULTS = {
             -- you are in a raid; "boss" (default) only hides it during boss encounters.
             hideInRaidMode       = "boss",
 
+            -- Tracker scale override. 1.0 = native Blizzard size, no
+            -- override. Applied via EQT.ApplyTrackerScale() (SetScale-based,
+            -- see that function's comment for why scale and not SetWidth).
+            trackerScale         = 1.0,
+
             -- Skin toggles
             skinHeaders          = true,
             accentHeaders        = true,
@@ -115,6 +120,41 @@ end
 function EQT.IsSuppressed() return next(_qtSuppressors) ~= nil end
 
 -------------------------------------------------------------------------------
+-- Tracker scale. Implemented via SetScale rather than SetWidth: Blizzard's
+-- ObjectiveTracker modules wrap FontStrings using hardcoded internal
+-- constants, not frame:GetWidth(), so a plain SetWidth() leaves the wrap
+-- point unchanged and breaks embedded elements (quest item buttons,
+-- progress bars). Scaling the whole frame keeps Blizzard's internal layout
+-- self-consistent -- nothing wraps differently, it's just uniformly
+-- bigger/smaller.
+--
+-- Deliberately NOT derived from a target pixel width anymore: that required
+-- measuring ObjectiveTrackerFrame's native width at runtime (GetWidth()),
+-- which is timing-sensitive (login race, layout not finalized yet) and, once
+-- cached wrong, stayed wrong for the rest of the session/reload. The DB
+-- value is the scale factor itself -- no measurement, no cache to go stale.
+-------------------------------------------------------------------------------
+function EQT.GetTrackerScale()
+    local scale = EQT.Cfg("trackerScale")
+    if not scale or scale <= 0 then return 1 end
+    return scale
+end
+
+function EQT.ApplyTrackerScale()
+    local frame = _G.ObjectiveTrackerFrame
+    if not frame then return end
+    frame:SetScale(EQT.GetTrackerScale())
+    -- Re-apply fonts now that the scale changed, so title/objective font
+    -- sizes stay visually constant regardless of tracker scale. See
+    -- EQT.GetTrackerScale() and GetTitleSize()/GetObjSize() in the skin file.
+    if EQT.RefreshFonts then EQT.RefreshFonts() end
+    -- Font sizes changing alone doesn't make Blizzard re-measure block
+    -- heights, so force a layout pass or lines overlap until the next
+    -- quest event / reload.
+    if EQT.ForceLayoutUpdate then EQT.ForceLayoutUpdate() end
+end
+
+-------------------------------------------------------------------------------
 -- Loader
 -------------------------------------------------------------------------------
 local loader = CreateFrame("Frame")
@@ -136,6 +176,7 @@ local function TryInit()
     if EQT.InitSkin       then EQT.InitSkin()       end
     if EQT.InitVisibility then EQT.InitVisibility() end
     if EQT.InitQoL        then EQT.InitQoL()        end
+    if EQT.ApplyTrackerScale then EQT.ApplyTrackerScale() end
     loader:UnregisterAllEvents()
 end
 
@@ -156,6 +197,7 @@ _G._EQT_RefreshAll = function()
     if EQT.UpdateVisibility then EQT.UpdateVisibility() end
     if EQT.RestyleAll then EQT.RestyleAll() end
     if EQT.ApplyBackground then EQT.ApplyBackground() end
+    if EQT.ApplyTrackerScale then EQT.ApplyTrackerScale() end
     if EQT.ApplyForceOnScreen then EQT.ApplyForceOnScreen() end
 end
 

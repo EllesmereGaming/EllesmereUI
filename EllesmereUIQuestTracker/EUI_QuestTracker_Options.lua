@@ -47,6 +47,7 @@ initFrame:SetScript("OnEvent", function(self)
         if EQT.UpdateVisibility   then EQT.UpdateVisibility()   end
         if EQT.RestyleAll         then EQT.RestyleAll()         end
         if EQT.ApplyBackground    then EQT.ApplyBackground()    end
+        if EQT.ApplyTrackerScale then EQT.ApplyTrackerScale() end
     end
 
     local function BuildPage(_, parent, yOffset)
@@ -208,7 +209,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 5: Hide When In Raid | blank
+        -- Row 5: Hide When In Raid | Quest Tracker Scale
         _, h = W:DualRow(parent, y,
             { type="dropdown", text="Hide When In Raid",
               tooltip="Always: hide the tracker the whole time you are in a raid.\nBoss Combat: keep it visible and only hide during boss encounters.",
@@ -216,6 +217,11 @@ initFrame:SetScript("OnEvent", function(self)
               order  = { "always", "boss" },
               getValue=function() return Cfg("hideInRaidMode") or "boss" end,
               setValue=function(v) Set("hideInRaidMode", v); if EQT.UpdateVisibility then EQT.UpdateVisibility() end end },
+            { type="slider", text="Quest Tracker Scale",
+              tooltip="Scales the whole quest tracker. 1.0 = Blizzard's default size.\nFont sizes are kept visually constant automatically.\nQuest tracker height needs to be adjusted via Blizzard Edit Mode.",
+              min = 0.5, max = 2.0, step = 0.05,
+              getValue=function() return Cfg("trackerScale") or 1.0 end,
+              setValue=function(v) Set("trackerScale", v); if EQT.ApplyTrackerScale then EQT.ApplyTrackerScale() end; if EQT.ApplyForceOnScreen then EQT.ApplyForceOnScreen() end end },
             { type="label", text="" })
         y = y - h
 
