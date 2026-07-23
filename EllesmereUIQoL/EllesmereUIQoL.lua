@@ -275,7 +275,7 @@ local function CreateFrameIfNeeded()
 
     -- Create this first so a later setup failure cannot leave an unusable frame.
     EnsureTextRegion()
-    healerManaFrame:SetFrameStrata("HIGH")
+    healerManaFrame:SetFrameStrata("LOW")
     healerManaFrame:SetFrameLevel(50)
     healerManaFrame:EnableMouse(false)
 
