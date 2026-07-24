@@ -8037,16 +8037,20 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
-        -- Inline cog on Show Cast Bar: fill/strata controls plus the kick-ready
-        -- options for Target/Focus. Hide When Idle is a visible row below.
+        -- Inline cog on Show Cast Bar: inactive visibility/strata controls plus
+        -- the kick-ready options for Target/Focus.
         do
             local rgn = sharedCastRow1._leftRegion
             local cogRows = {
-                { type = "slider", label = "Fill Opacity", min = 0, max = 100, step = 1,
-                  tooltip = "Opacity of the cast bar fill; below 100 the world shows through the fill instead of the background.",
-                  get = function() return UNIT_DB_MAP[selectedUnit]().castFillOpacity or 100 end,
+                { type = "toggle", label = "Hide When Idle",
+                  tooltip = "Only show the cast bar while a cast is in progress; hide it the rest of the time.",
+                  get = function()
+                      local v = UNIT_DB_MAP[selectedUnit]().castbarHideWhenInactive
+                      if v == nil then return true end
+                      return v
+                  end,
                   set = function(v)
-                      UNIT_DB_MAP[selectedUnit]().castFillOpacity = v
+                      UNIT_DB_MAP[selectedUnit]().castbarHideWhenInactive = v
                       ReloadAndUpdate(); UpdatePreview()
                   end },
                 -- Global (not per-frame, not synced): lift all
@@ -8747,14 +8751,10 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="Hide When Idle",
-              tooltip="Only show the cast bar while a cast is in progress; hide it the rest of the time.",
-              getValue=function()
-                  local v=UNIT_DB_MAP[selectedUnit]().castbarHideWhenInactive
-                  if v == nil then return true end
-                  return v
-              end,
-              setValue=function(v) UNIT_DB_MAP[selectedUnit]().castbarHideWhenInactive=v; ReloadAndUpdate(); UpdatePreview() end });  y = y - h
+            { type="slider", text="Fill Opacity", min=0, max=100, step=1,
+              tooltip="Opacity of the cast bar fill; below 100 the world shows through the fill instead of the background.",
+              getValue=function() return UNIT_DB_MAP[selectedUnit]().castFillOpacity or 100 end,
+              setValue=function(v) UNIT_DB_MAP[selectedUnit]().castFillOpacity=v; ReloadAndUpdate(); UpdatePreview() end });  y = y - h
 
         -- Keep both bar-specific visual controls directly visible. Reverse Fill
         -- used to be a normal toggle and must not be hidden in a cog menu.
