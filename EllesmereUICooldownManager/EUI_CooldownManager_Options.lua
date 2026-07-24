@@ -17671,7 +17671,7 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="dropdown", text="Buff Glow",
                   values=BUFF_GLOW_VALUES, order=BUFF_GLOW_ORDER,
                   disabled=function() return IsCustomShape() end,
-                  disabledTooltip=EllesmereUI.DisabledTooltip("This option requires a non-custom button shape"),
+                  disabledTooltip="This option requires a non-custom button shape",
                   getValue=function()
                       if IsCustomShape() then return 0 end
                       return BD().buffGlowType or 0
@@ -18702,7 +18702,7 @@ initFrame:SetScript("OnEvent", function(self)
                               ns.BuildAllCDMBars(); if ns.RequestBarGlowUpdate then ns.RequestBarGlowUpdate() end
                           end,
                           disabled=function() return BD().pixelGlowBackground ~= true end,
-                          disabledTooltip=EllesmereUI.DisabledTooltip("Pixel Glow Background") },
+                          disabledTooltip="Pixel Glow Background" },
                     },
                 })
                 MakeCogBtn(rightRgn, pgCogShow, nil, EllesmereUI.RESIZE_ICON)
@@ -18761,7 +18761,7 @@ initFrame:SetScript("OnEvent", function(self)
                               ns.BuildAllCDMBars(); if ns.RefreshBuffGlows then ns.RefreshBuffGlows() end
                           end,
                           disabled=function() return BD().buffGlowBackground ~= true end,
-                          disabledTooltip=EllesmereUI.DisabledTooltip("Pixel Glow Background") },
+                          disabledTooltip="Pixel Glow Background" },
                     },
                 })
                 MakeCogBtn(leftRgn, pgCogShow, nil, EllesmereUI.RESIZE_ICON)

@@ -5236,7 +5236,7 @@ initFrame:SetScript("OnEvent", function(self)
             cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
             cogDis:EnableMouse(true)
             cogDis:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Raid Frames Show When Solo"))
+                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Raid Frames Show When Solo", "disabled"))
             end)
             cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateSoloCogDis()
@@ -6620,7 +6620,7 @@ initFrame:SetScript("OnEvent", function(self)
                               ReloadAndUpdate()
                           end,
                           disabled=function() return SVal("debuffCCGlowBackground", false) ~= true end,
-                          disabledTooltip=EllesmereUI.DisabledTooltip("Pixel Glow Background") },
+                          disabledTooltip="Pixel Glow Background" },
                     },
                 })
                 local cogBtn = CreateFrame("Button", nil, leftRgn)

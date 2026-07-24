@@ -7253,7 +7253,7 @@ local function BuildCursorAnchorRow(opts)
               if opts.disabledFn and opts.disabledFn() then return true end
               return getData().anchorTo ~= "mouse"
           end,
-          disabledTooltip = DisabledTooltip("Anchor to Cursor"),
+          disabledTooltip = "Anchor to Cursor",
           getValue = function() return getData().anchorPosition or "right" end,
           setValue = function(v)
               getData().anchorPosition = v
