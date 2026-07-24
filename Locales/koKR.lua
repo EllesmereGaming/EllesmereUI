@@ -5808,9 +5808,6 @@ L["Shows the spec icon next to the text."] = "글자 옆에 전문화 아이콘�
 L["Social & Guild Tooltip"] = "친구 및 길드 툴팁"
 L["Top/Bottom Info Bar"] = "위/아래 정보 바"
 L["External Defensives"] = "외부 생존기"
-L["Only Show Numbers"] = "숫자만 표시"
-
-
 
 -- == M+ keystone dungeon abbreviations (신화+ 던전 약어 -> 한글 단축명) ==
 -- Minimap portal table (spellID -> code) + bag keystone display produce these English codes;
