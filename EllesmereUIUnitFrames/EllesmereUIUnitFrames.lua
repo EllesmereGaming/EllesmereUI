@@ -8,6 +8,142 @@ local issecretvalue = issecretvalue
 local oUF = ns.oUF or oUF
 local PP = EllesmereUI.PP
 
+-- Taint-safe override of the embedded lib's DisableBlizzard for the units
+-- this addon disables. The stock version re-parents a disabled Blizzard
+-- frame back to its hidden parent INLINE from a SetParent hooksecurefunc.
+-- Blizzard's Edit Mode layout pass calls SetParent on managed containers
+-- (confirmed live: BossTargetFrameContainer -> UIParent on every Edit Mode
+-- enter/exit), so the inline re-parent runs inside that secure execution
+-- and taints everything Edit Mode touches afterwards -- every 12.x secret
+-- value read then throws a LUA_WARNING (CompactUnitFrame health compares,
+-- encounter warnings, SecureUtil arithmetic) and the tainted setup pass
+-- poisons party frames for the whole session. Same end state here, but the
+-- re-parent is deferred to a timer (a fresh addon-owned execution) and
+-- further postponed while the Edit Mode manager is open, because SetParent
+-- fires Blizzard's synchronous layout handlers in the caller's execution.
+-- Units this addon never disables fall through to the stock implementation.
+do
+    local hiddenParent = CreateFrame("Frame", nil, UIParent)
+    hiddenParent:Hide()
+    local pendingParent, looseFrames, hookedFrames = {}, {}, {}
+    local bossHandled = false
+
+    -- Combat fallback: protected frames can't be re-parented in lockdown;
+    -- park them here and sweep at regen (mirrors the stock lib's behavior).
+    local regenWatcher = CreateFrame("Frame")
+    regenWatcher:SetScript("OnEvent", function(self)
+        if InCombatLockdown() then return end
+        self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        for f in pairs(looseFrames) do f:SetParent(hiddenParent) end
+        wipe(looseFrames)
+    end)
+
+    local function ApplyHiddenParent(frame)
+        pendingParent[frame] = nil
+        if frame:GetParent() == hiddenParent then return end
+        if EditModeManagerFrame and EditModeManagerFrame:IsShown() then
+            pendingParent[frame] = true
+            C_Timer.After(0.25, function() ApplyHiddenParent(frame) end)
+        elseif InCombatLockdown() and frame:IsProtected() then
+            looseFrames[frame] = true
+            regenWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+        else
+            frame:SetParent(hiddenParent)
+        end
+    end
+
+    local function Unreg(child)
+        if child then child:UnregisterAllEvents() end
+    end
+
+    local function HandleFrame(frame, doNotReparent)
+        if type(frame) == "string" then frame = _G[frame] end
+        if not frame then return end
+        frame:UnregisterAllEvents()
+        frame:Hide()
+        if not doNotReparent then
+            frame:SetParent(hiddenParent)
+            if not hookedFrames[frame] then
+                hookedFrames[frame] = true
+                hooksecurefunc(frame, "SetParent", function(self, parent)
+                    if parent ~= hiddenParent and not pendingParent[self] then
+                        pendingParent[self] = true
+                        C_Timer.After(0, function() ApplyHiddenParent(self) end)
+                    end
+                end)
+            end
+        end
+        Unreg(frame.healthBar or frame.healthbar or frame.HealthBar
+            or (frame.HealthBarsContainer and frame.HealthBarsContainer.healthBar))
+        Unreg(frame.manabar or frame.ManaBar)
+        Unreg(frame.castBar or frame.spellbar or frame.CastingBarFrame)
+        Unreg(frame.powerBarAlt or frame.PowerBarAlt)
+        Unreg(frame.BuffFrame or frame.AurasFrame)
+        Unreg(frame.petFrame or frame.PetFrame)
+        Unreg(frame.totFrame)
+        Unreg(frame.CcRemoverFrame)
+        Unreg(frame.DebuffFrame)
+    end
+
+    local origDisableBlizzard = oUF.DisableBlizzard
+    -- Standalone Midnight player alt-power bars. They live under
+    -- PlayerFrameAlternatePowerBarArea (a child of PlayerFrame), so once we
+    -- reparent PlayerFrame to our hidden holder they become descendants of an
+    -- insecure frame and their own event handlers run tainted. On 12.1 build
+    -- 68824 aura access became a hard-error API (RequiresUnitAuraAccess), so
+    -- when one of these bars fires (power/spec/PEW events it registers itself,
+    -- independent of PlayerFrame's now-unregistered events) it drives
+    -- AttachBarToUnitUI -> PlayerFrame_OnAlternatePowerBarEnabled ->
+    -- PlayerFrame_ToPlayerArt -> BuffFrame:Update() -> GetAuraSlots, which
+    -- throws "Auras cannot be accessed when secret while tainted by
+    -- EllesmereUIUnitFrames". PlayerFrame's own art events are already dead, so
+    -- these bars are the last live driver into that chain: unregister their
+    -- events to cut it. UnregisterAllEvents is taint-clean (the same operation
+    -- the override already does on PlayerFrame's other sub-bars) and combat-
+    -- legal. Do NOT reparent them (Edit-Mode-managed; reparenting risks the
+    -- layout-pass taint the override defers timers to avoid). 12.1-gated:
+    -- retail keeps them event-registered, harmless there since the player
+    -- frame is hidden. The bars' Blizzard globals may not exist on every
+    -- client, so Unreg nil-guards each.
+    local ALT_POWER_BARS = {
+        "AlternatePowerBar", "MonkStaggerBar",
+        "EvokerEbonMightBar", "DemonHunterSoulFragmentsBar",
+    }
+    local function DisableAltPowerBars()
+        if not EllesmereUI.IS_121 then return end
+        for i = 1, #ALT_POWER_BARS do
+            Unreg(_G[ALT_POWER_BARS[i]])
+        end
+    end
+
+    function oUF:DisableBlizzard(unit)
+        if not unit then return end
+        if unit == "player" then
+            HandleFrame(PlayerFrame)
+            DisableAltPowerBars()
+        elseif unit == "pet" then
+            HandleFrame(PetFrame)
+        elseif unit == "target" then
+            HandleFrame(TargetFrame)
+        elseif unit == "focus" then
+            HandleFrame(FocusFrame)
+        elseif unit:match("boss%d?$") then
+            if not bossHandled then
+                bossHandled = true
+                -- Container is re-parented (Edit Mode can revive it); the
+                -- individual boss frames are container-managed and must not
+                -- be re-parented or the layout code breaks on their sizes.
+                HandleFrame(BossTargetFrameContainer)
+                for i = 1, (_G.MAX_BOSS_FRAMES or 5) do
+                    HandleFrame("Boss" .. i .. "TargetFrame", true)
+                end
+            end
+        else
+            return origDisableBlizzard(self, unit)
+        end
+    end
+end
+
 -- Per-addon border texture defaults (size key = borderSize 0-4)
 do
     local ALL_SIZES = { [0] = true, [1] = true, [2] = true, [3] = true, [4] = true }
@@ -917,6 +1053,7 @@ local defaults = {
             showCastIcon = true,
             castbarIconInWidth = true,
             castReverseFill = false,
+            castFillOpacity = 100,
             castbarHideWhenInactive = true,
             castSpellNameSize = 11,
             castSpellNameColor = { r = 1, g = 1, b = 1 },
@@ -933,6 +1070,11 @@ local defaults = {
             showCastDuration = true,
             showCastTarget = false,
             castbarFillColor = { r = 0.863, g = 0.820, b = 0.639 },
+            castbarInterruptReadyColor = { r = 0.92, g = 0.35, b = 0.20 },
+            castbarKickTickEnabled = true,
+            castbarInterruptMidCastEnabled = false,
+            castbarInterruptMidCastColor = { r = 0.318, g = 0.820, b = 0.357 },
+            castbarUninterruptibleColor = { r = 0.5, g = 0.5, b = 0.5 },
             castbarClassColored = false,
             healthDisplay = "perhp",
             showPortrait = false,
@@ -1446,8 +1588,70 @@ local function ClassColorSourceUnit(unitKey, unit)
     return unit or unitKey
 end
 
+-- TEMPORARY oUF SHIM -- REMOVE when upstream oUF ships its own secret-safe
+-- class coloring (expected soon; check during the standing per-bump lib
+-- re-diff, like the DisableBlizzard copy). 12.1 build 68914 makes UnitClass
+-- return a SECRET token for identity-restricted units, and the vendored
+-- health element's UpdateColor indexes colors.class with it (secret table
+-- keys error -- 193x storms on ToT frames). Vendored-lib edits are not an
+-- option (the packager re-pulls oUF tag:latest at release, wiping them),
+-- so this rides the element's documented Health.UpdateColor override hook:
+-- a faithful copy of the lib function with ONLY the class tier guarded
+-- (unreadable class degrades to the reaction/health tiers). Installed under
+-- IS_121 via ApplyDarkTheme below -- the one chokepoint every health
+-- element passes through at creation -- so retail keeps the untouched lib
+-- path. colorSelection is the one lib tier not carried over (needs
+-- oUF-private unitSelectionType; no EUI health element enables it).
+local function UF_SecretSafeHealthColor(self, event, unit)
+    if not unit or self.unit ~= unit then return end
+    local element = self.Health
+
+    local color
+    if element.colorDisconnected and not UnitIsConnected(unit) then
+        color = self.colors.disconnected
+    elseif element.colorTapping and not UnitPlayerControlled(unit) and UnitIsTapDenied(unit) then
+        color = self.colors.tapped
+    elseif element.colorThreat and not UnitPlayerControlled(unit) and UnitThreatSituation("player", unit) then
+        color = self.colors.threat[UnitThreatSituation("player", unit)]
+    elseif (element.colorClass and (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
+        or (element.colorClassNPC and not (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
+        or (element.colorClassPet and UnitPlayerControlled(unit) and not UnitIsPlayer(unit)) then
+        local _, class = UnitClass(unit)
+        if issecretvalue(class) then class = nil end
+        color = class and self.colors.class[class]
+        if not color then
+            -- Unreadable class: fall to the tiers the lib chain would have
+            -- reached had the class branch not matched.
+            if element.colorReaction and UnitReaction(unit, "player") then
+                color = self.colors.reaction[UnitReaction(unit, "player")]
+            elseif element.colorHealth then
+                color = self.colors.health
+            end
+        end
+    elseif element.colorReaction and UnitReaction(unit, "player") then
+        color = self.colors.reaction[UnitReaction(unit, "player")]
+    elseif element.colorSmooth and self.colors.health:GetCurve() then
+        color = element.values:EvaluateCurrentHealthPercent(self.colors.health:GetCurve())
+    elseif element.colorHealth then
+        color = self.colors.health
+    end
+
+    if color then
+        element:SetStatusBarColor(color:GetRGB())
+    end
+
+    if element.PostUpdateColor then
+        element:PostUpdateColor(unit, color)
+    end
+end
+
 local function ApplyDarkTheme(health)
     if not health then return end
+    -- TEMPORARY (see UF_SecretSafeHealthColor above). Idempotent: this
+    -- function re-runs on settings changes; re-assigning is harmless.
+    if EllesmereUI.IS_121 then
+        health.UpdateColor = UF_SecretSafeHealthColor
+    end
     local isDark = db and db.profile and db.profile.darkTheme
     if isDark then
         health.colorClass = false
@@ -1561,7 +1765,8 @@ local function ApplyDarkTheme(health)
                     if classUnit then
                         local _, ct = UnitClass(classUnit)
                         -- ct can be a secret value (out-of-range/uninspectable units); skip if so.
-                        local cc = ct and not issecretvalue(ct) and EllesmereUI.GetClassColor(ct)
+                        -- issecretvalue FIRST: truthiness-testing a secret is itself an error.
+                        local cc = not issecretvalue(ct) and ct and EllesmereUI.GetClassColor(ct)
                         if cc then bgClassR, bgClassG, bgClassB = cc.r, cc.g, cc.b end
                     end
                 end
@@ -1594,7 +1799,8 @@ local function ApplyDarkTheme(health)
                 if classUnit then
                     local _, ct = UnitClass(classUnit)
                     -- ct can be a secret value (out-of-range/uninspectable units); skip if so.
-                    local cc = ct and not issecretvalue(ct) and EllesmereUI.GetClassColor(ct)
+                    -- issecretvalue FIRST: truthiness-testing a secret is itself an error.
+                    local cc = not issecretvalue(ct) and ct and EllesmereUI.GetClassColor(ct)
                     if cc then bgClassR, bgClassG, bgClassB = cc.r, cc.g, cc.b end
                 end
             end
@@ -1869,7 +2075,7 @@ ns.ResolveUnitNameColor = function(unit)
     if not unit then return nil end
     if UnitIsPlayer(unit) or (UnitInPartyIsAI and UnitInPartyIsAI(unit)) then
         local _, class = UnitClass(unit)
-        if class and not issecretvalue(class) then
+        if not issecretvalue(class) and class then
             local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[class]
             if c then return c.r, c.g, c.b end
         end
@@ -2749,7 +2955,7 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
             -- Non-dark: use the unit's health bar color (class for players,
             -- reaction for NPCs, tapped grey, etc.)
             local _, classToken = UnitClass(unitToken)
-            if UnitIsPlayer(unitToken) and classToken then
+            if UnitIsPlayer(unitToken) and not issecretvalue(classToken) and classToken then
                 local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken]
                 if c then bR, bG, bB = c.r, c.g, c.b end
             elseif UnitIsTapDenied and UnitIsTapDenied(unitToken) then
@@ -3090,7 +3296,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         local style = s.btbClassIcon or "none"
         if style == "none" then classIconTex:Hide(); return end
         local _, classToken = UnitClass(unit)
-        if not classToken then classIconTex:Hide(); return end
+        if issecretvalue(classToken) or not classToken then classIconTex:Hide(); return end
         if not ApplyClassIconTexture(classIconTex, classToken, style) then classIconTex:Hide(); return end
         local sz = s.btbClassIconSize or 14
         PP.Size(classIconTex, sz, sz)
@@ -4540,7 +4746,9 @@ local function CreatePowerBar(frame, unit, settings)
             local lvlOk = lvl and not (issecretvalue and issecretvalue(lvl))
             local pLvlOk = pLvl and not (issecretvalue and issecretvalue(pLvl))
             if isElite and lvlOk and (lvl == -1 or (pLvlOk and lvl >= pLvl + 1)) then return false end
-            if UnitClassBase and UnitClassBase(u) == "PALADIN" then return false end
+            local uCls = UnitClassBase and UnitClassBase(u)
+            if issecretvalue(uCls) then uCls = nil end
+            if uCls == "PALADIN" then return false end
             return true
         end)
         if not ok then return end
@@ -4737,6 +4945,7 @@ local function CreatePortrait(frame, side, frameHeight, unit)
     PP.Point(texClass, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", -classInset, classInset)
     texClass:SetAlpha(0.8)
     local _, classToken = UnitClass(unit)
+    if issecretvalue(classToken) then classToken = nil end
     local classStyle = (uSettings and uSettings.classThemeStyle) or "modern"
     ApplyClassIconTexture(texClass, classToken or "WARRIOR", classStyle)
     texClass:Hide()
@@ -4748,6 +4957,7 @@ local function CreatePortrait(frame, side, frameHeight, unit)
         if not evUnit or not UnitIsUnit(f.unit, evUnit) then return end
         local targetUnit = f.unit
         local _, ct = UnitClass(targetUnit)
+        if issecretvalue(ct) then ct = nil end
         local uS = db.profile[UnitToSettingsKey(targetUnit)] or db.profile.player
         local cStyle = (uS and uS.classThemeStyle) or "modern"
         ApplyClassIconTexture(self, ct or "WARRIOR", cStyle)
@@ -4847,7 +5057,7 @@ local function ComputeCastBarTint(readyTint, baseTint)
     return baseTint.r, baseTint.g, baseTint.b
 end
 local function IsKickCastbarUnit(unit)
-    return unit == "target" or unit == "focus"
+    return unit == "target" or unit == "focus" or (unit and unit:match("^boss") ~= nil)
 end
 local function GetCastbarKickTickEnabled(settings)
     if not settings then return true end
@@ -4882,6 +5092,7 @@ local function ApplyUnitFrameCastColor(castbar)
     if settings and settings.castbarClassColored and ownerUnit == "player" then
         if ownerUnit then
             local _, classToken = UnitClass(ownerUnit)
+            if issecretvalue(classToken) then classToken = nil end
             if classToken and EllesmereUI.GetClassColor then
                 cc = EllesmereUI.GetClassColor(classToken)
             end
@@ -5499,8 +5710,6 @@ local function SetupShowOnCastBar(frame, unit)
     -- reflect the current setting rather than a value captured at
     -- frame-creation time.
     local function shouldHideWhenInactive()
-        -- Boss frames always hide castbar when inactive (no user toggle)
-        if unit and unit:match("^boss") then return true end
         local s = GetSettingsForUnit(unit)
         if not s then return true end
         local v = s.castbarHideWhenInactive
@@ -6017,7 +6226,6 @@ local SATED_DEBUFFS = {
     [160455] = true,  -- Fatigued (Netherwinds)
     [264689] = true,  -- Fatigued (Primal Rage)
     [390435] = true,  -- Exhaustion (Fury of the Aspects)
-    [428628] = true,  -- Exhaustion (variant)
 }
 -- Debuffs permanently hidden from all unit frames (no toggle, ever). Blizzard
 -- keeps these spellIds readable, so spellId matching is safe. Mirrors the Raid
@@ -8000,6 +8208,7 @@ local function SwapPortraitMode(frame)
         local s2 = uKey2 and db.profile[uKey2]
         local classStyle = (s2 and s2.classThemeStyle) or "modern"
         local _, ct = UnitClass(unit)
+        if issecretvalue(ct) then ct = nil end
         ApplyClassIconTexture(bd._class, ct or "WARRIOR", classStyle)
         bd._class:Show()
         bd._2d:Hide()
@@ -8702,11 +8911,11 @@ local function ReloadFrames()
                 end
             end
             -- The cast bar is a child of the frame, so the SetFrameStrata above
-            -- reset it to the frame's strata. Lift player/target/focus cast bars
+            -- reset it to the frame's strata. Lift cast bars
             -- to HIGH so they never hide behind other MEDIUM-strata frames -- unless
             -- the global "Raise Cast Bar Strata (All)" toggle is off, in which case the
             -- cast bar is explicitly left at the frame's strata.
-            if frame.Castbar and (unitKey == "player" or unitKey == "target" or unitKey == "focus") then
+            if frame.Castbar and (unitKey == "player" or IsKickCastbarUnit(unitKey)) then
                 local cbg = frame.Castbar:GetParent()
                 if cbg then
                     if profile.raiseCastbarStrata ~= false then
@@ -8916,6 +9125,7 @@ local function ReloadFrames()
                 if isClassMode then
                     local classStyle = (uSettings and uSettings.classThemeStyle) or "modern"
                     local _, ct = UnitClass(unit)
+                    if issecretvalue(ct) then ct = nil end
                     ApplyClassIconTexture(frame.Portrait.backdrop._class, ct or "WARRIOR", classStyle)
                 end
             end
@@ -9096,7 +9306,7 @@ local function ReloadFrames()
                                 local lvlOk = lvl and not (issecretvalue and issecretvalue(lvl))
                                 local pLvlOk = pLvl and not (issecretvalue and issecretvalue(pLvl))
                                 local isMB = isElite and lvlOk and (lvl == -1 or (pLvlOk and lvl >= pLvl + 1))
-                                local isCst = (UnitClassBase and UnitClassBase(unit) == "PALADIN")
+                                local isCst = UnitClassBase and UnitClassBase(unit); if issecretvalue(isCst) then isCst = nil end; isCst = (isCst == "PALADIN")
                                 if not isBoss and not isMB and not isCst then shouldGray = true end
                             end
                             if shouldGray then
@@ -9513,7 +9723,7 @@ local function ReloadFrames()
                                 local lvlOk = lvl and not (issecretvalue and issecretvalue(lvl))
                                 local pLvlOk = pLvl and not (issecretvalue and issecretvalue(pLvl))
                                 local isMB = isElite and lvlOk and (lvl == -1 or (pLvlOk and lvl >= pLvl + 1))
-                                local isCst = (UnitClassBase and UnitClassBase(unit) == "PALADIN")
+                                local isCst = UnitClassBase and UnitClassBase(unit); if issecretvalue(isCst) then isCst = nil end; isCst = (isCst == "PALADIN")
                                 if not isBoss and not isMB and not isCst then shouldGray = true end
                             end
                             if shouldGray then
@@ -10260,7 +10470,7 @@ local function ReloadFrames()
                             local lvl = UnitLevel(unit)
                             local pLvl = UnitLevel("player")
                             local isMB = isElite and (lvl == -1 or (pLvl and lvl >= pLvl + 1))
-                            local isCst = (UnitClassBase and UnitClassBase(unit) == "PALADIN")
+                            local isCst = UnitClassBase and UnitClassBase(unit); if issecretvalue(isCst) then isCst = nil end; isCst = (isCst == "PALADIN")
                             if not isBoss and not isMB and not isCst then shouldGray = true end
                         end
                         if shouldGray then
@@ -10330,7 +10540,13 @@ local function ReloadFrames()
                     if settings.castbarFillColor then
                         bCbColor = settings.castbarFillColor
                     end
-                    frame.Castbar:SetStatusBarColor(bCbColor.r, bCbColor.g, bCbColor.b, castbarOpacity)
+                    frame.Castbar:SetStatusBarColor(bCbColor.r, bCbColor.g, bCbColor.b,
+                        ((settings.castFillOpacity or 100) < 100) and 0 or castbarOpacity)
+                    ns.ApplyCastFillOpacity(frame.Castbar, settings)
+                    if frame.Castbar:IsShown() then
+                        ApplyUnitFrameCastColor(frame.Castbar)
+                        UpdateUnitFrameKickTick(frame.Castbar)
+                    end
                     if frame.Castbar.Text then
                         local snSz = settings.castSpellNameSize or 11
                         SetFSFont(frame.Castbar.Text, snSz)
@@ -11134,7 +11350,11 @@ function InitializeFrames()
         frames._cbSuppressFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         frames._cbSuppressFrame:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
         frames._cbSuppressFrame:SetScript("OnEvent", function()
-            ApplyBlizzCastbarState()
+            -- Deferred: EDIT_MODE_LAYOUTS_UPDATED is dispatched from inside
+            -- Edit Mode's own operations; applying suppression state there
+            -- writes cast bar state mid-pass (same taint mechanism as the
+            -- DisableBlizzard override at the top of this file).
+            C_Timer.After(0, ApplyBlizzCastbarState)
         end)
         -- Edit Mode exit reparents the cast bar back into its layout frame
         -- (which gets hidden), so re-apply our state when the panel closes.
@@ -11386,26 +11606,46 @@ function InitializeFrames()
         if _blizzCPHooked then return end
         _blizzCPHooked = true
         local _cpSetParentGuard = false
-        -- Re-assert position when Blizzard reparents (form/spec changes).
-        hooksecurefunc(cpFrame, "SetParent", function(self, newParent)
-            if not _blizzCPActive or _cpSetParentGuard then return end
+        -- Both hooks defer their re-assert work: they can fire inside
+        -- Blizzard's secure Edit Mode layout pass (same taint mechanism as
+        -- the DisableBlizzard override at the top of this file), and while
+        -- the manager is open the re-assert waits for it to close.
+        local _cpReassertQueued = false
+        local ReassertClassPower
+        ReassertClassPower = function(self)
+            _cpReassertQueued = false
+            if not _blizzCPActive then return end
+            if EditModeManagerFrame and EditModeManagerFrame:IsShown() then
+                _cpReassertQueued = true
+                C_Timer.After(0.25, function() ReassertClassPower(self) end)
+                return
+            end
             local wanted = _cpExpectedParent or frames.player or UIParent
-            if newParent ~= wanted then
+            if self:GetParent() ~= wanted then
                 _cpSetParentGuard = true
                 PositionClassPowerBar(self)
                 -- Blizzard may have re-stolen during PositionClassPowerBar.
                 -- The anchor is already correct, so just fix the parent directly.
-                local cur = self:GetParent()
-                wanted = _cpExpectedParent or frames.player or UIParent
-                if cur ~= wanted then
+                if self:GetParent() ~= wanted then
                     self:SetParent(wanted)
                 end
                 _cpSetParentGuard = false
             end
+            if not self:IsShown() and not InCombatLockdown() then self:Show() end
+        end
+        -- Re-assert position when Blizzard reparents (form/spec changes).
+        hooksecurefunc(cpFrame, "SetParent", function(self, newParent)
+            if not _blizzCPActive or _cpSetParentGuard or _cpReassertQueued then return end
+            local wanted = _cpExpectedParent or frames.player or UIParent
+            if newParent ~= wanted then
+                _cpReassertQueued = true
+                C_Timer.After(0, function() ReassertClassPower(self) end)
+            end
         end)
         hooksecurefunc(cpFrame, "Hide", function(self)
-            if not _blizzCPActive then return end
-            if not InCombatLockdown() then self:Show() end
+            if not _blizzCPActive or _cpReassertQueued then return end
+            _cpReassertQueued = true
+            C_Timer.After(0, function() ReassertClassPower(self) end)
         end)
     end
 
@@ -11540,12 +11780,32 @@ function InitializeFrames()
     -- Not fixable without reparenting/overriding a secure frame in combat, so it's
     -- surfaced in the mini-frame "Frame Source" tooltip (see BuildFoTToTOptions), which
     -- recommends matching the parent's source instead of mixing them.
-    local _suppressedChildren, _suppressWatcher
+    local _suppressedChildren, _suppressWatcher, _rehidePending
+    -- Deferred re-hide: OnShow fires inside whatever secure execution showed
+    -- the parent (target swaps, Edit Mode's preview pass on a Blizzard-source
+    -- TargetFrame/FocusFrame); hiding inline there taints the remainder of
+    -- that execution (same mechanism as the DisableBlizzard override at the
+    -- top of this file). While the Edit Mode manager is open the re-hide
+    -- waits for it to close.
+    local _DeferredRehide
+    _DeferredRehide = function(frame)
+        _rehidePending[frame] = nil
+        if not frame:IsShown() then return end
+        if EditModeManagerFrame and EditModeManagerFrame:IsShown() then
+            _rehidePending[frame] = true
+            C_Timer.After(0.25, function() _DeferredRehide(frame) end)
+        elseif InCombatLockdown() then
+            _suppressWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+        else
+            frame:Hide()
+        end
+    end
     local function SuppressBlizzardChildFrame(frame)
         if not frame then return end
         frame:UnregisterAllEvents()
         if not InCombatLockdown() then frame:Hide() end
         _suppressedChildren = _suppressedChildren or {}
+        _rehidePending = _rehidePending or {}
         if not _suppressWatcher then
             _suppressWatcher = CreateFrame("Frame")
             _suppressWatcher:SetScript("OnEvent", function(self)
@@ -11557,10 +11817,9 @@ function InitializeFrames()
         if not _suppressedChildren[frame] then
             _suppressedChildren[frame] = true
             frame:HookScript("OnShow", function(self)
-                if InCombatLockdown() then
-                    _suppressWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
-                else
-                    self:Hide()
+                if not _rehidePending[self] then
+                    _rehidePending[self] = true
+                    C_Timer.After(0, function() _DeferredRehide(self) end)
                 end
             end)
         end
@@ -11647,6 +11906,7 @@ function InitializeFrames()
             -- Class theming resolves the FRAME's unit (player class on the
             -- player frame, current target's class on the target frame).
             local _, classToken = UnitClass(ciUnit)
+            if issecretvalue(classToken) then classToken = nil end
             -- All custom combat icons (Arcade/Dungeoneer/Classic/Cross/Circle/Square =
             -- combat0..5) are shown exactly as authored: no class theming, no tint, no
             -- desaturation. Standard/Class Theme below are tinted by the colour mode.
@@ -11926,11 +12186,11 @@ function InitializeFrames()
                 end
             end
             -- The cast bar is a child of the frame, so the SetFrameStrata above
-            -- reset it to the frame's strata. Lift player/target/focus cast bars
+            -- reset it to the frame's strata. Lift cast bars
             -- to HIGH so they never hide behind other MEDIUM-strata frames -- unless
             -- the global "Raise Cast Bar Strata (All)" toggle is off, in which case the
             -- cast bar is explicitly left at the frame's strata.
-            if frame.Castbar and (unitKey == "player" or unitKey == "target" or unitKey == "focus") then
+            if frame.Castbar and (unitKey == "player" or IsKickCastbarUnit(unitKey)) then
                 local cbg = frame.Castbar:GetParent()
                 if cbg then
                     if db.profile.raiseCastbarStrata ~= false then
@@ -12451,6 +12711,7 @@ function InitializeFrames()
         -- Refresh class icon texture so it shows the actual unit class (not WARRIOR fallback)
         if backdrop._class and uSettings and (uSettings.portraitMode or "2d") == "class" then
             local _, ct = UnitClass(unitKey)
+            if issecretvalue(ct) then ct = nil end
             if ct then
                 local classStyle = (uSettings and uSettings.classThemeStyle) or "modern"
                 ApplyClassIconTexture(backdrop._class, ct, classStyle)
@@ -12549,6 +12810,7 @@ function InitializeFrames()
                     local uSettings = db.profile[unitKey]
                     if uSettings and (uSettings.portraitMode or "2d") == "class" then
                         local _, ct = UnitClass(unitKey)
+                        if issecretvalue(ct) then ct = nil end
                         if ct then
                             local classStyle = (uSettings and uSettings.classThemeStyle) or "modern"
                             ApplyClassIconTexture(backdrop._class, ct, classStyle)
@@ -12994,7 +13256,7 @@ function SetupOptionsPanel()
         end
         -- Active-cast tint -- same path a real cast uses.
         if castbar.castTintLayer then
-            castbar.castTintLayer:SetAlpha(1)
+            castbar.castTintLayer:SetAlpha(castbar._fillOp or 1)
             ApplyUnitFrameCastColor(castbar)
         end
         castbarBg:Show()

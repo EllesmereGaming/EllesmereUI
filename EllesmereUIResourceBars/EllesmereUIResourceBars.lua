@@ -3751,12 +3751,36 @@ local function UpdatePrimaryBar()
 
     cachedPrimary = GetPrimaryPowerType()
     if not cachedPrimary then return end
+    -- 12.1: park the engine-slot overlay when the primary is no longer
+    -- Ebon Might (nil-dead on retail).
+    if ns.EMB121_Gate then ns.EMB121_Gate(cachedPrimary == "EBON_MIGHT") end
 
     -- Ebon Might: aura-based countdown, not a standard power type.
     -- OnUpdate ticker handles smooth frame-by-frame updates; this path
     -- runs on UNIT_AURA to pick up buff gain/loss/refresh.
     if cachedPrimary == "EBON_MIGHT" then
+        if ns.EMB121_Owns then
+            -- 12.1: the engine slot renders the fill and text (see
+            -- EUI_ResourceBars_EbonMight121.lua -- secrecy makes the
+            -- numeric path below impossible in combat). Legacy stays
+            -- empty underneath; Sync attaches/builds the overlay with
+            -- the live bar and resolved settings.
+            if ns.EMB121_Sync then
+                ns.EMB121_Sync(primaryBar, pp, POWER_COLORS["EBON_MIGHT"])
+            end
+            primaryBar:SetMinMaxValues(0, EBON_MIGHT_DURATION)
+            primaryBar:SetValue(0)
+            primaryBar._smoothTarget = 0
+            primaryBar._smoothCurrent = 0
+            primaryBar._text:Hide()
+            return
+        end
         local aura = C_UnitAuras.GetPlayerAuraBySpellID(EBON_MIGHT_SPELL_ID)
+        -- 12.1 (build 68824+): Ebon Might is secret-flagged, so under aura
+        -- restriction the query returns nil or carries secret fields; a
+        -- secret expirationTime would error in the numeric chain below.
+        -- Degrade to an empty bar there (retail: IS_121 short-circuits).
+        if EllesmereUI.IS_121 and aura and issecretvalue(aura.expirationTime) then aura = nil end
         _ebonMightExpiry = (aura and aura.expirationTime) or 0
         local remaining = (_ebonMightExpiry > 0) and max(0, _ebonMightExpiry - GetTime()) or 0
         primaryBar:SetMinMaxValues(0, EBON_MIGHT_DURATION)
@@ -5754,6 +5778,9 @@ local function OnUpdate(self, dt)
     if primaryBar and primaryBar:IsShown() then
         if cachedPrimary == "EBON_MIGHT" then
             -- Ebon Might countdown (throttled to ~20 fps for smooth drain)
+            -- 12.1: the engine slot owns the countdown -- nothing to tick
+            -- (guard is nil-dead on retail).
+            if not ns.EMB121_Owns then
             _ebonMightThrottle = _ebonMightThrottle + dt
             if _ebonMightThrottle >= 0.05 then
                 _ebonMightThrottle = 0
@@ -5775,6 +5802,7 @@ local function OnUpdate(self, dt)
                     primaryBar._text:SetText(txt)
                 end
             end
+            end -- not EMB121_Owns
         else
             local tgt = primaryBar._smoothTarget
             if issecretvalue and issecretvalue(tgt) then

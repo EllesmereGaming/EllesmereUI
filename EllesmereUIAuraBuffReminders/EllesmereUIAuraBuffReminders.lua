@@ -26,13 +26,21 @@ local AURA_SCAN_LIMIT = 255  -- Midnight supports more than the legacy 40 buff l
 local DEFAULT_GLOW_COLOR = {r=1, g=0.776, b=0.376}
 local DEFAULT_TEXT_COLOR = {r=1, g=1, b=1}
 
--- Live migration: glowColorMode replaced "glowColor always being set". Runs
--- at the read path (not only OnInitialize) because profile swaps repoint
--- db.profile without re-running init -- an unmigrated profile activated
--- mid-session must still honor its stored custom color. Idempotent: writes
--- the mode key once per profile, never touches the stored color.
+-- Per-profile display fixups. Runs at the read path (not only OnInitialize)
+-- because profile swaps repoint db.profile without re-running init.
+--   (1) Scale heal: the Scale slider only reaches [0.5, 3.0]; a stored value
+--       outside that band cannot have come from the UI, so it is corruption
+--       and is reset to the default. Runs every call; in-range values are left
+--       untouched. (Kept in this existing function to avoid adding a new
+--       file-scope local -- this file is near the Lua 200-local cap.)
+--   (2) glowColorMode migration: once per profile, never touches the color.
 local function EnsureGlowModeMigrated(p)
-    if not p or p.glowColorMode then return end
+    if not p then return end
+    local s = p.scale
+    if type(s) == "number" and (s < 0.5 or s > 3.0) then
+        p.scale = 1.0
+    end
+    if p.glowColorMode then return end
     local c = p.glowColor
     if c and not (c.r == 1 and c.g == 0.776 and c.b == 0.376) then
         p.glowColorMode = "custom"
@@ -2807,17 +2815,25 @@ local function LayoutIcons()
     local baseScale = p.scale or 1.0
     local sz = floor(ICON_SIZE * baseScale + 0.5)
     local totalW = (count * sz) + ((count-1) * spacing)
+    local textH = 0
+    if p.showText then textH = (p.textSize or 11) + abs(p.textYOffset or -2) end
+    -- Center-grow: icons are pinned to the anchor's CENTER and spread
+    -- symmetrically, so the row's center stays fixed as icons are added or
+    -- removed, and resizing the anchor (the unlock overlay) can never shift
+    -- them. The +textH/2 vertical offset keeps the icon row in the top of the
+    -- icon+text box, matching the combat pool. This reproduces the previous
+    -- per-icon positions exactly while decoupling them from the anchor's live
+    -- size.
+    local startX = -(totalW / 2) + (sz / 2)
     for i, btn in ipairs(allIcons) do
         btn:SetSize(sz, sz)
         btn:SetAlpha(p.opacity or 1.0)
         EABR.SizeIconQuality(btn, sz)
         EABR.SizeIconBagCount(btn, sz)
         btn:ClearAllPoints()
-        btn:SetPoint("TOPLEFT", iconAnchor, "TOPLEFT", (i-1)*(sz+spacing), 0)
+        btn:SetPoint("CENTER", iconAnchor, "CENTER", startX + (i-1)*(sz+spacing), textH/2)
     end
-    -- Size the anchor to the grid so the unlock mode mover covers it correctly
-    local textH = 0
-    if p.showText then textH = (p.textSize or 11) + abs(p.textYOffset or -2) end
+    -- Size the anchor to the row so the unlock mode overlay covers it.
     ResizeAnchorCentered(totalW, sz + textH)
 end
 
@@ -3652,6 +3668,16 @@ local function Refresh()
     _cachedOutline = nil
     EABR._nextDurationRefreshTime = nil
     if not db then return end
+    -- The pooled reminder buttons are children of iconAnchor, which is built in
+    -- OnEnable (PLAYER_LOGIN). Several of mainFrame's file-scope events
+    -- (SPELLS_CHANGED, PLAYER_TALENT_UPDATE, TRAIT_CONFIG_UPDATED, ...) can fire
+    -- DURING loading, before OnEnable runs. If a reminder is missing at that
+    -- moment, GetOrCreateIcon would CreateFrame the button with a nil parent --
+    -- it then never inherits the pixel-perfect UIParent scale and renders
+    -- oversized (ES 1.0 instead of the UI scale) for the rest of the session,
+    -- because pooled buttons are only ever re-sized/re-pointed, never
+    -- re-parented. Wait until the anchor exists; OnEnable fires its own refresh.
+    if not iconAnchor then return end
     if euiPanelOpen and not EABR._previewForce then HideCombatIcons(); HideAllIcons(); return end
 
     -- Hide all reminders while skyriding (mounted + flying) or in a vehicle.
@@ -4061,25 +4087,16 @@ local function ApplyUnlockPos()
         iconAnchor:ClearAllPoints()
         iconAnchor:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, px, py)
     else
-        -- Convert legacy CENTER offset to TOPLEFT
+        -- No saved position: center the row on screen (plus any configured
+        -- offset). A CENTER anchor keeps the row's center fixed as the icon
+        -- count changes, exactly like the saved-position branch above; the row
+        -- itself is centered on this anchor by LayoutIcons. This is the same
+        -- box center the old TOPLEFT math produced, so nothing moves for
+        -- existing users -- the anchor's size is now owned by LayoutIcons /
+        -- getSize and no longer needs computing here.
         local d = db.profile.display
-        local baseScale = d.scale or 1.0
-        local sz = floor(ICON_SIZE * baseScale + 0.5)
-        local spacing = d.iconSpacing or 8
-        local count = max(#activeIcons, 2)
-        local w = count * sz + (count - 1) * spacing
-        local textH = 0
-        if d.showText then
-            textH = (d.textSize or 11) + abs(d.textYOffset or -2)
-        end
-        local h = sz + textH
-        iconAnchor:SetSize(w, h)
-        local uiW = UIParent:GetWidth()
-        local uiH = UIParent:GetHeight()
-        local cx = uiW * 0.5 + (d.xOffset or 0)
-        local cy = uiH * 0.5 + (d.yOffset or 0)
         iconAnchor:ClearAllPoints()
-        iconAnchor:SetPoint("TOPLEFT", UIParent, "TOPLEFT", cx - w * 0.5, cy - uiH + h * 0.5)
+        iconAnchor:SetPoint("CENTER", UIParent, "CENTER", d.xOffset or 0, d.yOffset or 0)
     end
 end
 
@@ -4093,45 +4110,40 @@ local function RegisterUnlockElements()
             group = "AuraBuff Reminders",
             order = 600,
             noAnchorTarget = true,  -- icon count changes dynamically with auras
+            -- Icon size is driven solely by the Scale slider (db.profile.display.scale).
+            -- No drag-resize: the row width is count-dependent, so reconstructing
+            -- scale from a stored width restore (spec-override / unlock layer) under a
+            -- different visible-icon count corrupts the persisted scale. Matches the
+            -- External Defensives dynamic-count icon row.
+            noResize = true,
             getFrame = function() return iconAnchor end,
             getSize = function()
                 local p = db.profile.display
                 local baseScale = p.scale or 1.0
                 local sz = floor(ICON_SIZE * baseScale + 0.5)
                 local spacing = p.iconSpacing or 8
-                local count = max(#activeIcons, 2)
+                -- Fit all active icons (same set LayoutIcons places: active
+                -- reminders + merged beacon icons unless they route to the
+                -- cursor); fall back to a 2-wide grabbable box when nothing is
+                -- showing so the mover overlay is still draggable.
+                local count = #activeIcons
+                local beaconsOnCursor = p.cursorAttach and cursorAnchor
+                if _B.icons and not beaconsOnCursor then
+                    for _, id in ipairs(_B.ALL or {}) do
+                        if _B.iconState and _B.iconState[id] and _B.icons[id] then count = count + 1 end
+                    end
+                end
+                if count < 1 then count = 2 end
                 local w = count * sz + (count - 1) * spacing
                 local textH = 0
                 if p.showText then
                     textH = (p.textSize or 11) + abs(p.textYOffset or -2)
                 end
                 local h = sz + textH
-                -- Keep iconAnchor sized correctly so Sync() never sees it as a tiny anchor
+                -- Resize the anchor for the overlay. iconAnchor is CENTER-anchored
+                -- and the icons hang off its CENTER, so this never moves them.
                 if iconAnchor then ResizeAnchorCentered(w, h) end
                 return w, h
-            end,
-            linkedDimensions = true,
-            setWidth = function(_, newW)
-                if not EllesmereUI._unlockActive and not EllesmereUI._unlockLayerApplying then return end
-                local p = db.profile.display
-                local spacing = p.iconSpacing or 8
-                local count = max(#activeIcons, 2)
-                local sz = (newW - (count - 1) * spacing) / count
-                if sz < 8 then sz = 8 end
-                p.scale = sz / ICON_SIZE
-                if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
-            end,
-            setHeight = function(_, newH)
-                if not EllesmereUI._unlockActive and not EllesmereUI._unlockLayerApplying then return end
-                local p = db.profile.display
-                local textH = 0
-                if p.showText then
-                    textH = (p.textSize or 11) + abs(p.textYOffset or -2)
-                end
-                local sz = newH - textH
-                if sz < 8 then sz = 8 end
-                p.scale = sz / ICON_SIZE
-                if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
             end,
             savePos = function(key, point, relPoint, x, y)
                 db.profile.unlockPos = {point=point, relPoint=relPoint, x=x, y=y}

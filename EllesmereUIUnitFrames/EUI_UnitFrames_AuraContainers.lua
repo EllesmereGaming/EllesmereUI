@@ -41,7 +41,7 @@ local FALLBACK_FONT = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.
 
 local SATED_DEBUFFS = {
     [57723] = true, [57724] = true, [80354] = true, [95809] = true,
-    [160455] = true, [264689] = true, [390435] = true, [428628] = true,
+    [160455] = true, [264689] = true, [390435] = true,
 }
 local ALWAYS_HIDE_DEBUFFS = {
     [1254550] = true, -- Arcane Empowerment
@@ -115,36 +115,9 @@ end
 -- stepper's final stage clears the flag and runs the first real reload).
 local registry = {}
 
--- Shell stash: bare container shells for every migrated unit, born
--- SYNCHRONOUSLY at PLAYER_LOGIN -- the early load window where combat
--- lockdown is never engaged even on an in-combat /reload (the suite's
--- positioning trick). Bare shells skip the eager group button batches, so
--- this is cheap; it makes the deferred per-unit builds combat-legal
--- (group/slot adds on EXISTING containers -- probe T1/T1b/T2). Shells
--- parent to a hidden holder and are adopted by the real frame at build.
-local shellStash = {}
-do
-    local stashBoot = CreateFrame("Frame")
-    stashBoot:RegisterEvent("PLAYER_LOGIN")
-    stashBoot:SetScript("OnEvent", function(self)
-        self:UnregisterEvent("PLAYER_LOGIN")
-        AK = AK or EllesmereUI.AuraKit
-        if not (AK and AK.CreateContainerShell) then return end
-        local holder = CreateFrame("Frame", nil, UIParent)
-        holder:Hide()
-        holder:SetSize(1, 1)
-        holder:SetPoint("CENTER", UIParent, "BOTTOMLEFT", -200, -200)
-        -- Shared spec table is safe: point is only unpacked at creation.
-        local spec = { point = { "CENTER", holder, "CENTER" } }
-        for unit in pairs(ns.UF_ContainerUnits) do
-            shellStash[unit] = {
-                buffs = AK.CreateContainerShell(holder, spec),
-                debuffs = AK.CreateContainerShell(holder, spec),
-            }
-        end
-        shellStash.dispel = AK.CreateContainerShell(holder, spec)
-    end)
-end
+-- The PLAYER_LOGIN shell stash lived here until 68914 made container
+-- creation combat-legal (/euit3 field PASS): builds now birth their own
+-- shells inline wherever the job runs, combat included.
 
 local function SettingsFor(unit)
     if ns.UF_GetSettings then return ns.UF_GetSettings(unit) end
@@ -473,10 +446,10 @@ local function AnchorContainer(container, frame, unit, base, s)
         end
         container:ClearAllPoints()
         container:SetPoint(ia, frame, fp, offX or 0, offY or 0)
-        container:SetAuraLayoutAnchorPoint(ia)
+        AK.SetContainerAnchor(container, ia)
         local gX = "LEFT"
         if simpleMode == "right" then gX = "RIGHT" end
-        container:SetAuraLayoutGrowthDirection(FlowDir(gX), FlowDir("DOWN"))
+        AK.SetContainerGrowth(container, FlowDir(gX), FlowDir("DOWN"))
         return simpleMode
     end
 
@@ -504,8 +477,8 @@ local function AnchorContainer(container, frame, unit, base, s)
 
     container:ClearAllPoints()
     container:SetPoint(ia, frame, fp, ox + offX, oy + cbOff + offY)
-    container:SetAuraLayoutAnchorPoint(ia)
-    container:SetAuraLayoutGrowthDirection(FlowDir(gX), FlowDir(gY))
+    AK.SetContainerAnchor(container, ia)
+    AK.SetContainerGrowth(container, FlowDir(gX), FlowDir(gY))
 
     return anchor
 end
@@ -551,7 +524,7 @@ local function ApplyGroupConfig(container, unit, base, s, chain, own, declared)
     if cols then
         rowWidth = cols * size + (cols - 1) * spX + 0.4
     end
-    container:SetAuraLayoutRowWidth(rowWidth)
+    AK.SetContainerRowWidth(container, rowWidth)
 
     -- Candidate filters: (debuffs) the sated/always-hide excludes. Own Only
     -- lives in the group filter strings (see EffectiveOwnOnly), not here.
@@ -566,7 +539,7 @@ local function ApplyGroupConfig(container, unit, base, s, chain, own, declared)
         cand.excludeSpellIDs = ex
     end
 
-    local layout = { elementWidth = size, elementHeight = h, elementSpacingX = spX, elementSpacingY = spY }
+    local layout = { elementWidth = size, elementHeight = h, elementSpacing = spX, lineSpacing = spY }
 
     -- Active set = the CURRENT own-variant of "all" (when no classes are
     -- enabled) or of each enabled class. Every other declared group --
@@ -757,18 +730,9 @@ local function CreateDispelSlots(frame, entry)
 
     local container = entry.dispel
     if not container then
-        container = shellStash.dispel
-        if container then
-            -- Adopt the pre-born shell (combat-safe: parent/point on our frame).
-            shellStash.dispel = nil
-            container:SetParent(frame)
-            container:ClearAllPoints()
-            container:SetPoint("CENTER", frame, "CENTER")
-        else
-            container = AK.CreateContainerShell(frame, {
-                point = { "CENTER", frame, "CENTER" },
-            })
-        end
+        container = AK.CreateContainerShell(frame, {
+            point = { "CENTER", frame, "CENTER" },
+        })
         -- Stashed BEFORE the slot adds so a watchdog-killed build resumes on
         -- the same container instead of birthing a second one.
         entry.dispel = container
@@ -959,36 +923,17 @@ local function RefreshUnit(unitKey)
     if entry.dispel then entry.dispel:UpdateAllAuras() end
 end
 
--- TEMPORARY 12.1 workaround: contextual pings on any addon unit frame hit a
--- forbidden SendUnitPing (Blizzard's PingableType_UnitFrameMixin reads the
--- insecurely-set frame.unit, so the derived GUID is tainted). Stripping the
--- ping-receiver attribute makes the ping hit-test skip our frames entirely,
--- so pings fall through to a world ping instead of erroring. No oUF edits.
--- REMOVE when upstream is fixed (tracked in MIDNIGHT_AURA_MIGRATION.md).
-local EXTRA_PING_FRAMES = {
-    "EllesmereUIUnitFrames_Pet", "EllesmereUIUnitFrames_TargetTarget", "EllesmereUIUnitFrames_FocusTarget",
-}
-
-local function StripPingReceiver(frame)
-    if frame and not InCombatLockdown() then
-        frame:SetAttribute("ping-receiver", nil)
-    end
-end
+-- The 12.1 ping-receiver strip workaround lived here until build 68914
+-- fixed SendUnitPing upstream (PingManager securecopys the receiver info at
+-- the secure boundary); contextual pings on our frames are legal again.
 
 local unitWatcher = CreateFrame("Frame")
 unitWatcher:RegisterEvent("PLAYER_TARGET_CHANGED")
 unitWatcher:RegisterEvent("PLAYER_FOCUS_CHANGED")
 unitWatcher:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
 unitWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
-unitWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
 unitWatcher:SetScript("OnEvent", function(_, event)
-    if event == "PLAYER_ENTERING_WORLD" then
-        -- One-shot sweep for the oUF frames without containers (pet/ToT/FoT).
-        unitWatcher:UnregisterEvent("PLAYER_ENTERING_WORLD")
-        for i = 1, #EXTRA_PING_FRAMES do
-            StripPingReceiver(_G[EXTRA_PING_FRAMES[i]])
-        end
-    elseif event == "PLAYER_TARGET_CHANGED" then
+    if event == "PLAYER_TARGET_CHANGED" then
         RefreshUnit("target")
     elseif event == "PLAYER_FOCUS_CHANGED" then
         RefreshUnit("focus")
@@ -1016,22 +961,11 @@ function ns.UF_ReloadAllAuraContainers()
     end
 end
 
--- Adopts the pre-born PLAYER_LOGIN shell for one element (falling back to a
--- fresh shell), parented/pointed on our frame (combat-safe).
+-- One element shell, born directly on our frame (combat-legal since 68914).
 local function AdoptShell(frame, unit, field)
-    local stash = shellStash[unit]
-    local container = stash and stash[field]
-    if container then
-        stash[field] = nil
-        container:SetParent(frame)
-        container:ClearAllPoints()
-        container:SetPoint("CENTER", frame, "CENTER") -- provisional; reload anchors properly
-    else
-        container = AK.CreateContainerShell(frame, {
-            point = { "CENTER", frame, "CENTER" }, -- provisional; reload anchors properly
-        })
-    end
-    return container
+    return AK.CreateContainerShell(frame, {
+        point = { "CENTER", frame, "CENTER" }, -- provisional; reload anchors properly
+    })
 end
 
 local ELEMENT_ORDER = { { "HELPFUL", "buffs" }, { "HARMFUL", "debuffs" } }
@@ -1052,20 +986,9 @@ local function BuildUnitContainers(frame, unit)
     local entry = registry[unit]
     if entry and not entry.building then return end
 
-    -- Stage 1: entry + both element shells (cheap; no engine batches).
-    -- Container FRAMES cannot be born in combat (probe T3 zombie). With the
-    -- PLAYER_LOGIN stash intact this build is pure adds on existing shells
-    -- (combat-legal); if any needed shell is missing while locked down,
-    -- hold the whole unit until regen rather than half-building it.
+    -- Stage 1: entry + both element shells (cheap; no engine batches;
+    -- combat-legal since 68914).
     if not entry then
-        if InCombatLockdown() then
-            local stash = shellStash[unit]
-            if not (stash and stash.buffs and stash.debuffs)
-                or (unit == "player" and not shellStash.dispel) then
-                return "hold"
-            end
-        end
-
         -- Styles must exist before group declaration: initializeFrame
         -- consumes them for the pre-created button batches. Prime their
         -- fingerprints too: the final-stage reload would otherwise queue a
@@ -1118,9 +1041,6 @@ local function BuildUnitContainers(frame, unit)
     -- Stage 4: player dispel slots (batch-1 slot adds; internally resumable
     -- via entry.dispel / entry.dispelAdds).
     if unit == "player" and not entry.dispelDone then
-        if InCombatLockdown() and not (entry.dispel or shellStash.dispel) then
-            return "hold"
-        end
         CreateDispelSlots(frame, entry)
         entry.dispelDone = true
         -- Prime the dispel fingerprint: creation just applied these exact
@@ -1143,12 +1063,11 @@ end
 -- never ticks during loading screens; combat-runnable via the stash
 -- shells). One QUEUED job per unit, but the job is a stepper: it returns
 -- "again" after each bounded atom (one engine group batch) so the worker's
--- budget check runs between atoms, and "hold" when shells are missing in
--- combat -- the return propagates BuildUnitContainers' verdict.
+-- budget check runs between atoms -- the return propagates
+-- BuildUnitContainers' verdict.
 function ns.UF_CreateAuraContainers(frame, unit)
     AK = AK or EllesmereUI.AuraKit
     if not (AK and AK.QueueBuildJob) then return end
-    StripPingReceiver(frame) -- temporary 12.1 ping workaround (see above)
     if registry[unit] then return end
     AK.QueueBuildJob(function()
         return BuildUnitContainers(frame, unit)

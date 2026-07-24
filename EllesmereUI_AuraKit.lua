@@ -271,55 +271,108 @@ local function ApplyStyleToRegions(button, style)
     end
 
     -- Engine dispel-type border (style.dispelBorder): one texture the engine
-    -- shows only on typed (dispellable) auras and tints via AuraUtil's
-    -- dispel palette. Per-aura dispel data is secret, so the engine picks
-    -- the color (custom color maps exist since build 68824 but are not
-    -- wired here yet). The texture rides the text carrier: above the
-    -- static border strips (which it covers while shown), below the
-    -- duration/stack text. Registration state is guarded -- engine setters
-    -- are dirty marks -- and follows the static border: no border
-    -- configured, no dispel recolor (live parity). The style enum moved to
-    -- Enum.CustomAuraButtonBorderStyle in 68824; the old global is only a
-    -- deprecation-CVar shim, so resolve the enum first.
-    local borderStyle = (Enum and Enum.CustomAuraButtonBorderStyle) or AuraButtonBorderStyle
-    if style.dispelBorder and not d.dispelBorder and d.stackCarrier
-        and button.SetAuraBorder and borderStyle then
-        d.dispelBorder = d.stackCarrier:CreateTexture(nil, "BACKGROUND")
-        d.dispelBorder:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\portraits\\square_border.tga")
+    -- shows only on typed (dispellable) auras and tints per dispel type --
+    -- per-aura dispel data is secret, so show/hide and color are ENGINE
+    -- decisions. The Color style never assigns a texture file, only vertex-
+    -- tints: the ring ART is entirely ours (media/textures/square-ring.png,
+    -- a flat white band flush to a 64px canvas, 16 texels thick), registered
+    -- purely as a tint target, and the user's dispel palette rides in via
+    -- customDispelColorMap (68824). The ring lives on a dedicated holder one
+    -- frame level over the static border host so the recolor always draws ON
+    -- TOP of the border strips; the text carrier sits one more above.
+    -- Registration follows the static border: no border configured, no
+    -- dispel recolor (live parity). 68914 reworked the border API into the
+    -- dispel-type texture system: the tint-our-own-art style is now
+    -- PreserveAsset on Enum.CustomAuraButtonDispelTypeTextureStyle (the old
+    -- CustomAuraButtonBorderStyle enum is deleted; its Color value is the
+    -- ancestor, kept as a fallback for stale PTR builds). The style MUST
+    -- resolve: registering without it takes the BorderWithIcon default,
+    -- which stamps Blizzard atlas art over our ring texture.
+    local dispelTint = Enum and Enum.CustomAuraButtonDispelTypeTextureStyle
+        and Enum.CustomAuraButtonDispelTypeTextureStyle.PreserveAsset
+    if dispelTint == nil then
+        local legacy = (Enum and Enum.CustomAuraButtonBorderStyle) or AuraButtonBorderStyle
+        dispelTint = legacy and legacy.Color
+    end
+    if style.dispelBorder and not d.dispelBorder and d.dispelHolder
+        and (button.AddDispelTypeTexture or button.SetAuraBorder) and dispelTint ~= nil then
+        d.dispelBorder = d.dispelHolder:CreateTexture(nil, "OVERLAY")
+        d.dispelBorder:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\textures\\square-ring.png")
+        if d.dispelBorder.SetSnapToPixelGrid then
+            d.dispelBorder:SetSnapToPixelGrid(false)
+            d.dispelBorder:SetTexelSnappingBias(0)
+        end
+        d.dispelBorder:SetAllPoints(d.dispelHolder)
     end
     if d.dispelBorder then
-        -- Ring geometry: square_border.tga draws its ring starting 10px into
-        -- a 128px canvas (margin fraction m = 0.078125). Expanding the
-        -- texture rect by e = m/(1-2m) of the button size per side pins the
-        -- ring's hard outer edge exactly ON the button edge, so it sits on
-        -- the same inner rim band as the PP border strips (which draw
-        -- inward) and reads as the border recoloring.
-        local w = style.width or 18
-        local h = style.height or w
-        -- Rect change-guarded (stamp after): the button is the relative
-        -- frame, policed under the 12.1 access restriction while secret.
-        local rectKey = w .. "|" .. h
-        if d.dispelBorderRect ~= rectKey then
-            d.dispelBorder:ClearAllPoints()
-            d.dispelBorder:SetPoint("TOPLEFT", button, "TOPLEFT", -0.0926 * w, 0.0926 * h)
-            d.dispelBorder:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0.0926 * w, -0.0926 * h)
-            d.dispelBorderRect = rectKey
+        -- Level re-assert (change-guarded): a style can move the border
+        -- host's level; the ring stays THREE levels above it (PP strip
+        -- container at +1, DM fx border-override container at +2 -- the
+        -- dispel recolor always wins over every border), the text carrier
+        -- one more. All owned frames -- legal under restriction.
+        local bl = d.borderHost and d.borderHost:GetFrameLevel() or 0
+        if d.akDispelLvl ~= bl then
+            d.dispelHolder:SetFrameLevel(bl + 3)
+            if d.stackCarrier then d.stackCarrier:SetFrameLevel(bl + 4) end
+            d.akDispelLvl = bl
         end
-        local want = (style.dispelBorder and style.border) and true or false
-        if d.dispelBorderOn ~= want then
+        -- Physical-pixel thickness by SOURCE CROPPING, never stretching:
+        -- the art is a flush band of B = 16 texels on a C = 64 canvas
+        -- (B/C = 1/4). Shrinking the sampled window inward by fraction a
+        -- per side leaves (B - C*a) band texels over a C*(1-2a) span, so
+        -- the rendered thickness at drawn size s is
+        --   t = s*(B - C*a) / (C*(1-2a))   =>   a = (s - 4t) / (4*(s - 2t)).
+        -- t converts the user's physical-pixel setting into this frame's
+        -- units via the holder's effective scale (our frame -- readable);
+        -- s is the style size, never a rect read (button rects are
+        -- restricted). The cropped band stays solid at any icon size.
+        local sw = style.width or 18
+        local px = style.dispelBorderPx or 2
+        local t = px
+        local eff = d.dispelHolder:GetEffectiveScale()
+        if eff and eff > 0 then
+            local PPx = EllesmereUI.PP
+            t = px * ((PPx and PPx.perfect) or 0.75) / eff
+        end
+        local a = 0
+        if sw > 4 * t then a = (sw - 4 * t) / (4 * (sw - 2 * t)) end
+        local cropKey = string.format("%s|%.4f", tostring(sw), a)
+        if d.akDispelCrop ~= cropKey then
+            d.dispelBorder:SetTexCoord(a, 1 - a, a, 1 - a)
+            d.akDispelCrop = cropKey
+        end
+        -- Registration follows the static border AND a nonzero thickness
+        -- (0 = the user disabled the dispel recolor outright).
+        local want = (style.dispelBorder and style.border
+            and (style.dispelBorderPx or 2) > 0) and true or false
+        local mapFP = style.dispelColorFP or ""
+        if d.dispelBorderOn ~= want or (want and d.akDispelMapFP ~= mapFP) then
             -- Stamp only on SUCCESS: these are button calls, denied while
             -- auras are secret; a pre-stamped failure would strand the
             -- registration in the wrong state after the restriction lifts.
             -- A restricted failure defers this style key to the lift drain.
+            -- AddDispelTypeTexture APPENDS (unlike the old set-semantics
+            -- alias), so a re-registration must clear first -- and if the
+            -- clear is denied, the add is skipped too, or the button would
+            -- accumulate duplicate entries.
             if want then
-                if pcall(button.SetAuraBorder, button, d.dispelBorder,
-                    { style = borderStyle.Color, showWhenHarmful = true, showWhenHelpful = false }) then
+                local proceed = true
+                if d.dispelBorderOn then
+                    local clearFn = button.ClearDispelTypeTextures or button.ClearAuraBorder
+                    proceed = (clearFn and pcall(clearFn, button)) and true or false
+                end
+                local addFn = button.AddDispelTypeTexture or button.SetAuraBorder
+                if proceed and pcall(addFn, button, d.dispelBorder,
+                    { style = dispelTint, showWhenHarmful = true, showWhenHelpful = false,
+                      customDispelColorMap = style.dispelColorMap }) then
                     d.dispelBorderOn = want
+                    d.akDispelMapFP = mapFP
                 elseif d.styleKey and AK.AurasRestricted() then
                     deferredRestyles[d.styleKey] = true
                 end
             else
-                if pcall(button.ClearAuraBorder, button) then
+                local clearFn = button.ClearDispelTypeTextures or button.ClearAuraBorder
+                if clearFn and pcall(clearFn, button) then
                     d.dispelBorder:Hide()
                     d.dispelBorderOn = want
                 elseif d.styleKey and AK.AurasRestricted() then
@@ -335,26 +388,69 @@ local function ApplyStyleToRegions(button, style)
     end
 end
 
--- UPSTREAM BUG GUARD (12.1 PTR, 2026-07-08): SetDurationText's engine-side
--- consumer calls DurationTextBinding:SetTextColorCurve(curve) with one arg,
--- but the C binding now requires (curve, property) -- so ANY textColorCurve
--- option hard-errors inside the engine, aborting the whole frame batch (and
--- with it the AddAuraSlot/AddAuraGroup call). The binding object lives on
--- the forbidden button table, so the missing property cannot be supplied
--- from addon code. Until Blizzard updates their consumer: try with the
--- curve, retry without it on failure. The failed attempt leaves the binding
--- formatter-initialized but unattached; the retry resets it and completes,
--- so degradation is clean (plain text color, no low-time recolor). This
--- self-heals the moment the upstream fix ships.
-function AK.SetDurationTextSafe(button, fontString, durationOpts)
-    if durationOpts.textColorCurve then
-        if pcall(button.SetDurationText, button, fontString, durationOpts) then
-            return true
-        end
-        durationOpts.textColorCurve = nil
+-- SetDurationText options, 68914 schema: formatter -> textFormatter,
+-- textColorCurve -> textColor = { curve, property }, and binding-level knobs
+-- (updateInterval, expiredText, zeroDurationText, timeModifier) no longer
+-- exist as bare options -- they travel on a caller-configured
+-- DurationTextBinding passed as options.binding (the engine copies it at
+-- registration). The old one-arg SetTextColorCurve consumer bug is fixed
+-- upstream in 68914, so color curves are live for the first time.
+
+-- The curve property the engine recolors against; RemainingDuration is 0,
+-- so resolve with an explicit nil check (never `and/or` an enum that can
+-- legitimately be zero).
+function AK.DurationTextColor(curve)
+    if not curve then return nil end
+    local e = Enum and Enum.DurationTextBindingProperty
+    local prop = e and e.RemainingDuration
+    if prop == nil then prop = 0 end
+    return { curve = curve, property = prop }
+end
+
+-- Builds a SetDurationText options table in the 68914 schema. When a
+-- binding-level knob (updateInterval) is requested, the formatter and the
+-- knob are configured on a fresh binding and passed via options.binding;
+-- otherwise the plain textFormatter key suffices.
+function AK.BuildDurationTextOpts(formatter, colorCurve, updateInterval)
+    local opts
+    if updateInterval and C_DurationUtil and C_DurationUtil.CreateDurationTextBinding then
+        local binding = C_DurationUtil.CreateDurationTextBinding()
+        if formatter then binding:SetFormatter(formatter) end
+        binding:SetUpdateInterval(updateInterval)
+        opts = { binding = binding }
+    else
+        opts = { textFormatter = formatter }
     end
-    button:SetDurationText(fontString, durationOpts)
-    return false
+    if colorCurve then
+        opts.textColor = AK.DurationTextColor(colorCurve)
+    end
+    return opts
+end
+
+-- Registration armor: an uncaught error inside SetDurationText aborts the
+-- whole engine CreateFrameBatch (killing the AddAuraSlot/AddAuraGroup that
+-- triggered it), so every attempt is pcall-wrapped and degrades in steps --
+-- full options, then without the color binding, then bare. This is the
+-- standing rule for novel engine option paths, kept even though the 68824
+-- one-arg SetTextColorCurve bug this guard was born for is fixed.
+-- Returns (registered, full): registered = some registration landed;
+-- full = the complete option set landed. Callers that stamp-after-success
+-- (BmRebindDurationCurve) key off these -- this function never throws, so
+-- a denied button call under restriction must be visible in the returns.
+function AK.SetDurationTextSafe(button, fontString, durationOpts)
+    if pcall(button.SetDurationText, button, fontString, durationOpts) then
+        return true, true
+    end
+    if durationOpts.textColor ~= nil then
+        durationOpts.textColor = nil
+        if pcall(button.SetDurationText, button, fontString, durationOpts) then
+            return true, false
+        end
+    end
+    if pcall(button.SetDurationText, button, fontString, {}) then
+        return true, false
+    end
+    return false, false
 end
 
 -- Returns the initializeFrame callback for a style. It runs ONCE per created
@@ -399,11 +495,24 @@ function AK.MakeInitializer(styleKey, extra)
         d.borderHost:SetAllPoints(button)
         d.borderHost:SetFrameLevel(d.cooldown:GetFrameLevel() + 1)
 
-        -- Stack and duration text ride a carrier frame above the cooldown
-        -- and border so neither the swipe nor the border can cover them.
+        -- Dispel-ring holder: its own frame between the border host and the
+        -- text carrier so the engine-tinted ring ALWAYS WINS over every
+        -- border. +3, not +1: PP.CreateBorder parks its strips on a
+        -- CONTAINER child at borderHost+1, and the DM per-filter border
+        -- override's container lands at borderHost+2 -- the ring clears
+        -- both. Created UNCONDITIONALLY here -- this is the only
+        -- guaranteed-legal window for parenting a frame to the button, and
+        -- a style can gain dispelBorder later via a settings toggle (UF)
+        -- when the window is long closed.
+        d.dispelHolder = CreateFrame("Frame", nil, button)
+        d.dispelHolder:SetAllPoints(button)
+        d.dispelHolder:SetFrameLevel(d.borderHost:GetFrameLevel() + 3)
+
+        -- Stack and duration text ride a carrier frame above the cooldown,
+        -- borders and dispel ring so none of them can cover the text.
         d.stackCarrier = CreateFrame("Frame", nil, button)
         d.stackCarrier:SetAllPoints(button)
-        d.stackCarrier:SetFrameLevel(d.borderHost:GetFrameLevel() + 1)
+        d.stackCarrier:SetFrameLevel(d.borderHost:GetFrameLevel() + 4)
         d.stack = d.stackCarrier:CreateFontString(nil, "OVERLAY")
         d.duration = d.stackCarrier:CreateFontString(nil, "OVERLAY")
 
@@ -413,9 +522,8 @@ function AK.MakeInitializer(styleKey, extra)
         button:SetDurationCooldown(d.cooldown)
         button:SetApplicationCount(d.stack, {})
 
-        local durationOpts = { formatter = AK.GetDurationFormatter() }
-        if style.durationColorCurve then durationOpts.textColorCurve = style.durationColorCurve end
-        if style.durationUpdateInterval then durationOpts.updateInterval = style.durationUpdateInterval end
+        local durationOpts = AK.BuildDurationTextOpts(AK.GetDurationFormatter(),
+            style.durationColorCurve, style.durationUpdateInterval)
         AK.SetDurationTextSafe(button, d.duration, durationOpts)
 
         if style.cancelButtons then
@@ -572,8 +680,9 @@ end)
 --   layout = { anchorPoint, growthH, growthV, padding = {l, r, t, b}, rowWidth },
 --   groups = { { key, filter = {tokens...}, maxFrameCount, sortMethod,
 --                sortDirection, candidateFilters, style, extraInit,
---                layout = { elementWidth, elementHeight, elementSpacingX,
---                           elementSpacingY, gapX, gapY, forceNewRow } }, ... },
+--                layout = { elementWidth, elementHeight, elementSpacing,
+--                           lineSpacing, groupSpacing, groupLineSpacing,
+--                           forceNewLine, layoutIndex } }, ... },  (68914 keys)
 --   slots  = { { key, filter = {tokens...}, candidateFilters, sortMethod,
 --                sortDirection, style, extraInit }, ... },
 --   processAura = { ... } -- optional SetAuraProcessingPolicy options
@@ -585,17 +694,54 @@ end)
 
 local containerData = setmetatable({}, { __mode = "k" })
 
+-- Container-level layout setters. 68914 replaced the SetAuraLayout* family
+-- with SetFlowLayout* (rowWidth generalized to maximumLineSize) and added a
+-- flow axis; resolve per call with the old names as fallback so a stale PTR
+-- build degrades to the previous behavior instead of erroring. Every module
+-- goes through these instead of calling the container methods directly.
+function AK.SetContainerAnchor(container, anchorPoint)
+    local f = container.SetFlowLayoutAnchorPoint or container.SetAuraLayoutAnchorPoint
+    if f then f(container, anchorPoint) end
+end
+
+function AK.SetContainerGrowth(container, growthH, growthV)
+    local f = container.SetFlowLayoutGrowthDirection or container.SetAuraLayoutGrowthDirection
+    if f then f(container, growthH, growthV) end
+end
+
+function AK.SetContainerPadding(container, l, r, t, b)
+    local f = container.SetFlowLayoutPadding or container.SetAuraLayoutPadding
+    if f then f(container, l, r, t, b) end
+end
+
+function AK.SetContainerRowWidth(container, rowWidth)
+    -- nil resets to unlimited on both API generations
+    local f = container.SetFlowLayoutMaximumLineSize or container.SetAuraLayoutRowWidth
+    if f then f(container, rowWidth) end
+end
+
+-- Flow axis (68914+): Horizontal = lines are rows (the classic layout),
+-- Vertical = lines are COLUMNS (fill down/up first, wrap sideways at the
+-- line size). No-op on builds without the API -- callers degrade to the
+-- old single-column vertical behavior there.
+function AK.SetContainerAxis(container, vertical)
+    local axes = AnchorUtil and AnchorUtil.FlowLayoutAxis
+    local f = container.SetFlowLayoutAxis
+    if not (axes and f) then return end
+    f(container, vertical and axes.Vertical or axes.Horizontal)
+end
+
 function AK.ApplyContainerLayout(container, layout)
     if not layout then return end
-    if layout.anchorPoint then container:SetAuraLayoutAnchorPoint(layout.anchorPoint) end
+    if layout.anchorPoint then AK.SetContainerAnchor(container, layout.anchorPoint) end
     if layout.growthH and layout.growthV then
-        container:SetAuraLayoutGrowthDirection(layout.growthH, layout.growthV)
+        AK.SetContainerGrowth(container, layout.growthH, layout.growthV)
     end
     if layout.padding then
         local p = layout.padding
-        container:SetAuraLayoutPadding(p[1] or 0, p[2] or 0, p[3] or 0, p[4] or 0)
+        AK.SetContainerPadding(container, p[1] or 0, p[2] or 0, p[3] or 0, p[4] or 0)
     end
-    container:SetAuraLayoutRowWidth(layout.rowWidth) -- nil resets to unlimited
+    AK.SetContainerRowWidth(container, layout.rowWidth)
 end
 
 -- Incremental construction: each AddAuraGroup call eagerly creates a
@@ -606,8 +752,9 @@ end
 -- for synchronous callers (settings-change swaps, small containers).
 
 function AK.CreateContainerShell(parent, spec)
-    assert(not InCombatLockdown(), "AuraKit: containers cannot be created in combat; use AK.RequestContainer")
-
+    -- Combat creation is legal since 68914 (PTR-7 notes; /euit3 field PASS
+    -- 2026-07-23). The old in-combat zombie soft-fail -- and the OOC assert
+    -- that guarded against it -- are gone.
     local container = CreateFrame("AuraContainer", nil, parent, "CustomAuraContainerTemplate")
 
     -- Anchor and a provisional size up front: the engine drains its parse and
@@ -689,9 +836,9 @@ end
 -- per-frame budget is spent; a single queue means the modules' builders can
 -- never stack their work into the same frame. OnUpdate never ticks during a
 -- loading screen, so queued work always lands in rendered gameplay frames;
--- paused in combat (containers cannot be created there). Explicit head/tail
--- indices: consumed slots are nil'd and the length operator is undefined on
--- arrays with holes.
+-- combat clamps the budget (client combat watchdog), never the work.
+-- Explicit head/tail indices: consumed slots are nil'd and the length
+-- operator is undefined on arrays with holes.
 ------------------------------------------------------------------------------
 
 local BUILD_BUDGET_MS = 8
@@ -707,23 +854,16 @@ local BUILD_BUDGET_MS = 8
 local BUILD_BUDGET_LOGIN_MS = 250
 local LOGIN_WINDOW_S = 15
 local loginStamp = -LOGIN_WINDOW_S
--- ONE queue, HOLD semantics -- no lane choices at queue time. Entries are
--- { fn, label, oocOnly }: oocOnly marks jobs that CREATE container frames
--- (the single combat-illegal operation -- probe T3 zombie); in combat the
--- worker HOLDS them (never loses them) and runs everything else; a job
--- whose prerequisite is held returns "hold" and is re-held itself. Held
--- jobs drain FIFO at regen ahead of newer work. This replaced the
--- dual-lane design after a field failure: on an in-combat /reload, login
--- setup runs BEFORE lockdown re-engages, so any lockdown check at QUEUE
--- time picks the wrong lane and strands the whole build until regen.
+-- ONE queue, every job combat-runnable: 68914 made container creation
+-- legal in combat (/euit3 field PASS), which retired the whole
+-- hold-lane/oocOnly regime -- jobs run in FIFO order whenever the worker
+-- ticks, and the only pacing is the per-frame budget (combat-clamped).
 local buildQueue, buildHead, buildTail = {}, 1, 0
-local holdQueue, holdHead, holdTail = {}, 1, 0
 
--- Job verdicts: nil = done; "hold" = prerequisite blocked in combat (re-held
--- for the regen drain); "again" = the job is a multi-atom stepper with more
--- bounded work left (front-requeued so it finishes before newer work, with a
--- budget check between atoms); "watchdog" = synthesized here, never returned
--- by jobs. The pcall exists for the client watchdog ("script ran too long"):
+-- Job verdicts: nil = done; "again" = the job is a multi-atom stepper with
+-- more bounded work left (front-requeued so it finishes before newer work,
+-- with a budget check between atoms); "watchdog" = synthesized here, never
+-- returned by jobs. The pcall exists for the client watchdog ("script ran too long"):
 -- login contention can balloon one job's engine batches past the
 -- per-execution limit, which previously aborted the whole tick AND lost the
 -- dequeued job mid-flight (half-built unit). Jobs are written resumable
@@ -758,91 +898,45 @@ buildWorker:SetScript("OnUpdate", function(self)
     end
     local t0 = debugprofilestop()
 
-    -- Held jobs drain first at regen (they are the OLDEST work). Snapshot
-    -- the tail: a job re-holding itself lands beyond the snapshot and
-    -- waits for the next tick instead of spinning inside this loop.
-    if not inCombat and holdHead <= holdTail then
-        local stop = holdTail
-        while holdHead <= stop do
-            local entry = holdQueue[holdHead]
-            holdQueue[holdHead] = nil
-            holdHead = holdHead + 1
-            if entry then
-                local verdict = RunJob(entry)
-                if verdict == "hold" then
-                    holdTail = holdTail + 1
-                    holdQueue[holdTail] = entry
-                elseif verdict == "again" then
-                    holdHead = holdHead - 1
-                    holdQueue[holdHead] = entry
-                elseif verdict == "watchdog" then
-                    holdHead = holdHead - 1
-                    holdQueue[holdHead] = entry
-                    return
-                end
-            end
-            if debugprofilestop() - t0 >= budget then return end
-        end
-    end
-
     while buildHead <= buildTail do
         local entry = buildQueue[buildHead]
         buildQueue[buildHead] = nil
         buildHead = buildHead + 1
         if entry then
-            if inCombat and entry.oocOnly then
-                holdTail = holdTail + 1
-                holdQueue[holdTail] = entry
-            else
-                local verdict = RunJob(entry)
-                if verdict == "hold" then
-                    holdTail = holdTail + 1
-                    holdQueue[holdTail] = entry
-                elseif verdict == "again" then
-                    buildHead = buildHead - 1
-                    buildQueue[buildHead] = entry
-                elseif verdict == "watchdog" then
-                    buildHead = buildHead - 1
-                    buildQueue[buildHead] = entry
-                    return
-                end
+            local verdict = RunJob(entry)
+            if verdict == "again" then
+                buildHead = buildHead - 1
+                buildQueue[buildHead] = entry
+            elseif verdict == "watchdog" then
+                buildHead = buildHead - 1
+                buildQueue[buildHead] = entry
+                return
             end
         end
         if debugprofilestop() - t0 >= budget then return end
     end
     buildQueue, buildHead, buildTail = {}, 1, 0
-
-    if holdHead > holdTail then
-        holdQueue, holdHead, holdTail = {}, 1, 0
-        self:Hide()
-    elseif inCombat then
-        -- Nothing runnable until regen; the regen event re-shows us.
-        self:Hide()
-    end
+    self:Hide()
 end)
 
--- Regen wake: held work resumes immediately, at the turbo budget (a
--- combat backlog should snap in, not trickle).
+-- Regen wake: a backlog that accrued under the combat-clamped budget
+-- snaps in at the turbo budget instead of trickling.
 buildWorker:RegisterEvent("PLAYER_REGEN_ENABLED")
 buildWorker:SetScript("OnEvent", function(self)
-    if holdHead <= holdTail or buildHead <= buildTail then
+    if buildHead <= buildTail then
         loginStamp = GetTime()
         self:Show()
     end
 end)
 
--- oocOnly marks jobs that CREATE container frames (the single combat-
--- illegal operation -- probe T3 zombie); everything else (group/slot
--- declaration, finishes, live setters -- T1/T1b/T2/T8) runs whenever the
--- worker ticks, combat included.
-function AK.QueueBuildJob(fn, label, oocOnly)
+function AK.QueueBuildJob(fn, label)
     buildTail = buildTail + 1
-    buildQueue[buildTail] = { fn = fn, label = label, oocOnly = oocOnly }
+    buildQueue[buildTail] = { fn = fn, label = label }
     buildWorker:Show()
 end
 
 -- Back-compat name: a combat-runnable job (declarations/setters on
--- EXISTING containers). Same queue, no oocOnly mark.
+-- EXISTING containers). Back-compat alias; identical to QueueBuildJob.
 function AK.QueueLiveBuildJob(fn, label)
     AK.QueueBuildJob(fn, label, nil)
 end

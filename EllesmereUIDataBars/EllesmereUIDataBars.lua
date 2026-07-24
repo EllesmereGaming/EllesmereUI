@@ -1711,7 +1711,7 @@ local function ApplyThemeToHost(host, theme, texKey)
             -- the vertex tint so Bar Opacity keeps working.
             host._edbBarTex:SetTexture(texPath)
             host._edbBarTex:SetVertexColor(c.r or 0.067, c.g or 0.067, c.b or 0.067, c.a or 0.95)
-            host._edbBarTex:SetAlpha(1)
+            host._edbBarTex:SetAlpha(c.a or 0.95)
             host._edbModernBg:SetAlpha(0)
         else
             host._edbBarTex:SetAlpha(0)

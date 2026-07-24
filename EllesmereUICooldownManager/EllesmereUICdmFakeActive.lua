@@ -43,6 +43,25 @@ local C_Container            = C_Container
 local GetInventoryItemCooldown = GetInventoryItemCooldown
 local GetPlayerAuraBySpellID = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
 
+-- 12.1 ONLY: engine-slot driver for aura-triggered built-in rules. Ebon Might
+-- (395296) was removed from the never-secret list in build 68824, so
+-- GetPlayerAuraBySpellID returns nothing for it in restricted content and the
+-- numeric expirationTime window can never open mid-combat. The replacement
+-- rides a hidden one-slot aura container (includeSpellIDs on the player --
+-- helpful-on-assistable passes the identity gate regardless of secrecy)
+-- whose slot subtree IS the active display, engine-driven end to end: the
+-- button shows only while the aura is up, SetIcon binds the aura's own
+-- texture, SetDurationCooldown renders the swipe from the real duration
+-- object (extensions included), and SetDurationText drives the countdown
+-- text -- all styled inside the creation window (the subtree is denied to
+-- addon code afterward, reads and writes both). The legacy overlay frame
+-- stays permanently dark on 12.1; it survives only for border raising and
+-- the shared settings plumbing in ApplyToFrame.
+-- FA121 stays nil on 12.0: every consumer site guards on it, so retail
+-- behavior is byte-identical. Declared here (above ApplyToFrame) so the
+-- gated sites capture it as an upvalue; defined after ApplyRule below.
+local FA121
+
 -- ---------------------------------------------------------------------------
 --  BUILT-IN RULES
 -- ---------------------------------------------------------------------------
@@ -243,6 +262,15 @@ ApplyToFrame = function(iconFrame, rule, win)
         o.icon:SetDesaturated(false)
         local cr, cg, cb, ca = ResolveSwipeColor(ss)
         o.cd:SetSwipeColor(cr, cg, cb, ca)
+        -- Per-spell Reverse Swipe: flip our active swipe's fill direction, the
+        -- same setting the underlying icon honors (ss covers both sources: the
+        -- resolved per-spell block for built-in rules, the customActiveStates
+        -- entry for user rules). Gated by the session flag so it stays zero
+        -- cost for anyone who never enables it; the flag is monotonic, so a
+        -- toggle-off still passes through here and resets the pooled overlay.
+        if ns._cdmAnyReverseSwipe then
+            o.cd:SetReverse((ss and ss.reverseSwipe) and true or false)
+        end
         o.cd:SetCooldown(win.start, win.dur)
         o._ss = ss
         -- Match the icon's Duration Text settings on our own countdown number;
@@ -274,7 +302,13 @@ ApplyToFrame = function(iconFrame, rule, win)
             gfc.shapeBorder  = (uifc and uifc.shapeBorder) or nil
         end
         if ns.ApplyActiveOverlays then ns.ApplyActiveOverlays(o.frame, o, ss, true, bd) end
-        o.frame:SetAlpha(1)
+        if win.fa121 and FA121 then
+            -- 12.1 slot mode: the slot subtree renders the active display;
+            -- Attach positions it and parks this legacy overlay at alpha 0.
+            FA121.Attach(iconFrame, o, rule, ss, bd)
+        else
+            o.frame:SetAlpha(1)
+        end
     else
         o._rule = nil
         o._ss = nil
@@ -282,6 +316,7 @@ ApplyToFrame = function(iconFrame, rule, win)
         if ns.ApplyActiveOverlays then ns.ApplyActiveOverlays(o.frame, o, ss, false, bd) end
         o.cd:Clear()
         o.frame:SetAlpha(0)
+        if FA121 then FA121.Detach(o) end
     end
 end
 
@@ -305,6 +340,359 @@ ApplyRule = function(rule, win)
             end
         end
     end
+end
+
+-- ---------------------------------------------------------------------------
+--  FA121 (12.1 only; see the declaration comment near the top). One state
+--  entry per aura rule: { proxy, container, btn, cd, built, queued, armed,
+--  o, iconFrame }. The container is built ONCE per rule through the AuraKit
+--  scheduler (container shells are OOC-only; a job queued in combat holds to
+--  regen) and parked by hiding the proxy -- a hidden container fully
+--  unregisters its events, so the parked state costs nothing.
+-- ---------------------------------------------------------------------------
+if EllesmereUI and EllesmereUI.IS_121 then
+    FA121 = { byRule = {} }
+    local FA121_WIN = { fa121 = true, start = 0, dur = 0, expiry = 0 }
+
+    local function St(rule)
+        local st = FA121.byRule[rule]
+        if not st then st = {}; FA121.byRule[rule] = st end
+        return st
+    end
+
+    -- NO Lua presence signal exists: the button AND every child created in
+    -- its creation window are denied to addon code afterward (field-mapped
+    -- 2026-07-22 -- reads and writes both). The design therefore keeps the
+    -- entire active display INSIDE the slot subtree, engine-driven end to
+    -- end: visibility (button shown only while the aura is up), icon
+    -- (SetIcon) and swipe (SetDurationCooldown) all render without any
+    -- addon code running. The legacy overlay (o.frame) stays alpha 0 on
+    -- 12.1 -- it exists only so RaiseOverlayBorders and settings plumbing
+    -- keep working through the shared ApplyToFrame path.
+
+    function FA121.Attach(iconFrame, o, rule, ss, bd)
+        local st = St(rule)
+        st.o, st.iconFrame = o, iconFrame
+        if not st.built then
+            -- Slot not built yet (queued; held to regen when queued in
+            -- combat): stay dark until the build tail re-arms.
+            o.frame:SetAlpha(0)
+            return
+        end
+        -- Repositioning is ALWAYS a proxy move: the slot button anchored
+        -- SetAllPoints(proxy) once in its creation window, and the proxy is
+        -- our frame -- legal any time, icon churn included.
+        -- Parent to the ICON FRAME, never to o.frame: the legacy overlay is
+        -- held at alpha 0 on 12.1 and children inherit EFFECTIVE alpha -- a
+        -- proxy under o.frame renders the whole engine subtree invisible
+        -- (field-hit 2026-07-22: everything worked, at alpha 0).
+        st.proxy:SetParent(iconFrame)
+        st.proxy:ClearAllPoints()
+        st.proxy:SetAllPoints(iconFrame)
+        st.proxy:Show()
+        -- One container-level set lifts the whole engine subtree (buttons
+        -- keep relative levels), seating the swipe in the overlay band.
+        st.container:SetFrameLevel(o.frame:GetFrameLevel() + 1)
+        -- Best-effort live restyle of the engine-bound cooldown. FIELD
+        -- LESSON (68824): SetDurationCooldown takes ownership -- touching
+        -- the region outside the creation window is forbidden-object
+        -- access, so the cooldown was fully styled at build time and this
+        -- block is optional polish: attempted once, abandoned on denial.
+        if st.cd and not st.cdLocked then
+            local ok = pcall(st.cd.SetSwipeColor, st.cd, ResolveSwipeColor(ss))
+            if ok then
+                if ns._cdmAnyReverseSwipe then
+                    pcall(st.cd.SetReverse, st.cd, (ss and ss.reverseSwipe) and true or false)
+                end
+                if ns.ApplyShapeToOverlay then
+                    pcall(ns.ApplyShapeToOverlay, iconFrame, o.icon, st.cd, bd)
+                end
+                if ns.StyleOverlayCooldownText then
+                    pcall(ns.StyleOverlayCooldownText, st.cd, bd, ss, iconFrame:GetScale())
+                end
+                if ns._cdmAnyThresholdText and ns.ApplyThresholdFormatter then
+                    pcall(ns.ApplyThresholdFormatter, st.cd, ss)
+                end
+            else
+                st.cdLocked = true
+                if ns._fakeActiveDebug then
+                    print("|cff0cd29fEUI FakeActive|r fa121 cd engine-locked (build-time styling only)")
+                end
+            end
+        end
+        -- The legacy overlay never renders on 12.1 (the slot subtree IS the
+        -- active display); keep it dark regardless of what earlier paths
+        -- set. Plain write -- always legal on our frame.
+        o.frame:SetAlpha(0)
+    end
+
+    -- Close-branch handoff from ApplyToFrame: park the proxy so the engine
+    -- subtree renders nothing (covers rule unarm AND "Hide Active State").
+    function FA121.Detach(o)
+        for _, st in pairs(FA121.byRule) do
+            if st.o == o then
+                st.o, st.iconFrame = nil, nil
+                if st.proxy then st.proxy:Hide() end
+            end
+        end
+    end
+
+    local function Build(rule, st)
+        local AK = EllesmereUI.AuraKit
+        if st.built or not AK then return end
+        AK.styles["cdm:fa121"] = AK.styles["cdm:fa121"]
+            or { noRegions = true, width = 1, height = 1 }
+        if not st.proxy then
+            st.proxy = CreateFrame("Frame", nil, UIParent)
+            st.proxy:Hide()
+        end
+        -- Resolve the rule's styling NOW (build runs at rearm time, when the
+        -- icon usually exists) so the slot cooldown can be styled INSIDE the
+        -- creation window. FIELD LESSON (68824): a region handed to an
+        -- engine binding (SetDurationCooldown) is forbidden to addon code
+        -- after initializeFrame returns -- even out of combat -- so
+        -- creation-window styling is the only guaranteed styling.
+        local ss, bd, scale = nil, nil, 1
+        do
+            local icons, FCt = ns.cdmBarIcons, ns._ecmeFC
+            if icons and FCt then
+                for _, list in pairs(icons) do
+                    for i = 1, #list do
+                        local f = list[i]
+                        local fc = f and FCt[f]
+                        if fc and fc.spellID == rule.spellID then
+                            local barKey = fc.barKey
+                            bd = barKey and ns.barDataByKey and ns.barDataByKey[barKey]
+                            ss = rule.cas
+                            if not ss and ns.ResolveSpellSettings then
+                                local sd = barKey and ns.GetBarSpellData and ns.GetBarSpellData(barKey)
+                                ss = ns.ResolveSpellSettings(f, rule.spellID, sd, barKey)
+                            end
+                            scale = f:GetScale() or 1
+                            -- Bake the underlying icon's crop for the engine
+                            -- icon (and remember the frame for shape masks).
+                            st.srcFrame = f
+                            local src = f.Icon or f._tex
+                            if src and src.GetTexCoord then
+                                local ok, a1, a2, a3, a4, a5, a6, a7, a8 = pcall(src.GetTexCoord, src)
+                                if ok and a1 then
+                                    st.srcCoords = { a1, a2, a3, a4, a5, a6, a7, a8 }
+                                end
+                            end
+                            break
+                        end
+                    end
+                    if ss or bd then break end
+                end
+            end
+        end
+        -- No icon found = CDM bars not built yet (login race) OR the spell
+        -- is not on any bar. Do NOT build: every baked decision (the text
+        -- gate, fonts, swipe color, crop) resolved nil and would be wrong
+        -- for the whole session (built latches). The rescan retries
+        -- re-queue the build; once the icon exists, everything bakes from
+        -- real settings. Field-hit as "swipe works, no text" in sessions
+        -- where the build outran bar construction.
+        if not st.srcFrame then return end
+        local container = AK.CreateContainerShell(st.proxy, { point = { "CENTER" } })
+        AK.AddSlotToContainer(container, {
+            key = "fa",
+            filter = { "HELPFUL" },
+            -- Helpful spellID includes on the player pass the identity gate
+            -- regardless of the spell's secrecy flag.
+            candidateFilters = { includeSpellIDs = { [rule.auraSpellID] = true } },
+            style = "cdm:fa121",
+            extraInit = function(button)
+                -- Creation window: the only legal moment for button-level
+                -- wiring AND (per the field lessons above) the only reliable
+                -- window for touching ANYTHING in this subtree -- post-window
+                -- reads AND writes on the button and its children are denied.
+                -- Therefore the subtree is entirely self-sufficient: the
+                -- ENGINE drives visibility (button shown only while the aura
+                -- is up), the icon (SetIcon binds the aura's own texture)
+                -- and the swipe (SetDurationCooldown from the real duration
+                -- object, extensions included). No Lua signal, no slave.
+                -- Two-point anchoring sizes the button by anchors forever.
+                button:SetAllPoints(st.proxy)
+                if button.SetMouseMotionEnabled then button:SetMouseMotionEnabled(false) end
+                -- Saturated icon: engine-bound, engine-shown. Zoom baked
+                -- from the underlying CDM icon when it existed at build.
+                local tex = button:CreateTexture(nil, "ARTWORK")
+                tex:SetAllPoints(button)
+                if st.srcCoords then
+                    -- 8-value corner form, straight from the source icon.
+                    tex:SetTexCoord(unpack(st.srcCoords))
+                else
+                    tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                end
+                local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+                cd:SetAllPoints(button)
+                cd:SetDrawEdge(false)
+                cd:SetDrawBling(false)
+                cd:SetHideCountdownNumbers(false)
+                cd:SetSwipeTexture("Interface\\Buttons\\WHITE8x8")
+                cd:SetFrameLevel(button:GetFrameLevel() + 1)
+                local cr, cg, cb, ca = ResolveSwipeColor(ss)
+                cd:SetSwipeColor(cr, cg, cb, ca)
+                if ss and ss.reverseSwipe then cd:SetReverse(true) end
+                if ns.StyleOverlayCooldownText then
+                    pcall(ns.StyleOverlayCooldownText, cd, bd, ss, scale)
+                end
+                if ns.ApplyThresholdFormatter then
+                    pcall(ns.ApplyThresholdFormatter, cd, ss)
+                end
+                if ns.ApplyShapeToOverlay and st.srcFrame then
+                    pcall(ns.ApplyShapeToOverlay, st.srcFrame, tex, cd, bd)
+                end
+                -- Duration text: engine-bound cooldowns render NO widget
+                -- countdown (time display belongs to the SetDurationText
+                -- binding -- the AuraKit rule), so register a dedicated
+                -- FontString styled like the icon's cooldown text. Only
+                -- when the resolved cooldown-text setting is on: the engine
+                -- SetText()s every REGISTERED string, and a no-text config
+                -- should carry no binding at all. Fonted BEFORE
+                -- registration (an unfonted registered FS hard-errors
+                -- inside the engine).
+                local showCD = bd and bd.showCooldownText
+                if ss and ss.showCooldownText ~= nil then showCD = ss.showCooldownText end
+                if bd and bd.onlyShowNumbers then showCD = true end
+                if showCD then
+                    -- ARMORED: an uncaught error inside initializeFrame
+                    -- aborts the engine's whole CreateFrameBatch and kills
+                    -- the slot declaration (and every declaration after
+                    -- it). Text is optional polish -- it must never take
+                    -- the swipe down with it. Failures land in st.fsErr
+                    -- for the debug dump.
+                    local okFS, errFS = pcall(function()
+                        -- Text CARRIER above the cooldown: regions created
+                        -- on a Cooldown render UNDER its swipe (the classic
+                        -- gotcha -- field-hit here as "healthy dump, no
+                        -- text"). Same pattern as AuraKit's stackCarrier.
+                        local tc = CreateFrame("Frame", nil, button)
+                        tc:SetAllPoints(button)
+                        tc:SetFrameLevel(cd:GetFrameLevel() + 5)
+                        local fs = tc:CreateFontString(nil, "OVERLAY")
+                        local cdFont = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("cdm"))
+                            or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
+                        local fsScale = (scale and scale > 0.01) and scale or 1
+                        local cdSize = ((ss and ss.cooldownFontSize) or (bd and bd.cooldownFontSize) or 12) / fsScale
+                        if EllesmereUI.ApplyIconTextFont then
+                            EllesmereUI.ApplyIconTextFont(fs, cdFont, cdSize, "cdm")
+                        else
+                            fs:SetFont(cdFont, cdSize, "OUTLINE")
+                        end
+                        fs:SetTextColor(
+                            (ss and ss.cooldownTextR) or (bd and bd.cooldownTextR) or 1,
+                            (ss and ss.cooldownTextG) or (bd and bd.cooldownTextG) or 1,
+                            (ss and ss.cooldownTextB) or (bd and bd.cooldownTextB) or 1)
+                        fs:SetPoint("CENTER", cd, "CENTER",
+                            (ss and ss.cooldownTextX) or (bd and bd.cooldownTextX) or 0,
+                            (ss and ss.cooldownTextY) or (bd and bd.cooldownTextY) or 0)
+                        local AK2 = EllesmereUI.AuraKit
+                        local fmt = AK2 and AK2.GetDurationFormatter and AK2.GetDurationFormatter()
+                        -- 68914 schema key (textFormatter); BuildDurationTextOpts
+                        -- when available, bare table fallback otherwise.
+                        local opts
+                        if AK2 and AK2.BuildDurationTextOpts then
+                            opts = AK2.BuildDurationTextOpts(fmt)
+                        else
+                            opts = { textFormatter = fmt }
+                        end
+                        if AK2 and AK2.SetDurationTextSafe then
+                            AK2.SetDurationTextSafe(button, fs, opts)
+                        else
+                            button:SetDurationText(fs, opts)
+                        end
+                    end)
+                    if not okFS then st.fsErr = errFS end
+                end
+                button:SetIcon(tex)
+                button:SetDurationCooldown(cd)
+                st.btn, st.cd = button, cd
+            end,
+        })
+        AK.FinishContainer(container, "player")
+        st.container = container
+        st.built = true
+    end
+
+    local function EnsureBuilt(rule)
+        local st = St(rule)
+        if st.built or st.queued then return end
+        local AK = EllesmereUI.AuraKit
+        if not (AK and AK.QueueBuildJob) then return end
+        st.queued = true
+        AK.QueueBuildJob(function()
+            st.queued = nil
+            Build(rule, st)
+            if st.armed then FA121.Rescan() end
+        end, "cdm:fa121-shell")
+    end
+
+    function FA121.Rescan()
+        for rule, st in pairs(FA121.byRule) do
+            if st.armed then
+                -- A build that bailed (icon not yet created) retries here;
+                -- EnsureBuilt's queued flag dedupes in-flight jobs.
+                if not st.built then EnsureBuilt(rule) end
+                ApplyRule(rule, FA121_WIN)
+            end
+        end
+    end
+
+    local function AnyArmed()
+        for _, st in pairs(FA121.byRule) do
+            if st.armed then return true end
+        end
+        return false
+    end
+
+    -- Rearm integration: BeginSweep marks every entry unwanted, Want re-marks
+    -- (and builds) the rules the new spec keeps, EndSweep parks the rest and
+    -- re-arms the wanted ones. The delayed rescan mirrors InitialStamp's 3s
+    -- login retry, which never covers slot rules (they are not in _rules).
+    function FA121.BeginSweep()
+        for _, st in pairs(FA121.byRule) do st.armed = nil end
+    end
+
+    function FA121.Want(rule)
+        local st = St(rule)
+        st.armed = true
+        EnsureBuilt(rule)
+    end
+
+    function FA121.EndSweep()
+        for rule, st in pairs(FA121.byRule) do
+            if not st.armed then
+                ApplyRule(rule, nil)
+                if st.proxy then st.proxy:Hide() end
+                st.o, st.iconFrame = nil, nil
+            end
+        end
+        if AnyArmed() then
+            FA121.Rescan()
+            if C_Timer then
+                C_Timer.After(3, FA121.Rescan)
+                C_Timer.After(8, FA121.Rescan)
+            end
+        end
+    end
+
+    -- Login/zone robustness: CDM icon frames can materialize AFTER the last
+    -- rearm's rescans (deferred reanchor queues) -- a missed attach leaves
+    -- the proxy parked and nothing renders all session (the field-observed
+    -- working/dark flip-flop across identical reloads). World entry re-scans
+    -- with staggered retries; Rescan is idempotent and armed-guarded, so
+    -- quiet sessions cost three no-op walks of a one-entry table.
+    local pew = CreateFrame("Frame")
+    pew:RegisterEvent("PLAYER_ENTERING_WORLD")
+    pew:SetScript("OnEvent", function()
+        FA121.Rescan()
+        if C_Timer then
+            C_Timer.After(3, FA121.Rescan)
+            C_Timer.After(8, FA121.Rescan)
+        end
+    end)
 end
 
 -- ---------------------------------------------------------------------------
@@ -778,7 +1166,14 @@ end
 function ns.FakeActive_OnIconRestyled(iconFrame)
     local o = _overlays[iconFrame]
     if not o or not o._rule then return end           -- no overlay / no open window
-    if o.frame:GetAlpha() == 0 then return end         -- overlay not currently shown
+    local st121 = FA121 and FA121.byRule[o._rule]
+    if st121 then
+        -- 12.1 slot mode: the legacy overlay is permanently dark (alpha 0 --
+        -- the slot subtree renders the active state), so the alpha gate
+        -- below would always skip; resync whenever the rule is armed
+        -- instead (covers the pcall'd best-effort cd mirror at the tail).
+        if not st121.armed then return end
+    elseif o.frame:GetAlpha() == 0 then return end     -- overlay not currently shown
     local fc = ns._ecmeFC and ns._ecmeFC[iconFrame]
     local barKey = fc and fc.barKey
     local bd = barKey and ns.barDataByKey and ns.barDataByKey[barKey]
@@ -787,6 +1182,12 @@ function ns.FakeActive_OnIconRestyled(iconFrame)
     -- Re-apply Duration Text styling too (the font/size/colour may have changed).
     if ns.StyleOverlayCooldownText then
         ns.StyleOverlayCooldownText(o.cd, bd, o._ss, iconFrame:GetScale())
+    end
+    -- Re-assert Reverse Swipe as well: o._ss is the live chained settings
+    -- block, so a toggle made while the window is open takes effect on this
+    -- restyle pass instead of waiting for the next window.
+    if ns._cdmAnyReverseSwipe then
+        o.cd:SetReverse((o._ss and o._ss.reverseSwipe) and true or false)
     end
     -- The restyle reset the border to its normal level; clear the stale flag so
     -- RaiseOverlayBorders re-captures that level and lifts it above us again.
@@ -811,6 +1212,20 @@ function ns.FakeActive_OnIconRestyled(iconFrame)
         o._sbColorSaved = false
         ns.ApplyActiveOverlays(o.frame, o, o._ss, true, bd)
     end
+    -- 12.1 slot mode: the live swipe is the slot-child cooldown, not o.cd.
+    -- Best-effort mirror only: the engine binding owns that region (field
+    -- lesson, 68824), so these are pcall'd and skipped once known-denied.
+    if st121 and st121.cd and not st121.cdLocked then
+        if ns.StyleOverlayCooldownText then
+            pcall(ns.StyleOverlayCooldownText, st121.cd, bd, o._ss, iconFrame:GetScale())
+        end
+        if ns._cdmAnyReverseSwipe then
+            pcall(st121.cd.SetReverse, st121.cd, (o._ss and o._ss.reverseSwipe) and true or false)
+        end
+        if ns.ApplyShapeToOverlay then
+            pcall(ns.ApplyShapeToOverlay, iconFrame, o.icon, st121.cd, bd)
+        end
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -821,6 +1236,7 @@ function ns.FakeActive_Rearm()
     CloseAll()
     wipe(_rules); wipe(_auraRules); wipe(_customRules); wipe(_castMap); wipe(_cdStateRules)
     _needAura, _needCast, _armed, _hasUserRules = false, false, false, false
+    if FA121 then FA121.BeginSweep() end
 
     -- 1. Built-in rules (class/spec gated).
     local _, classFile = UnitClass("player")
@@ -829,9 +1245,17 @@ function ns.FakeActive_Rearm()
         local rule = FAKE_ACTIVE_RULES[i]
         if (not rule.class or rule.class == classFile)
            and (not rule.spec or rule.spec == specIdx) then
-            AddRule(rule)
+            if FA121 and rule.trigger == "aura" then
+                -- 12.1: aura rules ride the engine slot, never the numeric
+                -- GetPlayerAuraBySpellID window (dead for secret-flagged
+                -- spells like Ebon Might since build 68824).
+                FA121.Want(rule)
+            else
+                AddRule(rule)
+            end
         end
     end
+    if FA121 then FA121.EndSweep() end
 
     -- 2. User rules: profile-level custom active states, keyed by spell. These
     --    travel with the spell across every bar and spec, so no barKey scope --

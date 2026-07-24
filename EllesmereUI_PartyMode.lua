@@ -370,7 +370,7 @@ EllesmereUI:RegisterOnHide(OnSettingsClose)
 -- detection used by the CDM lust bar. Fires a celebration the instant lust goes
 -- out (the debuff is applied at that moment). Hardcoded 40s celebration -- it
 -- deliberately ignores the Auto Celebration Duration slider.
-local PM_SATED_DEBUFFS = { 57723, 57724, 80354, 95809, 160455, 264689, 390435, 428628 }
+local PM_SATED_DEBUFFS = { 57723, 57724, 80354, 95809, 160455, 264689, 390435 }
 local _pmSatedPresent = false
 local function _pmPlayerHasSated()
     if not (C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID) then return false end

@@ -734,13 +734,19 @@ local function BuildFxEffects(frame, sy, fxOwner)
             UpdateFxGlowState()
         end
 
-        -- Row 2: Border (+ swatch, the DISPLAY-section Border style) | blank
+        -- Row 2: Border (+ swatch, the DISPLAY-section Border style) | Size
+        -- (icon size for the matched filters; 0 = the grid's own size).
         local bRow
         bRow, hh = W:DualRow(frame, sy,
             { type = "slider", text = "Border", min = 0, max = 4, step = 1, trackWidth = 120,
               getValue = function() return e.borderSize or 0 end,
               setValue = function(v) e.borderSize = v; DmApply() end },
-            { type = "label", text = "" }); sy = sy - hh
+            { type = "slider", text = "Size", min = 0, max = 40, step = 1, trackWidth = 120,
+              getValue = function() return e.size or 0 end,
+              setValue = function(v)
+                  e.size = (v and v > 0) and v or nil
+                  DmApply()
+              end }); sy = sy - hh
         do
             local rgn = bRow._leftRegion
             local swatch = EllesmereUI.BuildColorSwatch(rgn, bRow:GetFrameLevel() + 3,
@@ -980,6 +986,17 @@ local function BuildBaseDetailDM(frame, fontPath)
         cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
         cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
     end
+
+    -- Row: Icons Per Row (end of CORE). The key predates this UI (its row
+    -- died with the Auras tab): >= 2 wraps -- rows for horizontal growth,
+    -- COLUMNS for vertical (12.1 flow axis) -- with the stored
+    -- debuffWrapDirection convention deciding the stack side.
+    _, hh = W:DualRow(frame, sy,
+        { type = "slider", text = "Icons Per Row", min = 0, max = 20, step = 1, trackWidth = 120,
+          tooltip = "Wraps into a new row (or column for vertical growth) after this many icons; below 2 keeps one continuous run.",
+          getValue = function() return p.debuffPerRow or 5 end,
+          setValue = function(v) p.debuffPerRow = v; DmApply() end },
+        { type = "label", text = "" }); sy = sy - hh
 
     -- Display: the legacy debuff style keys (retired Auras tab), which the
     -- base grid and icon tiles read directly. CC glow settings are
@@ -1229,6 +1246,17 @@ local function BuildTileDetail(frame, fontPath, t)
             cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
+
+        -- Row: Icons Per Row (end of CORE). Tile-local key, no base
+        -- inheritance: >= 2 wraps the tile's run -- rows for horizontal
+        -- growth, COLUMNS for vertical -- stacking away from the anchored
+        -- edge (position rule).
+        _, hh = W:DualRow(frame, sy,
+            { type = "slider", text = "Icons Per Row", min = 0, max = 20, step = 1, trackWidth = 120,
+              tooltip = "Wraps into a new row (or column for vertical growth) after this many icons; below 2 keeps one continuous run.",
+              getValue = function() return t.iconsPerRow or 0 end,
+              setValue = function(v) TSet("iconsPerRow", v) end },
+            { type = "label", text = "" }); sy = sy - hh
 
         _, hh = W:SectionHeader(frame, "DISPLAY", sy); sy = sy - hh
 
@@ -1748,6 +1776,11 @@ function ns.DMP_RefreshPreview()
         local dir = cfg.grow or "LEFT"
         local cursor = 0
         local selfPoint = anchor
+        -- Grid wrap preview: >= 2 wraps lines exactly like live (base rows
+        -- follow debuffWrapDirection, tiles the anchored-edge rule -- both
+        -- arrive here as cfg.wrapV/cfg.wrapH from the caller).
+        local per = cfg.perRow or 0
+        if per < 2 then per = 0 end
         if dir == "CENTER" then
             -- Live parity: CENTER growth centers the run ON the position
             -- point (the base grid pins the container's row-edge midpoint
@@ -1760,22 +1793,34 @@ function ns.DMP_RefreshPreview()
             -- the caller's vertical seat (cfg.vAlign -- tiles center on
             -- the point, base rows hang off it in the wrap direction).
             selfPoint = cfg.vAlign or "CENTER"
-            cursor = -((cfg.count - 1) * (sz + gap)) / 2
+            local lineN = cfg.count
+            if per > 0 and per < lineN then lineN = per end
+            cursor = -((lineN - 1) * (sz + gap)) / 2
         end
+        local lineStart = cursor
         for i = 1, cfg.count do
             local fr = GetIcon()
             fr._dmSel = cfg.selKey
             fr:SetSize(sz, sz)
             fr:ClearAllPoints()
+            local lineOff = 0
+            if per > 0 then
+                if i > 1 and (i - 1) % per == 0 then cursor = lineStart end
+                lineOff = math.floor((i - 1) / per) * (sz + gap)
+            end
             local gx, gy = 0, 0
             if dir == "RIGHT" or dir == "CENTER" then
                 gx = cursor; cursor = cursor + sz + gap
+                gy = (cfg.wrapV == "UP") and lineOff or -lineOff
             elseif dir == "LEFT" then
                 gx = -cursor; cursor = cursor + sz + gap
+                gy = (cfg.wrapV == "UP") and lineOff or -lineOff
             elseif dir == "DOWN" then
                 gy = -cursor; cursor = cursor + sz + gap
+                gx = (cfg.wrapH == "LEFT") and -lineOff or lineOff
             elseif dir == "UP" then
                 gy = cursor; cursor = cursor + sz + gap
+                gx = (cfg.wrapH == "LEFT") and -lineOff or lineOff
             end
             fr:SetPoint(selfPoint, host, anchor, (cfg.offX or 0) + gx, (cfg.offY or 0) + gy)
             if cfg.color then
@@ -1853,6 +1898,12 @@ function ns.DMP_RefreshPreview()
             -- BOTTOM edge midpoint at the corner per wrap direction, so the
             -- first row hangs off the point (unlike tiles, which center).
             vAlign = (p.debuffWrapDirection == "DOWN") and "TOP" or "BOTTOM",
+            -- Base wrap: rows follow the stored debuffWrapDirection (the
+            -- runtime's cross-axis source); vertical growth wraps columns
+            -- by its LEFT/RIGHT reading.
+            perRow = p.debuffPerRow or 5,
+            wrapV = (p.debuffWrapDirection == "DOWN") and "DOWN" or "UP",
+            wrapH = (p.debuffWrapDirection == "LEFT") and "LEFT" or "RIGHT",
             offX = p.debuffOffsetX or 0,
             offY = p.debuffOffsetY or 0,
             alpha = (sel or allVis) and 1 or 0.5,
@@ -1873,6 +1924,11 @@ function ns.DMP_RefreshPreview()
                     spacing = t.spacing or 1,
                     pos = t.position or "top",
                     grow = t.growDirection or "CENTER",
+                    -- Tile wrap: away from the anchored edge (position rule,
+                    -- matching AnchorTileContainer).
+                    perRow = t.iconsPerRow or 0,
+                    wrapV = string.find(t.position or "top", "bottom", 1, true) and "UP" or "DOWN",
+                    wrapH = string.find(t.position or "top", "right", 1, true) and "LEFT" or "RIGHT",
                     offX = t.offsetX or 0,
                     offY = t.offsetY or 0,
                     alpha = alpha,
@@ -2014,6 +2070,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
     outerRoot:SetFrameLevel(scrollFrame:GetFrameLevel() + 5)
     if ns._dmRoot then ns._dmRoot:Hide(); ns._dmRoot:SetParent(nil) end
     if ns._dmAddPopup then ns._dmAddPopup:Hide() end
+    if ns._dmExcludePopup then ns._dmExcludePopup:Hide(); ns._dmExcludePopup = nil end
     ns._dmRoot = outerRoot
 
     local dm = DmTable()
@@ -2387,29 +2444,11 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         end)
     end
 
-    -- Dismissible helper subtitle under the preview (BM parity)
-    if not (EllesmereUIDB and EllesmereUIDB.dmIconHintDismissed) then
-        local hintBtn = CreateFrame("Button", nil, leftFixed)
-        hintBtn:SetPoint("TOP", pvFrame, "BOTTOM", 0, -8)
-        local hintFS = hintBtn:CreateFontString(nil, "OVERLAY")
-        hintFS:SetFont(fontPath, 11, "")
-        hintFS:SetAllPoints(hintBtn)
-        hintFS:SetJustifyH("CENTER")
-        hintFS:SetWordWrap(false)
-        hintFS:SetTextColor(0.75, 0.75, 0.75, 0.65)
-        hintFS:SetText(L("Left click any preview element to edit it"))
-        hintBtn:SetSize(hintFS:GetStringWidth() + 8, 14)
-        hintBtn:SetScript("OnEnter", function() hintFS:SetTextColor(1, 1, 1, 0.85) end)
-        hintBtn:SetScript("OnLeave", function() hintFS:SetTextColor(0.75, 0.75, 0.75, 0.65) end)
-        hintBtn:SetScript("OnClick", function()
-            if not EllesmereUIDB then EllesmereUIDB = {} end
-            EllesmereUIDB.dmIconHintDismissed = true
-            EllesmereUI:RefreshPage(true)
-        end)
-        ly = ly - sectionH - 10
-    else
-        ly = ly - sectionH
-    end
+    -- No text under the DM preview (user call 2026-07-24): the "Edit
+    -- Excluded Debuffs" link is retired (exclude list is internal now) and
+    -- the BM-style click-hint was dropped the next day. The band-height
+    -- accounting stays so the divider seats where it always did.
+    ly = ly - sectionH - 10
 
     -------------------------------------------------------------------
     --  DIVIDER (below preview, above settings title) -- BM parity
@@ -2603,6 +2642,256 @@ local fdScrollPos = 0 -- preserved spell-list scroll across editor rebuilds
 -- standard input popup + delete via the standard confirm popup); left =
 -- the selected filter's spells as checkbox rows using the checkbox-
 -- dropdown widget's exact visuals, grouped by class.
+-- ---------------------------------------------------------------------------
+--  Excluded Debuffs popup (DM): user-managed spellID blacklist merged into
+--  every debuff record's excludeSpellIDs by the runtime. 68824's
+--  never-secret identity-gate exemption makes these excludes work on
+--  friendly units for never-secret spells (Sated et al -- the seed);
+--  secret-flagged entries are accepted but inert, so their rows dim with
+--  an explanatory tooltip. Standard popup chrome (Filter Editor pattern).
+-- ---------------------------------------------------------------------------
+function ns.DMP_ShowExcludePopup()
+    if ns._dmExcludePopup then ns._dmExcludePopup:Hide(); ns._dmExcludePopup = nil end
+    local list = ns.DM_ExcludeList and ns.DM_ExcludeList()
+    if not list then return end
+    local ar, ag, ab = 1, 0.82, 0.30
+    if EllesmereUI.GetAccentColor then ar, ag, ab = EllesmereUI.GetAccentColor() end
+
+    local POPUP_W, POPUP_H = 400, 480
+
+    local dimmer = CreateFrame("Frame", nil, UIParent)
+    dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
+    dimmer:SetAllPoints(UIParent)
+    dimmer:EnableMouse(true)
+    dimmer:EnableMouseWheel(true)
+    dimmer:SetScript("OnMouseWheel", function() end)
+    dimmer:SetScript("OnMouseDown", function()
+        dimmer:Hide()
+        ns._dmExcludePopup = nil
+    end)
+    local dimTex = EllesmereUI.SolidTex(dimmer, "BACKGROUND", 0, 0, 0, 0.25)
+    dimTex:SetAllPoints()
+    ns._dmExcludePopup = dimmer
+
+    local popup = CreateFrame("Frame", nil, dimmer)
+    popup:SetSize(POPUP_W, POPUP_H)
+    popup:SetPoint("CENTER", UIParent, "CENTER", 0, 20)
+    popup:SetFrameStrata("FULLSCREEN_DIALOG")
+    popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
+    popup:EnableMouse(true)
+    local popBg = EllesmereUI.SolidTex(popup, "BACKGROUND", 0.06, 0.08, 0.10, 1)
+    popBg:SetAllPoints()
+    EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15)
+    local ppScale = EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale() or 1
+    popup:SetScale(ppScale)
+
+    local title = EllesmereUI.MakeFont(popup, 16, "", 1, 1, 1)
+    title:SetPoint("TOP", popup, "TOP", 0, -18)
+    title:SetText(EllesmereUI.L("Excluded Debuffs"))
+
+    local sub = EllesmereUI.MakeFont(popup, 11, nil, 0.65, 0.65, 0.65)
+    sub:SetPoint("TOP", title, "BOTTOM", 0, -6)
+    sub:SetWidth(POPUP_W - 40)
+    sub:SetJustifyH("CENTER")
+    sub:SetWordWrap(true)
+    sub:SetText(EllesmereUI.L("Debuffs on this list never display on the raid frames."))
+
+    -- Close X (borderless, editor style)
+    do
+        local close = CreateFrame("Button", nil, popup)
+        close:SetSize(19, 19)
+        close:SetPoint("TOPRIGHT", popup, "TOPRIGHT", -13, -8)
+        close:SetFrameLevel(popup:GetFrameLevel() + 5)
+        local closeIcon = close:CreateTexture(nil, "ARTWORK")
+        closeIcon:SetAllPoints()
+        closeIcon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
+        closeIcon:SetAlpha(0.40)
+        closeIcon:SetSnapToPixelGrid(false)
+        closeIcon:SetTexelSnappingBias(0)
+        close:SetScript("OnEnter", function() closeIcon:SetAlpha(0.50) end)
+        close:SetScript("OnLeave", function() closeIcon:SetAlpha(0.40) end)
+        close:SetScript("OnClick", function()
+            dimmer:Hide()
+            ns._dmExcludePopup = nil
+        end)
+    end
+
+    local function Rebuild()
+        ns.DMP_ShowExcludePopup()
+    end
+
+    -- "Add Spell ID" button (standard popup-button styling). The input
+    -- popup singleton predates this popup, so raise it above us on open.
+    do
+        local btn = CreateFrame("Button", nil, popup)
+        btn:SetSize(120, 24)
+        btn:SetPoint("TOP", sub, "BOTTOM", 0, -10)
+        btn:SetFrameLevel(popup:GetFrameLevel() + 2)
+        local bg = EllesmereUI.SolidTex(btn, "BACKGROUND", 0, 0, 0, 0.5)
+        bg:SetAllPoints()
+        local brd = EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.25)
+        local lbl = EllesmereUI.MakeFont(btn, 12, nil, 1, 1, 1)
+        lbl:SetAlpha(0.6)
+        lbl:SetPoint("CENTER")
+        lbl:SetText(EllesmereUI.L("Add Spell ID"))
+        btn:SetScript("OnEnter", function()
+            lbl:SetAlpha(0.9)
+            if brd and brd.SetColor then brd:SetColor(ar, ag, ab, 0.6) end
+        end)
+        btn:SetScript("OnLeave", function()
+            lbl:SetAlpha(0.6)
+            if brd and brd.SetColor then brd:SetColor(1, 1, 1, 0.25) end
+        end)
+        btn:SetScript("OnClick", function()
+            EllesmereUI:ShowInputPopup({
+                title = "Add Excluded Debuff",
+                message = "Enter the debuff's spell ID.",
+                placeholder = "Spell ID",
+                confirmText = "Add",
+                cancelText = "Cancel",
+                onConfirm = function(text)
+                    local id = tonumber(text and text:match("%d+"))
+                    if id and id > 0 then
+                        list[id] = true
+                        DmApply()
+                        Rebuild()
+                    end
+                end,
+            })
+            local d = _G.EUIInputDimmer
+            if d and ns._dmExcludePopup then
+                d:SetFrameLevel(popup:GetFrameLevel() + 40)
+                local p2 = _G.EUIInputPopup
+                if p2 then p2:SetFrameLevel(d:GetFrameLevel() + 10) end
+            end
+        end)
+        popup._addBtn = btn
+    end
+
+    -- Scrollable entry list: icon + name (+ gray id) + remove X per row.
+    local scroll = CreateFrame("ScrollFrame", nil, popup)
+    scroll:SetPoint("TOPLEFT", popup, "TOPLEFT", 14, -110)
+    scroll:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -14, 12)
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetWidth(POPUP_W - 28)
+    scroll:SetScrollChild(child)
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(self, delta)
+        local ms = math.max(0, child:GetHeight() - self:GetHeight())
+        if ms <= 0 then return end
+        self:SetVerticalScroll(math.max(0, math.min(ms,
+            (self:GetVerticalScroll() or 0) - delta * 58)))
+    end)
+
+    -- Sorted by name (unresolved ids sort by number at the end).
+    local ids = {}
+    for id in pairs(list) do ids[#ids + 1] = id end
+    local names = {}
+    for i = 1, #ids do
+        names[ids[i]] = (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(ids[i])) or nil
+    end
+    table.sort(ids, function(a, b)
+        local na, nb = names[a], names[b]
+        if na and nb then
+            if na ~= nb then return na < nb end
+            return a < b
+        end
+        if na then return true end
+        if nb then return false end
+        return a < b
+    end)
+
+    local ROW_H = 29
+    local ry = 0
+    for i = 1, #ids do
+        local id = ids[i]
+        local row = CreateFrame("Frame", nil, child)
+        row:SetSize(POPUP_W - 28, ROW_H)
+        row:SetPoint("TOPLEFT", child, "TOPLEFT", 0, ry)
+
+        local icon = row:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(22, 22)
+        icon:SetPoint("LEFT", row, "LEFT", 4, 0)
+        local tex = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id)
+        icon:SetTexture(tex or "Interface\\Icons\\INV_Misc_QuestionMark")
+        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+        local nameFS = EllesmereUI.MakeFont(row, 13, nil, 1, 1, 1)
+        nameFS:SetPoint("LEFT", icon, "RIGHT", 8, 0)
+        nameFS:SetPoint("RIGHT", row, "RIGHT", -92, 0)
+        nameFS:SetJustifyH("LEFT")
+        nameFS:SetWordWrap(false)
+        nameFS:SetText(names[id] or ("Spell " .. id))
+
+        local idFS = EllesmereUI.MakeFont(row, 10, nil, 0.5, 0.5, 0.5)
+        idFS:SetPoint("RIGHT", row, "RIGHT", -28, 0)
+        idFS:SetJustifyH("RIGHT")
+        idFS:SetText(tostring(id))
+
+        -- Never-secret probe: a secret-flagged spell is legal to LIST but
+        -- the engine ignores its exclude on friendlies -- dim + explain.
+        -- The query namespace may be privileged; degrade silently.
+        local inert = false
+        if C_Secrets and C_Secrets.GetSpellAuraSecrecy and Enum and Enum.SecrecyLevel then
+            local ok, lvl = pcall(C_Secrets.GetSpellAuraSecrecy, id)
+            if ok and lvl ~= nil and lvl ~= Enum.SecrecyLevel.NeverSecret then
+                inert = true
+            end
+        end
+        if inert then
+            icon:SetDesaturated(true)
+            icon:SetAlpha(0.45)
+            nameFS:SetAlpha(0.45)
+            idFS:SetAlpha(0.45)
+            row:EnableMouse(true)
+            row:SetScript("OnEnter", function(self)
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(
+                    "Secret-flagged spell: the game only honors excludes for never-secret debuffs, so this entry has no effect."))
+            end)
+            row:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        end
+
+        local del = CreateFrame("Button", nil, row)
+        del:SetSize(14, 14)
+        del:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+        del:SetFrameLevel(row:GetFrameLevel() + 2)
+        del:SetAlpha(0.5)
+        local dx = del:CreateTexture(nil, "OVERLAY")
+        dx:SetAllPoints()
+        dx:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
+        dx:SetSnapToPixelGrid(false)
+        dx:SetTexelSnappingBias(0)
+        del:SetScript("OnEnter", function(self)
+            self:SetAlpha(0.9)
+            EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Remove"))
+        end)
+        del:SetScript("OnLeave", function(self)
+            self:SetAlpha(0.5)
+            EllesmereUI.HideWidgetTooltip()
+        end)
+        del:SetScript("OnClick", function()
+            list[id] = nil
+            DmApply()
+            Rebuild()
+        end)
+
+        local sep = row:CreateTexture(nil, "ARTWORK")
+        sep:SetHeight(1)
+        sep:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 2, 0)
+        sep:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -2, 0)
+        sep:SetColorTexture(1, 1, 1, 0.04)
+
+        ry = ry - ROW_H
+    end
+    if #ids == 0 then
+        local none = EllesmereUI.MakeFont(child, 12, nil, 0.55, 0.55, 0.55)
+        none:SetPoint("TOP", child, "TOP", 0, -16)
+        none:SetText(EllesmereUI.L("No excluded debuffs."))
+        ry = -48
+    end
+    child:SetHeight(math.max(-ry, 1))
+end
+
 function ns.BMP_ShowFilterEditor()
     if ns._bm2FilterEditor then ns._bm2FilterEditor:Hide(); ns._bm2FilterEditor = nil end
     local filters = ns.BM2_Filters and ns.BM2_Filters()
@@ -2992,6 +3281,55 @@ function ns.BMP_ShowFilterEditor()
         end)
     end
 
+    -- Preset-universe spell search (identical list to the Extra Spells
+    -- dropdown: curated primaries, name-sorted, spell icons, searchable):
+    -- every spell already ON this filter is excluded -- checked or
+    -- unchecked, curated or custom alike. Picking one adds it to the
+    -- filter's Custom group (the same landing as Add Spell ID) and the
+    -- editor rebuild re-lists without it.
+    local searchDD = EllesmereUI.BuildVisOptsCBDropdown(
+        left, 170, left:GetFrameLevel() + 5,
+        function()
+            local f = (ns.BM2_GetFilter and ns.BM2_GetFilter(sel.id)) or sel
+            local universe = (ns.BM2_AllPresetSpells and ns.BM2_AllPresetSpells()) or {}
+            local out = {}
+            for i = 1, #universe do
+                local id = universe[i]
+                local onFilter = (f.spells and f.spells[id] ~= nil)
+                    or (f.custom and f.custom[id])
+                if not onFilter then
+                    local nm = C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+                    out[#out + 1] = {
+                        key = id, label = nm or tostring(id), noCheck = true,
+                        icon = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id),
+                    }
+                end
+            end
+            table.sort(out, function(a, b)
+                return tostring(a.label or a.key) < tostring(b.label or b.key)
+            end)
+            return out
+        end,
+        function() return false end, -- nothing listed is ever on the filter
+        function(k, v)
+            if v and ns.BM2_AddCustomSpell and ns.BM2_AddCustomSpell(sel.id, k) then
+                Apply()
+                Rebuild()
+            end
+        end,
+        nil, 10, true)
+    searchDD:ClearAllPoints()
+    searchDD:SetPoint("TOPLEFT", left, "TOPLEFT", 2, -23)
+    -- One-shot title: the checked-count summary a checkbox dropdown shows
+    -- ("None") reads wrong for an action search, and every add rebuilds
+    -- the editor, so the label never needs re-asserting.
+    for _, r in ipairs({ searchDD:GetRegions() }) do
+        if r.SetText and r.GetText then
+            r:SetText(EllesmereUI.L("Search Spells"))
+            break
+        end
+    end
+
     local addSpellBtn = PopupButton(left, 110, 24, "Add Spell ID", function()
         EditorInput({
             title = EllesmereUI.L("Add Spell ID"),
@@ -3007,7 +3345,7 @@ function ns.BMP_ShowFilterEditor()
             end,
         })
     end)
-    addSpellBtn:SetPoint("TOPLEFT", left, "TOPLEFT", 2, -26)
+    addSpellBtn:SetPoint("LEFT", searchDD, "RIGHT", 8, 0)
 
     -- Spell checkbox list: rows mirror the checkbox-dropdown widget's
     -- visuals exactly (16px box at 0.12/0.12/0.14, gray 0.4 border, accent

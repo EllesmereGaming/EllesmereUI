@@ -56,7 +56,7 @@ end
 
 local SATED_DEBUFFS = {
     [57723] = true, [57724] = true, [80354] = true, [95809] = true,
-    [160455] = true, [264689] = true, [390435] = true, [428628] = true,
+    [160455] = true, [264689] = true, [390435] = true,
 }
 local ALWAYS_HIDE_DEBUFFS = { [1254550] = true, [308312] = true }
 -- Shared with the Debuff Manager file (same exclude semantics there).
@@ -182,13 +182,13 @@ end
 -- text bottom-right, both through the shared icon-text font pipeline.
 -- DM EFFECTS: per-filter effect BLOCKS (style.fxList). Buttons know their
 -- record category via d.dmCat (stamped at group declare); cc-group buttons
--- identify through the cc style (its ccGlowType field is always set
--- there). The combined boss/role record matches either check; the FIRST
--- matching block wins. Each block carries an optional Icon Glow (CC-glow
--- overlay mechanics: child rides button visibility, driver styles remap to
--- FlipBook under restriction, params cached) and an optional Border
--- override (own PP border host one level over the style border -- equal or
--- larger size covers it).
+-- identify through the cc style's ccGroup marker (the legacy cc group has
+-- no stamping extraInit). The combined boss/role record matches either
+-- check; the FIRST matching block wins. Each block carries an optional
+-- Icon Glow (overlay mechanics: child rides button visibility, driver
+-- styles remap to FlipBook under restriction, params cached) and an
+-- optional Border override (own PP border host one level over the style
+-- border -- equal or larger size covers it).
 local function DmFxBlockFor(list, cat)
     if not (list and cat) then return nil end
     for i = 1, #list do
@@ -201,7 +201,7 @@ end
 
 local function ApplyDmFx(button, d, style)
     local cat = d.dmCat
-    if not cat and style.ccGlowType ~= nil then cat = "cc" end
+    if not cat and style.ccGroup then cat = "cc" end
     local e = style.fxList and DmFxBlockFor(style.fxList, cat) or nil
 
     -- Icon Glow
@@ -215,15 +215,17 @@ local function ApplyDmFx(button, d, style)
         if not gov then
             gov = CreateFrame("Frame", nil, button)
             gov:SetAllPoints(button)
-            -- Above BOTH borders (style border at cooldown+1; the fx
-            -- border override rides one over it), below the text: the AK
-            -- text carrier sits only one level over the style border, so
-            -- lift it too -- final order is border < fx border < glow <
-            -- text. (Creation-window calls; our frames.)
+            -- Above BOTH borders (style border strips at borderHost+1;
+            -- the fx border override's container at +2), below the dispel
+            -- ring and text -- the engine dispel recolor ALWAYS wins over
+            -- borders and glows. Final order: border < fx border < glow <
+            -- dispel ring < text. The carrier write matches AuraKit's
+            -- ladder (ring +3, text +4) so this pass never drags the text
+            -- back down onto the ring. (Creation-window calls; our frames.)
             local base = (d.borderHost and d.borderHost:GetFrameLevel())
                 or (button:GetFrameLevel() + 1)
             gov:SetFrameLevel(base + 2)
-            if d.stackCarrier then d.stackCarrier:SetFrameLevel(base + 3) end
+            if d.stackCarrier then d.stackCarrier:SetFrameLevel(base + 4) end
             gov:EnableMouse(false)
             d.dmFxgHost = gov
         end
@@ -411,6 +413,16 @@ end
 local function BuildDebuffStyle(s, sizeOverride)
     local br, bg, bb = ColorParts(s.debuffBorderColor, 0, 0, 0)
     local size = sizeOverride or s.debuffSize or 18
+    -- Engine dispel-border extras: the ring's thickness in PHYSICAL pixels
+    -- (Dispels section cog) and the user dispel palette as the engine's
+    -- tint map (AuraKit registers both; helper is declared below, resolved
+    -- at call time). -1 = follow the icon's own Border thickness (tile
+    -- styles resolve their override through the style view passed in);
+    -- 0 disables the recolor (AuraKit's registration gate).
+    local dpx = s.dispelIconBorderSize or 2
+    if dpx == -1 then dpx = s.debuffBorderSize or 1 end
+    local dcMap, dcFP
+    if ns.RFC_DispelBorderColorMap then dcMap, dcFP = ns.RFC_DispelBorderColorMap(s) end
     return {
         width = size,
         height = size,
@@ -420,6 +432,9 @@ local function BuildDebuffStyle(s, sizeOverride)
         -- Dispellable debuffs get the engine dispel-type border over the
         -- static one (dispelName is secret in 12.1; see AuraKit).
         dispelBorder = true,
+        dispelBorderPx = dpx,
+        dispelColorMap = dcMap,
+        dispelColorFP = dcFP,
         cooldownReverse = true,
         hideSwipe = (s.debuffShowSwipe == false),
         noDefaultFonts = true,
@@ -441,88 +456,23 @@ local function BuildDebuffStyle(s, sizeOverride)
     }
 end
 
--- CC debuff decoration: the normal debuff pass plus the CC glow overlay.
--- The engine routes crowd-control auras to this group's buttons, so a
--- visible button IS a CC debuff -- the glow simply rides its visibility
--- (pixel-glow OnUpdate lives on our overlay child and only runs while the
--- button is shown). Glow restarts only when a parameter actually changed
--- (params cached on the overlay -- our frame, custom fields allowed) so a
--- steady glow never resets on restyles.
-local function ApplyRFDebuffCC(button, dd, style)
-    ApplyRFDebuffText(button, dd, style)
-    local Glows = EllesmereUI.Glows
-    if not Glows then return end
-    local gType = style.ccGlowType or 0
-    -- Engine-button glows must animate identically in and out of
-    -- restricted content: remap driver-based styles to their FlipBook
-    -- (C-side AnimationGroup) equivalents.
-    if gType > 0 and Glows.RestrictionSafeStyle then
-        gType = Glows.RestrictionSafeStyle(gType)
-    end
-    if gType > 0 and Glows.StartGlow then
-        local gov = dd.ccGlow
-        if not gov then
-            gov = CreateFrame("Frame", nil, button)
-            gov:SetAllPoints(button)
-            -- Just above the border, below the duration/stack text (the
-            -- text carrier is one level over the border host; equal level
-            -- with the border host still draws on top -- created later).
-            if dd.stackCarrier then
-                gov:SetFrameLevel(dd.stackCarrier:GetFrameLevel() - 1)
-            else
-                gov:SetFrameLevel(button:GetFrameLevel() + 1)
-            end
-            gov:EnableMouse(false)
-            dd.ccGlow = gov
-        end
-        local cr, cg, cb = style.ccGlowR or 1.0, style.ccGlowG or 0.776, style.ccGlowB or 0.376
-        if style.ccGlowClassColor then
-            local _, classFile = UnitClass("player")
-            local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-            if cc then cr, cg, cb = cc.r, cc.g, cc.b end
-        end
-        local sz = style.width or 18
-        local oN, oTh, oPer, oBgR, oBgG, oBgB
-        if gType == 1 then -- Pixel Glow consumes the Lines/Thickness/Speed params
-            oN, oTh, oPer = style.ccGlowLines or 8, style.ccGlowThickness or 2, style.ccGlowSpeed or 4
-            if style.ccGlowBackground then
-                oBgR, oBgG, oBgB = style.ccGlowBgR or 0, style.ccGlowBgG or 0, style.ccGlowBgB or 0
-            end
-        end
-        if (not gov._euiGlowActive) or gov._ccStyle ~= gType or gov._ccW ~= sz
-           or gov._ccCR ~= cr or gov._ccCG ~= cg or gov._ccCB ~= cb
-           or gov._ccN ~= oN or gov._ccTh ~= oTh or gov._ccPer ~= oPer
-           or gov._ccBgR ~= oBgR or gov._ccBgG ~= oBgG or gov._ccBgB ~= oBgB then
-            Glows.StartGlow(gov, gType, sz, cr, cg, cb,
-                oN and { N = oN, th = oTh, period = oPer, bg = oBgR and { r = oBgR, g = oBgG, b = oBgB } or nil } or nil)
-            gov._ccStyle, gov._ccW = gType, sz
-            gov._ccCR, gov._ccCG, gov._ccCB = cr, cg, cb
-            gov._ccN, gov._ccTh, gov._ccPer = oN, oTh, oPer
-            gov._ccBgR, gov._ccBgG, gov._ccBgB = oBgR, oBgG, oBgB
-        end
-    elseif dd.ccGlow and dd.ccGlow._euiGlowActive and Glows.StopGlow then
-        Glows.StopGlow(dd.ccGlow)
-    end
-end
-
+-- Crowd-control group style: the plain debuff style plus a marker the DM
+-- per-filter Icon Effects use to identify cc-group buttons (the legacy cc
+-- group declares no category-stamping extraInit). The dedicated CC Debuff
+-- Glow is RETIRED on 12.1: the Debuff Manager's per-filter Icon Effects
+-- glow supersedes it (glow any category, user-configured), so the old
+-- debuffCCGlow* keys are orphaned here (the frozen 12.0 path keeps them).
 local function BuildDebuffCCStyle(s, sizeOverride)
     local st = BuildDebuffStyle(s, sizeOverride)
-    st.applyExtra = ApplyRFDebuffCC
-    st.ccGlowType = s.debuffCCGlowType or 0
-    st.ccGlowClassColor = s.debuffCCGlowClassColor
-    st.ccGlowR, st.ccGlowG, st.ccGlowB = s.debuffCCGlowR, s.debuffCCGlowG, s.debuffCCGlowB
-    st.ccGlowLines = s.debuffCCGlowLines
-    st.ccGlowThickness = s.debuffCCGlowThickness
-    st.ccGlowSpeed = s.debuffCCGlowSpeed
-    st.ccGlowBackground = s.debuffCCGlowBackground
-    st.ccGlowBgR = s.debuffCCGlowBackgroundR
-    st.ccGlowBgG = s.debuffCCGlowBackgroundG
-    st.ccGlowBgB = s.debuffCCGlowBackgroundB
+    st.ccGroup = true
     return st
 end
 -- Shared with the Debuff Manager file: custom tiles render with the debuff
 -- style at their own size (same derivation the dispellable split uses).
 ns.RFC_BuildDebuffStyle = BuildDebuffStyle
+-- CC flavor too: a per-filter Icon Effects Size moves crowd control onto a
+-- sized record variant, which must keep the CC glow style fields.
+ns.RFC_BuildDebuffCCStyle = BuildDebuffCCStyle
 
 -- Container anchoring that mirrors DebuffGridPoint: the flow's start corner
 -- sits on the same corner of the health bar; CENTER growth anchors the
@@ -570,20 +520,31 @@ local function AnchorDebuffContainer(container, health, s)
 
     container:ClearAllPoints()
     container:SetPoint(point, health, corner, offX, offY)
-    container:SetAuraLayoutAnchorPoint(anchorPoint)
-    container:SetAuraLayoutGrowthDirection(FlowDir(gH), FlowDir(gV))
+    AK.SetContainerAnchor(container, anchorPoint)
+    AK.SetContainerGrowth(container, FlowDir(gH), FlowDir(gV))
 
     local size = s.debuffSize or 18
     local spacing = s.debuffSpacing or 1
     local perRow = s.debuffPerRow or 5
     local vertical = (grow == "UP" or grow == "DOWN")
     local rowWidth = nil
-    if vertical then
-        rowWidth = size + 0.4 -- one column; rows advance vertically
-    elseif perRow and perRow >= 2 then
+    if vertical and perRow and perRow >= 2 then
+        -- Vertical COLUMNS (12.1 flow axis): lines are columns of perRow
+        -- cells wrapping sideways -- debuffWrapDirection already maps to
+        -- the horizontal cross-axis in the growth math above. Below 2 the
+        -- legacy single column stands.
+        AK.SetContainerAxis(container, true)
         rowWidth = perRow * size + (perRow - 1) * spacing + 0.4
+    elseif vertical then
+        AK.SetContainerAxis(container, false)
+        rowWidth = size + 0.4 -- one column; rows advance vertically
+    else
+        AK.SetContainerAxis(container, false)
+        if perRow and perRow >= 2 then
+            rowWidth = perRow * size + (perRow - 1) * spacing + 0.4
+        end
     end
-    container:SetAuraLayoutRowWidth(rowWidth)
+    AK.SetContainerRowWidth(container, rowWidth)
 end
 
 -- Dispellable-location container anchoring: the same flow math as the main
@@ -615,8 +576,8 @@ local function AnchorDispLocContainer(container, health, s)
 
     container:ClearAllPoints()
     container:SetPoint(point, health, corner, offX, offY)
-    container:SetAuraLayoutAnchorPoint(anchorPoint)
-    container:SetAuraLayoutGrowthDirection(FlowDir(gH), FlowDir(gV))
+    AK.SetContainerAnchor(container, anchorPoint)
+    AK.SetContainerGrowth(container, FlowDir(gH), FlowDir(gV))
 
     local size = DispLocSize(s)
     local spacing = s.debuffSpacing or 1
@@ -628,7 +589,7 @@ local function AnchorDispLocContainer(container, health, s)
     elseif perRow and perRow >= 2 then
         rowWidth = perRow * size + (perRow - 1) * spacing + 0.4
     end
-    container:SetAuraLayoutRowWidth(rowWidth)
+    AK.SetContainerRowWidth(container, rowWidth)
 end
 
 -- Defensives anchoring mirrors the legacy AnchorDefensives: the chain starts
@@ -644,19 +605,19 @@ local function AnchorDefContainer(container, health, s)
     container:ClearAllPoints()
     if grow == "CENTER" then
         container:SetPoint("CENTER", health, corner, offX, offY)
-        container:SetAuraLayoutAnchorPoint("TOPLEFT")
-        container:SetAuraLayoutGrowthDirection(FlowDir("RIGHT"), FlowDir("DOWN"))
+        AK.SetContainerAnchor(container, "TOPLEFT")
+        AK.SetContainerGrowth(container, FlowDir("RIGHT"), FlowDir("DOWN"))
     else
         container:SetPoint(corner, health, corner, offX, offY)
-        container:SetAuraLayoutAnchorPoint(corner)
+        AK.SetContainerAnchor(container, corner)
         local gV = (grow == "UP" or grow == "DOWN") and grow or "DOWN"
         local gH = (grow == "LEFT" or grow == "RIGHT") and grow or "RIGHT"
-        container:SetAuraLayoutGrowthDirection(FlowDir(gH), FlowDir(gV))
+        AK.SetContainerGrowth(container, FlowDir(gH), FlowDir(gV))
     end
 
     local size = s.defSize or 22
     local vertical = (grow == "UP" or grow == "DOWN")
-    container:SetAuraLayoutRowWidth(vertical and (size + 0.4) or nil)
+    AK.SetContainerRowWidth(container, vertical and (size + 0.4) or nil)
 end
 
 local function ApplyDefConfig(container, s, d)
@@ -670,7 +631,7 @@ local function ApplyDefConfig(container, s, d)
     local spacing = s.defSpacing or 1
     local layout = {
         elementWidth = size, elementHeight = size,
-        elementSpacingX = spacing, elementSpacingY = spacing,
+        elementSpacing = spacing, lineSpacing = spacing,
     }
     -- Defensive groups are declared on demand: only toggled-on roles exist
     -- (10-button batch each). A toggle enabled later declares its group on
@@ -735,6 +696,25 @@ local DISPEL_SLOTS = {
     { key = "poison",  token = "Poison",  colorKey = "dispelColorPoison",  atlas = "RaidFrame-Icon-DebuffPoison",  fallback = { 0.0, 0.706, 0.286 },   level = 2 },
     { key = "bleed",   token = "Bleed",   colorKey = "dispelColorBleed",   atlas = "RaidFrame-Icon-DebuffBleed",   fallback = { 0.75, 0.15, 0.15 },    level = 1 },
 }
+
+-- User dispel palette as a SetAuraBorder customDispelColorMap (the engine
+-- tints our debuff-icon ring with THESE colors; C-side option validation
+-- reconstructs the color objects) plus a fingerprint string so a palette
+-- edit re-registers the border options. Resolved via ns at call time --
+-- BuildDebuffStyle is declared above this table.
+function ns.RFC_DispelBorderColorMap(s)
+    local map, fp = {}, {}
+    for i = 1, #DISPEL_SLOTS do
+        local def = DISPEL_SLOTS[i]
+        local c = s[def.colorKey]
+        local r = (c and c.r) or def.fallback[1]
+        local g = (c and c.g) or def.fallback[2]
+        local b = (c and c.b) or def.fallback[3]
+        map[def.token] = CreateColor(r, g, b, 1)
+        fp[#fp + 1] = string.format("%.3f,%.3f,%.3f", r, g, b)
+    end
+    return map, table.concat(fp, ";")
+end
 local GRADIENT_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga"
 local GRADIENT_SHARP_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga"
 
@@ -887,11 +867,12 @@ local function DebuffStyleFP(s, font)
         s.debuffShowSwipe, s.debuffShowDurText, s.debuffDurTextSize, CK(s.debuffDurTextColor),
         s.debuffDurTextOffsetX, s.debuffDurTextOffsetY, s.debuffShowStacks, s.debuffStacksTextSize,
         CK(s.debuffStacksTextColor), s.debuffStacksOffsetX, s.debuffStacksOffsetY, s.debuffHideTooltips,
-        s.debuffCCGlowType, s.debuffCCGlowClassColor, s.debuffCCGlowR, s.debuffCCGlowG, s.debuffCCGlowB,
-        s.debuffCCGlowLines, s.debuffCCGlowThickness, s.debuffCCGlowSpeed, s.debuffCCGlowBackground,
-        s.debuffCCGlowBackgroundR, s.debuffCCGlowBackgroundG, s.debuffCCGlowBackgroundB,
+        -- Dispel icon ring: thickness + the user palette the engine tints with.
+        s.dispelIconBorderSize, CK(s.dispelColorMagic), CK(s.dispelColorCurse),
+        CK(s.dispelColorDisease), CK(s.dispelColorPoison), CK(s.dispelColorBleed),
         -- Base DM Effects ride the debuff style (BuildDebuffStyle injects
-        -- them), so their config is part of this fingerprint.
+        -- them), so their config is part of this fingerprint. (The old
+        -- debuffCCGlow* keys left with the retired CC Debuff Glow.)
         (ns.DM_FxFP and ns.DM_FxFP()) or "")
 end
 -- Shared with the Debuff Manager file: tile styles derive from the debuff
@@ -998,7 +979,7 @@ local function ApplyDispLocConfig(container, d, s)
     local size = DispLocSize(s)
     local layout = {
         elementWidth = size, elementHeight = size,
-        elementSpacingX = s.debuffSpacing or 1, elementSpacingY = s.debuffSpacing or 1,
+        elementSpacing = s.debuffSpacing or 1, lineSpacing = s.debuffSpacing or 1,
     }
 
     local declared = d.rfcDispLocGroups or {}
@@ -1045,27 +1026,10 @@ local function ApplyDispLocConfig(container, d, s)
     end
 end
 
--- TEMPORARY 12.1 ping workaround (mirrors the UnitFrames one): contextual
--- pings on addon unit frames hit a forbidden SendUnitPing when the resolved
--- unit/GUID carries addon taint. Our buttons carry no ping-receiver by
--- template, so this is belt-and-braces where absent and a real fix anywhere
--- the hit-test flags them. REMOVE when upstream is fixed (doc 4.5).
-local function StripPingReceiver(frame)
-    if frame and not InCombatLockdown() then
-        frame:SetAttribute("ping-receiver", nil)
-    end
-end
-
-local pingSweep = CreateFrame("Frame")
-pingSweep:RegisterEvent("PLAYER_ENTERING_WORLD")
-pingSweep:SetScript("OnEvent", function(self)
-    self:UnregisterEvent("PLAYER_ENTERING_WORLD")
-    -- Friendly boss buttons never pass StyleButton (no containers) but have
-    -- insecurely-assigned unit attributes; strip them here.
-    for i = 1, 5 do
-        StripPingReceiver(_G["ERFFriendlyBoss" .. i])
-    end
-end)
+-- The 12.1 ping-receiver strip workaround lived here until build 68914
+-- fixed SendUnitPing upstream (PingManager securecopys the receiver info
+-- at the secure boundary); the main file's hover-ping recipe now works on
+-- the PTR exactly as on retail.
 
 ------------------------------------------------------------------------------
 -- BuffManager custom mode -> slots (step 4a). Each indicator becomes one
@@ -1321,18 +1285,21 @@ end
 -- threshold config needs a re-registration on restyle. bmRegistered is set
 -- AFTER the initial registration, keeping this pass inert during init
 -- (applyExtra runs before it). Curves are cached: unchanged settings yield
--- the same object and skip the rebind entirely. SetDurationTextSafe
--- degrades to no curve while the upstream textColorCurve consumer bug
--- stands (see AuraKit).
+-- the same object and skip the rebind entirely. 68914 fixed the engine's
+-- one-arg SetTextColorCurve consumer, so the curve is live for the first
+-- time (new schema: textColor = { curve, property }).
 local function BmRebindDurationCurve(button, dd, style)
     if dd.duration and dd.bmRegistered and style.durationColorCurve ~= dd.bmCurve then
-        local durationOpts = { formatter = AK.GetDurationFormatter() }
-        if style.durationColorCurve then durationOpts.textColorCurve = style.durationColorCurve end
-        AK.SetDurationTextSafe(button, dd.duration, durationOpts)
-        -- Stamp AFTER the rebind: a denied registration while auras are
-        -- secret (12.1 button access restriction) throws here, and a
-        -- pre-stamped curve would make the restriction-lift retry skip it.
-        dd.bmCurve = style.durationColorCurve
+        local durationOpts = AK.BuildDurationTextOpts(AK.GetDurationFormatter(),
+            style.durationColorCurve)
+        local ok, full = AK.SetDurationTextSafe(button, dd.duration, durationOpts)
+        -- Stamp only when the requested option set actually landed: a denied
+        -- or degraded registration (restriction, or the curve half rejected)
+        -- must leave the curve unstamped so the restriction-lift retry or
+        -- the next restyle re-runs it.
+        if ok and (full or not style.durationColorCurve) then
+            dd.bmCurve = style.durationColorCurve
+        end
     end
 end
 
@@ -1584,11 +1551,16 @@ local function BmSquareInit(button, dd, style, ind, health)
     BmApplySquare(button, dd, style)
 
     button:SetApplicationCount(dd.stack, {})
-    local durationOpts = { formatter = AK.GetDurationFormatter() }
-    if style.durationColorCurve then durationOpts.textColorCurve = style.durationColorCurve end
-    AK.SetDurationTextSafe(button, dd.duration, durationOpts)
+    local durationOpts = AK.BuildDurationTextOpts(AK.GetDurationFormatter(),
+        style.durationColorCurve)
+    local _, full = AK.SetDurationTextSafe(button, dd.duration, durationOpts)
     dd.bmRegistered = true
-    dd.bmCurve = style.durationColorCurve
+    -- Creation-window registration is always legal; the curve stamp still
+    -- follows the full-success rule so a rejected curve half re-binds on
+    -- the next restyle instead of being skipped as current.
+    if full or not style.durationColorCurve then
+        dd.bmCurve = style.durationColorCurve
+    end
 end
 
 local function BmBarInit(button, dd, style, ind, health)
@@ -1844,7 +1816,7 @@ end
 -- (half a dimension on that point's centered axes). CENTER growth keeps
 -- the run centered on the position point, with the vertical edge staying
 -- flush like legacy.
-local function AnchorBmChainContainer(container, health, ind, iscale)
+local function AnchorBmChainContainer(container, health, ind, iscale, spellCount)
     if not container then return end
     local pos = ind.position or "TOPLEFT"
     local grow = ind.growDirection or "RIGHT"
@@ -1857,18 +1829,35 @@ local function AnchorBmChainContainer(container, health, ind, iscale)
     local posT = pos:find("TOP", 1, true) ~= nil
     local posB = pos:find("BOTTOM", 1, true) ~= nil
 
+    local per = tonumber(ind.iconsPerRow) or 0
+
     container:ClearAllPoints()
     local gH, gV
     if grow == "CENTER" then
         local point = (posT and "TOP") or (posB and "BOTTOM") or "CENTER"
         container:SetPoint(point, health, pos, ox, oy)
-        container:SetAuraLayoutAnchorPoint("TOPLEFT")
-        gH, gV = "RIGHT", "DOWN"
+        -- Wrapped rows stack away from the anchored edge (simple-grid
+        -- convention); the flow origin corner follows the stack direction.
+        gH = "RIGHT"
+        gV = (per > 0 and posB) and "UP" or "DOWN"
+        AK.SetContainerAnchor(container, (gV == "UP") and "BOTTOMLEFT" or "TOPLEFT")
     else
-        local corner
-        if grow == "LEFT" then corner = "TOPRIGHT"
-        elseif grow == "UP" then corner = "BOTTOMLEFT"
-        else corner = "TOPLEFT" end
+        gH = (grow == "LEFT") and "LEFT" or "RIGHT"
+        gV = (grow == "UP") and "UP" or "DOWN"
+        -- Wrap away from the anchored edge (simple-grid convention): the
+        -- cross-axis component only renders once wrapping is on, and the
+        -- unwrapped derivation above is the legacy single-run behavior.
+        if per > 0 then
+            if grow == "LEFT" or grow == "RIGHT" then
+                gV = posB and "UP" or "DOWN"
+            else
+                gH = posR and "LEFT" or "RIGHT"
+            end
+        end
+        -- Flow origin corner = the corner both growth directions point away
+        -- from; identical to the old fixed pick for every unwrapped combo.
+        local corner = ((gV == "UP") and "BOTTOM" or "TOP")
+            .. ((gH == "LEFT") and "RIGHT" or "LEFT")
         local dx, dy = 0, 0
         if corner:find("LEFT", 1, true) then
             if posR then dx = -size elseif not posL then dx = -size / 2 end
@@ -1881,21 +1870,40 @@ local function AnchorBmChainContainer(container, health, ind, iscale)
             if posT then dy = -size elseif not posB then dy = -size / 2 end
         end
         container:SetPoint(corner, health, pos, ox + dx, oy + dy)
-        container:SetAuraLayoutAnchorPoint(corner)
-        gH = (grow == "LEFT") and "LEFT" or "RIGHT"
-        gV = (grow == "UP") and "UP" or "DOWN"
+        AK.SetContainerAnchor(container, corner)
     end
-    container:SetAuraLayoutGrowthDirection(FlowDir(gH), FlowDir(gV))
+    AK.SetContainerGrowth(container, FlowDir(gH), FlowDir(gV))
+    local spacing = (ind.spacing or 0) * iscale
     local vertical = (grow == "UP" or grow == "DOWN")
-    container:SetAuraLayoutRowWidth(vertical and (size + 0.4) or nil)
+    -- Grid wrap (12.1 feature -- live indicators were always linear runs):
+    -- Icons Per Row > 0 caps each line at n cells; vertical orientations
+    -- flip the flow axis so lines are COLUMNS (n tall, wrapping sideways).
+    -- 0/nil = one unbounded line, the exact pre-grid behavior (explicit
+    -- axis reset keeps pooled containers clean across retargets).
+    if per > 0 then
+        AK.SetContainerAxis(container, vertical)
+        AK.SetContainerRowWidth(container, per * size + (per - 1) * spacing + 0.4)
+    else
+        AK.SetContainerAxis(container, false)
+        AK.SetContainerRowWidth(container, vertical and (size + 0.4) or nil)
+    end
 
     -- Element size/spacing feed the FLOW math (button SetSize is only the
     -- physical size), so geometry changes must re-drive the group layout.
-    local spacing = (ind.spacing or 0) * iscale
     container:SetAuraGroupLayout("chain", {
         elementWidth = size, elementHeight = size,
-        elementSpacingX = spacing, elementSpacingY = spacing,
+        elementSpacing = spacing, lineSpacing = spacing,
     })
+
+    -- Max Icons (12.1 feature): cap the chain group below its spell count.
+    -- Runs here so both the acquire path and the geometry pass re-drive it
+    -- live (the setter is dirty-mark cheap on unchanged values).
+    if spellCount and spellCount > 0 then
+        local cap = spellCount
+        local maxI = tonumber(ind.maxIcons) or 0
+        if maxI > 0 and maxI < cap then cap = maxI end
+        container:SetAuraGroupMaxFrameCount("chain", cap)
+    end
 end
 
 -- Per-styleKey fingerprint of the visual fields each BM style/apply pass
@@ -1950,7 +1958,7 @@ local function BmGeoFP(meta, iscale, s)
         local ind = m.ind
         t[#t + 1] = FP(m.key, m.size, m.count, ind.spacing, ind.growDirection, ind.position,
             ind.offsetX, ind.offsetY, ind.barWidth, ind.barHeight, ind.barFullWidth,
-            ind.barFullHeight, ind.orientation)
+            ind.barFullHeight, ind.orientation, ind.iconsPerRow, ind.maxIcons)
     end
     return table.concat(t, ";")
 end
@@ -1975,7 +1983,8 @@ local function AnchorBmSlots(d, health, iscale)
     for i = 1, #meta do
         local m = meta[i]
         if m.isChain then
-            AnchorBmChainContainer(d.rfcBmChain and d.rfcBmChain[m.chainKey], health, m.ind, iscale)
+            AnchorBmChainContainer(d.rfcBmChain and d.rfcBmChain[m.chainKey], health, m.ind, iscale,
+                m.count or (m.ind.spells and #m.ind.spells))
         end
         local f = (not m.isChain) and frames and frames[m.key] or nil
         if f then
@@ -2113,8 +2122,8 @@ local function AnchorBmSimpleContainer(container, health, bs, iscale, d)
         anchorPoint = vEdge .. ((grow == "LEFT") and "RIGHT" or "LEFT")
         container:SetPoint(anchorPoint, health, corner, ox, oy)
     end
-    container:SetAuraLayoutAnchorPoint(anchorPoint)
-    container:SetAuraLayoutGrowthDirection(FlowDir(gH), FlowDir(gV))
+    AK.SetContainerAnchor(container, anchorPoint)
+    AK.SetContainerGrowth(container, FlowDir(gH), FlowDir(gV))
 
     local rowWidth
     if not horizontal then
@@ -2122,11 +2131,11 @@ local function AnchorBmSimpleContainer(container, health, bs, iscale, d)
     elseif perRow and perRow >= 2 then
         rowWidth = perRow * size + (perRow - 1) * spacing + 0.4
     end
-    container:SetAuraLayoutRowWidth(rowWidth)
+    AK.SetContainerRowWidth(container, rowWidth)
 
     container:SetAuraGroupLayout("simple", {
         elementWidth = size, elementHeight = size,
-        elementSpacingX = spacing, elementSpacingY = spacing,
+        elementSpacing = spacing, lineSpacing = spacing,
     })
 end
 
@@ -2173,7 +2182,7 @@ local function CreateBmSimpleContainer(button, health, d, unit, specKey)
             extraInit = function(btn, dd) dd.bmRegistered = true end,
             layout = {
                 elementWidth = size, elementHeight = size,
-                elementSpacingX = spacing, elementSpacingY = spacing,
+                elementSpacing = spacing, lineSpacing = spacing,
             },
         })
         AK.FinishContainer(shell, unit)
@@ -2199,7 +2208,7 @@ local function CreateBmSimpleContainer(button, health, d, unit, specKey)
             extraInit = function(btn, dd) dd.bmRegistered = true end,
             layout = {
                 elementWidth = size, elementHeight = size,
-                elementSpacingX = spacing, elementSpacingY = spacing,
+                elementSpacing = spacing, lineSpacing = spacing,
             },
         }},
     })
@@ -2224,15 +2233,14 @@ local function ReloadBmSimple(button, d, cls)
         or (ns.BM_CurrentSpecKey and ns.BM_CurrentSpecKey())
     local c = d.rfcBmSimple
     if not c then
-        -- Enabled mid-session with no container: build on the queue. Shell
-        -- consumption is combat-legal; fresh creation must hold to OOC.
+        -- Enabled mid-session with no container: build on the queue
+        -- (creation is combat-legal since 68914).
         if baseOn and simpleKey and bs.showBuffs and not d.rfcBmSimplePend then
             d.rfcBmSimplePend = true
             AK.QueueBuildJob(function()
                 d.rfcBmSimplePend = nil
                 if d.rfcBmSimple then return end
                 if not (ns.BM_BaseActive and ns.BM_BaseActive()) then return end
-                if InCombatLockdown() and not d.rfcBmSimpleShell then return "hold" end
                 local sk = (ns.BM_SimpleSpecKey and ns.BM_SimpleSpecKey())
                     or (ns.BM_CurrentSpecKey and ns.BM_CurrentSpecKey())
                 if not (sk and d.rfcHealth and d.rfcUnit) then return end
@@ -2365,7 +2373,7 @@ local function BmAcquireChain(button, d, health, ind, spells, iscale, counters)
                 AK.FinishContainer(cc, button:GetAttribute("unit") or "player")
                 pool[poolKey] = { container = cc }
                 BmPoolReloadSoon() -- rebind the buttons waiting on this shell
-            end, "rf:bmpool-shell", true)
+            end, "rf:bmpool-shell")
             return nil, styleKey
         end
     elseif entry == "pending" then
@@ -2376,8 +2384,7 @@ local function BmAcquireChain(button, d, health, ind, spells, iscale, counters)
     entry.parked = nil
     cc:SetUnit(button:GetAttribute("unit") or "player")
     cc:SetAuraGroupCandidateFilters("chain", BuildBmCand(ind, spells))
-    cc:SetAuraGroupMaxFrameCount("chain", #spells)
-    AnchorBmChainContainer(cc, ns.RF_AnchorHost and ns.RF_AnchorHost(health, ProxyFor(d)) or health, ind, iscale)
+    AnchorBmChainContainer(cc, ns.RF_AnchorHost and ns.RF_AnchorHost(health, ProxyFor(d)) or health, ind, iscale, #spells)
     cc:SetShown(d.rfcAssist ~= false)
     return cc, styleKey
 end
@@ -2631,7 +2638,7 @@ local function ReloadBm(button, d, s, cls)
             -- SetShown and the secret range alpha re-apply immediately.
             d.rfcAssist = nil
             if ns.RFC_ApplyAssistGate then ns.RFC_ApplyAssistGate(button, d, unit) end
-        end, "rf:bm-rebuild", true)
+        end, "rf:bm-rebuild")
         return
     end
 
@@ -2943,7 +2950,7 @@ local function QueueButtonGroups(button, health, d)
     -- BuffManager + finalize: consumes the early-window BM shells (slot
     -- adds, group declarations, finishes -- all combat-legal), so it runs
     -- mid-combat too. Only pool GROWTH beyond the pre-born shells falls
-    -- back to an oocOnly job inside BmAcquireChain.
+    -- back to a queued shell job inside BmAcquireChain.
     AK.QueueBuildJob(function()
         d.rfcPending = nil
         d.rfcGroupsPending = nil
@@ -2970,7 +2977,6 @@ ns.RFC_QueueButtonGroups = QueueButtonGroups -- for the unit-assignment watch
 -- the button already holds a unit -- the assignment watch triggers it for
 -- later arrivals, so empty raid/party/extra buttons cost shells only.
 function ns.RFC_SetupButton(button, health, d)
-    StripPingReceiver(button) -- temporary 12.1 ping workaround (see above)
     AK = AK or EllesmereUI.AuraKit
     if not AK or not AK.QueueBuildJob or d.rfcDebuffs or d.rfcPending then return end
     d.rfcPending = true
@@ -3226,6 +3232,9 @@ local function ComputeClassFlags(styleKey, s)
         local ccStyleKey = styleKey:gsub("debuff", "debuffcc")
         AK.styles[ccStyleKey] = BuildDebuffCCStyle(s)
         AK.RestyleSoon(ccStyleKey)
+        -- DM per-filter sized styles derive from these; a pure style edit
+        -- does not flip the config fingerprint, so refresh them here.
+        if ns.DM_RefreshSizedStyles then ns.DM_RefreshSizedStyles(styleKey, s) end
     end
     v = DebuffCfgFP(s)
     if st.debuffCfg ~= v then st.debuffCfg = v; flags.debuffCfg = true end
@@ -3342,7 +3351,7 @@ function ns.RFC_ReloadAll()
                             d.rfcDispLocShell = c
                             d.rfcDispLocGroups = {}
                             QueueDispLocPhase(button, health, d)
-                        end, "rf:disploc-shell", true) -- oocOnly: creation is combat-illegal
+                        end, "rf:disploc-shell") -- creation combat-legal since 68914
                     end
                 end
                 if d.rfcDefs and flags.defCfg then

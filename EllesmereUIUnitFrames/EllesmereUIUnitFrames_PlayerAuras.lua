@@ -204,43 +204,26 @@ ns.RefreshPlayerAuras = RefreshAll
 --  Scale helper (applies iconSize via SetScale on AuraContainer)
 -------------------------------------------------------------------------------
 local _appliedBuffScale, _appliedDebuffScale
-local _nativeExpandEnabled
-local _appliedShowExpand
-local _savedExpandedState
 
 local function ApplyExpandButtonSetting()
     local cfg = PA()
     local button = BuffFrame and BuffFrame.CollapseAndExpandButton
     if not (cfg and button) then return end
-    if _nativeExpandEnabled == nil then
-        _nativeExpandEnabled = button:IsEnabled() and true or false
-    end
     local show = cfg.showExpandButton ~= false
-    if _appliedShowExpand == show then
-        if not show then button:Hide() end
-        return
-    end
-    _appliedShowExpand = show
+    -- Purely visual: hide the expand/collapse button when the user opts to.
+    -- We deliberately do NOT write BuffFrame.isExpanded or call BuffFrame:Update
+    -- / UpdateGridLayout / RefreshConsolidationFrameVisibility from addon code.
+    -- Driving Blizzard's aura machinery from addon context runs it under our
+    -- taint, so Blizzard's own UpdateExpirationTime compares the secret
+    -- expirationTime and errors on every aura update -- 2000+ errors and heavy
+    -- lag in raid combat -- and that tainted Update also throws before our
+    -- border re-skin hook runs, so the icon borders revert on reload. Auras keep
+    -- Blizzard's native expand state (default is expanded, so all auras show);
+    -- when hidden, the button also stays hidden via the deferred
+    -- RefreshConsolidationFrameVisibility hook installed at init.
     if not show then
-        _savedExpandedState = BuffFrame.isExpanded
-        -- Keep the button logically enabled: Blizzard's IsExpanded() treats a
-        -- disabled button as consolidated/collapsed in some configurations.
-        -- Force the model open and hide only the visual control.
-        button:Enable()
-        BuffFrame.isExpanded = true
-        if BuffFrame.Update then pcall(BuffFrame.Update, BuffFrame) end
         button:Hide()
-    else
-        if _savedExpandedState ~= nil then
-            BuffFrame.isExpanded = _savedExpandedState
-            _savedExpandedState = nil
-        end
-        if _nativeExpandEnabled then button:Enable() else button:Disable() end
-        if BuffFrame.RefreshConsolidationFrameVisibility then
-            BuffFrame:RefreshConsolidationFrameVisibility()
-        end
     end
-    if BuffFrame.UpdateGridLayout then pcall(BuffFrame.UpdateGridLayout, BuffFrame) end
 end
 
 local function ApplyScale()
@@ -629,11 +612,17 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
                 end)
                 if BuffFrame.RefreshConsolidationFrameVisibility then
                     hooksecurefunc(BuffFrame, "RefreshConsolidationFrameVisibility", function()
-                        local cfgNow = PA()
-                        if cfgNow and cfgNow.showExpandButton == false
-                            and BuffFrame.CollapseAndExpandButton then
-                            BuffFrame.CollapseAndExpandButton:Hide()
-                        end
+                        -- Deferred: this can fire inside Blizzard's secure
+                        -- buff-system refresh (incl. Edit Mode's passes);
+                        -- hiding inline there taints the rest of that
+                        -- execution.
+                        C_Timer.After(0, function()
+                            local cfgNow = PA()
+                            if cfgNow and cfgNow.showExpandButton == false
+                                and BuffFrame.CollapseAndExpandButton then
+                                BuffFrame.CollapseAndExpandButton:Hide()
+                            end
+                        end)
                     end)
                 end
             end

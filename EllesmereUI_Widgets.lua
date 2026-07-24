@@ -7643,24 +7643,35 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             row:SetPoint("TOPLEFT", child, "TOPLEFT", 1, yOff)
             row:SetPoint("TOPRIGHT", child, "TOPRIGHT", -1, yOff)
             row:SetFrameLevel(menu:GetFrameLevel() + 2)
-            local box = CreateFrame("Frame", nil, row)
-            box:SetSize(16, 16)
-            box:SetPoint("LEFT", row, "LEFT", 10, 0)
-            local boxBg = box:CreateTexture(nil, "BACKGROUND")
-            boxBg:SetAllPoints()
-            boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
-            local boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
-            local chk = box:CreateTexture(nil, "ARTWORK")
-            PP.SetInside(chk, box, 2, 2)
-            chk:SetColorTexture(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 1)
-            chk:SetSnapToPixelGrid(false)
+            -- Opt-in plain rows (item.noCheck): the identical row minus the
+            -- checkbox -- the regular-dropdown look for select-style pickers.
+            -- Click still routes setFn(key, not getFn(key)), so a picker
+            -- whose getFn is constant-false always selects with true.
+            local box, boxBrd, chk
+            if not item.noCheck then
+                box = CreateFrame("Frame", nil, row)
+                box:SetSize(16, 16)
+                box:SetPoint("LEFT", row, "LEFT", 10, 0)
+                local boxBg = box:CreateTexture(nil, "BACKGROUND")
+                boxBg:SetAllPoints()
+                boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
+                chk = box:CreateTexture(nil, "ARTWORK")
+                PP.SetInside(chk, box, 2, 2)
+                chk:SetColorTexture(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 1)
+                chk:SetSnapToPixelGrid(false)
+            end
             -- Optional icon (spell icon etc.) between checkbox and label
             local lblAnchor = box
             if item.icon then
                 local icoSz = item.iconSize or (ITEM_H - 6)
                 local ico = row:CreateTexture(nil, "ARTWORK")
                 ico:SetSize(icoSz, icoSz)
-                ico:SetPoint("LEFT", box, "RIGHT", 6, 0)
+                if box then
+                    ico:SetPoint("LEFT", box, "RIGHT", 6, 0)
+                else
+                    ico:SetPoint("LEFT", row, "LEFT", 10, 0)
+                end
                 ico:SetTexture(item.icon)
                 ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                 lblAnchor = ico
@@ -7668,7 +7679,11 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             local lbl = row:CreateFontString(nil, "OVERLAY")
             lbl:SetFont(fontPath, 13, "")
             lbl:SetTextColor(0.75, 0.75, 0.75, 1)
-            lbl:SetPoint("LEFT", lblAnchor, "RIGHT", item.icon and 6 or 8, 0)
+            if lblAnchor then
+                lbl:SetPoint("LEFT", lblAnchor, "RIGHT", item.icon and 6 or 8, 0)
+            else
+                lbl:SetPoint("LEFT", row, "LEFT", 10, 0)
+            end
             lbl:SetPoint("RIGHT", row, "RIGHT", -10, 0)
             lbl:SetJustifyH("LEFT")
             lbl:SetWordWrap(false)
@@ -7678,6 +7693,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             hl:SetAllPoints()
             hl:SetColorTexture(1, 1, 1, 0)
             local function UpdateCheck()
+                if not chk then return end -- noCheck rows have no box to paint
                 if getFn(item.key) then
                     chk:Show()
                     boxBrd:SetColor(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 0.8)

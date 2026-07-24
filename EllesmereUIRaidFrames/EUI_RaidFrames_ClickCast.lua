@@ -1052,7 +1052,6 @@ local function NeutralizeDefaultClicks(frame, bindings)
 end
 
 local function DoRegisterFrame(frame)
-    if registeredFrames[frame] then return end
     if not frame or not frame.RegisterForClicks then return end
     if not header then return end
     -- Hard guarantee: while click-casting is disabled we touch ZERO frames --
@@ -1061,6 +1060,15 @@ local function DoRegisterFrame(frame)
     -- explicitly enable the feature.
     local cc = GetClickCastDB()
     if not (cc and cc.enabled) then return end
+    -- Deliberately NO `if registeredFrames[frame] then return end` early-out:
+    -- re-registration MUST re-apply the click attributes. EUI unit frames are
+    -- first registered mid-spawn (they land in ClickCastFrames as oUF builds
+    -- them); SetupUnitMenu then re-attaches the secure right-click menu
+    -- (AttachSecureUnitMenu wipes type2 and re-sets the *type2 menu wildcard)
+    -- and re-adds the frame to ClickCastFrames. If the re-add short-circuited,
+    -- the menu would stay in charge and the bound right-click spell would
+    -- silently revert to opening the menu after every login/reload. Every step
+    -- below is idempotent or self-guarded, so re-running the apply is safe.
     registeredFrames[frame] = true
     -- Capture the frame's native left-click target attrs once, before we touch
     -- anything, so DoUnregisterFrame restores them exactly (raid -> target, EUI
@@ -1215,7 +1223,7 @@ function ns.CC_SetAllFrames(enabled)
     if enabled then
         -- Grab the static Blizzard list (PlayerFrame/TargetFrame/party/etc.) and
         -- install the CompactUnitFrame hook. Idempotent: self-gates on
-        -- enabled+allFrames, DoRegisterFrame skips already-registered frames,
+        -- enabled+allFrames, the loop below skips already-registered frames,
         -- and the CUF hook installs at most once.
         if RegisterBlizzardFrames then RegisterBlizzardFrames() end
         for frame in pairs(externalFrames) do
@@ -1665,6 +1673,37 @@ end
 -------------------------------------------------------------------------------
 --  Events
 -------------------------------------------------------------------------------
+-- At login the specialization / trait data can lag PLAYER_ENTERING_WORLD by a
+-- few frames. Applying bindings before the spec is known makes every
+-- SPEC-scoped binding fall back to its GLOBAL default -- e.g. a spec right-click
+-- spell reverts to the global "menu" default, so right-click opens the context
+-- menu -- with nothing to re-apply it afterwards (PLAYER_SPECIALIZATION_CHANGED
+-- does not fire on a plain login). Poll briefly until GetCurrentSpecID resolves,
+-- then reapply so spec bindings take effect. Safe when there is no spec (new /
+-- low-level characters): the cap stops the poll and a later spec pick fires
+-- PLAYER_SPECIALIZATION_CHANGED, which reapplies.
+local specReadyTicker
+local function ReapplyWhenSpecReady()
+    if InCombatLockdown() then pendingApply = true; return end
+    if GetCurrentSpecID() then ns.CC_ApplyBindings(); return end
+    -- Spec not ready yet: only spin up the readiness poll if click-casting is
+    -- actually enabled. A disabled install has no bindings to re-apply, so the
+    -- poll would be idle cost for a user who never turned the feature on.
+    local cc = GetClickCastDB()
+    if not (cc and cc.enabled) then return end
+    if specReadyTicker then return end
+    local tries = 0
+    specReadyTicker = C_Timer.NewTicker(0.25, function(t)
+        tries = tries + 1
+        if GetCurrentSpecID() then
+            t:Cancel(); specReadyTicker = nil
+            if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
+        elseif tries >= 20 then  -- ~5s safety cap: give up if the char has no spec
+            t:Cancel(); specReadyTicker = nil
+        end
+    end)
+end
+
 local function OnCCEvent(self, event)
     if event == "PLAYER_REGEN_ENABLED" then
         local cc = GetClickCastDB()
@@ -1688,8 +1727,10 @@ local function OnCCEvent(self, event)
         if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Reapply bindings after zone/loading screen to clear any stuck
-        -- frame-based bindings (OnLeave may not fire during transitions)
-        if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
+        -- frame-based bindings (OnLeave may not fire during transitions).
+        -- Wait for the spec to resolve first so spec-scoped bindings are not
+        -- lost to their global defaults on login (see ReapplyWhenSpecReady).
+        ReapplyWhenSpecReady()
     end
 end
 

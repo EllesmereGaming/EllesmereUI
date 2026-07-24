@@ -177,7 +177,27 @@ end
 -- Public: run all registered migrations. Called once from the parent
 -- ADDON_LOADED handler (the legacy beta-wipe that used to precede it is gone).
 function EllesmereUI.RunRegisteredMigrations()
-    if not EllesmereUIDB then return end
+    if not EllesmereUIDB then
+        -- Truly fresh install: SavedVariables do not exist yet, so there is
+        -- nothing to migrate. Do NOT just skip: leaving the catalog unstamped
+        -- means the ENTIRE chain runs its first pass at the NEXT load, over
+        -- whatever exists by then -- e.g. a profile imported during this
+        -- first session -- treating current-format data as legacy (the CDM
+        -- consolidate/detach pair rebuilt an imported spell store, the
+        -- pixel-rounding pass floored imported positions/sizes, the colors
+        -- seed replaced imported palettes). A fresh install is current-format
+        -- by definition: create the store and stamp every global migration
+        -- as already done. Profile-scoped stamps live inside each profile
+        -- (and ride exports), so they need no genesis pass.
+        EllesmereUIDB = {}
+        local flags = GetFlagTable(EllesmereUIDB)
+        for _, spec in ipairs(_migrations) do
+            if spec.scope == "global" then
+                flags[spec.id] = true
+            end
+        end
+        return
+    end
     for _, spec in ipairs(_migrations) do
         RunMigration(spec)
     end
@@ -2542,6 +2562,33 @@ EllesmereUI.RegisterMigration({
 })
 
 -------------------------------------------------------------------------------
+-- Replace the CDM "Anchor First Row" boolean with the rowGrowDirection enum.
+--
+-- anchorFirstRow pinned the leading perpendicular edge (TOP on horizontal
+-- bars, LEFT on vertical bars), i.e. extra rows grew downward/rightward.
+-- The equivalent enum values are "DOWN" (horizontal) / "RIGHT" (vertical);
+-- unset stays unset (centered growth, the default for both models).
+-------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "cdm_row_grow_direction_v1",
+    scope       = "profile",
+    description = "Migrate CDM anchorFirstRow booleans to the rowGrowDirection enum.",
+    body = function(ctx)
+        local cdm = ctx.profile.addons and ctx.profile.addons.EllesmereUICooldownManager
+        local bars = cdm and cdm.cdmBars and cdm.cdmBars.bars
+        if not bars then return end
+        for _, bar in ipairs(bars) do
+            if bar.anchorFirstRow then
+                if bar.rowGrowDirection == nil then
+                    bar.rowGrowDirection = bar.verticalOrientation and "RIGHT" or "DOWN"
+                end
+                bar.anchorFirstRow = nil
+            end
+        end
+    end,
+})
+
+-------------------------------------------------------------------------------
 -- Migrate per-profile secondary threshold settings into the new thresholdSpecs
 -- array. If the user had thresholdEnabled, create an "All Specs" entry with
 -- their existing threshold and tick values. If disabled, leave empty.
@@ -3666,6 +3713,18 @@ EllesmereUI.RegisterMigration({
     description = "Convert collided-buff cooldownID claims (bs.assignedBuffCdIDs, a side-table with no order) into cd-claim markers stored inside assignedSpells, so a claimed slot gets a real position and can be drag-reordered like any other tracked buff.",
     body = function(ctx)
         EllesmereUI.MigrateCdmBuffCdClaims(ctx.specProfile)
+    end,
+})
+
+EllesmereUI.RegisterMigration({
+    id          = "qol_movement_alert_precision_normalize_v2",
+    scope       = "profile",
+    description = "Normalize Movement Alert precision to a clean 0 or 1. A legacy numeric-input control could leave a non-binary value -- the string \"1\", or a stored -0 -- that the Show Decimal toggle mishandled and that built an invalid \"%.-0f\" format string. Normalized unconditionally (no type guard) because -0 is a number, so the earlier number-only guard skipped it. Positive -> 1 (decimals on); zero/negative/garbage -> 0 (off).",
+    body = function(ctx)
+        local qol = ctx.profile.addons and ctx.profile.addons.EllesmereUIQoL
+        local ma = qol and qol.movementAlert
+        if type(ma) ~= "table" or ma.precision == nil then return end
+        ma.precision = (tonumber(ma.precision) or 1) > 0 and 1 or 0
     end,
 })
 

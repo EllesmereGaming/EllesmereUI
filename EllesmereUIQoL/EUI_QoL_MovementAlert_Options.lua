@@ -87,6 +87,7 @@ local MOVEMENT_PRESETS = {
     { class = "SHAMAN", ids = { 192063 } },                -- Gust of Wind
     { class = "SHAMAN", ids = { 58875, 90328 } },          -- Spirit Walk
     { class = "WARLOCK", ids = { 48020 } },                -- Demonic Circle: Teleport
+    { class = "WARLOCK", ids = { 111400 } },               -- Burning Rush (buff-active, ships unchecked)
     { class = "WARRIOR", ids = { 6544 } },                 -- Heroic Leap
 }
 
@@ -702,7 +703,11 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                 { type="toggle", label="Show Decimal",
                   disabled=function() return ma.displayMode == "icon" end,
                   disabledTooltip="Not used in Icon display mode", rawTooltip=true,
-                  get=function() return (ma.precision or 1) > 0 end,
+                  -- tonumber guard: an older numeric-input build could store
+                  -- precision as a string ("1"), and `"1" > 0` is a hard error
+                  -- in Lua 5.1 -- it would throw here before set could run, so
+                  -- the toggle silently did nothing until a value was written.
+                  get=function() return (tonumber(ma.precision) or 1) > 0 end,
                   set=function(v) ma.precision = v and 1 or 0; Refresh() end },
             },
         })

@@ -247,9 +247,16 @@ end
         -- Re-show so the frame recalculates size with the new fonts. Gated
         -- on the skin toggle: with it off the fonts above were never
         -- applied, and the hook (uninstallable) must stay zero-cost.
+        -- pcall'd: on 12.1 a tooltip rendering secret-capable content
+        -- (widget spell tooltips via SetSpellByID) enforces access
+        -- restrictions, and a tainted re-Show is denied as forbidden-object
+        -- access (field-hit via Blizzard_PTRFeedback's tooltip hook, which
+        -- Shows the tooltip from secure code with our OnShow hook behind
+        -- it). The recalc is optional polish -- skip it there; the font
+        -- writes above are region-level and stay legal.
         if _enabled() and not _ttRelaying[self] then
             _ttRelaying[self] = true
-            self:Show()
+            pcall(self.Show, self)
             _ttRelaying[self] = nil
         end
     end
@@ -1814,6 +1821,14 @@ do
         gmBg:SetColorTexture(RS.BG_R, RS.BG_G, RS.BG_B, RS.QT_ALPHA)
         local function ApplyButtonStyle(btn)
             local d = GetFFD(btn)
+            -- Blizzard's pooled buttons are skinned in this addon's private
+            -- FFD table, while EUI's two custom Game Menu buttons are created
+            -- by the parent addon and keep their skin data in its FFD table.
+            -- Resolve that second store as a fallback so live option changes
+            -- also reach the EllesmereUI button.
+            if not d.gameMenuInset and EllesmereUI._GetFFD then
+                d = EllesmereUI._GetFFD(btn)
+            end
             if not d.gameMenuInset then return end
             local c = EllesmereUIDB and EllesmereUIDB.popupMenuButtonBackgroundColor or { r=.1,g=.1,b=.1,a=.8 }
             d.gameMenuButtonBg:SetColorTexture(c.r, c.g, c.b, c.a == nil and .8 or c.a)

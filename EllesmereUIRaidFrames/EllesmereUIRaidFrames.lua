@@ -830,7 +830,7 @@ local defaults = {
         partyShowSelfFirst = true,
         partySelfLast      = false,
         partyHorizontal   = false,
-        partyFlipGrowth   = false,  -- DOWN->UP / RIGHT->LEFT growth flip
+        partyFlipGrowth   = false,  -- false=default growth, true=DOWN->UP / RIGHT->LEFT flip, "centered"=stack centered in the 5-slot container
         partyHideSelf     = false,
         partyUnlockPos    = nil,
         -- Party Tracked Buffs (Buff Manager) auto-resize. Defaults ON (matching
@@ -4568,7 +4568,6 @@ local SATED_DEBUFFS = {
     [160455] = true,  -- Fatigued (Netherwinds)
     [264689] = true,  -- Fatigued (Primal Rage)
     [390435] = true,  -- Exhaustion (Fury of the Aspects)
-    [428628] = true,  -- Exhaustion (variant)
 }
 
 -- Debuff filter check based on user setting
@@ -8915,8 +8914,9 @@ ns._ResizePartyButtons = function(w, h)
     -- anchor tracking -- no secure re-process, no blink.
     if ns._PositionPartySlots then
         local cs2 = PixelSnap(s.partyCellSpacing or s.cellSpacing or 2)
-        local growth2 = s.partyHorizontal and (s.partyFlipGrowth and "LEFT" or "RIGHT")
-            or (s.partyFlipGrowth and "UP" or "DOWN")
+        -- Explicit true only: "centered" keeps the default direction.
+        local growth2 = s.partyHorizontal and (s.partyFlipGrowth == true and "LEFT" or "RIGHT")
+            or (s.partyFlipGrowth == true and "UP" or "DOWN")
         ns._PositionPartySlots(bw, bh, cs2, growth2)
     end
 end
@@ -10647,6 +10647,25 @@ ns._PositionPartySlots = function(bw, bh, cs, unitGrowth)
         slotStepY = -(bh + cs)
     end
 
+    -- Centered growth shifts the whole stack (self button + header) so the
+    -- shown frames sit centered in the always-5-slot container: (5 - shown)/2
+    -- slots along the growth axis. Solo is the shown=1 case of the same math,
+    -- and the Center When Solo cog forces it while solo regardless of the
+    -- growth mode.
+    local centerShift = 0
+    local centered = (s.partyFlipGrowth == "centered")
+    if not IsInGroup() then
+        if centered or s.partyCenterWhenSolo then centerShift = 2 end
+    elseif centered then
+        local shown = GetNumGroupMembers() or 0
+        if shown > 5 then shown = 5 end
+        if hideSelf then shown = shown - 1 end
+        if shown < 1 then shown = 1 end
+        centerShift = (5 - shown) / 2
+    end
+    local cShiftX = PixelSnap(slotStepX * centerShift)
+    local cShiftY = PixelSnap(slotStepY * centerShift)
+
     local sb = ns._partySelfButton
     if useSelf then
         local selfSlot, hdrSlot = 0, 1
@@ -10658,24 +10677,15 @@ ns._PositionPartySlots = function(bw, bh, cs, unitGrowth)
         if sb then
             sb:SetSize(bw, bh)
             sb:ClearAllPoints()
-            sb:SetPoint(basePoint, ns._partyContainerFrame, basePoint, PixelSnap(slotStepX * selfSlot), PixelSnap(slotStepY * selfSlot))
+            sb:SetPoint(basePoint, ns._partyContainerFrame, basePoint, PixelSnap(slotStepX * selfSlot) + cShiftX, PixelSnap(slotStepY * selfSlot) + cShiftY)
             if not InCombatLockdown() then sb:Show() end
         end
         ns._partyHeader:ClearAllPoints()
-        ns._partyHeader:SetPoint(basePoint, ns._partyContainerFrame, basePoint, PixelSnap(slotStepX * hdrSlot), PixelSnap(slotStepY * hdrSlot))
+        ns._partyHeader:SetPoint(basePoint, ns._partyContainerFrame, basePoint, PixelSnap(slotStepX * hdrSlot) + cShiftX, PixelSnap(slotStepY * hdrSlot) + cShiftY)
     else
         if sb and not InCombatLockdown() then sb:Hide() end
         ns._partyHeader:ClearAllPoints()
-        -- Center When Solo: when not in a group, center the lone player frame in
-        -- the container by offsetting the header 2 slots along the growth axis
-        -- ((5-1)/2 = 2). The container is always sized for 5 slots, so a single
-        -- frame at slot 2 sits centered.
-        local cOffX, cOffY = 0, 0
-        if s.partyCenterWhenSolo and not IsInGroup() then
-            cOffX = slotStepX * 2
-            cOffY = slotStepY * 2
-        end
-        ns._partyHeader:SetPoint(basePoint, ns._partyContainerFrame, basePoint, PixelSnap(cOffX), PixelSnap(cOffY))
+        ns._partyHeader:SetPoint(basePoint, ns._partyContainerFrame, basePoint, cShiftX, cShiftY)
     end
     return useSelf
 end
@@ -10689,8 +10699,9 @@ ns._LayoutPartyFrames = function()
     local bw = PixelSnap(s.partyFrameWidth or s.frameWidth or 125)
     local bh = PixelSnap(s.partyFrameHeight or s.frameHeight or 60)
     local cs = PixelSnap(s.partyCellSpacing or s.cellSpacing or 2)
-    local unitGrowth = s.partyHorizontal and (s.partyFlipGrowth and "LEFT" or "RIGHT")
-        or (s.partyFlipGrowth and "UP" or "DOWN")
+    -- Explicit true only: "centered" keeps the default direction.
+    local unitGrowth = s.partyHorizontal and (s.partyFlipGrowth == true and "LEFT" or "RIGHT")
+        or (s.partyFlipGrowth == true and "UP" or "DOWN")
 
     local hdrPoint, hdrXOff, hdrYOff
     if unitGrowth == "DOWN" then
@@ -15448,8 +15459,9 @@ local function RefreshPartyPreview()
     local isOverlay = (mode == "overlay")
     local anchorPad = isOverlay and 10 or 0
     local topExtra = isOverlay and 25 or 0   -- top space for the centered "Preview" title
-    local unitGrowth = s.partyHorizontal and (s.partyFlipGrowth and "LEFT" or "RIGHT")
-        or (s.partyFlipGrowth and "UP" or "DOWN")
+    -- Explicit true only: "centered" keeps the default direction.
+    local unitGrowth = s.partyHorizontal and (s.partyFlipGrowth == true and "LEFT" or "RIGHT")
+        or (s.partyFlipGrowth == true and "UP" or "DOWN")
     local isVert = (unitGrowth == "DOWN" or unitGrowth == "UP")
     local totalW, totalH
     if isVert then

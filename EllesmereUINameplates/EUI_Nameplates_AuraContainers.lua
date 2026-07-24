@@ -28,7 +28,19 @@ if not (EllesmereUI and EllesmereUI.IS_121) then return end
 ns.NPC_OwnsAuras = true
 
 local AK
-local POOL_SIZE = 40
+-- Warm-cache size only, no longer a hard ceiling: container creation is
+-- combat-legal since 68914 (/euit3 field PASS), so pool exhaustion queues
+-- an on-demand bundle per waiting plate instead of degrading to no-auras.
+-- 16 covers 5-man content with margin; raids grow within a few worker
+-- frames on first exposure and the grown bundles stay pooled.
+local POOL_SIZE = 16
+-- Instanced-content pre-warm target: M+ trash pulls are the heaviest
+-- sustained plate counts in the game (raid add waves close behind), so
+-- zoning into a dungeon or raid tops the pool up to this in advance --
+-- the growth ramp runs while zoning instead of on the first big pull.
+local POOL_TARGET_INSTANCE = 25
+local queuedBundles = 0 -- total trios ever queued (login + growth + pre-warm)
+local QueueBundleBuild -- forward-declared: the attach path below grows the pool on demand
 
 local pool = {}      -- free bundles (stack)
 local active = {}    -- [plate] = bundle
@@ -223,24 +235,34 @@ local function ApplyNPBuffExtra(button, d, style)
     local Glows = EllesmereUI.Glows
     if style.purgeGlow and Glows and Glows.StartGlow then
         if not d.npPurgeRegistered then
-            -- Color style is mandatory: the signal texture is contentless
-            -- by design, and the Atlas default (style enum omitted) would
-            -- stamp real atlas art onto it. The enum moved to
-            -- Enum.CustomAuraButtonBorderStyle in build 68824; the old
-            -- global is only a deprecation-CVar shim.
-            local opts = { showWhenHelpful = true, showWhenHarmful = false }
-            local borderStyle = (Enum and Enum.CustomAuraButtonBorderStyle) or AuraButtonBorderStyle
-            if borderStyle then opts.style = borderStyle.Color end
+            -- A tint-only style is MANDATORY: the signal texture is
+            -- contentless by design, and 68914's BorderWithIcon default
+            -- (style omitted) stamps real atlas art onto it. The old
+            -- Color semantics live on as DispelTypeTextureStyle
+            -- PreserveAsset (CustomAuraButtonBorderStyle is deleted; its
+            -- CVar-shim global is the stale-build fallback). If neither
+            -- resolves, SKIP registration outright -- a default-styled
+            -- registration is worse than no purge signal.
+            local tint = Enum and Enum.CustomAuraButtonDispelTypeTextureStyle
+                and Enum.CustomAuraButtonDispelTypeTextureStyle.PreserveAsset
+            if tint == nil then
+                local legacy = (Enum and Enum.CustomAuraButtonBorderStyle) or AuraButtonBorderStyle
+                tint = legacy and legacy.Color
+            end
             -- Stamp only on SUCCESS: the registration is a button call,
             -- denied while auras are secret (12.1 access restriction). A
             -- denied attempt parks the key for the restriction-lift drain
             -- (the early-nil in the OFF branch below is load-bearing and
             -- stays pre-stamped: it must kill PurgeEval even when the
             -- clear call is denied).
-            if pcall(button.SetAuraBorder, button, d.npPurge, opts) then
-                d.npPurgeRegistered = true
-            elseif AK.DeferRestyle then
-                AK.DeferRestyle(d.styleKey)
+            if tint ~= nil then
+                local opts = { showWhenHelpful = true, showWhenHarmful = false, style = tint }
+                local addFn = button.AddDispelTypeTexture or button.SetAuraBorder
+                if addFn and pcall(addFn, button, d.npPurge, opts) then
+                    d.npPurgeRegistered = true
+                elseif AK.DeferRestyle then
+                    AK.DeferRestyle(d.styleKey)
+                end
             end
         end
         local host = d.npGlowHost
@@ -284,7 +306,8 @@ local function ApplyNPBuffExtra(button, d, style)
     else
         if d.npPurgeRegistered then
             d.npPurgeRegistered = nil
-            if button.ClearAuraBorder then pcall(button.ClearAuraBorder, button) end
+            local clearFn = button.ClearDispelTypeTextures or button.ClearAuraBorder
+            if clearFn then pcall(clearFn, button) end
             d.npPurge:Hide()
         end
         if d.npGlowHost then
@@ -371,8 +394,131 @@ end
 
 local SORT_IMPORTANT, SORT_DEFAULT, SORT_DIR
 
+-------------------------------------------------------------------------------
+-- Per-kind slot filter configs (Edit Filters popup, 2026-07-24). One config
+-- per aura CONTENT KIND -- debuffs / cc / dcc ("Debuffs + CC") -- stored at
+-- p.npAuraFilters = { <kind> = { all = bool, f = { cat = true } } }. The
+-- debuff container renders the dcc config when p.debuffIncludeCC is set
+-- (kind resolution is a config selector; both slots can coexist). Seeded
+-- ONCE from the legacy showAllDebuffs semantics: checked -> debuffs Show
+-- All, unchecked -> { priority } only; cc -> { cc }; dcc -> { cc, priority }.
+-- The legacy key is left untouched after seeding (its options row is gone).
+-------------------------------------------------------------------------------
+local NPF_ORDER = { "cc", "dispel", "raid", "raidcombat" } -- token ownership (DM parity)
+local NPF_TOKENS = {
+    cc         = { "HARMFUL", "CROWD_CONTROL" }, -- any caster, matching the cc feed
+    dispel     = { "HARMFUL", "PLAYER", "INCLUDE_NAME_PLATE_ONLY", "RAID_PLAYER_DISPELLABLE" },
+    raid       = { "HARMFUL", "PLAYER", "INCLUDE_NAME_PLATE_ONLY", "RAID" },
+    raidcombat = { "HARMFUL", "PLAYER", "INCLUDE_NAME_PLATE_ONLY", "RAID_IN_COMBAT" },
+}
+local NPF_NEG = {
+    cc = "!CROWD_CONTROL", dispel = "!RAID_PLAYER_DISPELLABLE",
+    raid = "!RAID", raidcombat = "!RAID_IN_COMBAT",
+}
+-- Boolean categories: Important = nameplateShowPersonal (nameplate-native
+-- importance -- the pre-filter default display, NOT the raid-frame
+-- isPriorityAura list; user-confirmed zero-drift mapping).
+local NPF_BOOL = { priority = "nameplateShowPersonal", boss = "isBossAura", role = "isRoleAura" }
+
+function ns.NPF_Config(kind)
+    local p = ns.NP_GetProfile and ns.NP_GetProfile()
+    if not p then return nil end
+    local t = p.npAuraFilters
+    if not t then
+        local legacyAll = PVal("showAllDebuffs") == true
+        t = {
+            debuffs = { all = legacyAll, f = legacyAll and {} or { priority = true } },
+            cc      = { all = false, f = { cc = true } },
+            dcc     = { all = false, f = { cc = true, priority = true } },
+        }
+        p.npAuraFilters = t
+    end
+    return t[kind]
+end
+
+-- Record synthesis for one kind config: token categories own overlaps in
+-- NPF_ORDER order (each negates the ENABLED tokens above it -- negating
+-- disabled ones would eat their auras); boolean categories negate every
+-- enabled token. Show All returns no records: the plain "np" group is the
+-- whole display then. Booleans can never be negated (engine positive-only
+-- history); a boolean x boolean overlap double-renders -- accepted, DM
+-- precedent.
+local function NPF_Records(cfg)
+    local recs = {}
+    if not cfg or cfg.all then return recs end
+    local f = cfg.f or {}
+    for i = 1, #NPF_ORDER do
+        local cat = NPF_ORDER[i]
+        if f[cat] then
+            local toks = {}
+            for k = 1, #NPF_TOKENS[cat] do toks[#toks + 1] = NPF_TOKENS[cat][k] end
+            for j = 1, i - 1 do
+                local hc = NPF_ORDER[j]
+                if f[hc] then toks[#toks + 1] = NPF_NEG[hc] end
+            end
+            recs[#recs + 1] = { cat = cat, tokens = toks }
+        end
+    end
+    for cat, boolField in pairs(NPF_BOOL) do
+        if f[cat] then
+            local toks = { "HARMFUL", "PLAYER", "INCLUDE_NAME_PLATE_ONLY", "!CROWD_CONTROL" }
+            for i = 2, #NPF_ORDER do
+                local tc = NPF_ORDER[i]
+                if f[tc] then toks[#toks + 1] = NPF_NEG[tc] end
+            end
+            recs[#recs + 1] = { cat = cat, tokens = toks, cand = { [boolField] = true } }
+        end
+    end
+    return recs
+end
+
+-- Stable per-record group key: category + a hash of the negation-relevant
+-- enabled set. A filter edit that changes the chain declares the NEW
+-- variant and parks the old one at 0 (group filter strings are fixed).
+local function NPF_GKey(cat, cfg)
+    local f = cfg.f or {}
+    return "npf:" .. cat .. "|"
+        .. (f.cc and 1 or 0) .. (f.dispel and 1 or 0)
+        .. (f.raid and 1 or 0) .. (f.raidcombat and 1 or 0)
+end
+
+-- Kind-config fingerprint for the reload cfg pass (blacklist included:
+-- exclude edits must re-drive every group's candidates).
+function ns.NPF_FP()
+    local parts = {}
+    for _, kind in ipairs({ "debuffs", "cc", "dcc" }) do
+        local c = ns.NPF_Config(kind)
+        local f = (c and c.f) or {}
+        parts[#parts + 1] = kind .. (c and c.all and "A" or "-")
+            .. (f.priority and "p" or "") .. (f.boss and "b" or "")
+            .. (f.role and "o" or "") .. (f.cc and "c" or "")
+            .. (f.raid and "r" or "") .. (f.raidcombat and "i" or "")
+            .. (f.dispel and "d" or "")
+    end
+    local ex = ns.NPF_Exclude()
+    if ex and next(ex) ~= nil then
+        local o = {}
+        for id, v in pairs(ex) do
+            -- Disabled entries prefix "-" (all strings: mixed-type sort errors)
+            o[#o + 1] = (v and "" or "-") .. id
+        end
+        table.sort(o)
+        parts[#parts + 1] = "x" .. table.concat(o, ",")
+    end
+    return table.concat(parts, ";")
+end
+
+-- The debuff container renders the dcc config when the combined
+-- "Debuffs + CC" element is assigned (p.debuffIncludeCC), else debuffs.
+local function NPF_DebuffKind()
+    return PVal("debuffIncludeCC") and "dcc" or "debuffs"
+end
+
 local function DebuffSort()
-    if PVal("showAllDebuffs") then return SORT_DEFAULT end
+    local c = ns.NPF_Config(NPF_DebuffKind())
+    local all = c and c.all
+    if all == nil then all = PVal("showAllDebuffs") end -- pre-seed fallback
+    if all then return SORT_DEFAULT end
     return SORT_IMPORTANT
 end
 
@@ -383,9 +529,112 @@ end
 -- (adds nameplate-only auras to candidacy, does not restrict); the candidate
 -- boolean does the narrowing and toggles live. "Show All Debuffs" clears it
 -- (empty table, never nil: the setter must REPLACE the stored filter).
+-- Shared nameplate debuff blacklist (Edit Filters popup): one list for all
+-- three kinds -- a slot flipping between Debuffs and Debuffs + CC keeps
+-- its exclusions. spellID excludes are identity-legal on hostile units
+-- (harmful-on-attackable passes the gate), so these are real engine
+-- filters, not Lua scans.
+function ns.NPF_Exclude()
+    local p = ns.NP_GetProfile and ns.NP_GetProfile()
+    if not p then return nil end
+    ns.NPF_Config("debuffs") -- guarantees the root table exists
+    local t = p.npAuraFilters
+    if not t.exclude then t.exclude = {} end
+    return t.exclude
+end
+
+-- Candidate-table builder: the blacklist rides EVERY debuff-side group
+-- (records and Show All alike) as excludeSpellIDs; extra = a record's own
+-- boolean fields, copied so the stored config never aliases engine tables.
+-- Exclude entries are tri-state now (true = active, false = kept but
+-- disabled via the popup checkbox, nil = deleted): the engine map gets an
+-- ACTIVE-ONLY copy -- a false value must not reach the C validator.
+local function NPF_Cand(extra)
+    local cand = {}
+    if extra then
+        for k, v in pairs(extra) do cand[k] = v end
+    end
+    local ex = ns.NPF_Exclude()
+    if ex then
+        local m
+        for id, v in pairs(ex) do
+            if v then
+                m = m or {}
+                m[id] = true
+            end
+        end
+        if m then cand.excludeSpellIDs = m end
+    end
+    return cand
+end
+
+-- The "np" debuff group is the SHOW ALL group only now: filtered display
+-- renders through the NPF record groups (priority included -- the fixed
+-- np filter string cannot carry the dedup negation chains). Its candidate
+-- set carries only the blacklist; the all-flag drives its COUNT in the
+-- ensure pass.
 local function DebuffCand()
-    if PVal("showAllDebuffs") then return {} end
-    return { nameplateShowPersonal = true }
+    return NPF_Cand(nil)
+end
+
+-- Declares/parks one container's NPF record groups per its kind config.
+-- Declares are combat-legal (68914); stale variants park at 0 (group
+-- strings are fixed; frames are never freed -- parked groups are the
+-- cheap state). On the CC container the cc CATEGORY rides the existing
+-- "np" group -- its filter string (HARMFUL|CROWD_CONTROL) is identical,
+-- so the default config costs zero extra groups.
+local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
+    if not container then return end
+    local cfg = ns.NPF_Config(kindKey)
+    if not cfg then return end
+    local f = cfg.f or {}
+    local declared = container._npfGroups
+    if not declared then declared = {}; container._npfGroups = declared end
+    local wanted = {}
+    if not cfg.all then
+        local recs = NPF_Records(cfg)
+        for i = 1, #recs do
+            local rec = recs[i]
+            if not (kindKey == "cc" and rec.cat == "cc") then
+                local gkey = NPF_GKey(rec.cat, cfg)
+                wanted[gkey] = true
+                if not declared[gkey] then
+                    AK.AddGroupToContainer(container, {
+                        key = gkey, filter = rec.tokens, maxFrameCount = cap,
+                        candidateFilters = NPF_Cand(rec.cand), sortMethod = SORT_IMPORTANT,
+                        style = styleKey,
+                        layout = { elementWidth = 24, elementHeight = 24,
+                                   elementSpacing = 4, lineSpacing = 4 },
+                    })
+                    declared[gkey] = true
+                else
+                    container:SetAuraGroupMaxFrameCount(gkey, cap)
+                    container:SetAuraGroupCandidateFilters(gkey, NPF_Cand(rec.cand))
+                end
+            end
+        end
+    end
+    for gkey in pairs(declared) do
+        if not wanted[gkey] then
+            container:SetAuraGroupMaxFrameCount(gkey, 0)
+        end
+    end
+    local npOn
+    if kindKey == "cc" then
+        npOn = cfg.all or f.cc or false
+    else
+        npOn = cfg.all or false
+    end
+    -- Blacklist on the np group too (both containers; the debuff cfg pass
+    -- also re-drives this -- same values, dirty-mark cheap).
+    container:SetAuraGroupCandidateFilters("np", NPF_Cand(nil))
+    container:SetAuraGroupMaxFrameCount("np", npOn and cap or 0)
+end
+
+local function NPF_EnsureRecords(b)
+    NPF_ApplyContainer(b.containers.debuffs, NPF_DebuffKind(), "np:debuffs",
+        PVal("maxDebuffs") or 5)
+    NPF_ApplyContainer(b.containers.cc, "cc", "np:cc", 2)
 end
 
 -- One deferred purge re-evaluation per bundle per aura burst; the small
@@ -458,7 +707,7 @@ local function AddBundleDebuffs(b)
         sortMethod = DebuffSort(),
         candidateFilters = DebuffCand(),
         style = "np:debuffs",
-        layout = { elementWidth = 26, elementHeight = 26, elementSpacingX = 4, elementSpacingY = 4 },
+        layout = { elementWidth = 26, elementHeight = 26, elementSpacing = 4, lineSpacing = 4 },
     })
 end
 
@@ -498,7 +747,7 @@ local function AddBundleBuffs(b)
                 ApplyNPBuffExtra(btn, dd, style)
             end
         end,
-        layout = { elementWidth = 24, elementHeight = 24, elementSpacingX = 4, elementSpacingY = 4 },
+        layout = { elementWidth = 24, elementHeight = 24, elementSpacing = 4, lineSpacing = 4 },
     })
 end
 
@@ -509,7 +758,7 @@ local function AddBundleCC(b)
         maxFrameCount = 2,
         sortMethod = SORT_DEFAULT,
         style = "np:cc",
-        layout = { elementWidth = 24, elementHeight = 24, elementSpacingX = 4, elementSpacingY = 4 },
+        layout = { elementWidth = 24, elementHeight = 24, elementSpacing = 4, lineSpacing = 4 },
     })
 end
 
@@ -671,13 +920,20 @@ local function AnchorNPContainer(container, kind, plate, slotVal)
     container._npcGeoGen = geoGen
     container._npcSlotVal = slotVal
 
-    container:SetAuraLayoutAnchorPoint(anchorPoint)
-    container:SetAuraLayoutGrowthDirection(FlowDir(gH), FlowDir(gV))
-    container:SetAuraLayoutRowWidth(rowWidth)
-    container:SetAuraGroupLayout("np", {
+    AK.SetContainerAnchor(container, anchorPoint)
+    AK.SetContainerGrowth(container, FlowDir(gH), FlowDir(gV))
+    AK.SetContainerRowWidth(container, rowWidth)
+    local gLayout = {
         elementWidth = size, elementHeight = height,
-        elementSpacingX = spacing, elementSpacingY = spacing,
-    })
+        elementSpacing = spacing, lineSpacing = spacing,
+    }
+    container:SetAuraGroupLayout("np", gLayout)
+    -- NPF record groups share the row's element sizing.
+    if container._npfGroups then
+        for gkey in pairs(container._npfGroups) do
+            container:SetAuraGroupLayout(gkey, gLayout)
+        end
+    end
 
     -- Aura tier of the flattened plate render order (text 900 > auras 800),
     -- honoring the per-slot Raise Strata toggle like the legacy pools.
@@ -761,6 +1017,15 @@ end
 -- side CONTAINER edge instead (the engine sizes it with the aura count --
 -- an empty row collapses the arrow back to the health bar edge). Sides
 -- without an aura row keep the legacy readable-extent positioning.
+
+-- 68914: AddAuraGroup stamps UntrustedLayoutScriptExecution on the
+-- container, and only aspect-bearing objects may anchor to one. Aspects
+-- cannot be conferred after creation (SetParent/SetPoint inheritance is
+-- deliberately blocked -- a reparent-into-holder attempt here hard-errored
+-- in the field), so the MAIN file births the arrows inside a
+-- DisableUntrustedLayoutScriptsTemplate holder on 12.1: they inherit the
+-- aspect at creation and anchor to containers and readable frames alike,
+-- and this file keeps anchoring them directly.
 local function ReanchorArrows(plate)
     if not (plate.leftArrow and plate.rightArrow) then return end
     if not plate.leftArrow:IsShown() then return end
@@ -814,6 +1079,10 @@ local function ReanchorArrows(plate)
         PP.Width(plate.rightArrow, aw)
     end
 end
+-- Exposed for the main file's RAID_TARGET_UPDATE pass: after the legacy
+-- extent positioning runs there, container-bearing sides need this override
+-- re-applied (nil on retail, where this file returns early).
+ns.NPC_ReanchorArrows = ReanchorArrows
 
 ------------------------------------------------------------------------------
 -- Attach / detach
@@ -844,6 +1113,10 @@ function ns.NPC_AttachPlate(plate, unit)
         b = table.remove(pool)
         if not b then
             waiting[plate] = true -- serviced when a bundle builds or frees
+            -- Grow the pool by one bundle per waiting plate (combat-legal
+            -- since 68914). A plate that detaches before service just
+            -- leaves its bundle pooled for the next spawn.
+            if QueueBundleBuild then QueueBundleBuild() end
             return
         end
         waiting[plate] = nil
@@ -961,7 +1234,8 @@ local function GeoFP()
 end
 
 local function CfgFP()
-    return FP(PVal("maxDebuffs"), PVal("showAllDebuffs"), PVal("showAllEnemyBuffs"))
+    return FP(PVal("maxDebuffs"), PVal("showAllDebuffs"), PVal("showAllEnemyBuffs"),
+        PVal("debuffIncludeCC"), ns.NPF_FP())
 end
 
 local function ReanchorActive()
@@ -1017,21 +1291,19 @@ local function QueueBundleEnsure(b)
     b.npcEnsurePending = true
     AK.QueueBuildJob(function()
         local ds, bs, cs = ns.GetAuraSlots()
-        local locked = InCombatLockdown()
-        local held = false
+        -- Combat-legal since 68914: AddBundle* consume a pre-born shell when
+        -- one exists and create fresh otherwise, in any combat state.
         local function ensure(kind, slot, add)
             if not (slot and slot ~= "none") or b.containers[kind] then return end
-            if (b.shells and b.shells[kind]) or not locked then
-                add(b)
-            else
-                held = true
-            end
+            add(b)
         end
         ensure("debuffs", ds, AddBundleDebuffs)
         ensure("buffs", bs, AddBundleBuffs)
         ensure("cc", cs, AddBundleCC)
+        -- NPF record groups (Edit Filters): declare missing variants,
+        -- park stale ones, drive the np groups' counts by the configs.
+        NPF_EnsureRecords(b)
         NpEnsureWireSoon()
-        if held then return "hold" end
         b.npcEnsurePending = nil
     end, "np:ensure")
 end
@@ -1081,7 +1353,9 @@ function ns.NPC_ReloadAll()
         local function apply(b)
             -- Conditional bundles: a row's container may not exist.
             if b.containers.debuffs then
-                b.containers.debuffs:SetAuraGroupMaxFrameCount("np", maxDbf)
+                -- np COUNT is owned by NPF_ApplyContainer now (Show All
+                -- flag); the cand re-drive stays -- it wipes any stale
+                -- narrowing left by pre-filter-feature sessions.
                 b.containers.debuffs:SetAuraGroupCandidateFilters("np", dbfCand)
                 -- Enum values can be 0: compare against nil, and the direct
                 -- setter (unlike AddAuraGroup) requires an explicit direction.
@@ -1092,6 +1366,9 @@ function ns.NPC_ReloadAll()
             if b.containers.buffs then
                 b.containers.buffs:SetAuraGroupCandidateFilters("np", buffCand)
             end
+            -- NPF record groups + np counts: declares run on the queued,
+            -- budgeted ensure path (npcEnsurePending dedupes).
+            QueueBundleEnsure(b)
         end
         for _, b in pairs(active) do apply(b) end
         for i = 1, #pool do apply(pool[i]) end
@@ -1138,41 +1415,48 @@ local built = 0
 -- actually displayed -- rows set to "none" cost zero frames across the
 -- whole pool. Enabling a row later builds the missing containers through
 -- the ensure pass in NPC_ReloadAll.
-local function QueuePoolBuild()
-    for i = 1, POOL_SIZE do
+function QueueBundleBuild() -- forward-declared local (pool growth + login build)
+    queuedBundles = queuedBundles + 1
+    do
         local nb
-        -- No oocOnly marks: group adds onto pre-born skeleton shells are
-        -- combat-legal (probe T1/T1b), so after an in-combat /reload the
-        -- whole pool builds WHILE fighting. Only a skeleton shortage (stash
-        -- exhausted mid-combat) holds until regen.
+        -- Fully combat-legal since 68914 (skeleton creation included), so
+        -- after an in-combat /reload the whole pool builds WHILE fighting.
         AK.QueueBuildJob(function()
             nb = table.remove(skeletons)
-            if not nb then
-                if InCombatLockdown() then return "hold" end
-                nb = CreateBundleSkeleton()
-            end
+            if not nb then nb = CreateBundleSkeleton() end
             local ds = ns.GetAuraSlots()
             if ds and ds ~= "none" then AddBundleDebuffs(nb) end
         end, "np:debuffs")
         AK.QueueBuildJob(function()
-            if not nb then return "hold" end
+            if not nb then return end -- bundle lost to a hard error upstream
             local _, bs = ns.GetAuraSlots()
             if bs and bs ~= "none" then AddBundleBuffs(nb) end
         end, "np:buffs")
         AK.QueueBuildJob(function()
-            if not nb then return "hold" end
+            if not nb then return end -- bundle lost to a hard error upstream
             local _, _, cs = ns.GetAuraSlots()
             if cs and cs ~= "none" then AddBundleCC(nb) end
+            -- NPF record groups apply at BUILD: growth bundles (pre-warm,
+            -- attach growth) never see the one-shot reload or a config-FP
+            -- flip, and without this their np group renders unfiltered.
+            NPF_EnsureRecords(nb)
             pool[#pool + 1] = nb
             built = built + 1
             ServiceWaiting()
-            if built >= POOL_SIZE then ns.NPC_ReloadAll() end
+            if built == POOL_SIZE then ns.NPC_ReloadAll() end
         end, "np:cc+pool")
+    end
+end
+
+local function QueuePoolBuild()
+    for i = 1, POOL_SIZE do
+        QueueBundleBuild()
     end
 end
 
 local boot = CreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")
+boot:RegisterEvent("PLAYER_ENTERING_WORLD")
 boot:RegisterEvent("PLAYER_TARGET_CHANGED")
 boot:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
@@ -1189,19 +1473,22 @@ boot:SetScript("OnEvent", function(self, event)
         for i = 1, #KINDS do
             AK.styles["np:" .. KINDS[i]] = BuildNPStyle(KINDS[i])
         end
-        -- Skeleton stash born SYNCHRONOUSLY in the early load window:
-        -- PLAYER_LOGIN runs before combat lockdown re-engages on every
-        -- reload path (the suite's positioning trick), and bare shells
-        -- skip the eager 10-button group batch, so this is cheap here and
-        -- makes every later pool step combat-legal. All the expensive
-        -- work (group adds = engine button batches) still drains through
-        -- the shared scheduler. Plates that spawn before the first
-        -- bundles land wait in `waiting` and are serviced as bundles
-        -- complete.
-        for i = 1, POOL_SIZE do
-            skeletons[i] = CreateBundleSkeleton()
-        end
+        -- No skeleton pre-birth: creation is combat-legal since 68914, so
+        -- pool jobs birth their skeletons inline whenever they run. Plates
+        -- that spawn before the first bundles land wait in `waiting` and
+        -- are serviced as bundles complete.
         QueuePoolBuild()
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        -- Content-aware pre-warm (idempotent: queuedBundles only grows, so
+        -- repeated zone-ins are no-ops once the target is met; the pool
+        -- never shrinks -- engine frames are never freed anyway). The
+        -- zone-in drain rides the login turbo window, not combat frames.
+        local _, instanceType = IsInInstance()
+        if AK and (instanceType == "party" or instanceType == "raid") then
+            for _ = queuedBundles + 1, POOL_TARGET_INSTANCE do
+                QueueBundleBuild()
+            end
+        end
     elseif event == "PLAYER_TARGET_CHANGED" then
         -- Class power on the target plate pushes top-anchored rows up.
         -- Only the outgoing and incoming target plates can change, so
@@ -1223,3 +1510,45 @@ boot:SetScript("OnEvent", function(self, event)
         end
     end
 end)
+
+-------------------------------------------------------------------------------
+-- TEMPORARY NPF PROBE (/euinpf) -- REMOVE once the slot-filter feature is
+-- field-verified. Dumps the per-kind configs, the config fingerprint, and
+-- each active bundle's declared record groups so a "filters not applying"
+-- report carries data: config wrong vs records undeclared vs engine-side.
+-------------------------------------------------------------------------------
+SLASH_EUINPF1 = "/euinpf"
+SlashCmdList["EUINPF"] = function()
+    local function cfgLine(kind)
+        local c = ns.NPF_Config and ns.NPF_Config(kind)
+        if not c then return kind .. ": <nil>" end
+        local f, o = c.f or {}, {}
+        for k in pairs(f) do o[#o + 1] = k end
+        table.sort(o)
+        return kind .. ": all=" .. tostring(c.all) .. " f={" .. table.concat(o, ",") .. "}"
+    end
+    print("|cff66ccffNPF:|r " .. cfgLine("debuffs"))
+    print("|cff66ccffNPF:|r " .. cfgLine("cc"))
+    print("|cff66ccffNPF:|r " .. cfgLine("dcc"))
+    local ex = ns.NPF_Exclude and ns.NPF_Exclude()
+    local xn = 0
+    if ex then for _ in pairs(ex) do xn = xn + 1 end end
+    print("|cff66ccffNPF:|r exclude n=" .. xn
+        .. " includeCC=" .. tostring(PVal("debuffIncludeCC"))
+        .. " FP=" .. (ns.NPF_FP and ns.NPF_FP() or "?"))
+    local nAct = 0
+    for plate, b in pairs(active) do
+        nAct = nAct + 1
+        local d = b.containers.debuffs
+        local keys = {}
+        if d and d._npfGroups then
+            for k in pairs(d._npfGroups) do keys[#keys + 1] = k end
+            table.sort(keys)
+        end
+        print(("|cff66ccffNPF:|r plate unit=%s dbf=%s groups={%s} cc=%s pend=%s"):format(
+            tostring(plate.unit), tostring(d ~= nil), table.concat(keys, ","),
+            tostring(b.containers.cc ~= nil), tostring(b.npcEnsurePending)))
+        if nAct >= 4 then break end
+    end
+    print("|cff66ccffNPF:|r active bundles=" .. nAct .. " pool=" .. #pool)
+end

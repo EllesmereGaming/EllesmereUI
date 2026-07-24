@@ -353,9 +353,26 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
         -- preset placeholders, which nil the cooldownID.
         if (fdC and fdC._isBuffViewerFrame) or frame._isPlaceholderFrame then
             local cdID = frame.cooldownID
-            if type(cdID) == "number" and ns.BuffFamHasCdKey and ns.BuffFamHasCdKey(settings) then
-                local cd = settings["c" .. cdID]
-                if cd then ChainSettings(cd, tier); return cd end
+            if type(cdID) == "number" then
+                if ns.BuffFamHasCdKey and ns.BuffFamHasCdKey(settings) then
+                    local cd = settings["c" .. cdID]
+                    if cd then ChainSettings(cd, tier); return cd end
+                end
+                -- Split-identity buffs (one shared base spellID, per-form aura
+                -- ids -- e.g. Starweaver's Warp/Weft both base Starweaver): the
+                -- ACTIVE frame's identity collapses to the shared base because
+                -- GetSpellID reads secret, so the direct hit below would
+                -- resolve a DIFFERENT entry than the placeholder (which passes
+                -- the per-form id). Prefer the clean per-form id cached per
+                -- cooldownID from unrestricted reads. For normal buffs the
+                -- cached id equals sid2 and this is skipped, and when no
+                -- per-form entry exists the shared key below still matches,
+                -- so legacy entries keep working.
+                local cleanSid = ns._cdmCleanSidByCDID and ns._cdmCleanSidByCDID[cdID]
+                if cleanSid and cleanSid ~= sid2 then
+                    local sClean = settings[cleanSid]
+                    if sClean then ChainSettings(sClean, tier); return sClean end
+                end
             end
         end
     end
@@ -1629,10 +1646,16 @@ local function ApplyCustomIcon(frame, fd)
         tex:SetTexture(ci)
         fd._customIconOn = true
     elseif fd._customIconOn then
-        fd._customIconOn = nil
+        -- Restore ONLY when the frame has a resolvable identity. A nil sid
+        -- here means the identity cache is transiently empty (bar-rebuild
+        -- reset mid-login), not that the user cleared the setting -- keep the
+        -- flag armed so the next identity-bearing pass re-evaluates instead
+        -- of disarming until the next aura event.
         local fc = _ecmeFC[frame]
         local sid = fc and (fc.resolvedSid or fc.spellID)
-        if type(sid) == "number" and sid > 0 and C_Spell and C_Spell.GetSpellTexture then
+        if type(sid) == "number" and not (issecretvalue and issecretvalue(sid))
+           and sid > 0 and C_Spell and C_Spell.GetSpellTexture then
+            fd._customIconOn = nil
             local real = C_Spell.GetSpellTexture(sid)
             if real then tex:SetTexture(real) end
         end
@@ -4392,7 +4415,16 @@ local function CollectAndReanchor()
                                     if type(realSID) ~= "number"
                                        or (issecretvalue and issecretvalue(realSID))
                                        or realSID <= 0 then
-                                        realSID = displaySID
+                                        -- Secret/unavailable read (instanced combat):
+                                        -- prefer the clean per-form id cached from
+                                        -- earlier unrestricted reads. Falling straight
+                                        -- to displaySID collapses split-identity twins
+                                        -- (Starweaver) onto the shared base spell: both
+                                        -- placeholders get one icon AND one pooled
+                                        -- frame key, so a slot vanishes in combat.
+                                        realSID = (ns._cdmCleanSidByCDID and dedupKey
+                                            and ns._cdmCleanSidByCDID[dedupKey])
+                                            or displaySID
                                     elseif ns._cdmCleanSidByCDID and dedupKey then
                                         -- Inactive frame -> CLEAN GetSpellID. Prime the shared cache
                                         -- (keyed by cooldownID) so the custom-buff picker/preview
@@ -4861,9 +4893,17 @@ local function CollectAndReanchor()
                     count = count + 1
                     local frame = entry.frame
                     usedFrames[frame] = true
+                    -- FC identity BEFORE DecorateFrame: the decorate path
+                    -- resolves per-spell settings (custom icon, active border)
+                    -- through fc.spellID. The bar-rebuild icon-state reset nils
+                    -- fc.spellID, so decorating first left the LAST login
+                    -- reanchor with no identity: the custom icon failed to
+                    -- resolve, its restore branch disarmed, and the real icon
+                    -- stood until the next aura-driven reanchor.
+                    local efc = FC(frame)
+                    efc.barKey = barKey
+                    efc.spellID = entry.baseSpellID or entry.spellID
                     DecorateFrame(frame, barData)
-                    FC(frame).barKey = barKey
-                    FC(frame).spellID = entry.baseSpellID or entry.spellID
                     icons[count] = frame
                     -- Only Show/alpha frames Blizzard considers active.
                     -- Hidden frames are collected for data (assignedSpells)
@@ -5099,16 +5139,29 @@ local function CollectAndReanchor()
                                     end
                                 else
                                     if not spellOrder[sid] then spellOrder[sid] = idx end
-                                    if _FindOverride then
-                                        local ovr = _FindOverride(sid)
-                                        if ovr and ovr > 0 and ovr ~= sid and not spellOrder[ovr] then
-                                            spellOrder[ovr] = idx
+                                    -- Resolve override/base forms only for a REAL
+                                    -- spellID. sid can be a cd-claim marker here (a
+                                    -- collided-buff slot, -(CD_CLAIM_MARKER_BASE+cdID),
+                                    -- well outside int32): FindSpellOverrideByID errors
+                                    -- outright on an out-of-range id, and a marker has no
+                                    -- override/base anyway (its frame routes by cooldownID
+                                    -- and orders via the buff-family "c"..cdID key). Same
+                                    -- sid>0 guard the sibling order loops already use; this
+                                    -- one branch was missed, so hosting a collided buff
+                                    -- (Diabolist Diabolic Ritual) on a CD/util bar threw
+                                    -- every RefreshLayout and broke CDM.
+                                    if sid > 0 then
+                                        if _FindOverride then
+                                            local ovr = _FindOverride(sid)
+                                            if ovr and ovr > 0 and ovr ~= sid and not spellOrder[ovr] then
+                                                spellOrder[ovr] = idx
+                                            end
                                         end
-                                    end
-                                    if C_Spell and C_Spell.GetBaseSpell then
-                                        local base = C_Spell.GetBaseSpell(sid)
-                                        if base and base > 0 and base ~= sid and not spellOrder[base] then
-                                            spellOrder[base] = idx
+                                        if C_Spell and C_Spell.GetBaseSpell then
+                                            local base = C_Spell.GetBaseSpell(sid)
+                                            if base and base > 0 and base ~= sid and not spellOrder[base] then
+                                                spellOrder[base] = idx
+                                            end
                                         end
                                     end
                                 end
@@ -5139,11 +5192,15 @@ local function CollectAndReanchor()
                         end
                     end
                     for _, sid in ipairs(spellList) do
-                        if sid and ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(sid) then
-                            -- Hosted-buff marker: the buff renders via the reparent
-                            -- path (route map -> cdFrames), never as an injected
-                            -- custom frame. Must be tested before the item-preset
-                            -- branch (markers are also <= -100).
+                        if sid and ((ns.HostedBuffMarkerToSpell and ns.HostedBuffMarkerToSpell(sid))
+                                 or (ns.CdClaimMarkerToCdID and ns.CdClaimMarkerToCdID(sid))) then
+                            -- Hosted-buff OR cd-claim (collided-buff slot) marker: the
+                            -- buff renders via the reparent/diversion path (route map ->
+                            -- cdFrames), never as an injected custom frame. Must be tested
+                            -- before the item-preset branch: both marker kinds are also
+                            -- <= -100, so -sid would otherwise be taken as an itemID and
+                            -- fed to GetItemCooldown, which errors outside int32 range
+                            -- (cd-claim markers are -(CD_CLAIM_MARKER_BASE + cooldownID)).
                         elseif sid and ns.SlotIDFromKey(sid) then
                             -- Equipment slot (trinkets -13/-14, user-added slots)
                             local slot = ns.SlotIDFromKey(sid)

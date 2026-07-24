@@ -108,6 +108,11 @@ end
 -- Settings access
 -------------------------------------------------------------------------------
 local function DM()
+    -- The user-editable exclude list is retired (2026-07-23): the exclude
+    -- set is internal now -- the hardcoded sated/always-hide presets are
+    -- the only blacklistable debuffs (merged in BuildRecords). Stale
+    -- dm.excludeSpellIDs / dm.excludeSeedV keys in saved profiles are
+    -- inert orphans: never read, never written.
     local p = ns.db and ns.db.profile
     return p and p.dmDebuff
 end
@@ -245,12 +250,15 @@ end
 
 -- EFFECTS: per-filter effect blocks (fxList array). Each entry: a filters
 -- set + optional Icon Glow (glowType/glowClassColor/glowR/G/B) + optional
--- Border override (borderSize/borderColor). An entry is ACTIVE when it has
--- filters checked and at least one payload; the FIRST matching block wins
--- per button category. Declared ABOVE the config fingerprint (callers).
+-- Border override (borderSize/borderColor) + optional Size (icon size for
+-- the matched categories; 0/nil = the base grid size). An entry is ACTIVE
+-- when it has filters checked and at least one payload; the FIRST matching
+-- block wins per button category. Declared ABOVE the config fingerprint
+-- (callers).
 local function FxEntryActive(e)
     return e.filters ~= nil and next(e.filters) ~= nil
-        and (((e.glowType or 0) > 0) or ((e.borderSize or 0) > 0))
+        and (((e.glowType or 0) > 0) or ((e.borderSize or 0) > 0)
+            or ((tonumber(e.size) or 0) > 0))
 end
 local function FxListView(list)
     if not list then return nil end
@@ -280,6 +288,7 @@ local function FxListFP(list)
             string.format("%.2f,%.2f,%.2f", e.glowR or 1, e.glowG or 0.776, e.glowB or 0.376),
             tostring(e.borderSize or 0),
             string.format("%.2f,%.2f,%.2f", bc.r or 0, bc.g or 0, bc.b or 0),
+            tostring(e.size or 0),
         }, "|")
     end
     return "fx:" .. table.concat(parts, ";")
@@ -297,6 +306,26 @@ local function FxHeal(owner)
         owner.fxGlow = nil
     end
 end
+-- Per-filter Size resolution for a record category: the FIRST matching
+-- ACTIVE block wins the category outright (identical rule to the glow/
+-- border applier's DmFxBlockFor -- one block owns a category, so a later
+-- block's Size never reaches a category an earlier block matched). The
+-- merged "bossrole" record matches either constituent, like the applier.
+local function FxSizeFor(list, cat)
+    if not list then return nil end
+    for i = 1, #list do
+        local e = list[i]
+        if FxEntryActive(e) then
+            local f = e.filters
+            if f and (f[cat] or (cat == "bossrole" and (f.boss or f.role))) then
+                local sz = tonumber(e.size)
+                if sz and sz > 0 then return sz end
+                return nil
+            end
+        end
+    end
+end
+
 -- Base fx accessors for the containers file (base debuff style build + FP).
 function ns.DM_FxList()
     local dm = DM()
@@ -313,6 +342,7 @@ function ns.DM_CfgFP()
     EnsureMigrated() -- profile switches re-fingerprint before rendering
     local dm = DM() or {}
     FxHeal(dm)
+    local prof = ns.db and ns.db.profile
     local parts = {
         "on",
         dm.all ~= false and 1 or 0, dm.boss and 1 or 0, dm.role and 1 or 0,
@@ -320,6 +350,9 @@ function ns.DM_CfgFP()
         dm.raidcombat and 1 or 0, dm.dispel and 1 or 0,
         (dm.dispelMode == "typed") and "typed" or "you",
         FxListFP(dm.fxList), -- base effects force records
+        -- The internal exclude set varies only with the retail lust-debuff
+        -- opt-out (the hardcoded lists are load-constant).
+        (not prof or prof.hideLustDebuff ~= false) and "lx1" or "lx0",
     }
     local tiles = dm.tiles
     if tiles then
@@ -329,7 +362,7 @@ function ns.DM_CfgFP()
                 "t", tostring(t.id), t.enabled and 1 or 0, tostring(t.type),
                 tostring(t.cat), tostring(t.position), tostring(t.growDirection),
                 tostring(t.offsetX), tostring(t.offsetY), tostring(t.size),
-                tostring(t.spacing), tostring(t.cap),
+                tostring(t.spacing), tostring(t.cap), tostring(t.iconsPerRow),
                 tostring(t.width), tostring(t.height),
                 t.color and string.format("%.2f,%.2f,%.2f,%.2f",
                     t.color.r or 1, t.color.g or 1, t.color.b or 1, t.color.a or 1) or "-",
@@ -434,11 +467,18 @@ local function BuildRecords(s, dm)
     local typedMap = dispelOn and dispelMode == "typed"
         and ((claims.dispel or fxCats.dispel or not (dm.all ~= false)) and true or false)
 
+    -- Internal exclude set (user editing retired): the hardcoded sated
+    -- list -- honoring the retail Show Lust Debuff opt-out -- plus the
+    -- always-hide pair. 68824's never-secret identity-gate exemption makes
+    -- these excludes real on friendly units for never-secret spells; a
+    -- secret-flagged entry is accepted but inert (the engine drops it
+    -- silently).
     local ex = {}
     if ns.RFC_AlwaysHideDebuffs then
         for id in pairs(ns.RFC_AlwaysHideDebuffs) do ex[id] = true end
     end
-    if s.hideLustDebuff ~= false and ns.RFC_SatedDebuffs then
+    local prof = ns.db and ns.db.profile
+    if (not prof or prof.hideLustDebuff ~= false) and ns.RFC_SatedDebuffs then
         for id in pairs(ns.RFC_SatedDebuffs) do ex[id] = true end
     end
 
@@ -486,6 +526,16 @@ local function BuildRecords(s, dm)
     if eff.cc and claims.cc then
         recs[#recs + 1] = { key = "cc", tokens = { "HARMFUL", "CROWD_CONTROL" },
             cand = { excludeSpellIDs = ex }, tile = claims.cc }
+    end
+
+    -- Sized base crowd control: an Icon Effects Size on cc cannot resize
+    -- the fixed legacy "cc" group's buttons (group->style binding is fixed
+    -- at declare), so cc becomes a base record variant instead; its style
+    -- carries the CC-glow flavor so the glow survives the move. The apply
+    -- pass parks the legacy group while this record exists.
+    if eff.cc and not claims.cc and FxSizeFor(dm.fxList, "cc") then
+        recs[#recs + 1] = { key = "cc", tokens = { "HARMFUL", "CROWD_CONTROL" },
+            cand = { excludeSpellIDs = ex } }
     end
 
     -- Category records (skipped in the base when Show All covers them;
@@ -541,6 +591,14 @@ local function BuildRecords(s, dm)
             cand = Cand(true, { isPriorityAura = true }), gated = true, tile = claims.priority }
     end
 
+    -- Per-filter Icon Effects Size: stamp each record with its owner list's
+    -- resolved size (base records read the base blocks, tile-hosted records
+    -- read their tile's -- the same list the applier matches against).
+    for i = 1, #recs do
+        local r = recs[i]
+        r.fxSize = FxSizeFor(r.tile and r.tile.fxList or dm.fxList, r.key)
+    end
+
     return recs, ccCand, claims, Cand, fxCats
 end
 
@@ -550,7 +608,13 @@ end
 -- engine, leak-free parking; boolean records share token sets, hence the
 -- record-key prefix keeps them distinct).
 local function GroupKey(AKL, r)
+    -- "|sz" marks a SIZED record (group->style binding is fixed at declare,
+    -- so gaining/losing a Size swaps the variant). The size VALUE is
+    -- deliberately not in the key: the sized style key is stable per
+    -- category and its content rebuilds on size edits -- a slider drag
+    -- restyles existing buttons instead of minting an engine batch per step.
     return "dm_" .. r.key .. "|" .. AKL.Filter(unpack(r.tokens))
+        .. (r.fxSize and "|sz" or "")
 end
 
 -- Effect-tile category resolution: one live-settable slot per tile.
@@ -830,22 +894,49 @@ local function AnchorTileContainer(container, health, s, t)
     local offX = t.offsetX or 0
     local offY = t.offsetY or 0
 
+    AK = AK or EllesmereUI.AuraKit
+    -- Grid wrap (12.1): Icons Per Row >= 2 wraps lines away from the
+    -- anchored edge (simple-grid convention; lowercase position tokens
+    -- here); vertical growth flips the flow axis so lines are columns.
+    -- Below 2 = the legacy single run, corner pick untouched.
+    local per = tonumber(t.iconsPerRow) or 0
+    local pl = t.position or "top"
+    local wrapUp = pl:find("bottom", 1, true) ~= nil
+    local wrapLeft = pl:find("right", 1, true) ~= nil
     container:ClearAllPoints()
     if grow == "CENTER" then
         container:SetPoint("CENTER", health, corner, offX, offY)
-        container:SetAuraLayoutAnchorPoint("TOPLEFT")
-        container:SetAuraLayoutGrowthDirection(FlowDir("RIGHT"), FlowDir("DOWN"))
+        local gV = (per >= 2 and wrapUp) and "UP" or "DOWN"
+        AK.SetContainerAnchor(container, (gV == "UP") and "BOTTOMLEFT" or "TOPLEFT")
+        AK.SetContainerGrowth(container, FlowDir("RIGHT"), FlowDir(gV))
     else
         container:SetPoint(corner, health, corner, offX, offY)
-        container:SetAuraLayoutAnchorPoint(corner)
         local gV = (grow == "UP" or grow == "DOWN") and grow or "DOWN"
         local gH = (grow == "LEFT" or grow == "RIGHT") and grow or "RIGHT"
-        container:SetAuraLayoutGrowthDirection(FlowDir(gH), FlowDir(gV))
+        if per >= 2 then
+            if grow == "UP" or grow == "DOWN" then
+                gH = wrapLeft and "LEFT" or "RIGHT"
+            else
+                gV = wrapUp and "UP" or "DOWN"
+            end
+            AK.SetContainerAnchor(container,
+                ((gV == "UP") and "BOTTOM" or "TOP") .. ((gH == "LEFT") and "RIGHT" or "LEFT"))
+        else
+            AK.SetContainerAnchor(container, corner)
+        end
+        AK.SetContainerGrowth(container, FlowDir(gH), FlowDir(gV))
     end
 
     local size = t.size or 18
+    local spacing = t.spacing or 1
     local vertical = (grow == "UP" or grow == "DOWN")
-    container:SetAuraLayoutRowWidth(vertical and (size + 0.4) or nil)
+    if per >= 2 then
+        AK.SetContainerAxis(container, vertical)
+        AK.SetContainerRowWidth(container, per * size + (per - 1) * spacing + 0.4)
+    else
+        AK.SetContainerAxis(container, false)
+        AK.SetContainerRowWidth(container, vertical and (size + 0.4) or nil)
+    end
 end
 
 -- Per-class tile fingerprints (style/geometry), keyed class .. ":" .. id.
@@ -854,12 +945,16 @@ local dmTileFP = {}
 -- Ensures the per-class style for one tile exists and is current. Icon
 -- tiles reuse the debuff style at the tile's size; effect tiles get a bare
 -- noRegions style whose applyExtra renders the effect from style.fx.
-local function EnsureTileStyle(d, s, t)
+-- szOv/szCat: a per-filter Icon Effects Size hosts the sized record on its
+-- own STABLE per-category style variant of the tile style (content rebuilds
+-- on size edits; the group variant only swaps at the sized/unsized edge).
+local function EnsureTileStyle(d, s, t, szOv, szCat)
     local cls = ClassToken(d)
     local key
     local isGrid = (t.type == "icons" or t.type == "square")
     if isGrid then
         key = "rf:dmt:" .. cls .. ":" .. tostring(t.id)
+        if szOv then key = key .. ":sz:" .. tostring(szCat) end
     else
         key = "rf:dmfx:" .. cls .. ":" .. tostring(t.id)
     end
@@ -871,7 +966,7 @@ local function EnsureTileStyle(d, s, t)
     if isGrid then
         local sv = TileStyleView(s, t)
         v = ((ns.RFC_DebuffStyleFP and ns.RFC_DebuffStyleFP(sv, font)) or "")
-            .. "|" .. tostring(t.size or 18)
+            .. "|" .. tostring(szOv or t.size or 18)
             .. "|" .. FxListFP(t.fxList)
         if t.type == "square" then
             local c = t.color or {}
@@ -880,7 +975,7 @@ local function EnsureTileStyle(d, s, t)
         end
         if st.style ~= v and ns.RFC_BuildDebuffStyle then
             st.style = v
-            local sty = ns.RFC_BuildDebuffStyle(sv, t.size or 18)
+            local sty = ns.RFC_BuildDebuffStyle(sv, szOv or t.size or 18)
             if t.type == "square" then
                 -- Square grid: a flat color block covers the spell icon
                 -- (rendered by the shared debuff applier).
@@ -947,6 +1042,68 @@ local function EnsureTileStyle(d, s, t)
         end
     end
     return key
+end
+
+-- Sized BASE-record styles: an Icon Effects block with a Size renders its
+-- categories at that size. Buttons take their physical size from the style
+-- at creation, so each sized category gets its own STABLE style key --
+-- content rebuilds when the size or the underlying debuff style changes;
+-- the group variant only swaps at the sized/unsized edge (GroupKey "|sz").
+-- "cc" builds the CC-glow style flavor so sized crowd control keeps its
+-- glow. Registry entries let the containers file refresh these alongside
+-- its own base-style rebuilds (DM_RefreshSizedStyles below).
+local dmSizeFP = {}
+local function EnsureBaseSizeStyle(d, s, cat, size)
+    local cls = ClassToken(d)
+    local key = "rf:dmsz:" .. cls .. ":" .. tostring(cat)
+    local st = dmSizeFP[key]
+    if not st then st = { cls = cls, cat = cat }; dmSizeFP[key] = st end
+    st.size = size
+    local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or ""
+    local v = ((ns.RFC_DebuffStyleFP and ns.RFC_DebuffStyleFP(s, font)) or "")
+        .. "|" .. tostring(size)
+    if st.style ~= v and ns.RFC_BuildDebuffStyle then
+        st.style = v
+        local sty
+        if cat == "cc" and ns.RFC_BuildDebuffCCStyle then
+            sty = ns.RFC_BuildDebuffCCStyle(s, size)
+        else
+            sty = ns.RFC_BuildDebuffStyle(s, size)
+        end
+        AK.styles[key] = sty
+        AK.RestyleSoon(key)
+    end
+    return key
+end
+
+-- Called by the containers file whenever it rebuilds a class's base debuff
+-- styles on a style-fingerprint change: a pure style edit (border color,
+-- text font...) does not flip the config fingerprint, so the apply pass --
+-- and with it EnsureBaseSizeStyle -- may not run; the sized siblings must
+-- refresh at the same site the base styles do or they render stale.
+function ns.DM_RefreshSizedStyles(baseStyleKey, s)
+    AK = AK or EllesmereUI.AuraKit
+    if not AK then return end
+    local cls = baseStyleKey:match("^rf:debuff:(.+)$")
+    if not cls then return end
+    local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or ""
+    for key, st in pairs(dmSizeFP) do
+        if st.cls == cls and st.style and st.size then
+            local v = ((ns.RFC_DebuffStyleFP and ns.RFC_DebuffStyleFP(s, font)) or "")
+                .. "|" .. tostring(st.size)
+            if st.style ~= v and ns.RFC_BuildDebuffStyle then
+                st.style = v
+                local sty
+                if st.cat == "cc" and ns.RFC_BuildDebuffCCStyle then
+                    sty = ns.RFC_BuildDebuffCCStyle(s, st.size)
+                else
+                    sty = ns.RFC_BuildDebuffStyle(s, st.size)
+                end
+                AK.styles[key] = sty
+                AK.RestyleSoon(key)
+            end
+        end
+    end
 end
 
 -- Ensures one tile's container exists for this button (queued: container
@@ -1047,7 +1204,7 @@ local function EnsureTileContainer(d, t)
         if c2 then
             ns.DM_ApplyDebuffConfig(c2, d, s2, StyleKeyFor(d))
         end
-    end, "rf:dm-tile", true)
+    end, "rf:dm-tile")
     return nil
 end
 
@@ -1066,13 +1223,14 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
     local size = s.debuffSize or 18
     local layout = {
         elementWidth = size, elementHeight = size,
-        elementSpacingX = s.debuffSpacing or 1, elementSpacingY = s.debuffSpacing or 1,
+        elementSpacing = s.debuffSpacing or 1, lineSpacing = s.debuffSpacing or 1,
     }
 
     local recs, ccCand, claims, _, fxCats = BuildRecords(s, dm)
 
     -- Partition records: base container vs per-tile containers.
     local wantedBase, missingBase = {}, false
+    local baseSizedCC = false -- sized cc record replaces the legacy cc group
     local tileRecs = {} -- [tileId] = array of records
     for i = 1, #recs do
         local r = recs[i]
@@ -1083,6 +1241,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
             if not list then list = {}; tileRecs[id] = list end
             list[#list + 1] = r
         else
+            if r.key == "cc" then baseSizedCC = true end
             wantedBase[r.gkey] = r
             if not declared[r.gkey] then missingBase = true end
         end
@@ -1101,7 +1260,10 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
     -- whenever it is enabled and UNCLAIMED; a claiming tile hosts it as a
     -- normal record instead (tile style; the glow stays base-only).
     if declared.cc then
+        -- A sized base cc record (Icon Effects Size on cc) supplants the
+        -- legacy group: park it or every CC debuff renders twice.
         local ccBase = ((dm.cc ~= false) or (fxCats and fxCats.cc)) and not claims.cc
+            and not baseSizedCC
         container:SetAuraGroupMaxFrameCount("cc", ccBase and cap or 0)
         container:SetAuraGroupCandidateFilters("cc", ccCand)
         container:SetAuraGroupLayout("cc", layout)
@@ -1121,7 +1283,19 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
             end
             container:SetAuraGroupMaxFrameCount(gkey, n)
             container:SetAuraGroupCandidateFilters(gkey, r.cand)
-            container:SetAuraGroupLayout(gkey, layout)
+            if r.fxSize then
+                -- Sized record: keep the stable per-category style fresh
+                -- (size edits rebuild its content -> existing buttons
+                -- restyle) and feed the flow math the same size.
+                EnsureBaseSizeStyle(d, s, r.key, r.fxSize)
+                container:SetAuraGroupLayout(gkey, {
+                    elementWidth = r.fxSize, elementHeight = r.fxSize,
+                    elementSpacing = s.debuffSpacing or 1,
+                    lineSpacing = s.debuffSpacing or 1,
+                })
+            else
+                container:SetAuraGroupLayout(gkey, layout)
+            end
         end
     end
     d.dmGatedKeys = gatedKeys
@@ -1151,8 +1325,13 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                         -- applier ran BEFORE this stamp at init and found
                         -- no category.
                         local catKey = r.key
+                        -- Sized records bind their per-category sized style
+                        -- (buttons take the physical size at creation).
+                        local sk = r.fxSize
+                            and EnsureBaseSizeStyle(d, s2, r.key, r.fxSize)
+                            or StyleKeyFor(d)
                         AK.AddGroupToContainer(c2, { key = gkey, filter = r.tokens,
-                            maxFrameCount = 0, style = StyleKeyFor(d),
+                            maxFrameCount = 0, style = sk,
                             extraInit = function(btn2, d2, style)
                                 if d2 then d2.dmCat = catKey end
                                 if style and ns.RFC_ApplyDmFx then
@@ -1286,7 +1465,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                         local tSize = t.size or 18
                         local tLayout = {
                             elementWidth = tSize, elementHeight = tSize,
-                            elementSpacingX = t.spacing or 1, elementSpacingY = t.spacing or 1,
+                            elementSpacing = t.spacing or 1, lineSpacing = t.spacing or 1,
                         }
                         for gkey, r in pairs(tWanted) do
                             if tDecl[gkey] then
@@ -1297,7 +1476,19 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                                 end
                                 tc:SetAuraGroupMaxFrameCount(gkey, n)
                                 tc:SetAuraGroupCandidateFilters(gkey, r.cand)
-                                tc:SetAuraGroupLayout(gkey, tLayout)
+                                if r.fxSize then
+                                    -- Sized record: keep its per-category
+                                    -- tile style variant fresh + matching
+                                    -- flow math (see the base loop).
+                                    EnsureTileStyle(d, s, t, r.fxSize, r.key)
+                                    tc:SetAuraGroupLayout(gkey, {
+                                        elementWidth = r.fxSize, elementHeight = r.fxSize,
+                                        elementSpacing = t.spacing or 1,
+                                        lineSpacing = t.spacing or 1,
+                                    })
+                                else
+                                    tc:SetAuraGroupLayout(gkey, tLayout)
+                                end
                             end
                         end
                         if tMissing then
@@ -1327,7 +1518,11 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                                                 AK.AddGroupToContainer(tc2, {
                                                     key = gkey, filter = r.tokens,
                                                     maxFrameCount = 0,
-                                                    style = EnsureTileStyle(d, s2, r.tile),
+                                                    -- Sized records bind the per-category
+                                                    -- sized variant of the tile style.
+                                                    style = r.fxSize
+                                                        and EnsureTileStyle(d, s2, r.tile, r.fxSize, r.key)
+                                                        or EnsureTileStyle(d, s2, r.tile),
                                                     extraInit = function(btn2, d2, style)
                                                         if d2 then d2.dmCat = catKey end
                                                         -- Arm ICON EFFECTS in the creation

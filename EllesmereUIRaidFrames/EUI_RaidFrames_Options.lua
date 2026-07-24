@@ -233,7 +233,7 @@ initFrame:SetScript("OnEvent", function(self)
                 menuFrame:Hide()
             end)
 
-            rl:SetText(ri.label)
+            rl:SetText(EllesmereUI.L(ri.label))
             radioRows[#radioRows + 1] = rr
             mY = mY - MH
         end
@@ -295,7 +295,7 @@ initFrame:SetScript("OnEvent", function(self)
             rl:SetFont(FONT, 13, "")
             rl:SetPoint("LEFT", row, "LEFT", 20, 0)
             rl:SetJustifyH("LEFT")
-            rl:SetText(cb.label)
+            rl:SetText(EllesmereUI.L(cb.label))
             rl:SetTextColor(0.75, 0.75, 0.75, 1)
             row._lbl = rl
 
@@ -3196,10 +3196,10 @@ initFrame:SetScript("OnEvent", function(self)
         }
         local dispelIconPositionOrder = { "none", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
         row, h = W:DualRow(parent, y,
-            { type="slider", text="Dispel Border", min=0, max=4, step=1,
+            { type="slider", text="Frame Border", min=0, max=4, step=1,
               getValue=function() return SVal("dispelBorderSize", 2) end,
               setValue=function(v) SSet("dispelBorderSize", v) end },
-            { type="dropdown", text="Dispel Icon Position", values=dispelIconPositionValues, order=dispelIconPositionOrder,
+            { type="dropdown", text="Type Icon Position", values=dispelIconPositionValues, order=dispelIconPositionOrder,
               getValue=function()
                   if not SVal("showDispelIcons", false) then return "none" end
                   return SVal("dispelIconPosition", "center")
@@ -3241,6 +3241,33 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnEnter", function(self) if SVal("showDispelIcons", false) then self:SetAlpha(0.7) end end)
             cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(SVal("showDispelIcons", false) and 0.4 or 0.15) end)
             cogBtn:SetScript("OnClick", function(self) if SVal("showDispelIcons", false) then cogShow(self) end end)
+        end
+        -- 12.1 only: cog on the Dispel Border slider for the debuff ICON
+        -- dispel ring (the engine-tinted border on dispellable debuff
+        -- icons) -- its thickness in physical pixels. The ring itself is
+        -- container-rendered, so this key has no 12.0 consumer.
+        if EllesmereUI.IS_121 then
+            local rgn = row._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Dispel Border",
+                rows = {
+                    { type="slider", label="Debuff Icon Border", min=-1, max=4, step=1,
+                      tooltip="Thickness in physical pixels. -1 follows the Debuff Manager's Border setting, 0 hides the dispel color border.",
+                      get=function() return SVal("dispelIconBorderSize", 2) end,
+                      set=function(v) SSet("dispelIconBorderSize", v) end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
 
         -- Row 3: Dispel Colors -- five always-active swatches, one per dispel type.
@@ -5432,12 +5459,26 @@ initFrame:SetScript("OnEvent", function(self)
             leftRgn._control = cbDD
         end
 
-        -- Row 6: Flip Frame Growth
+        -- Row 6: Frame Growth. View over the tri-state partyFlipGrowth key
+        -- (false=Default, true=Reversed, "centered"=Centered) -- the same key
+        -- the old Flip Frame Growth toggle wrote, so stored profiles, exports,
+        -- and spec-override entries carry over with no migration.
         _, h = W:DualRow(parent, y,
-            { type="toggle", text="Flip Frame Growth",
-              tooltip="Flips the direction the frames grow in: vertical frames grow up instead of down, horizontal frames grow left instead of right.",
-              getValue=function() return db.profile.partyFlipGrowth or false end,
-              setValue=function(v) db.profile.partyFlipGrowth = v; PartyReloadAndUpdate() end },
+            { type="dropdown", text="Frame Growth",
+              tooltip="Default grows down or right, Reversed grows up or left, and Centered keeps the frames centered as the party size changes.",
+              values={ default="Default", reversed="Reversed", centered="Centered" },
+              order={ "default", "reversed", "centered" },
+              getValue=function()
+                  local v = db.profile.partyFlipGrowth
+                  if v == "centered" then return "centered" end
+                  return v == true and "reversed" or "default"
+              end,
+              setValue=function(v)
+                  if v == "centered" then db.profile.partyFlipGrowth = "centered"
+                  elseif v == "reversed" then db.profile.partyFlipGrowth = true
+                  else db.profile.partyFlipGrowth = false end
+                  PartyReloadAndUpdate()
+              end },
             { type="label", text="" });  y = y - h
 
         -------------------------------------------------------------------
@@ -7427,6 +7468,7 @@ initFrame:SetScript("OnEvent", function(self)
                 ns._bmRoot:Hide(); ns._bmRoot:SetParent(nil); ns._bmRoot = nil
             end
             if ns._dmAddPopup then ns._dmAddPopup:Hide() end
+            if ns._dmExcludePopup then ns._dmExcludePopup:Hide(); ns._dmExcludePopup = nil end
             if ns._bm2FilterEditor then ns._bm2FilterEditor:Hide(); ns._bm2FilterEditor = nil end
             if ns._bm2Menu then ns._bm2Menu:Hide(); ns._bm2Menu = nil end
             if ns._dmRoot then
@@ -7448,6 +7490,7 @@ initFrame:SetScript("OnEvent", function(self)
         if ns._addNewPopup then ns._addNewPopup:Hide() end
         if ns._bmRoot then ns._bmRoot:Hide(); ns._bmRoot:SetParent(nil); ns._bmRoot = nil end
         if ns._dmAddPopup then ns._dmAddPopup:Hide() end
+            if ns._dmExcludePopup then ns._dmExcludePopup:Hide(); ns._dmExcludePopup = nil end
             if ns._bm2FilterEditor then ns._bm2FilterEditor:Hide(); ns._bm2FilterEditor = nil end
             if ns._bm2Menu then ns._bm2Menu:Hide(); ns._bm2Menu = nil end
         if ns._dmRoot then ns._dmRoot:Hide(); ns._dmRoot:SetParent(nil); ns._dmRoot = nil end
@@ -7473,6 +7516,7 @@ initFrame:SetScript("OnEvent", function(self)
                     ns._bmRoot:Hide(); ns._bmRoot:SetParent(nil); ns._bmRoot = nil
                 end
                 if ns._dmAddPopup then ns._dmAddPopup:Hide() end
+            if ns._dmExcludePopup then ns._dmExcludePopup:Hide(); ns._dmExcludePopup = nil end
             if ns._bm2FilterEditor then ns._bm2FilterEditor:Hide(); ns._bm2FilterEditor = nil end
             if ns._bm2Menu then ns._bm2Menu:Hide(); ns._bm2Menu = nil end
                 if ns._dmRoot then
@@ -7595,6 +7639,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Switching away from Debuff Manager: clean up DM root
             if pageName ~= PAGE_DM and ns._dmRoot then
                 if ns._dmAddPopup then ns._dmAddPopup:Hide() end
+            if ns._dmExcludePopup then ns._dmExcludePopup:Hide(); ns._dmExcludePopup = nil end
             if ns._bm2FilterEditor then ns._bm2FilterEditor:Hide(); ns._bm2FilterEditor = nil end
             if ns._bm2Menu then ns._bm2Menu:Hide(); ns._bm2Menu = nil end
                 ns._dmRoot:Hide(); ns._dmRoot:SetParent(nil); ns._dmRoot = nil

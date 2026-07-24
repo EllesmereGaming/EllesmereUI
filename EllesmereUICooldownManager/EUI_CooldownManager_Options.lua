@@ -9444,6 +9444,30 @@ initFrame:SetScript("OnEvent", function(self)
                             -- isToggle already gates them here; only the rejoin branch
                             -- above needed the payloadValue guard for them.)
                             if scopeActive and (valuesMatch or (ctx.isToggle and not ctx.payloadValue)) then
+                                -- Payload items (custom colour RGB, scalar seconds):
+                                -- the apply swept the per-icon originals, so this
+                                -- scope holds the ONLY copy of the value -- a plain
+                                -- un-apply would discard it and snap the setting to
+                                -- default. Seed the removed value back into the spell
+                                -- in hand first, so toggle-off is an undo for that
+                                -- spell (recreates its pre-apply own value) instead
+                                -- of a silent reset.
+                                if (ctx.scalarApply or ctx.payloadValue) and ss and scopeT then
+                                    -- EnsureSS, not ss directly: the apply's member
+                                    -- sweep prunes an entry it empties from the
+                                    -- store (a spell whose ONLY settings were the
+                                    -- swept keys), leaving this closure's ss
+                                    -- orphaned -- a seed into it would be lost.
+                                    -- EnsureSS re-persists the same table (no-op
+                                    -- when it is still in the store).
+                                    local target = EnsureSS()
+                                    for _, k in ipairs(keys) do
+                                        local own
+                                        if allSpecs then own = scopeT[k]
+                                        else own = rawget(scopeT, k) end
+                                        if own ~= nil then rawset(target, k, own) end
+                                    end
+                                end
                                 AB.RunBarUnapply(keys, allSpecs)
                                 if ctx.refresh then ctx.refresh() end
                                 if s._updateActive then s._updateActive() end
@@ -15204,6 +15228,13 @@ initFrame:SetScript("OnEvent", function(self)
                 return bottomRowCount
             end
 
+            -- Mirror the live bar's visual row order: with reversed row
+            -- growth the base (first data) row renders on the bottom/right
+            -- (see ns.CDMRowsReversed / LayoutCDMBar). Data-row logic
+            -- (RowIconCount, slot indices, drag mapping) keeps data rows;
+            -- only the perpendicular placement offset flips.
+            local pvReversed = ns.CDMRowsReversed and ns.CDMRowsReversed(bd) or false
+
             -- Total dimensions: spell grid + 1 extra slot for the "+" button
             local isVert = (grow == "DOWN" or grow == "UP")
             local totalW, totalH
@@ -15227,17 +15258,19 @@ initFrame:SetScript("OnEvent", function(self)
             local startY = -5
 
             -- Position helper: places frame at grid position (col, row).
-            -- Center any row that has fewer icons than stride.
+            -- Center any row that has fewer icons than stride. `row` is the
+            -- DATA row; the visual row flips when pvReversed.
             local function PosAtGrid(frame, col, row)
                 PP.Size(frame, iconSize, iconH); frame:ClearAllPoints()
                 local rowCount = RowIconCount(row)
                 local rowHasLess = (rowCount > 0 and rowCount < stride)
+                local vRow = pvReversed and (numRows - 1 - row) or row
                 local rowOffset = 0
                 if isVert then
                     if rowHasLess then
                         rowOffset = math.floor((stride - rowCount) * (iconH + spacing) / 2)
                     end
-                    local px = startX + row * (iconSize + spacing)
+                    local px = startX + vRow * (iconSize + spacing)
                     local py = startY - col * (iconH + spacing) - rowOffset
                     PP.Point(frame, "TOPLEFT", self, "TOPLEFT", px, py)
                     frame._baseX = px
@@ -15247,7 +15280,7 @@ initFrame:SetScript("OnEvent", function(self)
                         rowOffset = math.floor((stride - rowCount) * (iconSize + spacing) / 2)
                     end
                     local px = startX + col * (iconSize + spacing) + rowOffset
-                    local py = startY - row * (iconH + spacing)
+                    local py = startY - vRow * (iconH + spacing)
                     PP.Point(frame, "TOPLEFT", self, "TOPLEFT", px, py)
                     frame._baseX = px
                     frame._baseY = py
@@ -16728,6 +16761,9 @@ initFrame:SetScript("OnEvent", function(self)
                   local bd = BD()
                   bd.verticalOrientation = v
                   bd.growDirection = v and "DOWN" or "RIGHT"
+                  -- Orientation flip invalidates the row growth direction too
+                  -- (UP/DOWN are horizontal-bar values, LEFT/RIGHT vertical).
+                  bd.rowGrowDirection = nil
                   -- Orientation flip swaps the meaning of width-axis vs
                   -- height-axis, so width/height match caches no longer apply.
                   bd._matchIconPhys = nil
@@ -16798,13 +16834,13 @@ initFrame:SetScript("OnEvent", function(self)
                       bd.bottomRowCount = nil; bd.customBottomRowEnabled = nil
                       bd.topRowSizeOffset = nil; bd.customTopRowSizeEnabled = nil
                       bd.bottomRowSizeOffset = nil; bd.customBottomRowSizeEnabled = nil
-                      if bd.anchorFirstRow then
-                          -- The first-row pin rides on the 2-row custom split
+                      if bd.rowGrowDirection then
+                          -- The row growth pin rides on the 2-row custom split
                           -- (the only layout whose row count changes at
                           -- runtime). Clear it with the rest of the split
                           -- settings and re-store the position in plain edge
                           -- format from the bar's current spot.
-                          bd.anchorFirstRow = nil
+                          bd.rowGrowDirection = nil
                           if ns.RecaptureBarAnchor then ns.RecaptureBarAnchor(bd.key) end
                       end
                   end
@@ -16820,17 +16856,13 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             row3Right);  y = y - h
 
-        -- Inline cog on Number of Rows: Custom Top Row Count (only relevant when numRows == 2)
+        -- Inline cog on Number of Rows: Row Icons settings (only relevant when numRows == 2)
         do
             local leftRgn = numRowsRow._leftRegion
             local ctrl = leftRgn._control
             local function customTopOff()
                 local bd = BD()
                 return not bd or not bd.customTopRowEnabled
-            end
-            local function customBottomOff()
-                local bd = BD()
-                return not bd or not bd.customBottomRowEnabled
             end
             local function rowsNotTwo()
                 return (BD().numRows or 1) ~= 2
@@ -16845,11 +16877,26 @@ initFrame:SetScript("OnEvent", function(self)
                 if rsWDis() then return rsWTip() end
                 return rsHTip()
             end
+            -- Row Growth dropdown: labels track the bar's orientation (rows
+            -- stack vertically on horizontal bars, horizontally on vertical
+            -- bars). The page rebuilds on orientation flips and bar switches,
+            -- so build-time resolution is safe.
+            local rowGrowValues, rowGrowOrder, rowGrowTip
+            if BD().verticalOrientation then
+                rowGrowValues = { CENTER = "Grow Centered", RIGHT = "Grow Right", LEFT = "Grow Left" }
+                rowGrowOrder = { "CENTER", "RIGHT", "LEFT" }
+                rowGrowTip = "How extra columns grow when the second column appears or disappears. Grow Right keeps the left column in place, Grow Left keeps the right column in place, Grow Centered keeps the bar centered."
+            else
+                rowGrowValues = { CENTER = "Grow Centered", DOWN = "Grow Down", UP = "Grow Up" }
+                rowGrowOrder = { "CENTER", "DOWN", "UP" }
+                rowGrowTip = "How extra rows grow when the second row appears or disappears. Grow Down keeps the top row in place, Grow Up keeps the bottom row in place, Grow Centered keeps the bar centered."
+            end
             local _, topRowCogShow = EllesmereUI.BuildCogPopup({
                 title = "Row Icons",
                 rows = {
-                    { type="toggle", label="Anchor First Row",
-                      tooltip="Keeps the first row in place when the second row appears or disappears.",
+                    { type="dropdown", label="Row Growth",
+                      values=rowGrowValues, order=rowGrowOrder,
+                      tooltip=rowGrowTip,
                       -- Only meaningful with the 2-row custom split (the only
                       -- layout whose row count changes at runtime). Anchored
                       -- bars are positioned by their anchor system, which
@@ -16866,23 +16913,25 @@ initFrame:SetScript("OnEvent", function(self)
                           return "Not available while this bar is anchored to another element"
                       end,
                       rawTooltip=true,
-                      get=function() return BD().anchorFirstRow == true end,
+                      get=function() return BD().rowGrowDirection or "CENTER" end,
                       set=function(v)
-                          BD().anchorFirstRow = v or nil
+                          local bd = BD()
+                          bd.rowGrowDirection = (v ~= "CENTER") and v or nil
                           -- Recapture the corner from the bar's current spot BEFORE
                           -- rebuilding, so the new anchor pins where the bar sits now.
-                          if ns.RecaptureBarAnchor then ns.RecaptureBarAnchor(BD().key) end
+                          if ns.RecaptureBarAnchor then ns.RecaptureBarAnchor(bd.key) end
                           ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
                       end },
-                    { type="toggle", label="Custom Top Row Count",
-                      -- Mutually exclusive with Custom Bottom Row Count: enabling one
-                      -- disables the other's toggle. Clearing the sibling on enable
-                      -- also prevents a both-on deadlock (both overlays showing).
-                      disabled=function() return rowsNotTwo() or BD().customBottomRowEnabled == true end,
-                      disabledTooltip=function()
-                          if rowsNotTwo() then return "This option requires exactly 2 rows" end
-                          return "Disabled while Custom Bottom Row Count is enabled"
-                      end,
+                    { type="toggle", label="Custom Base Row Count",
+                      -- The base row is the FIRST DATA row: it fills first and
+                      -- it is the row Row Growth keeps in place (visual top
+                      -- normally, visual bottom/right when reversed). Stored in
+                      -- the legacy topRowCount keys; the legacy bottom-count
+                      -- fields are still honored at runtime for old profiles
+                      -- but no longer have UI. Enabling this clears the legacy
+                      -- bottom flag so the base count takes effect.
+                      disabled=rowsNotTwo,
+                      disabledTooltip="This option requires exactly 2 rows",
                       rawTooltip=true,
                       get=function() return BD().customTopRowEnabled end,
                       set=function(v)
@@ -16890,13 +16939,13 @@ initFrame:SetScript("OnEvent", function(self)
                           if v then BD().customBottomRowEnabled = nil end
                           ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
                       end },
-                    { type="slider", label="Top Row Icons",
-                      min=1, max=50, step=1,
-                      tooltip="How many icons to show on the top row. The rest go on the bottom row.",
+                    { type="slider", label="Base Row Icons",
+                      min=1, max=15, step=1,
+                      tooltip="How many icons to show on the base row (the row that fills first and that Row Growth keeps in place). The rest go on the second row.",
                       disabled=function() return rowsNotTwo() or customTopOff() end,
                       disabledTooltip=function()
                           if rowsNotTwo() then return "This option requires exactly 2 rows" end
-                          return "Custom Top Row Count"
+                          return "Custom Base Row Count"
                       end,
                       get=function()
                           local bd = BD()
@@ -16914,52 +16963,15 @@ initFrame:SetScript("OnEvent", function(self)
                           BD().topRowCount = v
                           ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
                       end },
-                    { type="toggle", label="Custom Bottom Row Count",
-                      -- Flip of Custom Top Row Count; mutually exclusive with it.
-                      disabled=function() return rowsNotTwo() or BD().customTopRowEnabled == true end,
-                      disabledTooltip=function()
-                          if rowsNotTwo() then return "This option requires exactly 2 rows" end
-                          return "Disabled while Custom Top Row Count is enabled"
-                      end,
-                      rawTooltip=true,
-                      get=function() return BD().customBottomRowEnabled end,
-                      set=function(v)
-                          BD().customBottomRowEnabled = v
-                          if v then BD().customTopRowEnabled = nil end
-                          ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
-                      end },
-                    { type="slider", label="Bottom Row Icons",
-                      min=1, max=50, step=1,
-                      tooltip="How many icons to show on the bottom row. The rest go on the top row.",
-                      disabled=function() return rowsNotTwo() or customBottomOff() end,
-                      disabledTooltip=function()
-                          if rowsNotTwo() then return "This option requires exactly 2 rows" end
-                          return "Custom Bottom Row Count"
-                      end,
-                      get=function()
-                          local bd = BD()
-                          if bd.bottomRowCount and bd.bottomRowCount > 0 then return bd.bottomRowCount end
-                          local count = 0
-                          local sdBR = ns.GetBarSpellData(bd.key)
-                          if sdBR and sdBR.assignedSpells then
-                              for _, sid in ipairs(sdBR.assignedSpells) do if sid and sid ~= 0 then count = count + 1 end end
-                          end
-                          if count == 0 then return 1 end
-                          return math.max(1, math.floor(count / 2))
-                      end,
-                      set=function(v)
-                          if v == 0 then v = nil end
-                          BD().bottomRowCount = v
-                          ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
-                      end },
-                    { type="toggle", label="Custom Top Row Size",
-                      -- Mutually exclusive with Custom Bottom Row Size; also locked
+                    { type="toggle", label="Custom Base Row Size",
+                      -- Mutually exclusive with Custom Second Row Size (stored
+                      -- in the legacy customBottomRowSize* keys); also locked
                       -- while the bar is width/height matched (same as Icon Scale).
                       disabled=function() return rowsNotTwo() or rowSizeMatched() or BD().customBottomRowSizeEnabled == true end,
                       disabledTooltip=function()
                           if rowsNotTwo() then return "This option requires exactly 2 rows" end
                           if rowSizeMatched() then return rowSizeMatchTip() end
-                          return "Disabled while Custom Bottom Row Size is enabled"
+                          return "Disabled while Custom Second Row Size is enabled"
                       end,
                       rawTooltip=true,
                       get=function() return BD().customTopRowSizeEnabled end,
@@ -16968,14 +16980,14 @@ initFrame:SetScript("OnEvent", function(self)
                           if v then BD().customBottomRowSizeEnabled = nil end
                           ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
                       end },
-                    { type="slider", label="Top Icon Size",
+                    { type="slider", label="Base Icon Size",
                       min=-20, max=20, step=1,
-                      tooltip="Offsets the top row's icon size in pixels from Icon Scale. The bottom row keeps the base size.",
+                      tooltip="Offsets the base row's icon size in pixels from Icon Scale. The second row keeps the base size.",
                       disabled=function() return rowsNotTwo() or rowSizeMatched() or not BD().customTopRowSizeEnabled end,
                       disabledTooltip=function()
                           if rowsNotTwo() then return "This option requires exactly 2 rows" end
                           if rowSizeMatched() then return rowSizeMatchTip() end
-                          return "Custom Top Row Size"
+                          return "Custom Base Row Size"
                       end,
                       rawTooltip=function() return rowSizeMatched() end,
                       get=function() return BD().topRowSizeOffset or 0 end,
@@ -16984,13 +16996,13 @@ initFrame:SetScript("OnEvent", function(self)
                           BD().topRowSizeOffset = v
                           ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
                       end },
-                    { type="toggle", label="Custom Bottom Row Size",
-                      -- Flip of Custom Top Row Size; mutually exclusive with it.
+                    { type="toggle", label="Custom Second Row Size",
+                      -- Flip of Custom Base Row Size; mutually exclusive with it.
                       disabled=function() return rowsNotTwo() or rowSizeMatched() or BD().customTopRowSizeEnabled == true end,
                       disabledTooltip=function()
                           if rowsNotTwo() then return "This option requires exactly 2 rows" end
                           if rowSizeMatched() then return rowSizeMatchTip() end
-                          return "Disabled while Custom Top Row Size is enabled"
+                          return "Disabled while Custom Base Row Size is enabled"
                       end,
                       rawTooltip=true,
                       get=function() return BD().customBottomRowSizeEnabled end,
@@ -16999,14 +17011,14 @@ initFrame:SetScript("OnEvent", function(self)
                           if v then BD().customTopRowSizeEnabled = nil end
                           ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
                       end },
-                    { type="slider", label="Bottom Icon Size",
+                    { type="slider", label="Second Row Icon Size",
                       min=-20, max=20, step=1,
-                      tooltip="Offsets the bottom row's icon size in pixels from Icon Scale. The top row keeps the base size.",
+                      tooltip="Offsets the second row's icon size in pixels from Icon Scale. The base row keeps the base size.",
                       disabled=function() return rowsNotTwo() or rowSizeMatched() or not BD().customBottomRowSizeEnabled end,
                       disabledTooltip=function()
                           if rowsNotTwo() then return "This option requires exactly 2 rows" end
                           if rowSizeMatched() then return rowSizeMatchTip() end
-                          return "Custom Bottom Row Size"
+                          return "Custom Second Row Size"
                       end,
                       rawTooltip=function() return rowSizeMatched() end,
                       get=function() return BD().bottomRowSizeOffset or 0 end,

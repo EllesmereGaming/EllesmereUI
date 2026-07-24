@@ -7943,11 +7943,11 @@ initFrame:SetScript("OnEvent", function(self)
                       UNIT_DB_MAP[selectedUnit]().castFillOpacity = v
                       ReloadAndUpdate(); UpdatePreview()
                   end },
-                -- Global (not per-frame, not synced): lift the player/target/focus
+                -- Global (not per-frame, not synced): lift all
                 -- cast bars to HIGH strata. Default on = existing behavior; off leaves
-                -- them at the frame's strata. A single db.profile key drives all three.
+                -- them at the frame's strata. One db.profile key drives every unit.
                 { type = "toggle", label = "Raise Cast Bar Strata (All)",
-                  tooltip = "Lifts the player, target, and focus cast bars above other frames so they are never hidden behind them.",
+                  tooltip = "Lifts player, target, focus, and boss cast bars above other frames so they are never hidden behind them.",
                   get = function() return db.profile.raiseCastbarStrata ~= false end,
                   set = function(v)
                       db.profile.raiseCastbarStrata = v
@@ -13181,6 +13181,36 @@ initFrame:SetScript("OnEvent", function(self)
                 Upd()
                 RegisterWidgetRefresh(Upd)
             end
+
+            -- Power bar border size and color, matching Player/Target/Focus.
+            local pwrBorderRow
+            pwrBorderRow, h = W:DualRow(parent, y,
+                { type="slider", text="Border Size", min=0, max=4, step=1, trackWidth=120,
+                  getValue=function() return MVal("powerBorderSize", 0) end,
+                  setValue=function(v) MSet("powerBorderSize", v) end },
+                { type="label", text="" });  y = y - h
+            do
+                local rgn = pwrBorderRow._leftRegion
+                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
+                    rgn, pwrBorderRow:GetFrameLevel() + 3,
+                    function()
+                        local c = MGet("powerBorderColor") or { r=0, g=0, b=0 }
+                        return c.r, c.g, c.b, MVal("powerBorderAlpha", 1)
+                    end,
+                    function(r, g, b, a)
+                        settingsTable.powerBorderColor = { r=r, g=g, b=b }
+                        settingsTable.powerBorderAlpha = a
+                        ReloadAndUpdate()
+                    end,
+                    true, 20)
+                PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
+                swatch:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(swatch, "Border Color")
+                end)
+                swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                rgn._lastInline = swatch
+                RegisterWidgetRefresh(updateSwatch)
+            end
         end
 
         -- Extra section rendered at the very bottom, below the Power Bar (boss "Indicators").
@@ -14480,10 +14510,10 @@ initFrame:SetScript("OnEvent", function(self)
             -- greys a region (its slider/dropdown/toggle plus any inline swatch or
             -- cog) to 0.3 and drops an invisible mouse-blocker over it while the
             -- cast bar is off, tracking the toggle live via the widget-refresh fast
-            -- path. Mirrors AddDarkModeBlock. The Show Cast Bar toggle's own fill
-            -- swatch is gated on its own so the toggle itself stays interactive.
-            local castFillSwatch
-            local function AddCastBlock(rgn)
+            -- path. Mirrors AddDarkModeBlock. The Show Cast Bar toggle's own color
+            -- swatches are gated on their own so the toggle itself stays interactive.
+            local castColorSwatches = {}
+            local function AddCastBlock(rgn, enabledAlpha)
                 if not rgn then return end
                 local block = CreateFrame("Frame", nil, rgn)
                 block:SetAllPoints()
@@ -14497,7 +14527,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if B.showCastbar == false then
                         rgn:SetAlpha(0.3); block:Show()
                     else
-                        rgn:SetAlpha(1); block:Hide()
+                        rgn:SetAlpha(enabledAlpha and enabledAlpha() or 1); block:Hide()
                     end
                 end
                 Update()
@@ -14520,25 +14550,69 @@ initFrame:SetScript("OnEvent", function(self)
                   disabledTooltip="Show Cast Bar",
                   getValue=function() return B.castbarHeight or 14 end,
                   setValue=function(v) B.castbarHeight = v; ReloadAndUpdate() end });  yy = yy - hh
-            -- Inline fill-color swatch on Show Cast Bar (left region).
+            -- Enemy cast colors on Show Cast Bar (left region), matching
+            -- target/focus.
             do
                 local rgn = castMainRow._leftRegion
-                local sw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-                    function() local c = B.castbarFillColor or { r=0.863, g=0.820, b=0.639 }; return c.r, c.g, c.b end,
-                    function(r, g, b) B.castbarFillColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
-                sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, "Fill Color") end)
-                sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                rgn._lastInline = sw
-                castFillSwatch = sw
+                local function AddCastColorSwatch(tooltip, colorKey, fallback, disabledFn)
+                    local sw, updateSw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
+                        function()
+                            local c = B[colorKey] or fallback
+                            return c.r, c.g, c.b, 1
+                        end,
+                        function(r, g, b)
+                            B[colorKey] = { r=r, g=g, b=b }
+                            ReloadAndUpdate()
+                        end, false, 20)
+                    sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                    sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, tooltip) end)
+                    sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    rgn._lastInline = sw
+                    castColorSwatches[#castColorSwatches + 1] = { sw = sw, enabledAlpha = disabledFn
+                        and function() return disabledFn() and 0.3 or 1 end }
+                    if disabledFn then
+                        local function Update()
+                            local off = disabledFn()
+                            sw:SetAlpha(off and 0.3 or 1)
+                            sw:EnableMouse(not off)
+                            if updateSw then updateSw() end
+                        end
+                        Update()
+                        EllesmereUI.RegisterWidgetRefresh(Update)
+                    end
+                end
+                AddCastColorSwatch("Interrupt Ready Mid-Cast", "castbarInterruptMidCastColor",
+                    { r=0.318, g=0.820, b=0.357 },
+                    function() return B.castbarInterruptMidCastEnabled ~= true end)
+                AddCastColorSwatch("Interrupt on CD", "castbarInterruptReadyColor", { r=0.92, g=0.35, b=0.20 })
+                AddCastColorSwatch("Uninterruptible Cast", "castbarUninterruptibleColor", { r=0.5, g=0.5, b=0.5 })
+                AddCastColorSwatch("Interruptible Cast", "castbarFillColor", { r=0.863, g=0.820, b=0.639 })
             end
-            -- Inline cog on Show Cast Bar (left region): Offset X/Y nudge the whole
-            -- cast bar (positive = right/up). Updates the live frames + both
-            -- previews via ReloadAndUpdate + the boss preview refresh.
+            -- Inline settings cog matching target/focus, plus boss positioning.
             do
-                local _, offCogShow = EllesmereUI.BuildCogPopup({
-                    title = "Cast Bar Position",
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Cast Bar",
                     rows = {
+                        { type="toggle", label="Hide When Idle",
+                          tooltip="Only show the cast bar while a cast is in progress; hide it the rest of the time.",
+                          get=function() return B.castbarHideWhenInactive ~= false end,
+                          set=function(v) B.castbarHideWhenInactive = v; ReloadAndUpdate() end },
+                        { type="slider", label="Fill Opacity", min=0, max=100, step=1,
+                          tooltip="Opacity of the cast bar fill; below 100 the world shows through the fill instead of the background.",
+                          get=function() return B.castFillOpacity or 100 end,
+                          set=function(v) B.castFillOpacity = v; ReloadAndUpdate() end },
+                        { type="toggle", label="Raise Cast Bar Strata (All)",
+                          tooltip="Lifts player, target, focus, and boss cast bars above other frames so they are never hidden behind them.",
+                          get=function() return db.profile.raiseCastbarStrata ~= false end,
+                          set=function(v) db.profile.raiseCastbarStrata = v; ReloadAndUpdate() end },
+                        { type="toggle", label="Show Kick Ready Mid-Cast Tick",
+                          tooltip="Shows a small white tick mark where the cast will be when your interrupt comes off cooldown.",
+                          get=function() return B.castbarKickTickEnabled ~= false end,
+                          set=function(v) B.castbarKickTickEnabled = v; ReloadAndUpdate() end },
+                        { type="toggle", label="Show Kick Ready Mid-Cast Bar",
+                          tooltip="Colors the cast segment during which your interrupt will be available.",
+                          get=function() return B.castbarInterruptMidCastEnabled == true end,
+                          set=function(v) B.castbarInterruptMidCastEnabled = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end },
                         { type="slider", label="Offset X", min=-500, max=500, step=1,
                           get=function() return B.castbarOffsetX or 0 end,
                           set=function(v) B.castbarOffsetX = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
@@ -14547,7 +14621,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) B.castbarOffsetY = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                     },
                 })
-                AddCastBlock(CCogBtn(castMainRow._leftRegion, offCogShow, EllesmereUI.DIRECTIONS_ICON))
+                AddCastBlock(CCogBtn(castMainRow._leftRegion, cogShow))
             end
 
             -- Rows 2-4 are HIDDEN entirely while Show Cast Bar is off (the
@@ -14695,10 +14769,10 @@ initFrame:SetScript("OnEvent", function(self)
 
             end   -- close boss Cast Bar hidden-while-disabled gate
 
-            -- The Show Cast Bar toggle's own fill swatch stays gated grey +
+            -- The Show Cast Bar toggle's own color swatches stay gated grey +
             -- blocked while the cast bar is off (the Height slider uses a
             -- native disabled state; the hidden rows need nothing).
-            if castFillSwatch then AddCastBlock(castFillSwatch) end
+            for _, item in ipairs(castColorSwatches) do AddCastBlock(item.sw, item.enabledAlpha) end
             return yy
         end
 

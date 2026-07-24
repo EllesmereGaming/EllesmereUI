@@ -26,13 +26,21 @@ local ECHAT = ns.ECHAT
 -- ACTIVE; this build's only new variable vs the clean state.
 local BISECT_TAB_GEOMETRY_OFF = false   -- 1: CLEARED (this cycle)
 local BISECT_TAB_PADDING_OFF = false    -- 3: CLEARED (this cycle)
-local BISECT_TAB_BORDERS_OFF = false    -- 4: RETEST -- dirty on first clear;
-                                        --    tab getters removed since
--- 4b: gate-4 stayed dirty with all tab getters gone. This flag skips ONLY
--- the border-engine call (EllesmereUI.ApplyBorderStyle + PP solid border)
--- on the tab hosts; host management, FCF_IsDocked, and separators all
--- still run. The engine's scale walk + PP pixel-snap machinery have never
--- executed on a gdm-chained frame in any clean build.
+local BISECT_TAB_BORDERS_OFF = false    -- 4: EXONERATED 2026-07-25 (field-
+                                        --    dirty with the engine off, so
+                                        --    the border engine is not the
+                                        --    injector; see ladder below)
+-- 2026-07-25 ladder (whisper secret-taint, FCFManager_GetChatTarget /
+-- GetDecoratedSenderName secret errors, always via the temp-window
+-- open+refire stack): CONVICTED = init-time ECHAT.ApplyBorders() --
+-- TIMING, not content. Run synchronously inside PLAYER_LOGIN it plants the
+-- panel-border anchors while Blizzard's login dock pass still resolves
+-- layout; that pass reads the insecure anchors, runs tainted, and its
+-- persistent dock state poisons every later temp-whisper open. Fix = defer
+-- to PEW + C_Timer (the deferred passes' field-proven cadence). Exonerated
+-- en route: gate-4 border engine, gdm anchor ties, sfc pin, BNToast block,
+-- FCFDock_SelectWindow hook, frame HookScripts, temp Skin*, eb anchors,
+-- whisper URL filter.
 local BISECT_EXT_BG_OFF = false         -- 5: CLEARED (this cycle)
 local BISECT_DEFERRED_PASSES_OFF = false -- 6: CLEARED (this cycle)
 local BISECT_EB_ANCHORS_OFF = false     -- 7: CLEARED (this cycle)
@@ -2907,7 +2915,15 @@ function ECHAT.ApplyTabLayout()
             -- tainted UpdateHeader's secret width math (2026-07-21).
             if cfOwner and cfOwner.isDocked and not cfOwner.isStaticDocked then
                 local pt, rel, relPt, x, y = tab:GetPoint(1)
-                if pt == "LEFT" and relPt == "LEFT" and y and y ~= 0 then
+                -- A docked temp WHISPER tab whose target is secret (in
+                -- instances / M+) has SECRET geometry: comparing pt/relPt or
+                -- doing arithmetic on x/y under our taint errors, and this pass
+                -- runs on the whisper path. Skip such tabs entirely -- the seat
+                -- normalize is cosmetic. Same issecretvalue belt as the width
+                -- record above (2893).
+                if not (issecretvalue and (issecretvalue(pt) or issecretvalue(relPt)
+                        or issecretvalue(x) or issecretvalue(y)))
+                    and pt == "LEFT" and relPt == "LEFT" and y and y ~= 0 then
                     local es = tab:GetEffectiveScale()
                     local onePhys = PP and PP.SnapForES and PP.SnapForES(1, es) or 1
                     tab:SetPoint(pt, rel, relPt, (x or 0) + onePhys, 0)
@@ -4337,7 +4353,23 @@ initFrame:SetScript("OnEvent", function(self)
     --  8. Apply all visual settings from DB
     ---------------------------------------------------------------------------
     ECHAT.ApplySidebarVisibility()
-    ECHAT.ApplyBorders()
+    -- ApplyBorders is DEFERRED out of the PLAYER_LOGIN execution (field-
+    -- bisected 2026-07-25, ladder B3-B15): running it synchronously here
+    -- chains into ApplyExtendedBackground, which plants the panel border's
+    -- anchors in ChatFrame1's rect web WHILE Blizzard's login dock pass is
+    -- still resolving layout -- that pass then reads our insecure anchors,
+    -- runs tainted, and its persistent dock state poisons every later
+    -- temp-whisper open (FCFManager_GetChatTarget /GetDecoratedSenderName
+    -- secret errors). The deferred tab passes (PEW + C_Timer) are the
+    -- field-proven-clean home for this work -- same cadence, one tick later.
+    do
+        local bordersDefer = CreateFrame("Frame")
+        bordersDefer:RegisterEvent("PLAYER_ENTERING_WORLD")
+        bordersDefer:SetScript("OnEvent", function(self)
+            self:UnregisterAllEvents()
+            C_Timer.After(0, function() ECHAT.ApplyBorders() end)
+        end)
+    end
     -- ECHAT.ApplySidebarIcons() -- causes taint (full layout chain)
     -- Apply individual icon visibility from DB without the layout chain.
     do

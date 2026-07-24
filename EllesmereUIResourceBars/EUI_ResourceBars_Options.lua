@@ -1048,7 +1048,7 @@ initFrame:SetScript("OnEvent", function(self)
             { type = "segmented", label = EllesmereUI.L("Mode"),
               disabled = HashOff,
               disabledTooltip = DIS_TIP,
-              keys = { "percent", "value" }, labels = { "%", EllesmereUI.L("Value") },
+              keys = { "percent", "value" }, labels = { percent = "%", value = "Value" },
               get = function() local c = getBarData(); return (c and c.hashMode) or "percent" end,
               set = function(k) local c = getBarData(); if not c then return end
                   c.hashMode = k; refreshFn() end },
@@ -2113,7 +2113,7 @@ initFrame:SetScript("OnEvent", function(self)
             local titleFS = EllesmereUI.MakeFont(popup, 13, nil, 1, 1, 1)
             titleFS:SetAlpha(0.55)
             titleFS:SetPoint("TOP", popup, "TOP", 0, curY)
-            titleFS:SetText(cfg.popupTitle or EllesmereUI.L("Threshold Settings"))
+            titleFS:SetText(EllesmereUI.L(cfg.popupTitle or "Threshold Settings"))
             curY = curY - 25
 
             -- Mode switch (druid power bar): Single per-spec vs three per-form

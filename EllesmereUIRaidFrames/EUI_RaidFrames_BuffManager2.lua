@@ -128,7 +128,7 @@ local DEFAULT_FILTER_SPELLS = {
         [184364] = { class = "WARRIOR" },
         [190456] = { class = "WARRIOR", alts = { 1277297 } },
         [147833] = { class = "WARRIOR" },
-        [23920] = { class = "WARRIOR", alts = { 385391 } },
+        [385391] = { class = "WARRIOR" },
     },
     raidcds = {
         [145629] = { class = "DEATHKNIGHT", alts = { 51052 } },
@@ -225,7 +225,7 @@ local DEFAULT_FILTER_SPELLS = {
         [355941] = { class = "EVOKER", alts = { 355936, 382614 } },
         [376788] = { class = "EVOKER" },
         [363502] = { class = "EVOKER", disabled = true },
-        [364343] = { class = "EVOKER" },
+        [364343] = { class = "EVOKER", disabled = true },
         [445740] = { class = "EVOKER", disabled = true },
         [373267] = { class = "EVOKER" },
         [366155] = { class = "EVOKER" },
@@ -433,6 +433,18 @@ local function EnsureFilters()
                 end
             end
         end
+        -- Prune the other direction: a spell REMOVED from the curated data
+        -- must leave existing profiles too, or its previously seeded state
+        -- lingers forever -- still resolving onto frames and surfacing in
+        -- the Filter Editor as an undeletable "Custom" row (no f.custom
+        -- membership = no remove control). User-added spells (f.custom)
+        -- and saved states for still-curated spells are untouched.
+        -- Clearing an existing key during pairs() is legal in Lua 5.1.
+        for id in pairs(f.spells) do
+            if not (curated and curated[id]) and not f.custom[id] then
+                f.spells[id] = nil
+            end
+        end
     end
     return b
 end
@@ -531,13 +543,12 @@ local function PresetIdsByKey(b)
     return map
 end
 
--- Seeds the three starter groups for a spec. Group 1's anchor migrates
--- from the retired defensives-row settings so existing users' externals
--- land where their defensives row was; new profiles default to center.
+-- Seeds the three starter groups for a spec. All three use fixed
+-- defaults; group 1 sits at center, the healing corners top-left and
+-- top-right.
 local function SeedSpec(b, specKey)
     if b.seeded[specKey] then return end
     b.seeded[specKey] = true
-    local p = P()
     local pf = PresetIdsByKey(b)
     local spec = b.specs[specKey]
     -- Id namespace offset: the legacy page creates indicators through its
@@ -545,8 +556,6 @@ local function SeedSpec(b, specKey)
     -- start far above anything that counter can realistically reach.
     if not spec then spec = { nextId = 1000001, inds = {} }; b.specs[specKey] = spec end
 
-    local hadLegacyDefs = p and (p.defPosition ~= nil or p.defOffsetX ~= nil
-        or p.defOffsetY ~= nil or p.defGrowDirection ~= nil)
     local g1 = {
         id = spec.nextId, enabled = true, type = "icon",
         name = "Defensives & Utility",
@@ -555,11 +564,7 @@ local function SeedSpec(b, specKey)
         ownFilters = {}, ownExtras = {},
         filters = {},
         spells = {},
-        position = string.upper((hadLegacyDefs and p.defPosition) or "center"),
-        growDirection = (hadLegacyDefs and p.defGrowDirection) or "CENTER",
-        offsetX = (hadLegacyDefs and p.defOffsetX) or 0,
-        offsetY = (hadLegacyDefs and p.defOffsetY) or 0,
-        size = (hadLegacyDefs and p.defSize) or 20,
+        position = "CENTER", growDirection = "CENTER", size = 18,
     }
     if pf.defensives then g1.filters[pf.defensives] = true end
     if pf.raidcds then g1.filters[pf.raidcds] = true end
@@ -611,6 +616,9 @@ function ns.BM2_SpecInds(key)
         for i = 1, #spec.inds do
             local ind = spec.inds[i]
             if ind.position then ind.position = string.upper(ind.position) end
+            -- growDirection too: the retired defensives-row migration (since
+            -- removed) copied defGrowDirection raw, which could be lowercase.
+            if ind.growDirection then ind.growDirection = string.upper(ind.growDirection) end
             -- Own-only model heal: first-cut seeds carried a single
             -- ind.ownOnly boolean; the shipped model is per-SOURCE flags
             -- (one per assigned filter / extra spell). Expand the old

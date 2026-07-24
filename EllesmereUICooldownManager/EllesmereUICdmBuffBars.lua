@@ -3446,7 +3446,7 @@ end
 --  reconstruction: if you reload mid-lust, no bar (the debuff was not just
 --  acquired). The matching preset uses popularKey == "bloodlust".
 -------------------------------------------------------------------------------
-local SATED_DEBUFFS = { 57723, 57724, 80354, 95809, 160455, 264689, 390435, 428628 }
+local SATED_DEBUFFS = { 57723, 57724, 80354, 95809, 160455, 264689, 390435 }
 local _lustExpiry   = 0
 local _satedPresent = false
 local _lustZoneGuard = 0          -- suppress rising edges until this time (set on zone-in)

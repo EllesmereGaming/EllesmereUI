@@ -3144,6 +3144,36 @@ local function Skin_Guild()
         end
         WSkin.ScrollBarsIn(csd)
     end
+    -- Guild recruitment settings dialog ("List My Guild in Guild Finder").
+    -- Parented INSIDE CommunitiesFrame like EditStreamDialog, so the art
+    -- sweeps strip its DialogBorderDark BG and it renders see-through
+    -- without the house popup pass.
+    local rd = f.RecruitmentDialog
+    if rd and not GetFFD(rd).rdSkinned then
+        GetFFD(rd).rdSkinned = true
+        SkinGuildPopup(rd)
+        -- Blizzard pins this dialog to the top of the SCREEN (UIParent), so
+        -- it ends up nowhere near a repositioned Communities window. Dock it
+        -- to the panel's right edge instead; nothing re-anchors it at
+        -- runtime. 38 = the 32px side tabs riding that edge + a 6px gap.
+        rd:ClearAllPoints()
+        rd:SetPoint("TOPLEFT", f, "TOPRIGHT", 38, 0)
+        -- Stock pinned it to the screen so it could never leave it; docked
+        -- to the panel it can, so clamp (only engages when pushed offscreen).
+        rd:SetClampedToScreen(true)
+        for _, k in ipairs({ "Accept", "Cancel" }) do
+            local b = rd[k]
+            if b and b.GetObjectType and b:GetObjectType() == "Button" then
+                WSkin.Button(b)
+                local bfs = b.GetFontString and b:GetFontString()
+                if bfs then WSkin.White(bfs) end
+            end
+        end
+        for _, k in ipairs({ "ClubFocusDropdown", "LookingForDropdown", "LanguageDropdown" }) do
+            if rd[k] then WSkin.Dropdown(rd[k]) end
+        end
+        WSkin.ScrollBarsIn(rd)
+    end
     -- Create/Edit Channel dialog. Its fill vanished because it is parented
     -- INSIDE CommunitiesFrame: the recursive art sweeps that strip the
     -- window's decorative Bg-family art reach every dialog living in the
@@ -3273,163 +3303,16 @@ local function Skin_Guild()
         end
     end
 
-    -- Roster-view widening, applied ONLY while the roster is up. The
-    -- MemberList is SHARED with the chat view's narrow names column, where
-    -- an unconditional widen overflowed the scrollbar and covered the chat
-    -- input. The sort-header row exists only on the roster view, so its
-    -- visibility gates the swap between the stock and widened anchor sets.
-    local cd2 = ml and ml.ColumnDisplay
-    local box2 = ml and ml.ScrollBox
-    if cd2 and box2 and not GetFFD(cd2).widenGate then
-        GetFFD(cd2).widenGate = true
-        local function capturePts(part)
-            local n2 = part:GetNumPoints()
-            if not n2 or n2 == 0 then return nil end
-            local pts2 = {}
-            for i = 1, n2 do
-                local p, rel, rp, x, y = part:GetPoint(i)
-                if not p then return nil end
-                pts2[i] = { p, rel, rp, x or 0, y or 0 }
-            end
-            return pts2
-        end
-        local function widePts(pts2, dl, dr)
-            local w2 = {}
-            for i = 1, #pts2 do
-                local t = pts2[i]
-                local nx = t[4]
-                if t[1]:find("LEFT", 1, true) then
-                    nx = nx - dl
-                elseif t[1]:find("RIGHT", 1, true) then
-                    nx = nx + dr
-                end
-                w2[i] = { t[1], t[2], t[3], nx, t[5] }
-            end
-            return w2
-        end
-        local function applyPts(part, pts2)
-            if not pts2 then return end
-            part:ClearAllPoints()
-            for i = 1, #pts2 do
-                local t = pts2[i]
-                part:SetPoint(t[1], t[2], t[3], t[4], t[5])
-            end
-        end
-        local boxStock = capturePts(box2)
-        local cdStock = capturePts(cd2)
-        local boxWide = boxStock and widePts(boxStock, 23, 20)
-        local cdWide = cdStock and widePts(cdStock, 23, 23)
-        -- Also widen `ml` (MemberList) itself at the source, since Blizzard's
-        -- own row-sizing below (SetWidth(GetMemberList():GetWidth())) reads
-        -- ml's width directly. RefreshLayout only ever gives `ml` a single
-        -- positional anchor (not a LEFT+RIGHT pair like box2/cd2), so it's
-        -- resized with a plain SetWidth rather than the capturePts/widePts
-        -- anchor-nudge technique above. This works alongside the per-row
-        -- SetWidth override below, not instead of it: the two are
-        -- belt-and-braces, so rows stay correctly sized whether Blizzard's
-        -- layout picks up the widened ml on its own or not.
-        local mlStockWidth = ml:GetWidth()
-        local mlWideWidth = mlStockWidth + 23 + 20
-        -- Every roster row is sized by Blizzard to MemberList's own width
-        -- (CommunitiesMemberListEntryMixin:SetExpanded -> SetWidth(GetMemberList()
-        -- :GetWidth())), a frame this pass never touches -- only its ScrollBox
-        -- and ColumnDisplay children get widened above. Left alone, rows stay
-        -- stock width while the header grows, so each row's GuildInfo text
-        -- (RIGHT-anchored to the row, -4) sits in a box that ends well short of
-        -- the widened header -- the Achievement Points / M+ Rating value renders
-        -- under the Note column instead of the far-right stat column. Re-stamp
-        -- every live row to the ScrollBox's actual current width so it always
-        -- matches. GuildInfo is also LEFT-justified in that box by default, so
-        -- widening it alone never moves the visible text -- center it and nudge
-        -- it left while the roster is showing, and put both back to Blizzard's
-        -- stock LEFT/20/-4 layout when it's not, since MemberList/ScrollBox is
-        -- shared with the Chat tab's narrower names column and a row must not
-        -- stay stranded in the roster's styling after the swap.
-        local GUILD_INFO_NUDGE = 20
-        local function ApplyRowLayout(row)
-            if not row then return end
-            if row.SetWidth then row:SetWidth(box2:GetWidth()) end
-            local gi = row.GuildInfo
-            if gi and row.Note and gi.SetJustifyH and gi.ClearAllPoints then
-                gi:ClearAllPoints()
-                if cd2:IsShown() then
-                    gi:SetJustifyH("CENTER")
-                    gi:SetPoint("LEFT", row.Note, "RIGHT", 20 - GUILD_INFO_NUDGE, 0)
-                    gi:SetPoint("RIGHT", row, "RIGHT", -4 - GUILD_INFO_NUDGE, 0)
-                else
-                    gi:SetJustifyH("LEFT")
-                    gi:SetPoint("LEFT", row.Note, "RIGHT", 20, 0)
-                    gi:SetPoint("RIGHT", row, "RIGHT", -4, 0)
-                end
-            end
-        end
-        -- Same uninitialized-ScrollBox guard used for the AH summary/rail rows
-        -- elsewhere in this file: ForEachFrame errors inside Blizzard's code
-        -- if the view doesn't exist yet (e.g. this pass runs at ADDON_LOADED,
-        -- before the roster has ever been shown).
-        --
-        -- box2:ForEachFrame walks Blizzard's secure row pool internally; a
-        -- hooksecurefunc post-hook only guarantees Blizzard won't block the
-        -- *call*, not that we've left the secure chain that triggered the
-        -- Update (guild-frame open, tab switch) -- calling ForEachFrame here
-        -- still runs nested inside it and taints later secret-value reads on
-        -- the roster (confirmed via bisection). So this only flags dirty; the
-        -- OnUpdate watcher below applies it on its own tick, outside any
-        -- secure call chain.
-        local rowsDirty = false
-        local function ApplyRowSync()
-            if box2.ForEachFrame and box2.GetView and box2:GetView() then
-                pcall(box2.ForEachFrame, box2, ApplyRowLayout)
-            end
-        end
-        local function SyncRowWidths()
-            rowsDirty = true
-        end
-        hooksecurefunc(box2, "Update", WSkin.Debounce(SyncRowWidths))
-        -- Swap column widths on roster<->chat view change WITHOUT a HookScript
-        -- on the secure ColumnDisplay (cd2): its OnShow/OnHide fires inside the
-        -- secure roster refresh a protected guild action triggers, tainting
-        -- SetNote / SetGuildRankOrder (the guild-note ADDON_ACTION_FORBIDDEN,
-        -- root-caused via bisection). A self-driven throttled OnUpdate on OUR
-        -- OWN frame polls cd2's shown state and applies the swap, so it never
-        -- runs inside that secure execution. Idles when the window is closed.
-        -- Row-width sync (above) rides the same OnUpdate for the same reason.
-        if not GetFFD(cd2)._euiWidthWatcher then
-            GetFFD(cd2)._euiWidthWatcher = true
-            -- Parented to the window: the OnUpdate handler stops entirely
-            -- while the guild window is closed (hidden parents don't tick).
-            local watcher = CreateFrame("Frame", nil, f)
-            local wasShown, acc = nil, 0
-            watcher:SetScript("OnUpdate", function(_, elapsed)
-                if f and not f:IsShown() then return end
-                if rowsDirty then
-                    rowsDirty = false
-                    ApplyRowSync()
-                end
-                acc = acc + elapsed
-                if acc < 0.1 then return end
-                acc = 0
-                local shown = cd2:IsShown()
-                if shown == wasShown then return end
-                wasShown = shown
-                if shown then
-                    applyPts(box2, boxWide); applyPts(cd2, cdWide); ml:SetWidth(mlWideWidth)
-                else
-                    applyPts(box2, boxStock); ml:SetWidth(mlStockWidth)
-                end
-                ApplyRowSync()
-            end)
-        end
-        if cd2:IsShown() then
-            applyPts(box2, boxWide)
-            applyPts(cd2, cdWide)
-            ml:SetWidth(mlWideWidth)
-        else
-            applyPts(box2, boxStock)
-            ml:SetWidth(mlStockWidth)
-        end
-        SyncRowWidths()
-    end
+
+    -- No roster widening here (it used to live between the list lift and the
+    -- scrollbar nudge): re-stamping row/MemberList widths is inherently
+    -- taint-unsafe. Blizzard's CommunitiesMemberListEntryMixin:SetExpanded sizes
+    -- every row from GetMemberList():GetWidth() inside its own secure roster
+    -- refresh, so an addon-written width is read back there, taints the
+    -- execution, and blocks the protected roster actions that refresh triggers
+    -- (SetNote / SetGuildRankOrder / whisper -> ADDON_ACTION_FORBIDDEN;
+    -- root-caused by bisection). One-shot anchor nudges that Blizzard never
+    -- reads back (the list lift above, the scrollbar nudge below) are fine.
 
     -- Chat view's names-column scrollbar sits 5px right (one-shot, every
     -- anchor preserved).
@@ -4192,9 +4075,19 @@ local function AchAccentBar(bar)
             if not rd.lowered then
                 local p, rel, rp, x, y = fs:GetPoint(1)
                 if p then
+                    local offsetY = -3
+                    if bar and bar.GetParent then
+                        local parent = bar:GetParent()
+                        -- For AchievementFrameAchievementsObjectives, bar is the progress bar itself not the holder so retrieve the parent
+                        -- to match the parent name
+                        -- It does NOT need the offset
+                        if parent and parent.GetName and parent:GetName() == "AchievementFrameAchievementsObjectives" then
+                            offsetY = 0
+                        end
+                    end
                     rd.lowered = true
                     fs:ClearAllPoints()
-                    fs:SetPoint(p, rel, rp, x or 0, (y or 0) - 3)
+                    fs:SetPoint(p, rel, rp, x or 0, (y or 0) + offsetY)
                 end
             end
         end
@@ -6144,8 +6037,17 @@ local function SkinOrderView(ov)
     end
     local od = ov.OrderDetails
     if od then
-        WSkin.FadeRegions(od)
-        WSkin.Register(od, true)
+        -- Preserve the profession quality-tier icon (the pentagon next to the
+        -- recipe name showing the order's required quality). It's a direct
+        -- OVERLAY texture region of OrderDetails, so the blanket region fade
+        -- would otherwise alpha-zero it and the quality indicator vanishes
+        -- under the skin (reported: quality not visible on crafting orders).
+        -- The keep set must also go into the restrip registry: the frame's
+        -- show hook re-fades registered frames, and a bare `true` there would
+        -- alpha-zero the icon again right after skin time.
+        local keep = od.MinimumQualityIcon and { [od.MinimumQualityIcon] = true } or nil
+        WSkin.FadeRegions(od, keep)
+        WSkin.Register(od, keep)
         if od.Background then od.Background:SetAlpha(0) end
         SkinSchematic(od.SchematicForm)
     end
@@ -8740,8 +8642,11 @@ local function Skin_Quest()
     -- Greeting text + section labels + quest title buttons. Blizzard re-applies
     -- the dark parchment material colour in the greeting panel OnShow after our
     -- skin runs, so re-white on every show (hooked below), not just once here.
+    -- The greeting paragraph's global is Blizzard's bare "GreetingText"
+    -- (QuestFrame.xml), not QuestGreetingText -- the old name matched nil and
+    -- silently skipped the paragraph, leaving it material-dark on every show.
     local function StyleQuestGreeting()
-        if _G.QuestGreetingText then WSkin.White(_G.QuestGreetingText); RecolorDarkText(_G.QuestGreetingText) end
+        if _G.GreetingText then WSkin.White(_G.GreetingText); RecolorDarkText(_G.GreetingText) end
         for _, n in ipairs({ "CurrentQuestsText", "AvailableQuestsText" }) do
             local fs = _G[n]
             if fs then WSkin.White(fs); RecolorDarkText(fs) end
@@ -8754,7 +8659,7 @@ local function Skin_Quest()
         end
     end
 
-    if _G.QuestGreetingText then WSkin.Font(_G.QuestGreetingText) end
+    if _G.GreetingText then WSkin.Font(_G.GreetingText) end
     for _, n in ipairs({ "CurrentQuestsText", "AvailableQuestsText" }) do
         local fs = _G[n]
         if fs then WSkin.Font(fs) end

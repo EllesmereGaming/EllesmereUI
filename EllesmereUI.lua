@@ -887,6 +887,7 @@ EllesmereUI.RegisterSyncExclusions("EllesmereUICooldownManager", {
     "cdmBars.bars.*.iconSize",
     "cdmBars.bars.*.numRows",
     "cdmBars.bars.*.anchorFirstRow",
+    "cdmBars.bars.*.rowGrowDirection",
     "cdmBars.bars.*.spacing",
     "cdmBars.bars.*.verticalOrientation",
     "cdmBars.bars.*.anchorTo",
@@ -1991,11 +1992,24 @@ do
     ---------------------------------------------------------------------------
     --  Core pixel-perfect values
     ---------------------------------------------------------------------------
-    PP.physicalWidth, PP.physicalHeight = GetPhysicalScreenSize()
-
-    -- 768 is WoW's reference height; this gives us the size of 1 physical
-    -- pixel in WoW's coordinate system at scale 1.0
-    PP.perfect = 768 / PP.physicalHeight
+    -- 768 is WoW's reference height; perfect is the size of 1 physical pixel
+    -- in WoW's coordinate system at scale 1.0.
+    --
+    -- GetPhysicalScreenSize() can report 0 (or nil) while a display-mode change
+    -- is in flight, and 768/0 is infinite. Since perfect is the divisor behind
+    -- every pixel snap in the suite, that turns snapped sizes into NaN addon
+    -- wide, so keep the last known-good height whenever the query comes back
+    -- unusable.
+    function PP.RefreshPhysical()
+        local pw, ph = GetPhysicalScreenSize()
+        if ph and ph > 0 then
+            PP.physicalWidth, PP.physicalHeight = pw, ph
+        elseif not PP.physicalHeight then
+            PP.physicalWidth, PP.physicalHeight = 1920, 1080
+        end
+        PP.perfect = 768 / PP.physicalHeight
+    end
+    PP.RefreshPhysical()
 
     -- mult = size of 1 physical pixel in the current UIParent scale.
     -- When UIParent scale == perfect, mult == 1 and every integer is
@@ -2009,8 +2023,7 @@ do
 
     --- Recalculate mult after a scale or resolution change.
     function PP.UpdateMult()
-        PP.physicalWidth, PP.physicalHeight = GetPhysicalScreenSize()
-        PP.perfect = 768 / PP.physicalHeight
+        PP.RefreshPhysical()
         local uiScale = EllesmereUIDB and EllesmereUIDB.ppUIScale or PP.PixelBestSize()
         PP.mult = PP.perfect / uiScale
     end
@@ -2711,8 +2724,7 @@ do
     scaleWatcher:SetScript("OnEvent", function(_, event)
         if event == "DISPLAY_SIZE_CHANGED" then
             -- Resolution changed -- recalculate perfect and re-apply scale
-            PP.physicalWidth, PP.physicalHeight = GetPhysicalScreenSize()
-            PP.perfect = 768 / PP.physicalHeight
+            PP.RefreshPhysical()
             -- Only auto-update if user explicitly opted into auto scale
             if EllesmereUIDB and EllesmereUIDB.ppUIScaleAuto == true then
                 PP.SetUIScale(PP.PixelBestSize())
@@ -10871,7 +10883,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.5.3"
+EllesmereUI.VERSION = "8.5.7"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -11947,6 +11959,31 @@ initFrame:SetScript("OnEvent", function(self, event)
             return false
         end
 
+        -- 12.1 ONLY: aura spell IDs during combat. The Lua hooks below can
+        -- never render them there -- under aura restrictions the tooltip's
+        -- id is a SECRET value -- but the engine-side tooltipShowAuraSpellIDs
+        -- CVar (68824+) formats the ID itself and works under full secrecy,
+        -- including the forbidden container tooltips. The CVar is
+        -- session-only, so it re-asserts every login and on toggle edits.
+        -- Modifier-gated configs skip it: the engine renders always-on,
+        -- which would override the user's hold-a-modifier preference (their
+        -- combat aura IDs stay unavailable -- inherent trade).
+        function EllesmereUI.SyncAuraSpellIDCVar()
+            if not EllesmereUI.IS_121 then return end
+            local db = EllesmereUIDB
+            local on = db and db.showSpellID
+                and (db.spellIDModifier or "none") == "none"
+            pcall(C_CVar.SetCVar, "tooltipShowAuraSpellIDs", on and "1" or "0")
+        end
+        do
+            local cvarBoot = CreateFrame("Frame")
+            cvarBoot:RegisterEvent("PLAYER_LOGIN")
+            cvarBoot:SetScript("OnEvent", function(self)
+                self:UnregisterEvent("PLAYER_LOGIN")
+                EllesmereUI.SyncAuraSpellIDCVar()
+            end)
+        end
+
         local function SpellIDTooltipHook(tooltip, data)
             if not (EllesmereUIDB and EllesmereUIDB.showSpellID) then return end
             if not IsSpellIDModifierHeld() then return end
@@ -12514,7 +12551,11 @@ function EllesmereUI.SetPlayerCastBarSuppressed(owner, suppressed)
         end
         EllesmereUI._GetFFD(blizzBar).castBarSuppressed = true
 
-        if blizzBar:GetParent() ~= hiddenParent then
+        -- Skip the re-parent while Edit Mode is open: SetParent fires
+        -- Blizzard's synchronous layout handlers in this execution, and the
+        -- UnitFrames Edit-Mode-close hook re-applies this state afterwards.
+        if blizzBar:GetParent() ~= hiddenParent
+            and not (EditModeManagerFrame and EditModeManagerFrame:IsShown()) then
             blizzBar:SetParent(hiddenParent)
         end
 
@@ -12525,8 +12566,14 @@ function EllesmereUI.SetPlayerCastBarSuppressed(owner, suppressed)
             hooksecurefunc(blizzBar, "SetParent", function(self, newParent)
                 if EllesmereUI._GetFFD(self).castBarSuppressed and newParent ~= EllesmereUI._playerCastBarHiddenParent then
                     C_Timer.After(0, function()
+                        -- Never re-parent while Edit Mode is open, even from
+                        -- a timer: SetParent fires Blizzard's synchronous
+                        -- layout handlers under addon taint and poisons the
+                        -- manager's state for its next pass. The Edit Mode
+                        -- close hook (UnitFrames) re-applies suppression.
                         if EllesmereUI._GetFFD(self).castBarSuppressed
                            and not InCombatLockdown()
+                           and not (EditModeManagerFrame and EditModeManagerFrame:IsShown())
                            and self:GetParent() ~= EllesmereUI._playerCastBarHiddenParent
                         then
                             self:SetParent(EllesmereUI._playerCastBarHiddenParent)
@@ -12549,10 +12596,14 @@ function EllesmereUI.SetPlayerCastBarSuppressed(owner, suppressed)
             if not EllesmereUI._GetFFD(selection).showHooked then
                 EllesmereUI._GetFFD(selection).showHooked = true
                 hooksecurefunc(selection, "Show", function(self)
-                    if PlayerCastingBarFrame and EllesmereUI._GetFFD(PlayerCastingBarFrame).castBarSuppressed then
-                        self:SetAlpha(0)
-                        self:EnableMouse(false)
-                    end
+                    -- Deferred: Show fires inside Edit Mode's secure
+                    -- ShowSystemSelections pass; write nothing there.
+                    C_Timer.After(0, function()
+                        if PlayerCastingBarFrame and EllesmereUI._GetFFD(PlayerCastingBarFrame).castBarSuppressed then
+                            self:SetAlpha(0)
+                            self:EnableMouse(false)
+                        end
+                    end)
                 end)
             end
         end
@@ -12562,7 +12613,8 @@ function EllesmereUI.SetPlayerCastBarSuppressed(owner, suppressed)
 
     EllesmereUI._GetFFD(blizzBar).castBarSuppressed = false
 
-    if hiddenParent and blizzBar:GetParent() == hiddenParent and EllesmereUI._GetFFD(blizzBar).origParent then
+    if hiddenParent and blizzBar:GetParent() == hiddenParent and EllesmereUI._GetFFD(blizzBar).origParent
+        and not (EditModeManagerFrame and EditModeManagerFrame:IsShown()) then
         blizzBar:SetParent(EllesmereUI._GetFFD(blizzBar).origParent)
     end
 

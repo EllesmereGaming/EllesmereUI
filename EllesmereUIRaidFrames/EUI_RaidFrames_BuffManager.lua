@@ -3392,21 +3392,70 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                             else
                                 maxShow = (isSelected or ns._bmAllIndicatorsVisible) and #ind.spells or 2
                             end
+                            -- Grid preview (12.1): mirror the live wrap/cap.
+                            -- Per-spell size offsets force slot mode live
+                            -- (linear), so the preview stays linear there.
+                            local per, wrapUp, wrapLeft = 0, false, false
+                            if EllesmereUI.IS_121 then
+                                per = tonumber(ind.iconsPerRow) or 0
+                                if per > 0 and ind.sizeOffsets then
+                                    for _, soff in pairs(ind.sizeOffsets) do
+                                        if soff and soff ~= 0 then per = 0; break end
+                                    end
+                                end
+                                local pu = string.upper(ind.position or "TOPLEFT")
+                                wrapUp = pu:find("BOTTOM", 1, true) ~= nil
+                                wrapLeft = pu:find("RIGHT", 1, true) ~= nil
+                                local maxI = tonumber(ind.maxIcons) or 0
+                                if maxI > 0 and maxI < maxShow then maxShow = maxI end
+                            end
                             local previewTotal = math.min(maxShow, #ind.spells)
                             -- Running cursor (matches live render): each icon advances
                             -- the next by its own size so size offsets reflow neighbors.
                             local cursor = 0
+                            local pvSelfPoint = ind.position or "TOPLEFT"
                             if growDir == "CENTER" then
-                                local totalW = 0
-                                for si2 = 1, previewTotal do
+                                -- A wrapped run centers by its first LINE
+                                -- (the engine left-aligns continuation rows
+                                -- inside the centered container).
+                                local lineCap = previewTotal
+                                if per > 0 and per < lineCap then lineCap = per end
+                                local totalW, firstSz = 0, nil
+                                for si2 = 1, lineCap do
                                     local so2 = ind.sizeOffsets and ind.sizeOffsets[ind.spells[si2]] or 0
                                     local s2 = sz + so2 * iscale
                                     if s2 < 1 then s2 = 1 end
+                                    if not firstSz then firstSz = s2 end
                                     totalW = totalW + s2
                                 end
-                                if previewTotal > 1 then totalW = totalW + gap * (previewTotal - 1) end
+                                if lineCap > 1 then totalW = totalW + gap * (lineCap - 1) end
                                 cursor = -totalW / 2
+                                if EllesmereUI.IS_121 then
+                                    -- 12.1 live parity: the container renderers
+                                    -- x-center the run ON the position point
+                                    -- (chains pin the container's x-center there,
+                                    -- slot mode uses symmetric offsets) while
+                                    -- keeping the legacy vertical seat. Anchoring
+                                    -- by the pos corner with the -totalW/2 start
+                                    -- skews the run by the corner's x-alignment
+                                    -- (half an icon at center-x positions), so on
+                                    -- 12.1 icons anchor by the pos's vertical
+                                    -- part + horizontal CENTER with a symmetric
+                                    -- start. The 12.0 branch below stays: the
+                                    -- legacy live renderer uses the pos-corner
+                                    -- math, and the preview must match it there.
+                                    local posU = string.upper(pvSelfPoint)
+                                    if posU:find("TOP", 1, true) then
+                                        pvSelfPoint = "TOP"
+                                    elseif posU:find("BOTTOM", 1, true) then
+                                        pvSelfPoint = "BOTTOM"
+                                    else
+                                        pvSelfPoint = "CENTER"
+                                    end
+                                    cursor = -totalW / 2 + (firstSz or sz) / 2
+                                end
                             end
+                            local lineStart = cursor
                             for si, sid in ipairs(ind.spells) do
                                 if si > maxShow then break end
                                 iPoolIdx = iPoolIdx + 1
@@ -3423,17 +3472,29 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                     -- Matches BM_UpdateIndicators: place at accumulated
                                     -- previous sizes, then advance by own size (LEFT/UP
                                     -- negate the axis; no first-icon guard needed).
+                                    -- Grid preview: reset the cursor at each line break
+                                    -- and shift whole lines along the cross axis, away
+                                    -- from the anchored edge (live wrap convention).
+                                    local lineOff = 0
+                                    if per > 0 then
+                                        if si > 1 and (si - 1) % per == 0 then cursor = lineStart end
+                                        lineOff = math.floor((si - 1) / per) * (iconSz + gap)
+                                    end
                                     local gx, gy = 0, 0
                                     if growDir == "RIGHT" or growDir == "CENTER" then
                                         gx = cursor; cursor = cursor + iconSz + gap
+                                        gy = wrapUp and lineOff or -lineOff
                                     elseif growDir == "DOWN" then
                                         gy = -cursor; cursor = cursor + iconSz + gap
+                                        gx = wrapLeft and -lineOff or lineOff
                                     elseif growDir == "LEFT" then
                                         gx = -cursor; cursor = cursor + iconSz + gap
+                                        gy = wrapUp and lineOff or -lineOff
                                     elseif growDir == "UP" then
                                         gy = cursor; cursor = cursor + iconSz + gap
+                                        gx = wrapLeft and -lineOff or lineOff
                                     end
-                                    fr:SetPoint(ind.position or "TOPLEFT", health, ind.position or "TOPLEFT",
+                                    fr:SetPoint(pvSelfPoint, health, ind.position or "TOPLEFT",
                                                 (ind.offsetX or 0) * iscale + gx, (ind.offsetY or 0) * iscale + gy)
                                     -- "Hide Icons" (icon type only): keep the frame
                                     -- alpha (so the stack count still previews) but
@@ -6352,13 +6413,66 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 { type="dropdown", text="Growth Direction", values=GROW_VALUES, order=GROW_ORDER,
                   getValue=function() return ind.growDirection or "RIGHT" end,
                   setValue=function(v) ind.growDirection = v; ReloadAndUpdate() end }
-            local row1, posRow
+            -- Grid wrap + cap: 12.1 container capability (chain groups wrap
+            -- natively); live indicators are always linear runs, so the
+            -- controls only build there. Icons Per Row rides row 2's right
+            -- slot (v2 keeps that slot blank otherwise); Max Icons lives on
+            -- an inline cog beside it.
+            local perRowCfg
+            if EllesmereUI.IS_121 then
+                perRowCfg =
+                    { type="slider", text="Icons Per Row", min=0, max=20, step=1, trackWidth=120,
+                      tooltip="Wraps into a new row (or column for vertical growth) after this many icons; 0 keeps one continuous run.",
+                      getValue=function() return ind.iconsPerRow or 0 end,
+                      setValue=function(v)
+                          ind.iconsPerRow = (v and v > 0) and v or nil
+                          ReloadAndUpdate()
+                      end }
+            end
+            local row1, posRow, perRgn
             if ns.BM2_Enabled then
                 posRow = SettingsRow(posCfg, growCfg)
-                row1 = SettingsRow(ownCfg, { type="label", text="" })
+                row1 = SettingsRow(ownCfg, perRowCfg or { type="label", text="" })
+                if perRowCfg then perRgn = row1._rightRegion end
             else
                 row1 = SettingsRow(abCfg, ownCfg)
                 posRow = SettingsRow(posCfg, growCfg)
+                if perRowCfg then
+                    -- Legacy layout has no blank slot; the odd last slot
+                    -- carries the grid slider on its own row.
+                    local gridRow = SettingsRow(perRowCfg, { type="label", text="" })
+                    perRgn = gridRow._leftRegion
+                end
+            end
+            if perRgn then
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Max Icons",
+                    rows = {
+                        { type="slider", label="Max Icons", min=0, max=40, step=1,
+                          get=function() return ind.maxIcons or 0 end,
+                          set=function(v)
+                              ind.maxIcons = (v and v > 0) and v or nil
+                              ReloadAndUpdate()
+                          end },
+                    },
+                })
+                local cogBtn = CreateFrame("Button", nil, perRgn)
+                cogBtn:SetSize(26, 26)
+                cogBtn:SetPoint("RIGHT", perRgn._lastInline or perRgn._control, "LEFT", -8, 0)
+                perRgn._lastInline = cogBtn
+                cogBtn:SetFrameLevel(perRgn:GetFrameLevel() + 5)
+                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+                cogBtn:SetAlpha(0.4)
+                cogBtn:SetScript("OnEnter", function(self)
+                    self:SetAlpha(0.7)
+                    EllesmereUI.ShowWidgetTooltip(self, "Max Icons")
+                end)
+                cogBtn:SetScript("OnLeave", function(self)
+                    self:SetAlpha(0.4)
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+                cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
             end
             local ownRgn = ns.BM2_Enabled and row1._leftRegion or row1._rightRegion
             -- Mount the abilities CB dropdown (12.0 only -- v2 has no

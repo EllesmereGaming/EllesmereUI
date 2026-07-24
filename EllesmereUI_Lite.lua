@@ -399,6 +399,33 @@ local function RerootPreSVDBs()
     wipe(_preSVDBs)
 end
 
+-- Drain the OnEnable queue. The pre-steps (PP.mult refresh, spec-profile
+-- pre-seed) run once, before any OnEnable body. The dispatch site decides
+-- whether to call this synchronously or one tick deferred -- see the big
+-- comment there for why the triggering event makes that choice.
+local function FlushEnableQueue()
+    -- Ensure PP.mult is current before any addon's OnEnable runs. PP is
+    -- defined in EllesmereUI.lua (loaded after this file) so it exists by the
+    -- time PLAYER_LOGIN fires.
+    if EllesmereUI and EllesmereUI.PP and EllesmereUI.PP.UpdateMult then
+        EllesmereUI.PP.UpdateMult()
+    end
+    -- Apply spec-assigned profile data into each child SV before any OnEnable
+    -- runs. The spec API is available here (after OnInitialize, before
+    -- OnEnable) so we can resolve the current spec and inject the correct
+    -- profile snapshot. ADDON_LOADED is too early (spec API not ready yet).
+    if EllesmereUI and EllesmereUI.PreSeedSpecProfile then
+        EllesmereUI.PreSeedSpecProfile()
+    end
+    while #enableQueue > 0 do
+        local addon = tremove(enableQueue, 1)
+        if addon.enabledState then
+            statuses[addon.name] = true
+            safecall(addon.OnEnable, addon)
+        end
+    end
+end
+
 local lifecycleFrame = CreateFrame("Frame")
 lifecycleFrame:RegisterEvent("ADDON_LOADED")
 lifecycleFrame:RegisterEvent("PLAYER_LOGIN")
@@ -428,28 +455,39 @@ lifecycleFrame:SetScript("OnEvent", function(self, event, arg1)
         tinsert(enableQueue, addon)
     end
 
-    -- Process enable queue once logged in
-    if IsLoggedIn() then
-        -- Ensure PP.mult is current before any addon's OnEnable runs.
-        -- PP is defined in EllesmereUI.lua (loaded after this file) so it
-        -- exists by the time PLAYER_LOGIN fires.
-        if EllesmereUI and EllesmereUI.PP and EllesmereUI.PP.UpdateMult then
-            EllesmereUI.PP.UpdateMult()
-        end
-        -- Apply spec-assigned profile data into each child SV before any
-        -- OnEnable runs. The spec API is available here (after OnInitialize,
-        -- before OnEnable) so we can resolve the current spec and inject the
-        -- correct profile snapshot. This is the earliest safe point to do
-        -- this -- ADDON_LOADED is too early (spec API not ready yet).
-        if EllesmereUI and EllesmereUI.PreSeedSpecProfile then
-            EllesmereUI.PreSeedSpecProfile()
-        end
-        while #enableQueue > 0 do
-            local addon = tremove(enableQueue, 1)
-            if addon.enabledState then
-                statuses[addon.name] = true
-                safecall(addon.OnEnable, addon)
-            end
+    -- Process the enable (OnEnable) queue once logged in. WHEN we run it
+    -- depends on which event delivered us here, and both cases matter:
+    --
+    --   * PLAYER_LOGIN -> run SYNCHRONOUSLY, right now. PLAYER_LOGIN is a
+    --     top-level game event, never dispatched from inside a secure chain,
+    --     so the mid-secure-chain taint hazard below does not apply. Running
+    --     here also keeps every OnEnable (and the secure setup each performs:
+    --     RegisterStateDriver, WrapScript, protected SetCVar, EditMode Hide)
+    --     inside the login/reload LOADING-SCREEN window -- the only window in
+    --     which those secure operations are permitted while the player is in
+    --     combat. C_Timer callbacks do NOT run during the loading screen, so
+    --     deferring here would always miss the window on a /reload in combat
+    --     and every child addon's secure setup would be blocked
+    --     (ADDON_ACTION_BLOCKED storm).
+    --
+    --   * ADDON_LOADED (post-login demand-loads) -> DEFER one tick. These can
+    --     be dispatched from inside Blizzard's own SECURE executions (e.g.
+    --     UIParent demand-loading Blizzard_CombatLog), and running OnEnable
+    --     bodies synchronously there stamps every value they write with addon
+    --     taint born mid-secure-chain -- fields Edit Mode's enter/exit passes
+    --     later read, erroring on 12.x secret values. A timer callback is a
+    --     fresh, purely addon-owned execution. Such loads happen after the
+    --     loading screen anyway, so there is no in-combat secure window to
+    --     preserve for them.
+    if IsLoggedIn() and #enableQueue > 0 then
+        if event == "PLAYER_LOGIN" then
+            FlushEnableQueue()
+        elseif not lifecycleFrame._enableFlushQueued then
+            lifecycleFrame._enableFlushQueued = true
+            C_Timer.After(0, function()
+                lifecycleFrame._enableFlushQueued = false
+                FlushEnableQueue()
+            end)
         end
     end
 end)

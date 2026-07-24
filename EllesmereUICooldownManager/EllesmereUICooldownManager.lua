@@ -3173,26 +3173,31 @@ end
 -------------------------------------------------------------------------------
 
 -- Resolve the frame anchor point for a bar from its growth direction and the
--- optional "anchor first row" pin.
+-- optional row growth direction.
 --
--- Without anchorFirstRow this returns the single growth edge (legacy behavior:
--- RIGHT -> LEFT, DOWN -> TOP, ...) so the fixed edge stays put as the bar
--- resizes along its growth axis. The perpendicular axis is left unpinned, i.e.
--- centered -- which is why a horizontal bar re-centers vertically when it grows
--- a second row.
+-- Without rowGrowDirection this returns the single growth edge (legacy
+-- behavior: RIGHT -> LEFT, DOWN -> TOP, ...) so the fixed edge stays put as
+-- the bar resizes along its growth axis. The perpendicular axis is left
+-- unpinned, i.e. centered -- which is why a horizontal bar re-centers
+-- vertically when it grows a second row.
 --
--- With anchorFirstRow set, the leading edge on the PERPENDICULAR axis is pinned
--- too, yielding a corner/edge anchor (e.g. TOPLEFT). Icons lay out from the
--- frame's TOPLEFT, so the first row sits at the top (horizontal bars) or the
--- first column at the left (vertical bars); pinning that edge makes extra rows
--- grow away from the first row instead of re-centering the whole bar.
+-- rowGrowDirection is the same growth->opposite-edge mapping applied to the
+-- PERPENDICULAR axis: extra rows grow toward the stated direction while the
+-- opposite edge stays pinned, yielding a corner/edge anchor (e.g. TOPLEFT).
+-- Horizontal bars take "DOWN" (pin TOP, the top row holds still) or "UP"
+-- (pin BOTTOM, the bottom row holds still); vertical bars take "RIGHT"
+-- (pin LEFT) or "LEFT" (pin RIGHT). nil keeps the legacy centered growth.
+-- Icons lay out from the frame's TOPLEFT, so the "UP"/"LEFT" directions also
+-- need the visual row reversal in LayoutCDMBar to keep the pinned row's icons
+-- from jumping when a row spills in/out.
 -- Defined as ns.* fields (not file-scope locals) to stay under Lua 5.1's
 -- 200-local main-chunk ceiling.
 --
--- ignoreFirstRow: resolve the plain growth edge even if the pin is set. Used
--- for unlock-snapped bars, whose saved-edge consumers (ApplyAnchorPosition
--- edge preservation / target follow) only understand single-edge points.
-function ns.ResolveGrowAnchorPoint(barData, ignoreFirstRow)
+-- ignoreRowGrow: resolve the plain growth edge even if a row growth direction
+-- is set. Used for unlock-snapped bars, whose saved-edge consumers
+-- (ApplyAnchorPosition edge preservation / target follow) only understand
+-- single-edge points.
+function ns.ResolveGrowAnchorPoint(barData, ignoreRowGrow)
     local grow = (barData and barData.growDirection) or "CENTER"
     local horiz, vert  -- "LEFT"/"RIGHT" and "TOP"/"BOTTOM" components
     if grow == "RIGHT" then
@@ -3204,13 +3209,23 @@ function ns.ResolveGrowAnchorPoint(barData, ignoreFirstRow)
     elseif grow == "UP" then
         vert = "BOTTOM"
     end
-    if barData and barData.anchorFirstRow and not ignoreFirstRow then
+    local rowGrow = barData and barData.rowGrowDirection
+    if rowGrow and not ignoreRowGrow then
+        -- Same opposite-edge mapping as the main axis, applied to the
+        -- perpendicular axis. Orientation guards keep a stale value from an
+        -- orientation flip from clobbering the main-axis component.
         if barData.verticalOrientation then
-            -- Vertical bar: rows stack along the width axis -> pin LEFT.
-            horiz = horiz or "LEFT"
+            if rowGrow == "RIGHT" then
+                horiz = horiz or "LEFT"
+            elseif rowGrow == "LEFT" then
+                horiz = horiz or "RIGHT"
+            end
         else
-            -- Horizontal bar: rows stack along the height axis -> pin TOP.
-            vert = vert or "TOP"
+            if rowGrow == "DOWN" then
+                vert = vert or "TOP"
+            elseif rowGrow == "UP" then
+                vert = vert or "BOTTOM"
+            end
         end
     end
     local pt = (vert or "") .. (horiz or "")
@@ -3263,18 +3278,18 @@ local function ApplyBarPositionCentered(frame, pos, barKey)
     local anchor = pos.point
     local bd = barKey and barDataByKey[barKey]
 
-    -- Corner-capable re-derivation, taken ONLY when the first-row pin is in
-    -- play for this bar (or the stored point is a corner left over from when
-    -- it was). Recover the frame center from the stored anchor coord, then
-    -- re-project it onto the anchor resolved from the bar's CURRENT growth +
-    -- first-row settings -- a lossless coordinate round-trip, so the bar does
-    -- not move; only the pinned edge/corner changes. Bars that never use the
-    -- pin take the legacy conversion below instead, keeping their behavior
-    -- unchanged. No persistence: positions are only saved by unlock mode's
-    -- Save & Exit.
+    -- Corner-capable re-derivation, taken ONLY when a row growth direction is
+    -- in play for this bar (or the stored point is a corner left over from
+    -- when it was). Recover the frame center from the stored anchor coord,
+    -- then re-project it onto the anchor resolved from the bar's CURRENT
+    -- growth + row growth settings -- a lossless coordinate round-trip, so the
+    -- bar does not move; only the pinned edge/corner changes. Bars that never
+    -- use a row growth direction take the legacy conversion below instead,
+    -- keeping their behavior unchanged. No persistence: positions are only
+    -- saved by unlock mode's Save & Exit.
     local storedIsCorner = (anchor:find("TOP", 1, true) or anchor:find("BOTTOM", 1, true))
         and (anchor:find("LEFT", 1, true) or anchor:find("RIGHT", 1, true))
-    if (bd and bd.anchorFirstRow) or storedIsCorner then
+    if (bd and bd.rowGrowDirection) or storedIsCorner then
         local cx, cy = ns.AnchorCoordToCenter(anchor, px, py, fw, fh)
         anchor = ns.ResolveGrowAnchorPoint(bd)
         px, py = ns.CenterToAnchorCoord(anchor, cx, cy, fw, fh)
@@ -3303,7 +3318,7 @@ local function ApplyBarPositionCentered(frame, pos, barKey)
     -- coordinate is an EDGE (whole-pixel snap) but the perpendicular
     -- coordinate is the frame's CENTER on that axis -- parity-aware snap so
     -- an odd-pixel dimension keeps whole-pixel edges there too. Corner
-    -- anchors (first-row pin) are edges on BOTH axes.
+    -- anchors (row growth pin) are edges on BOTH axes.
     local PPa = EllesmereUI and EllesmereUI.PP
     if PPa then
         local es = frame:GetEffectiveScale()
@@ -3337,9 +3352,9 @@ local function SaveCDMBarPosition(barKey, frame)
     local uiW, uiH = UIParent:GetSize()
     local ratio = fScale / uiScale
 
-    -- Determine anchor point from grow direction (and the "anchor first row"
-    -- pin) so the bar's fixed edge/corner stays put when icon count changes
-    -- (spec swaps, combat buff churn, a row spilling in/out).
+    -- Determine anchor point from grow direction (and the row growth
+    -- direction) so the bar's fixed edge/corner stays put when icon count
+    -- changes (spec swaps, combat buff churn, a row spilling in/out).
     local bd = barDataByKey[barKey]
     local pt = ns.ResolveGrowAnchorPoint(bd)
 
@@ -3379,9 +3394,9 @@ local function SaveCDMBarPosition(barKey, frame)
 end
 
 -- Re-persist a bar's saved position in its CURRENT anchor format from live
--- geometry. Needed when the "anchor first row" toggle flips: a stored center /
--- single-edge position can't pin the first-row edge across row changes -- only
--- a stored corner can -- so we recapture the corner from where the bar sits
+-- geometry. Needed when the row growth direction changes: a stored center /
+-- single-edge position can't pin the row edge across row changes -- only a
+-- stored corner can -- so we recapture the corner from where the bar sits
 -- right now. Guarded to free-standing bars (snapped bars are owned by the unlock
 -- anchor system, which reads unlockAnchors, not cdmBarPositions).
 function ns.RecaptureBarAnchor(barKey)
@@ -3829,12 +3844,32 @@ BuildCDMBar = function(barIndex)
     frame:Show()
 end
 
+-- Whether this bar renders its data rows in REVERSED visual order: row
+-- growth "UP" on horizontal bars / "LEFT" on vertical bars pins the trailing
+-- edge (BOTTOM/RIGHT), so the base (first data) row must hug that edge and
+-- extra rows grow away from it (see LayoutCDMBar). Shared by the layout and
+-- the options preview so both agree on the visual row order. Defined as an
+-- ns.* field (not a file-scope local) to stay under Lua 5.1's 200-local
+-- main-chunk ceiling.
+function ns.CDMRowsReversed(barData)
+    if not barData then return false end
+    local grow = barData.growDirection or "CENTER"
+    local isHoriz = (grow == "RIGHT" or grow == "LEFT"
+        or (grow == "CENTER" and not barData.verticalOrientation))
+    if isHoriz then return barData.rowGrowDirection == "UP" end
+    return barData.rowGrowDirection == "LEFT"
+end
+
 -- Compute stride respecting the custom row-count override (only for numRows == 2).
--- Two MUTUALLY EXCLUSIVE overrides both resolve to an effective TOP-row count:
---   * Custom Top Row Count    -> topRowCount icons on the top row.
---   * Custom Bottom Row Count -> bottomRowCount icons on the bottom row; the top
---     row gets the remainder (the flipped form of the top override).
--- Mutual exclusivity is enforced in options; if both somehow set, top wins.
+-- Two MUTUALLY EXCLUSIVE overrides both resolve to the BASE row count -- the
+-- first DATA row: it fills first, and it is the row a Row Growth pin keeps in
+-- place (rendered on top normally, on the bottom/right when the visual row
+-- order is reversed):
+--   * Custom Base Row Count -> topRowCount icons on the base row (legacy key
+--     name from when the base row could only render on top).
+--   * Custom Bottom Row Count (legacy, UI removed) -> bottomRowCount icons on
+--     the second row; the base row gets the remainder.
+-- Mutual exclusivity is enforced in options; if both somehow set, base wins.
 local function ComputeTopRowStride(barData, count)
     local numRows = barData.numRows or 1
     if numRows < 1 then numRows = 1 end
@@ -4242,6 +4277,15 @@ LayoutCDMBar = function(barKey)
         frame._barBg:Hide()
     end
 
+    -- Row growth "UP" (horizontal) / "LEFT" (vertical): reverse the VISUAL
+    -- row order so the first data row (the base row) hugs the pinned trailing
+    -- edge (BOTTOM/RIGHT) and extra rows grow away from it. Data-row semantics
+    -- (fill order, per-row centering, row icon counts, per-row sizes) are
+    -- untouched -- only the perpendicular-axis offset flips. "DOWN"/"RIGHT"
+    -- need no reversal: the TOPLEFT layout already keeps the pinned leading
+    -- edge's row still. Computed once here, outside the per-icon loops.
+    local rowsReversed = ns.CDMRowsReversed(barData)
+
     if perRowActive then
         -- Two-row layout with a per-row icon size offset. Each row is laid out at
         -- its own icon size, centered along the growth axis; the perpendicular
@@ -4278,7 +4322,14 @@ LayoutCDMBar = function(barKey)
                 local rowMainPx = rowN * wPx + math.max(0, rowN - 1) * spacingPx
                 local offMainPx = math.floor((totalWPx - rowMainPx) / 2 + 0.5)
                 local xPx = offMainPx + idxInRow * (wPx + spacingPx)
-                local yPx = (rowIdx == 1) and 0 or (rowHPx[1] + spacingPx)
+                -- Perpendicular offset of each row band. Reversed when rows
+                -- grow upward: rowIdx 2 sits at the top, rowIdx 1 below.
+                local yPx
+                if rowsReversed then
+                    yPx = (rowIdx == 2) and 0 or (rowHPx[2] + spacingPx)
+                else
+                    yPx = (rowIdx == 1) and 0 or (rowHPx[1] + spacingPx)
+                end
                 anchorX = (xPx * onePx) * iS
                 anchorY = -(yPx * onePx) * iS
             else
@@ -4287,7 +4338,15 @@ LayoutCDMBar = function(barKey)
                 local rowMainPx = rowN * hPx + math.max(0, rowN - 1) * spacingPx
                 local offMainPx = math.floor((totalHPx - rowMainPx) / 2 + 0.5)
                 local yPx = offMainPx + idxInRow * (hPx + spacingPx)
-                local xPx = (rowIdx == 1) and 0 or (rowWPx[1] + spacingPx)
+                -- Perpendicular offset of each column band. Reversed when
+                -- columns grow leftward: rowIdx 2 sits at the left, rowIdx 1
+                -- to its right.
+                local xPx
+                if rowsReversed then
+                    xPx = (rowIdx == 2) and 0 or (rowWPx[2] + spacingPx)
+                else
+                    xPx = (rowIdx == 1) and 0 or (rowWPx[1] + spacingPx)
+                end
                 anchorX = (xPx * onePx) * iS
                 anchorY = -(yPx * onePx) * iS
             end
@@ -4358,6 +4417,11 @@ LayoutCDMBar = function(barKey)
             col = bottomIdx % stride
             row = 1 + math.floor(bottomIdx / stride)
         end
+        -- Visual row: identical to the data row unless the row growth
+        -- direction reverses the visual order (data row 0 renders on the
+        -- pinned trailing edge). Data-row logic below (RowIconCount,
+        -- expansion flags) keeps `row`.
+        local vRow = rowsReversed and (effRows - 1 - row) or row
 
         -- Apply +1 physical pixel to expanded icons. For horizontal bars,
         -- the expansion is on the WIDTH axis (iconW). For vertical bars
@@ -4382,8 +4446,18 @@ LayoutCDMBar = function(barKey)
         -- icons by 1 physical pixel along the same axis.
         --   extraBefore  = along the growth axis (col index)
         --   extraBeforeR = along the perpendicular axis (row index)
+        -- extraBeforeR counts expanded rows VISUALLY before this one.
+        -- Expanded rows are data rows < growthH; in normal order those are
+        -- exactly the min(row, growthH) rows above. In reversed order the
+        -- rows visually above are the data rows in (row, effRows-1], of
+        -- which max(0, min(growthH, effRows) - row - 1) are expanded.
         local extraBefore  = math.min(col, growthW) * onePx
-        local extraBeforeR = math.min(row, growthH) * onePx
+        local extraBeforeR
+        if rowsReversed then
+            extraBeforeR = math.max(0, math.min(growthH, effRows) - row - 1) * onePx
+        else
+            extraBeforeR = math.min(row, growthH) * onePx
+        end
 
         if isMouseBar then
             icon:SetFrameStrata("TOOLTIP")
@@ -4402,7 +4476,7 @@ LayoutCDMBar = function(barKey)
         -- by iconScale for SetPoint. No per-position snapping -- dividing
         -- integers by the same constant produces mathematically uniform gaps.
         local posX = col * stepW + extraBefore
-        local posY = row * stepH
+        local posY = vRow * stepH
 
         -- Resolve anchor params first, then update fd._cdmAnchor BEFORE
         -- the SetPoint call. The SetPoint hook fires AFTER SetPoint and
@@ -4429,7 +4503,7 @@ LayoutCDMBar = function(barKey)
                 rowOffset = math.floor((stride - rowCount) * stepH / 2 + 0.5)
             end
             anchorPt, anchorRelPt = "TOPLEFT", "TOPLEFT"
-            anchorX = (row * stepW + extraBeforeR) * iS
+            anchorX = (vRow * stepW + extraBeforeR) * iS
             anchorY = -(col * stepH + extraBefore + rowOffset) * iS
         end
 
@@ -6821,6 +6895,7 @@ local function FormatKeybindKey(key)
     key = key:gsub("Mouse Button ", "M")
     key = key:gsub("MOUSEWHEELUP",   "MwU")
     key = key:gsub("MOUSEWHEELDOWN", "MwD")
+    key = key:gsub("CAPSLOCK", "Caps")
     key = key:gsub("NUMPADDECIMAL",  "N.")
     key = key:gsub("NUMPADPLUS",     "N+")
     key = key:gsub("NUMPADMINUS",    "N-")
@@ -8105,8 +8180,24 @@ function ECME:OnEnable()
         _cdmSetupStarted = true
         EnsureMappings(GetStore())
         if self._needsCapture then
-            -- Defer one more step so Edit Mode has applied positions
+            -- Capture Blizzard's Edit Mode layout once it has applied positions
+            -- (at/after PLAYER_ENTERING_WORLD). But OnEnable/TryBuildCDM now run
+            -- deferred past the login PEW -- the Lite enable-flush dispatches
+            -- OnEnable from a C_Timer past PLAYER_LOGIN (Edit Mode taint fix),
+            -- and a spec-change wakeup can defer this further still -- so on a
+            -- fresh install that login PLAYER_ENTERING_WORLD has already fired.
+            -- A plain RegisterEvent would then wait for the next zone change, so
+            -- OnCDMFirstLogin/CDMFinishSetup would never run this session and the
+            -- tracker stays unbuilt (same class as the fresh-install action-bar
+            -- regression). Keep the event as a backstop and, since we're already
+            -- in the world with Edit Mode applied, capture now; the _needsCapture
+            -- guard keeps the two paths idempotent.
             self:RegisterEvent("PLAYER_ENTERING_WORLD", "OnCDMFirstLogin")
+            if IsLoggedIn() then
+                C_Timer.After(0, function()
+                    if self._needsCapture then self:OnCDMFirstLogin() end
+                end)
+            end
         else
             self:CDMFinishSetup()
         end
@@ -8146,7 +8237,12 @@ end
 
 function ECME:OnCDMFirstLogin()
     self:UnregisterEvent("PLAYER_ENTERING_WORLD")
-    CDMFirstLoginCapture()
+    -- A profile import can stamp the capture flag mid-session (imported data
+    -- is a chosen layout). Honor the stamp here so a still-pending capture
+    -- never overwrites the imported profile; just finish the deferred setup.
+    if not self.db.sv._capturedOnce_CDM then
+        CDMFirstLoginCapture()
+    end
     self._needsCapture = false
     self:CDMFinishSetup()
 end

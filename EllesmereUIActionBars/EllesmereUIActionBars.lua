@@ -686,6 +686,7 @@ local function FormatHotkeyText(text)
     text = text:gsub("Mouse Button ", "M")
     text = text:gsub("MOUSEWHEELUP", "MwU")
     text = text:gsub("MOUSEWHEELDOWN", "MwD")
+    text = text:gsub("CAPSLOCK", "Caps")
     -- Specific NUMPAD keys must be handled before the generic NUMPAD prefix,
     -- or the prefix replacement makes them unmatchable (N. showed as NDECIMAL).
     text = text:gsub("NUMPADDECIMAL", "N.")
@@ -1915,21 +1916,26 @@ local function GetClassPagingConditions()
         conditions = conditions .. "[vehicleui][possessbar] " .. EAB_VTABLE.GetVehicleBarIndex() .. "; "
     end
 
-    -- Class-specific paging
-    if class == "DRUID" then
-        conditions = conditions .. "[bonusbar:1,stealth] 7; [bonusbar:1] 7; [bonusbar:3] 9; [bonusbar:4] 10; "
-    elseif class == "ROGUE" then
-        conditions = conditions .. "[bonusbar:1] 7; "
-    end
-
     -- Dragonriding (all classes)
     conditions = conditions .. "[bonusbar:5] 11; "
 
     -- Manual page switching (pages 2-6)
     -- [bar:N] responds to WoW's internal page set by ChangeActionBarPage().
     -- The built-in keybinds and our paging arrows trigger this securely.
+    -- Listed BEFORE the class form conditions to match the engine's native
+    -- resolution order (a manual page beats the form bonusbar, which only
+    -- applies on page 1). MainBar keybinds are native ACTIONBUTTONn commands,
+    -- so the displayed page must resolve exactly like the engine's or a
+    -- form + manual-page combination shows one ability and fires another.
     for i = 2, NUM_AB_PAGES do
         conditions = conditions .. "[bar:" .. i .. "] " .. i .. "; "
+    end
+
+    -- Class-specific form paging (page 1 only, per the ordering above)
+    if class == "DRUID" then
+        conditions = conditions .. "[bonusbar:1,stealth] 7; [bonusbar:1] 7; [bonusbar:3] 9; [bonusbar:4] 10; "
+    elseif class == "ROGUE" then
+        conditions = conditions .. "[bonusbar:1] 7; "
     end
 
     -- Default: page 1
@@ -8279,14 +8285,17 @@ local function UpdateKeybinds()
             -- button (SetOverrideBindingClick) so the keypress reads our paged
             -- "action" attr -- exactly what empower/flyout already do, and what
             -- ElvUI/Bartender do for every button via LibActionButton.
+            --
+            -- Class-default form paging (Druid/Rogue) is NOT custom paging: it
+            -- rides on bonusbar, a native engine concept that ACTIONBUTTONn
+            -- resolves correctly on its own, so the icon and the native keybind
+            -- already agree in every form. Routing those bars through the button
+            -- instead only costs us press-and-hold repeat casting (a synthetic
+            -- click never reaches UseAction with isKeyPress=true), which is why
+            -- it must stay on the native command -- only genuine user-configured
+            -- paging (bs.paging) needs the click route.
             local bs = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars[info.key]
             local barHasCustomPaging = (bs and bs.paging and next(bs.paging) ~= nil) and true or false
-            if not barHasCustomPaging and info.key == "MainBar" then
-                local _, cls = UnitClass("player")
-                if cls == "DRUID" or cls == "ROGUE" then
-                    barHasCustomPaging = true
-                end
-            end
             for i, btn in ipairs(btns) do
                 if btn then
                     local cmd = prefix .. i
@@ -9429,10 +9438,29 @@ end
 
 function EAB:OnEnable()
     -- If this is a first install (or reset), we need to capture Blizzard's
-    -- Edit Mode layout BEFORE hiding bars. Defer the full setup to
-    -- PLAYER_ENTERING_WORLD so Edit Mode has applied positions.
+    -- Edit Mode layout BEFORE hiding bars. The capture must run once Edit Mode
+    -- has applied bar positions/sizes, i.e. at/after PLAYER_ENTERING_WORLD.
+    --
+    -- OnEnable itself is now dispatched from the Lite enable-flush, which is
+    -- gated on IsLoggedIn() and deferred one tick past PLAYER_LOGIN (the Edit
+    -- Mode secret-taint fix). So on a fresh install the login
+    -- PLAYER_ENTERING_WORLD has ALREADY fired by the time we run here -- a plain
+    -- RegisterEvent would then wait for the next zone change, so OnFirstLogin
+    -- (and the FinishSetup it calls) would never run this session and the bars
+    -- stay built-but-invisible (reported on fresh 8.5.4 installs; a downgrade to
+    -- 8.5.3 then upgrade "fixes" it only because the capture then already ran).
+    --
+    -- Since the flush guarantees we're logged in and past the login PEW (Edit
+    -- Mode has applied its layout), capture now. Keep the event as a backstop
+    -- for the rare case we somehow enable before login; the _needsCapture guard
+    -- keeps the two paths idempotent (OnFirstLogin clears it + unregisters PEW).
     if self._needsCapture then
         self:RegisterEvent("PLAYER_ENTERING_WORLD", "OnFirstLogin")
+        if IsLoggedIn() then
+            C_Timer_After(0, function()
+                if self._needsCapture then self:OnFirstLogin() end
+            end)
+        end
     else
         self:FinishSetup()
     end
@@ -9442,6 +9470,15 @@ end
 -- At this point Edit Mode has applied bar positions/sizes/rows.
 function EAB:OnFirstLogin()
     self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+
+    -- A profile import can stamp the capture flag mid-session (imported data
+    -- is a chosen layout). Honor the stamp here so a still-pending capture
+    -- never overwrites the imported profile; just run the normal setup.
+    if self.db.sv._capturedOnce_EAB then
+        self._needsCapture = false
+        self:FinishSetup()
+        return
+    end
 
     -- Capture Blizzard layout while bars are still visible
     local captured = CaptureBlizzardDefaults()

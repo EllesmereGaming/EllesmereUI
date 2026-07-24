@@ -206,6 +206,37 @@ qolFrame:SetScript("OnEvent", function(self)
         -- A scan request arrived while a cycle was busy; finish() honors it
         -- even when its own cycle made no progress.
         local _missedScan = false
+        -- Pacing: mail's "Open All" (and similar loot dumps) land many
+        -- openable items in bags within the same second -- exactly when a
+        -- container action can collide with another action still resolving
+        -- (ours, or Blizzard's own item-delivery) and strand a slot locked
+        -- until relog. The client optimistically locks a slot on any action
+        -- and only clears it once the server round-trip confirms; overlapping
+        -- actions before that confirmation lands is the documented way to
+        -- strand one (reporter: one item always sticks after "Open All Mail",
+        -- count before it varies, 4+).
+        -- _lastBagChurn: GetTime() of the most recent raw BAG_UPDATE (see the
+        -- dedicated listener below) -- a real-time "something touched the
+        -- bags very recently" signal. Deliberately separate from
+        -- BAG_UPDATE_DELAYED, which Blizzard already coalesces into one event
+        -- per settle and is too coarse for this. If churn was seen just
+        -- before we'd fire the next open, wait a bit longer so our action
+        -- doesn't land mid another one's resolution.
+        local _lastBagChurn = 0
+        local CHURN_SETTLE_WINDOW = 0.35  -- "recent" churn cutoff, seconds
+        local CHURN_SETTLE_DELAY = 0.4    -- extra wait when churn was recent
+        -- Coarse backstop regardless of the churn signal: pause longer after
+        -- every few opens in one cycle so a long mail-dump burst can't
+        -- steamroll through at full cadence. Starting guess, not a measured
+        -- threshold -- see AODbg below for tuning with real capture data if
+        -- the churn signal alone isn't enough. Live-tunable via
+        -- EllesmereUI._aoBurstCooldown (falls back to the default) so a tester
+        -- can try values in one session -- e.g. /run EllesmereUI._aoBurstCooldown = 2
+        local OPEN_BURST_SIZE = 4
+        local OPEN_BURST_COOLDOWN_DEFAULT = 4
+        local function AODbg(...)
+            if EllesmereUI._AODEBUG then print("|cff33ff99[AutoOpen]|r", ...) end
+        end
         -- Forward-declared: scanFrame's OnUpdate (created below) calls ScanAndOpen
         -- once the cache is built, so both must be upvalues in scope before that
         -- closure is defined. Assigned (not re-declared) further down.
@@ -307,6 +338,11 @@ qolFrame:SetScript("OnEvent", function(self)
         EllesmereUI._applyAutoOpenContainers = function()
             if IsEnabled() then
                 containerFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+                -- Raw, per-slot event -- fires far more often than the
+                -- coalesced BAG_UPDATE_DELAYED above. Used ONLY to timestamp
+                -- _lastBagChurn (see its declaration); the handler does no
+                -- scan work for it, so this adds no scanning overhead.
+                containerFrame:RegisterEvent("BAG_UPDATE")
                 -- Re-run once the vendor closes: BAG_UPDATE_DELAYED from a
                 -- purchase fires while the merchant is open (when opens are
                 -- suppressed), so without this the just-bought containers would
@@ -323,6 +359,7 @@ qolFrame:SetScript("OnEvent", function(self)
                 end
             else
                 containerFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
+                containerFrame:UnregisterEvent("BAG_UPDATE")
                 containerFrame:UnregisterEvent("MERCHANT_CLOSED")
                 containerFrame:UnregisterEvent("LOOT_OPENED")
                 containerFrame:UnregisterEvent("LOOT_CLOSED")
@@ -390,6 +427,14 @@ qolFrame:SetScript("OnEvent", function(self)
             _cycleGen = _cycleGen + 1
             local myGen = _cycleGen
             local madeProgress = false
+            local openStreak = 0  -- real opens completed so far in THIS cycle
+            -- Cycle-boundary marker: without this, a rescan's first open
+            -- (unpaced, via step(1)) reads identically in the log to a paced
+            -- continuation, especially right after a burst cooldown resets
+            -- openStreak to 0 -- both print "streak=0". Real capture already
+            -- hit this ambiguity (mail refilled a slot right as a burst pause
+            -- ended, and the two cycles read as one continuous run).
+            AODbg(("cycle start: %d candidate(s)"):format(#toOpen))
 
             -- The single place _openBusy is cleared. Every step() exit routes
             -- through here so the flag can never leak (a leak would freeze
@@ -406,6 +451,7 @@ qolFrame:SetScript("OnEvent", function(self)
                 end
             end
 
+            local PaceNext  -- forward-declared: assigned after step, below
             local function step(idx)
                 if myGen ~= _cycleGen then return end
                 if idx > #toOpen then return finish() end
@@ -428,6 +474,8 @@ qolFrame:SetScript("OnEvent", function(self)
                         _openInProgress[key] = true
                         _pendingOpen = { bag = item.bag, slot = item.slot,
                             itemID = prevID, count = prevCount }
+                        AODbg(("open bag=%d slot=%d item=%d streak=%d"):format(
+                            item.bag, item.slot, prevID, openStreak))
                         C_Container.UseContainerItem(item.bag, item.slot)
                         C_Timer.After(0.5, function()
                             -- Always release the slot flag (global bookkeeping),
@@ -456,13 +504,48 @@ qolFrame:SetScript("OnEvent", function(self)
                                 -- container), not failed, so it isn't cached -- a
                                 -- later cycle retries it.
                                 _failedItems[prevID] = true
+                                AODbg("genuine fail, item=" .. prevID)
                             end
-                            step(idx + 1)
+                            -- A real open just resolved (progressed or genuine
+                            -- fail): pace before advancing. The non-actionable
+                            -- skips above (warbound, not-openable) move on
+                            -- immediately without pacing.
+                            PaceNext(idx + 1)
                         end)
                         return
                     end
                 end
                 C_Timer.After(0.1, function() step(idx + 1) end)
+            end
+
+            -- Paces the step AFTER a real open resolves. Two independent
+            -- triggers for extra breathing room, either can apply:
+            --  * recent bag churn -- something else touched the bags just now
+            --    (Blizzard's own mail delivery is exactly this) -- wait for it
+            --    to settle before adding our own action into the mix.
+            --  * the burst backstop -- every OPEN_BURST_SIZE real opens in this
+            --    cycle, pause the burst cooldown regardless (default
+            --    OPEN_BURST_COOLDOWN_DEFAULT, live-tunable via
+            --    EllesmereUI._aoBurstCooldown), so a long "Open All Mail" dump
+            --    can't steamroll through at full pace.
+            PaceNext = function(idx)
+                if myGen ~= _cycleGen then return end
+                openStreak = openStreak + 1
+                local extra, why = 0, nil
+                if GetTime() - _lastBagChurn < CHURN_SETTLE_WINDOW then
+                    extra, why = CHURN_SETTLE_DELAY, "churn"
+                end
+                if openStreak >= OPEN_BURST_SIZE then
+                    openStreak = 0
+                    local cooldown = EllesmereUI._aoBurstCooldown or OPEN_BURST_COOLDOWN_DEFAULT
+                    if cooldown > extra then extra, why = cooldown, "burst" end
+                end
+                if extra > 0 then
+                    AODbg(("pacing +%.1fs (%s)"):format(extra, why))
+                    C_Timer.After(extra, function() step(idx) end)
+                else
+                    step(idx)
+                end
             end
 
             C_Timer.After(0.15, function() step(1) end)
@@ -483,6 +566,10 @@ qolFrame:SetScript("OnEvent", function(self)
         end
 
         containerFrame:SetScript("OnEvent", function(_, event)
+            if event == "BAG_UPDATE" then
+                _lastBagChurn = GetTime()
+                return
+            end
             if event == "LOOT_OPENED" then
                 _lootOpen = true
                 -- Claim the window for the container we just used (if any) so
@@ -1402,6 +1489,7 @@ do
         end
 
         statsText:SetText(txt)
+        statsFrame:SetSize(statsText:GetStringWidth() + 2, statsText:GetStringHeight() + 2)
     end
 
     local function ApplySecondaryStats()

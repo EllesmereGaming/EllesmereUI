@@ -1215,6 +1215,22 @@ function EllesmereUI.ApplyProfileData(profileData)
                         mm.omniumFolioMode = (mm.showOmniumFolio == false) and "never" or "always"
                     end
                 end
+                -- Pre-enum imports carry the legacy anchorFirstRow boolean but
+                -- no rowGrowDirection. The conversion migration
+                -- (cdm_row_grow_direction_v1) is SKIPPED for imported profiles
+                -- (inherited migration flags), so forward-copy here so the
+                -- pinned-row behavior survives the import.
+                if entry.folder == "EllesmereUICooldownManager"
+                    and type(profile.cdmBars) == "table" and type(profile.cdmBars.bars) == "table" then
+                    for _, bar in ipairs(profile.cdmBars.bars) do
+                        if bar.anchorFirstRow then
+                            if bar.rowGrowDirection == nil then
+                                bar.rowGrowDirection = bar.verticalOrientation and "RIGHT" or "DOWN"
+                            end
+                            bar.anchorFirstRow = nil
+                        end
+                    end
+                end
                 if db._profileDefaults then
                     EllesmereUI.Lite.DeepMergeDefaults(profile, db._profileDefaults)
                 end
@@ -2758,6 +2774,16 @@ function EllesmereUI.ImportProfile(importStr, profileName)
                 merged.addons[folder] = DeepCopy(snap)
             end
         end
+        -- Per-profile migration stamps must reflect the PAYLOAD's data
+        -- vintage, not the base profile's. On a fresh install the base
+        -- (active) profile carries no stamps yet, so without this the next
+        -- load would run every profile-scope migration over the
+        -- just-imported data as if it were legacy. A current-version export
+        -- carries its own stamps; a genuinely old string carries none and
+        -- still gets migrated, which is the intended behavior for old data.
+        if type(imported._migrations) == "table" then
+            merged._migrations = DeepCopy(imported._migrations)
+        end
         -- Take fonts/colors from import if present (the partial-import OnClick nils
         -- these so a subset import keeps the base profile's appearance).
         if imported.fonts then merged.fonts = DeepCopy(imported.fonts) end
@@ -2957,6 +2983,13 @@ function EllesmereUI.ImportProfile(importStr, profileName)
             -- apply. Runtime armed flag deliberately NOT set here: this
             -- session keeps its own active profile.
             db.profiles[profileName]._importEstablishPending = true
+            -- First-install captures: an imported profile is a chosen layout.
+            -- Stamp the one-shot capture flags so a capture that has not
+            -- fired yet cannot overwrite this stored profile's layout data
+            -- once a later session activates it.
+            db._capturedOnce_EAB = true
+            db._capturedOnce_CDM = true
+            db._capturedOnce_RF = true
             return true, nil, "spec_locked"
         end
         -- Flush the OUTGOING (currently active) profile's LIVE unlock data into its
@@ -3042,6 +3075,35 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         if EllesmereUI.SpecOverrides_Apply then
             EllesmereUI.SpecOverrides_Apply(curSpecID)
         end
+        -- First-install captures: an imported profile is a chosen layout.
+        -- Stamp the one-shot capture flags (central-store root keys; the
+        -- capture handlers re-check them at fire time) so a capture that has
+        -- not fired yet -- deferred past login, spec-gated, or armed by a
+        -- module first enabled in a later session -- can never overwrite the
+        -- imported data with live-captured layout state.
+        db._capturedOnce_EAB = true
+        db._capturedOnce_CDM = true
+        db._capturedOnce_RF = true
+        -- The minimap capture flag is per-profile. Stamp the imported
+        -- profile's minimap table (after ApplyProfileData, so the write
+        -- sticks) in case the payload predates the flag or came from an
+        -- install that never ran the Minimap module.
+        do
+            if not merged.addons then merged.addons = {} end
+            local mm = merged.addons.EllesmereUIMinimap
+            if type(mm) ~= "table" then
+                mm = {}
+                merged.addons.EllesmereUIMinimap = mm
+            end
+            if type(mm.minimap) ~= "table" then mm.minimap = {} end
+            mm.minimap._capturedOnce = true
+        end
+        -- A successful import means real user data exists: close the
+        -- first-install window now instead of at the next login's
+        -- data-detection pass, so first-run popups and capture paths stay
+        -- quiet from here on.
+        db.firstInstallPopupShown = true
+        EllesmereUI._firstInstallPending = nil
         -- Don't ReloadUI() here: the caller (options panel import flow)
         -- reloads unconditionally right after this returns. (The old CDM
         -- spec-picker popup flow is gone -- CDM spells import as-is.)
@@ -4663,6 +4725,181 @@ do
             if EllesmereUI._ProfilesResetToMain then pcall(EllesmereUI._ProfilesResetToMain) end
         end)
     end
+end
+
+-------------------------------------------------------------------------------
+--  Silent partner-installer import (public API, additive)
+--
+--  One call that ports a creator's exported profile string EXACTLY, for
+--  installer addons that manage the whole setup themselves (no EUI dialogs).
+--  The interactive dialog flow is untouched. Fonts, custom colors, accent,
+--  CDM spell layouts, overrides, the window/tooltip skin bundle and UI scale
+--  all apply precisely as the string carries them (presence is consent), so
+--  the recipient lands on the creator's complete look.
+--
+--  opts:
+--    importString  (required) the creator's export string.
+--    profileName   (required) target profile name.
+--    disableAddons (optional) array of suite child FOLDER names the pack
+--                  replaces with external addons. When present the API:
+--                    * strips those modules' content from the payload
+--                      (addon blobs incl. hosted sub-modules, CDM spell
+--                      layouts when the CDM module is listed, the window/
+--                      tooltip skin bundle when the skin module is listed)
+--                    * filters cross-module layout relationships down to
+--                      kept modules, so no anchor or size-match edge can
+--                      reference a module that will have no frames
+--                    * after a successful import, disables those folders
+--                      and enables every other suite child (authoritative
+--                      list: children added to the suite after a pack
+--                      shipped enable by default), and records the bags
+--                      choice so the bag-addon auto-disable respects the
+--                      pack's composition.
+--                  The shared-services shim and the parent addon are load-
+--                  bearing for every child and are never disabled here.
+--    cleanSlate    (optional, default true) delete an existing profile of
+--                  the same name first: an import onto an existing name
+--                  inherits its name-keyed external buckets (CDM spell
+--                  store, spec assignments, sync targets), and DeleteProfile
+--                  is the one path that purges them all.
+--    applyUIScale  (optional, default true) false strips the string's UI
+--                  scale so the user keeps their own.
+--    autoAssignSpecs (optional, default false) true keeps the exporter's
+--                  spec->profile assignments; headless presence would apply
+--                  them, so installers opt in deliberately.
+--
+--  Returns ok, err. NEVER reloads: the caller owns the ReloadUI at the end
+--  of its own flow (addon enable/disable state also only applies then).
+-------------------------------------------------------------------------------
+function EllesmereUI.ImportProfileSilent(opts)
+    if type(opts) ~= "table" or type(opts.importString) ~= "string"
+        or opts.importString == "" then
+        return false, "invalid arguments"
+    end
+    if type(opts.profileName) ~= "string" or opts.profileName == "" then
+        return false, "profileName is required"
+    end
+    if InCombatLockdown() then return false, "in combat" end
+    local profileName = opts.profileName
+
+    -- Decode once and hand ImportProfile the TABLE. Never re-encode a decoded
+    -- payload: a serializer round trip is not identity on decoded content.
+    local payload = EllesmereUI.DecodeImportString(opts.importString)
+    if type(payload) ~= "table" or type(payload.data) ~= "table" then
+        return false, "could not decode import string"
+    end
+
+    -- Normalize + guard the disable set.
+    local disable
+    if type(opts.disableAddons) == "table" then
+        disable = {}
+        for _, folder in ipairs(opts.disableAddons) do
+            if type(folder) == "string" then disable[folder] = true end
+        end
+        disable["EllesmereUIBasics"] = nil
+        disable["EllesmereUI"] = nil
+    end
+
+    if disable then
+        -- Partition profile-data modules into stripped vs kept (canonical
+        -- keys, matching the payload), resolving hosted sub-modules through
+        -- their host addon.
+        local keepCanon, stripCanon = {}, {}
+        for _, e in ipairs(ADDON_DB_MAP) do
+            local canon = FOLDER_TO_CANON[e.folder] or e.folder
+            if disable[e.folder] or (e.hostAddon and disable[e.hostAddon]) then
+                stripCanon[canon] = true
+            else
+                keepCanon[canon] = true
+            end
+        end
+        if payload.data.addons then
+            for canon in pairs(stripCanon) do
+                payload.data.addons[canon] = nil
+            end
+        end
+        -- CDM spell layouts live outside the addon blob.
+        if disable["EllesmereUICooldownManager"] then
+            payload.data.cdmSpells = nil
+        end
+        -- The account-global window/tooltip skin bundle belongs to the skin
+        -- module; a pack that replaces it must not apply the bundle.
+        if disable["EllesmereUIBlizzardSkin"] then
+            payload.data.blizzSkinGlobals      = nil
+            payload.data.applyBlizzSkinGlobals = nil
+        end
+        -- Keep only layout relationships whose endpoints both survive: the
+        -- same per-element filter the import dialog applies on deselection.
+        local ul = payload.data.unlockLayout
+        if ul then
+            local meta = payload.data.unlockLayoutMeta
+            local k2f = EllesmereUI.BuildImportKeyToFolder(ul, meta and meta.keyToFolder)
+            payload.data.unlockLayout = EllesmereUI.FilterLayoutToFolders(ul, keepCanon, k2f)
+        end
+    end
+    -- Meta is transport-only; never let it persist into the profile.
+    payload.data.unlockLayoutMeta = nil
+
+    if opts.applyUIScale == false then
+        payload.data.uiScale      = nil
+        payload.data.applyUIScale = nil
+    end
+    if not opts.autoAssignSpecs then
+        payload.data.assignedSpecs = nil
+    end
+
+    -- Clean slate (see doc block above).
+    if opts.cleanSlate ~= false then
+        local db = GetProfilesDB()
+        if db.profiles and db.profiles[profileName] then
+            EllesmereUI.DeleteProfile(profileName)
+        end
+    end
+
+    local ok, err, status = EllesmereUI.ImportProfile(payload, profileName)
+    if not ok then return false, err end
+
+    -- Apply the pack's folder composition (takes effect at the caller's
+    -- reload). Enabling sweeps the whole suite so children added after a
+    -- pack shipped default ON instead of ending up in neither set.
+    if disable and C_AddOns and C_AddOns.EnableAddOn then
+        local exists = C_AddOns.DoesAddOnExist
+        local seen = {}
+        local function apply(folder)
+            if seen[folder] then return end
+            seen[folder] = true
+            if exists and not exists(folder) then return end
+            if disable[folder] then
+                C_AddOns.DisableAddOn(folder)
+            else
+                C_AddOns.EnableAddOn(folder)
+            end
+        end
+        for _, e in ipairs(ADDON_DB_MAP) do
+            apply(e.hostAddon or e.folder)
+        end
+        apply("EllesmereUIBasics")
+        -- The pack made the bags decision; keep the bag-addon auto-disable
+        -- from overriding it later.
+        if EllesmereUIDB then EllesmereUIDB.bagsUserChosen = true end
+    end
+
+    return true, nil, status
+end
+
+-------------------------------------------------------------------------------
+--  External installer registration
+--  A partner installer that owns the whole first-run experience calls this at
+--  its ADDON_LOADED (every session). While registered, the suite's own
+--  first-install picker stays silent -- the picker's reload-handshake flag
+--  still arms, so first-run popups stay quiet until the installer's import
+--  completes (the import stamps first-install state). Fail-open: if the
+--  installer never imports, the picker returns on a later login without a
+--  registration.
+-------------------------------------------------------------------------------
+function EllesmereUI.RegisterExternalInstaller(displayName)
+    EllesmereUI._externalInstaller = (type(displayName) == "string" and displayName ~= "")
+        and displayName or true
 end
 
 -------------------------------------------------------------------------------

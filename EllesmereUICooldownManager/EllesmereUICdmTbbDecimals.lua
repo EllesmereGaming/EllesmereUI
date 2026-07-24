@@ -295,7 +295,10 @@ local function BuildContainer(desired)
                 fs:SetFont((ns.GetCDMFont and ns.GetCDMFont())
                     or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF", 12, "")
                 fs:SetPoint("CENTER", button, "CENTER", 0, 0)
-                AK.SetDurationTextSafe(button, fs, { formatter = fmt, updateInterval = 0.05 })
+                -- 68914 schema: updateInterval is a binding-level knob now,
+                -- so the formatter + 0.05s interval travel on a configured
+                -- DurationTextBinding via options.binding (BuildDurationTextOpts).
+                AK.SetDurationTextSafe(button, fs, AK.BuildDurationTextOpts(fmt, nil, 0.05))
                 boundIndex[want.index] = button
                 boundThr[want.index] = want.thr
                 bar._tbbEngineText = button
@@ -340,9 +343,13 @@ function ns.TBBDecimals_Sync()
                 if bar._tbbEngineFS and boundThr[want.index] ~= want.thr then
                     local fmt = GetDecimalFormatter(want.thr)
                     if fmt then
-                        AK.SetDurationTextSafe(button, bar._tbbEngineFS,
-                            { formatter = fmt, updateInterval = 0.05 })
-                        boundThr[want.index] = want.thr
+                        -- Stamp only on success: SetDurationTextSafe never
+                        -- throws anymore, and a denied re-registration under
+                        -- restriction must stay unstamped so a later Sync
+                        -- retries it.
+                        local ok = AK.SetDurationTextSafe(button, bar._tbbEngineFS,
+                            AK.BuildDurationTextOpts(fmt, nil, 0.05))
+                        if ok then boundThr[want.index] = want.thr end
                     end
                 end
             end
