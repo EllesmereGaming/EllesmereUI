@@ -87,11 +87,11 @@ local function SkinAuraButton(btn, isDebuff)
 
     -- Hide Blizzard border (alpha, not Hide, to avoid taint)
     -- Keep it visible on debuffs when noBorderDebuffs is enabled (colored border)
-    if btn.Border then
+    if btn.DebuffBorder then
         if isDebuff and cfg.noBorderDebuffs then
-            btn.Border:SetAlpha(1)
+            btn.DebuffBorder:SetAlpha(1)
         else
-            btn.Border:SetAlpha(0)
+            btn.DebuffBorder:SetAlpha(0)
         end
     end
 
