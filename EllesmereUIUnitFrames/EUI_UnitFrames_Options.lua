@@ -1587,7 +1587,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Target and Focus use the configurable live border system; the
             -- remaining previews retain their fixed one-pixel cast-bar border.
-            if unitKey == "target" or unitKey == "focus" or unitKey == "boss" then
+            if unitKey == "player" or unitKey == "target" or unitKey == "focus" or unitKey == "boss" then
                 local borderFrame = CreateFrame("Frame", nil, pf)
                 borderFrame:SetAllPoints(castbar)
                 castbar._previewBorderFrame = borderFrame
@@ -1606,7 +1606,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Cast fill fills the (possibly shortened) bar.
             castFill = castbar:CreateTexture(nil, "ARTWORK")
             pf._castFill = castFill
-            local pvHasConfigBorder = unitKey == "target" or unitKey == "focus" or unitKey == "boss"
+            local pvHasConfigBorder = unitKey == "player" or unitKey == "target" or unitKey == "focus" or unitKey == "boss"
             local pvBorderInset = (not pvHasConfigBorder or ((settings.castbarBorderTexture or "solid") == "solid" and (settings.castbarBorderSize or 1) > 0)) and 1 or 0
             PP.Point(castFill, "TOPLEFT", castbar, "TOPLEFT", pvBorderInset, 0)
             PP.Point(castFill, "BOTTOMLEFT", castbar, "BOTTOMLEFT", pvBorderInset, pvBorderInset)
@@ -1694,7 +1694,7 @@ initFrame:SetScript("OnEvent", function(self)
             local iconBg = castIconFrame:CreateTexture(nil, "BACKGROUND")
             iconBg:SetAllPoints()
             iconBg:SetColorTexture(0, 0, 0, 1)
-            if unitKey ~= "target" and unitKey ~= "focus" and unitKey ~= "boss" then PP.CreateBorder(castIconFrame, 0, 0, 0, 1) end
+            if unitKey ~= "player" and unitKey ~= "target" and unitKey ~= "focus" and unitKey ~= "boss" then PP.CreateBorder(castIconFrame, 0, 0, 0, 1) end
             local castIconTex = castIconFrame:CreateTexture(nil, "ARTWORK")
             PP.Point(castIconTex, "TOPLEFT", castIconFrame, "TOPLEFT", 1, -1)
             PP.Point(castIconTex, "BOTTOMRIGHT", castIconFrame, "BOTTOMRIGHT", -1, 1)
@@ -1707,7 +1707,7 @@ initFrame:SetScript("OnEvent", function(self)
             iconDividerTex:SetAllPoints(); iconDividerTex:SetColorTexture(0, 0, 0, 1)
             iconDivider:Hide()
             castIconFrame._divider = iconDivider
-            if unitKey == "target" or unitKey == "focus" or unitKey == "boss" then
+            if unitKey == "player" or unitKey == "target" or unitKey == "focus" or unitKey == "boss" then
                 local iconBorder = CreateFrame("Frame", nil, pf)
                 iconBorder:SetAllPoints(castIconFrame)
                 castIconFrame._previewBorderFrame = iconBorder
@@ -2802,7 +2802,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     local ciBarW = ciInWidth and math.max(1, cbBaseW - ciIconW) or cbBaseW
                     castbar:SetSize(ciBarW, ch)
-                    if (unitKey == "target" or unitKey == "focus" or unitKey == "boss") and castbar._previewBorderFrame then
+                    if (unitKey == "player" or unitKey == "target" or unitKey == "focus" or unitKey == "boss") and castbar._previewBorderFrame then
                         local bf = castbar._previewBorderFrame
                         bf:ClearAllPoints()
                         if ciInWidth and ciOnRight then
@@ -2836,7 +2836,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if castFill then
                         -- Textured borders render outside the target cast bar;
                         -- only its solid PP border needs room inside the fill.
-                        local hasConfigBorder = unitKey == "target" or unitKey == "focus" or unitKey == "boss"
+                        local hasConfigBorder = unitKey == "player" or unitKey == "target" or unitKey == "focus" or unitKey == "boss"
                         local fillInset = (not hasConfigBorder or ((s.castbarBorderTexture or "solid") == "solid" and (s.castbarBorderSize or 1) > 0)) and 1 or 0
                         castFill:ClearAllPoints()
                         if s.castReverseFill then
@@ -2889,7 +2889,7 @@ initFrame:SetScript("OnEvent", function(self)
                             local spellIcon = (unitKey == "player") and (_previewCastSpell and _previewCastSpell.icon or 136197) or 136197
                             castIconFrame._iconTex:SetTexture(spellIcon)
                         end
-                        if (unitKey == "target" or unitKey == "focus" or unitKey == "boss") and castIconFrame._previewBorderFrame then
+                        if (unitKey == "player" or unitKey == "target" or unitKey == "focus" or unitKey == "boss") and castIconFrame._previewBorderFrame then
                             local ibf = castIconFrame._previewBorderFrame
                             local iconBorderSize = ciInWidth and 0 or (s.castbarBorderSize or 1)
                             ibf:SetFrameLevel(s.castbarBorderBehind and math.max(0, castIconFrame:GetFrameLevel() - 1) or (castIconFrame:GetFrameLevel() + 5))
@@ -8374,9 +8374,9 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Target/Focus cast-bar border: same shared texture engine and controls
-        -- used by the main player cast bar. Each unit stores its own values.
-        if selectedUnit == "target" or selectedUnit == "focus" then
+        -- Player/Target/Focus cast-bar borders share the same texture engine
+        -- and controls. Each UnitFrame cast bar stores its own values.
+        if selectedUnit == "player" or selectedUnit == "target" or selectedUnit == "focus" then
             local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
             local borderRow
             borderRow, h = W:DualRow(parent, y,
@@ -8462,7 +8462,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        if selectedUnit == "target" or selectedUnit == "focus" then
+        if selectedUnit == "player" or selectedUnit == "target" or selectedUnit == "focus" then
             local function BuildCastOutcomeRow(label, enabledKey, durationKey, colorPrefix, fallback)
                 local row
                 row, h = W:DualRow(parent, y,

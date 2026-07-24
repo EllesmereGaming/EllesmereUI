@@ -410,6 +410,16 @@ local defaults = {
             castReverseFill = false,
             castFillOpacity = 100,  -- 0-100; below 100 the world shows through the fill
             castbarHideWhenInactive = true,
+            castbarBorderTexture = "solid",
+            castbarBorderSize = 1,
+            castbarBorderR = 0, castbarBorderG = 0, castbarBorderB = 0, castbarBorderA = 1,
+            castbarBorderBehind = false,
+            cancelledCastEnabled = false,
+            cancelledCastDuration = 1.5,
+            cancelledCastR = 0.95, cancelledCastG = 0.55, cancelledCastB = 0.10, cancelledCastA = 1,
+            interruptedCastEnabled = false,
+            interruptedCastDuration = 1.5,
+            interruptedCastR = 0.85, interruptedCastG = 0.15, interruptedCastB = 0.15, interruptedCastA = 1,
             lockCastbarToFrame = true,
             playerCastbarX = 0,
             playerCastbarY = 0,
@@ -5487,7 +5497,10 @@ local function ApplyConfigCastbarIconBorder(castbar, settings)
         borderFrame:SetAllPoints(iconFrame)
         castbar._iconBorderFrame = borderFrame
     end
-    local inWidth = settings.showCastIcon ~= false and settings.castbarIconInWidth ~= false
+    local isPlayer = settings.showPlayerCastIcon ~= nil
+    local inWidth = isPlayer
+        and settings.showPlayerCastIcon ~= false and settings.playerCastbarIconInWidth ~= false
+        or (not isPlayer and settings.showCastIcon ~= false and settings.castbarIconInWidth ~= false)
     local size = inWidth and 0 or (settings.castbarBorderSize or 1)
     local bgLevel = castbarBg:GetFrameLevel()
     iconFrame:SetFrameLevel(bgLevel + 2)
@@ -5552,7 +5565,7 @@ local function CreateCastBar(frame, unit, settings)
     castbar:GetStatusBarTexture():SetHorizTile(false)
     castbar:SetReverseFill(settings.castReverseFill and true or false)
 
-    local hasConfigBorder = unit == "target" or unit == "focus" or (unit and unit:match("^boss"))
+    local hasConfigBorder = unit == "player" or unit == "target" or unit == "focus" or (unit and unit:match("^boss"))
     if hasConfigBorder then
         -- A dedicated frame lets textured borders sit either above the fill or
         -- behind the complete cast bar. Keeping it separate from the StatusBar
@@ -5988,7 +6001,7 @@ local function SetupShowOnCastBar(frame, unit)
     -- listener restores Target/Focus for the configured outcome duration.
     -- _eufOutcomeVisible deliberately overrides Hide When Idle until its timer
     -- expires; afterwards the normal inactive visibility rule takes over.
-    if unit == "target" or unit == "focus" or (unit and unit:match("^boss%d+$")) then
+    if unit == "player" or unit == "target" or unit == "focus" or (unit and unit:match("^boss%d+$")) then
         local outcomeEvents = CreateFrame("Frame", nil, castbarBg)
         outcomeEvents:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", unit)
         outcomeEvents:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", unit)
@@ -6100,7 +6113,10 @@ local function SetupShowOnCastBar(frame, unit)
                 castbarBg:Show()
                 if castbar._outcomeIcon then castbar._outcomeIcon:SetTexture(castbar._eufLastCastIcon) end
                 if castbar._outcomeIconFrame then
-                    castbar._outcomeIconFrame:SetShown(s.showCastIcon ~= false and castbar._eufLastCastIcon ~= nil)
+                    local showOutcomeIcon
+                    if unit == "player" then showOutcomeIcon = s.showPlayerCastIcon ~= false
+                    else showOutcomeIcon = s.showCastIcon ~= false end
+                    castbar._outcomeIconFrame:SetShown(showOutcomeIcon and castbar._eufLastCastIcon ~= nil)
                 end
             end)
             local duration = interrupted and s.interruptedCastDuration or s.cancelledCastDuration
@@ -9605,6 +9621,8 @@ local function ReloadFrames()
                                 end
                                 LayoutCastbarIcon(frame.Castbar, CastIconInWidth("player", settings), nil, CastIconOnRight("player", settings), CastIconOffsets("player", settings))
                                 ApplyCastbarIconDivider(frame.Castbar, CastIconInWidth("player", settings), CastIconOnRight("player", settings), settings.castbarIconDivider)
+                                ApplyConfigCastbarBorder(castbarBg, settings)
+                                ApplyConfigCastbarIconBorder(frame.Castbar, settings)
                                 -- Resize cast icon to match castbar height
                                 if frame.Castbar._iconFrame then
                                     PP.Size(frame.Castbar._iconFrame, cbH, cbH)
@@ -11089,7 +11107,7 @@ local function ReloadFrames()
                 -- Applying a StatusBar texture can rebuild its draw region.
                 -- Re-assert the configurable border afterwards so Target,
                 -- Focus and Boss borders retain their intended frame layer.
-                if IsKickCastbarUnit(unit) then
+                if unit == "player" or IsKickCastbarUnit(unit) then
                     ApplyConfigCastbarBorder(frame.Castbar:GetParent(), settings)
                     ApplyConfigCastbarIconBorder(frame.Castbar, settings)
                 end
