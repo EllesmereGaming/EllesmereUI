@@ -5,6 +5,12 @@
 
 local L = EllesmereUI.RegisterLocale("frFR")
 if not L then return end
+L["CANCELLED / INTERRUPTED CAST"] = "INCANTATION ANNULÉE / INTERROMPUE"
+L["Show Cancelled Cast"] = "Afficher l'incantation annulée"
+L["Show Interrupted Cast"] = "Afficher l'incantation interrompue"
+L["Spell Cancelled"] = "Sort annulé"
+L["Show a brief message when you cancel your own cast."] = "Affiche brièvement un message lorsque vous annulez votre propre incantation."
+L["Show a brief message when another player or NPC interrupts your cast."] = "Affiche brièvement un message lorsqu'un autre joueur ou PNJ interrompt votre incantation."
 L["Behind Unit Frame"] = "Derrière le cadre d’unité"
 
 -- == Common labels =========================================================

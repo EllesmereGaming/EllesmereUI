@@ -247,6 +247,44 @@ initFrame:SetScript("OnEvent", function(self)
         return hbtValues, hbtOrder
     end
 
+    -- Cast bars share the same texture catalogue, but their hover preview must
+    -- target the cast fill. Reusing BuildBarTexDropdown unchanged would preview
+    -- the candidate on the health/power bars, which is misleading here.
+    local function BuildCastBarTexDropdown()
+        local values, order = BuildBarTexDropdown()
+        local texLookup = ns.healthBarTextures or {}
+        values._menuOpts.onItemHover = function(key)
+            local texPath = texLookup[key]
+            for _, pv in pairs(allPreviews) do
+                local fill = pv and pv._castFill
+                if fill then
+                    if not pv._castHoverColor then
+                        local r, g, b, a = fill:GetVertexColor()
+                        pv._castHoverColor = { r, g, b, a }
+                    end
+                    local c = pv._castHoverColor
+                    local r, g, b, a = c[1], c[2], c[3], c[4]
+                    if texPath then
+                        fill:SetTexture(texPath)
+                        fill:SetVertexColor(r, g, b, a)
+                    else
+                        fill:SetVertexColor(1, 1, 1, 1)
+                        fill:SetColorTexture(r, g, b, a)
+                    end
+                end
+            end
+        end
+        values._menuOpts.onItemLeave = function()
+            for _, pv in pairs(allPreviews) do
+                if pv then
+                    pv._castHoverColor = nil
+                    if pv.Update then pv:Update() end
+                end
+            end
+        end
+        return values, order
+    end
+
     ---------------------------------------------------------------------------
     --  Buff anchor / growth direction dropdown values
     ---------------------------------------------------------------------------
@@ -1510,6 +1548,7 @@ initFrame:SetScript("OnEvent", function(self)
                 pvCastIconOffX = settings.castIconOffsetX or 0
                 pvCastIconOffY = settings.castIconOffsetY or 0
             end
+            if pvCastIconInWidth then pvCastIconOffX, pvCastIconOffY = 0, 0 end
             -- Boss: castbarWidth > 0 overrides the frame-matched width (0 = match frame).
             -- Display-clamped to the frame width + 120 so an extreme custom width
             -- can't spill across the options panel (pf doesn't clip children);
@@ -1546,14 +1585,32 @@ initFrame:SetScript("OnEvent", function(self)
             cbBg:SetColorTexture(0, 0, 0, 0.5)
             castbar._previewBgTex = cbBg
 
-            -- Black borders via unified PP system
-            PP.CreateBorder(castbar, 0, 0, 0, 1, 1, "OVERLAY", 0)
+            -- Target and Focus use the configurable live border system; the
+            -- remaining previews retain their fixed one-pixel cast-bar border.
+            if unitKey == "target" or unitKey == "focus" or unitKey == "boss" then
+                local borderFrame = CreateFrame("Frame", nil, pf)
+                borderFrame:SetAllPoints(castbar)
+                castbar._previewBorderFrame = borderFrame
+                borderFrame:SetFrameLevel(settings.castbarBorderBehind and math.max(0, castbar:GetFrameLevel() - 1) or (castbar:GetFrameLevel() + 5))
+                EllesmereUI.ApplyBorderStyle(borderFrame, settings.castbarBorderSize or 1,
+                    settings.castbarBorderR or 0, settings.castbarBorderG or 0,
+                    settings.castbarBorderB or 0, settings.castbarBorderA or 1,
+                    settings.castbarBorderTexture or "solid",
+                    settings.castbarBorderTextureOffset, settings.castbarBorderTextureOffsetY,
+                    settings.castbarBorderTextureShiftX, settings.castbarBorderTextureShiftY,
+                    "unitframes", settings.castbarBorderSize or 1)
+            else
+                PP.CreateBorder(castbar, 0, 0, 0, 1, 1, "OVERLAY", 0)
+            end
 
             -- Cast fill fills the (possibly shortened) bar.
             castFill = castbar:CreateTexture(nil, "ARTWORK")
-            PP.Point(castFill, "TOPLEFT", castbar, "TOPLEFT", 1, 0)
-            PP.Point(castFill, "BOTTOMLEFT", castbar, "BOTTOMLEFT", 1, 1)
-            PP.Width(castFill, math.max(0, pvBarW - 2) * (_previewCastFill or 0.6))
+            pf._castFill = castFill
+            local pvHasConfigBorder = unitKey == "target" or unitKey == "focus" or unitKey == "boss"
+            local pvBorderInset = (not pvHasConfigBorder or ((settings.castbarBorderTexture or "solid") == "solid" and (settings.castbarBorderSize or 1) > 0)) and 1 or 0
+            PP.Point(castFill, "TOPLEFT", castbar, "TOPLEFT", pvBorderInset, 0)
+            PP.Point(castFill, "BOTTOMLEFT", castbar, "BOTTOMLEFT", pvBorderInset, pvBorderInset)
+            PP.Width(castFill, math.max(0, pvBarW - pvBorderInset * 2) * (_previewCastFill or 0.6))
             -- Initial placeholder; real color + bar texture applied in the Update closure.
             castFill:SetColorTexture(0.114, 0.655, 0.514, 1)
 
@@ -1637,14 +1694,24 @@ initFrame:SetScript("OnEvent", function(self)
             local iconBg = castIconFrame:CreateTexture(nil, "BACKGROUND")
             iconBg:SetAllPoints()
             iconBg:SetColorTexture(0, 0, 0, 1)
-            -- 1px black border via unified PP system
-            PP.CreateBorder(castIconFrame, 0, 0, 0, 1)
+            if unitKey ~= "target" and unitKey ~= "focus" and unitKey ~= "boss" then PP.CreateBorder(castIconFrame, 0, 0, 0, 1) end
             local castIconTex = castIconFrame:CreateTexture(nil, "ARTWORK")
             PP.Point(castIconTex, "TOPLEFT", castIconFrame, "TOPLEFT", 1, -1)
             PP.Point(castIconTex, "BOTTOMRIGHT", castIconFrame, "BOTTOMRIGHT", -1, 1)
             castIconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             castIconTex:SetTexture(castSpellIcon)
             castIconFrame._iconTex = castIconTex
+            local iconDivider = CreateFrame("Frame", nil, pf)
+            iconDivider:SetFrameLevel(castIconFrame:GetFrameLevel() + 10)
+            local iconDividerTex = iconDivider:CreateTexture(nil, "OVERLAY")
+            iconDividerTex:SetAllPoints(); iconDividerTex:SetColorTexture(0, 0, 0, 1)
+            iconDivider:Hide()
+            castIconFrame._divider = iconDivider
+            if unitKey == "target" or unitKey == "focus" or unitKey == "boss" then
+                local iconBorder = CreateFrame("Frame", nil, pf)
+                iconBorder:SetAllPoints(castIconFrame)
+                castIconFrame._previewBorderFrame = iconBorder
+            end
 
             -- Hide initially if player castbar not enabled
             if unitKey == "player" and castbarH <= 0 then
@@ -2725,6 +2792,7 @@ initFrame:SetScript("OnEvent", function(self)
                         ciOffX = s.castIconOffsetX or 0
                         ciOffY = s.castIconOffsetY or 0
                     end
+                    if ciInWidth then ciOffX, ciOffY = 0, 0 end
                     local ciIconW = ch
                     -- Boss: castbarWidth > 0 overrides the frame-matched width (0 = match frame).
                     -- Display-clamped (frame width + 120) -- see the creation-time note.
@@ -2734,6 +2802,27 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     local ciBarW = ciInWidth and math.max(1, cbBaseW - ciIconW) or cbBaseW
                     castbar:SetSize(ciBarW, ch)
+                    if (unitKey == "target" or unitKey == "focus" or unitKey == "boss") and castbar._previewBorderFrame then
+                        local bf = castbar._previewBorderFrame
+                        bf:ClearAllPoints()
+                        if ciInWidth and ciOnRight then
+                            bf:SetPoint("TOPLEFT", castbar, "TOPLEFT")
+                            bf:SetPoint("BOTTOMRIGHT", castIconFrame, "BOTTOMRIGHT")
+                        elseif ciInWidth then
+                            bf:SetPoint("TOPLEFT", castIconFrame, "TOPLEFT")
+                            bf:SetPoint("BOTTOMRIGHT", castbar, "BOTTOMRIGHT")
+                        else
+                            bf:SetAllPoints(castbar)
+                        end
+                        bf:SetFrameLevel(s.castbarBorderBehind and math.max(0, castbar:GetFrameLevel() - 1) or (castbar:GetFrameLevel() + 5))
+                        EllesmereUI.ApplyBorderStyle(bf, s.castbarBorderSize or 1,
+                            s.castbarBorderR or 0, s.castbarBorderG or 0,
+                            s.castbarBorderB or 0, s.castbarBorderA or 1,
+                            s.castbarBorderTexture or "solid",
+                            s.castbarBorderTextureOffset, s.castbarBorderTextureOffsetY,
+                            s.castbarBorderTextureShiftX, s.castbarBorderTextureShiftY,
+                            "unitframes", s.castbarBorderSize or 1)
+                    end
                     -- Anchoring is applied once below (the authoritative anchor
                     -- that accounts for bottom-text-bar / attached-power cases),
                     -- including the icon-in-width rightward shift.
@@ -2745,15 +2834,19 @@ initFrame:SetScript("OnEvent", function(self)
                         castbar._previewBgTex:SetColorTexture(cbgC and cbgC.r or 0, cbgC and cbgC.g or 0, cbgC and cbgC.b or 0, s.castBgAlpha or 0.5)
                     end
                     if castFill then
+                        -- Textured borders render outside the target cast bar;
+                        -- only its solid PP border needs room inside the fill.
+                        local hasConfigBorder = unitKey == "target" or unitKey == "focus" or unitKey == "boss"
+                        local fillInset = (not hasConfigBorder or ((s.castbarBorderTexture or "solid") == "solid" and (s.castbarBorderSize or 1) > 0)) and 1 or 0
                         castFill:ClearAllPoints()
                         if s.castReverseFill then
-                            PP.Point(castFill, "TOPRIGHT", castbar, "TOPRIGHT", -1, 0)
-                            PP.Point(castFill, "BOTTOMRIGHT", castbar, "BOTTOMRIGHT", -1, 1)
+                            PP.Point(castFill, "TOPRIGHT", castbar, "TOPRIGHT", -fillInset, 0)
+                            PP.Point(castFill, "BOTTOMRIGHT", castbar, "BOTTOMRIGHT", -fillInset, fillInset)
                         else
-                            PP.Point(castFill, "TOPLEFT", castbar, "TOPLEFT", 1, 0)
-                            PP.Point(castFill, "BOTTOMLEFT", castbar, "BOTTOMLEFT", 1, 1)
+                            PP.Point(castFill, "TOPLEFT", castbar, "TOPLEFT", fillInset, 0)
+                            PP.Point(castFill, "BOTTOMLEFT", castbar, "BOTTOMLEFT", fillInset, fillInset)
                         end
-                        castFill:SetWidth(math.floor(math.max(0, ciBarW - 2) * (_previewCastFill or 0.6) + 0.5))
+                        castFill:SetWidth(math.floor(math.max(0, ciBarW - fillInset * 2) * (_previewCastFill or 0.6) + 0.5))
                         -- Update fill color from per-unit settings (class colored only for player)
                         local fillC
                         if unitKey == "player" and s.castbarClassColored then
@@ -2763,7 +2856,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if not fillC then fillC = s.castbarFillColor end
                         -- Cast fill reuses the unit's health bar texture (matches real frames).
                         -- WHITE8X8 fallback ensures PV_FillColor always sets vertex color fresh.
-                        local cbTexKey = s.healthBarTexture or db.profile.healthBarTexture or "none"
+                        local cbTexKey = s.castbarTexture or s.healthBarTexture or db.profile.healthBarTexture or "none"
                         local cbTexPath = (ns.healthBarTextures or {})[cbTexKey] or "Interface\\Buttons\\WHITE8X8"
                         if fillC then
                             PV_FillColor(castFill, cbTexPath, fillC.r, fillC.g, fillC.b, nil, nil, nil, 1)
@@ -2795,6 +2888,31 @@ initFrame:SetScript("OnEvent", function(self)
                         if castIconFrame._iconTex then
                             local spellIcon = (unitKey == "player") and (_previewCastSpell and _previewCastSpell.icon or 136197) or 136197
                             castIconFrame._iconTex:SetTexture(spellIcon)
+                        end
+                        if (unitKey == "target" or unitKey == "focus" or unitKey == "boss") and castIconFrame._previewBorderFrame then
+                            local ibf = castIconFrame._previewBorderFrame
+                            local iconBorderSize = ciInWidth and 0 or (s.castbarBorderSize or 1)
+                            ibf:SetFrameLevel(s.castbarBorderBehind and math.max(0, castIconFrame:GetFrameLevel() - 1) or (castIconFrame:GetFrameLevel() + 5))
+                            EllesmereUI.ApplyBorderStyle(ibf, iconBorderSize,
+                                s.castbarBorderR or 0, s.castbarBorderG or 0,
+                                s.castbarBorderB or 0, s.castbarBorderA == nil and 1 or s.castbarBorderA,
+                                s.castbarBorderTexture or "solid",
+                                s.castbarBorderTextureOffset, s.castbarBorderTextureOffsetY,
+                                s.castbarBorderTextureShiftX, s.castbarBorderTextureShiftY,
+                                "unitframes", s.castbarBorderSize or 1)
+                            local iconInset = (not ciInWidth and (s.castbarBorderTexture or "solid") == "solid" and iconBorderSize > 0) and 1 or 0
+                            castIconFrame._iconTex:ClearAllPoints()
+                            PP.Point(castIconFrame._iconTex, "TOPLEFT", castIconFrame, "TOPLEFT", iconInset, -iconInset)
+                            PP.Point(castIconFrame._iconTex, "BOTTOMRIGHT", castIconFrame, "BOTTOMRIGHT", -iconInset, iconInset)
+                        end
+                        if castIconFrame._divider then
+                            local divider = castIconFrame._divider
+                            divider:ClearAllPoints()
+                            local edge = ciOnRight and "LEFT" or "RIGHT"
+                            divider:SetPoint("TOP", castIconFrame, "TOP" .. edge, 0, 0)
+                            divider:SetPoint("BOTTOM", castIconFrame, "BOTTOM" .. edge, 0, 0)
+                            divider:SetWidth((EllesmereUI.PP and EllesmereUI.PP.mult) or 1)
+                            divider:SetShown(ciInWidth and s.castbarIconDivider == true)
                         end
                     end
                     -- Side-aware three-zone layout (mirrors the live cast bar). Name and
@@ -8128,6 +8246,18 @@ initFrame:SetScript("OnEvent", function(self)
                           else
                               UNIT_DB_MAP[selectedUnit]().castbarIconInWidth = v
                           end
+                          ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
+                      end },
+                    { type = "toggle", label = "Show Icon Divider",
+                      tooltip = "Draw a solid one-pixel separator between the icon and cast bar when the icon is part of the bar.",
+                      disabled = function()
+                          if selectedUnit == "player" then return UNIT_DB_MAP.player().playerCastbarIconInWidth == false end
+                          return UNIT_DB_MAP[selectedUnit]().castbarIconInWidth == false
+                      end,
+                      disabledTooltip = "Make Icon Part of the Bar",
+                      get = function() return UNIT_DB_MAP[selectedUnit]().castbarIconDivider == true end,
+                      set = function(v)
+                          UNIT_DB_MAP[selectedUnit]().castbarIconDivider = v and true or nil
                           ReloadAndUpdate(); UpdatePreview()
                       end },
                     { type = "toggle", label = "Show Icon on Right",
@@ -8147,6 +8277,11 @@ initFrame:SetScript("OnEvent", function(self)
                           ReloadAndUpdate(); UpdatePreview()
                       end },
                     { type = "slider", label = "Offset X", min = -50, max = 50, step = 1,
+                      disabled = function()
+                          if selectedUnit == "player" then return UNIT_DB_MAP.player().playerCastbarIconInWidth ~= false end
+                          return UNIT_DB_MAP[selectedUnit]().castbarIconInWidth ~= false
+                      end,
+                      disabledTooltip = "Make Icon Part of the Bar",
                       get = function()
                           if selectedUnit == "player" then
                               return UNIT_DB_MAP.player().playerCastIconOffsetX or 0
@@ -8162,6 +8297,11 @@ initFrame:SetScript("OnEvent", function(self)
                           ReloadAndUpdate(); UpdatePreview()
                       end },
                     { type = "slider", label = "Offset Y", min = -50, max = 50, step = 1,
+                      disabled = function()
+                          if selectedUnit == "player" then return UNIT_DB_MAP.player().playerCastbarIconInWidth ~= false end
+                          return UNIT_DB_MAP[selectedUnit]().castbarIconInWidth ~= false
+                      end,
+                      disabledTooltip = "Make Icon Part of the Bar",
                       get = function()
                           if selectedUnit == "player" then
                               return UNIT_DB_MAP.player().playerCastIconOffsetY or 0
@@ -8244,6 +8384,136 @@ initFrame:SetScript("OnEvent", function(self)
                     onApply       = function(checkedKeys) ApplyCastBgTo(checkedKeys) end,
                 },
             })
+        end
+
+        -- Target/Focus cast-bar border: same shared texture engine and controls
+        -- used by the main player cast bar. Each unit stores its own values.
+        if selectedUnit == "target" or selectedUnit == "focus" then
+            local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
+            local borderRow
+            borderRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Border Style", values=texValues, order=texOrder,
+                  getValue=function() return UNIT_DB_MAP[selectedUnit]().castbarBorderTexture or "solid" end,
+                  setValue=function(v)
+                      local s = UNIT_DB_MAP[selectedUnit]()
+                      s.castbarBorderTexture = v
+                      s.castbarBorderTextureOffset = nil; s.castbarBorderTextureOffsetY = nil
+                      s.castbarBorderTextureShiftX = nil; s.castbarBorderTextureShiftY = nil
+                      local color, behind = EllesmereUI.GetBorderStyleSelectDefaults(v)
+                      s.castbarBorderR, s.castbarBorderG, s.castbarBorderB, s.castbarBorderA = color.r, color.g, color.b, 1
+                      s.castbarBorderBehind = behind
+                      local defaultSize = EllesmereUI.GetBorderDefaultSize("unitframes", v)
+                      if defaultSize then s.castbarBorderSize = defaultSize end
+                      ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
+                  end },
+                { type="slider", text="Border Size", min=0, max=4, step=1,
+                  getValue=function() return UNIT_DB_MAP[selectedUnit]().castbarBorderSize or 1 end,
+                  setValue=function(v)
+                      UNIT_DB_MAP[selectedUnit]().castbarBorderSize = v
+                      ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
+                  end }); y = y - h
+
+            do
+                local rgn, ctrl = borderRow._rightRegion, borderRow._rightRegion._control
+                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, borderRow:GetFrameLevel() + 3,
+                    function()
+                        local s = UNIT_DB_MAP[selectedUnit]()
+                        return s.castbarBorderR or 0, s.castbarBorderG or 0,
+                            s.castbarBorderB or 0, s.castbarBorderA == nil and 1 or s.castbarBorderA
+                    end,
+                    function(r, g, b, a)
+                        local s = UNIT_DB_MAP[selectedUnit]()
+                        s.castbarBorderR, s.castbarBorderG, s.castbarBorderB, s.castbarBorderA = r, g, b, a
+                        ReloadAndUpdate(); UpdatePreview()
+                    end, true, 20)
+                PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
+                local blocker = CreateFrame("Frame", nil, swatch)
+                blocker:SetAllPoints(); blocker:SetFrameLevel(swatch:GetFrameLevel() + 10); blocker:EnableMouse(true)
+                blocker:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("This option requires a Border Size above 0.")) end)
+                blocker:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdateState()
+                    local off = (UNIT_DB_MAP[selectedUnit]().castbarBorderSize or 1) == 0
+                    swatch:SetAlpha(off and 0.3 or 1); blocker:SetShown(off); updateSwatch()
+                end
+                RegisterWidgetRefresh(UpdateState); UpdateState()
+            end
+
+            do
+                local rgn = borderRow._leftRegion
+                local function BorderDefault(index)
+                    local s = UNIT_DB_MAP[selectedUnit]()
+                    local a, b, c, d = EllesmereUI.GetBorderDefaults("unitframes",
+                        s.castbarBorderTexture or "solid", s.castbarBorderSize or 1)
+                    return ({ a, b, c, d })[index]
+                end
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Border Offset",
+                    rows = {
+                        { type="slider", label="Offset X", min=-10, max=10, step=1,
+                          get=function() local v=UNIT_DB_MAP[selectedUnit]().castbarBorderTextureOffset; return v == nil and BorderDefault(1) or v end,
+                          set=function(v) UNIT_DB_MAP[selectedUnit]().castbarBorderTextureOffset=v; ReloadAndUpdate(); UpdatePreview() end },
+                        { type="slider", label="Offset Y", min=-10, max=10, step=1,
+                          get=function() local v=UNIT_DB_MAP[selectedUnit]().castbarBorderTextureOffsetY; return v == nil and BorderDefault(2) or v end,
+                          set=function(v) UNIT_DB_MAP[selectedUnit]().castbarBorderTextureOffsetY=v; ReloadAndUpdate(); UpdatePreview() end },
+                        { type="slider", label="Shift X", min=-10, max=10, step=1,
+                          get=function() local v=UNIT_DB_MAP[selectedUnit]().castbarBorderTextureShiftX; return v == nil and BorderDefault(3) or v end,
+                          set=function(v) UNIT_DB_MAP[selectedUnit]().castbarBorderTextureShiftX=v == 0 and nil or v; ReloadAndUpdate(); UpdatePreview() end },
+                        { type="slider", label="Shift Y", min=-10, max=10, step=1,
+                          get=function() local v=UNIT_DB_MAP[selectedUnit]().castbarBorderTextureShiftY; return v == nil and BorderDefault(4) or v end,
+                          set=function(v) UNIT_DB_MAP[selectedUnit]().castbarBorderTextureShiftY=v == 0 and nil or v; ReloadAndUpdate(); UpdatePreview() end },
+                        { type="toggle", label="Show Behind",
+                          get=function() return UNIT_DB_MAP[selectedUnit]().castbarBorderBehind == true end,
+                          set=function(v) UNIT_DB_MAP[selectedUnit]().castbarBorderBehind=v and true or nil; ReloadAndUpdate(); UpdatePreview() end },
+                    },
+                })
+                local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
+                local function UpdateCogVisibility()
+                    cogBtn:SetShown((UNIT_DB_MAP[selectedUnit]().castbarBorderTexture or "solid") ~= "solid")
+                end
+                RegisterWidgetRefresh(UpdateCogVisibility); UpdateCogVisibility()
+            end
+        end
+
+        if selectedUnit == "target" or selectedUnit == "focus" then
+            local function BuildCastOutcomeRow(label, enabledKey, durationKey, colorPrefix, fallback)
+                local row
+                row, h = W:DualRow(parent, y,
+                    { type="toggle", text=label,
+                      getValue=function() return UNIT_DB_MAP[selectedUnit]()[enabledKey] == true end,
+                      setValue=function(v)
+                          UNIT_DB_MAP[selectedUnit]()[enabledKey] = v and true or false
+                          ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                      end },
+                    { type="slider", text="Duration", min=0.1, max=3, step=0.1,
+                      disabled=function() return UNIT_DB_MAP[selectedUnit]()[enabledKey] ~= true end,
+                      disabledTooltip=label,
+                      getValue=function() return UNIT_DB_MAP[selectedUnit]()[durationKey] or 1.5 end,
+                      setValue=function(v) UNIT_DB_MAP[selectedUnit]()[durationKey] = v end }); y = y - h
+                local rgn = row._leftRegion
+                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel()+5,
+                    function()
+                        local s = UNIT_DB_MAP[selectedUnit]()
+                        return s[colorPrefix.."R"] or fallback[1], s[colorPrefix.."G"] or fallback[2],
+                            s[colorPrefix.."B"] or fallback[3], s[colorPrefix.."A"] == nil and 1 or s[colorPrefix.."A"]
+                    end,
+                    function(r,g,b,a)
+                        local s = UNIT_DB_MAP[selectedUnit]()
+                        s[colorPrefix.."R"],s[colorPrefix.."G"],s[colorPrefix.."B"],s[colorPrefix.."A"] = r,g,b,a
+                    end, true, 20)
+                PP.Point(swatch,"RIGHT",rgn._control,"LEFT",-8,0)
+                rgn._lastInline = swatch
+                local blocker=CreateFrame("Frame",nil,swatch)
+                blocker:SetAllPoints(); blocker:SetFrameLevel(swatch:GetFrameLevel()+10); blocker:EnableMouse(true)
+                blocker:SetScript("OnEnter",function() EllesmereUI.ShowWidgetTooltip(swatch,EllesmereUI.DisabledTooltip(label)) end)
+                blocker:SetScript("OnLeave",function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdateState()
+                    local off=UNIT_DB_MAP[selectedUnit]()[enabledKey] ~= true
+                    swatch:SetAlpha(off and 0.3 or 1); blocker:SetShown(off); updateSwatch()
+                end
+                RegisterWidgetRefresh(UpdateState); UpdateState()
+            end
+            BuildCastOutcomeRow("Show Cancelled Cast", "cancelledCastEnabled", "cancelledCastDuration", "cancelledCast", {0.95,0.55,0.10})
+            BuildCastOutcomeRow("Show Interrupted Cast", "interruptedCastEnabled", "interruptedCastDuration", "interruptedCast", {0.85,0.15,0.15})
         end
 
         -- Row 3: Spell Name (position dropdown + swatch + cog) | Duration (position dropdown + swatch + cog)
@@ -8460,7 +8730,9 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Row 4: Spell Target (position dropdown + swatch + cog) | Reverse Fill
+        -- Row 4: Spell Target | Cast Bar Texture. Cast textures deliberately
+        -- use their own key, so changing a cast bar never changes health bars.
+        local castTexValues, castTexOrder = BuildCastBarTexDropdown()
         castTargetRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Spell Target", values=castTextPosValues, order=castTextPosOrder,
               -- Combine Spell Name and Target appends the target to the spell
@@ -8487,9 +8759,23 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="Reverse Fill",
-              getValue=function() return SValSupported("castReverseFill", false) end,
-              setValue=function(v) SSetSupported("castReverseFill", v); ReloadAndUpdate(); UpdatePreview() end });  y = y - h
+            { type="dropdown", text="Bar Texture", values=castTexValues, order=castTexOrder,
+              getValue=function() return UNIT_DB_MAP[selectedUnit]().castbarTexture or "none" end,
+              setValue=function(v) UNIT_DB_MAP[selectedUnit]().castbarTexture=v; ReloadAndUpdate(); UpdatePreview() end });  y = y - h
+        -- Reverse Fill belongs to the bar itself, so keep it beside Bar Texture
+        -- rather than hiding it among the cast-icon layout controls.
+        do
+            local texRgn = castTargetRow._rightRegion
+            local _, texCogShow = EllesmereUI.BuildCogPopup({
+                title = "Bar Texture",
+                rows = {
+                    { type="toggle", label="Reverse Fill",
+                      get=function() return SValSupported("castReverseFill", false) end,
+                      set=function(v) SSetSupported("castReverseFill", v); ReloadAndUpdate(); UpdatePreview() end },
+                },
+            })
+            MakeCogBtn(texRgn, texCogShow)
+        end
         -- Inline color swatch on Spell Target Size
         do
             local trgRgn = castTargetRow._leftRegion
@@ -14654,18 +14940,22 @@ initFrame:SetScript("OnEvent", function(self)
                           tooltip = "Place the cast icon on the right side of the bar instead of the left.",
                           get = function() return B.castbarIconRight == true end,
                           set = function(v) B.castbarIconRight = v; ReloadAndUpdate() end },
+                        { type = "toggle", label = "Reverse Fill",
+                          get = function() return B.castReverseFill == true end,
+                          set = function(v) B.castReverseFill = v; ReloadAndUpdate() end },
                     },
                 })
                 CCogBtn(growthRow._leftRegion, cogShow)
             end
-            -- Row 3: Reverse Fill | Bar Background (opacity slider + color swatch).
+            -- Row 3: Cast texture | Bar Background (opacity slider + color swatch).
             -- Bar Background sits right below the size sliders (mirrors the main
             -- frames' cast bar section, where it follows the Height row).
             local reverseRow
+            local bossCastTexValues, bossCastTexOrder = BuildCastBarTexDropdown()
             reverseRow, hh = Ww:DualRow(pp, yy,
-                { type="toggle", text="Reverse Fill",
-                  getValue=function() return B.castReverseFill == true end,
-                  setValue=function(v) B.castReverseFill = v; ReloadAndUpdate() end },
+                { type="dropdown", text="Bar Texture", values=bossCastTexValues, order=bossCastTexOrder,
+                  getValue=function() return B.castbarTexture or "none" end,
+                  setValue=function(v) B.castbarTexture=v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                 { type="slider", text="Bar Background", min=0, max=100, step=1,
                   getValue=function() return math.floor((B.castBgAlpha or 0.5) * 100 + 0.5) end,
                   setValue=function(v) B.castBgAlpha = v / 100; ReloadAndUpdate() end });  yy = yy - hh
@@ -14684,6 +14974,77 @@ initFrame:SetScript("OnEvent", function(self)
                 sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 rgn._lastInline = sw
             end
+
+            -- Boss cast bars use the same shared border for the bar and a
+            -- detached icon as Target/Focus, including offsets and layering.
+            do
+                local borderValues, borderOrder = EllesmereUI.GetBorderTextureDropdown()
+                local borderRow
+                borderRow, hh = Ww:DualRow(pp, yy,
+                    { type="dropdown", text="Border Style", values=borderValues, order=borderOrder,
+                      getValue=function() return B.castbarBorderTexture or "solid" end,
+                      setValue=function(v)
+                          B.castbarBorderTexture=v
+                          B.castbarBorderTextureOffset=nil; B.castbarBorderTextureOffsetY=nil
+                          B.castbarBorderTextureShiftX=nil; B.castbarBorderTextureShiftY=nil
+                          local c, behind=EllesmereUI.GetBorderStyleSelectDefaults(v)
+                          B.castbarBorderR, B.castbarBorderG, B.castbarBorderB, B.castbarBorderA=c.r,c.g,c.b,1
+                          B.castbarBorderBehind=behind
+                          local ds=EllesmereUI.GetBorderDefaultSize("unitframes",v); if ds then B.castbarBorderSize=ds end
+                          ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                      end },
+                    { type="slider", text="Border Size", min=0, max=4, step=1,
+                      getValue=function() return B.castbarBorderSize or 1 end,
+                      setValue=function(v) B.castbarBorderSize=v; ReloadAndUpdate() end }); yy=yy-hh
+                local rgn, ctrl=borderRow._rightRegion, borderRow._rightRegion._control
+                local sw=EllesmereUI.BuildColorSwatch(rgn,borderRow:GetFrameLevel()+3,
+                    function() return B.castbarBorderR or 0,B.castbarBorderG or 0,B.castbarBorderB or 0,B.castbarBorderA==nil and 1 or B.castbarBorderA end,
+                    function(r,g,b,a) B.castbarBorderR,B.castbarBorderG,B.castbarBorderB,B.castbarBorderA=r,g,b,a; ReloadAndUpdate() end,true,20)
+                PP.Point(sw,"RIGHT",ctrl,"LEFT",-8,0)
+                local function BD(i) local a,b,c,d=EllesmereUI.GetBorderDefaults("unitframes",B.castbarBorderTexture or "solid",B.castbarBorderSize or 1); return ({a,b,c,d})[i] end
+                local _,showCog=EllesmereUI.BuildCogPopup({title="Border Offset",rows={
+                    {type="slider",label="Offset X",min=-10,max=10,step=1,get=function() return B.castbarBorderTextureOffset==nil and BD(1) or B.castbarBorderTextureOffset end,set=function(v) B.castbarBorderTextureOffset=v; ReloadAndUpdate() end},
+                    {type="slider",label="Offset Y",min=-10,max=10,step=1,get=function() return B.castbarBorderTextureOffsetY==nil and BD(2) or B.castbarBorderTextureOffsetY end,set=function(v) B.castbarBorderTextureOffsetY=v; ReloadAndUpdate() end},
+                    {type="slider",label="Shift X",min=-10,max=10,step=1,get=function() return B.castbarBorderTextureShiftX==nil and BD(3) or B.castbarBorderTextureShiftX end,set=function(v) B.castbarBorderTextureShiftX=v==0 and nil or v; ReloadAndUpdate() end},
+                    {type="slider",label="Shift Y",min=-10,max=10,step=1,get=function() return B.castbarBorderTextureShiftY==nil and BD(4) or B.castbarBorderTextureShiftY end,set=function(v) B.castbarBorderTextureShiftY=v==0 and nil or v; ReloadAndUpdate() end},
+                    {type="toggle",label="Show Behind",get=function() return B.castbarBorderBehind==true end,set=function(v) B.castbarBorderBehind=v and true or nil; ReloadAndUpdate() end},
+                }})
+                CCogBtn(borderRow._leftRegion,showCog,nil,EllesmereUI.DIRECTIONS_ICON)
+            end
+
+            local function BuildBossCastOutcomeRow(label, enabledKey, durationKey, colorPrefix, fallback)
+                local row
+                row, hh = Ww:DualRow(pp, yy,
+                    { type="toggle", text=label,
+                      getValue=function() return B[enabledKey] == true end,
+                      setValue=function(v) B[enabledKey]=v and true or false; ReloadAndUpdate(); EllesmereUI:RefreshPage() end },
+                    { type="slider", text="Duration", min=0.1, max=3, step=0.1,
+                      disabled=function() return B[enabledKey] ~= true end,
+                      disabledTooltip=label,
+                      getValue=function() return B[durationKey] or 1.5 end,
+                      setValue=function(v) B[durationKey]=v end }); yy=yy-hh
+                local rgn=row._leftRegion
+                local swatch, updateSwatch=EllesmereUI.BuildColorSwatch(rgn,rgn:GetFrameLevel()+5,
+                    function()
+                        return B[colorPrefix.."R"] or fallback[1], B[colorPrefix.."G"] or fallback[2],
+                            B[colorPrefix.."B"] or fallback[3], B[colorPrefix.."A"] == nil and 1 or B[colorPrefix.."A"]
+                    end,
+                    function(r,g,b,a) B[colorPrefix.."R"],B[colorPrefix.."G"],B[colorPrefix.."B"],B[colorPrefix.."A"]=r,g,b,a end,
+                    true,20)
+                PP.Point(swatch,"RIGHT",rgn._control,"LEFT",-8,0)
+                rgn._lastInline=swatch
+                local blocker=CreateFrame("Frame",nil,swatch)
+                blocker:SetAllPoints(); blocker:SetFrameLevel(swatch:GetFrameLevel()+10); blocker:EnableMouse(true)
+                blocker:SetScript("OnEnter",function() EllesmereUI.ShowWidgetTooltip(swatch,EllesmereUI.DisabledTooltip(label)) end)
+                blocker:SetScript("OnLeave",function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdateState()
+                    local off=B[enabledKey] ~= true
+                    swatch:SetAlpha(off and 0.3 or 1); blocker:SetShown(off); updateSwatch()
+                end
+                RegisterWidgetRefresh(UpdateState); UpdateState()
+            end
+            BuildBossCastOutcomeRow("Show Cancelled Cast","cancelledCastEnabled","cancelledCastDuration","cancelledCast",{0.95,0.55,0.10})
+            BuildBossCastOutcomeRow("Show Interrupted Cast","interruptedCastEnabled","interruptedCastDuration","interruptedCast",{0.85,0.15,0.15})
 
             -- Row 4: Spell Name (dropdown + swatch + Size/X/Y cog) | Duration (same)
             local castTextRow

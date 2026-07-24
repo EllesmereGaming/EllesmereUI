@@ -8841,6 +8841,58 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateCogDisTimer()
         end
 
+        -----------------------------------------------------------------------
+        --  CANCELLED / INTERRUPTED CAST
+        -----------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, "CANCELLED / INTERRUPTED CAST", y); y = y - h
+
+        local function BuildOutcomeRow(label, enabledKey, durationKey, rKey, gKey, bKey, aKey, fallback, tooltip)
+            local function outcomeOff()
+                local p=DB(); return castOff() or not (p and p.castBar[enabledKey])
+            end
+            local row
+            row, h = W:DualRow(parent, y,
+                { type="toggle", text=label, tooltip=tooltip,
+                  disabled=castOff, disabledTooltip="Player Cast Bar",
+                  getValue=function() local p=DB(); return p and p.castBar[enabledKey] == true end,
+                  setValue=function(v)
+                      local p=DB(); if not p then return end
+                      p.castBar[enabledKey]=v and true or false; RefreshCast(); EllesmereUI:RefreshPage()
+                  end },
+                { type="slider", text="Duration", min=0.1, max=3, step=0.1,
+                  disabled=outcomeOff, disabledTooltip=label,
+                  getValue=function() local p=DB(); return p and (p.castBar[durationKey] or 1.5) or 1.5 end,
+                  setValue=function(v) local p=DB(); if p then p.castBar[durationKey]=v end end }); y = y - h
+            -- Keep the color beside its enable toggle; the right side then
+            -- communicates only the duration controlled by the slider.
+            local rgn=row._leftRegion
+            local swatch, updateSwatch=EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel()+5,
+                function()
+                    local p=DB(); if not p then return fallback[1], fallback[2], fallback[3], 1 end
+                    return p.castBar[rKey] or fallback[1], p.castBar[gKey] or fallback[2],
+                        p.castBar[bKey] or fallback[3], p.castBar[aKey] == nil and 1 or p.castBar[aKey]
+                end,
+                function(r,g,b,a)
+                    local p=DB(); if p then p.castBar[rKey],p.castBar[gKey],p.castBar[bKey],p.castBar[aKey]=r,g,b,a end
+                end, true, 20)
+            PP.Point(swatch,"RIGHT",rgn._control,"LEFT",-8,0)
+            local blocker=CreateFrame("Frame",nil,swatch)
+            blocker:SetAllPoints(); blocker:SetFrameLevel(swatch:GetFrameLevel()+10); blocker:EnableMouse(true)
+            blocker:SetScript("OnEnter",function() EllesmereUI.ShowWidgetTooltip(swatch,EllesmereUI.DisabledTooltip(label)) end)
+            blocker:SetScript("OnLeave",function() EllesmereUI.HideWidgetTooltip() end)
+            local function UpdateState()
+                local off=outcomeOff(); swatch:SetAlpha(off and 0.3 or 1); blocker:SetShown(off); updateSwatch()
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateState); UpdateState()
+        end
+
+        BuildOutcomeRow("Show Cancelled Cast", "cancelledCastEnabled", "cancelledCastDuration",
+            "cancelledCastR", "cancelledCastG", "cancelledCastB", "cancelledCastA",
+            {0.95,0.55,0.10}, "Show a brief message when you cancel your own cast.")
+        BuildOutcomeRow("Show Interrupted Cast", "interruptedCastEnabled", "interruptedCastDuration",
+            "interruptedCastR", "interruptedCastG", "interruptedCastB", "interruptedCastA",
+            {0.85,0.15,0.15}, "Show a brief message when another player or NPC interrupts your cast.")
+
 
         -- ── MARKS section ───────────────────────────────────────────
         _, h = W:SectionHeader(parent, "TICK MARKERS", y);  y = y - h

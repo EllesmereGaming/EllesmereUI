@@ -1229,6 +1229,12 @@ local DEFAULTS = {
             latencyEnabled    = false,
             latencyShowText   = false,
             latencyR = 0.835, latencyG = 0.290, latencyB = 0.290, latencyA = 1.0,
+            cancelledCastEnabled = false,
+            cancelledCastDuration = 1.5,
+            cancelledCastR = 0.95, cancelledCastG = 0.55, cancelledCastB = 0.10, cancelledCastA = 1,
+            interruptedCastEnabled = false,
+            interruptedCastDuration = 1.5,
+            interruptedCastR = 0.85, interruptedCastG = 0.15, interruptedCastB = 0.15, interruptedCastA = 1,
         },
         gcdBar = {
             enabled       = false,
@@ -6229,7 +6235,11 @@ BuildCastBar = function()
     -- Clip frame + bar: beside the icon (or full width), full height
     local clipFrame = castBarFrame._barClip
     local bar = castBarFrame._bar
-    local bdrInset = (PP and PP.mult) or 1
+    -- Only the solid PP border is drawn inside the cast-bar bounds and needs
+    -- room around the fill. Textured borders (notably Shadow) render outside
+    -- the frame; applying the same inset exposes the background as a thin gap.
+    local borderIsSolid = not cb.borderTexture or cb.borderTexture == "" or cb.borderTexture == "solid"
+    local bdrInset = (borderIsSolid and (cb.borderSize or 0) > 0) and ((PP and PP.mult) or 1) or 0
     clipFrame:ClearAllPoints()
     -- The icon-adjacent side sits FLUSH against the icon (no inset): that seam
     -- is interior, no border draws there, and insetting it exposed a 1px
@@ -6552,6 +6562,14 @@ UpdateCastBar = function(dt)
     -- Cache the " / X.X" suffix once per cast (total duration is constant)
     local totalSuffix = totalDurMode and castBarFrame._totalDurSuffix
 
+    if castBarFrame._cancelDisplayUntil then
+        if now >= castBarFrame._cancelDisplayUntil then
+            castBarFrame._cancelDisplayUntil = nil
+            EllesmereUI.SetElementVisibility(castBarFrame, false)
+        end
+        return
+    end
+
     if castBarFrame._casting or castBarFrame._empowering then
         -- Safety: if cast/empower ran 1s past expected end, force stop.
         -- Catches missed EMPOWER_STOP events under network desync.
@@ -6709,6 +6727,11 @@ OnCastStart = function()
     local name, _, _, startTimeMS, endTimeMS, _, _, notInterruptible, spellID, barID = UnitCastingInfo("player")
     if not name then return end
 
+    -- A new cast immediately replaces a pending cancelled-cast message. Rebuild
+    -- restores the user's normal fill/gradient and text visibility first.
+    castBarFrame._cancelDisplayUntil = nil
+    BuildCastBar()
+
     castBarFrame._casting = true
     castBarFrame._channeling = false
     castBarFrame._empowering = false
@@ -6765,6 +6788,9 @@ OnChannelStart = function()
         end
         return
     end
+
+    castBarFrame._cancelDisplayUntil = nil
+    BuildCastBar()
 
     castBarFrame._casting = false
     castBarFrame._channeling = true
@@ -6836,13 +6862,42 @@ end
 -- These fire for the spell that FAILED, which may be a completely different
 -- spell than the one currently being cast (e.g. pressing an instant while
 -- casting). Only hide if the castID matches our active cast.
-local function OnCastFailed(eventCastID)
+local function OnCastFailed(eventCastID, externallyInterrupted)
     if not castBarFrame then return end
     if not castBarFrame._casting then return end
     if not eventCastID or not castBarFrame._castID or eventCastID ~= castBarFrame._castID then return end
     castBarFrame._casting = false
     castBarFrame._castID = nil
-    EllesmereUI.SetElementVisibility(castBarFrame, false)
+    local cb = ERB.db.profile.castBar
+    local displayEnabled = externallyInterrupted and cb.interruptedCastEnabled or cb.cancelledCastEnabled
+    if displayEnabled then
+        HideLatencyOverlay()
+        HideChannelTicks()
+        castBarFrame._spark:Hide()
+        castBarFrame._timerText:SetText("")
+        castBarFrame._timerText:Hide()
+        castBarFrame._nameText:SetText(EllesmereUI.L(externallyInterrupted and "Interrupted" or "Spell Cancelled"))
+        castBarFrame._nameText:Show()
+        castBarFrame._bar:SetValue(1)
+        local r, g, b, colorA
+        if externallyInterrupted then
+            r, g, b = cb.interruptedCastR or 0.85, cb.interruptedCastG or 0.15, cb.interruptedCastB or 0.15
+            colorA = cb.interruptedCastA == nil and 1 or cb.interruptedCastA
+        else
+            r, g, b = cb.cancelledCastR or 0.95, cb.cancelledCastG or 0.55, cb.cancelledCastB or 0.10
+            colorA = cb.cancelledCastA == nil and 1 or cb.cancelledCastA
+        end
+        local a = colorA * ((cb.fillOpacity or 100) / 100)
+        local fill = castBarFrame._bar:GetStatusBarTexture()
+        fill:SetVertexColor(1, 1, 1, 1)
+        fill:SetGradient(cb.gradientDir or "HORIZONTAL", CreateColor(r, g, b, a), CreateColor(r, g, b, a))
+        local duration = externallyInterrupted and cb.interruptedCastDuration or cb.cancelledCastDuration
+        castBarFrame._cancelDisplayUntil = GetTime() + (duration or 1.5)
+        castBarFrame:Show()
+        EllesmereUI.SetElementVisibility(castBarFrame, true)
+    else
+        EllesmereUI.SetElementVisibility(castBarFrame, false)
+    end
 end
 
 -- Called for UNIT_SPELLCAST_CHANNEL_STOP.
@@ -6925,6 +6980,9 @@ OnEmpowerStart = function()
 
     local name, _, _, startTimeMS, endTimeMS, _, notInterruptible, spellID, empowering, _, empowerCastID = UnitChannelInfo("player")
     if not name or not empowering then return end
+
+    castBarFrame._cancelDisplayUntil = nil
+    BuildCastBar()
 
     -- Add hold-at-max time to the end
     local holdAtMax = GetUnitEmpowerHoldAtMaxTime("player")
@@ -8030,8 +8088,8 @@ local function OnEvent(self, event, ...)
         if unit == "player" then OnCastFailed(castID) end
     elseif event == "UNIT_SPELLCAST_INTERRUPTED" then
         -- args: unit, castGUID, spellID, interruptedBy, castID
-        local unit, _, _, _, castID = ...
-        if unit == "player" then OnCastFailed(castID) end
+        local unit, _, _, interruptedBy, castID = ...
+        if unit == "player" then OnCastFailed(castID, interruptedBy and true or false) end
     elseif event == "UNIT_SPELLCAST_CHANNEL_START" then
         local unit = ...
         if unit == "player" then OnChannelStart() end

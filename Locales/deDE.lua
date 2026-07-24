@@ -5,6 +5,11 @@
 
 local L = EllesmereUI.RegisterLocale("deDE")
 if not L then return end
+L["CANCELLED / INTERRUPTED CAST"] = "ABGEBROCHENER / UNTERBROCHENER ZAUBER"
+L["Show Cancelled Cast"] = "Abgebrochenen Zauber anzeigen"
+L["Show Interrupted Cast"] = "Unterbrochenen Zauber anzeigen"
+L["Show a brief message when you cancel your own cast."] = "Zeigt kurz eine Meldung an, wenn du deinen eigenen Zauber abbrichst."
+L["Show a brief message when another player or NPC interrupts your cast."] = "Zeigt kurz eine Meldung an, wenn ein anderer Spieler oder NSC deinen Zauber unterbricht."
 
 L["    Enemy Units"] = "    Feindliche Einheiten"
 L["    Friendly Units"] = "    Freundliche Einheiten"
@@ -2476,6 +2481,7 @@ L["Interrupt Ready Mid-Cast"]   = "Unterbrechung während des Zaubers bereit"
 L["Interrupt Spell"]            = "Unterbrechungszauber"
 L["Interrupted Flash Colour"]   = "Blinkfarbe bei Unterbrechung"
 L["Interrupted"]                = "Unterbrochen"
+L["Spell Cancelled"]            = "Zauber abgebrochen"
 L["Interruptible Cast"]         = "Unterbrechbarer Zauber"
 L["Interrupts"]                 = "Unterbrechungen"
 L["Invalid import string."]     = "Ungültige Import-Zeichenfolge."

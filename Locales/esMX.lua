@@ -5,6 +5,13 @@
 
 local L = EllesmereUI.RegisterLocale("esMX")
 if not L then return end
+L["Duration"] = "Duración"
+L["CANCELLED / INTERRUPTED CAST"] = "LANZAMIENTO CANCELADO / INTERRUMPIDO"
+L["Show Cancelled Cast"] = "Mostrar lanzamiento cancelado"
+L["Show Interrupted Cast"] = "Mostrar lanzamiento interrumpido"
+L["Spell Cancelled"] = "Lanzamiento cancelado"
+L["Show a brief message when you cancel your own cast."] = "Muestra brevemente un mensaje cuando cancelas tu propio lanzamiento."
+L["Show a brief message when another player or NPC interrupts your cast."] = "Muestra brevemente un mensaje cuando otro jugador o PNJ interrumpe tu lanzamiento."
 L["Behind Unit Frame"] = "Detrás del marco de unidad"
 
 -- == Common labels =========================================================

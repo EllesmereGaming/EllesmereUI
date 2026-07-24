@@ -403,8 +403,10 @@ local defaults = {
             healAbsorbBarHeight   = 4,
             healAbsorbBarColor    = { r = 200/255, g = 29/255, b = 29/255 },
             showPlayerCastbar = false,
+            castbarTexture = "none",
             showPlayerCastIcon = true,
             playerCastbarIconInWidth = true,
+            castbarIconDivider = false,
             castReverseFill = false,
             castFillOpacity = 100,  -- 0-100; below 100 the world shows through the fill
             castbarHideWhenInactive = true,
@@ -511,12 +513,24 @@ local defaults = {
             castbarHeight = 14,
             castbarWidth = 181,
             showCastbar = true,
+            castbarTexture = "none",
+            castbarBorderTexture = "solid",
+            castbarBorderSize = 1,
+            castbarBorderR = 0, castbarBorderG = 0, castbarBorderB = 0, castbarBorderA = 1,
+            castbarBorderBehind = false,
             showCastIcon = true,
             castbarIconInWidth = true,
+            castbarIconDivider = false,
             castCombineNameTarget = false,  -- render "Spell Name - Target" as one string in the target slot
             castReverseFill = false,
             castFillOpacity = 100,  -- 0-100; below 100 the world shows through the fill
             castbarHideWhenInactive = true,
+            cancelledCastEnabled = false,
+            cancelledCastDuration = 1.5,
+            cancelledCastR = 0.95, cancelledCastG = 0.55, cancelledCastB = 0.10, cancelledCastA = 1,
+            interruptedCastEnabled = false,
+            interruptedCastDuration = 1.5,
+            interruptedCastR = 0.85, interruptedCastG = 0.15, interruptedCastB = 0.15, interruptedCastA = 1,
             castSpellNameSize = 11,
             castSpellNameColor = { r = 1, g = 1, b = 1 },
             castDurationSize = 10,
@@ -866,12 +880,24 @@ local defaults = {
             castbarHeight = 14,
             castbarWidth = 160,
             showCastbar = true,
+            castbarTexture = "none",
+            castbarBorderTexture = "solid",
+            castbarBorderSize = 1,
+            castbarBorderR = 0, castbarBorderG = 0, castbarBorderB = 0, castbarBorderA = 1,
+            castbarBorderBehind = false,
             showCastIcon = true,
             castbarIconInWidth = true,
+            castbarIconDivider = false,
             castCombineNameTarget = false,  -- render "Spell Name - Target" as one string in the target slot
             castReverseFill = false,
             castFillOpacity = 100,  -- 0-100; below 100 the world shows through the fill
             castbarHideWhenInactive = true,
+            cancelledCastEnabled = false,
+            cancelledCastDuration = 1.5,
+            cancelledCastR = 0.95, cancelledCastG = 0.55, cancelledCastB = 0.10, cancelledCastA = 1,
+            interruptedCastEnabled = false,
+            interruptedCastDuration = 1.5,
+            interruptedCastR = 0.85, interruptedCastG = 0.15, interruptedCastB = 0.15, interruptedCastA = 1,
             castSpellNameSize = 11,
             castSpellNameColor = { r = 1, g = 1, b = 1 },
             castDurationSize = 10,
@@ -1050,11 +1076,22 @@ local defaults = {
             castbarOffsetX = 0,
             castbarOffsetY = 0,
             showCastbar = true,
+            castbarTexture = "none",
+            castbarBorderTexture = "solid",
+            castbarBorderSize = 1,
+            castbarBorderR = 0, castbarBorderG = 0, castbarBorderB = 0, castbarBorderA = 1,
+            castbarBorderBehind = false,
             showCastIcon = true,
             castbarIconInWidth = true,
             castReverseFill = false,
             castFillOpacity = 100,
             castbarHideWhenInactive = true,
+            cancelledCastEnabled = false,
+            cancelledCastDuration = 1.5,
+            cancelledCastR = 0.95, cancelledCastG = 0.55, cancelledCastB = 0.10, cancelledCastA = 1,
+            interruptedCastEnabled = false,
+            interruptedCastDuration = 1.5,
+            interruptedCastR = 0.85, interruptedCastG = 0.15, interruptedCastB = 0.15, interruptedCastA = 1,
             castSpellNameSize = 11,
             castSpellNameColor = { r = 1, g = 1, b = 1 },
             castDurationSize = 10,
@@ -1423,10 +1460,8 @@ ns.ResolveHealthBarTextureKey = function(ownSettings, donorSettings)
     return db.profile.healthBarTexture or "none"
 end
 
--- Cast bars reuse the unit's health bar texture so every bar matches. The cast
--- bar stacks three textures over the fill bounds (base StatusBar fill + cast
--- tint + shielded tint), all defaulting to WHITE8X8, so apply the texture to
--- each. Attached to ns (not a file local) to avoid the Lua 200-local cap.
+-- Apply the cast bar's independently selected texture to the StatusBar fill.
+-- Attached to ns (not a file local) to avoid the Lua 200-local cap.
 ns.ApplyCastBarTexture = function(castbar, texKey)
     if not castbar then return end
     local path = EllesmereUI.ResolveTexturePath(healthBarTextures, texKey or "none", "Interface\\Buttons\\WHITE8X8")
@@ -1436,8 +1471,13 @@ ns.ApplyCastBarTexture = function(castbar, texKey)
         fill:SetHorizTile(false)
         UnsnapTex(fill)
     end
-    if castbar.castTintLayer then castbar.castTintLayer:SetTexture(path) end
-    if castbar._shieldedTint then castbar._shieldedTint:SetTexture(path) end
+    -- The selected artwork must remain on the StatusBar itself. Its engine-
+    -- managed texture coordinates keep the pattern fixed across the complete
+    -- bar. Applying the artwork to the tint overlays would stretch a second
+    -- copy into the current Target/Focus/Boss fill width.
+    if castbar.castTintLayer then castbar.castTintLayer:SetColorTexture(1, 1, 1, 1) end
+    if castbar._shieldedTint then castbar._shieldedTint:SetColorTexture(1, 1, 1, 1) end
+
 end
 
 -- Cast bar Fill Opacity (player/target/focus). Below 100 the active-cast
@@ -2530,6 +2570,9 @@ local function LayoutCastbarIcon(castbar, inWidth, iconH, onRight, offX, offY)
     local side = iconH or bg:GetHeight()
     local iconFrame = castbar._iconFrame
     offX, offY = offX or 0, offY or 0
+    -- An icon counted inside the bar is structural geometry, not a detached
+    -- decoration. Offsetting it would create a hole in the shared footprint.
+    if inWidth then offX, offY = 0, 0 end
     if iconFrame then
         iconFrame:ClearAllPoints()
         if inWidth then
@@ -5108,7 +5151,10 @@ local function ApplyUnitFrameCastColor(castbar)
             cc = baseTint
         end
     end
-    castbar.castTintLayer:SetVertexColor(cc.r, cc.g, cc.b)
+    -- Color the actual StatusBar texture, matching the ResourceBars player
+    -- castbar. The legacy tint stays hidden so it cannot stretch the artwork.
+    castbar:SetStatusBarColor(cc.r, cc.g, cc.b, castbar._fillOp or 1)
+    castbar.castTintLayer:SetAlpha(0)
     if castbar._shieldedTint then
         -- Uninterruptible overlay colour (customizable; defaults to the
         -- previously-hardcoded grey). The overlay's alpha is toggled from the
@@ -5387,6 +5433,81 @@ local function NotifyCastbarEnded(castbar)
     end
 end
 
+local function ApplyConfigCastbarBorder(castbarBg, settings)
+    if not castbarBg or not settings then return end
+    local borderFrame = castbarBg._borderFrame
+    if not borderFrame then
+        borderFrame = CreateFrame("Frame", nil, castbarBg)
+        borderFrame:SetAllPoints(castbarBg)
+        castbarBg._borderFrame = borderFrame
+    end
+    local castbar = castbarBg._statusBar
+    local bgLevel = castbarBg:GetFrameLevel()
+    if castbar then castbar:SetFrameLevel(bgLevel + 2) end
+    borderFrame:SetFrameLevel(settings.castbarBorderBehind and (bgLevel + 1) or (bgLevel + 5))
+    EllesmereUI.ApplyBorderStyle(borderFrame, settings.castbarBorderSize or 1,
+        settings.castbarBorderR or 0, settings.castbarBorderG or 0,
+        settings.castbarBorderB or 0, settings.castbarBorderA == nil and 1 or settings.castbarBorderA,
+        settings.castbarBorderTexture or "solid",
+        settings.castbarBorderTextureOffset, settings.castbarBorderTextureOffsetY,
+        settings.castbarBorderTextureShiftX, settings.castbarBorderTextureShiftY,
+        "unitframes", settings.castbarBorderSize or 1)
+end
+
+local function ApplyCastbarIconDivider(castbar, inWidth, onRight, enabled)
+    if not castbar then return end
+    local iconFrame = castbar._iconFrame
+    if not iconFrame then return end
+    local divider = castbar._iconDivider
+    if not divider then
+        divider = CreateFrame("Frame", nil, castbar:GetParent())
+        divider:SetFrameLevel(castbar:GetFrameLevel() + 10)
+        local tex = divider:CreateTexture(nil, "OVERLAY")
+        tex:SetAllPoints()
+        tex:SetColorTexture(0, 0, 0, 1)
+        castbar._iconDivider = divider
+    end
+    divider:ClearAllPoints()
+    -- Center the one-physical-pixel strip on the exact icon/bar seam. Anchoring
+    -- to the icon edge keeps it pixel-perfect on either side and at every scale.
+    local edge = onRight and "LEFT" or "RIGHT"
+    divider:SetPoint("TOP", iconFrame, "TOP" .. edge, 0, 0)
+    divider:SetPoint("BOTTOM", iconFrame, "BOTTOM" .. edge, 0, 0)
+    divider:SetWidth((PP and PP.mult) or 1)
+    divider:SetShown(enabled == true and inWidth == true)
+end
+
+local function ApplyConfigCastbarIconBorder(castbar, settings)
+    local iconFrame = castbar and castbar._iconFrame
+    if not iconFrame or not settings then return end
+    local castbarBg = castbar:GetParent()
+    local borderFrame = castbar._iconBorderFrame
+    if not borderFrame then
+        borderFrame = CreateFrame("Frame", nil, castbarBg)
+        borderFrame:SetAllPoints(iconFrame)
+        castbar._iconBorderFrame = borderFrame
+    end
+    local inWidth = settings.showCastIcon ~= false and settings.castbarIconInWidth ~= false
+    local size = inWidth and 0 or (settings.castbarBorderSize or 1)
+    local bgLevel = castbarBg:GetFrameLevel()
+    iconFrame:SetFrameLevel(bgLevel + 2)
+    borderFrame:SetFrameLevel(settings.castbarBorderBehind and (bgLevel + 1) or (bgLevel + 5))
+    EllesmereUI.ApplyBorderStyle(borderFrame, size,
+        settings.castbarBorderR or 0, settings.castbarBorderG or 0,
+        settings.castbarBorderB or 0, settings.castbarBorderA == nil and 1 or settings.castbarBorderA,
+        settings.castbarBorderTexture or "solid",
+        settings.castbarBorderTextureOffset, settings.castbarBorderTextureOffsetY,
+        settings.castbarBorderTextureShiftX, settings.castbarBorderTextureShiftY,
+        "unitframes", settings.castbarBorderSize or 1)
+    local icon = castbar.Icon
+    if icon then
+        icon:ClearAllPoints()
+        local inset = (not inWidth and (settings.castbarBorderTexture or "solid") == "solid" and size > 0) and 1 or 0
+        icon:SetPoint("TOPLEFT", iconFrame, "TOPLEFT", inset, -inset)
+        icon:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", -inset, inset)
+    end
+end
+
 local function CreateCastBar(frame, unit, settings)
     local settings = GetSettingsForUnit(unit)
     
@@ -5424,17 +5545,23 @@ local function CreateCastBar(frame, unit, settings)
     castbarBg._bgTex = bgTex
 
     local castbar = CreateFrame("StatusBar", nil, castbarBg)
+    castbarBg._statusBar = castbar
     PP.Point(castbar, "TOPLEFT", castbarBg, "TOPLEFT", 0, 0)
     PP.Point(castbar, "BOTTOMRIGHT", castbarBg, "BOTTOMRIGHT", 0, 0)
     castbar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     castbar:GetStatusBarTexture():SetHorizTile(false)
     castbar:SetReverseFill(settings.castReverseFill and true or false)
 
-    -- Castbar borders drawn on the castbar itself (same frame level as the
-    -- fill texture) so the OVERLAY border sits above the ARTWORK fill.
-    -- Drawing on castbarBg would put the border behind the fill because
-    -- castbar is a child of castbarBg and draws above it.
-    PP.CreateBorder(castbar, 0, 0, 0, 1, 1, "OVERLAY", 0)
+    local hasConfigBorder = unit == "target" or unit == "focus" or (unit and unit:match("^boss"))
+    if hasConfigBorder then
+        -- A dedicated frame lets textured borders sit either above the fill or
+        -- behind the complete cast bar. Keeping it separate from the StatusBar
+        -- is required for Shadow: PP strips on the fill cannot change layers.
+        ApplyConfigCastbarBorder(castbarBg, settings)
+    else
+        -- Other unit cast bars retain their existing fixed one-pixel border.
+        PP.CreateBorder(castbar, 0, 0, 0, 1, 1, "OVERLAY", 0)
+    end
 
 
     -- Three-zone cast bar text layout matching nameplates:
@@ -5579,17 +5706,12 @@ local function CreateCastBar(frame, unit, settings)
     shieldedTint:SetAlpha(0)
     castbar._shieldedTint = shieldedTint
 
-    -- Cast bar reuses the unit's health bar texture (overridden donor-aware in ReloadFrames).
-    ns.ApplyCastBarTexture(castbar, (settings and settings.healthBarTexture) or db.profile.healthBarTexture or "none")
+    -- Apply the cast bar's own texture (with legacy health-texture fallback).
+    ns.ApplyCastBarTexture(castbar, (settings and (settings.castbarTexture or settings.healthBarTexture)) or db.profile.healthBarTexture or "none")
     ns.ApplyCastFillOpacity(castbar, settings)
 
     local function OnCastbarCastActive(self)
-        if self.castTintLayer then
-            -- _fillOp is nil unless Fill Opacity is below 100 (see
-            -- ns.ApplyCastFillOpacity), so the default path is unchanged.
-            self.castTintLayer:SetAlpha(self._fillOp or 1)
-            ApplyUnitFrameCastColor(self)
-        end
+        if self.castTintLayer then ApplyUnitFrameCastColor(self) end
     end
     castbar.PostCastStart = OnCastbarCastActive
     castbar.PostChannelStart = OnCastbarCastActive
@@ -5685,8 +5807,9 @@ local function CreateCastBar(frame, unit, settings)
     local iconBg = iconFrame:CreateTexture(nil, "BACKGROUND")
     iconBg:SetAllPoints()
     iconBg:SetColorTexture(0, 0, 0, 1)
-    -- 1px black border via unified PP system
-    PP.CreateBorder(iconFrame, 0, 0, 0, 1)
+    -- A detached target icon reuses the cast bar's border settings after the
+    -- icon texture is created; other cast bars keep the legacy 1px border.
+    if not hasConfigBorder then PP.CreateBorder(iconFrame, 0, 0, 0, 1) end
     local iconTex = iconFrame:CreateTexture(nil, "ARTWORK")
     iconTex:SetPoint("TOPLEFT", iconFrame, "TOPLEFT", 1, -1)
     iconTex:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", -1, 1)
@@ -5697,6 +5820,8 @@ local function CreateCastBar(frame, unit, settings)
     -- Initial icon/fill layout (re-applied on every reload by the per-unit
     -- update paths and whenever the cast-bar height changes).
     LayoutCastbarIcon(castbar, CastIconInWidth(unit, settings), cbHeight, CastIconOnRight(unit, settings), CastIconOffsets(unit, settings))
+    ApplyCastbarIconDivider(castbar, CastIconInWidth(unit, settings), CastIconOnRight(unit, settings), settings.castbarIconDivider)
+    if hasConfigBorder then ApplyConfigCastbarIconBorder(castbar, settings) end
 
     return castbar
 end
@@ -5731,6 +5856,13 @@ local function SetupShowOnCastBar(frame, unit)
     local savedInterruptHook = castbar.PostCastInterruptible
 
     castbar.PostCastStart = function(self, ...)
+        -- A real cast always replaces a pending outcome message immediately.
+        self._eufOutcomeToken = (self._eufOutcomeToken or 0) + 1
+        self._eufOutcomeVisible = nil
+        self._eufCastActive = true
+        if self._outcomeFrame then self._outcomeFrame:Hide() end
+        if self._outcomeIconFrame then self._outcomeIconFrame:Hide() end
+        if self.Icon then self._eufLastCastIcon = self.Icon:GetTexture() end
         local bg = self:GetParent()
         if bg then
             -- Boss: re-assert the configured width (castbarWidth > 0 = custom,
@@ -5845,9 +5977,131 @@ local function SetupShowOnCastBar(frame, unit)
             if bg then bg:Hide() end
         end
     end
-    castbar.PostCastStop = dismissCastBar
-    castbar.PostChannelStop = dismissCastBar
+    castbar.PostCastStop = function(self)
+        self._eufCastActive = nil
+        dismissCastBar(self)
+    end
+    castbar.PostChannelStop = castbar.PostCastStop
     castbar.PostCastFail = dismissCastBar
+
+    -- oUF hides failed foreign casts immediately. A separate unit-event
+    -- listener restores Target/Focus for the configured outcome duration.
+    -- _eufOutcomeVisible deliberately overrides Hide When Idle until its timer
+    -- expires; afterwards the normal inactive visibility rule takes over.
+    if unit == "target" or unit == "focus" or (unit and unit:match("^boss%d+$")) then
+        local outcomeEvents = CreateFrame("Frame", nil, castbarBg)
+        outcomeEvents:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", unit)
+        outcomeEvents:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", unit)
+        outcomeEvents:RegisterUnitEvent("UNIT_HEALTH", unit)
+        outcomeEvents:RegisterUnitEvent("UNIT_FLAGS", unit)
+        if unit == "target" then
+            outcomeEvents:RegisterEvent("PLAYER_TARGET_CHANGED")
+        elseif unit == "focus" then
+            outcomeEvents:RegisterEvent("PLAYER_FOCUS_CHANGED")
+        end
+        outcomeEvents:SetScript("OnEvent", function(_, event, eventUnit, ...)
+            if event == "UNIT_HEALTH" or event == "UNIT_FLAGS"
+               or event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_FOCUS_CHANGED" then
+                if eventUnit and eventUnit ~= unit then return end
+                local dead = UnitIsDeadOrGhost(unit)
+                local deadIsSecret = issecretvalue and issecretvalue(dead)
+                local unitGone = not UnitExists(unit)
+                if unitGone or (not deadIsSecret and dead == true)
+                   or event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_FOCUS_CHANGED" then
+                    -- Death often emits an INTERRUPTED event immediately after
+                    -- the health update. Invalidate the active cast first so
+                    -- that event cannot create a misleading outcome message.
+                    castbar._eufCastActive = nil
+                    castbar._eufOutcomeVisible = nil
+                    castbar._eufOutcomeToken = (castbar._eufOutcomeToken or 0) + 1
+                    if castbar._outcomeFrame then castbar._outcomeFrame:Hide() end
+                    if castbar._outcomeIconFrame then castbar._outcomeIconFrame:Hide() end
+                    castbar:Hide()
+                    if castbar._iconFrame then castbar._iconFrame:Hide() end
+                    castbarBg:Hide()
+                end
+                return
+            end
+            if eventUnit ~= unit or not castbar._eufCastActive then return end
+            local interrupted = event == "UNIT_SPELLCAST_INTERRUPTED"
+            local s = GetSettingsForUnit(unit)
+            local enabled = interrupted and s.interruptedCastEnabled or s.cancelledCastEnabled
+            castbar._eufCastActive = nil
+            if not enabled then return end
+            castbar._eufOutcomeToken = (castbar._eufOutcomeToken or 0) + 1
+            local token = castbar._eufOutcomeToken
+            castbar._eufOutcomeVisible = true
+            C_Timer.After(0, function()
+                if castbar._eufOutcomeToken ~= token then return end
+                if not castbar._outcomeFrame then
+                    -- Parent the outcome to castbarBg, not to the StatusBar:
+                    -- oUF is allowed to hide/reset the latter after a fail.
+                    local outcome = CreateFrame("Frame", nil, castbarBg)
+                    outcome:SetAllPoints(castbar)
+                    outcome:SetFrameLevel(castbarBg:GetFrameLevel() + 3)
+                    local fill = outcome:CreateTexture(nil, "ARTWORK")
+                    fill:SetAllPoints(outcome)
+                    castbar._outcomeFrame = outcome
+                    castbar._outcomeFill = fill
+                    local text = outcome:CreateFontString(nil, "OVERLAY")
+                    text:SetPoint("LEFT", outcome, "LEFT", 5, 0)
+                    text:SetPoint("RIGHT", outcome, "RIGHT", -5, 0)
+                    text:SetJustifyH("LEFT"); text:SetWordWrap(false); text:SetMaxLines(1)
+                    castbar._outcomeText = text
+                    if castbar._iconFrame then
+                        local outcomeIcon = CreateFrame("Frame", nil, castbarBg)
+                        outcomeIcon:SetAllPoints(castbar._iconFrame)
+                        outcomeIcon:SetFrameLevel(castbarBg:GetFrameLevel() + 3)
+                        local icon = outcomeIcon:CreateTexture(nil, "ARTWORK")
+                        icon:SetAllPoints(outcomeIcon)
+                        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                        castbar._outcomeIconFrame = outcomeIcon
+                        castbar._outcomeIcon = icon
+                    end
+                end
+                castbar:SetMinMaxValues(0, 1)
+                castbar:SetValue(1)
+                if castbar.Text then castbar.Text:Hide() end
+                if castbar.Target then castbar.Target:SetText(""); castbar.Target:Hide() end
+                if castbar.Time then castbar.Time:SetText(""); castbar.Time:Hide() end
+                if castbar._shieldedTint then castbar._shieldedTint:SetAlpha(0) end
+                local r, g, b, a
+                if interrupted then
+                    r, g, b = s.interruptedCastR or 0.85, s.interruptedCastG or 0.15, s.interruptedCastB or 0.15
+                    a = s.interruptedCastA == nil and 1 or s.interruptedCastA
+                else
+                    r, g, b = s.cancelledCastR or 0.95, s.cancelledCastG or 0.55, s.cancelledCastB or 0.10
+                    a = s.cancelledCastA == nil and 1 or s.cancelledCastA
+                end
+                local texKey = s.castbarTexture or s.healthBarTexture or db.profile.healthBarTexture or "none"
+                local texPath = EllesmereUI.ResolveTexturePath(healthBarTextures, texKey, "Interface\\Buttons\\WHITE8X8")
+                castbar._outcomeFill:SetTexture(texPath)
+                castbar._outcomeFill:SetVertexColor(r, g, b, a * (castbar._fillOp or 1))
+                castbar._outcomeFrame:Show()
+                SetFSFont(castbar._outcomeText, s.castSpellNameSize or 11)
+                local tc = s.castSpellNameColor or { r=1, g=1, b=1 }
+                castbar._outcomeText:SetTextColor(tc.r, tc.g, tc.b)
+                castbar._outcomeText:SetText(EllesmereUI.L(interrupted and "Interrupted" or "Spell Cancelled"))
+                castbar:SetStatusBarColor(r, g, b, a * (castbar._fillOp or 1))
+                castbarBg:Show()
+                if castbar._outcomeIcon then castbar._outcomeIcon:SetTexture(castbar._eufLastCastIcon) end
+                if castbar._outcomeIconFrame then
+                    castbar._outcomeIconFrame:SetShown(s.showCastIcon ~= false and castbar._eufLastCastIcon ~= nil)
+                end
+            end)
+            local duration = interrupted and s.interruptedCastDuration or s.cancelledCastDuration
+            C_Timer.After(duration or 1.5, function()
+                if castbar._eufOutcomeToken ~= token then return end
+                castbar._eufOutcomeVisible = nil
+                if castbar._outcomeFrame then castbar._outcomeFrame:Hide() end
+                if castbar._outcomeIconFrame then castbar._outcomeIconFrame:Hide() end
+                castbar:Hide()
+                if castbar._iconFrame then castbar._iconFrame:Hide() end
+                if shouldHideWhenInactive() then castbarBg:Hide() else castbarBg:Show() end
+            end)
+        end)
+        castbar._outcomeEventFrame = outcomeEvents
+    end
 
     -- Guard against nil stages from UnitEmpoweredStagePercentages during
     -- empower casts where stage data isn't available yet.
@@ -5889,6 +6143,7 @@ local function SetupShowOnCastBar(frame, unit)
         HideUnitFrameKickTick(self)
         NotifyCastbarEnded(self)
         if self._iconFrame then self._iconFrame:Hide() end
+        if self._eufOutcomeVisible then return end
         if shouldHideWhenInactive() then
             local bg = self:GetParent()
             if bg then bg:Hide() end
@@ -9335,6 +9590,7 @@ local function ReloadFrames()
                                     castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                                 end
                                 LayoutCastbarIcon(frame.Castbar, CastIconInWidth("player", settings), nil, CastIconOnRight("player", settings), CastIconOffsets("player", settings))
+                                ApplyCastbarIconDivider(frame.Castbar, CastIconInWidth("player", settings), CastIconOnRight("player", settings), settings.castbarIconDivider)
                                 -- Resize cast icon to match castbar height
                                 if frame.Castbar._iconFrame then
                                     PP.Size(frame.Castbar._iconFrame, cbH, cbH)
@@ -9803,11 +10059,14 @@ local function ReloadFrames()
                                 local cbW2 = settings.castbarWidth or 181
                                 local cbH2 = settings.castbarHeight or 14
                                 PP.Size(castbarBg, cbW2, cbH2)
+                                ApplyConfigCastbarBorder(castbarBg, settings)
                                 if castbarBg._bgTex then
                                     local cbg = settings.castBgColor
                                     castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                                 end
                                 LayoutCastbarIcon(frame.Castbar, CastIconInWidth("target", settings), nil, CastIconOnRight("target", settings), CastIconOffsets("target", settings))
+                                ApplyCastbarIconDivider(frame.Castbar, CastIconInWidth("target", settings), CastIconOnRight("target", settings), settings.castbarIconDivider)
+                                ApplyConfigCastbarIconBorder(frame.Castbar, settings)
                                 if frame.Castbar._iconFrame then
                                     PP.Size(frame.Castbar._iconFrame, cbH2, cbH2)
                                     if not frame.Castbar:IsShown() then
@@ -10170,11 +10429,14 @@ local function ReloadFrames()
                             local cbW3 = settings.castbarWidth or 181
                             local cbH3 = settings.castbarHeight or 14
                             PP.Size(castbarBg, cbW3, cbH3)
+                            ApplyConfigCastbarBorder(castbarBg, settings)
                             if castbarBg._bgTex then
                                 local cbg = settings.castBgColor
                                 castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                             end
                             LayoutCastbarIcon(frame.Castbar, CastIconInWidth("focus", settings), nil, CastIconOnRight("focus", settings), CastIconOffsets("focus", settings))
+                            ApplyCastbarIconDivider(frame.Castbar, CastIconInWidth("focus", settings), CastIconOnRight("focus", settings), settings.castbarIconDivider)
+                            ApplyConfigCastbarIconBorder(frame.Castbar, settings)
                             if frame.Castbar._iconFrame then
                                 PP.Size(frame.Castbar._iconFrame, cbH3, cbH3)
                                 if not frame.Castbar:IsShown() then
@@ -10803,15 +11065,20 @@ local function ReloadFrames()
                 ApplyHealthBarTexture(frame.Health, UnitToSettingsKey(unit))
                 ApplyHealthBarAlpha(frame.Health, UnitToSettingsKey(unit))
             end
-            -- Cast bar reuses the same bar texture as the health bar.
+            -- Cast bars have an independent texture selector.  The health-bar
+            -- value remains a fallback so existing profiles keep their look.
             if frame.Castbar then
-                local cbTexKey
-                if isMiniFrame then
-                    cbTexKey = ns.ResolveHealthBarTextureKey(settings, donorSettings)
-                else
-                    cbTexKey = settings.healthBarTexture or db.profile.healthBarTexture or "none"
-                end
+                local cbTexKey = settings.castbarTexture
+                    or (isMiniFrame and donorSettings and donorSettings.castbarTexture)
+                    or settings.healthBarTexture or db.profile.healthBarTexture or "none"
                 ns.ApplyCastBarTexture(frame.Castbar, cbTexKey)
+                -- Applying a StatusBar texture can rebuild its draw region.
+                -- Re-assert the configurable border afterwards so Target,
+                -- Focus and Boss borders retain their intended frame layer.
+                if IsKickCastbarUnit(unit) then
+                    ApplyConfigCastbarBorder(frame.Castbar:GetParent(), settings)
+                    ApplyConfigCastbarIconBorder(frame.Castbar, settings)
+                end
             end
             -- Boss Hover/Target border: the border was just restyled to its normal
             -- color above, so re-apply the hover/target recolor (both default off,

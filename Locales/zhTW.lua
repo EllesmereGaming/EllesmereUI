@@ -4,6 +4,12 @@
 -- to generate the full remaining key list. Untranslated keys fall back to English.
 local L = EllesmereUI.RegisterLocale("zhTW")
 if not L then return end
+L["CANCELLED / INTERRUPTED CAST"] = "已取消 / 已中斷的施法"
+L["Show Cancelled Cast"] = "顯示已取消的施法"
+L["Show Interrupted Cast"] = "顯示已中斷的施法"
+L["Spell Cancelled"] = "法術已取消"
+L["Show a brief message when you cancel your own cast."] = "當你取消自己的施法時，短暫顯示一則訊息。"
+L["Show a brief message when another player or NPC interrupts your cast."] = "當其他玩家或NPC中斷你的施法時，短暫顯示一則訊息。"
 L["Behind Unit Frame"] = "顯示於單位框架後方"
 
 -- == Common labels =========================================================

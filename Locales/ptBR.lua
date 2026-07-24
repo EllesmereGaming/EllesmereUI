@@ -5,6 +5,13 @@
 
 local L = EllesmereUI.RegisterLocale("ptBR")
 if not L then return end
+L["Duration"] = "Duração"
+L["CANCELLED / INTERRUPTED CAST"] = "CONJURAÇÃO CANCELADA / INTERROMPIDA"
+L["Show Cancelled Cast"] = "Exibir conjuração cancelada"
+L["Show Interrupted Cast"] = "Exibir conjuração interrompida"
+L["Spell Cancelled"] = "Feitiço cancelado"
+L["Show a brief message when you cancel your own cast."] = "Exibe brevemente uma mensagem quando você cancela sua própria conjuração."
+L["Show a brief message when another player or NPC interrupts your cast."] = "Exibe brevemente uma mensagem quando outro jogador ou PNJ interrompe sua conjuração."
 L["Behind Unit Frame"] = "Atrás do quadro de unidade"
 
 -- == Common labels =========================================================
