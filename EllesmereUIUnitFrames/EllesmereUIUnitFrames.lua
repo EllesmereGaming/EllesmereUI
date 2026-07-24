@@ -6023,7 +6023,21 @@ local function SetupShowOnCastBar(frame, unit)
                 return
             end
             if eventUnit ~= unit or not castbar._eufCastActive then return end
-            local interrupted = event == "UNIT_SPELLCAST_INTERRUPTED"
+            -- WoW also emits UNIT_SPELLCAST_INTERRUPTED when a unit cancels
+            -- its own cast. Only the interruptedBy payload distinguishes a
+            -- real external interrupt from that cancellation (same rule used
+            -- by the main Player castbar).
+            local interrupted = false
+            if event == "UNIT_SPELLCAST_INTERRUPTED" then
+                local interruptedBy = select(3, ...)
+                if issecretvalue and issecretvalue(interruptedBy) then
+                    -- A protected non-nil source still represents an external
+                    -- interrupt; do not inspect or stringify its value.
+                    interrupted = true
+                else
+                    interrupted = interruptedBy and true or false
+                end
+            end
             local s = GetSettingsForUnit(unit)
             local enabled = interrupted and s.interruptedCastEnabled or s.cancelledCastEnabled
             castbar._eufCastActive = nil
