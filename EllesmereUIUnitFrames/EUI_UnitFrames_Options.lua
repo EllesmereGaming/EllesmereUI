@@ -13404,7 +13404,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Rows exposed as upvalues so the click-to-scroll targets (built below)
         -- can point at them. growthRow holds Show Cast Icon + Cast Bar Height
         -- after the swap; simpleRow/simpleBuffRow/bossAuraRow + bossAuraHeader are
-        -- the aura rows under the "Buffs and Debuffs" section.
+        -- the aura rows under the "BUFFS AND DEBUFFS" section.
         local portraitRow, growthRow, simpleRow, simpleBuffRow, bossAuraRow, bossAuraHeader, bossCastHeader, castMainRow
         local function enableRow(Ww, pp, yy)
             local isEUI = ns.GetUnitFrameSource("boss") == "eui"
@@ -13482,7 +13482,7 @@ initFrame:SetScript("OnEvent", function(self)
                 return cogBtn
             end
             -- BUFFS AND DEBUFFS section (below DISPLAY)
-            bossAuraHeader, hh = Ww:SectionHeader(pp, "Buffs and Debuffs", yy);  yy = yy - hh
+            bossAuraHeader, hh = Ww:SectionHeader(pp, "BUFFS AND DEBUFFS", yy);  yy = yy - hh
 
             -- Effective boss aura locations. Simple display overrides the stored
             -- location at runtime and the location dropdowns display None while
@@ -14403,7 +14403,7 @@ initFrame:SetScript("OnEvent", function(self)
             return yy
         end
 
-        -- New "Indicators" section, rendered at the BOTTOM (below the Power Bar)
+        -- New "INDICATORS" section, rendered at the BOTTOM (below the Power Bar)
         -- via opts.afterPowerRow. Holds the non-aura indicators moved out of the
         -- Buffs and Debuffs section above.
         local function bossIndicators(Ww, pp, yy)
@@ -14424,7 +14424,7 @@ initFrame:SetScript("OnEvent", function(self)
                 return cogBtn
             end
 
-            _, hh = Ww:SectionHeader(pp, "Indicators", yy);  yy = yy - hh
+            _, hh = Ww:SectionHeader(pp, "INDICATORS", yy);  yy = yy - hh
 
             -- Row 1: Out of Range Alpha | Spell Target
             -- (Out of Range read live by the range ticker, so no reload needed.)

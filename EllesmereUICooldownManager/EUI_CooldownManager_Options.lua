@@ -5409,7 +5409,7 @@ initFrame:SetScript("OnEvent", function(self)
         --  DISPLAY
         -------------------------------------------------------------------
         local displayHeader
-        displayHeader, h = W:SectionHeader(parent, "Display", y);  y = y - h
+        displayHeader, h = W:SectionHeader(parent, "DISPLAY", y);  y = y - h
 
         -- Show Icon | Opacity
         local iconRow
@@ -17229,7 +17229,7 @@ initFrame:SetScript("OnEvent", function(self)
         --  FOCUSKICK OPTIONS (FocusKick only)
         -------------------------------------------------------------------
         if isFocusKick then
-            _, h = W:SectionHeader(parent, "FocusKick Options", y);  y = y - h
+            _, h = W:SectionHeader(parent, "FOCUSKICK OPTIONS", y);  y = y - h
 
             local NP_SIDE_VALUES = { LEFT = "Left", RIGHT = "Right", TOP = "Top", BOTTOM = "Bottom" }
             local NP_SIDE_ORDER  = { "LEFT", "RIGHT", "TOP", "BOTTOM" }

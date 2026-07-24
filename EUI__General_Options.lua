@@ -418,7 +418,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 module = "PTR Nameplates",
                 title  = "Debuff Filter Editor",
                 desc   = "Choose exactly which debuffs and crowd control show on enemy nameplates: layer categories like Important, Crowd Control, Boss, and Dispellable By You, and exclude individual spells by ID. Replaces the old Show All Your Player Debuffs checkbox on the 12.1 client.",
-                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CORE POSITIONS", highlight = "Top" },
+                nav    = { module = "EllesmereUINameplates", page = "DISPLAY", section = "CORE POSITIONS", highlight = "Top" },
             },
         },
         features = {
@@ -426,7 +426,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 module = "Nameplates",
                 title  = "Combine Spell Name and Target",
                 desc   = "Merge cast text into one line",
-                nav    = { module = "EllesmereUINameplates", page = "Display", section = "GENERAL TEXT", highlight = "Spell Name" },
+                nav    = { module = "EllesmereUINameplates", page = "DISPLAY", section = "GENERAL TEXT", highlight = "Spell Name" },
             },
             {
                 module = "PTR Raid Frames",
@@ -725,7 +725,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 module = "Nameplates",
                 title  = "Debuffs + CC Slot",
                 desc   = "Show crowd control icons alongside debuffs in one nameplate slot",
-                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CORE POSITIONS", highlight = "Top" },
+                nav    = { module = "EllesmereUINameplates", page = "DISPLAY", section = "CORE POSITIONS", highlight = "Top" },
             },
             {
                 module = "Nameplates",
@@ -1192,7 +1192,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 module = "Nameplates",
                 title  = "Rare/Quest Icon In Instances",
                 desc   = "New toggle lifts the open-world-only restriction",
-                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CORE POSITIONS" },
+                nav    = { module = "EllesmereUINameplates", page = "DISPLAY", section = "CORE POSITIONS" },
             },
             {
                 module = "Nameplates",
