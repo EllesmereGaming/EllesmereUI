@@ -8037,23 +8037,11 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
-        -- Inline cog on Show Cast Bar: Hide When Idle (all units) plus the
-        -- kick-ready tick (target/focus only). These stay out of the Show Cast
-        -- Bar sync icon on purpose -- they are per-unit detail settings.
+        -- Inline cog on Show Cast Bar: fill/strata controls plus the kick-ready
+        -- options for Target/Focus. Hide When Idle is a visible row below.
         do
             local rgn = sharedCastRow1._leftRegion
             local cogRows = {
-                { type = "toggle", label = "Hide When Idle",
-                  tooltip = "Only show the cast bar while a cast is in progress; hide it the rest of the time.",
-                  get = function()
-                      local v = UNIT_DB_MAP[selectedUnit]().castbarHideWhenInactive
-                      if v == nil then return true end
-                      return v
-                  end,
-                  set = function(v)
-                      UNIT_DB_MAP[selectedUnit]().castbarHideWhenInactive = v
-                      ReloadAndUpdate(); UpdatePreview()
-                  end },
                 { type = "slider", label = "Fill Opacity", min = 0, max = 100, step = 1,
                   tooltip = "Opacity of the cast bar fill; below 100 the world shows through the fill instead of the background.",
                   get = function() return UNIT_DB_MAP[selectedUnit]().castFillOpacity or 100 end,
@@ -8759,23 +8747,25 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
               end },
+            { type="toggle", text="Hide When Idle",
+              tooltip="Only show the cast bar while a cast is in progress; hide it the rest of the time.",
+              getValue=function()
+                  local v=UNIT_DB_MAP[selectedUnit]().castbarHideWhenInactive
+                  if v == nil then return true end
+                  return v
+              end,
+              setValue=function(v) UNIT_DB_MAP[selectedUnit]().castbarHideWhenInactive=v; ReloadAndUpdate(); UpdatePreview() end });  y = y - h
+
+        -- Keep both bar-specific visual controls directly visible. Reverse Fill
+        -- used to be a normal toggle and must not be hidden in a cog menu.
+        local castTextureRow
+        castTextureRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Bar Texture", values=castTexValues, order=castTexOrder,
               getValue=function() return UNIT_DB_MAP[selectedUnit]().castbarTexture or "none" end,
-              setValue=function(v) UNIT_DB_MAP[selectedUnit]().castbarTexture=v; ReloadAndUpdate(); UpdatePreview() end });  y = y - h
-        -- Reverse Fill belongs to the bar itself, so keep it beside Bar Texture
-        -- rather than hiding it among the cast-icon layout controls.
-        do
-            local texRgn = castTargetRow._rightRegion
-            local _, texCogShow = EllesmereUI.BuildCogPopup({
-                title = "Bar Texture",
-                rows = {
-                    { type="toggle", label="Reverse Fill",
-                      get=function() return SValSupported("castReverseFill", false) end,
-                      set=function(v) SSetSupported("castReverseFill", v); ReloadAndUpdate(); UpdatePreview() end },
-                },
-            })
-            MakeCogBtn(texRgn, texCogShow)
-        end
+              setValue=function(v) UNIT_DB_MAP[selectedUnit]().castbarTexture=v; ReloadAndUpdate(); UpdatePreview() end },
+            { type="toggle", text="Reverse Fill",
+              getValue=function() return SValSupported("castReverseFill", false) end,
+              setValue=function(v) SSetSupported("castReverseFill", v); ReloadAndUpdate(); UpdatePreview() end }); y = y - h
         -- Inline color swatch on Spell Target Size
         do
             local trgRgn = castTargetRow._leftRegion
