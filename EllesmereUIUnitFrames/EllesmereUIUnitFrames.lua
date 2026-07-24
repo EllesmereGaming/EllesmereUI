@@ -13241,7 +13241,7 @@ function SetupOptionsPanel()
         -- Frozen mid-cast fill (respects the configured reverse-fill direction).
         castbar:SetMinMaxValues(0, 1)
         castbar:SetValue(0.65)
-        if castbar.Text then castbar.Text:SetText(FAKE_CAST_SPELL_NAME) end
+        if castbar.Text then castbar.Text:SetText(EllesmereUI.L(FAKE_CAST_SPELL_NAME)) end
         if castbar.Time then
             if settings.showCastDuration == false then
                 castbar.Time:SetText(""); castbar.Time:Hide()
@@ -13326,7 +13326,7 @@ function SetupOptionsPanel()
         if not fs then return end
         f._previewNameFS = fs
         if fs._curTag then fs._previewSavedTag = fs._curTag; f:Untag(fs); fs._curTag = nil end
-        fs:SetText(name)
+        fs:SetText(EllesmereUI.L(name))
     end
     local function ClearBossPreviewName(f)
         local fs = f._previewNameFS

@@ -1699,9 +1699,9 @@ initFrame:SetScript("OnEvent", function(self)
             local e = ent and ent.buffColors and ent.buffColors[row._idx]
             local id = e and e.spellID
             if id and C_Spell and C_Spell.GetSpellName then
-                nameFS:SetText(C_Spell.GetSpellName(id) or "|cffcc5555Unknown ID|r")
+                nameFS:SetText(C_Spell.GetSpellName(id) or EllesmereUI.L("|cffcc5555Unknown ID|r"))
             else
-                nameFS:SetText("|cff888888(enter Spell ID)|r")
+                nameFS:SetText(EllesmereUI.L("|cff888888(enter Spell ID)|r"))
             end
         end
         row.RefreshName = RefreshName
@@ -3667,9 +3667,9 @@ initFrame:SetScript("OnEvent", function(self)
             disabledTip = "Health Bar",
             showHash = false,
             showPartialCog = false,
-            thresholdLabel = "Threshold %",
+            thresholdLabel = EllesmereUI.L("Threshold %"),
             threshMin = 1, threshMax = 99,
-            popupTitle = "Health Bar Threshold",
+            popupTitle = EllesmereUI.L("Health Bar Threshold"),
             defaultR = 1.0, defaultG = 0.2, defaultB = 0.2, defaultA = 1,
         })
 
@@ -4438,9 +4438,9 @@ initFrame:SetScript("OnEvent", function(self)
             disabledTip = "Power Bar",
             showHash = false,
             showPartialCog = true,
-            thresholdLabel = "Threshold %",
+            thresholdLabel = EllesmereUI.L("Threshold %"),
             threshMin = 1, threshMax = 99,
-            popupTitle = "Power Bar Threshold",
+            popupTitle = EllesmereUI.L("Power Bar Threshold"),
             defaultR = 1.0, defaultG = 0.2, defaultB = 0.2, defaultA = 1,
             formCapable = true,
         })

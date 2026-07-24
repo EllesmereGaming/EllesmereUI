@@ -593,7 +593,7 @@ local function AddTrackedBuffBarCore(tbb, targetGid)
         ns.CopyTBBStyle(styleSrc, newBar)
     end
     newBar.spellID = 0
-    newBar.name = "Bar " .. (#bars + 1)
+    newBar.name = EllesmereUI.Lf("Bar %1$s", (#bars + 1))
     newBar.popularKey = nil
     newBar.spellIDs = nil
     newBar.baseSpellID = nil

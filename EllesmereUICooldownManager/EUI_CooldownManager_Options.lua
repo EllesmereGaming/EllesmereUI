@@ -1520,7 +1520,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- GetSpellName returns an unrelated ("random") spell. Resolve the
                     -- icon's real spell id with the same canonical resolver the
                     -- CD/utility bars use, falling back to the cooldown viewer info.
-                    local btnSpellName = "Button " .. curBtn
+                    local btnSpellName = EllesmereUI.Lf("Button %1$s", curBtn)
                     if isCurCDM then
                         local cdmIcons = ns.cdmBarIcons and ns.cdmBarIcons[curBar]
                         local icon = cdmIcons and cdmIcons[curBtn]
@@ -2479,10 +2479,10 @@ initFrame:SetScript("OnEvent", function(self)
         popup._addBtn:SetScript("OnClick", function()
             local sid = tonumber(popup._sidBox:GetText())
             local dur = tonumber(popup._durBox:GetText())
-            if not sid or sid <= 0 then SetStatus("Enter a valid spell ID"); return end
+            if not sid or sid <= 0 then SetStatus(EllesmereUI.L("Enter a valid spell ID")); return end
             sid = math.floor(sid)
-            if not C_Spell.GetSpellName(sid) then SetStatus("Unknown spell ID"); return end
-            if not dur or dur <= 0 then SetStatus("Enter a duration in seconds"); return end
+            if not C_Spell.GetSpellName(sid) then SetStatus(EllesmereUI.L("Unknown spell ID")); return end
+            if not dur or dur <= 0 then SetStatus(EllesmereUI.L("Enter a duration in seconds")); return end
             dur = math.floor(dur)
             popup._dimmer:Hide()
             barCfg.spellID        = sid
@@ -2972,8 +2972,8 @@ initFrame:SetScript("OnEvent", function(self)
             return false
         end
         local n = 1
-        while taken("Preset " .. n) do n = n + 1 end
-        return "Preset " .. n
+        while taken(EllesmereUI.Lf("Preset %1$s", n)) do n = n + 1 end
+        return EllesmereUI.Lf("Preset %1$s", n)
     end
 
     ---------------------------------------------------------------------------
@@ -3533,8 +3533,7 @@ initFrame:SetScript("OnEvent", function(self)
             local function UpdateDDLabel()
                 if _tbbSelectedGroup then
                     local n = ns.TBBGroupedCount(_tbbSelectedGroup)
-                    ddLbl:SetText(GroupLabel(_tbbSelectedGroup)
-                        .. "  -  " .. n .. " " .. EllesmereUI.L(n == 1 and "Bar" or "Bars"))
+                    ddLbl:SetText(EllesmereUI.Lf("%1$s  -  %2$s %3$s", GroupLabel(_tbbSelectedGroup), n, EllesmereUI.L(n == 1 and "Bar" or "Bars")))
                     return
                 end
                 local bd = SelectedTBB()
@@ -3546,7 +3545,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     local gid = ns.TBBBarGroupID and ns.TBBBarGroupID(bd) or 0
                     if gid ~= 0 then
-                        label = label .. "  (" .. GroupLabel(gid) .. ")"
+                        label = EllesmereUI.Lf("%1$s  (%2$s)", label, GroupLabel(gid))
                     end
                     ddLbl:SetText(label)
                 else
@@ -3812,7 +3811,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if info and info.name then displayName = info.name end
                     end
                     if unassigned then
-                        displayName = displayName .. "  (" .. EllesmereUI.L("no buff assigned") .. ")"
+                        displayName = EllesmereUI.Lf("%1$s  (no buff assigned)", displayName)
                     end
                     iLbl:SetText(displayName)
 
@@ -4196,7 +4195,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if ns.IsTrackedBuffBarBroadcast and ns.IsTrackedBuffBarBroadcast(sel) then
                         EllesmereUI:ShowConfirmPopup({
                             title = "Remove Bar from All Specs",
-                            message = EllesmereUI.Lf("Remove \"%1$s\" from every other spec? The bar in this spec is kept.", nm),
+                            message = EllesmereUI.Lf("Remove \"%1$s\" from every other spec? The bar in this spec is kept.", EllesmereUI.L(nm)),
                             confirmText = "Remove from All",
                             cancelText = "Cancel",
                             onConfirm = function()
@@ -4207,7 +4206,7 @@ initFrame:SetScript("OnEvent", function(self)
                     else
                         EllesmereUI:ShowConfirmPopup({
                             title = "Add Bar to All Specs",
-                            message = EllesmereUI.Lf("Add \"%1$s\" to every spec? It will be copied to each of your specs that doesn't already have it.", nm),
+                            message = EllesmereUI.Lf("Add \"%1$s\" to every spec? It will be copied to each of your specs that doesn't already have it.", EllesmereUI.L(nm)),
                             confirmText = "Add to All Specs",
                             cancelText = "Cancel",
                             onConfirm = function()
@@ -4833,7 +4832,7 @@ initFrame:SetScript("OnEvent", function(self)
             local orientWord = selIsVert and "Vertical" or "Horizontal"
             EllesmereUI.BuildSyncIcon({
                 region = hwRow._leftRegion,
-                tooltip = "Apply Height to all " .. orientWord .. " Bars",
+                tooltip = EllesmereUI.Lf("Apply Height to all %1$s Bars", EllesmereUI.L(orientWord)),
                 isSynced = function()
                     local bd = SelectedTBB(); if not bd then return false end
                     local val = bd.height or 24
@@ -4855,7 +4854,7 @@ initFrame:SetScript("OnEvent", function(self)
             })
             EllesmereUI.BuildSyncIcon({
                 region = hwRow._rightRegion,
-                tooltip = "Apply Width to all " .. orientWord .. " Bars",
+                tooltip = EllesmereUI.Lf("Apply Width to all %1$s Bars", EllesmereUI.L(orientWord)),
                 isSynced = function()
                     local bd = SelectedTBB(); if not bd then return false end
                     local val = bd.width or 270
@@ -6246,7 +6245,7 @@ initFrame:SetScript("OnEvent", function(self)
         local correctBar = isSpellBuff and "a Buff bar" or "a Cooldown or Utility bar"
         EllesmereUI:ShowConfirmPopup({
             title = "Wrong Bar Type",
-            message = (spellName or "This spell") .. " is tracked by Blizzard as " .. (isSpellBuff and "a buff/aura" or "a cooldown") .. " and should be added to " .. correctBar .. ".",
+            message = EllesmereUI.Lf("%1$s is tracked by Blizzard as %2$s and should be added to %3$s.", EllesmereUI.L(spellName or "This spell"), EllesmereUI.L(isSpellBuff and "a buff/aura" or "a cooldown"), correctBar),
             confirmText = "Open Blizzard CDM",
             cancelText = "Close",
             onConfirm = function()
@@ -12207,9 +12206,9 @@ initFrame:SetScript("OnEvent", function(self)
                                     end
                                 end
                                 EllesmereUI:ShowCDMSpecPickerPopup({
-                                    title         = "Remove from Other Specs",
-                                    subtitle      = "Uncheck a spec to keep it. Confirm removes this custom spell and its settings from the checked specs.",
-                                    confirmText   = "Remove",
+                                    title         = EllesmereUI.L("Remove from Other Specs"),
+                                    subtitle      = EllesmereUI.L("Uncheck a spec to keep it. Confirm removes this custom spell and its settings from the checked specs."),
+                                    confirmText   = EllesmereUI.L("Remove"),
                                     specs         = specs,
                                     disabledSpecs = disabled,
                                     onConfirm     = function(selectedSpecs)
@@ -12222,9 +12221,9 @@ initFrame:SetScript("OnEvent", function(self)
                                 local disabled
                                 if curKey then disabled = { [curKey] = "You're on this spec." } end
                                 EllesmereUI:ShowCDMSpecPickerPopup({
-                                    title         = "Copy to Other Specs",
-                                    subtitle      = "Copies this custom spell and its settings to the same bar on the specs you pick. Specs that already have it are skipped.",
-                                    confirmText   = "Copy",
+                                    title         = EllesmereUI.L("Copy to Other Specs"),
+                                    subtitle      = EllesmereUI.L("Copies this custom spell and its settings to the same bar on the specs you pick. Specs that already have it are skipped."),
+                                    confirmText   = EllesmereUI.L("Copy"),
                                     specs         = specs,
                                     disabledSpecs = disabled,
                                     onConfirm     = function(selectedSpecs)
@@ -12784,7 +12783,7 @@ initFrame:SetScript("OnEvent", function(self)
                             local itemName = C_Item.GetItemNameByID(cand.itemID)
                             local displayName
                             if cand.isTrinket then
-                                displayName = (itemName or cand.spellName) .. " (Trinket " .. (cand.isTrinket - 12) .. ")"
+                                displayName = EllesmereUI.Lf("%1$s (Trinket %2$s)", (itemName or cand.spellName), (cand.isTrinket - 12))
                             else
                                 displayName = itemName or cand.spellName
                             end
@@ -15764,11 +15763,11 @@ initFrame:SetScript("OnEvent", function(self)
                 local bg = popup:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(0.06, 0.08, 0.10, 1)
                 EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, PP)
                 local titleFs = EllesmereUI.MakeFont(popup, 15, nil, 1, 1, 1, 1)
-                titleFs:SetPoint("TOP", popup, "TOP", 0, -14); titleFs:SetText("Sync From")
+                titleFs:SetPoint("TOP", popup, "TOP", 0, -14); titleFs:SetText(EllesmereUI.L("Sync From"))
                 local subFs = EllesmereUI.MakeFont(popup, 11, nil, 1, 1, 1, 0.45)
                 subFs:SetPoint("TOP", titleFs, "BOTTOM", 0, -4)
                 subFs:SetWidth(DDW); subFs:SetJustifyH("CENTER")
-                subFs:SetText("Choose the spec to copy trinkets, pots, racials & buff presets from")
+                subFs:SetText(EllesmereUI.L("Choose the spec to copy trinkets, pots, racials & buff presets from"))
                 local search = CreateFrame("EditBox", nil, popup)
                 PP.Size(search, DDW, 26)
                 search:SetPoint("TOP", subFs, "BOTTOM", 0, -10)
@@ -15778,7 +15777,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local sbg = search:CreateTexture(nil, "BACKGROUND"); sbg:SetAllPoints(); sbg:SetColorTexture(0, 0, 0, 0.4)
                 EllesmereUI.MakeBorder(search, 1, 1, 1, 0.10, PP)
                 local ph = search:CreateFontString(nil, "OVERLAY"); ph:SetFont(FONT_PATH, 11, "")
-                ph:SetTextColor(0.5, 0.5, 0.5, 0.6); ph:SetPoint("LEFT", search, "LEFT", 6, 0); ph:SetText("Search...")
+                ph:SetTextColor(0.5, 0.5, 0.5, 0.6); ph:SetPoint("LEFT", search, "LEFT", 6, 0); ph:SetText(EllesmereUI.L("Search..."))
                 search:SetScript("OnEscapePressed", function(s) s:ClearFocus() end)
                 -- Scrollable, capped list: a long cross-class spec list scrolls
                 -- (mousewheel) inside a fixed max height instead of running off the
@@ -15891,9 +15890,9 @@ initFrame:SetScript("OnEvent", function(self)
                     s.checked = (s.key == sourceKey)
                 end
                 EllesmereUI:ShowCDMSpecPickerPopup({
-                    title       = "Sync Generic CDs/Buffs",
-                    subtitle    = "Choose which specs sync with " .. srcName .. " (the source is always included)",
-                    confirmText = "Sync",
+                    title       = EllesmereUI.L("Sync Generic CDs/Buffs"),
+                    subtitle    = EllesmereUI.Lf("Choose which specs sync with %1$s (the source is always included)", srcName),
+                    confirmText = EllesmereUI.L("Sync"),
                     specs       = specs,
                     lockedSpecs = { [sourceKey] = "This is the spec you're syncing from -- it's always included." },
                     onConfirm   = function(selectedSpecs)
@@ -15933,9 +15932,9 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
             EllesmereUI:ShowCDMSpecPickerPopup({
-                title       = "Sync Generic CDs/Buffs",
-                subtitle    = "Uncheck a spec to remove it from the sync. Removed specs keep their current trinkets, pots, racials & buff presets.",
-                confirmText = "Save",
+                title       = EllesmereUI.L("Sync Generic CDs/Buffs"),
+                subtitle    = EllesmereUI.L("Uncheck a spec to remove it from the sync. Removed specs keep their current trinkets, pots, racials & buff presets."),
+                confirmText = EllesmereUI.L("Save"),
                 specs       = specs,
                 onConfirm   = function(selectedSpecs)
                     local cnt = 0

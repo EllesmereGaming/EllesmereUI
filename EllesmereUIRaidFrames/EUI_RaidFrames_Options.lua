@@ -233,7 +233,7 @@ initFrame:SetScript("OnEvent", function(self)
                 menuFrame:Hide()
             end)
 
-            rl:SetText(ri.label)
+            rl:SetText(EllesmereUI.L(ri.label))
             radioRows[#radioRows + 1] = rr
             mY = mY - MH
         end
@@ -295,7 +295,7 @@ initFrame:SetScript("OnEvent", function(self)
             rl:SetFont(FONT, 13, "")
             rl:SetPoint("LEFT", row, "LEFT", 20, 0)
             rl:SetJustifyH("LEFT")
-            rl:SetText(cb.label)
+            rl:SetText(EllesmereUI.L(cb.label))
             rl:SetTextColor(0.75, 0.75, 0.75, 1)
             row._lbl = rl
 
@@ -406,7 +406,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local rf = rowFrames[ri]
                     rf._cbIndex = ri
                     rf._cb = roleItems[ri]
-                    rf._lbl:SetText(roleItems[ri].label)
+                    rf._lbl:SetText(EllesmereUI.L(roleItems[ri].label))
                     local ry = cbBaseY - (ri - 1) * MH
                     rf._baseY = ry
                     rf:ClearAllPoints()
@@ -4427,7 +4427,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local tierLabel = TIER_LABELS[tier]
                     local sizeRow
                     sizeRow, h = W:DualRow(parent, y,
-                        { type="slider", text=tierLabel .. " Frame Width", min=40, max=300, step=1,
+                        { type="slider", text=EllesmereUI.Lf("%1$s Frame Width", EllesmereUI.L(tierLabel)), min=40, max=300, step=1,
                           getValue=function()
                               local ov = db.profile.raidSizeOverrides
                               return ov and ov[tier] and ov[tier].width or SVal("frameWidth", 72)
@@ -4453,7 +4453,7 @@ initFrame:SetScript("OnEvent", function(self)
                                   ReloadAndUpdate()
                               end
                           end },
-                        { type="slider", text=tierLabel .. " Frame Height", min=20, max=150, step=1,
+                        { type="slider", text=EllesmereUI.Lf("%1$s Frame Height", EllesmereUI.L(tierLabel)), min=20, max=150, step=1,
                           getValue=function()
                               local ov = db.profile.raidSizeOverrides
                               return ov and ov[tier] and ov[tier].height or SVal("frameHeight", 46)
@@ -4500,7 +4500,7 @@ initFrame:SetScript("OnEvent", function(self)
                         eyeBtn:SetScript("OnEnter", function(self)
                             self:SetAlpha(0.7)
                             local active = ns._sizePreviewTier == tier
-                            EllesmereUI.ShowWidgetTooltip(self, active and "Hide " .. tierLabel .. " preview" or "Preview " .. tierLabel .. " frame size")
+                            EllesmereUI.ShowWidgetTooltip(self, active and EllesmereUI.Lf("Hide %1$s preview", EllesmereUI.L(tierLabel)) or EllesmereUI.Lf("Preview %1$s frame size", EllesmereUI.L(tierLabel)))
                         end)
                         eyeBtn:SetScript("OnLeave", function(self)
                             RefreshSizeEye()
@@ -4548,7 +4548,7 @@ initFrame:SetScript("OnEvent", function(self)
                         closeTex:SetTexture(CLOSE_ICON)
                         closeBtn:SetScript("OnEnter", function(self)
                             self:SetAlpha(0.7)
-                            EllesmereUI.ShowWidgetTooltip(self, "Remove " .. tierLabel .. " size")
+                            EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.Lf("Remove %1$s size", EllesmereUI.L(tierLabel)))
                         end)
                         closeBtn:SetScript("OnLeave", function(self)
                             self:SetAlpha(0.45)
@@ -4596,7 +4596,7 @@ initFrame:SetScript("OnEvent", function(self)
                             ReloadAndUpdate()
                         end
                         local _, cogShow = EllesmereUI.BuildCogPopup({
-                            title = EllesmereUI.Lf("%1$s Options", tierLabel),
+                            title = EllesmereUI.Lf("%1$s Options", EllesmereUI.L(tierLabel)),
                             rows = {
                                 { type="dropdown", label="Group Growth",
                                   values=growthValues, order=allGrowthOrder,
@@ -5042,7 +5042,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             local groupItems = {}
             for i = 1, 8 do
-                groupItems[i] = { key = i, label = "Group " .. i }
+                groupItems[i] = { key = i, label = EllesmereUI.Lf("Group %1$s", i) }
             end
 
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(

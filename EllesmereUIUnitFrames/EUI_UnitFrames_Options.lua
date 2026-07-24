@@ -1150,12 +1150,12 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local function _pvName()
                 if unitKey == "player" then return UnitName("player") or "Player" end
-                return _previewCreatureNames[unitKey] or unitKey
+                return EllesmereUI.L(_previewCreatureNames[unitKey]) or unitKey
             end
             local function _pvTargetSuffix()
                 local _, ct = UnitClass("player")
                 local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
-                local tgt = "Target"
+                local tgt = EllesmereUI.L("Target")
                 if cc then
                     tgt = string.format("|cff%02x%02x%02x%s|r", math.floor(cc.r * 255 + 0.5), math.floor(cc.g * 255 + 0.5), math.floor(cc.b * 255 + 0.5), tgt)
                 end
@@ -10471,10 +10471,10 @@ initFrame:SetScript("OnEvent", function(self)
             local unitLabel = UNIT_LABELS_SUP[selectedUnit] or "Player"
             local filterRow
             filterRow, h = W:DualRow(parent, y,
-                { type="dropdown", text=unitLabel.." Buff Filter",
+                { type="dropdown", text=EllesmereUI.Lf("%1$s Buff Filter", EllesmereUI.L(unitLabel)),
                   values={ __placeholder="..." }, order={ "__placeholder" },
                   getValue=function() return "__placeholder" end, setValue=function() end },
-                { type="dropdown", text=unitLabel.." Debuff Filter",
+                { type="dropdown", text=EllesmereUI.Lf("%1$s Debuff Filter", EllesmereUI.L(unitLabel)),
                   values={ __placeholder="..." }, order={ "__placeholder" },
                   getValue=function() return "__placeholder" end, setValue=function() end });  y = y - h
             -- Gray out + block a CB-dropdown when its column's Display is "none".
@@ -13290,13 +13290,9 @@ initFrame:SetScript("OnEvent", function(self)
                 AttachPortraitSideCog(portraitRow._rightRegion, settingsTable)
             end
             AttachFrameSourceCog(portraitRow._leftRegion, unitKey, {
-                tooltip = "Due to Blizzard API restrictions, Blizzard's native " .. childName
-                    .. " can't be hidden in combat and will show the whole time you are in combat. Recommended: match the "
-                    .. parentLabel .. " frame's source -- both Blizzard Default, or both EllesmereUI.",
+                tooltip = EllesmereUI.Lf("Due to Blizzard API restrictions, Blizzard's native %1$s can't be hidden in combat and will show the whole time you are in combat. Recommended: match the %2$s frame's source -- both Blizzard Default, or both EllesmereUI.", EllesmereUI.L(childName), EllesmereUI.L(parentLabel)),
                 disabled = function() return ns.GetUnitFrameSource(parentKey) ~= "blizzard" end,
-                disabledTooltip = "\"Blizzard Default\" is only available when the " .. parentLabel
-                    .. " frame's source is set to Blizzard Default -- the " .. childName
-                    .. " then comes from Blizzard's " .. parentKey .. " frame.",
+                disabledTooltip = EllesmereUI.Lf("\"Blizzard Default\" is only available when the %1$s frame's source is set to Blizzard Default -- the %2$s then comes from Blizzard's %3$s frame.", EllesmereUI.L(parentLabel), EllesmereUI.L(childName), EllesmereUI.L(parentKey)),
             })
             return portraitRow, h
         end

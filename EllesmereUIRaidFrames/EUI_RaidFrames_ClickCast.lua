@@ -205,7 +205,7 @@ end
 local function GetCurrentSpecName()
     local idx = GetSpecialization()
     if idx then local _, n = GetSpecializationInfo(idx); return n end
-    return "No Spec"
+    return EllesmereUI.L("No Spec")
 end
 local function GetCurrentSpecIcon()
     local idx = GetSpecialization()
@@ -307,7 +307,7 @@ function ns.CC_FormatKey(keyStr)
     for m in parsed.modifiers:gmatch("([^-]+)") do
         display[#display + 1] = m == "SHIFT" and "Shift" or m == "CTRL" and "Ctrl" or m == "ALT" and "Alt" or m
     end
-    display[#display + 1] = KEY_DISPLAY[parsed.key] or parsed.key
+    display[#display + 1] = EllesmereUI.L(KEY_DISPLAY[parsed.key]) or parsed.key
     return table.concat(display, " + ")
 end
 ns.CC_ParseKeyString = ParseKeyString

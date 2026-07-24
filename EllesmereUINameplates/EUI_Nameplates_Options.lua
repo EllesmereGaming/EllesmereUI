@@ -6271,7 +6271,7 @@ initFrame:SetScript("OnEvent", function(self)
                     sizeGet = function() return DBVal(sizeKey) or defaults[sizeKey] end,
                     sizeSet = function(v) DB()[sizeKey] = v; TextOffsetRefresh() end,
                     sizeMin = 6, sizeMax = 30,
-                    sizeLabel = "Size",
+                    sizeLabel = EllesmereUI.L("Size"),
                     sizeFirst = true,
                 }
                 -- Both name and health text in this slot get Width % + Wrap (on the

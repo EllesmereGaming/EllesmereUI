@@ -1879,7 +1879,7 @@ function ns.AddCDMBar(barType, name, numRows)
     local key = "custom_" .. (#bars + 1) .. "_" .. GetTime()
     key = key:gsub("%.", "_")
     bars[#bars + 1] = {
-        key = key, name = name or ("Custom " .. typeLabel .. " Bar " .. (typeCount + 1)),
+        key = key, name = name or EllesmereUI.Lf("Custom %1$s Bar %2$s", EllesmereUI.L(typeLabel), (typeCount + 1)),
         barType = barType,
         enabled = true, iconSize = 36, numRows = numRows or 1,
         spacing = 2,

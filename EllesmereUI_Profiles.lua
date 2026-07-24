@@ -4461,8 +4461,8 @@ end
 -------------------------------------------------------------------------------
 function EllesmereUI:ShowExportPopup(exportStr)
     local dimmer, editBox, RefreshHeight = BuildStringPopup(
-        "Export Profile",
-        "Copy the string below and share it",
+        EllesmereUI.L("Export Profile"),
+        EllesmereUI.L("Copy the string below and share it"),
         true, nil, nil)
 
     editBox._readOnly = exportStr

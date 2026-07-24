@@ -14616,7 +14616,7 @@ local function RefreshPreview()
         overlayContainer:SetSize(totalW + anchorPad * 2, totalH + anchorPad * 2 + topExtra)
         if overlayContainer._title then
             ApplyFont(overlayContainer._title, 13)
-            overlayContainer._title:SetText("Overlay Preview")
+            overlayContainer._title:SetText(EllesmereUI.Lf("Overlay Preview"))
             overlayContainer._title:SetTextColor(1, 1, 1, 0.9)
             overlayContainer._title:Show()
         end

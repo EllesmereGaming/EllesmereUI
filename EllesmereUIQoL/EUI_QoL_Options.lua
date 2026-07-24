@@ -797,7 +797,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     { type="input", label="Enter Text", inputWidth=90,
                       get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.combatAlertEnterText) or "+Combat"
+                        return (EllesmereUIDB and EllesmereUIDB.combatAlertEnterText) or EllesmereUI.L("+Combat")
                       end,
                       set=function(v)
                         if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -825,7 +825,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     { type="input", label="Leave Text", inputWidth=90,
                       get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.combatAlertLeaveText) or "-Combat"
+                        return (EllesmereUIDB and EllesmereUIDB.combatAlertLeaveText) or EllesmereUI.L("-Combat")
                       end,
                       set=function(v)
                         if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -1098,7 +1098,7 @@ initFrame:SetScript("OnEvent", function(self)
             kbLbl:SetPoint("CENTER")
 
             local function FormatKey(key)
-                if not key then return "Not Bound" end
+                if not key then return EllesmereUI.L("Not Bound") end
                 local parts = {}
                 for mod in key:gmatch("(%u+)%-") do
                     parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()

@@ -6011,7 +6011,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         else
             settingsTitle:SetTextColor(0.05, 0.82, 0.62)
         end
-        settingsTitle:SetText(EllesmereUI.L(typeName .. " Indicator"))
+        settingsTitle:SetText(EllesmereUI.Lf("%1$s Indicator", EllesmereUI.L(typeName)))
 
         -- v2: named filter-driven groups head their settings with the group
         -- name; spell-driven indicators keep the legacy name list.
