@@ -1717,6 +1717,8 @@ initFrame:SetScript("OnEvent", function(self)
             if unitKey == "player" and castbarH <= 0 then
                 castbar:Hide()
                 castIconFrame:Hide()
+                if castbar._previewBorderFrame then castbar._previewBorderFrame:Hide() end
+                if castIconFrame._previewBorderFrame then castIconFrame._previewBorderFrame:Hide() end
             end
         end
 
@@ -2822,6 +2824,7 @@ initFrame:SetScript("OnEvent", function(self)
                             s.castbarBorderTextureOffset, s.castbarBorderTextureOffsetY,
                             s.castbarBorderTextureShiftX, s.castbarBorderTextureShiftY,
                             "unitframes", s.castbarBorderSize or 1)
+                        bf:Show()
                     end
                     -- Anchoring is applied once below (the authoritative anchor
                     -- that accounts for bottom-text-bar / attached-power cases),
@@ -2900,6 +2903,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 s.castbarBorderTextureOffset, s.castbarBorderTextureOffsetY,
                                 s.castbarBorderTextureShiftX, s.castbarBorderTextureShiftY,
                                 "unitframes", s.castbarBorderSize or 1)
+                            ibf:SetShown(showIcon)
                             local iconInset = (not ciInWidth and (s.castbarBorderTexture or "solid") == "solid" and iconBorderSize > 0) and 1 or 0
                             castIconFrame._iconTex:ClearAllPoints()
                             PP.Point(castIconFrame._iconTex, "TOPLEFT", castIconFrame, "TOPLEFT", iconInset, -iconInset)
@@ -2987,6 +2991,11 @@ initFrame:SetScript("OnEvent", function(self)
                 else
                     castbar:Hide()
                     if castIconFrame then castIconFrame:Hide() end
+                    -- Configurable borders are sibling frames of the preview
+                    -- bars, so hiding the bar does not hide them implicitly.
+                    if castbar._previewBorderFrame then castbar._previewBorderFrame:Hide() end
+                    if castIconFrame and castIconFrame._previewBorderFrame then castIconFrame._previewBorderFrame:Hide() end
+                    if castIconFrame and castIconFrame._divider then castIconFrame._divider:Hide() end
                 end
             end
 
