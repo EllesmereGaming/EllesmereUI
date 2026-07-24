@@ -3740,7 +3740,6 @@ L["Vicious Thalassian Flask of Honor"] = "잔혹한 탈라시안 명예의 영�
 L["Void-Kissed Fish Rolls"] = "공허의 입맞춤 생선말이"
 L["Warped Wise Wings"] = "뒤틀린 지혜 날개"
 L["Warsong Gulch"] = "전쟁노래 협곡"
-L["Weapon"] = "무기"
 L["Weapon Enhancement"] = "무기 강화"
 L["Weighted Boomshots"] = "무게추 폭발탄"
 L["Whistle"] = "호루라기"   -- Overseer's Whistle (pet reminder) label - not the "whistle" verb (감독의 호루라기 소환수 알림 라벨, 휘파람 아님)
