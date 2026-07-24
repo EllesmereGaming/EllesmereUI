@@ -342,7 +342,11 @@ end
 local SPELL_NAME_BY_ID = setmetatable({}, {
     __index = function(_, id)
         local nm = STORED_NAME_BY_ID[id]
-        if nm then return EllesmereUI.L(nm) end
+        -- Return localised name when available; otherwise fall through to client API below.
+        if nm then
+            local loc = EllesmereUI.L(nm)
+            if loc ~= nm and loc ~= "" then return loc end
+        end
         return C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
     end,
 })
