@@ -3144,6 +3144,36 @@ local function Skin_Guild()
         end
         WSkin.ScrollBarsIn(csd)
     end
+    -- Guild recruitment settings dialog ("List My Guild in Guild Finder").
+    -- Parented INSIDE CommunitiesFrame like EditStreamDialog, so the art
+    -- sweeps strip its DialogBorderDark BG and it renders see-through
+    -- without the house popup pass.
+    local rd = f.RecruitmentDialog
+    if rd and not GetFFD(rd).rdSkinned then
+        GetFFD(rd).rdSkinned = true
+        SkinGuildPopup(rd)
+        -- Blizzard pins this dialog to the top of the SCREEN (UIParent), so
+        -- it ends up nowhere near a repositioned Communities window. Dock it
+        -- to the panel's right edge instead; nothing re-anchors it at
+        -- runtime. 38 = the 32px side tabs riding that edge + a 6px gap.
+        rd:ClearAllPoints()
+        rd:SetPoint("TOPLEFT", f, "TOPRIGHT", 38, 0)
+        -- Stock pinned it to the screen so it could never leave it; docked
+        -- to the panel it can, so clamp (only engages when pushed offscreen).
+        rd:SetClampedToScreen(true)
+        for _, k in ipairs({ "Accept", "Cancel" }) do
+            local b = rd[k]
+            if b and b.GetObjectType and b:GetObjectType() == "Button" then
+                WSkin.Button(b)
+                local bfs = b.GetFontString and b:GetFontString()
+                if bfs then WSkin.White(bfs) end
+            end
+        end
+        for _, k in ipairs({ "ClubFocusDropdown", "LookingForDropdown", "LanguageDropdown" }) do
+            if rd[k] then WSkin.Dropdown(rd[k]) end
+        end
+        WSkin.ScrollBarsIn(rd)
+    end
     -- Create/Edit Channel dialog. Its fill vanished because it is parented
     -- INSIDE CommunitiesFrame: the recursive art sweeps that strip the
     -- window's decorative Bg-family art reach every dialog living in the
@@ -6012,9 +6042,12 @@ local function SkinOrderView(ov)
         -- OVERLAY texture region of OrderDetails, so the blanket region fade
         -- would otherwise alpha-zero it and the quality indicator vanishes
         -- under the skin (reported: quality not visible on crafting orders).
+        -- The keep set must also go into the restrip registry: the frame's
+        -- show hook re-fades registered frames, and a bare `true` there would
+        -- alpha-zero the icon again right after skin time.
         local keep = od.MinimumQualityIcon and { [od.MinimumQualityIcon] = true } or nil
         WSkin.FadeRegions(od, keep)
-        WSkin.Register(od, true)
+        WSkin.Register(od, keep)
         if od.Background then od.Background:SetAlpha(0) end
         SkinSchematic(od.SchematicForm)
     end

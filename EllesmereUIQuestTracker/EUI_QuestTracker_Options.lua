@@ -47,6 +47,7 @@ initFrame:SetScript("OnEvent", function(self)
         if EQT.UpdateVisibility   then EQT.UpdateVisibility()   end
         if EQT.RestyleAll         then EQT.RestyleAll()         end
         if EQT.ApplyBackground    then EQT.ApplyBackground()    end
+        if EQT.ApplyMasterHeaderVisibility then EQT.ApplyMasterHeaderVisibility() end
     end
 
     local function BuildPage(_, parent, yOffset)
@@ -134,17 +135,19 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 2: Background Opacity (slider + inline color swatch) | blank
+        -- Row 2: Background Opacity (slider + inline color swatch) | Hide when in Raid
         local bgRow
         bgRow, h = W:DualRow(parent, y,
             { type="slider", text="Background Opacity",
               min = 0, max = 1, step = 0.05,
               getValue=function() return Cfg("bgAlpha") or 0.5 end,
               setValue=function(v) Set("bgAlpha", v); if EQT.ApplyBackground then EQT.ApplyBackground() end end },
-            { type="toggle", text="Show Top Line",
-              tooltip="Draws a 1px accent line above the background at the top of the tracker.",
-              getValue=function() return Cfg("showTopLine") ~= false end,
-              setValue=function(v) Set("showTopLine", v); if EQT.ApplyBackground then EQT.ApplyBackground() end end })
+            { type="dropdown", text="Hide When In Raid",
+              tooltip="Always: hide the tracker the whole time you are in a raid.\nBoss Combat: keep it visible and only hide during boss encounters.",
+              values = { always = "Always", boss = "Boss Combat" },
+              order  = { "always", "boss" },
+              getValue=function() return Cfg("hideInRaidMode") or "boss" end,
+              setValue=function(v) Set("hideInRaidMode", v); if EQT.UpdateVisibility then EQT.UpdateVisibility() end end })
         do
             local rgn = bgRow._leftRegion
             local ctrl = rgn._control
@@ -163,22 +166,27 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 3: Title Font Size | Objective Font Size
+        -- Row 3: Header Font Size | Title Font Size
         _, h = W:DualRow(parent, y,
+            { type="slider", text="Header Font Size",
+              min = 8, max = 24, step = 1,
+              getValue=function() return Cfg("headerFontSize") or 13 end,
+              setValue=function(v) Set("headerFontSize", v); RefreshAll() end },
             { type="slider", text="Title Font Size",
               min = 8, max = 24, step = 1,
               getValue=function() return Cfg("titleFontSize") or 12 end,
-              setValue=function(v) Set("titleFontSize", v); RefreshAll() end },
-            { type="slider", text="Objective Font Size",
-              min = 8, max = 24, step = 1,
-              getValue=function() return Cfg("objectiveFontSize") or 10 end,
-              setValue=function(v) Set("objectiveFontSize", v); RefreshAll() end })
+              setValue=function(v) Set("titleFontSize", v); RefreshAll() end }
+            )
         y = y - h
 
-        -- Row 4: Font | Show Quest Icons
+        -- Row 3b: Objective Font Size | Font
         do
             local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
             _, h = W:DualRow(parent, y,
+                { type="slider", text="Objective Font Size",
+                  min = 8, max = 24, step = 1,
+                  getValue=function() return Cfg("objectiveFontSize") or 10 end,
+                  setValue=function(v) Set("objectiveFontSize", v); RefreshAll() end },
                 { type="dropdown", text="Font",
                   values=fontValues, order=fontOrder,
                   getValue=function() return Cfg("font") or "__global" end,
@@ -191,7 +199,13 @@ initFrame:SetScript("OnEvent", function(self)
                           cancelText  = "Later",
                           onConfirm   = function() ReloadUI() end,
                       })
-                  end },
+                    end 
+                })
+        end
+        y = y - h
+
+        -- Row 4: Font | Show Quest Icons
+            _, h = W:DualRow(parent, y,
                 { type="toggle", text="Show Quest Icons",
                   tooltip="Show Blizzard's native quest type icons/buttons on the right instead of EllesmereUI's custom icons. Requires a UI reload.",
                   getValue=function() return Cfg("showQuestIcons") or false end,
@@ -204,35 +218,42 @@ initFrame:SetScript("OnEvent", function(self)
                           cancelText  = "Later",
                           onConfirm   = function() ReloadUI() end,
                       })
-                  end })
-        end
+                  end },
+                { type="toggle", text="Hide All Objectives",
+                tooltip="Hides the master header and its minimize button at the top of the tracker. When shown, it's skinned to match the section headers below it (Quests, Achievements, ...).",
+                getValue=function() return Cfg("hideAllObjectivesHeader") ~= false end,
+                setValue=function(v)
+                    Set("hideAllObjectivesHeader", v)
+                    if EQT.ApplyMasterHeaderVisibility then EQT.ApplyMasterHeaderVisibility() end
+                    if EQT.QueueResize then EQT.QueueResize() end
+                end })
         y = y - h
 
-        -- Row 5: Hide When In Raid | blank
+        -- Row 5: Show Top Line| spacer
         _, h = W:DualRow(parent, y,
-            { type="dropdown", text="Hide When In Raid",
-              tooltip="Always: hide the tracker the whole time you are in a raid.\nBoss Combat: keep it visible and only hide during boss encounters.",
-              values = { always = "Always", boss = "Boss Combat" },
-              order  = { "always", "boss" },
-              getValue=function() return Cfg("hideInRaidMode") or "boss" end,
-              setValue=function(v) Set("hideInRaidMode", v); if EQT.UpdateVisibility then EQT.UpdateVisibility() end end },
-            { type="label", text="" })
+            { type="toggle", text="Show Top Line",
+              tooltip="Draws a 1px accent line above the background at the top of the tracker.",
+              getValue=function() return Cfg("showTopLine") ~= false end,
+              setValue=function(v) Set("showTopLine", v); if EQT.ApplyBackground then EQT.ApplyBackground() end end },
+            { type="spacer" })
         y = y - h
-
-        y = y - 10
 
         -- -- COLORS ----------------------------------------------------------
         _, h = W:SectionHeader(parent, "COLORS", y); y = y - h
 
-        local function MakeColorRow(leftLabel, leftKeys, rightLabel, rightKeys)
+        -- `default` must mirror the fallback in the matching Get*RGB()
+        -- function in EllesmereUIQuestTracker_Skin.lua, or the swatch will
+        -- show a color (black) that doesn't match what's actually rendered
+        -- until the user picks one explicitly.
+        local function MakeColorRow(leftLabel, leftKeys, leftDefault, rightLabel, rightKeys, rightDefault)
             local r, rowH = W:DualRow(parent, y,
                 { type="label", text = leftLabel },
                 { type="label", text = rightLabel })
-            local function wire(rgn, keys)
+            local function wire(rgn, keys, default)
                 local sw, swRefresh = EllesmereUI.BuildColorSwatch(
                     rgn, r:GetFrameLevel() + 3,
                     function()
-                        return (Cfg(keys.r) or 0), (Cfg(keys.g) or 0), (Cfg(keys.b) or 0)
+                        return (Cfg(keys.r) or default[1]), (Cfg(keys.g) or default[2]), (Cfg(keys.b) or default[3])
                     end,
                     function(cr, cg, cb)
                         Set(keys.r, cr); Set(keys.g, cg); Set(keys.b, cb)
@@ -242,19 +263,109 @@ initFrame:SetScript("OnEvent", function(self)
                 PP.Point(sw, "RIGHT", rgn, "RIGHT", -20, 0)
                 EllesmereUI.RegisterWidgetRefresh(function() swRefresh() end)
             end
-            wire(r._leftRegion,  leftKeys)
-            if rightKeys then wire(r._rightRegion, rightKeys) end
+            wire(r._leftRegion,  leftKeys,  leftDefault)
+            if rightKeys then wire(r._rightRegion, rightKeys, rightDefault) end
             return r, rowH
         end
 
         _, h = MakeColorRow(
-            "Title Color",    { r = "titleR",     g = "titleG",     b = "titleB"     },
-            "Completed Color",{ r = "completedR", g = "completedG", b = "completedB" })
+            "Title Color",    { r = "titleR",     g = "titleG",     b = "titleB"     }, { 1.0,   0.910, 0.471 },
+            "Completed Color",{ r = "completedR", g = "completedG", b = "completedB" }, { 0.251, 1.0,   0.349 })
         y = y - h
 
-        _, h = MakeColorRow(
-            "Focused Color",  { r = "focusR",     g = "focusG",     b = "focusB"     },
-            "", nil)
+        -- Header Color / Line Color: each offers Class Color, Custom Color
+        -- (free RGB picker, same swatch behavior as the rows above) and
+        -- Accent Color. Default is Accent Color for both (headerUseAccent /
+        -- lineUseAccent are treated as true until explicitly set to false).
+        -- `customDefault` must mirror the fallback baked into the matching
+        -- Get*RGB() function in EllesmereUIQuestTracker_Skin.lua.
+        local function MakeColorModeSwatches(prefix, customDefault)
+            local classKey  = prefix .. "ShowClassColor"
+            local accentKey = prefix .. "UseAccent"
+            local rKey, gKey, bKey = prefix .. "R", prefix .. "G", prefix .. "B"
+
+            local function isClass()  return Cfg(classKey) == true end
+            local function isAccent() return not isClass() and Cfg(accentKey) ~= false end
+
+            local classSwatch = {
+                tooltip = "Class Color", hasAlpha = false,
+                getValue = function()
+                    local cc = EllesmereUI._playerClass and EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+                    if cc then return cc.r, cc.g, cc.b end
+                    return 1.0, 1.0, 1.0
+                end,
+                setValue = function() end,
+                onClick = function()
+                    Set(classKey, true); Set(accentKey, false)
+                    RefreshAll(); EllesmereUI:RefreshPage()
+                end,
+                refreshAlpha = function() return isClass() and 1 or 0.3 end,
+            }
+
+            local customSwatch = {
+                tooltip = "Custom Color", hasAlpha = false,
+                getValue = function()
+                    return (Cfg(rKey) or customDefault[1]), (Cfg(gKey) or customDefault[2]), (Cfg(bKey) or customDefault[3])
+                end,
+                setValue = function(r, g, b)
+                    Set(rKey, r); Set(gKey, g); Set(bKey, b)
+                    Set(classKey, false); Set(accentKey, false)
+                    RefreshAll(); EllesmereUI:RefreshPage()
+                end,
+                onClick = function(self)
+                    if isClass() or isAccent() then
+                        Set(classKey, false); Set(accentKey, false)
+                        RefreshAll(); EllesmereUI:RefreshPage()
+                        return
+                    end
+                    if self._eabOrigClick then self._eabOrigClick(self) end
+                end,
+                refreshAlpha = function()
+                    if isClass() then return 0.15 end
+                    return isAccent() and 0.3 or 1
+                end,
+            }
+
+            local accentSwatch = {
+                tooltip = "Accent Color", hasAlpha = false,
+                getValue = function() return EllesmereUI.ResolveActiveAccent() end,
+                setValue = function() end,
+                onClick = function()
+                    Set(classKey, false); Set(accentKey, true)
+                    RefreshAll(); EllesmereUI:RefreshPage()
+                end,
+                refreshAlpha = function() return isAccent() and 1 or 0.3 end,
+            }
+
+            return classSwatch, customSwatch, accentSwatch
+        end
+
+        -- Focused Color | Header Color
+        do
+            local hClass, hCustom, hAccent = MakeColorModeSwatches("header", { 1.0, 1.0, 1.0 })
+            local r, rowH = W:DualRow(parent, y,
+                { type="label", text="Focused Color" },
+                { type="multiSwatch", text="Header Color",
+                  swatches = { hClass, hCustom, hAccent } })
+            local sw, swRefresh = EllesmereUI.BuildColorSwatch(
+                r._leftRegion, r:GetFrameLevel() + 3,
+                function() return (Cfg("focusR") or 0.871), (Cfg("focusG") or 0.251), (Cfg("focusB") or 1.0) end,
+                function(cr, cg, cb) Set("focusR", cr); Set("focusG", cg); Set("focusB", cb); RefreshAll() end,
+                false, 20)
+            PP.Point(sw, "RIGHT", r._leftRegion, "RIGHT", -20, 0)
+            EllesmereUI.RegisterWidgetRefresh(function() swRefresh() end)
+            h = rowH
+        end
+        y = y - h
+
+        -- Line Color | spacer
+        do
+            local lClass, lCustom, lAccent = MakeColorModeSwatches("line", { 1.0, 1.0, 1.0 })
+            _, h = W:DualRow(parent, y,
+                { type="multiSwatch", text="Line Color",
+                  swatches = { lClass, lCustom, lAccent } },
+                { type="spacer" })
+        end
         y = y - h
 
         y = y - 10

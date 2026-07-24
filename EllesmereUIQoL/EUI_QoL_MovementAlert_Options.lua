@@ -87,6 +87,7 @@ local MOVEMENT_PRESETS = {
     { class = "SHAMAN", ids = { 192063 } },                -- Gust of Wind
     { class = "SHAMAN", ids = { 58875, 90328 } },          -- Spirit Walk
     { class = "WARLOCK", ids = { 48020 } },                -- Demonic Circle: Teleport
+    { class = "WARLOCK", ids = { 111400 } },               -- Burning Rush (buff-active, ships unchecked)
     { class = "WARRIOR", ids = { 6544 } },                 -- Heroic Leap
 }
 

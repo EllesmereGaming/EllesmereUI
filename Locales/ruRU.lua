@@ -12,6 +12,14 @@ L["Show Interrupted Cast"] = "Показывать прерванное закл
 L["Spell Cancelled"] = "Заклинание отменено"
 L["Show a brief message when you cancel your own cast."] = "Кратко показывает сообщение, когда вы отменяете своё заклинание."
 L["Show a brief message when another player or NPC interrupts your cast."] = "Кратко показывает сообщение, когда другой игрок или НИП прерывает ваше заклинание."
+
+L["BLIZZARD POPUPS & GAME MENU"] = "ОКНА BLIZZARD И ИГРОВОЕ МЕНЮ"
+L["Reskin Popups and Menus"] = "Изменить оформление окон и меню"
+L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Оформляет контекстные меню и всплывающие окна Blizzard в тёмном стиле EUI. Для применения требуется перезагрузка интерфейса."
+L["Resurrect Accept Glow"] = "Свечение принятия воскрешения"
+L["Adds a glowing, pulsating border around the Accept button of resurrection popups so a pending resurrect is hard to miss. Follows the Element & Text Color setting. Applies instantly, no reload needed."] = "Добавляет светящуюся пульсирующую рамку вокруг кнопки принятия в окне воскрешения, чтобы его было трудно пропустить. Использует настройку цвета элементов и текста. Применяется сразу без перезагрузки."
+L["Button Border Size"] = "Размер рамки кнопки"
+L["Element & Text Color"] = "Цвет элементов и текста"
 L["Behind Unit Frame"] = "За рамкой юнита"
 
 -- == Common vocabulary (highest frequency) =================================

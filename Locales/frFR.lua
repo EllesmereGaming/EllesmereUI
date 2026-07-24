@@ -11,6 +11,12 @@ L["Show Interrupted Cast"] = "Afficher l'incantation interrompue"
 L["Spell Cancelled"] = "Sort annulé"
 L["Show a brief message when you cancel your own cast."] = "Affiche brièvement un message lorsque vous annulez votre propre incantation."
 L["Show a brief message when another player or NPC interrupts your cast."] = "Affiche brièvement un message lorsqu'un autre joueur ou PNJ interrompt votre incantation."
+
+L["BLIZZARD POPUPS & GAME MENU"] = "FENÊTRES BLIZZARD ET MENU DU JEU"
+L["Resurrect Accept Glow"] = "Lueur d’acceptation de résurrection"
+L["Adds a glowing, pulsating border around the Accept button of resurrection popups so a pending resurrect is hard to miss. Follows the Element & Text Color setting. Applies instantly, no reload needed."] = "Ajoute une bordure lumineuse et pulsante autour du bouton Accepter des fenêtres de résurrection afin de ne pas manquer une résurrection. Utilise le réglage de couleur des éléments et du texte. Application immédiate sans rechargement."
+L["Button Border Size"] = "Taille de bordure du bouton"
+L["Element & Text Color"] = "Couleur des éléments et du texte"
 L["Behind Unit Frame"] = "Derrière le cadre d’unité"
 
 -- == Common labels =========================================================

@@ -12,6 +12,14 @@ L["Show Interrupted Cast"] = "Exibir conjuração interrompida"
 L["Spell Cancelled"] = "Feitiço cancelado"
 L["Show a brief message when you cancel your own cast."] = "Exibe brevemente uma mensagem quando você cancela sua própria conjuração."
 L["Show a brief message when another player or NPC interrupts your cast."] = "Exibe brevemente uma mensagem quando outro jogador ou PNJ interrompe sua conjuração."
+
+L["BLIZZARD POPUPS & GAME MENU"] = "POP-UPS DA BLIZZARD E MENU DO JOGO"
+L["Reskin Popups and Menus"] = "Reestilizar pop-ups e menus"
+L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Reestiliza os menus de contexto e as janelas pop-up da Blizzard com o estilo escuro da EUI. Requer recarregar a interface."
+L["Resurrect Accept Glow"] = "Brilho ao aceitar ressurreição"
+L["Adds a glowing, pulsating border around the Accept button of resurrection popups so a pending resurrect is hard to miss. Follows the Element & Text Color setting. Applies instantly, no reload needed."] = "Adiciona uma borda brilhante e pulsante ao botão Aceitar dos pop-ups de ressurreição para que ela não passe despercebida. Segue a configuração de cor dos elementos e do texto. Aplicação imediata, sem recarregar."
+L["Button Border Size"] = "Tamanho da borda do botão"
+L["Element & Text Color"] = "Cor dos elementos e do texto"
 L["Behind Unit Frame"] = "Atrás do quadro de unidade"
 
 -- == Common labels =========================================================

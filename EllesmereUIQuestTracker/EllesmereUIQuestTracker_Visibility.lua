@@ -26,13 +26,34 @@ local _bgFrame
 
 local function GetTracker() return _G.ObjectiveTrackerFrame end
 
--- Shared with EllesmereUIQuestTracker_Skin.lua's TOP_MODULE_PADDING (via
--- EQT.TOP_ANCHOR_OFFSET = -padding): the BG and top accent divider must
--- start at the same Y offset the content's top module is anchored to,
--- otherwise the divider renders inside/below the first block instead of
--- above it. Fallback matches Skin.lua's default.
+-- BG and top accent divider anchor directly to the tracker's own top edge.
+-- The custom top-module-padding system (and the EQT.TOP_ANCHOR_OFFSET it
+-- used to publish) was removed from Skin.lua -- Blizzard's own default
+-- topModulePadding now governs the header-to-content gap, so the BG/divider
+-- no longer need a matching Y-offset.
 local function TopGapOffset()
-    return EQT.TOP_ANCHOR_OFFSET or -6
+    return 0
+end
+
+-- When "Hide All Objectives" is on, otf.Header/HeaderMenu is Hidden but
+-- Blizzard's topModulePadding still reserves its layout slot above the
+-- first module (the same "dead gap" this suite has run into before) --
+-- otf:GetTop() doesn't move to reclaim it. Anchor the BG's top edge to the
+-- header's own bottom edge in that case instead, so the BG shrinks to skip
+-- the empty gap. A Hidden frame's rect (GetBottom/GetTop) still reflects
+-- its anchored layout position, since Blizzard doesn't reflow on Hide().
+-- When the header is shown, keep anchoring to the tracker's own top edge
+-- so the BG covers the header as before.
+-- Returns: anchorFrame, relPoint ("TOP" or "BOTTOM" -- caller appends
+-- LEFT/RIGHT).
+local function GetBGTopAnchor()
+    local otf = GetTracker()
+    if not otf then return nil, "TOP" end
+    if EQT.ShouldHideMasterHeader and EQT.ShouldHideMasterHeader() then
+        local header = otf.HeaderMenu or otf.Header
+        if header then return header, "BOTTOM" end
+    end
+    return otf, "TOP"
 end
 
 -------------------------------------------------------------------------------
@@ -75,6 +96,23 @@ local function ShouldAutoHide()
     end
     return false
 end
+
+-- Single source of truth for "is the tracker visually on screen right now".
+-- otf:IsShown() alone is not enough: HardHide() (below) falls back to
+-- SetAlpha(0) in combat because Show()/Hide() are protected on this
+-- EditMode frame, so IsShown() stays true while the frame is invisible.
+-- Every place that decides whether to show/hide our BG chrome must read
+-- this instead of re-deriving its own partial view of "visible" -- that
+-- drift (some checks knew about alpha/ShouldAutoHide, some didn't) is what
+-- caused the BG to flicker back in during combat.
+local function TrackerIsVisible(otf)
+    if not otf then return false end
+    if not otf:IsShown() then return false end
+    if otf:GetAlpha() <= 0 then return false end
+    if ShouldAutoHide() then return false end
+    return true
+end
+EQT.TrackerIsVisible = TrackerIsVisible
 
 -- Suspend/resume all QT event frames in raids/arenas/M+. Prevents quest
 -- events (QUEST_LOG_UPDATE etc.) from doing skin/resize/classify work when
@@ -229,15 +267,16 @@ local function EnsureBG()
     _bgFrame = CreateFrame("Frame", "EllesmereUIQTBackground", UIParent)
     _bgFrame:SetFrameStrata(otf:GetFrameStrata() or "MEDIUM")
     _bgFrame:SetFrameLevel(math.max(0, otf:GetFrameLevel() - 1))
-    -- Start the background at the same Y offset the top module is anchored
-    -- to (see ApplyTopModulePadding in Skin.lua), so it doesn't bleed above
-    -- the content or leave a gap below it. Bottom edge extends past the last
-    -- block (re-anchored dynamically below).
+    -- Start the background flush with the top anchor (see GetBGTopAnchor()
+    -- above) so it doesn't bleed above the content or leave a gap below it.
+    -- Bottom edge extends past the last block (re-anchored dynamically below).
     local topOfs = TopGapOffset()
-    _bgFrame:SetPoint("TOPLEFT", otf, "TOPLEFT", -6, topOfs)
+    local anchorFrame, anchorPoint = GetBGTopAnchor()
+    anchorFrame = anchorFrame or otf
+    _bgFrame:SetPoint("TOPLEFT", anchorFrame, anchorPoint .. "LEFT", -6, topOfs)
     -- Bottom is re-anchored dynamically in ResizeBGToContent(); this is
     -- only the fallback extent when no content has loaded yet (30px tall).
-    _bgFrame:SetPoint("BOTTOMRIGHT", otf, "TOPRIGHT", 11, topOfs - 30)
+    _bgFrame:SetPoint("BOTTOMRIGHT", anchorFrame, anchorPoint .. "RIGHT", 11, topOfs - 30)
     local tex = _bgFrame:CreateTexture(nil, "BACKGROUND")
     tex:SetAllPoints()
     _bgFrame._tex = tex
@@ -247,8 +286,8 @@ local function EnsureBG()
     -- directly to it so the line matches tracker width regardless of BG
     -- padding. Same snap pattern as PP.CreateBorder.
     local divider = _bgFrame:CreateTexture(nil, "OVERLAY")
-    divider:SetPoint("TOPLEFT",  otf, "TOPLEFT",  -6, topOfs)
-    divider:SetPoint("TOPRIGHT", otf, "TOPRIGHT",  11, topOfs)
+    divider:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  -6, topOfs)
+    divider:SetPoint("TOPRIGHT", anchorFrame, anchorPoint .. "RIGHT",  11, topOfs)
     _bgFrame._divider = divider
     return _bgFrame
 end
@@ -355,8 +394,9 @@ local function ResizeBGToContent()
     local bg = _bgFrame
     local otf = GetTracker()
     if not bg or not otf then return end
-    -- Tracker hidden (e.g. raid/arena auto-hide, Blizzard hide): BG follows.
-    if not otf:IsShown() then
+    -- Tracker hidden (e.g. raid/arena auto-hide, Blizzard hide, or the
+    -- combat alpha-fallback in HardHide): BG follows.
+    if not TrackerIsVisible(otf) then
         if bg:IsShown() then bg:Hide() end
         return
     end
@@ -393,20 +433,27 @@ local function ResizeBGToContent()
     bg._hideCheck = nil
     if not bg:IsShown() then bg:Show() end
     local topOfs = TopGapOffset()
-    local otfTop = otf:GetTop()
+    local anchorFrame, anchorPoint = GetBGTopAnchor()
+    anchorFrame = anchorFrame or otf
+    local topY = (anchorPoint == "BOTTOM") and anchorFrame:GetBottom() or anchorFrame:GetTop()
     local lowestBottom = lowest:GetBottom()
-    if otfTop and lowestBottom then
-        local h = otfTop + topOfs - lowestBottom + 15
+    if bg._divider then
+        bg._divider:ClearAllPoints()
+        bg._divider:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  -6, topOfs)
+        bg._divider:SetPoint("TOPRIGHT", anchorFrame, anchorPoint .. "RIGHT", 11, topOfs)
+    end
+    if topY and lowestBottom then
+        local h = topY + topOfs - lowestBottom + 15
         if h < 1 then h = 1 end
         bg:ClearAllPoints()
-        bg:SetPoint("TOPLEFT",  otf, "TOPLEFT",  -6, topOfs)
-        bg:SetPoint("TOPRIGHT", otf, "TOPRIGHT", 11, topOfs)
+        bg:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  -6, topOfs)
+        bg:SetPoint("TOPRIGHT", anchorFrame, anchorPoint .. "RIGHT", 11, topOfs)
         bg:SetHeight(h)
         bg._lastHeight = h
     elseif bg._lastHeight then
         bg:ClearAllPoints()
-        bg:SetPoint("TOPLEFT",  otf, "TOPLEFT",  -6, topOfs)
-        bg:SetPoint("TOPRIGHT", otf, "TOPRIGHT", 11, topOfs)
+        bg:SetPoint("TOPLEFT",  anchorFrame, anchorPoint .. "LEFT",  -6, topOfs)
+        bg:SetPoint("TOPRIGHT", anchorFrame, anchorPoint .. "RIGHT", 11, topOfs)
         bg:SetHeight(bg._lastHeight)
     end
     bg._lastLowest = lowest
@@ -457,7 +504,7 @@ function EQT.InitVisibility()
     -- and OnHide won't fire again, leaving BG + divider visible alone.
     local function SyncBGToTracker()
         if not _bgFrame then return end
-        if otf:IsShown() then _bgFrame:Show() else _bgFrame:Hide() end
+        if TrackerIsVisible(otf) then _bgFrame:Show() else _bgFrame:Hide() end
     end
     SyncBGToTracker()
     C_Timer.After(0.1, SyncBGToTracker)
@@ -496,7 +543,7 @@ function EQT.InitVisibility()
     if EllesmereUI.RegisterMouseoverTarget then
         local moProxy = {}
         moProxy.IsShown = function()
-            return otf and otf:IsShown() and not ShouldAutoHide()
+            return TrackerIsVisible(otf)
         end
         moProxy.IsMouseOver = function()
             if otf and otf:IsMouseOver() then return true end

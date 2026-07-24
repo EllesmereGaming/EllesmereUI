@@ -233,7 +233,7 @@ initFrame:SetScript("OnEvent", function(self)
                 menuFrame:Hide()
             end)
 
-            rl:SetText(ri.label)
+            rl:SetText(EllesmereUI.L(ri.label))
             radioRows[#radioRows + 1] = rr
             mY = mY - MH
         end
@@ -295,7 +295,7 @@ initFrame:SetScript("OnEvent", function(self)
             rl:SetFont(FONT, 13, "")
             rl:SetPoint("LEFT", row, "LEFT", 20, 0)
             rl:SetJustifyH("LEFT")
-            rl:SetText(cb.label)
+            rl:SetText(EllesmereUI.L(cb.label))
             rl:SetTextColor(0.75, 0.75, 0.75, 1)
             row._lbl = rl
 

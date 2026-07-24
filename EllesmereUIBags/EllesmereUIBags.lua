@@ -20,7 +20,59 @@ EUI_BagsWindow = CreateFrame("Frame", "EUI_BagsWindowFrame", UIParent)
 EUI_BagsWindow:Hide()
 
 local SLOT_SIZE, SPACING = 34, 4
-local _canUseCache = {}  -- [itemID] = true (usable) | false (unusable), via tooltip red-text scan
+
+-- Red-tint usability test, shared with the bank module via EUI.
+--
+-- The tooltip MUST come from the real item, never from the item ID. Scaling
+-- gear (expansion leveling drops) carries bonus IDs that lower its required
+-- level to the character, but C_TooltipInfo.GetItemByID renders the unscaled
+-- base item, whose "Requires Level" line reads red for the entire leveling
+-- range. Classic-era items do not scale, which is why only modern-expansion
+-- drops came out red. Prefer the actual bag slot, fall back to the link, and
+-- only use the ID when neither is available.
+--
+-- Keyed by link (bonus IDs change the answer) and wiped on level up, since the
+-- same item flips from unusable to usable as the character grows into it.
+local _canUseCache = {}
+local function BagsItemUnusable(bagID, slot, itemLink, itemID)
+    local item = itemLink or itemID
+    if not item then return false end
+    local cached = _canUseCache[item]
+    if cached ~= nil then return cached end
+    local unusable = false
+    if IsEquippableItem(item) or C_Item.GetItemSpell(item) then
+        local tip
+        if bagID and slot then tip = C_TooltipInfo.GetBagItem(bagID, slot) end
+        if not tip and itemLink then tip = C_TooltipInfo.GetHyperlink(itemLink) end
+        if not tip and itemID then tip = C_TooltipInfo.GetItemByID(itemID) end
+        if tip and tip.lines then
+            for _, row in ipairs(tip.lines) do
+                local lc = row.leftColor
+                if lc and lc.r == 1 and lc.g < 0.2 and lc.b < 0.2
+                   and row.leftText ~= ITEM_SCRAPABLE_NOT
+                   and row.leftText ~= CANNOT_UNEQUIP_COMBAT
+                   and row.leftText ~= ITEM_DISENCHANT_NOT_DISENCHANTABLE then
+                    unusable = true
+                    break
+                end
+                local rc = row.rightColor
+                if rc and rc.r == 1 and rc.g < 0.2 and rc.b < 0.2 then
+                    unusable = true
+                    break
+                end
+            end
+        end
+    end
+    _canUseCache[item] = unusable
+    return unusable
+end
+EllesmereUI._BagsItemUnusable = BagsItemUnusable  -- local EUI alias is declared further down
+do
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_LEVEL_UP")
+    f:RegisterEvent("PLAYER_LEVEL_CHANGED")
+    f:SetScript("OnEvent", function() wipe(_canUseCache) end)
+end
 -- Weak-keyed table for bank-deposit routing state. Writing custom keys onto
 -- ContainerFrameItemButtonTemplate frames during PreClick taints the secure
 -- execution chain and causes UseContainerItem() ADDON_ACTION_FORBIDDEN.
@@ -2503,33 +2555,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
             end
         end
         if btn.icon and data.info and data.info.itemID then
-            local id = data.info.itemID
-            local canUse = _canUseCache[id]
-            if canUse == nil then
-                canUse = true
-                if IsEquippableItem(id) or C_Item.GetItemSpell(id) then
-                    local tip = C_TooltipInfo.GetItemByID(id)
-                    if tip and tip.lines then
-                        for _, row in ipairs(tip.lines) do
-                            local lc = row.leftColor
-                            if lc and lc.r == 1 and lc.g < 0.2 and lc.b < 0.2
-                               and row.leftText ~= ITEM_SCRAPABLE_NOT
-                               and row.leftText ~= CANNOT_UNEQUIP_COMBAT
-                               and row.leftText ~= ITEM_DISENCHANT_NOT_DISENCHANTABLE then
-                                canUse = false
-                                break
-                            end
-                            local rc = row.rightColor
-                            if rc and rc.r == 1 and rc.g < 0.2 and rc.b < 0.2 then
-                                canUse = false
-                                break
-                            end
-                        end
-                    end
-                end
-                _canUseCache[id] = canUse
-            end
-            if canUse == false then
+            if BagsItemUnusable(data.bag, data.slot, data.itemLink, data.info.itemID) then
                 btn.icon:SetVertexColor(1, 0.1, 0.1)
             else
                 btn.icon:SetVertexColor(1, 1, 1)

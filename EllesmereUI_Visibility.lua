@@ -307,6 +307,21 @@ function EUI.GetActiveVisibilityModes(store, legacyKey)
     return ActiveModes(store, legacyKey)
 end
 
+-- True when the selection can flip purely because combat started or ended.
+-- Consumers whose Show()/Hide() is protected need this: those transitions are
+-- delivered inside combat lockdown (PLAYER_REGEN_DISABLED already reports
+-- InCombatLockdown), so a protected updater has to switch to an unprotected
+-- mechanism for them rather than skip the update.
+function EUI.VisDependsOnCombat(store, legacyKey)
+    if not store then return false end
+    local vm = ActiveModes(store, legacyKey)
+    if vm then
+        return (vm.in_combat or vm.out_of_combat) and true or false
+    end
+    local scalar = store[legacyKey]
+    return scalar == "in_combat" or scalar == "out_of_combat"
+end
+
 -- Read view: the current selection as a set (always freshly allocated).
 -- Second return is true when a multi-selection is active.
 function EUI.GetVisibilitySelection(store, legacyKey)
