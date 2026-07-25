@@ -5355,6 +5355,45 @@ initFrame:SetScript("OnEvent", function(self)
                           bd.chargeHashLineB, bd.chargeHashLineA = b, a
                           RefreshTBB()
                       end },
+                    { type = "toggle", label = "Separate Color When <1 Charge",
+                      tooltip = "Uses a separate bar fill color when the ability has zero usable charges.",
+                      get = function()
+                          local bd = SelectedTBB()
+                          return bd and bd.chargeZeroColorEnabled == true
+                      end,
+                      set = function(v)
+                          local bd = SelectedTBB(); if not bd then return end
+                          bd.chargeZeroColorEnabled = v and true or false
+                          RefreshTBB()
+                      end },
+                    { type = "colorpicker", label = "0 Charge Color", hasAlpha = true,
+                      disabled = function()
+                          local bd = SelectedTBB()
+                          return not bd or bd.chargeZeroColorEnabled ~= true
+                      end,
+                      disabledTooltip = "Enable Separate Color When <1 Charge first",
+                      get = function()
+                          local bd = SelectedTBB()
+                          if not bd then return 1, 1, 1, 1 end
+                          -- Until explicitly changed, inherit the selected
+                          -- fill color so enabling the toggle does not
+                          -- unexpectedly recolor an existing bar.
+                          local r = bd.chargeZeroR
+                          local g = bd.chargeZeroG
+                          local b = bd.chargeZeroB
+                          local a = bd.chargeZeroA
+                          if r == nil then r = bd.fillR or 1 end
+                          if g == nil then g = bd.fillG or 1 end
+                          if b == nil then b = bd.fillB or 1 end
+                          if a == nil then a = bd.fillA or 1 end
+                          return r, g, b, a
+                      end,
+                      set = function(r, g, b, a)
+                          local bd = SelectedTBB(); if not bd then return end
+                          bd.chargeZeroR, bd.chargeZeroG = r, g
+                          bd.chargeZeroB, bd.chargeZeroA = b, a
+                          RefreshTBB()
+                      end },
                 },
             })
             local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.COGS_ICON)
