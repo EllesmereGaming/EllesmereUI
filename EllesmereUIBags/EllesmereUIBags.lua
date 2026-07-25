@@ -4040,8 +4040,12 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                 for _, mi in ipairs(members) do
                     if cats[mi] and cats[mi].isUserCreated then groupHasUserCreated = true; break end
                 end
+                local groupDisplayName = cat.groupName
+                if cat.groupName == "The Armory" or cat.groupName == "Adventure Prep" then
+                    groupDisplayName = EllesmereUI.L(cat.groupName)
+                end
                 displayList[#displayList + 1] = {
-                    catIdx = members[1], name = cat.groupName, icon = groupIcon, isAtlas = groupIsAtlas,
+                    catIdx = members[1], name = groupDisplayName, icon = groupIcon, isAtlas = groupIsAtlas,
                     count = groupCount, isGroupHeader = true, groupName = cat.groupName,
                     isUserCreated = groupHasUserCreated,
                 }
