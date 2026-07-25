@@ -6972,7 +6972,7 @@ initFrame:SetScript("OnEvent", function(self)
                           end,
                           set = function(r, g, b) DB().importantCastGlowBackgroundColor = { r = r, g = g, b = b }; RefreshAllPlates() end,
                           disabled = function() return DB().importantCastGlowBackground ~= true end,
-                          disabledTooltip = EllesmereUI.DisabledTooltip("Pixel Glow Background") },
+                          disabledTooltip = "Pixel Glow Background" },
                     },
                 })
 
@@ -7314,7 +7314,7 @@ initFrame:SetScript("OnEvent", function(self)
                             UpdatePreview()
                           end,
                           disabled=function() return not ns.GetTargetGlowBorderSize() end,
-                          disabledTooltip=EllesmereUI.DisabledTooltip("Border Size Target Effect") },
+                          disabledTooltip="Border Size Target Effect" },
                     },
                 })
                 local highlightCogBtn = CreateFrame("Button", nil, leftRgn)

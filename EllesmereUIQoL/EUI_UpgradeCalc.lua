@@ -1705,17 +1705,24 @@ _firstRunEvt:SetScript("OnEvent", function(self)
         local profileDB = EllesmereUI.Lite.NewDB("EllesmereUIQoLDB", {
             profile = {
                 upgradeCalcOpts = {},
-                chars           = {},
             },
         })
         _euicProfileRef = profileDB.profile
-        -- Store character data under a per-character key so alts on the same
-        -- profile each have their own queue, scan cache, and crest offsets.
+        -- Per-character queue, scan cache and crest offsets are ACCOUNT data
+        -- keyed by character name: profiles get shared, so holding this in the
+        -- profile put the player's character names and realms into every
+        -- export string. Options stay in the profile (they are settings); the
+        -- per-character state moves top-level. The old profile copy is dropped
+        -- rather than migrated -- on anyone who imported a profile it holds the
+        -- exporter's characters, and this state rebuilds from the next scan.
         local charKey = UnitName("player") .. " - " .. GetRealmName()
         local store = _euicProfileRef
-        store.chars             = store.chars           or {}
-        store.chars[charKey]    = store.chars[charKey]  or {}
-        local charStore         = store.chars[charKey]
+        store.chars = nil
+        if not EllesmereUIDB then EllesmereUIDB = {} end
+        local chars             = EllesmereUIDB.qolUpgradeCalcChars or {}
+        EllesmereUIDB.qolUpgradeCalcChars = chars
+        chars[charKey]          = chars[charKey]        or {}
+        local charStore         = chars[charKey]
         charStore.upgradeCalc   = charStore.upgradeCalc or {}
         local db                = charStore.upgradeCalc
         db.cache                = db.cache              or { slots = {}, ts = 0 }

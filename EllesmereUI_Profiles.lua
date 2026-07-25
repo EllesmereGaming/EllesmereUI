@@ -137,6 +137,40 @@ local function CanonToLocal(addons)
 end
 
 -------------------------------------------------------------------------------
+--  Account data that must never travel in a profile string
+--
+--  These keys held per-character state -- character names, realms, classes,
+--  gold balances, scan caches -- inside a module's profile blob, so a shared
+--  profile carried the exporter's character list to everyone who imported it
+--  (visible in the DataBars gold tooltip). They live top-level in EllesmereUIDB
+--  now, but strings exported by older versions still carry them, and an
+--  imported blob would otherwise sit in the recipient's profile and ride THEIR
+--  next export -- propagating one player's characters indefinitely. So strip
+--  on the way out AND on the way in.
+--
+--  The folder literals contain "EllesmereUI", which the standalone packager
+--  renames to the build token, so they match the local keyspace on every
+--  build; the canon lookup covers a decoded payload's canonical keys.
+-------------------------------------------------------------------------------
+local PRIVATE_ADDON_KEYS = {
+    ["EllesmereUIDataBars"] = { "characters" },  -- gold ledger -> EllesmereUIDB.dataBarsGold
+    ["EllesmereUIQoL"]      = { "chars" },       -- upgrade calc -> EllesmereUIDB.qolUpgradeCalcChars
+}
+
+-- Strip account data from an addons table, in place. Accepts either keyspace
+-- (local folder keys before canonicalization on export, canonical keys in a
+-- decoded payload), so one pass serves both directions.
+local function StripPrivateAddonData(addons)
+    if type(addons) ~= "table" then return end
+    for folder, keys in pairs(PRIVATE_ADDON_KEYS) do
+        local blob = addons[folder] or addons[FOLDER_TO_CANON[folder] or folder]
+        if type(blob) == "table" then
+            for _, key in ipairs(keys) do blob[key] = nil end
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Unlock-element key -> owning module (LOCAL folder) resolver
 --
 --  The selective-layout export/import attributes each anchor / size-match
@@ -1981,6 +2015,10 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
     if includedFolders then
         exportData.partialImport = true
     end
+    -- Per-character account data (gold ledger, upgrade-calc caches) never rides
+    -- a shared string -- see PRIVATE_ADDON_KEYS. exportData is already a deep
+    -- copy, so this strips the payload without touching the stored profile.
+    StripPrivateAddonData(exportData.addons)
     -- Normalize local db.folder keys -> canonical (suite) keys so the string
     -- imports correctly into any build. No-op in the suite (canon == folder).
     exportData.addons = AddonsToCanon(exportData.addons)
@@ -2213,6 +2251,12 @@ function EllesmereUI.ExportCurrentProfile(includeLayout, includeCDM, cdmSpecs)
     profileData.assignedSpecs = CollectAssignedSpecs(activeName)
     -- HoverCast (click-cast) bindings are account-global, not per-profile; never export.
     profileData.clickCast = nil
+    -- Per-character account data (gold ledger, upgrade-calc caches) likewise
+    -- never rides a shared string -- see PRIVATE_ADDON_KEYS. SnapshotAllAddons
+    -- deep-copies each module's live profile blob, so a profile still holding
+    -- the legacy keys (any profile other than the one cleaned at login) would
+    -- otherwise ship its character list through this path.
+    StripPrivateAddonData(profileData.addons)
     -- UI scale (account-wide) rides with the full profile (see ExportProfile).
     profileData.uiScale = (EllesmereUIDB and type(EllesmereUIDB.ppUIScale) == "number")
         and EllesmereUIDB.ppUIScale or nil
@@ -2266,6 +2310,12 @@ function EllesmereUI.DecodeImportString(importStr)
     if payload.version > 3 then
         return nil, "This profile was created with a newer version of EllesmereUI. Please update your addon."
     end
+    -- Drop account data an older exporter left in the string, before any
+    -- consumer (preview UI, ImportProfile, Wago) can write it to a profile.
+    -- Type-checked, not just truthy: a corrupt string can deserialize to a
+    -- non-table data field, and indexing that would raise instead of letting
+    -- the caller report its own decode failure.
+    if type(payload.data) == "table" then StripPrivateAddonData(payload.data.addons) end
     return payload, nil
 end
 
@@ -2397,6 +2447,8 @@ do
             if payload.version > 3 then
                 return nil, "This profile was created with a newer version of EllesmereUI. Please update your addon."
             end
+            -- Same strip as the sync path: account data never reaches a profile.
+            if type(payload.data) == "table" then StripPrivateAddonData(payload.data.addons) end
             return payload, nil
         end)
 

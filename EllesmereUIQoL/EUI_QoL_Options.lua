@@ -806,7 +806,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     { type="colorpicker", label="Enter Color",
                       disabled=enterClassOn,
-                      disabledTooltip="Disable Class Color to pick a custom color.",
+                      disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
                       get=function()
                         local c = (EllesmereUIDB and EllesmereUIDB.combatAlertEnterColor) or { r=1.00, g=1.00, b=1.00 }
                         return c.r, c.g, c.b
@@ -834,7 +834,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     { type="colorpicker", label="Leave Color",
                       disabled=leaveClassOn,
-                      disabledTooltip="Disable Class Color to pick a custom color.",
+                      disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
                       get=function()
                         local c = (EllesmereUIDB and EllesmereUIDB.combatAlertLeaveColor) or { r=1.00, g=1.00, b=1.00 }
                         return c.r, c.g, c.b
