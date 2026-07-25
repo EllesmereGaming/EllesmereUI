@@ -31,6 +31,8 @@ local GetTime = GetTime
 local _, _playerClass = UnitClass("player")
 local _isDruid = (_playerClass == "DRUID")
 
+local IconDesaturatesOnCD
+
 -------------------------------------------------------------------------------
 --  Memory Profiling (temporary)
 -------------------------------------------------------------------------------
@@ -2760,11 +2762,21 @@ local function DecorateFrame(frame, barData)
             fd._desatOverrideHooked = true
             local function onDesatChange()
                 if fd._isProcessingOverride then return end
-                if not fd._hideActiveOverriding then return end
                 fd._isProcessingOverride = true
                 local cdw = fd.cooldown
                 local fc2 = _ecmeFC[frame]
                 local sid2 = fc2 and fc2.spellID
+                local bk2 = fc2 and fc2.barKey
+                local ss2 = sid2 and bk2 and ResolveSpellSettings(frame, sid2, ns.GetBarSpellData(bk2), bk2)
+                if not IconDesaturatesOnCD(frame, ss2) then
+                    if fd.tex then fd.tex:SetDesaturated(false) end
+                    fd._isProcessingOverride = false
+                    return
+                end
+                if not fd._hideActiveOverriding then
+                    fd._isProcessingOverride = false
+                    return
+                end
                 if sid2 and cdw then
                     if cdw.SetUseAuraDisplayTime then
                         cdw:SetUseAuraDisplayTime(false)
@@ -2859,7 +2871,7 @@ local function DecorateFrame(frame, barData)
                         end
                     end
                 end
-                fd.tex:SetDesaturated(onRealCD or false)
+                fd.tex:SetDesaturated((IconDesaturatesOnCD(frame, ss2) and onRealCD) or false)
                 fd._isProcessingOverride = false
             end
             hooksecurefunc(fd.tex, "SetDesaturated", onDesatChange)
@@ -3391,7 +3403,10 @@ local function UpdateTrinketCooldown(slotID)
     local start, dur, enable = GetInventoryItemCooldown("player", slotID)
     if start and dur and dur > 1.5 and enable == 1 then
         f._cooldown:SetCooldown(start, dur)
-        if f._tex then f._tex:SetDesaturated(true) end
+        local fcD = _ecmeFC[f]
+        local bkD = fcD and fcD.barKey
+        local ssD = bkD and ResolveSpellSettings(f, fcD.spellID, ns.GetBarSpellData(bkD), bkD)
+        if f._tex then f._tex:SetDesaturated(IconDesaturatesOnCD(f, ssD)) end
         return true
     else
         f._cooldown:Clear()
@@ -3653,6 +3668,18 @@ local function ApplySpellDesaturation(f, durObj)
     else
         f._tex:SetDesaturation(0)
     end
+end
+
+function IconDesaturatesOnCD(frame, ss)
+    local fc = frame and _ecmeFC[frame]
+    local bd = fc and fc.barKey and barDataByKey[fc.barKey]
+    local on = not bd or bd.desaturateOnCD ~= false
+    if ss and ss.desatOnCD == "on" then on = true
+    elseif ss and ss.desatOnCD == "off" then on = false end
+    local cas = fc and ns.GetEffectiveCustomActiveState and ns.GetEffectiveCustomActiveState(fc.spellID)
+    if cas and cas.desatOnCD == "on" then on = true
+    elseif cas and cas.desatOnCD == "off" then on = false end
+    return on
 end
 
 -------------------------------------------------------------------------------
@@ -4021,7 +4048,14 @@ local function ProcessPresetCooldowns()
                     if cdInfo and cdInfo.isOnGCD and not onRealCD then
                         if f._tex then f._tex:SetDesaturation(0) end
                     else
-                        ApplySpellDesaturation(f, durObj)
+                        local fcD = _ecmeFC[f]
+                        local bkD = fcD and fcD.barKey
+                        local ssD = bkD and ResolveSpellSettings(f, sid, ns.GetBarSpellData(bkD), bkD)
+                        if IconDesaturatesOnCD(f, ssD) then
+                            ApplySpellDesaturation(f, durObj)
+                        elseif f._tex then
+                            f._tex:SetDesaturation(0)
+                        end
                     end
                     -- Resource check: dim vertex color when not enough resources
                     -- Only for custom spells (not racials -- racials don't cost resources)
@@ -4166,7 +4200,11 @@ local function ProcessPresetCooldowns()
                         f._lastItemCount = nil
                     end
                 end
-                local shouldDesat = (total == 0 or itemOnCD or f._inCombatLockout) and true or false
+                local fcD = _ecmeFC[f]
+                local bkD = fcD and fcD.barKey
+                local ssD = bkD and ResolveSpellSettings(f, fcD.spellID, ns.GetBarSpellData(bkD), bkD)
+                local canDesat = IconDesaturatesOnCD(f, ssD)
+                local shouldDesat = (canDesat and (total == 0 or itemOnCD or f._inCombatLockout)) and true or false
                 if shouldDesat ~= f._lastDesat then
                     f._lastDesat = shouldDesat
                     if f._tex then f._tex:SetDesaturated(shouldDesat) end
@@ -4293,8 +4331,12 @@ _racialCdListener:SetScript("OnEvent", function(_, event, unit, _, spellID)
                 if f._isItemPresetFrame and f._presetItemID == targetItemID then
                     f._inCombatLockout = true
                     if f._cooldown then f._cooldown:Clear() end
-                    if f._tex then f._tex:SetDesaturated(true) end
-                    f._lastDesat = true
+                    local fcD = _ecmeFC[f]
+                    local bkD = fcD and fcD.barKey
+                    local ssD = bkD and ResolveSpellSettings(f, fcD.spellID, ns.GetBarSpellData(bkD), bkD)
+                    local shouldDesat = IconDesaturatesOnCD(f, ssD)
+                    if f._tex then f._tex:SetDesaturated(shouldDesat) end
+                    f._lastDesat = shouldDesat
                 end
             end
         end
@@ -5577,17 +5619,22 @@ local function CollectAndReanchor()
                                     end
                                     local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
                                     if spInfo and spInfo.iconID and f._tex then f._tex:SetTexture(spInfo.iconID) end
+                                    local fc = FC(f)
+                                    fc.barKey = barKey; fc.spellID = sid
                                     if not f._cdSet or f._racialCdDirty then
                                         local durObj = C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(sid)
                                         if durObj and f._cooldown.SetCooldownFromDurationObject then
                                             f._cooldown:SetCooldownFromDurationObject(durObj, true)
                                         end
-                                        ApplySpellDesaturation(f, durObj)
+                                        local ssD = ResolveSpellSettings(f, sid, ns.GetBarSpellData(barKey), barKey)
+                                        if IconDesaturatesOnCD(f, ssD) then
+                                            ApplySpellDesaturation(f, durObj)
+                                        elseif f._tex then
+                                            f._tex:SetDesaturation(0)
+                                        end
                                         f._cdSet = true; f._racialCdDirty = false
                                     end
                                     frames[#frames + 1] = f
-                                    local fc = FC(f)
-                                    fc.barKey = barKey; fc.spellID = sid
                                 end
                             end
                         end

@@ -513,6 +513,7 @@ local DEFAULTS = {
                     showCooldownText = true, showItemCount = true, showTooltip = false, showKeybind = false,
                     keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
                     keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
+                    desaturateOnCD = true,
                 },
                 {
                     key = "utility", name = "Utility", enabled = true,
@@ -532,6 +533,7 @@ local DEFAULTS = {
                     showCooldownText = true, showItemCount = true, showTooltip = false, showKeybind = false,
                     keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
                     keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
+                    desaturateOnCD = true,
                 },
                 {
                     key = "buffs", name = "Buffs", enabled = true,
@@ -5381,6 +5383,21 @@ local function RefreshCDMIconAppearance(barKey)
                 -- Per-icon Desaturate Inactive override, read by the BuffTicker.
                 fd._desatOverride = (ssb and ssb.desatInactive) or nil
             end
+        elseif tex then
+            local fcCD = _ecmeFC[icon]
+            local sidCD = fcCD and fcCD.spellID
+            local bkCD = fcCD and fcCD.barKey
+            local ssCD = sidCD and bkCD
+                and ns.ResolveSpellSettings and ns.ResolveSpellSettings(icon, sidCD, ns.GetBarSpellData(bkCD), bkCD)
+            local desatOn = barData.desaturateOnCD ~= false
+            if ssCD and ssCD.desatOnCD == "on" then desatOn = true
+            elseif ssCD and ssCD.desatOnCD == "off" then desatOn = false end
+            local casCD = sidCD and ns.GetEffectiveCustomActiveState and ns.GetEffectiveCustomActiveState(sidCD)
+            if casCD and casCD.desatOnCD == "on" then desatOn = true
+            elseif casCD and casCD.desatOnCD == "off" then desatOn = false end
+            if not desatOn and not (ssCD and ssCD.desatNotActive) then
+                tex:SetDesaturated(false)
+            end
         end
         -- Update texture -- fill the entire frame. The border renders on
         -- top via PP.CreateBorder so no inset is needed.
@@ -9524,4 +9541,3 @@ SlashCmdList.CDMBUFFID = function()
     end
     P("=== END PROBE ===")
 end
-

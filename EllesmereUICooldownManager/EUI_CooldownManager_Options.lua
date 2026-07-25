@@ -11353,6 +11353,23 @@ initFrame:SetScript("OnEvent", function(self)
                                             end
                                         end } })
 
+                        local DESAT_ON_CD_ITEMS = {
+                            { val = nil,   label = "Default" },
+                            { val = "on",  label = "Desaturate" },
+                            { val = "off", label = "Full Color" },
+                        }
+                        MakeSubnavRow("Desaturate on CD", DESAT_ON_CD_ITEMS,
+                            function() return cas.desatOnCD end,
+                            function(v)
+                                SetCasOwn("desatOnCD", v)
+                                if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                                if ns._MarkPresetCdDirty then ns._MarkPresetCdDirty() end
+                            end,
+                            function() return cas.desatOnCD == nil end,
+                            nil,
+                            { apply = { keys = { "desatOnCD" },
+                                        write = function(t, v) t.desatOnCD = v end } })
+
                         -- Threshold Text (preset / custom): decimals / color change
                         -- on this icon's countdowns (item/spell cooldown and the
                         -- fake-active window) below its Threshold Seconds. Stored
@@ -11978,6 +11995,34 @@ initFrame:SetScript("OnEvent", function(self)
                             end
                         end)
                         cdStateRow:SetScript("OnLeave", function()
+                            if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+                        end)
+                    end
+
+                    local DESAT_ON_CD_ITEMS = {
+                        { val = nil,   label = "Default" },
+                        { val = "on",  label = "Desaturate" },
+                        { val = "off", label = "Full Color" },
+                    }
+                    local desatOnCdRow = MakeSubnavRow("Desaturate on CD", DESAT_ON_CD_ITEMS,
+                        function() return ss.desatOnCD end,
+                        function(v)
+                            EnsureSS(); SetOwn("desatOnCD", v)
+                            if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                            if ns._MarkPresetCdDirty then ns._MarkPresetCdDirty() end
+                        end,
+                        function() return ss.desatOnCD == nil end,
+                        nil,
+                        { apply = { keys = { "desatOnCD" },
+                                    write = function(t, v) t.desatOnCD = v end } })
+                    if isCustomInjected and desatOnCdRow then
+                        desatOnCdRow:SetAlpha(0.35)
+                        desatOnCdRow:SetScript("OnEnter", function()
+                            if EllesmereUI.ShowWidgetTooltip then
+                                EllesmereUI.ShowWidgetTooltip(desatOnCdRow, customDisabledTip)
+                            end
+                        end)
+                        desatOnCdRow:SetScript("OnLeave", function()
                             if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
                         end)
                     end
@@ -18753,12 +18798,22 @@ initFrame:SetScript("OnEvent", function(self)
         if not isBuffGlowBar then
         local isCDOrUtility = (barData.barType == "cooldowns" or barData.barType == "utility")
         if isCDOrUtility then
-            local sgcdRow
-            sgcdRow, h = W:DualRow(parent, y,
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Desaturate on CD",
+                  tooltip="Desaturate this bar's icons while the ability is on cooldown. Per-icon settings can override this.",
+                  getValue=function() return BD().desaturateOnCD ~= false end,
+                  setValue=function(v)
+                      BD().desaturateOnCD = v and true or false
+                      ns.RefreshCDMIconAppearance(BD().key); Refresh()
+                      if ns._MarkPresetCdDirty then ns._MarkPresetCdDirty() end
+                  end },
                 { type="toggle", text="Suppress GCD",
                   tooltip="Hide the brief GCD swipe that flashes when you cast any spell. The actual ability cooldown swipe still shows.",
                   getValue=function() return BD().suppressGCD == true end,
-                  setValue=function(v) BD().suppressGCD = v and true or false; Refresh() end },
+                  setValue=function(v) BD().suppressGCD = v and true or false; Refresh() end });  y = y - h
+            local sgcdRow
+            sgcdRow, h = W:DualRow(parent, y,
+                { type="label", text="" },
                 { type="slider", text="Pixel Glow Thickness", min=1, max=4, step=1, trackWidth=120,
                   tooltip="Thickness of any Pixel Glow assigned to this bar's buttons. Assign glows by right-clicking an icon in the preview.",
                   getValue=function() return BD().pixelGlowThickness or 2 end,
