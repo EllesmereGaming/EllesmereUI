@@ -172,10 +172,10 @@ local defaults = {
     -- When on, the empty portion of the bar shows the focus texture at full
     -- opacity instead of the dimmed (30%) default, so the pattern reads evenly.
     focusOverlayFullBgAlpha = false,
-    -- No Tint: applies focusOverlayTexture as the health bar's own fill
-    -- pattern (like the main "Bar Texture" dropdown) instead of drawing it
-    -- as a tinted stripe overlay on top. focusOverlayColor/Alpha/FullBgAlpha
-    -- are ignored in this mode -- the bar keeps its normal reaction color.
+    -- No Tint: the focus overlay renders exactly as normal but tints with
+    -- the bar's current health color instead of focusOverlayColor, so the
+    -- pattern reads in the bar's own color. Opacity/FullBgAlpha still apply;
+    -- only the custom color is bypassed.
     focusOverlayNoTint = false,
     focusLetterEnabled = false,
     focusLetterAnchor = "CENTER",
@@ -190,7 +190,8 @@ local defaults = {
     -- When on, the empty portion of the bar shows the target texture at full
     -- opacity instead of the dimmed (30%) default, so the pattern reads evenly.
     targetOverlayFullBgAlpha = false,
-    -- No Tint: mirrors focusOverlayNoTint above, for the target overlay.
+    -- No Tint: mirrors focusOverlayNoTint above, for the target overlay
+    -- (bar-color tint source; opacity/fullbg still apply).
     targetOverlayNoTint = false,
     hoverOverlayTexture = "none",
     caster  = { r = 0.231, g = 0.510, b = 0.965 },
@@ -436,6 +437,8 @@ local defaults = {
     pandemicGlowSpeed = 4,
     pandemicGlowBackground = false,
     pandemicGlowBackgroundColor = { r = 0, g = 0, b = 0 },
+    -- Execute Pulse Glow (Extras): red glow around plates below 30% health
+    lowHpGlow = false,
     dispelGlow = false,
     dispelGlowStyle = 2,
     dispelGlowColor = { r = 1.0, g = 1.0, b = 1.0 },
@@ -663,33 +666,11 @@ local function NoTintFlag(db, key)
     return v
 end
 
--- No Tint mode reuses the Target/Focus Texture dropdowns (targetOverlayTexture /
--- focusOverlayTexture): instead of drawing that pattern as a tinted stripe
--- overlay on top of the bar, it becomes the bar's own fill texture, leaving
--- SetStatusBarColor (the reaction/custom color) untouched. Path resolved via
--- ResolveOverlayTexPath since the dropdown also offers the stripe-only keys.
 local function ApplyHealthBarTexture(plate)
     local health = plate.health
     if not health then return end
     local texKey = (p and p.healthBarTexture) or defaults.healthBarTexture or "none"
-    local path
-    local unit = plate.unit
-    if unit then
-        local db = p or defaults
-        local tTex = db.targetOverlayTexture or defaults.targetOverlayTexture
-        local fTex = db.focusOverlayTexture or defaults.focusOverlayTexture
-        if tTex ~= "none" and NoTintFlag(db, "targetOverlayNoTint") and UnitIsUnit(unit, "target") then
-            path = ns.ResolveOverlayTexPath(tTex)
-        elseif fTex ~= "none" and NoTintFlag(db, "focusOverlayNoTint") and UnitIsUnit(unit, "focus") then
-            path = ns.ResolveOverlayTexPath(fTex)
-        end
-    end
-    path = path or EllesmereUI.ResolveTexturePath(ns.healthBarTextures, texKey, "Interface\\Buttons\\WHITE8x8")
-    -- Value-keyed: UpdateHealthColor calls this on every health update while
-    -- the feature is on, so skip the setter when the resolved path hasn't
-    -- changed (mirrors the hr/hg/hb compare a few lines above it).
-    if plate._lastHealthTexPath == path then return end
-    plate._lastHealthTexPath = path
+    local path   = EllesmereUI.ResolveTexturePath(ns.healthBarTextures, texKey, "Interface\\Buttons\\WHITE8x8")
     health:SetStatusBarTexture(path)
 end
 ns.ApplyHealthBarTexture = ApplyHealthBarTexture
@@ -2196,6 +2177,92 @@ local function EnsureGlow(plate)
     plate.glowCenter = MkTex(); plate.glowCenter:SetPoint("TOPLEFT", plate.glowLeft, "TOPRIGHT"); plate.glowCenter:SetPoint("BOTTOMRIGHT", plate.glowRight, "BOTTOMLEFT"); plate.glowCenter:SetTexCoord(GLOW_MARGIN, 1 - GLOW_MARGIN, GLOW_MARGIN, 1 - GLOW_MARGIN)
     plate.glow = plate.glowFrame
     plate.glowFrame:Hide()
+end
+
+-- Execute Pulse Glow (Extras, default off): red glow around the health bar
+-- that pulses while the unit is below 30% health. Secret-value design: the
+-- below-threshold gate is a C_CurveUtil color curve evaluated C-side by
+-- UnitHealthPercent, and the resulting color feeds straight into
+-- SetVertexColor (accepts secret components) -- Lua never branches on health.
+-- The pulse is a looping C-side Alpha animation on the glow frame (no Lua
+-- ticks), so the effect renders identically inside and outside restricted
+-- (secret) combat contexts. The frame alpha (pulse) and the texture vertex
+-- alpha (gate) are separate channels that multiply, so they never fight.
+-- Cache state lives in a do-block: no main-chunk local slots (near-cap file).
+do
+    local lowCurve
+    function ns.GetLowHpGlowCurve()
+        if lowCurve then return lowCurve end
+        if not (C_CurveUtil and C_CurveUtil.CreateColorCurve and UnitHealthPercent) then return nil end
+        local curve = C_CurveUtil.CreateColorCurve()
+        local t, EPSILON = 0.30, 0.0001
+        -- At or below 30% -> red; above -> BLACK. The glow textures use ADD
+        -- blend, so black contributes nothing and the glow disappears. Alpha
+        -- stays 1 at every point: only RGB varies, the exact curve shape the
+        -- proven threshold curves elsewhere in the suite use (curve alpha
+        -- interpolation is deliberately never relied on).
+        curve:AddPoint(0.0, CreateColor(1, 0, 0, 1))
+        curve:AddPoint(t, CreateColor(1, 0, 0, 1))
+        curve:AddPoint(t + EPSILON, CreateColor(0, 0, 0, 1))
+        curve:AddPoint(1.0, CreateColor(0, 0, 0, 1))
+        lowCurve = curve
+        return curve
+    end
+end
+
+function ns.EnsureLowHpGlow(plate)
+    if plate.lowHpGlowFrame then return end
+    local f = CreateFrame("Frame", nil, plate)
+    f:SetFrameStrata("BACKGROUND")
+    f:SetFrameLevel(1)
+    f:SetPoint("TOPLEFT", plate.health, "TOPLEFT", -GLOW_EXTEND, GLOW_EXTEND)
+    f:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMRIGHT", GLOW_EXTEND, -GLOW_EXTEND)
+    plate.lowHpGlowFrame = f
+    local texs = {}
+    plate.lowHpGlowTextures = texs
+    local function MkTex()
+        local t = f:CreateTexture(nil, "BACKGROUND")
+        -- Dedicated art (not the shared target-glow background.png) so its
+        -- brightness can be tuned in the file without touching the target glow.
+        t:SetTexture("Interface\\AddOns\\EllesmereUINameplates\\Media\\execute-glow.png")
+        t:SetVertexColor(0, 0, 0, 1)  -- black = invisible under ADD blend until the first health eval
+        t:SetBlendMode("ADD")
+        texs[#texs + 1] = t
+        return t
+    end
+    -- Same 9-slice layout as the target glow (EnsureGlow above) so the two
+    -- effects share one visual language and geometry.
+    local tl = MkTex(); tl:SetSize(GLOW_CORNER, GLOW_CORNER); tl:SetPoint("TOPLEFT"); tl:SetTexCoord(0, GLOW_MARGIN, 0, GLOW_MARGIN)
+    local tr = MkTex(); tr:SetSize(GLOW_CORNER, GLOW_CORNER); tr:SetPoint("TOPRIGHT"); tr:SetTexCoord(1 - GLOW_MARGIN, 1, 0, GLOW_MARGIN)
+    local bl = MkTex(); bl:SetSize(GLOW_CORNER, GLOW_CORNER); bl:SetPoint("BOTTOMLEFT"); bl:SetTexCoord(0, GLOW_MARGIN, 1 - GLOW_MARGIN, 1)
+    local br = MkTex(); br:SetSize(GLOW_CORNER, GLOW_CORNER); br:SetPoint("BOTTOMRIGHT"); br:SetTexCoord(1 - GLOW_MARGIN, 1, 1 - GLOW_MARGIN, 1)
+    local top = MkTex(); top:SetHeight(GLOW_CORNER); top:SetPoint("TOPLEFT", tl, "TOPRIGHT"); top:SetPoint("TOPRIGHT", tr, "TOPLEFT"); top:SetTexCoord(GLOW_MARGIN, 1 - GLOW_MARGIN, 0, GLOW_MARGIN)
+    local bot = MkTex(); bot:SetHeight(GLOW_CORNER); bot:SetPoint("BOTTOMLEFT", bl, "BOTTOMRIGHT"); bot:SetPoint("BOTTOMRIGHT", br, "BOTTOMLEFT"); bot:SetTexCoord(GLOW_MARGIN, 1 - GLOW_MARGIN, 1 - GLOW_MARGIN, 1)
+    local lft = MkTex(); lft:SetWidth(GLOW_CORNER); lft:SetPoint("TOPLEFT", tl, "BOTTOMLEFT"); lft:SetPoint("BOTTOMLEFT", bl, "TOPLEFT"); lft:SetTexCoord(0, GLOW_MARGIN, GLOW_MARGIN, 1 - GLOW_MARGIN)
+    local rgt = MkTex(); rgt:SetWidth(GLOW_CORNER); rgt:SetPoint("TOPRIGHT", tr, "BOTTOMRIGHT"); rgt:SetPoint("BOTTOMRIGHT", br, "TOPRIGHT"); rgt:SetTexCoord(1 - GLOW_MARGIN, 1, GLOW_MARGIN, 1 - GLOW_MARGIN)
+    local ctr = MkTex(); ctr:SetPoint("TOPLEFT", lft, "TOPRIGHT"); ctr:SetPoint("BOTTOMRIGHT", rgt, "BOTTOMLEFT"); ctr:SetTexCoord(GLOW_MARGIN, 1 - GLOW_MARGIN, GLOW_MARGIN, 1 - GLOW_MARGIN)
+    -- Pulse: C-side alpha loop on the frame; only advances while shown.
+    local ag = f:CreateAnimationGroup()
+    ag:SetLooping("BOUNCE")
+    local a = ag:CreateAnimation("Alpha")
+    a:SetFromAlpha(1)
+    a:SetToAlpha(0.35)
+    a:SetDuration(0.55)
+    a:SetSmoothing("IN_OUT")
+    plate.lowHpGlowPulse = ag
+end
+
+function ns.ApplyLowHpGlow(plate)
+    if not (p and p.lowHpGlow == true) then
+        if plate.lowHpGlowFrame then
+            plate.lowHpGlowPulse:Stop()
+            plate.lowHpGlowFrame:Hide()
+        end
+        return
+    end
+    ns.EnsureLowHpGlow(plate)
+    plate.lowHpGlowFrame:Show()
+    if not plate.lowHpGlowPulse:IsPlaying() then plate.lowHpGlowPulse:Play() end
 end
 
 -- Highlight target style: a fixed translucent white wash across the target's
@@ -5605,6 +5672,7 @@ function NameplateFrame:ApplyAppearance()
     self.health:SetPoint("CENTER", self, "CENTER", 0, GetNameplateYOffset())
     self.health:SetSize(GetHealthBarWidth(), GetHealthBarHeight())
     self.absorb:SetSize(GetHealthBarWidth(), GetHealthBarHeight())
+    ns.ApplyLowHpGlow(self)
     -- Width may have changed: clear the overlay state gates so the next
     -- overlay apply re-runs geometry (the stripe texcoord crop is derived
     -- from the settings width, and the gates never watch width).
@@ -6453,6 +6521,26 @@ function NameplateFrame:UpdateHealthValues()
             end
         end
     end
+
+    -- Execute Pulse Glow gate: evaluate the fixed 30% threshold curve
+    -- C-side and feed the resulting color straight into the glow textures
+    -- (alpha 1 below the threshold, 0 above -- never branched on in Lua).
+    -- The pulse animation on the parent frame multiplies on top.
+    local lg = self.lowHpGlowTextures
+    if lg and self.lowHpGlowFrame:IsShown() then
+        local curve = ns.GetLowHpGlowCurve()
+        if curve then
+            if UnitIsDeadOrGhost(unit) then
+                for i = 1, #lg do lg[i]:SetVertexColor(0, 0, 0, 1) end
+            else
+                local ok, col = pcall(UnitHealthPercent, unit, false, curve)
+                if ok and col and col.GetRGBA then
+                    local r, g, b, a = col:GetRGBA()
+                    for i = 1, #lg do lg[i]:SetVertexColor(r, g, b, a) end
+                end
+            end
+        end
+    end
 end
 function NameplateFrame:UpdateHealthColor()
     local unit = self.unit
@@ -6467,25 +6555,19 @@ function NameplateFrame:UpdateHealthColor()
         self._lastHCr, self._lastHCg, self._lastHCb = hr, hg, hb
         self.health:SetStatusBarColor(hr, hg, hb)
     end
-    -- Target/Focus No Tint mode: near-zero-cost when both are off (two field
-    -- reads). When either is on, re-evaluates on every health update (same
-    -- cadence as the color above) so a target/focus swap swaps the fill
-    -- pattern immediately; ApplyHealthBarTexture itself skips the setter
-    -- when the resolved path is unchanged.
-    if p and (p.targetOverlayNoTint or p.focusOverlayNoTint) then
-        ApplyHealthBarTexture(self)
-    end
     -- Focus overlay: show stripe textures on focus target's health bar
     -- Fill clip frame at full alpha, bg clip frame at half alpha.
     -- Apply is value-keyed: redone only when any component of the
     -- would-be state differs from what this plate last applied.
-    -- Skipped entirely in No Tint mode -- the pattern is already applied as
-    -- the bar's own fill texture above, drawing it again as an overlay would
-    -- double it up.
+    -- No Tint mode keeps the whole overlay pipeline and only changes the
+    -- tint source: the bar's current health color (hr/hg/hb above) instead
+    -- of the custom overlay color, so the pattern reads in the bar's own
+    -- color. (The overlay textures are pattern-on-transparent art; using
+    -- them as the bar's own fill texture renders the transparent ground as
+    -- holes and darkens the whole bar -- never do that.)
     local db2 = p or defaults
     local focusTex = db2.focusOverlayTexture or defaults.focusOverlayTexture
-    local focusNoTint = NoTintFlag(db2, "focusOverlayNoTint")
-    if focusTex ~= "none" and not focusNoTint and UnitIsUnit(unit, "focus") then
+    if focusTex ~= "none" and UnitIsUnit(unit, "focus") then
         -- Texture path memoized by texture NAME (no per-call concat;
         -- live dropdown changes rebuild it via the name compare)
         if ns._focusOverlayTexName ~= focusTex then
@@ -6494,24 +6576,30 @@ function NameplateFrame:UpdateHealthColor()
         end
         local texPath = ns._focusOverlayTexPath
         local overlayAlpha = db2.focusOverlayAlpha or defaults.focusOverlayAlpha
-        local oc = db2.focusOverlayColor or defaults.focusOverlayColor
+        local ocr, ocg, ocb
+        if NoTintFlag(db2, "focusOverlayNoTint") then
+            ocr, ocg, ocb = hr, hg, hb
+        else
+            local oc = db2.focusOverlayColor or defaults.focusOverlayColor
+            ocr, ocg, ocb = oc.r, oc.g, oc.b
+        end
         local bgAlpha = OverlayBgAlpha(db2.focusOverlayFullBgAlpha, overlayAlpha)
         if not self._ovFocShown or self._ovFocTex ~= texPath
             or self._ovFocAlpha ~= overlayAlpha or self._ovFocBgAlpha ~= bgAlpha
-            or self._ovFocR ~= oc.r or self._ovFocG ~= oc.g or self._ovFocB ~= oc.b then
+            or self._ovFocR ~= ocr or self._ovFocG ~= ocg or self._ovFocB ~= ocb then
             EnsureFocusOverlay(self)
             self._ovFocShown = true
             self._ovFocTex, self._ovFocAlpha = texPath, overlayAlpha
             self._ovFocBgAlpha = bgAlpha
-            self._ovFocR, self._ovFocG, self._ovFocB = oc.r, oc.g, oc.b
+            self._ovFocR, self._ovFocG, self._ovFocB = ocr, ocg, ocb
             ApplyOverlayGeometry(self.focusOverlayFill, self.focusOverlayBg, self.health, ns.OVERLAY_STRIPE_KEYS[focusTex] == true)
             self.focusOverlayFill:SetTexture(texPath)
             self.focusOverlayFill:SetAlpha(overlayAlpha)
-            self.focusOverlayFill:SetVertexColor(oc.r, oc.g, oc.b)
+            self.focusOverlayFill:SetVertexColor(ocr, ocg, ocb)
             self.focusClipFill:Show()
             self.focusOverlayBg:SetTexture(texPath)
             self.focusOverlayBg:SetAlpha(bgAlpha)
-            self.focusOverlayBg:SetVertexColor(oc.r, oc.g, oc.b)
+            self.focusOverlayBg:SetVertexColor(ocr, ocg, ocb)
             self.focusClipBg:Show()
         end
     elseif self.focusClipFill then
@@ -6526,35 +6614,40 @@ function NameplateFrame:UpdateHealthColor()
     if db2.focusLetterEnabled or self._focusLetterShown then
         ns.ApplyFocusLetter(self, unit, db2)
     end
-    -- Target overlay: identical to focus overlay but for current target.
-    -- Skipped in No Tint mode, same reasoning as the focus overlay above.
+    -- Target overlay: identical to focus overlay but for current target,
+    -- including the No Tint bar-color tint source.
     local targetTex = db2.targetOverlayTexture or defaults.targetOverlayTexture
-    local targetNoTint = NoTintFlag(db2, "targetOverlayNoTint")
-    if targetTex ~= "none" and not targetNoTint and UnitIsUnit(unit, "target") then
+    if targetTex ~= "none" and UnitIsUnit(unit, "target") then
         if ns._targetOverlayTexName ~= targetTex then
             ns._targetOverlayTexName = targetTex
             ns._targetOverlayTexPath = ns.ResolveOverlayTexPath(targetTex)
         end
         local texPath = ns._targetOverlayTexPath
         local overlayAlpha = db2.targetOverlayAlpha or defaults.targetOverlayAlpha
-        local oc = db2.targetOverlayColor or defaults.targetOverlayColor
+        local ocr, ocg, ocb
+        if NoTintFlag(db2, "targetOverlayNoTint") then
+            ocr, ocg, ocb = hr, hg, hb
+        else
+            local oc = db2.targetOverlayColor or defaults.targetOverlayColor
+            ocr, ocg, ocb = oc.r, oc.g, oc.b
+        end
         local bgAlpha = OverlayBgAlpha(db2.targetOverlayFullBgAlpha, overlayAlpha)
         if not self._ovTgtShown or self._ovTgtTex ~= texPath
             or self._ovTgtAlpha ~= overlayAlpha or self._ovTgtBgAlpha ~= bgAlpha
-            or self._ovTgtR ~= oc.r or self._ovTgtG ~= oc.g or self._ovTgtB ~= oc.b then
+            or self._ovTgtR ~= ocr or self._ovTgtG ~= ocg or self._ovTgtB ~= ocb then
             ns.EnsureTargetOverlay(self)
             self._ovTgtShown = true
             self._ovTgtTex, self._ovTgtAlpha = texPath, overlayAlpha
             self._ovTgtBgAlpha = bgAlpha
-            self._ovTgtR, self._ovTgtG, self._ovTgtB = oc.r, oc.g, oc.b
+            self._ovTgtR, self._ovTgtG, self._ovTgtB = ocr, ocg, ocb
             ApplyOverlayGeometry(self.targetOverlayFill, self.targetOverlayBg, self.health, ns.OVERLAY_STRIPE_KEYS[targetTex] == true)
             self.targetOverlayFill:SetTexture(texPath)
             self.targetOverlayFill:SetAlpha(overlayAlpha)
-            self.targetOverlayFill:SetVertexColor(oc.r, oc.g, oc.b)
+            self.targetOverlayFill:SetVertexColor(ocr, ocg, ocb)
             self.targetClipFill:Show()
             self.targetOverlayBg:SetTexture(texPath)
             self.targetOverlayBg:SetAlpha(bgAlpha)
-            self.targetOverlayBg:SetVertexColor(oc.r, oc.g, oc.b)
+            self.targetOverlayBg:SetVertexColor(ocr, ocg, ocb)
             self.targetClipBg:Show()
         end
     elseif self.targetClipFill then

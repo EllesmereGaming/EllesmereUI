@@ -348,6 +348,7 @@ function ns.DM_CfgFP()
         dm.all ~= false and 1 or 0, dm.boss and 1 or 0, dm.role and 1 or 0,
         dm.priority and 1 or 0, dm.cc ~= false and 1 or 0, dm.raid and 1 or 0,
         dm.raidcombat and 1 or 0, dm.dispel and 1 or 0,
+        dm.nonplayer and 1 or 0,
         (dm.dispelMode == "typed") and "typed" or "you",
         FxListFP(dm.fxList), -- base effects force records
         -- The internal exclude set varies only with the retail lust-debuff
@@ -399,7 +400,8 @@ local function EffectiveState(dm)
     -- cc defaults ON (legacy parity: the CC glow row rendered under every
     -- active preset); every other category is opt-in.
     local eff = { boss = dm.boss, role = dm.role, priority = dm.priority,
-        cc = dm.cc ~= false, raid = dm.raid, raidcombat = dm.raidcombat, dispel = dm.dispel }
+        cc = dm.cc ~= false, raid = dm.raid, raidcombat = dm.raidcombat, dispel = dm.dispel,
+        nonplayer = dm.nonplayer }
     local claims = {}
     local tiles = dm.tiles
     if tiles then
@@ -589,6 +591,18 @@ local function BuildRecords(s, dm)
     if eff.priority and (claims.priority or fxCats.priority or not allOn) then
         recs[#recs + 1] = { key = "priority", tokens = BoolTokens(),
             cand = Cand(true, { isPriorityAura = true }), gated = true, tile = claims.priority }
+    end
+
+    -- Non-player debuffs: pure-token record (HARMFUL + !PLAYER), base-only
+    -- (no tile claim, no fx routing). Rides the full token negation set so
+    -- token categories keep owning their overlaps; overlap with the boolean
+    -- records (boss/role/priority) is accepted, same as boolean x boolean.
+    -- Under Show All it is a pure subset of the all-record, so it is
+    -- skipped like the other category records.
+    if eff.nonplayer and not allOn then
+        local toks = BoolTokens()
+        toks[#toks + 1] = "!PLAYER"
+        recs[#recs + 1] = { key = "nonplayer", tokens = toks, cand = Cand(false) }
     end
 
     -- Per-filter Icon Effects Size: stamp each record with its owner list's

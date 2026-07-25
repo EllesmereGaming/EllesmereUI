@@ -211,6 +211,10 @@ local DM_DEFAULTS = {
             rightFontSize   = 11,
             rightTextUseClassColor = false,
             rightTextColor  = { r = 1, g = 1, b = 1 },
+            leftTextOffsetX = 0,
+            leftTextOffsetY = 0,
+            rightTextOffsetX = 0,
+            rightTextOffsetY = 0,
             bgR = 0, bgG = 0, bgB = 0, bgAlpha = 0.75,
             windowBorderTexture = "solid",
             windowBorderSize = 0,
@@ -2231,8 +2235,57 @@ local function CreateDMWindow(winIdx)
             local sz = c.borderSize or 0
             if sz <= 0 then
                 if bar._borderFrame then bar._borderFrame:Hide() end
+                if bar._fillBorder then bar._fillBorder:Hide() end
                 return
             end
+            -- Follow-fill mode: the filled extent is SECRET geometry (fill
+            -- values are secret damage numbers), so nothing here may measure
+            -- it -- Blizzard's Backdrop/NineSlice styles crash on GetWidth of
+            -- a frame anchored to it. Render four plain color strips stretched
+            -- purely by engine anchors instead: left edge on plain geometry,
+            -- right edge riding the fill texture. Always solid, whatever the
+            -- Border Style dropdown says; the styled path stays full-row only.
+            if c.borderFollowFill then
+                if bar._borderFrame then bar._borderFrame:Hide() end
+                local fb = bar._fillBorder
+                if not fb then
+                    fb = CreateFrame("Frame", nil, bar.row)
+                    fb:SetFrameLevel(bar.row:GetFrameLevel() + 3)
+                    fb:SetPoint("TOPLEFT", bar.row, "TOPLEFT")
+                    fb:SetSize(1, 1)  -- inert; the strips carry the shape
+                    fb.top = fb:CreateTexture(nil, "OVERLAY")
+                    fb.bottom = fb:CreateTexture(nil, "OVERLAY")
+                    fb.left = fb:CreateTexture(nil, "OVERLAY")
+                    fb.right = fb:CreateTexture(nil, "OVERLAY")
+                    bar._fillBorder = fb
+                end
+                local ft = bar.fill:GetStatusBarTexture()
+                local anchorL = c.borderFollowFillIcon and bar.row or bar.fill
+                local r, g, b, a = c.borderR or 0, c.borderG or 0, c.borderB or 0, c.borderA or 1
+                fb.top:SetColorTexture(r, g, b, a)
+                fb.bottom:SetColorTexture(r, g, b, a)
+                fb.left:SetColorTexture(r, g, b, a)
+                fb.right:SetColorTexture(r, g, b, a)
+                fb.top:ClearAllPoints()
+                fb.top:SetPoint("TOPLEFT", anchorL, "TOPLEFT", 0, 0)
+                fb.top:SetPoint("TOPRIGHT", ft, "TOPRIGHT", 0, 0)
+                fb.top:SetHeight(sz)
+                fb.bottom:ClearAllPoints()
+                fb.bottom:SetPoint("BOTTOMLEFT", anchorL, "BOTTOMLEFT", 0, 0)
+                fb.bottom:SetPoint("BOTTOMRIGHT", ft, "BOTTOMRIGHT", 0, 0)
+                fb.bottom:SetHeight(sz)
+                fb.left:ClearAllPoints()
+                fb.left:SetPoint("TOPLEFT", anchorL, "TOPLEFT", 0, -sz)
+                fb.left:SetPoint("BOTTOMLEFT", anchorL, "BOTTOMLEFT", 0, sz)
+                fb.left:SetWidth(sz)
+                fb.right:ClearAllPoints()
+                fb.right:SetPoint("TOPRIGHT", ft, "TOPRIGHT", 0, -sz)
+                fb.right:SetPoint("BOTTOMRIGHT", ft, "BOTTOMRIGHT", 0, sz)
+                fb.right:SetWidth(sz)
+                fb:Show()
+                return
+            end
+            if bar._fillBorder then bar._fillBorder:Hide() end
             if not bar._borderFrame then
                 bar._borderFrame = CreateFrame("Frame", nil, bar.row)
                 bar._borderFrame:SetAllPoints(bar.row)
@@ -2300,6 +2353,18 @@ local function CreateDMWindow(winIdx)
         bar.label = tf:CreateFontString(nil, "OVERLAY"); bar.label:SetPoint("LEFT", bar.pos, "RIGHT", 2, 0); bar.label:SetPoint("RIGHT", tf, "RIGHT", -70, 0); bar.label:SetJustifyH("LEFT"); SetDMFont(bar.label, 11)
         bar.label:SetWordWrap(false)
         bar.amount = tf:CreateFontString(nil, "OVERLAY"); bar.amount:SetPoint("RIGHT", tf, "RIGHT", -3, 0); bar.amount:SetJustifyH("RIGHT"); SetDMFont(bar.amount, 11)
+        -- Bar Text X/Y offsets (Bar Text size cogs). Re-applies the creation
+        -- anchors above with the profile offsets added. The label's Y rides its
+        -- RIGHT point; its LEFT already follows bar.pos on both axes.
+        bar.ApplyTextOffsets = function()
+            local c2 = DB()
+            local lx, ly = c2.leftTextOffsetX or 0, c2.leftTextOffsetY or 0
+            local rx, ry = c2.rightTextOffsetX or 0, c2.rightTextOffsetY or 0
+            bar.pos:SetPoint("LEFT", tf, "LEFT", 3 + lx, ly)
+            bar.label:SetPoint("RIGHT", tf, "RIGHT", -70, ly)
+            bar.amount:SetPoint("RIGHT", tf, "RIGHT", -3 + rx, ry)
+        end
+        bar.ApplyTextOffsets()
         bar.row:SetScript("OnClick", function(_, button)
             if button == "LeftButton" then
                 if InCombatLockdown() then return end
@@ -4454,6 +4519,19 @@ ns.ApplyBarBg = function()
         end
         if w.stickyPlayer and w.stickyPlayer.ApplyBg then
             w.stickyPlayer.ApplyBg()
+        end
+    end
+end
+
+ns.ApplyBarTextOffsets = function()
+    for _, w in ipairs(_windows) do
+        if w.rowPool then
+            for _, bar in ipairs(w.rowPool) do
+                if bar.ApplyTextOffsets then bar.ApplyTextOffsets() end
+            end
+        end
+        if w.stickyPlayer and w.stickyPlayer.ApplyTextOffsets then
+            w.stickyPlayer.ApplyTextOffsets()
         end
     end
 end

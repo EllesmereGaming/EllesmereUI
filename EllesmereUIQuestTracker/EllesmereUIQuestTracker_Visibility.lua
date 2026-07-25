@@ -563,7 +563,15 @@ function EQT.InitVisibility()
             if otf then otf:SetAlpha(a) end
             if _bgFrame then _bgFrame:SetAlpha(a) end
         end
-        moProxy.Show = function() end
+        -- The monitor reveals via SetAlpha(1) + Show(). The BG may have been
+        -- Hidden by a resize pass while idling at alpha 0 (TrackerIsVisible
+        -- reads mouseover-idle the same as the combat alpha-hide), so the
+        -- reveal must re-Show it or hovering brings back the tracker without
+        -- its background. Hide() stays alpha-only; the next resize pass
+        -- re-hides the frame cleanly.
+        moProxy.Show = function()
+            if _bgFrame then _bgFrame:Show() end
+        end
         moProxy.Hide = function()
             if otf then otf:SetAlpha(0) end
             if _bgFrame then _bgFrame:SetAlpha(0) end

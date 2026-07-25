@@ -132,7 +132,8 @@ local function Activate()
                 if v == true then src[k] = k; v = k end
                 -- Prefer all-uppercase keys when two keys share a translation
                 -- in some locales, so EnKey() resolves section headers correctly.
-                if not reverse[v] or (k == k:upper() and reverse[v] ~= reverse[v]:upper()) then
+                if type(v) == "string" and type(k) == "string"
+                    and (not reverse[v] or (k == k:upper() and reverse[v] ~= reverse[v]:upper())) then
                     reverse[v] = k
                 end
             end

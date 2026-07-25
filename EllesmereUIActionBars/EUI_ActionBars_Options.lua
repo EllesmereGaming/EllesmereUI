@@ -3832,6 +3832,64 @@ initFrame:SetScript("OnEvent", function(self)
                     cdnCogBtn:SetAlpha(CdnOff() and 0.15 or 0.4)
                 end)
             end
+
+            -- Row 4: Icon Background (opacity slider + inline swatch) | (blank)
+            local slotBgRow
+            slotBgRow, h = W:DualRow(parent, y,
+                { type="slider", text="Icon Background", min=0, max=100, step=1,
+                  tooltip="Controls the opacity of the flat color background behind action button icons.",
+                  disabled=BlizzStyleOn, disabledTooltip="Blizzard Style Action Bars", requireState="disabled",
+                  getValue=function()
+                      local v = EAB.db.profile.slotBgOpacity
+                      if v == nil then v = 50 end
+                      return v
+                  end,
+                  setValue=function(v)
+                      EAB.db.profile.slotBgOpacity = v
+                      EAB:ApplySlotBackgroundColor()
+                  end },
+                { type="label", text="" });  y = y - h
+            -- Inline swatch: icon background color (left region). Dimmed while
+            -- Blizzard style is on (no slot background exists) or at 0 opacity.
+            do
+                local rgn = slotBgRow._leftRegion
+                local function SbgOff()
+                    if BlizzStyleOn() then return true end
+                    local v = EAB.db.profile.slotBgOpacity
+                    if v == nil then v = 50 end
+                    return v == 0
+                end
+                local sbgSwatch, sbgUpdateSwatch = EllesmereUI.BuildColorSwatch(
+                    rgn, slotBgRow:GetFrameLevel() + 3,
+                    function()
+                        local c = EAB.db.profile.slotBgColor or { r=0.15, g=0.15, b=0.15 }
+                        return c.r, c.g, c.b, 1
+                    end,
+                    function(r, g, b)
+                        EAB.db.profile.slotBgColor = { r = r, g = g, b = b }
+                        EAB:ApplySlotBackgroundColor()
+                    end,
+                    false, 20)
+                PP.Point(sbgSwatch, "RIGHT", rgn._control, "LEFT", -8, 0)
+                rgn._lastInline = sbgSwatch
+                sbgSwatch:SetAlpha(SbgOff() and 0.15 or 1)
+                local sbgOrigClick = sbgSwatch:GetScript("OnClick")
+                sbgSwatch:SetScript("OnClick", function(self, ...)
+                    if SbgOff() then return end
+                    if sbgOrigClick then sbgOrigClick(self, ...) end
+                end)
+                sbgSwatch:SetScript("OnEnter", function(self)
+                    if SbgOff() then
+                        local why = BlizzStyleOn() and "Blizzard Style Action Bars" or "Set Icon Background above 0"
+                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip(why))
+                    end
+                end)
+                sbgSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                EllesmereUI.RegisterWidgetRefresh(function()
+                    sbgSwatch:SetAlpha(SbgOff() and 0.15 or 1)
+                    sbgUpdateSwatch()
+                end)
+            end
             -------------------------------------------------------------------
             --  ICON EFFECTS
             -------------------------------------------------------------------

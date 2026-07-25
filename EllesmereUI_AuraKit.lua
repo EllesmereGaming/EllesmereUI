@@ -382,6 +382,33 @@ local function ApplyStyleToRegions(button, style)
         end
     end
 
+    -- Tooltip behavior (68914 button APIs): combat-only hiding and anchor
+    -- overrides from the 4-state tooltip mode (style.tooltipCombatHide /
+    -- style.tooltipAnchor = "cursor"). Button-surface calls: change-guarded,
+    -- stamped on success only, deferred to the restriction lift when denied.
+    -- API-existence guards keep stale builds inert.
+    if button.SetHideTooltipInCombat then
+        local wantCombat = style.tooltipCombatHide and true or false
+        if d.akTipCombat ~= wantCombat then
+            if pcall(button.SetHideTooltipInCombat, button, wantCombat) then
+                d.akTipCombat = wantCombat
+            elseif d.styleKey and AK.AurasRestricted() then
+                deferredRestyles[d.styleKey] = true
+            end
+        end
+    end
+    if button.SetTooltipAnchorPoint then
+        local wantAnchor = (style.tooltipAnchor == "cursor")
+            and "ANCHOR_CURSOR" or "ANCHOR_BOTTOMLEFT"
+        if d.akTipAnchor ~= wantAnchor then
+            if pcall(button.SetTooltipAnchorPoint, button, wantAnchor) then
+                d.akTipAnchor = wantAnchor
+            elseif d.styleKey and AK.AurasRestricted() then
+                deferredRestyles[d.styleKey] = true
+            end
+        end
+    end
+
     -- Module-specific styling pass; runs at init and on every Restyle.
     if style.applyExtra then
         style.applyExtra(button, d, style)
@@ -526,17 +553,20 @@ function AK.MakeInitializer(styleKey, extra)
         d.stack = d.stackCarrier:CreateFontString(nil, "OVERLAY")
         d.duration = d.stackCarrier:CreateFontString(nil, "OVERLAY")
 
-        -- Engine aura buttons come CLICK-enabled, and these are pure displays:
-        -- no style in the suite has a click action, and on nameplates a
-        -- click-alive icon sits between the cursor and the plate's click
-        -- region, eating target-switch clicks (measured in-game: the M+
-        -- "takes several clicks to swap target" report was an EUI plate aura
-        -- icon with clicks on). This is the ONLY reliable place to turn them
-        -- off: post-creation writes on the button are denied in secret
-        -- contexts (12.x DenyTaintedAccessWhenAurasAreSecret), which is
-        -- combat -- exactly when it matters. Motion stays per-style so
-        -- tooltips keep working where styles want them.
-        pcall(button.SetMouseClickEnabled, button, false)
+        -- Engine aura buttons come CLICK-enabled. On nameplates a click-alive
+        -- icon sits between the cursor and the plate's click region, eating
+        -- target-switch clicks (measured in-game: the M+ "takes several
+        -- clicks to swap target" report was an EUI plate aura icon with
+        -- clicks on). This is the ONLY reliable place to turn them off:
+        -- post-creation writes on the button are denied in secret contexts
+        -- (12.x DenyTaintedAccessWhenAurasAreSecret), which is combat --
+        -- exactly when it matters. Motion stays per-style so tooltips keep
+        -- working where styles want them. Styles that wire a click action
+        -- (cancelButtons: player buffs right-click-to-cancel, applied below)
+        -- keep their clicks -- those buttons overlay nothing clickable.
+        if not style.cancelButtons then
+            pcall(button.SetMouseClickEnabled, button, false)
+        end
 
         ApplyStyleToRegions(button, style)
 

@@ -1132,9 +1132,15 @@ end
 -- the Bags module's own gold ledger, which is where it should always have
 -- been -- it also means the ledger no longer resets when profiles switch.
 local function GoldStore()
-    if not EllesmereUIDB then EllesmereUIDB = {} end
-    EllesmereUIDB.dataBarsGold = EllesmereUIDB.dataBarsGold or {}
-    return EllesmereUIDB.dataBarsGold
+    -- Throwaway fallback if the parent DB is somehow absent: never assign the
+    -- global here, or a pre-SavedVariables call could shadow the real table.
+    if type(EllesmereUIDB) ~= "table" then return {} end
+    local store = EllesmereUIDB.dataBarsGold
+    if type(store) ~= "table" then
+        store = {}
+        EllesmereUIDB.dataBarsGold = store
+    end
+    return store
 end
 
 -- Drop a character the player no longer has (renamed, deleted, transferred).

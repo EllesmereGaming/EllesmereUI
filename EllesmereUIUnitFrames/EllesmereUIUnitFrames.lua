@@ -10818,7 +10818,7 @@ local function ReloadFrames()
             -- so this is a no-op unless the user enabled a boss border).
             if unit:match("^boss%d$") then
                 local isT = UnitIsUnit(unit, "target")
-                frame._isTarget = (isT and not issecretvalue(isT)) and true or false
+                frame._isTarget = (not issecretvalue(isT) and isT) and true or false
                 ns.ApplyBossBorderState(frame)
             end
             frame.Health:SetReverseFill(settings.healthReverseFill and true or false)
@@ -11992,10 +11992,12 @@ function InitializeFrames()
             local unit = uf.unit
             local isLeader = UnitIsGroupLeader(unit)
             local isAssist = UnitIsGroupAssistant(unit)
-            if isLeader and not issecretvalue(isLeader) then
+            -- Secrecy check MUST run before any truthiness test: boolean-testing
+            -- a secret errors, so "value and not issecretvalue(value)" crashes.
+            if not issecretvalue(isLeader) and isLeader then
                 tex:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
                 tex:Show()
-            elseif isAssist and not issecretvalue(isAssist) then
+            elseif not issecretvalue(isAssist) and isAssist then
                 tex:SetTexture("Interface\\GroupFrame\\UI-Group-AssistantIcon")
                 tex:Show()
             else
@@ -12770,7 +12772,7 @@ function InitializeFrames()
             if f then
                 if f.unifiedBorder then
                     local isT = UnitIsUnit(bUnit, "target")
-                    f._isTarget = (isT and not issecretvalue(isT)) and true or false
+                    f._isTarget = (not issecretvalue(isT) and isT) and true or false
                     ns.ApplyBossBorderState(f)
                 end
                 if s then

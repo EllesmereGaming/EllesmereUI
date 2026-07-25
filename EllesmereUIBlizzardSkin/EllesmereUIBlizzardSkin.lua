@@ -1113,6 +1113,8 @@ end
                 _ttInitData()
                 _ttInitVisual()
             end
+            -- Engine aura tooltip mirrors the skin (12.1; no-op on retail).
+            if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end
             if _pmEnabled() then
                 _menuInit()
                 _popupInit()
@@ -1126,6 +1128,39 @@ end
         end)
     end
     EllesmereUI._initTooltipSkins = function() _ttInit(); _menuInit(); _popupInit() end
+
+    -- 12.1 ONLY: mirror the tooltip skin onto the ENGINE aura tooltip
+    -- (AuraButtonTooltip -- the forbidden GameTooltip clone every aura
+    -- container button uses; addon hooks can never touch it). 68914 exposes
+    -- global styling entry points for it: resolved DEFENSIVELY (public-env
+    -- reachability is a field-verify item) and pcall'd throughout. Applied
+    -- at login and from the tooltip-skin setters; skin off restores the
+    -- engine default style.
+    function EllesmereUI.SyncAuraTooltipSkin()
+        if not EllesmereUI.IS_121 then return end
+        local inb = _G.AuraContainerInbound
+        if not inb then return end
+        if _enabled() then
+            if not inb.SetTooltipBackdrop then return end
+            local cr, cg, cb, ca = EllesmereUI.GetTooltipBg()
+            local br, bgc, bb, ba, size = EllesmereUI.GetTooltipBorder()
+            local info = {
+                backdropInfo = {
+                    bgFile = "Interface\\Buttons\\WHITE8X8",
+                    insets = { left = 0, right = 0, top = 0, bottom = 0 },
+                },
+                centerColor = CreateColor(cr or 0, cg or 0, cb or 0, ca or 0.9),
+            }
+            if (size or 0) > 0 then
+                info.backdropInfo.edgeFile = "Interface\\Buttons\\WHITE8X8"
+                info.backdropInfo.edgeSize = size
+                info.borderColor = CreateColor(br or 0, bgc or 0, bb or 0, ba or 1)
+            end
+            pcall(inb.SetTooltipBackdrop, info)
+        elseif inb.ResetTooltipStyle then
+            pcall(inb.ResetTooltipStyle)
+        end
+    end
 
     ---------------------------------------------------------------------------
     --  LFG Queue Accept Popup: reskin + countdown timer bar

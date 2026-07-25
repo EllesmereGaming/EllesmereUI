@@ -3988,6 +3988,17 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetAlpha(questObjOff() and 0.15 or 0.4)
         end
 
+        -- Row 4: Execute Pulse Glow | (blank)
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Execute Pulse Glow",
+              tooltip="Pulses a red glow on enemy nameplates below 30% health.",
+              getValue=function() return DBVal("lowHpGlow") == true end,
+              setValue=function(v)
+                DB().lowHpGlow = v
+                ns.RefreshAllSettings()
+              end },
+            { type="label", text="" });  y = y - h
+
         return math.abs(y)
     end
 
@@ -7682,7 +7693,6 @@ initFrame:SetScript("OnEvent", function(self)
                 title = "Target Texture",
                 rows = {
                     { type="slider", label="Opacity", min=5, max=100, step=1,
-                      disabled=isTargetNoTint,
                       get=function() return math.floor(((DBVal("targetOverlayAlpha") or defaults.targetOverlayAlpha) * 100) + 0.5) end,
                       set=function(v)
                         DB().targetOverlayAlpha = v / 100
@@ -7690,7 +7700,6 @@ initFrame:SetScript("OnEvent", function(self)
                         if targetPrev and targetPrev.UpdateOverlay then targetPrev.UpdateOverlay() end
                       end },
                     { type="toggle", label="Full alpha on empty part of bar",
-                      disabled=isTargetNoTint,
                       get=function()
                         local v = DBVal("targetOverlayFullBgAlpha")
                         if v == nil then return defaults.targetOverlayFullBgAlpha end
@@ -7702,7 +7711,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if targetPrev and targetPrev.UpdateOverlay then targetPrev.UpdateOverlay() end
                       end },
                     { type="toggle", label="Don't tint (keep bar's own color)",
-                      tooltip="Applies this pattern as the health bar's own fill texture instead of a colored overlay on top -- the bar keeps its normal reaction (or custom target) color.",
+                      tooltip="Tints the pattern with the bar's current color instead of the custom overlay color.",
                       get=isTargetNoTint,
                       set=function(v)
                         DB().targetOverlayNoTint = v
@@ -7766,14 +7775,12 @@ initFrame:SetScript("OnEvent", function(self)
                 title = "Focus Texture",
                 rows = {
                     { type="slider", label="Opacity", min=5, max=100, step=1,
-                      disabled=isFocusNoTint,
                       get=function() return math.floor(((DBVal("focusOverlayAlpha") or defaults.focusOverlayAlpha) * 100) + 0.5) end,
                       set=function(v)
                         DB().focusOverlayAlpha = v / 100
                         RefreshFocusPreview()
                       end },
                     { type="toggle", label="Full alpha on empty part of bar",
-                      disabled=isFocusNoTint,
                       get=function()
                         local v = DBVal("focusOverlayFullBgAlpha")
                         if v == nil then return defaults.focusOverlayFullBgAlpha end
@@ -7784,7 +7791,7 @@ initFrame:SetScript("OnEvent", function(self)
                         RefreshFocusPreview()
                       end },
                     { type="toggle", label="Don't tint (keep bar's own color)",
-                      tooltip="Applies this pattern as the health bar's own fill texture instead of a colored overlay on top -- the bar keeps its normal reaction (or custom focus) color.",
+                      tooltip="Tints the pattern with the bar's current color instead of the custom overlay color.",
                       get=isFocusNoTint,
                       set=function(v)
                         DB().focusOverlayNoTint = v

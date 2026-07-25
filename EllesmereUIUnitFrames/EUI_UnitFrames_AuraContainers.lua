@@ -65,6 +65,12 @@ local TOKEN_CLASSES = {
     { key = "bigdef",      token = "BIG_DEFENSIVE",           skey = "BigDefensive" },
     { key = "extdef",      token = "EXTERNAL_DEFENSIVE",      skey = "ExternalDefensive" },
     { key = "cancel",      token = "CANCELABLE",              skey = "Cancelable", buffOnly = true },
+    -- Player-frame only: everything not applied by you (the negated PLAYER
+    -- token). Sits LAST so every other enabled class owns its overlap; its
+    -- negation for later (candidate) links is the bare PLAYER token, which
+    -- hands them exactly the player-applied leftovers.
+    { key = "nonplayer",   token = "!PLAYER",                 skey = "NonPlayer",
+      neg = "PLAYER", debuffOnly = true, playerUnitOnly = true },
 }
 local CANDIDATE_CLASSES = {
     { key = "bossaura", cand = "isBossAura",     skey = "BossAura",     debuffOnly = true },
@@ -73,28 +79,31 @@ local CANDIDATE_CLASSES = {
     { key = "steal",    cand = "isStealable",    skey = "Stealable",    buffOnly = true },
 }
 
-local function ClassEnabled(class, isBuff, s)
+local function ClassEnabled(class, isBuff, s, unit)
     if class.buffOnly and not isBuff then return false end
     if class.debuffOnly and isBuff then return false end
+    -- Player-frame-only classes: offered nowhere else in the UI, and a
+    -- stale key on another unit's settings must have no effect.
+    if class.playerUnitOnly and unit ~= "player" then return false end
     local prefix = "debuff"
     if isBuff then prefix = "buff" end
     return s[prefix .. class.skey] == true
 end
 
-local function BuildChain(base, isBuff, s)
+local function BuildChain(base, isBuff, s, unit)
     local chain, negations = {}, {}
     for i = 1, #TOKEN_CLASSES do
         local class = TOKEN_CLASSES[i]
-        if ClassEnabled(class, isBuff, s) then
+        if ClassEnabled(class, isBuff, s, unit) then
             local tokens = { base, class.token }
             for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
             chain[#chain + 1] = { key = class.key, tokens = tokens }
-            negations[#negations + 1] = "!" .. class.token
+            negations[#negations + 1] = class.neg or ("!" .. class.token)
         end
     end
     for i = 1, #CANDIDATE_CLASSES do
         local class = CANDIDATE_CLASSES[i]
-        if ClassEnabled(class, isBuff, s) then
+        if ClassEnabled(class, isBuff, s, unit) then
             local tokens = { base }
             for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
             chain[#chain + 1] = { key = class.key, tokens = tokens, cand = class.cand }
@@ -875,7 +884,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
         -- path permanently leaked a 10-button batch per group per toggle
         -- (engine frames are never freed).
         local own = EffectiveOwnOnly(unit, base, s)
-        local chain = BuildChain(base, base == "HELPFUL", s)
+        local chain = BuildChain(base, base == "HELPFUL", s, unit)
         local sig = ChainSignature(chain) .. (own and "|own" or "")
         local force = forceCfg
         local container = entry[field]
@@ -1013,7 +1022,7 @@ local function BuildUnitContainers(frame, unit)
     for e = 1, 2 do
         local base, field = ELEMENT_ORDER[e][1], ELEMENT_ORDER[e][2]
         local own = EffectiveOwnOnly(unit, base, s)
-        local chain = BuildChain(base, base == "HELPFUL", s)
+        local chain = BuildChain(base, base == "HELPFUL", s, unit)
         local declared = entry.groups[field]
         local styleKey = StyleKey(unit, base)
         if not declared[EffKey("all", own)] then

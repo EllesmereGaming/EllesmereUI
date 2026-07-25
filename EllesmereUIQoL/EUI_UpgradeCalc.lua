@@ -1718,9 +1718,15 @@ _firstRunEvt:SetScript("OnEvent", function(self)
         local charKey = UnitName("player") .. " - " .. GetRealmName()
         local store = _euicProfileRef
         store.chars = nil
-        if not EllesmereUIDB then EllesmereUIDB = {} end
-        local chars             = EllesmereUIDB.qolUpgradeCalcChars or {}
-        EllesmereUIDB.qolUpgradeCalcChars = chars
+        -- Throwaway fallback if the parent DB is somehow absent: the session
+        -- still works, nothing persists, and the global is never assigned
+        -- here (a pre-SavedVariables call could shadow the real table).
+        local acct = type(EllesmereUIDB) == "table" and EllesmereUIDB or {}
+        local chars = acct.qolUpgradeCalcChars
+        if type(chars) ~= "table" then
+            chars = {}
+            acct.qolUpgradeCalcChars = chars
+        end
         chars[charKey]          = chars[charKey]        or {}
         local charStore         = chars[charKey]
         charStore.upgradeCalc   = charStore.upgradeCalc or {}

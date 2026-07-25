@@ -4604,8 +4604,18 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v)
                       db.profile.darkTheme = v
                       ReloadAndUpdate(); UpdatePreview()
+                      -- Dark Mode feeds the conditional-override condition.
+                      if EllesmereUI.Conditions_Recheck then EllesmereUI.Conditions_Recheck() end
                       EllesmereUI:RefreshPage()
                   end });  y = y - h
+        -- This toggle IS the Dark Mode condition's input for Unit Frames:
+        -- lock it while a Dark Mode conditional is being edited, or the
+        -- override could capture a value that flips its own condition.
+        if EllesmereUI.SpecOverrides_AttachEditLock then
+            EllesmereUI.SpecOverrides_AttachEditLock(barTexRow._rightRegion,
+                "Dark Mode drives a Dark Mode override condition and can't be changed while editing an override",
+                EllesmereUI.SpecOverrides_DarkCondEditActive)
+        end
         -- Sync icon: Bar Texture (left region) -- pushes this unit's texture to frames
         do
             local rgn = barTexRow._leftRegion
@@ -6153,7 +6163,11 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(ltClassSwatch, "RIGHT", ltAnchor, "LEFT", -8, 0)
             ltClassSwatch:SetScript("OnClick", function()
                 if SVal("leftTextContent", "name") == "none" then return end
-                SSet("leftTextClassColor", true); UpdatePreview(); EllesmereUI:RefreshPage()
+                SSet("leftTextClassColor", true)
+                -- Bespoke write: notify for exact Spec Overrides attribution
+                -- (the forced RefreshPage below would otherwise resync-absorb it).
+                if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(ltClassSwatch) end
+                UpdatePreview(); EllesmereUI:RefreshPage()
             end)
             ltClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ltClassSwatch, "Class Colored") end)
             ltClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -6172,7 +6186,9 @@ initFrame:SetScript("OnEvent", function(self)
             ltSwatch:SetScript("OnClick", function(self, ...)
                 if SVal("leftTextContent", "name") == "none" then return end
                 if SVal("leftTextClassColor", false) then
-                    SSet("leftTextClassColor", false); UpdatePreview(); EllesmereUI:RefreshPage(); return
+                    SSet("leftTextClassColor", false)
+                    if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(self) end
+                    UpdatePreview(); EllesmereUI:RefreshPage(); return
                 end
                 if ltOrigClick then ltOrigClick(self, ...) end
             end)
@@ -6186,6 +6202,18 @@ initFrame:SetScript("OnEvent", function(self)
             end
             RegisterWidgetRefresh(function() ltUpdateSwatch(); ltUpdateClassSwatch(); UpdateLtSwatches() end)
             UpdateLtSwatches()
+            -- The class-color mode flag is written only by the bespoke swatch
+            -- OnClicks above and read by no widget getter, so the Spec
+            -- Overrides read-trace could never connect an override on it to
+            -- this row (no gold border / overlay for class-color overrides).
+            -- Declare it as a capture accessor: the gold walk traces it.
+            if EllesmereUI.AddCaptureAccessor then
+                EllesmereUI.AddCaptureAccessor(leftRgn, {
+                    type = "toggle", text = "Left Text Class Color",
+                    getValue = function() return SVal("leftTextClassColor", false) end,
+                    setValue = function(v) SSet("leftTextClassColor", v) end,
+                })
+            end
         end
         -- Cogwheel on Left Text (left region)
         do
@@ -6336,7 +6364,11 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(rtClassSwatch, "RIGHT", rtAnchor, "LEFT", -8, 0)
             rtClassSwatch:SetScript("OnClick", function()
                 if SVal("rightTextContent", "both") == "none" then return end
-                SSet("rightTextClassColor", true); UpdatePreview(); EllesmereUI:RefreshPage()
+                SSet("rightTextClassColor", true)
+                -- Bespoke write: notify for exact Spec Overrides attribution
+                -- (the forced RefreshPage below would otherwise resync-absorb it).
+                if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(rtClassSwatch) end
+                UpdatePreview(); EllesmereUI:RefreshPage()
             end)
             rtClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(rtClassSwatch, "Class Colored") end)
             rtClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -6354,7 +6386,9 @@ initFrame:SetScript("OnEvent", function(self)
             rtSwatch:SetScript("OnClick", function(self, ...)
                 if SVal("rightTextContent", "both") == "none" then return end
                 if SVal("rightTextClassColor", false) then
-                    SSet("rightTextClassColor", false); UpdatePreview(); EllesmereUI:RefreshPage(); return
+                    SSet("rightTextClassColor", false)
+                    if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(self) end
+                    UpdatePreview(); EllesmereUI:RefreshPage(); return
                 end
                 if rtOrigClick then rtOrigClick(self, ...) end
             end)
@@ -6368,6 +6402,14 @@ initFrame:SetScript("OnEvent", function(self)
             end
             RegisterWidgetRefresh(function() rtUpdateSwatch(); rtUpdateClassSwatch(); UpdateRtSwatches() end)
             UpdateRtSwatches()
+            -- Mirror of the Left Text class-flag accessor: see that comment.
+            if EllesmereUI.AddCaptureAccessor then
+                EllesmereUI.AddCaptureAccessor(rightRgn, {
+                    type = "toggle", text = "Right Text Class Color",
+                    getValue = function() return SVal("rightTextClassColor", false) end,
+                    setValue = function(v) SSet("rightTextClassColor", v) end,
+                })
+            end
         end
         -- Cogwheel on Right Text (right region)
         do
@@ -10441,11 +10483,11 @@ initFrame:SetScript("OnEvent", function(self)
                     { key = "externalDefensive", label = "External Defensive", tooltip = "Shows only external defensive cooldowns cast on the unit" },
                     { key = "bossAura",          label = "Boss Auras",         tooltip = "Shows only debuffs applied by bosses" },
                     { key = "roleAura",          label = "Role Auras",         tooltip = "Shows only debuffs flagged for your role" },
-                    { key = "priorityAura",      label = "Priority",           tooltip = "Shows only priority debuffs" },
+                    { key = "priorityAura",      label = "Important",          tooltip = "Shows only debuffs Blizzard flags as important" },
                     { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Debuffs you apply" },
                 }
                 BUFF_FILTER_KEYS   = { ownOnly = "onlyPlayerBuffs",   raidFrames = "buffRaid",   raidInCombat = "buffRaidInCombat",   dispellable = "buffDispellable",   crowdControl = "buffCrowdControl",   bigDefensive = "buffBigDefensive",   externalDefensive = "buffExternalDefensive",   cancelable = "buffCancelable", stealable = "buffStealable" }
-                DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura" }
+                DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura", nonplayer = "debuffNonPlayer" }
             else
                 buffFilterItems = {
                     { key = "raidFrames",        label = "Raid Frames",        tooltip = "Shows only the Buffs/Debuffs that appear on Raid Frames" },
@@ -10462,9 +10504,23 @@ initFrame:SetScript("OnEvent", function(self)
             -- your own debuffs to yourself); any stale onlyPlayerDebuffs value is
             -- ignored at runtime.
             if selectedUnit == "player" then
+                -- Player list is re-ordered: Important leads (the most common
+                -- pick) with the 12.1-only Non-Player Debuffs classification
+                -- (the negated PLAYER engine token) right below it; the rest
+                -- keep their relative order. On 12.0 neither key exists in
+                -- the list, so this reduces to the plain ownOnly trim.
                 local trimmed = {}
                 for _, it in ipairs(debuffFilterItems) do
-                    if it.key ~= "ownOnly" then trimmed[#trimmed + 1] = it end
+                    if it.key == "priorityAura" then trimmed[#trimmed + 1] = it end
+                end
+                if EllesmereUI.IS_121 then
+                    trimmed[#trimmed + 1] = { key = "nonplayer", label = "Non-Player Debuffs",
+                        tooltip = "Shows every debuff except the ones you or your pet apply" }
+                end
+                for _, it in ipairs(debuffFilterItems) do
+                    if it.key ~= "ownOnly" and it.key ~= "priorityAura" then
+                        trimmed[#trimmed + 1] = it
+                    end
                 end
                 debuffFilterItems = trimmed
             end
@@ -14006,7 +14062,7 @@ initFrame:SetScript("OnEvent", function(self)
                         { key = "externalDefensive", label = "External Defensive", tooltip = "Shows only external defensive cooldowns cast on the unit" },
                         { key = "bossAura",          label = "Boss Auras",         tooltip = "Shows only debuffs applied by bosses" },
                         { key = "roleAura",          label = "Role Auras",         tooltip = "Shows only debuffs flagged for your role" },
-                        { key = "priorityAura",      label = "Priority",           tooltip = "Shows only priority debuffs" },
+                        { key = "priorityAura",      label = "Important",          tooltip = "Shows only debuffs Blizzard flags as important" },
                         { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Debuffs you apply" },
                     }
                     DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura" }

@@ -18872,6 +18872,16 @@ initFrame:SetScript("OnEvent", function(self)
         if not isCustomBuffBar and not isFocusKick then
         _, h = W:SectionHeader(parent, "EXTRAS", y);  y = y - h
 
+        -- Hide Items if Missing: one config, hosted in a different row per bar
+        -- family. Buff bars carry it in the tooltip row's right slot; CD and
+        -- utility bars keep it beside Mirror Key Presses further down.
+        local hideMissingCfg = { type="toggle", text="Hide Items if Missing",
+              tooltip = "Hide consumable items (potions, healthstone) from the bar when you have none in your bags, instead of showing them dimmed. They reappear automatically once you have the item again.",
+              getValue=function() return BD().hideItemsIfMissing == true end,
+              setValue=function(v)
+                  BD().hideItemsIfMissing = v
+                  if ns.FullCDMRebuild then ns.FullCDMRebuild("hide_missing_toggle") end
+              end }
         -- Buffs get "Show Tooltip on Hover" only (auras aren't cast -> no keybind);
         -- cooldown/utility icon bars get the Tooltip | Keybind pair below.
         if isAnyBuffBar then
@@ -18883,7 +18893,7 @@ initFrame:SetScript("OnEvent", function(self)
                   ns.ApplyCDMTooltipState(BD().key)
                   Refresh()
               end },
-            { type="spacer" }
+            hideMissingCfg
         );  y = y - tth
         else
         local kbRow
@@ -19082,32 +19092,23 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end });  y = y - h
 
-        -- Hide Items if Missing | Mirror Key Presses. Mirror Key Presses is not
-        -- for buff-family bars (buffs are auto-tracked auras, not keybind-pressed
-        -- abilities, so a "pressed" look has no meaning) -- those bars keep the
-        -- right slot visually empty. (Per-spell threshold decimals/color moved to
-        -- the per-icon dropdown: Threshold Text.)
-        local mirrorCfg
-        if not (ns.IsBarBuffFamily and ns.IsBarBuffFamily(barData)) then
-            mirrorCfg = { type="toggle", text="Mirror Key Presses",
+        -- Hide Items if Missing | Mirror Key Presses -- CD/utility bars only.
+        -- Buff bars host Hide Items if Missing in the tooltip row above (their
+        -- copy of this row would be empty), and Mirror Key Presses is not for
+        -- buff-family bars (buffs are auto-tracked auras, not keybind-pressed
+        -- abilities, so a "pressed" look has no meaning). (Per-spell threshold
+        -- decimals/color moved to the per-icon dropdown: Threshold Text.)
+        if not isAnyBuffBar then
+        _, h = W:DualRow(parent, y,
+            hideMissingCfg,
+            { type="toggle", text="Mirror Key Presses",
               tooltip = "When you press an ability's keybind, show the action button's \"pushed down\" look on its icon on this bar -- even while the ability is on cooldown.",
               getValue=function() return BD().pressMirror == true end,
               setValue=function(v)
                   BD().pressMirror = v
                   if ns.ClearCdmPressPush then ns.ClearCdmPressPush() end
-              end }
-        else
-            mirrorCfg = { type="label", text="" }
+              end });  y = y - h
         end
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Hide Items if Missing",
-              tooltip = "Hide consumable items (potions, healthstone) from the bar when you have none in your bags, instead of showing them dimmed. They reappear automatically once you have the item again.",
-              getValue=function() return BD().hideItemsIfMissing == true end,
-              setValue=function(v)
-                  BD().hideItemsIfMissing = v
-                  if ns.FullCDMRebuild then ns.FullCDMRebuild("hide_missing_toggle") end
-              end },
-            mirrorCfg);  y = y - h
 
         -- Bar Strata: per-bar screen render layer for the bar container and
         -- its icons. MEDIUM matches the previous hardcoded value, so an unset
