@@ -45,6 +45,7 @@ local QT_DEFAULTS = {
             -- Font sizes (single source of truth used by skin code)
             titleFontSize        = 12,
             objectiveFontSize    = 10,
+            headerFontSize       = 13,
 
             -- Background (rendered behind ObjectiveTrackerFrame, our own frame)
             bgR                  = 0.035,

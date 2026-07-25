@@ -5066,15 +5066,76 @@ end
 -------------------------------------------------------------------------------
 --  Visibility (registered with the shared EllesmereUI visibility dispatcher)
 -------------------------------------------------------------------------------
+-- Currently registered secure driver string, nil when none is registered.
+local _mmDriverStr
+
+-- Compile the profile's selection into macro-conditional grammar for the
+-- secure driver, or nil when it cannot be expressed as one.
+local function MinimapDriverString(p, vm)
+    if vm then
+        return EllesmereUI.BuildVisibilityDriverString
+            and EllesmereUI.BuildVisibilityDriverString("", vm)
+    end
+    local mode = p.visibility
+    if mode == "in_combat" then return "[combat] show; hide" end
+    if mode == "out_of_combat" then return "[nocombat] show; hide" end
+    return nil
+end
+
 local function UpdateMinimapVisibility()
     local p = EBS.db and EBS.db.profile and EBS.db.profile.minimap
-    if not p or not p.enabled then return end
-    -- Minimap:Show()/Hide() are protected in combat lockdown. Bail and let
-    -- PLAYER_REGEN_ENABLED re-trigger the visibility dispatcher.
-    if InCombatLockdown() then return end
-    local vis = EllesmereUI.EvalVisibility(p)
     local minimap = Minimap
     if not minimap then return end
+    if not p or not p.enabled then
+        -- Module switched off: hand visibility back to Blizzard rather than
+        -- leaving a driver bolted to its frame.
+        if _mmDriverStr and not InCombatLockdown() then
+            UnregisterStateDriver(minimap, "visibility")
+            _mmDriverStr = nil
+        end
+        return
+    end
+
+    -- Minimap:Show()/Hide() is protected during lockdown (#639), so this used
+    -- to skip the update entirely -- but the combat transitions are delivered
+    -- inside lockdown (PLAYER_REGEN_DISABLED already reports InCombatLockdown),
+    -- which left "Out of Combat" permanently visible and "In Combat"
+    -- permanently hidden. Alpha is not a stand-in either: the map surface and
+    -- its blips are engine-drawn and ignore frame alpha, so an alpha-0 minimap
+    -- still renders in full. A secure state driver is the only mechanism that
+    -- can legally hide this frame mid-combat, so combat-dependent selections
+    -- are handed to one. Everything else keeps plain Show()/Hide(), which
+    -- leaves the Blizzard-owned frame undriven whenever combat is not involved.
+    local vm = EllesmereUI.GetActiveVisibilityModes
+        and EllesmereUI.GetActiveVisibilityModes(p, "visibility")
+    -- Mouseover cannot be expressed as a macro conditional, and the poll's own
+    -- Show()/Hide() would fight a driver, so those selections stay on Lua.
+    local want = EllesmereUI.VisDependsOnCombat
+        and EllesmereUI.VisDependsOnCombat(p, "visibility")
+        and not (vm and vm.mouseover)
+        and MinimapDriverString(p, vm)
+        or nil
+    if want ~= _mmDriverStr and not InCombatLockdown() then
+        -- Registering evaluates immediately, which Show()s or Hide()s the
+        -- frame, so only ever swap drivers out of combat. The dispatcher
+        -- re-fires on PLAYER_REGEN_ENABLED and completes a deferred swap.
+        if want then
+            RegisterStateDriver(minimap, "visibility", want)
+        else
+            UnregisterStateDriver(minimap, "visibility")
+        end
+        _mmDriverStr = want
+    end
+    if _mmDriverStr then
+        -- The driver owns Show()/Hide() from here. Alpha stays ours and has to
+        -- be full: a transparent state left over from mouseover would keep the
+        -- frame invisible while the driver believes it is showing.
+        minimap:SetAlpha(1)
+        return
+    end
+
+    if InCombatLockdown() then return end
+    local vis = EllesmereUI.EvalVisibility(p)
     if vis == "mouseover" then
         minimap:SetAlpha(0)
         minimap:Show()

@@ -5,6 +5,12 @@
 
 local L = EllesmereUI.RegisterLocale("frFR")
 if not L then return end
+
+L["BLIZZARD POPUPS & GAME MENU"] = "FENÊTRES BLIZZARD ET MENU DU JEU"
+L["Resurrect Accept Glow"] = "Lueur d’acceptation de résurrection"
+L["Adds a glowing, pulsating border around the Accept button of resurrection popups so a pending resurrect is hard to miss. Follows the Element & Text Color setting. Applies instantly, no reload needed."] = "Ajoute une bordure lumineuse et pulsante autour du bouton Accepter des fenêtres de résurrection afin de ne pas manquer une résurrection. Utilise le réglage de couleur des éléments et du texte. Application immédiate sans rechargement."
+L["Button Border Size"] = "Taille de bordure du bouton"
+L["Element & Text Color"] = "Couleur des éléments et du texte"
 L["Behind Unit Frame"] = "Derrière le cadre d’unité"
 
 -- == Common labels =========================================================

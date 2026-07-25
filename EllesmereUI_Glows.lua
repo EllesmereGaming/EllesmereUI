@@ -203,8 +203,9 @@ local DASH_V = [[Interface\AddOns\EllesmereUI\media\glow-dash-v.tga]]
 
 -- Resolve the wrapper's pixel-snapped size and precompute the per-edge phase
 -- endpoints (invariant until the next resize). Returns false while the size is
--- still 0 (layout not resolved), so the caller retries on a later tick. Shared
--- by the animated (_AntsOnUpdate) and static (_AntsStaticSettle) paths.
+-- still 0, the scale chain is degenerate, or the pixel grid is unusable, so the
+-- caller retries on a later tick. Shared by the animated (_AntsOnUpdate) and
+-- static (_AntsStaticSettle) paths.
 local function _AntsResolveSize(self, d)
     local w, h = self:GetSize()
     -- Taint-strip (reparented frames can return secret-number sizes).
@@ -218,9 +219,26 @@ local function _AntsResolveSize(self, d)
     -- the same whole-pixel thickness (unsnapped SetHeight/SetWidth lets some
     -- sides round thicker than others at fractional effective scale).
     local PP = EllesmereUI.PP
-    local onePixel = PP.perfect / self:GetEffectiveScale()
+    -- A degenerate scale chain (0 while layout is unresolved, or the
+    -- SetScale(0.001) hide path) makes onePixel enormous, which collapses the
+    -- snap below to w = h = 0 and turns the k divide into N/0. Every phase
+    -- endpoint then goes non-finite and SetTexCoord rejects it on every driver
+    -- tick. Stay unresolved instead and retry once the scale is real.
+    local es = self:GetEffectiveScale()
+    if not es or es < 0.1 then return false end
+    local onePixel = PP.perfect / es
     w = floor(w / onePixel + 0.5) * onePixel
     h = floor(h / onePixel + 0.5) * onePixel
+    -- A genuinely sub-pixel wrapper passes the size test above but snaps to 0;
+    -- floor both dimensions at one pixel so (w + h) is always a real divisor.
+    if w < onePixel then w = onePixel end
+    if h < onePixel then h = onePixel end
+    -- Total sanity gate before anything is cached. An infinite onePixel (a
+    -- bogus PP.physicalHeight makes PP.perfect infinite) snaps w and h to NaN,
+    -- which slips past every comparison above and then poisons the k divide
+    -- below. NaN and inf both fail this test, so the phase endpoints are always
+    -- real numbers and SetTexCoord can never be handed a value it rejects.
+    if not (w > 0 and h > 0 and w + h < math.huge) then return false end
     local sTh = floor(d.th / onePixel + 0.5) * onePixel
     if sTh < onePixel then sTh = onePixel end
     d.top:SetHeight(sTh); d.bottom:SetHeight(sTh)
@@ -242,7 +260,9 @@ local function _AntsOnUpdate(self, elapsed)
     if not d then return end
     d.timer = d.timer + elapsed
     if d.timer >= d.period then d.timer = d.timer - d.period end
-    if d.w * d.h == 0 then
+    -- Positive-test rather than == 0 so a non-finite cached size fails it too
+    -- and re-resolves, instead of feeding bad texcoords in forever.
+    if not (d.w > 0 and d.h > 0) then
         if not _AntsResolveSize(self, d) then return end
     end
     local N = d.N
@@ -273,7 +293,7 @@ end
 local function _AntsStaticSettle(self, elapsed)
     local d = self._euiScrollData
     if not d then _Unregister(self, "ants"); return end
-    if d.w * d.h == 0 then
+    if not (d.w > 0 and d.h > 0) then
         if not _AntsResolveSize(self, d) then return end
     end
     _AntsDrawStatic(self, d)

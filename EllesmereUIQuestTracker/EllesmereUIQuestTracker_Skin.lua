@@ -68,8 +68,9 @@ end
 
 -- Shared font sizes -- read from DB so the options panel can tweak them.
 -- Defaults are seeded in the loader's QT_DEFAULTS table.
-local function GetTitleSize() return EQT.Cfg("titleFontSize")     or 13 end
-local function GetObjSize()   return EQT.Cfg("objectiveFontSize") or 11 end
+local function GetTitleSize()  return EQT.Cfg("titleFontSize")     or 13 end
+local function GetObjSize()    return EQT.Cfg("objectiveFontSize") or 11 end
+local function GetHeaderSize() return EQT.Cfg("headerFontSize")    or 13 end
 
 -------------------------------------------------------------------------------
 -- External weak-keyed flag tables. Never write custom fields onto Blizzard-
@@ -88,6 +89,7 @@ local _blockIcons        = setmetatable({}, { __mode = "k" })  -- block -> our i
 -- canonical taint-avoidance pattern per CLAUDE.md.
 local _blockFocus        = setmetatable({}, { __mode = "k" })  -- block -> focus texture
 local _headerClickOverlays = setmetatable({}, { __mode = "k" })  -- header -> click overlay
+local _masterHeaderCollapseHooked = false  -- guards the SetCollapsed re-skin hook below
 
 -------------------------------------------------------------------------------
 -- Helpers
@@ -96,6 +98,37 @@ local function GetAccent()
     local eg = EllesmereUI and EllesmereUI.ELLESMERE_GREEN
     if eg then return eg.r, eg.g, eg.b end
     return 0.047, 0.824, 0.624
+end
+
+-- Player class color, via the shared EllesmereUI.GetClassColor() cache.
+-- Falls back to white if the player's class token isn't known yet.
+local function GetClassColorRGB()
+    local cc = EllesmereUI and EllesmereUI._playerClass and EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+    if cc then return cc.r, cc.g, cc.b end
+    return 1.0, 1.0, 1.0
+end
+
+-- Header text + minimize-button color, user-adjustable via the "Header
+-- Color" swatch in Colors options: Class Color / Custom Color / Accent
+-- Color. Applies uniformly to every header (the master "All Objectives"
+-- header and every per-section header alike). Defaults to Accent Color
+-- (headerUseAccent is treated as true unless explicitly set to false).
+local function GetHeaderRGB()
+    local c = EQT.DB()
+    if c.headerShowClassColor then return GetClassColorRGB() end
+    if c.headerUseAccent ~= false then return GetAccent() end
+    return c.headerR or 1.0, c.headerG or 1.0, c.headerB or 1.0
+end
+
+-- Section-divider line color, user-adjustable via the "Line Color" swatch
+-- in Colors options: Class Color / Custom Color / Accent Color. Defaults
+-- to Accent Color (lineUseAccent is treated as true unless explicitly set
+-- to false).
+local function GetLineRGB()
+    local c = EQT.DB()
+    if c.lineShowClassColor then return GetClassColorRGB() end
+    if c.lineUseAccent ~= false then return GetAccent() end
+    return c.lineR or 1.0, c.lineG or 1.0, c.lineB or 1.0
 end
 
 local function GetFont()
@@ -152,6 +185,7 @@ end
 local function StyleFontString(fs)     StyleFontStringSized(fs, nil)            end
 local function StyleTitleFS(fs)        StyleFontStringSized(fs, GetTitleSize()) end
 local function StyleObjectiveFS(fs)    StyleFontStringSized(fs, GetObjSize())   end
+local function StyleHeaderFS(fs)       StyleFontStringSized(fs, GetHeaderSize()) end
 
 -- Walk every FontString region on a frame (top-level only) and restyle it.
 -- No recursion: child frames each go through their own skin call.
@@ -206,40 +240,49 @@ local function EnsureAccentDivider(header)
     local otf = _G.ObjectiveTrackerFrame
     if not otf or not otf.CreateTexture then return nil end
 
-    -- Never draw a divider for the master "All Objectives" header or its
-    -- menu bar -- those are hidden sections at the top of the tracker.
-    if header == otf.HeaderMenu or header == otf.Header then return nil end
+    local isMasterHeader = (header == otf.HeaderMenu or header == otf.Header)
 
     -- Divider is visible only when the tracker itself is currently being
     -- rendered (Blizzard hides the tracker frame when it has no content).
-    -- Signals, ORed:
-    --   tracker has any block, OR
-    --   tracker is flagged as having contents (hasContents), OR
-    --   tracker was displayed on the last layout pass (wasDisplayedLastLayout).
-    -- Any of those == the section is still active. All false == fully hidden.
-    -- Collapse keeps hasContents/wasDisplayedLastLayout true, so collapsed
-    -- trackers still show their divider.
-    local owner = header:GetParent()
-    local hasAnyBlock = false
-    if owner and owner.usedBlocks then
-        for _, byTemplate in pairs(owner.usedBlocks) do
-            if type(byTemplate) == "table" then
-                for _ in pairs(byTemplate) do
-                    hasAnyBlock = true
-                    break
+    local headerShown = header.IsShown and header:IsShown()
+    local active
+
+    if isMasterHeader then
+        -- The master header's own IsShown() already reflects whether the
+        -- tracker has any module to display (Blizzard's
+        -- ObjectiveTrackerFrameMixin:Update -> ShouldShowHeader(), verified
+        -- against Gethe/wow-ui-source), so no block-scan is needed here.
+        active = headerShown and otf:IsShown()
+    else
+        -- Signals, ORed:
+        --   tracker has any block, OR
+        --   tracker is flagged as having contents (hasContents), OR
+        --   tracker was displayed on the last layout pass (wasDisplayedLastLayout).
+        -- Any of those == the section is still active. All false == fully hidden.
+        -- Collapse keeps hasContents/wasDisplayedLastLayout true, so collapsed
+        -- trackers still show their divider.
+        local owner = header:GetParent()
+        local hasAnyBlock = false
+        if owner and owner.usedBlocks then
+            for _, byTemplate in pairs(owner.usedBlocks) do
+                if type(byTemplate) == "table" then
+                    for _ in pairs(byTemplate) do
+                        hasAnyBlock = true
+                        break
+                    end
+                    if hasAnyBlock then break end
                 end
-                if hasAnyBlock then break end
             end
         end
+        -- The divider belongs to a section that is actually rendered. Require
+        -- the header itself to be shown right now AND the tracker to have some
+        -- current content signal. `wasDisplayedLastLayout` alone isn't enough
+        -- because Blizzard doesn't always clear it when a section empties.
+        local trackerShown = owner and owner.IsShown and owner:IsShown()
+        local hasContentSignal = hasAnyBlock or (owner and owner.hasContents)
+        active = headerShown and trackerShown and hasContentSignal
     end
-    -- The divider belongs to a section that is actually rendered. Require
-    -- the header itself to be shown right now AND the tracker to have some
-    -- current content signal. `wasDisplayedLastLayout` alone isn't enough
-    -- because Blizzard doesn't always clear it when a section empties.
-    local headerShown = header.IsShown and header:IsShown()
-    local trackerShown = owner and owner.IsShown and owner:IsShown()
-    local hasContentSignal = hasAnyBlock or (owner and owner.hasContents)
-    local active = headerShown and trackerShown and hasContentSignal
+
     if not active then
         local tex = _headerDividers[header]
         if tex then tex:Hide() end
@@ -260,7 +303,7 @@ local function EnsureAccentDivider(header)
     local es = header.GetEffectiveScale and header:GetEffectiveScale() or 1
     local onePixel = (es and es > 0) and (perfect / es) or (PP_SEC and PP_SEC.mult) or 1
     tex:SetHeight(onePixel)
-    local r, g, b = GetAccent()
+    local r, g, b = GetLineRGB()
     tex:SetColorTexture(r, g, b, 1)
     tex:Show()
     return tex
@@ -287,10 +330,44 @@ local function StripTextures(frame, keep)
 end
 
 -------------------------------------------------------------------------------
+-- The master "All Objectives" header's MinimizeButton renders with a
+-- different atlas than every per-section header's MinimizeButton by
+-- default. Verified in-game (2026-07-24, via in-game atlas dump) rather
+-- than guessed from source:
+--   expanded (shows "-", click collapses)  -> UI-QuestTrackerButton-Secondary-Collapse
+--   collapsed (shows "+", click expands)   -> UI-QuestTrackerButton-Secondary-Expand
+-- Both confirmed as the atlas QuestObjectiveTracker's MinimizeButton (a
+-- known-good, already-flat section header) uses in that state. The
+-- "-Pressed" pushed-state suffix is directly confirmed for the expanded
+-- atlas and assumed (not separately dumped) for the collapsed one,
+-- following that same observed Blizzard naming convention.
+-------------------------------------------------------------------------------
+local MASTER_MINBTN_ATLAS = {
+    [false] = { normal = "UI-QuestTrackerButton-Secondary-Collapse", pushed = "UI-QuestTrackerButton-Secondary-Collapse-Pressed" },
+    [true]  = { normal = "UI-QuestTrackerButton-Secondary-Expand",   pushed = "UI-QuestTrackerButton-Secondary-Expand-Pressed" },
+}
+
+local function SyncMasterMinimizeButtonLook(masterBtn, collapsed)
+    if not masterBtn then return end
+    if collapsed == nil then
+        -- No known state (e.g. the very first InitSkin() skin pass, before
+        -- any SetCollapsed call has fired) -- "All Objectives" is expanded
+        -- by default on login, so assume expanded rather than guess wrong.
+        collapsed = false
+    end
+    local look = MASTER_MINBTN_ATLAS[collapsed]
+    if not look then return end
+    local n = masterBtn.GetNormalTexture and masterBtn:GetNormalTexture()
+    local p = masterBtn.GetPushedTexture and masterBtn:GetPushedTexture()
+    if n then n:SetAtlas(look.normal) end
+    if p then p:SetAtlas(look.pushed) end
+end
+
+-------------------------------------------------------------------------------
 -- Header skin: accent color + EUI font. Strips every decorative texture
 -- region from the header; keeps the minimize button (+/-) and Text intact.
 -------------------------------------------------------------------------------
-local function SkinHeader(header)
+local function SkinHeader(header, knownCollapsed)
     if not header then return end
     if not EQT.Cfg("skinHeaders") then return end
 
@@ -307,6 +384,10 @@ local function SkinHeader(header)
     -- Sweep anonymous Texture regions too. Preserve the minimize button's
     -- textures by skipping anything owned by header.MinimizeButton.
     local minBtn = header.MinimizeButton
+    local otf = _G.ObjectiveTrackerFrame
+    if minBtn and otf and (header == otf.HeaderMenu or header == otf.Header) then
+        SyncMasterMinimizeButtonLook(minBtn, knownCollapsed)
+    end
     local keep = {}
     if minBtn and minBtn.GetRegions then
         for _, region in ipairs({ minBtn:GetRegions() }) do
@@ -324,10 +405,10 @@ local function SkinHeader(header)
     end
     StripTextures(header, keep)
 
-    -- Accent-tint the +/- minimize button. Desaturate first so the base
-    -- atlas's built-in tint doesn't multiply with our accent.
-    if minBtn and EQT.Cfg("accentHeaders") then
-        local r, g, b = GetAccent()
+    -- Tint the +/- minimize button with the header color. Desaturate
+    -- first so the base atlas's built-in tint doesn't multiply with ours.
+    if minBtn then
+        local r, g, b = GetHeaderRGB()
         local function tint(tex)
             if not tex then return end
             if tex.SetDesaturated then tex:SetDesaturated(true) end
@@ -346,19 +427,15 @@ local function SkinHeader(header)
 
     local text = header.Text
     if text then
-        if EQT.Cfg("accentHeaders") then
-            local r, g, b = GetAccent()
-            text:SetTextColor(r, g, b)
-        else
-            text:SetTextColor(1, 1, 1)
-        end
-        StyleFontString(text)
+        local r, g, b = GetHeaderRGB()
+        text:SetTextColor(r, g, b)
+        StyleHeaderFS(text)
     end
 
     -- Catch any other FontString regions on the header (subtitle, count text).
     StyleAllFontStrings(header)
 
-    -- Accent-colored 1px divider beneath the header.
+    -- 1px divider beneath the header (Line Color: Class / Custom / Accent).
     EnsureAccentDivider(header)
 
     -- Click-anywhere-on-header overlay: clicking the title text (not just
@@ -928,46 +1005,59 @@ local function SkinExistingBlocks(tracker)
 end
 
 -------------------------------------------------------------------------------
--- Blizzard anchors whichever module sits in the top slot via
--- ObjectiveTrackerContainerMixin:Update() (Blizzard_ObjectiveTrackerContainer.lua):
---   module:SetPoint("TOP", 0, -self.topModulePadding)
--- topModulePadding is a KeyValue on the EditMode-managed ObjectiveTrackerFrame,
--- default 38. We once wrote it to 6 for a tighter top gap on the (false)
--- assumption that "a plain table assignment carries no taint." It does: an
--- addon-written value is tainted, Update() reads it every layout pass, and the
--- taint propagates through the managed-frame / UIPanel layout into protected
--- calls and secret values (see the block below). So we NEVER write it -- the
--- top gap stays Blizzard's 38 and our skin chrome follows TOP_ANCHOR_OFFSET.
+-- The custom topModulePadding write-and-fight system (TightenTopAnchor and
+-- its successor) has been removed. We no longer touch
+-- ObjectiveTrackerFrame.topModulePadding at all -- Blizzard's own default
+-- governs the gap between the header and the first module, in and out of
+-- combat, with zero taint surface. The master header is now skinned and
+-- shown in place instead of being squeezed out, so there is nothing left to
+-- compensate for.
 -------------------------------------------------------------------------------
--- Blizzard's default topModulePadding is 38. We NEVER write this field on
--- EITHER client. ObjectiveTrackerContainerMixin:Update() reads it at the top
--- of every layout pass (GetAvailableHeight); reading an addon-written value
--- taints that whole pass. The frame is EditMode/UIPanel-managed, so opening
--- ANY panel (the world map, etc.) reflows it and reads the field inside the
--- secure ShowUIPanel path -- in a secret environment (M+/raid) that tainted
--- execution then hits a PROTECTED call (WorldMapFrame -> PerformEmote, blocked)
--- and secret tooltip/widget values (AreaPOI "compare a secret number value").
--- On 12.1 the same read reaches C_UnitAuras.GetAuraDataByIndex and hard-errors.
--- The old 12.0-only write (=6, a tighter top gap) was assumed clean because
--- its only consumer was thought to be a non-protected SetPoint, but that never
--- covered the secret-env map-open path (field taint.log 2026-07-23: PerformEmote
--- block + AreaPOI secret-number errors, both tainted by EllesmereUIQuestTracker,
--- on Retail 12.0). We accept Blizzard's 38px gap on both clients; the skin
--- chrome follows TOP_ANCHOR_OFFSET so BG/divider still hug content. Comp-
--- ensating with our own SetPoint is NOT an option (managed-frame-position taint).
-local TOP_MODULE_PADDING = 38
--- Shared with EllesmereUIQuestTracker_Visibility.lua (BG/top-divider offset)
--- so both files derive the top gap from a single source instead of two
--- independent magic numbers drifting apart. Sign convention (negative Y
--- offset) preserved for compatibility with that existing consumer.
-EQT.TOP_ANCHOR_OFFSET = -TOP_MODULE_PADDING
 
--- Intentional no-op, retained for its call sites / EQT API: writing
--- topModulePadding onto the managed tracker taints it (see above), so we
--- never do -- Blizzard's default value stands.
-local function ApplyTopModulePadding()
+-------------------------------------------------------------------------------
+-- Master "All Objectives" header visibility. SkinHeader() above is always
+-- applied to it in InitSkin(); this only controls Show/Hide, driven by the
+-- "hideAllObjectivesHeader" option so the user can opt into showing it.
+-- Defaults to hidden (nil in DB reads as hidden) -- see ShouldHideMasterHeader.
+--
+-- ObjectiveTrackerFrameMixin:Update() unconditionally calls self.Header:Show()
+-- on every layout pass whenever the tracker has any module to display
+-- (verified against Gethe/wow-ui-source, Blizzard_ObjectiveTracker.lua), so
+-- hiding it requires a persistent HookScript("OnShow", ...) fight rather than
+-- a one-time Hide().
+-------------------------------------------------------------------------------
+-- Default is "hidden" (true) when the DB key is unset. `~= false` treats
+-- nil the same as true, while still honoring an explicit user choice of
+-- false (i.e. "show it").
+local function ShouldHideMasterHeader()
+    return EQT.Cfg("hideAllObjectivesHeader") ~= false
 end
-EQT.ApplyTopModulePadding = ApplyTopModulePadding
+EQT.ShouldHideMasterHeader = ShouldHideMasterHeader
+
+local _masterHeaderShowHooked = false
+local function ApplyMasterHeaderVisibility()
+    local otf = _G.ObjectiveTrackerFrame
+    if not otf then return end
+    local header = otf.HeaderMenu or otf.Header
+    if not header then return end
+
+    if not _masterHeaderShowHooked then
+        _masterHeaderShowHooked = true
+        header:HookScript("OnShow", function(self)
+            if ShouldHideMasterHeader() then self:Hide() end
+        end)
+    end
+
+    if ShouldHideMasterHeader() then
+        header:Hide()
+    else
+        header:Show()
+    end
+    -- Header:Hide()/Show() above don't retrigger our own hooks, so refresh
+    -- the divider's active-state directly (it reads header:IsShown() live).
+    EnsureAccentDivider(header)
+end
+EQT.ApplyMasterHeaderVisibility = ApplyMasterHeaderVisibility
 
 -------------------------------------------------------------------------------
 -- Hook a single sub-tracker.
@@ -1104,32 +1194,56 @@ end
 -- Entry point called from the loader after Blizzard_ObjectiveTracker loads.
 -------------------------------------------------------------------------------
 function EQT.InitSkin()
-    -- Nuke the master "All Objectives" header / menu at the top of the
-    -- tracker. We use per-section headers (Quests / Achievements / etc)
-    -- instead, so the master bar is redundant.
     local otf = _G.ObjectiveTrackerFrame
     if otf then
-        local headerMenu = otf.HeaderMenu
-        if headerMenu then
-            headerMenu:Hide()
-            headerMenu:SetAlpha(0)
-            if headerMenu.SetHeight then headerMenu:SetHeight(0.001) end
-            headerMenu:HookScript("OnShow", function(self) self:Hide() end)
+        -- Skin the master "All Objectives" header + minimize button the same
+        -- way section headers (Quests / Achievements / etc) are skinned,
+        -- instead of hiding it. Whether it's actually shown is a separate,
+        -- user-controlled toggle -- see ApplyMasterHeaderVisibility().
+        local masterHeader = otf.HeaderMenu or otf.Header
+        if masterHeader then
+            SkinHeader(masterHeader)
+            -- Blizzard's own MinimizeButton OnClick calls SetCollapsed(),
+            -- which reassigns the button's textures for the new
+            -- collapsed/expanded state -- overwriting the look we just
+            -- synced from Quests. hooksecurefunc fires after that (possibly
+            -- protected) call completes, back in normal addon execution, so
+            -- re-running SkinHeader here carries no taint (same pattern
+            -- HookTracker already uses for every per-section header below).
+            if masterHeader.SetCollapsed and not _masterHeaderCollapseHooked then
+                _masterHeaderCollapseHooked = true
+                hooksecurefunc(masterHeader, "SetCollapsed", function(self, collapsed)
+                    if ShouldSkipSkin() then return end
+                    SkinHeader(self, collapsed)
+                end)
+            end
         end
-        if otf.Header and otf.Header ~= headerMenu then
-            otf.Header:Hide()
-            if otf.Header.SetHeight then otf.Header:SetHeight(0.001) end
-            otf.Header:HookScript("OnShow", function(self)
-                self:Hide()
-                if self.SetHeight then self:SetHeight(0.001) end
+        ApplyMasterHeaderVisibility()
+
+        -- ApplyMasterHeaderVisibility() above ran before ObjectiveTrackerFrame
+        -- has any content -- otf:IsShown() is still false at InitSkin() time
+        -- (Blizzard_ObjectiveTracker has just loaded, no quest data yet), so
+        -- EnsureAccentDivider's active-check for the master header evaluates
+        -- false and the divider stays hidden. otf itself never actually goes
+        -- through a Hide->Show transition once populated (it's structurally
+        -- shown throughout, just empty), so an OnShow hook can't catch this.
+        -- Re-run once after PLAYER_ENTERING_WORLD, deferred so the tracker
+        -- has had a chance to populate with real quest data first. Mirrors
+        -- the existing PLAYER_ENTERING_WORLD + C_Timer.After debounce pattern
+        -- used elsewhere in this file (see _refreshClassifyCache above).
+        do
+            local reentry = CreateFrame("Frame")
+            reentry:RegisterEvent("PLAYER_ENTERING_WORLD")
+            reentry:SetScript("OnEvent", function(self)
+                self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+                C_Timer.After(0.25, ApplyMasterHeaderVisibility)
             end)
         end
+
         -- Strip the parchment / nine-slice background behind the whole tracker.
         if otf.NineSlice then otf.NineSlice:Hide() end
         StripTextures(otf)
     end
-
-    ApplyTopModulePadding()
 
     EachTracker(HookTracker)
 
@@ -1147,10 +1261,8 @@ function EQT.InitSkin()
     -- Quest events just need a BG resize. Block skinning is handled by
     -- AddBlock/AddObjective/GetProgressBar/GetTimerBar hooks, so we no
     -- longer need to walk the entire tracker tree on every event. No combat
-    -- catch-up event needed anymore: ApplyTopModulePadding() sets a plain
-    -- field once and Blizzard's own Update() re-reads it every layout pass,
-    -- in and out of combat -- there's nothing for us to re-correct after
-    -- PLAYER_REGEN_ENABLED.
+    -- catch-up event needed here either -- there is no addon-owned padding
+    -- state left to re-correct after PLAYER_REGEN_ENABLED.
     evt:SetScript("OnEvent", function(_, event)
         -- Resize only. A forced ObjectiveTrackerFrame:Update() used to run
         -- here on SUPER_TRACKING_CHANGED; removed -- see the FORBIDDEN
@@ -1185,6 +1297,12 @@ function EQT.InitSkin()
             if t.Header then SkinHeader(t.Header) end
             SkinExistingBlocks(t)
         end)
+        -- Master "All Objectives" header isn't part of EachTracker's module
+        -- list (it belongs to ObjectiveTrackerFrame itself), so re-skin it
+        -- explicitly to pick up header-color changes.
+        local otfMaster = _G.ObjectiveTrackerFrame
+        local masterHeader = otfMaster and (otfMaster.HeaderMenu or otfMaster.Header)
+        if masterHeader then SkinHeader(masterHeader) end
         -- Font/color size changes resize existing FontStrings in place, so
         -- Blizzard's cached block heights can be stale until its next
         -- natural relayout (any quest event). We deliberately do NOT force

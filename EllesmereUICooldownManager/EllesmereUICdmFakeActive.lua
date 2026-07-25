@@ -969,6 +969,22 @@ PresetOnCD = function(key)
     return (dur > 1.5 and now < start + dur) or false
 end
 
+-- "Ready" for the Hidden (CD Ready) effects, which must not dismiss a charge
+-- spell that is still recharging: a custom SPELL preset can have charges, so it
+-- defers to the shared charge-aware read (ns.CdmCdStateReady). Items (key < 0)
+-- have no charges, so onCD alone answers it. The override walk mirrors
+-- PresetOnCD above -- the charges live on the override id (e.g. the transform),
+-- not the base one.
+local function PresetCdReady(key, onCD)
+    if key <= 0 then return not onCD end
+    local effKey = key
+    if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
+        local ov = C_SpellBook.FindSpellOverrideByID(key)
+        if ov and ov > 0 and ov ~= key then effKey = ov end
+    end
+    return ns.CdmCdStateReady(effKey, onCD)
+end
+
 -- Normal (shown) alpha for a frame, from its bar's opacity (out-of-combat
 -- fade folded in via EffectiveBarAlpha so restores don't clobber the fade).
 -- Overflow-diverted frames render inside the target bar, so their restore
@@ -984,7 +1000,7 @@ end
 -- cas is the rule's styling entry (passed in so a trinket, whose frame key is a
 -- slot, still gets the per-item glow colour). Marks the frame "touched" so the
 -- restore pass below can find it even after the trinket has been swapped out.
-ApplyCdState = function(frame, fc, cas, eff, onCD)
+ApplyCdState = function(frame, fc, cas, eff, onCD, ready)
     local fd = ns._hookFrameData and ns._hookFrameData[frame]
     if fd then fd._presetCdTouched = true end
     if eff == "hiddenOnCD" or eff == "hiddenReady"
@@ -994,7 +1010,9 @@ ApplyCdState = function(frame, fc, cas, eff, onCD)
         if eff == "hiddenOnCD" or eff == "hiddenOnCDShift" then
             hide = onCD
         else
-            hide = not onCD
+            -- ready, not "not onCD": a charge spell is only READY at max charges,
+            -- so the icon keeps tracking a running recharge (PresetCdReady).
+            hide = ready
         end
         frame:SetAlpha(hide and 0 or FrameBaseAlpha(fc))
         -- Set the SAME flag the layout / visibility / refresh code already honors,
@@ -1082,6 +1100,9 @@ EvalCdStateNow = function()
         if soundKey == "none" then soundKey = nil end
         if eff or soundKey then
             local onCD = PresetOnCD(rule.spellID)
+            -- Separate read for the Hidden (CD Ready) effects: a charge spell is
+            -- ready only at max charges (items fall through to "not onCD").
+            local ready = PresetCdReady(rule.spellID, onCD)
             local sid = rule.spellID
             -- Sound only fires while the ability's icon is present on a bar.
             local hasIcon = false
@@ -1091,7 +1112,7 @@ EvalCdStateNow = function()
                     local fc = f and FCt[f]
                     if fc and fc.spellID == sid then
                         hasIcon = true
-                        if eff then ApplyCdState(f, fc, cas, eff, onCD) end
+                        if eff then ApplyCdState(f, fc, cas, eff, onCD, ready) end
                     end
                 end
             end

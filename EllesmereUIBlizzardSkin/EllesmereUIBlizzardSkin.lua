@@ -1821,6 +1821,14 @@ do
         gmBg:SetColorTexture(RS.BG_R, RS.BG_G, RS.BG_B, RS.QT_ALPHA)
         local function ApplyButtonStyle(btn)
             local d = GetFFD(btn)
+            -- Blizzard's pooled buttons are skinned in this addon's private
+            -- FFD table, while EUI's two custom Game Menu buttons are created
+            -- by the parent addon and keep their skin data in its FFD table.
+            -- Resolve that second store as a fallback so live option changes
+            -- also reach the EllesmereUI button.
+            if not d.gameMenuInset and EllesmereUI._GetFFD then
+                d = EllesmereUI._GetFFD(btn)
+            end
             if not d.gameMenuInset then return end
             local c = EllesmereUIDB and EllesmereUIDB.popupMenuButtonBackgroundColor or { r=.1,g=.1,b=.1,a=.8 }
             d.gameMenuButtonBg:SetColorTexture(c.r, c.g, c.b, c.a == nil and .8 or c.a)

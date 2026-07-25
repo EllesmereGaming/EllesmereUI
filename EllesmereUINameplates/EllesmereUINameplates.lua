@@ -172,6 +172,11 @@ local defaults = {
     -- When on, the empty portion of the bar shows the focus texture at full
     -- opacity instead of the dimmed (30%) default, so the pattern reads evenly.
     focusOverlayFullBgAlpha = false,
+    -- No Tint: applies focusOverlayTexture as the health bar's own fill
+    -- pattern (like the main "Bar Texture" dropdown) instead of drawing it
+    -- as a tinted stripe overlay on top. focusOverlayColor/Alpha/FullBgAlpha
+    -- are ignored in this mode -- the bar keeps its normal reaction color.
+    focusOverlayNoTint = false,
     focusLetterEnabled = false,
     focusLetterAnchor = "CENTER",
     focusLetterX = 0,
@@ -185,6 +190,8 @@ local defaults = {
     -- When on, the empty portion of the bar shows the target texture at full
     -- opacity instead of the dimmed (30%) default, so the pattern reads evenly.
     targetOverlayFullBgAlpha = false,
+    -- No Tint: mirrors focusOverlayNoTint above, for the target overlay.
+    targetOverlayNoTint = false,
     hoverOverlayTexture = "none",
     caster  = { r = 0.231, g = 0.510, b = 0.965 },
     miniboss = { r = 0.518, g = 0.243, b = 0.984 },
@@ -650,11 +657,39 @@ do
     }
 end
 
+local function NoTintFlag(db, key)
+    local v = db and db[key]
+    if v == nil then v = defaults[key] end
+    return v
+end
+
+-- No Tint mode reuses the Target/Focus Texture dropdowns (targetOverlayTexture /
+-- focusOverlayTexture): instead of drawing that pattern as a tinted stripe
+-- overlay on top of the bar, it becomes the bar's own fill texture, leaving
+-- SetStatusBarColor (the reaction/custom color) untouched. Path resolved via
+-- ResolveOverlayTexPath since the dropdown also offers the stripe-only keys.
 local function ApplyHealthBarTexture(plate)
     local health = plate.health
     if not health then return end
     local texKey = (p and p.healthBarTexture) or defaults.healthBarTexture or "none"
-    local path   = EllesmereUI.ResolveTexturePath(ns.healthBarTextures, texKey, "Interface\\Buttons\\WHITE8x8")
+    local path
+    local unit = plate.unit
+    if unit then
+        local db = p or defaults
+        local tTex = db.targetOverlayTexture or defaults.targetOverlayTexture
+        local fTex = db.focusOverlayTexture or defaults.focusOverlayTexture
+        if tTex ~= "none" and NoTintFlag(db, "targetOverlayNoTint") and UnitIsUnit(unit, "target") then
+            path = ns.ResolveOverlayTexPath(tTex)
+        elseif fTex ~= "none" and NoTintFlag(db, "focusOverlayNoTint") and UnitIsUnit(unit, "focus") then
+            path = ns.ResolveOverlayTexPath(fTex)
+        end
+    end
+    path = path or EllesmereUI.ResolveTexturePath(ns.healthBarTextures, texKey, "Interface\\Buttons\\WHITE8x8")
+    -- Value-keyed: UpdateHealthColor calls this on every health update while
+    -- the feature is on, so skip the setter when the resolved path hasn't
+    -- changed (mirrors the hr/hg/hb compare a few lines above it).
+    if plate._lastHealthTexPath == path then return end
+    plate._lastHealthTexPath = path
     health:SetStatusBarTexture(path)
 end
 ns.ApplyHealthBarTexture = ApplyHealthBarTexture
@@ -6432,13 +6467,25 @@ function NameplateFrame:UpdateHealthColor()
         self._lastHCr, self._lastHCg, self._lastHCb = hr, hg, hb
         self.health:SetStatusBarColor(hr, hg, hb)
     end
+    -- Target/Focus No Tint mode: near-zero-cost when both are off (two field
+    -- reads). When either is on, re-evaluates on every health update (same
+    -- cadence as the color above) so a target/focus swap swaps the fill
+    -- pattern immediately; ApplyHealthBarTexture itself skips the setter
+    -- when the resolved path is unchanged.
+    if p and (p.targetOverlayNoTint or p.focusOverlayNoTint) then
+        ApplyHealthBarTexture(self)
+    end
     -- Focus overlay: show stripe textures on focus target's health bar
     -- Fill clip frame at full alpha, bg clip frame at half alpha.
     -- Apply is value-keyed: redone only when any component of the
     -- would-be state differs from what this plate last applied.
+    -- Skipped entirely in No Tint mode -- the pattern is already applied as
+    -- the bar's own fill texture above, drawing it again as an overlay would
+    -- double it up.
     local db2 = p or defaults
     local focusTex = db2.focusOverlayTexture or defaults.focusOverlayTexture
-    if focusTex ~= "none" and UnitIsUnit(unit, "focus") then
+    local focusNoTint = NoTintFlag(db2, "focusOverlayNoTint")
+    if focusTex ~= "none" and not focusNoTint and UnitIsUnit(unit, "focus") then
         -- Texture path memoized by texture NAME (no per-call concat;
         -- live dropdown changes rebuild it via the name compare)
         if ns._focusOverlayTexName ~= focusTex then
@@ -6479,9 +6526,11 @@ function NameplateFrame:UpdateHealthColor()
     if db2.focusLetterEnabled or self._focusLetterShown then
         ns.ApplyFocusLetter(self, unit, db2)
     end
-    -- Target overlay: identical to focus overlay but for current target
+    -- Target overlay: identical to focus overlay but for current target.
+    -- Skipped in No Tint mode, same reasoning as the focus overlay above.
     local targetTex = db2.targetOverlayTexture or defaults.targetOverlayTexture
-    if targetTex ~= "none" and UnitIsUnit(unit, "target") then
+    local targetNoTint = NoTintFlag(db2, "targetOverlayNoTint")
+    if targetTex ~= "none" and not targetNoTint and UnitIsUnit(unit, "target") then
         if ns._targetOverlayTexName ~= targetTex then
             ns._targetOverlayTexName = targetTex
             ns._targetOverlayTexPath = ns.ResolveOverlayTexPath(targetTex)

@@ -5,6 +5,14 @@
 
 local L = EllesmereUI.RegisterLocale("esES")
 if not L then return end
+
+L["BLIZZARD POPUPS & GAME MENU"] = "VENTANAS EMERGENTES Y MENÚ DE JUEGO DE BLIZZARD"
+L["Reskin Popups and Menus"] = "Rediseñar ventanas emergentes y menús"
+L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Rediseña los menús contextuales y los cuadros de diálogo emergentes de Blizzard con el estilo oscuro de EUI. Requiere recargar la interfaz."
+L["Resurrect Accept Glow"] = "Resplandor al aceptar resurrección"
+L["Adds a glowing, pulsating border around the Accept button of resurrection popups so a pending resurrect is hard to miss. Follows the Element & Text Color setting. Applies instantly, no reload needed."] = "Añade un borde brillante y pulsante al botón Aceptar de las ventanas de resurrección para que no pase desapercibida. Sigue el ajuste de color de elementos y texto. Se aplica al instante sin recargar."
+L["Button Border Size"] = "Tamaño del borde del botón"
+L["Element & Text Color"] = "Color de elementos y texto"
 L["Behind Unit Frame"] = "Detrás del marco de unidad"
 
 -- == Common labels =========================================================

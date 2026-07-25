@@ -5726,7 +5726,19 @@ local function RefreshCDMIconAppearance(barKey)
                 local cseInfo = C_Spell.GetSpellCooldown(csLive)
                 local onCD = cseInfo and cseInfo.isActive and not cseInfo.isOnGCD
                 if cse == "hiddenOnCD" or cse == "hiddenReady" then
-                    local hide = (cse == "hiddenOnCD") == onCD
+                    local hide
+                    if cse == "hiddenOnCD" then
+                        hide = onCD and true or false
+                    else
+                        -- Hidden (CD Ready): on a charge spell "ready" means AT MAX
+                        -- charges, so the icon keeps tracking the recharge instead
+                        -- of vanishing with a charge still down (ns.CdmCdStateReady).
+                        hide = ns.CdmCdStateReady(csLive, onCD, csSs.chargeHideUntilSpent)
+                        -- The refill-to-max edge fires no visual hook, so register
+                        -- the SPELL_UPDATE_CHARGES watch that re-hides the icon when
+                        -- it tops off. Self-skips non-charge spells.
+                        ns.WatchCdStateChargeIfEnabled(icon)
+                    end
                     icon:SetAlpha(hide and 0 or IconShownAlpha(fc, barData))
                     if fc then
                         fc._cdStateHidden = hide or false

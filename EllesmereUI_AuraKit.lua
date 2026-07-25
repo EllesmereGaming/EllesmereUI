@@ -491,9 +491,17 @@ function AK.MakeInitializer(styleKey, extra)
         -- Level order above the swipe: border first (as close to the icon
         -- as possible), then the text carrier -- duration/stack text must
         -- never render behind the border strips.
+        -- The three holders below are pure art/text carriers stacked over the
+        -- whole button, so none of them may take mouse input: on a NAMEPLATE
+        -- aura they sit between the cursor and the plate's own click region,
+        -- and a click that lands on one is swallowed instead of switching
+        -- target -- unmissable in M+, where every enemy plate is covered in
+        -- debuff icons. The button itself keeps its mouse for tooltips.
+        -- (EUI_Nameplates_AuraContainers does the same for its glow host.)
         d.borderHost = CreateFrame("Frame", nil, button)
         d.borderHost:SetAllPoints(button)
         d.borderHost:SetFrameLevel(d.cooldown:GetFrameLevel() + 1)
+        d.borderHost:EnableMouse(false)
 
         -- Dispel-ring holder: its own frame between the border host and the
         -- text carrier so the engine-tinted ring ALWAYS WINS over every
@@ -507,14 +515,28 @@ function AK.MakeInitializer(styleKey, extra)
         d.dispelHolder = CreateFrame("Frame", nil, button)
         d.dispelHolder:SetAllPoints(button)
         d.dispelHolder:SetFrameLevel(d.borderHost:GetFrameLevel() + 3)
+        d.dispelHolder:EnableMouse(false)
 
         -- Stack and duration text ride a carrier frame above the cooldown,
         -- borders and dispel ring so none of them can cover the text.
         d.stackCarrier = CreateFrame("Frame", nil, button)
         d.stackCarrier:SetAllPoints(button)
         d.stackCarrier:SetFrameLevel(d.borderHost:GetFrameLevel() + 4)
+        d.stackCarrier:EnableMouse(false)
         d.stack = d.stackCarrier:CreateFontString(nil, "OVERLAY")
         d.duration = d.stackCarrier:CreateFontString(nil, "OVERLAY")
+
+        -- Engine aura buttons come CLICK-enabled, and these are pure displays:
+        -- no style in the suite has a click action, and on nameplates a
+        -- click-alive icon sits between the cursor and the plate's click
+        -- region, eating target-switch clicks (measured in-game: the M+
+        -- "takes several clicks to swap target" report was an EUI plate aura
+        -- icon with clicks on). This is the ONLY reliable place to turn them
+        -- off: post-creation writes on the button are denied in secret
+        -- contexts (12.x DenyTaintedAccessWhenAurasAreSecret), which is
+        -- combat -- exactly when it matters. Motion stays per-style so
+        -- tooltips keep working where styles want them.
+        pcall(button.SetMouseClickEnabled, button, false)
 
         ApplyStyleToRegions(button, style)
 

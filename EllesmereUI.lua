@@ -1992,11 +1992,24 @@ do
     ---------------------------------------------------------------------------
     --  Core pixel-perfect values
     ---------------------------------------------------------------------------
-    PP.physicalWidth, PP.physicalHeight = GetPhysicalScreenSize()
-
-    -- 768 is WoW's reference height; this gives us the size of 1 physical
-    -- pixel in WoW's coordinate system at scale 1.0
-    PP.perfect = 768 / PP.physicalHeight
+    -- 768 is WoW's reference height; perfect is the size of 1 physical pixel
+    -- in WoW's coordinate system at scale 1.0.
+    --
+    -- GetPhysicalScreenSize() can report 0 (or nil) while a display-mode change
+    -- is in flight, and 768/0 is infinite. Since perfect is the divisor behind
+    -- every pixel snap in the suite, that turns snapped sizes into NaN addon
+    -- wide, so keep the last known-good height whenever the query comes back
+    -- unusable.
+    function PP.RefreshPhysical()
+        local pw, ph = GetPhysicalScreenSize()
+        if ph and ph > 0 then
+            PP.physicalWidth, PP.physicalHeight = pw, ph
+        elseif not PP.physicalHeight then
+            PP.physicalWidth, PP.physicalHeight = 1920, 1080
+        end
+        PP.perfect = 768 / PP.physicalHeight
+    end
+    PP.RefreshPhysical()
 
     -- mult = size of 1 physical pixel in the current UIParent scale.
     -- When UIParent scale == perfect, mult == 1 and every integer is
@@ -2010,8 +2023,7 @@ do
 
     --- Recalculate mult after a scale or resolution change.
     function PP.UpdateMult()
-        PP.physicalWidth, PP.physicalHeight = GetPhysicalScreenSize()
-        PP.perfect = 768 / PP.physicalHeight
+        PP.RefreshPhysical()
         local uiScale = EllesmereUIDB and EllesmereUIDB.ppUIScale or PP.PixelBestSize()
         PP.mult = PP.perfect / uiScale
     end
@@ -2712,8 +2724,7 @@ do
     scaleWatcher:SetScript("OnEvent", function(_, event)
         if event == "DISPLAY_SIZE_CHANGED" then
             -- Resolution changed -- recalculate perfect and re-apply scale
-            PP.physicalWidth, PP.physicalHeight = GetPhysicalScreenSize()
-            PP.perfect = 768 / PP.physicalHeight
+            PP.RefreshPhysical()
             -- Only auto-update if user explicitly opted into auto scale
             if EllesmereUIDB and EllesmereUIDB.ppUIScaleAuto == true then
                 PP.SetUIScale(PP.PixelBestSize())
