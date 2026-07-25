@@ -6972,7 +6972,7 @@ initFrame:SetScript("OnEvent", function(self)
                           end,
                           set = function(r, g, b) DB().importantCastGlowBackgroundColor = { r = r, g = g, b = b }; RefreshAllPlates() end,
                           disabled = function() return DB().importantCastGlowBackground ~= true end,
-                          disabledTooltip = "Pixel Glow Background" },
+                          disabledTooltip = EllesmereUI.DisabledTooltip("Pixel Glow Background") },
                     },
                 })
 

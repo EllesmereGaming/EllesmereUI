@@ -347,7 +347,7 @@ local SPELL_NAME_BY_ID = setmetatable({}, {
             local loc = EllesmereUI.L(nm)
             if loc ~= nm and loc ~= "" then return loc end
         end
-        return C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+        return C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id) or nm
     end,
 })
 

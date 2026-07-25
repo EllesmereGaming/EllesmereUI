@@ -1752,7 +1752,7 @@ L["Force-hide Blizzard's Assisted Combat Highlight (rotation helper glow) on all
 L["Hide consumable items (potions, healthstone) from the bar when you have none in your bags, instead of showing them dimmed. They reappear automatically once you have the item again."] = "Скрывает расходуемые предметы (зелья, камни здоровья) с панели, когда их нет в сумках, вместо отображения затемненными."
 L["This option requires a non-custom shape to be selected"] = "Этот параметр требует выбора стандартной формы"
 L["Bar Grouping"]                = "Группировка полос"
-L["FocusKick Options"]           = "Настройки FocusKick (прерывание по фокусу)"
+L["FOCUSKICK OPTIONS"]           = "НАСТРОЙКИ FOCUSKICK (ПРЕРЫВАНИЕ ПО ФОКУСУ)"
 L["Icon Display"]                = "Отображение иконки"
 L["Buff Active"]                 = "Бафф активен"
 L["Buff Missing"]                = "Бафф отсутствует"
