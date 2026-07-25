@@ -256,6 +256,7 @@ local TBB_DEFAULT_BAR = {
     chargeHashLineWidth = 2,
     chargeHashLineR = 0, chargeHashLineG = 0,
     chargeHashLineB = 0, chargeHashLineA = 1,
+    chargeZeroColorEnabled = false,
     texture   = "none",
     fillR = _classR, fillG = _classG, fillB = _classB, fillA = 1,
     bgR = 0, bgG = 0, bgB = 0, bgA = 0.4,
@@ -1458,6 +1459,8 @@ local TBB_STYLE_KEYS = {
     "height", "width", "verticalOrientation", "reverseFill",
     "chargeHashLines", "chargeHashLineWidth",
     "chargeHashLineR", "chargeHashLineG", "chargeHashLineB", "chargeHashLineA",
+    "chargeZeroColorEnabled",
+    "chargeZeroR", "chargeZeroG", "chargeZeroB", "chargeZeroA",
     "texture", "strata",
     "fillColorMode", "fillR", "fillG", "fillB", "fillA",
     "bgR", "bgG", "bgB", "bgA",
@@ -3830,12 +3833,23 @@ local function _ensureTBBChargeHashFill(bar)
     bar._chargeHashFillTexture = fill
 end
 
-local function _styleTBBChargeHashFill(bar, cfg)
+local function _styleTBBChargeHashFill(bar, cfg, zeroCharges)
     local fill = bar._chargeHashFillTexture
     if not fill then return end
     local texPath = bar._lastTexPath or "Interface\\Buttons\\WHITE8x8"
     local fR, fG = bar._baseFillR or _classR, bar._baseFillG or _classG
     local fB, fA = bar._baseFillB or _classB, bar._baseFillA or 1
+    -- The zero-charge color is an override of the selected bar color, not a
+    -- second permanent style.  Unset channels deliberately fall through to
+    -- the effective bar color so enabling the option is visually neutral
+    -- until the player picks a different color.
+    if zeroCharges and cfg.chargeZeroColorEnabled == true then
+        fR = cfg.chargeZeroR or fR
+        fG = cfg.chargeZeroG or fG
+        fB = cfg.chargeZeroB or fB
+        fA = cfg.chargeZeroA
+        if fA == nil then fA = bar._baseFillA or 1 end
+    end
     local gradientEnabled = cfg.gradientEnabled and true or false
     local gradientDir = cfg.gradientDir or "HORIZONTAL"
     local gR, gG = cfg.gradientR or 0.20, cfg.gradientG or 0.20
@@ -3922,7 +3936,7 @@ _restoreTBBNormalFill = function(bar, cfg)
 end
 
 local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
-        durObj, remaining, duration, wasShown)
+        durObj, remaining, duration, wasShown, zeroCharges)
     if cfg.chargeHashLines ~= true or type(maxCharges) ~= "number"
        or maxCharges <= 1 then
         return false
@@ -4029,7 +4043,7 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
         bar._chargeHashDuration = nil
     end
 
-    _styleTBBChargeHashFill(bar, cfg)
+    _styleTBBChargeHashFill(bar, cfg, zeroCharges)
     local activating = not bar._chargeHashFillActive
     if activating then
         countBar:Show()
@@ -4306,11 +4320,26 @@ local function _UpdateCooldownBar(bar, cfg)
     local remaining, duration, unreadable, wantHandle, timingSecret
     local charges, chargesDisplay, hasCharges
     local maxCharges, chargeCountValue
+    local zeroCharges = false
     if sid then
         local ch = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
         local maxCh = ch and ch.maxCharges
         if _tbbCleanNum(maxCh) and maxCh > 1 then
             maxCharges = math.floor(maxCh + 0.5)
+            -- Secret-safe zero-charge test.  For a charge spell,
+            -- GetSpellCooldown reports a real non-GCD cooldown only when no
+            -- usable charge remains; with one or more charges it is inactive
+            -- (or merely showing the GCD).  These two flags stay readable in
+            -- combat even when currentCharges is secret.
+            local cdInfo = C_Spell.GetSpellCooldown
+                and C_Spell.GetSpellCooldown(sid)
+            if cdInfo then
+                local cdActive, cdOnGCD = cdInfo.isActive, cdInfo.isOnGCD
+                local isSec = issecretvalue
+                if not (isSec and (isSec(cdActive) or isSec(cdOnGCD))) then
+                    zeroCharges = cdActive == true and cdOnGCD ~= true
+                end
+            end
             -- Charge spell: bar tracks the next charge's recharge. The
             -- recharge-active flag is the same CLEAN combat signal the Max
             -- Stacks Glow uses: false only at max charges, and it stays
@@ -4331,6 +4360,7 @@ local function _UpdateCooldownBar(bar, cfg)
                 local cur = ch.currentCharges
                 if _tbbCleanNum(cur) then
                     charges = cur
+                    zeroCharges = cur < 1
                 end
                 chargesDisplay = cur
                 chargeCountValue = cur
@@ -4449,6 +4479,7 @@ local function _UpdateCooldownBar(bar, cfg)
                     charges = m.charges
                     chargesDisplay = m.charges
                     hasCharges = true
+                    zeroCharges = m.charges < 1
                 end
             end
         end
@@ -4492,7 +4523,7 @@ local function _UpdateCooldownBar(bar, cfg)
         local timerDir = Enum and Enum.StatusBarTimerDirection
         local hashFillActive = hashChargeMode and _updateTBBChargeHashFill(
             bar, cfg, maxCharges, chargeCountValue,
-            durObj, remaining, duration, wasShown)
+            durObj, remaining, duration, wasShown, zeroCharges)
         if hashFillActive then
             -- The composite's invisible native bars own the recovery geometry;
             -- the visible clipped texture and spark were updated above.
