@@ -6869,7 +6869,9 @@ local function OnCastFailed(eventCastID, externallyInterrupted)
     castBarFrame._casting = false
     castBarFrame._castID = nil
     local cb = ERB.db.profile.castBar
-    local displayEnabled = externallyInterrupted and cb.interruptedCastEnabled or cb.cancelledCastEnabled
+    local displayEnabled
+    if externallyInterrupted then displayEnabled = cb.interruptedCastEnabled
+    else displayEnabled = cb.cancelledCastEnabled end
     if displayEnabled then
         HideLatencyOverlay()
         HideChannelTicks()

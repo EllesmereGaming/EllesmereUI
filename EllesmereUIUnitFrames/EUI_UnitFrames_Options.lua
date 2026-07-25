@@ -1548,7 +1548,8 @@ initFrame:SetScript("OnEvent", function(self)
                 pvCastIconOffX = settings.castIconOffsetX or 0
                 pvCastIconOffY = settings.castIconOffsetY or 0
             end
-            if pvCastIconInWidth then pvCastIconOffX, pvCastIconOffY = 0, 0 end
+            local pvLayoutIconOffX = pvCastIconInWidth and 0 or pvCastIconOffX
+            local pvLayoutIconOffY = pvCastIconInWidth and 0 or pvCastIconOffY
             -- Boss: castbarWidth > 0 overrides the frame-matched width (0 = match frame).
             -- Display-clamped to the frame width + 120 so an extreme custom width
             -- can't spill across the options panel (pf doesn't clip children);
@@ -1686,9 +1687,9 @@ initFrame:SetScript("OnEvent", function(self)
             -- Icon hangs off the bar's chosen edge; when "part of the bar" is on the
             -- bar is narrower + shifted away (above), so the icon sits inside.
             if pvCastIconOnRight then
-                PP.Point(castIconFrame, "TOPLEFT", castbar, "TOPRIGHT", pvCastIconOffX, pvCastIconOffY)
+                PP.Point(castIconFrame, "TOPLEFT", castbar, "TOPRIGHT", pvLayoutIconOffX, pvLayoutIconOffY)
             else
-                PP.Point(castIconFrame, "TOPRIGHT", castbar, "TOPLEFT", pvCastIconOffX, pvCastIconOffY)
+                PP.Point(castIconFrame, "TOPRIGHT", castbar, "TOPLEFT", pvLayoutIconOffX, pvLayoutIconOffY)
             end
             -- Black background
             local iconBg = castIconFrame:CreateTexture(nil, "BACKGROUND")
@@ -2794,7 +2795,8 @@ initFrame:SetScript("OnEvent", function(self)
                         ciOffX = s.castIconOffsetX or 0
                         ciOffY = s.castIconOffsetY or 0
                     end
-                    if ciInWidth then ciOffX, ciOffY = 0, 0 end
+                    local ciLayoutOffX = ciInWidth and 0 or ciOffX
+                    local ciLayoutOffY = ciInWidth and 0 or ciOffY
                     local ciIconW = ch
                     -- Boss: castbarWidth > 0 overrides the frame-matched width (0 = match frame).
                     -- Display-clamped (frame width + 120) -- see the creation-time note.
@@ -2870,11 +2872,12 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     if castIconFrame then
                         castIconFrame:SetSize(ch, ch)
+                        castIconFrame:SetFrameLevel(castbar:GetFrameLevel() + (ciInWidth and 1 or 7))
                         castIconFrame:ClearAllPoints()
                         if ciOnRight then
-                            PP.Point(castIconFrame, "TOPLEFT", castbar, "TOPRIGHT", ciOffX, ciOffY)
+                            PP.Point(castIconFrame, "TOPLEFT", castbar, "TOPRIGHT", ciLayoutOffX, ciLayoutOffY)
                         else
-                            PP.Point(castIconFrame, "TOPRIGHT", castbar, "TOPLEFT", ciOffX, ciOffY)
+                            PP.Point(castIconFrame, "TOPRIGHT", castbar, "TOPLEFT", ciLayoutOffX, ciLayoutOffY)
                         end
                         -- Check showCastIcon / showPlayerCastIcon
                         local showIcon
@@ -2895,7 +2898,11 @@ initFrame:SetScript("OnEvent", function(self)
                         if (unitKey == "player" or unitKey == "target" or unitKey == "focus" or unitKey == "boss") and castIconFrame._previewBorderFrame then
                             local ibf = castIconFrame._previewBorderFrame
                             local iconBorderSize = ciInWidth and 0 or (s.castbarBorderSize or 1)
-                            ibf:SetFrameLevel(s.castbarBorderBehind and math.max(0, castIconFrame:GetFrameLevel() - 1) or (castIconFrame:GetFrameLevel() + 5))
+                            if ciInWidth then
+                                ibf:SetFrameLevel(s.castbarBorderBehind and math.max(0, castbar:GetFrameLevel() - 1) or (castbar:GetFrameLevel() + 5))
+                            else
+                                ibf:SetFrameLevel(castbar:GetFrameLevel() + 9)
+                            end
                             EllesmereUI.ApplyBorderStyle(ibf, iconBorderSize,
                                 s.castbarBorderR or 0, s.castbarBorderG or 0,
                                 s.castbarBorderB or 0, s.castbarBorderA == nil and 1 or s.castbarBorderA,
@@ -8770,7 +8777,10 @@ initFrame:SetScript("OnEvent", function(self)
         local castTextureRow
         castTextureRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Bar Texture", values=castTexValues, order=castTexOrder,
-              getValue=function() return UNIT_DB_MAP[selectedUnit]().castbarTexture or "none" end,
+              getValue=function()
+                  local s=UNIT_DB_MAP[selectedUnit]()
+                  return s.castbarTexture or s.healthBarTexture or db.profile.healthBarTexture or "none"
+              end,
               setValue=function(v) UNIT_DB_MAP[selectedUnit]().castbarTexture=v; ReloadAndUpdate(); UpdatePreview() end },
             { type="toggle", text="Reverse Fill",
               getValue=function() return SValSupported("castReverseFill", false) end,
@@ -14953,7 +14963,7 @@ initFrame:SetScript("OnEvent", function(self)
             local bossCastTexValues, bossCastTexOrder = BuildCastBarTexDropdown()
             reverseRow, hh = Ww:DualRow(pp, yy,
                 { type="dropdown", text="Bar Texture", values=bossCastTexValues, order=bossCastTexOrder,
-                  getValue=function() return B.castbarTexture or "none" end,
+                  getValue=function() return B.castbarTexture or B.healthBarTexture or db.profile.healthBarTexture or "none" end,
                   setValue=function(v) B.castbarTexture=v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                 { type="slider", text="Bar Background", min=0, max=100, step=1,
                   getValue=function() return math.floor((B.castBgAlpha or 0.5) * 100 + 0.5) end,

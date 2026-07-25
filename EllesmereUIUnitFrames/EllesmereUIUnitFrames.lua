@@ -403,7 +403,6 @@ local defaults = {
             healAbsorbBarHeight   = 4,
             healAbsorbBarColor    = { r = 200/255, g = 29/255, b = 29/255 },
             showPlayerCastbar = false,
-            castbarTexture = "none",
             showPlayerCastIcon = true,
             playerCastbarIconInWidth = true,
             castbarIconDivider = false,
@@ -523,7 +522,6 @@ local defaults = {
             castbarHeight = 14,
             castbarWidth = 181,
             showCastbar = true,
-            castbarTexture = "none",
             castbarBorderTexture = "solid",
             castbarBorderSize = 1,
             castbarBorderR = 0, castbarBorderG = 0, castbarBorderB = 0, castbarBorderA = 1,
@@ -890,7 +888,6 @@ local defaults = {
             castbarHeight = 14,
             castbarWidth = 160,
             showCastbar = true,
-            castbarTexture = "none",
             castbarBorderTexture = "solid",
             castbarBorderSize = 1,
             castbarBorderR = 0, castbarBorderG = 0, castbarBorderB = 0, castbarBorderA = 1,
@@ -1086,7 +1083,6 @@ local defaults = {
             castbarOffsetX = 0,
             castbarOffsetY = 0,
             showCastbar = true,
-            castbarTexture = "none",
             castbarBorderTexture = "solid",
             castbarBorderSize = 1,
             castbarBorderR = 0, castbarBorderG = 0, castbarBorderB = 0, castbarBorderA = 1,
@@ -2580,28 +2576,29 @@ local function LayoutCastbarIcon(castbar, inWidth, iconH, onRight, offX, offY)
     local side = iconH or bg:GetHeight()
     local iconFrame = castbar._iconFrame
     offX, offY = offX or 0, offY or 0
-    -- An icon counted inside the bar is structural geometry, not a detached
-    -- decoration. Offsetting it would create a hole in the shared footprint.
-    if inWidth then offX, offY = 0, 0 end
+    -- Keep configured detached-icon offsets intact, but bypass them while the
+    -- icon is structural bar geometry. Turning in-width off restores them.
+    local layoutOffX = inWidth and 0 or offX
+    local layoutOffY = inWidth and 0 or offY
     if iconFrame then
         iconFrame:ClearAllPoints()
         if inWidth then
             -- Icon inside the footprint, flush with the chosen edge.
             if onRight then
-                PP.Point(iconFrame, "TOPRIGHT", bg, "TOPRIGHT", offX, offY)
-                PP.Point(iconFrame, "BOTTOMRIGHT", bg, "BOTTOMRIGHT", offX, offY)
+                PP.Point(iconFrame, "TOPRIGHT", bg, "TOPRIGHT", layoutOffX, layoutOffY)
+                PP.Point(iconFrame, "BOTTOMRIGHT", bg, "BOTTOMRIGHT", layoutOffX, layoutOffY)
             else
-                PP.Point(iconFrame, "TOPLEFT", bg, "TOPLEFT", offX, offY)
-                PP.Point(iconFrame, "BOTTOMLEFT", bg, "BOTTOMLEFT", offX, offY)
+                PP.Point(iconFrame, "TOPLEFT", bg, "TOPLEFT", layoutOffX, layoutOffY)
+                PP.Point(iconFrame, "BOTTOMLEFT", bg, "BOTTOMLEFT", layoutOffX, layoutOffY)
             end
         else
             -- Icon hangs outside the bar, off the chosen edge.
             if onRight then
-                PP.Point(iconFrame, "TOPLEFT", bg, "TOPRIGHT", offX, offY)
-                PP.Point(iconFrame, "BOTTOMLEFT", bg, "BOTTOMRIGHT", offX, offY)
+                PP.Point(iconFrame, "TOPLEFT", bg, "TOPRIGHT", layoutOffX, layoutOffY)
+                PP.Point(iconFrame, "BOTTOMLEFT", bg, "BOTTOMRIGHT", layoutOffX, layoutOffY)
             else
-                PP.Point(iconFrame, "TOPRIGHT", bg, "TOPLEFT", offX, offY)
-                PP.Point(iconFrame, "BOTTOMRIGHT", bg, "BOTTOMLEFT", offX, offY)
+                PP.Point(iconFrame, "TOPRIGHT", bg, "TOPLEFT", layoutOffX, layoutOffY)
+                PP.Point(iconFrame, "BOTTOMRIGHT", bg, "BOTTOMLEFT", layoutOffX, layoutOffY)
             end
         end
         iconFrame:SetWidth(side)
@@ -5503,8 +5500,14 @@ local function ApplyConfigCastbarIconBorder(castbar, settings)
         or (not isPlayer and settings.showCastIcon ~= false and settings.castbarIconInWidth ~= false)
     local size = inWidth and 0 or (settings.castbarBorderSize or 1)
     local bgLevel = castbarBg:GetFrameLevel()
-    iconFrame:SetFrameLevel(bgLevel + 2)
-    borderFrame:SetFrameLevel(settings.castbarBorderBehind and (bgLevel + 1) or (bgLevel + 5))
+    -- A detached icon is an independent foreground element. Keep both its art
+    -- and border above the castbar's highest border layer (+5).
+    iconFrame:SetFrameLevel(inWidth and (bgLevel + 2) or (bgLevel + 7))
+    if inWidth then
+        borderFrame:SetFrameLevel(settings.castbarBorderBehind and (bgLevel + 1) or (bgLevel + 5))
+    else
+        borderFrame:SetFrameLevel(bgLevel + 9)
+    end
     EllesmereUI.ApplyBorderStyle(borderFrame, size,
         settings.castbarBorderR or 0, settings.castbarBorderG or 0,
         settings.castbarBorderB or 0, settings.castbarBorderA == nil and 1 or settings.castbarBorderA,
@@ -6003,16 +6006,9 @@ local function SetupShowOnCastBar(frame, unit)
     -- expires; afterwards the normal inactive visibility rule takes over.
     if unit == "player" or unit == "target" or unit == "focus" or (unit and unit:match("^boss%d+$")) then
         local outcomeEvents = CreateFrame("Frame", nil, castbarBg)
-        outcomeEvents:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", unit)
-        outcomeEvents:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", unit)
-        outcomeEvents:RegisterUnitEvent("UNIT_HEALTH", unit)
-        outcomeEvents:RegisterUnitEvent("UNIT_FLAGS", unit)
-        if unit == "target" then
-            outcomeEvents:RegisterEvent("PLAYER_TARGET_CHANGED")
-        elseif unit == "focus" then
-            outcomeEvents:RegisterEvent("PLAYER_FOCUS_CHANGED")
-        end
         outcomeEvents:SetScript("OnEvent", function(_, event, eventUnit, ...)
+            local s = GetSettingsForUnit(unit)
+            if not (s.cancelledCastEnabled or s.interruptedCastEnabled) then return end
             if event == "UNIT_HEALTH" or event == "UNIT_FLAGS"
                or event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_FOCUS_CHANGED" then
                 if eventUnit and eventUnit ~= unit then return end
@@ -6051,8 +6047,9 @@ local function SetupShowOnCastBar(frame, unit)
                     interrupted = interruptedBy and true or false
                 end
             end
-            local s = GetSettingsForUnit(unit)
-            local enabled = interrupted and s.interruptedCastEnabled or s.cancelledCastEnabled
+            local enabled
+            if interrupted then enabled = s.interruptedCastEnabled
+            else enabled = s.cancelledCastEnabled end
             castbar._eufCastActive = nil
             if not enabled then return end
             castbar._eufOutcomeToken = (castbar._eufOutcomeToken or 0) + 1
@@ -6116,6 +6113,10 @@ local function SetupShowOnCastBar(frame, unit)
                     local showOutcomeIcon
                     if unit == "player" then showOutcomeIcon = s.showPlayerCastIcon ~= false
                     else showOutcomeIcon = s.showCastIcon ~= false end
+                    local outcomeInWidth = unit == "player"
+                        and s.playerCastbarIconInWidth ~= false
+                        or (unit ~= "player" and s.castbarIconInWidth ~= false)
+                    castbar._outcomeIconFrame:SetFrameLevel(castbarBg:GetFrameLevel() + (outcomeInWidth and 3 or 7))
                     castbar._outcomeIconFrame:SetShown(showOutcomeIcon and castbar._eufLastCastIcon ~= nil)
                 end
             end)
@@ -6131,6 +6132,18 @@ local function SetupShowOnCastBar(frame, unit)
             end)
         end)
         castbar._outcomeEventFrame = outcomeEvents
+        castbar._updateOutcomeEvents = function()
+            outcomeEvents:UnregisterAllEvents()
+            local s = GetSettingsForUnit(unit)
+            if not s or not (s.cancelledCastEnabled or s.interruptedCastEnabled) then return end
+            outcomeEvents:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", unit)
+            outcomeEvents:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", unit)
+            outcomeEvents:RegisterUnitEvent("UNIT_HEALTH", unit)
+            outcomeEvents:RegisterUnitEvent("UNIT_FLAGS", unit)
+            if unit == "target" then outcomeEvents:RegisterEvent("PLAYER_TARGET_CHANGED")
+            elseif unit == "focus" then outcomeEvents:RegisterEvent("PLAYER_FOCUS_CHANGED") end
+        end
+        castbar:_updateOutcomeEvents()
     end
 
     -- Guard against nil stages from UnitEmpoweredStagePercentages during
@@ -11100,6 +11113,7 @@ local function ReloadFrames()
             -- Cast bars have an independent texture selector.  The health-bar
             -- value remains a fallback so existing profiles keep their look.
             if frame.Castbar then
+                if frame.Castbar._updateOutcomeEvents then frame.Castbar:_updateOutcomeEvents() end
                 local cbTexKey = settings.castbarTexture
                     or (isMiniFrame and donorSettings and donorSettings.castbarTexture)
                     or settings.healthBarTexture or db.profile.healthBarTexture or "none"
