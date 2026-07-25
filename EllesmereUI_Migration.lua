@@ -4223,3 +4223,33 @@ end
 -- RB addon loads. RB's OnInitialize exports EllesmereUI._RBSectionDefaults
 -- and then invokes MigrateRBAdvancedProfile for every stored profile; the
 -- profile import paths call it directly for imported data.
+
+-- Gold tooltip data leaked through shared profiles: the DataBars cross-character
+-- gold store lived at profile scope, so an exported profile carried the sharer's
+-- character names and gold, and every importer saw those in the Gold tooltip
+-- instead of their own. The store is account-wide now
+-- (EllesmereUIDB.global.dataBarsCharacters), so drop every per-profile copy --
+-- otherwise a stale one rides the next export and the leak repeats.
+--
+-- Deliberately DROP rather than merge into the new store. Any profile may be an
+-- imported one, and nothing durably records that, so a merge could not tell the
+-- user's own characters from a sharer's and would copy strangers' names and gold
+-- into permanent account-wide storage -- worse than the bug being fixed. Nothing
+-- is really lost: each character records itself again on login (the money
+-- watcher), so the list refills as they are played.
+EllesmereUI.RegisterMigration({
+    id          = "databars_gold_store_account_wide_v1",
+    scope       = "global",
+    description = "Drop the per-profile DataBars gold store; it is account-wide now and used to leak into exports.",
+    body        = function(ctx)
+        local db = ctx.db
+        if not db or type(db.profiles) ~= "table" then return end
+        for _, pd in pairs(db.profiles) do
+            local blob = type(pd) == "table" and type(pd.addons) == "table"
+                and pd.addons["EllesmereUIDataBars"]
+            if type(blob) == "table" and blob.characters ~= nil then
+                blob.characters = nil
+            end
+        end
+    end,
+})

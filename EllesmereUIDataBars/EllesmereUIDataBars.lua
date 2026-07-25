@@ -159,7 +159,10 @@ local defaults = {
     profile = {
         nextBarId  = 0,   -- monotonic bar id counter; only ever incremented
         bars       = {},  -- ordered array of barCfg
-        characters = {},  -- cross-character gold store, keyed "Name-Realm"
+        -- No cross-character gold store here: it is account-wide, at
+        -- EllesmereUIDB.global.dataBarsCharacters (see GoldStore in
+        -- EllesmereUIDataBars_Blocks.lua). Keeping it per-profile shipped the
+        -- sharer's character names and gold inside exported profiles.
     },
 }
 

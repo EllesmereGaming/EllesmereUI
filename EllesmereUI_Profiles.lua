@@ -1886,6 +1886,15 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
     -- Exclude spec-specific data from export
     exportData.trackedBuffBars = nil
     exportData.tbbPositions = nil
+    -- Never share the sharer's characters. The DataBars cross-character gold
+    -- store is account-wide now, but a profile written by an older build still
+    -- holds a copy, and shipping it showed importers the sharer's character
+    -- names and gold in the Gold tooltip. Strip it here so exports taken before
+    -- the migration runs are clean too.
+    do
+        local dbars = exportData.addons and exportData.addons["EllesmereUIDataBars"]
+        if type(dbars) == "table" then dbars.characters = nil end
+    end
     -- Legacy account-wide spell store never travels (the per-profile snapshot below
     -- carries CDM content instead).
     exportData.spellAssignments = nil
@@ -2687,6 +2696,13 @@ function EllesmereUI.ImportProfile(importStr, profileName)
     -- before all downstream addon-key handling. No-op in the suite.
     if payload.data and payload.data.addons then
         payload.data.addons = CanonToLocal(payload.data.addons)
+        -- Never store someone else's characters. Strings written by builds from
+        -- before the gold store moved account-wide carry the sharer's character
+        -- names and gold in the DataBars blob; the runtime ignores it now, but
+        -- drop it at the boundary so it is not written to disk at all (and so it
+        -- cannot ride a re-export).
+        local dbars = payload.data.addons["EllesmereUIDataBars"]
+        if type(dbars) == "table" then dbars.characters = nil end
     end
 
     -- Reconcile media references against locally installed SharedMedia before

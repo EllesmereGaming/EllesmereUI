@@ -1125,11 +1125,21 @@ local function GoldCharKey()
     return (UnitName("player") or "Unknown") .. "-" .. (GetRealmName() or "Unknown")
 end
 
+-- ACCOUNT-WIDE, deliberately not per-profile. This is observed character data
+-- (who you have and how much gold they hold), not a setting, so it must never
+-- ride a profile: it used to live at profile.characters, which meant an exported
+-- profile carried the sharer's character names and gold, and everyone importing
+-- it saw those in the Gold tooltip instead of their own. Account scope also
+-- means switching or copying profiles no longer loses the history.
 local function GoldStore()
-    local profile = ns.GetProfile()
-    if not profile then return {} end
-    profile.characters = profile.characters or {}
-    return profile.characters
+    if not EllesmereUIDB then return {} end
+    if type(EllesmereUIDB.global) ~= "table" then EllesmereUIDB.global = {} end
+    local store = EllesmereUIDB.global.dataBarsCharacters
+    if type(store) ~= "table" then
+        store = {}
+        EllesmereUIDB.global.dataBarsCharacters = store
+    end
+    return store
 end
 
 -- Drop a character the player no longer has (renamed, deleted, transferred).
