@@ -316,8 +316,6 @@ INDEPENDENT BARS
 Icon ID always shown for this spell (empty removes)
 Icon opacity while on cooldown (1-100%)
 Icon:
-Import 1080p
-Import 2K (1440p)
 Import Addons
 Import Failed
 Import Profile
@@ -468,6 +466,7 @@ Ready
 Reagent Bag (%d / %d)
 Recent Colors
 Recent Items
+Regular Import
 Reload Now
 Reload Required
 Remove
@@ -606,6 +605,7 @@ Trinket 1
 Trinket 2
 UI Scale Issue: Profile was made at %1$d%%, yours is %2$d%%
 UI Scale Mismatch
+Ultrawide Import
 Unavailable with Enhancement 5-bar style.
 Uncheck All
 Uncheck a spec to keep it. Confirm removes this custom spell and its settings from the checked specs.
