@@ -1215,6 +1215,7 @@ end
 function WSkin.ButtonsIn(frame, depth)
     depth = depth or 0
     if not frame or depth > 9 or not frame.GetChildren or frame:IsForbidden() then return end
+    if depth > 0 and WSkin.IsArtExempt(frame) then return end
     for i = 1, select("#", frame:GetChildren()) do
         local child = select(i, frame:GetChildren())
         if child and not WSkin.IsForeignFrame(child, frame) then
@@ -1238,6 +1239,7 @@ local CONTROL_KEYS = {
 function WSkin.ControlsIn(frame, depth)
     depth = depth or 0
     if not frame or depth > 9 or not frame.GetChildren or frame:IsForbidden() then return end
+    if depth > 0 and WSkin.IsArtExempt(frame) then return end
     if depth > 0 and WSkin.IsForeignFrame(frame) then return end
     for _, key in ipairs(CONTROL_KEYS) do
         local el = frame[key]

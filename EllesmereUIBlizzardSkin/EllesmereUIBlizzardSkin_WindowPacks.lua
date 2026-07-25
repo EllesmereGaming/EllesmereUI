@@ -2688,6 +2688,9 @@ local _guildNewsHook = false
 local function Skin_Guild()
     local f = _G.CommunitiesFrame
     if not f then return end
+    -- Leave GuildMemberDetailFrame 100% stock (RankDropdown → SetGuildRankOrder)
+    local gmdEarly = f.GuildMemberDetailFrame
+    if gmdEarly then GetFFD(gmdEarly).artExempt = true end
     WSkin.Shell("guild", f)
     WSkin.RemovePortrait(f)
     WSkin.CommonChrome(f)
@@ -3087,7 +3090,6 @@ local function Skin_Guild()
         end
     end
     if ml and ml.ShowOfflineButton then SkinGuildCheck(ml.ShowOfflineButton) end
-    SkinGuildPopup(f.GuildMemberDetailFrame)
     SkinGuildPopup(_G.CommunitiesAddDialog)
     SkinGuildPopup(_G.CommunitiesCreateCommunityDialog)
     -- Add/Create Community dialogs: their globals are NOT live frames at
