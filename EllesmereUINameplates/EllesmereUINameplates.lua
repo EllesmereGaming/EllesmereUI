@@ -401,6 +401,17 @@ local defaults = {
     enemyNameWrap = false,
     targetScale = 100,
     nonTargetKeepFocus = true,
+    -- Non-Target Darken: draws a black tint over the health bar of every
+    -- plate that isn't the target/focus/player (0-100, 0 = off), instead of
+    -- fading the whole plate like Non-Target Opacity does. Same exclusion
+    -- rules (nonTargetKeepFocus) and same UnitExists("target") gate.
+    nonTargetDarken = 0,
+    -- Always Darken: off by default (no behavior change for anyone who
+    -- hasn't touched it). When on, Darken drops its UnitExists("target")
+    -- requirement -- every plate stays darkened at rest, and only your
+    -- current target/focus lights back up, instead of darkening only
+    -- kicking in once you already have a target.
+    nonTargetDarkenAlways = false,
     showAllDebuffs = false,
     -- Distance to Target Text (range bucket on the target's nameplate)
     rangeTextEnabled = false,
@@ -3493,33 +3504,80 @@ function ns.RefreshAllSettings()
 end
 
 -------------------------------------------------------------------------------
---  Non-Target Opacity: while the player has a target, every skinned plate
---  that is not the target, the focus, or the player fades to the configured
---  opacity (profile key nonTargetAlpha, 0-100). 100 = feature OFF: every
---  hook below reduces to a single numeric compare, and no plate is ever
---  touched. The alpha rides the plate ROOT (our own frame, parented to the
---  Blizzard nameplate), so Blizzard's own occlusion fade still multiplies in.
+--  Non-Target Opacity / Darken: while the player has a target, every skinned
+--  plate that is not the target, the focus, or the player either fades to a
+--  configured opacity (profile key nonTargetAlpha, 0-100, 100 = off) and/or
+--  gets a black tint drawn over its health bar (profile key nonTargetDarken,
+--  0-100, 0 = off) -- Darken keeps the plate fully opaque/readable and only
+--  dims the bar's color, mirroring the "deselected overlay" some Blizzard
+--  nameplate skins draw natively. Both share one eligibility check per plate;
+--  when both are off the hook reduces to a single OR compare and no plate is
+--  ever touched. The alpha rides the plate ROOT (our own frame, parented to
+--  the Blizzard nameplate), so Blizzard's own occlusion fade still multiplies
+--  in; the darken tint is a texture on plate.health, so it never affects text.
 -------------------------------------------------------------------------------
 ns._ntAlpha = 1   -- cached 0..1 from the profile; 1 = inert
+ns._ntDarken = 0  -- cached 0..1 from the profile; 0 = inert
 ns._ntKeepFocus = true   -- cached "Keep Focus Full Opacity" (default on)
+ns._ntDarkenAlways = false   -- cached "Always Darken" (default off)
 
--- Applies the correct root alpha to ONE plate. Value-guarded via
--- _ntCurAlpha so redundant SetAlpha calls are skipped and pooled frames
--- reset cheaply (nil = never faded).
+-- Lazily creates the black tint on first use. Nameplate health bars flatten
+-- render layers (see ApplyCustomBorderStyle above), so a plain child texture
+-- can't be trusted to draw above the health fill via draw-layer/sublevel
+-- alone -- it needs the same MEDIUM-strata escape hatch used by the custom
+-- border and the text/aura/indicator tiers. Level health+1 keeps it just
+-- above the fill and below the indicator tier (classFrame is health+3),
+-- text (900) and auras (800), so nothing else gets covered.
+local function EnsureNTDarkenOverlay(plate)
+    if plate._ntDarkenOverlay then return end
+    local f = CreateFrame("Frame", nil, plate.health)
+    f:SetAllPoints(plate.health)
+    f:SetFrameStrata("MEDIUM")
+    f:SetFrameLevel(plate.health:GetFrameLevel() + 1)
+    local ov = f:CreateTexture(nil, "ARTWORK")
+    ov:SetAllPoints(f)
+    ov:SetColorTexture(0, 0, 0, 1)
+    plate._ntDarkenFrame = f
+    plate._ntDarkenOverlay = ov
+end
+
+-- Applies the correct root alpha / darken tint to ONE plate. Value-guarded
+-- via _ntCurAlpha / _ntCurDarken so redundant setters are skipped and pooled
+-- frames reset cheaply (nil = never touched).
+--
+-- Opacity and Darken use SEPARATE eligibility: Opacity only ever fades
+-- non-target/focus/player plates while you actively have a target (fading
+-- everyone with no target selected would be pointless/confusing). Darken
+-- normally follows the same rule, but with Always Darken on it drops the
+-- UnitExists("target") requirement entirely -- every plate stays tinted at
+-- rest and only your current target/focus lights back up, matching the
+-- "dim by default, bright target" look some Blizzard nameplate skins use
+-- natively (see BetterBlizzPlates' native deselected-overlay behavior).
 function ns.NT_Apply(plate)
     local unit = plate.unit
     if not unit then return end
-    local a = 1
-    local nt = ns._ntAlpha
-    if nt < 1 and UnitExists("target")
-       and not UnitIsUnit(unit, "target")
-       and not (ns._ntKeepFocus and UnitIsUnit(unit, "focus"))
-       and not UnitIsUnit(unit, "player") then
-        a = nt
-    end
+    local nt, dk = ns._ntAlpha, ns._ntDarken
+    local notFocusOrPlayer = not (ns._ntKeepFocus and UnitIsUnit(unit, "focus"))
+                              and not UnitIsUnit(unit, "player")
+    local isTarget = UnitIsUnit(unit, "target")
+    local eligibleAlpha = nt < 1 and UnitExists("target") and not isTarget and notFocusOrPlayer
+    local eligibleDarken = dk > 0 and not isTarget and notFocusOrPlayer
+                            and (ns._ntDarkenAlways or UnitExists("target"))
+    local a = eligibleAlpha and nt or 1
     if (plate._ntCurAlpha or 1) ~= a then
         plate._ntCurAlpha = a
         plate:SetAlpha(a)
+    end
+    local d = eligibleDarken and dk or 0
+    if (plate._ntCurDarken or 0) ~= d then
+        plate._ntCurDarken = d
+        if d > 0 then
+            EnsureNTDarkenOverlay(plate)
+            plate._ntDarkenOverlay:SetAlpha(d)
+            plate._ntDarkenOverlay:Show()
+        elseif plate._ntDarkenOverlay then
+            plate._ntDarkenOverlay:Hide()
+        end
     end
 end
 
@@ -3529,15 +3587,20 @@ function ns.NT_ApplyAll()
     end
 end
 
--- Re-derives the cached opacity from the profile and reapplies every plate
--- (also un-fades everything when the slider returns to 100). Called from
--- the options slider, OnInitialize, and RefreshAllSettings -- the latter
--- covers profile swaps and Spec Overrides applies.
+-- Re-derives the cached opacity/darken strength from the profile and
+-- reapplies every plate (also reverts everything when both sliders return to
+-- their off state). Called from the options sliders, OnInitialize, and
+-- RefreshAllSettings -- the latter covers profile swaps and Spec Overrides
+-- applies.
 function ns.NT_RefreshSetting()
     local v = tonumber(p and p.nonTargetAlpha) or 100
     if v < 0 then v = 0 elseif v > 100 then v = 100 end
     ns._ntAlpha = v / 100
+    local d = tonumber(p and p.nonTargetDarken) or 0
+    if d < 0 then d = 0 elseif d > 100 then d = 100 end
+    ns._ntDarken = d / 100
     ns._ntKeepFocus = not (p and p.nonTargetKeepFocus == false)
+    ns._ntDarkenAlways = (p and p.nonTargetDarkenAlways) == true
     ns.NT_ApplyAll()
 end
 
@@ -6024,8 +6087,8 @@ function NameplateFrame:SetUnit(unit, nameplate)
     self:RegisterUnitEvent("UNIT_THREAT_LIST_UPDATE", unit)
     -- 12.1: attach a pooled aura-container bundle for this unit.
     if ns.NPC_AttachPlate then ns.NPC_AttachPlate(self, unit) end
-    -- Non-Target Opacity (zero cost while off: one numeric compare).
-    if ns._ntAlpha < 1 then ns.NT_Apply(self) end
+    -- Non-Target Opacity/Darken (near-zero cost while off: one OR compare).
+    if ns._ntAlpha < 1 or ns._ntDarken > 0 then ns.NT_Apply(self) end
     -- Critical: health bar must display immediately
     self:UpdateHealth()
     -- PERF: defer non-critical work 1 frame. Stacking bounds, name, cast bar,
@@ -6122,6 +6185,12 @@ function NameplateFrame:ClearUnit()
         self:SetAlpha(1)
     end
     self._ntCurAlpha = nil
+    -- Non-Target Darken: same reset, so a reused pooled frame never shows a
+    -- stale black tint for its next unit before NT_Apply re-evaluates it.
+    if self._ntCurDarken and self._ntCurDarken > 0 and self._ntDarkenOverlay then
+        self._ntDarkenOverlay:Hide()
+    end
+    self._ntCurDarken = nil
 
     if self.isCasting then
         self.isCasting = false
@@ -9052,10 +9121,11 @@ manager:SetScript("OnEvent", function(self, event, unit)
             ns._cachedTargetPlate:ApplyTarget()
             ns._cachedTargetPlate:UpdateHealthColor()
         end
-        -- Non-Target Opacity: gaining/losing a target flips every plate's
-        -- fade state, so this is the one full-iteration site. Zero cost
-        -- while off (single compare); value-guarded SetAlpha when on.
-        if ns._ntAlpha < 1 then ns.NT_ApplyAll() end
+        -- Non-Target Opacity/Darken: gaining/losing a target flips every
+        -- plate's fade/tint state, so this is the one full-iteration site.
+        -- Near-zero cost while off (single OR compare); value-guarded
+        -- setters when on.
+        if ns._ntAlpha < 1 or ns._ntDarken > 0 then ns.NT_ApplyAll() end
     elseif event == "PLAYER_FOCUS_CHANGED" then
         -- PERF: only update old + new focus plates instead of iterating all
         local oldFocus = ns._cachedFocusPlate
@@ -9086,9 +9156,9 @@ manager:SetScript("OnEvent", function(self, event, unit)
         if ns._cachedFocusPlate and ns._cachedFocusPlate ~= oldFocus then
             UpdateFocusPlate(ns._cachedFocusPlate)
         end
-        -- Non-Target Opacity: only the old and new focus plates change
-        -- fade state on a focus swap.
-        if ns._ntAlpha < 1 then
+        -- Non-Target Opacity/Darken: only the old and new focus plates change
+        -- fade/tint state on a focus swap.
+        if ns._ntAlpha < 1 or ns._ntDarken > 0 then
             if oldFocus then ns.NT_Apply(oldFocus) end
             if ns._cachedFocusPlate and ns._cachedFocusPlate ~= oldFocus then
                 ns.NT_Apply(ns._cachedFocusPlate)

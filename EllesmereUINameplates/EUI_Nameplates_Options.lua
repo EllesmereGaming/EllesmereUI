@@ -3628,6 +3628,67 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnLeave", function() UpdateNtCogAlpha() end)
         end
 
+        -- Row: Non-Target Darken
+        -- Same eligibility rule as Non-Target Opacity above (not target, not
+        -- focus if Keep Focus is on, not player) but tints the health bar
+        -- black instead of fading the whole plate -- keeps name/aura icons
+        -- fully readable while still giving a strong visual contrast against
+        -- the target. Shares the "Keep Focus Full Opacity" exclusion.
+        local tfDarkenRow
+        tfDarkenRow, h = W:DualRow(parent, y,
+            { type="slider", text="Non-Target Darken",
+              tooltip="Tints the health bar of enemy nameplates that are not your current target or focus while you have a target. 0 = no darkening. Unlike Non-Target Opacity, the rest of the plate (name, auras) stays fully visible.",
+              min=0, max=100, step=1,
+              getValue=function() return DBVal("nonTargetDarken") or defaults.nonTargetDarken end,
+              setValue=function(v)
+                DB().nonTargetDarken = v
+                if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
+                EllesmereUI:RefreshPage()  -- update the cog disabled state
+              end },
+            -- Empty right slot: without it the left slot stretches to the
+            -- row's full width (DualRow's fullWidth mode), which pushes the
+            -- right-anchored slider control way past the label with a huge
+            -- gap. A spacer keeps this row the same half-width as every
+            -- sibling row above/below it.
+            { type="spacer" });  y = y - h
+        -- Inline cog on Non-Target Darken: "Darken by Default" toggle.
+        do
+            local function darkenOff() return (DBVal("nonTargetDarken") or defaults.nonTargetDarken) <= 0 end
+            local rgn = tfDarkenRow._leftRegion
+            local _, darkenCogShow = EllesmereUI.BuildCogPopup({
+                title = "Non-Target Darken",
+                rows = {
+                    { type="toggle", label="Darken by Default",
+                      tooltip="Darken every non-target/focus nameplate by default, even without a target selected -- only your current target/focus lights back up. Off (default): darkening only kicks in once you already have a target, same as Non-Target Opacity.",
+                      get=function() return DBVal("nonTargetDarkenAlways") == true end,
+                      set=function(v)
+                        DB().nonTargetDarkenAlways = v
+                        if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
+                      end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            local function UpdateDarkenCogAlpha()
+                cogBtn:SetAlpha(darkenOff() and 0.15 or 0.4)
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateDarkenCogAlpha)
+            UpdateDarkenCogAlpha()
+            cogBtn:SetScript("OnClick", function(self)
+                if not darkenOff() then darkenCogShow(self) end
+            end)
+            cogBtn:SetScript("OnEnter", function(self)
+                if not darkenOff() then self:SetAlpha(0.75) end
+            end)
+            cogBtn:SetScript("OnLeave", function() UpdateDarkenCogAlpha() end)
+        end
+
         -- Row 3: Focus Cast Height | Focus Letter
         local focusLetterOff = function()
             return DBVal("focusLetterEnabled") ~= true
