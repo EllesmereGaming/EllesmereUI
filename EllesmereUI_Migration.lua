@@ -4223,3 +4223,41 @@ end
 -- RB addon loads. RB's OnInitialize exports EllesmereUI._RBSectionDefaults
 -- and then invokes MigrateRBAdvancedProfile for every stored profile; the
 -- profile import paths call it directly for imported data.
+
+-- Per-character data leaked through shared profiles: DataBars kept its
+-- cross-character gold ledger at profile scope (addons.EllesmereUIDataBars
+-- .characters) and the QoL upgrade calculator kept per-character scan state
+-- there too (addons.EllesmereUIQoL.chars), so exported profiles carried the
+-- sharer's character names, realms and gold. Both stores are account-wide now
+-- (EllesmereUIDB.dataBarsGold / EllesmereUIDB.qolUpgradeCalcChars) and the
+-- module init paths drop the keys from the ACTIVE profile; this sweep drops
+-- them from every stored profile so no stale copy lingers on disk or rides a
+-- later export. The string paths strip the keys as well, so this is cleanup,
+-- not the safety line.
+--
+-- Deliberately DROP rather than merge into the account stores: any profile
+-- may be an imported one and nothing durably records that, so a merge could
+-- copy a stranger's characters into permanent account-wide storage. Nothing
+-- of value is lost -- each character re-records itself on login / next scan.
+--
+-- The folder literals contain "EllesmereUI", which the standalone packager
+-- renames to the build token, so they match each build's stored profile keys.
+EllesmereUI.RegisterMigration({
+    id          = "per_character_data_account_wide_v1",
+    scope       = "global",
+    description = "Drop leaked per-character data (DataBars gold ledger, QoL upgrade-calc state) from every stored profile; both are account-wide now.",
+    body        = function(ctx)
+        local db = ctx.db
+        if not db or type(db.profiles) ~= "table" then return end
+        for _, pd in pairs(db.profiles) do
+            local addons = type(pd) == "table" and type(pd.addons) == "table"
+                and pd.addons or nil
+            if addons then
+                local dbars = addons["EllesmereUIDataBars"]
+                if type(dbars) == "table" then dbars.characters = nil end
+                local qol = addons["EllesmereUIQoL"]
+                if type(qol) == "table" then qol.chars = nil end
+            end
+        end
+    end,
+})

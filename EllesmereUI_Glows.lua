@@ -225,7 +225,10 @@ local function _AntsResolveSize(self, d)
     -- endpoint then goes non-finite and SetTexCoord rejects it on every driver
     -- tick. Stay unresolved instead and retry once the scale is real.
     local es = self:GetEffectiveScale()
-    if not es or es < 0.1 then return false end
+    -- Same subtree class the GetSize taint-strip above exists for: a secret
+    -- effective scale would hard-error on the comparison below, so take the
+    -- retry path instead. No-op for normal values.
+    if not es or (issecretvalue and issecretvalue(es)) or es < 0.1 then return false end
     local onePixel = PP.perfect / es
     w = floor(w / onePixel + 0.5) * onePixel
     h = floor(h / onePixel + 0.5) * onePixel

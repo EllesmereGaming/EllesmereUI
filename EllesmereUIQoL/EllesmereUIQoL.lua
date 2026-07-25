@@ -907,6 +907,23 @@ qolFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     do
         local cinHooked = false
+        local autoSkipArmed = false
+
+        -- Canceling an in-game scene is hardware-gated: CancelScene() from an
+        -- event handler is blocked, but the same call while processing a key
+        -- press is allowed. Auto skip arms a one-shot cancel that the key
+        -- hooks consume on the first key press during the cutscene.
+        local function ConsumeArmedSkip()
+            if not autoSkipArmed then return end
+            if not (EllesmereUIDB and EllesmereUIDB.skipCinematicsAuto) then return end
+            if not (CinematicFrame and CinematicFrame:IsShown()) then return end
+            autoSkipArmed = false
+            if CinematicFrame.isRealCinematic then
+                StopCinematic()
+            elseif CanCancelScene and CanCancelScene() then
+                CancelScene()
+            end
+        end
 
         local function SetupCinematicHooks()
             if cinHooked then return end
@@ -942,10 +959,13 @@ qolFrame:SetScript("OnEvent", function(self)
                     end
                 end)
             end
+
+            CinematicFrame:HookScript("OnKeyDown", ConsumeArmedSkip)
         end
 
         local cinEventFrame = CreateFrame("Frame")
         cinEventFrame:RegisterEvent("CINEMATIC_START")
+        cinEventFrame:RegisterEvent("CINEMATIC_STOP")
         cinEventFrame:RegisterEvent("PLAY_MOVIE")
         cinEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         cinEventFrame:SetScript("OnEvent", function(self, event)
@@ -954,12 +974,17 @@ qolFrame:SetScript("OnEvent", function(self)
                 SetupCinematicHooks()
                 return
             end
+            if event == "CINEMATIC_STOP" then
+                autoSkipArmed = false
+                return
+            end
             if not (EllesmereUIDB and EllesmereUIDB.skipCinematicsAuto) then return end
             if event == "CINEMATIC_START" then
+                -- Real cinematics can still be stopped from event context;
+                -- scenes are left to the armed key-press cancel.
+                autoSkipArmed = true
                 if CinematicFrame and CinematicFrame.isRealCinematic then
                     StopCinematic()
-                elseif CanCancelScene and CanCancelScene() then
-                    CancelScene()
                 end
             elseif event == "PLAY_MOVIE" then
                 if MovieFrame then MovieFrame:Hide() end

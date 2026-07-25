@@ -6096,11 +6096,11 @@ BuildCastBar = function()
         bar:SetMinMaxValues(0, 1)
         bar:SetValue(0)
         castBarFrame._bar = bar
-        -- Smooth the per-frame fill with the same native interpolation the
-        -- resource bars' "Smooth Bars" uses -- always on for the cast bar (no
-        -- toggle). Resets and the finish snap stay instant (plain SetValue) so a
-        -- new cast starts clean instead of easing down from the previous fill.
-        bar._castInterp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
+        -- No native interpolation on the fill. The value is recomputed from
+        -- GetTime() every frame, which is already smooth; easing toward a
+        -- per-frame moving target makes the rendered fill trail real progress
+        -- (worst on short casts), so the bar hid on cast stop before it ever
+        -- looked complete even though the timer read full duration.
 
         -- Spark (in its own child frame inside clip so it gets clipped)
         local sparkFrame = CreateFrame("Frame", nil, clipFrame)
@@ -6562,7 +6562,7 @@ UpdateCastBar = function(dt)
         local castDur = castBarFrame._endTime - castBarFrame._startTime
         local progress = (castDur > 0) and ((now - castBarFrame._startTime) / castDur) or 0
         progress = min(max(progress, 0), 1)
-        bar:SetValue(progress, bar._castInterp)
+        bar:SetValue(progress)
         -- Size the gradient clip frame to match the fill width
         if castBarFrame._gradientFullBar and castBarFrame._gradClip then
             castBarFrame._gradClip:SetWidth(max(0.01, bar:GetWidth() * progress))
@@ -6604,7 +6604,7 @@ UpdateCastBar = function(dt)
         local chanDur = castBarFrame._endTime - castBarFrame._startTime
         local progress = (chanDur > 0) and ((castBarFrame._endTime - now) / chanDur) or 0
         progress = min(max(progress, 0), 1)
-        bar:SetValue(progress, bar._castInterp)
+        bar:SetValue(progress)
         -- Size the gradient clip frame to match the fill width
         if castBarFrame._gradientFullBar and castBarFrame._gradClip then
             castBarFrame._gradClip:SetWidth(max(0.01, bar:GetWidth() * progress))
@@ -7073,7 +7073,7 @@ BuildGCDBar = function()
         bar:SetMinMaxValues(0, 1)
         bar:SetValue(0)
         gcdBarFrame._bar = bar
-        -- Native smoothing, applied via SetValue(progress, _castInterp) like the cast bar.
+        -- Native smoothing, applied via SetValue(progress, _castInterp).
         bar._castInterp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
 
         -- Spark (same texture/approach as the cast bar)
@@ -7652,9 +7652,10 @@ end
 -- Unit Frames approach: store the interpolation mode on the bar and let the
 -- CreateStatusBar SetValue wrapper pass it to Blizzard's C-side interpolation.
 -- nil = no interpolation = zero added cost (a plain SetValue). Only the three
--- main bars are toggled here (pips never smooth). The cast bar smooths its fill
--- unconditionally via its own bar._castInterp set at creation -- not _smoothing,
--- and not driven by this toggle.
+-- main bars are toggled here (pips never smooth). The cast bar never smooths:
+-- its fill is recomputed from GetTime() every frame (already smooth), and
+-- easing toward that moving target made the fill trail real progress so the
+-- bar looked cut off at cast end. The GCD bar keeps its own bar._castInterp.
 function ERB:ApplySmoothing()
     local interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
     local p = ERB.db and ERB.db.profile
@@ -8021,6 +8022,21 @@ local function OnEvent(self, event, ...)
     elseif event == "UNIT_SPELLCAST_START" then
         local unit = ...
         if unit == "player" then OnCastStart() end
+    elseif event == "UNIT_SPELLCAST_DELAYED" then
+        -- Cast pushback (damage taken mid-cast) or any other mid-cast cast
+        -- time change: Blizzard shifts the cast's start/end times. Re-read
+        -- them or the fill completes at the stale early end and the bar sits
+        -- full for the rest of the real cast. (Channels get the same via
+        -- UNIT_SPELLCAST_CHANNEL_UPDATE.)
+        local unit = ...
+        if unit == "player" and castBarFrame and castBarFrame._casting then
+            local name, _, _, startTimeMS, endTimeMS = UnitCastingInfo("player")
+            if name then
+                castBarFrame._startTime = startTimeMS / 1000
+                castBarFrame._endTime = endTimeMS / 1000
+                castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
+            end
+        end
     elseif event == "UNIT_SPELLCAST_STOP" then
         local unit, _, _, castID = ...
         if unit == "player" then OnCastComplete(castID) end
@@ -8253,6 +8269,7 @@ function ERB:OnEnable()
     eventFrame:RegisterUnitEvent("UNIT_ABSORB_AMOUNT_CHANGED", "player")
     eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_START", "player")
+    eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_DELAYED", "player")
     eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_STOP", "player")
     eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "player")

@@ -4773,6 +4773,23 @@ local function BuildCogPopup(opts)
                 lbl:SetText(EllesmereUI.L(row.label))
                 lbl:SetPoint("LEFT", pf, "TOPLEFT", SIDE_PAD, curY - ROW_H / 2 - 1)
 
+                -- Tooltip on label hover
+                if row.tooltip then
+                    local hitFrame = CreateFrame("Frame", nil, pf)
+                    hitFrame:SetPoint("TOPLEFT", lbl, "TOPLEFT", -2, 2)
+                    hitFrame:SetPoint("BOTTOMRIGHT", lbl, "BOTTOMRIGHT", 2, -2)
+                    hitFrame:SetFrameLevel(pf:GetFrameLevel() + 3)
+                    hitFrame:EnableMouse(true)
+                    hitFrame:SetScript("OnEnter", function()
+                        if EllesmereUI.ShowWidgetTooltip then
+                            EllesmereUI.ShowWidgetTooltip(lbl, row.tooltip)
+                        end
+                    end)
+                    hitFrame:SetScript("OnLeave", function()
+                        if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+                    end)
+                end
+
                 local track, valBox, updateVisual = BuildSliderCore(pf, SLIDER_W, 4, 12, INPUT_W, ROW_H, 11, POPUP_INPUT_A,
                     srow.min, srow.max, srow.step, srow.get, srow.set, true)
                 track:SetPoint("LEFT", pf, "TOPLEFT", SLIDER_LEFT, curY - ROW_H / 2)
@@ -7236,7 +7253,7 @@ local function BuildCursorAnchorRow(opts)
               if opts.disabledFn and opts.disabledFn() then return true end
               return getData().anchorTo ~= "mouse"
           end,
-          disabledTooltip = DisabledTooltip("Anchor to Cursor"),
+          disabledTooltip = "Anchor to Cursor",
           getValue = function() return getData().anchorPosition or "right" end,
           setValue = function(v)
               getData().anchorPosition = v

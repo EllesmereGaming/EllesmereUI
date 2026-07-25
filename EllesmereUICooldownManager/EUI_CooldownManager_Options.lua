@@ -64,6 +64,36 @@ initFrame:SetScript("OnEvent", function(self)
     local function GetCDMOptUseShadow()
         return not EllesmereUI or not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow()
     end
+
+    -- Break-out menu auto-width. The subnav flyouts, the Apply-to scope strip and
+    -- the item pickers are all built at a nominal width, so captions longer than it
+    -- either ran past the border (option rows, whose labels have no right anchor --
+    -- which is why a few of them carry a tooltip that just repeats the label) or got
+    -- ellipsised (item rows, whose labels are pinned to their icon). Measure the
+    -- rendered captions and widen to the longest instead.
+    --
+    -- Grow-only from the caller's nominal width, so narrow menus keep their shape,
+    -- and capped so one long translation or item name can't produce a menu wider
+    -- than the screen (past the cap the existing tooltip/ellipsis fallbacks still
+    -- apply). Rows anchor TOPLEFT/TOPRIGHT to their inner frame, so they follow the
+    -- new width with no per-row work; pad is the horizontal space a row needs around
+    -- its text -- the text inset plus whatever sits at the right edge (bar-applied
+    -- arrow, colour swatch, sound-preview button, or an item icon for the pickers).
+    -- Hidden rows are measured too: a menu that resized while you hovered or typed
+    -- in its search box would be worse than one slightly wider than it needs.
+    local function FitMenuWidth(labels, nominalW, pad)
+        local MAX_W = 340
+        local widest = 0
+        for i = 1, #labels do
+            local fs = labels[i]
+            local w = fs and fs:GetStringWidth() or 0
+            if w > widest then widest = w end
+        end
+        local fit = math.ceil(widest + (pad or 40))
+        if fit < nominalW then fit = nominalW end
+        if fit > MAX_W then fit = MAX_W end
+        return fit
+    end
     local function SetPVFont(fs, font, size)
         if not (fs and fs.SetFont) then return end
         if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, GetCDMOptUseShadow()) end
@@ -9304,6 +9334,14 @@ initFrame:SetScript("OnEvent", function(self)
                             local total = y + 4
                             sInner:SetHeight(total)
                             s:SetHeight(total)
+                            -- Widen to the longest scope caption. Relayout runs after
+                            -- the Exclude/Include row is re-captioned, so the swapped
+                            -- text is measured; all four rows count, so swapping row 1
+                            -- never resizes the strip under the cursor.
+                            local fitW = FitMenuWidth(
+                                { thisBtn._label, b1._label, b2._label, b3._label }, SUBW)
+                            s:SetWidth(fitW)
+                            sInner:SetWidth(fitW)
                         end
                         -- Accent (and overlay) a scope ONLY when it holds an OWN value
                         -- for these keys that EQUALS the hovered item's value -- so the
@@ -9657,6 +9695,17 @@ initFrame:SetScript("OnEvent", function(self)
                         { charge = "chargeHideCdText", label = "+ Hide Duration (Charges > 0)",
                           applyKeys  = { "chargeHideCdText" },
                           applyWrite = function(t, v) t.chargeHideCdText = v and true or false end },
+                        -- Charge reading for the two Hidden (CD Ready) modes only.
+                        -- They normally treat a charge spell as ready at MAX charges,
+                        -- so the icon appears on the first spent charge and tracks the
+                        -- recharge; this opts the spell back into the older reading --
+                        -- stay hidden while any charge is still in hand, i.e. show up
+                        -- only once the ability is fully spent. No effect on the other
+                        -- effects (they already read "no charges left") or on
+                        -- non-charge spells.
+                        { charge = "chargeHideUntilSpent", label = "+ Stay Hidden While Charges Remain",
+                          applyKeys  = { "chargeHideUntilSpent" },
+                          applyWrite = function(t, v) t.chargeHideUntilSpent = v and true or false end },
                         -- Same logic as Hidden (On CD) but with a customizable opacity
                         -- instead of a hard 0. Click prompts for the percent; the label
                         -- shows it (e.g. "50% Lower Alpha (On CD)") while it is selected.
@@ -9789,6 +9838,23 @@ initFrame:SetScript("OnEvent", function(self)
                             -- nil so its item reads as selected (false ~= nil otherwise).
                             if curVal == false then curVal = nil end
                             local flyoutEntries = {}
+                            -- Widen the flyout to its longest caption (FitMenuWidth).
+                            -- Run once after the items are built -- before the
+                            -- height/scroll branches below, which all size from subW --
+                            -- and again whenever a dynamic label is recomposed in place
+                            -- (e.g. "Lower Alpha (On CD)" gaining its "50% " prefix), so
+                            -- a caption that grows while the flyout is open still fits.
+                            local function RefitSub()
+                                local labels = {}
+                                for _, e in ipairs(flyoutEntries) do
+                                    if e.label then labels[#labels + 1] = e.label end
+                                end
+                                local fitW = FitMenuWidth(labels, subW)
+                                if fitW == subW then return end
+                                subW = fitW
+                                sub:SetWidth(subW)
+                                subInner:SetWidth(subW)
+                            end
                             -- Re-highlight the selection in place after a value click.
                             -- The flyout stays OPEN (no rebuild -- that would reset
                             -- scroll/search state and kill the apply strip's owner).
@@ -9809,6 +9875,9 @@ initFrame:SetScript("OnEvent", function(self)
                                     -- is the unclickable arrow row -- refresh it in place.
                                     if e.updateArrow then e.updateArrow() end
                                 end
+                                -- A recomposed dynamic label may be wider than the
+                                -- flyout was built for.
+                                RefitSub()
                             end
                             -- Reachable from onItemCreated closures (color swatches),
                             -- which live outside this scope but capture `sub`.
@@ -10062,7 +10131,11 @@ initFrame:SetScript("OnEvent", function(self)
                                                 sLbl:SetTextColor(acR, acG, acB, 1)
                                                 if item.charge == "chargeHideCdText" then
                                                     ns._cdmAnyChargeHideCdText = true
-                                                else
+                                                elseif item.charge ~= "chargeHideUntilSpent" then
+                                                    -- chargeHideUntilSpent needs no session
+                                                    -- gate: it is read inside the cd-state
+                                                    -- evaluator, which only runs for icons
+                                                    -- that have a Hidden (CD Ready) effect.
                                                     ns._cdmAnyChargeStyle = true
                                                 end
                                             else
@@ -10188,6 +10261,10 @@ initFrame:SetScript("OnEvent", function(self)
                                 subH = subH + ITEM_H
                                 end -- item.divider / else
                             end
+
+                            -- Fit the width to the longest caption before anything below
+                            -- sizes from subW.
+                            RefitSub()
 
                             -- Cap height + scroll for long lists (e.g. the Audio Effect
                             -- sound list), matching the Focus Cast Sound dropdown and the
@@ -11851,7 +11928,7 @@ initFrame:SetScript("OnEvent", function(self)
                             EnsureSS(); SetOwn("cdStateEffect", v)
                             if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
                         end,
-                        function() return ss.cdStateEffect == nil and not ss.chargeHideSwipe and not ss.hideRechargeEdge and not ss.chargeHideCdText end,
+                        function() return ss.cdStateEffect == nil and not ss.chargeHideSwipe and not ss.hideRechargeEdge and not ss.chargeHideCdText and not ss.chargeHideUntilSpent end,
                         function(si, item, sub)
                             -- Lower Alpha (On CD): clicking prompts for the opacity
                             -- percent, then selects the effect (mirrors the setVal above).
@@ -12879,6 +12956,9 @@ initFrame:SetScript("OnEvent", function(self)
                 local subW = 220
                 local SUB_ITEM_H = 26
                 local SUB_MAX_H = 260
+                -- Item captions collected as the rows are built, so the frame can be
+                -- widened to the longest bag-item name instead of ellipsising it.
+                local subLabels = {}
                 _customTrackingSub:SetSize(subW, 10)
                 _customTrackingSub:ClearAllPoints()
                 _customTrackingSub:SetPoint("TOPLEFT", ctItem, "TOPRIGHT", 2, 0)
@@ -12916,6 +12996,7 @@ initFrame:SetScript("OnEvent", function(self)
                         sLbl:SetPoint("RIGHT", sIco, "LEFT", -5, 0)
                         sLbl:SetJustifyH("LEFT"); sLbl:SetWordWrap(false); sLbl:SetMaxLines(1)
                         sLbl:SetText(EllesmereUI.L(it.name)); sLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                        subLabels[#subLabels + 1] = sLbl
                         local sHl = si:CreateTexture(nil, "ARTWORK")
                         sHl:SetAllPoints(); sHl:SetColorTexture(1, 1, 1, 0); sHl:SetAlpha(0)
                         si:SetScript("OnEnter", function()
@@ -12931,6 +13012,11 @@ initFrame:SetScript("OnEvent", function(self)
                         subH = subH + SUB_ITEM_H
                     end
                 end
+                -- Widen to the longest item name (pad leaves room for the text inset
+                -- and the row's right-hand item icon).
+                subW = FitMenuWidth(subLabels, subW, 48)
+                _customTrackingSub:SetWidth(subW)
+                subInner:SetWidth(subW)
                 local totalSubH = subH + 4
                 subInner:SetHeight(totalSubH)
                 if totalSubH > SUB_MAX_H then
@@ -13213,6 +13299,9 @@ initFrame:SetScript("OnEvent", function(self)
 
                     local subW = 220
                     local SUB_ITEM_H = 26
+                    -- Captions collected as the rows are built so the frame can be
+                    -- widened to the longest preset name instead of ellipsising it.
+                    local subLabels = {}
                     _potionsSub:SetSize(subW, 10)
                     _potionsSub:ClearAllPoints()
                     _potionsSub:SetPoint("TOPLEFT", potItem, "TOPRIGHT", 2, 0)
@@ -13256,6 +13345,7 @@ initFrame:SetScript("OnEvent", function(self)
                         sLbl:SetWordWrap(false)
                         sLbl:SetMaxLines(1)
                         sLbl:SetText(EllesmereUI.L(preset.name))
+                        subLabels[#subLabels + 1] = sLbl
 
                         local sHl = si:CreateTexture(nil, "ARTWORK")
                         sHl:SetAllPoints()
@@ -13292,6 +13382,11 @@ initFrame:SetScript("OnEvent", function(self)
                         end -- healthstone filter
                     end
 
+                    -- Widen to the longest preset name (pad leaves room for the text
+                    -- inset and the row's right-hand item icon).
+                    subW = FitMenuWidth(subLabels, subW, 48)
+                    _potionsSub:SetWidth(subW)
+                    subInner:SetWidth(subW)
                     local totalSubH = subH + 4
                     subInner:SetHeight(totalSubH)
                     _potionsSub:SetHeight(totalSubH)
@@ -17671,7 +17766,7 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="dropdown", text="Buff Glow",
                   values=BUFF_GLOW_VALUES, order=BUFF_GLOW_ORDER,
                   disabled=function() return IsCustomShape() end,
-                  disabledTooltip=EllesmereUI.DisabledTooltip("This option requires a non-custom button shape"),
+                  disabledTooltip="This option requires a non-custom button shape",
                   getValue=function()
                       if IsCustomShape() then return 0 end
                       return BD().buffGlowType or 0
@@ -18702,7 +18797,7 @@ initFrame:SetScript("OnEvent", function(self)
                               ns.BuildAllCDMBars(); if ns.RequestBarGlowUpdate then ns.RequestBarGlowUpdate() end
                           end,
                           disabled=function() return BD().pixelGlowBackground ~= true end,
-                          disabledTooltip=EllesmereUI.DisabledTooltip("Pixel Glow Background") },
+                          disabledTooltip="Pixel Glow Background" },
                     },
                 })
                 MakeCogBtn(rightRgn, pgCogShow, nil, EllesmereUI.RESIZE_ICON)
@@ -18761,7 +18856,7 @@ initFrame:SetScript("OnEvent", function(self)
                               ns.BuildAllCDMBars(); if ns.RefreshBuffGlows then ns.RefreshBuffGlows() end
                           end,
                           disabled=function() return BD().buffGlowBackground ~= true end,
-                          disabledTooltip=EllesmereUI.DisabledTooltip("Pixel Glow Background") },
+                          disabledTooltip="Pixel Glow Background" },
                     },
                 })
                 MakeCogBtn(leftRgn, pgCogShow, nil, EllesmereUI.RESIZE_ICON)
@@ -18778,6 +18873,16 @@ initFrame:SetScript("OnEvent", function(self)
         if not isCustomBuffBar and not isFocusKick then
         _, h = W:SectionHeader(parent, "EXTRAS", y);  y = y - h
 
+        -- Hide Items if Missing: one config, hosted in a different row per bar
+        -- family. Buff bars carry it in the tooltip row's right slot; CD and
+        -- utility bars keep it beside Mirror Key Presses further down.
+        local hideMissingCfg = { type="toggle", text="Hide Items if Missing",
+              tooltip = "Hide consumable items (potions, healthstone) from the bar when you have none in your bags, instead of showing them dimmed. They reappear automatically once you have the item again.",
+              getValue=function() return BD().hideItemsIfMissing == true end,
+              setValue=function(v)
+                  BD().hideItemsIfMissing = v
+                  if ns.FullCDMRebuild then ns.FullCDMRebuild("hide_missing_toggle") end
+              end }
         -- Buffs get "Show Tooltip on Hover" only (auras aren't cast -> no keybind);
         -- cooldown/utility icon bars get the Tooltip | Keybind pair below.
         if isAnyBuffBar then
@@ -18789,7 +18894,7 @@ initFrame:SetScript("OnEvent", function(self)
                   ns.ApplyCDMTooltipState(BD().key)
                   Refresh()
               end },
-            { type="spacer" }
+            hideMissingCfg
         );  y = y - tth
         else
         local kbRow
@@ -18988,32 +19093,23 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end });  y = y - h
 
-        -- Hide Items if Missing | Mirror Key Presses. Mirror Key Presses is not
-        -- for buff-family bars (buffs are auto-tracked auras, not keybind-pressed
-        -- abilities, so a "pressed" look has no meaning) -- those bars keep the
-        -- right slot visually empty. (Per-spell threshold decimals/color moved to
-        -- the per-icon dropdown: Threshold Text.)
-        local mirrorCfg
-        if not (ns.IsBarBuffFamily and ns.IsBarBuffFamily(barData)) then
-            mirrorCfg = { type="toggle", text="Mirror Key Presses",
+        -- Hide Items if Missing | Mirror Key Presses -- CD/utility bars only.
+        -- Buff bars host Hide Items if Missing in the tooltip row above (their
+        -- copy of this row would be empty), and Mirror Key Presses is not for
+        -- buff-family bars (buffs are auto-tracked auras, not keybind-pressed
+        -- abilities, so a "pressed" look has no meaning). (Per-spell threshold
+        -- decimals/color moved to the per-icon dropdown: Threshold Text.)
+        if not isAnyBuffBar then
+        _, h = W:DualRow(parent, y,
+            hideMissingCfg,
+            { type="toggle", text="Mirror Key Presses",
               tooltip = "When you press an ability's keybind, show the action button's \"pushed down\" look on its icon on this bar -- even while the ability is on cooldown.",
               getValue=function() return BD().pressMirror == true end,
               setValue=function(v)
                   BD().pressMirror = v
                   if ns.ClearCdmPressPush then ns.ClearCdmPressPush() end
-              end }
-        else
-            mirrorCfg = { type="label", text="" }
+              end });  y = y - h
         end
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Hide Items if Missing",
-              tooltip = "Hide consumable items (potions, healthstone) from the bar when you have none in your bags, instead of showing them dimmed. They reappear automatically once you have the item again.",
-              getValue=function() return BD().hideItemsIfMissing == true end,
-              setValue=function(v)
-                  BD().hideItemsIfMissing = v
-                  if ns.FullCDMRebuild then ns.FullCDMRebuild("hide_missing_toggle") end
-              end },
-            mirrorCfg);  y = y - h
 
         -- Bar Strata: per-bar screen render layer for the bar container and
         -- its icons. MEDIUM matches the previous hardcoded value, so an unset

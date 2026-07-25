@@ -387,6 +387,11 @@ local defaults = {
         useBlizzardStyle = false,
         showBlizzIconBg = false,
         blizzIconBgAlpha = 1,
+        -- Flat color background behind every button icon. Defaults mirror the
+        -- previously hardcoded look (0.15 gray at 50%) so nothing changes for
+        -- existing users until customized.
+        slotBgColor = { r = 0.15, g = 0.15, b = 0.15 },
+        slotBgOpacity = 50,
         hideCastingAnimations = true,
         mouseoverShowAll = false,
         barPositions = {},
@@ -4185,7 +4190,10 @@ local function MakeButtonSquare(btn)
     if not fd.slotBG then
         local bg = btn:CreateTexture(nil, "BACKGROUND", nil, -1)
         bg:SetAllPoints(btn)
-        bg:SetColorTexture(0.15, 0.15, 0.15, 0.5)
+        local sc = (_p and _p.slotBgColor) or { r = 0.15, g = 0.15, b = 0.15 }
+        local so = _p and _p.slotBgOpacity
+        if so == nil then so = 50 end
+        bg:SetColorTexture(sc.r or 0.15, sc.g or 0.15, sc.b or 0.15, so / 100)
         fd.slotBG = bg
     end
     if btn.SlotArt then
@@ -5127,6 +5135,26 @@ end
 -- Cheap and idempotent (SetSwipeColor persists on the frame), so it runs on the
 -- main apply and on setting change. Defaults mirror the Blizzard look, so a
 -- default profile is visually unchanged.
+function EAB:ApplySlotBackgroundColor()
+    local pdb = self.db and self.db.profile
+    if not pdb then return end
+    local c = pdb.slotBgColor or { r = 0.15, g = 0.15, b = 0.15 }
+    local a = pdb.slotBgOpacity
+    if a == nil then a = 50 end
+    a = a / 100
+    for _, info in ipairs(BAR_CONFIG) do
+        local btns = barButtons[info.key]
+        if btns then
+            for _, btn in ipairs(btns) do
+                local bfd = btn and EFD(btn)
+                if bfd and bfd.slotBG then
+                    bfd.slotBG:SetColorTexture(c.r or 0.15, c.g or 0.15, c.b or 0.15, a)
+                end
+            end
+        end
+    end
+end
+
 function EAB:ApplyCooldownSwipeColor()
     local pdb = self.db and self.db.profile
     if not pdb then return end
@@ -8707,6 +8735,7 @@ local function ApplyAll()
     EAB:ApplyHighlightTextures()
     EAB:ApplyCooldownFonts()
     EAB:ApplyCooldownSwipeColor()
+    EAB:ApplySlotBackgroundColor()
     -- Gated so it's zero-touch at the default (100); the live handler + setValue
     -- own the rest.
     if EAB.db and EAB.db.profile and EAB.db.profile.alphaWhenOnCD ~= 100 then

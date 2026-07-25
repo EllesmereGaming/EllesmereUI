@@ -63,6 +63,7 @@ local L = {
     RIGHT_CLICK          = "|cffFFFFFFRight Click:|r",
     SHIFT_MIDDLE_CLICK   = "|cffFFFFFFShift + Middle Click:|r",
     SHIFT_LEFT_CLICK     = "|cffFFFFFFShift + Left Click:|r",
+    CTRL_LEFT_CLICK      = "|cffFFFFFFCtrl + Left Click:|r",
     CTRL_RIGHT_CLICK     = "|cffFFFFFFCtrl + Right Click:|r",
     CTRL_ALT_LEFT_CLICK  = "|cffFFFFFFCtrl + Alt + Left Click:|r",
     YOU_HAVE_MAIL        = "You've Got Mail!",
@@ -103,6 +104,7 @@ local L = {
     CHANGE_SPEC          = "Change Specialization",
     CHANGE_SPEC_SHORT    = "Change Spec",
     CHANGE_LOOT_SPEC     = "Change Loot Spec",
+    OPEN_TALENTS         = "Open Talents",
     CANNOT_USE_COMBAT    = "Cannot Use While In Combat",
     AUDIO                = "Audio",
     AUDIO_MASTER         = "Master",
@@ -159,7 +161,6 @@ local defaults = {
     profile = {
         nextBarId  = 0,   -- monotonic bar id counter; only ever incremented
         bars       = {},  -- ordered array of barCfg
-        characters = {},  -- cross-character gold store, keyed "Name-Realm"
     },
 }
 
@@ -3046,6 +3047,13 @@ end
 -------------------------------------------------------------------------------
 function WB:OnInitialize()
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIDataBarsDB", defaults)
+    -- The cross-character gold ledger used to live in the profile, which put
+    -- every character's name, realm and balance into shared export strings and
+    -- gave each profile its own separate ledger. It is account data now
+    -- (EllesmereUIDB.dataBarsGold, see GoldStore). Drop the old copy rather
+    -- than migrate it: on anyone who imported a profile it holds the exporter's
+    -- characters, not their own, and the account store refills from live play.
+    self.db.profile.characters = nil
 end
 
 function WB:OnEnable()

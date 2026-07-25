@@ -3592,6 +3592,14 @@ function EllesmereUI.SetDarkModeAll(on, filter)
         end
     end
     EllesmereUI.RefreshDarkMode()
+    -- Dark Mode feeds the conditional-override "darkmode" condition. This is
+    -- deliberately here and NOT in RefreshDarkMode: SetDarkModeAll's only
+    -- callers are the two Fonts & Colors master checkboxes (a pure user
+    -- action, never a profile-apply boundary), while RefreshDarkMode is also
+    -- reached from the profile-apply pipeline, where an extra recheck could
+    -- interleave with the conditions establish choreography. No-op-cheap
+    -- when no darkmode group exists; self-defers in combat.
+    if EllesmereUI.Conditions_Recheck then EllesmereUI.Conditions_Recheck() end
 end
 
 -------------------------------------------------------------------------------
@@ -4772,11 +4780,18 @@ do
     -- wasSetFromAura/auraInstanceID/IsShown, count via
     -- auraDataCached.applications -- plain out of restricted combat, secret
     -- inside it (both observations from the CDM module's TBB stack reader,
-    -- ReadStackApplications). Same source Coolinator displays; here it
-    -- feeds two fail-open corrections the cast prediction can't make:
-    -- zero on a confirmed early drop (/cancelaura), and drift resync
-    -- whenever the count reads plain. CDM disabled or the buff untracked
-    -- -> no child is ever found and prediction behaves exactly as before.
+    -- ReadStackApplications). Here it feeds two fail-open corrections the
+    -- cast prediction can't make: zero on a confirmed early drop
+    -- (/cancelaura), and drift resync whenever the count reads plain. CDM
+    -- disabled or the buff untracked -> no child is ever found and
+    -- prediction behaves exactly as before.
+    --
+    -- Provenance: this sync came in through community PR #861 and was later
+    -- reviewed by curseforge in a full originality audit, prompted by an
+    -- earlier revision of the PR's comment naming a third-party addon. The
+    -- review confirmed the technique is original, expanding on the CDM module's
+    -- own ReadStackApplications (cited above) which reads Blizzard's widget data.
+
     local function CdmInfoMatches(info)
         if not info then return false end
         if info.spellID == SWEEP or info.overrideSpellID == SWEEP then return true end
@@ -10883,7 +10898,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.5.7"
+EllesmereUI.VERSION = "8.5.8"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -12512,6 +12527,86 @@ function EllesmereUI.SetElementVisibility(frame, visible)
 end
 
 -------------------------------------------------------------------------------
+--  Blizzard Cast Bar Event Ownership
+--  Standalone cast bar addons claim Blizzard's player/pet cast bars by
+--  unregistering their events. oUF's Castbar element writes the same state --
+--  it silences those frames when it enables on the player frame and re-arms
+--  them when it disables -- so EUI can hand a user's cast bar back to Blizzard
+--  on top of the addon they replaced it with. EUI hides Blizzard's bar by
+--  re-parenting it (see SetPlayerCastBarSuppressed), so it never needs the
+--  event state changed: wrap anything that flips it in Capture/Restore and only
+--  ever undo EUI's own writes.
+-------------------------------------------------------------------------------
+function EllesmereUI._BlizzCastBars()
+    local bars = EllesmereUI._blizzCastBarList
+    if bars then return bars end
+
+    bars = {}
+    if PlayerCastingBarFrame then bars[#bars + 1] = { frame = PlayerCastingBarFrame, unit = "player" } end
+    if PetCastingBarFrame then bars[#bars + 1] = { frame = PetCastingBarFrame, unit = "pet" } end
+    EllesmereUI._blizzCastBarList = bars
+
+    for i = 1, #bars do
+        local bar = bars[i]
+        -- An UnregisterAllEvents outside one of our own Capture/Restore windows
+        -- is another addon claiming the frame, so EUI drops its claim and stops
+        -- treating that silence as something it may undo.
+        hooksecurefunc(bar.frame, "UnregisterAllEvents", function()
+            if not EllesmereUI._blizzCastBarSnapshot then bar.owned = false end
+        end)
+    end
+    return bars
+end
+
+function EllesmereUI.CaptureBlizzCastBarEvents()
+    local bars = EllesmereUI._BlizzCastBars()
+    local snapshot = {}
+    for i = 1, #bars do
+        snapshot[i] = bars[i].frame:IsEventRegistered("UNIT_SPELLCAST_START") and true or false
+    end
+    EllesmereUI._blizzCastBarSnapshot = snapshot
+end
+
+function EllesmereUI.RestoreBlizzCastBarEvents()
+    local snapshot = EllesmereUI._blizzCastBarSnapshot
+    if not snapshot then return end
+    EllesmereUI._blizzCastBarSnapshot = nil
+
+    local bars = EllesmereUI._blizzCastBarList
+    for i = 1, #bars do
+        local bar = bars[i]
+        local live = bar.frame:IsEventRegistered("UNIT_SPELLCAST_START") and true or false
+        if live ~= snapshot[i] then
+            if not live then
+                bar.owned = true
+            elseif bar.owned then
+                bar.owned = false
+            else
+                -- Someone else silenced this frame; put it back the way we
+                -- found it instead of resurrecting Blizzard's cast bar.
+                bar.frame:UnregisterAllEvents()
+                bar.frame:Hide()
+            end
+        end
+    end
+end
+
+-- Give Blizzard's player cast bar its own event wiring back, but only when EUI
+-- is the one that took it away.
+function EllesmereUI.RearmBlizzPlayerCastBar()
+    local bars = EllesmereUI._blizzCastBarList
+    if not bars then return end
+    for i = 1, #bars do
+        local bar = bars[i]
+        if bar.unit == "player" and bar.owned and bar.frame.SetUnit
+            and not bar.frame:IsEventRegistered("UNIT_SPELLCAST_START") then
+            bar.owned = false
+            bar.frame:SetUnit("player", bar.frame.showTradeSkills, bar.frame.showShield)
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Shared Player Cast Bar Suppression
 --  Multiple EUI modules can temporarily suppress Blizzard's player cast bar
 --  while they render their own. We centralize that ownership here so modules
@@ -12619,18 +12714,19 @@ function EllesmereUI.SetPlayerCastBarSuppressed(owner, suppressed)
     end
 
     local selection = blizzBar.Selection
-    if selection then
+    if selection and EllesmereUI._GetFFD(selection).suppressed then
         EllesmereUI._GetFFD(selection).suppressed = false
         selection:SetAlpha(EllesmereUI._GetFFD(selection).restoreAlpha or 1)
         selection:EnableMouse(EllesmereUI._GetFFD(selection).restoreMouse or false)
     end
 
-    -- Let Blizzard rebuild its normal event wiring and pick up any active cast
-    -- without forcing visibility back on. This keeps profile switches and
-    -- UnitFrames/oUF teardown compatible with Blizzard's own cast bar logic.
-    if blizzBar.SetUnit then
-        blizzBar:SetUnit("player")
-    end
+    -- Let Blizzard rebuild its normal event wiring without forcing visibility
+    -- back on, so profile switches and UnitFrames/oUF teardown stay compatible
+    -- with Blizzard's own cast bar logic. Only when EUI silenced the frame in
+    -- the first place: a standalone cast bar addon silences the same frame, and
+    -- re-registering its events is what pops Blizzard's cast bar back on screen
+    -- next to theirs once EUI's own cast bar is switched off.
+    EllesmereUI.RearmBlizzPlayerCastBar()
 end
 
 -------------------------------------------------------------------------------

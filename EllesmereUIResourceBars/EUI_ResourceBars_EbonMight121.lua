@@ -111,6 +111,15 @@ local function Build()
             -- subtree. Two-point anchoring sizes the button by anchors
             -- forever; all repositioning is proxy moves.
             button:SetAllPoints(S.proxy)
+            -- Both halves, and inside the creation window: this is the only
+            -- legal moment to set them. The slot button is an engine Button, so
+            -- mouse is on by default -- motion alone only suppresses the
+            -- tooltip. With clicks still enabled it is an invisible click
+            -- blocker over the bar's whole rect for as long as Ebon Might is
+            -- up, swallowing clicks meant for the world (nameplates behind the
+            -- bar stop responding mid-combat). It is a display-only overlay and
+            -- has no OnClick, so it should never take mouse input at all.
+            if button.SetMouseClickEnabled then button:SetMouseClickEnabled(false) end
             if button.SetMouseMotionEnabled then button:SetMouseMotionEnabled(false) end
 
             local bar = CreateFrame("StatusBar", nil, button)

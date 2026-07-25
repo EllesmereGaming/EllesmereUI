@@ -3988,6 +3988,17 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetAlpha(questObjOff() and 0.15 or 0.4)
         end
 
+        -- Row 4: Execute Pulse Glow | (blank)
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Execute Pulse Glow",
+              tooltip="Pulses a red glow on enemy nameplates below 30% health.",
+              getValue=function() return DBVal("lowHpGlow") == true end,
+              setValue=function(v)
+                DB().lowHpGlow = v
+                ns.RefreshAllSettings()
+              end },
+            { type="label", text="" });  y = y - h
+
         return math.abs(y)
     end
 
@@ -6972,7 +6983,7 @@ initFrame:SetScript("OnEvent", function(self)
                           end,
                           set = function(r, g, b) DB().importantCastGlowBackgroundColor = { r = r, g = g, b = b }; RefreshAllPlates() end,
                           disabled = function() return DB().importantCastGlowBackground ~= true end,
-                          disabledTooltip = EllesmereUI.DisabledTooltip("Pixel Glow Background") },
+                          disabledTooltip = "Pixel Glow Background" },
                     },
                 })
 
@@ -7314,7 +7325,7 @@ initFrame:SetScript("OnEvent", function(self)
                             UpdatePreview()
                           end,
                           disabled=function() return not ns.GetTargetGlowBorderSize() end,
-                          disabledTooltip=EllesmereUI.DisabledTooltip("Border Size Target Effect") },
+                          disabledTooltip="Border Size Target Effect" },
                     },
                 })
                 local highlightCogBtn = CreateFrame("Button", nil, leftRgn)
@@ -7481,6 +7492,14 @@ initFrame:SetScript("OnEvent", function(self)
         local isTargetTextureNone = function()
             return (DBVal("targetOverlayTexture") or defaults.targetOverlayTexture) == "none"
         end
+        -- No Tint: the target texture pattern becomes the bar's own fill
+        -- texture (SetStatusBarTexture) instead of a tinted overlay drawn on
+        -- top, so the color swatch/opacity below stop applying.
+        local isTargetNoTint = function()
+            local v = DBVal("targetOverlayNoTint")
+            if v == nil then return defaults.targetOverlayNoTint end
+            return v
+        end
         local isFocusColorDisabled = function()
             local db = DB()
             if db and db.focusColorEnabled ~= nil then return not db.focusColorEnabled end
@@ -7488,6 +7507,11 @@ initFrame:SetScript("OnEvent", function(self)
         end
         local isFocusTextureNone = function()
             return (DBVal("focusOverlayTexture") or defaults.focusOverlayTexture) == "none"
+        end
+        local isFocusNoTint = function()
+            local v = DBVal("focusOverlayNoTint")
+            if v == nil then return defaults.focusOverlayNoTint end
+            return v
         end
 
         local targetPrev, focusPrev
@@ -7652,17 +7676,17 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = swatch
             EllesmereUI.RegisterWidgetRefresh(function()
-                local off = isTargetTextureNone()
+                local off = isTargetTextureNone() or isTargetNoTint()
                 swatch:SetAlpha(off and 0.15 or 1)
                 swatch:EnableMouse(not off)
                 updateSwatch()
             end)
-            local off = isTargetTextureNone()
+            local off = isTargetTextureNone() or isTargetNoTint()
             swatch:SetAlpha(off and 0.15 or 1)
             swatch:EnableMouse(not off)
         end
 
-        -- Inline Target Texture cog (Opacity), to the left of the swatch
+        -- Inline Target Texture cog (Opacity + No Tint), to the left of the swatch
         do
             local leftRgn = textureDualRow._leftRegion
             local _, targetTexCogShow = EllesmereUI.BuildCogPopup({
@@ -7684,6 +7708,14 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v)
                         DB().targetOverlayFullBgAlpha = v
                         RefreshAllPlates()
+                        if targetPrev and targetPrev.UpdateOverlay then targetPrev.UpdateOverlay() end
+                      end },
+                    { type="toggle", label="Don't tint (keep bar's own color)",
+                      tooltip="Tints the pattern with the bar's current color instead of the custom overlay color.",
+                      get=isTargetNoTint,
+                      set=function(v)
+                        DB().targetOverlayNoTint = v
+                        RefreshAllTextures()
                         if targetPrev and targetPrev.UpdateOverlay then targetPrev.UpdateOverlay() end
                       end },
                 },
@@ -7726,17 +7758,17 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(swatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
             rightRgn._lastInline = swatch
             EllesmereUI.RegisterWidgetRefresh(function()
-                local off = isFocusTextureNone()
+                local off = isFocusTextureNone() or isFocusNoTint()
                 swatch:SetAlpha(off and 0.15 or 1)
                 swatch:EnableMouse(not off)
                 updateSwatch()
             end)
-            local off = isFocusTextureNone()
+            local off = isFocusTextureNone() or isFocusNoTint()
             swatch:SetAlpha(off and 0.15 or 1)
             swatch:EnableMouse(not off)
         end
 
-        -- Inline Focus Texture cog (Opacity), to the left of the swatch
+        -- Inline Focus Texture cog (Opacity + No Tint), to the left of the swatch
         do
             local rightRgn = textureDualRow._rightRegion
             local _, focusTexCogShow = EllesmereUI.BuildCogPopup({
@@ -7756,6 +7788,14 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       set=function(v)
                         DB().focusOverlayFullBgAlpha = v
+                        RefreshFocusPreview()
+                      end },
+                    { type="toggle", label="Don't tint (keep bar's own color)",
+                      tooltip="Tints the pattern with the bar's current color instead of the custom overlay color.",
+                      get=isFocusNoTint,
+                      set=function(v)
+                        DB().focusOverlayNoTint = v
+                        RefreshAllTextures()
                         RefreshFocusPreview()
                       end },
                 },

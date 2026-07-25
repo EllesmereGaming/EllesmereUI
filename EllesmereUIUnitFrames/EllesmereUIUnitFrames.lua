@@ -9323,9 +9323,7 @@ local function ReloadFrames()
                     if frame.Castbar then
                         local castbarBg = frame.Castbar:GetParent()
                         if settings.showPlayerCastbar then
-                            if not frame:IsElementEnabled("Castbar") then
-                                frame:EnableElement("Castbar")
-                            end
+                            ns.SetCastbarElement(frame, true)
                             if castbarBg then
                                 local cbW = db.profile.player.playerCastbarWidth or 181
                                 local cbH = db.profile.player.playerCastbarHeight or 14
@@ -9406,9 +9404,7 @@ local function ReloadFrames()
                                 end
                             end
                         else
-                            if frame:IsElementEnabled("Castbar") then
-                                frame:DisableElement("Castbar")
-                            end
+                            ns.SetCastbarElement(frame, false)
                             frame.Castbar:Hide()
                             if castbarBg then castbarBg:Hide() end
                         end
@@ -10818,7 +10814,7 @@ local function ReloadFrames()
             -- so this is a no-op unless the user enabled a boss border).
             if unit:match("^boss%d$") then
                 local isT = UnitIsUnit(unit, "target")
-                frame._isTarget = (isT and not issecretvalue(isT)) and true or false
+                frame._isTarget = (not issecretvalue(isT) and isT) and true or false
                 ns.ApplyBossBorderState(frame)
             end
             frame.Health:SetReverseFill(settings.healthReverseFill and true or false)
@@ -11072,6 +11068,23 @@ local function ReloadFrames()
     end
 end
 
+-- Toggle a frame's oUF Castbar element without rewriting Blizzard's cast bar
+-- event registration. oUF silences PlayerCastingBarFrame/PetCastingBarFrame
+-- when the element enables on the player frame and re-arms them when it
+-- disables; the shared helpers keep whatever a standalone cast bar addon set.
+-- On ns (not a new file-scope local) to respect the Lua 200-locals cap.
+function ns.SetCastbarElement(frame, enable)
+    if not frame or not frame.Castbar then return end
+    if (frame:IsElementEnabled("Castbar") and true or false) == (enable and true or false) then return end
+    EllesmereUI.CaptureBlizzCastBarEvents()
+    if enable then
+        frame:EnableElement("Castbar")
+    else
+        frame:DisableElement("Castbar")
+    end
+    EllesmereUI.RestoreBlizzCastBarEvents()
+end
+
 -- Manage Blizzard's player cast bar ownership based on whether UnitFrames is
 -- rendering its own player cast bar. oUF already handles the event plumbing
 -- for its own castbar element; this helper only coordinates suppression with
@@ -11265,7 +11278,11 @@ function InitializeFrames()
     -- it, so oUF never disables it); "hidden" removes Blizzard's frame too.
     oUF:SetActiveStyle("EllesmerePlayer")
     if playerFrameSource == "eui" then
+        -- Spawning enables the Castbar element, which silences Blizzard's
+        -- player/pet cast bars. Keep whatever a standalone cast bar addon set.
+        EllesmereUI.CaptureBlizzCastBarEvents()
         frames.player = oUF:Spawn("player", "EllesmereUIUnitFrames_Player")
+        EllesmereUI.RestoreBlizzCastBarEvents()
     elseif playerFrameSource == "hidden" then
         oUF:DisableBlizzard("player")
     end
@@ -11992,10 +12009,12 @@ function InitializeFrames()
             local unit = uf.unit
             local isLeader = UnitIsGroupLeader(unit)
             local isAssist = UnitIsGroupAssistant(unit)
-            if isLeader and not issecretvalue(isLeader) then
+            -- Secrecy check MUST run before any truthiness test: boolean-testing
+            -- a secret errors, so "value and not issecretvalue(value)" crashes.
+            if not issecretvalue(isLeader) and isLeader then
                 tex:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
                 tex:Show()
-            elseif isAssist and not issecretvalue(isAssist) then
+            elseif not issecretvalue(isAssist) and isAssist then
                 tex:SetTexture("Interface\\GroupFrame\\UI-Group-AssistantIcon")
                 tex:Show()
             else
@@ -12297,9 +12316,7 @@ function InitializeFrames()
     -- Player castbar: disable oUF element if not wanted (always created now)
     if frames.player and frames.player.Castbar then
         if not db.profile.player.showPlayerCastbar then
-            if frames.player:IsElementEnabled("Castbar") then
-                frames.player:DisableElement("Castbar")
-            end
+            ns.SetCastbarElement(frames.player, false)
             frames.player.Castbar:Hide()
             local castbarBg = frames.player.Castbar:GetParent()
             if castbarBg then castbarBg:Hide() end
@@ -12538,13 +12555,9 @@ function InitializeFrames()
                                     wantsCastbar = s.showCastbar ~= false
                                 end
                                 if wantsCastbar then
-                                    if not frame:IsElementEnabled("Castbar") then
-                                        frame:EnableElement("Castbar")
-                                    end
+                                    ns.SetCastbarElement(frame, true)
                                 else
-                                    if frame:IsElementEnabled("Castbar") then
-                                        frame:DisableElement("Castbar")
-                                    end
+                                    ns.SetCastbarElement(frame, false)
                                     frame.Castbar:Hide()
                                     local castbarBg = frame.Castbar:GetParent()
                                     if castbarBg then castbarBg:Hide() end
@@ -12557,11 +12570,12 @@ function InitializeFrames()
                         if frame:IsShown() then
                             -- Disable oUF elements before hiding to prevent a
                             -- single-frame flash when the unit attribute is cleared
-                            for _, elem in ipairs({"Health", "Power", "Portrait", "Castbar", "Buffs", "Debuffs", "HealthPrediction"}) do
+                            for _, elem in ipairs({"Health", "Power", "Portrait", "Buffs", "Debuffs", "HealthPrediction"}) do
                                 if frame[elem] and frame:IsElementEnabled(elem) then
                                     frame:DisableElement(elem)
                                 end
                             end
+                            ns.SetCastbarElement(frame, false)
                             frame:Hide()
                             frame:SetAttribute("unit", nil)
                         end
@@ -12770,7 +12784,7 @@ function InitializeFrames()
             if f then
                 if f.unifiedBorder then
                     local isT = UnitIsUnit(bUnit, "target")
-                    f._isTarget = (isT and not issecretvalue(isT)) and true or false
+                    f._isTarget = (not issecretvalue(isT) and isT) and true or false
                     ns.ApplyBossBorderState(f)
                 end
                 if s then
