@@ -359,7 +359,7 @@ init:SetScript("OnEvent", function(self)
             {type="toggle",text="Enabled",getValue=function() return Get("enabled")~=false end,setValue=function(v) Set("enabled",v) end},
             {type="dropdown",text="Display Style",values={BAR="Bar",ICON="Icon"},order={"BAR","ICON"},getValue=function() return Get("displayStyle") or "BAR" end,setValue=function(v) Set("displayStyle",v) end}); y=y-h
         _,h=W:DualRow(parent,y,
-            {type="dropdown",text="Alignment",values={LEFT="Left",RIGHT="Right"},order={"LEFT","RIGHT"},getValue=function() return Get("alignment") or "LEFT" end,setValue=function(v) Set("alignment",v) end},
+            {type="dropdown",text="Alignment",values={LEFT="Left",RIGHT="Right"},order={"LEFT","RIGHT"},getValue=function() return Get("alignment") or "RIGHT" end,setValue=function(v) Set("alignment",v) end},
             {type="toggle",text="Grow Up",getValue=function() return Get("growUp")~=false end,setValue=function(v)
                 local p=P(); if not p then return end
                 p.growUp=v
@@ -413,11 +413,11 @@ init:SetScript("OnEvent", function(self)
         local styleOrder={"NONE","OUTLINE","THICKOUTLINE","SHADOW","OUTLINE_SHADOW"}
         _,h=W:DualRow(parent,y,
             {type="dropdown",text="Font",values=fontValues,order=fontOrder,getValue=function() return Get("fontName") or "__global" end,setValue=function(v) Set("fontName",v) end},
-            {type="dropdown",text="Font Style",values=styleValues,order=styleOrder,getValue=function() return Get("fontStyle") or "OUTLINE" end,setValue=function(v) Set("fontStyle",v) end}); y=y-h
+            {type="dropdown",text="Font Style",values=styleValues,order=styleOrder,getValue=function() return Get("fontStyle") or "OUTLINE_SHADOW" end,setValue=function(v) Set("fontStyle",v) end}); y=y-h
         local iconSizeRow
         iconSizeRow,h=W:DualRow(parent,y,
-            {type="slider",text="Font Size",min=9,max=24,step=1,getValue=function() return Get("fontSize") or 13 end,setValue=function(v) Set("fontSize",v) end},
-            {type="slider",text="Secondary Font Size",min=7,max=20,step=1,getValue=function() return Get("valueFontSize") or 11 end,setValue=function(v) Set("valueFontSize",v) end}); y=y-h
+            {type="slider",text="Font Size",min=9,max=24,step=1,getValue=function() return Get("fontSize") or 14 end,setValue=function(v) Set("fontSize",v) end},
+            {type="slider",text="Secondary Font Size",min=7,max=20,step=1,getValue=function() return Get("valueFontSize") or 12 end,setValue=function(v) Set("valueFontSize",v) end}); y=y-h
 
         _,h=W:SectionHeader(parent,"APPEARANCE",y); y=y-h
         iconSizeRow,h=W:DualRow(parent,y,
@@ -464,7 +464,7 @@ init:SetScript("OnEvent", function(self)
         local borderValues,borderOrder=EllesmereUI.GetBorderTextureDropdown()
         row,h=W:DualRow(parent,y,
             {type="dropdown",text="Border Style",values=borderValues,order=borderOrder,getValue=function() return Get("borderTexture") or "solid" end,setValue=function(v) Set("borderTexture",v); Set("borderOffsetX",0); Set("borderOffsetY",0) end},
-            {type="slider",text="Border Size",min=0,max=4,step=1,getValue=function() return Get("borderSize") or 0 end,setValue=function(v) Set("borderSize",v) end}); y=y-h
+            {type="slider",text="Border Size",min=0,max=4,step=1,getValue=function() local v=Get("borderSize"); return v==nil and 1 or v end,setValue=function(v) Set("borderSize",v) end}); y=y-h
         do
             local _,showCog=EllesmereUI.BuildCogPopup({title="Border Options",rows={
                 {type="slider",label="Offset X",min=-10,max=10,step=1,get=function() return Get("borderOffsetX") or 0 end,set=function(v) Set("borderOffsetX",v) end},

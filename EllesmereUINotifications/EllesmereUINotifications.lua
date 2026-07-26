@@ -10,14 +10,14 @@ local DB_DEFAULTS = { profile = {
     enabled = true, duration = 5, fadeDuration = 0.6, maxVisible = 6,
     enterAnimation = "SLIDE_TOP", exitAnimation = "FADE",
     enterDuration = 0.2, exitDuration = 1.2,
-    width = 310, spacing = 5, alignment = "LEFT",
-    fontSize = 13, valueFontSize = 11, iconSize = 28, backgroundAlpha = 0.72,
+    width = 310, spacing = 5, alignment = "RIGHT",
+    fontSize = 14, valueFontSize = 12, iconSize = 28, backgroundAlpha = 0.72,
     growUp = true, showIcons = true, showItemQuality = true,
     showItemValue = false, showTooltip = true,
-    displayStyle = "BAR", borderTexture = "solid", borderSize = 0,
+    displayStyle = "BAR", borderTexture = "solid", borderSize = 1,
     borderR = 0, borderG = 0, borderB = 0, borderA = 1,
     borderOffsetX = 0, borderOffsetY = 0, borderBehind = false,
-    fontName = "__global", fontStyle = "OUTLINE",
+    fontName = "__global", fontStyle = "OUTLINE_SHADOW",
     barTexture = "__solid", barR = 0.035, barG = 0.035, barB = 0.035,
     iconPartOfBar = true, iconOffsetX = 5, showIconDivider = false,
     alertsEnabled = false, alertEpicBoE = true, alertEpicWarbound = true,
@@ -31,6 +31,7 @@ local DB_DEFAULTS = { profile = {
     showItems = true, showCurrencies = true, showReputation = true,
     showHonor = true, showExperience = true, showGold = true,
     mergeWindow = 1.0,
+    position = { point = "RIGHT", relPoint = "RIGHT", x = -160, y = 80 },
 } }
 
 local db, holder, eventFrame
@@ -74,7 +75,7 @@ local BIND_LABELS = {
 local function EnsureHolder()
     if holder then return holder end
     holder = CreateFrame("Frame", "EllesmereUINotificationsFrame", UIParent)
-    holder:SetPoint("CENTER", UIParent, "CENTER", 0, 130)
+    holder:SetPoint("RIGHT", UIParent, "RIGHT", -160, 80)
     holder:SetClampedToScreen(true)
     holder:Hide()
     return holder
@@ -102,7 +103,7 @@ local function EffectiveRowHeight(p,hasSecondLine)
     local iconSize=max(26,p.iconSize or 28)
     -- Reserve the two-line text block for every row so one- and two-line
     -- notifications always share exactly the same bar and icon dimensions.
-    local textHeight=(p.fontSize or 13)+(p.valueFontSize or 11)+12
+    local textHeight=(p.fontSize or 14)+(p.valueFontSize or 12)+12
     return max(iconSize,textHeight)
 end
 
@@ -321,12 +322,12 @@ local function Layout()
             end
         end
         -- Configured icon size is a minimum; the icon grows with a taller two-line bar.
-        ApplyFontStyle(row.text, fontPath, p.fontSize, p.fontStyle or "OUTLINE")
-        ApplyFontStyle(row.value, fontPath, p.valueFontSize or max(9, p.fontSize - 2), p.fontStyle or "OUTLINE")
+        ApplyFontStyle(row.text, fontPath, p.fontSize or 14, p.fontStyle or "OUTLINE_SHADOW")
+        ApplyFontStyle(row.value, fontPath, p.valueFontSize or 12, p.fontStyle or "OUTLINE_SHADOW")
         row.text:ClearAllPoints()
         row.value:ClearAllPoints()
-        local mainY=row.hasValue and (((p.valueFontSize or 11)+2)/2) or 0
-        local valueY=-(((p.fontSize or 13)+2)/2)
+        local mainY=row.hasValue and (((p.valueFontSize or 12)+2)/2) or 0
+        local valueY=-(((p.fontSize or 14)+2)/2)
         if separateIcon and not iconRight then
             row.text:SetPoint("LEFT", row.bg, "LEFT", 8, mainY)
             row.value:SetPoint("LEFT", row.bg, "LEFT", 8, valueY)
@@ -417,10 +418,10 @@ local function AcquireRow()
     if (not fontPath or fontPath == "") and GameFontNormal then
         fontPath = GameFontNormal:GetFont()
     end
-    row.text:SetFont(fontPath or "Fonts\\FRIZQT__.TTF", (Profile() and Profile().fontSize) or 13, "OUTLINE")
+    row.text:SetFont(fontPath or "Fonts\\FRIZQT__.TTF", (Profile() and Profile().fontSize) or 14, "OUTLINE")
     row.text:SetJustifyH("LEFT"); row.text:SetWordWrap(false)
     row.value = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    row.value:SetFont(fontPath or "Fonts\\FRIZQT__.TTF", max(9, ((Profile() and Profile().fontSize) or 13) - 2), "OUTLINE")
+    row.value:SetFont(fontPath or "Fonts\\FRIZQT__.TTF", (Profile() and Profile().valueFontSize) or 12, "OUTLINE")
     row.value:SetJustifyH("LEFT"); row.value:SetTextColor(.82, .82, .82)
     row.count = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     row.count:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -1, 1)
@@ -729,7 +730,9 @@ local function ApplyPosition()
     local p = Profile(); if not p then return end
     EnsureHolder():ClearAllPoints()
     local pos = p.position
-    holder:SetPoint(pos and pos.point or "CENTER", UIParent, pos and pos.relPoint or "CENTER", pos and pos.x or 0, pos and pos.y or 130)
+    local x=pos and pos.x; if x==nil then x=-160 end
+    local y=pos and pos.y; if y==nil then y=80 end
+    holder:SetPoint(pos and pos.point or "RIGHT",UIParent,pos and pos.relPoint or "RIGHT",x,y)
 end
 
 function ns.Apply()
