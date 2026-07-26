@@ -77,6 +77,9 @@ local L = {
     FPS                  = "FPS",
     HOME                 = "Home",
     WORLD                = "World",
+    DOWNLOAD             = "Download",
+    UPLOAD               = "Upload",
+    KB_PER_SEC           = "KB/s",
     MEMORY_USAGE         = "Memory Usage",
     REFRESH_STATS        = "Refresh stats / print memory snapshot",
     FORCE_GC             = "Force garbage collection",
@@ -188,7 +191,7 @@ ns.BLOCK_TYPES = {
 ns.BLOCK_DEFAULTS = {
     clock      = { localTime = true, twentyFour = true, showMail = true, showResting = true, fontSizeClock = nil, fontSizeInfo = nil },
     fps        = {},
-    ms         = { useWorldLatency = false },
+    ms         = { showIcon = false },
     gold       = { showIcons = true, showBagSpace = false, showSmall = false, coinIcons = false },
     durability = { showIcon = true },
     xprep      = { mode = "auto" },

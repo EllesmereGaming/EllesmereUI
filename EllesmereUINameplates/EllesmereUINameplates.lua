@@ -5637,7 +5637,15 @@ function NameplateFrame:UpdateCastText(spellName)
     end
 
     local nameColor = db.castNameColor or defaults.castNameColor
-    local targetText = combine and hasTarget and self.castName or self.castTarget
+    -- Combined mode paints the target color onto the cast NAME string (the
+    -- target rides in it as a format arg); separate mode paints its own
+    -- FontString.
+    local targetText
+    if combine and hasTarget then
+        targetText = self.castName
+    else
+        targetText = self.castTarget
+    end
     if useClassColor then
         if targetColor then
             targetText:SetTextColor(targetColor:GetRGB())
@@ -8425,21 +8433,22 @@ function NameplateFrame:ShowInterrupted(interrupterGUID)
     -- return a SECRET name/class. Keep those values opaque until native sinks.
     local interrupterName
     local interrupterClass
-    local guidIsSecret
     if type(interrupterGUID) ~= "nil" then
-        guidIsSecret = issecretvalue and issecretvalue(interrupterGUID)
         local _, class, _, _, _, name = GetPlayerInfoByGUID(interrupterGUID)
         interrupterClass = class
         interrupterName = name
-        if type(interrupterName) == "nil" and not guidIsSecret then
+        if type(interrupterName) == "nil" then
             -- Fallback for a NON-player interrupter GUID (a pet or an NPC):
             -- GetPlayerInfoByGUID only resolves players, so it returns nothing
             -- above and the name is pulled from the GUID's live unit token
             -- instead. Non-players have no class, so interrupterClass stays nil
             -- and the class-color path below is simply skipped for them.
+            -- A SECRET GUID resolves to a SECRET token and a SECRET name; both
+            -- pass straight through to SetFormattedText as a display arg, so
+            -- the name still shows in instanced content. type() is the only
+            -- presence check either value may take.
             local token = UnitTokenFromGUID(interrupterGUID)
-            if type(token) ~= "nil"
-                and not (issecretvalue and issecretvalue(token)) then
+            if type(token) ~= "nil" then
                 interrupterName = UnitName(token)
             end
         end

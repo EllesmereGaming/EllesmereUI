@@ -2656,7 +2656,22 @@ initFrame:SetScript("OnEvent", function(self)
                 }
             elseif b.type == "ms" then
                 typeRows = {
-                    MkToggle("World Latency", "useWorldLatency", "Show world latency instead of home latency."),
+                    { type = "dropdown", text = "Latency",
+                      tooltip = "Which latency to show: home, world, or both side by side.",
+                      values = { home = "Home", world = "World", both = "Both" },
+                      order = { "home", "world", "both" },
+                      getValue = function() return ns.LatencyMode(s) end,
+                      setValue = function(v) s.latencyMode = v; Apply() end },
+                    -- Not MkToggle: the inline icon-color swatches below key
+                    -- their disabled state off this toggle, so it has to
+                    -- rebuild the page (house pattern for inline controls).
+                    { type = "toggle", text = "Show Icon",
+                      tooltip = "Shows a house or globe icon marking which latency each value is.",
+                      getValue = function() return s.showIcon == true end,
+                      setValue = function(v)
+                          s.showIcon = v and true or false
+                          Apply(); EllesmereUI:RefreshPage()
+                      end },
                 }
             elseif b.type == "gold" then
                 typeRows = {
@@ -2809,10 +2824,14 @@ initFrame:SetScript("OnEvent", function(self)
                 }
             end
 
+            local msIconRow
             for k = 1, #typeRows, 2 do
                 local rightCfg = typeRows[k + 1]
                 if not rightCfg then rightCfg = { type = "label", text = "" } end
                 row, h = W:DualRow(parent, y, typeRows[k], rightCfg);  y = y - h
+                -- Latency: the Show Icon toggle rides this row's right slot and
+                -- carries the inline icon-color swatches built after the loop.
+                if b.type == "ms" and k == 1 then msIconRow = row end
                 -- Deep-link target for an unconfigured currency block: clicking
                 -- its "Select a currency" placeholder on the live bar lands on
                 -- the picker itself, not just the section (ns.OpenBlockSettings).
@@ -2824,6 +2843,113 @@ initFrame:SetScript("OnEvent", function(self)
                           -- Pulse until the player actually picks one.
                           holdWhile = function() return s.currencyId == nil end }
                 end
+            end
+
+            -- Latency icon color: the same Custom / Class / Accent trio as the
+            -- Text Color row above, inline on Show Icon instead of a row of its
+            -- own (the block has one icon set, not a second colorable element).
+            -- Stores on the shared per-block icon keys that IconColorOf already
+            -- reads, so nothing stored = Custom white, matching the block's
+            -- untinted default -- no migration and no new default key.
+            if msIconRow then
+                local rgn = msIconRow._rightRegion
+                local anchor = rgn._control
+                local function IconOn() return s.showIcon == true end
+                local function FlagsOff()
+                    return not b.useIconClassColor and not b.useIconAccentColor
+                        and not b.useIconDefaultColor
+                end
+                local function ClearFlags()
+                    b.useIconClassColor = nil
+                    b.useIconAccentColor = nil
+                    b.useIconDefaultColor = nil
+                end
+
+                -- Built right-to-left off the toggle so they read
+                -- Custom | Class | Accent left-to-right, like Text Color.
+                local specs = {
+                    { tip = "Accent Color",
+                      get = function() return ns.GetAccent() end,
+                      click = function()
+                          ClearFlags(); b.useIconAccentColor = true
+                          ApplyBlockColor(); EllesmereUI:RefreshPage()
+                      end,
+                      on = function() return b.useIconAccentColor == true end },
+                    { tip = "Class Colored",
+                      get = function()
+                          local _, classFile = UnitClass("player")
+                          local cc = classFile and RAID_CLASS_COLORS
+                              and RAID_CLASS_COLORS[classFile]
+                          if cc then return cc.r, cc.g, cc.b end
+                          return 1, 1, 1
+                      end,
+                      click = function()
+                          ClearFlags(); b.useIconClassColor = true
+                          ApplyBlockColor(); EllesmereUI:RefreshPage()
+                      end,
+                      on = function() return b.useIconClassColor == true end },
+                    { tip = "Custom Color",
+                      get = function()
+                          local c = b.iconColor
+                          if c then return c.r or 1, c.g or 1, c.b or 1 end
+                          return 1, 1, 1
+                      end,
+                      set = function(r, g, bl)
+                          b.iconColor = { r = r, g = g, b = bl }
+                          ApplyBlockColor()
+                      end,
+                      -- House multiSwatch convention: a click on an inactive
+                      -- custom swatch only selects custom; the picker opens on
+                      -- the second click, once custom is already active.
+                      click = function(self)
+                          if not FlagsOff() then
+                              ClearFlags()
+                              ApplyBlockColor(); EllesmereUI:RefreshPage()
+                              return
+                          end
+                          if self._eabOrigClick then self._eabOrigClick(self) end
+                      end,
+                      on = FlagsOff },
+                }
+
+                for i = 1, #specs do
+                    local sp = specs[i]
+                    local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
+                        rgn, msIconRow:GetFrameLevel() + 3,
+                        function() local r, g, bl = sp.get(); return r, g, bl, 1 end,
+                        sp.set or function() end,
+                        false, 20)
+                    swatch._eabOrigClick = swatch:GetScript("OnClick")
+                    swatch:SetScript("OnClick", function(self) sp.click(self) end)
+                    swatch:HookScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(swatch, sp.tip)
+                    end)
+                    swatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    PP.Point(swatch, "RIGHT", anchor, "LEFT", -8, 0)
+                    anchor = swatch
+
+                    -- Blocking overlay while Show Icon is off: the icons are
+                    -- not drawn, so their color is not editable.
+                    local block = CreateFrame("Frame", nil, swatch)
+                    block:SetAllPoints()
+                    block:SetFrameLevel(swatch:GetFrameLevel() + 10)
+                    block:EnableMouse(true)
+                    block:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Show Icon"))
+                    end)
+                    block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+                    local function UpdateState()
+                        if not IconOn() then
+                            swatch:SetAlpha(0.3); block:Show()
+                        else
+                            swatch:SetAlpha(sp.on() and 1 or 0.3); block:Hide()
+                        end
+                    end
+                    EllesmereUI.RegisterWidgetRefresh(function() updateSwatch(); UpdateState() end)
+                    UpdateState()
+                end
+                rgn._lastInline = anchor
             end
 
             if b.type == "micromenu" then

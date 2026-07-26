@@ -407,6 +407,34 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "8.5.9",
+        mini = true,
+        features = {
+            {
+                module = "Data Bars",
+                title  = "Home, World or Both Latency",
+                desc   = "One block can now show both, with optional icons",
+                nav    = { module = "EllesmereUIDataBars", page = "DataBars" },
+            },
+            {
+                module = "Unit Frames",
+                title  = "Boss Frame Absorb Text",
+                desc   = "Show shield and heal-absorb amounts as text",
+                -- No highlight: "Left Text" also matches the Left Text Settings
+                -- rows above it and the matcher stops at the first hit.
+                nav    = { module = "EllesmereUIUnitFrames", page = "Boss Frames", section = "HEALTH BAR" },
+            },
+        },
+        fixes = {
+            { module = "General", text = "Added and corrected German, Korean, and Traditional Chinese translations." },
+            { module = "Nameplates", text = "Nameplates no longer eat clicks and camera drags meant for the world, or show aura tooltips over empty space." },
+            { module = "Nameplates", text = "Cast targets and interrupter names now keep their class color in Mythic+ and raids." },
+            { module = "PTR Nameplates & Frames", text = "Aura icons no longer start eating clicks again after a settings change." },
+            { module = "PTR Resource Bars", text = "The Ebon Might bar no longer blocks clicks on nameplates behind it." },
+            { module = "Unit Frames", text = "Blizzard's cast bar no longer appears when you use a standalone cast bar addon." },
+        },
+    },
+    {
         version = "8.5.8",
         heroes = {
             {
