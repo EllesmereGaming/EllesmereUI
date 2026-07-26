@@ -274,12 +274,17 @@ function WSkin.Shell(winKey, frame, opts)
 
         -- Black top bar behind the window title. Sits above both style
         -- backdrops (-8/-7/-6) and below all content and the border overlay.
-        local topBar = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
-        topBar:SetColorTexture(0, 0, 0, 0.5)
-        topBar:SetPoint("TOPLEFT")
-        topBar:SetPoint("TOPRIGHT")
-        topBar:SetHeight(25)
-        d.topBar = topBar
+        -- opts.noTopBar skips it for shells with no title row of their own
+        -- (loot toasts and other small popups), where a 25px bar would just be
+        -- a dark stripe across the top.
+        if not (opts and opts.noTopBar) then
+            local topBar = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
+            topBar:SetColorTexture(0, 0, 0, 0.5)
+            topBar:SetPoint("TOPLEFT")
+            topBar:SetPoint("TOPRIGHT")
+            topBar:SetHeight(25)
+            d.topBar = topBar
+        end
     end
     if not (opts and opts.noBorder) then WSkin.AtlasBorder(frame) end
     WSkin.AdoptShell(winKey, frame)
@@ -1254,6 +1259,13 @@ end
 -- page nav, scroll bars.
 function WSkin.CommonChrome(frame, prefix)
     if frame.CloseButton then WSkin.CloseButton(frame.CloseButton) end
+    -- Newer templates hang the X off the title bar (or name it ClosePanelButton)
+    -- instead of putting it on the frame -- the loot window is one of them, and
+    -- it kept Blizzard's red X until these two paths were added.
+    if frame.TitleContainer and frame.TitleContainer.CloseButton then
+        WSkin.CloseButton(frame.TitleContainer.CloseButton)
+    end
+    if frame.ClosePanelButton then WSkin.CloseButton(frame.ClosePanelButton) end
     if prefix then
         local cb = _G[prefix .. "CloseButton"]
         if cb then WSkin.CloseButton(cb) end
@@ -1299,6 +1311,355 @@ function WSkin.Debounce(fn)
             fn()
         end
     end
+end
+
+-------------------------------------------------------------------------------
+--  External shell: window art for frames we must NOT mutate.
+--
+--  The warband currency transfer window is the case this exists for. Confirming
+--  a transfer ends in the protected
+--  C_CurrencyInfo.RequestCurrencyFromAccountCharacter(); skinning
+--  CurrencyTransferMenu with WSkin.Shell taints it and the call comes back
+--  ADDON_ACTION_FORBIDDEN. The tell is nasty: the FIRST transfer of a session
+--  still succeeds and only later ones fail, so one successful test proves
+--  nothing.
+--
+--  An external shell gives the window our backdrop without touching it:
+--    * our textures live on a frame parented to UIParent and merely ANCHORED to
+--      the window (SetPoint writes to OUR frame; the target is only read),
+--    * it is seated one frame level BELOW the window, so Blizzard's content
+--      still draws over it normally,
+--    * show/hide and layering are POLLED with getters instead of HookScript.
+--  The caller still has to clear Blizzard's own window art, but through REGION
+--  methods only -- textures and fontstrings, never the frame.
+-------------------------------------------------------------------------------
+-- Nine-slice fade that stops short of the container's own SetAlpha (a frame
+-- method): pieces and regions only.
+local function FadeNineSliceRegions(nsl)
+    if not nsl then return end
+    FadeRegions(nsl)
+    for _, k in ipairs(NINESLICE_PIECES) do
+        local p = nsl[k]
+        if p and p.SetAlpha then p:SetAlpha(0) end
+    end
+end
+WSkin.FadeNineSliceRegions = FadeNineSliceRegions
+
+local _extShells = {}
+local _extDriver
+
+-- One record's refresh. Every call against the Blizzard target is a getter.
+-- `above` records paint OVER the target (hiding its art by covering it);
+-- everything else sits one level under it.
+local function ExtSync(rec)
+    local t, sh = rec.target, rec.shell
+    if t:IsForbidden() or not t:IsVisible() then
+        if sh:IsShown() then sh:Hide() end
+        return
+    end
+    local strata = t:GetFrameStrata()
+    local level = (t:GetFrameLevel() or 1) + (rec.above and 4 or -1)
+    if level < 0 then level = 0 end
+    local restratad = false
+    if strata and strata ~= rec.strata then
+        rec.strata = strata
+        sh:SetFrameStrata(strata)
+        restratad = true   -- a strata change resets the level
+    end
+    if restratad or level ~= rec.level then
+        rec.level = level
+        sh:SetFrameLevel(level)
+        -- The border frame's level was fixed relative to the shell at creation,
+        -- before the shell knew where the target sits. +6 matches WSkin.Shell,
+        -- so it frames the window the same way.
+        if rec.border then rec.border:SetFrameLevel(level + 6) end
+    end
+    if rec.labelSrc and rec.label then
+        local txt = rec.labelSrc:GetText()
+        if txt ~= rec.lastText then
+            rec.lastText = txt
+            rec.label:SetText(txt or "")
+        end
+    end
+    if rec.hoverTex or rec.onHover then
+        local over = (t.IsMouseOver and t:IsMouseOver()) and true or false
+        if over ~= rec.lastHover then
+            rec.lastHover = over
+            if rec.hoverTex then rec.hoverTex:SetShown(over) end
+            if rec.onHover then rec.onHover(over) end
+        end
+    end
+    if not sh:IsShown() then
+        sh:Show()
+        -- Our OWN OnShow equivalent: fires exactly when the target becomes
+        -- visible, with no hook on the target itself.
+        if rec.onShow then rec.onShow() end
+    end
+end
+
+local function EnsureExtDriver()
+    if _extDriver then return end
+    -- Parented to UIParent so the shells (also UIParent children) and the
+    -- driver go quiet together when the game hides the UI.
+    _extDriver = CreateFrame("Frame", nil, UIParent)
+    _extDriver:SetSize(1, 1)
+    _extDriver:SetPoint("TOPLEFT")
+    _extDriver:Show()
+    _extDriver:SetScript("OnUpdate", function()
+        for i = 1, #_extShells do ExtSync(_extShells[i]) end
+    end)
+end
+
+-- opts.onShow  re-run point, called each time the window becomes visible
+-- opts.noBorder  skip the atlas window border
+function WSkin.ExternalShell(winKey, frame, opts)
+    if not frame or frame:IsForbidden() then return nil end
+    local d = GetFFD(frame)
+    if d.extShell then return d.extShell end
+    opts = opts or {}
+
+    local sh = CreateFrame("Frame", nil, UIParent)
+    sh:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+    sh:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+    sh:EnableMouse(false)
+    sh:Hide()
+    d.extShell = sh
+
+    local sd = GetFFD(sh)
+    local bg = sh:CreateTexture(nil, "BACKGROUND", nil, -8)
+    bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
+    bg:SetAllPoints(sh)
+    sd.bg = bg
+    local overlay = sh:CreateTexture(nil, "BACKGROUND", nil, -7)
+    overlay:SetColorTexture(0, 0, 0, 0.62)
+    overlay:SetAllPoints(sh)
+    sd.bgOverlay = overlay
+
+    -- Cover-fit off OUR size: the anchors make it track the window, so no hook
+    -- on the Blizzard frame is needed to keep the crop right.
+    local function UpdateBgTexCoords()
+        local fw, fh = sh:GetSize()
+        if not fw or fw == 0 or not fh or fh == 0 then return end
+        local fa = fw / fh
+        if fa > BG_ASPECT then
+            local visV = BASE_V * (BG_ASPECT / fa)
+            local trimV = (BASE_V - visV) / 2
+            bg:SetTexCoord(BASE_L, BASE_R, BASE_T + trimV, BASE_B - trimV)
+        else
+            local visU = BASE_U * (fa / BG_ASPECT)
+            local trimU = (BASE_U - visU) / 2
+            bg:SetTexCoord(BASE_L + trimU, BASE_R - trimU, BASE_T, BASE_B)
+        end
+    end
+    sh:SetScript("OnSizeChanged", UpdateBgTexCoords)
+    UpdateBgTexCoords()
+
+    local topBar = sh:CreateTexture(nil, "BACKGROUND", nil, -5)
+    topBar:SetColorTexture(0, 0, 0, 0.5)
+    topBar:SetPoint("TOPLEFT")
+    topBar:SetPoint("TOPRIGHT")
+    topBar:SetHeight(25)
+    sd.topBar = topBar
+    d.topBar = topBar   -- title centering finds it here, as with WSkin.Shell
+
+    if not opts.noBorder then WSkin.AtlasBorder(sh) end
+    WSkin.AdoptShell(winKey, sh)
+
+    _extShells[#_extShells + 1] = {
+        target = frame, shell = sh,
+        border = sd.atlasBorderFrame,
+        onShow = opts.onShow,
+    }
+    EnsureExtDriver()
+    return sh
+end
+
+-------------------------------------------------------------------------------
+--  External covers: single WIDGETS inside a window we must not mutate.
+--  Same contract as ExternalShell -- our art on a UIParent-parented frame that
+--  is only ANCHORED to the Blizzard widget, state polled with getters -- but
+--  seated ABOVE the target so Blizzard's art disappears by being painted over
+--  rather than by being changed. The cover takes no mouse input, so clicks,
+--  hover and tooltips all reach the real widget untouched.
+--
+--  Use these ONLY where the widget is on a protected path. Everywhere else the
+--  normal primitives are simpler and cheaper.
+-------------------------------------------------------------------------------
+local function CoverLabelSource(t)
+    local lt = t.Text
+    if type(lt) == "table" and lt.GetText and lt.GetStringWidth then return lt end
+    if t.GetFontString then
+        local fs = t:GetFontString()
+        if fs then return fs end
+    end
+    return nil
+end
+
+-- opts: above (default true), expand, fill {r,g,b,a}, noBg, noBorder, hover,
+--       label, labelPoint ("LEFT"), arrow
+function WSkin.ExternalCover(target, opts)
+    if not target or (target.IsForbidden and target:IsForbidden()) then return nil end
+    local d = GetFFD(target)
+    if d.extCover then return d.extCover end
+    opts = opts or {}
+
+    local ov = CreateFrame("Frame", nil, UIParent)
+    local e = opts.expand or 0
+    ov:SetPoint("TOPLEFT", target, "TOPLEFT", -e, e)
+    ov:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT", e, -e)
+    ov:EnableMouse(false)   -- clicks, hover and tooltips pass straight through
+    ov:Hide()
+    d.extCover = ov
+
+    local rec = { target = target, shell = ov, above = opts.above ~= false }
+
+    if not opts.noBg then
+        -- Opaque: a translucent fill would let the art it is hiding show back
+        -- through (this is a cover, not a wash).
+        local c = opts.fill or { Theme.bgR, Theme.bgG, Theme.bgB, 1 }
+        local bg = ov:CreateTexture(nil, "BACKGROUND")
+        bg:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
+        bg:SetAllPoints(ov)
+    end
+    if not opts.noBorder then AddBorder(ov) end
+
+    if opts.hover then
+        -- ARTWORK, not HIGHLIGHT: the cover takes no mouse input, so the
+        -- driver's IsMouseOver poll drives this instead of the highlight layer.
+        local hov = ov:CreateTexture(nil, "ARTWORK")
+        hov:SetColorTexture(1, 1, 1, 0.1)
+        hov:SetAllPoints(ov)
+        hov:Hide()
+        rec.hoverTex = hov
+    end
+
+    if opts.label then
+        local src = CoverLabelSource(target)
+        local label = ov:CreateFontString(nil, "OVERLAY")
+        -- Match Blizzard's own face so a covered widget reads like a normally
+        -- skinned one (which leaves its label alone).
+        local fo = src and src.GetFontObject and src:GetFontObject()
+        if fo then
+            label:SetFontObject(fo)
+        else
+            local p, s, fl
+            if src and src.GetFont then p, s, fl = src:GetFont() end
+            if s and issecretvalue(s) then s = nil end
+            label:SetFont(p or Theme.fontPath, s or 12, fl or "")
+        end
+        label:SetTextColor(1, 1, 1)
+        if opts.labelPoint == "LEFT" then
+            label:SetPoint("LEFT", ov, "LEFT", 8, 0)
+            label:SetPoint("RIGHT", ov, "RIGHT", opts.arrow and -22 or -8, 0)
+            label:SetJustifyH("LEFT")
+        else
+            label:SetPoint("CENTER", ov, "CENTER", 0, 0)
+        end
+        if src then label:SetText(src:GetText() or "") end
+        rec.label, rec.labelSrc = label, src
+    end
+
+    if opts.arrow then
+        local arrow = ov:CreateTexture(nil, "OVERLAY")
+        arrow:SetAtlas("Azerite-PointingArrow")
+        arrow:SetSize(14, 10)
+        arrow:SetPoint("RIGHT", ov, "RIGHT", -6, 0)
+    end
+
+    GetFFD(ov).rec = rec
+    _extShells[#_extShells + 1] = rec
+    EnsureExtDriver()
+    ExtSync(rec)
+    return ov
+end
+
+-- Close (X): house glyph on a cover. Blizzard's X is faded through its TEXTURE
+-- objects -- never the button's own SetNormalTexture, which is a frame method.
+function WSkin.ExternalClose(btn)
+    if not btn or btn:IsForbidden() then return nil end
+    if GetFFD(btn).extCover then return GetFFD(btn).extCover end
+    local ov = WSkin.ExternalCover(btn, { noBg = true, noBorder = true })
+    if not ov then return nil end
+    for _, g in ipairs({ "GetNormalTexture", "GetPushedTexture",
+                         "GetDisabledTexture", "GetHighlightTexture" }) do
+        local fn = btn[g]
+        local t = fn and fn(btn)
+        if t and t.SetAlpha then t:SetAlpha(0) end
+    end
+    FadeRegions(btn)
+    Register(btn, true)
+    local x = ov:CreateTexture(nil, "OVERLAY")
+    x:SetAtlas("uitools-icon-close")
+    x:SetSize(14, 14)
+    x:SetPoint("CENTER", -2, 0)
+    x:SetVertexColor(1, 1, 1, 0.75)
+    local rec = FFD[ov] and FFD[ov].rec
+    if rec then
+        rec.onHover = function(over) x:SetVertexColor(1, 1, 1, over and 1 or 0.75) end
+    end
+    return ov
+end
+
+-- Dropdown: flat block with the live selection mirrored onto our own label and
+-- the house arrow. Blizzard's menu still opens normally -- it is a separate
+-- frame at a higher strata, and untouched.
+--
+-- Its own art is faded region-by-region as well as covered. Layering alone is
+-- not enough: the template's Background/Arrow sit on the button and were
+-- drawing straight over the cover. Fading textures is a REGION method, so this
+-- stays inside the no-write rule (same as ExternalClose and ExternalInput).
+function WSkin.ExternalDropdown(dd)
+    if not dd or dd:IsForbidden() then return nil end
+    if not GetFFD(dd).extCover then
+        FadeRegions(dd)
+        for _, k in ipairs({ "Background", "Arrow", "Texture", "Left", "Middle", "Right" }) do
+            local r = dd[k]
+            if type(r) == "table" and r.IsObjectType and r:IsObjectType("Texture") then
+                r:SetAlpha(0)
+            end
+        end
+        local n = dd.GetName and dd:GetName()
+        if n then
+            for _, suffix in ipairs({ "Left", "Middle", "Right" }) do
+                local r = _G[n .. suffix]
+                if r and r.SetAlpha then r:SetAlpha(0) end
+            end
+        end
+        if dd.NineSlice then FadeNineSliceRegions(dd.NineSlice) end
+        -- The live selection text is mirrored onto our own label, so hide
+        -- Blizzard's (color only -- the string itself is left intact for us to
+        -- read each frame).
+        local src = CoverLabelSource(dd)
+        if src and src.SetTextColor then src:SetTextColor(0, 0, 0, 0) end
+        Register(dd, true)
+    end
+    return WSkin.ExternalCover(dd, { label = true, labelPoint = "LEFT",
+                                     arrow = true, hover = true })
+end
+
+-- Input box: the block goes BEHIND the box so the typed value still reads, and
+-- the box's own art is faded region by region.
+function WSkin.ExternalInput(eb)
+    if not eb or eb:IsForbidden() then return nil end
+    if not GetFFD(eb).extCover then
+        FadeRegions(eb)
+        for _, k in ipairs({ "Left", "Right", "Middle", "Mid" }) do
+            local r = eb[k]
+            if type(r) == "table" and r.IsObjectType and r:IsObjectType("Texture") then
+                r:SetAlpha(0)
+            end
+        end
+        local n = eb.GetName and eb:GetName()
+        if n then
+            for _, suffix in ipairs({ "Left", "Middle", "Right" }) do
+                local r = _G[n .. suffix]
+                if r and r.SetAlpha then r:SetAlpha(0) end
+            end
+        end
+        if eb.NineSlice then FadeNineSliceRegions(eb.NineSlice) end
+        Register(eb, true)
+    end
+    return WSkin.ExternalCover(eb, { above = false, fill = { 0.02, 0.02, 0.02, 1 } })
 end
 
 -------------------------------------------------------------------------------
