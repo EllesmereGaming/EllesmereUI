@@ -4094,6 +4094,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         "GUILD_ROSTER_UPDATE", "BN_FRIEND_ACCOUNT_ONLINE", "BN_FRIEND_ACCOUNT_OFFLINE",
         "FRIENDLIST_UPDATE",
         "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_ENTERING_WORLD",
+        "PET_BATTLE_OPENING_START", "PET_BATTLE_OVER",
     }
 
     -- Per-instance button sets (unique global names per instance).
@@ -4470,6 +4471,8 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
             or event == 'BN_FRIEND_ACCOUNT_OFFLINE'
             or event == 'FRIENDLIST_UPDATE' then
             UpdateFriendText()
+        elseif event == 'PET_BATTLE_OPENING_START' or event == 'PET_BATTLE_OVER' then
+            ns.RefreshMicroMenuHider()
         else
             -- REGEN x2 / PLAYER_ENTERING_WORLD: retry deferred button
             -- creation and re-apply the combat state.
