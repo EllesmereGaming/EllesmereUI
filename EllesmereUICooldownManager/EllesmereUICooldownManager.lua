@@ -7,6 +7,34 @@
 -------------------------------------------------------------------------------
 local _, ns = ...
 
+-- CPU-attribution shell pool. The engine bills a script handler's ENTIRE
+-- call tree to the addon whose execution context CREATED the frame the
+-- engine entered through -- and build/enable/hook code runs under the
+-- parent's lifecycle dispatch, so a frame born there bills the PARENT
+-- forever (probe-verified; see EllesmereUI_Ticker.lua). These shells are
+-- born HERE, in the first-loading file's main chunk, which stamps them to
+-- CooldownManager. Runtime code in ANY of this addon's files adopts one via
+-- ns.TakeShell() instead of CreateFrame("Frame") whenever the frame will
+-- carry event registrations or script handlers.
+-- Plain unnamed Frames only, persistent hosts only: the pool has no
+-- release, so transient throwaway frames keep using CreateFrame.
+do
+    local pool = {}
+    local n = 32
+    for i = 1, n do pool[i] = CreateFrame("Frame") end
+    ns.TakeShell = function()
+        if n > 0 then
+            local f = pool[n]
+            pool[n] = nil
+            n = n - 1
+            return f
+        end
+        -- Pool exhausted (not expected): everything still works, the frame
+        -- just bills the parent. Bump the pool size if this ever happens.
+        return CreateFrame("Frame")
+    end
+end
+
 -- EMERGENCY CONFLICT GUARD: Ayije_CDM hooks the exact same Blizzard frames we do.
 -- Running both together crashes the client on the loading screen. Detect Ayije_CDM
 -- and no-op our entire module so the user can at least log in.
@@ -99,7 +127,7 @@ do
             end)
         end
 
-        local warnFrame = CreateFrame("Frame")
+        local warnFrame = ns.TakeShell()
         warnFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         warnFrame:SetScript("OnEvent", function(self)
             self:UnregisterAllEvents()
@@ -3069,6 +3097,53 @@ end
 -------------------------------------------------------------------------------
 --  Hide / Restore Blizzard CDM
 -------------------------------------------------------------------------------
+
+-- Suppress the secondary buff-bar viewer (BuffBarCooldownViewer).
+--
+-- It is parked offscreen rather than Hidden because TBB mirrors min/max/value
+-- straight off Blizzard's Bar frames -- a hidden viewer stops updating them.
+-- The park, not the alpha, is what actually holds: Blizzard's hide-when-
+-- inactive fade animates the viewer's alpha back to 1 whenever a tracked buff
+-- goes active, through a path no hook can see (the same lesson as the
+-- unclaimed-frame park in CollectAndReanchor). So once anything re-anchors the
+-- viewer back to its Edit Mode position -- a layout apply, SaveLayouts, a
+-- zone-in -- the next buff proc in combat draws Blizzard's bars on top of ours.
+--
+-- The SetPoint hook makes the park self-healing, mirroring the one the
+-- unclaimed CD/utility pool frames already get.
+function ns.ParkSecondaryBuffViewer(frame)
+    if not frame then return end
+    local fc = FC(frame)
+    frame:SetAlpha(0)
+    if InCombatLockdown() then
+        -- Flushed on PLAYER_REGEN_ENABLED.
+        ns._secondaryParkPending = true
+    else
+        ns._secondaryParkPending = nil
+        fc.parkGuard = true
+        frame:ClearAllPoints()
+        frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10000, 10000)
+        fc.parkGuard = nil
+    end
+    if not fc.parkHooked then
+        fc.parkHooked = true
+        -- Deferred by a frame: Blizzard re-anchors this viewer from inside its
+        -- Edit Mode layout pass, which goes on to move protected systems
+        -- (action bars). Re-parking inline would carry our taint into the rest
+        -- of that pass. The delay also coalesces ClearAllPoints + SetPoint
+        -- bursts into one park, and a single frame of a stray bar is invisible.
+        hooksecurefunc(frame, "SetPoint", function(self)
+            local c = _ecmeFC[self]
+            if not c or not c.hidden or c.parkGuard or c.restoring or c.parkQueued then return end
+            c.parkQueued = true
+            C_Timer.After(0, function()
+                c.parkQueued = nil
+                if c.hidden and not c.restoring then ns.ParkSecondaryBuffViewer(self) end
+            end)
+        end)
+    end
+end
+
 HideBlizzardCDM = function()
     -- Anchor each viewer to our corresponding bar container.
     -- Frames stay parented to viewers (no reparenting = no taint).
@@ -3096,15 +3171,12 @@ HideBlizzardCDM = function()
             end
             -- Don't reposition primary viewers (Essential/Utility/BuffIcon) --
             -- individual icon anchoring handles positioning.
-            -- BuffBarCooldownViewer is secondary: hide it via alpha since
-            -- TBB renders its own bars and we don't hook its Cooldown widgets.
+            -- BuffBarCooldownViewer is secondary: alpha + offscreen park,
+            -- since TBB renders its own bars and we don't hook its Cooldown
+            -- widgets.
             local isSecondary = (frameName == BLIZZ_CDM_FRAMES_SECONDARY.buffs)
             if isSecondary then
-                frame:SetAlpha(0)
-                if not InCombatLockdown() then
-                    frame:ClearAllPoints()
-                    frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10000, 10000)
-                end
+                ns.ParkSecondaryBuffViewer(frame)
             end
             if not InCombatLockdown() then
                 frame:EnableMouse(false)
@@ -3123,6 +3195,7 @@ RestoreBlizzardCDM = function()
         local fc = frame and _ecmeFC[frame]
         if fc and fc.hidden then
             fc.restoring = true
+            ns._secondaryParkPending = nil
             -- Restore original anchor points
             if fc.origPoints then
                 frame:ClearAllPoints()
@@ -3130,9 +3203,16 @@ RestoreBlizzardCDM = function()
                     frame:SetPoint(pt[1], pt[2], pt[3], pt[4], pt[5])
                 end
             end
-            -- Restore mouse interaction
-            frame:EnableMouse(true)
-            if frame.EnableMouseMotion then frame:EnableMouseMotion(true) end
+            -- The secondary viewer is the only one suppressed by alpha, and
+            -- its Blizzard default is EnableMouse(false) -- restoring it true
+            -- leaves an invisible click-catcher (same reasoning as
+            -- RestoreBlizzardBuffFrame).
+            if frameName == BLIZZ_CDM_FRAMES_SECONDARY.buffs then
+                frame:SetAlpha(1)
+            else
+                frame:EnableMouse(true)
+                if frame.EnableMouseMotion then frame:EnableMouseMotion(true) end
+            end
             fc.hidden = false
             fc.restoring = nil
         end
@@ -3149,6 +3229,7 @@ local function RestoreBlizzardBuffFrame()
     local fc = frame and _ecmeFC[frame]
     if fc and fc.hidden then
         fc.restoring = true
+        ns._secondaryParkPending = nil
         if fc.origPoints then
             frame:ClearAllPoints()
             for _, pt in ipairs(fc.origPoints) do
@@ -3485,6 +3566,10 @@ BuildCDMBar = function(barIndex)
     if not barData.enabled then
         if frame._mouseTrack then
             frame:SetScript("OnUpdate", nil)
+            if frame._mouseShell then
+                frame._mouseShell:SetScript("OnUpdate", nil)
+                frame._mouseShell:Hide()
+            end
             frame._mouseTrack = nil
             if frame._preMousePos and not p.cdmBarPositions[key] then
                 p.cdmBarPositions[key] = frame._preMousePos
@@ -3509,6 +3594,10 @@ BuildCDMBar = function(barIndex)
     -- Clear any previous mouse-tracking OnUpdate
     if frame._mouseTrack then
         frame:SetScript("OnUpdate", nil)
+        if frame._mouseShell then
+            frame._mouseShell:SetScript("OnUpdate", nil)
+            frame._mouseShell:Hide()
+        end
         frame._mouseTrack = nil
         -- Restore saved position from before mouse anchor
         if frame._preMousePos and not p.cdmBarPositions[key] then
@@ -3586,7 +3675,17 @@ BuildCDMBar = function(barIndex)
         frame:SetPoint(pointFrom, UIParent, "BOTTOMLEFT", 0, 0)
         frame._mouseTrack = true
         frame._mouseHiddenByPanel = false
-        frame:SetScript("OnUpdate", function()
+        -- Cursor-follow runs per RENDER FRAME on a pool shell. The shell is
+        -- born in this addon's main chunk so the work bills CooldownManager
+        -- (frame-birth attribution). Rate experiment (2026-07-27): a 60 Hz
+        -- anim ticker visibly stepped against a gliding cursor -- position
+        -- has no engine easing (unlike SetValue fills), so cursor glue needs
+        -- one reposition per rendered frame. The body keeps that cheap:
+        -- unmoved-cursor frames early-out on a raw-pixel compare, and moves
+        -- replace SetPoint offsets in place (no ClearAllPoints).
+        if not frame._mouseShell then frame._mouseShell = ns.TakeShell() end
+        frame._mouseShell:Show()
+        frame._mouseShell:SetScript("OnUpdate", function()
             -- Hide cursor-anchored bar while EUI options panel or unlock mode is open
             local panelOpen = (EllesmereUI._mainFrame and EllesmereUI._mainFrame:IsShown())
                 or EllesmereUI._unlockActive
@@ -3603,7 +3702,7 @@ BuildCDMBar = function(barIndex)
                         end
                     end
                 end
-                return
+                return true
             elseif frame._mouseHiddenByPanel then
                 -- Panel just closed: restore visibility and icon strata
                 frame._mouseHiddenByPanel = false
@@ -3639,7 +3738,7 @@ BuildCDMBar = function(barIndex)
                     frame:ClearAllPoints()
                     frame:SetPoint(pointFrom, UIParent, "BOTTOMLEFT", -10000, -10000)
                 end
-                return
+                return true
             end
             frame._mouseParked = false
             -- Throttled mouse-through re-assert: the Decorate/Show/Cooldown
@@ -3662,14 +3761,22 @@ BuildCDMBar = function(barIndex)
                     end
                 end
             end
-            local s = UIParent:GetEffectiveScale()
+            -- Raw-pixel early-out: GetCursorPosition returns raw pixels, so
+            -- comparing RAW coords skips the scale fetch and divisions on
+            -- every fire where the cursor has not moved. lastMX/lastMY hold
+            -- raw values; nil (install and the park above) forces the next
+            -- move to re-assert the full anchor spec.
             local cx, cy = GetCursorPosition()
-            cx = floor(cx / s + 0.5)
-            cy = floor(cy / s + 0.5)
             if cx ~= lastMX or cy ~= lastMY then
+                local firstMove = lastMX == nil
                 lastMX, lastMY = cx, cy
-                frame:ClearAllPoints()
-                frame:SetPoint(pointFrom, UIParent, "BOTTOMLEFT", cx + baseOX, cy + baseOY)
+                local s = UIParent:GetEffectiveScale()
+                -- Steady tracking replaces offsets in place: SetPoint with an
+                -- unchanged point spec needs no ClearAllPoints, halving the
+                -- layout churn of every reposition.
+                if firstMove then frame:ClearAllPoints() end
+                frame:SetPoint(pointFrom, UIParent, "BOTTOMLEFT",
+                    floor(cx / s + 0.5) + baseOX, floor(cy / s + 0.5) + baseOY)
             end
         end)
     elseif anchorKey == "partyframe" then
@@ -6020,7 +6127,7 @@ local _focusKickTickAccum = 0
 local _FOCUSKICK_TICK_INTERVAL = 0.1
 local function EnsureFocusKickProxy()
     if _focusKickProxy then return _focusKickProxy end
-    _focusKickProxy = CreateFrame("Frame")
+    _focusKickProxy = ns.TakeShell()
     _focusKickProxy:RegisterEvent("PLAYER_FOCUS_CHANGED")
     _focusKickProxy:RegisterEvent("PLAYER_TARGET_CHANGED")
     _focusKickProxy:RegisterEvent("NAME_PLATE_UNIT_ADDED")
@@ -6140,7 +6247,7 @@ end
 ns.RefreshFocusCastProxyUnit = RefreshFocusCastProxyUnit
 local function EnsureFocusCastProxy()
     if _focusCastProxy then return _focusCastProxy end
-    _focusCastProxy = CreateFrame("Frame")
+    _focusCastProxy = ns.TakeShell()
     local unit = GetFocusKickUnit()
     _focusCastProxy:RegisterUnitEvent("UNIT_SPELLCAST_START", unit)
     _focusCastProxy:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", unit)
@@ -6498,7 +6605,7 @@ local function EnsureFocusReminderProxy()
     -- Initialize focus + context state once at proxy creation
     _focusKickHasFocus = UnitExists("focus") and true or false
     UpdateFocusKickContext()
-    _focusReminderProxy = CreateFrame("Frame")
+    _focusReminderProxy = ns.TakeShell()
     _focusReminderProxy:RegisterEvent("NAME_PLATE_UNIT_ADDED")
     _focusReminderProxy:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
     _focusReminderProxy:RegisterEvent("PLAYER_FOCUS_CHANGED")
@@ -8223,7 +8330,7 @@ function ECME:OnEnable()
     -- spec data is now available and try again. The handler is idempotent
     -- via _cdmSetupStarted so multiple wakeups are harmless.
     if not _cdmSetupStarted then
-        local wakeFrame = CreateFrame("Frame")
+        local wakeFrame = ns.TakeShell()
         wakeFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
         wakeFrame:RegisterEvent("PLAYER_LOGIN")
         wakeFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -8383,7 +8490,8 @@ function ECME:CDMFinishSetup()
     -- No validation/removal: TBB bars can track any buff (procs,
     -- external buffs, food, etc.) not just CDM viewer spells.
     -- Bars with no active aura simply stay hidden at runtime.
-    ns.GetTrackedBuffBars()
+    -- Nil-guarded so the TBB file can be bisect-disabled wholesale.
+    if ns.GetTrackedBuffBars then ns.GetTrackedBuffBars() end
 
     -- (BuildTrackedBuffBars not called here -- FullCDMRebuild("init") above
     -- already called it. M1 cleanups also deleted: AddSpellToBar's variant-
@@ -8896,6 +9004,13 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         if event == "PLAYER_REGEN_ENABLED" and ns.IsTBBRebuildPending and ns.IsTBBRebuildPending() then
             if ns.BuildTrackedBuffBars then ns.BuildTrackedBuffBars() end
         end
+        -- Flush a secondary buff-viewer park that was blocked during combat
+        if event == "PLAYER_REGEN_ENABLED" and ns._secondaryParkPending then
+            ns._secondaryParkPending = nil
+            local sv = _G[BLIZZ_CDM_FRAMES_SECONDARY.buffs]
+            local svc = sv and _ecmeFC[sv]
+            if svc and svc.hidden then ns.ParkSecondaryBuffViewer(sv) end
+        end
         -- Flush deferred roster reanchor that was blocked during combat
         if event == "PLAYER_REGEN_ENABLED" and _rosterRebuildPending then
             _rosterRebuildPending = false
@@ -8974,6 +9089,35 @@ SlashCmdList.ECME = function(msg)
     if InCombatLockdown and InCombatLockdown() then return end
     if EllesmereUI and EllesmereUI.ShowModule then
         EllesmereUI:ShowModule("EllesmereUICooldownManager")
+    end
+end
+
+-------------------------------------------------------------------------------
+-- /cdmbb -- state of Blizzard's BuffBarCooldownViewer.
+-- Answers "why are Blizzard's tracking bars drawing on top of mine": while
+-- Tracked Buff Bars own the display the viewer should read alpha 0 and sit
+-- parked at -10000, 10000. A real on-screen anchor means something re-anchored
+-- it and the park did not heal.
+-------------------------------------------------------------------------------
+SLASH_CDMBB1 = "/cdmbb"
+SlashCmdList.CDMBB = function()
+    local function P(s) print("|cff0cd29f[CDM]|r " .. s) end
+    local frame = _G[BLIZZ_CDM_FRAMES_SECONDARY.buffs]
+    if not frame then P("BuffBarCooldownViewer does not exist") return end
+    local cb = ECME.db and ECME.db.profile and ECME.db.profile.cdmBars
+    local fc = _ecmeFC[frame]
+    P(string.format("hideBlizzard=%s useBlizzardBuffBars=%s suppressed=%s parkPending=%s",
+        tostring(cb and cb.hideBlizzard), tostring(cb and cb.useBlizzardBuffBars),
+        tostring(fc and fc.hidden or false), tostring(ns._secondaryParkPending or false)))
+    P(string.format("shown=%s alpha=%.2f effective=%.2f",
+        tostring(frame:IsShown()), frame:GetAlpha(), frame:GetEffectiveAlpha()))
+    local n = frame:GetNumPoints()
+    if n == 0 then P("points: none") end
+    for i = 1, n do
+        local pt, rel, relPt, x, y = frame:GetPoint(i)
+        P(string.format("point %d: %s -> %s %s (%.0f, %.0f)", i, tostring(pt),
+            tostring(rel and rel.GetName and rel:GetName()), tostring(relPt),
+            x or 0, y or 0))
     end
 end
 

@@ -26,6 +26,13 @@ local function IsSecret(value)
     return issecretvalue and issecretvalue(value) or false
 end
 
+-- Secret values throw on any comparison (==, <, ...) once execution is
+-- tainted, so route a payload field through this before comparing it.
+local function PlainValue(value)
+    if IsSecret(value) then return nil end
+    return value
+end
+
 local inCombat = false
 
 -------------------------------------------------------------------------------
@@ -758,7 +765,7 @@ local function OnPlayerBuffActiveAuraUpdate(updateInfo)
                 local state = buffActiveState[key]
                 if state and state.instanceID then
                     for _, instanceID in ipairs(updateInfo.removedAuraInstanceIDs) do
-                        if instanceID == state.instanceID then
+                        if PlainValue(instanceID) == state.instanceID then
                             SetBuffActiveState(key, false, nil)
                             expectingBuffAura[key] = nil
                             break
@@ -773,24 +780,30 @@ local function OnPlayerBuffActiveAuraUpdate(updateInfo)
             if entry.checkType == "buffActive" then
                 local key = BuffActiveKey(entry)
                 if expectingBuffAura[key] then
-                    -- Prefer an exact spellId match. Only fall back to
-                    -- accepting a nil/secret spellId (can't compare it
-                    -- directly) when it's the ONLY aura in this batch --
-                    -- otherwise an unrelated aura landing in the same batch
-                    -- as the real one could get matched instead.
-                    local unambiguous = #updateInfo.addedAuras == 1
+                    -- Prefer an exact spellId match, but in combat the field is
+                    -- a secret value we can't read at all. Fall back to the
+                    -- batch's only unreadable aura -- with more than one there
+                    -- is no way to tell which is ours, so leave the expectation
+                    -- standing rather than latch onto an unrelated aura.
+                    local match, unreadable, unreadableCount = nil, nil, 0
                     for _, aura in ipairs(updateInfo.addedAuras) do
-                        local matches = (aura.spellId == key)
-                            or (unambiguous and (not aura.spellId or IsSecret(aura.spellId)))
-                        if matches and aura.auraInstanceID then
-                            SetBuffActiveState(key, true, aura.auraInstanceID)
-                            expectingBuffAura[key] = nil
-                            break
+                        local sid = PlainValue(aura.spellId)
+                        if sid then
+                            if sid == key then match = aura; break end
+                        else
+                            unreadable = aura
+                            unreadableCount = unreadableCount + 1
                         end
+                    end
+                    if not match and unreadableCount == 1 then match = unreadable end
+                    if match and match.auraInstanceID then
+                        SetBuffActiveState(key, true, match.auraInstanceID)
+                        expectingBuffAura[key] = nil
                     end
                 end
                 for _, aura in ipairs(updateInfo.addedAuras) do
-                    if aura.spellId and not IsSecret(aura.spellId) and aura.spellId == key and aura.auraInstanceID then
+                    local sid = PlainValue(aura.spellId)
+                    if sid and sid == key and aura.auraInstanceID then
                         SetBuffActiveState(key, true, aura.auraInstanceID)
                     end
                 end

@@ -787,9 +787,23 @@ local _barColorCurveHash = nil
 local function GetBarThresholdCurve(baseR, baseG, baseB, threshR, threshG, threshB, threshPct)
     if not C_CurveUtil or not C_CurveUtil.CreateColorCurve then return nil end
 
-    local hash = format("%.3f,%.3f,%.3f|%.3f,%.3f,%.3f|%.1f",
-        baseR, baseG, baseB, threshR, threshG, threshB, threshPct)
-    if _barColorCurveHash == hash then return _barColorCurve end
+    -- Cache test by direct comparison. This previously built a format() hash
+    -- with seven float conversions on EVERY call, cache hits included, which
+    -- cost more than the curve construction it was guarding. UpdatePrimaryBar
+    -- calls this twice per power event, so while casting it ran roughly thirty
+    -- times a second and allocated a string every time.
+    -- _barColorCurveHash holds the previous inputs as a reused table (not a new
+    -- file-scope local: this file is at the Lua 5.1 200-local cap).
+    local h = _barColorCurveHash
+    if h and h[1] == baseR and h[2] == baseG and h[3] == baseB
+       and h[4] == threshR and h[5] == threshG and h[6] == threshB
+       and h[7] == threshPct then
+        return _barColorCurve
+    end
+    if not h then h = {}; _barColorCurveHash = h end
+    h[1], h[2], h[3] = baseR, baseG, baseB
+    h[4], h[5], h[6] = threshR, threshG, threshB
+    h[7] = threshPct
 
     local curve = C_CurveUtil.CreateColorCurve()
     local t = math.max(0, math.min(1, threshPct / 100))
@@ -810,7 +824,6 @@ local function GetBarThresholdCurve(baseR, baseG, baseB, threshR, threshG, thres
     curve:AddPoint(1.0, CreateColor(baseR, baseG, baseB, 1))
 
     _barColorCurve = curve
-    _barColorCurveHash = hash
     return curve
 end
 
@@ -1293,10 +1306,47 @@ local totemBarFrame
 local _totemBorderOverlays = setmetatable({}, { __mode = "k" })
 local _totemHooked = false
 local _totemOrigParent
-local _erbEventFrame        -- file-scoped ref to the event frame (assigned in OnEnable)
+-- Engine-entry frames are created at FILE SCOPE, on purpose: the engine bills
+-- a handler's entire call tree to the addon whose execution context CREATED
+-- the frame it entered through, and that context is inherited from the entry
+-- point (taint-style), not taken from the file the code lives in. OnEnable
+-- and build code run under the parent's lifecycle dispatch, so a frame born
+-- there is billed to the parent forever. Creating the frame here, in this
+-- file's main chunk, stamps it to ResourceBars; handlers and event
+-- registrations can be attached later from anywhere without changing that.
+local _erbEventFrame = CreateFrame("Frame")   -- event entry; events registered in OnEnable
+
+-- Native fill easing for event-driven bar updates: SetValue(v, ns.EASE) has
+-- the engine animate toward the new value, replacing the old per-frame Lua
+-- lerp entirely. Secret values and deliberate snaps use plain SetValue.
+ns.EASE = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
+
+-- Small shell pool for handler hosts that must be created at runtime (the
+-- mouse-follow anchor): shells are born HERE so their per-frame work bills
+-- ResourceBars, same attribution rule as the entry frames above.
+do
+    local pool = { CreateFrame("Frame"), CreateFrame("Frame"), CreateFrame("Frame"), CreateFrame("Frame") }
+    local n = 4
+    ns.TakeShell = function()
+        if n > 0 then
+            local f = pool[n]
+            pool[n] = nil
+            n = n - 1
+            return f
+        end
+        return CreateFrame("Frame")
+    end
+end
 local isInCombat = false
 local currentAlpha = 1
 local targetAlpha = 1
+
+-- GCD bar shell, created at file scope for the same attribution reason as
+-- _erbEventFrame above: BuildGCDBar adopts this shell instead of creating its
+-- own frame so the OnEvent work it carries bills ResourceBars. Child textures
+-- and sub-frames are still built lazily; they carry no handlers, so their
+-- birth context does not matter.
+ns.GCDShell = CreateFrame("Frame", "ERB_GCDBarFrame", UIParent)
 
 -- Effective bar alpha. When "Fade Out of Combat" is enabled and the player is
 -- out of combat, the bar shows its chosen oocAlpha; otherwise its normal
@@ -1314,7 +1364,6 @@ local cachedClass
 local cachedPrimary
 local cachedSecondary
 local _ebonMightExpiry = 0
-local _ebonMightThrottle = 0
 local RefreshAnchoredBarsForUnlockTarget
 
 -- Forward declarations
@@ -1332,10 +1381,6 @@ local function GetAccent()
     local eg = EllesmereUI and EllesmereUI.ELLESMERE_GREEN
     if eg then return eg.r, eg.g, eg.b end
     return 12/255, 210/255, 157/255
-end
-
-local function Lerp(a, b, t)
-    return a + (b - a) * t
 end
 
 local function FormatNumber(n)
@@ -1363,6 +1408,22 @@ local _gradColorA = CreateColor(1, 1, 1, 1)
 local _gradColorB = CreateColor(1, 1, 1, 1)
 
 local function ApplyBarGradient(ft, dir, br, bg, bb, ba, er, eg, eb, ea)
+    -- Bar colour only changes on a config edit or a threshold/band crossing, but
+    -- this ran on every power and health event -- four C calls (raw SetVertexColor,
+    -- two SetRGBA, SetGradient) to repaint the identical gradient a dozen times a
+    -- second. Compare the inputs (plus the fill-opacity multiplier, which scales
+    -- the alphas below) and skip when nothing moved. State lives on our own
+    -- texture, which this file already writes _erbSetVC / _erbFillOp to.
+    if ft._lgOn and ft._lgDir == dir and ft._lgFop == ft._erbFillOp
+       and ft._lgBr == br and ft._lgBg == bg and ft._lgBb == bb and ft._lgBa == ba
+       and ft._lgEr == er and ft._lgEg == eg and ft._lgEb == eb and ft._lgEa == ea then
+        return
+    end
+    ft._lgOn, ft._lgDir, ft._lgFop = true, dir, ft._erbFillOp
+    ft._lgBr, ft._lgBg, ft._lgBb, ft._lgBa = br, bg, bb, ba
+    ft._lgEr, ft._lgEg, ft._lgEb, ft._lgEa = er, eg, eb, ea
+    ft._lfOn = nil   -- a gradient invalidates any cached flat colour
+
     -- Bypass the Fill Opacity SetVertexColor wrapper (if installed): gradient
     -- opacity is carried in the endpoint alphas below, and the wrapper's
     -- re-assert would fight the corner alphas.
@@ -1377,7 +1438,15 @@ end
 
 -- Flat-color a bar fill (no gradient).
 local function ApplyBarFlat(ft, r, g, b, a)
-    ft:SetVertexColor(r, g, b, a or 1)
+    -- Same reasoning as ApplyBarGradient: re-asserting an unchanged colour on
+    -- every power/health event is pure waste.
+    a = a or 1
+    if ft._lfOn and ft._lfR == r and ft._lfG == g and ft._lfB == b and ft._lfA == a then
+        return
+    end
+    ft._lfOn, ft._lfR, ft._lfG, ft._lfB, ft._lfA = true, r, g, b, a
+    ft._lgOn = nil   -- a flat fill invalidates any cached gradient
+    ft:SetVertexColor(r, g, b, a)
 end
 
 -- Fill Opacity (continuous bars). Below 100 the fill turns translucent via
@@ -1694,9 +1763,6 @@ local function CreateStatusBar(parent, name, w, h, borderSize, borderR, borderG,
     bar._text = text
 
     -- Smooth animation state
-    bar._smoothTarget = 0
-    bar._smoothCurrent = 0
-
     return bar
 end
 
@@ -2371,6 +2437,10 @@ local function ApplyBarAnchor(frame, anchorKey, anchorPos, offsetX, offsetY, gro
     -- Always clear any previous mouse-tracking OnUpdate
     if frame._erbMouseTrack then
         frame:SetScript("OnUpdate", nil)
+        if frame._erbMouseShell then
+            frame._erbMouseShell:SetScript("OnUpdate", nil)
+            frame._erbMouseShell:Hide()
+        end
         frame._erbMouseTrack = nil
         local g = ERB.db and ERB.db.profile and ERB.db.profile.general
         frame:SetFrameStrata(g and g.frameStrata or "MEDIUM")
@@ -2429,15 +2499,23 @@ local function ApplyBarAnchor(frame, anchorKey, anchorPos, offsetX, offsetY, gro
         -- Make frame and all children fully click-through while following cursor
         SetFrameClickThrough(frame, true)
         local lastMX, lastMY
-        frame:SetScript("OnUpdate", function()
-            local s = UIParent:GetEffectiveScale()
+        -- Cursor-follow runs per RENDER FRAME on a pool shell (bills
+        -- ResourceBars via frame-birth attribution). Rate experiment
+        -- (2026-07-27): a 60 Hz anim ticker visibly stepped against a
+        -- gliding cursor -- position has no engine easing, so cursor glue
+        -- needs one reposition per rendered frame. Kept cheap: raw-pixel
+        -- early-out on unmoved frames, in-place SetPoint on moves.
+        if not frame._erbMouseShell then frame._erbMouseShell = ns.TakeShell() end
+        frame._erbMouseShell:Show()
+        frame._erbMouseShell:SetScript("OnUpdate", function()
             local cx, cy = GetCursorPosition()
-            cx = floor(cx / s + 0.5)
-            cy = floor(cy / s + 0.5)
             if cx ~= lastMX or cy ~= lastMY then
+                local firstMove = lastMX == nil
                 lastMX, lastMY = cx, cy
-                frame:ClearAllPoints()
-                frame:SetPoint(pointFrom, UIParent, "BOTTOMLEFT", cx + baseOX, cy + baseOY)
+                local s = UIParent:GetEffectiveScale()
+                if firstMove then frame:ClearAllPoints() end
+                frame:SetPoint(pointFrom, UIParent, "BOTTOMLEFT",
+                    floor(cx / s + 0.5) + baseOX, floor(cy / s + 0.5) + baseOY)
             end
         end)
         return true
@@ -2580,6 +2658,30 @@ end
 -- bottom, so hash lines sit inside the border instead of spanning over it. Default
 -- 0. Callers pass borderSize * PP.mult.
 local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, hashR, hashG, hashB, hashA, hashIsPercent, maxRenderVal, vInset)
+    -- UNIT_POWER_FREQUENT drives this several times a second for as long as power
+    -- regenerates, but the tick layout is a pure function of the arguments below
+    -- plus the bar's size and the pixel multiplier -- never of the live resource
+    -- value. Without this guard every tick texture is torn down and rebuilt
+    -- continuously, and each PP.Scale and SetColorTexture runs in the parent addon
+    -- and is billed there. Re-run only when something that affects layout changed.
+    if sb then
+        local _pp = EllesmereUI and EllesmereUI.PP
+        local w, h = sb:GetWidth(), sb:GetHeight()
+        local mult = (_pp and _pp.mult) or 1
+        local st = sb._tickState
+        if st and st.maxVal == maxVal and st.tickStr == tickStr and st.hw == hashWidth
+           and st.r == hashR and st.g == hashG and st.b == hashB and st.a == hashA
+           and st.pct == hashIsPercent and st.cap == maxRenderVal and st.vi == vInset
+           and st.w == w and st.h == h and st.mult == mult then
+            return
+        end
+        if not st then st = {}; sb._tickState = st end
+        st.maxVal, st.tickStr, st.hw = maxVal, tickStr, hashWidth
+        st.r, st.g, st.b, st.a = hashR, hashG, hashB, hashA
+        st.pct, st.cap, st.vi = hashIsPercent, maxRenderVal, vInset
+        st.w, st.h, st.mult = w, h, mult
+    end
+
     local vals = ParseTickValues(tickStr)
 
     for i = 1, #tickCache do tickCache[i]:Hide() end
@@ -2696,6 +2798,12 @@ end
 -------------------------------------------------------------------------------
 
 local function BuildBars()
+    -- Frames are being recreated, so every value/config cache keyed on the
+    -- previous ones is stale. Bumping the generation invalidates them all at
+    -- once; without this, a rebuild that happens to leave the resource value
+    -- unchanged would let UpdateSecondaryResource early-out and leave the new
+    -- pips unpopulated.
+    ns.CfgGen = (ns.CfgGen or 0) + 1
     local p = ERB.db.profile
 
     -- If the profile is missing critical sub-tables, reset to defaults
@@ -3712,9 +3820,11 @@ local function UpdateHealthBar()
         end
     end
 
-    -- Smooth animation
+    -- Fill: eased SetValue -- the engine animates toward the new value, so a
+    -- health change costs zero per-frame Lua. Secrets keep the proven plain
+    -- SetValue path.
     if not curTainted then
-        healthBar._smoothTarget = cur
+        healthBar:SetValue(cur, ns.EASE)
     else
         healthBar:SetValue(cur)
     end
@@ -3747,7 +3857,25 @@ end
 
 local function UpdatePrimaryBar()
     if not primaryBar or not primaryBar:IsShown() then return end
-    local pp = _G._ERB_ResolvePowerCfg()
+    -- Config resolution cache. ResolvePowerCfg, ResolveThresholdSpecEntry and
+    -- ResolveBandConfig all walk profile tables, and none of their results can
+    -- change except on a profile edit, spec swap or form change -- yet they were
+    -- re-resolved on every power event, which is a dozen times a second while
+    -- casting. Worse, the threshold/band pair ran above the branch that decides
+    -- whether threshold colouring is even enabled, so the work happened in full
+    -- for anyone with the feature switched off. Resolve once per config
+    -- generation (bumped by ApplyAll) and reuse.
+    local pc = ns.PPC
+    if not pc or pc.gen ~= ns.CfgGen then
+        if not pc then pc = {}; ns.PPC = pc end
+        pc.gen = ns.CfgGen
+        pc.pp = _G._ERB_ResolvePowerCfg()
+        local e = ResolveThresholdSpecEntry(pc.pp)
+        -- ResolveBandConfig sees the raw entry, exactly as before the cache.
+        pc.bandOn, pc.bands, pc.bandMode, pc.bandRev = ResolveBandConfig(pc.pp, e)
+        pc.tsEntry = (e and (e.thresholdEnabled ~= false)) and e or nil
+    end
+    local pp = pc.pp
 
     cachedPrimary = GetPrimaryPowerType()
     if not cachedPrimary then return end
@@ -3770,8 +3898,6 @@ local function UpdatePrimaryBar()
             end
             primaryBar:SetMinMaxValues(0, EBON_MIGHT_DURATION)
             primaryBar:SetValue(0)
-            primaryBar._smoothTarget = 0
-            primaryBar._smoothCurrent = 0
             primaryBar._text:Hide()
             return
         end
@@ -3785,8 +3911,6 @@ local function UpdatePrimaryBar()
         local remaining = (_ebonMightExpiry > 0) and max(0, _ebonMightExpiry - GetTime()) or 0
         primaryBar:SetMinMaxValues(0, EBON_MIGHT_DURATION)
         primaryBar:SetValue(remaining)
-        primaryBar._smoothTarget = remaining
-        primaryBar._smoothCurrent = remaining
         -- Color: custom > power color (same priority as standard)
         local ft = primaryBar:GetStatusBarTexture()
         if not pp.customColored then
@@ -3830,10 +3954,11 @@ local function UpdatePrimaryBar()
 
     -- Color: threshold via ColorCurve (secret-safe) for non-mana specs;
     -- Resolve per-spec threshold entry for power bar
-    local _ppTsEntry = ResolveThresholdSpecEntry(pp)
-    local _ppTsEnabled = _ppTsEntry and (_ppTsEntry.thresholdEnabled ~= false) or false
-    local _ppBandOn, _ppBands, _ppBandMode, _ppBandRev = ResolveBandConfig(pp, _ppTsEntry)
-    if not _ppTsEnabled then _ppTsEntry = nil end
+    -- Resolved once per config generation above; pc.tsEntry is already nil when
+    -- thresholds are disabled, matching the old post-filter behaviour.
+    local _ppTsEntry = pc.tsEntry
+    local _ppTsEnabled = _ppTsEntry ~= nil
+    local _ppBandOn, _ppBands, _ppBandMode, _ppBandRev = pc.bandOn, pc.bands, pc.bandMode, pc.bandRev
     local ft = primaryBar:GetStatusBarTexture()
     local _ppTextInstead = _ppTsEntry and _ppTsEntry.thresholdTextInstead and pp.textFormat ~= "none"
     if (_ppTsEntry or _ppBandOn) and ft and UnitPowerPercent then
@@ -3903,10 +4028,11 @@ local function UpdatePrimaryBar()
         end
     end
 
-    -- Smooth animation
+    -- Fill: eased SetValue (see the health handler note); secrets keep the
+    -- plain path.
     local tainted = issecretvalue and issecretvalue(cur)
     if not tainted then
-        primaryBar._smoothTarget = cur
+        primaryBar:SetValue(cur, ns.EASE)
     else
         primaryBar:SetValue(cur)
     end
@@ -4180,12 +4306,9 @@ local function UpdateIronfurBar()
     end
 
     -- Fill = longest remaining fraction (min/max is 0..1 for this bar), so the
-    -- bar depletes with the longest-lived Ironfur stack. Set directly (no
-    -- smoothing) and keep the smoother in sync so the generic secondaryBar
-    -- lerp can't fight it.
+    -- bar depletes with the longest-lived Ironfur stack. Set directly: this
+    -- runs from the motion ticker, which is its own smooth cadence.
     secondaryBar:SetValue(maxFrac)
-    secondaryBar._smoothTarget = maxFrac
-    secondaryBar._smoothCurrent = maxFrac
 
     if sp.showText and secondaryFrame and secondaryFrame._countText then
         secondaryFrame._countText:SetText(count > 0 and tostring(count) or "")
@@ -4387,6 +4510,47 @@ local function UpdateSecondaryResource()
     if powerType == "IRONFUR_BAR" then
         UpdateIronfurBar()
         return
+    end
+
+    -- Value early-out for plain point resources (Holy Power, combo points,
+    -- soul shards, chi, ...). Everything below is a pure function of the current
+    -- value, the max, and the resolved config, so when none of those have moved
+    -- there is nothing to rebuild. This matters because the function is
+    -- reachable from FIVE separate triggers during a single cast --
+    -- UNIT_POWER_UPDATE, UNIT_POWER_FREQUENT, UNIT_AURA,
+    -- UNIT_SPELLCAST_SUCCEEDED and the 10fps safety poll -- and most of those
+    -- fire without the resource having changed at all. Measured 2026-07-26:
+    -- 300 hits / 9 misses over ~15s of casting, and this function's share of a
+    -- Perfy trace fell from 12.2% to 2.9%.
+    --
+    -- Deliberately skipped when the bar tracks a buff for colouring: that state
+    -- changes on aura events while the value stands still, so an early-out
+    -- would strand the bar on the wrong colour. Secret values bail out too --
+    -- they cannot be compared. Non-"points" resources never reach this branch.
+    if cachedSecondary.type == "points" then
+        local _evCur = UnitPower("player", powerType)
+        if not (issecretvalue and issecretvalue(_evCur)) then
+            local stb = ns.STB
+            if not stb or stb.gen ~= ns.CfgGen then
+                if not stb then stb = {}; ns.STB = stb end
+                stb.gen = ns.CfgGen
+                stb.v = SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
+            end
+            if not stb.v then
+                local st = ns.SecSt
+                -- Essence recharge exemption: the partial pip refills over
+                -- several seconds while UnitPower reads the SAME count, so an
+                -- in-flight recharge (_essenceNextTick set) must keep
+                -- redrawing -- exactly the case this unchanged-value early-out
+                -- would otherwise swallow (tester-reported: recharge froze).
+                if st and st.cur == _evCur and st.max == maxPts and st.gen == ns.CfgGen
+                   and not _essenceNextTick then
+                    return
+                end
+                if not st then st = {}; ns.SecSt = st end
+                st.cur, st.max, st.gen = _evCur, maxPts, ns.CfgGen
+            end
+        end
     end
 
     local sp = _G._ERB_ResolveSecondaryCfg()
@@ -4980,17 +5144,13 @@ local function UpdateSecondaryResource()
                 end
             end
             -- Secret-aware update: pass secret values directly to the
-            -- StatusBar (the C widget handles them natively).  Only use
-            -- smooth animation for clean numeric values. The smooth target
-            -- must ALWAYS be updated -- the OnUpdate smoother runs every
-            -- frame, and a stale clean target left from before combat would
-            -- lerp the bar right back over the direct secret SetValue (the
-            -- "bar never fills in combat" bug). The smoother already passes
-            -- a secret target straight through to SetValue.
+            -- StatusBar (the C widget handles them natively); clean values
+            -- get the eased SetValue and the engine animates the fill.
             local tainted = issecretvalue and issecretvalue(cur)
-            secondaryBar._smoothTarget = cur
             if tainted then
                 secondaryBar:SetValue(cur)
+            else
+                secondaryBar:SetValue(cur, ns.EASE)
             end
             -- Count text
             if sp.showText and secondaryFrame._countText then
@@ -5139,11 +5299,16 @@ local function UpdateSecondaryResource()
                         local sb = CreateFrame("StatusBar", nil, pip)
                         sb:SetAllPoints(pip._fill)
                         sb:SetStatusBarTexture(texPath)
+                        sb._texPath = texPath
                         sb:SetStatusBarColor(r, g, b, a)
                         sb:SetFrameLevel(pip:GetFrameLevel())
                         pip._secretBar = sb
-                    else
+                    elseif pip._secretBar._texPath ~= texPath then
+                        -- Same reasoning as the band bars below: a path swap mints a
+                        -- brand-new inner texture and runs the parent's pixel-snap
+                        -- hook, so never re-set it to the path it already has.
                         pip._secretBar:SetStatusBarTexture(texPath)
+                        pip._secretBar._texPath = texPath
                     end
                     pip._secretBar:SetMinMaxValues(i - 1, i)
                     pip._secretBar:SetValue(cur)
@@ -5188,7 +5353,10 @@ local function UpdateSecondaryResource()
                                 rb:SetAllPoints(pip._fill)
                                 pip._bandResetBar = rb
                             end
-                            pip._bandResetBar:SetStatusBarTexture(texPath)
+                            if pip._bandResetBar._texPath ~= texPath then
+                                pip._bandResetBar:SetStatusBarTexture(texPath)
+                                pip._bandResetBar._texPath = texPath
+                            end
                             pip._bandResetBar:SetFrameLevel(pip:GetFrameLevel() + #_tsBands + 1)
                             local _rlo = (i > (_topTo + 1)) and i or (_topTo + 1)
                             pip._bandResetBar:SetMinMaxValues(_rlo - 1, _rlo)
@@ -5214,10 +5382,12 @@ local function UpdateSecondaryResource()
                                 local tb = CreateFrame("StatusBar", nil, pip)
                                 tb:SetAllPoints(pip._fill)
                                 tb:SetStatusBarTexture(texPath)
+                                tb._texPath = texPath
                                 tb:SetFrameLevel(pip:GetFrameLevel() + 1)
                                 pip._secretThreshBar = tb
-                            else
+                            elseif pip._secretThreshBar._texPath ~= texPath then
                                 pip._secretThreshBar:SetStatusBarTexture(texPath)
+                                pip._secretThreshBar._texPath = texPath
                             end
                             -- Fills only when cur >= max(i, threshCount): the pip is
                             -- active AND the threshold has been reached.
@@ -5669,241 +5839,183 @@ local function UpdateVisibility()
 end
 
 -------------------------------------------------------------------------------
---  OnUpdate: smooth bar animation
+--  Subsystem tickers
+--
+--  The old single OnUpdate multiplexed every animation job at frame rate. It
+--  is gone. What replaced it:
+--
+--    * Value fills (health / primary / secondary) are EVENT-DRIVEN: the
+--      handlers call SetValue(v, ns.EASE) and the engine animates the ease,
+--      so a value change costs zero per-frame Lua. Threshold/band coloring
+--      rides the same events (it always ran there too; the old 20 Hz color
+--      poll duplicated it and is retired).
+--    * Genuinely time-based jobs each ride their own fixed-rate anim ticker
+--      (EllesmereUI.Tick.NewAnimTicker): the C engine fires OnLoop at the
+--      configured rate and sleeps between fires -- no per-frame dispatch
+--      exists at all. Each ticker self-stops the moment its job settles.
+--    * ns.ArmTick() (called after every event and from ApplyAll) starts
+--      whichever tickers the current state needs. Arming stays deliberately
+--      indiscriminate: a redundant Start on a playing ticker is one
+--      IsPlaying check; a missed arm is a frozen bar.
+--
+--  Frames passed to NewAnimTicker are created HERE at file scope so the
+--  engine bills the work to ResourceBars (frame-birth attribution rule).
 -------------------------------------------------------------------------------
-local SMOOTH_SPEED = 8
-local _runeThrottle = 0
-local _hpColorThrottle = 0
 
-local function OnUpdate(self, dt)
-    -- Smooth bar animation (health)
-    if healthBar and healthBar:IsShown() then
-        local tgt = healthBar._smoothTarget
-        if issecretvalue and issecretvalue(tgt) then
-            healthBar:SetValue(tgt)
-        else
-            local cur = healthBar._smoothCurrent
-            if abs(cur - tgt) > 1 then
-                cur = Lerp(cur, tgt, min(1, dt * SMOOTH_SPEED))
-                healthBar._smoothCurrent = cur
-                healthBar:SetValue(cur)
-            elseif cur ~= tgt then
-                -- Snap to the exact target so the bar reaches 100% at max instead of
-                -- settling short
-                healthBar._smoothCurrent = tgt
-                healthBar:SetValue(tgt)
-            end
-        end
-        -- Poll threshold color at ~20fps so it reacts without waiting for UNIT_HEALTH.
-        -- Only runs when the health bar is visible AND threshold coloring is enabled.
-        _hpColorThrottle = _hpColorThrottle + dt
-        if _hpColorThrottle >= 0.05 then
-            _hpColorThrottle = 0
-            local hp = _G._ERB_ResolveHealthCfg()
-            local _hpPollEntry = hp and ResolveThresholdSpecEntry(hp) or nil
-            local _hpPollEnabled = _hpPollEntry and (_hpPollEntry.thresholdEnabled ~= false) or false
-            local _hpPollBandOn, _hpPollBands, _hpPollBandMode, _hpPollBandRev
-            if hp then _hpPollBandOn, _hpPollBands, _hpPollBandMode, _hpPollBandRev = ResolveBandConfig(hp, _hpPollEntry) end
-            if not _hpPollEnabled then _hpPollEntry = nil end
-            if (_hpPollEntry or _hpPollBandOn) and UnitHealthPercent then
-                local ft = healthBar:GetStatusBarTexture()
-                if ft then
-                    local curve
-                    local baseR, baseG, baseB
-                    if hp.customColored then
-                        baseR, baseG, baseB = hp.fillR, hp.fillG, hp.fillB
-                    else
-                        local cc = CLASS_COLORS[cachedClass]
-                        if cc then baseR, baseG, baseB = cc[1], cc[2], cc[3]
-                        else baseR, baseG, baseB = 0.15, 0.75, 0.30 end
-                    end
-                    local _bandOn, _bands, _bandMode, _bandRev = _hpPollBandOn, _hpPollBands, _hpPollBandMode, _hpPollBandRev
-                    local _hpTextInstead = _hpPollEntry and _hpPollEntry.thresholdTextInstead and hp.textFormat ~= "none"
-                    local maxHP
-                    if _bandOn then
-                        maxHP = UnitHealthMax and UnitHealthMax("player") or nil
-                        if maxHP and issecretvalue and issecretvalue(maxHP) then maxHP = nil end
-                    end
-                    if _hpTextInstead then
-                        local tbR, tbG, tbB
-                        if hp.textCustomColored == false then
-                            local tcc = CLASS_COLORS[cachedClass]
-                            if tcc then tbR, tbG, tbB = tcc[1], tcc[2], tcc[3] else tbR, tbG, tbB = 1, 1, 1 end
-                        else
-                            tbR, tbG, tbB = hp.textFillR or 1, hp.textFillG or 1, hp.textFillB or 1
-                        end
-                        if _bandOn then
-                            curve = GetBarBandCurve("healthpoll", _bands, _bandMode, maxHP, tbR, tbG, tbB, _bandRev)
-                        else
-                            local tR = _hpPollEntry.thresholdR or hp.thresholdR or 1
-                            local tG = _hpPollEntry.thresholdG or hp.thresholdG or 0.2
-                            local tB = _hpPollEntry.thresholdB or hp.thresholdB or 0.2
-                            curve = GetBarThresholdCurve(tbR, tbG, tbB, tR, tG, tB, _hpPollEntry.thresholdPct or hp.thresholdPct or 30)
-                        end
-                        if curve and healthBar._text then
-                            local ok, colorResult = pcall(UnitHealthPercent, "player", false, curve)
-                            if ok and colorResult and colorResult.GetRGBA then
-                                healthBar._text:SetTextColor(colorResult:GetRGBA())
-                            end
-                        end
-                        if hp.gradientEnabled then
-                            ApplyBarGradient(ft, hp.gradientDir or "HORIZONTAL",
-                                baseR, baseG, baseB, 1,
-                                hp.gradientR, hp.gradientG, hp.gradientB, hp.gradientA)
-                        else
-                            ApplyBarFlat(ft, baseR, baseG, baseB, 1)
-                        end
-                    else
-                        if _bandOn then
-                            curve = GetBarBandCurve("healthpoll", _bands, _bandMode, maxHP, baseR, baseG, baseB, _bandRev)
-                        else
-                            local tR = _hpPollEntry.thresholdR or hp.thresholdR or 1
-                            local tG = _hpPollEntry.thresholdG or hp.thresholdG or 0.2
-                            local tB = _hpPollEntry.thresholdB or hp.thresholdB or 0.2
-                            curve = GetBarThresholdCurve(baseR, baseG, baseB, tR, tG, tB, _hpPollEntry.thresholdPct or hp.thresholdPct or 30)
-                        end
-                        if curve then
-                            local ok, colorResult = pcall(UnitHealthPercent, "player", false, curve)
-                            if ok and colorResult and colorResult.GetRGBA then
-                                ft:SetVertexColor(colorResult:GetRGBA())
-                            end
-                        end
-                    end
-                end
-            end
-        end
+-- Ebon Might drain (Aug Evoker; on 12.1 the engine slot owns the countdown).
+-- 20 Hz drain + text; the eased SetValue keeps the fill continuous between
+-- fires. Re-armed by UNIT_AURA via ns.ArmTick.
+ns.EMTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()    if ns.EMB121_Owns then return end
+    if cachedPrimary ~= "EBON_MIGHT" then return end
+    if not (primaryBar and primaryBar:IsShown() and primaryBar:GetAlpha() > 0) then return end
+    local remaining = (_ebonMightExpiry > 0) and max(0, _ebonMightExpiry - GetTime()) or 0
+    primaryBar:SetValue(remaining, ns.EASE)
+    local pp = _G._ERB_ResolvePowerCfg()
+    if pp and pp.textFormat and pp.textFormat ~= "none" then
+        local fmt = pp.textFormat
+        local percentSuffix = (pp.showPercent == false) and "" or "%"
+        local pct = format("%d", remaining / EBON_MIGHT_DURATION * 100)
+        local timeText = remaining > 0 and format("%.1f", remaining) or "0"
+        local txt
+        if fmt == "perpp" then txt = pct .. percentSuffix
+        elseif fmt == "both" then txt = timeText .. " | " .. pct .. percentSuffix
+        else txt = timeText end
+        primaryBar._text:SetText(txt)
     end
+    return remaining > 0
+end, 0.05)
 
-    -- Smooth bar animation (primary resource)
-    if primaryBar and primaryBar:IsShown() then
-        if cachedPrimary == "EBON_MIGHT" then
-            -- Ebon Might countdown (throttled to ~20 fps for smooth drain)
-            -- 12.1: the engine slot owns the countdown -- nothing to tick
-            -- (guard is nil-dead on retail).
-            if not ns.EMB121_Owns then
-            _ebonMightThrottle = _ebonMightThrottle + dt
-            if _ebonMightThrottle >= 0.05 then
-                _ebonMightThrottle = 0
-                local remaining = (_ebonMightExpiry > 0) and max(0, _ebonMightExpiry - GetTime()) or 0
-                primaryBar:SetValue(remaining)
-                primaryBar._smoothTarget = remaining
-                primaryBar._smoothCurrent = remaining
-                -- Text
-                local pp = _G._ERB_ResolvePowerCfg()
-                if pp and pp.textFormat and pp.textFormat ~= "none" then
-                    local fmt = pp.textFormat
-                    local percentSuffix = (pp.showPercent == false) and "" or "%"
-                    local pct = format("%d", remaining / EBON_MIGHT_DURATION * 100)
-                    local timeText = remaining > 0 and format("%.1f", remaining) or "0"
-                    local txt
-                    if fmt == "perpp" then txt = pct .. percentSuffix
-                    elseif fmt == "both" then txt = timeText .. " | " .. pct .. percentSuffix
-                    else txt = timeText end
-                    primaryBar._text:SetText(txt)
-                end
-            end
-            end -- not EMB121_Owns
-        else
-            local tgt = primaryBar._smoothTarget
-            if issecretvalue and issecretvalue(tgt) then
-                primaryBar:SetValue(tgt)
-            else
-                local cur = primaryBar._smoothCurrent
-                if abs(cur - tgt) > 1 then
-                    cur = Lerp(cur, tgt, min(1, dt * SMOOTH_SPEED))
-                    primaryBar._smoothCurrent = cur
-                    primaryBar:SetValue(cur)
-                elseif cur ~= tgt then
-                    primaryBar._smoothCurrent = tgt
-                    primaryBar:SetValue(tgt)
-                end
-            end
-        end
-    end
-
-    -- Guardian Ironfur bar: drive moving hash lines + fill every frame for
-    -- smooth right-to-left motion (the 0.1s throttle below would look choppy).
-    if cachedSecondary and cachedSecondary.power == "IRONFUR_BAR"
-       and secondaryBar and secondaryBar:IsShown() then
+-- Guardian Ironfur / Prot Ignore Pain moving-hash motion: the only
+-- continuously-moving visuals outside the cast bar. 30 Hz keeps the motion
+-- fluid at a seventh of frame-rate cost; both update paths are change-gated
+-- internally.
+ns.MotionTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()    local cs = cachedSecondary
+    if not (cs and secondaryBar and secondaryBar:IsShown() and secondaryBar:GetAlpha() > 0) then return end
+    if cs.power == "IRONFUR_BAR" then
         UpdateIronfurBar()
-    -- Smooth bar animation (bar-style secondary, e.g. Devourer / Elemental maelstrom)
-    elseif secondaryBar and secondaryBar:IsShown() then
-        local tgt = secondaryBar._smoothTarget
-        if issecretvalue and issecretvalue(tgt) then
-            secondaryBar:SetValue(tgt)
-        else
-            local cur = secondaryBar._smoothCurrent
-            if abs(cur - tgt) > 0.5 then
-                cur = Lerp(cur, tgt, min(1, dt * SMOOTH_SPEED))
-                secondaryBar._smoothCurrent = cur
-                secondaryBar:SetValue(cur)
-            elseif cur ~= tgt then
-                -- Snap to the exact target once within the lerp threshold, so the bar
-                -- reaches 100% at max instead of settling ~0.5 short (a visible gap on
-                -- small-max bars like Devourer soul fragments). Guarded so it fires
-                -- once, not every frame.
-                secondaryBar._smoothCurrent = tgt
-                secondaryBar:SetValue(tgt)
-            end
-        end
-    end
-
-    -- Prot Ignore Pain: drive the single moving duration hash + the
-    -- fill-width-derived stack text every frame (both cheap + change-gated)
-    if cachedSecondary and cachedSecondary.power == "IGNOREPAIN_BAR"
-       and secondaryBar and secondaryBar:IsShown() then
+        return true
+    elseif cs.power == "IGNOREPAIN_BAR" then
         IP.UpdateHash()
         IP.UpdateText()
+        return true
     end
+end, 1 / 30)
 
-    -- DK rune updates (throttled to ~10 fps) -- calls the full sorted
-    -- update so rune positions stay consistent with depletion order.
-    if cachedSecondary and cachedSecondary.type == "runes" then
-        _runeThrottle = _runeThrottle + dt
-        if _runeThrottle >= 0.1 then
-            _runeThrottle = 0
-            UpdateSecondaryResource()
+-- Secondary-resource poll: DK rune fills and the custom/bar/buff safety poll
+-- at 10 Hz, Evoker Essence recharge at 20 Hz. One ticker at a 20 Hz base;
+-- the 10 Hz jobs skip every other fire. All paths funnel into
+-- UpdateSecondaryResource, whose value early-out makes an unchanged poll
+-- nearly free.
+ns.PollTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()    local cs = cachedSecondary
+    if not cs then return end
+    local pwr, typ = cs.power, cs.type
+    if _essenceNextTick and pwr == PT.ESSENCE then
+        UpdateSecondaryResource()
+        return true
+    end
+    ns._pollFlip = not ns._pollFlip
+    if ns._pollFlip then return true end
+    if typ == "runes" or typ == "custom" or typ == "bar" then
+        UpdateSecondaryResource()
+        return true
+    end
+    local stb = ns.STB
+    if not stb or stb.gen ~= ns.CfgGen then
+        if not stb then stb = {}; ns.STB = stb end
+        stb.gen = ns.CfgGen
+        stb.v = SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
+    end
+    if stb.v then
+        UpdateSecondaryResource()
+        return true
+    end
+end, 0.05)
+
+
+-------------------------------------------------------------------------------
+--  Tick arming
+--
+--  Called after every event (OnEvent tail) and from ApplyAll. Starts whichever
+--  subsystem tickers the current state needs; each ticker self-stops when its
+--  job settles, so a redundant arm costs one IsPlaying check and a missed arm
+--  can only freeze until the next event. Cheap field reads only; the one
+--  config-derived answer (buff tracking) is cached on ns.CfgGen.
+--
+--  Anything time-based added to this file later MUST either ride one of the
+--  tickers above (and get an arm condition here) or be event-driven -- never
+--  a per-frame OnUpdate.
+-------------------------------------------------------------------------------
+function ns.ArmTick()
+    local cs = cachedSecondary
+    if cs then
+        local pwr, typ = cs.power, cs.type
+        if pwr == "IRONFUR_BAR" or pwr == "IGNOREPAIN_BAR" then
+            ns.MotionTick.Start()
         end
-    end
-
-    -- Evoker Essence recharge animation (throttled to ~20 fps for smooth fill)
-    if _essenceNextTick and cachedSecondary and cachedSecondary.power == PT.ESSENCE then
-        _runeThrottle = _runeThrottle + dt
-        if _runeThrottle >= 0.05 then
-            _runeThrottle = 0
-            UpdateSecondaryResource()
-        end
-    end
-
-    -- Cast bar update
-    UpdateCastBar(dt)
-
-    -- GCD bar update
-    UpdateGCDBar(dt)
-
-    -- Throttled poll for Vengeance soul fragments (GetSpellCastCount has no
-    -- discrete event) and as a safety net for other custom/bar resources. Also
-    -- poll when buff coloring is on: a secret proc (Essence Burst) may fire no
-    -- UNIT_AURA and the Cooldown Viewer state can change without one, so we must
-    -- re-evaluate to recolor the bar as the buff comes and goes.
-    -- The buff-tracking check walks thresholdSpecs, so it runs inside the 0.1s
-    -- tick (not per frame) -- only the counter accumulates at frame rate. The
-    -- rune/essence blocks above share this counter and already poll their own
-    -- full updates (buff recolor included), so they are excluded here to keep
-    -- their cadence intact.
-    if cachedSecondary and cachedSecondary.type ~= "runes"
-       and not (_essenceNextTick and cachedSecondary.power == PT.ESSENCE) then
-        _runeThrottle = _runeThrottle + dt  -- reuse the rune throttle counter
-        if _runeThrottle >= 0.1 then
-            _runeThrottle = 0
-            if cachedSecondary.type == "custom" or cachedSecondary.type == "bar"
-               or SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) then
-                UpdateSecondaryResource()
+        if typ == "runes" or typ == "custom" or typ == "bar"
+           or (_essenceNextTick and pwr == PT.ESSENCE) then
+            ns.PollTick.Start()
+        else
+            local stb = ns.STB
+            if not stb or stb.gen ~= ns.CfgGen then
+                if not stb then stb = {}; ns.STB = stb end
+                stb.gen = ns.CfgGen
+                stb.v = SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
             end
+            if stb.v then ns.PollTick.Start() end
+        end
+    end
+    if cachedPrimary == "EBON_MIGHT" and not ns.EMB121_Owns
+       and _ebonMightExpiry > GetTime() then
+        ns.EMTick.Start()
+    end
+end
+
+-- Cast bar redraw without per-frame dispatch: a looping Animation fires
+-- OnLoop at the redraw rate and the C engine sleeps between fires, so an
+-- active cast runs ZERO Lua at frame rate. The old driver subscriber ran an
+-- accumulator at ~200 fps just to gate a 60 Hz redraw, and that per-frame
+-- entry cost more than the redraw itself (measured: 0.14% floor vs 0.06%
+-- body). Host frame and group are born HERE at file scope so the work bills
+-- ResourceBars (frame-birth attribution rule).
+-- Self-stopping: the loop halts itself the moment no cast state remains, so
+-- every stop path (complete, failed, interrupted, channel stop, safety) is
+-- covered without wiring Stop calls into each handler; the cost of that is
+-- at most one no-op fire after the cast ends.
+do
+    local host = CreateFrame("Frame")
+    local ag = host:CreateAnimationGroup()
+    ag:SetLooping("REPEAT")
+    local tick = ag:CreateAnimation("Animation")
+    -- 20 Hz redraw, verified visually smooth: the eased SetValue has the
+    -- engine rendering intermediate fill positions between redraws, so the
+    -- rate governs only text/stage/safety granularity, not fill smoothness.
+    tick:SetDuration(1 / 20)
+    ag:SetScript("OnLoop", function()
+        if castBarFrame and (castBarFrame._casting or castBarFrame._channeling
+           or castBarFrame._empowering) then
+            UpdateCastBar()
+        else
+            ag:Stop()
+        end
+    end)
+    -- Idempotent; safe to call from every cast event.
+    ns.StartCastTick = function()
+        if not ag:IsPlaying() then
+            ag:Play()
         end
     end
 end
 
+-- GCD bar ticker: 20 Hz; the eased SetValue inside UpdateGCDBar carries the
+-- fill between fires. Runs only while a GCD is live, and the final fire
+-- renders the idle state before the loop stops itself.
+ns.GCDTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()
+    UpdateGCDBar()
+    return gcdBarFrame and gcdBarFrame._gcdStart ~= nil
+end, 0.05)
+
+-------------------------------------------------------------------------------
 
 -------------------------------------------------------------------------------
 --  Bar Textures (shared with options)
@@ -6540,15 +6652,125 @@ HideChannelTicks = function()
 end
 
 
+-- Cast / channel timer label.
+--
+-- The label shows one decimal, so its content only changes about ten times a
+-- second, but this runs every frame while casting. Formatting unconditionally
+-- meant five of every six frames rebuilt a string identical to the one already
+-- on screen, at two allocations each (the format, then the concat) plus a
+-- SetText. Only touch the FontString when the displayed tenth actually changes.
+--
+-- An ns field rather than a file local: this file is at the Lua 5.1 200-local
+-- cap for the main chunk.
+function ns.SetCastTimerText(f, now, totalDurMode, totalSuffix, latSuffix)
+    local remaining = f._endTime - now
+    if remaining > 0 then
+        local shown = totalDurMode and (now - f._startTime) or remaining
+        local tenths = floor(shown * 10)
+        if tenths ~= f._timerTenths then
+            f._timerTenths = tenths
+            if totalDurMode then
+                f._timerText:SetText(format("%.1f", shown) .. (totalSuffix or ""))
+            elseif latSuffix then
+                f._timerText:SetText(format("%.1f", shown) .. latSuffix)
+            else
+                f._timerText:SetText(format("%.1f", shown))
+            end
+        end
+    elseif f._timerTenths ~= -1 then
+        -- -1 marks "already blanked" so the empty case does not re-SetText
+        -- every frame either.
+        f._timerTenths = -1
+        f._timerText:SetText("")
+    end
+end
+
+-- Engine-driven cast fill, same plumbing as the nameplate cast bars: hand the
+-- cast's duration object to the inner StatusBar and the C engine animates the
+-- fill with zero Lua per frame (pushback, haste and stage changes included).
+-- Falls back to the Lua fill in UpdateCastBar when the duration API is
+-- unavailable or returns nil; the ticker then redraws the fill as before.
+-- Re-called from DELAYED / CHANNEL_UPDATE / EMPOWER_UPDATE so a mid-cast time
+-- change retargets the engine timer. Returns true when the timer is armed.
+ns.ApplyCastTimer = function(kind)
+    if not castBarFrame then return end
+    castBarFrame._nativeFill = nil
+    local bar = castBarFrame._bar
+    local sb = bar and bar._sb
+    if not (sb and sb.SetTimerDuration and Enum and Enum.StatusBarTimerDirection) then
+        return
+    end
+    local durObj, dir
+    if kind == "channel" then
+        durObj = UnitChannelDuration and UnitChannelDuration("player")
+        dir = Enum.StatusBarTimerDirection.RemainingTime
+    elseif kind == "empower" then
+        -- true = include the hold-at-max window, matching the event mirrors
+        durObj = UnitEmpoweredChannelDuration and UnitEmpoweredChannelDuration("player", true)
+        dir = Enum.StatusBarTimerDirection.ElapsedTime
+    else
+        durObj = UnitCastingDuration and UnitCastingDuration("player")
+        dir = Enum.StatusBarTimerDirection.ElapsedTime
+    end
+    if not durObj then return end
+    sb:SetTimerDuration(durObj, nil, dir)
+    -- Snap to the timer's current position so the fill never sweeps in from
+    -- whatever value the previous cast left behind.
+    if sb.SetToTargetValue then sb:SetToTargetValue() end
+    castBarFrame._nativeFill = true
+    return true
+end
+
 UpdateCastBar = function(dt)
-    if not castBarFrame or not castBarFrame:IsShown() then return end
+    if not castBarFrame then return end
+    -- EllesmereUI.SetElementVisibility fades an idle cast bar to alpha 0 rather
+    -- than calling Hide(), so IsShown() stays true for the whole session and the
+    -- IsShown guard that used to be here never fired once. The entire body --
+    -- including the spark reposition at the end, which OnCastStop never hides --
+    -- ran every frame whether or not a cast was in progress. Gate on the cast
+    -- state that actually drives this instead.
+    if not (castBarFrame._casting or castBarFrame._empowering or castBarFrame._channeling) then
+        return
+    end    -- No IsShown() test here. SetElementVisibility fades this frame to alpha 0
+    -- rather than hiding it, so IsShown() is constant-true for the whole session
+    -- -- it was a C call sixty times a second to answer a question that never
+    -- changes. The cast-state gate above is the real guard.
+
+
     local now = GetTime()
     local bar = castBarFrame._bar
-    local cb = ERB.db.profile.castBar
-    local showTimer = cb.showTimer
+
+    -- Per-cast constants. None of these can change while a single cast is in
+    -- flight, yet they were re-resolved every frame: a three-deep table walk for
+    -- the config plus several field reads, sixty times a second. Resolve once
+    -- per cast instead, keyed on start time (which changes for every new cast
+    -- and on each channel update, so a stale cache is not possible).
+    if castBarFrame._cstKey ~= castBarFrame._startTime then
+        castBarFrame._cstKey = castBarFrame._startTime
+        local cb = ERB.db.profile.castBar
+        castBarFrame._cstShowTimer  = cb.showTimer
+        castBarFrame._cstTotalMode  = cb.showTimer and cb.showTotalDuration
+        castBarFrame._cstEmpStages  = cb.coloredEmpowerStages
+        castBarFrame._cstFillAlpha  = (cb.fillOpacity or 100) / 100
+        -- The fill texture only changes when the bar is rebuilt, so resolving it
+        -- here removes a GetStatusBarTexture call from the spark path below.
+        castBarFrame._cstFillTex    = bar:GetStatusBarTexture()
+        -- bar:SetValue is not the widget method: BuildBar replaces it with a
+        -- Lua vararg wrapper that forwards to the inner clipped StatusBar. That
+        -- wrapper exists for the optional "Smooth Bars" interpolation, which the
+        -- cast bar never uses, so on every frame of every cast it is a vararg
+        -- function call for nothing. Hold the inner bar and drive it directly.
+        castBarFrame._cstSB         = bar._sb
+        -- Native easing between redraws (live API; the GCD bar ships with the
+        -- same mechanism). The engine renders intermediate positions every
+        -- frame, so the redraw rate can drop without visible stepping.
+        castBarFrame._cstInterp     = Enum and Enum.StatusBarInterpolation
+            and Enum.StatusBarInterpolation.ExponentialEaseOut
+    end
+    local showTimer = castBarFrame._cstShowTimer
 
     local latSuffix = castBarFrame._latencySuffix
-    local totalDurMode = showTimer and cb.showTotalDuration
+    local totalDurMode = castBarFrame._cstTotalMode
     -- Cache the " / X.X" suffix once per cast (total duration is constant)
     local totalSuffix = totalDurMode and castBarFrame._totalDurSuffix
 
@@ -6562,14 +6784,23 @@ UpdateCastBar = function(dt)
         local castDur = castBarFrame._endTime - castBarFrame._startTime
         local progress = (castDur > 0) and ((now - castBarFrame._startTime) / castDur) or 0
         progress = min(max(progress, 0), 1)
-        bar:SetValue(progress)
-        -- Size the gradient clip frame to match the fill width
-        if castBarFrame._gradientFullBar and castBarFrame._gradClip then
-            castBarFrame._gradClip:SetWidth(max(0.01, bar:GetWidth() * progress))
+        -- Fill: only the fallback path draws from Lua. When the engine timer
+        -- owns the fill (ns.ApplyCastTimer), progress is still computed above
+        -- because the empower stage coloring below derives its stage from it.
+        if not castBarFrame._nativeFill then
+            if castBarFrame._cstSB then
+                castBarFrame._cstSB:SetValue(progress, castBarFrame._cstInterp)
+            else
+                bar:SetValue(progress, castBarFrame._cstInterp)
+            end
+            -- Size the gradient clip frame to match the fill width
+            if castBarFrame._gradientFullBar and castBarFrame._gradClip then
+                castBarFrame._gradClip:SetWidth(max(0.01, bar:GetWidth() * progress))
+            end
         end
 
         -- Apply empowered stage coloring if enabled
-        if castBarFrame._empowering and cb.coloredEmpowerStages then
+        if castBarFrame._empowering and castBarFrame._cstEmpStages then
             local numStages = castBarFrame._numStages or 0
             local stage = GetCurrentEmpowerStage(progress, numStages)
             local r, g, b = GetEmpowerStageColor(stage, numStages)
@@ -6580,60 +6811,49 @@ UpdateCastBar = function(dt)
                 empowerColorB:SetRGBA(r, g, b, 1)
                 castBarFrame._gradTex:SetGradient("HORIZONTAL", empowerColorA, empowerColorB)
             else
-                bar:GetStatusBarTexture():SetVertexColor(r, g, b, (cb.fillOpacity or 100) / 100)
+                castBarFrame._cstFillTex:SetVertexColor(r, g, b, castBarFrame._cstFillAlpha)
             end
             castBarFrame._empowerColorApplied = true
         end
 
         if showTimer then
-            local remaining = castBarFrame._endTime - now
-            if remaining > 0 then
-                if totalDurMode then
-                    local elapsed = now - castBarFrame._startTime
-                    castBarFrame._timerText:SetText(format("%.1f", elapsed) .. (totalSuffix or ""))
-                elseif latSuffix then
-                    castBarFrame._timerText:SetText(format("%.1f", remaining) .. latSuffix)
-                else
-                    castBarFrame._timerText:SetText(format("%.1f", remaining))
-                end
-            else
-                castBarFrame._timerText:SetText("")
-            end
+            ns.SetCastTimerText(castBarFrame, now, totalDurMode, totalSuffix, latSuffix)
         end
     elseif castBarFrame._channeling then
-        local chanDur = castBarFrame._endTime - castBarFrame._startTime
-        local progress = (chanDur > 0) and ((castBarFrame._endTime - now) / chanDur) or 0
-        progress = min(max(progress, 0), 1)
-        bar:SetValue(progress)
-        -- Size the gradient clip frame to match the fill width
-        if castBarFrame._gradientFullBar and castBarFrame._gradClip then
-            castBarFrame._gradClip:SetWidth(max(0.01, bar:GetWidth() * progress))
+        if not castBarFrame._nativeFill then
+            local chanDur = castBarFrame._endTime - castBarFrame._startTime
+            local progress = (chanDur > 0) and ((castBarFrame._endTime - now) / chanDur) or 0
+            progress = min(max(progress, 0), 1)
+            if castBarFrame._cstSB then
+                castBarFrame._cstSB:SetValue(progress, castBarFrame._cstInterp)
+            else
+                bar:SetValue(progress, castBarFrame._cstInterp)
+            end
+            -- Size the gradient clip frame to match the fill width
+            if castBarFrame._gradientFullBar and castBarFrame._gradClip then
+                castBarFrame._gradClip:SetWidth(max(0.01, bar:GetWidth() * progress))
+            end
         end
         if showTimer then
-            local remaining = castBarFrame._endTime - now
-            if remaining > 0 then
-                if totalDurMode then
-                    local elapsed = now - castBarFrame._startTime
-                    castBarFrame._timerText:SetText(format("%.1f", elapsed) .. (totalSuffix or ""))
-                elseif latSuffix then
-                    castBarFrame._timerText:SetText(format("%.1f", remaining) .. latSuffix)
-                else
-                    castBarFrame._timerText:SetText(format("%.1f", remaining))
-                end
-            else
-                castBarFrame._timerText:SetText("")
-            end
+            ns.SetCastTimerText(castBarFrame, now, totalDurMode, totalSuffix, latSuffix)
         end
     end
 
-    -- Update spark position
+    -- Spark position. The spark is anchored to the RIGHT edge of the fill, and
+    -- the engine already moves it as the fill grows, so re-anchoring to the same
+    -- target every frame achieves nothing and costs two frame API calls. The
+    -- target only changes when gradient mode toggles.
     if castBarFrame._spark:IsShown() then
-        castBarFrame._spark:ClearAllPoints()
-
+        local target
         if castBarFrame._gradientFullBar and castBarFrame._gradClip and castBarFrame._gradClip:IsShown() then
-            castBarFrame._spark:SetPoint("CENTER", castBarFrame._gradClip, "RIGHT", 0, 0)
+            target = castBarFrame._gradClip
         else
-            castBarFrame._spark:SetPoint("CENTER", bar:GetStatusBarTexture(), "RIGHT", 0, 0)
+            target = castBarFrame._cstFillTex
+        end
+        if castBarFrame._sparkAnchor ~= target then
+            castBarFrame._sparkAnchor = target
+            castBarFrame._spark:ClearAllPoints()
+            castBarFrame._spark:SetPoint("CENTER", target, "RIGHT", 0, 0)
         end
     end
 end
@@ -6718,9 +6938,11 @@ OnCastStart = function()
     castBarFrame._spellName = name
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     castBarFrame._nameText:SetText(name)
-    local castDur = endTimeMS - startTimeMS
-    local initProgress = (castDur > 0) and ((GetTime() - startTimeMS / 1000) / (castDur / 1000)) or 0
-    castBarFrame._bar:SetValue(min(max(initProgress, 0), 1))
+    if not ns.ApplyCastTimer("cast") then
+        local castDur = endTimeMS - startTimeMS
+        local initProgress = (castDur > 0) and ((GetTime() - startTimeMS / 1000) / (castDur / 1000)) or 0
+        castBarFrame._bar:SetValue(min(max(initProgress, 0), 1))
+    end
 
     -- Hide empower pips
     if castBarFrame._pips then
@@ -6775,9 +6997,11 @@ OnChannelStart = function()
     castBarFrame._spellName = name
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     castBarFrame._nameText:SetText(name)
-    local chanDur = endTimeMS - startTimeMS
-    local initProgress = (chanDur > 0) and ((endTimeMS / 1000 - GetTime()) / (chanDur / 1000)) or 1
-    castBarFrame._bar:SetValue(min(max(initProgress, 0), 1))
+    if not ns.ApplyCastTimer("channel") then
+        local chanDur = endTimeMS - startTimeMS
+        local initProgress = (chanDur > 0) and ((endTimeMS / 1000 - GetTime()) / (chanDur / 1000)) or 1
+        castBarFrame._bar:SetValue(min(max(initProgress, 0), 1))
+    end
 
     -- Hide empower pips
     if castBarFrame._pips then
@@ -6815,6 +7039,7 @@ OnChannelUpdate = function()
 
     castBarFrame._startTime = startTimeMS / 1000
     castBarFrame._endTime = endTimeMS / 1000
+    ns.ApplyCastTimer("channel")
 
     -- Recompute tick mark and GCD boundary positions for new duration
     if spellID then ShowChannelTicks(spellID) end
@@ -6940,9 +7165,11 @@ OnEmpowerStart = function()
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     HideLatencyOverlay()
     castBarFrame._nameText:SetText(name)
-    local empDur = endTimeMS - startTimeMS
-    local empProgress = (empDur > 0) and ((GetTime() - startTimeMS / 1000) / (empDur / 1000)) or 0
-    castBarFrame._bar:SetValue(min(max(empProgress, 0), 1))
+    if not ns.ApplyCastTimer("empower") then
+        local empDur = endTimeMS - startTimeMS
+        local empProgress = (empDur > 0) and ((GetTime() - startTimeMS / 1000) / (empDur / 1000)) or 0
+        castBarFrame._bar:SetValue(min(max(empProgress, 0), 1))
+    end
     HideChannelTicks()
 
     -- Icon
@@ -7024,6 +7251,7 @@ OnEmpowerUpdate = function()
 
     castBarFrame._startTime = startTimeMS / 1000
     castBarFrame._endTime = endTimeMS / 1000
+    ns.ApplyCastTimer("empower")
 end
 
 -------------------------------------------------------------------------------
@@ -7046,7 +7274,8 @@ BuildGCDBar = function()
     end
 
     if not gcdBarFrame then
-        gcdBarFrame = CreateFrame("Frame", "ERB_GCDBarFrame", UIParent)
+        -- Adopt the file-scope shell (attribution; see note near the top).
+        gcdBarFrame = ns.GCDShell
         gcdBarFrame:SetFrameStrata(g.frameStrata or "MEDIUM")
         gcdBarFrame:SetFrameLevel(15)
 
@@ -7740,6 +7969,10 @@ do
 end
 
 function ERB:ApplyAll()
+    -- Invalidate the per-event config caches. Everything that can change a
+    -- resolved config -- profile switch, option edit, spec swap, form change --
+    -- routes through here, so bumping the generation in one place is enough.
+    ns.CfgGen = (ns.CfgGen or 0) + 1
     local _, classFile = UnitClass("player")
     cachedClass = classFile
     cachedPrimary = GetPrimaryPowerType()
@@ -7753,6 +7986,11 @@ function ERB:ApplyAll()
     BuildCastBar()
     BuildGCDBar()
     BuildTotemBar()
+
+    -- Options changes and profile swaps come through here without firing any
+    -- game event, and a rebuild can leave a bar mid-animation with nothing
+    -- scheduled to finish it. Arm unconditionally; the tick disarms itself.
+    if ns.ArmTick then ns.ArmTick() end
 
     -- Apply frame strata to all existing bar frames (covers live changes)
     local g = ERB.db.profile.general or DEFAULTS.profile.general
@@ -7930,7 +8168,6 @@ local function OnEvent(self, event, ...)
         _essenceLastCount = nil
         _essenceTickDur = 0
         _ebonMightExpiry = 0
-        _ebonMightThrottle = 0
         wipe(ironfurTicks)
         ironfurGoEUntil = 0
         ironfurBaseDur = IronfurBaseDuration()
@@ -8035,6 +8272,7 @@ local function OnEvent(self, event, ...)
                 castBarFrame._startTime = startTimeMS / 1000
                 castBarFrame._endTime = endTimeMS / 1000
                 castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
+                ns.ApplyCastTimer("cast")
             end
         end
     elseif event == "UNIT_SPELLCAST_STOP" then
@@ -8202,8 +8440,10 @@ function ERB:OnInitialize()
 end
 
 function ERB:OnEnable()
-    local eventFrame = CreateFrame("Frame")
-    _erbEventFrame = eventFrame
+    -- The event frame was created at file scope so its handler work bills
+    -- this addon (see the note at its declaration); here we only register
+    -- events and attach the handler.
+    local eventFrame = _erbEventFrame
     eventFrame:RegisterUnitEvent("UNIT_HEALTH", "player")
     eventFrame:RegisterUnitEvent("UNIT_MAXHEALTH", "player")
     eventFrame:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
@@ -8283,8 +8523,28 @@ function ERB:OnEnable()
     eventFrame:RegisterEvent("PLAYER_DEAD")
     eventFrame:RegisterEvent("PLAYER_ALIVE")
     eventFrame:RegisterUnitEvent("UNIT_POWER_POINT_CHARGE", "player")
-    eventFrame:SetScript("OnEvent", OnEvent)
-    eventFrame:SetScript("OnUpdate", OnUpdate)
+    -- Arm the shared tick after every event. Any of them can start something
+    -- animating (value change, cast start, GCD, spec swap, form change), and
+    -- working out which ones can't is exactly the kind of cleverness that
+    -- eventually freezes a bar. The tick disarms itself as soon as nothing is
+    -- in flight, so a redundant arm costs a single tick. See "Tick arming".
+    eventFrame:SetScript("OnEvent", function(self, event, ...)
+        OnEvent(self, event, ...)
+        -- Three independent subscribers. Each is armed only by the state that
+        -- needs it, and each disarms itself, so a cast no longer drags the
+        -- health/power/secondary blocks along at frame rate.
+        if castBarFrame and (castBarFrame._casting
+           or castBarFrame._channeling or castBarFrame._empowering) then
+            ns.StartCastTick()
+        end
+        if gcdBarFrame and gcdBarFrame._gcdStart then
+            ns.GCDTick.Start()
+        end
+        ns.ArmTick()
+    end)
+
+
+    ns.ArmTick()
 
     -- Apply immediately at PLAYER_LOGIN so positions are set before combat
     -- lockdown blocks ApplySavedPositions. The PLAYER_ENTERING_WORLD handler

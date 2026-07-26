@@ -2180,33 +2180,159 @@ local function EnsureGlow(plate)
 end
 
 -- Execute Pulse Glow (Extras, default off): red glow around the health bar
--- that pulses while the unit is below 30% health. Secret-value design: the
--- below-threshold gate is a C_CurveUtil color curve evaluated C-side by
--- UnitHealthPercent, and the resulting color feeds straight into
--- SetVertexColor (accepts secret components) -- Lua never branches on health.
--- The pulse is a looping C-side Alpha animation on the glow frame (no Lua
--- ticks), so the effect renders identically inside and outside restricted
--- (secret) combat contexts. The frame alpha (pulse) and the texture vertex
--- alpha (gate) are separate channels that multiply, so they never fight.
+-- that pulses while the unit is inside the PLAYER'S execute window -- the
+-- health fraction below which their spec's execute ability becomes usable,
+-- resolved per spec and adjusted by talents (see the table below). A spec
+-- with no execute at all disables the feature outright: no frame, no
+-- textures, no animation, and nothing evaluated per health update.
+-- Secret-value design: the below-threshold gate is a C_CurveUtil color curve
+-- evaluated C-side by UnitHealthPercent, and the resulting color feeds
+-- straight into SetVertexColor (accepts secret components) -- Lua never
+-- branches on health. The pulse is a looping C-side Alpha animation on the
+-- glow frame (no Lua ticks), so the effect renders identically inside and
+-- outside restricted (secret) combat contexts. The frame alpha (pulse) and
+-- the texture vertex alpha (gate) are separate channels that multiply, so
+-- they never fight.
 -- Cache state lives in a do-block: no main-chunk local slots (near-cap file).
 do
-    local lowCurve
+    -- Execute windows by SPEC ID, alphabetical by class. Shape:
+    --   requires   GATE spell ids -- without one of them the spec has NO
+    --              execute at all (resolves nil, exactly like an absent spec)
+    --   base       health fraction once the gate (if any) is satisfied
+    --   talents    spell ids that RAISE the window; ANY one is enough
+    --   talentPct  the raised fraction
+    -- A spec ABSENT from this table has no execute: the whole effect stays
+    -- inert for it. Keyed by id, never by localized name.
+    local EXEC = {
+        -- Death Knight -- Unholy only; Blood and Frost have none.
+        [252] = { base = 0.35 },
+        -- Hunter -- Marksmanship always; Beast Mastery only once it takes
+        -- its gate talent; Survival has no execute at all.
+        [253] = { requires = { 466930 }, base = 0.20 },
+        [254] = { base = 0.20 },
+        -- Mage -- Fire only; Arcane and Frost have none.
+        [63]  = { base = 0.30 },
+        -- Monk -- DISABLED for now; restore these three lines (and MONK in
+        -- EXEC_CLASSES below) to bring it back. Gate talent only: without it
+        -- no spec has an execute.
+        -- [268] = { requires = { 322113 }, base = 0.15 },
+        -- [269] = { requires = { 322113 }, base = 0.15 },
+        -- [270] = { requires = { 322113 }, base = 0.15 },
+        -- Priest -- all three specs.
+        [256] = { base = 0.20, talents = { 392507 }, talentPct = 0.35 },
+        [257] = { base = 0.20, talents = { 392507 }, talentPct = 0.35 },
+        [258] = { base = 0.20, talents = { 392507 }, talentPct = 0.35 },
+        -- Rogue -- DISABLED for now; restore this line (and ROGUE in
+        -- EXEC_CLASSES below) to bring it back. Assassination only, and only
+        -- with its gate talent; Outlaw and Subtlety have none.
+        -- [259] = { requires = { 381798 }, base = 0.35 },
+        -- Warlock -- Affliction and Destruction, each only with its gate
+        -- talent (Drain Soul / Shadowburn); Demonology has none.
+        [265] = { requires = { 388667 }, base = 0.20 },
+        [267] = { requires = { 17877 }, base = 0.20 },
+        -- Warrior -- all three specs; either talent raises the window.
+        [71]  = { base = 0.20, talents = { 281001, 206315 }, talentPct = 0.35 },
+        [72]  = { base = 0.20, talents = { 281001, 206315 }, talentPct = 0.35 },
+        [73]  = { base = 0.20, talents = { 281001, 206315 }, talentPct = 0.35 },
+        -- No entries for Demon Hunter, Druid, Evoker, Paladin or Shaman.
+    }
+    -- Classes holding at least one execute spec. Everyone else never even
+    -- registers the watcher: the threshold stays nil for the entire session
+    -- and every entry point early-outs on a single upvalue read.
+    -- Must stay in step with EXEC above: a class listed here with no specs
+    -- in the table just resolves nil forever (harmless, but it registers a
+    -- watcher for nothing). MONK and ROGUE are commented out alongside their
+    -- spec entries -- restore both together.
+    local EXEC_CLASSES = {
+        DEATHKNIGHT = true, HUNTER = true, MAGE = true,
+        PRIEST = true, WARLOCK = true, WARRIOR = true,
+        -- MONK = true,
+        -- ROGUE = true,
+    }
+
+    local threshold = nil     -- current execute fraction; nil = no execute
+    local lowCurve, curveAt   -- cached curve + the threshold it was built for
+
+    local function AnyKnown(ids)
+        local sb = C_SpellBook
+        if not (sb and sb.IsSpellKnown) then return false end
+        for i = 1, #ids do
+            if sb.IsSpellKnown(ids[i]) then return true end
+        end
+        return false
+    end
+
+    local function Resolve()
+        local specID = EllesmereUI._specID
+        if (not specID or specID == 0) and EllesmereUI._RefreshSpecID then
+            EllesmereUI._RefreshSpecID()
+            specID = EllesmereUI._specID
+        end
+        local def = specID and EXEC[specID]
+        if not def then return nil end
+        -- Gate first: an unmet requirement means no execute exists at all.
+        if def.requires and not AnyKnown(def.requires) then return nil end
+        local pct = def.base
+        if def.talents and AnyKnown(def.talents) then
+            if not pct or def.talentPct > pct then pct = def.talentPct end
+        end
+        return pct
+    end
+
+    --- The player's current execute-window fraction, or nil when this spec
+    --- and talent build has no execute (feature fully disabled).
+    function ns.GetExecuteThreshold()
+        return threshold
+    end
+
     function ns.GetLowHpGlowCurve()
-        if lowCurve then return lowCurve end
+        local t = threshold
+        if not t then return nil end
+        if lowCurve and curveAt == t then return lowCurve end
         if not (C_CurveUtil and C_CurveUtil.CreateColorCurve and UnitHealthPercent) then return nil end
         local curve = C_CurveUtil.CreateColorCurve()
-        local t, EPSILON = 0.30, 0.0001
-        -- At or below 30% -> red; above -> BLACK. The glow textures use ADD
-        -- blend, so black contributes nothing and the glow disappears. Alpha
-        -- stays 1 at every point: only RGB varies, the exact curve shape the
-        -- proven threshold curves elsewhere in the suite use (curve alpha
-        -- interpolation is deliberately never relied on).
+        local EPSILON = 0.0001
+        -- At or below the execute threshold -> red; above -> BLACK. The glow
+        -- textures use ADD blend, so black contributes nothing and the glow
+        -- disappears. Alpha stays 1 at every point: only RGB varies, the
+        -- exact curve shape the proven threshold curves elsewhere in the
+        -- suite use (curve alpha interpolation is deliberately never relied
+        -- on). Rebuilt only when the threshold itself changes.
         curve:AddPoint(0.0, CreateColor(1, 0, 0, 1))
         curve:AddPoint(t, CreateColor(1, 0, 0, 1))
         curve:AddPoint(t + EPSILON, CreateColor(0, 0, 0, 1))
         curve:AddPoint(1.0, CreateColor(0, 0, 0, 1))
-        lowCurve = curve
+        lowCurve, curveAt = curve, t
         return curve
+    end
+
+    -- Spec + talent watcher, built ONLY for a class that can have an execute.
+    -- Talents cannot change in combat, so resolving on these events costs
+    -- nothing at runtime (mirrors the Whirlwind/Sweeping Strikes trackers).
+    do
+        local _, cls = UnitClass("player")
+        if EXEC_CLASSES[cls] then
+            local watcher = CreateFrame("Frame")
+            watcher:RegisterEvent("PLAYER_LOGIN")
+            watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+            watcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+            watcher:RegisterEvent("TRAIT_CONFIG_UPDATED")
+            watcher:RegisterEvent("PLAYER_TALENT_UPDATE")
+            watcher:SetScript("OnEvent", function()
+                local new = Resolve()
+                if new == threshold then return end
+                threshold = new
+                lowCurve, curveAt = nil, nil
+                -- Re-apply per plate: the gate creates or tears down the
+                -- whole effect, so a build that gains or loses its execute
+                -- flips the glow on or off without a settings change.
+                if ns.plates and ns.ApplyLowHpGlow then
+                    for _, plate in pairs(ns.plates) do
+                        ns.ApplyLowHpGlow(plate)
+                    end
+                end
+            end)
+        end
     end
 end
 
@@ -2253,7 +2379,12 @@ function ns.EnsureLowHpGlow(plate)
 end
 
 function ns.ApplyLowHpGlow(plate)
-    if not (p and p.lowHpGlow == true) then
+    -- Two gates, both hard: the setting must be on AND the player's spec and
+    -- talents must actually have an execute window. Failing either, nothing
+    -- is ever created for this plate -- so the health-update evaluation
+    -- short-circuits on a nil texture list and the feature costs nothing at
+    -- all for a spec that cannot use it.
+    if not (p and p.lowHpGlow == true) or not ns.GetExecuteThreshold() then
         if plate.lowHpGlowFrame then
             plate.lowHpGlowPulse:Stop()
             plate.lowHpGlowFrame:Hide()
@@ -6126,6 +6257,12 @@ function NameplateFrame:SetUnit(unit, nameplate)
     if ns.NPC_AttachPlate then ns.NPC_AttachPlate(self, unit) end
     -- Non-Target Opacity (zero cost while off: one numeric compare).
     if ns._ntAlpha < 1 then ns.NT_Apply(self) end
+    -- Execute glow is per-spawn state, not appearance: ApplyAppearance is
+    -- generation-cached (skipped on recycled pool plates) and the threshold
+    -- watcher only reaches plates active at flip time, so a plate hidden
+    -- during a no-execute window and then pooled would come back glowless.
+    -- Re-assert here; costs two compares when the setting is off.
+    ns.ApplyLowHpGlow(self)
     -- Critical: health bar must display immediately
     self:UpdateHealth()
     -- PERF: defer non-critical work 1 frame. Stacking bounds, name, cast bar,
@@ -6554,10 +6691,11 @@ function NameplateFrame:UpdateHealthValues()
         end
     end
 
-    -- Execute Pulse Glow gate: evaluate the fixed 30% threshold curve
+    -- Execute Pulse Glow gate: evaluate the player's execute-window curve
     -- C-side and feed the resulting color straight into the glow textures
     -- (alpha 1 below the threshold, 0 above -- never branched on in Lua).
-    -- The pulse animation on the parent frame multiplies on top.
+    -- The pulse animation on the parent frame multiplies on top. Specs with
+    -- no execute never build the textures, so this is one nil test for them.
     local lg = self.lowHpGlowTextures
     if lg and self.lowHpGlowFrame:IsShown() then
         local curve = ns.GetLowHpGlowCurve()
@@ -6565,7 +6703,7 @@ function NameplateFrame:UpdateHealthValues()
             if UnitIsDeadOrGhost(unit) then
                 for i = 1, #lg do lg[i]:SetVertexColor(0, 0, 0, 1) end
             else
-                local ok, col = pcall(UnitHealthPercent, unit, false, curve)
+                local ok, col = pcall(UnitHealthPercent, unit, true, curve)
                 if ok and col and col.GetRGBA then
                     local r, g, b, a = col:GetRGBA()
                     for i = 1, #lg do lg[i]:SetVertexColor(r, g, b, a) end

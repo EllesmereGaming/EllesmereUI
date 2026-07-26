@@ -18,6 +18,62 @@ local function PA()
     return db and db.profile and db.profile.playerAuras
 end
 
+-------------------------------------------------------------------------------
+--  Skin generation
+--
+--  Blizzard fires AuraContainer:UpdateGridLayout continuously while buff timers
+--  tick, and every fire used to re-skin every visible button from scratch: the
+--  full border chain (ApplySecretSafeBorderStyle -> ApplyBorderStyle ->
+--  PP.UpdateBorder -> SnapBorderTextures) plus a font resolve and SetFont per
+--  button, every frame, even standing still doing nothing. SkinAuraButton
+--  already set an ffd._paSkinned flag for exactly this -- but nothing ever read
+--  it, so it never short-circuited anything. Profiling attributed the cost to
+--  the PARENT addon, because that is where the border and font code lives.
+--
+--  A button stamped with the current generation is already styled correctly and
+--  is skipped. The settings that feed the skin are compared ONCE per refresh
+--  rather than per button, so a change from any source -- options, a profile
+--  switch, a font change -- bumps the generation and re-skins everything,
+--  without paying for the comparison on every button.
+-------------------------------------------------------------------------------
+local skinGen = 1
+local lastCfg = {}
+
+local function NoteConfig(cfg)
+    local font    = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or ""
+    local outline = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("unitFrames")) or ""
+    if  lastCfg.borderSize      == cfg.borderSize
+    and lastCfg.borderBehind    == cfg.borderBehind
+    and lastCfg.noBorderDebuffs == cfg.noBorderDebuffs
+    and lastCfg.showText        == cfg.showText
+    and lastCfg.textSize        == cfg.textSize
+    and lastCfg.borderR         == cfg.borderR
+    and lastCfg.borderG         == cfg.borderG
+    and lastCfg.borderB         == cfg.borderB
+    and lastCfg.borderA         == cfg.borderA
+    and lastCfg.borderTexture   == cfg.borderTexture
+    and lastCfg.offX            == cfg.borderTextureOffset
+    and lastCfg.offY            == cfg.borderTextureOffsetY
+    and lastCfg.shiftX          == cfg.borderTextureShiftX
+    and lastCfg.shiftY          == cfg.borderTextureShiftY
+    and lastCfg.buffZoom        == cfg.buffIconZoom
+    and lastCfg.debuffZoom      == cfg.debuffIconZoom
+    and lastCfg.font            == font
+    and lastCfg.outline         == outline then
+        return
+    end
+    lastCfg.borderSize, lastCfg.borderBehind    = cfg.borderSize, cfg.borderBehind
+    lastCfg.noBorderDebuffs, lastCfg.showText   = cfg.noBorderDebuffs, cfg.showText
+    lastCfg.textSize, lastCfg.borderTexture     = cfg.textSize, cfg.borderTexture
+    lastCfg.borderR, lastCfg.borderG            = cfg.borderR, cfg.borderG
+    lastCfg.borderB, lastCfg.borderA            = cfg.borderB, cfg.borderA
+    lastCfg.offX, lastCfg.offY                  = cfg.borderTextureOffset, cfg.borderTextureOffsetY
+    lastCfg.shiftX, lastCfg.shiftY              = cfg.borderTextureShiftX, cfg.borderTextureShiftY
+    lastCfg.buffZoom, lastCfg.debuffZoom        = cfg.buffIconZoom, cfg.debuffIconZoom
+    lastCfg.font, lastCfg.outline               = font, outline
+    skinGen = skinGen + 1
+end
+
 local function FormatCompactDuration(timeLeft, style)
     if timeLeft >= 86400 then
         return string.format("%dd", math.floor(timeLeft / 86400 + 0.5))
@@ -56,6 +112,10 @@ local function SkinAuraButton(btn, isDebuff)
 
     local ffd = GetFFD(btn)
     if not ffd then return end
+
+    -- Already styled at the current settings: nothing below would change a
+    -- pixel. This is the read that _paSkinned was always missing.
+    if ffd._paSkinned == skinGen and ffd._paSkinDebuff == isDebuff then return end
 
     -- Icon zoom crop (btn.Icon is a Frame in Midnight; find the Texture inside)
     local iconFrame = btn.Icon
@@ -175,7 +235,8 @@ local function SkinAuraButton(btn, isDebuff)
         cfg.borderTextureShiftX, cfg.borderTextureShiftY,
         "unitframes", bs)
 
-    ffd._paSkinned = true
+    ffd._paSkinned = skinGen
+    ffd._paSkinDebuff = isDebuff
 end
 
 -------------------------------------------------------------------------------
@@ -194,11 +255,30 @@ end
 --  Full refresh (called on setting change or UNIT_AURA)
 -------------------------------------------------------------------------------
 local function RefreshAll()
-    if not (PA() and PA().enabled) then return end
+    local cfg = PA()
+    if not (cfg and cfg.enabled) then return end
+    -- Once per refresh, not once per button.
+    NoteConfig(cfg)
     SkinAllButtons(BuffFrame, false)
     SkinAllButtons(DebuffFrame, true)
 end
 ns.RefreshPlayerAuras = RefreshAll
+
+-- UpdateGridLayout can fire several times within one frame; each fire used to
+-- queue its own full refresh. Coalesced to one pass per tick. Named rather than
+-- an inline closure so scheduling allocates nothing.
+local refreshPending = false
+
+local function DoPendingRefresh()
+    refreshPending = false
+    RefreshAll()
+end
+
+local function RequestRefresh()
+    if refreshPending then return end
+    refreshPending = true
+    C_Timer.After(0, DoPendingRefresh)
+end
 
 -------------------------------------------------------------------------------
 --  Scale helper (applies iconSize via SetScale on AuraContainer)
@@ -608,7 +688,7 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
             -- Hook aura updates to catch new/changed buttons
             if BuffFrame and BuffFrame.AuraContainer then
                 hooksecurefunc(BuffFrame.AuraContainer, "UpdateGridLayout", function()
-                    C_Timer.After(0, RefreshAll)
+                    RequestRefresh()
                 end)
                 if BuffFrame.RefreshConsolidationFrameVisibility then
                     hooksecurefunc(BuffFrame, "RefreshConsolidationFrameVisibility", function()
@@ -628,7 +708,7 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
             end
             if DebuffFrame and DebuffFrame.AuraContainer then
                 hooksecurefunc(DebuffFrame.AuraContainer, "UpdateGridLayout", function()
-                    C_Timer.After(0, RefreshAll)
+                    RequestRefresh()
                 end)
             end
 

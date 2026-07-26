@@ -5,6 +5,16 @@
 -- for filter-string normalization (exact-string dedup inside the engine),
 -- decoration presets, the restyle registry, and combat-safe creation.
 
+-- LIVE GATE: everything below drives the 12.1 aura container engine
+-- (AuraContainer templates, engine bindings, restriction state). Pre-12.1
+-- clients get no AuraKit at all: EllesmereUI.AuraKit stays nil, every
+-- consumer either nil-guards or is itself a 12.1-gated file (audited
+-- 2026-07-27), and none of the workers/watchers below are created -- the
+-- restyler, build worker, lift watcher and burst frame simply never exist,
+-- so live pays zero and profiling never shows AuraKit again. Standard
+-- dual-client gate; dissolves with the 12.1 cleanup pass.
+if not (EllesmereUI and EllesmereUI.IS_121) then return end
+
 local AK = {}
 EllesmereUI.AuraKit = AK
 

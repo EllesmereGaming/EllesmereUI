@@ -135,7 +135,7 @@ end
 ns.InvalidateSpellPowerCostCache = InvalidateSpellPowerCostCache
 
 do
-    local _pccInvalidateFrame = CreateFrame("Frame")
+    local _pccInvalidateFrame = ns.TakeShell()
     _pccInvalidateFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     _pccInvalidateFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     _pccInvalidateFrame:SetScript("OnEvent", InvalidateSpellPowerCostCache)
@@ -1147,7 +1147,7 @@ end
 local function WatchMaxStacksFrame(frame, fd)
     ns._maxStacksWatch[frame] = fd
     if not ns._maxStacksEventFrame then
-        local ef = CreateFrame("Frame")
+        local ef = ns.TakeShell()
         ef:RegisterEvent("SPELL_UPDATE_CHARGES")
         ef:SetScript("OnEvent", function()
             for f, d in pairs(ns._maxStacksWatch) do
@@ -1240,7 +1240,7 @@ do
         if u > settleUntil then settleUntil = u end
     end
 
-    local gate = CreateFrame("Frame")
+    local gate = ns.TakeShell()
     gate:RegisterEvent("LOADING_SCREEN_ENABLED")
     gate:RegisterEvent("LOADING_SCREEN_DISABLED")
     gate:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -1465,7 +1465,7 @@ function ns.WatchCdReadySoundIfEnabled(frame)
         ns._cdmAnyCdReadySound = true
         ns._cdReadySoundWatch[frame] = fd
         if not ns._cdReadySoundEventFrame then
-            local ef = CreateFrame("Frame")
+            local ef = ns.TakeShell()
             ef:RegisterEvent("SPELL_UPDATE_COOLDOWN")
             ef:RegisterEvent("SPELL_UPDATE_CHARGES")
             ef:SetScript("OnEvent", function()
@@ -1570,7 +1570,7 @@ end
 local function WatchChargeCdTextFrame(frame, fd)
     ns._chargeCdTextWatch[frame] = fd
     if not ns._chargeCdTextEventFrame then
-        local ef = CreateFrame("Frame")
+        local ef = ns.TakeShell()
         ef:RegisterEvent("SPELL_UPDATE_CHARGES")
         ef:SetScript("OnEvent", function()
             for f, d in pairs(ns._chargeCdTextWatch) do
@@ -1771,7 +1771,7 @@ function ns.WatchCdStateChargeIfEnabled(frame)
     end
     ns._cdStateChargeWatch[frame] = fd
     if not ns._cdStateChargeEventFrame then
-        local ef = CreateFrame("Frame")
+        local ef = ns.TakeShell()
         ef:RegisterEvent("SPELL_UPDATE_CHARGES")
         ef:SetScript("OnEvent", function()
             for f, d in pairs(ns._cdStateChargeWatch) do
@@ -2185,8 +2185,10 @@ local function DecorateFrame(frame, barData)
 
     fd.tooltipShown = false
 
-    -- Hook Blizzard's pandemic state callbacks (combat-safe).
-    ns.HookPandemicState(frame)
+    -- Pandemic hooks are deliberately NOT installed here: they install
+    -- lazily from the buff tick, per icon, only when the icon's bar uses a
+    -- custom pandemic style. Zero cost unless enabled, and the closures are
+    -- CDM-billed (file-scope bodies), never the parent.
 
     local fc = FC(frame)
     if not fc.tooltipHooked then
@@ -3487,9 +3489,9 @@ do
     local _cdGlowEventsOn = false
     local _cdGlowRetryPending = false
 
-    local _cdGlowUpdateFrame = CreateFrame("Frame")
+    local _cdGlowUpdateFrame = ns.TakeShell()
     _cdGlowUpdateFrame:Hide()
-    local _cdGlowEventFrame = CreateFrame("Frame")
+    local _cdGlowEventFrame = ns.TakeShell()
 
     local function SetGlowEventsRegistered(on)
         if on == _cdGlowEventsOn then return end
@@ -4287,6 +4289,12 @@ _racialCdListener:SetScript("OnEvent", function(_, event, unit, _, spellID)
         return
     end
     if event == "UNIT_SPELLCAST_SUCCEEDED" and unit == "player" then
+        -- Fast lane: a player cast is the moment a preset cooldown can START,
+        -- so it arms the drain AND resets its rate cap -- the swipe appears
+        -- on the next tick. Pure SPELL_UPDATE_COOLDOWN noise (the catch-all
+        -- below) coasts on the 1 Hz slow lane instead.
+        _presetCdDirty = true
+        ns._pcLast = 0
         local targetItemID = spellID and _combatLockoutSpells[spellID]
         if targetItemID and InCombatLockdown() then
             for _, f in pairs(_presetFrames) do
@@ -6621,7 +6629,7 @@ function ns.SetupViewerHooks()
     viewerHooksInstalled = true
 
     -- Reanchor queue frame
-    reanchorFrame = CreateFrame("Frame")
+    reanchorFrame = ns.TakeShell()
     reanchorFrame:SetScript("OnUpdate", ProcessReanchorQueue)
     reanchorFrame:Hide()
 
@@ -6638,6 +6646,9 @@ function ns.SetupViewerHooks()
     --    Buff bars: buffs are dynamic (appear/disappear at runtime), so they
     --    still need real-time reanchors from OnCooldownIDSet.
     local function ResetFrameCache(frame)
+        -- Content churn: re-arm the buff ticker's dirty + pool gates.
+        ns._acGen = (ns._acGen or 0) + 1
+        ns._btDirty = true
         if frame then
             local fc = _ecmeFC[frame]
             if fc then
@@ -6657,6 +6668,8 @@ function ns.SetupViewerHooks()
     end
     if CooldownViewerBuffBarItemMixin and CooldownViewerBuffBarItemMixin.OnCooldownIDSet then
         hooksecurefunc(CooldownViewerBuffBarItemMixin, "OnCooldownIDSet", function(frame)
+            ns._acGen = (ns._acGen or 0) + 1
+            ns._btDirty = true
             if ns.InvalidateTBBFrameCache then ns.InvalidateTBBFrameCache() end
             ResetFrameCache(frame)
             QueueReanchor()
@@ -6726,6 +6739,8 @@ function ns.SetupViewerHooks()
             local isBuff = (vi == 3 or vi == 4) -- BuffIcon or BuffBar
             local isBarViewer = (vi == 4) -- BuffBarCooldownViewer
             hooksecurefunc(v.itemFramePool, "Acquire", function()
+                ns._acGen = (ns._acGen or 0) + 1
+                ns._btDirty = true
                 if isBuff then InstallBuffFrameHooks(v) end
                 if isBarViewer and ns.InvalidateTBBFrameCache then
                     ns.InvalidateTBBFrameCache()
@@ -6880,16 +6895,40 @@ function ns.SetupViewerHooks()
 
     -- 5. Buff ticker: staleness check + buff/pandemic glow (0.1s)
     do
-        local cdmBuffTickFrame = CreateFrame("Frame")
-        local cdmBuffAccum = 0
+        local cdmBuffTickFrame = ns.TakeShell()
         local _, _cachedClassToken = UnitClass("player")
-        cdmBuffTickFrame:SetScript("OnUpdate", function(_, elapsed)
-            cdmBuffAccum = cdmBuffAccum + elapsed
-            if cdmBuffAccum < 0.1 then return end
-            cdmBuffAccum = 0
+        -- 10 Hz anim ticker: the C engine fires the body at cadence and
+        -- sleeps between fires, replacing a per-frame OnUpdate whose
+        -- accumulator check ran at frame rate (~200x/sec) just to gate this
+        -- 10 Hz job -- the dispatch-floor disease the ERB rebuild removed.
+        -- Body and cadence unchanged; fn returns true to keep looping.
+        local _btBody = function()
+            -- Two-tier dirty gate (timed: the full body ran 0.26ms per fire
+            -- at 10 Hz = nearly all of CDM's combat CPU). The body runs only
+            -- when something CAN have changed -- player aura/totem flip,
+            -- viewer pool churn, pandemic edge, preset-cooldown dirt -- or on
+            -- a 0.5s staleness net (the poll's original no-event mandate,
+            -- e.g. secret procs; in practice those arrive as pool churn, so
+            -- the net is insurance). A clean fire costs three reads.
+            local _btNow = GetTime()
+            if not ns._btDirty and _btNow - (ns._btLastFull or 0) < 0.5 then
+                -- Preset cooldowns drain independently on clean fires, capped
+                -- at 1 Hz: the dirty flag re-arms ~22x/sec from the racial/
+                -- trinket catch-alls, so an uncapped drain runs at full tick
+                -- cadence. Casts bypass the cap (the racial listener's fast
+                -- lane zeroes ns._pcLast), and swipes are engine-animated
+                -- once pushed, so the slow lane is imperceptible.
+                if _presetCdDirty and _btNow - (ns._pcLast or 0) >= 1 then
+                    ns._pcLast = _btNow
+                    ProcessPresetCooldowns()
+                end
+                return true
+            end
+            ns._btDirty = nil
+            ns._btLastFull = _btNow
             MemSnap("BuffTicker")
             local p = ECME and ECME.db and ECME.db.profile
-            if not p or not p.cdmBars or not p.cdmBars.bars then return end
+            if not p or not p.cdmBars or not p.cdmBars.bars then return true end
             local needsReanchor = false
             for _, bd in ipairs(p.cdmBars.bars) do
                 if bd.enabled then
@@ -7020,11 +7059,22 @@ function ns.SetupViewerHooks()
                                 -- hook sets _pandemicState. User must configure
                                 -- pandemic alerts in Blizzard CDM settings.
                                 if pandemicOn and fd then
-                                    local inPandemic = ns._pandemicState[frame]
-                                    -- Blizzard Default (-1): skip custom glow,
-                                    -- let Blizzard's native PandemicIcon show.
+                                    -- Blizzard Default (-1): no custom glow and no
+                                    -- hooks -- Blizzard's native PandemicIcon does
+                                    -- the whole job, so the default config costs
+                                    -- zero. For custom styles the hooks install
+                                    -- lazily HERE on first need; this tick runs on
+                                    -- a CDM shell, so even install-time work bills
+                                    -- CooldownManager.
                                     local pStyle = bd.pandemicGlowStyle or 1
-                                    if pStyle == -1 then inPandemic = false end
+                                    local inPandemic = false
+                                    if pStyle ~= -1 then
+                                        if ns._pandemicHooked and not ns._pandemicHooked[frame]
+                                           and ns.HookPandemicState then
+                                            ns.HookPandemicState(frame)
+                                        end
+                                        inPandemic = ns._pandemicState and ns._pandemicState[frame]
+                                    end
                                     if inPandemic then
                                         if not fd.pandemicOverlay then
                                             local ov = CreateFrame("Frame", nil, frame)
@@ -7094,6 +7144,13 @@ function ns.SetupViewerHooks()
             -- so BuffBarCooldownViewer frames -- which CollectAndReanchor
             -- never visits -- still get their fc populated for bar glow
             -- triggers on Tracked Bar spells (Divine Protection etc).
+            -- Pool-generation gate: aura ticks dirty the BODY but do not
+            -- reshuffle viewer pools, so the four-pool enumeration below only
+            -- reruns after actual pool churn (Acquire/Release/OnCooldownIDSet
+            -- bump the generation) or on a 1s staleness net.
+            if ns._acGen ~= ns._acSeenGen or _btNow - (ns._acLastFull or 0) >= 1 then
+                ns._acSeenGen = ns._acGen
+                ns._acLastFull = _btNow
             do
                 local ac = _activeCache
                 wipe(ac)
@@ -7134,13 +7191,75 @@ function ns.SetupViewerHooks()
                 end
                 if ns.UpdateOverlayVisuals then ns.UpdateOverlayVisuals() end
             end
+            end -- pool-generation gate
             -- Process preset cooldowns (trinkets/items/racials) if any event
             -- dirtied the flag since the last tick. Coalesces dozens of per-GCD
             -- SPELL_UPDATE_COOLDOWN events into a single 10Hz update pass.
-            if ns._isPresetCdDirty and ns._isPresetCdDirty() then
+            if ns._isPresetCdDirty and ns._isPresetCdDirty()
+               and _btNow - (ns._pcLast or 0) >= 1 then
+                -- Same 1 Hz slow lane as the clean-fire drain (casts reset
+                -- the cap in the racial listener's fast lane).
+                ns._pcLast = _btNow
                 ns._ProcessPresetCooldowns()
             end
             MemDelta("BuffTicker")
+            return true
+        end
+        -- Dirty sources with dedicated events: aura and totem flips change
+        -- buff/glow state without pool churn. Frame is CDM-born, so the
+        -- handler bills CooldownManager. Aura REMOVALS also release buff-
+        -- viewer pool frames with no Acquire, so they bump the pool
+        -- generation -- the precise fade signal, with no Release hook (a
+        -- Release hook here was tried and reverted: its closures were born
+        -- under parent dispatch, billing the parent per fade, and mass
+        -- release/reacquire churn re-armed the rebuild every tick).
+        -- The ticker is created LAZILY on the first event, ON PURPOSE: the
+        -- animation group is the OnLoop entry object, and it bills the addon
+        -- whose execution context CREATED it. This setup function runs under
+        -- the parent's lifecycle dispatch, so creating the ticker here
+        -- billed the entire 10 Hz body to the PARENT (field-measured
+        -- regression). The first event on this CDM-born frame is a
+        -- CooldownManager context, so the group is born correctly billed.
+        local _btTicker
+        cdmBuffTickFrame:RegisterUnitEvent("UNIT_AURA", "player")
+        cdmBuffTickFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
+        cdmBuffTickFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+        cdmBuffTickFrame:SetScript("OnEvent", function(_, event, _, updateInfo)
+            ns._btDirty = true
+            -- Gen bump on anything that can RELEASE a pool frame: aura
+            -- removals/full updates, totem drops/despawns, and world entry.
+            -- Only UNIT_AURA carries an updateInfo table in this slot --
+            -- PLAYER_ENTERING_WORLD's second arg is the isReconnect BOOLEAN
+            -- (true on /reload), so the payload must never be indexed for
+            -- the other events.
+            if event ~= "UNIT_AURA" then
+                ns._acGen = (ns._acGen or 0) + 1
+            elseif updateInfo then
+                -- SECRET-SAFE (12.1): the payload TABLE and each of its fields
+                -- can all arrive secret in instanced content, and a secret can
+                -- never be boolean-tested in Lua -- that is a hard error, not a
+                -- falsy read. So: guard the table before indexing it, bind the
+                -- fields to locals (reading a secret is always legal), then
+                -- issecretvalue-gate every test. When the payload cannot be
+                -- read, assume churn -- one extra pool rebuild costs far less
+                -- than a cache still holding released frames. On 12.0 the
+                -- fields are plain and this is the original fast path.
+                -- Same guard shape as the lust listener in CdmBuffBars.
+                if issecretvalue(updateInfo) then
+                    ns._acGen = (ns._acGen or 0) + 1
+                else
+                    local full    = updateInfo.isFullUpdate
+                    local removed = updateInfo.removedAuraInstanceIDs
+                    if issecretvalue(full) or issecretvalue(removed)
+                       or full or removed then
+                        ns._acGen = (ns._acGen or 0) + 1
+                    end
+                end
+            end
+            if not _btTicker then
+                _btTicker = EllesmereUI.Tick.NewAnimTicker(cdmBuffTickFrame, _btBody, 0.1)
+                _btTicker.Start()
+            end
         end)
     end
 
@@ -7184,7 +7303,7 @@ function ns.SetupViewerHooks()
     -- pools when applying a layout (happens on spec swap). Reanchor to
     -- recollect the new frames. No flag manipulation -- just reanchor.
     do
-        local emEventFrame = CreateFrame("Frame")
+        local emEventFrame = ns.TakeShell()
         emEventFrame:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
         emEventFrame:SetScript("OnEvent", function()
             QueueReanchor()
@@ -7335,7 +7454,7 @@ do
     local _pushOverlay = setmetatable({}, { __mode = "k" })  -- [icon] = overlay frame
     local _held  = {}   -- [buttonFrame] = { overlays = {..}, keys = {..}, t = GetTime() }
     local _heldN = 0
-    local _poll  = CreateFrame("Frame")
+    local _poll  = ns.TakeShell()
     _poll:Hide()
 
     -- Read the action bars' pushed settings live so the CDM press matches them.
@@ -7622,7 +7741,7 @@ do
         MultiBar7           = "MULTIACTIONBAR7BUTTON",
     }
 
-    local ev = CreateFrame("Frame")
+    local ev = ns.TakeShell()
     ev:RegisterEvent("PLAYER_LOGIN")
     ev:SetScript("OnEvent", function()
         if type(ActionButtonDown) == "function" then

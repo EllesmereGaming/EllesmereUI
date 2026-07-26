@@ -684,7 +684,7 @@ if EllesmereUI and EllesmereUI.IS_121 then
     -- working/dark flip-flop across identical reloads). World entry re-scans
     -- with staggered retries; Rescan is idempotent and armed-guarded, so
     -- quiet sessions cost three no-op walks of a one-entry table.
-    local pew = CreateFrame("Frame")
+    local pew = ns.TakeShell()
     pew:RegisterEvent("PLAYER_ENTERING_WORLD")
     pew:SetScript("OnEvent", function()
         FA121.Rescan()
