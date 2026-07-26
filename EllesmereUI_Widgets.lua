@@ -4741,6 +4741,7 @@ local function BuildCogPopup(opts)
         pf:SetSize(POPUP_W, totalH)
         pf:SetFrameStrata(opts.frameStrata or "DIALOG"); pf:SetFrameLevel(opts.frameLevel or 200)
         pf:EnableMouse(true); pf:Hide()
+        pf._inputBoxes = {}
         -- Spec Overrides auto-capture: edits made inside this popup attribute
         -- to the slot whose cog opened it (see the attribution walk).
         pf._euiOptionsPopup = true
@@ -5149,6 +5150,7 @@ local function BuildCogPopup(opts)
 
                 -- Input box (left of save button, or flush right in commitOnBlur mode)
                 local box = CreateFrame("EditBox", nil, pf)
+                pf._inputBoxes[#pf._inputBoxes + 1] = box
                 box:SetSize(inputW, ROW_H - 4)
                 if commitOnBlur then
                     box:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)

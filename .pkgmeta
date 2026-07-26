@@ -13,6 +13,7 @@ move-folders:
   EllesmereUI/EllesmereUIFriends: EllesmereUIFriends
   EllesmereUI/EllesmereUIMinimap: EllesmereUIMinimap
   EllesmereUI/EllesmereUIMythicTimer: EllesmereUIMythicTimer
+  EllesmereUI/EllesmereUINotifications: EllesmereUINotifications
   EllesmereUI/EllesmereUINameplates: EllesmereUINameplates
   EllesmereUI/EllesmereUIQoL: EllesmereUIQoL
   EllesmereUI/EllesmereUIQuestTracker: EllesmereUIQuestTracker

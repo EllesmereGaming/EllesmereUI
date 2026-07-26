@@ -71,6 +71,7 @@ local FOLDER_BLACKLIST = {
     EllesmereUIBags              = true,
     EllesmereUIQoL               = true,
     EllesmereUIAuraBuffReminders = true,
+    EllesmereUINotifications     = true,
     -- Minimap + Chat + CooldownManager are override-eligible (2026-07-11);
     -- their spell-coupled / engine-coupled settings are excluded per-path
     -- via SETTING_BLACKLIST below (CDM spell data itself lives OUTSIDE the

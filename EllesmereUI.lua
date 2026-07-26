@@ -314,6 +314,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIDamageMeters",      display = "Damage Meters",        search_name = "EllesmereUI Damage Meters"           },
     { folder = "EllesmereUIBags",              display = "Bags",                 search_name = "EllesmereUI Bags"                    },
     { folder = "EllesmereUIDataBars",          display = "DataBars",             search_name = "EllesmereUI DataBars"                },
+    { folder = "EllesmereUINotifications",     display = "Notifications",        search_name = "EllesmereUI Notifications"           },
     { folder = "EllesmereUIPartyMode",         display = "Party Mode",           search_name = "EllesmereUI Party Mode",             alwaysLoaded = true },
 }
 
@@ -347,6 +348,7 @@ EllesmereUI.ADDON_GROUPS = {
             "EllesmereUIQoL",
             "EllesmereUIAuraBuffReminders",
             "EllesmereUIDataBars",
+            "EllesmereUINotifications",
             "EllesmereUIPartyMode",
         },
     },
@@ -9995,6 +9997,7 @@ function EllesmereUI:RegisterModule(folderName, config)
         EllesmereUIDamageMeters = true,
         EllesmereUIBags = true,
         EllesmereUIDataBars = true,
+        EllesmereUINotifications = true,
     }
     if callerFolder and not ALLOWED[callerFolder] then return end
     -- Suite-core marker (module key is a suite folder): gates the toolbar
