@@ -4471,7 +4471,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
             or event == 'BN_FRIEND_ACCOUNT_OFFLINE'
             or event == 'FRIENDLIST_UPDATE' then
             UpdateFriendText()
-        elseif event == 'PET_BATTLE_OPENING_START' 
+        elseif event == 'PET_BATTLE_OPENING_START'
             or event == 'PET_BATTLE_OVER' then
             ns.RefreshMicroMenuHider()
         else
