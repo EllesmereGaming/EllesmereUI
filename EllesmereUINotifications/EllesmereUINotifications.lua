@@ -10,7 +10,7 @@ local DB_DEFAULTS = { profile = {
     enabled = true, duration = 5, fadeDuration = 0.6, maxVisible = 6,
     enterAnimation = "SLIDE_TOP", exitAnimation = "FADE",
     enterDuration = 0.2, exitDuration = 1.2,
-    width = 310, spacing = 5, alignment = "RIGHT",
+    width = 310, spacing = 5, alignment = "LEFT",
     fontSize = 14, valueFontSize = 12, iconSize = 28, backgroundAlpha = 0.72,
     growUp = true, showIcons = true, showItemQuality = true,
     showItemValue = false, showTooltip = true,
@@ -31,7 +31,7 @@ local DB_DEFAULTS = { profile = {
     showItems = true, showCurrencies = true, showReputation = true,
     showHonor = true, showExperience = true, showGold = true,
     mergeWindow = 1.0,
-    position = { point = "RIGHT", relPoint = "RIGHT", x = -160, y = 80 },
+    position = { point = "CENTER", relPoint = "CENTER", x = 250, y = 80 },
 } }
 
 local db, holder, eventFrame
@@ -75,7 +75,7 @@ local BIND_LABELS = {
 local function EnsureHolder()
     if holder then return holder end
     holder = CreateFrame("Frame", "EllesmereUINotificationsFrame", UIParent)
-    holder:SetPoint("RIGHT", UIParent, "RIGHT", -160, 80)
+    holder:SetPoint("CENTER", UIParent, "CENTER", 250, 80)
     holder:SetClampedToScreen(true)
     holder:Hide()
     return holder
@@ -213,12 +213,20 @@ local function Layout()
         totalHeight=totalHeight+height+(i>1 and rowSpacing or 0)
         maxWidth=max(maxWidth,(p.width or 310)+(separateConfigured and (height+max(5,p.iconOffsetX or 5)) or 0))
     end
+    if unlockActive then
+        local previewHeight=EffectiveRowHeight(p,true)
+        totalHeight=max(totalHeight,p.maxVisible*(previewHeight+rowSpacing)-rowSpacing)
+        maxWidth=max(maxWidth,(p.width or 310)+(separateConfigured and (previewHeight+max(5,p.iconOffsetX or 5)) or 0))
+    end
     EnsureHolder()
     local fixedX = alignment == "RIGHT" and holder:GetRight() or holder:GetLeft()
     local fixedY = p.growUp and holder:GetBottom() or holder:GetTop()
     holder:SetSize(maxWidth,max(1,totalHeight))
     holder:SetScale(1)
-    if fixedX and fixedY then
+    -- Never rewrite the holder anchor while Unlock Mode owns the frame.
+    -- Incoming preview/loot rows call Layout repeatedly and would otherwise
+    -- fight the drag handler, making the anchor jump beneath the cursor.
+    if fixedX and fixedY and not unlockActive then
         local uiLeft,uiBottom=UIParent:GetLeft() or 0,UIParent:GetBottom() or 0
         local uiTop=UIParent:GetTop() or UIParent:GetHeight()
         holder:ClearAllPoints()
@@ -730,9 +738,9 @@ local function ApplyPosition()
     local p = Profile(); if not p then return end
     EnsureHolder():ClearAllPoints()
     local pos = p.position
-    local x=pos and pos.x; if x==nil then x=-160 end
+    local x=pos and pos.x; if x==nil then x=250 end
     local y=pos and pos.y; if y==nil then y=80 end
-    holder:SetPoint(pos and pos.point or "RIGHT",UIParent,pos and pos.relPoint or "RIGHT",x,y)
+    holder:SetPoint(pos and pos.point or "CENTER",UIParent,pos and pos.relPoint or "CENTER",x,y)
 end
 
 function ns.Apply()

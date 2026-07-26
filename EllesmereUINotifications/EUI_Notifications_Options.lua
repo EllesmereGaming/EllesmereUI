@@ -359,7 +359,7 @@ init:SetScript("OnEvent", function(self)
             {type="toggle",text="Enabled",getValue=function() return Get("enabled")~=false end,setValue=function(v) Set("enabled",v) end},
             {type="dropdown",text="Display Style",values={BAR="Bar",ICON="Icon"},order={"BAR","ICON"},getValue=function() return Get("displayStyle") or "BAR" end,setValue=function(v) Set("displayStyle",v) end}); y=y-h
         _,h=W:DualRow(parent,y,
-            {type="dropdown",text="Alignment",values={LEFT="Left",RIGHT="Right"},order={"LEFT","RIGHT"},getValue=function() return Get("alignment") or "RIGHT" end,setValue=function(v) Set("alignment",v) end},
+            {type="dropdown",text="Alignment",values={LEFT="Left",RIGHT="Right"},order={"LEFT","RIGHT"},getValue=function() return Get("alignment") or "LEFT" end,setValue=function(v) Set("alignment",v) end},
             {type="toggle",text="Grow Up",getValue=function() return Get("growUp")~=false end,setValue=function(v)
                 local p=P(); if not p then return end
                 p.growUp=v
