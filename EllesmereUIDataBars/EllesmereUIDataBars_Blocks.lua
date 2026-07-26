@@ -782,17 +782,27 @@ local sysMemTable = {}
 local function sysMemSort(a, b) return a.mem > b.mem end
 local sysLastMemScanTime = 0
 
-local FPS_THRESHOLD, LAT_THRESHOLD = 60, 60
+local FPS_THRESHOLD = 60
 local function GetFPSColor(fps)
     local lb = FPS_THRESHOLD * 0.5
     local perc = 1
     if fps < FPS_THRESHOLD then perc = (fps - lb) / lb end
     return ns.SlowColorGradient(perc)
 end
+
+-- Latency quality, three discrete bands the way a ping meter reads: green good,
+-- yellow fair, red poor. Colours are the client's own font-colour globals so
+-- they match the rest of the UI (with plain fallbacks if one is ever absent);
+-- thresholds are in ms and live here for easy retuning.
+local LAT_GOOD, LAT_FAIR = 100, 250
+local function BandColor(fontColor, dr, dg, db)
+    if fontColor and fontColor.GetRGB then return fontColor:GetRGB() end
+    return dr, dg, db
+end
 local function GetLatColor(lat)
-    local perc = 1
-    if lat > LAT_THRESHOLD then perc = 1 - (lat - LAT_THRESHOLD) / LAT_THRESHOLD end
-    return ns.SlowColorGradient(perc)
+    if lat <= LAT_GOOD then return BandColor(GREEN_FONT_COLOR,  0.1, 1.0, 0.1) end
+    if lat <= LAT_FAIR then return BandColor(YELLOW_FONT_COLOR, 1.0, 0.82, 0.0) end
+    return BandColor(RED_FONT_COLOR, 1.0, 0.1, 0.1)
 end
 
 -- Shared single-line stat block (icon + value text). opts:
@@ -1050,30 +1060,181 @@ ns.BlockFactories.fps = function(blockCfg, slot, content, barCtx)
     })
 end
 
+-- LATENCY. Its own factory rather than the shared MakeStatBlock: it shows one
+-- OR two links (home / world / both), each labelled by its own house/globe
+-- icon, which the single-icon stat helper cannot do. The bar stays in the
+-- block colour like every other module; criticality green/yellow/red lives in
+-- the tooltip only (GetLatColor).
+local LAT_ICON = { home = MEDIA .. "home_latency.png", world = MEDIA .. "world_latency.png" }
+
+-- home | world | both. Reads the old useWorldLatency boolean as a fallback so
+-- an existing block keeps its link. Shared by the block and its options row,
+-- which must agree on what "selected" means.
+function ns.LatencyMode(s)
+    if s.latencyMode then return s.latencyMode end
+    if s.useWorldLatency then return "world" end
+    return "home"
+end
+
 ns.BlockFactories.ms = function(blockCfg, slot, content, barCtx)
+    local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
+    inst.key = InstKey(barCtx, blockCfg)
+
+    local mouseOver = false
+    local lastSig                    -- skip the relayout when nothing changed
+
+    local function D() return blockCfg.settings or {} end
+    local function BC() return barCtx.cfg end
+
+    local button = CreateFrame("Button", nil, content)
+    button:EnableMouse(true)
+    button:RegisterForClicks("AnyUp")
+
+    -- Two reusable segments (icon + value); the second stays hidden unless the
+    -- block is in "both" mode.
+    local seg = {}
+    for i = 1, 2 do
+        local s = { icon = button:CreateTexture(nil, "OVERLAY"), text = button:CreateFontString(nil, "OVERLAY") }
+        AttachTextOffset(inst, s.text)
+        seg[i] = s
+    end
+
     local function MsTooltip()
         ns.Tip_Begin(content)
-        local _, _, home, world = GetNetStats()
+        local inKB, outKB, home, world = GetNetStats()
         home = floor(home); world = floor(world)
+        -- The colours the bar deliberately does not carry, plus the bandwidth
+        -- that is on no bar at all: the tooltip is the full quality read.
         local hr, hg, hb = GetLatColor(home)
         local wr, wg, wb = GetLatColor(world)
-        ns.Tip_AddDouble(L["HOME"],  home .. ns.GetMSSuffix(), 0.6, 0.6, 0.6, hr, hg, hb)
-        ns.Tip_AddDouble(L["WORLD"], world .. ns.GetMSSuffix(), 0.6, 0.6, 0.6, wr, wg, wb)
+        local ms = ns.GetMSSuffix()
+        ns.Tip_AddDouble(L["HOME"],  home  .. ms, 0.6, 0.6, 0.6, hr, hg, hb)
+        ns.Tip_AddDouble(L["WORLD"], world .. ms, 0.6, 0.6, 0.6, wr, wg, wb)
+        local kb = " " .. L["KB_PER_SEC"]
+        ns.Tip_AddDouble(L["DOWNLOAD"], format("%.1f", inKB or 0) .. kb, 0.6, 0.6, 0.6, 1, 1, 1)
+        ns.Tip_AddDouble(L["UPLOAD"],   format("%.1f", outKB or 0) .. kb, 0.6, 0.6, 0.6, 1, 1, 1)
         ns.Tip_Show()
     end
 
-    return MakeStatBlock(blockCfg, slot, content, barCtx, {
-        hbPrefix = "ms",
-        interval = 1,
-        sample   = function()
-            local d = blockCfg.settings or {}
-            local _, _, home, world = GetNetStats()
-            if d.useWorldLatency then return floor(world) end
-            return floor(home)
-        end,
-        suffix   = function() return ns.GetMSSuffix() end,
-        tooltip  = MsTooltip,
-    })
+    function inst:Refresh()
+        local barCfg = BC()
+        local barH = barCtx.GetThickness()
+        local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
+        local isSide = barCtx.IsVertical()
+        local showIcon = D().showIcon == true
+        local m = ns.LatencyMode(D())
+        local links
+        if m == "both" then links = { "home", "world" }
+        elseif m == "world" then links = { "world" }
+        else links = { "home" } end
+        local n = #links
+        local iconSz = showIcon and (fontSize + 2) or 0
+
+        local _, _, home, world = GetNetStats()
+        local vals = { home = floor(home), world = floor(world) }
+        local suffix = ns.GetMSSuffix()
+
+        local tr, tg, tb, ir, ig, ib
+        if mouseOver then
+            tr, tg, tb = ns.GetAccent(); ir, ig, ib = tr, tg, tb
+        else
+            tr, tg, tb = BlockColorOf(blockCfg); ir, ig, ib = IconColorOf(blockCfg)
+        end
+
+        -- Fill each segment; every value carries the unit ("45ms  92ms"), so a
+        -- lone number never reads as unitless in "both" mode.
+        for i = 1, 2 do
+            local s, link = seg[i], links[i]
+            if link then
+                ns.SetFont(s.text, fontSize, barCfg)
+                ns.ResetInlineText(s.text, "LEFT")
+                s.text:SetText(vals[link] .. suffix)
+                s.text:SetTextColor(tr, tg, tb, 1)
+                s.text:Show()
+                if showIcon then
+                    s.icon:SetTexture(LAT_ICON[link])
+                    s.icon:SetVertexColor(ir, ig, ib, 1)
+                    s.icon:SetSize(iconSz, iconSz)
+                    s.icon:Show()
+                else
+                    s.icon:Hide()
+                end
+            else
+                s.text:Hide(); s.icon:Hide()
+            end
+        end
+
+        local lineH = max(fontSize + 4, iconSz)
+        if isSide then
+            -- Stack the links, each a centred "icon value" line.
+            local slotW = VSlotW(inst)
+            local innerW = max(24, slotW - 8)
+            local y = -4
+            for i = 1, n do
+                local s = seg[i]
+                local tw = ns.SnapToPixelGrid(s.text:GetStringWidth())
+                local grpW = (showIcon and (iconSz + ICON_GAP) or 0) + tw
+                local x0 = max(0, floor((innerW - grpW) / 2))
+                s.icon:ClearAllPoints(); s.text:ClearAllPoints()
+                if showIcon then
+                    s.icon:SetPoint("TOPLEFT", button, "TOPLEFT", x0, y - floor((lineH - iconSz) / 2))
+                    s.text:SetPoint("LEFT", s.icon, "RIGHT", ICON_GAP, 0)
+                else
+                    s.text:SetPoint("TOPLEFT", button, "TOPLEFT", x0, y)
+                end
+                y = y - lineH - 2
+            end
+            local totalH = max(-y + 2, barH)
+            content:SetSize(slotW, totalH); button:SetSize(slotW, totalH)
+        else
+            local x, segGap = 0, 8
+            for i = 1, n do
+                local s = seg[i]
+                s.icon:ClearAllPoints(); s.text:ClearAllPoints()
+                if showIcon then
+                    s.icon:SetPoint("LEFT", button, "LEFT", x, 0)
+                    x = x + iconSz + ICON_GAP
+                end
+                s.text:SetPoint("LEFT", button, "LEFT", x, 0)
+                x = x + ns.SnapToPixelGrid(s.text:GetStringWidth())
+                if i < n then x = x + segGap end
+            end
+            local totalW = max(x + 4, 10)
+            content:SetSize(totalW, barH); button:SetSize(totalW, barH)
+        end
+        button:ClearAllPoints(); button:SetPoint("CENTER", content, "CENTER", 0, 0)
+        MaybeRelayout(inst)
+    end
+
+    -- Latency only moves every ~30s (GetNetStats is cached), so re-lay-out only
+    -- when the shown value, mode or icon state actually changes.
+    local function Tick()
+        local _, _, home, world = GetNetStats()
+        local sig = ns.LatencyMode(D()) .. (D().showIcon and "I" or "") .. floor(home) .. "/" .. floor(world)
+        if sig == lastSig then return end
+        lastSig = sig
+        inst:Refresh()
+    end
+
+    button:SetScript("OnEnter", function() mouseOver = true; inst:Refresh(); MsTooltip() end)
+    button:SetScript("OnLeave", function() mouseOver = false; ns.Tip_Hide(content); inst:Refresh() end)
+
+    function inst:Enable()
+        content:Show()
+        lastSig = nil
+        ns.RegisterHeartbeat("ms:" .. self.key, Tick)
+    end
+    function inst:Disable()
+        ns.UnregisterHeartbeat("ms:" .. self.key)
+        content:Hide()
+    end
+    function inst:GetAutoLength()
+        if barCtx.IsVertical() then return max(content:GetHeight() or 40, 30) end
+        return max(content:GetWidth() or 60, 24)
+    end
+    function inst:Destroy() self._dead = true; content:Hide() end
+
+    return inst
 end
 
 ns.BlockFactories.durability = function(blockCfg, slot, content, barCtx)

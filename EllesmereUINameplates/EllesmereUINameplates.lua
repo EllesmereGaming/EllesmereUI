@@ -2180,33 +2180,158 @@ local function EnsureGlow(plate)
 end
 
 -- Execute Pulse Glow (Extras, default off): red glow around the health bar
--- that pulses while the unit is below 30% health. Secret-value design: the
--- below-threshold gate is a C_CurveUtil color curve evaluated C-side by
--- UnitHealthPercent, and the resulting color feeds straight into
--- SetVertexColor (accepts secret components) -- Lua never branches on health.
--- The pulse is a looping C-side Alpha animation on the glow frame (no Lua
--- ticks), so the effect renders identically inside and outside restricted
--- (secret) combat contexts. The frame alpha (pulse) and the texture vertex
--- alpha (gate) are separate channels that multiply, so they never fight.
+-- that pulses while the unit is inside the PLAYER'S execute window -- the
+-- health fraction below which their spec's execute ability becomes usable,
+-- resolved per spec and adjusted by talents (see the table below). A spec
+-- with no execute at all disables the feature outright: no frame, no
+-- textures, no animation, and nothing evaluated per health update.
+-- Secret-value design: the below-threshold gate is a C_CurveUtil color curve
+-- evaluated C-side by UnitHealthPercent, and the resulting color feeds
+-- straight into SetVertexColor (accepts secret components) -- Lua never
+-- branches on health. The pulse is a looping C-side Alpha animation on the
+-- glow frame (no Lua ticks), so the effect renders identically inside and
+-- outside restricted (secret) combat contexts. The frame alpha (pulse) and
+-- the texture vertex alpha (gate) are separate channels that multiply, so
+-- they never fight.
 -- Cache state lives in a do-block: no main-chunk local slots (near-cap file).
 do
-    local lowCurve
+    -- Execute windows by SPEC ID, alphabetical by class. Shape:
+    --   requires   GATE spell ids -- without one of them the spec has NO
+    --              execute at all (resolves nil, exactly like an absent spec)
+    --   base       health fraction once the gate (if any) is satisfied
+    --   talents    spell ids that RAISE the window; ANY one is enough
+    --   talentPct  the raised fraction
+    -- A spec ABSENT from this table has no execute: the whole effect stays
+    -- inert for it. Keyed by id, never by localized name.
+    local EXEC = {
+        -- Death Knight -- Unholy only; Blood and Frost have none.
+        [252] = { base = 0.35 },
+        -- Hunter -- Marksmanship always; Beast Mastery only once it takes
+        -- its gate talent; Survival has no execute at all.
+        [253] = { requires = { 466930 }, base = 0.20 },
+        [254] = { base = 0.20 },
+        -- Mage -- Fire only; Arcane and Frost have none.
+        [63]  = { base = 0.30 },
+        -- Monk -- DISABLED for now; restore these three lines (and MONK in
+        -- EXEC_CLASSES below) to bring it back. Gate talent only: without it
+        -- no spec has an execute.
+        -- [268] = { requires = { 322113 }, base = 0.15 },
+        -- [269] = { requires = { 322113 }, base = 0.15 },
+        -- [270] = { requires = { 322113 }, base = 0.15 },
+        -- Priest -- all three specs.
+        [256] = { base = 0.20, talents = { 392507 }, talentPct = 0.35 },
+        [257] = { base = 0.20, talents = { 392507 }, talentPct = 0.35 },
+        [258] = { base = 0.20, talents = { 392507 }, talentPct = 0.35 },
+        -- Rogue -- DISABLED for now; restore this line (and ROGUE in
+        -- EXEC_CLASSES below) to bring it back. Assassination only, and only
+        -- with its gate talent; Outlaw and Subtlety have none.
+        -- [259] = { requires = { 381798 }, base = 0.35 },
+        -- Warlock -- Affliction and Destruction; Demonology has none.
+        [265] = { base = 0.20 },
+        [267] = { base = 0.20 },
+        -- Warrior -- all three specs; either talent raises the window.
+        [71]  = { base = 0.20, talents = { 281001, 206315 }, talentPct = 0.35 },
+        [72]  = { base = 0.20, talents = { 281001, 206315 }, talentPct = 0.35 },
+        [73]  = { base = 0.20, talents = { 281001, 206315 }, talentPct = 0.35 },
+        -- No entries for Demon Hunter, Druid, Evoker, Paladin or Shaman.
+    }
+    -- Classes holding at least one execute spec. Everyone else never even
+    -- registers the watcher: the threshold stays nil for the entire session
+    -- and every entry point early-outs on a single upvalue read.
+    -- Must stay in step with EXEC above: a class listed here with no specs
+    -- in the table just resolves nil forever (harmless, but it registers a
+    -- watcher for nothing). MONK and ROGUE are commented out alongside their
+    -- spec entries -- restore both together.
+    local EXEC_CLASSES = {
+        DEATHKNIGHT = true, HUNTER = true, MAGE = true,
+        PRIEST = true, WARLOCK = true, WARRIOR = true,
+        -- MONK = true,
+        -- ROGUE = true,
+    }
+
+    local threshold = nil     -- current execute fraction; nil = no execute
+    local lowCurve, curveAt   -- cached curve + the threshold it was built for
+
+    local function AnyKnown(ids)
+        local sb = C_SpellBook
+        if not (sb and sb.IsSpellKnown) then return false end
+        for i = 1, #ids do
+            if sb.IsSpellKnown(ids[i]) then return true end
+        end
+        return false
+    end
+
+    local function Resolve()
+        local specID = EllesmereUI._specID
+        if (not specID or specID == 0) and EllesmereUI._RefreshSpecID then
+            EllesmereUI._RefreshSpecID()
+            specID = EllesmereUI._specID
+        end
+        local def = specID and EXEC[specID]
+        if not def then return nil end
+        -- Gate first: an unmet requirement means no execute exists at all.
+        if def.requires and not AnyKnown(def.requires) then return nil end
+        local pct = def.base
+        if def.talents and AnyKnown(def.talents) then
+            if not pct or def.talentPct > pct then pct = def.talentPct end
+        end
+        return pct
+    end
+
+    --- The player's current execute-window fraction, or nil when this spec
+    --- and talent build has no execute (feature fully disabled).
+    function ns.GetExecuteThreshold()
+        return threshold
+    end
+
     function ns.GetLowHpGlowCurve()
-        if lowCurve then return lowCurve end
+        local t = threshold
+        if not t then return nil end
+        if lowCurve and curveAt == t then return lowCurve end
         if not (C_CurveUtil and C_CurveUtil.CreateColorCurve and UnitHealthPercent) then return nil end
         local curve = C_CurveUtil.CreateColorCurve()
-        local t, EPSILON = 0.30, 0.0001
-        -- At or below 30% -> red; above -> BLACK. The glow textures use ADD
-        -- blend, so black contributes nothing and the glow disappears. Alpha
-        -- stays 1 at every point: only RGB varies, the exact curve shape the
-        -- proven threshold curves elsewhere in the suite use (curve alpha
-        -- interpolation is deliberately never relied on).
+        local EPSILON = 0.0001
+        -- At or below the execute threshold -> red; above -> BLACK. The glow
+        -- textures use ADD blend, so black contributes nothing and the glow
+        -- disappears. Alpha stays 1 at every point: only RGB varies, the
+        -- exact curve shape the proven threshold curves elsewhere in the
+        -- suite use (curve alpha interpolation is deliberately never relied
+        -- on). Rebuilt only when the threshold itself changes.
         curve:AddPoint(0.0, CreateColor(1, 0, 0, 1))
         curve:AddPoint(t, CreateColor(1, 0, 0, 1))
         curve:AddPoint(t + EPSILON, CreateColor(0, 0, 0, 1))
         curve:AddPoint(1.0, CreateColor(0, 0, 0, 1))
-        lowCurve = curve
+        lowCurve, curveAt = curve, t
         return curve
+    end
+
+    -- Spec + talent watcher, built ONLY for a class that can have an execute.
+    -- Talents cannot change in combat, so resolving on these events costs
+    -- nothing at runtime (mirrors the Whirlwind/Sweeping Strikes trackers).
+    do
+        local _, cls = UnitClass("player")
+        if EXEC_CLASSES[cls] then
+            local watcher = CreateFrame("Frame")
+            watcher:RegisterEvent("PLAYER_LOGIN")
+            watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+            watcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+            watcher:RegisterEvent("TRAIT_CONFIG_UPDATED")
+            watcher:RegisterEvent("PLAYER_TALENT_UPDATE")
+            watcher:SetScript("OnEvent", function()
+                local new = Resolve()
+                if new == threshold then return end
+                threshold = new
+                lowCurve, curveAt = nil, nil
+                -- Re-apply per plate: the gate creates or tears down the
+                -- whole effect, so a build that gains or loses its execute
+                -- flips the glow on or off without a settings change.
+                if ns.plates and ns.ApplyLowHpGlow then
+                    for _, plate in pairs(ns.plates) do
+                        ns.ApplyLowHpGlow(plate)
+                    end
+                end
+            end)
+        end
     end
 end
 
@@ -2253,7 +2378,12 @@ function ns.EnsureLowHpGlow(plate)
 end
 
 function ns.ApplyLowHpGlow(plate)
-    if not (p and p.lowHpGlow == true) then
+    -- Two gates, both hard: the setting must be on AND the player's spec and
+    -- talents must actually have an execute window. Failing either, nothing
+    -- is ever created for this plate -- so the health-update evaluation
+    -- short-circuits on a nil texture list and the feature costs nothing at
+    -- all for a spec that cannot use it.
+    if not (p and p.lowHpGlow == true) or not ns.GetExecuteThreshold() then
         if plate.lowHpGlowFrame then
             plate.lowHpGlowPulse:Stop()
             plate.lowHpGlowFrame:Hide()
@@ -5274,6 +5404,23 @@ local function RestoreFromOffscreen(element)
         storedParents[element] = nil
     end
 end
+-- Blizzard's plate aura item frames are created mouse-enabled with tooltip
+-- handlers (Blizzard_NamePlateAuras.xml), so an alpha-0 aura row kept on the
+-- plate still shows tooltips and takes the clicks aimed through it at the
+-- plate or the world. Sweep the kept-alive row's subtree mouse-dead; pool
+-- frames persist, so one write per frame sticks, and the recursion re-runs
+-- per refresh only to catch newly pooled items.
+local mouseDeadAuraItems = setmetatable({}, { __mode = "k" })
+local function KillAuraRowMouse(frame)
+    if not frame or frame:IsForbidden() then return end
+    if not mouseDeadAuraItems[frame] then
+        mouseDeadAuraItems[frame] = true
+        frame:EnableMouse(false)
+    end
+    for i = 1, frame:GetNumChildren() do
+        KillAuraRowMouse((select(i, frame:GetChildren())))
+    end
+end
 local function HideBlizzardFrame(nameplate, unit)
     if not nameplate then return end
     local uf = nameplate.UnitFrame
@@ -5288,12 +5435,23 @@ local function HideBlizzardFrame(nameplate, unit)
     -- the AurasFrame, which our RefreshAuras hook below reads. Re-home it on
     -- the nameplate and alpha it out so Blizzard keeps updating it while its
     -- rows stay invisible. (The WidgetContainer is likewise kept, further down.)
+    -- 12.1: our containers own plate auras and these lists are taint-locked
+    -- and unused (see the RefreshAuras gate below), so nothing needs the frame
+    -- live -- and its item frames are mouse-enabled Blizzard templates with
+    -- tooltip handlers, which made the alpha-0 keep-alive an invisible
+    -- tooltip/click trap parked above every plate (/fstack-convicted:
+    -- BuffListFrame). Park it offscreen with the other children instead.
     if uf.AurasFrame then
-        if not storedParents[uf.AurasFrame] then
-            storedParents[uf.AurasFrame] = uf.AurasFrame:GetParent()
+        if ns.NPC_OwnsAuras then
+            MoveToOffscreen(uf.AurasFrame, unit)
+        else
+            if not storedParents[uf.AurasFrame] then
+                storedParents[uf.AurasFrame] = uf.AurasFrame:GetParent()
+            end
+            uf.AurasFrame:SetParent(nameplate)
+            uf.AurasFrame:SetAlpha(0)
+            KillAuraRowMouse(uf.AurasFrame)
         end
-        uf.AurasFrame:SetParent(nameplate)
-        uf.AurasFrame:SetAlpha(0)
     end
     -- Park the UnitFrame's child frames on the hidden holder, discovered
     -- generically -- whatever Blizzard parents under the UnitFrame is swept, so
@@ -5357,6 +5515,9 @@ local function HideBlizzardFrame(nameplate, unit)
         hookedAurasFrames[uf.AurasFrame] = true
         hooksecurefunc(uf.AurasFrame, "RefreshAuras", function(af)
             if af:IsForbidden() then return end
+            -- Newly pooled item frames arrive mouse-enabled; keep the
+            -- kept-alive row mouse-dead as it grows.
+            KillAuraRowMouse(af)
             local parent = af:GetParent()
             if not parent then return end
             local ufUnit = parent.unit or (parent.GetUnit and parent:GetUnit())
@@ -5598,34 +5759,46 @@ function NameplateFrame:UpdateCastText(spellName)
     local useClassColor = defaults.castTargetClassColor
     if db.castTargetClassColor ~= nil then useClassColor = db.castTargetClassColor end
 
-    local targetColor, targetHex
+    local targetColor
     if useClassColor then
         if type(spellTargetClass) ~= "nil" and C_ClassColor then
             targetColor = C_ClassColor.GetClassColor(spellTargetClass)
         end
-        -- spellTargetClass may be SECRET in instanced content, and the color
-        -- object's components are then secret too: GenerateHexColor runs
-        -- arithmetic + string.format on them (errors under our taint), and
-        -- the hex is concatenated into the combined-mode format string below,
-        -- where a secret string would also error. Combined mode falls back to
-        -- white for secret-class targets; the separate castTarget FontString
-        -- keeps full class color either way via SetTextColor, whose setter
-        -- accepts secret components.
-        if targetColor and targetColor.GenerateHexColor
-            and not (issecretvalue and issecretvalue(spellTargetClass)) then
-            targetHex = targetColor:GenerateHexColor()
+    end
+
+    local nameColor = db.castNameColor or defaults.castNameColor
+    -- Combined mode paints the target color onto the cast NAME string (the
+    -- target rides in it as a format arg); separate mode paints its own
+    -- FontString.
+    local targetText
+    if combine and hasTarget then
+        targetText = self.castName
+    else
+        targetText = self.castTarget
+    end
+    if useClassColor then
+        if targetColor then
+            targetText:SetTextColor(targetColor:GetRGB())
+        else
+            targetText:SetTextColor(1, 1, 1, 1)
         end
-        targetHex = targetHex or "ffffffff"
     else
         local c = db.castTargetColor or defaults.castTargetColor
-        targetHex = string.format("ff%02x%02x%02x",
-            math.floor(c.r * 255 + 0.5), math.floor(c.g * 255 + 0.5), math.floor(c.b * 255 + 0.5))
+        targetText:SetTextColor(c.r, c.g, c.b, 1)
+    end
+    if not combine or not hasTarget then
+        self.castName:SetTextColor(nameColor.r, nameColor.g, nameColor.b, 1)
     end
 
     if type(spellName) == "nil" then
         self.castName:SetText("")
     elseif combine and hasTarget then
-        self.castName:SetFormattedText("%s - |c" .. targetHex .. "%s|r", spellName, spellTarget)
+        -- 12.1 class RGB may be SECRET: use it as the FontString's base color,
+        -- then override only the spell prefix with a clean profile-color escape.
+        local nameHex = string.format("ff%02x%02x%02x",
+            math.floor(nameColor.r * 255 + 0.5), math.floor(nameColor.g * 255 + 0.5),
+            math.floor(nameColor.b * 255 + 0.5))
+        self.castName:SetFormattedText("|c" .. nameHex .. "%s - |r%s", spellName, spellTarget)
     else
         self.castName:SetText(spellName)
     end
@@ -5633,17 +5806,6 @@ function NameplateFrame:UpdateCastText(spellName)
         self.castTarget:SetText("")
     else
         self.castTarget:SetText(spellTarget)
-    end
-
-    if useClassColor then
-        if targetColor then
-            self.castTarget:SetTextColor(targetColor:GetRGB())
-        else
-            self.castTarget:SetTextColor(1, 1, 1, 1)
-        end
-    else
-        local c = db.castTargetColor or defaults.castTargetColor
-        self.castTarget:SetTextColor(c.r, c.g, c.b, 1)
     end
 
     local castW = self.cast:GetWidth()
@@ -6522,10 +6684,11 @@ function NameplateFrame:UpdateHealthValues()
         end
     end
 
-    -- Execute Pulse Glow gate: evaluate the fixed 30% threshold curve
+    -- Execute Pulse Glow gate: evaluate the player's execute-window curve
     -- C-side and feed the resulting color straight into the glow textures
     -- (alpha 1 below the threshold, 0 above -- never branched on in Lua).
-    -- The pulse animation on the parent frame multiplies on top.
+    -- The pulse animation on the parent frame multiplies on top. Specs with
+    -- no execute never build the textures, so this is one nil test for them.
     local lg = self.lowHpGlowTextures
     if lg and self.lowHpGlowFrame:IsShown() then
         local curve = ns.GetLowHpGlowCurve()
@@ -8397,51 +8560,62 @@ function NameplateFrame:ShowInterrupted(interrupterGUID)
     local fc = (p and p.interruptedFlashColor) or defaults.interruptedFlashColor
     self.cast:GetStatusBarTexture():SetVertexColor(fc.r, fc.g, fc.b)
 
-    -- Resolve the interrupter's name + class from the GUID. For a player GUID,
-    -- GetPlayerInfoByGUID returns both in one call (class = 2nd return, name =
-    -- 6th return).
+    -- GetPlayerInfoByGUID accepts the event's SECRET interrupter GUID and may
+    -- return a SECRET name/class. Keep those values opaque until native sinks.
     local interrupterName
     local interrupterClass
-    if interrupterGUID then
+    if type(interrupterGUID) ~= "nil" then
         local _, class, _, _, _, name = GetPlayerInfoByGUID(interrupterGUID)
         interrupterClass = class
         interrupterName = name
-        if not interrupterName then
+        if type(interrupterName) == "nil" then
             -- Fallback for a NON-player interrupter GUID (a pet or an NPC):
             -- GetPlayerInfoByGUID only resolves players, so it returns nothing
             -- above and the name is pulled from the GUID's live unit token
             -- instead. Non-players have no class, so interrupterClass stays nil
             -- and the class-color path below is simply skipped for them.
+            -- A SECRET GUID resolves to a SECRET token and a SECRET name; both
+            -- pass straight through to SetFormattedText as a display arg, so
+            -- the name still shows in instanced content. type() is the only
+            -- presence check either value may take.
             local token = UnitTokenFromGUID(interrupterGUID)
-            if token then interrupterName = UnitName(token) end
+            if type(token) ~= "nil" then
+                interrupterName = UnitName(token)
+            end
         end
     end
     local cfg = p or defaults
     local useClassColor = defaults.castTargetClassColor
     if cfg.castTargetClassColor ~= nil then useClassColor = cfg.castTargetClassColor end
+    local castNameColor = cfg.castNameColor or defaults.castNameColor
+    local interrupterColor
+    if useClassColor and type(interrupterClass) ~= "nil" and C_ClassColor then
+        interrupterColor = C_ClassColor.GetClassColor(interrupterClass)
+    end
+    if interrupterColor then
+        self.castName:SetTextColor(interrupterColor:GetRGB())
+    else
+        self.castName:SetTextColor(castNameColor.r, castNameColor.g, castNameColor.b, 1)
+    end
 
     -- Show the interrupter inline as "Interrupted (Name)" in the single cast-name
     -- FontString; the cast-target / timer slots are cleared during the flash.
+    local hasInterrupter = type(interrupterName) ~= "nil"
     local castW = self.cast:GetWidth()
     if castW and castW > 0 then
         local cnWPct = (p and p.castNameWidthPct) or defaults.castNameWidthPct
-        self.castName:SetWidth(interrupterName and math.max(castW - 8, 20) or castW * cnWPct / 100)
+        self.castName:SetWidth(hasInterrupter and math.max(castW - 8, 20) or castW * cnWPct / 100)
     end
 
     local interruptedText = (EllesmereUI and EllesmereUI.L and EllesmereUI.L("Interrupted")) or "Interrupted"
-    if interrupterName then
-        local sourceText = interrupterName
-        if useClassColor and interrupterClass and C_ClassColor then
-            local c = C_ClassColor.GetClassColor(interrupterClass)
-            if c then
-                local hex = (c.GenerateHexColor and c:GenerateHexColor()) or c.colorStr
-                if not hex and c.r and c.g and c.b then
-                    hex = string.format("ff%02x%02x%02x", math.floor(c.r * 255 + 0.5), math.floor(c.g * 255 + 0.5), math.floor(c.b * 255 + 0.5))
-                end
-                if hex then sourceText = "|c" .. hex .. interrupterName .. "|r" end
-            end
-        end
-        self.castName:SetText(interruptedText .. " (" .. sourceText .. ")")
+    if hasInterrupter then
+        -- The base FontString color carries SECRET class RGB; only the clean
+        -- localized label/punctuation uses an inline profile-color escape.
+        local nameHex = string.format("ff%02x%02x%02x",
+            math.floor(castNameColor.r * 255 + 0.5), math.floor(castNameColor.g * 255 + 0.5),
+            math.floor(castNameColor.b * 255 + 0.5))
+        self.castName:SetFormattedText("|c" .. nameHex .. "%s (|r%s|c" .. nameHex .. ")|r",
+            interruptedText, interrupterName)
     else
         self.castName:SetText(interruptedText)
     end
@@ -8711,7 +8885,8 @@ function NameplateFrame:UNIT_SPELLCAST_FAILED()
 end
 function NameplateFrame:UNIT_SPELLCAST_INTERRUPTED(_, _, _, interrupterGUID)
     local protected = self._kickProtected
-    if interrupterGUID and ((issecretvalue and issecretvalue(protected)) or not protected) then
+    if type(interrupterGUID) ~= "nil"
+        and ((issecretvalue and issecretvalue(protected)) or not protected) then
         self:ShowCastLockout()
     end
     self:ShowInterrupted(interrupterGUID)

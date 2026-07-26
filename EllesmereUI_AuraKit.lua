@@ -386,26 +386,55 @@ local function ApplyStyleToRegions(button, style)
     -- overrides from the 4-state tooltip mode (style.tooltipCombatHide /
     -- style.tooltipAnchor = "cursor"). Button-surface calls: change-guarded,
     -- stamped on success only, deferred to the restriction lift when denied.
-    -- API-existence guards keep stale builds inert.
-    if button.SetHideTooltipInCombat then
-        local wantCombat = style.tooltipCombatHide and true or false
-        if d.akTipCombat ~= wantCombat then
-            if pcall(button.SetHideTooltipInCombat, button, wantCombat) then
-                d.akTipCombat = wantCombat
-            elseif d.styleKey and AK.AurasRestricted() then
-                deferredRestyles[d.styleKey] = true
+    -- API-existence guards keep stale builds inert. Skipped entirely for
+    -- noTooltips styles: these buttons must never show a tooltip, and
+    -- configuring tooltip behaviour re-arms the button's mouse as a side
+    -- effect (the nameplate click/tooltip eater), so never touch the tooltip
+    -- surface of a button that has no tooltip to configure.
+    if not style.noTooltips then
+        if button.SetHideTooltipInCombat then
+            local wantCombat = style.tooltipCombatHide and true or false
+            if d.akTipCombat ~= wantCombat then
+                if pcall(button.SetHideTooltipInCombat, button, wantCombat) then
+                    d.akTipCombat = wantCombat
+                elseif d.styleKey and AK.AurasRestricted() then
+                    deferredRestyles[d.styleKey] = true
+                end
+            end
+        end
+        if button.SetTooltipAnchorPoint then
+            local wantAnchor = (style.tooltipAnchor == "cursor")
+                and "ANCHOR_CURSOR" or "ANCHOR_BOTTOMLEFT"
+            if d.akTipAnchor ~= wantAnchor then
+                if pcall(button.SetTooltipAnchorPoint, button, wantAnchor) then
+                    d.akTipAnchor = wantAnchor
+                elseif d.styleKey and AK.AurasRestricted() then
+                    deferredRestyles[d.styleKey] = true
+                end
             end
         end
     end
-    if button.SetTooltipAnchorPoint then
-        local wantAnchor = (style.tooltipAnchor == "cursor")
-            and "ANCHOR_CURSOR" or "ANCHOR_BOTTOMLEFT"
-        if d.akTipAnchor ~= wantAnchor then
-            if pcall(button.SetTooltipAnchorPoint, button, wantAnchor) then
-                d.akTipAnchor = wantAnchor
-            elseif d.styleKey and AK.AurasRestricted() then
-                deferredRestyles[d.styleKey] = true
-            end
+
+    -- Re-assert the mouse state the style wants. It has to run AFTER the
+    -- tooltip calls above: configuring tooltip behaviour on an engine button
+    -- turns its mouse back on, which silently re-opened the nameplate
+    -- click-eater. Motion needs the same treatment: the module motion passes
+    -- are change-guarded by stamps that still read "off" after the engine
+    -- flips it back, so they never repair it (field evidence: debuff tooltips
+    -- appearing over empty space beside nameplates, whose styles set
+    -- noTooltips). Running here also covers every Restyle, so a settings
+    -- change cannot re-open either one. Same deferral as the neighbours above
+    -- when the button is locked down while auras are secret.
+    if not style.cancelButtons and button.SetMouseClickEnabled then
+        if not pcall(button.SetMouseClickEnabled, button, false)
+            and d.styleKey and AK.AurasRestricted() then
+            deferredRestyles[d.styleKey] = true
+        end
+    end
+    if style.noTooltips and button.SetMouseMotionEnabled then
+        if not pcall(button.SetMouseMotionEnabled, button, false)
+            and d.styleKey and AK.AurasRestricted() then
+            deferredRestyles[d.styleKey] = true
         end
     end
 

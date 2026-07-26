@@ -257,7 +257,7 @@ local function ShowSpecOverridesPopup()
         elseif EllesmereUI.NavigateToElementSettings then
             -- No core module loaded (race with the show-gate): fall back to
             -- the management tab.
-            EllesmereUI:NavigateToElementSettings("_EUIProfiles", "Spec Overrides")
+            EllesmereUI:NavigateToElementSettings("_EUIProfiles", "Overrides")
         end
     end
 

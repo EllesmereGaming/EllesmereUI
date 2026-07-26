@@ -90,7 +90,13 @@ function EUILite._RegisterEvent(self, eventname, callback)
     local f = GetOrCreateEventFrame(self)
     local handler
     if type(callback) == "function" then
-        handler = function(addon, event, ...) callback(addon, event, ...) end
+        -- Stored directly. The dispatcher calls handler(addon, event, ...),
+        -- which is already the callback's own signature, so wrapping it only
+        -- added a second function call to every event the suite receives --
+        -- and put an anonymous frame between the callback and any traceback.
+        -- The string and no-callback forms below still need a closure, because
+        -- they resolve the method on the addon at dispatch time.
+        handler = callback
     elseif type(callback) == "string" then
         handler = function(addon, event, ...)
             if addon[callback] then addon[callback](addon, event, ...) end

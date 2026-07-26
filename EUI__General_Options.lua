@@ -407,6 +407,34 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "8.5.9",
+        mini = true,
+        features = {
+            {
+                module = "Data Bars",
+                title  = "Home, World or Both Latency",
+                desc   = "One block can now show both, with optional icons",
+                nav    = { module = "EllesmereUIDataBars", page = "DataBars" },
+            },
+            {
+                module = "Unit Frames",
+                title  = "Boss Frame Absorb Text",
+                desc   = "Show shield and heal-absorb amounts as text",
+                -- No highlight: "Left Text" also matches the Left Text Settings
+                -- rows above it and the matcher stops at the first hit.
+                nav    = { module = "EllesmereUIUnitFrames", page = "Boss Frames", section = "HEALTH BAR" },
+            },
+        },
+        fixes = {
+            { module = "General", text = "Added and corrected German, Korean, and Traditional Chinese translations." },
+            { module = "Nameplates", text = "Nameplates no longer eat clicks and camera drags meant for the world, or show aura tooltips over empty space." },
+            { module = "Nameplates", text = "Cast targets and interrupter names now keep their class color in Mythic+ and raids." },
+            { module = "PTR Nameplates & Frames", text = "Aura icons no longer start eating clicks again after a settings change." },
+            { module = "PTR Resource Bars", text = "The Ebon Might bar no longer blocks clicks on nameplates behind it." },
+            { module = "Unit Frames", text = "Blizzard's cast bar no longer appears when you use a standalone cast bar addon." },
+        },
+    },
+    {
         version = "8.5.8",
         heroes = {
             {
@@ -439,7 +467,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 module = "Conditional Overrides",
                 title  = "Dark Mode Condition",
                 desc   = "Trigger an override group when Dark Mode is on",
-                nav    = { module = "_EUIProfiles", page = "Conditional Overrides" },
+                nav    = { module = "_EUIProfiles", page = "Overrides" },
             },
             {
                 module = "Damage Meters",
@@ -1042,7 +1070,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 module = "Spec Overrides",
                 title  = "Stability Hotfixes",
                 desc   = "A thorough pass at hardening the override system: override values can no longer corrupt your shared defaults or bleed onto specs outside their group, and settings controlled by an applied Conditional Override now show an Override overlay.",
-                nav    = { module = "_EUIProfiles", page = "Spec Overrides" },
+                nav    = { module = "_EUIProfiles", page = "Overrides" },
             },
         },
         features = {
@@ -5314,6 +5342,30 @@ initFrame:SetScript("OnEvent", function(self)
                             EllesmereUI:ShowInfoPopup({ title = EllesmereUI.L("Import Failed"), content = err or EllesmereUI.L("Invalid import string.") })
                             return
                         end
+                        -- FULL ACCOUNT string: its own flow entirely. Routed
+                        -- here, BEFORE the normal import machinery ever sees
+                        -- the payload -- no module selection, no include
+                        -- toggles, no store merging apply to it. Typed
+                        -- confirmation because it overwrites account-wide
+                        -- settings the recipient never chose to share.
+                        if EllesmereUI.IsFullAccountPayload
+                           and EllesmereUI.IsFullAccountPayload(payload) then
+                            pastePage:Hide()
+                            EllesmereUI:ShowConfirmPopup({
+                                title = EllesmereUI.L("Import Full Account Data"),
+                                message = EllesmereUI.L("This string is a FULL ACCOUNT export. It replaces your account-wide settings with the sender's, including Quality of Life, HoverCast bindings, Cooldown Manager spell setups, unlock anchors, UI scale, and profile keybinds -- not just a profile. Your other profiles are kept, but a profile with the same name is replaced."),
+                                disclaimer = EllesmereUI.L("This cannot be undone. Export your own profile as a backup first."),
+                                typeToConfirm = "Confirm",
+                                confirmText = EllesmereUI.L("Import & Reload"),
+                                cancelText = EllesmereUI.L("Cancel"),
+                                onConfirm = function()
+                                    if EllesmereUI.ImportFullAccountData then
+                                        EllesmereUI.ImportFullAccountData(payload)
+                                    end
+                                end,
+                            })
+                            return
+                        end
                         pastePage:Hide()
                         MaybeConfirmUIScale(payload, function(applyScale)
                             ShowImportPage(importStr, payload, nil, nil, nil, applyScale)
@@ -7371,10 +7423,156 @@ initFrame:SetScript("OnEvent", function(self)
     -- Profiles & Presets: its own sidebar module. Reuses the existing
     -- profiles page builder; the profiles-root lifecycle is handled by the
     -- shared CleanupProfilesRoot hooks below (now keyed to PROFILES_KEY).
-    -- Second tab: the Spec Overrides management list (built by
+    -- Second tab: the Overrides management list (built by
     -- EllesmereUI_SpecOverrides.lua).
-    local PAGE_SPECOV = "Spec Overrides"
-    local PAGE_CONDOV = "Conditional Overrides"
+    --
+    -- ONE tab, TWO pages. "Spec Overrides" and "Conditional Overrides" remain
+    -- two completely separate page builders with their own stores, prune
+    -- passes, and row logic -- nothing about them was merged. The tab strip
+    -- simply shows a single "Overrides" entry, and a segmented toggle at the
+    -- top of the page picks which builder renders below it (the same control
+    -- Raid Frames uses for Simple Setup / Custom Buff Display, centered).
+    -- The mode is runtime-only and defaults to the spec list, exactly like
+    -- the old tab order.
+    local PAGE_OVERRIDES = "Overrides"
+
+    -- Builds the centered mode toggle and returns the vertical space it used.
+    -- Deliberately a plain local closure over the page build: no widget-
+    -- factory row, no capture config, no saved state -- this is chrome.
+    local function BuildOverridesModeToggle(parent, y)
+        local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+        local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath())
+            or "Fonts\\FRIZQT__.TTF"
+        -- Wider than the Raid Frames pair (162): "Conditional Overrides" is a
+        -- longer label than "Custom Buff Display" and must not clip.
+        local BTN_W, BTN_H = 180, 31
+        local wrap = CreateFrame("Frame", nil, parent)
+        wrap:SetSize(BTN_W * 2, BTN_H)
+        wrap:SetPoint("TOP", parent, "TOP", 0, y - 14)
+        wrap:SetFrameLevel(parent:GetFrameLevel() + 1)
+        if EllesmereUI.PP then
+            EllesmereUI.PP.CreateBorder(wrap, 1, 1, 1, 0.10, 1)
+        end
+        local MODES = {
+            { key = "spec", label = "Spec Overrides" },
+            { key = "cond", label = "Conditional Overrides" },
+        }
+        local cur = EllesmereUI._overridesTabMode or "spec"
+        for i, m in ipairs(MODES) do
+            local btn = CreateFrame("Button", nil, wrap)
+            btn:SetSize(BTN_W, BTN_H)
+            btn:SetPoint("LEFT", wrap, "LEFT", (i - 1) * BTN_W, 0)
+            local bg = btn:CreateTexture(nil, "BACKGROUND")
+            bg:SetAllPoints()
+            local lbl = btn:CreateFontString(nil, "OVERLAY")
+            lbl:SetFont(fontPath, 13, "")
+            lbl:SetPoint("CENTER")
+            lbl:SetText(EllesmereUI.L(m.label))
+            if cur == m.key then
+                bg:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
+                lbl:SetTextColor(1, 1, 1, 1)
+            else
+                bg:SetColorTexture(0.10, 0.10, 0.11, 0.85)
+                lbl:SetTextColor(1, 1, 1, 0.55)
+                btn:SetScript("OnEnter", function()
+                    bg:SetColorTexture(0.16, 0.16, 0.17, 0.9); lbl:SetTextColor(1, 1, 1, 0.85)
+                end)
+                btn:SetScript("OnLeave", function()
+                    bg:SetColorTexture(0.10, 0.10, 0.11, 0.85); lbl:SetTextColor(1, 1, 1, 0.55)
+                end)
+                btn:SetScript("OnClick", function()
+                    EllesmereUI._overridesTabMode = m.key
+                    -- Forced: the two builders render entirely different rows.
+                    EllesmereUI:RefreshPage(true)
+                end)
+            end
+        end
+        -- 14 above + 15 below the buttons.
+        return BTN_H + 29
+    end
+
+    -- FULL EXPORT tab: a warning and a single button. Deliberately its own
+    -- page with its own exporter (EllesmereUI.ExportFullAccountData) -- it
+    -- shares no code path with the Profiles tab's export flow, so nothing
+    -- here can change what a normal profile string contains.
+    local PAGE_FULLEXPORT = "Full Export"
+
+    local function BuildFullExportPage(parent, yOffset)
+        local PAD = EllesmereUI.CONTENT_PAD or 40
+        local y = yOffset - 10
+        local width = parent:GetWidth() - PAD * 2
+
+        -- Warning card (red-bordered, full width).
+        local warn = CreateFrame("Frame", nil, parent)
+        warn:SetPoint("TOPLEFT", parent, "TOPLEFT", PAD, y)
+        warn:SetWidth(width)
+        warn:SetFrameLevel(parent:GetFrameLevel() + 2)
+        local wbg = EllesmereUI.SolidTex(warn, "BACKGROUND", 0.10, 0.04, 0.04, 0.55)
+        wbg:SetAllPoints()
+        EllesmereUI.MakeBorder(warn, 0.8, 0.2, 0.2, 0.55)
+        local wtext = EllesmereUI.MakeFont(warn, 13, nil, 1, 0.55, 0.55, 1)
+        wtext:SetPoint("TOPLEFT", warn, "TOPLEFT", 16, -14)
+        wtext:SetWidth(width - 32)
+        wtext:SetJustifyH("LEFT")
+        wtext:SetSpacing(3)
+        wtext:SetText(EllesmereUI.L("This export includes cross profile settings that will overwrite the importing user's settings including Quality of Life, Hovercast and more that should typically not be shared with standard profiles. THIS IS NOT RECOMMENDED for public sharing of profiles."))
+        warn:SetHeight((wtext:GetStringHeight() or 40) + 28)
+        y = y - warn:GetHeight() - 40
+
+        -- Centered export button.
+        local BTN_W, BTN_H = 300, 38
+        local btn = CreateFrame("Button", nil, parent)
+        btn:SetSize(BTN_W, BTN_H)
+        btn:SetPoint("TOP", parent, "TOP", 0, y)
+        btn:SetFrameLevel(parent:GetFrameLevel() + 5)
+        local DARK_BG = EllesmereUI.DARK_BG or { r = 0.05, g = 0.07, b = 0.09 }
+        local bbg = EllesmereUI.SolidTex(btn, "BACKGROUND", DARK_BG.r, DARK_BG.g, DARK_BG.b, 0.92)
+        bbg:SetAllPoints()
+        local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+        local bbrd = EllesmereUI.MakeBorder(btn, EG.r, EG.g, EG.b, 0.5)
+        local blbl = EllesmereUI.MakeFont(btn, 13, nil, EG.r, EG.g, EG.b, 1)
+        blbl:SetAlpha(0.8)
+        blbl:SetPoint("CENTER")
+        blbl:SetText(EllesmereUI.L("Export All Data with Profile"))
+        btn:SetScript("OnEnter", function()
+            blbl:SetAlpha(1)
+            if bbrd and bbrd.SetColor then bbrd:SetColor(EG.r, EG.g, EG.b, 0.9) end
+        end)
+        btn:SetScript("OnLeave", function()
+            blbl:SetAlpha(0.8)
+            if bbrd and bbrd.SetColor then bbrd:SetColor(EG.r, EG.g, EG.b, 0.5) end
+        end)
+        btn:SetScript("OnClick", function()
+            local str = EllesmereUI.ExportFullAccountData and EllesmereUI.ExportFullAccountData()
+            if str then
+                EllesmereUI:ShowExportPopup(str)
+            else
+                EllesmereUI:ShowInfoPopup({
+                    title = EllesmereUI.L("Export Failed"),
+                    content = EllesmereUI.L("Could not build the export string."),
+                })
+            end
+        end)
+        y = y - BTN_H - 20
+
+        return -y + 40
+    end
+
+    -- Runs the toggle, then the builder for the selected mode. The builders
+    -- return their total content height measured from the ORIGINAL page top
+    -- (they accumulate from the startY they are handed), so the toggle's
+    -- space is already inside the returned value.
+    local function BuildOverridesPage(parent, yOffset)
+        local y = yOffset - BuildOverridesModeToggle(parent, yOffset)
+        if (EllesmereUI._overridesTabMode or "spec") == "cond" then
+            if EllesmereUI.Conditions_BuildListPage then
+                return EllesmereUI.Conditions_BuildListPage(parent, y)
+            end
+        elseif EllesmereUI.SpecOverrides_BuildListPage then
+            return EllesmereUI.SpecOverrides_BuildListPage(parent, y)
+        end
+        return 200
+    end
     -- PAGE_PRESETS (file-scope, near PAGE_PROFILES) is a NAVIGATION tab only:
     -- the Popular Presets browser stays a subpage of the profiles page (same
     -- frames, same import flow). The tab builds the same profiles page and
@@ -7383,7 +7581,7 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule(PROFILES_KEY, {
         title       = "Profiles & Presets",
         description = "Import, export, and switch EllesmereUI profiles and presets.",
-        pages       = { PAGE_PROFILES, PAGE_PRESETS, PAGE_SPECOV, PAGE_CONDOV },
+        pages       = { PAGE_PROFILES, PAGE_PRESETS, PAGE_OVERRIDES, PAGE_FULLEXPORT },
         buildPage   = function(pageName, parent, yOffset)
             -- BuildProfilesPage bypasses `parent` entirely and builds directly
             -- onto the live, shared EllesmereUI._scrollFrame -- and, before it
@@ -7394,7 +7592,10 @@ initFrame:SetScript("OnEvent", function(self)
             -- indexing pass. Skip PAGE_PROFILES here; it gets indexed normally
             -- the first time the player actually visits it.
             if EllesmereUI._prebuilding then
-                if pageName == PAGE_SPECOV then
+                if pageName == PAGE_OVERRIDES then
+                    -- Index the spec list only, exactly as before the tabs
+                    -- were merged: the conditional builder was never part of
+                    -- the hidden pre-build pass, and the toggle is chrome.
                     if EllesmereUI.SpecOverrides_BuildListPage then
                         return EllesmereUI.SpecOverrides_BuildListPage(parent, yOffset)
                     end
@@ -7402,19 +7603,13 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 return
             end
-            if pageName == PAGE_SPECOV then
+            if pageName == PAGE_OVERRIDES then
                 CleanupProfilesRoot()
-                if EllesmereUI.SpecOverrides_BuildListPage then
-                    return EllesmereUI.SpecOverrides_BuildListPage(parent, yOffset)
-                end
-                return 200
+                return BuildOverridesPage(parent, yOffset)
             end
-            if pageName == PAGE_CONDOV then
+            if pageName == PAGE_FULLEXPORT then
                 CleanupProfilesRoot()
-                if EllesmereUI.Conditions_BuildListPage then
-                    return EllesmereUI.Conditions_BuildListPage(parent, yOffset)
-                end
-                return 200
+                return BuildFullExportPage(parent, yOffset)
             end
             if pageName == PAGE_PRESETS then
                 EllesmereUI._pendingShowPresetsPage = true
@@ -7423,7 +7618,15 @@ initFrame:SetScript("OnEvent", function(self)
             return BuildProfilesPage(pageName, parent, yOffset)
         end,
         onPageCacheRestore = function(pageName)
-            if pageName == PAGE_SPECOV or pageName == PAGE_CONDOV then
+            if pageName == PAGE_FULLEXPORT then
+                -- The Profiles page builds onto the SHARED profiles root, not
+                -- this page's parent, and that root outlives page switches --
+                -- so returning to a cached Full Export page would show the
+                -- profiles content layered over it. Same cleanup the other
+                -- non-profiles tabs do; the page itself is static, so no
+                -- rebuild is needed.
+                CleanupProfilesRoot()
+            elseif pageName == PAGE_OVERRIDES then
                 CleanupProfilesRoot()
                 -- The override list changes while the page is cached; rebuild.
                 C_Timer.After(0, function()
