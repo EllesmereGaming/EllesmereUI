@@ -11284,7 +11284,14 @@ function InitializeFrames()
         frames.player = oUF:Spawn("player", "EllesmereUIUnitFrames_Player")
         EllesmereUI.RestoreBlizzCastBarEvents()
     elseif playerFrameSource == "hidden" then
+        -- Wrapped for the same reason as the spawn above: DisableBlizzard
+        -- unregisters PlayerFrame's cast bar child, and an unregister seen
+        -- outside a capture window is read as a third-party addon claiming the
+        -- frame -- EUI would mark its own silence as somebody else's and never
+        -- hand the bar back.
+        EllesmereUI.CaptureBlizzCastBarEvents()
         oUF:DisableBlizzard("player")
+        EllesmereUI.RestoreBlizzCastBarEvents()
     end
 
     -- Visibility wrapper for the player frame only. Parent the player frame

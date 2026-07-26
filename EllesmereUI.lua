@@ -12549,13 +12549,27 @@ function EllesmereUI._BlizzCastBars()
     for i = 1, #bars do
         local bar = bars[i]
         -- An UnregisterAllEvents outside one of our own Capture/Restore windows
-        -- is another addon claiming the frame, so EUI drops its claim and stops
-        -- treating that silence as something it may undo.
+        -- is another addon claiming the frame: EUI drops its claim and records
+        -- the claim as foreign. "Foreign" is tracked separately from "not ours"
+        -- because those are very different states -- see RestoreBlizzCastBarEvents.
         hooksecurefunc(bar.frame, "UnregisterAllEvents", function()
-            if not EllesmereUI._blizzCastBarSnapshot then bar.owned = false end
+            if not EllesmereUI._blizzCastBarSnapshot then
+                bar.owned = false
+                bar.foreign = true
+                EllesmereUI._CastBarDbg("foreign claim", bar.unit)
+            end
         end)
     end
     return bars
+end
+
+-- Opt-in trace for cast bar ownership. Persisted in EllesmereUIDB so it can be
+-- armed before a relog, which is when the interesting decisions happen:
+--   /run EllesmereUIDB._CBDEBUG = true
+function EllesmereUI._CastBarDbg(...)
+    if EllesmereUIDB and EllesmereUIDB._CBDEBUG then
+        print("|cff33ff99[CastBar]|r", ...)
+    end
 end
 
 function EllesmereUI.CaptureBlizzCastBarEvents()
@@ -12579,29 +12593,68 @@ function EllesmereUI.RestoreBlizzCastBarEvents()
         if live ~= snapshot[i] then
             if not live then
                 bar.owned = true
+                EllesmereUI._CastBarDbg("claimed", bar.unit)
             elseif bar.owned then
                 bar.owned = false
-            else
-                -- Someone else silenced this frame; put it back the way we
-                -- found it instead of resurrecting Blizzard's cast bar.
+                EllesmereUI._CastBarDbg("handed back", bar.unit)
+            elseif bar.foreign then
+                -- Another addon silenced this frame and we just re-registered it
+                -- on the way past; put it back the way we found it instead of
+                -- resurrecting Blizzard's cast bar next to theirs.
+                EllesmereUI._CastBarDbg("re-silencing foreign claim", bar.unit)
                 bar.frame:UnregisterAllEvents()
                 bar.frame:Hide()
+            else
+                -- Registered inside our own window with nobody claiming it.
+                -- That is EUI's own bookkeeping having lost track (a silence
+                -- that produced no transition to observe), NOT another addon,
+                -- so re-silencing here would kill Blizzard's cast bar for the
+                -- session with no way back short of a reload. Leave it armed:
+                -- a visible Blizzard bar is something the user can turn off, a
+                -- dead one is not.
+                EllesmereUI._CastBarDbg("left armed, unclaimed", bar.unit)
             end
         end
     end
 end
 
--- Give Blizzard's player cast bar its own event wiring back, but only when EUI
--- is the one that took it away.
-function EllesmereUI.RearmBlizzPlayerCastBar()
+-- The cast events Blizzard's bars listen on, registered per unit. Mirrors the
+-- set oUF's Castbar element restores when it disables, which is the only path
+-- that has ever successfully re-armed these frames.
+--
+-- SetUnit is deliberately NOT used to re-arm. Its body is guarded on
+-- `self.unit ~= unit`, and the frame still holds the unit Blizzard assigned at
+-- load, so passing that same unit registers nothing at all. Forcing the guard
+-- open is worse: SetUnit runs StopAnims -> StopFinishAnims, which iterates a
+-- table that cannot be accessed while tainted, so from addon execution it
+-- throws outright ("attempted to iterate a table that cannot be accessed while
+-- tainted") and takes down whatever called it. Registering the events directly
+-- is what oUF does, is taint-clean, and touches no Blizzard code at all.
+local BLIZZ_CAST_EVENTS = {
+    "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_EMPOWER_START",
+    "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_EMPOWER_STOP",
+    "UNIT_SPELLCAST_DELAYED", "UNIT_SPELLCAST_CHANNEL_UPDATE", "UNIT_SPELLCAST_EMPOWER_UPDATE",
+    "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED",
+    "UNIT_SPELLCAST_INTERRUPTIBLE", "UNIT_SPELLCAST_NOT_INTERRUPTIBLE",
+}
+
+-- Give Blizzard's cast bars their event wiring back, unless another addon has
+-- claimed them. Covers the pet bar too: oUF silences both and only re-arms them
+-- from its Castbar element's Disable, so any release path that does not run
+-- that (the element was never enabled to begin with) leaves both dead.
+function EllesmereUI.RearmBlizzCastBars()
     local bars = EllesmereUI._blizzCastBarList
     if not bars then return end
     for i = 1, #bars do
         local bar = bars[i]
-        if bar.unit == "player" and bar.owned and bar.frame.SetUnit
-            and not bar.frame:IsEventRegistered("UNIT_SPELLCAST_START") then
+        if not bar.foreign and not bar.frame:IsEventRegistered("UNIT_SPELLCAST_START") then
             bar.owned = false
-            bar.frame:SetUnit("player", bar.frame.showTradeSkills, bar.frame.showShield)
+            for j = 1, #BLIZZ_CAST_EVENTS do
+                bar.frame:RegisterUnitEvent(BLIZZ_CAST_EVENTS[j], bar.unit)
+            end
+            bar.frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+            if bar.unit == "pet" then bar.frame:RegisterEvent("UNIT_PET") end
+            EllesmereUI._CastBarDbg("re-armed", bar.unit)
         end
     end
 end
@@ -12726,7 +12779,7 @@ function EllesmereUI.SetPlayerCastBarSuppressed(owner, suppressed)
     -- the first place: a standalone cast bar addon silences the same frame, and
     -- re-registering its events is what pops Blizzard's cast bar back on screen
     -- next to theirs once EUI's own cast bar is switched off.
-    EllesmereUI.RearmBlizzPlayerCastBar()
+    EllesmereUI.RearmBlizzCastBars()
 end
 
 -------------------------------------------------------------------------------
