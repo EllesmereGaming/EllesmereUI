@@ -4615,7 +4615,6 @@ L["Draws a 1px accent line above the background at the top of the tracker."] = "
 L["Show Blizzard's native quest type icons/buttons on the right instead of EllesmereUI's custom icons. Requires a UI reload."] = "EllesmereUI의 사용자 정의 아이콘 대신 오른쪽에 블리자드 기본 퀘스트 유형 아이콘/버튼을 표시합니다. UI를 다시 불러와야 합니다."
 L["Hides the master header and its minimize button at the top of the tracker. When shown, it's skinned to match the section headers below it (Quests, Achievements, ...)."] = "추적기 상단의 전체 제목과 최소화 버튼을 숨깁니다. 표시할 경우, 아래쪽의 각 항목 제목(퀘스트, 업적 등)과 어울리도록 디자인이 변경됩니다."
 
-
 -- == add Minimap (미니맵) ====================================================
 L["a Mail Position corner"] = "우편 위치 모서리 설정"
 L["Accented Text"] = "강조 색상 글자"
