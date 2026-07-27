@@ -1,4 +1,4 @@
-## Interface: 30300
+## Interface: 120000, 120001, 120005, 120007, 120100
 ## Title: |cff0cd29fEllesmereUI|r Raid Frames
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
