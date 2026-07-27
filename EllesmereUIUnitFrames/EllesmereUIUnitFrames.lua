@@ -1120,6 +1120,14 @@ local defaults = {
             simpleBuffSpacing = 1,
             simpleDebuffSpacing = 1,
             textSize = 12,
+            extraTextContent = "none",
+            extraTextSize = 12,
+            extraTextClassColor = false,
+            extraTextColorR = 1, extraTextColorG = 1, extraTextColorB = 1,
+            extraTextX = 0, extraTextY = 0,
+            extraTextAlign = "left",
+            extraTextShortNameLength = 0,
+            extraTextShortNameEllipsis = true,
             leftTextContent = "name",
             leftTextClassColor = false,
             leftTextColorR = 1, leftTextColorG = 1, leftTextColorB = 1,
@@ -6273,6 +6281,12 @@ function ns.ApplyEUIAuraFilter(element, base, settings)
     if not f then f = {}; element._euiAuraFlags = f end
     f.player, f.raid, f.cc, f.bigDef, f.extDef = ns.ResolveAuraFlags(base, settings)
     f.showLust = (base == "HARMFUL") and settings.showLustDebuff
+    -- Show Tooltip For -> Buffs & Debuffs (per-unit, default on). Element-level
+    -- flag: the element re-applies EnableMouse from it on EVERY button update,
+    -- so it is the only mouse knob that sticks -- per-button calls get
+    -- overwritten by the element's own update pass. Centralized here because
+    -- every element runs through this at creation and on each reload restyle.
+    element.disableMouse = (settings.showAuraTooltips == false) or nil
 end
 
 local function CreateTargetAuras(frame, unit)
@@ -7938,6 +7952,7 @@ local function StyleBossFrame(frame, unit)
     local leftContent = settings.leftTextContent or "name"
     local rightContent = settings.rightTextContent or "perhp"
     local centerContent = settings.centerTextContent or "none"
+    local extraContent = settings.extraTextContent or "none"
 
     local leftText = textOverlay:CreateFontString(nil, "OVERLAY")
     SetFSFont(leftText, settings.leftTextSize or settings.textSize or 12)
@@ -7956,6 +7971,15 @@ local function StyleBossFrame(frame, unit)
     centerText:SetWordWrap(false)
     centerText:SetTextColor(1, 1, 1)
     frame.CenterText = centerText
+
+    -- Extra Text: a 4th text zone, identical to the others (same tags + absorb
+    -- gate); it only anchors per extraTextAlign and is capped at 95% of the bar
+    -- width (ellipsis truncation). Mirrors the Main Frames implementation.
+    local extraText = textOverlay:CreateFontString(nil, "OVERLAY")
+    SetFSFont(extraText, settings.extraTextSize or settings.textSize or 12)
+    extraText:SetWordWrap(false)
+    extraText:SetTextColor(1, 1, 1)
+    frame.ExtraText = extraText
 
     frame.NameText = leftText
     frame.HealthValue = rightText
@@ -8018,22 +8042,29 @@ local function StyleBossFrame(frame, unit)
         end
     end
 
-    local function ApplyTextTags(lc, rc, cc)
+    local function ApplyTextTags(lc, rc, cc, ec)
+        -- Callers that predate the Extra Text zone pass 3 args; fall back to
+        -- the stored content so those sites keep working (same as Main Frames).
+        ec = ec or (settings.extraTextContent or "none")
         local ltag = ContentToTag(lc, "leftText", settings)
         local rtag = ContentToTag(rc, "rightText", settings)
         local ctag = ContentToTag(cc, "centerText", settings)
+        local etag = ContentToTag(ec, "extraText", settings)
         if leftText._curTag then frame:Untag(leftText); leftText._curTag = nil end
         if rightText._curTag then frame:Untag(rightText); rightText._curTag = nil end
         if centerText._curTag then frame:Untag(centerText); centerText._curTag = nil end
+        if extraText._curTag then frame:Untag(extraText); extraText._curTag = nil end
         if ltag then frame:Tag(leftText, ltag); leftText._curTag = ltag end
         if rtag then frame:Tag(rightText, rtag); rightText._curTag = rtag end
         if ctag then frame:Tag(centerText, ctag); centerText._curTag = ctag end
+        if etag then frame:Tag(extraText, etag); extraText._curTag = etag end
         ApplyAbsorbGate("left", leftText, lc)
         ApplyAbsorbGate("right", rightText, rc)
         ApplyAbsorbGate("center", centerText, cc)
+        ApplyAbsorbGate("extra", extraText, ec)
         if frame.UpdateTags then frame:UpdateTags() end
     end
-    ApplyTextTags(leftContent, rightContent, centerContent)
+    ApplyTextTags(leftContent, rightContent, centerContent, extraContent)
     frame._applyTextTags = ApplyTextTags
 
     local function ApplyTextPositions(s)
@@ -8050,6 +8081,30 @@ local function StyleBossFrame(frame, unit)
         local cxo = s.centerTextX or 0
         local cyo = s.centerTextY or 0
         local barW = s.frameWidth or 100
+        -- Extra Text: anchored per extraTextAlign (left/right/center). Truncated
+        -- with an ellipsis when the text would exceed 95% of the health bar width
+        -- (SetWordWrap(false) + the capped width below), matching Main Frames.
+        local ec = s.extraTextContent or "none"
+        SetFSFont(extraText, s.extraTextSize or s.textSize or 12)
+        extraText:ClearAllPoints()
+        if ec ~= "none" then
+            local exo = s.extraTextX or 0
+            local eyo = s.extraTextY or 0
+            local ealign = s.extraTextAlign or "left"
+            if ealign == "right" then
+                extraText:SetJustifyH("RIGHT")
+                PP.Point(extraText, "RIGHT", textOverlay, "RIGHT", -5 + exo, eyo)
+            elseif ealign == "center" then
+                extraText:SetJustifyH("CENTER")
+                PP.Point(extraText, "CENTER", textOverlay, "CENTER", exo, eyo)
+            else
+                extraText:SetJustifyH("LEFT")
+                PP.Point(extraText, "LEFT", textOverlay, "LEFT", 5 + exo, eyo)
+            end
+            PP.Width(extraText, barW * 0.95)
+            extraText:Show()
+            ApplyClassColor(extraText, unit, s.extraTextClassColor, s.extraTextColorR, s.extraTextColorG, s.extraTextColorB)
+        else extraText:Hide() end
         -- Each text position renders independently; Center no longer hides Left/Right.
         SetFSFont(centerText, csz)
         centerText:ClearAllPoints()
@@ -9518,7 +9573,7 @@ local function ReloadFrames()
                             end
                             -- Only reanchor + ForceUpdate when layout actually changed
                             local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings)
-                            local buffKey = string.format("%s%s%d%d%d%s%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, buffCbOff, settings.buffGrowth or "auto", settings.maxBuffs or 4, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter
+                            local buffKey = string.format("%s%s%d%d%d%s%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, buffCbOff, settings.buffGrowth or "auto", settings.maxBuffs or 4, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                             if frame.Buffs._lastBuffKey ~= buffKey then
                                 frame.Buffs._lastBuffKey = buffKey
                                 ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", settings)
@@ -9567,7 +9622,7 @@ local function ReloadFrames()
                                 debuffCbOff = -cbH
                             end
                             local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings) .. (settings.showLustDebuff and "|LUST" or "")
-                            local debuffKey = string.format("%s%s%d%d%d%s%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, debuffCbOff, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter
+                            local debuffKey = string.format("%s%s%d%d%d%s%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, debuffCbOff, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                             if frame.Debuffs._lastDebuffKey ~= debuffKey then
                                 frame.Debuffs._lastDebuffKey = debuffKey
                                 ns.ApplyEUIAuraFilter(frame.Debuffs, "HARMFUL", settings)
@@ -9943,7 +9998,7 @@ local function ReloadFrames()
                                 end
                             end
                             local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings)
-                            local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 20, liveCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter
+                            local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 20, liveCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                             if frame.Buffs._lastBuffKey ~= buffKey then
                                 frame.Buffs._lastBuffKey = buffKey
                                 ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", settings)
@@ -9994,7 +10049,7 @@ local function ReloadFrames()
                                 end
                             end
                             local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings) .. (settings.showLustDebuff and "|LUST" or "")
-                            local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 20, liveDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter
+                            local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 20, liveDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                             if frame.Debuffs._lastDebuffKey ~= debuffKey then
                                 frame.Debuffs._lastDebuffKey = debuffKey
                                 ns.ApplyEUIAuraFilter(frame.Debuffs, "HARMFUL", settings)
@@ -10316,7 +10371,7 @@ local function ReloadFrames()
                             end
                         end
                         local debuffFilter = ns.ComposeAuraFilter("HARMFUL", settings) .. (settings.showLustDebuff and "|LUST" or "")
-                        local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, focusDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter
+                        local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, settings.debuffGrowth or "auto", settings.maxDebuffs or 10, focusDbCbOff, settings.debuffSize or 22, settings.debuffOffsetX or 0, settings.debuffOffsetY or 0, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "spx" .. (settings.debuffSpacingX or 1) .. "spy" .. (settings.debuffSpacingY or 1) .. debuffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                         if frame.Debuffs._lastDebuffKey ~= debuffKey then
                             frame.Debuffs._lastDebuffKey = debuffKey
                             ns.ApplyEUIAuraFilter(frame.Debuffs, "HARMFUL", settings)
@@ -10359,7 +10414,7 @@ local function ReloadFrames()
                             end
                         end
                         local buffFilter = ns.ComposeAuraFilter("HELPFUL", settings)
-                        local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 4, focusBfCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter
+                        local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, settings.buffGrowth or "auto", settings.maxBuffs or 4, focusBfCbOff, settings.buffSize or 22, settings.buffOffsetX or 0, settings.buffOffsetY or 0) .. "p" .. (settings.buffMaxPerRow or 0) .. "spx" .. (settings.buffSpacingX or 1) .. "spy" .. (settings.buffSpacingY or 1) .. buffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                         if frame.Buffs._lastBuffKey ~= buffKey then
                             frame.Buffs._lastBuffKey = buffKey
                             ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", settings)
@@ -10698,7 +10753,7 @@ local function ReloadFrames()
                         -- Physical-pixel icon spacing (folded into the key so a
                         -- spacing change re-anchors the stack on the next refresh).
                         local debuffSpacingVal = ns.GetBossDebuffSpacing(settings, simpleOn)
-                        local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, effGrowth, settings.maxDebuffs or 10, liveDbCbOff, effectiveDebuffSize, dbOffX, dbOffY, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "sp" .. debuffSpacingVal .. debuffFilter
+                        local debuffKey = string.format("%s%s%d%d%s%d%d%d%d%d%d", dia or "", dfp or "", dox or 0, doy or 0, effGrowth, settings.maxDebuffs or 10, liveDbCbOff, effectiveDebuffSize, dbOffX, dbOffY, settings.onlyPlayerDebuffs and 1 or 0) .. "p" .. (settings.debuffMaxPerRow or 0) .. "sp" .. debuffSpacingVal .. debuffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                         if frame.Debuffs._lastDebuffKey ~= debuffKey then
                             frame.Debuffs._lastDebuffKey = debuffKey
                             ns.ApplyEUIAuraFilter(frame.Debuffs, "HARMFUL", settings)
@@ -10790,10 +10845,12 @@ local function ReloadFrames()
                         -- Physical-pixel icon spacing (folded into the key so a
                         -- spacing change re-anchors the column on the next refresh).
                         local buffSpacingVal = ns.GetBossBuffSpacing(settings, simpleBuffOn)
-                        local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, bGrowthEff, settings.maxBuffs or 4, bossBfCbOff, effectiveBuffSize, bfOffX, bfOffY) .. "p" .. (settings.buffMaxPerRow or 0) .. "sp" .. buffSpacingVal .. buffFilter
+                        local buffKey = string.format("%s%s%d%d%s%d%d%d%d%d", bia or "", bfp or "", box or 0, boy or 0, bGrowthEff, settings.maxBuffs or 4, bossBfCbOff, effectiveBuffSize, bfOffX, bfOffY) .. "p" .. (settings.buffMaxPerRow or 0) .. "sp" .. buffSpacingVal .. buffFilter .. (settings.showAuraTooltips == false and "ttOff" or "")
                         if frame.Buffs._lastBuffKey ~= buffKey then
                             frame.Buffs._lastBuffKey = buffKey
-                            ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", {})  -- boss buffs: no filtering
+                            -- Boss buffs: no filtering (empty flag set), but the
+                            -- aura-tooltip toggle still travels.
+                            ns.ApplyEUIAuraFilter(frame.Buffs, "HELPFUL", { showAuraTooltips = settings.showAuraTooltips })
                             frame.Buffs.size = effectiveBuffSize
                             frame.Buffs.spacing = PP.FromPixels(buffSpacingVal)
                             frame.Buffs:ClearAllPoints()

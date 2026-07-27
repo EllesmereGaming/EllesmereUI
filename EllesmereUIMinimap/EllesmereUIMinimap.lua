@@ -4201,10 +4201,25 @@ local function ApplyMinimap()
         local host = GetFFD(minimap).borderHost
         if not host then
             host = CreateFrame("Frame", nil, minimap)
-            host:SetAllPoints(minimap)
             host:EnableMouse(false)
             GetFFD(minimap).borderHost = host
         end
+        -- Re-anchor on EVERY apply, not just on the create branch. This pass
+        -- queues the Minimap's reparent to UIParent a frame out (see above),
+        -- and a host anchored across that reparent keeps its stored points
+        -- while the engine never resolves them: GetPoint still reports
+        -- TOPLEFT/BOTTOMRIGHT against a valid Minimap, but the host comes out
+        -- 0x0 with IsRectValid false, so it -- and the backdrop anchored to
+        -- it -- draws nothing. Every other property (shown, visible, alpha,
+        -- parent, backdrop table, texture path) reads healthy in that state,
+        -- which is why it presented as a border setting that would not survive
+        -- a reload even though the stored value was never lost. Anchoring only
+        -- at creation made it permanent for the session, and whether it
+        -- happened came down to how much else was loading at login -- so it
+        -- tracked unrelated modules being enabled. Re-setting the points
+        -- forces the layout to recompute and is a no-op when they are fine.
+        host:ClearAllPoints()
+        host:SetAllPoints(minimap)
         -- Same level as the minimap keeps the border under all child buttons
         -- (matching the old strips-on-minimap rendering); Show Behind drops it
         -- under the map surface for the Shadow style.

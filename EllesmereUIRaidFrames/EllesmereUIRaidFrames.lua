@@ -879,10 +879,11 @@ ns._ResolveTooltipMode = function(s)
     return "outOfCombat"
 end
 
--- Whether raid-frame hover tooltips are allowed right now, per the "Show Raid
--- Frames Tooltip" mode + current combat state. Shared by the unit tooltip and
--- the buff/debuff aura-icon tooltips so one setting governs every raid-frame
--- tip (an aura tip is still gated by its own "Hide Tooltips" toggle on top).
+-- Whether the raid/party frame's UNIT tooltip is allowed right now, per the
+-- "Show Raid Frames Tooltip" mode + current combat state. Scope is the unit tip
+-- only: the buff/debuff aura-icon tips are governed solely by their own section's
+-- "Hide Tooltips" toggle, so turning the unit tooltip off never silently
+-- overrides an aura tooltip the user enabled elsewhere.
 function ns.RaidFrameTooltipAllowed(button)
     local fd = button and ns.GetFFD and ns.GetFFD(button)
     local s = (fd and (fd._isParty and ns._scaledPartyProxy
@@ -3530,8 +3531,11 @@ local function StyleButton(button)
                 fd._hovered = true
                 if fd.ApplyBorderColor then fd.ApplyBorderColor() end
             end
-            -- Aura tooltip honors the same combat-visibility mode as the unit tip.
-            if not ns.RaidFrameTooltipAllowed(b) then return end
+            -- Governed ONLY by the Debuff Display "Hide Tooltips" toggle (the
+            -- icon is mouse-transparent while that is on, so reaching here means
+            -- the user asked for this tip). The "Show Raid Frames Tooltip" mode
+            -- covers the UNIT tooltip and must not veto an aura tip the user
+            -- explicitly enabled in a different section.
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             if GameTooltip.SetUnitAuraByAuraInstanceID then
                 GameTooltip:SetUnitAuraByAuraInstanceID(u, iid)
@@ -3936,23 +3940,18 @@ local function StyleButton(button)
                 if mf ~= self and mf._tipIID ~= nil then return end
             end
         end
-        -- Read through the party-aware proxy (like every other render path), not
-        -- raw db.profile -- otherwise party_<key> overrides written by a custom
-        -- party "Range & Tooltip" section are never seen and the tooltip mode
-        -- dropdown appears to do nothing on party frames.
-        local s = fd._isParty and ns._scaledPartyProxy or (fd._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
-        -- Raid/party frame tooltips are governed by the "Show Raid Frames
+        -- Raid/party frame UNIT tooltips are governed by the "Show Raid Frames
         -- Tooltip" mode, and ONLY these frames -- no other unit tooltips are
-        -- touched. never = no tooltip; outOfCombat = hidden in any combat;
-        -- outOfBossCombat = hidden during an encounter; always = always shown.
-        -- The peek modifier (Blizz UI Enhanced) lifts the mode while held so a
-        -- hidden tip can be read on hover, in step with the global tooltips.
-        if not (EllesmereUI._tooltipPeekHeld and EllesmereUI._tooltipPeekHeld()) then
-            local ttMode = ns._ResolveTooltipMode(s)
-            if ttMode == "never" then return end
-            if ttMode == "outOfCombat" and inCombat then return end
-            if ttMode == "outOfBossCombat" and ns._inBossCombat then return end
-        end
+        -- touched, and the aura-icon tips have their own toggles. never = no
+        -- tooltip; outOfCombat = hidden in any combat; outOfBossCombat = hidden
+        -- during an encounter; always = always shown. The peek modifier (Blizz
+        -- UI Enhanced) lifts the mode while held so a hidden tip can be read on
+        -- hover, in step with the global tooltips. The helper reads through the
+        -- party-aware proxy (like every other render path), not raw db.profile
+        -- -- otherwise party_<key> overrides written by a custom party "Range &
+        -- Tooltip" section are never seen and the dropdown appears to do
+        -- nothing on party frames.
+        if not ns.RaidFrameTooltipAllowed(self) then return end
         local u = self:GetAttribute("unit")
         if u and UnitExists(u) then
             GameTooltip_SetDefaultAnchor(GameTooltip, self)
@@ -6043,8 +6042,9 @@ end
 
 function ERF:UpdateAllFrames()
     UpdateAllButtons()
-    -- Party / Extra / Boss frames are NOT in `allButtons`, so UpdateAllButtons
-    -- misses them. Repaint their health (fill + background) too, so colour and
+    -- Party and Boss frames are NOT in `allButtons` (Extra frames ARE, see
+    -- XF.EnsureBuilt), so UpdateAllButtons misses them. Repaint their health
+    -- (fill + background) too, so colour and
     -- Dark Mode changes pushed through ApplyColorsToOUF reach every frame type,
     -- not just raid. _UpdateButtonHealth is lightweight + combat-safe and self-
     -- guards on unstyled / non-existent units.
@@ -9564,6 +9564,9 @@ local function UpdateVisibility()
     end
     local wasVisible = framesVisible
     framesVisible = visible
+    -- Raid frames coming or going is the one change a tracker cannot learn from
+    -- its own roster events (mirrors the party call in _UpdatePartyVisibility).
+    if ns._NotifyTrackerProviders then ns._NotifyTrackerProviders() end
 
     -- Update showSolo attribute on all headers, but ONLY when it actually
     -- differs from the header's current value. Re-setting a SecureGroupHeader
@@ -15728,18 +15731,35 @@ end
 -- from a public provider API. EUI frames are custom, so where a provider API
 -- exists we hand it our buttons. The unit lives on the secure "unit" attribute
 -- (read via GetAttribute), so no plain field on the button is required.
+--
+-- Name-scanning trackers (anything on LibGetFrame) need nothing from us: our
+-- raid, party, boss and unit-frame name patterns are in that library's default
+-- priority list upstream, so they resolve our frames on their own.
 
--- Currently-visible EUI party unit buttons that have a unit assigned. Party
--- only by design -- raid frames are intentionally not exposed to trackers.
+-- Currently-visible EUI unit buttons that have a unit assigned -- party AND
+-- raid. Both sets are pre-created once (the startingIndex -4 / Show / 1 trick)
+-- and never destroyed or recycled: the secure header only reassigns the "unit"
+-- attribute and shows or hides. So a collected list is exactly as stable for
+-- raid as it is for party, and the IsVisible + unit test is what keeps a button
+-- the header has parked out of the result.
+--
+-- Extra frames are skipped. They are deliberate DUPLICATES of units already
+-- shown on a real raid button, so handing a tracker both leaves it choosing
+-- between two frames claiming one unit. Boss frames never join allButtons and
+-- stay out for the same reason: they are not party/raid unit frames.
 ns._CollectTrackerFrames = function()
     local out = {}
-    if ns._partyAllButtons then
-        for _, btn in ipairs(ns._partyAllButtons) do
-            if btn:IsVisible() and btn:GetAttribute("unit") then
+    local function Collect(list)
+        if not list then return end
+        for _, btn in ipairs(list) do
+            if btn:IsVisible() and btn:GetAttribute("unit")
+               and not GetFFD(btn)._isExtra then
                 out[#out + 1] = btn
             end
         end
     end
+    Collect(ns._partyAllButtons)
+    Collect(allButtons)
     return out
 end
 

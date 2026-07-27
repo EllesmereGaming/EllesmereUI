@@ -691,6 +691,13 @@ local GetPositionDB
 -------------------------------------------------------------------------------
 local function GetBarGrowDirActual(barKey)
     if barKey == "EQT_Tracker" then return "DOWN" end
+    -- Through the owning module's resolver, so the menu and the layout can never
+    -- disagree about which direction is in effect (it clamps to the current
+    -- orientation on read rather than persisting the clamp).
+    if barKey == "ERB_TotemBar" then
+        if EllesmereUI.GetTotemGrowDir then return (EllesmereUI.GetTotemGrowDir()) end
+        return "RIGHT"
+    end
     if barKey:sub(1, 4) == "CDM_" then
         local rawKey = barKey:sub(5)
         local cdm = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
@@ -721,6 +728,12 @@ end
 -------------------------------------------------------------------------------
 local function GetBarGrowDir(barKey)
     if barKey == "EQT_Tracker" then return "DOWN" end
+    if barKey == "ERB_TotemBar" then
+        if not EllesmereUI.GetTotemGrowDir then return "RIGHT" end
+        local g = EllesmereUI.GetTotemGrowDir()
+        if g == "CENTER" then return nil end   -- centered = no direction indicator
+        return g
+    end
     if barKey:sub(1, 4) == "CDM_" then
         local rawKey = barKey:sub(5)
         local cdm = EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)
@@ -6034,6 +6047,7 @@ local function CreateMover(barKey)
         MainBar = true, Bar2 = true, Bar3 = true, Bar4 = true,
         Bar5 = true, Bar6 = true, Bar7 = true, Bar8 = true,
         StanceBar = true, PetBar = true,
+        ERB_TotemBar = true,   -- totem bar: align active icons left/right/center
     }
     local canGrow = _GROW_KEYS[barKey] or barKey:sub(1, 4) == "CDM_"
 
@@ -6733,6 +6747,11 @@ local function CreateMover(barKey)
                     if b3.key == barKey:sub(5) then isVert = b3.verticalOrientation == true; break end
                 end
             end
+        elseif barKey == "ERB_TotemBar" then
+            if EllesmereUI.GetTotemGrowDir then
+                local _, v3 = EllesmereUI.GetTotemGrowDir()
+                isVert = v3
+            end
         else
             local eab3 = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
             local s3 = eab3 and eab3.db and eab3.db.profile and eab3.db.profile.bars and eab3.db.profile.bars[barKey]
@@ -6758,6 +6777,12 @@ local function CreateMover(barKey)
                     if b4.key == barKey:sub(5) then currentVal = b4.growDirection or "CENTER"; break end
                 end
             end
+        elseif barKey == "ERB_TotemBar" then
+            -- Clamped read: a direction left over from the other orientation is
+            -- never stored back, so the menu must resolve it the same way the
+            -- layout does or it would highlight an option that is not offered.
+            currentVal = EllesmereUI.GetTotemGrowDir and EllesmereUI.GetTotemGrowDir()
+                or (isVert and "DOWN" or "RIGHT")
         else
             local eab4 = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)
             local s4 = eab4 and eab4.db and eab4.db.profile and eab4.db.profile.bars
@@ -6837,6 +6862,12 @@ local function CreateMover(barKey)
                         if EllesmereUI.LayoutCDMBar then
                             EllesmereUI.LayoutCDMBar(rawKey)
                         end
+                        EllesmereUI.RecenterBarAnchor(barKey)
+                    elseif barKey == "ERB_TotemBar" then
+                        local erb = EllesmereUI.Lite.GetAddon("EllesmereUIResourceBars", true)
+                        local tb = erb and erb.db and erb.db.profile and erb.db.profile.totemBar
+                        if tb then tb.growDirection = sideVal end
+                        if EllesmereUI.LayoutTotemBar then EllesmereUI.LayoutTotemBar() end
                         EllesmereUI.RecenterBarAnchor(barKey)
                     else
                         local eab = EllesmereUI.Lite.GetAddon("EllesmereUIActionBars", true)

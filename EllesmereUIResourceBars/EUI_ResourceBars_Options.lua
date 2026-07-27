@@ -5147,7 +5147,7 @@ initFrame:SetScript("OnEvent", function(self)
         }, { disabled = function() local c = cfg(); return (not c) or (not c.enabled) or c.darkTheme end,
              disabledTooltip = function()
                  local c = cfg()
-                 if c and c.darkTheme then return "This option requires Dark Mode Class Resource to be disabled" end
+                 if c and c.darkTheme then return "This option requires Dark Mode Class Resource to be disabled. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors." end
                  return "Class Resource"
              end })
         -- Inline cog for Charged Combo Point color (on Fill Color)
@@ -7396,7 +7396,7 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Force a full rebuild so the Background label re-renders.
                   EllesmereUI:RefreshPage(true)
               end },
-            { type = "slider", text = bgLabel, min = 0, max = 100, step = 1,
+            { type = "slider", text = bgLabel, min = 0, max = 100, step = 1, trackWidth = 120,
               getValue = function()
                   local p = DB(); return math.floor(((p and p.health.bgA or 0.75) * 100) + 0.5)
               end,

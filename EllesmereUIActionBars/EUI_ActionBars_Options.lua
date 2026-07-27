@@ -1530,7 +1530,7 @@ initFrame:SetScript("OnEvent", function(self)
                       if ns.ApplyDataBarLayout then ns.ApplyDataBarLayout(barKey) end
                   end });  y = y - h
 
-            -- Click Through | (empty)
+            -- Click Through | Text Size
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Click Through",
                   tooltip="Mouse clicks pass through the bar. Disable to allow the mouseover tooltip.",
@@ -1539,7 +1539,12 @@ initFrame:SetScript("OnEvent", function(self)
                       S().clickThrough = v
                       EAB:ApplyClickThroughForBar(barKey)
                   end },
-                { type="label", text="" });  y = y - h
+                { type="slider", text="Text Size", min=6, max=24, step=1,
+                  getValue=function() return S().textSize or 9 end,
+                  setValue=function(v)
+                      S().textSize = v
+                      if ns.ApplyDataBarLayout then ns.ApplyDataBarLayout(barKey) end
+                  end });  y = y - h
 
             return visRow, sizeRow
         end
@@ -2385,7 +2390,13 @@ initFrame:SetScript("OnEvent", function(self)
                 MakeCogBtn(rightRgn, growCogShow)
             end
 
-            -- Row 3: Vertical Orientation
+            -- Row 3: Vertical Orientation | Icon Order
+            -- Icon Order supersedes the old Reverse Icon Order toggle:
+            -- "default"/"reversed" map exactly onto the legacy boolean (kept
+            -- in sync so older readers of the flag stay correct); the corner
+            -- values place button 1 in that corner of the bar's grid.
+            -- (Restored 2026-07-26: the row was dropped by the Bar Background
+            -- section refactor; the iconOrder runtime never went away.)
             do
                 local orientRow
                 orientRow, h = W:DualRow(parent, y,
@@ -2405,7 +2416,22 @@ initFrame:SetScript("OnEvent", function(self)
                           EllesmereUI:RefreshPage()
                       end,
                       tooltip="Toggle between horizontal and vertical bar layout." },
-                    { type="label", text="" });  y = y - h
+                    { type="dropdown", text="Icon Order",
+                      tooltip="Order of the buttons on this bar; corner options place the first button in that corner.",
+                      values={ default="Default", reversed="Reversed", TOPLEFT="Top Left", TOPRIGHT="Top Right", BOTTOMLEFT="Bottom Left", BOTTOMRIGHT="Bottom Right" },
+                      order={ "default", "reversed", "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" },
+                      getValue=function()
+                          local v = SVal("iconOrder", nil)
+                          if v == nil then
+                              v = SVal("reverseIconOrder", false) and "reversed" or "default"
+                          end
+                          return v
+                      end,
+                      setValue=function(v)
+                          SDB().reverseIconOrder = (v == "reversed")
+                          SSet("iconOrder", v, function(k) EAB:ApplyIconRowOverrides(k) end)
+                          SUpdatePreviewAndResize()
+                      end });  y = y - h
                 -- Sync icon: Orientation (left)
                 do
                     local rgn = orientRow._leftRegion
@@ -3833,7 +3859,8 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
             end
 
-            -- Row 4: Icon Background (opacity slider + inline swatch) | (blank)
+            -- Row 4: Icon Background (opacity slider + inline swatch) |
+            --        One Button Assist Icon (toggle + inline cog)
             local slotBgRow
             slotBgRow, h = W:DualRow(parent, y,
                 { type="slider", text="Icon Background", min=0, max=100, step=1,
@@ -3848,7 +3875,29 @@ initFrame:SetScript("OnEvent", function(self)
                       EAB.db.profile.slotBgOpacity = v
                       EAB:ApplySlotBackgroundColor()
                   end },
-                { type="label", text="" });  y = y - h
+                { type="toggle", text="One Button Assist Icon",
+                  tooltip="Shows the rotation-helper ring on the button holding the One Button Assist action.",
+                  getValue=function() return EAB.db.profile.obaIconEnabled ~= false end,
+                  setValue=function(v)
+                      EAB.db.profile.obaIconEnabled = v
+                      if ns.RefreshAssistSpinners then ns.RefreshAssistSpinners() end
+                  end });  y = y - h
+            -- Inline cog on One Button Assist Icon: ring outset slider.
+            do
+                local rgn = slotBgRow._rightRegion
+                local _, obaCogShow = EllesmereUI.BuildCogPopup({
+                    title = "One Button Assist Icon",
+                    rows = {
+                        { type="slider", label="Icon Outset", min=0, max=30, step=1,
+                          get=function() return EAB.db.profile.obaIconOutset or 9 end,
+                          set=function(v)
+                              EAB.db.profile.obaIconOutset = v
+                              if ns.RefreshAssistSpinners then ns.RefreshAssistSpinners() end
+                          end },
+                    },
+                })
+                MakeCogBtn(rgn, obaCogShow)
+            end
             -- Inline swatch: icon background color (left region). Dimmed while
             -- Blizzard style is on (no slot background exists) or at 0 opacity.
             do

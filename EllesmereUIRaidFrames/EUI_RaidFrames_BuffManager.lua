@@ -897,9 +897,10 @@ local BMSIMPLE_CAP   = 10  -- max buffs the Simple Setup grid can show per butto
 local function BM_TooltipOnEnter(self)
     local u, iid = self._tipUnit, self._tipIID
     if not u or not iid or issecretvalue(iid) then return end
-    -- Honor the same "Show Raid Frames Tooltip" combat-visibility mode as the
-    -- unit/debuff tooltips so one setting governs every raid-frame hover tip.
-    if ns.RaidFrameTooltipAllowed and not ns.RaidFrameTooltipAllowed(self._ownerButton) then return end
+    -- Governed ONLY by the buff "Hide Tooltips" toggle (BM_SetTipTarget leaves
+    -- the frame mouse-transparent while that is on). The "Show Raid Frames
+    -- Tooltip" mode covers the UNIT tooltip and must not veto an aura tip the
+    -- user explicitly enabled in a different section.
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     if GameTooltip.SetUnitAuraByAuraInstanceID then
         GameTooltip:SetUnitAuraByAuraInstanceID(u, iid)
@@ -926,8 +927,11 @@ end
 
 -- Stash the hover target (unit + aura instance) as a frame is assigned an aura,
 -- and toggle mouse interactivity to match the buff "Hide Tooltips" setting. Read
--- live so a combat-time toggle applies on the next aura event. Default (nil) =
--- tooltips shown. A missing/secret instance id disables the hover.
+-- live so a combat-time toggle applies on the next aura event. The default is
+-- HIDDEN (buffHideTooltips = true in the defaults table), so the frame stays
+-- mouse-transparent until the user opts in -- which is what makes the tooltip
+-- handler's own gate the only one it needs. The `not prof` fallback only covers
+-- a profile-less early call. A missing/secret instance id disables the hover.
 local function BM_SetTipTarget(f, unit, iid)
     f._tipUnit = unit
     f._tipIID  = iid

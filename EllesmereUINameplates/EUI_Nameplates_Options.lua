@@ -1230,6 +1230,8 @@ initFrame:SetScript("OnEvent", function(self)
                 castParts.iconFrame:Hide()
             end
             castParts.spark:SetHeight(castH)
+            -- Show Spark (Cast Color cog): default on; explicit false hides it.
+            castParts.spark:SetShown(DBVal("castBarSparkEnabled") ~= false)
 
             -- Name font + color + position (font size set per-slot below)
             local nameYOff = DBVal("nameYOffset") or defaults.nameYOffset
@@ -2397,8 +2399,12 @@ initFrame:SetScript("OnEvent", function(self)
                         local p = DB()
                         local nameOnly = (p and p.friendlyNameOnly ~= false)
                         local classColor = (p and p.classColorFriendly ~= false)
-                        pcall(SetCVar, "nameplateShowFriendlyPlayers", 1)
-                        pcall(SetCVar, "nameplateShowFriends", 1)
+                        -- Explicit intent: this is one of the two places EUI is
+                        -- allowed to force friendly plates visible (login no
+                        -- longer does). Also clears any follower-dungeon capture.
+                        if ns.ForceFriendlyPlayerCVarsOn then
+                            ns.ForceFriendlyPlayerCVarsOn()
+                        end
                         pcall(SetCVar, "UnitNameFriendlyPlayerName", 1)
                         pcall(SetCVar, "nameplateShowOnlyNameForFriendlyPlayerUnits", nameOnly and 1 or 0)
                         pcall(SetCVar, "ShowClassColorInFriendlyNameplate", classColor and 1 or 0)
@@ -2434,6 +2440,11 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                 DB().friendlyNameOnly = v
                 if SetCVar then pcall(SetCVar, "nameplateShowOnlyNameForFriendlyPlayerUnits", v and 1 or 0) end
+                -- Turning name-only ON means the user wants to SEE friendly
+                -- plates, so this is the second sanctioned force-visible point.
+                if v and ns.ForceFriendlyPlayerCVarsOn then
+                    ns.ForceFriendlyPlayerCVarsOn()
+                end
                 if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
                 EllesmereUI:RefreshPage()
               end,
@@ -6853,6 +6864,20 @@ initFrame:SetScript("OnEvent", function(self)
                         DB().castBarShieldEnabled = v
                         RefreshAllPlates()
                       end },
+                    { type = "toggle", label = "Show Spark",
+                      tooltip = "Show the bright spark at the leading edge of the cast bar fill.",
+                      get = function()
+                        local db = DB()
+                        if db and db.castBarSparkEnabled ~= nil then return db.castBarSparkEnabled end
+                        return defaults.castBarSparkEnabled ~= false
+                      end,
+                      set = function(v)
+                        DB().castBarSparkEnabled = v
+                        for _, plate in pairs(plates) do
+                            if plate.castSpark then plate.castSpark:SetShown(v ~= false) end
+                        end
+                        UpdatePreview()
+                      end },
                     { type = "toggle", label = "Important Cast Color",
                       tooltip = "Tint the cast bar with the Important colour when the enemy casts a spell the game flags as important. Overrides the Interruptible Cast colour; your interrupt being on cooldown still takes priority.",
                       get = function()
@@ -9435,6 +9460,8 @@ initFrame:SetScript("OnEvent", function(self)
             spark:SetSize(8, BAR_H)
             spark:SetPoint("CENTER", cast:GetStatusBarTexture(), "RIGHT", 0, 0)
             spark:SetBlendMode("ADD")
+            -- Show Spark (Cast Color cog): default on; explicit false hides it.
+            spark:SetShown(DBVal("castBarSparkEnabled") ~= false)
 
             -- Cast icon frame (to the left) no border for Colors tab previews
             local iconFrame = CreateFrame("Frame", nil, cast)

@@ -315,7 +315,8 @@ local function StyleTableFP(st, font)
         st.stackSize, CK(st.stackColor), st.stackPos, st.stackOffX, st.stackOffY,
         b and b.texture, b and b.size, b and b[1], b and b[2], b and b[3], b and b[4],
         b and b.offsetX, b and b.offsetY, b and b.shiftX, b and b.shiftY,
-        b and b.behind, b and b.behindUnitFrame, b and b.unitFrameLevel)
+        b and b.behind, b and b.behindUnitFrame, b and b.unitFrameLevel,
+        st.noTooltips)
 end
 
 -- Effective engine group key: own-only variants are SEPARATE groups
@@ -427,6 +428,9 @@ local function BuildStyle(unit, base, s, unitFrame)
         stackOffX = s[p .. "StackTextOffsetX"] or 0,
         stackOffY = s[p .. "StackTextOffsetY"] or 0,
         cancelButtons = (unit == "player" and isBuff) and "RightButtonUp" or nil,
+        -- Show Tooltip For -> Buffs & Debuffs (per-unit, default on). Motion
+        -- goes off with the tooltips; clicks (player buff cancel) unaffected.
+        noTooltips = (s.showAuraTooltips == false) or nil,
         -- Dispel-type border recolor (per-unit debuffDispelBorder): the engine
         -- shows the ring only on typed (dispellable) debuffs and picks the
         -- dispel color itself -- the user palette cannot apply under secrecy

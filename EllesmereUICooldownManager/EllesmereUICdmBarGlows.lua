@@ -395,6 +395,21 @@ SlashCmdList.EUIBGDEBUG = function(msg)
                     -- THE aura flags our cache keys off:
                     print(("    AURA: wasSetFromAura=%s auraInstanceID=%s  shown=%s"):format(
                         _safe(frame.wasSetFromAura), _safe(frame.auraInstanceID), tostring(frame:IsShown())))
+                    -- THE signal the per-spell Active State Glow keys off: a
+                    -- non-zero red channel on Blizzard's swipe colour IS the
+                    -- active state. r=0 means Blizzard never entered it, so no
+                    -- amount of EUI logic can light the glow. Printed with our
+                    -- own live glow state so a stuck flag is visible too.
+                    local sc = frame.cooldownSwipeColor
+                    local scR = "<none>"
+                    if sc and type(sc) ~= "number" and sc.GetRGBA then
+                        scR = _safe(sc:GetRGBA())
+                    end
+                    local fdA = ns._hookFrameData and ns._hookFrameData[frame]
+                    print(("    ACTIVE-GLOW: swipeR=%s activeGlowOn=%s glowRunning=%s gate=%s"):format(
+                        scR, tostring(fdA and fdA._activeGlowOn or false),
+                        tostring(fdA and fdA.glowOverlay and fdA.glowOverlay._glowActive or false),
+                        tostring(ns._cdmAnyActiveGlow or false)))
                     -- COOLDOWN/duration: pet-summons may show "active" only via this.
                     if frame.Cooldown and frame.Cooldown.GetCooldownTimes then
                         local ok, s, d = pcall(frame.Cooldown.GetCooldownTimes, frame.Cooldown)

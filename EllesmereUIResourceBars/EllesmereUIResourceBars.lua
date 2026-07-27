@@ -1,4 +1,4 @@
-﻿-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
 --  EllesmereUIResourceBars.lua
 --  Custom class resource, health, and mana bar display
 --  Features: Health bar, primary resource bar (mana/rage/energy/etc),
@@ -489,7 +489,16 @@ local function GetSecondaryResource()
         return { power = "BREWMASTER_STAGGER", max = mx, type = "bar" }
     elseif classFile == "WARLOCK" then
         local mx = UnitPowerMax("player", PT.SOUL_SHARDS)
-        return { power = PT.SOUL_SHARDS, max = (not issecretvalue or not issecretvalue(mx)) and mx or 5, type = "points" }
+        -- frac: this resource renders SUB-UNIT values, so its value can move
+        -- without the whole-unit count changing. Destruction (spec index 3 =
+        -- specID 267, the same spec the partial-pip render checks) spends and
+        -- gains shard FRAGMENTS in tenths. The flag drives three things that
+        -- would otherwise each need their own special case: the value guard in
+        -- UpdateSecondaryResource compares the fragment read, and ArmTick /
+        -- PollTick keep polling, because fragment DECAY out of combat is not
+        -- reliably event-driven (the poll's original no-event mandate).
+        return { power = PT.SOUL_SHARDS, max = (not issecretvalue or not issecretvalue(mx)) and mx or 5,
+                 type = "points", frac = (spec == 3) or nil }
     elseif classFile == "DEATHKNIGHT" then
         return { power = PT.RUNES, max = 6, type = "runes" }
     elseif classFile == "EVOKER" then
@@ -4527,8 +4536,26 @@ local function UpdateSecondaryResource()
     -- changes on aura events while the value stands still, so an early-out
     -- would strand the bar on the wrong colour. Secret values bail out too --
     -- they cannot be compared. Non-"points" resources never reach this branch.
+    --
+    -- THE GUARD MUST COMPARE THE VALUE THE RENDER CONSUMES, not merely the
+    -- whole-unit count. Destruction soul shards move in tenths (fragments) and
+    -- the partial-pip fill below is driven by the fragment read, so guarding on
+    -- the whole count swallowed every fragment change: fragments never appeared
+    -- in combat and never drained out of combat (tester-reported). Reading the
+    -- unmodified value is correct for all three warlock specs -- Affliction and
+    -- Demonology step it in whole shards, making it strictly no less sensitive
+    -- than the plain read. Essence is the other fractional resource and cannot
+    -- use this (UnitPower has no partial for it), hence its timer exemption
+    -- below. Any future fractional resource belongs here, not in a new
+    -- exemption.
     if cachedSecondary.type == "points" then
-        local _evCur = UnitPower("player", powerType)
+        local _evCur
+        if cachedSecondary.frac then
+            _evCur = UnitPower("player", powerType, true)
+            if _evCur == nil then _evCur = UnitPower("player", powerType) end
+        else
+            _evCur = UnitPower("player", powerType)
+        end
         if not (issecretvalue and issecretvalue(_evCur)) then
             local stb = ns.STB
             if not stb or stb.gen ~= ns.CfgGen then
@@ -5915,7 +5942,11 @@ ns.PollTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()   
     end
     ns._pollFlip = not ns._pollFlip
     if ns._pollFlip then return true end
-    if typ == "runes" or typ == "custom" or typ == "bar" then
+    if typ == "runes" or typ == "custom" or typ == "bar" or cs.frac then
+        -- cs.frac (Destruction shard fragments): sub-unit movement, including
+        -- out-of-combat decay, is not reliably event-driven. The fragment-aware
+        -- value guard makes an unchanged read cheap, so this costs one
+        -- UnitPower per fire when nothing moved.
         UpdateSecondaryResource()
         return true
     end
@@ -5952,7 +5983,7 @@ function ns.ArmTick()
         if pwr == "IRONFUR_BAR" or pwr == "IGNOREPAIN_BAR" then
             ns.MotionTick.Start()
         end
-        if typ == "runes" or typ == "custom" or typ == "bar"
+        if typ == "runes" or typ == "custom" or typ == "bar" or cs.frac
            or (_essenceNextTick and pwr == PT.ESSENCE) then
             ns.PollTick.Start()
         else
@@ -7602,6 +7633,32 @@ local function GetTotemSettings()
     return ERB.db and ERB.db.profile and ERB.db.profile.totemBar
 end
 
+-- Effective totem-bar grow direction, clamped to the CURRENT orientation.
+-- Horizontal: RIGHT (default, the original left-anchored/grows-right layout) /
+-- LEFT (fixed right edge, grows left) / CENTER (group centred). Vertical: DOWN
+-- (default, the original top-to-bottom) / UP (fixed bottom edge) / CENTER.
+--
+-- The clamp is applied on READ and never written back. A direction that is
+-- valid for the other orientation -- LEFT while vertical, say -- is stale, not
+-- wrong: persisting the clamp would overwrite it, so flipping orientation and
+-- back would silently destroy the user's horizontal choice. Reading through
+-- one helper instead keeps the stored value intact and stops the layout and
+-- unlock mode's menu from ever disagreeing about what is in effect.
+--
+-- Unset (the state every existing profile is in) resolves to the orientation
+-- default, which reproduces the pre-setting layout exactly.
+function EllesmereUI.GetTotemGrowDir()
+    local tb = GetTotemSettings()
+    local vertical = tb and tb.orientation == "VERTICAL"
+    local dir = (tb and tb.growDirection or (vertical and "DOWN" or "RIGHT")):upper()
+    if vertical then
+        if dir ~= "UP" and dir ~= "DOWN" and dir ~= "CENTER" then dir = "DOWN" end
+    else
+        if dir ~= "LEFT" and dir ~= "RIGHT" and dir ~= "CENTER" then dir = "RIGHT" end
+    end
+    return dir, vertical
+end
+
 -- Cached layout state to avoid redundant work on every Update hook
 local _totemLayoutCache = {}
 local _totemActiveSet = {}  -- reusable set for O(1) cleanup lookups
@@ -7639,8 +7696,17 @@ local function LayoutTotemBar()
     -- Reparent and position TotemFrame every call (Blizzard's Update can reset these)
     TotemFrame:SetParent(totemBarFrame)
     TotemFrame:SetFrameStrata("HIGH")
+    -- Effective grow direction, resolved through the shared helper below so the
+    -- layout and unlock mode's menu can never disagree about it.
+    local _growDir = EllesmereUI.GetTotemGrowDir()
     TotemFrame:ClearAllPoints()
-    TotemFrame:SetPoint(vertical and "TOP" or "LEFT", totemBarFrame, vertical and "TOP" or "LEFT", 0, 0)
+    if vertical then
+        TotemFrame:SetPoint(_growDir == "UP" and "BOTTOM" or "TOP", totemBarFrame,
+            _growDir == "UP" and "BOTTOM" or "TOP", 0, 0)   -- DOWN/CENTER anchored TOP (CENTER re-anchored below)
+    else
+        TotemFrame:SetPoint(_growDir == "LEFT" and "RIGHT" or "LEFT", totemBarFrame,
+            _growDir == "LEFT" and "RIGHT" or "LEFT", 0, 0)  -- RIGHT/CENTER anchored LEFT (CENTER re-anchored below)
+    end
     TotemFrame:Show()
 
     -- Only re-apply scale when setting changed
@@ -7663,6 +7729,24 @@ local function LayoutTotemBar()
     -- Trim stale entries
     for i = count + 1, #buttons do buttons[i] = nil end
 
+    -- CENTER grow: re-anchor TotemFrame so the icon group is centred on the frame.
+    -- `total` is the group's VISUAL extent (iconSize and spacing are both screen
+    -- units), but SetPoint offsets land in the anchored frame's own scale space
+    -- and TotemFrame carries SetScale(iconScale) -- so the offset must be divided
+    -- by that scale, exactly like `spacing / iconScale` below. Without it the
+    -- group sits at iconScale of the intended shift (~81% at the default 30/37),
+    -- off-centre by an error that grows with every extra totem.
+    if _growDir == "CENTER" and count > 0 then
+        local total = count * iconSize + math.max(0, count - 1) * spacing
+        local half = (iconScale > 0) and (total / (2 * iconScale)) or (total / 2)
+        TotemFrame:ClearAllPoints()
+        if vertical then
+            TotemFrame:SetPoint("TOP", totemBarFrame, "CENTER", 0, half)
+        else
+            TotemFrame:SetPoint("LEFT", totemBarFrame, "CENTER", -half, 0)
+        end
+    end
+
     local scaledSpacing = spacing / iconScale
     local zoom = 0.055
     local timerSize = tb.timerSize or 11
@@ -7676,9 +7760,21 @@ local function LayoutTotemBar()
 
         btn:ClearAllPoints()
         if i == 1 then
-            btn:SetPoint(vertical and "TOP" or "LEFT", TotemFrame, vertical and "TOP" or "LEFT", 0, 0)
+            if vertical then
+                local a = (_growDir == "UP") and "BOTTOM" or "TOP"
+                btn:SetPoint(a, TotemFrame, a, 0, 0)
+            else
+                local a = (_growDir == "LEFT") and "RIGHT" or "LEFT"
+                btn:SetPoint(a, TotemFrame, a, 0, 0)
+            end
         elseif vertical then
-            btn:SetPoint("TOP", buttons[i - 1], "BOTTOM", 0, -scaledSpacing)
+            if _growDir == "UP" then
+                btn:SetPoint("BOTTOM", buttons[i - 1], "TOP", 0, scaledSpacing)
+            else
+                btn:SetPoint("TOP", buttons[i - 1], "BOTTOM", 0, -scaledSpacing)
+            end
+        elseif _growDir == "LEFT" then
+            btn:SetPoint("RIGHT", buttons[i - 1], "LEFT", -scaledSpacing, 0)
         else
             btn:SetPoint("LEFT", buttons[i - 1], "RIGHT", scaledSpacing, 0)
         end
@@ -7772,6 +7868,10 @@ local function LayoutTotemBar()
         totemBarFrame:SetSize(maxDim, iconSize)
     end
 end
+
+-- Expose so unlock-mode's grow-direction menu can re-run the layout after
+-- changing totemBar.growDirection (LayoutTotemBar is file-local).
+EllesmereUI.LayoutTotemBar = LayoutTotemBar
 
 local function BuildTotemBar()
     local tb = GetTotemSettings()
@@ -8377,10 +8477,20 @@ function ERB:OnInitialize()
         if mode ~= "Up" and mode ~= "Down" then return 0 end
         -- Fires whenever the class resource bar leaves an empty slot: hidden via
         -- the "Show Class Resource" toggle (enabled == false), disabled for the
-        -- CURRENT spec via the spec picker, or the spec has no class resource.
+        -- CURRENT spec via the spec picker, disabled for the CURRENT DRUID FORM
+        -- via the per-stance toggles, or the spec has no class resource.
         -- The frame is now created unconditionally (zero alpha when off), so there
         -- is always a target to anchor to -- mirrors ResolveShiftDirPower.
-        if sp.enabled ~= false and not IsSpecDisabled(sp) and GetSecondaryResource() then return 0 end
+        --
+        -- The form test must match the visibility pass EXACTLY, second argument
+        -- included: isClassResource exempts Moonkin forms, whose Astral Power IS
+        -- this bar. Omitting it here was the bug -- a form-hidden bar left its
+        -- empty slot behind because the shift never fired. Non-druids and druids
+        -- with no per-form disables short-circuit to false inside the helper, so
+        -- nothing changes for them.
+        if sp.enabled ~= false and not IsSpecDisabled(sp)
+           and not _G._ERB_BarHiddenByForm(sp, true)
+           and GetSecondaryResource() then return 0 end
         return (mode == "Up") and 1 or -1
     end
     local function ResolveShiftDirPower()
@@ -8389,12 +8499,20 @@ function ERB:OnInitialize()
         local mode = pp.shiftElementsIfNoPower
         if mode ~= "Up" and mode ~= "Down" then return 0 end
         -- Fires whenever the power bar leaves an empty slot: globally disabled,
-        -- disabled for the CURRENT spec via the spec picker, or the spec has no
+        -- disabled for the CURRENT spec via the spec picker, disabled for the
+        -- CURRENT DRUID FORM via the per-form toggles, or the spec has no
         -- primary power. The power frame is created unconditionally and kept at
         -- full height / zero alpha when not shown, so anchored children and the
         -- shift magnitude (target height) stay correct. Only an enabled,
-        -- spec-allowed bar that actually has power suppresses the shift.
-        if pp.enabled ~= false and not IsSpecDisabled(pp) and GetPrimaryPowerType() then return 0 end
+        -- spec-allowed, form-allowed bar that actually has power suppresses the
+        -- shift.
+        --
+        -- No isClassResource argument here: the Moonkin exemption belongs to the
+        -- class resource bar, not the power bar -- again matching the visibility
+        -- pass verbatim. Non-druids short-circuit inside the helper.
+        if pp.enabled ~= false and not IsSpecDisabled(pp)
+           and not _G._ERB_BarHiddenByForm(pp)
+           and GetPrimaryPowerType() then return 0 end
         return (mode == "Up") and 1 or -1
     end
     -- Consulted inside ApplyAnchorPosition. Returns 0 while unlock mode is

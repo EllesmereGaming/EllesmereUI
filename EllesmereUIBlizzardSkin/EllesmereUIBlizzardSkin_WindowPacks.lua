@@ -5674,27 +5674,85 @@ local function Skin_RepCurrency()
         if tok.filterDropdown then WSkin.Dropdown(tok.filterDropdown) end
         WSkin.ScrollBarsIn(tok)
         HookRCScrollBox(tok.ScrollBox, true)  -- currency rows: band-fade only, no collapse/content skin (taints transfer)
-        -- tok.CurrencyTransferLogToggleButton stays 100% stock: restyling it
-        -- taints currency transfers.
+        -- NOTHING IN THE CURRENCY-TRANSFER PATH GETS SKINNED. Not the two entry
+        -- buttons (tok.CurrencyTransferLogToggleButton below and
+        -- pop.CurrencyTransferToggleButton further down), and not the
+        -- CurrencyTransferMenu window, which has no pack at all.
+        --
+        -- Any write here taints the protected RequestCurrencyFromAccountCharacter()
+        -- at Blizzard_TokenUI/Blizzard_CurrencyTransfer.lua:403. Skinning
+        -- pop.CurrencyTransferToggleButton with WSkin.Button SHIPPED exactly that:
+        -- ADDON_ACTION_FORBIDDEN for users who actually transfer warband currency.
+        --
+        -- READ THIS BEFORE RE-SKINNING THEM: the failure hides itself. The FIRST
+        -- transfer of a session succeeds and only later ones are forbidden, so
+        -- opening the window and moving currency once proves NOTHING -- that test
+        -- passes on the broken build. This has now been re-added and reverted
+        -- once on the strength of exactly that test. A no-write external-shell
+        -- version of the menu was built and did work, but it needed a per-frame
+        -- driver to track the window, which is not worth the overhead for one
+        -- dialog. Leave all of it stock.
         local pop = _G.TokenFramePopup
         if pop then
-            SkinGuildPopup(pop)
+            -- Currency Options popup. Deliberately NOT SkinGuildPopup: that lays
+            -- a flat 0.05 slab, which reads as a dead grey box next to the
+            -- character panel. This takes the full style-aware shell on the
+            -- CHARSHEET key instead, so it follows the character panel's own
+            -- EUI/Modern setting -- atlas backdrop + black overlay on "eui", the
+            -- flat user color on "modern" -- and swaps live with it.
+            -- noTopBar: the popup gets the shell's backdrop and its atlas frame
+            -- (the soft edge vignette), but NOT the 25px black title strip --
+            -- it reads as a hard bar across the top of something this small.
+            WSkin.Shell("charsheet", pop, { noTopBar = true })
+            if pop.NineSlice then WSkin.FadeNineSlice(pop.NineSlice) end
+            -- Chrome that lives in child FRAMES ("BG"/"Border" wrappers), which
+            -- the shell's own region fade cannot see.
+            for _, k in ipairs({ "BG", "Border" }) do
+                local piece = pop[k]
+                if piece then
+                    if piece.IsObjectType and piece:IsObjectType("Texture") then
+                        piece:SetAlpha(0)
+                    else
+                        WSkin.FadeRegions(piece)
+                        if piece.NineSlice then WSkin.FadeNineSlice(piece.NineSlice) end
+                        WSkin.Register(piece, true)
+                    end
+                end
+            end
+            for i = 1, select("#", pop:GetRegions()) do
+                local r = select(i, pop:GetRegions())
+                if r and r.IsObjectType and r:IsObjectType("FontString") then
+                    WSkin.Font(r); WSkin.White(r)
+                end
+            end
+            if pop.CloseButton then WSkin.CloseButton(pop.CloseButton) end
             local pcb = pop["$parent.CloseButton"]
             if pcb then WSkin.CloseButton(pcb) end
+            -- "Unused" / "Show on Backpack": the plain square treatment that
+            -- KEEPS Blizzard's classic checkmark art, exactly as the calendar's
+            -- lock-event check does it -- not SkinGuildCheck, which replaces the
+            -- checkmark with a solid block. borderInset 4 so the border hugs the
+            -- visible box (the frame is larger than its check graphic).
             for _, k in ipairs({ "InactiveCheckbox", "BackpackCheckbox" }) do
-                if pop[k] then SkinGuildCheck(pop[k]) end
+                if pop[k] then WSkin.Checkbox(pop[k], { borderInset = 4 }) end
             end
-            -- pop.CurrencyTransferToggleButton is left 100% stock -- same as
-            -- CurrencyTransferLogToggleButton above. Skinning it taints the
-            -- warband currency-transfer path, so the protected
-            -- RequestCurrencyFromAccountCharacter() call was being forbidden
-            -- for users who actually transfer currency (ADDON_ACTION_FORBIDDEN).
+            -- pop.CurrencyTransferToggleButton stays 100% stock -- see the
+            -- transfer-path note at the top of this function. The popup around
+            -- it is skinned (it always has been); the button is not.
         end
     end
 end
 
 WSkin.RegisterWindow({
     key = "charsheet",
+    apply = Skin_RepCurrency,
+})
+-- Second pass for clients where TokenFrame/TokenFramePopup arrive with the
+-- load-on-demand Blizzard_TokenUI rather than at login (the pass above then
+-- finds nothing to skin). Idempotent, so running both is a no-op.
+WSkin.RegisterWindow({
+    key = "charsheet",
+    addons = { Blizzard_TokenUI = true },
     apply = Skin_RepCurrency,
 })
 
@@ -10802,3 +10860,517 @@ WSkin.RegisterWindow({
     addons = { Blizzard_ProfessionsCustomerOrders = true },
     apply = Skin_CraftOrders,
 })
+
+-------------------------------------------------------------------------------
+--  Item Upgrades (ItemUpgradeFrame, Blizzard_ItemUpgradeUI)
+--  Flat shell, squared upgrade slot, flat upgrade-track dropdown and action
+--  button, and the bottom currency strip stripped of its plate art.
+-------------------------------------------------------------------------------
+local function Skin_ItemUpgrade()
+    local f = _G.ItemUpgradeFrame
+    if not f then return end
+    -- bottomBar: the window has a currency strip along its foot, and the art
+    -- kill below strips the plate that used to sit behind it. The shell's
+    -- matching bottom band puts that footer back, in the same black 0.5 as the
+    -- title bar at the top.
+    WSkin.Shell("itemupgrade", f, { bottomBar = true })
+    WSkin.RemovePortrait(f)
+    WSkin.CommonChrome(f, "ItemUpgradeFrame")   -- close, ItemInfo.Dropdown, scrollbars
+    if f.NineSlice then WSkin.FadeNineSlice(f.NineSlice) end
+    if _G.ItemUpgradeFrameBg then _G.ItemUpgradeFrameBg:SetAlpha(0) end
+    -- The backplates (TopBG / BottomBG) are repainted to the SLOTTED ITEM'S
+    -- QUALITY COLOR on every item change -- that is the purple wash an epic
+    -- leaves behind -- and the repaint re-shows art a plain SetAlpha(0) had
+    -- already hidden. So clear the window's art outright (the tab treatment:
+    -- SetTexture/SetAtlas "") and a re-tint has nothing left to paint. Only
+    -- direct regions of the window are touched; every piece of content lives on
+    -- child frames. Our own shell textures are spared.
+    local fd = GetFFD(f)
+    local keepArt = {}
+    -- bottomBar is load-bearing in this list twice: KillArt below clears every
+    -- direct region of the window, and FadeBottomPlates further down fades any
+    -- texture in the bottom 60px spanning over half the width -- which is
+    -- exactly the shape of our own bottom band.
+    for _, k in ipairs({ "bg", "bgOverlay", "modernBg", "topBar", "bottomBar", "rightShade" }) do
+        if fd[k] then keepArt[fd[k]] = true end
+    end
+    local function KillArt(r)
+        if not r or keepArt[r] or not r.IsObjectType or not r:IsObjectType("Texture") then return end
+        if r.SetAtlas then r:SetAtlas("") end
+        if r.SetTexture then r:SetTexture("") end
+        r:SetAlpha(0)
+    end
+    for i = 1, select("#", f:GetRegions()) do KillArt(select(i, f:GetRegions())) end
+    -- ItemUpgradeBg shows up in the frame stack as its own keyed piece, so it is
+    -- named explicitly rather than left to the region walk above.
+    for _, k in ipairs({ "Bg", "TopBG", "BottomBG", "Background", "TopTileStreaks",
+                         "ItemUpgradeBg" }) do
+        KillArt(f[k])
+    end
+    -- Same for the window border: the nine-slice is part of the quality-tinted
+    -- chrome, so its pieces are cleared rather than just alpha'd.
+    if f.NineSlice then
+        for i = 1, select("#", f.NineSlice:GetRegions()) do
+            KillArt(select(i, f.NineSlice:GetRegions()))
+        end
+    end
+    if f.Inset then WSkin.Inset(f.Inset) end
+    WSkin.FadeKeyedArt(f)
+    WSkin.FadeArtIn(f)
+
+    local title = (f.TitleContainer and f.TitleContainer.TitleText)
+        or f.TitleText or _G.ItemUpgradeFrameTitleText
+    if title then WSkin.Font(title); WSkin.White(title) end
+
+    -- Upgrade slot: gold slot frame off, icon squared inside a flat well so an
+    -- EMPTY slot still reads as a slot.
+    local ib = f.UpgradeItemButton
+    if ib then
+        for _, k in ipairs({ "ButtonFrame", "Border", "IconBorder", "SlotBackground",
+                             "EmptySlot", "EmptyBackground" }) do
+            local t = ib[k]
+            if t and t.SetAlpha then t:SetAlpha(0) end
+        end
+        local ibd = GetFFD(ib)
+        if not ibd.slotBg then
+            local well = SolidTex(ib, "BACKGROUND", 0.02, 0.02, 0.02, 0.9)
+            well:SetAllPoints(ib)
+            ibd.slotBg = well
+            WSkin.AddBorder(ib)
+        end
+        local icon = ib.Icon or ib.icon or ib.IconTexture
+        if icon and icon.SetTexCoord then WSkin.SquareIcon(icon) end
+    end
+
+    -- Upgrade-track selector + any other pane art on the info block.
+    local info = f.ItemInfo
+    if info then
+        if info.Dropdown then WSkin.Dropdown(info.Dropdown) end
+        for _, k in ipairs({ "Bg", "Background", "Divider", "PillarLeft", "PillarRight" }) do
+            local t = info[k]
+            if t and t.SetAlpha then t:SetAlpha(0) end
+        end
+    end
+
+    -- Bottom currency strip: NO plate of our own -- the amounts sit flat on the
+    -- shell. The plate art is NOT keyed off the currencies container: it lives
+    -- in its own wrapper frame, ItemUpgradeFramePlayerCurrenciesBorder, with the
+    -- Left/Middle/Right pieces as that frame's CHILDREN (confirmed by fstack).
+    -- Fade the wrapper's whole subtree -- textures only, so the amounts survive
+    -- -- and register it so Blizzard's repaints get re-faded. Reaching for
+    -- `container.BorderLeft` instead left the narrow end caps behind: only the
+    -- middle is wide enough for the geometry sweep further down to catch.
+    local function FadeArtTree(host, depth)
+        depth = depth or 0
+        if not host or depth > 3 or host:IsForbidden() then return end
+        -- Provenance gate: another addon parented into this window keeps its
+        -- whole subtree. depth > 0 so an explicit root call always runs.
+        if depth > 0 and WSkin.IsForeignFrame(host) then return end
+        if host.IsObjectType and host:IsObjectType("Texture") then
+            if host.SetAlpha then host:SetAlpha(0) end
+            return
+        end
+        WSkin.FadeRegions(host)
+        if host.NineSlice then WSkin.FadeNineSlice(host.NineSlice) end
+        WSkin.Register(host, true)
+        if not host.GetChildren then return end
+        for i = 1, select("#", host:GetChildren()) do
+            FadeArtTree(select(i, host:GetChildren()), depth + 1)
+        end
+    end
+    local pc = f.PlayerCurrencies or _G.ItemUpgradeFramePlayerCurrencies
+    FadeArtTree(_G.ItemUpgradeFramePlayerCurrenciesBorder or (pc and pc.Border))
+    -- Belt and braces: the pieces carry globals of their own too.
+    for _, n in ipairs({ "ItemUpgradeFramePlayerCurrenciesBorderLeft",
+                         "ItemUpgradeFramePlayerCurrenciesBorderMiddle",
+                         "ItemUpgradeFramePlayerCurrenciesBorderRight" }) do
+        local t = _G[n]
+        if t and t.SetAlpha then t:SetAlpha(0) end
+    end
+    if pc then
+        if pc.NineSlice then WSkin.FadeNineSlice(pc.NineSlice) end
+        for _, k in ipairs({ "Background", "Bg", "BG" }) do
+            local t = pc[k]
+            if t and t.SetAlpha then t:SetAlpha(0) end
+        end
+    end
+    for _, k in ipairs({ "BottomInset", "MoneyInset", "MoneyFrameInset", "MoneyFrameBorder" }) do
+        local el = f[k] or _G["ItemUpgradeFrame" .. k]
+        if el then
+            if el.IsObjectType and el:IsObjectType("Texture") then el:SetAlpha(0)
+            else WSkin.Inset(el) end
+        end
+    end
+
+    -- Geometry sweep for the bottom plate, whoever owns it. Names for this bar
+    -- move between builds, so match on shape instead: any TEXTURE sitting in the
+    -- bottom 60px of the window and spanning more than half its width is backing
+    -- art. Currency icons are far narrower and the amounts are FontStrings, so
+    -- both survive. Needs live rects, so it lands on the show/update passes
+    -- rather than at login.
+    local function Num(v)
+        if v == nil then return nil end
+        if issecretvalue and issecretvalue(v) then return nil end
+        return v
+    end
+    local function FadeBottomPlates(host, depth)
+        depth = depth or 0
+        if not host or depth > 5 or host:IsForbidden() then return end
+        -- Provenance gate, and this one earns it twice over: the match below is
+        -- a pure GEOMETRY heuristic (bottom 60px, over half the window wide),
+        -- which would happily blank an addon's own bar parented into this frame.
+        if depth > 0 and WSkin.IsForeignFrame(host) then return end
+        local fb, fw = Num(f:GetBottom()), Num(f:GetWidth())
+        if not fb or not fw then return end
+        if host.GetRegions then
+            for i = 1, select("#", host:GetRegions()) do
+                local r = select(i, host:GetRegions())
+                if r and not keepArt[r] and r.IsObjectType and r:IsObjectType("Texture")
+                   and (r:GetAlpha() or 0) > 0 then
+                    local rt, rw = Num(r:GetTop()), Num(r:GetWidth())
+                    if rt and rw and rt < fb + 60 and rw > fw * 0.5 then r:SetAlpha(0) end
+                end
+            end
+        end
+        if not host.GetChildren then return end
+        for i = 1, select("#", host:GetChildren()) do
+            FadeBottomPlates(select(i, host:GetChildren()), depth + 1)
+        end
+    end
+    FadeBottomPlates(f)
+
+    -- Action buttons: the Upgrade button mirrors its enabled/disabled state
+    -- (it spends currency, so a permanently white label would read as active
+    -- while the upgrade is unaffordable).
+    WSkin.ButtonsIn(f)
+    for _, k in ipairs({ "UpgradeButton", "ConfirmButton" }) do
+        local b = f[k]
+        if b then WSkin.Button(b); WSkin.StateButtonLabel(b) end
+    end
+
+    WSkin.HookShow(f, WSkin.Debounce(function()
+        if f:IsVisible() then Skin_ItemUpgrade(); WSkin.Restrip() end
+    end))
+    -- The quality repaint fires on item CHANGE, not on show, so OnShow alone
+    -- leaves the first slotted item wearing Blizzard's backdrop until the
+    -- window is reopened. Listen for the upgrade events instead (debounced;
+    -- pcall'd registration because the event set shifts between builds).
+    if not fd.evt then
+        local ev = CreateFrame("Frame")
+        fd.evt = ev
+        -- Gated on visibility, and NO global WSkin.Restrip(): this fires on every
+        -- item change, and Skin_ItemUpgrade already re-clears this window's own
+        -- art. The global sweep allocates a table per registered frame across
+        -- the whole addon, which is not something to do on an item swap.
+        ev:SetScript("OnEvent", WSkin.Debounce(function()
+            local uf = _G.ItemUpgradeFrame
+            if uf and uf:IsVisible() then Skin_ItemUpgrade() end
+        end))
+        for _, e in ipairs({ "ITEM_UPGRADE_MASTER_OPENED", "ITEM_UPGRADE_MASTER_UPDATE",
+                             "ITEM_UPGRADE_MASTER_SET_ITEM", "ITEM_UPGRADE_MASTER_CLOSED",
+                             "ITEM_INTERACTION_ITEM_SELECTION_UPDATED" }) do
+            pcall(ev.RegisterEvent, ev, e)
+        end
+    end
+end
+
+WSkin.RegisterWindow({
+    key = "itemupgrade",
+    addons = { Blizzard_ItemUpgradeUI = true },
+    apply = Skin_ItemUpgrade,
+})
+
+-------------------------------------------------------------------------------
+--  Loot window (LootFrame). Base UI, always loaded.
+--  Portrait frame confirmed by fstack: TitleContainer + NineSlice + the
+--  LootFrameTitleText global. Rows keep their ITEM QUALITY COLORS -- names and
+--  the rarity subtext are only re-fonted, never re-colored (same rule the
+--  merchant and trainer packs follow for availability text).
+-------------------------------------------------------------------------------
+local function Skin_Loot()
+    local f = _G.LootFrame
+    if not f then return end
+    WSkin.Shell("loot", f)
+    WSkin.RemovePortrait(f)
+    WSkin.CommonChrome(f, "LootFrame")
+    if f.NineSlice then WSkin.FadeNineSlice(f.NineSlice) end
+    if _G.LootFrameBg then _G.LootFrameBg:SetAlpha(0) end
+    if f.Bg and f.Bg.SetAlpha then f.Bg:SetAlpha(0) end
+    if f.Inset then WSkin.Inset(f.Inset) end
+    WSkin.FadeKeyedArt(f)
+    local title = (f.TitleContainer and f.TitleContainer.TitleText) or _G.LootFrameTitleText
+    if title then WSkin.Font(title); WSkin.White(title) end
+    WSkin.ScrollBarsIn(f)
+
+    -- One loot row: squared icon, plate art off, flat hover. Fonts only on the
+    -- text so quality coloring survives.
+    local function SkinLootRow(row)
+        if not row or row:IsForbidden() then return end
+        local item = row.Item or row
+        local icon = item.icon or item.Icon or item.IconTexture
+            or (item.GetNormalTexture and item:GetNormalTexture())
+        if icon and icon.SetTexCoord then WSkin.SquareIcon(icon, item) end
+        for _, host in ipairs({ row, item }) do
+            for _, k in ipairs({ "NameFrame", "Background", "Bg", "BorderFrame" }) do
+                local t = host[k]
+                if t and t.SetAlpha then t:SetAlpha(0) end
+            end
+            -- The stack count keeps Blizzard's font. It is an outlined NUMBER
+            -- font drawn ON TOP of the icon, so re-fonting it to the panel face
+            -- (which follows the user's outline/shadow setting) leaves it
+            -- unreadable over a bright icon. Everything else is re-fonted.
+            local countFS = host.Count or host.count
+                or (host.GetName and host:GetName() and _G[host:GetName() .. "Count"])
+            if host.GetRegions then
+                for i = 1, select("#", host:GetRegions()) do
+                    local r = select(i, host:GetRegions())
+                    if r and r ~= countFS and r.IsObjectType and r:IsObjectType("FontString") then
+                        WSkin.Font(r)
+                    end
+                end
+            end
+            local hl = host.GetHighlightTexture and host:GetHighlightTexture()
+            if hl and hl.SetColorTexture then hl:SetColorTexture(1, 1, 1, 0.1) end
+        end
+    end
+
+    local box = f.ScrollBox
+    if box and box.ForEachFrame then
+        pcall(box.ForEachFrame, box, SkinLootRow)
+        local bd = GetFFD(box)
+        if box.Update and not bd.rowHook then
+            bd.rowHook = true
+            hooksecurefunc(box, "Update", function(b)
+                pcall(b.ForEachFrame, b, SkinLootRow)
+            end)
+        end
+    end
+
+    WSkin.HookShow(f, WSkin.Debounce(function()
+        if f:IsVisible() then Skin_Loot(); WSkin.Restrip() end
+    end))
+end
+
+WSkin.RegisterWindow({
+    key = "loot",
+    apply = Skin_Loot,
+})
+
+-------------------------------------------------------------------------------
+--  Loot toasts (the "You received" alert popups).
+--  NOT a window: alert frames are POOLED and recycled, so there is no single
+--  frame to skin at login. Frames are reached through the alert subsystems'
+--  object pools and re-skinned whenever a toast fires (idempotent + FFD-guarded,
+--  so a recycled frame is skinned once and reused freely afterwards).
+-------------------------------------------------------------------------------
+local function Skin_LootToast()
+    -- The toast's ornate art, flattened to a house panel. Only frames that look
+    -- like a loot toast (icon + a label) are touched, so achievement and other
+    -- alert styles are left alone.
+    local function SkinToast(t)
+        if not t or type(t) ~= "table" or not t.IsForbidden or t:IsForbidden() then return end
+        -- Shape test: a text label is the reliable marker (fstack shows this
+        -- template carrying .Background + .ItemName). The icon is NOT required
+        -- -- gating on it missed the loot toast entirely, since its icon lives
+        -- under a different key than the one that was checked.
+        local label = t.ItemName or t.Label or t.Title
+        if not (type(label) == "table" and label.GetText) then return end
+        local icon = t.Icon or t.icon or (t.lootItem and t.lootItem.Icon)
+        local d = GetFFD(t)
+        if not d.bg then
+            -- Full style-aware shell, so a toast follows the window setting like
+            -- everything else: the modern_blizz atlas + black overlay on "eui",
+            -- the flat user color on "modern", swapping live. No top bar (a
+            -- toast has no title row), but the atlas frame IS kept -- its soft
+            -- edge vignette is the look the currency popup has.
+            WSkin.Shell("loottoast", t, { noTopBar = true })
+        end
+        -- Decorative art off, icon kept. SetAlpha(0) is NOT enough here: a toast
+        -- fades in through an ANIMATION that drives alpha every frame and wins
+        -- over our write, which is why the plate art and the icon's ornate frame
+        -- survived a plain fade. Clear the TEXTURE instead -- an animation can
+        -- animate nothing. Re-run per toast, since Blizzard's setup re-applies
+        -- the atlases every time a pooled frame is reused.
+        local keep = {}
+        if icon then keep[icon] = true end
+        -- Every texture the shell owns, or the art kill below would wipe our
+        -- own backdrop along with Blizzard's.
+        for _, k in ipairs({ "bg", "bgOverlay", "modernBg", "topBar", "bottomBar", "selBar" }) do
+            if d[k] then keep[d[k]] = true end
+        end
+        -- Frames of OURS that hang off the toast: the shell's atlas border and
+        -- any PP border container. The recursion below would clear their
+        -- textures along with Blizzard's art.
+        local PPt = EllesmereUI and (EllesmereUI.PanelPP or EllesmereUI.PP)
+        local ourBorder = PPt and PPt.GetBorders and PPt.GetBorders(t)
+        local function KillArt(host, depth)
+            depth = depth or 0
+            if not host or depth > 2 or not host.IsForbidden or host:IsForbidden() then return end
+            if host == d.atlasBorderFrame or host == ourBorder then return end
+            -- Provenance gate: this clears textures outright (SetAtlas/SetTexture
+            -- "" then alpha 0), which is unrecoverable for a frame we do not own.
+            if depth > 0 and WSkin.IsForeignFrame(host) then return end
+            if host.GetRegions then
+                for i = 1, select("#", host:GetRegions()) do
+                    local r = select(i, host:GetRegions())
+                    if r and not keep[r] and r.IsObjectType and r:IsObjectType("Texture") then
+                        if r.SetAtlas then r:SetAtlas("") end
+                        if r.SetTexture then r:SetTexture("") end
+                        r:SetAlpha(0)
+                    end
+                end
+            end
+            if not host.GetChildren then return end
+            for i = 1, select("#", host:GetChildren()) do
+                KillArt(select(i, host:GetChildren()), depth + 1)
+            end
+        end
+        KillArt(t)
+        if icon and icon.SetTexCoord then WSkin.SquareIcon(icon, t) end
+
+        -- Optional rarity strip (OFF by default -- EllesmereUIDB.lootToastQualityStrip).
+        -- The icon's quality ring went out with the rest of the art, so this
+        -- carries rarity instead, in the same accent-bar language the tabs use.
+        -- Color comes from the item NAME's own text color, which Blizzard
+        -- already sets to the quality color -- no item lookup, and correct for
+        -- currency and gear alike. Re-read every pass: pooled frames get reused
+        -- for different drops.
+        if not d.selBar then
+            local bar = t:CreateTexture(nil, "OVERLAY", nil, 7)
+            -- Same pixel treatment as the tab underline: unsnapped so a thin
+            -- strip cannot round away at fractional scales.
+            local PP = EllesmereUI and EllesmereUI.PanelPP
+            if PP and PP.DisablePixelSnap then PP.DisablePixelSnap(bar) end
+            bar:SetWidth(3)
+            d.selBar = bar
+        end
+        -- Flush to the left edge: a thin rail down the side of the toast rather
+        -- than an inset pip. The offsets are eyeballed against the VISIBLE
+        -- panel, which sits inset inside the frame's rect -- hence the asymmetry
+        -- (the top needs clearing, the bottom does not), plus a half-physical-
+        -- pixel lift. PanelPP.mult is the options-panel multiplier and is the
+        -- wrong unit here (toasts run at UIParent scale); PP.perfect divided by
+        -- the effective scale is exactly one physical pixel in the toast's own
+        -- coordinate space. Re-anchored each pass so a UI scale change re-solves
+        -- it, and the texture has pixel snapping off so the half lands instead
+        -- of rounding away.
+        local half = 0.5
+        local PPx = EllesmereUI and EllesmereUI.PP
+        local esc = t.GetEffectiveScale and t:GetEffectiveScale()
+        if PPx and PPx.perfect and esc and esc > 0 then half = (PPx.perfect / esc) * 0.5 end
+        -- Lifted one full physical pixel off the -2/-1 base (two half steps),
+        -- which also puts it back on whole-pixel boundaries so it renders crisp
+        -- rather than blended.
+        d.selBar:ClearAllPoints()
+        d.selBar:SetPoint("TOPLEFT", t, "TOPLEFT", 0, -2 + half * 2)
+        d.selBar:SetPoint("BOTTOMLEFT", t, "BOTTOMLEFT", 0, -1 + half * 2)
+        local stripOn = EllesmereUIDB and EllesmereUIDB.lootToastQualityStrip == true
+        d.selBar:SetShown(stripOn)
+        if stripOn then
+            local qr, qg, qb = label:GetTextColor()
+            if qr then d.selBar:SetColorTexture(qr, qg, qb, 1) end
+        end
+        -- Count is deliberately absent: stack numbers sit over the icon in an
+        -- outlined number font and stay Blizzard's, same as the loot rows.
+        for _, k in ipairs({ "Label", "Title", "ItemName", "SubTitle" }) do
+            local fs = t[k]
+            if fs and fs.GetFont then WSkin.Font(fs) end   -- quality colors kept
+        end
+        WSkin.Register(t, keep)
+        return true
+    end
+
+    -- Toast frames we have already found, so the repeat passes below never have
+    -- to re-walk UIParent. Weak-keyed: a pool frame that goes away takes its
+    -- entry with it.
+    local known = setmetatable({}, { __mode = "k" })
+
+    -- deep = also walk UIParent's children looking for NEW toast frames. Only
+    -- the first pass of a burst needs that; the follow-ups re-skin what is
+    -- already known, which is a handful of frames.
+    local function SweepAlerts(deep)
+        for f in pairs(known) do SkinToast(f) end
+        local af = _G.AlertFrame
+        if not af then return end
+        local subs = af.alertFrameSubSystems
+        if type(subs) == "table" then
+            for _, sys in ipairs(subs) do
+                local pool = sys and sys.alertFramePool
+                if pool and pool.EnumerateActive then
+                    local ok, iter = pcall(pool.EnumerateActive, pool)
+                    if ok and iter then
+                        for frame in iter do SkinToast(frame) end
+                    end
+                end
+            end
+        end
+        if af.GetChildren then
+            for i = 1, select("#", af:GetChildren()) do SkinToast(select(i, af:GetChildren())) end
+        end
+        -- The loot toast is parented to UIPARENT, not to AlertFrame, and is
+        -- anonymous (fstack: UIParent.<addr> at FULLSCREEN_DIALOG, carrying
+        -- .Background + .ItemName, from AlertFrameSystems.xml). Walking
+        -- AlertFrame alone never reached it. Scan UIParent's own children too,
+        -- narrowed to shown FULLSCREEN_DIALOG frames so this stays cheap.
+        --
+        -- PROVENANCE GATE IS LOAD-BEARING HERE, more than anywhere else in this
+        -- file: this is the only sweep that walks UIParent rather than the
+        -- inside of a Blizzard window, and SkinToast's shape test is broad (any
+        -- .ItemName/.Label/.Title that can GetText). Plenty of ADDON dialogs sit
+        -- at FULLSCREEN_DIALOG with a .Title -- ours included -- and a match
+        -- gets a shell plus a recursive texture kill. Without this gate the
+        -- sweep silently blanks other addons' windows.
+        local up = _G.UIParent
+        if deep and up and up.GetChildren then
+            for i = 1, select("#", up:GetChildren()) do
+                local ch = select(i, up:GetChildren())
+                if ch and ch.GetFrameStrata and ch.IsForbidden and not ch:IsForbidden()
+                   and ch:IsShown() and ch:GetFrameStrata() == "FULLSCREEN_DIALOG"
+                   and not WSkin.IsForeignFrame(ch, up) then
+                    if SkinToast(ch) then known[ch] = true end
+                end
+            end
+        end
+    end
+
+    -- Options entry point: re-sweep so a strip toggle lands on a toast that is
+    -- already on screen (the next one would pick it up regardless).
+    EllesmereUI._LootToast_Refresh = function() SweepAlerts(true) end
+
+    local d = GetFFD(_G.AlertFrame or UIParent)
+    if d.toastEvt then return end
+    local ev = CreateFrame("Frame")
+    d.toastEvt = ev
+    -- Toasts animate in, so sweep on the event AND a tick later: the pool hands
+    -- the frame out and Blizzard's setup repaints it in the same frame.
+    -- Toasts are handed out by the pool, set up, then animated in over a few
+    -- tenths of a second, and the setup can land after our first pass. Sweep
+    -- immediately and again across the animation window -- but only the FIRST
+    -- pass walks UIParent; the rest re-skin the frames that pass found.
+    local function Shallow() SweepAlerts(false) end
+    local sweep = WSkin.Debounce(function()
+        SweepAlerts(true)
+        if C_Timer then
+            C_Timer.After(0.05, Shallow)
+            C_Timer.After(0.2, Shallow)
+            C_Timer.After(0.5, Shallow)
+        end
+    end)
+    ev:SetScript("OnEvent", sweep)
+    -- Toast events only. CURRENCY_DISPLAY_UPDATE was in here and had to go: it
+    -- fires on every currency change (quest turn-ins, vendoring, combat drops),
+    -- which is far more often than a toast appears, and each fire cost a full
+    -- sweep for nothing.
+    for _, e in ipairs({ "SHOW_LOOT_TOAST", "SHOW_LOOT_TOAST_UPGRADE",
+                         "SHOW_PVP_FACTION_LOOT_TOAST", "SHOW_RATED_PVP_REWARD_TOAST",
+                         "LOOT_ITEM_ROLL_WON" }) do
+        pcall(ev.RegisterEvent, ev, e)
+    end
+    SweepAlerts(true)
+end
+
+WSkin.RegisterWindow({
+    key = "loottoast",
+    apply = Skin_LootToast,
+})
+

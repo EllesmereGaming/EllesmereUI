@@ -1633,8 +1633,15 @@ local BUTTON_EVENT_LISTS = {
     action = {
         "ACTIONBAR_UPDATE_STATE",
         "ACTIONBAR_UPDATE_USABLE",
-        "ACTIONBAR_UPDATE_COOLDOWN",
-        -- ACTIONBAR_SLOT_CHANGED is deliberately NOT registered per button.
+        -- ACTIONBAR_UPDATE_COOLDOWN is deliberately NOT registered per button
+        -- (second deliberate gap, same class as SLOT_CHANGED below). The
+        -- assisted-combat action dirties its slot ~11x/sec at TOTAL IDLE, and
+        -- dispatching that to the mixin OnEvent of ~140 buttons ran the full
+        -- Blizzard cooldown path ~1500x/sec forever -- the core of the "CPU
+        -- destroyed with One Button Assist + Assisted Highlight" reports. The
+        -- central dispatcher owns ALL cooldown painting (edge-gated duration
+        -- objects, main + charge + numbers), and it now also lazily CREATES
+        -- btn.chargeCooldown -- the one thing this registration still did.
         -- Mouseover-conditional macros re-resolve on every mouseover flip and
         -- fire it dozens of times per second; dispatching that to the mixin
         -- OnEvent of every button burned whole frames (profiled: ~7s CPU per
@@ -1733,6 +1740,10 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
         -- plus blocked SetAttribute from UpdatePressAndHoldAction in combat.
         -- No-op on 12.0, where the event is never self-registered.
         btn:UnregisterEvent("ACTIONBAR_SLOT_CHANGED")
+        -- Same class: the 12.1 template OnLoad may self-register the cooldown
+        -- event too; our event list no longer carries it (OBA idle-spam), so
+        -- kill any self-registration. No-op on 12.0.
+        btn:UnregisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
         -- The template OnLoad also registered this button with Blizzard's
         -- ActionBarButtonEventsFrame broadcaster. That tinsert ran under OUR
         -- execution, so the stored entry is a tainted value: while the
@@ -2612,6 +2623,205 @@ ns._TintUsableIcon = function(icon, action)
     end
 end
 
+-- Script-free replacement for Blizzard's assisted-combat rotation swirl.
+-- Blizzard's frame runs a Lua OnUpdate every render frame forever (verified:
+-- over half this addon's idle CPU, billed to whichever of our contexts the
+-- frame chain was born under). Ours is a plain frame + STATIC texture cloned
+-- from Blizzard's own art: no script handlers, no animation, so NO addon is
+-- ever billed for it -- and it can stay visible out of combat for free. The
+-- Blizzard frame itself is kept permanently hidden by the
+-- UpdateAssistedCombatRotationFrame hook.
+function ns.EnsureAssistSpinner(btn, rtf)
+    local fd = EFD(btn)
+    local spin = fd.assistSpin
+    if not spin then
+        spin = CreateFrame("Frame", nil, btn)
+        spin:SetPoint("CENTER", btn, "CENTER")
+        local tex = spin:CreateTexture(nil, "OVERLAY")
+        tex:SetAllPoints()
+        -- The rotation-helper marker art, stretched to this frame's rect.
+        -- Fallback: clone whatever Blizzard's own texture carries.
+        local ok = pcall(tex.SetAtlas, tex, "UI-HUD-RotationHelper-Inactive-2x", false)
+        if not ok then
+            local src = rtf.InactiveTexture
+            local atlas = src and src.GetAtlas and src:GetAtlas()
+            if atlas then
+                tex:SetAtlas(atlas, false)
+            elseif src and src.GetTexture then
+                tex:SetTexture(src:GetTexture())
+                if src.GetTexCoord then
+                    tex:SetTexCoord(src:GetTexCoord())
+                end
+            end
+        end
+        fd.assistSpin = spin
+    end
+    -- Two-point anchor: the frame's rect is DERIVED from the button's, so it
+    -- tracks every size/layout change with zero math and no re-apply pass.
+    -- Scale-based sizing (the reticle idiom) broke down here because
+    -- btn:GetWidth() is not the visual size on every style path; anchors
+    -- sidestep all of it. User-adjustable outset (default 9px per side): the
+    -- ring art's visible circle sits inside its bounds; the outset makes it
+    -- meet the button edge. Change-guarded re-anchor so the frequent hook
+    -- calls cost two reads.
+    local outset = (EAB.db and EAB.db.profile and EAB.db.profile.obaIconOutset) or 9
+    if fd.assistSpinOutset ~= outset then
+        fd.assistSpinOutset = outset
+        spin:ClearAllPoints()
+        spin:SetPoint("TOPLEFT", btn, "TOPLEFT", -outset, outset)
+        spin:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", outset, -outset)
+    end
+    spin:SetFrameLevel(rtf:GetFrameLevel())
+    return spin
+end
+
+-- Repaint the assist action's button icon with the SUGGESTED spell's
+-- texture; returns how many assist buttons were found. The slot's own action
+-- texture is the static assist marker; the morphing icon was mixin-painted,
+-- and that path died with the per-button ACTIONBAR_UPDATE_COOLDOWN
+-- registration. Hiding the swirl frame then killed its OnUpdate poll, which
+-- turned out to be what drove the manager's re-stamp loop -- so NO event
+-- fires on suggestion changes anymore (bonus: the idle slot-spam is gone
+-- entirely). The assist ticker below is now the driver. Buttons are found
+-- via the spinner registry -- the slot spam's id never matched our buttons'
+-- action attribute anyway.
+function ns.RepaintAssistIcons()
+    local found = 0
+    local nextSpell = C_AssistedCombat and C_AssistedCombat.GetNextCastSpell
+        and C_AssistedCombat.GetNextCastSpell()
+    local tex = nextSpell and C_Spell and C_Spell.GetSpellTexture
+        and C_Spell.GetSpellTexture(nextSpell)
+    for _, info in ipairs(BAR_CONFIG) do
+        if not info.isStance and not info.isPetBar then
+            local buttons = barButtons[info.key]
+            if buttons then
+                for i = 1, #buttons do
+                    local btn = buttons[i]
+                    -- Raw read: only buttons that have ever hosted the
+                    -- assist action carry a spinner entry.
+                    local fd = btn and ns._eabFD[btn]
+                    if fd and fd.assistSpin then
+                        local action = btn.GetAttribute and btn:GetAttribute("action") or btn.action
+                        if action and HasAction(action) and C_ActionBar
+                           and C_ActionBar.IsAssistedCombatAction
+                           and C_ActionBar.IsAssistedCombatAction(action) then
+                            found = found + 1
+                            local icon = btn.icon or btn.Icon
+                            if icon then
+                                icon:SetTexture(tex or GetActionTexture(action))
+                                icon:SetShown(true)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return found
+end
+
+-- Suggested-spell driver for One Button Assist. The engine fires no event on
+-- suggestion changes for OUR buttons (see RepaintAssistIcons), so a 5 Hz
+-- anim ticker polls GetNextCastSpell and repaints only on CHANGE. Cost
+-- discipline: the ticker OBJECT is created lazily on the first arm -- users
+-- without the assist action on a bar never create the frame, the animation,
+-- or any of it -- and the tick fn self-disarms when no assist button
+-- remains. The host frame is born here (assist-armed context), so only OBA
+-- users' installs ever bill a cent for it.
+function ns._ArmAssistTicker()
+    local t = ns._assistTicker
+    if not t then
+        local Tick = EllesmereUI and EllesmereUI.Tick
+        if not (Tick and Tick.NewAnimTicker) then return end
+        t = Tick.NewAnimTicker(CreateFrame("Frame"), function()
+            local nextSpell = C_AssistedCombat and C_AssistedCombat.GetNextCastSpell
+                and C_AssistedCombat.GetNextCastSpell()
+            if nextSpell ~= ns._assistLastSuggest then
+                ns._assistLastSuggest = nextSpell
+                local n = ns.RepaintAssistIcons()
+                -- Suggestion moved: the shine may need to follow it too.
+                if ns.QueueAssistRescan then ns.QueueAssistRescan() end
+                -- The assist slot's cooldown/charges mirror the SUGGESTED
+                -- spell, so a suggestion change is also a cooldown-content
+                -- change -- the old slot spam fired UPDATE_COOLDOWN in the
+                -- same beat, which is why swipes never lagged before. Open
+                -- the walk gates and run one synthetic cooldown pass now
+                -- (same re-dispatch pattern as the flush timers). Fires only
+                -- on real suggestion changes (~once per rotation step).
+                ns._cdWalkNext = 0
+                ns._cdCountNext = 0
+                ns._cdDirtyUntil = GetTime() + 2
+                -- New cast-generation: the per-button push memo assumes cd
+                -- content only changes on casts; the assist slot's content
+                -- just changed WITHOUT one, so force a re-push this walk.
+                ns._gcdGen = (ns._gcdGen or 0) + 1
+                local d = ns._cdDispatcher
+                local h = d and d:GetScript("OnEvent")
+                if h then h(d, "ACTIONBAR_UPDATE_COOLDOWN") end
+                if n == 0 then return false end  -- assist left the bars: self-disarm
+            end
+            return true
+        end, 0.2)
+        ns._assistTicker = t
+    end
+    t.Start()
+end
+
+-- Re-apply One Button Assist icon settings (toggle + outset) to every
+-- existing spinner. Called by the options widgets; spinners on buttons that
+-- have never held the assist action don't exist and cost nothing.
+function ns.RefreshAssistSpinners()
+    local p = EAB.db and EAB.db.profile
+    local enabled = not p or p.obaIconEnabled ~= false
+    local outset = (p and p.obaIconOutset) or 9
+    for _, info in ipairs(BAR_CONFIG) do
+        if not info.isStance and not info.isPetBar then
+            local buttons = barButtons[info.key]
+            if buttons then
+                for i = 1, #buttons do
+                    local btn = buttons[i]
+                    -- Raw read (not EFD()): no per-button state allocation
+                    -- for buttons that never built a spinner.
+                    local fd = btn and ns._eabFD[btn]
+                    local spin = fd and fd.assistSpin
+                    if spin then
+                        if fd.assistSpinOutset ~= outset then
+                            fd.assistSpinOutset = outset
+                            spin:ClearAllPoints()
+                            spin:SetPoint("TOPLEFT", btn, "TOPLEFT", -outset, outset)
+                            spin:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", outset, -outset)
+                        end
+                        local action = btn.GetAttribute and btn:GetAttribute("action") or btn.action
+                        local isAssist = action and C_ActionBar and C_ActionBar.IsAssistedCombatAction
+                            and C_ActionBar.IsAssistedCombatAction(action) or false
+                        spin:SetShown(enabled and isAssist)
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Lazily build a button's charge (recharge) cooldown frame. Blizzard's mixin
+-- used to create this from its per-button ACTIONBAR_UPDATE_COOLDOWN handler,
+-- which is no longer registered (see BUTTON_EVENT_LISTS: the assisted-combat
+-- action idle-spams that event and ~140 mixin handlers per fire was the bulk
+-- of the One Button Assist CPU reports). Native shape: edge-only overlay.
+-- Our button, so writing the Blizzard-expected field is safe; native paths
+-- that still run (PEW full Update) reuse the same frame. On ns: file is at
+-- the 200-local cap.
+function ns.EnsureChargeCooldown(btn)
+    local chargeCd = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
+    chargeCd:SetHideCountdownNumbers(true)
+    chargeCd:SetDrawSwipe(false)
+    chargeCd:SetDrawEdge(true)
+    chargeCd:SetAllPoints(btn)
+    chargeCd:SetFrameLevel((btn.cooldown and btn.cooldown:GetFrameLevel())
+        or (btn:GetFrameLevel() + 1))
+    btn.chargeCooldown = chargeCd
+    return chargeCd
+end
+
 -- Full per-button visual refresh for slot CONTENT changes (spec swap,
 -- drag-drop: slot numbers stay, contents change -- force-less UpdateAction
 -- short-circuits on that exact case).
@@ -2956,9 +3166,55 @@ do
                 -- Any other dispatcher event implies real activity (slot,
                 -- charge, usable, form, vehicle...); target flips cannot
                 -- start cooldowns and tab-targeting spams them.
-                ns._cdDirtyUntil = GetTime() + 2
+                -- EXCEPT the assisted-combat slot's SLOT_CHANGED spam: the
+                -- manager re-stamps that slot ~10x/sec at total idle, which
+                -- kept this dirty window permanently open and the cooldown
+                -- walker permanently out of idle sleep. A real cast around
+                -- the OBA button still dirties via UNIT_SPELLCAST_SUCCEEDED
+                -- and the usable/state events it fires. Those same fires ARE
+                -- the suggestion-change signal, so they drive the assist
+                -- icon repaint instead (see ns.RepaintAssistIcons).
+                if not (event == "ACTIONBAR_SLOT_CHANGED" and arg1 and arg1 ~= 0
+                        and select(3, GetActionInfo(arg1)) == "assistedcombat") then
+                    ns._cdDirtyUntil = GetTime() + 2
+                end
             end
             local _cdLiveSeen = false
+            -- Per-slot SLOT_CHANGED throttle. The assisted-combat action
+            -- spam-fires SLOT_CHANGED for its own slot (~10/sec at TOTAL IDLE
+            -- -- known Blizzard bug whenever One Button Assist sits on a bar),
+            -- and every fire ran the full button walk + ForceButtonRefresh
+            -- below, forever. Leading edge passes immediately (drag-drop and
+            -- spec-swap bursts hit distinct slots, each passing instantly);
+            -- repeats for the SAME slot inside the window defer to ONE
+            -- trailing re-dispatch, so the slot's final content always paints.
+            -- arg1 == 0 ("all slots") is rare and always passes.
+            if event == "ACTIONBAR_SLOT_CHANGED" and arg1 and arg1 ~= 0 then
+                local now = GetTime()
+                local nextAt = ns._slotNext
+                if not nextAt then nextAt = {}; ns._slotNext = nextAt end
+                local at = nextAt[arg1] or 0
+                if now < at then
+                    local pend = ns._slotPend
+                    if not pend then pend = {}; ns._slotPend = pend end
+                    if not pend[arg1] then
+                        pend[arg1] = true
+                        local slot = arg1
+                        -- Built here, under this AB-born entry, so the timer
+                        -- callback bills ActionBars. One closure per slot per
+                        -- window (max ~4/sec), not per event.
+                        C_Timer.After((at - now) + 0.02, function()
+                            pend[slot] = nil
+                            nextAt[slot] = 0
+                            local d = ns._cdDispatcher
+                            local h = d and d:GetScript("OnEvent")
+                            if h then h(d, "ACTIONBAR_SLOT_CHANGED", slot) end
+                        end)
+                    end
+                    return
+                end
+                nextAt[arg1] = now + 0.25
+            end
             -- Assisted shine follows slot contents; coalesced (storm-safe),
             -- and belt-and-braces vs. the OnActionChanged callback -- an
             -- in-combat Update() abort dies before Blizzard's TriggerEvent.
@@ -2986,6 +3242,24 @@ do
                             for _, btn in ipairs(btns) do
                                 local action = btn:GetAttribute("action")
                                 if action and (arg1 == 0 or arg1 == action) then
+                                    -- Assisted-combat slot: its "content changes" are
+                                    -- the manager re-stamping the suggestion (idle
+                                    -- spam, plus per rotation step in combat), and the
+                                    -- only visual that can differ is the ICON. The
+                                    -- full refresh below repainted count/cooldown/
+                                    -- tint identically several times per second
+                                    -- forever. Icon-only, secret-tolerant setters;
+                                    -- cooldown swipes ride the COOLDOWN branch.
+                                    local _, _, subType = GetActionInfo(action)
+                                    if subType == "assistedcombat" then
+                                        -- Same member resolution as ForceButtonRefresh:
+                                        -- the icon region's key differs by client.
+                                        local icon = btn.icon or btn.Icon
+                                        if icon then
+                                            icon:SetTexture(GetActionTexture(action))
+                                            icon:SetShown(HasAction(action))
+                                        end
+                                    else
                                     -- Slot CONTENTS changed while the slot number
                                     -- stayed (spec swap, drag-drop): needs the forced
                                     -- refresh path (see ForceButtonRefresh).
@@ -2993,7 +3267,6 @@ do
                                     -- Content changed: drop this slot's memos so
                                     -- every cached visual re-derives fresh.
                                     local mfd = EFD(btn)
-                                    mfd.notCharge = nil
                                     mfd.lastCountText = nil
                                     mfd.usableState = nil
                                     -- Slot emptied: the refresh leaves stale count
@@ -3017,6 +3290,7 @@ do
                                         local p2 = EAB.db and EAB.db.profile
                                         clip:SetShown((p2 and p2.showBlizzIconBg or false) and not filled)
                                     end
+                                    end -- assistedcombat icon-only vs full refresh
                                 end
                             end
                         elseif event == "ACTIONBAR_UPDATE_COOLDOWN" then
@@ -3064,29 +3338,34 @@ do
                                             cd:Clear()
                                         end
                                     end
-                                    -- Charges: fetched only while anything
-                                    -- charge-related can be in flight. Any use
-                                    -- makes the main cooldown active first (GCD),
-                                    -- so recharge tracking always enters through
-                                    -- the active path and stays alive via
-                                    -- chargeWasLive until the recharge completes.
-                                    local chargeInfo
-                                    if (active or fd.cdWasActive or fd.chargeWasLive)
-                                       and not fd.notCharge then
-                                        chargeInfo = C_ActionBar.GetActionCharges(action)
-                                        if chargeInfo and not (chargeInfo.maxCharges
-                                           and chargeInfo.maxCharges > 1) then
-                                            -- Plain-value cache: chargeless slots
-                                            -- never pay this fetch again (cleared
-                                            -- when slot contents change).
-                                            fd.notCharge = true
-                                            chargeInfo = nil
-                                        end
-                                    end
+                                    -- Charges are fetched UNCONDITIONALLY, exactly as
+                                    -- before the optimization pass. Do NOT re-gate this.
+                                    -- Two gates lived here and both broke charge
+                                    -- tracking outright:
+                                    --   1. A sticky "this slot has no charges" cache.
+                                    --      One transient read reporting maxCharges as
+                                    --      nil or 1 (login before action data settles,
+                                    --      talent swap, slot still populating) latched
+                                    --      it permanently, and it only cleared on
+                                    --      ACTIONBAR_SLOT_CHANGED. From then on that
+                                    --      button never fetched charges again, so its
+                                    --      count, recharge swipe and recharge edge all
+                                    --      froze for the rest of the session.
+                                    --   2. An "only while something is in flight"
+                                    --      activity gate, which assumed every charge
+                                    --      spend lights the main cooldown first via the
+                                    --      GCD. Off-GCD spends do not, so the gate never
+                                    --      opened and the recharge was never drawn.
+                                    -- One fetch per button per walk is the price of
+                                    -- correct charge visuals.
+                                    local chargeInfo = C_ActionBar.GetActionCharges(action)
                                     local chargeShown = (chargeInfo and chargeInfo.maxCharges
                                         and chargeInfo.maxCharges > 1) and true or false
                                     if chargeShown then
                                         local chargeCd = btn.chargeCooldown
+                                        if not chargeCd and chargeInfo.isActive then
+                                            chargeCd = ns.EnsureChargeCooldown(btn)
+                                        end
                                         if chargeCd then
                                             -- Extend the WoW "Show numbers for cooldowns" setting to
                                             -- recharging charge spells. Blizzard hides the countdown
@@ -3111,10 +3390,12 @@ do
                                                 chargeCd:Clear()
                                             end
                                         end
-                                    elseif fd.chargeWasLive and btn.chargeCooldown then
-                                        -- Falling edge only: the old code Cleared
-                                        -- every non-charge button's chargeCooldown
-                                        -- on every pass.
+                                    elseif btn.chargeCooldown then
+                                        -- Unconditional clear, as before the
+                                        -- optimization pass. The falling-edge version
+                                        -- relied on chargeWasLive, which the gating
+                                        -- above could leave stale, stranding a
+                                        -- recharge swipe on screen.
                                         btn.chargeCooldown:Clear()
                                     end
                                     -- Desat/dim visuals move only on edges or
@@ -3227,17 +3508,17 @@ do
                                 local action = btn:GetAttribute("action")
                                 if action and HasAction(action) then
                                     local fd = EFD(btn)
-                                    local chargeInfo
-                                    if not fd.notCharge then
-                                        chargeInfo = C_ActionBar.GetActionCharges(action)
-                                    end
+                                    -- Unconditional fetch, no sticky no-charges cache
+                                    -- (see the COOLDOWN branch for why that cache had
+                                    -- to go). This event only fires on charge ticks.
+                                    local chargeInfo = C_ActionBar.GetActionCharges(action)
                                     local chargeShown = (chargeInfo and chargeInfo.maxCharges
                                         and chargeInfo.maxCharges > 1) and true or false
-                                    if chargeInfo and not chargeShown then
-                                        fd.notCharge = true
-                                    end
                                     if chargeShown then
                                         local chargeCd = btn.chargeCooldown
+                                        if not chargeCd and chargeInfo.isActive then
+                                            chargeCd = ns.EnsureChargeCooldown(btn)
+                                        end
                                         if chargeCd then
                                             if chargeInfo.isActive then
                                                 local chargeDur = C_ActionBar.GetActionChargeDuration(action)
@@ -4435,9 +4716,37 @@ local function MakeButtonSquare(btn)
     -- when Blizzard creates it lazily (default 45x45, needs our button size).
     if not fd.rotHooked and btn.UpdateAssistedCombatRotationFrame then
         hooksecurefunc(btn, "UpdateAssistedCombatRotationFrame", function(self)
-            if self.AssistedCombatRotationFrame and EFD(self).squared then
-                local w = self:GetWidth() or 45
-                self.AssistedCombatRotationFrame:SetScale(w / 45)
+            -- Fires at Blizzard's combat cadence while a rotation action is on
+            -- a bar: change-guard so steady-state fires cost only the reads.
+            local rtf = self.AssistedCombatRotationFrame
+            if rtf and EFD(self).squared then
+                local s = (self:GetWidth() or 45) / 45
+                if rtf:GetScale() ~= s then rtf:SetScale(s) end
+            end
+            -- Blizzard's swirl frame stays permanently hidden (its Lua
+            -- OnUpdate polls every render frame while shown); our script-free
+            -- spinner clone replaces it. UpdateState (the caller we're hooked
+            -- behind) re-Shows the frame on every call; this hook runs right
+            -- after, synchronously, so it never renders.
+            if rtf then
+                if rtf:IsShown() then rtf:Hide() end
+                local spin = ns.EnsureAssistSpinner(self, rtf)
+                local p2 = EAB.db and EAB.db.profile
+                local enabled = not p2 or p2.obaIconEnabled ~= false
+                local action = self.GetAttribute and self:GetAttribute("action") or self.action
+                local isAssist = action and C_ActionBar and C_ActionBar.IsAssistedCombatAction
+                    and C_ActionBar.IsAssistedCombatAction(action) or false
+                spin:SetShown(enabled and isAssist)
+                -- Suggested-spell icon updates ride the assist ticker (armed
+                -- here, on the only signal that identifies an assist button;
+                -- see ns._ArmAssistTicker for the cost discipline). When the
+                -- assist action leaves this button, stop the ticker if no
+                -- assist button remains anywhere.
+                if isAssist then
+                    if ns._ArmAssistTicker then ns._ArmAssistTicker() end
+                elseif ns._assistTicker and ns._assistTicker.IsPlaying() then
+                    if ns.RepaintAssistIcons() == 0 then ns._assistTicker.Stop() end
+                end
             end
         end)
         fd.rotHooked = true
@@ -8010,38 +8319,17 @@ end
 -- via Blizzard's C-side dispatcher. The old global usableFrame polling
 -- pass that iterated all 144 buttons on every fire was removed.
 
--- Hook AssistedCombatManager to scale highlight/rotation frames when Blizzard
--- creates them lazily on first use.
-do
-    local function ScaleAssistedFrames()
-        for _, info in ipairs(BAR_CONFIG) do
-            local buttons = barButtons[info.key]
-            if buttons then
-                for i = 1, #buttons do
-                    local btn = buttons[i]
-                    if btn and EFD(btn).squared then
-                        local w = btn:GetWidth() or 45
-                        local s = w / 45
-                        if btn.AssistedCombatHighlightFrame then
-                            btn.AssistedCombatHighlightFrame:SetScale(s)
-                        end
-                        if btn.AssistedCombatRotationFrame then
-                            btn.AssistedCombatRotationFrame:SetScale(s)
-                        end
-                    end
-                end
-            end
-        end
-    end
-    if AssistedCombatManager then
-        if AssistedCombatManager.UpdateAllAssistedHighlightFramesForSpell then
-            hooksecurefunc(AssistedCombatManager, "UpdateAllAssistedHighlightFramesForSpell", ScaleAssistedFrames)
-        end
-        if AssistedCombatManager.UpdateAllAssistedCombatRotationFrames then
-            hooksecurefunc(AssistedCombatManager, "UpdateAllAssistedCombatRotationFrames", ScaleAssistedFrames)
-        end
-    end
-end
+-- NO AssistedCombatManager hooks here (root cause of the "CPU destroyed with
+-- One Button Assist + Assisted Highlight together" reports, 2026-07-26):
+-- with an OBA action on a bar AND the highlight CVar on, the manager calls
+-- UpdateAllAssistedHighlightFramesForSpell / UpdateAllAssistedCombatRotation-
+-- Frames at rotation-evaluation cadence (effectively continuously in combat),
+-- and the hooked full-bar walk ran on EVERY call. Scaling now happens only at
+-- the points that can actually change anything: Blizzard's highlight frame is
+-- scaled inside the rescan pass (rate-limited, and it already visits exactly
+-- the buttons that can hold the suggestion), rotation frames by the
+-- per-button rotHooked change-guarded hook, and existing frames by the bar
+-- layout path on size changes.
 
 -------------------------------------------------------------------------------
 --  Assisted Combat Highlight (self-painted)
@@ -8158,6 +8446,14 @@ do
                                         local bf = btn.AssistedCombatHighlightFrame
                                         if bf and bf:IsShown() then
                                             AssistHide(btn)  -- Blizzard's covers it
+                                            -- Scale Blizzard's lazily-created frame to
+                                            -- our button size (change-guarded). This
+                                            -- replaces the old manager-wide hook, which
+                                            -- walked every button on every manager call.
+                                            if EFD(btn).squared then
+                                                local s = (btn:GetWidth() or 45) / 45
+                                                if bf:GetScale() ~= s then bf:SetScale(s) end
+                                            end
                                         else
                                             AssistShow(btn)
                                         end
@@ -8179,14 +8475,23 @@ do
 
     -- Coalesced re-run: OnActionChanged fires per button on page swaps and
     -- SLOT_CHANGED storms dozens of times per second (mouseover-conditional
-    -- macros re-resolving); one pending flag collapses a burst into a single
-    -- next-frame pass.
+    -- macros re-resolving). Next-frame coalescing alone still meant one full
+    -- all-bars GetActionInfo walk PER FRAME for the whole storm (the reported
+    -- "10% CPU with One Button Assist" -- with the assist CVar off the walk
+    -- early-outs, which is why only assist users saw it). Rate-limit to one
+    -- pass per 0.15s: an idle queue still runs same-frame, a storm pays at
+    -- most ~7 walks/sec, and a 150ms shine lag is invisible on a pulsing
+    -- cosmetic highlight.
     local _assistRescanPending = false
+    local _assistLastScan = 0
     local function QueueAssistRescan()
         if _assistRescanPending then return end
         _assistRescanPending = true
-        C_Timer.After(0, function()
+        local elapsed = GetTime() - _assistLastScan
+        local delay = (elapsed >= 0.15) and 0 or (0.15 - elapsed)
+        C_Timer.After(delay, function()
             _assistRescanPending = false
+            _assistLastScan = GetTime()
             UpdateAssistHighlights()
         end)
     end
@@ -8194,6 +8499,9 @@ do
 
     local function SyncAssistCombat()
         _assistInCombat = (InCombatLockdown() or UnitAffectingCombat("player")) and true or false
+        -- Exposed for the per-button rotation hook (different scope), which
+        -- re-freezes Blizzard's swirl after its UpdateState calls.
+        ns._assistCombatState = _assistInCombat
         for btn in pairs(_assistGlowed) do
             local hf = EFD(btn).assistHL
             if hf and hf:IsShown() and hf.Flipbook and hf.Flipbook.Anim then
@@ -8204,6 +8512,10 @@ do
                 end
             end
         end
+        -- (Blizzard's rotation swirl frame needs no combat gating here: it is
+        -- kept permanently hidden by the UpdateAssistedCombatRotationFrame
+        -- hook and replaced by the script-free spinner -- see
+        -- ns.EnsureAssistSpinner. The spinner costs no Lua at any time.)
     end
 
     local function InstallAssistHook()
@@ -11232,6 +11544,12 @@ local function ApplyDataBarLayout(barKey)
         frame._restedBar:SetRotatesTexture(orient ~= "HORIZONTAL")
     end
 
+    -- Per-bar Text Size (default 9). Re-applied here so the options slider
+    -- takes effect live through the existing ApplyDataBarLayout calls.
+    if frame._text then
+        frame._text:SetFont(FONT_PATH, s.textSize or 9, GetEABOutline())
+    end
+
     if frame._updateFunc then frame._updateFunc() end
 end
 ns.ApplyDataBarLayout = ApplyDataBarLayout
@@ -11272,7 +11590,9 @@ local function CreateDataBarFrame(barKey, updateFunc)
 
     local text = bar:CreateFontString(nil, "OVERLAY")
     if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(text, GetEABUseShadow()) end
-    text:SetFont(FONT_PATH, 9, GetEABOutline())
+    local textSize = EAB.db and EAB.db.profile and EAB.db.profile.bars
+        and EAB.db.profile.bars[barKey] and EAB.db.profile.bars[barKey].textSize or 9
+    text:SetFont(FONT_PATH, textSize, GetEABOutline())
     text:SetPoint("CENTER")
     text:SetTextColor(1, 1, 1, 1)
 

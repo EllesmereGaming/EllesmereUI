@@ -1029,7 +1029,7 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             { type="slider", text="Background", min=0, max=100, step=1,
               disabled=function() return SVal("healthColorMode", "class") == "dark" end,
-              disabledTooltip="Not available in Dark Mode", rawTooltip=true,
+              disabledTooltip="Not available in Dark Mode. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors.", rawTooltip=true,
               getValue=function() return SVal("bgDarkness", 50) end,
               setValue=function(v) SSet("bgDarkness", v) end });  y = y - h
         -- Fill Color's "dark" choice IS the Dark Mode condition's input for
@@ -1173,7 +1173,7 @@ initFrame:SetScript("OnEvent", function(self)
             bgBlock:SetPoint("BOTTOMRIGHT", bgClassSwatch, "BOTTOMRIGHT", 0, 0)
             bgBlock:SetFrameLevel(bgClassSwatch:GetFrameLevel() + 10)
             bgBlock:EnableMouse(true)
-            bgBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgSwatch, "Not available in Dark Mode") end)
+            bgBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgSwatch, "Not available in Dark Mode. Dark Mode colors can be adjusted in Global Settings -> Fonts & Colors.") end)
             bgBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateBgSwatchVis()
                 if SVal("healthColorMode", "class") == "dark" then
@@ -2041,7 +2041,7 @@ initFrame:SetScript("OnEvent", function(self)
                 SSet("powerBgPowerColored", true)
                 EllesmereUI:RefreshPage()
             end)
-            bgPwrSwatch:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSwatch, "Power Colored Background") end)
+            bgPwrSwatch:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bgPwrSwatch, "Power Colored Background. Power colors can be adjusted in Global Settings -> Fonts & Colors.") end)
             bgPwrSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             bgPwrSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = bgPwrSwatch
@@ -4331,8 +4331,10 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSet("tooltipMode", v) end });  y = y - h
         -- Cog: buff/HoT aura-icon tooltips (Buff Manager). Hidden by default --
         -- matches the long-standing behavior where buff icons showed no tooltip;
-        -- opt in here. When shown, the aura tip still follows the tooltip mode
-        -- on this dropdown (mode governs when, this governs whether).
+        -- opt in here. This is the ONLY gate on the aura tip: the tooltip mode
+        -- on this dropdown governs the UNIT tooltip and must not veto an aura
+        -- tip enabled here (it used to, so a hidden unit tip also killed the
+        -- aura tip -- see ns.RaidFrameTooltipAllowed).
         do
             local rgn = row._rightRegion
             local tipRows

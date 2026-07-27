@@ -13,9 +13,9 @@
 --   * unlock-mode registration (one element per bar, key "EDB_<id>")
 --   * the bar/block CRUD API on `ns` consumed by the options file
 --
--- Block factories (clock, fps, ms, gold, xprep, spec, profession, travel,
--- micromenu, currency, spacer) live in EllesmereUIDataBars_Blocks.lua and
--- attach themselves to ns.BlockFactories.
+-- Block factories (clock, fps, ms, location, coords, gold, xprep, spec,
+-- profession, travel, micromenu, currency, spacer) live in
+-- EllesmereUIDataBars_Blocks.lua and attach themselves to ns.BlockFactories.
 --
 -- API HANDOFF (everything the options file may call; nothing else):
 --   ns.GetProfile() -> profile
@@ -39,6 +39,9 @@
 --   ns.SolveLayout(barCfg, L, measureFn) -> segments (pure)
 --   ns.GetLiveAutoLength(barId, blockId) -> px | nil
 --   ns.BuildCurrencyList() -> values, order
+--   ns.LocationWidthMode(blockSettings) -> "auto" | "manual"
+--   ns.LOC_MAX_WIDTH_DEFAULT               Manual-mode width before one is set
+--   ns.BlockTextDynamic(blockType) -> r, g, b   state-driven Text Color swatch
 --   ns.UpdateAllBarVisibility()
 --   ns.MakePreviewBackdrop(host, themeCfg)
 --   ns.BLOCK_TYPES / ns.BLOCK_DEFAULTS / ns.EDB_VIS_CAPS / ns.EDGE_PAD
@@ -133,6 +136,7 @@ local L = {
     INVITE               = "Invite",
     NO_FRIENDS_ONLINE    = "No friends online",
     NOT_IN_GUILD         = "Not in a guild",
+    TOGGLE_WORLD_MAP     = "Toggle World Map",
 }
 ns.L = L
 
@@ -174,6 +178,8 @@ ns.BLOCK_TYPES = {
     { key = "clock",      label = "Clock" },
     { key = "fps",        label = "FPS" },
     { key = "ms",         label = "Latency" },
+    { key = "location",   label = "Location" },
+    { key = "coords",     label = "Coordinates" },
     { key = "gold",       label = "Gold" },
     { key = "durability", label = "Durability" },
     { key = "xprep",      label = "XP / Reputation Bar" },
@@ -192,6 +198,11 @@ ns.BLOCK_DEFAULTS = {
     clock      = { localTime = true, twentyFour = true, showMail = true, showResting = true, fontSizeClock = nil, fontSizeInfo = nil },
     fps        = {},
     ms         = { showIcon = false },
+    -- widthMode/maxWidth deliberately unset: "auto" is the resolved default
+    -- (ns.LocationWidthMode) and a nil maxWidth is what marks the width as
+    -- never chosen, which is what the options page pulses about.
+    location   = { showIcon = true, showSubZone = true },
+    coords     = { showIcon = true, precision = 0, hideInInstance = true },
     gold       = { showIcons = true, showBagSpace = false, showSmall = false, coinIcons = false },
     durability = { showIcon = true },
     xprep      = { mode = "auto" },
@@ -2156,6 +2167,26 @@ function ns.ApplyBar(id)
         rec.ctx.frame = rec.bar
         live[id] = rec
         RegisterBarMouseoverProxy(id)
+    end
+
+    -- Bar Strata (cfg.barStrata, cog on the Visibility row). nil = "MEDIUM",
+    -- the value the bar was hardcoded to at creation above, so an unset bar
+    -- renders byte-identically and there is nothing to migrate. Applied on
+    -- EVERY apply rather than only at creation, so a change lands without a
+    -- reload.
+    --
+    -- Setting a frame's strata RE-STACKS its children's levels as well as their
+    -- stratas, so the creation-time levels are re-asserted immediately after:
+    -- the bar at 10, and the border container at bar + 1 (what PP.CreateBorder
+    -- gave it). Slots and block content set no explicit levels and re-stack
+    -- correctly on their own.
+    --
+    -- Combat-safe by position: ApplyBar's protected-bar gate has already
+    -- returned above, so a protected bar never reaches this in lockdown.
+    rec.bar:SetFrameStrata(cfg.barStrata or "MEDIUM")
+    rec.bar:SetFrameLevel(10)
+    if rec.bar._edbBorder then
+        rec.bar._edbBorder:SetFrameLevel(rec.bar:GetFrameLevel() + 1)
     end
 
     local wasDisabled = not rec.enabled

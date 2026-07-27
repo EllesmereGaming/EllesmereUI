@@ -66,9 +66,12 @@ do
             end
 
             if EllesmereUIDB.ppUIScale then
-                -- Migrate 0.53 to exact pixel-perfect 0.5333...
+                -- Migrate 0.53 to exact pixel-perfect 0.5333... (768/1440)
                 if EllesmereUIDB.ppUIScale == 0.53 then
                     EllesmereUIDB.ppUIScale = 0.5333333333
+                -- Migrate 0.71 to exact pixel-perfect 0.7111... (768/1080)
+                elseif EllesmereUIDB.ppUIScale == 0.71 then
+                    EllesmereUIDB.ppUIScale = 0.7111111111
                 end
                 scaleKnown = true
             end

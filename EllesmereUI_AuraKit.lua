@@ -402,6 +402,19 @@ local function ApplyStyleToRegions(button, style)
     -- effect (the nameplate click/tooltip eater), so never touch the tooltip
     -- surface of a button that has no tooltip to configure.
     if not style.noTooltips then
+        -- Style flip noTooltips -> tooltips (e.g. the unit-frame aura-tooltip
+        -- toggle re-enabled): this button's motion was disabled by the pass
+        -- below, and the tooltip-config calls underneath are change-guarded by
+        -- stamps that still match, so nothing else would re-arm it. Re-enable
+        -- explicitly, only for buttons we ourselves turned off (akMotionOff),
+        -- so buttons that were never noTooltips see zero new calls.
+        if d.akMotionOff and button.SetMouseMotionEnabled then
+            if pcall(button.SetMouseMotionEnabled, button, true) then
+                d.akMotionOff = nil
+            elseif d.styleKey and AK.AurasRestricted() then
+                deferredRestyles[d.styleKey] = true
+            end
+        end
         if button.SetHideTooltipInCombat then
             local wantCombat = style.tooltipCombatHide and true or false
             if d.akTipCombat ~= wantCombat then
@@ -442,8 +455,12 @@ local function ApplyStyleToRegions(button, style)
         end
     end
     if style.noTooltips and button.SetMouseMotionEnabled then
-        if not pcall(button.SetMouseMotionEnabled, button, false)
-            and d.styleKey and AK.AurasRestricted() then
+        if pcall(button.SetMouseMotionEnabled, button, false) then
+            -- Deliberately re-asserted every pass (the engine re-arms motion
+            -- as a side effect of tooltip config); the stamp only records
+            -- that WE own the off state, for the flip-back re-arm above.
+            d.akMotionOff = true
+        elseif d.styleKey and AK.AurasRestricted() then
             deferredRestyles[d.styleKey] = true
         end
     end

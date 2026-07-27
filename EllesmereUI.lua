@@ -3772,6 +3772,7 @@ do
                 if not EllesmereUI._smFontPaths then EllesmereUI._smFontPaths = {} end
                 local path = LSM:Fetch("font", key)
                 if path then EllesmereUI._smFontPaths[key] = path end
+                EllesmereUI.InvalidateFontCache()
             end
         end)
     end
@@ -3785,14 +3786,22 @@ end
 --  ResolveFontName -> SlugFlag -> IsSlugDisabled -- and were walking it from
 --  scratch on every single text update. Instrumented profiling put roughly 44%
 --  of this addon's entire CPU cost in that chain, recomputing an answer that
---  had not changed. The results depend only on the fonts DB and the addon key,
---  so they are memoized per key here.
+--  had not changed. The results depend on the fonts DB, the addon key, AND the
+--  SharedMedia path lookup (_smFontPaths, which ResolveFontName reads), so they
+--  are memoized per key here.
 --
 --  Invalidation is explicit and deliberately coarse (drop everything):
 --    * every font setting funnels through the options page's FontReload()
 --    * applying or importing a profile rewrites the fonts DB in place
 --    * the fonts reset nils the table outright
---  Anything else that writes the fonts DB must call InvalidateFontCache().
+--    * a late LibSharedMedia_Registered font updates _smFontPaths
+--  Anything else that writes the fonts DB OR _smFontPaths must call
+--  InvalidateFontCache(). Naming only the fonts DB here is what let a real bug
+--  through: an SM font registering after a module had already resolved left the
+--  Expressway fallback cached for the session. Note that memoizing in front of
+--  ResolveFontName also DISABLES its own late-load LSM re-fetch (the early
+--  cache-hit return never reaches it), so the cache is the only thing that can
+--  recover from a late registration.
 --  Mirrors the _colorCache / InvalidateColorCache pattern further up this file.
 --
 --  Stored as table fields rather than file-scope locals: this file sits on
@@ -5651,6 +5660,20 @@ function EllesmereUI.ResolveTexturePath(texTable, key, fallback)
     if not key then return fallback end
     local path = texTable and texTable[key]
     if path then return path end
+    -- A non-string key is legacy data, not a lookup miss: several settings were
+    -- boolean toggles before they became style dropdowns (showPlayerAbsorb is
+    -- one). Callers gate on truthiness, so a stored `true` passes their check
+    -- and arrives here, where the :match below raises. That error fires inside
+    -- unit frame initialisation and aborts the whole build -- a white player
+    -- frame and a settings tab that will not open, from one stale boolean.
+    -- Treat it as unset and let the caller's fallback stand.
+    --
+    -- Deliberately placed AFTER the direct lookup, not before it: the raise is
+    -- in the :match below, so guarding here keeps this a pure crash fix and
+    -- cannot turn a table hit into a fallback. Every texture table today is
+    -- string-keyed, so the two orders behave identically -- this one just stays
+    -- correct if one ever is not.
+    if type(key) ~= "string" then return fallback end
     -- If the key has an "sm:" prefix, try LSM directly
     local smName = key:match("^sm:(.+)")
     if smName then
@@ -11079,7 +11102,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.6.2"
+EllesmereUI.VERSION = "8.6.4"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

@@ -360,6 +360,62 @@ local function ED()
     return db and db.profile and db.profile.externalDefensives
 end
 
+-- Countdown formatters for the EDF cooldown widgets. SetCountdownFormatter
+-- takes an ENGINE formatter object (C_StringUtil.CreateNumericRuleFormatter),
+-- never a Lua function -- passing a closure throws "bad argument #2", which
+-- aborted EDF_StyleButton partway and left the button permanently unstyled and
+-- its count FontString font-less. Engine-side formatting is also what makes
+-- secret durations render at all, the same reason the Cooldown Manager's
+-- threshold text uses this API.
+--
+-- Only the sub-hour range is styled per format; externals are all short, and
+-- the hour/day breakpoints exist purely as a tail. Thresholds sit just above
+-- each unit boundary so an UP-rounded value in (59, 60] routes into the next
+-- breakpoint instead of reading "60" for a tick.
+local EDF_formatters = {}
+local EDF_fmtUnsupported = false
+
+local function EDF_FormatterFor(style)
+    if EDF_fmtUnsupported or not style or style == "blizzard" then return nil end
+    local cached = EDF_formatters[style]
+    if cached ~= nil then return cached or nil end
+    if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter
+        and Enum.NumericRuleFormatRounding) then
+        EDF_fmtUnsupported = true
+        return nil
+    end
+    local Up = Enum.NumericRuleFormatRounding.Up
+    local points = { { threshold = 0, format = "%d", rounding = Up, step = 1 } }
+    if style == "colon" then
+        points[#points + 1] = {
+            threshold = 59.0001, format = "%d:%02d", rounding = Up, step = 1,
+            components = { { div = 60 }, { mod = 60 } },
+        }
+    elseif style ~= "seconds" then
+        -- "compact": minutes above a minute. "seconds" deliberately has no
+        -- minute breakpoint, so it keeps counting raw seconds ("152").
+        points[#points + 1] = {
+            threshold = 59.0001, format = "%dm", rounding = Up, step = 1,
+            components = { { div = 60 } },
+        }
+    end
+    points[#points + 1] = {
+        threshold = 3599.0001, format = "%dh", rounding = Up, step = 1,
+        components = { { div = 3600 } },
+    }
+    points[#points + 1] = {
+        threshold = 86399.0001, format = "%dd", rounding = Up, step = 1,
+        components = { { div = 86400 } },
+    }
+    local f = C_StringUtil.CreateNumericRuleFormatter()
+    if not pcall(f.SetBreakpoints, f, points) then
+        EDF_formatters[style] = false
+        return nil
+    end
+    EDF_formatters[style] = f
+    return f
+end
+
 local function EDF_StyleButton(btn, cfg)
     local size = cfg.iconSize or 32
     btn:SetSize(size, size)
@@ -384,17 +440,7 @@ local function EDF_StyleButton(btn, cfg)
     -- Custom duration formats via the engine formatter (nil-guarded: on
     -- clients without it the dropdown falls back to the native format).
     if cd.SetCountdownFormatter then
-        local style = cfg.durationFormat
-        if style and style ~= "blizzard" then
-            cd:SetCountdownFormatter(function(timeLeft)
-                if type(timeLeft) ~= "number" then return end
-                if issecretvalue and issecretvalue(timeLeft) then return end
-                if timeLeft <= 0 then return end
-                return FormatCompactDuration(timeLeft, style)
-            end)
-        else
-            cd:SetCountdownFormatter(nil)
-        end
+        cd:SetCountdownFormatter(EDF_FormatterFor(cfg.durationFormat))
     end
 
     if btn._count then
@@ -439,6 +485,12 @@ local function EDF_CreateButton(i)
     txtHost:SetAllPoints()
     txtHost:SetFrameLevel(cd:GetFrameLevel() + 1)
     local cnt = txtHost:CreateFontString(nil, "OVERLAY")
+    -- Baseline font at creation: EDF_StyleButton re-points this at the user's
+    -- configured font, but the button is already in edfButtons by then, so a
+    -- styling pass that fails partway would otherwise leave a font-less
+    -- FontString that throws "Font not set" on every later SetText.
+    cnt:SetFont(EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")
+        or STANDARD_TEXT_FONT, 11, "")
     cnt:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
     btn._count = cnt
 

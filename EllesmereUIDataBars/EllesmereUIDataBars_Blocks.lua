@@ -17,7 +17,8 @@
 -- All frames created here are OURS (CreateFrame by this file), so SetScript
 -- and custom fields are allowed. The only Blizzard frames touched are the
 -- micro menu containers (via a SecureHandlerStateTemplate hider) and the
--- Blizzard MicroButtons / ProfessionMicroButton (via secure attributes).
+-- Blizzard MicroButtons / ProfessionMicroButton / QuestLogMicroButton (via
+-- secure attributes).
 
 local ADDON_NAME, ns = ...
 local L = ns.L
@@ -235,9 +236,8 @@ end
 -- precedence at their sites.
 local function BlockColorOf(b)
     if b.useDynamicColor then
-        -- Opt-in Dynamic text mode (durability's Text Color 4th swatch):
-        -- resolves through the block's themed/dynamic default.
-        return ns.BlockIconDefault(b.type)
+        -- Opt-in state-driven text mode (the Text Color row's 4th swatch).
+        return ns.BlockTextDynamic(b.type)
     end
     if b.useClassColor then
         local _, classFile = UnitClass("player")
@@ -249,6 +249,21 @@ local function BlockColorOf(b)
     local c = b.color
     if c then return c.r or 1, c.g or 1, c.b or 1 end
     return 1, 1, 1
+end
+
+-- Reactive zone coloring by the current zone's PvP ruleset. Kept identical
+-- to EllesmereUIMinimap's GetZoneReactionColor so the bar's location text and
+-- the minimap's zone text never disagree about the zone they both name.
+local function ZoneReactionColor()
+    local pvpType = C_PvP and C_PvP.GetZonePVPInfo and C_PvP.GetZonePVPInfo()
+    if pvpType == "friendly" then
+        return 0.05, 0.85, 0.03
+    elseif pvpType == "sanctuary" then
+        return 0.035, 0.58, 0.84
+    elseif pvpType == "arena" or pvpType == "hostile" or pvpType == "combat" then
+        return 0.84, 0.03, 0.03
+    end
+    return 0.9, 0.85, 0.05
 end
 
 -- Themed per-block icon defaults (the Icon Color row's "Default" swatch).
@@ -263,6 +278,15 @@ local ICON_DEFAULTS = {
     currency    = { 0.886, 0.675, 0.478 },  -- E2AC7A
     greatvault  = { 0.569, 0.502, 1 },  -- 9180FF
     audio       = { 1, 1, 1 },
+    -- Map-marker red. Deliberately NOT the module's soft red (1, 0.35, 0.35):
+    -- at 65% saturation that one reads salmon, where a pin has to read
+    -- unmistakably red. Pure #FF0000 is the other wrong end -- it blooms at
+    -- icon size. A plain stored default: unlike the text beside it, the pin
+    -- never follows the zone.
+    location    = { 0.918, 0.263, 0.208 },  -- EA4335
+    -- Map-marker yellow for the coordinate readout. Distinct from gold's
+    -- peachy E2AC7A so the two never read as the same block at a glance.
+    coords      = { 0.961, 0.784, 0.259 },  -- F5C842
 }
 -- Lowest equipped-durability percent, written by the durability block's
 -- sampler; read by the dynamic tint below (and its swatch preview).
@@ -290,6 +314,22 @@ function ns.BlockIconDefault(bType)
     local d = ICON_DEFAULTS[bType]
     if d then return d[1], d[2], d[3] end
     return 1, 1, 1
+end
+
+-- Per-block STATE-DRIVEN TEXT color (the Text Color row's 4th swatch).
+-- Normally the same source as the icon's themed default -- durability tints
+-- both from its red->green gradient -- so the fallback is BlockIconDefault.
+-- Types listed here override that: the location blocks split the two
+-- deliberately: the zone name follows the PvP ruleset while the map pin keeps
+-- a plain user-owned color.
+local TEXT_DYNAMIC = {
+    location = ZoneReactionColor,
+    coords   = ZoneReactionColor,
+}
+function ns.BlockTextDynamic(bType)
+    local fn = TEXT_DYNAMIC[bType]
+    if fn then return fn() end
+    return ns.BlockIconDefault(bType)
 end
 
 -- Per-block ICON color (options Icon Color row: Custom/Class/Accent/Default
@@ -1270,6 +1310,469 @@ ns.BlockFactories.durability = function(blockCfg, slot, content, barCtx)
         sample   = SampleDurability,
         suffix   = function() return "%" end,
         tooltip  = DurabilityTooltip,
+    })
+end
+
+-------------------------------------------------------------------------------
+--  LOCATION + COORDINATES (two block types on one text renderer)
+-------------------------------------------------------------------------------
+-- Where the player is, in two blocks: the zone name, and the coordinates.
+-- Split because they are placed independently -- a bar commonly wants the
+-- coordinates alone, or the name centred with the numbers off to one side --
+-- and because only one of them can be sized from its text (see below).
+--
+-- Everything reads live client APIs. There is no zone level range or battle
+-- pet range here: the client exposes neither, and the data libraries that do
+-- carry them are hand-maintained Classic-era tables whose numbers say very
+-- little once level scaling is in play.
+
+-- Width the location block holds in Manual mode, in px. Wide enough for a
+-- typical "Zone: Subzone" pair at the default font without clipping. Exported
+-- because the options slider must report the same number the block renders at
+-- while maxWidth is still unset -- two literals would drift.
+local LOC_MAX_WIDTH_DEFAULT = 200
+ns.LOC_MAX_WIDTH_DEFAULT = LOC_MAX_WIDTH_DEFAULT
+
+-- Icon size above the text size. The map pin is a tall, narrow glyph, so it
+-- needs less headroom than the wide icons (durability's forge runs at +7).
+local LOC_ICON_EXTRA = 4
+
+-- Effective width mode, resolved in one place so the block and the options
+-- page can never disagree (same reason ns.LatencyMode is exported).
+function ns.LocationWidthMode(s)
+    return s.widthMode or "auto"
+end
+
+local COORD_FMT = {
+    [0] = "%.0f, %.0f",
+    [1] = "%.1f, %.1f",
+    [2] = "%.2f, %.2f",
+}
+-- Width rulers: the readout changes every step, so the coords block reserves
+-- its width from the widest value each precision can produce, never from the
+-- live one (same rule as the stat blocks' "888" template).
+local COORD_TEMPLATE = {
+    [0] = "88, 88",
+    [1] = "88.8, 88.8",
+    [2] = "88.88, 88.88",
+}
+
+local CONTINENT_MAP_TYPE = (Enum and Enum.UIMapType and Enum.UIMapType.Continent) or 2
+
+local function LocDisplayText(showSubZone)
+    -- Two different reads on purpose: the real zone name builds the
+    -- "Zone: Subzone" form, while the minimap zone already falls back to the
+    -- zone name wherever there is no subzone -- which IS the subzone-only
+    -- form, with no extra branch needed.
+    local zone = GetRealZoneText() or ""
+    local sub = GetMinimapZoneText() or ""
+    if showSubZone and sub ~= "" and sub ~= zone then
+        return zone .. ": " .. sub
+    end
+    if sub ~= "" then return sub end
+    return zone
+end
+
+local function LocPlayerPosition()
+    if not (C_Map and C_Map.GetBestMapForUnit) then return nil end
+    local mapID = C_Map.GetBestMapForUnit("player")
+    if not mapID then return nil end
+    local pos = C_Map.GetPlayerMapPosition(mapID, "player")
+    if not pos then return nil end
+    local x, y = pos:GetXY()
+    -- Instances with no player map report a flat 0,0 rather than nothing.
+    if not (x and y) or (x == 0 and y == 0) then return nil end
+    return x * 100, y * 100
+end
+
+local function LocCoordText(precision)
+    local x, y = LocPlayerPosition()
+    if not x then return "-" end
+    return format(COORD_FMT[precision] or COORD_FMT[0], x, y)
+end
+
+local function LocContinentName()
+    if not (C_Map and C_Map.GetBestMapForUnit) then return nil end
+    local mapID = C_Map.GetBestMapForUnit("player")
+    while mapID and mapID ~= 0 do
+        local info = C_Map.GetMapInfo(mapID)
+        if not info then return nil end
+        if info.mapType == CONTINENT_MAP_TYPE then return info.name end
+        mapID = info.parentMapID
+    end
+    return nil
+end
+
+-- Status label. The COLOR comes from ZoneReactionColor so the tooltip's status
+-- line and the block's Dynamic text mode never disagree; the labels themselves
+-- are Blizzard globals and are already localized by the client.
+local function LocZoneStatus()
+    local pvpType = C_PvP and C_PvP.GetZonePVPInfo and C_PvP.GetZonePVPInfo()
+    if pvpType == "sanctuary" then return SANCTUARY_TERRITORY end
+    if pvpType == "arena" then return ARENA end
+    if pvpType == "friendly" then return FRIENDLY end
+    if pvpType == "hostile" then return HOSTILE end
+    if pvpType == "combat" then return COMBAT end
+    if pvpType == "contested" then return CONTESTED_TERRITORY end
+    if IsInInstance() then return AGGRO_WARNING_IN_INSTANCE end
+    return CONTESTED_TERRITORY
+end
+
+-- One tooltip for both blocks: they name the same place, so they say the same
+-- thing. Blizzard globals for the labels, module keys for the click hints.
+local function LocTooltip(ownerFrame)
+    local ar, ag, ab = ns.GetAccent()
+    ns.Tip_Begin(ownerFrame)
+    ns.Tip_AddDouble(ZONE, LocDisplayText(true), 0.6, 0.6, 0.6, 1, 1, 1)
+    local continent = LocContinentName()
+    if continent then
+        ns.Tip_AddDouble(CONTINENT, continent, 0.6, 0.6, 0.6, 1, 1, 1)
+    end
+    local sr, sg, sb = ZoneReactionColor()
+    ns.Tip_AddDouble(STATUS, LocZoneStatus(), 0.6, 0.6, 0.6, sr, sg, sb)
+    ns.Tip_AddLine(" ")
+    ns.Tip_AddDouble(L["LEFT_CLICK"], L["TOGGLE_WORLD_MAP"], 1, 1, 1, ar, ag, ab)
+    ns.Tip_Show()
+end
+
+-- Shared single-line text block. opts:
+--   text()        -> string to display
+--   template()    -> stable width-reservation string; nil sizes from the live
+--                    text instead
+--   width()       -> fixed width in px, or nil to size from the text
+--   collapse()    -> true drops the block from the bar entirely
+--   texture       -> optional icon file, gated by the block's own showIcon
+--                    setting (default on)
+--   events        -> event list driving Refresh
+--   tickSeconds   -> dedicated ticker period, for values no event announces
+-- The tooltip and the click action are the same for both blocks -- they name
+-- the same place -- so they are wired straight in rather than passed.
+local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
+    local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
+    inst.key = InstKey(barCtx, blockCfg)
+    inst.events = opts.events
+
+    local function BC() return barCtx.cfg end
+    local function D() return blockCfg.settings or {} end
+
+    local mouseOver = false
+    local ticker
+    local lastText
+
+    local frame = CreateFrame("Button", nil, content)
+    frame:SetSize(60, 20); frame:EnableMouse(true); frame:RegisterForClicks("AnyUp")
+    -- Icon is optional: blocks without opts.texture are text-only.
+    local icon
+    if opts.texture then
+        icon = frame:CreateTexture(nil, "OVERLAY")
+        icon:SetTexture(opts.texture); icon:SetPoint("LEFT")
+    end
+    local text = frame:CreateFontString(nil, "OVERLAY")
+    AttachTextOffset(inst, text)
+    text:SetPoint("LEFT")
+    -- Hidden ruler, only for the block that reserves width from a template.
+    local measureFS
+    if opts.template then
+        measureFS = frame:CreateFontString(nil, "OVERLAY")
+        measureFS:Hide()
+    end
+
+    local function ApplyColors()
+        local r, g, b
+        if mouseOver then
+            r, g, b = ns.GetAccent()
+        else
+            r, g, b = BlockColorOf(blockCfg)
+        end
+        text:SetTextColor(r, g, b, 1)
+        if icon then
+            if mouseOver then
+                icon:SetVertexColor(r, g, b, 1)
+            else
+                local ir, ig, ib = IconColorOf(blockCfg)
+                icon:SetVertexColor(ir, ig, ib, 1)
+            end
+        end
+    end
+
+    local function HoverIn()
+        mouseOver = true
+        ApplyColors()
+        LocTooltip(frame)
+    end
+    local function HoverOut()
+        mouseOver = false
+        ns.Tip_Hide(frame)
+        ApplyColors()
+    end
+
+    -- Secure click passthrough to Blizzard's Quest Log micro button, which is
+    -- what opens the map. The click runs inside Blizzard's own handler, so
+    -- nothing here ever enters the map's panel flow -- the same mechanism the
+    -- micro menu block uses for every button it hosts.
+    --
+    -- Lazily created and never in lockdown (secure frames cannot be configured
+    -- there). Until it exists the block still displays and still shows its
+    -- tooltip, it just does not click; PLAYER_REGEN_ENABLED drives Refresh,
+    -- which retries. Both blocks listen for it, so a block built during a
+    -- fight becomes clickable the moment the fight ends.
+    local clickBtn
+    local function EnsureClickButton()
+        if clickBtn or InCombatLockdown() then return clickBtn end
+        local micro = _G.QuestLogMicroButton
+        if not micro then return nil end
+        clickBtn = CreateFrame("Button", "EWB_LOC_" .. inst.key, frame,
+            "SecureActionButtonTemplate,SecureHandlerStateTemplate")
+        clickBtn:SetAllPoints(frame)
+        clickBtn:SetAttribute("*clickbutton1", micro)
+        -- Without this, the ActionButtonUseKeyDown CVar makes the secure
+        -- handler act on key-down only, discarding our "AnyUp" clicks.
+        clickBtn:SetAttribute("useOnKeyDown", false)
+        clickBtn:SetAttribute("*type1", "click")
+        clickBtn:EnableMouse(true)
+        clickBtn:RegisterForClicks("AnyUp")
+        -- Combat: drop the click ACTION only, from within the secure
+        -- environment. The button stays mouse-enabled so hover keeps working;
+        -- a click while *type1 is nil simply does nothing.
+        RegisterStateDriver(clickBtn, "combatlock", "[combat] combat; nocombat")
+        clickBtn:SetAttribute("_onstate-combatlock", [[
+            if newstate == 'combat' then
+                self:SetAttribute('*type1', nil)
+            else
+                self:SetAttribute('*type1', 'click')
+            end
+        ]])
+        -- The overlay covers the display frame, so it owns hover from here on.
+        -- Same handlers, and the tooltip still anchors to the display frame so
+        -- its position does not shift when the button materialises.
+        clickBtn:SetScript("OnEnter", HoverIn)
+        clickBtn:SetScript("OnLeave", HoverOut)
+        return clickBtn
+    end
+
+    function inst:Refresh(pre)
+        EnsureClickButton()
+
+        local collapsed = (opts.collapse and opts.collapse()) or false
+        -- Show/Hide are protected calls: the secure click button above puts
+        -- this block's whole bar under protection, so flip only on a real
+        -- state change and never in lockdown. The collapse edges are all
+        -- event-driven and PLAYER_REGEN_ENABLED re-runs this pass.
+        if content:IsShown() == collapsed and not InCombatLockdown() then
+            if collapsed then content:Hide() else content:Show() end
+        end
+        -- Collapsed (coordinates inside an instance): GetAutoLength reports 0
+        -- so the solver drops the slot and its gaps.
+        if collapsed then
+            lastText = nil
+            MaybeRelayout(inst)
+            return
+        end
+
+        local barCfg = BC()
+        local barH = barCtx.GetThickness()
+        local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
+        local isSide = barCtx.IsVertical()
+        local gap = ICON_GAP
+
+        -- `pre` is the string the caller already computed (the ticker tests it
+        -- before deciding to refresh at all). Re-reading it here would double
+        -- the position lookups -- and every C_Map.GetPlayerMapPosition hands
+        -- back a fresh table -- twice a second, forever.
+        local str = pre or opts.text()
+        lastText = str
+        ns.SetFont(text, fontSize, barCfg)
+        text:SetText(str)
+        ApplyColors()
+
+        local iconSz = 0
+        if icon and D().showIcon ~= false then
+            iconSz = fontSize + LOC_ICON_EXTRA
+            icon:SetSize(iconSz, iconSz)
+            icon:Show()
+        elseif icon then
+            icon:Hide()
+        end
+
+        if InCombatLockdown() then return end
+
+        if isSide then
+            local slotW = VSlotW(inst)
+            local innerW = max(36, slotW - 8)
+            text:ClearAllPoints()
+            if iconSz > 0 then
+                icon:ClearAllPoints(); icon:SetPoint("LEFT", frame, "LEFT", 0, 0)
+                text:SetPoint("LEFT", icon, "RIGHT", gap, 0)
+                ns.SetWrappedText(text, max(16, innerW - iconSz - gap - 2), "LEFT")
+            else
+                text:SetPoint("CENTER", frame, "CENTER", 0, 0)
+                ns.SetWrappedText(text, innerW, "CENTER")
+            end
+            local lineH = max(fontSize + 4, iconSz,
+                ns.SnapToPixelGrid(text:GetStringHeight() or fontSize))
+            frame:SetSize(innerW, lineH)
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", content, "CENTER", 0, 0)
+            content:SetSize(slotW, max(lineH + 8, barH))
+        else
+            ns.ResetInlineText(text, "LEFT")
+            local iconPad = 0
+            if iconSz > 0 then
+                iconPad = iconSz + gap
+                icon:ClearAllPoints(); icon:SetPoint("LEFT", frame, "LEFT", 0, 0)
+            end
+            text:ClearAllPoints()
+            text:SetPoint("LEFT", frame, "LEFT", iconPad, 0)
+            -- Manual width: the block is exactly this wide whatever the zone
+            -- is called, and a longer name is clipped. It is the only mode
+            -- that never moves its neighbours. The value deliberately does NOT
+            -- come from the assigned slot: under auto sizing the slot IS this
+            -- block's own measured width, so deriving it from there would
+            -- shrink the block a little further on every pass. Icon included.
+            local w = opts.width and opts.width()
+            if w then
+                text:SetWidth(max(20, w - iconPad - 2))
+                text:SetWordWrap(false)
+            else
+                -- Measured only when the width is not already decided: a
+                -- GetStringWidth forces a FontString layout.
+                local tpl = opts.template and opts.template()
+                if tpl then
+                    ns.SetFont(measureFS, fontSize, barCfg)
+                    measureFS:SetText(tpl)
+                    w = iconPad + ns.SnapToPixelGrid(measureFS:GetStringWidth() or 40) + 2
+                else
+                    w = iconPad + ns.SnapToPixelGrid(text:GetStringWidth() or 40) + 2
+                end
+            end
+            if w < 24 then w = 24 end
+            frame:SetSize(w, barH)
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", content, "CENTER", 0, 0)
+            content:SetSize(w, barH)
+        end
+        MaybeRelayout(inst)
+    end
+
+    -- Fallback hover surface: used until the secure overlay exists (a block
+    -- built mid-combat), and harmless afterwards -- the overlay sits on top,
+    -- so only one of the two ever fires.
+    frame:SetScript("OnEnter", HoverIn)
+    frame:SetScript("OnLeave", HoverOut)
+
+    inst.eventFrame = MakeEventFrame(inst, function(self)
+        self:Refresh()
+    end)
+
+    function inst:Enable()
+        if not content:IsShown() and not InCombatLockdown() then content:Show() end
+        lastText = nil
+        EnsureClickButton()
+        RegisterInstEvents(self)
+        -- Movement raises no event, and the engine heartbeat is 1s -- coarse
+        -- enough that the numbers visibly jump while running. Same 0.5s period
+        -- and lazy lifecycle as EllesmereUIMinimap's own coordinate ticker.
+        if opts.tickSeconds and not ticker then
+            ticker = C_Timer.NewTicker(opts.tickSeconds, function()
+                -- Collapsed: nothing to render, and the un-collapse edge is
+                -- event-driven (PLAYER_ENTERING_WORLD / ZONE_CHANGED_NEW_AREA
+                -- both fire on instance entry and exit). Leaving it to the
+                -- guard below instead would re-enter the whole hide path twice
+                -- a second for as long as the player is in the dungeon.
+                if opts.collapse and opts.collapse() then return end
+                -- Same guard as the stat blocks' heartbeat: a full Refresh
+                -- re-sets the font, re-measures the ruler, re-anchors and
+                -- re-sizes every frame -- all invariant between ticks. Standing
+                -- still now costs one position read instead of that whole pass,
+                -- and a moving player hands the string straight on rather than
+                -- paying for it twice.
+                local str = opts.text()
+                if str == lastText then return end
+                inst:Refresh(str)
+            end)
+        end
+    end
+
+    function inst:Disable()
+        UnregisterInstEvents(self)
+        if ticker then ticker:Cancel(); ticker = nil end
+        -- Protected once the secure click button exists; the engine's own
+        -- combat gate defers the ApplyBar that reaches here, so this only
+        -- guards the paths that do not go through it.
+        if not InCombatLockdown() then content:Hide() end
+    end
+
+    function inst:GetAutoLength()
+        if not content:IsShown() then return 0 end
+        if barCtx.IsVertical() then
+            return max(content:GetHeight() or 40, 30)
+        end
+        return max(content:GetWidth() or 60, 24)
+    end
+
+    function inst:Destroy()
+        self._dead = true
+        if ticker then ticker:Cancel(); ticker = nil end
+        if clickBtn then
+            ParkSecureFrame(clickBtn, self.key .. "_loc")
+            clickBtn = nil
+        end
+        -- Same protected-call guard as Disable: parking the secure child is
+        -- itself deferred in combat, so the bar is still protected here.
+        if not InCombatLockdown() then content:Hide() end
+    end
+
+    return inst
+end
+
+ns.BlockFactories.location = function(blockCfg, slot, content, barCtx)
+    local function D() return blockCfg.settings or {} end
+
+    return MakeLocationBlock(blockCfg, slot, content, barCtx, {
+        -- PLAYER_REGEN_ENABLED: Refresh can only re-anchor and resize out of
+        -- combat, so a zone change mid-fight leaves stale geometry until the
+        -- fight ends. Same reason the clock block listens for it.
+        events = { "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA",
+                   "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED" },
+        texture = MEDIA .. "location.png",
+        text = function() return LocDisplayText(D().showSubZone ~= false) end,
+        -- No template: the block sizes from the live name. Zone changes are
+        -- rare, so one relayout each is cheaper than permanently reserving
+        -- room for the longest zone name in the game.
+        width = function()
+            local d = D()
+            if ns.LocationWidthMode(d) ~= "manual" then return nil end
+            return d.maxWidth or LOC_MAX_WIDTH_DEFAULT
+        end,
+    })
+end
+
+ns.BlockFactories.coords = function(blockCfg, slot, content, barCtx)
+    local function D() return blockCfg.settings or {} end
+    local function Precision()
+        local p = D().precision
+        if p == nil then p = 0 end
+        return p
+    end
+
+    return MakeLocationBlock(blockCfg, slot, content, barCtx, {
+        -- PLAYER_REGEN_ENABLED: geometry, the collapse flip and the secure
+        -- click button all wait for regen, so the block needs a pass there.
+        events = { "ZONE_CHANGED_NEW_AREA", "PLAYER_ENTERING_WORLD",
+                   "PLAYER_REGEN_ENABLED" },
+        tickSeconds = 0.5,
+        texture = MEDIA .. "coordinates.png",
+        text = function() return LocCoordText(Precision()) end,
+        template = function() return COORD_TEMPLATE[Precision()] or COORD_TEMPLATE[0] end,
+        collapse = function()
+            if D().hideInInstance == false then return false end
+            if not IsInInstance() then return false end
+            -- Housing counts as an instance but has a real player map, so its
+            -- coordinates work and are worth keeping. Sanctuary is what tells
+            -- it apart from a dungeon or a raid.
+            local pvpType = C_PvP and C_PvP.GetZonePVPInfo and C_PvP.GetZonePVPInfo()
+            return pvpType ~= "sanctuary"
+        end,
     })
 end
 

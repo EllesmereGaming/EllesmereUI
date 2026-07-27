@@ -2181,6 +2181,29 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+EllesmereUI.RegisterMigration({
+    id          = "uf_absorb_style_boolean_sweep_v1",
+    scope       = "profile",
+    description = "Normalise any remaining boolean showPlayerAbsorb to a style string. uf_absorb_style_dropdown_v1 walked a fixed unit list and stamps per profile, so a profile that arrived AFTER it ran -- an import or a preset, both of which inherit the recipient's migration flags -- kept the legacy boolean.",
+    body = function(ctx)
+        -- Walk every table in the UF blob rather than a unit list: the earlier
+        -- pass missed whichever units were not named in it, and the crash this
+        -- fixes does not care which unit carried the bad value.
+        local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
+        if type(uf) ~= "table" then return end
+        for _, unitCfg in pairs(uf) do
+            if type(unitCfg) == "table" then
+                local v = unitCfg.showPlayerAbsorb
+                if v == true then
+                    unitCfg.showPlayerAbsorb = "striped"   -- v1's mapping for true
+                elseif v ~= nil and type(v) ~= "string" then
+                    unitCfg.showPlayerAbsorb = "none"
+                end
+            end
+        end
+    end,
+})
+
 -- Remove ghost buff bar: buff visibility is now managed by Blizzard CDM
 -- settings. Clean up the bar entry from all profiles and spell data from
 -- all spec profiles. One-time migration.

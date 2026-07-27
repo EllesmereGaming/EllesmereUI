@@ -538,7 +538,8 @@ local DEFAULTS = {
                     barVisibility = "always", housingHideEnabled = true,
                     visHideHousing = true, visOnlyInstances = false,
                     visHideMounted = false, visHideNoTarget = false, visHideNoEnemy = false,
-                    showCooldownText = true, showItemCount = true, showTooltip = false, showKeybind = false,
+                    showCooldownText = true, cooldownTextPosition = "center",
+                    showItemCount = true, showTooltip = false, showKeybind = false,
                     keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
                     keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
                 },
@@ -557,7 +558,8 @@ local DEFAULTS = {
                     barVisibility = "always", housingHideEnabled = true,
                     visHideHousing = true, visOnlyInstances = false,
                     visHideMounted = false, visHideNoTarget = false, visHideNoEnemy = false,
-                    showCooldownText = true, showItemCount = true, showTooltip = false, showKeybind = false,
+                    showCooldownText = true, cooldownTextPosition = "center",
+                    showItemCount = true, showTooltip = false, showKeybind = false,
                     keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
                     keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
                 },
@@ -582,7 +584,8 @@ local DEFAULTS = {
                     barVisibility = "always", housingHideEnabled = true,
                     visHideHousing = true, visOnlyInstances = false,
                     visHideMounted = false, visHideNoTarget = false, visHideNoEnemy = false,
-                    showCooldownText = true, showItemCount = true, showTooltip = false, showKeybind = false,
+                    showCooldownText = true, cooldownTextPosition = "center",
+                    showItemCount = true, showTooltip = false, showKeybind = false,
                     keybindSize = 10, keybindOffsetX = 2, keybindOffsetY = -2, keybindAlign = "left",
                     keybindR = 1, keybindG = 1, keybindB = 1, keybindA = 0.9,
                 },
@@ -1484,6 +1487,24 @@ function ns.RescanCustomIconFlag()
     ns.ForEachSavedSettingsBlock(function(ss)
         if type(ss.customIcon) == "number" and ss.customIcon > 0 then
             ns._cdmAnyCustomIcon = true
+            return true
+        end
+    end)
+end
+
+-- Active State Glow gate: set ns._cdmAnyActiveGlow once if any saved spell (any
+-- spec) has the per-spell activeGlow style set. The buff ticker's active-glow
+-- integrity pass -- the safety net that lights the glow when Blizzard skips the
+-- SetSwipeColor call that normally drives it -- is skipped entirely for anyone
+-- who never enables it. Monotonic, scanned-once contract identical to the flags
+-- above (the swipe hook and the options setter flip the flag live on enable).
+function ns.RescanActiveGlowFlag()
+    if ns._cdmAnyActiveGlow or ns._activeGlowFlagScanned then return end
+    if not EllesmereUIDB then return end
+    ns._activeGlowFlagScanned = true
+    ns.ForEachSavedSettingsBlock(function(ss)
+        if (tonumber(ss.activeGlow) or 0) > 0 then
+            ns._cdmAnyActiveGlow = true
             return true
         end
     end)
@@ -3132,16 +3153,74 @@ function ns.ParkSecondaryBuffViewer(frame)
         -- (action bars). Re-parking inline would carry our taint into the rest
         -- of that pass. The delay also coalesces ClearAllPoints + SetPoint
         -- bursts into one park, and a single frame of a stray bar is invisible.
-        hooksecurefunc(frame, "SetPoint", function(self)
+        local function QueueRepark(self, method)
             local c = _ecmeFC[self]
             if not c or not c.hidden or c.parkGuard or c.restoring or c.parkQueued then return end
+            ns.NoteBuffViewerUnpark(method)
             c.parkQueued = true
             C_Timer.After(0, function()
                 c.parkQueued = nil
                 if c.hidden and not c.restoring then ns.ParkSecondaryBuffViewer(self) end
             end)
-        end)
+        end
+        hooksecurefunc(frame, "SetPoint", function(self) QueueRepark(self, "SetPoint") end)
+        -- SetPoint is not the only way off the park. SetAllPoints and
+        -- SetParent strand the viewer on screen without ever calling it, and
+        -- nothing heals that until an unrelated SetPoint happens to fire.
+        hooksecurefunc(frame, "SetAllPoints", function(self) QueueRepark(self, "SetAllPoints") end)
+        hooksecurefunc(frame, "SetParent", function(self) QueueRepark(self, "SetParent") end)
     end
+end
+
+-- Park integrity check, driven by the CDM buff ticker (10 Hz).
+--
+-- The hooks above cover the movers we can see. A scale change, a mover that
+-- swaps anchors through a path we do not hook, or simply the one-frame gap the
+-- deferred re-park leaves open all put Blizzard's bars back on screen. This
+-- closes the loop from the other end: it reads where the viewer actually IS
+-- and re-parks whatever moved it.
+--
+-- Position only. Alpha is deliberately not checked -- Blizzard's
+-- hide-when-inactive fade animates it back to 1 through a path no hook sees,
+-- and re-asserting alpha every tick would fight that animation for no gain
+-- while the frame is offscreen anyway.
+function ns.CheckSecondaryBuffViewerPark()
+    local frame = _G[BLIZZ_CDM_FRAMES_SECONDARY.buffs]
+    if not frame then return end
+    local fc = _ecmeFC[frame]
+    if not fc or not fc.hidden or fc.restoring or fc.parkQueued then return end
+    local pt, rel, relPt, x, y
+    -- Indexing past the last point errors; an unanchored viewer counts as
+    -- drifted and falls through to the re-park.
+    if frame:GetNumPoints() > 0 then pt, rel, relPt, x, y = frame:GetPoint(1) end
+    if pt == "TOPLEFT" and rel == UIParent and relPt == "TOPLEFT"
+       and x == -10000 and y == 10000 then
+        fc.driftNoted = nil
+        return
+    end
+    -- Counted on the edge, not per tick: a combat drift cannot be re-parked
+    -- until PLAYER_REGEN_ENABLED, so this path repeats at 10 Hz until then.
+    if not fc.driftNoted then
+        fc.driftNoted = true
+        ns.NoteBuffViewerUnpark("ticker")
+    end
+    -- In combat this re-asserts alpha 0 and defers the park itself; the frame
+    -- is protected, so alpha is the only lever until PLAYER_REGEN_ENABLED.
+    ns.ParkSecondaryBuffViewer(frame)
+end
+
+-- Un-park bookkeeping for /cdmbb. The count alone answers "is the park still
+-- coming undone in the field"; watch mode adds the caller so a third-party
+-- mover names itself.
+function ns.NoteBuffViewerUnpark(method)
+    ns._bbUnparkCount = (ns._bbUnparkCount or 0) + 1
+    ns._bbUnparkLast = method
+    if not ns._cdmbbWatch then return end
+    local now = GetTime()
+    if now - (ns._bbWatchLast or 0) < 1 then return end
+    ns._bbWatchLast = now
+    print("|cff0cd29f[CDM]|r unpark via " .. tostring(method) .. ":")
+    print(debugstack(3, 4, 0))
 end
 
 HideBlizzardCDM = function()
@@ -5160,10 +5239,25 @@ end
 -------------------------------------------------------------------------------
 --  Style a fake-active overlay's own countdown number to match Duration Text
 -------------------------------------------------------------------------------
+local COOLDOWN_TEXT_POINTS = {
+    center = { "CENTER", "CENTER", "CENTER" },
+    top = { "BOTTOM", "TOP", "CENTER" },
+    bottom = { "TOP", "BOTTOM", "CENTER" },
+    left = { "RIGHT", "LEFT", "RIGHT" },
+    right = { "LEFT", "RIGHT", "LEFT" },
+}
+
+function ns.AnchorCooldownText(text, owner, position, x, y)
+    local points = COOLDOWN_TEXT_POINTS[position] or COOLDOWN_TEXT_POINTS.center
+    text:ClearAllPoints()
+    text:SetPoint(points[1], owner, points[2], x or 0, y or 0)
+    text:SetJustifyH(points[3])
+end
+
 -- The overlay (EllesmereUICdmFakeActive.lua) runs its own Cooldown widget, whose
 -- number would otherwise render in Blizzard's default font. Mirror the same
 -- Duration Text styling the real icon gets in RefreshCDMIconAppearance: font,
--- size (scale-compensated), colour, centre offset, and the show/hide toggle. ssb
+-- size (scale-compensated), colour, position, offset, and the show/hide toggle. ssb
 -- is the resolved per-icon settings and falls back to the bar's values (nil is
 -- fine). Call AFTER SetCooldown so Blizzard's countdown FontString exists.
 function ns.StyleOverlayCooldownText(oCd, barData, ssb, iconScale)
@@ -5182,14 +5276,15 @@ function ns.StyleOverlayCooldownText(oCd, barData, ssb, iconScale)
     local cdR = (ssb and ssb.cooldownTextR) or (barData and barData.cooldownTextR) or 1
     local cdG = (ssb and ssb.cooldownTextG) or (barData and barData.cooldownTextG) or 1
     local cdB = (ssb and ssb.cooldownTextB) or (barData and barData.cooldownTextB) or 1
+    local cdPosition = (ssb and ssb.cooldownTextPosition)
+        or (barData and barData.cooldownTextPosition) or "center"
     local cdX = (ssb and ssb.cooldownTextX) or (barData and barData.cooldownTextX) or 0
     local cdY = (ssb and ssb.cooldownTextY) or (barData and barData.cooldownTextY) or 0
     for _, rgn in pairs({ oCd:GetRegions() }) do
         if rgn and rgn.GetObjectType and rgn:GetObjectType() == "FontString" then
             EllesmereUI.ApplyIconTextFont(rgn, cdFont, cdSize, "cdm")
             rgn:SetTextColor(cdR, cdG, cdB)
-            rgn:ClearAllPoints()
-            rgn:SetPoint("CENTER", oCd, "CENTER", cdX, cdY)
+            ns.AnchorCooldownText(rgn, oCd, cdPosition, cdX, cdY)
         end
     end
 end
@@ -5605,19 +5700,25 @@ local function RefreshCDMIconAppearance(barKey)
                 local cdR = (ssb and ssb.cooldownTextR) or barData.cooldownTextR or 1
                 local cdG = (ssb and ssb.cooldownTextG) or barData.cooldownTextG or 1
                 local cdB = (ssb and ssb.cooldownTextB) or barData.cooldownTextB or 1
+                local cdPosition = (ssb and ssb.cooldownTextPosition)
+                    or barData.cooldownTextPosition or "center"
                 local cdX = (ssb and ssb.cooldownTextX) or barData.cooldownTextX or 0
                 local cdY = (ssb and ssb.cooldownTextY) or barData.cooldownTextY or 0
                 -- Find Blizzard's countdown text FontString on the Cooldown widget.
-                -- Keep it on the Cooldown widget (anchored to cd) so the user's
-                -- X/Y offset works -- reparenting it makes Blizzard's engine
-                -- re-center and ignore the offset. CENTER anchor also overrides
-                -- the engine's stale baseline (raw SetFont vs SetCountdownFont).
+                -- Keep it ON the Cooldown widget (anchored to cd) so the user's
+                -- position and X/Y offset work -- REPARENTING it makes Blizzard's
+                -- engine re-center and ignore both. Setting our own anchor also
+                -- overrides the engine's stale baseline (raw SetFont vs
+                -- SetCountdownFont); that held when every anchor was CENTER and
+                -- should still hold off-center, but off-center is where a missed
+                -- or stomped anchor first becomes VISIBLE -- with CENTER, our
+                -- result and Blizzard's default were indistinguishable, so this
+                -- pass could silently no-op and nobody could tell.
                 for _, rgn in pairs({ cd:GetRegions() }) do
                     if rgn and rgn.GetObjectType and rgn:GetObjectType() == "FontString" then
                         EllesmereUI.ApplyIconTextFont(rgn, cdFont, cdSize, "cdm")
                         rgn:SetTextColor(cdR, cdG, cdB)
-                        rgn:ClearAllPoints()
-                        rgn:SetPoint("CENTER", cd, "CENTER", cdX, cdY)
+                        ns.AnchorCooldownText(rgn, cd, cdPosition, cdX, cdY)
                     end
                 end
             end
@@ -5659,6 +5760,13 @@ local function RefreshCDMIconAppearance(barKey)
         else scPoint = "BOTTOMRIGHT"; scY = scY + 2 end
         local showItemCount = barData.showItemCount ~= false
         if ssb and ssb.showItemCount ~= nil then showItemCount = ssb.showItemCount end
+        -- Show Item Count "Out of Combat" mode: bar-level combat gate applied
+        -- on top of the resolved per-spell value. Combat edges re-run this
+        -- restyle for OOC bars (ns.RefreshItemCountOOCBars), so the gate only
+        -- ever reads the event-tracked combat flag.
+        if showItemCount and barData.itemCountOOC and _inCombat then
+            showItemCount = false
+        end
         -- Text must render above borders. Levels are relative to the
         -- icon's own frame level (CdmHooks: border +13, text +23).
         local textLvl = icon:GetFrameLevel() + 23
@@ -5987,7 +6095,8 @@ local function EnsureFocusKickBar()
         iconZoom = 0.08, iconShape = "none",
         verticalOrientation = false, barBgEnabled = false,
         barBgR = 0, barBgG = 0, barBgB = 0,
-        showCooldownText = true, showItemCount = true, cooldownFontSize = 12,
+        showCooldownText = true, cooldownTextPosition = "center",
+        showItemCount = true, cooldownFontSize = 12,
         showCharges = true, chargeFontSize = 11,
         desaturateOnCD = true, swipeAlpha = 0.7,
         suppressGCD = true,
@@ -7232,6 +7341,7 @@ BuildAllCDMBars = function()
     ns.RescanReverseSwipeFlag()   -- set the Reverse Swipe gate (once) before refresh
     ns.RescanThresholdTextFlag()  -- set the Threshold Text gate (once) before refresh
     ns.RescanCustomIconFlag()     -- set the per-spell Custom Icon gate (once) before refresh
+    ns.RescanActiveGlowFlag()     -- set the Active State Glow gate (once) before refresh
 
     local p = ECME.db.profile
 
@@ -8747,6 +8857,20 @@ local function InstallRotationHook()
     UpdateRotationHighlights()
 end
 
+-- Show Item Count "Out of Combat" mode: re-run the icon restyle for bars
+-- using it whenever combat starts or ends (the gate inside the restyle reads
+-- the event-tracked combat flag). No-ops instantly when no bar uses the mode.
+function ns.RefreshItemCountOOCBars()
+    local p = ECME.db and ECME.db.profile
+    local bars = p and p.cdmBars and p.cdmBars.bars
+    if not bars or not ns.RefreshCDMIconAppearance then return end
+    for _, bd in ipairs(bars) do
+        if bd.itemCountOOC and bd.key then
+            ns.RefreshCDMIconAppearance(bd.key)
+        end
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Event-Driven Runtime Maintenance
 --
@@ -8985,6 +9109,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         if event == "PLAYER_REGEN_DISABLED" then
             _inCombat = true
             _CDMApplyVisibility()
+            ns.RefreshItemCountOOCBars()
         elseif event == "PLAYER_REGEN_ENABLED" then
             -- Buffer combat exit: brief out-of-combat blips (mob dies,
             -- re-aggro) shouldn't flash visibility changes.
@@ -8992,6 +9117,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
                 if not InCombatLockdown() then
                     _inCombat = false
                     _CDMApplyVisibility()
+                    ns.RefreshItemCountOOCBars()
                 end
             end)
         else
@@ -9100,8 +9226,14 @@ end
 -- it and the park did not heal.
 -------------------------------------------------------------------------------
 SLASH_CDMBB1 = "/cdmbb"
-SlashCmdList.CDMBB = function()
+SlashCmdList.CDMBB = function(msg)
     local function P(s) print("|cff0cd29f[CDM]|r " .. s) end
+    if msg and msg:lower():match("watch") then
+        ns._cdmbbWatch = not ns._cdmbbWatch or nil
+        P("unpark watch " .. (ns._cdmbbWatch and "ON -- move/zone/fight and watch for 'unpark via'"
+            or "OFF"))
+        return
+    end
     local frame = _G[BLIZZ_CDM_FRAMES_SECONDARY.buffs]
     if not frame then P("BuffBarCooldownViewer does not exist") return end
     local cb = ECME.db and ECME.db.profile and ECME.db.profile.cdmBars
@@ -9109,6 +9241,11 @@ SlashCmdList.CDMBB = function()
     P(string.format("hideBlizzard=%s useBlizzardBuffBars=%s suppressed=%s parkPending=%s",
         tostring(cb and cb.hideBlizzard), tostring(cb and cb.useBlizzardBuffBars),
         tostring(fc and fc.hidden or false), tostring(ns._secondaryParkPending or false)))
+    -- A nonzero count with the park intact means it came undone and healed;
+    -- that is the case a single-moment dump cannot show.
+    P(string.format("unparks=%d lastMover=%s watch=%s",
+        ns._bbUnparkCount or 0, tostring(ns._bbUnparkLast or "none"),
+        tostring(ns._cdmbbWatch or false)))
     P(string.format("shown=%s alpha=%.2f effective=%.2f",
         tostring(frame:IsShown()), frame:GetAlpha(), frame:GetEffectiveAlpha()))
     local n = frame:GetNumPoints()

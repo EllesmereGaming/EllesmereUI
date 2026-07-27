@@ -1143,6 +1143,27 @@ function EllesmereUI.ApplyProfileData(profileData)
                 -- the live accessor + RefreshAllAddons rebuild pick it up.
                 for k in pairs(profile) do profile[k] = nil end
                 for k, v in pairs(snap) do profile[k] = DeepCopy(v) end
+                -- Pre-dropdown imports carry showPlayerAbsorb as the legacy
+                -- boolean toggle. The conversion migrations are SKIPPED for
+                -- imported profiles (inherited migration flags), and a boolean
+                -- reaches the texture resolver as a key -- which used to abort
+                -- unit frame init outright. The resolver now refuses non-string
+                -- keys, so this is no longer fatal, but without the conversion
+                -- the absorb still renders as a fallback texture instead of
+                -- honouring the setting. Normalise on the way in, matching the
+                -- mapping the migrations use.
+                if entry.folder == "EllesmereUIUnitFrames" then
+                    for _, unitCfg in pairs(profile) do
+                        if type(unitCfg) == "table" then
+                            local v = unitCfg.showPlayerAbsorb
+                            if v == true then
+                                unitCfg.showPlayerAbsorb = "striped"
+                            elseif v ~= nil and type(v) ~= "string" then
+                                unitCfg.showPlayerAbsorb = "none"
+                            end
+                        end
+                    end
+                end
                 -- Pre-split imports carry the shared totPet table but no
                 -- targettarget/focustarget. The login split migration is SKIPPED
                 -- for imported profiles (ImportProfile builds merged =
@@ -1791,6 +1812,7 @@ do
         "reskinPlayerSpells", "reskinAdventureGuide", "reskinProfessionsBook",
         "reskinProfessions", "reskinWorldMap", "reskinGuild", "reskinCalendar",
         "reskinAchievements", "reskinMail", "reskinCatalyst", "reskinSocket",
+        "reskinItemUpgrade", "reskinLoot", "reskinLootToast", "lootToastQualityStrip",
         "reskinMicroMenu", "reskinHousing", "reskinDressUp", "reskinTransmog",
         "reskinMerchant", "reskinAuctionHouse", "reskinMacros",
         "reskinSettings", "reskinAddonList", "reskinCraftOrders",
@@ -2841,6 +2863,17 @@ local function BuildImportedCDMSpellBucket(profileName, activeName, incomingSpec
     end
     bucket.specProfiles = inherited
     if type(incomingSpecs) ~= "table" then return end
+    -- Import-authoritative ghosting is computed against the player's LIVE
+    -- Blizzard CDM tracked set (viewer pools + category API). That set is only
+    -- guaranteed settled after a reload, and the ghost pass is a ONE-SHOT that
+    -- stamps _barFilterModelV6 the first time it succeeds -- so a pass that
+    -- runs against a mid-change tracked set writes a permanently wrong ghost
+    -- list. Runtime-only flag (dies with the session) telling the pass to wait
+    -- for a later session. The interactive import flow never noticed because
+    -- its caller ReloadUI()s in the same frame ImportProfile returns, which
+    -- kills the queued reanchor that would have run the pass; a caller that
+    -- defers its reload (installer wizards) gets the pass mid-session instead.
+    if EllesmereUI then EllesmereUI._cdmImportGhostDeferred = true end
     for specKey, specProf in pairs(DeepCopy(incomingSpecs)) do
         bucket.specProfiles[specKey] = specProf
         if type(specProf) == "table" then

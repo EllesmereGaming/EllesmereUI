@@ -2161,6 +2161,12 @@ local function DecorateFrame(frame, barData)
         go:SetFrameLevel(baseLvl + 16)
     end
 
+    -- Re-arm the buff ticker's active-glow "nothing configured here" latch.
+    -- This function re-runs on rebuilds and settings changes, which is exactly
+    -- when the answer it caches can have changed, so a newly enabled glow is
+    -- picked up on the next pass instead of waiting for the aura to fall off.
+    fd._activeGlowNoCfg = nil
+
     if not fd.textOverlay then
         local txo = CreateFrame("Frame", nil, frame)
         txo:SetAllPoints(frame)
@@ -2337,6 +2343,7 @@ local function DecorateFrame(frame, barData)
                 -- it. Covers /reload (runs for every icon).
                 if ss2 and (ss2.chargeHideSwipe or ss2.hideRechargeEdge) then ns._cdmAnyChargeStyle = true end
                 if ss2 and ss2.maxStacksGlow and ss2.maxStacksGlow > 0 then ns._cdmAnyMaxStacksGlow = true end
+                if ss2 and ss2.activeGlow and ss2.activeGlow > 0 then ns._cdmAnyActiveGlow = true end
                 if ss2 and ss2.chargeHideCdText then ns._cdmAnyChargeHideCdText = true end
                 if ss2 and ss2.reverseSwipe then ns._cdmAnyReverseSwipe = true end
                 if ss2 and ss2.hideCDSwipe then ns._cdmAnyHideCDSwipe = true end
@@ -4152,6 +4159,12 @@ local function ProcessPresetCooldowns()
                     local bk = fc and fc.barKey
                     local bd = bk and barDataByKey[bk]
                     local showIC = not bd or bd.showItemCount ~= false
+                    -- Show Item Count "Out of Combat" mode: this update path
+                    -- force-Shows on count changes, so it must respect the
+                    -- combat gate or it would re-show the text mid-combat.
+                    if showIC and bd and bd.itemCountOOC and InCombatLockdown() then
+                        showIC = false
+                    end
                     local displayCount = showIC
                         and ((total > 1) and total
                         or (total == 1 and f._presetData and f._presetData.combatLockout) and total
@@ -5315,15 +5328,20 @@ local function CollectAndReanchor()
                 -- change (spec swap, talent change, user edits). During
                 -- combat rotation, the assigned list is static so the cache
                 -- hit rate is ~100%.
-                local spellOrder, hostedOrder
+                -- hasCdKeys: this bar holds at least one cd-claim slot, so the
+                -- sort probe below must check cooldownID. Cached alongside the
+                -- maps -- the cache-hit path never re-walks the list.
+                local spellOrder, hostedOrder, hasCdKeys
                 if not ns._spellOrderDirty and container._cachedSpellOrder then
                     spellOrder = container._cachedSpellOrder
                     hostedOrder = container._cachedHostedOrder
+                    hasCdKeys = container._cachedSpellOrderCdKeys
                 else
                     if not container._cachedSpellOrder then container._cachedSpellOrder = {} end
                     if not container._cachedHostedOrder then container._cachedHostedOrder = {} end
                     spellOrder = container._cachedSpellOrder
                     hostedOrder = container._cachedHostedOrder
+                    hasCdKeys = false
                     wipe(spellOrder)
                     wipe(hostedOrder)
                     if spellList then
@@ -5350,29 +5368,41 @@ local function CollectAndReanchor()
                                         end
                                     end
                                 else
-                                    if not spellOrder[sid] then spellOrder[sid] = idx end
-                                    -- Resolve override/base forms only for a REAL
-                                    -- spellID. sid can be a cd-claim marker here (a
-                                    -- collided-buff slot, -(CD_CLAIM_MARKER_BASE+cdID),
-                                    -- well outside int32): FindSpellOverrideByID errors
-                                    -- outright on an out-of-range id, and a marker has no
-                                    -- override/base anyway (its frame routes by cooldownID
-                                    -- and orders via the buff-family "c"..cdID key). Same
-                                    -- sid>0 guard the sibling order loops already use; this
-                                    -- one branch was missed, so hosting a collided buff
-                                    -- (Diabolist Diabolic Ritual) on a CD/util bar threw
-                                    -- every RefreshLayout and broke CDM.
-                                    if sid > 0 then
-                                        if _FindOverride then
-                                            local ovr = _FindOverride(sid)
-                                            if ovr and ovr > 0 and ovr ~= sid and not spellOrder[ovr] then
-                                                spellOrder[ovr] = idx
+                                    -- Cd-claim marker (collided-buff slot hosted on
+                                    -- this CD/util bar, -(CD_CLAIM_MARKER_BASE+cdID)):
+                                    -- rank it by the stable "c"..cooldownID key, the
+                                    -- same convention the buff-family order loop and
+                                    -- ResolveBuffDisplaySortIndex use. Keying by the
+                                    -- marker value matched no frame, so the slot fell
+                                    -- through to spillover and sorted by Blizzard
+                                    -- layoutIndex -- reordering it did nothing.
+                                    local cdClaim = ns.CdClaimMarkerToCdID and ns.CdClaimMarkerToCdID(sid)
+                                    if cdClaim then
+                                        local ckey = "c" .. cdClaim
+                                        if not spellOrder[ckey] then spellOrder[ckey] = idx end
+                                        hasCdKeys = true
+                                    else
+                                        if not spellOrder[sid] then spellOrder[sid] = idx end
+                                        -- Resolve override/base forms only for a REAL
+                                        -- spellID. sid can still be an item/slot marker
+                                        -- here (negative): FindSpellOverrideByID errors
+                                        -- outright on an out-of-range id, and a marker
+                                        -- has no override/base anyway. Same sid>0 guard
+                                        -- the sibling order loops use; this branch was
+                                        -- missed once already, which threw every
+                                        -- RefreshLayout and broke CDM.
+                                        if sid > 0 then
+                                            if _FindOverride then
+                                                local ovr = _FindOverride(sid)
+                                                if ovr and ovr > 0 and ovr ~= sid and not spellOrder[ovr] then
+                                                    spellOrder[ovr] = idx
+                                                end
                                             end
-                                        end
-                                        if C_Spell and C_Spell.GetBaseSpell then
-                                            local base = C_Spell.GetBaseSpell(sid)
-                                            if base and base > 0 and base ~= sid and not spellOrder[base] then
-                                                spellOrder[base] = idx
+                                            if C_Spell and C_Spell.GetBaseSpell then
+                                                local base = C_Spell.GetBaseSpell(sid)
+                                                if base and base > 0 and base ~= sid and not spellOrder[base] then
+                                                    spellOrder[base] = idx
+                                                end
                                             end
                                         end
                                     end
@@ -5380,6 +5410,7 @@ local function CollectAndReanchor()
                             end
                         end
                     end
+                    container._cachedSpellOrderCdKeys = hasCdKeys
                 end
 
                 -- Inject custom frames (trinkets, items, racials)
@@ -5623,6 +5654,18 @@ local function CollectAndReanchor()
                 -- instead of being mistaken for a brand-new spillover.
                 local function OrderKeyFor(frame, fc, sid, map)
                     if not map then return nil end
+                    -- Cd-claimed collided-buff slot: both frames of the pair share
+                    -- one spellID, so every probe below would match the same rank
+                    -- (or none). cooldownID is unique per slot -- check it first,
+                    -- same stable-key convention as ResolveBuffDisplaySortIndex.
+                    -- Skipped outright (no concat) on bars holding no claim.
+                    if hasCdKeys then
+                        local cd = frame and frame.cooldownID
+                        if type(cd) == "number" then
+                            local ckey = map["c" .. cd]
+                            if ckey then return ckey end
+                        end
+                    end
                     local key = sid and map[sid]
                     -- Check cached baseSpellID (stable across transforms)
                     if not key and fc and fc.baseSpellID then
@@ -6911,6 +6954,12 @@ function ns.SetupViewerHooks()
             -- e.g. secret procs; in practice those arrive as pool churn, so
             -- the net is insurance). A clean fire costs three reads.
             local _btNow = GetTime()
+            -- Park integrity for Blizzard's tracked-bar viewer. Runs ahead of
+            -- the dirty gate: the movers that strand it on screen (Edit Mode
+            -- layout passes, third-party frame movers) do not dirty the
+            -- ticker, so a gated check would leave the duplicate bars up until
+            -- the next buff proc. Three reads on an intact park.
+            if ns.CheckSecondaryBuffViewerPark then ns.CheckSecondaryBuffViewerPark() end
             if not ns._btDirty and _btNow - (ns._btLastFull or 0) < 0.5 then
                 -- Preset cooldowns drain independently on clean fires, capped
                 -- at 1 Hz: the dirty flag re-arms ~22x/sec from the racial/
@@ -7113,20 +7162,73 @@ function ns.SetupViewerHooks()
                                     end
                                 end
 
-                                -- Stale active glow cleanup: when a DoT
-                                -- expires naturally, Blizzard may not call
-                                -- SetSwipeColor until the next GCD. Check
-                                -- the current swipe color and clear the glow
-                                -- if the spell is no longer active.
-                                if fd and fd._activeGlowOn then
+                                -- Active State Glow integrity, BOTH edges. The
+                                -- glow is normally driven as a side effect of
+                                -- Blizzard calling Cooldown:SetSwipeColor, and
+                                -- Blizzard skips that call on either aura edge
+                                -- (a DoT expiring naturally pushes no swipe
+                                -- until the next GCD; an aura landing outside a
+                                -- cooldown refresh pushes none at all). The rise
+                                -- edge additionally breaks when another owner of
+                                -- the shared glowOverlay -- the CD-state glow or
+                                -- proc glow -- stops the texture without
+                                -- clearing fd._activeGlowOn: the hook's
+                                -- idempotence check then believes the glow is
+                                -- still running and never restarts it, leaving
+                                -- the icon dark for the rest of the session.
+                                -- Re-assert from the same swipe colour the hook
+                                -- reads so both edges self-heal within a tick.
+                                if fd and not fd._isBuffViewerFrame
+                                   and (fd._activeGlowOn or ns._cdmAnyActiveGlow) then
                                     local swipeColor = frame.cooldownSwipeColor
+                                    local r
                                     if swipeColor and type(swipeColor) ~= "number" and swipeColor.GetRGBA then
-                                        local r = swipeColor:GetRGBA()
-                                        -- Only clear if we can confirm r is a clean 0 (not active).
-                                        -- If r is secret or unavailable, leave the glow alone.
-                                        if r and type(r) == "number" and not issecretvalue(r) and r == 0 then
+                                        r = swipeColor:GetRGBA()
+                                        -- Secret or unavailable reads as "no
+                                        -- data" -- neither edge acts on it.
+                                        if type(r) ~= "number" or issecretvalue(r) then r = nil end
+                                    end
+                                    if r == 0 then
+                                        -- Clean 0: not active. Clear a glow we own.
+                                        -- Also re-arm the no-config latch below so
+                                        -- the next activation re-checks settings.
+                                        fd._activeGlowNoCfg = nil
+                                        if fd._activeGlowOn then
                                             if fd.glowOverlay then ns.StopNativeGlow(fd.glowOverlay) end
                                             fd._activeGlowOn = false
+                                        end
+                                    elseif r and ns._cdmAnyActiveGlow
+                                       and not fd._activeGlowNoCfg
+                                       and not (fd._activeGlowOn and fd.glowOverlay
+                                                and fd.glowOverlay._glowActive) then
+                                        -- Active, but no glow is actually running
+                                        -- on the overlay. Drop any orphaned flag
+                                        -- so ApplyActiveOverlays really restarts,
+                                        -- then let it re-resolve style + colour.
+                                        fd._activeGlowOn = false
+                                        local ssA = ns._ResolveCdmSS(frame)
+                                        if ssA and (tonumber(ssA.activeGlow) or 0) > 0 then
+                                            ns.ApplyActiveOverlays(frame, fd, ssA, true, bd)
+                                        else
+                                            -- No active glow configured for THIS
+                                            -- icon, so the resolve can only answer
+                                            -- "no" again for the rest of this
+                                            -- active window. Latch it off.
+                                            --
+                                            -- ns._cdmAnyActiveGlow is a GLOBAL gate
+                                            -- -- one spell anywhere with a glow arms
+                                            -- it for every frame -- so without this
+                                            -- every active icon in the profile pays
+                                            -- a full settings resolve on every pass
+                                            -- purely to rediscover it has nothing to
+                                            -- do. Icons that DO have a glow never
+                                            -- reach here, so the repair this pass
+                                            -- exists for is untouched. Re-armed on
+                                            -- the falloff edge above and by
+                                            -- DecorateFrame, so a newly enabled glow
+                                            -- is picked up without waiting for the
+                                            -- aura to drop.
+                                            fd._activeGlowNoCfg = true
                                         end
                                     end
                                 end

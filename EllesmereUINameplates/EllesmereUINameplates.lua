@@ -362,6 +362,7 @@ local defaults = {
     rareEliteIconSize = 20,
     castBarHeight = 17,
     castBarOffsetY = 0,
+    castBarSparkEnabled = true,
     castOverlayEnabled = false,
     hideEnemyNameWhileCasting = false,
     castNameSize = 10,
@@ -3144,6 +3145,8 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.castSpark:SetSize(8, CAST_H)
     plate.castSpark:SetPoint("CENTER", plate.cast:GetStatusBarTexture(), "RIGHT", 0, 0)
     plate.castSpark:SetBlendMode("ADD")
+    -- Show Spark (Cast Color cog): default on; explicit false hides it.
+    plate.castSpark:SetShown(not (p and p.castBarSparkEnabled == false))
     local shieldHeight = CAST_H * 0.75
     local shieldWidth = shieldHeight * (29 / 35)
     plate.castShieldFrame = CreateFrame("Frame", nil, plate.cast)
@@ -3918,9 +3921,22 @@ local function SetupAuraCVars()
         -- own them. Friendly NPC and enemy pet CVars are always managed.
         if showPlayers then
             SetCVar("nameplateShowOnlyNameForFriendlyPlayerUnits", nameOnly and 1 or 0)
-            SetCVar("nameplateShowFriendlyPlayers", 1)
             SetCVar("UnitNameFriendlyPlayerName", 1)
-            SetCVar("nameplateShowFriends", 1)
+            -- Visibility is NOT re-asserted here. nameplateShowFriends /
+            -- nameplateShowFriendlyPlayers persist across sessions, so forcing
+            -- them on every login re-showed friendly nameplates for everyone
+            -- who had deliberately hidden them in Blizzard's own settings. The
+            -- one-time seed below covers a first install; after that only an
+            -- explicit toggle turns them back on.
+            if EllesmereUIDB and not EllesmereUIDB.friendlyPlateVisSeeded then
+                EllesmereUIDB.friendlyPlateVisSeeded = true
+                -- Fresh install only. An existing install is stamped WITHOUT
+                -- forcing, so a user who already hid friendly plates is not
+                -- overridden once by the update that ships this.
+                if EllesmereUI._firstInstallPending and ns.ForceFriendlyPlayerCVarsOn then
+                    ns.ForceFriendlyPlayerCVarsOn()
+                end
+            end
         end
         SetCVar("nameplateShowFriendlyNPCs", showNPCs and 1 or 0)
         SetCVar("nameplateShowFriendlyNpcs", showNPCs and 1 or 0)
@@ -5850,6 +5866,8 @@ function NameplateFrame:ApplyAppearance()
     end
     self.castLeftBorder:SetWidth(1)
     self.castSpark:SetHeight(castH)
+    -- Show Spark (Cast Color cog): default on; explicit false hides it.
+    self.castSpark:SetShown(not (p and p.castBarSparkEnabled == false))
     self.kickMarker:SetSize(GetHealthBarWidth(), castH)
     -- Enemy name color (per-slot)
     local nameSlotKey = FindSlotForElement("enemyName")
