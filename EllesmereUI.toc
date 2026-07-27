@@ -1,4 +1,4 @@
-## Interface: 120000, 120001, 120005, 120007, 120100
+## Interface: 30300
 ## Title: |cff0cd29fEllesmereUI|r
 ## Notes: Shared framework for the EllesmereUI addon suite
 ## Author: Ellesmere
@@ -14,6 +14,9 @@ Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
 Libs\LibDeflate\LibDeflate.lua
 Libs\LibKeystone\LibKeystone.lua
+
+# Core Polyfills for WotLK 3.3.5
+Polyfills.lua
 
 # Lightweight addon framework (replaces Ace3)
 EllesmereUI_Lite.lua
