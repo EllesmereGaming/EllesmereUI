@@ -135,6 +135,112 @@ for _, nsName in ipairs(namespaces) do
     end
 end
 
+-- DurationObject class
+local DurationObject = {}
+DurationObject.__index = DurationObject
+
+function DurationObject:Create(startTime, duration, expirationTime)
+    local obj = setmetatable({}, self)
+    obj.startTime = startTime or 0
+    obj.duration = duration or 0
+    obj.expirationTime = expirationTime or 0
+    return obj
+end
+
+function DurationObject:IsZero()
+    if self.duration == 0 then
+        return true
+    end
+    local now = GetTime()
+    if self.expirationTime > 0 then
+        return now >= self.expirationTime
+    end
+    if self.startTime > 0 then
+        return now >= (self.startTime + self.duration)
+    end
+    return false
+end
+
+-- AuraUtil Namespace fallback
+if not AuraUtil then
+    AuraUtil = {
+        AuraFilters = {
+            CrowdControl = "CROWD_CONTROL"
+        }
+    }
+end
+
+-- C_ActionBar Namespace
+C_ActionBar = C_ActionBar or {}
+
+C_ActionBar.GetActionCooldown = function(action)
+    local start, duration, enable = GetActionCooldown(action)
+    start = start or 0
+    duration = duration or 0
+    local isActive = (start > 0 and duration > 0)
+    local isOnGCD = false
+    if isActive and duration > 0 and duration <= 1.5 then
+        isOnGCD = true
+    end
+    return {
+        startTime = start,
+        duration = duration,
+        enable = enable,
+        isActive = isActive,
+        isOnGCD = isOnGCD,
+    }
+end
+
+C_ActionBar.GetActionCooldownDuration = function(action)
+    local start, duration = GetActionCooldown(action)
+    start = start or 0
+    duration = duration or 0
+    return DurationObject:Create(start, duration, start + duration)
+end
+
+C_ActionBar.GetActionCharges = function(action)
+    return {
+        currentCharges = 0,
+        maxCharges = 0,
+        cooldownStart = 0,
+        cooldownDuration = 0,
+    }
+end
+
+C_ActionBar.GetActionChargeDuration = function(action)
+    return DurationObject:Create(0, 0, 0)
+end
+
+C_ActionBar.IsUsableAction = function(action)
+    local isUsable, noMana = IsUsableAction(action)
+    return isUsable, noMana
+end
+
+C_ActionBar.UsesActionText = function(action)
+    local actionType, id = GetActionInfo(action)
+    return actionType == "macro"
+end
+
+C_ActionBar.GetActionText = function(action)
+    return GetActionText(action)
+end
+
+C_ActionBar.GetActionDisplayCount = function(action)
+    return GetActionCount(action)
+end
+
+C_ActionBar.IsAssistedCombatAction = function(action)
+    return false
+end
+
+C_ActionBar.EnableActionRangeCheck = function(slot, enable)
+    -- No-op fallback
+end
+
+C_ActionBar.GetActionBarPage = function()
+    return CURRENT_ACTIONBAR_PAGE or 1
+end
+
 -- 4. Specific Namespace Implementations
 
 -- C_AddOns
@@ -192,6 +298,7 @@ local function PackAuraData(name, rank, icon, count, dispelType, duration, expir
             isStealable = isStealable == 1 or isStealable == true,
             nameplateShowPersonal = nameplateShowPersonal == 1 or nameplateShowPersonal == true,
             spellId = spellId,
+            auraInstanceID = spellId or name or 0,
             castByPlayer = (source == "player")
         }
     end
@@ -222,7 +329,70 @@ C_UnitAuras.GetPlayerAuraBySpellID = function(spellID)
     return nil
 end
 
-C_UnitAuras.GetAuraDispelTypeColor = function(dispelType)
+C_UnitAuras.GetAuraDataByAuraInstanceID = function(unit, iid)
+    if not unit or not iid then return nil end
+    for i = 1, 40 do
+        local name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId = UnitAura(unit, i, "HELPFUL")
+        if not name then break end
+        if spellId == iid then
+            return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId)
+        end
+    end
+    for i = 1, 40 do
+        local name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId = UnitAura(unit, i, "HARMFUL")
+        if not name then break end
+        if spellId == iid then
+            return PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId)
+        end
+    end
+    return nil
+end
+
+C_UnitAuras.GetAuraDataBySpellName = function(unit, name, filter)
+    if not unit or not name then return nil end
+    local scanFilters = {"HELPFUL", "HARMFUL"}
+    if filter then
+        if string.find(filter, "HELPFUL") then
+            scanFilters = {"HELPFUL"}
+        elseif string.find(filter, "HARMFUL") then
+            scanFilters = {"HARMFUL"}
+        end
+    end
+    for _, f in ipairs(scanFilters) do
+        for i = 1, 40 do
+            local auraName, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId = UnitAura(unit, i, f)
+            if not auraName then break end
+            if auraName == name then
+                return PackAuraData(auraName, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId)
+            end
+        end
+    end
+    return nil
+end
+
+C_UnitAuras.IsAuraFilteredOutByInstanceID = function(unit, iid, filter)
+    return false
+end
+
+C_UnitAuras.GetAuraDuration = function(unit, iid)
+    if not unit or not iid then return nil end
+    local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, iid)
+    if aura then
+        local duration = aura.duration or 0
+        local expirationTime = aura.expirationTime or 0
+        return DurationObject:Create(expirationTime - duration, duration, expirationTime)
+    end
+    return nil
+end
+
+C_UnitAuras.GetAuraDispelTypeColor = function(unitOrDispelType, iid, curve)
+    local dispelType
+    if type(unitOrDispelType) == "string" and not iid then
+        dispelType = unitOrDispelType
+    elseif unitOrDispelType and iid then
+        local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(unitOrDispelType, iid)
+        dispelType = aura and aura.dispelType
+    end
     local color = dispelType and DebuffTypeColor[dispelType]
     if color then
         return CreateColor(color.r, color.g, color.b)
@@ -232,6 +402,12 @@ end
 
 C_UA.GetAuraDataByIndex = C_UnitAuras.GetAuraDataByIndex
 C_UA.GetPlayerAuraBySpellID = C_UnitAuras.GetPlayerAuraBySpellID
+C_UA.GetAuraDataByAuraInstanceID = C_UnitAuras.GetAuraDataByAuraInstanceID
+C_UA.GetAuraDataBySpellName = C_UnitAuras.GetAuraDataBySpellName
+C_UA.IsAuraFilteredOutByInstanceID = C_UnitAuras.IsAuraFilteredOutByInstanceID
+C_UA.GetAuraDuration = C_UnitAuras.GetAuraDuration
+C_UA.GetAuraDispelTypeColor = C_UnitAuras.GetAuraDispelTypeColor
+
 C_UA.GetAuraSlots = function(unit, filter)
     local slots = {}
     for i = 1, 40 do
@@ -475,8 +651,10 @@ if not C_Spell then
     end
 
     C_Spell.GetSpellCooldownDuration = function(spell)
-        local _, duration = GetSpellCooldown(spell)
-        return duration or 0
+        local start, duration = GetSpellCooldown(spell)
+        start = start or 0
+        duration = duration or 0
+        return DurationObject:Create(start, duration, start + duration)
     end
 
     C_Spell.IsSpellPassive = function(spellID)
@@ -1034,10 +1212,14 @@ local EUI_AtlasMap = {
     ["UI-HUD-ActionBar-IconFrame-Down"] = "Interface\\Buttons\\UI-Quickslot-Depress",
 }
 
+local cooldownFrame = CreateFrame("Cooldown", nil, WorldFrame)
+local cooldownMeta = getmetatable(cooldownFrame).__index
+
 local frameMetas = {
     getmetatable(CreateFrame("Frame")).__index,
     getmetatable(CreateFrame("Frame"):CreateTexture()).__index,
     getmetatable(CreateFrame("Frame"):CreateFontString()).__index,
+    cooldownMeta,
 }
 
 for _, meta in ipairs(frameMetas) do
@@ -1065,6 +1247,34 @@ for _, meta in ipairs(frameMetas) do
                 local path = EUI_AtlasMap[atlas] or "Interface\\Icons\\INV_Misc_QuestionMark"
                 self:SetTexture(path)
             end
+        end
+        if not meta.SetAlphaFromBoolean then
+            meta.SetAlphaFromBoolean = function(self, value, trueAlpha, falseAlpha)
+                if trueAlpha == nil then trueAlpha = 1 end
+                if falseAlpha == nil then falseAlpha = 0 end
+                if value then
+                    self:SetAlpha(trueAlpha)
+                else
+                    self:SetAlpha(falseAlpha)
+                end
+            end
+        end
+    end
+end
+
+if cooldownMeta then
+    if not cooldownMeta.SetCooldownFromDurationObject then
+        cooldownMeta.SetCooldownFromDurationObject = function(self, durObj)
+            if not durObj then
+                self:SetCooldown(0, 0)
+                return
+            end
+            local start = durObj.startTime
+            local duration = durObj.duration
+            if (not start or start == 0) and durObj.expirationTime and durObj.expirationTime > 0 then
+                start = durObj.expirationTime - duration
+            end
+            self:SetCooldown(start or 0, duration or 0)
         end
     end
 end
