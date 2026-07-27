@@ -6,6 +6,9 @@
 local L = EllesmereUI.RegisterLocale("zhCN")
 if not L then return end
 
+L["SOULSTONE"] = "灵魂石"
+L["Soulstone"] = "灵魂石"
+
 -- == 常用标签 (Common labels) ===============================================
 L["Anchor"] = "锚点"
 L["Anchor Point"] = "锚点位置"

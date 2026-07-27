@@ -6,6 +6,9 @@
 local L = EllesmereUI.RegisterLocale("ptBR")
 if not L then return end
 
+L["SOULSTONE"] = "PEDRA DA ALMA"
+L["Soulstone"] = "Pedra da Alma"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "POP-UPS DA BLIZZARD E MENU DO JOGO"
 L["Reskin Popups and Menus"] = "Reestilizar pop-ups e menus"
 L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Reestiliza os menus de contexto e as janelas pop-up da Blizzard com o estilo escuro da EUI. Requer recarregar a interface."

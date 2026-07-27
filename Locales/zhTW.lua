@@ -4,6 +4,9 @@
 -- to generate the full remaining key list. Untranslated keys fall back to English.
 local L = EllesmereUI.RegisterLocale("zhTW")
 if not L then return end
+
+L["SOULSTONE"] = "靈魂石"
+L["Soulstone"] = "靈魂石"
 L["Behind Unit Frame"] = "顯示於單位框架後方"
 
 -- == Common labels =========================================================

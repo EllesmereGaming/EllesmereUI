@@ -7,6 +7,9 @@
 local L = EllesmereUI.RegisterLocale("koKR")
 if not L then return end
 
+L["SOULSTONE"] = "영혼석"
+L["Soulstone"] = "영혼석"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "블리자드 팝업 및 게임 메뉴"
 
 -- == Common labels (공용 라벨) =============================================

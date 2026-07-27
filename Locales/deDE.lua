@@ -6,6 +6,9 @@
 local L = EllesmereUI.RegisterLocale("deDE")
 if not L then return end
 
+L["SOULSTONE"] = "SEELENSTEIN"
+L["Soulstone"] = "Seelenstein"
+
 L["    Enemy Units"] = "    Feindliche Einheiten"
 L["    Friendly Units"] = "    Freundliche Einheiten"
 L["  ... and %d more"]  = "  ... und %d weitere"

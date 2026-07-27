@@ -13,6 +13,7 @@ local SECTION_CORE         = "CORE"
 local SECTION_DISPLAY      = "DISPLAY"
 local SECTION_RAID_BUFFS   = "RAID BUFFS"
 local SECTION_AURAS        = "AURAS"
+local SECTION_SOULSTONE    = "SOULSTONE"
 local SECTION_CONSUMABLES  = "CONSUMABLES"
 local SECTION_ROGUE        = "ROGUE POISONS"
 local SECTION_PALADIN      = "PALADIN RITES"
@@ -1150,14 +1151,37 @@ initFrame:SetScript("OnEvent", function(self)
             local AURAS = _G._EABR_AURAS or {}
             local gridItems = {}
             for _, aura in ipairs(AURAS) do
-                gridItems[#gridItems+1] = {
-                    label = _G._EABR_SpellName(aura.castSpell, aura.name),
-                    classToken = aura.class,
-                    key = aura.key,
-                    getVal = function() local a = ADB(); return a and a.enabled and a.enabled[aura.key] end,
-                    setVal = function(v) local a = ADB(); if a and a.enabled then a.enabled[aura.key] = v end end,
-                }
+                if not aura.separateSection then
+                    gridItems[#gridItems+1] = {
+                        label = _G._EABR_SpellName(aura.castSpell, aura.name),
+                        classToken = aura.class,
+                        key = aura.key,
+                        getVal = function() local a = ADB(); return a and a.enabled and a.enabled[aura.key] end,
+                        setVal = function(v) local a = ADB(); if a and a.enabled then a.enabled[aura.key] = v end end,
+                    }
+                end
             end
+            h = BuildCheckboxGrid(parent, y, gridItems, function() RefreshAll(); RebuildPreviewHeader() end, _gridCellRefs)
+            y = y - h
+        end
+
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+
+        -----------------------------------------------------------------------
+        --  SOULSTONE section
+        -----------------------------------------------------------------------
+        _, h = W:SectionHeader(parent, SECTION_SOULSTONE, y);  y = y - h
+
+        do
+            local gridItems = {
+                {
+                    label = _G._EABR_SpellName(20707, "Soulstone"),
+                    classToken = "WARLOCK",
+                    key = "soulstone",
+                    getVal = function() local a = ADB(); return a and a.enabled and a.enabled.soulstone ~= false end,
+                    setVal = function(v) local a = ADB(); if a and a.enabled then a.enabled.soulstone = v end end,
+                },
+            }
             h = BuildCheckboxGrid(parent, y, gridItems, function() RefreshAll(); RebuildPreviewHeader() end, _gridCellRefs)
             y = y - h
         end

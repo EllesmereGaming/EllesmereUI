@@ -7,6 +7,9 @@
 local L = EllesmereUI.RegisterLocale("ruRU")
 if not L then return end
 
+L["SOULSTONE"] = "КАМЕНЬ ДУШИ"
+L["Soulstone"] = "Камень души"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "ОКНА BLIZZARD И ИГРОВОЕ МЕНЮ"
 L["Reskin Popups and Menus"] = "Изменить оформление окон и меню"
 L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Оформляет контекстные меню и всплывающие окна Blizzard в тёмном стиле EUI. Для применения требуется перезагрузка интерфейса."

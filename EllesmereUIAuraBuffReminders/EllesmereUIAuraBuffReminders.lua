@@ -16,7 +16,7 @@ local Known = function(id) return id and (IsPlayerSpell(id) or IsSpellKnown(id))
 local _eabrInCombat = false
 local _encounterSnapshotTime = nil
 local _needGroupAura = false
-local _isEvokerOwnOnRaid = false
+local _tracksOwnBuffOnRaid = false
 local _groupAuraBroadActive = false
 local _groupAuraDirty = false
 local InCombat = function() return _eabrInCombat or (InCombatLockdown and InCombatLockdown()) end
@@ -341,7 +341,7 @@ local NON_SECRET_SPELL_IDS = {
     [53563]=true, [156322]=true, [156910]=true, [1244893]=true,
     -- Long-term Raid Buffs
     [1126]=true, [1459]=true, [6673]=true, [21562]=true, [369459]=true,
-    [462854]=true, [474754]=true,
+    [462854]=true, [474754]=true, [20707]=true,
     -- Alternate buff IDs (talent variants that provide the same effect)
     [432661]=true, [432778]=true,
     -- Devotion Aura (465) is ContextuallySecret in Midnight 12.0; not whitelisted.
@@ -405,7 +405,7 @@ end
 
 -- Pre-combat snapshot for ownOnRaid buffs (Source of Magic, Blistering Scales).
 local _preCombatOwnOnRaidCache = {}  -- [spellID] = true/false
-local _ownOnRaidIDs = { 369459, 360827, 474754 }  -- Source of Magic, Blistering Scales, Symbiotic Relationship
+local _ownOnRaidIDs = { 369459, 360827, 474754, 20707 }  -- Source of Magic, Blistering Scales, Symbiotic Relationship, Soulstone
 local SnapshotOwnOnRaidBuffs  -- forward declaration; defined after _unitHasBuffFromPlayer
 
 -- Pre-allocated scratch tables for hot per-Refresh functions (avoids GC churn)
@@ -584,7 +584,7 @@ end
 
 -- Returns true if the buff's source is the player.
 -- Non-player units: OOC iteration only; in combat returns false (caller uses snapshot).
-local function _unitHasBuffFromPlayer(u, spellIDs)
+local function _unitHasBuffFromPlayer(u, spellIDs, requireOwnSource)
     local inCombat = InCombat()
     local idLookup = _idLookupScratch
     wipe(idLookup)
@@ -597,11 +597,11 @@ local function _unitHasBuffFromPlayer(u, spellIDs)
                 local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
                 if ok and aura ~= nil and not isSecret(aura) then
                     local fromMe = aura.isFromPlayerOrPlayerPet
-                    if fromMe and not isSecret(fromMe) and fromMe == true then
+                    if not isSecret(fromMe) and fromMe == true then
                         return true
                     end
                     local src = aura.sourceUnit
-                    if src and not isSecret(src) and UnitIsUnit(src, "player") then
+                    if not isSecret(src) and src and UnitIsUnit(src, "player") then
                         return true
                     end
                 end
@@ -614,7 +614,7 @@ local function _unitHasBuffFromPlayer(u, spellIDs)
                 local sid = aura.spellId
                 if sid and not isSecret(sid) and idLookup[sid] then
                     local src = aura.sourceUnit
-                    if src and not isSecret(src) and UnitIsUnit(src, "player") then
+                    if not isSecret(src) and src and UnitIsUnit(src, "player") then
                         return true
                     end
                 end
@@ -629,12 +629,16 @@ local function _unitHasBuffFromPlayer(u, spellIDs)
     local needScan = false
     for id in pairs(idLookup) do
         if NON_SECRET_SPELL_IDS[id] then
-            local aura = C_UnitAuras.GetUnitAuraBySpellID(u, id)
-            if aura and not isSecret(aura) then
+            local ok, aura = pcall(C_UnitAuras.GetUnitAuraBySpellID, u, id)
+            if ok and not isSecret(aura) and aura then
+                local fromMe = aura.isFromPlayerOrPlayerPet
+                if not isSecret(fromMe) and fromMe == true then
+                    return true
+                end
                 local src = aura.sourceUnit
-                if src and not isSecret(src) then
+                if not isSecret(src) and src then
                     if UnitIsUnit(src, "player") then return true end
-                else
+                elseif not requireOwnSource then
                     return true  -- sourceUnit unavailable OOC, assume ours
                 end
             end
@@ -652,10 +656,12 @@ local function _unitHasBuffFromPlayer(u, spellIDs)
         local sid = aura.spellId
         if sid and not isSecret(sid) and idLookup[sid] then
             local src = aura.sourceUnit
-            if src and not isSecret(src) then
+            if not isSecret(src) and src then
                 if UnitIsUnit(src, "player") then return true end
             else
-                return true  -- sourceUnit unavailable OOC, assume ours
+                if not requireOwnSource then
+                    return true  -- sourceUnit unavailable OOC, assume ours
+                end
             end
         end
     end
@@ -670,15 +676,15 @@ SnapshotOwnOnRaidBuffs = function()
     for _, id in ipairs(_ownOnRaidIDs) do
         local found = false
         _snapScratch[1] = id
-        if _unitHasBuffFromPlayer("player", _snapScratch) then found = true end
+        if _unitHasBuffFromPlayer("player", _snapScratch, id == 20707) then found = true end
         if not found then
             if IsInRaid() then
                 for i = 1, GetNumGroupMembers() do
-                    if _unitHasBuffFromPlayer("raid"..i, _snapScratch) then found = true; break end
+                    if _unitHasBuffFromPlayer("raid"..i, _snapScratch, id == 20707) then found = true; break end
                 end
             elseif IsInGroup() then
                 for i = 1, GetNumSubgroupMembers() do
-                    if _unitHasBuffFromPlayer("party"..i, _snapScratch) then found = true; break end
+                    if _unitHasBuffFromPlayer("party"..i, _snapScratch, id == 20707) then found = true; break end
                 end
             end
         end
@@ -784,14 +790,14 @@ end
 -- Returns true if the player's cast of spellIDs exists on any group member,
 -- OR if no in-range member is a valid target (suppress reminder either way).
 -- Used for Source of Magic, Blistering Scales.
-local function PlayerOwnBuffOnAnyGroupMember(spellIDs)
-    if _unitHasBuffFromPlayer("player", spellIDs) then return true end
+local function PlayerOwnBuffOnAnyGroupMember(spellIDs, requireOwnSource)
+    if _unitHasBuffFromPlayer("player", spellIDs, requireOwnSource) then return true end
     local anyInRangeWithoutBuff = false
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
             local u = "raid"..i
             if _unitOk(u) and not UnitIsUnit(u, "player") then
-                if _unitHasBuffFromPlayer(u, spellIDs) then return true end
+                if _unitHasBuffFromPlayer(u, spellIDs, requireOwnSource) then return true end
                 if _unitInRange(u) then anyInRangeWithoutBuff = true end
             end
         end
@@ -799,11 +805,14 @@ local function PlayerOwnBuffOnAnyGroupMember(spellIDs)
         for i = 1, GetNumSubgroupMembers() do
             local u = "party"..i
             if _unitOk(u) then
-                if _unitHasBuffFromPlayer(u, spellIDs) then return true end
+                if _unitHasBuffFromPlayer(u, spellIDs, requireOwnSource) then return true end
                 if _unitInRange(u) then anyInRangeWithoutBuff = true end
             end
         end
     end
+    -- Soulstone is a responsibility reminder, so keep it visible even when
+    -- the other group members are temporarily out of range.
+    if requireOwnSource then return false end
     -- No reminder if nobody reachable is missing the buff.
     return not anyInRangeWithoutBuff
 end
@@ -952,6 +961,11 @@ local AURAS = {
     { key="timelessness", class="EVOKER", name="Timelessness", castSpell=412710,
       buffIDs={412710}, check="ownOnRaid", combatOk=false,
       specs={1473}, requireInstanceGroup=true },
+    -- Soulstone: each Warlock must have their own cast active on themselves or a group member.
+    -- requireOwnSource prevents another Warlock's Soulstone from satisfying it.
+    { key="soulstone", class="WARLOCK", name="Soulstone", castSpell=20707,
+      buffIDs={20707}, check="ownOnRaid", combatOk=true,
+      requireOwnSource=true, allowSolo=true, separateSection=true, hideOnCooldown=true },
 }
 
 -------------------------------------------------------------------------------
@@ -1620,6 +1634,7 @@ local defaults = {
                 symbiotic=true, battle_stance=true, def_stance=true, berserk_stance=true, shadowform=true,
                 devo_aura=true, bol=true, bof=true, som=true, blistering_scales=true, 
                 bestow_weyrnstone=true, timelessness=true,
+                soulstone=true,
             },
         },
         consumables = {
@@ -2221,9 +2236,9 @@ if inInstance or au.showNonInstanced then
                             local cached = _preCombatOwnOnRaidCache[aura.buffIDs[1]]
                             isMissing = (cached == false)
                         else
-                            isMissing = not PlayerOwnBuffOnAnyGroupMember(aura.buffIDs)
+                            isMissing = not PlayerOwnBuffOnAnyGroupMember(aura.buffIDs, aura.requireOwnSource)
                         end
-                        if not (IsInGroup() or IsInRaid()) then isMissing = false end
+                        if not aura.allowSolo and not (IsInGroup() or IsInRaid()) then isMissing = false end
                     elseif aura.check == "playerSelfCast" then
                         -- Player must have the buff from their OWN cast
                         isMissing = not PlayerHasSelfCastAuraByID(aura.buffIDs)
@@ -2241,6 +2256,18 @@ if inInstance or au.showNonInstanced then
                         else
                             isMissing = not PlayerHasAuraByID(checkIDs)
                         end
+                    end
+                    -- Soulstone is an actionable responsibility reminder, not a
+                    -- cooldown display. Hide it while the spell is on a real
+                    -- cooldown; ignore the global cooldown. In 12.1 the numeric
+                    -- timing fields may be secret, but isActive/isOnGCD remain
+                    -- clean booleans, so no protected duration math is needed.
+                    if isMissing and aura.hideOnCooldown and C_Spell and C_Spell.GetSpellCooldown then
+                        local ok, cooldown = pcall(C_Spell.GetSpellCooldown, aura.castSpell)
+                        local onCooldown = ok and cooldown and cooldown.isActive == true
+                            and cooldown.isOnGCD ~= true
+                        EABR._soulstoneOnCooldown = onCooldown == true
+                        if onCooldown then isMissing = false end
                     end
                     if isMissing then
                         local e = AcquireEntry()
@@ -3611,30 +3638,28 @@ function EABR:OnEnable()
     C_Timer.After(0.5, RegisterUnlockElements)
 
     -- Register broad UNIT_AURA only when the player's class actually needs
-    -- group aura tracking AND only while out of combat.  Broad UNIT_AURA
-    -- fires 100+ times/sec in a raid; in combat, CollectRaidBuffs only
-    -- checks the player's own auras (PlayerHasAuraByID), so group events
-    -- are pure waste.  Evoker keeps broad in combat for ownOnRaid cache
-    -- updates but skips RequestRefresh on group events (handler below).
+    -- group aura tracking. Broad UNIT_AURA fires 100+ times/sec in a raid;
+    -- classes with an ownOnRaid responsibility (Evoker/Warlock) keep it in
+    -- combat so their pre-combat ownership cache can be updated safely.
     local function UpdateGroupAuraRegistration()
         local playerClass = GetPlayerClass()
         _needGroupAura = false
-        _isEvokerOwnOnRaid = false
+        _tracksOwnBuffOnRaid = false
         for _, buff in ipairs(RAID_BUFFS) do
             if buff.class == playerClass then _needGroupAura = true; break end
         end
         for _, aura in ipairs(AURAS) do
             if aura.class == playerClass and aura.check == "ownOnRaid" then
                 _needGroupAura = true
-                _isEvokerOwnOnRaid = true
+                _tracksOwnBuffOnRaid = true
                 break
             end
         end
         if _needGroupAura then
             mainFrame:RegisterEvent("GROUP_JOINED")
             mainFrame:RegisterEvent("GROUP_LEFT")
-            -- Start broad if OOC, player-only if in combat (Evoker excepted)
-            if InCombat() and not _isEvokerOwnOnRaid then
+            -- Start broad if OOC, player-only if in combat (ownOnRaid excepted)
+            if InCombat() and not _tracksOwnBuffOnRaid then
                 _setBroad(false)
             else
                 _setBroad(true)
@@ -3648,9 +3673,13 @@ function EABR:OnEnable()
     _G._EABR_UpdateGroupAuraRegistration = UpdateGroupAuraRegistration
     UpdateGroupAuraRegistration()
 
-    -- Register spellcast tracking for Hunters (combat reminder for Hunter's Mark)
-    if GetPlayerClass() == "HUNTER" then
+    -- Register spellcast tracking for Hunter's Mark and the Warlock's own
+    -- Soulstone (the aura source can be secret during 12.1 combat).
+    if GetPlayerClass() == "HUNTER" or GetPlayerClass() == "WARLOCK" then
         mainFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    end
+    if GetPlayerClass() == "WARLOCK" then
+        mainFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
     end
 
     ---------------------------------------------------------------------------
@@ -3751,9 +3780,22 @@ end
 --  MAIN EVENT HANDLER (OnEvent script for runtime events)
 -------------------------------------------------------------------------------
 mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
+    if e == "SPELL_UPDATE_COOLDOWN" then
+        -- Refresh only on the Soulstone cooldown's ready/not-ready edge. This
+        -- avoids a full reminder scan for every unrelated Warlock GCD.
+        local ok, cooldown = pcall(C_Spell.GetSpellCooldown, 20707)
+        local onCooldown = ok and cooldown and cooldown.isActive == true
+            and cooldown.isOnGCD ~= true
+        if EABR._soulstoneOnCooldown ~= (onCooldown == true) then
+            EABR._soulstoneOnCooldown = onCooldown == true
+            RequestRefresh()
+        end
+        return
+    end
+
     if e == "ENCOUNTER_START" then
         SnapshotPlayerAuras()
-        if _isEvokerOwnOnRaid then SnapshotOwnOnRaidBuffs() end
+        if _tracksOwnBuffOnRaid then SnapshotOwnOnRaidBuffs() end
         _encounterSnapshotTime = GetTime()
         -- Mark combat immediately: ENCOUNTER_START fires before
         -- InCombatLockdown() returns true, but aura APIs are already
@@ -3766,9 +3808,9 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
 
     if e == "PLAYER_REGEN_DISABLED" then
         -- Drop broad UNIT_AURA during combat unless we need group tracking.
-        -- Evoker keeps broad for ownOnRaid cache updates; showOthersMissing
+        -- ownOnRaid classes keep broad for ownership-cache updates; showOthersMissing
         -- keeps broad so AnyGroupMemberMissingBuff gets timely refreshes.
-        local keepBroad = _isEvokerOwnOnRaid or (db and db.profile.raidBuffs and db.profile.raidBuffs.showOthersMissing)
+        local keepBroad = _tracksOwnBuffOnRaid or (db and db.profile.raidBuffs and db.profile.raidBuffs.showOthersMissing)
         if _needGroupAura and not keepBroad then _setBroad(false) end
         -- Only flag Hunter's Mark needed if the target doesn't already have it
         _huntersMarkNeeded = true
@@ -3787,7 +3829,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         -- since the aura API is fully available pre-lockdown).
         if not _encounterSnapshotTime or (GetTime() - _encounterSnapshotTime) > 1 then
             SnapshotPlayerAuras()
-            if _isEvokerOwnOnRaid then SnapshotOwnOnRaidBuffs() end
+            if _tracksOwnBuffOnRaid then SnapshotOwnOnRaidBuffs() end
         end
         _encounterSnapshotTime = nil
         RequestRefresh()
@@ -3812,6 +3854,9 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         if arg3 == 257284 then
             _huntersMarkNeeded = false
             RequestRefresh()
+        elseif arg3 == 20707 then
+            _preCombatOwnOnRaidCache[20707] = true
+            RequestRefresh()
         end
         return
     end
@@ -3835,7 +3880,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
 
     if e == "UNIT_AURA" then
         -- arg1 = unit token. Player aura changes always refresh.
-        -- Group member aura changes only matter for Evoker ownOnRaid
+        -- Group member aura changes only matter for ownOnRaid tracking
         -- cache updates and OOC raid buff checks. The broad UNIT_AURA
         -- event is only registered for classes that need group tracking
         -- (see UpdateGroupAuraRegistration).
@@ -3852,17 +3897,24 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
             RequestRefresh()
         else
             -- Group member aura change. Fast unit-type check via first byte.
-            -- Broad UNIT_AURA stays registered in combat for Evoker ownOnRaid
+            -- Broad UNIT_AURA stays registered in combat for ownOnRaid classes
             -- and for showOthersMissing raid buff tracking. Coalesce group
             -- events into a single deferred refresh to avoid per-event spam.
             local c = arg1 and arg1:byte(1)
             if c == 112 or c == 114 then  -- 'p' or 'r'
-                if _isEvokerOwnOnRaid and InCombat() and IsInGroup() then
+                if _tracksOwnBuffOnRaid and InCombat() and IsInGroup() then
                     for _, id in ipairs(_ownOnRaidIDs) do
                         if not _preCombatOwnOnRaidCache[id] then
                             local ok, result = pcall(C_UnitAuras.GetUnitAuraBySpellID, arg1, id)
                             if ok and result ~= nil and not isSecret(result) then
-                                _preCombatOwnOnRaidCache[id] = true
+                                if id ~= 20707 then
+                                    _preCombatOwnOnRaidCache[id] = true
+                                else
+                                    local fromMe = result.isFromPlayerOrPlayerPet
+                                    if not isSecret(fromMe) and fromMe == true then
+                                        _preCombatOwnOnRaidCache[id] = true
+                                    end
+                                end
                             end
                         end
                     end
