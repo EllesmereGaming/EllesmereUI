@@ -1387,6 +1387,22 @@ initFrame:SetScript("OnEvent", function(self)
                       tooltip="Show the part of an absorb that exceeds your empty health and backfills over your current health. When off, absorbs only fill the empty part of the health bar; on Default Blizz Frames the glow line stays pinned at the right edge.",
                       get=function() return SVal("showOvershield", true) end,
                       set=function(v) SSet("showOvershield", v) end },
+                    { type="toggle", label="Absorbs as Health",
+                      tooltip="Draw the part of a shield that fills the EMPTY health bar in the health bar's own texture and color, so a shield reads as health until the bar is full. Only the overshield past 100% still renders as an absorb. Overlay placement only.",
+                      disabled = function()
+                          local st = SVal("absorbStyle", "none")
+                          return st ~= "blizzardModern" and SVal("absorbEdgeMode", "overlay") ~= "overlay"
+                      end,
+                      disabledTooltip = "Requires Placement to be Overlay",
+                      rawTooltip = true,
+                      get=function() return SVal("absorbAsHealth", false) end,
+                      set=function(v) SSet("absorbAsHealth", v) end },
+                    { type="toggle", label="Health Edge Line",
+                      tooltip="Mark where your real health ends with a hairline, so a shield drawn as health is still tellable apart at a glance. Uses the absorb color; only drawn while a shield is up.",
+                      disabled = function() return not SVal("absorbAsHealth", false) end,
+                      disabledTooltip = "Absorbs as Health",
+                      get=function() return SVal("absorbAsHealthEdge", true) end,
+                      set=function(v) SSet("absorbAsHealthEdge", v) end },
                 },
             })
             local cogBtn = CreateFrame("Button", nil, rgn)
