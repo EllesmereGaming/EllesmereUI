@@ -134,6 +134,7 @@ local CHAT_DEFAULTS = {
             bgB        = 0.05,
             bgTexture  = "none",  -- chat background texture key (Unit Frames bar texture catalogue)
             timestampFormat = "%I:%M ",
+            abbreviateChannels = false,
             font = "__global",
             outlineMode = "__global",
             fontSize = 12,
@@ -3883,6 +3884,26 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
+
+    ---------------------------------------------------------------------------
+    --  2c-2. World/system channel abbreviations -- REVERTED
+    ---------------------------------------------------------------------------
+    -- Attempted via a CHAT_MSG_CHANNEL message filter rewriting the
+    -- channelName argument (tried both full replacement, e.g. "T", and
+    -- prefix-preserving partial replacement, e.g. "2. T"). Confirmed
+    -- in-game (2026-07-26): ANY modification to channelName -- even
+    -- preserving the leading "N. " index -- causes the message to silently
+    -- stop appearing in any chat frame (no Lua error), while leaving
+    -- channelName completely untouched works normally. This means whatever
+    -- Blizzard uses to decide if a frame is subscribed to display a given
+    -- Channel message depends on matching the exact original channelName
+    -- string, not just its leading index -- so this argument cannot be
+    -- safely rewritten from inside a CHAT_MSG_CHANNEL filter at all.
+    -- Feature removed rather than iterating further on the same broken
+    -- assumption. Fixed channels (Party/Raid/Guild/etc., section 7b below)
+    -- are unaffected and still work via the CHAT_x_GET global override,
+    -- which has no equivalent routing dependency.
+    ---------------------------------------------------------------------------
     --  3. Temporary window detection (whisper windows)
     --     1s ticker checks for unskinned frames. Replaces the global
     --     hooksecurefunc("FCF_OpenTemporaryWindow") which tainted edit box
@@ -4348,6 +4369,121 @@ initFrame:SetScript("OnEvent", function(self)
     ApplyTimestampCVar()
     C_Timer.After(2, ApplyTimestampCVar)
     ECHAT.ApplyTimestampCVar = ApplyTimestampCVar
+
+    ---------------------------------------------------------------------------
+    --  7b. Channel name abbreviations (e.g. [Party] -> [P])
+    ---------------------------------------------------------------------------
+    -- Why this implementation: overwriting the CHAT_x_GET globals directly
+    -- (an earlier attempt) tainted Blizzard's own MessageEventHandler,
+    -- which reads those globals while building a ChatHistory dedupe token
+    -- that can also touch a Secret Value (chanSender) for at least
+    -- PARTY_LEADER messages -- causing a hard error instead of the softer
+    -- ADDON_ACTION_BLOCKED. Instead, we never touch the CHAT_x_GET globals
+    -- at all: we rewrite the fully-built display line (e.g. "[Party
+    -- Leader] Name: msg") right as it's handed to each chat frame's
+    -- AddMessage, by wrapping AddMessage per-frame. By that point
+    -- Blizzard's ChatHistory/token bookkeeping has already completed using
+    -- the untouched, untainted globals -- our wrapper only ever sees plain
+    -- display text (guarded by issecretvalue() below for the cases where
+    -- it isn't). AddMessage itself is an ordinary (non-protected) widget
+    -- method; shadowing it per-frame is a normal Lua table-field override.
+    --
+    -- Matching strategy: every CHAT_x_GET header (fixed channels) and every
+    -- CHANNEL-type prefix Blizzard builds is wrapped as hyperlink markup:
+    -- |Hchannel:<keyword>|h[<label>]|h. We match on the hyperlink KEYWORD
+    -- (e.g. "party", "raid_leader", "channel:2") instead of the localized
+    -- bracket label text -- locale-independent, and covers world channels
+    -- (keyword "channel:<N>") through the exact same mechanism, with no
+    -- separate routing-sensitive logic needed since this never touches the
+    -- raw CHAT_MSG_CHANNEL event args that broke routing when modified
+    -- directly in an earlier attempt.
+    --
+    -- ASSUMPTION: the exact hyperlink keywords for each fixed channel type
+    -- (e.g. "party_leader", "instance_chat") are inferred, not
+    -- independently re-verified against live GlobalStrings. If a channel
+    -- doesn't abbreviate, the keyword is the first thing to check in-game
+    -- (unmatched keywords are a silent no-op via ShortChannelReplacer
+    -- returning nil, not an error).
+    local CHANNEL_ABBR_LOOKUP = {
+        PARTY                = "P",
+        PARTY_LEADER         = "PL",
+        PARTY_GUIDE          = "PG",
+        RAID                 = "R",
+        GUILD                = "G",
+        BATTLEGROUND         = "BG",
+        INSTANCE_CHAT        = "I",
+        -- Removed rather than shipped unverified: OFFICER, RAID_LEADER,
+        -- BATTLEGROUND_LEADER (untestable), INSTANCE_CHAT_LEADER (confirmed
+        -- in-game to display [I], not a distinct [IL] -- Blizzard doesn't
+        -- appear to use a separate hyperlink keyword for that leader
+        -- variant). PARTY_LEADER is kept -- confirmed working ([PL]),
+        -- including in M+.
+    }
+
+    -- World channels use hyperlink keyword "channel:<N>" rather than a
+    -- fixed word. Same zoneChannelIDs identified earlier: 1=General,
+    -- 2=Trade, 22=LocalDefense, 23=WorldDefense, 26=LookingForGroup.
+    local WORLD_CHANNEL_ABBR = {
+        ["1"]  = "Ge",
+        ["2"]  = "T",
+        ["22"] = "LD",
+        ["23"] = "WD",
+        ["26"] = "LFG",
+    }
+
+    -- gsub replacement function: return nil/false to leave a match
+    -- untouched (unrecognized keyword), or the replacement hyperlink text.
+    local function ShortChannelReplacer(hyperlinkTarget, bracketLabel)
+        local abbr = CHANNEL_ABBR_LOOKUP[hyperlinkTarget:upper()]
+        if not abbr then
+            local channelNum = hyperlinkTarget:match("^channel:(%d+)$")
+            if channelNum then
+                abbr = WORLD_CHANNEL_ABBR[channelNum] or channelNum
+            end
+        end
+        if not abbr then return nil end
+        return "|Hchannel:" .. hyperlinkTarget .. "|h[" .. abbr .. "]|h"
+    end
+
+    local function AbbreviateChannelText(text)
+        return (text:gsub("|Hchannel:(.-)|h%[(.-)%]|h", ShortChannelReplacer))
+    end
+
+    local function InstallChannelAbbrevHook(frame)
+        if not frame or frame.EUI_ChanAbbrevHooked then return end
+        frame.EUI_ChanAbbrevHooked = true
+        local origAddMessage = frame.AddMessage
+        frame.AddMessage = function(self, text, ...)
+            local cfg = ECHAT.DB()
+            -- issecretvalue() is the dedicated, safe test for this -- unlike
+            -- type(text) == "string" (a secret string still reports type
+            -- "string" for compatibility), issecretvalue() can be called on
+            -- any value without itself triggering the restriction. Some
+            -- chat lines (observed: Party Leader messages while in M+) are
+            -- Secret Values at the text level; those are passed through to
+            -- AddMessage completely unmodified rather than abbreviated, so
+            -- the message still displays instead of erroring.
+            if cfg and cfg.abbreviateChannels and type(text) == "string" and not issecretvalue(text) then
+                text = AbbreviateChannelText(text)
+            end
+            return origAddMessage(self, text, ...)
+        end
+    end
+
+    local function InstallChannelAbbrevHooksOnAllFrames()
+        if not _G.CHAT_FRAMES then return end
+        for _, name in ipairs(_G.CHAT_FRAMES) do
+            InstallChannelAbbrevHook(_G[name])
+        end
+    end
+    InstallChannelAbbrevHooksOnAllFrames()
+
+    -- Catch chat windows created later (e.g. via the "New Window" button).
+    if _G.FCF_OpenNewWindow then
+        hooksecurefunc("FCF_OpenNewWindow", InstallChannelAbbrevHooksOnAllFrames)
+    end
+
+    ECHAT.ApplyChannelAbbreviations = InstallChannelAbbrevHooksOnAllFrames
 
     ---------------------------------------------------------------------------
     --  8. Apply all visual settings from DB

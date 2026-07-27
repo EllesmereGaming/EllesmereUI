@@ -454,6 +454,18 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshBorderSwatches()
             end
 
+            -- Row: Abbreviate Channel Names (e.g. [Party] -> [P])
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Abbreviate Channel Names",
+                    tooltip="Shortens channel prefixes in chat, e.g. [Party] -> [P].",
+                    getValue=function() return Cfg("abbreviateChannels") == true end,
+                    setValue=function(v)
+                        Set("abbreviateChannels", v)
+                        if ECHAT.ApplyChannelAbbreviations then ECHAT.ApplyChannelAbbreviations() end
+                    end },
+                { type="spacer", text="" })
+            y = y - h
+
         -- -- IDLE FADE ---------------------------------------------------------
         _, h = W:SectionHeader(parent, "IDLE FADE", y); y = y - h
 
