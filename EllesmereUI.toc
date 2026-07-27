@@ -1,4 +1,4 @@
-## Interface: 120000, 120001, 120005, 120007, 120100
+## Interface: 30300
 ## Title: |cff0cd29fEllesmereUI|r
 ## Notes: Shared framework for the EllesmereUI addon suite
 ## Author: Ellesmere

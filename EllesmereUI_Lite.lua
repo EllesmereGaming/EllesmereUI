@@ -6,6 +6,92 @@
 --------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
+-- C_Timer Polyfill for 3.3.5 / Wrath of the Lich King API
+if not C_Timer then
+    C_Timer = {}
+    local timers = {}
+    local tickerId = 0
+    local timerFrame = CreateFrame("Frame")
+
+    timerFrame:SetScript("OnUpdate", function(self, elapsed)
+        local now = GetTime()
+        for id, t in pairs(timers) do
+            if not t.cancelled then
+                if now >= t.nextTrigger then
+                    if t.isTicker then
+                        t.iterations = t.iterations + 1
+                        t.nextTrigger = t.nextTrigger + t.duration
+                        -- In case the game lagged heavily, adjust nextTrigger to not cause a freeze/storm
+                        if t.nextTrigger < now then
+                            t.nextTrigger = now + t.duration
+                        end
+                        -- Run callback
+                        local success, err = pcall(t.callback, t)
+                        if not success then
+                            geterrorhandler()(err)
+                        end
+                        -- Check if we should terminate ticker
+                        if t.cancelled then
+                            timers[id] = nil
+                        elseif t.maxIterations and t.iterations >= t.maxIterations then
+                            t.cancelled = true
+                            timers[id] = nil
+                        end
+                    else
+                        -- One-shot timer
+                        t.cancelled = true
+                        timers[id] = nil
+                        local success, err = pcall(t.callback, t)
+                        if not success then
+                            geterrorhandler()(err)
+                        end
+                    end
+                end
+            else
+                timers[id] = nil
+            end
+        end
+        if not next(timers) then
+            self:Hide()
+        end
+    end)
+    timerFrame:Hide()
+
+    local function createTimer(duration, callback, isTicker, maxIterations)
+        tickerId = tickerId + 1
+        local id = tickerId
+        local t = {
+            id = id,
+            duration = duration,
+            callback = callback,
+            isTicker = isTicker,
+            iterations = 0,
+            maxIterations = maxIterations,
+            nextTrigger = GetTime() + duration,
+            cancelled = false,
+        }
+        function t:Cancel()
+            self.cancelled = true
+            timers[id] = nil
+        end
+        timers[id] = t
+        timerFrame:Show()
+        return t
+    end
+
+    function C_Timer.After(duration, callback)
+        createTimer(duration, callback, false)
+    end
+
+    function C_Timer.NewTimer(duration, callback)
+        return createTimer(duration, callback, false)
+    end
+
+    function C_Timer.NewTicker(duration, callback, iterations)
+        return createTimer(duration, callback, true, iterations)
+    end
+end
+
 local EUILite = {}
 EllesmereUI = EllesmereUI or {}
 -- TEMPORARY 12.1 compatibility flag. At 12.1 launch the live build reports
