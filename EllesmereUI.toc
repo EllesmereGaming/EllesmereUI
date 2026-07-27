@@ -15,6 +15,9 @@ Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
 Libs\LibDeflate\LibDeflate.lua
 Libs\LibKeystone\LibKeystone.lua
 
+# Core Polyfills for WotLK 3.3.5
+Polyfills.lua
+
 # Lightweight addon framework (replaces Ace3)
 EllesmereUI_Lite.lua
 

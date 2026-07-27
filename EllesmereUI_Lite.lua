@@ -137,7 +137,11 @@ local function GetOrCreateEventFrame(addon)
     f:SetScript("OnEvent", function(self, event, ...)
         local handler = self._handlers[event]
         if handler then
-            handler(addon, event, ...)
+            if select("#", ...) > 0 then
+                handler(addon, event, ...)
+            else
+                handler(addon, event, _G.arg1, _G.arg2, _G.arg3, _G.arg4, _G.arg5, _G.arg6, _G.arg7, _G.arg8, _G.arg9, _G.arg10)
+            end
         end
     end)
     addon._eventFrame = f
