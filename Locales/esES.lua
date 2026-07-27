@@ -6,6 +6,21 @@
 local L = EllesmereUI.RegisterLocale("esES")
 if not L then return end
 
+-- EllesmereUI Loot
+L["Loot"]="Botín"; L["Loot Feed"]="Registro de botín"; L["Alerts"]="Alertas"
+L["External Price Source"]="Fuente de precios externa"; L["EXTERNAL PRICE SOURCES"]="FUENTES DE PRECIOS EXTERNAS"
+L["Notification Price Source"]="Fuente de precios para notificaciones"
+L["External price sources provide auction house values for notifications."]="Las fuentes externas proporcionan valores de la casa de subastas para las notificaciones."
+L["Supported addons: TSM4 and Auctionator. Sources are only available while the corresponding addon is enabled and loaded."]="Addons compatibles: TSM4 y Auctionator. Las fuentes solo están disponibles cuando el addon correspondiente está activo y cargado."
+L["No supported price addon is loaded. Enable TSM4 or Auctionator, then reload the UI."]="No hay ningún addon de precios compatible cargado. Activa TSM4 o Auctionator y recarga la interfaz."
+L["Replace Vendor Price"]="Sustituir precio de vendedor"; L["Show Total Value"]="Mostrar valor total"
+L["Shows the combined value in parentheses when multiple copies of an item are looted."]="Muestra entre paréntesis el valor combinado al obtener varias unidades."
+L["Show Total Loot Value"]="Mostrar valor total del botín"; L["Total loot value"]="Valor total del botín"; L["TOTAL VALUE DISPLAY"]="VALOR TOTAL"
+L["Select an available external price source first."]="Selecciona primero una fuente de precios externa disponible."
+L["Alert on Epic BoE"]="Alerta de épico ligado al equipar"; L["Alert on Epic Warbound"]="Alerta de épico de banda guerrera"
+L["Alert on AH Price"]="Alerta por precio de subasta"; L["Alert on Custom Item"]="Alerta por objeto personalizado"; L["CUSTOM ITEMS"]="OBJETOS PERSONALIZADOS"
+L["Glow Style"]="Estilo de resplandor"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "VENTANAS EMERGENTES Y MENÚ DE JUEGO DE BLIZZARD"
 L["Reskin Popups and Menus"] = "Rediseñar ventanas emergentes y menús"
 L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Rediseña los menús contextuales y los cuadros de diálogo emergentes de Blizzard con el estilo oscuro de EUI. Requiere recargar la interfaz."

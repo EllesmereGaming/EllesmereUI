@@ -6,6 +6,12 @@
 local L = EllesmereUI.RegisterLocale("ptBR")
 if not L then return end
 
+-- EllesmereUI Loot
+L["Loot"]="Saque"; L["Loot Feed"]="Fluxo de saque"; L["Alerts"]="Alertas"; L["External Price Source"]="Fonte externa de preços"; L["EXTERNAL PRICE SOURCES"]="FONTES EXTERNAS DE PREÇOS"; L["Notification Price Source"]="Fonte de preços das notificações"
+L["External price sources provide auction house values for notifications."]="Fontes externas fornecem valores da casa de leilões para as notificações."; L["Supported addons: TSM4 and Auctionator. Sources are only available while the corresponding addon is enabled and loaded."]="Addons compatíveis: TSM4 e Auctionator. As fontes só ficam disponíveis quando o addon correspondente está ativo e carregado."; L["No supported price addon is loaded. Enable TSM4 or Auctionator, then reload the UI."]="Nenhum addon de preços compatível está carregado. Ative o TSM4 ou Auctionator e recarregue a interface."
+L["Replace Vendor Price"]="Substituir preço de comerciante"; L["Show Total Value"]="Mostrar valor total"; L["Shows the combined value in parentheses when multiple copies of an item are looted."]="Mostra entre parênteses o valor combinado ao saquear várias unidades."; L["Show Total Loot Value"]="Mostrar valor total do saque"; L["Total loot value"]="Valor total do saque"; L["TOTAL VALUE DISPLAY"]="VALOR TOTAL"; L["Select an available external price source first."]="Selecione primeiro uma fonte externa de preços disponível."
+L["Alert on Epic BoE"]="Alerta de épico vinculado ao equipar"; L["Alert on Epic Warbound"]="Alerta de épico do Bando de Guerra"; L["Alert on AH Price"]="Alerta de preço do leilão"; L["Alert on Custom Item"]="Alerta de item personalizado"; L["CUSTOM ITEMS"]="ITENS PERSONALIZADOS"; L["Glow Style"]="Estilo de brilho"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "POP-UPS DA BLIZZARD E MENU DO JOGO"
 L["Reskin Popups and Menus"] = "Reestilizar pop-ups e menus"
 L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Reestiliza os menus de contexto e as janelas pop-up da Blizzard com o estilo escuro da EUI. Requer recarregar a interface."

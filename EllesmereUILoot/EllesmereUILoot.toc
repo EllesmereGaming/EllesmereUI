@@ -1,13 +1,13 @@
 ## Interface: 120000, 120001, 120005, 120007, 120100
-## Title: |cff0cd29fEllesmereUI|r Notifications
+## Title: |cff0cd29fEllesmereUI|r Loot
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
 ## Notes: A compact loot, currency, reputation, honor, experience and gold feed.
 ## Author: Ellesmere
 ## Version: 8.5.9
 ## Dependencies: EllesmereUI
-## SavedVariables: EllesmereUINotificationsDB
+## SavedVariables: EllesmereUILootDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
-EllesmereUINotifications.lua
-EUI_Notifications_Options.lua
+EllesmereUILoot.lua
+EUI_Loot_Options.lua

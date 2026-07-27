@@ -6,6 +6,16 @@
 local L = EllesmereUI.RegisterLocale("frFR")
 if not L then return end
 
+-- EllesmereUI Loot
+L["Loot"]="Butin"; L["Loot Feed"]="Flux de butin"; L["Alerts"]="Alertes"
+L["External Price Source"]="Source de prix externe"; L["EXTERNAL PRICE SOURCES"]="SOURCES DE PRIX EXTERNES"; L["Notification Price Source"]="Source de prix des notifications"
+L["External price sources provide auction house values for notifications."]="Les sources externes fournissent les valeurs de l'hôtel des ventes pour les notifications."
+L["Supported addons: TSM4 and Auctionator. Sources are only available while the corresponding addon is enabled and loaded."]="Addons pris en charge : TSM4 et Auctionator. Une source est disponible uniquement lorsque l'addon correspondant est activé et chargé."
+L["No supported price addon is loaded. Enable TSM4 or Auctionator, then reload the UI."]="Aucun addon de prix compatible n'est chargé. Activez TSM4 ou Auctionator puis rechargez l'interface."
+L["Replace Vendor Price"]="Remplacer le prix marchand"; L["Show Total Value"]="Afficher la valeur totale"; L["Shows the combined value in parentheses when multiple copies of an item are looted."]="Affiche entre parenthèses la valeur cumulée lorsque plusieurs exemplaires sont obtenus."
+L["Show Total Loot Value"]="Afficher la valeur totale du butin"; L["Total loot value"]="Valeur totale du butin"; L["TOTAL VALUE DISPLAY"]="VALEUR TOTALE"; L["Select an available external price source first."]="Sélectionnez d'abord une source de prix externe disponible."
+L["Alert on Epic BoE"]="Alerte épique LQE"; L["Alert on Epic Warbound"]="Alerte épique bataillon"; L["Alert on AH Price"]="Alerte de prix HV"; L["Alert on Custom Item"]="Alerte d'objet personnalisé"; L["CUSTOM ITEMS"]="OBJETS PERSONNALISÉS"; L["Glow Style"]="Style de lueur"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "FENÊTRES BLIZZARD ET MENU DU JEU"
 L["Resurrect Accept Glow"] = "Lueur d’acceptation de résurrection"
 L["Adds a glowing, pulsating border around the Accept button of resurrection popups so a pending resurrect is hard to miss. Follows the Element & Text Color setting. Applies instantly, no reload needed."] = "Ajoute une bordure lumineuse et pulsante autour du bouton Accepter des fenêtres de résurrection afin de ne pas manquer une résurrection. Utilise le réglage de couleur des éléments et du texte. Application immédiate sans rechargement."

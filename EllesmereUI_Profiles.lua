@@ -80,7 +80,7 @@ local ADDON_DB_MAP = {
     { folder = "EllesmereUIDamageMeters",     display = "Damage Meters",       svName = "EllesmereUIDamageMetersDB",      suffix = "DamageMeters"      },
     { folder = "EllesmereUIChat",             display = "Chat",                svName = "EllesmereUIChatDB",              suffix = "Chat"              },
     { folder = "EllesmereUIDataBars",         display = "DataBars",            svName = "EllesmereUIDataBarsDB",          suffix = "DataBars"          },
-    { folder = "EllesmereUINotifications",    display = "Notifications",       svName = "EllesmereUINotificationsDB",     suffix = "Notifications"     },
+    { folder = "EllesmereUILoot",             display = "Loot",                svName = "EllesmereUILootDB",              suffix = "Loot"              },
 }
 EllesmereUI._ADDON_DB_MAP = ADDON_DB_MAP
 

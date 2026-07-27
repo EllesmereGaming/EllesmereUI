@@ -6,6 +6,12 @@
 local L = EllesmereUI.RegisterLocale("zhCN")
 if not L then return end
 
+-- EllesmereUI Loot
+L["Loot"]="拾取"; L["Loot Feed"]="拾取信息流"; L["Alerts"]="提醒"; L["External Price Source"]="外部价格来源"; L["EXTERNAL PRICE SOURCES"]="外部价格来源"; L["Notification Price Source"]="通知价格来源"
+L["External price sources provide auction house values for notifications."]="外部价格来源可为通知提供拍卖行价格。"; L["Supported addons: TSM4 and Auctionator. Sources are only available while the corresponding addon is enabled and loaded."]="支持 TSM4 和 Auctionator。只有对应插件已启用并加载时，价格来源才可用。"; L["No supported price addon is loaded. Enable TSM4 or Auctionator, then reload the UI."]="未加载支持的价格插件。请启用 TSM4 或 Auctionator，然后重载界面。"
+L["Replace Vendor Price"]="替换商人售价"; L["Show Total Value"]="显示总价值"; L["Shows the combined value in parentheses when multiple copies of an item are looted."]="拾取多个同类物品时，在括号中显示合计价值。"; L["Show Total Loot Value"]="显示拾取总价值"; L["Total loot value"]="拾取总价值"; L["TOTAL VALUE DISPLAY"]="总价值显示"; L["Select an available external price source first."]="请先选择可用的外部价格来源。"
+L["Alert on Epic BoE"]="史诗装绑提醒"; L["Alert on Epic Warbound"]="史诗战团绑定提醒"; L["Alert on AH Price"]="拍卖行价格提醒"; L["Alert on Custom Item"]="自定义物品提醒"; L["CUSTOM ITEMS"]="自定义物品"; L["Glow Style"]="发光样式"
+
 -- == 常用标签 (Common labels) ===============================================
 L["Anchor"] = "锚点"
 L["Anchor Point"] = "锚点位置"

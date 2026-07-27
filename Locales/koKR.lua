@@ -7,6 +7,12 @@
 local L = EllesmereUI.RegisterLocale("koKR")
 if not L then return end
 
+-- EllesmereUI Loot
+L["Loot"]="전리품"; L["Loot Feed"]="전리품 피드"; L["Alerts"]="알림"; L["External Price Source"]="외부 가격 출처"; L["EXTERNAL PRICE SOURCES"]="외부 가격 출처"; L["Notification Price Source"]="알림 가격 출처"
+L["External price sources provide auction house values for notifications."]="외부 가격 출처는 알림에 경매장 가격을 제공합니다."; L["Supported addons: TSM4 and Auctionator. Sources are only available while the corresponding addon is enabled and loaded."]="지원 애드온: TSM4, Auctionator. 해당 애드온이 활성화되고 로드된 경우에만 사용할 수 있습니다."; L["No supported price addon is loaded. Enable TSM4 or Auctionator, then reload the UI."]="지원되는 가격 애드온이 없습니다. TSM4 또는 Auctionator를 활성화한 후 UI를 다시 불러오세요."
+L["Replace Vendor Price"]="상점 판매가 대체"; L["Show Total Value"]="총 가치 표시"; L["Shows the combined value in parentheses when multiple copies of an item are looted."]="여러 개를 획득하면 합산 가치를 괄호 안에 표시합니다."; L["Show Total Loot Value"]="총 전리품 가치 표시"; L["Total loot value"]="총 전리품 가치"; L["TOTAL VALUE DISPLAY"]="총 가치 표시"; L["Select an available external price source first."]="먼저 사용 가능한 외부 가격 출처를 선택하세요."
+L["Alert on Epic BoE"]="착용 시 귀속 영웅 알림"; L["Alert on Epic Warbound"]="전투부대 귀속 영웅 알림"; L["Alert on AH Price"]="경매장 가격 알림"; L["Alert on Custom Item"]="사용자 아이템 알림"; L["CUSTOM ITEMS"]="사용자 아이템"; L["Glow Style"]="반짝임 스타일"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "블리자드 팝업 및 게임 메뉴"
 
 -- == Common labels (공용 라벨) =============================================

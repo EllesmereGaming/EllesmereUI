@@ -7,6 +7,12 @@
 local L = EllesmereUI.RegisterLocale("ruRU")
 if not L then return end
 
+-- EllesmereUI Loot
+L["Loot"]="Добыча"; L["Loot Feed"]="Лента добычи"; L["Alerts"]="Оповещения"; L["External Price Source"]="Внешний источник цен"; L["EXTERNAL PRICE SOURCES"]="ВНЕШНИЕ ИСТОЧНИКИ ЦЕН"; L["Notification Price Source"]="Источник цен для уведомлений"
+L["External price sources provide auction house values for notifications."]="Внешние источники добавляют аукционные цены в уведомления."; L["Supported addons: TSM4 and Auctionator. Sources are only available while the corresponding addon is enabled and loaded."]="Поддерживаются TSM4 и Auctionator. Источник доступен, только когда соответствующий аддон включён и загружен."; L["No supported price addon is loaded. Enable TSM4 or Auctionator, then reload the UI."]="Поддерживаемый аддон цен не загружен. Включите TSM4 или Auctionator и перезагрузите интерфейс."
+L["Replace Vendor Price"]="Заменить цену продажи"; L["Show Total Value"]="Показывать общую стоимость"; L["Shows the combined value in parentheses when multiple copies of an item are looted."]="Показывает общую стоимость в скобках при получении нескольких предметов."; L["Show Total Loot Value"]="Показывать стоимость всей добычи"; L["Total loot value"]="Общая стоимость добычи"; L["TOTAL VALUE DISPLAY"]="ОБЩАЯ СТОИМОСТЬ"; L["Select an available external price source first."]="Сначала выберите доступный внешний источник цен."
+L["Alert on Epic BoE"]="Оповещать об эпической персональной добыче"; L["Alert on Epic Warbound"]="Оповещать об эпической добыче отряда"; L["Alert on AH Price"]="Оповещать по аукционной цене"; L["Alert on Custom Item"]="Оповещать о выбранном предмете"; L["CUSTOM ITEMS"]="ВЫБРАННЫЕ ПРЕДМЕТЫ"; L["Glow Style"]="Стиль свечения"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "ОКНА BLIZZARD И ИГРОВОЕ МЕНЮ"
 L["Reskin Popups and Menus"] = "Изменить оформление окон и меню"
 L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Оформляет контекстные меню и всплывающие окна Blizzard в тёмном стиле EUI. Для применения требуется перезагрузка интерфейса."

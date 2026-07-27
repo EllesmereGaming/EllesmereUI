@@ -6,6 +6,14 @@
 local L = EllesmereUI.RegisterLocale("itIT")
 if not L then return end
 
+-- EllesmereUI Loot
+L["Loot"]="Bottino"; L["Loot Feed"]="Elenco bottino"; L["Alerts"]="Avvisi"
+L["External Price Source"]="Fonte prezzi esterna"; L["EXTERNAL PRICE SOURCES"]="FONTI PREZZI ESTERNE"; L["Notification Price Source"]="Fonte prezzi delle notifiche"
+L["External price sources provide auction house values for notifications."]="Le fonti esterne forniscono i valori della casa d'aste per le notifiche."; L["Supported addons: TSM4 and Auctionator. Sources are only available while the corresponding addon is enabled and loaded."]="Addon supportati: TSM4 e Auctionator. Le fonti sono disponibili solo quando l'addon corrispondente è attivo e caricato."; L["No supported price addon is loaded. Enable TSM4 or Auctionator, then reload the UI."]="Nessun addon prezzi supportato è caricato. Attiva TSM4 o Auctionator e ricarica l'interfaccia."
+L["Replace Vendor Price"]="Sostituisci prezzo mercante"; L["Show Total Value"]="Mostra valore totale"; L["Shows the combined value in parentheses when multiple copies of an item are looted."]="Mostra tra parentesi il valore complessivo quando ottieni più copie."
+L["Show Total Loot Value"]="Mostra valore totale bottino"; L["Total loot value"]="Valore totale bottino"; L["TOTAL VALUE DISPLAY"]="VALORE TOTALE"; L["Select an available external price source first."]="Seleziona prima una fonte prezzi esterna disponibile."
+L["Alert on Epic BoE"]="Avviso epico Vincolato all'equipaggiamento"; L["Alert on Epic Warbound"]="Avviso epico della Brigata"; L["Alert on AH Price"]="Avviso prezzo asta"; L["Alert on Custom Item"]="Avviso oggetto personalizzato"; L["CUSTOM ITEMS"]="OGGETTI PERSONALIZZATI"; L["Glow Style"]="Stile bagliore"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "POPUP BLIZZARD E MENU DI GIOCO"
 L["Reskin Popups and Menus"] = "Rivesti popup e menu"
 L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Riveste i menu contestuali e le finestre popup di Blizzard con lo stile scuro EUI. Richiede il ricaricamento dell'interfaccia."
