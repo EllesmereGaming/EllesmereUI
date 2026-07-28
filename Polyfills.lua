@@ -1,4 +1,3 @@
---------------------------------------------------------------------------------
 --  Polyfills.lua
 --  Central polyfill and compatibility layer for World of Warcraft 3.3.5a (WotLK)
 --  Bridges modern Retail APIs into the legacy 3.3.5 client environment.
@@ -31,113 +30,11 @@ if not CreateFromMixins then
     end
 end
 
--- 2. C_Timer Polyfill with OnUpdate Accumulator Pool
-if not C_Timer then
-    C_Timer = {}
-    local timers = {}
-    local tickerId = 0
-    local timerFrame = CreateFrame("Frame")
-
-    timerFrame:SetScript("OnUpdate", function(self, elapsed)
-        local now = GetTime()
-        for id, t in pairs(timers) do
-            if not t.cancelled then
-                if now >= t.nextTrigger then
-                    if t.isTicker then
-                        t.iterations = t.iterations + 1
-                        t.nextTrigger = t.nextTrigger + t.duration
-                        if t.nextTrigger < now then
-                            t.nextTrigger = now + t.duration
-                        end
-                        local success, err = pcall(t.callback, t)
-                        if not success then
-                            geterrorhandler()(err)
-                        end
-                        if t.cancelled then
-                            timers[id] = nil
-                        elseif t.maxIterations and t.iterations >= t.maxIterations then
-                            t.cancelled = true
-                            timers[id] = nil
-                        end
-                    else
-                        t.cancelled = true
-                        timers[id] = nil
-                        local success, err = pcall(t.callback, t)
-                        if not success then
-                            geterrorhandler()(err)
-                        end
-                    end
-                end
-            else
-                timers[id] = nil
-            end
-        end
-        if not next(timers) then
-            self:Hide()
-        end
-    end)
-    timerFrame:Hide()
-
-    local function createTimer(duration, callback, isTicker, maxIterations)
-        tickerId = tickerId + 1
-        local id = tickerId
-        local t = {
-            id = id,
-            duration = duration,
-            callback = callback,
-            isTicker = isTicker,
-            iterations = 0,
-            maxIterations = maxIterations,
-            nextTrigger = GetTime() + duration,
-            cancelled = false,
-        }
-        function t:Cancel()
-            self.cancelled = true
-            timers[id] = nil
-        end
-        timers[id] = t
-        timerFrame:Show()
-        return t
-    end
-
-    function C_Timer.After(duration, callback)
-        createTimer(duration, callback, false)
-    end
-
-    function C_Timer.NewTimer(duration, callback)
-        return createTimer(duration, callback, false)
-    end
-
-    function C_Timer.NewTicker(duration, callback, iterations)
-        return createTimer(duration, callback, true, iterations)
-    end
-end
 
 -- 3. Dynamic Fallback Proxies for Undefined Namespaces
-local fallbackMeta = {
-    __index = function(t, k)
-        local f = function(...)
-            return nil
-        end
-        rawset(t, k, f)
-        return f
-    end
-}
-
-local namespaces = {
-    "C_AddOns", "C_ChallengeMode", "C_ClassColor", "C_ClassTalents",
-    "C_CooldownViewer", "C_CurveUtil", "C_DurationUtil", "C_EditMode",
-    "C_EncodingUtil", "C_EventUtils", "C_Garrison", "C_IncomingSummon",
-    "C_PartyInfo", "C_PlayerInfo", "C_PvP", "C_SpecializationInfo",
-    "C_StringUtil", "C_Traits", "C_UnitAuras", "C_UA", "C_AddOnProfiler",
-    "C_PlayerInteractionManager"
-}
-
-for _, nsName in ipairs(namespaces) do
-    if not _G[nsName] then
-        _G[nsName] = setmetatable({}, fallbackMeta)
-    end
-end
+-- 3. Dynamic Fallback Proxies
+-- Removed overly permissive fallback logic to prevent silent errors.
+-- Explicitly defined polyfills should be used instead.
 
 -- DurationObject class
 local DurationObject = {}
@@ -248,6 +145,7 @@ end
 -- 4. Specific Namespace Implementations
 
 -- C_AddOns
+C_AddOns = C_AddOns or {}
 C_AddOns.DisableAddOn = DisableAddOn
 C_AddOns.EnableAddOn = EnableAddOn
 C_AddOns.IsAddOnLoaded = IsAddOnLoaded
@@ -260,6 +158,7 @@ C_AddOns.DoesAddOnExist = function(name)
 end
 
 -- C_ClassColor
+C_ClassColor = C_ClassColor or {}
 C_ClassColor.GetClassColor = function(class)
     local color = RAID_CLASS_COLORS[class]
     if color then
@@ -269,6 +168,7 @@ C_ClassColor.GetClassColor = function(class)
 end
 
 -- C_SpecializationInfo
+C_SpecializationInfo = C_SpecializationInfo or {}
 C_SpecializationInfo.GetSpecialization = function()
     local maxPoints = -1
     local activeSpec = 1
@@ -288,7 +188,387 @@ C_SpecializationInfo.GetSpecializationInfo = function(specIndex)
     return specIndex, name or "Spec", "", icon or "Interface\\Icons\\INV_Misc_QuestionMark", "DAMAGER", 1
 end
 
+
+-- C_CVar
+C_CVar = C_CVar or {}
+
+local CVarMap = {
+    cameraDistanceMaxZoomFactor = "cameraDistanceMaxFactor",
+}
+
+if not C_CVar.GetCVar then
+    C_CVar.GetCVar = function(name)
+        name = CVarMap[name] or name
+        local ok, result = pcall(GetCVar, name)
+        return ok and result or nil
+    end
+end
+if not C_CVar.SetCVar then
+    C_CVar.SetCVar = function(name, value)
+        name = CVarMap[name] or name
+        local ok, result = pcall(SetCVar, name, value)
+        return ok and result or false
+    end
+end
+if not C_CVar.GetCVarInfo then
+    C_CVar.GetCVarInfo = function(name)
+        name = CVarMap[name] or name
+        local ok1, val = pcall(GetCVar, name)
+        local ok2, def = pcall(GetCVarDefault, name)
+        return (ok1 and val or nil), (ok2 and def or nil)
+    end
+end
+if not C_CVar.GetCVarBool then
+    C_CVar.GetCVarBool = function(name)
+        name = CVarMap[name] or name
+        local ok, result = pcall(GetCVar, name)
+        return ok and result == "1" or false
+    end
+end
+
+
+-- C_SpellBook
+if not C_SpellBook then
+    C_SpellBook = {}
+
+    C_SpellBook.GetNumSpellBookSkillLines = function()
+        if GetNumSpellTabs then
+            return GetNumSpellTabs()
+        end
+        return 0
+    end
+
+    C_SpellBook.GetSpellBookSkillLineInfo = function(tab)
+        if GetSpellTabInfo then
+            local name, texture, offset, numSpells, isGuild, offSpecID = GetSpellTabInfo(tab)
+            if name then
+                return {
+                    name = name,
+                    icon = texture,
+                    itemIndexOffset = offset,
+                    numSpellBookItems = numSpells,
+                    isGuild = isGuild,
+                    offSpecID = offSpecID,
+                }
+            end
+        end
+        return nil
+    end
+
+    C_SpellBook.GetSpellBookItemType = function(index, bank)
+        local bookType = "spell"
+        if bank == "pet" or bank == 2 then
+            bookType = "pet"
+        end
+        local spellType, id = GetSpellBookItemType(index, bookType)
+        return spellType, id, id
+    end
+
+    C_SpellBook.IsSpellInSpellBook = function(spell, bank)
+        local name = GetSpellInfo(spell)
+        if name then
+            return GetSpellLink(name) ~= nil
+        end
+        return false
+    end
+
+    C_SpellBook.IsSpellKnownOrInSpellBook = function(spellId, bank)
+        local name = GetSpellInfo(spellId)
+        if name then
+            return GetSpellLink(name) ~= nil
+        end
+        return false
+    end
+
+    C_SpellBook.IsSpellKnown = function(spell)
+        local name = GetSpellInfo(spell)
+        if name then
+            return GetSpellLink(name) ~= nil
+        end
+        return false
+    end
+
+    C_SpellBook.FindSpellOverrideByID = function(spell)
+        return spell
+    end
+end
+
+-- Load Equipment Set Module immediately if present
+if not EquipmentManager_GetLocationData then
+    pcall(LoadAddOn, "Blizzard_EquipmentManager")
+end
+
+-- C_EquipmentSet
+if not C_EquipmentSet then
+    C_EquipmentSet = {}
+
+    C_EquipmentSet.GetEquipmentSetIDs = function()
+        local num = GetNumEquipmentSets and GetNumEquipmentSets() or 0
+        local ids = {}
+        for i = 1, num do
+            ids[i] = i
+        end
+        return ids
+    end
+
+    C_EquipmentSet.GetItemLocations = function(setID)
+        local num = GetNumEquipmentSets and GetNumEquipmentSets() or 0
+        if setID > 0 and setID <= num then
+            local name = GetEquipmentSetInfo(setID)
+            if name then
+                local locations = GetEquipmentSetLocations(name)
+                local list = {}
+                if locations then
+                    for slot, loc in pairs(locations) do
+                        list[#list + 1] = loc
+                    end
+                end
+                return list
+            end
+        end
+        return nil
+    end
+end
+
+
+-- 4. Global Objects & Structures (Enum, Color, TooltipDataProcessor)
+
+
+-- Missing legacy constants definition
+if not LE_PARTY_CATEGORY_HOME then LE_PARTY_CATEGORY_HOME = 1 end
+if not LE_PARTY_CATEGORY_INSTANCE then LE_PARTY_CATEGORY_INSTANCE = 2 end
+if not IsInGroup then
+    function IsInGroup(category)
+        if category == LE_PARTY_CATEGORY_INSTANCE then
+            local _, instanceType = IsInInstance()
+            return (instanceType == "pvp" or instanceType == "arena" or GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0)
+        else
+            return (GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0)
+        end
+    end
+end
+
+-- Enum Namespace and catch-all safety
+-- Enum Namespace
+Enum = Enum or {}
+
+-- Explicitly populate Enum subfields used in the codebase
+Enum.ItemClass = {
+    Weapon = 2,
+    Armor = 4,
+    Gem = 3,
+    Container = 1,
+    Consumable = 0,
+    Glyph = 16,
+    TradeGoods = 7,
+    Projectile = 6,
+    Quiver = 11,
+    Recipe = 9,
+    Reagent = 5,
+    Key = 13,
+    Miscellaneous = 15,
+    Quest = 12,
+    Profession = 19,
+    Housing = 20,
+}
+
+Enum.ItemBind = {
+    None = 0,
+    OnAcquire = 1,
+    OnEquip = 2,
+}
+
+Enum.SpellBookSpellBank = {
+    Player = "spell",
+    Pet = "pet",
+}
+
+Enum.SpellBookItemType = {
+    Spell = "SPELL",
+    FutureSpell = "FUTURESPELL",
+    PetAction = "PETACTION",
+    Flyout = "FLYOUT",
+}
+
+Enum.BankType = {
+    Character = 1,
+    Account = 2,
+}
+
+Enum.BagSlotFlags = {
+    ClassEquipment = 1,
+    ClassConsumables = 2,
+    ClassProfessionGoods = 3,
+    ClassReagents = 4,
+    ClassJunk = 5,
+}
+
+Enum.QuestClassification = {
+    Normal = 0,
+    Elite = 1,
+    Rare = 2,
+    RareElite = 3,
+    WorldQuest = 4,
+}
+
+Enum.TooltipDataType = {
+    Spell = 1,
+    UnitAura = 2,
+    Item = 3,
+    Macro = 4,
+    PetAction = 5,
+}
+
+Enum.PowerType = {
+    Mana = 0,
+    Rage = 1,
+    Focus = 2,
+    Energy = 3,
+    RunicPower = 6,
+}
+
+
+-- ColorMixin & CreateColor
+if not ColorMixin then
+    ColorMixin = {}
+    ColorMixin.__index = ColorMixin
+
+    function ColorMixin:SetRGBA(r, g, b, a)
+        self.r = r
+        self.g = g
+        self.b = b
+        self.a = a or 1
+    end
+
+    function ColorMixin:GetRGB()
+        return self.r, self.g, self.b
+    end
+
+    function ColorMixin:GetRGBA()
+        return self.r, self.g, self.b, self.a
+    end
+
+    function ColorMixin:GenerateHexColor()
+        local r = math.floor(self.r * 255 + 0.5)
+        local g = math.floor(self.g * 255 + 0.5)
+        local b = math.floor(self.b * 255 + 0.5)
+        local a = math.floor((self.a or 1) * 255 + 0.5)
+        return string.format("%.2x%.2x%.2x%.2x", a, r, g, b)
+    end
+
+    function ColorMixin:GenerateHexColorMarkup()
+        return "|c" .. self:GenerateHexColor()
+    end
+
+    function ColorMixin:WrapTextInColorCode(text)
+        return self:GenerateHexColorMarkup() .. text .. "|r"
+    end
+
+    function ColorMixin:IsEqualTo(other)
+        if not other then return false end
+        return self.r == other.r and self.g == other.g and self.b == other.b and self.a == other.a
+    end
+
+    function ColorMixin:Clone()
+        return CreateColor(self.r, self.g, self.b, self.a)
+    end
+end
+
+if not CreateColor then
+    function CreateColor(r, g, b, a)
+        local color = setmetatable({}, ColorMixin)
+        color:SetRGBA(r or 1, g or 1, b or 1, a or 1)
+        return color
+    end
+end
+
+
+-- 2. C_Timer Polyfill with OnUpdate Accumulator Pool
+if not C_Timer then
+    C_Timer = {}
+    local timers = {}
+    local tickerId = 0
+    local timerFrame = CreateFrame("Frame")
+
+    timerFrame:SetScript("OnUpdate", function(self, elapsed)
+        for id, t in pairs(timers) do
+            if not t.cancelled then
+                t.remaining = t.remaining - elapsed
+                if t.remaining <= 0 then
+                    if t.isTicker then
+                        t.iterations = t.iterations + 1
+                        t.remaining = t.remaining + t.duration
+                        if t.remaining <= 0 then
+                            t.remaining = t.duration
+                        end
+                        local success, err = pcall(t.callback)
+                        if not success then
+                            geterrorhandler()(err)
+                        end
+                        if t.cancelled then
+                            timers[id] = nil
+                        elseif t.maxIterations and t.iterations >= t.maxIterations then
+                            t.cancelled = true
+                            timers[id] = nil
+                        end
+                    else
+                        t.cancelled = true
+                        timers[id] = nil
+                        local success, err = pcall(t.callback)
+                        if not success then
+                            geterrorhandler()(err)
+                        end
+                    end
+                end
+            else
+                timers[id] = nil
+            end
+        end
+        if not next(timers) then
+            self:Hide()
+        end
+    end)
+    timerFrame:Hide()
+
+    local function createTimer(duration, callback, isTicker, maxIterations)
+        tickerId = tickerId + 1
+        local id = tickerId
+        local t = {
+            id = id,
+            duration = duration,
+            remaining = duration,
+            callback = callback,
+            isTicker = isTicker,
+            iterations = 0,
+            maxIterations = maxIterations,
+            cancelled = false,
+        }
+        function t:Cancel()
+            self.cancelled = true
+            timers[id] = nil
+        end
+        timers[id] = t
+        timerFrame:Show()
+        return t
+    end
+
+    function C_Timer.After(duration, callback)
+        createTimer(duration, callback, false)
+    end
+
+    function C_Timer.NewTimer(duration, callback)
+        return createTimer(duration, callback, false)
+    end
+
+    function C_Timer.NewTicker(duration, callback, iterations)
+        return createTimer(duration, callback, true, iterations)
+    end
+end
+
+
 -- C_UnitAuras & C_UA
+C_UnitAuras = C_UnitAuras or {}
+C_UA = C_UA or {}
 local function PackAuraData(name, rank, icon, count, dispelType, duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId)
     if name then
         return {
@@ -425,6 +705,7 @@ C_UA.GetAuraDataBySlot = function(unit, slot)
     return PackAuraData(UnitAura(unit, slot))
 end
 
+
 -- C_Item
 if not C_Item then
     C_Item = {}
@@ -557,42 +838,70 @@ local function IsItemBound(bag, slot)
     return false
 end
 
--- C_CVar
-C_CVar = C_CVar or {}
 
-local CVarMap = {
-    cameraDistanceMaxZoomFactor = "cameraDistanceMaxFactor",
-}
+-- ItemLocation Object Mock
+ItemLocation = ItemLocation or {}
+ItemLocation.__index = ItemLocation
 
-if not C_CVar.GetCVar then
-    C_CVar.GetCVar = function(name)
-        name = CVarMap[name] or name
-        local ok, result = pcall(GetCVar, name)
-        return ok and result or nil
-    end
+function ItemLocation:CreateFromBagAndSlot(bag, slot)
+    local obj = setmetatable({}, self)
+    obj.bag = bag
+    obj.slot = slot
+    return obj
 end
-if not C_CVar.SetCVar then
-    C_CVar.SetCVar = function(name, value)
-        name = CVarMap[name] or name
-        local ok, result = pcall(SetCVar, name, value)
-        return ok and result or false
-    end
+
+function ItemLocation:CreateFromEquipmentSlot(slotID)
+    local obj = setmetatable({}, self)
+    obj.equipmentSlot = slotID
+    return obj
 end
-if not C_CVar.GetCVarInfo then
-    C_CVar.GetCVarInfo = function(name)
-        name = CVarMap[name] or name
-        local ok1, val = pcall(GetCVar, name)
-        local ok2, def = pcall(GetCVarDefault, name)
-        return (ok1 and val or nil), (ok2 and def or nil)
-    end
+
+function ItemLocation:CreateFromGUID(guid)
+    local obj = setmetatable({}, self)
+    obj.guid = guid
+    return obj
 end
-if not C_CVar.GetCVarBool then
-    C_CVar.GetCVarBool = function(name)
-        name = CVarMap[name] or name
-        local ok, result = pcall(GetCVar, name)
-        return ok and result == "1" or false
-    end
+
+function ItemLocation:CreateEmpty()
+    return setmetatable({}, self)
 end
+
+function ItemLocation:IsValid()
+    return self:HasAnyLocation()
+end
+
+function ItemLocation:HasAnyLocation()
+    return self.bag ~= nil or self.equipmentSlot ~= nil or self.guid ~= nil
+end
+
+function ItemLocation:Clear()
+    self.bag = nil
+    self.slot = nil
+    self.equipmentSlot = nil
+    self.guid = nil
+end
+
+function ItemLocation:IsEqualTo(other)
+    if not other then return false end
+    return self.bag == other.bag and self.slot == other.slot and self.equipmentSlot == other.equipmentSlot and self.guid == other.guid
+end
+
+function ItemLocation:GetBagAndSlot()
+    return self.bag, self.slot
+end
+
+function ItemLocation:GetEquipmentSlot()
+    return self.equipmentSlot
+end
+
+function ItemLocation:IsEquipmentSlot()
+    return self.equipmentSlot ~= nil
+end
+
+function ItemLocation:IsBagAndSlot()
+    return self.bag ~= nil and self.slot ~= nil
+end
+
 
 -- C_Container
 if not C_Container then
@@ -666,6 +975,7 @@ if not C_Container then
         return nil
     end
 end
+
 
 -- C_Spell
 if not C_Spell then
@@ -741,108 +1051,6 @@ if not C_Spell then
     end
 end
 
--- C_SpellBook
-if not C_SpellBook then
-    C_SpellBook = {}
-
-    C_SpellBook.GetNumSpellBookSkillLines = function()
-        if GetNumSpellTabs then
-            return GetNumSpellTabs()
-        end
-        return 0
-    end
-
-    C_SpellBook.GetSpellBookSkillLineInfo = function(tab)
-        if GetSpellTabInfo then
-            local name, texture, offset, numSpells, isGuild, offSpecID = GetSpellTabInfo(tab)
-            if name then
-                return {
-                    name = name,
-                    icon = texture,
-                    itemIndexOffset = offset,
-                    numSpellBookItems = numSpells,
-                    isGuild = isGuild,
-                    offSpecID = offSpecID,
-                }
-            end
-        end
-        return nil
-    end
-
-    C_SpellBook.GetSpellBookItemType = function(index, bank)
-        local bookType = "spell"
-        if bank == "pet" or bank == 2 then
-            bookType = "pet"
-        end
-        local spellType, id = GetSpellBookItemType(index, bookType)
-        return spellType, id, id
-    end
-
-    C_SpellBook.IsSpellInSpellBook = function(spell, bank)
-        local name = GetSpellInfo(spell)
-        if name then
-            return GetSpellLink(name) ~= nil
-        end
-        return false
-    end
-
-    C_SpellBook.IsSpellKnownOrInSpellBook = function(spellId, bank)
-        local name = GetSpellInfo(spellId)
-        if name then
-            return GetSpellLink(name) ~= nil
-        end
-        return false
-    end
-
-    C_SpellBook.IsSpellKnown = function(spell)
-        local name = GetSpellInfo(spell)
-        if name then
-            return GetSpellLink(name) ~= nil
-        end
-        return false
-    end
-
-    C_SpellBook.FindSpellOverrideByID = function(spell)
-        return spell
-    end
-end
-
--- Load Equipment Set Module immediately if present
-if not EquipmentManager_GetLocationData then
-    pcall(LoadAddOn, "Blizzard_EquipmentManager")
-end
-
--- C_EquipmentSet
-if not C_EquipmentSet then
-    C_EquipmentSet = {}
-
-    C_EquipmentSet.GetEquipmentSetIDs = function()
-        local num = GetNumEquipmentSets and GetNumEquipmentSets() or 0
-        local ids = {}
-        for i = 1, num do
-            ids[i] = i
-        end
-        return ids
-    end
-
-    C_EquipmentSet.GetItemLocations = function(setID)
-        local num = GetNumEquipmentSets and GetNumEquipmentSets() or 0
-        if setID > 0 and setID <= num then
-            local name = GetEquipmentSetInfo(setID)
-            if name then
-                local locations = GetEquipmentSetLocations(name)
-                local list = {}
-                if locations then
-                    for slot, loc in pairs(locations) do
-                        list[#list + 1] = loc
-                    end
-                end
-                return list
-            end
-        end
-        return nil
-    end
-end
 
 -- C_Map
 if not C_Map then
@@ -890,32 +1098,6 @@ if not C_Map then
     end
 end
 
--- Global CreateFrame hook to map modern templates to legacy 3.3.5a equivalents
-local origCreateFrame = CreateFrame
-function CreateFrame(frameType, name, parent, template, id)
-    if template == "MainMenuFrameButtonTemplate" then
-        template = "GameMenuButtonTemplate"
-    elseif template and type(template) == "string" and template:find("MainMenuFrameButtonTemplate") then
-        template = template:gsub("MainMenuFrameButtonTemplate", "GameMenuButtonTemplate")
-    end
-    return origCreateFrame(frameType, name, parent, template, id)
-end
-
-if not GetPhysicalScreenSize then
-    function GetPhysicalScreenSize()
-        local resIndex = GetCurrentResolution()
-        local resString = resIndex and select(resIndex, GetScreenResolutions())
-        if resString then
-            local w, h = string.match(resString, "(%d+)x(%d+)")
-            if w and h then
-                return tonumber(w), tonumber(h)
-            end
-        end
-        local w = UIParent:GetWidth() or 1920
-        local h = UIParent:GetHeight() or 1080
-        return w, h
-    end
-end
 
 -- C_QuestLog
 if not C_QuestLog then
@@ -988,176 +1170,6 @@ if not C_AddOnProfiler then
     }
 end
 
--- 4. Global Objects & Structures (Enum, Color, TooltipDataProcessor)
-
--- ItemLocation Object Mock
-if not ItemLocation then
-    ItemLocation = {}
-    ItemLocation.__index = ItemLocation
-
-    function ItemLocation:CreateFromBagAndSlot(bag, slot)
-        local obj = setmetatable({}, self)
-        obj.bag = bag
-        obj.slot = slot
-        return obj
-    end
-
-    function ItemLocation:CreateFromEquipmentSlot(slotID)
-        local obj = setmetatable({}, self)
-        obj.equipmentSlot = slotID
-        return obj
-    end
-
-    function ItemLocation:IsValid()
-        return true
-    end
-
-    function ItemLocation:GetBagAndSlot()
-        return self.bag, self.slot
-    end
-
-    function ItemLocation:GetEquipmentSlot()
-        return self.equipmentSlot
-    end
-
-    function ItemLocation:IsEquipmentSlot()
-        return self.equipmentSlot ~= nil
-    end
-
-    function ItemLocation:IsBagAndSlot()
-        return self.bag ~= nil and self.slot ~= nil
-    end
-end
-
--- ColorMixin & CreateColor
-if not ColorMixin then
-    ColorMixin = {}
-    ColorMixin.__index = ColorMixin
-
-    function ColorMixin:SetRGBA(r, g, b, a)
-        self.r = r
-        self.g = g
-        self.b = b
-        self.a = a or 1
-    end
-
-    function ColorMixin:GetRGB()
-        return self.r, self.g, self.b
-    end
-
-    function ColorMixin:GetRGBA()
-        return self.r, self.g, self.b, self.a
-    end
-
-    function ColorMixin:GenerateHexColor()
-        local r = math.floor(self.r * 255 + 0.5)
-        local g = math.floor(self.g * 255 + 0.5)
-        local b = math.floor(self.b * 255 + 0.5)
-        local a = math.floor((self.a or 1) * 255 + 0.5)
-        return string.format("%.2x%.2x%.2x%.2x", a, r, g, b)
-    end
-end
-
-if not CreateColor then
-    function CreateColor(r, g, b, a)
-        local color = setmetatable({}, ColorMixin)
-        color:SetRGBA(r or 1, g or 1, b or 1, a or 1)
-        return color
-    end
-end
-
--- Enum Namespace and catch-all safety
-if not Enum then
-    local emptyTable = {}
-    local enumMeta = {
-        __index = function(t, k)
-            return 0
-        end
-    }
-    local enumGroupMeta = {
-        __index = function(t, k)
-            local sub = setmetatable({}, enumMeta)
-            rawset(t, k, sub)
-            return sub
-        end
-    }
-    Enum = setmetatable({}, enumGroupMeta)
-end
-
--- Explicitly populate Enum subfields used in the codebase
-Enum.ItemClass = {
-    Weapon = 2,
-    Armor = 4,
-    Gem = 3,
-    Container = 1,
-    Consumable = 0,
-    Glyph = 16,
-    TradeGoods = 7,
-    Projectile = 6,
-    Quiver = 11,
-    Recipe = 9,
-    Reagent = 5,
-    Key = 13,
-    Miscellaneous = 15,
-    Quest = 12,
-    Profession = 19,
-    Housing = 20,
-}
-
-Enum.ItemBind = {
-    None = 0,
-    OnAcquire = 1,
-    OnEquip = 2,
-}
-
-Enum.SpellBookSpellBank = {
-    Player = "spell",
-    Pet = "pet",
-}
-
-Enum.SpellBookItemType = {
-    Spell = "SPELL",
-    FutureSpell = "FUTURESPELL",
-    PetAction = "PETACTION",
-    Flyout = "FLYOUT",
-}
-
-Enum.BankType = {
-    Character = 1,
-    Account = 2,
-}
-
-Enum.BagSlotFlags = {
-    ClassEquipment = 1,
-    ClassConsumables = 2,
-    ClassProfessionGoods = 3,
-    ClassReagents = 4,
-    ClassJunk = 5,
-}
-
-Enum.QuestClassification = {
-    Normal = 0,
-    Elite = 1,
-    Rare = 2,
-    RareElite = 3,
-    WorldQuest = 4,
-}
-
-Enum.TooltipDataType = {
-    Spell = 1,
-    UnitAura = 2,
-    Item = 3,
-    Macro = 4,
-    PetAction = 5,
-}
-
-Enum.PowerType = {
-    Mana = 0,
-    Rage = 1,
-    Focus = 2,
-    Energy = 3,
-    RunicPower = 6,
-}
 
 -- TooltipDataProcessor Polyfill
 if not TooltipDataProcessor then
@@ -1205,10 +1217,8 @@ if not TooltipDataProcessor then
         ItemRefTooltip:HookScript("OnTooltipSetItem", OnTooltipSetItem)
     end
 
-    local originalSetUnitAura = GameTooltip.SetUnitAura
-    if originalSetUnitAura then
-        GameTooltip.SetUnitAura = function(self, unit, index, filter)
-            local result = originalSetUnitAura(self, unit, index, filter)
+    if GameTooltip.SetUnitAura then
+        hooksecurefunc(GameTooltip, "SetUnitAura", function(self, unit, index, filter)
             if tooltipCallbacks[Enum.TooltipDataType.UnitAura] then
                 local _, _, _, _, _, _, _, _, _, _, spellID = UnitAura(unit, index, filter)
                 if spellID then
@@ -1218,14 +1228,11 @@ if not TooltipDataProcessor then
                     end
                 end
             end
-            return result
-        end
+        end)
     end
 
-    local originalSetUnitBuff = GameTooltip.SetUnitBuff
-    if originalSetUnitBuff then
-        GameTooltip.SetUnitBuff = function(self, unit, index)
-            local result = originalSetUnitBuff(self, unit, index)
+    if GameTooltip.SetUnitBuff then
+        hooksecurefunc(GameTooltip, "SetUnitBuff", function(self, unit, index)
             if tooltipCallbacks[Enum.TooltipDataType.UnitAura] then
                 local _, _, _, _, _, _, _, _, _, _, spellID = UnitBuff(unit, index)
                 if spellID then
@@ -1235,14 +1242,11 @@ if not TooltipDataProcessor then
                     end
                 end
             end
-            return result
-        end
+        end)
     end
 
-    local originalSetUnitDebuff = GameTooltip.SetUnitDebuff
-    if originalSetUnitDebuff then
-        GameTooltip.SetUnitDebuff = function(self, unit, index)
-            local result = originalSetUnitDebuff(self, unit, index)
+    if GameTooltip.SetUnitDebuff then
+        hooksecurefunc(GameTooltip, "SetUnitDebuff", function(self, unit, index)
             if tooltipCallbacks[Enum.TooltipDataType.UnitAura] then
                 local _, _, _, _, _, _, _, _, _, _, spellID = UnitDebuff(unit, index)
                 if spellID then
@@ -1252,10 +1256,41 @@ if not TooltipDataProcessor then
                     end
                 end
             end
-            return result
-        end
+        end)
     end
 end
+
+
+-- Global CreateFrame hook to map modern templates to legacy 3.3.5a equivalents
+-- Safely mapped CreateFrame hook to map modern templates to legacy 3.3.5a equivalents
+local OriginalCreateFrame = CreateFrame
+function CreateFrame(frameType, name, parent, template, id)
+    if template then
+        if template == "MainMenuFrameButtonTemplate" then
+            template = "GameMenuButtonTemplate"
+        elseif type(template) == "string" and template:find("MainMenuFrameButtonTemplate") then
+            template = template:gsub("MainMenuFrameButtonTemplate", "GameMenuButtonTemplate")
+        end
+    end
+    return OriginalCreateFrame(frameType, name, parent, template, id)
+end
+
+if not GetPhysicalScreenSize then
+    _G.GetPhysicalScreenSize = function()
+        local resIndex = GetCurrentResolution()
+        local resString = resIndex and select(resIndex, GetScreenResolutions())
+        if resString then
+            local w, h = string.match(resString, "(%d+)x(%d+)")
+            if w and h then
+                return tonumber(w), tonumber(h)
+            end
+        end
+        local w = UIParent:GetWidth() or 1920
+        local h = UIParent:GetHeight() or 1080
+        return w, h
+    end
+end
+
 
 -- 5. Frame Metatable Extensions safely supporting modern methods
 local EUI_AtlasMap = {
@@ -1351,7 +1386,12 @@ for _, meta in ipairs(frameMetas) do
                     self:SetTexture(nil)
                     return
                 end
-                local path = EUI_AtlasMap[atlas] or "Interface\\Icons\\INV_Misc_QuestionMark"
+                local path = EUI_AtlasMap[atlas]
+                if not path then
+                    path = "Interface\\Icons\\INV_Misc_QuestionMark"
+                    -- Cache unknown atlas lookups dynamically instead of repeatedly falling back
+                    EUI_AtlasMap[atlas] = path
+                end
                 self:SetTexture(path)
             end
         end
@@ -1379,6 +1419,31 @@ for _, meta in ipairs(frameMetas) do
                 end
             end
         end
+
+        -- Additional missing frame methods required by Retail UI scripts
+        if not meta.SetIgnoreParentAlpha then
+            meta.SetIgnoreParentAlpha = function(self, ignore) end
+        end
+        if not meta.SetMouseClickEnabled then
+            meta.SetMouseClickEnabled = function(self, enabled)
+                if self.EnableMouse then self:EnableMouse(enabled) end
+            end
+        end
+        if not meta.SetMouseMotionEnabled then
+            meta.SetMouseMotionEnabled = function(self, enabled)
+                if self.EnableMouse then self:EnableMouse(enabled) end
+            end
+        end
+        if not meta.SetScaleToFit then meta.SetScaleToFit = function(self) end end
+        if not meta.GetScaledRect then meta.GetScaledRect = function(self) return self:GetRect() end end
+        if not meta.SetIgnoreParentScale then meta.SetIgnoreParentScale = function(self, ignore) end end
+        if not meta.GetLayoutChildren then meta.GetLayoutChildren = function(self) return {self:GetChildren()} end end
+        if not meta.MarkDirty then meta.MarkDirty = function(self) end end
+        if not meta.SetPadding then meta.SetPadding = function(self, padding) end end
+        if not meta.SetSpacing then meta.SetSpacing = function(self, spacing) end end
+        if not meta.GetLayoutIndex then meta.GetLayoutIndex = function(self) return self.layoutIndex or 1 end end
+        if not meta.SetFrameStrataFromParent then meta.SetFrameStrataFromParent = function(self) end end
+        if not meta.SetFixedFrameStrata then meta.SetFixedFrameStrata = function(self, fixed) end end
     end
 end
 
@@ -1399,16 +1464,30 @@ if cooldownMeta then
     end
 end
 
--- Missing legacy constants definition
-if not LE_PARTY_CATEGORY_HOME then LE_PARTY_CATEGORY_HOME = 1 end
-if not LE_PARTY_CATEGORY_INSTANCE then LE_PARTY_CATEGORY_INSTANCE = 2 end
-if not IsInGroup then
-    function IsInGroup(category)
-        if category == LE_PARTY_CATEGORY_INSTANCE then
-            local _, instanceType = IsInInstance()
-            return (instanceType == "pvp" or instanceType == "arena" or GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0)
-        else
-            return (GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0)
+local okAnim, animFrame = pcall(CreateFrame, "Frame")
+if okAnim and animFrame and animFrame.CreateAnimationGroup then
+    local okGrp, animGroup = pcall(animFrame.CreateAnimationGroup, animFrame)
+    if okGrp and animGroup and animGroup.CreateAnimation then
+        local okAlpha, alphaAnim = pcall(animGroup.CreateAnimation, animGroup, "Alpha")
+        if okAlpha and alphaAnim then
+            local animMeta = getmetatable(alphaAnim)
+            if animMeta and animMeta.__index then
+                local meta = animMeta.__index
+                if not meta.SetFromAlpha then
+                    meta.SetFromAlpha = function(self, alpha)
+                        self._fromAlpha = alpha
+                    end
+                end
+                if not meta.SetToAlpha then
+                    meta.SetToAlpha = function(self, alpha)
+                        self._toAlpha = alpha
+                        if self.SetChange then
+                            local from = self._fromAlpha or 0
+                            self:SetChange(alpha - from)
+                        end
+                    end
+                end
+            end
         end
     end
 end
