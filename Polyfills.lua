@@ -6,6 +6,10 @@
 
 local _G = _G or getfenv(0)
 
+-- Safe initial initialization of EllesmereUI global namespace and deferred inits list
+_G.EllesmereUI = _G.EllesmereUI or {}
+_G.EllesmereUI._deferredInits = _G.EllesmereUI._deferredInits or {}
+
 -- 1. Mixin & Object Orientation Shims
 if not Mixin then
     function Mixin(target, ...)
@@ -846,6 +850,22 @@ if not C_Map then
                 parentMapID = 9999
             }
         end
+    end
+end
+
+if not GetPhysicalScreenSize then
+    function GetPhysicalScreenSize()
+        local resIndex = GetCurrentResolution()
+        local resString = resIndex and select(resIndex, GetScreenResolutions())
+        if resString then
+            local w, h = string.match(resString, "(%d+)x(%d+)")
+            if w and h then
+                return tonumber(w), tonumber(h)
+            end
+        end
+        local w = UIParent:GetWidth() or 1920
+        local h = UIParent:GetHeight() or 1080
+        return w, h
     end
 end
 

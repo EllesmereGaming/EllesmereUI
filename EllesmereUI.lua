@@ -5890,7 +5890,7 @@ end
 --  init functions here at load time but don't execute until the panel opens.
 --  This cuts startup CPU from ~911KB to ~250KB of parsed Lua.
 -------------------------------------------------------------------------------
-EllesmereUI._deferredInits = {}
+EllesmereUI._deferredInits = EllesmereUI._deferredInits or {}
 EllesmereUI._deferredLoaded = false
 
 function EllesmereUI:EnsureLoaded()
