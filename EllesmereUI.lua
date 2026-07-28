@@ -2328,7 +2328,7 @@ do
     ---------------------------------------------------------------------------
     local function WatchPixelSnap(frame, snap)
         if issecrettable and issecrettable(frame) then return end
-        if (frame and not frame:IsForbidden()) and _pixelSnapDisabled[frame] and snap then
+        if (frame and (not frame.IsForbidden or not frame:IsForbidden())) and _pixelSnapDisabled[frame] and snap then
             _pixelSnapDisabled[frame] = nil
         end
     end
@@ -2391,7 +2391,7 @@ do
     local enumObj = EnumerateFrames()
     while enumObj do
         local objType = enumObj:GetObjectType()
-        if not enumObj:IsForbidden() and not hookedTypes[objType] then
+        if (not enumObj.IsForbidden or not enumObj:IsForbidden()) and not hookedTypes[objType] then
             HookPixelSnap(enumObj)
             hookedTypes[objType] = true
         end
@@ -11910,7 +11910,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         -- blizzskin_reskin_master_split_v1 seeds reskinGameMenu for existing users.
         local _reskinMenu = _blizzSkinLoaded and (not EllesmereUIDB or EllesmereUIDB.reskinGameMenu ~= false)
 
-        local btn = CreateFrame("Button", "EllesmereUI_GameMenuButton", GameMenuFrame, "MainMenuFrameButtonTemplate")
+        local btn = CreateFrame("Button", "EllesmereUI_GameMenuButton", GameMenuFrame, "GameMenuButtonTemplate")
         btn:SetSize(200, 35)
         btn:SetScript("OnClick", function()
             if InCombatLockdown() then
@@ -11922,7 +11922,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         end)
         EllesmereUI._GetFFD(GameMenuFrame).euiBtn = btn
 
-        local unlockBtn = CreateFrame("Button", "EllesmereUI_UnlockMenuButton", GameMenuFrame, "MainMenuFrameButtonTemplate")
+        local unlockBtn = CreateFrame("Button", "EllesmereUI_UnlockMenuButton", GameMenuFrame, "GameMenuButtonTemplate")
         unlockBtn:SetSize(200, 35)
         unlockBtn:SetScript("OnClick", function()
             if InCombatLockdown() then
@@ -11988,25 +11988,11 @@ initFrame:SetScript("OnEvent", function(self, event)
         end
 
         local _gameMenuBaseHeight = nil
-        hooksecurefunc(GameMenuFrame, "Layout", function()
+        local function PositionGameMenuButtons_Legacy()
             if InCombatLockdown() then
                 btn:Hide()
                 unlockBtn:Hide()
                 return
-            end
-
-            -- Re-apply accent color to header text on every open (only when skinned)
-            if _reskinMenu then
-                local header = GameMenuFrame.Header
-                if header then
-                    local headerText = header.Text
-                    if headerText and headerText.SetTextColor then
-                        if EllesmereUI._getPopupMenuButtonTextColor then
-                            local r,g,b=EllesmereUI._getPopupMenuButtonTextColor()
-                            headerText:SetTextColor(r,g,b,1)
-                        end
-                    end
-                end
             end
 
             -- Determine which buttons are visible
@@ -12017,37 +12003,21 @@ initFrame:SetScript("OnEvent", function(self, event)
             if not showUnlock then unlockBtn:Hide() end
             if not showEUI and not showUnlock then return end
 
-            -- Find the Shop button to anchor below (fall back to Options)
-            local anchorBtn
-            for menuBtn in GameMenuFrame.buttonPool:EnumerateActive() do
-                local text = menuBtn:GetText()
-                if text == BLIZZARD_STORE then
-                    anchorBtn = menuBtn
-                    break
-                elseif text == GAMEMENU_OPTIONS then
-                    anchorBtn = menuBtn
-                end
-            end
+            local anchorBtn = GameMenuButtonMacros
             if not anchorBtn then return end
 
             -- Match our buttons to the Blizzard button size
             local anchorW, anchorH = anchorBtn:GetWidth(), anchorBtn:GetHeight()
             if anchorW and anchorW > 0 then
-                btn:SetSize(anchorW, anchorH or 35)
-                unlockBtn:SetSize(anchorW, anchorH or 35)
+                btn:SetSize(anchorW, anchorH or 21)
+                unlockBtn:SetSize(anchorW, anchorH or 21)
             end
 
-            -- Position our buttons in a chain below the anchor
-            local extraH = 0
             local lastBtn = anchorBtn
+            local extraH = 0
             local euiFont = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath() or "Fonts\\FRIZQT__.TTF"
-            local btnFontSize = 13
-            -- Branded two-tone labels are the default (native mode, or when
-            -- BlizzardSkin is not loaded) -- applied via inline color codes
-            -- in SetText, which works with the pause-menu reskin off, exactly
-            -- as before 8.5.2. Only an explicitly chosen Element & Text Color
-            -- mode switches to a plain label + whole-string recolor (inline
-            -- codes would override SetTextColor otherwise).
+            local btnFontSize = 12
+
             local elemMode = EllesmereUI._getPopupMenuElementMode
                 and EllesmereUI._getPopupMenuElementMode() or "native"
             local brandHex
@@ -12070,9 +12040,9 @@ initFrame:SetScript("OnEvent", function(self, event)
                     if fs then fs:SetFont(euiFont, btnFontSize, ""); if not brandHex and EllesmereUI._getPopupMenuButtonTextColor then local r,g,b=EllesmereUI._getPopupMenuButtonTextColor(); fs:SetTextColor(r,g,b,1) end end
                 end
                 btn:ClearAllPoints()
-                btn:SetPoint("TOP", lastBtn, "BOTTOM", 0, -12)
+                btn:SetPoint("TOP", lastBtn, "BOTTOM", 0, -1)
                 lastBtn = btn
-                extraH = extraH + 40
+                extraH = extraH + 22
             end
             if showUnlock then
                 unlockBtn:Show()
@@ -12086,30 +12056,150 @@ initFrame:SetScript("OnEvent", function(self, event)
                     if fs2 then fs2:SetFont(euiFont, btnFontSize, ""); if not brandHex and EllesmereUI._getPopupMenuButtonTextColor then local r,g,b=EllesmereUI._getPopupMenuButtonTextColor(); fs2:SetTextColor(r,g,b,1) end end
                 end
                 unlockBtn:ClearAllPoints()
-                unlockBtn:SetPoint("TOP", lastBtn, "BOTTOM", 0, showEUI and -4 or -12)
-                extraH = extraH + (showEUI and 40 or 40)
+                unlockBtn:SetPoint("TOP", lastBtn, "BOTTOM", 0, -1)
+                lastBtn = unlockBtn
+                extraH = extraH + 22
             end
 
-            -- Push all Blizzard buttons below the anchor down
-            local anchorBottom = anchorBtn:GetBottom()
-            if anchorBottom then
-                for menuBtn in GameMenuFrame.buttonPool:EnumerateActive() do
-                    local top = menuBtn:GetTop()
-                    if top and top < anchorBottom + 2 then
-                        local p, rel, rp, x, y = menuBtn:GetPoint(1)
-                        if p then
-                            menuBtn:ClearAllPoints()
-                            menuBtn:SetPoint(p, rel, rp, x, (y or 0) - extraH)
-                        end
-                    end
-                end
+            -- Re-anchor GameMenuButtonRatings (Korean client) or GameMenuButtonLogout to our last button
+            local nextBtn = (GameMenuButtonRatings and GameMenuButtonRatings:IsShown()) and GameMenuButtonRatings or GameMenuButtonLogout
+            if nextBtn then
+                nextBtn:ClearAllPoints()
+                nextBtn:SetPoint("TOP", lastBtn, "BOTTOM", 0, -12)
             end
 
             if not _gameMenuBaseHeight then
                 _gameMenuBaseHeight = GameMenuFrame:GetHeight()
             end
             GameMenuFrame:SetHeight(_gameMenuBaseHeight + extraH)
-        end)
+        end
+
+        if GameMenuFrame.buttonPool and GameMenuFrame.Layout then
+            hooksecurefunc(GameMenuFrame, "Layout", function()
+                if InCombatLockdown() then
+                    btn:Hide()
+                    unlockBtn:Hide()
+                    return
+                end
+
+                -- Re-apply accent color to header text on every open (only when skinned)
+                if _reskinMenu then
+                    local header = GameMenuFrame.Header
+                    if header then
+                        local headerText = header.Text
+                        if headerText and headerText.SetTextColor then
+                            if EllesmereUI._getPopupMenuButtonTextColor then
+                                local r,g,b=EllesmereUI._getPopupMenuButtonTextColor()
+                                headerText:SetTextColor(r,g,b,1)
+                            end
+                        end
+                    end
+                end
+
+                -- Determine which buttons are visible
+                local showEUI = not (EllesmereUIDB and EllesmereUIDB.hideGameMenuButton)
+                local showUnlock = EllesmereUIDB and EllesmereUIDB.hideUnlockMenuButton == false
+
+                if not showEUI then btn:Hide() end
+                if not showUnlock then unlockBtn:Hide() end
+                if not showEUI and not showUnlock then return end
+
+                -- Find the Shop button to anchor below (fall back to Options)
+                local anchorBtn
+                for menuBtn in GameMenuFrame.buttonPool:EnumerateActive() do
+                    local text = menuBtn:GetText()
+                    if text == BLIZZARD_STORE then
+                        anchorBtn = menuBtn
+                        break
+                    elseif text == GAMEMENU_OPTIONS then
+                        anchorBtn = menuBtn
+                    end
+                end
+                if not anchorBtn then return end
+
+                -- Match our buttons to the Blizzard button size
+                local anchorW, anchorH = anchorBtn:GetWidth(), anchorBtn:GetHeight()
+                if anchorW and anchorW > 0 then
+                    btn:SetSize(anchorW, anchorH or 35)
+                    unlockBtn:SetSize(anchorW, anchorH or 35)
+                end
+
+                -- Position our buttons in a chain below the anchor
+                local extraH = 0
+                local lastBtn = anchorBtn
+                local euiFont = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath() or "Fonts\\FRIZQT__.TTF"
+                local btnFontSize = 13
+                -- Branded two-tone labels are the default (native mode, or when
+                -- BlizzardSkin is not loaded) -- applied via inline color codes
+                -- in SetText, which works with the pause-menu reskin off, exactly
+                -- as before 8.5.2. Only an explicitly chosen Element & Text Color
+                -- mode switches to a plain label + whole-string recolor (inline
+                -- codes would override SetTextColor otherwise).
+                local elemMode = EllesmereUI._getPopupMenuElementMode
+                    and EllesmereUI._getPopupMenuElementMode() or "native"
+                local brandHex
+                if elemMode == "native" then
+                    local EG = EllesmereUI.ELLESMERE_GREEN or { r = .27, g = .86, b = .49 }
+                    brandHex = string.format("|cff%02x%02x%02x",
+                        math.floor(EG.r * 255 + 0.5), math.floor(EG.g * 255 + 0.5),
+                        math.floor(EG.b * 255 + 0.5))
+                end
+
+                if showEUI then
+                    btn:Show()
+                    if brandHex then
+                        btn:SetText(brandHex .. "Ellesmere|r|cffffffffUI|r")
+                    else
+                        btn:SetText("EllesmereUI")
+                    end
+                    if _reskinMenu then
+                        local fs = btn:GetFontString()
+                        if fs then fs:SetFont(euiFont, btnFontSize, ""); if not brandHex and EllesmereUI._getPopupMenuButtonTextColor then local r,g,b=EllesmereUI._getPopupMenuButtonTextColor(); fs:SetTextColor(r,g,b,1) end end
+                    end
+                    btn:ClearAllPoints()
+                    btn:SetPoint("TOP", lastBtn, "BOTTOM", 0, -12)
+                    lastBtn = btn
+                    extraH = extraH + 40
+                end
+                if showUnlock then
+                    unlockBtn:Show()
+                    if brandHex then
+                        unlockBtn:SetText(brandHex .. "EUI|r |cffffffffUnlock Mode|r")
+                    else
+                        unlockBtn:SetText("EUI Unlock Mode")
+                    end
+                    if _reskinMenu then
+                        local fs2 = unlockBtn:GetFontString()
+                        if fs2 then fs2:SetFont(euiFont, btnFontSize, ""); if not brandHex and EllesmereUI._getPopupMenuButtonTextColor then local r,g,b=EllesmereUI._getPopupMenuButtonTextColor(); fs2:SetTextColor(r,g,b,1) end end
+                    end
+                    unlockBtn:ClearAllPoints()
+                    unlockBtn:SetPoint("TOP", lastBtn, "BOTTOM", 0, showEUI and -4 or -12)
+                    extraH = extraH + (showEUI and 40 or 40)
+                end
+
+                -- Push all Blizzard buttons below the anchor down
+                local anchorBottom = anchorBtn:GetBottom()
+                if anchorBottom then
+                    for menuBtn in GameMenuFrame.buttonPool:EnumerateActive() do
+                        local top = menuBtn:GetTop()
+                        if top and top < anchorBottom + 2 then
+                            local p, rel, rp, x, y = menuBtn:GetPoint(1)
+                            if p then
+                                menuBtn:ClearAllPoints()
+                                menuBtn:SetPoint(p, rel, rp, x, (y or 0) - extraH)
+                            end
+                        end
+                    end
+                end
+
+                if not _gameMenuBaseHeight then
+                    _gameMenuBaseHeight = GameMenuFrame:GetHeight()
+                end
+                GameMenuFrame:SetHeight(_gameMenuBaseHeight + extraH)
+            end)
+        else
+            GameMenuFrame:HookScript("OnShow", PositionGameMenuButtons_Legacy)
+        end
     end
 
     -- Apply theme settings from SavedVariables
