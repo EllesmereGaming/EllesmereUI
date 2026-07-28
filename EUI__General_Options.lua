@@ -1159,9 +1159,11 @@ initFrame:SetScript("OnEvent", function(self)
     end
     ApplySmartDefaults()
 
-    -- Apply suppress lua errors on login (default: ON)
-    if not EllesmereUIDB or EllesmereUIDB.suppressErrors ~= false then
+    -- Apply suppress lua errors on login (default: OFF)
+    if EllesmereUIDB and EllesmereUIDB.suppressErrors then
         SetCVarSafe("scriptErrors", "0")
+    else
+        SetCVarSafe("scriptErrors", "1")
     end
 
     -- NOTE: Optimized graphics settings are NOT re-applied on login.
@@ -1962,7 +1964,7 @@ initFrame:SetScript("OnEvent", function(self)
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Suppress Lua Errors",
                   getValue=function()
-                    return not (EllesmereUIDB and EllesmereUIDB.suppressErrors == false)
+                    return EllesmereUIDB and EllesmereUIDB.suppressErrors or false
                   end,
                   setValue=function(v)
                     if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -7245,7 +7247,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Developer settings defaults
                 EllesmereUIDB.showSpellID = false
                 if EllesmereUI.SyncAuraSpellIDCVar then EllesmereUI.SyncAuraSpellIDCVar() end
-                EllesmereUIDB.suppressErrors = true
+                EllesmereUIDB.suppressErrors = false
                 -- Crosshair: the root is the inherited global default, so reset it
                 -- here (per-profile overrides are cleared by the profile's own
                 -- reset). With the root off, profiles without an override inherit
