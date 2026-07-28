@@ -5909,6 +5909,69 @@ function EllesmereUI.AppendSharedMediaSounds(paths, names, order)
 end
 
 -------------------------------------------------------------------------------
+--  Shared catalogue of the 16 bundled EllesmereUI alert sounds, used by every
+--  "pick a sound" dropdown across the addon suite. Built lazily (so
+--  SharedMedia sounds registered by other addons at login are included) and
+--  memoized after the first call.
+--  Returns: paths, names, order (paths/names keyed the same, order includes
+--  "none" first and a "---" divider before any appended SharedMedia entries).
+-------------------------------------------------------------------------------
+-- Cache lives on EllesmereUI (not new top-level locals) -- this file is at
+-- the Lua 5.1 200-local cap.
+function EllesmereUI.GetSoundCatalog()
+    local c = EllesmereUI._soundCatalog
+    if c then return c.paths, c.names, c.order end
+    local DIR = "Interface\\AddOns\\EllesmereUI\\media\\sounds\\"
+    local paths = {
+        ["airhorn"]   = DIR .. "AirHorn.ogg",
+        ["banana"]    = DIR .. "BananaPeelSlip.ogg",
+        ["bikehorn"]  = DIR .. "BikeHorn.ogg",
+        ["bite"]      = DIR .. "Bite.ogg",
+        ["boxing"]    = DIR .. "BoxingArenaSound.ogg",
+        ["catmeow"]   = DIR .. "CatMeow.ogg",
+        ["catmeow2"]  = DIR .. "CatMeow2.ogg",
+        ["gunshot"]   = DIR .. "FrontalsGunshot.wav",
+        ["glass"]     = DIR .. "Glass.mp3",
+        ["kaching"]   = DIR .. "Kaching.ogg",
+        ["phone"]     = DIR .. "Phone.ogg",
+        ["robotblip"] = DIR .. "RobotBlip.ogg",
+        ["sonar"]     = DIR .. "Sonar.ogg",
+        ["siren"]     = DIR .. "WarningSiren.ogg",
+        ["water"]     = DIR .. "WaterDrop.ogg",
+        ["wilhelm"]   = DIR .. "Wilhelm.ogg",
+    }
+    local names = {
+        ["none"]      = "None",
+        ["airhorn"]   = "Air Horn",
+        ["banana"]    = "Banana Peel Slip",
+        ["bikehorn"]  = "Bike Horn",
+        ["bite"]      = "Bite",
+        ["boxing"]    = "Boxing Arena",
+        ["catmeow"]   = "Cat Meow",
+        ["catmeow2"]  = "Cat Meow 2",
+        ["gunshot"]   = "Frontals Gunshot",
+        ["glass"]     = "Glass",
+        ["kaching"]   = "Kaching",
+        ["phone"]     = "Phone",
+        ["robotblip"] = "Robot Blip",
+        ["sonar"]     = "Sonar",
+        ["siren"]     = "Warning Siren",
+        ["water"]     = "Water Drop",
+        ["wilhelm"]   = "Wilhelm",
+    }
+    local order = {
+        "none", "airhorn", "banana", "bikehorn", "bite", "boxing", "catmeow",
+        "catmeow2", "gunshot", "glass", "kaching", "phone", "robotblip", "sonar",
+        "siren", "water", "wilhelm",
+    }
+    if EllesmereUI.AppendSharedMediaSounds then
+        EllesmereUI.AppendSharedMediaSounds(paths, names, order)
+    end
+    EllesmereUI._soundCatalog = { paths = paths, names = names, order = order }
+    return paths, names, order
+end
+
+-------------------------------------------------------------------------------
 --  Append LibSharedMedia-3.0 fonts into a runtime font dropdown table.
 --  Signature: AppendSharedMediaFonts(values, order, opts)
 --    values  - key -> { text, font } table (or key -> path when keyByName=true)

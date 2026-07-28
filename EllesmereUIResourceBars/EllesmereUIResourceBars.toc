@@ -12,6 +12,7 @@
 # Main Luas
 EllesmereUIResourceBars.lua
 EUI_ResourceBars_EbonMight121.lua
+EUI_ResourceBars_ThresholdSound.lua
 
 # Options
 EUI_ResourceBars_Helpers.lua

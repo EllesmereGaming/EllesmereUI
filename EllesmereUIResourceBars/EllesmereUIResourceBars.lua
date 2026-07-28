@@ -1235,7 +1235,7 @@ local DEFAULTS = {
             thresholdReverse = false,  -- bar-type only: threshold color below the value (spenders)
             thresholdR = 0x0c/255, thresholdG = 0xd2/255, thresholdB = 0x9d/255, thresholdA = 1,
             tickValues  = "",   -- comma-separated absolute resource values for tick marks (bar-type only)
-            thresholdSpecs = {},  -- per-spec threshold/hash entries: { specIDs={0}, hashValues="", thresholdCount=3, thresholdPartialOnly=false }
+            thresholdSpecs = {},  -- per-spec threshold/hash entries: { specIDs={0}, hashValues="", thresholdCount=3, thresholdPartialOnly=false, thresholdSoundEnabled=false, thresholdSoundKey="none" }
             thresholdTextInstead = false,
             -- Multi-band coloring
             multiBandEnabled = false,
@@ -5684,6 +5684,7 @@ local function UpdateSecondaryResource()
             -- Direction: "From" (>=, default) or "Up to" (<=, thresholdReverse).
             local useThresh = _tsEntry and ((_tsReverse and cur <= _tsThreshCount)
                 or ((not _tsReverse) and (cur >= _tsThreshCount or _enhRealCur >= _tsThreshCount)))
+            if ns.EvalThresholdSound then ns.EvalThresholdSound(_tsEntry, _enhRealCur, useThresh) end
             local tr, tg, tb = _tsR, _tsG, _tsB
             -- Multi-band: whole bar takes the color of the band containing `cur`.
             if _tsBandOn and not _enhFive then
@@ -5751,6 +5752,7 @@ local function UpdateSecondaryResource()
         -- Direction: "From" (>=, default) or "Up to" (<=, thresholdReverse).
         local useThresh = _tsEntry and ((_tsReverse and cur <= _tsThreshCount)
             or ((not _tsReverse) and cur >= _tsThreshCount))
+        if ns.EvalThresholdSound then ns.EvalThresholdSound(_tsEntry, cur, useThresh) end
         local tr, tg, tb = _tsR, _tsG, _tsB
         -- Multi-band
         if _tsBandOn then

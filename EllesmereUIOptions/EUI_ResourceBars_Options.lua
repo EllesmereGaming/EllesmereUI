@@ -6217,6 +6217,31 @@ initFrame:SetScript("OnEvent", function(self)
 				local function _thrOptUsable() return _thrEnabled() and not _thrMultiOn() end
 				local function _thrOffTip() if _thrMultiOn() then return BAND_REPLACES_TIP end return "Enable the Threshold toggle to use these options." end
 				local function _thrIsUpTo() local e=_thrEnt(); return (e and e.thresholdReverse) and true or false end
+				local function _thrSoundOn() local e=_thrEnt(); return (e and e.thresholdSoundEnabled) and true or false end
+				-- Sound dropdown: shallow-copy the shared catalogue so _menuOpts
+				-- (preview icon) doesn't pollute the addon-wide table.
+				local threshSoundValues = {}
+				local threshSoundPaths, threshSoundNames, threshSoundOrder = EllesmereUI.GetSoundCatalog()
+				for k, v in pairs(threshSoundNames) do threshSoundValues[k] = v end
+				threshSoundValues._menuOpts = {
+					itemHeight = 26,
+					maxTextWidthPct = 0.8,
+					searchable = true,
+					iconAtlas = function(key)
+						if key == "none" then return nil end
+						if not threshSoundPaths[key] then return nil end
+						return "common-icon-sound"
+					end,
+					iconPressedAtlas = function(key)
+						if key == "none" then return nil end
+						return "common-icon-sound-pressed"
+					end,
+					iconOnClick = function(key)
+						local path = threshSoundPaths[key]
+						if path then PlaySoundFile(path, "Master") end
+					end,
+					iconTooltip = function() return "Preview Sound" end,
+				}
 				local threshCog, threshCogShow = EllesmereUI.BuildCogPopup({
 					title = "Threshold Options", bgAlpha = 1, frameStrata = "FULLSCREEN_DIALOG", frameLevel = 500, minWidth = 320,
 					rows = {
@@ -6245,6 +6270,20 @@ initFrame:SetScript("OnEvent", function(self)
 							end,
 							get = function() local e=_thrEnt(); return (e and e.thresholdPartialOnly) and true or false end,
 							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdPartialOnly=v; RefreshClass(); if RefreshDetail then RefreshDetail() end end },
+						{ type = "toggle", label = "Threshold Sound", rawTooltip = true,
+							disabled = function() return not _thrOptUsable() end,
+							disabledTooltip = function() return _thrOffTip() end,
+							get = function() local e=_thrEnt(); return (e and e.thresholdSoundEnabled) and true or false end,
+							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdSoundEnabled=v; RefreshClass() end },
+						{ type = "dropdown", label = "Sound",
+							values = threshSoundValues, order = threshSoundOrder,
+							disabled = function() return (not _thrOptUsable()) or not _thrSoundOn() end,
+							disabledTooltip = function()
+								if not _thrOptUsable() then return _thrOffTip() end
+								return "Enable Threshold Sound to pick a sound."
+							end,
+							get = function() local e=_thrEnt(); return (e and e.thresholdSoundKey) or "none" end,
+							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdSoundKey=v; RefreshClass() end },
 					},
 				})
 				local threshCogBtn = CreateFrame("Button", nil, threshRow)
