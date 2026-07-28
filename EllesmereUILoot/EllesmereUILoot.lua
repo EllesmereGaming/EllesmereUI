@@ -892,6 +892,13 @@ function ns.CreateSettingsPreview(parent)
     return settingsPreview
 end
 
+local function HideTooltipOwnedBy(owner)
+    -- An old row's deferred OnLeave may run after another row has already
+    -- opened its tooltip. Never let that stale callback hide the tooltip now
+    -- owned by the new row.
+    if owner and GameTooltip:IsOwned(owner) then GameTooltip:Hide() end
+end
+
 local function AcquireRow()
     local row = table.remove(rows)
     if row then return row end
@@ -943,7 +950,7 @@ local function AcquireRow()
             owner.hovered = nil
             owner.expires = GetTime() + (owner.pausedRemaining or (Profile() and Profile().duration) or 5)
             owner.pausedRemaining = nil
-            GameTooltip:Hide()
+            HideTooltipOwnedBy(owner)
             if TrimActive then TrimActive() end
             if StartAnimationDriver then StartAnimationDriver() end
         end)
@@ -958,7 +965,9 @@ local function RemoveRow(row,deferLayout)
     for i, candidate in ipairs(active) do
         if candidate == row then table.remove(active, i); break end
     end
-    if row.hovered then GameTooltip:Hide() end
+    -- A row can be recycled while a deferred leave from an older hover is
+    -- pending. Only close the tooltip if this exact row still owns it.
+    if row.hovered then HideTooltipOwnedBy(row) end
     if row._hoverLeaveTimer then row._hoverLeaveTimer:Cancel(); row._hoverLeaveTimer=nil end
     if row._alertGlowKey and EllesmereUI.Glows then EllesmereUI.Glows.StopGlow(row.alertGlow) end
     row._alertGlowKey, row.alertRule = nil, nil
@@ -1391,13 +1400,15 @@ function ns.Apply()
     end
     if ConfigureRuntimeEvents then ConfigureRuntimeEvents() end
     if p and not p.showTooltip then
+        local tooltipOwner
         for _, row in ipairs(active) do
             if row.hovered then
+                if GameTooltip:IsOwned(row) then tooltipOwner=row end
                 row.hovered, row.pausedRemaining = nil, nil
                 row.expires = GetTime() + p.duration
             end
         end
-        GameTooltip:Hide()
+        HideTooltipOwnedBy(tooltipOwner)
         if TrimActive then TrimActive(true) end
     end
     for _,row in ipairs(active) do
