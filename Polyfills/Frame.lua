@@ -13,7 +13,7 @@ function CreateFrame(frameType, name, parent, template, id)
 end
 
 if not GetPhysicalScreenSize then
-    function GetPhysicalScreenSize()
+    _G.GetPhysicalScreenSize = function()
         local resIndex = GetCurrentResolution()
         local resString = resIndex and select(resIndex, GetScreenResolutions())
         if resString then
