@@ -190,6 +190,7 @@ ns.BLOCK_TYPES = {
     { key = "micromenu",  label = "Micro Menu" },
     { key = "currency",   label = "Currency" },
     { key = "greatvault", label = "Great Vault" },
+    { key = "social",     label = "Social" },
     { key = "audio",      label = "Audio" },
     { key = "spacer",     label = "Spacer" },
 }
@@ -215,6 +216,11 @@ ns.BLOCK_DEFAULTS = {
                    pvp = true, housing = true, journal = true, pet = true, shop = true, help = true },
     currency   = { currencyId = nil, showIcon = true },
     greatvault = {},
+    social     = { mode = "both", format = "labels", sort = "name", maxHeight = 360,
+                  showLevel = true, showZone = true,
+                  showAccount = true, showRank = false, showNote = false,
+                  showRealm = false,
+                  inviteModifier = "SHIFT" },
     audio      = { channel = "master" },
     spacer     = {},
 }

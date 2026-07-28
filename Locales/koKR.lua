@@ -7,6 +7,42 @@
 local L = EllesmereUI.RegisterLocale("koKR")
 if not L then return end
 
+-- == Social Data Bar =======================================================
+L["%d / %d"] = true
+L["Battle.net"] = true
+L["Battle.net Account"] = "Battle.net 계정"
+L["Choose the optional fields shown beside each player name. Character name is always visible."] = "각 플레이어 이름 옆에 표시할 선택 항목을 고르세요. 캐릭터 이름은 항상 표시됩니다."
+L["Controls the online-count text shown on the Data Bar."] = "데이터 바에 표시되는 온라인 인원 문구를 설정합니다."
+L["Counts Only"] = "숫자만"
+L["DND"] = "다른 용무 중"
+L["Data Mode"] = "데이터 모드"
+L["Friends shows online WoW friends. Guild shows online guild members. Both shows separate Friends and Guild sections. Left click opens the selected social window; in Both mode, Shift-Left Click opens Guild instead of Friends."] = "친구는 접속 중인 WoW 친구를 표시합니다. 길드는 접속 중인 길드원을 표시합니다. 둘 다는 친구와 길드를 별도 구역으로 표시합니다. 왼쪽 클릭으로 선택한 소셜 창을 열며, 둘 다 모드에서는 Shift + 왼쪽 클릭으로 친구 대신 길드를 엽니다."
+L["Friends: %d"] = "친구: %d"
+L["Friends: %d / Guild: %d"] = "친구: %d / 길드: %d"
+L["Guild Rank"] = "길드 등급"
+L["Guild roster is not available yet"] = "길드 명단을 아직 사용할 수 없습니다"
+L["Guild: %d"] = "길드: %d"
+L["Guild: %s"] = "길드: %s"
+L["Hold this modifier while left-clicking a player row to invite instead of whispering. Off disables modifier-click invites."] = "플레이어 행을 왼쪽 클릭할 때 이 보조 키를 누르면 귓속말 대신 초대합니다. 끄기는 보조 키 초대를 비활성화합니다."
+L["Invite Modifier"] = "초대 보조 키"
+L["Labels & Counts"] = "이름표 및 숫자"
+L["Left click whispers; modifier-click invites."] = "왼쪽 클릭은 귓속말, 보조 키 클릭은 초대입니다."
+L["Left click: whisper."] = "왼쪽 클릭: 귓속말."
+L["Left click: whisper. Modifier-Left Click: invite."] = "왼쪽 클릭: 귓속말. 보조 키 + 왼쪽 클릭: 초대."
+L["Maximum Popup Height"] = "최대 팝업 높이"
+L["No guild members online"] = "접속 중인 길드원이 없습니다"
+L["Note"] = "메모"
+L["Online: %d"] = "온라인: %d"
+L["Public Guild Note"] = "공개 길드 메모"
+L["Rank"] = "등급"
+L["Server"] = "서버"
+L["Social data is unavailable during combat."] = "전투 중에는 소셜 데이터를 사용할 수 없습니다."
+L["Sorts each popup section with name as a stable secondary sort."] = "각 팝업 구역을 정렬하며 이름을 고정된 보조 정렬 기준으로 사용합니다."
+L["The popup becomes mouse-wheel scrollable when its content exceeds this height."] = "내용이 이 높이를 넘으면 마우스 휠로 팝업을 스크롤할 수 있습니다."
+L["Total Online"] = "총 온라인"
+L["Visible Columns"] = "표시할 열"
+L["You are not in a guild"] = "길드에 가입되어 있지 않습니다"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "블리자드 팝업 및 게임 메뉴"
 
 -- == Common labels (공용 라벨) =============================================

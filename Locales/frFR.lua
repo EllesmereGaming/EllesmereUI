@@ -6,6 +6,44 @@
 local L = EllesmereUI.RegisterLocale("frFR")
 if not L then return end
 
+-- == Social Data Bar =======================================================
+L["%d / %d"] = true
+L["Battle.net"] = true
+L["Battle.net Account"] = "Compte Battle.net"
+L["Choose the optional fields shown beside each player name. Character name is always visible."] = "Choisissez les champs facultatifs affichés à côté de chaque joueur. Le nom du personnage reste toujours visible."
+L["Controls the online-count text shown on the Data Bar."] = "Définit le texte du nombre de joueurs en ligne affiché dans la barre de données."
+L["Counts Only"] = "Nombres uniquement"
+L["DND"] = "Ne pas déranger"
+L["Data Mode"] = "Mode de données"
+L["Friends shows online WoW friends. Guild shows online guild members. Both shows separate Friends and Guild sections. Left click opens the selected social window; in Both mode, Shift-Left Click opens Guild instead of Friends."] = "Amis affiche les amis WoW en ligne. Guilde affiche les membres de guilde en ligne. Les deux affiche des sections séparées pour les amis et la guilde. Un clic gauche ouvre la fenêtre sociale sélectionnée ; dans le mode Les deux, Maj + clic gauche ouvre la guilde plutôt que les amis."
+L["Friends: %d"] = "Amis : %d"
+L["Friends: %d / Guild: %d"] = "Amis : %d / Guilde : %d"
+L["Guild Rank"] = "Rang de guilde"
+L["Guild roster is not available yet"] = "La liste de guilde n’est pas encore disponible"
+L["Guild: %d"] = "Guilde : %d"
+L["Guild: %s"] = "Guilde : %s"
+L["Hold this modifier while left-clicking a player row to invite instead of whispering. Off disables modifier-click invites."] = "Maintenez ce modificateur en cliquant sur un joueur pour l’inviter au lieu de lui chuchoter. Désactivé coupe les invitations avec modificateur."
+L["Invite Modifier"] = "Modificateur d’invitation"
+L["Labels & Counts"] = "Libellés et nombres"
+L["Left click whispers; modifier-click invites."] = "Le clic gauche chuchote ; le clic avec modificateur invite."
+L["Left click: whisper."] = "Clic gauche : chuchoter."
+L["Left click: whisper. Modifier-Left Click: invite."] = "Clic gauche : chuchoter. Modificateur + clic gauche : inviter."
+L["Maximum Popup Height"] = "Hauteur maximale de la fenêtre"
+L["No friends online"] = "Aucun ami en ligne"
+L["No guild members online"] = "Aucun membre de guilde en ligne"
+L["Note"] = true
+L["Online: %d"] = "En ligne : %d"
+L["Public Guild Note"] = "Note publique de guilde"
+L["Rank"] = "Rang"
+L["Server"] = "Royaume"
+L["Social data is unavailable during combat."] = "Les données sociales ne sont pas disponibles en combat."
+L["Sorts each popup section with name as a stable secondary sort."] = "Trie chaque section de la fenêtre en utilisant le nom comme critère secondaire stable."
+L["Text Format"] = "Format du texte"
+L["The popup becomes mouse-wheel scrollable when its content exceeds this height."] = "La fenêtre peut défiler avec la molette lorsque son contenu dépasse cette hauteur."
+L["Total Online"] = "Total en ligne"
+L["Visible Columns"] = "Colonnes visibles"
+L["You are not in a guild"] = "Vous n’êtes pas dans une guilde"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "FENÊTRES BLIZZARD ET MENU DU JEU"
 L["Resurrect Accept Glow"] = "Lueur d’acceptation de résurrection"
 L["Adds a glowing, pulsating border around the Accept button of resurrection popups so a pending resurrect is hard to miss. Follows the Element & Text Color setting. Applies instantly, no reload needed."] = "Ajoute une bordure lumineuse et pulsante autour du bouton Accepter des fenêtres de résurrection afin de ne pas manquer une résurrection. Utilise le réglage de couleur des éléments et du texte. Application immédiate sans rechargement."

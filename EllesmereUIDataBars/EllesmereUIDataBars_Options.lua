@@ -69,7 +69,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- live instance yet; the preview scales these into strip space.
     local EST_LEN = {
         clock = 150, fps = 70, ms = 70, gold = 150, xprep = 140, spec = 130,
-        profession = 120, travel = 40, micromenu = 340, currency = 90, spacer = 40,
+        profession = 120, travel = 40, micromenu = 340, currency = 90, social = 150, spacer = 40,
         durability = 70, profession2 = 120, greatvault = 100,
         location = 140, coords = 70,
     }
@@ -2967,6 +2967,49 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     MkToggle("Show Icon", "showIcon", "Shows the currency icon next to the amount."),
                 }
+            elseif b.type == "social" then
+                local mode = s.mode or "both"
+                local sortValues = { name = EllesmereUI.L("Name"), level = EllesmereUI.L("Level"), zone = EllesmereUI.L("Zone") }
+                local sortOrder = { "name", "level", "zone" }
+                if mode ~= "friends" then
+                    sortValues.rank = EllesmereUI.L("Guild Rank")
+                    sortOrder[#sortOrder + 1] = "rank"
+                end
+                typeRows = {
+                    { type = "dropdown", text = EllesmereUI.L("Data Mode"),
+                      tooltip = EllesmereUI.L("Friends shows online WoW friends. Guild shows online guild members. Both shows separate Friends and Guild sections. Left click opens the selected social window; in Both mode, Shift-Left Click opens Guild instead of Friends."),
+                      values = { friends = EllesmereUI.L("Friends"), guild = EllesmereUI.L("Guild"), both = EllesmereUI.L("Both") },
+                      order = { "friends", "guild", "both" },
+                      getValue = function() return s.mode or "both" end,
+                      setValue = function(v)
+                          s.mode = v
+                          if v == "friends" and s.sort == "rank" then s.sort = "name" end
+                          Apply()
+                          EllesmereUI:RefreshPage(true)
+                      end },
+                    { type = "dropdown", text = EllesmereUI.L("Text Format"),
+                      tooltip = EllesmereUI.L("Controls the online-count text shown on the Data Bar."),
+                      values = { labels = EllesmereUI.L("Labels & Counts"), counts = EllesmereUI.L("Counts Only"), total = EllesmereUI.L("Total Online") },
+                      order = { "labels", "counts", "total" },
+                      getValue = function() return s.format or "labels" end,
+                      setValue = function(v) s.format = v; Apply() end },
+                    { type = "dropdown", text = EllesmereUI.L("Sort By"),
+                      tooltip = EllesmereUI.L("Sorts each popup section with name as a stable secondary sort."),
+                      values = sortValues, order = sortOrder,
+                      getValue = function() return s.sort or "name" end,
+                      setValue = function(v) s.sort = v; Apply() end },
+                    { type = "slider", text = EllesmereUI.L("Maximum Popup Height"), min = 180, max = 700, step = 10,
+                      tooltip = EllesmereUI.L("The popup becomes mouse-wheel scrollable when its content exceeds this height."),
+                      getValue = function() return s.maxHeight or 360 end,
+                      setValue = function(v) s.maxHeight = v; Apply() end },
+                    { type = "dropdown", text = EllesmereUI.L("Invite Modifier"),
+                      tooltip = EllesmereUI.L("Hold this modifier while left-clicking a player row to invite instead of whispering. Off disables modifier-click invites."),
+                      values = { OFF = EllesmereUI.L("Off"), SHIFT = EllesmereUI.L("Shift"), CTRL = EllesmereUI.L("Control"), ALT = EllesmereUI.L("Alt") },
+                      order = { "OFF", "SHIFT", "CTRL", "ALT" },
+                      getValue = function() return s.inviteModifier or "SHIFT" end,
+                      setValue = function(v) s.inviteModifier = v; Apply() end },
+                    { type = "label", text = EllesmereUI.L("Left click whispers; modifier-click invites.") },
+                }
             end
 
             local msIconRow
@@ -3146,6 +3189,50 @@ initFrame:SetScript("OnEvent", function(self)
                         end,
                         function(k, v)
                             if v then s[k] = true else s[k] = false end
+                            Apply()
+                        end)
+                    PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+                    leftRgn._control = cbDD
+                    leftRgn._lastInline = nil
+                    if cbDDRefresh then EllesmereUI.RegisterWidgetRefresh(cbDDRefresh) end
+                end
+            end
+
+            if b.type == "social" then
+                local mode = s.mode or "both"
+                local SOCIAL_COLUMNS = {}
+                if mode ~= "guild" then
+                    SOCIAL_COLUMNS[#SOCIAL_COLUMNS + 1] = { key = "account", label = EllesmereUI.L("Battle.net Account") }
+                end
+                SOCIAL_COLUMNS[#SOCIAL_COLUMNS + 1] = { key = "realm", label = EllesmereUI.L("Server") }
+                SOCIAL_COLUMNS[#SOCIAL_COLUMNS + 1] = { key = "level", label = EllesmereUI.L("Level") }
+                SOCIAL_COLUMNS[#SOCIAL_COLUMNS + 1] = { key = "zone", label = EllesmereUI.L("Zone") }
+                if mode ~= "friends" then
+                    SOCIAL_COLUMNS[#SOCIAL_COLUMNS + 1] = { key = "rank", label = EllesmereUI.L("Guild Rank") }
+                    SOCIAL_COLUMNS[#SOCIAL_COLUMNS + 1] = { key = "note", label = EllesmereUI.L("Public Guild Note") }
+                end
+                local socialRow
+                socialRow, h = W:DualRow(parent, y,
+                    { type = "dropdown", text = EllesmereUI.L("Visible Columns"),
+                      tooltip = EllesmereUI.L("Choose the optional fields shown beside each player name. Character name is always visible."),
+                      values = { __placeholder = "..." }, order = { "__placeholder" },
+                      getValue = function() return "__placeholder" end,
+                      setValue = function() end },
+                    { type = "label", text = "" });  y = y - h
+                do
+                    local leftRgn = socialRow._leftRegion
+                    if leftRgn._control then leftRgn._control:Hide() end
+                    local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                        leftRgn, 210, leftRgn:GetFrameLevel() + 2,
+                        SOCIAL_COLUMNS,
+                        function(k)
+                            if k == "level" or k == "zone" or k == "account" then
+                                return s["show" .. k:sub(1, 1):upper() .. k:sub(2)] ~= false
+                            end
+                            return s["show" .. k:sub(1, 1):upper() .. k:sub(2)] == true
+                        end,
+                        function(k, v)
+                            s["show" .. k:sub(1, 1):upper() .. k:sub(2)] = v and true or false
                             Apply()
                         end)
                     PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
