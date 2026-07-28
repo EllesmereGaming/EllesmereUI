@@ -650,7 +650,7 @@ if EllesmereUI and EllesmereUI.RegisterModule then
                 if EllesmereUI.RefreshPage then C_Timer.After(0,function() EllesmereUI:RefreshPage(true) end) end
             end}); y=y-h
         _,h=W:DualRow(parent,y,
-            {type="slider",text="Maximum Shown",min=1,max=12,step=1,getValue=function() return Get("maxVisible") or 6 end,setValue=function(v) Set("maxVisible",v) end},
+            {type="slider",text="Maximum Shown",min=3,max=25,step=1,getValue=function() return Get("maxVisible") or 6 end,setValue=function(v) Set("maxVisible",v) end},
             {type="slider",text="Spacing",min=5,max=20,step=1,getValue=function() return math.max(5,Get("spacing") or 5) end,setValue=function(v) Set("spacing",math.max(5,v)) end}); y=y-h
 
         local function BarColorDisabled() return Get("displayStyle")=="ICON" end
