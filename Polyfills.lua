@@ -1355,6 +1355,13 @@ for _, meta in ipairs(frameMetas) do
                 self:SetTexture(path)
             end
         end
+        if not meta.SetColorTexture then
+            meta.SetColorTexture = function(self, r, g, b, a)
+                if self.SetTexture then
+                    self:SetTexture(r, g, b, a or 1)
+                end
+            end
+        end
         if not meta.SetAlphaFromBoolean then
             meta.SetAlphaFromBoolean = function(self, value, trueAlpha, falseAlpha)
                 if trueAlpha == nil then trueAlpha = 1 end
