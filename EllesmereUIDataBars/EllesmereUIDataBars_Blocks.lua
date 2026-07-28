@@ -4574,7 +4574,15 @@ local function MMBuildGuildTip()
 
     for i = 1, GetNumGuildMembers() do
         local name, _, _, level, _, zone, _, _, isOnline, status, class = GetGuildRosterInfo(i)
-        if isOnline then
+        -- Roster fields are SECRET in restricted content (Mythic+, raid, or the
+        -- forced addon-restriction CVars). This row matches the name, formats
+        -- it with the level, and uses the class as a table key -- none of which
+        -- a secret allows -- so an entry we cannot read is skipped. The whisper
+        -- action below is separately suppressed in the same content.
+        local secretRow = issecretvalue and (issecretvalue(name) or issecretvalue(class)
+            or issecretvalue(isOnline) or issecretvalue(status)
+            or issecretvalue(level) or issecretvalue(zone))
+        if not secretRow and isOnline then
             local cc  = class and RAID_CLASS_COLORS[class]
             local clr, clg, clb = 1, 1, 1
             if cc then clr, clg, clb = cc.r, cc.g, cc.b end

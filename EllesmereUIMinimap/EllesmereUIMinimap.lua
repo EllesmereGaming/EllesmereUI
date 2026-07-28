@@ -2216,6 +2216,13 @@ end
 -------------------------------------------------------------------------------
 local FRIENDS_ATLAS = "housefinder_neighborhood-friends-icon"
 
+-- Guild roster fields come back SECRET in restricted content (Mythic+, raid,
+-- or the forced addon-restriction CVars). Reading the tag is safe; matching,
+-- comparing or using the value as a table key is not.
+local function _isSecretVal(v)
+    return issecretvalue ~= nil and issecretvalue(v)
+end
+
 local function GatherOnlineFriends()
     local guild, favorites, friends = {}, {}, {}
     local seenBNet = {}
@@ -2226,10 +2233,19 @@ local function GatherOnlineFriends()
         local total = GetNumGuildMembers() or 0
         for i = 1, total do
             local name, _, _, level, _, zone, _, _, online, _, classFile = GetGuildRosterInfo(i)
-            if online and name then
+            -- name is matched and compared, and classFile is later used as a
+            -- table key for the class color, so an entry whose identity we
+            -- cannot read is skipped rather than erroring out of the sweep.
+            if not (_isSecretVal(name) or _isSecretVal(classFile) or _isSecretVal(online))
+                and online and name then
                 local short = name:match("^([^%-]+)") or name
                 if short ~= myName then
-                    guild[#guild + 1] = { name = short, full = name, class = classFile, zone = zone or "", level = level, kind = "guild" }
+                    guild[#guild + 1] = {
+                        name = short, full = name, class = classFile,
+                        zone = (not _isSecretVal(zone)) and (zone or "") or "",
+                        level = (not _isSecretVal(level)) and level or nil,
+                        kind = "guild",
+                    }
                 end
             end
         end

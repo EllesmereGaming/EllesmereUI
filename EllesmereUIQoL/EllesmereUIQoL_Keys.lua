@@ -75,9 +75,16 @@ local function BuildClassColorMap()
         local total = GetNumGuildMembers()
         for i = 1, total do
             local gName, _, _, _, _, _, _, _, _, _, classFile = GetGuildRosterInfo(i)
-            if gName and classFile then
+            -- Roster fields are SECRET in restricted content (Mythic+, raid, or
+            -- the forced addon-restriction CVars). The short name is produced by
+            -- a string operation and then used as a TABLE KEY, and neither is
+            -- allowed on a secret, so an unreadable entry is skipped.
+            if gName and classFile
+                and not (issecretvalue and (issecretvalue(gName) or issecretvalue(classFile))) then
                 local gShort = Ambiguate and Ambiguate(gName, "short") or gName:match("^([^%-]+)")
-                if gShort then map[gShort] = classFile end
+                if gShort and not (issecretvalue and issecretvalue(gShort)) then
+                    map[gShort] = classFile
+                end
             end
         end
     end
