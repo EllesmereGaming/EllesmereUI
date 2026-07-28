@@ -7,6 +7,18 @@
 local L = EllesmereUI.RegisterLocale("koKR")
 if not L then return end
 
+L["Vendor"]="상인"
+L["AH"]="경매"
+L["Show Price Labels"]="가격 라벨 표시"
+L["Shows Vendor and AH labels before item values."]="아이템 가격 앞에 상인 및 경매 라벨을 표시합니다."
+L["Controls the vertical padding inside the notification bar. Available only in Bar mode."]="알림 바 내부의 세로 여백을 조절합니다. 바 모드에서만 사용할 수 있습니다."
+L["Controls the item icon size. Available only in Icon mode."]="아이템 아이콘 크기를 조절합니다. 아이콘 모드에서만 사용할 수 있습니다."
+L["Market Value"]="시세"
+L["Market Value Source"]="시세 출처"
+L["Show Market Value"]="시세 표시"
+L["Alert on Market Value"]="시세 알림"
+L["Shows the selected external market value in item notifications."]="아이템 알림에 선택한 외부 시세를 표시합니다."
+
 -- EllesmereUI Loot
 L["Loot"]="전리품"; L["Loot Feed"]="전리품 피드"; L["Alerts"]="알림"; L["External Price Source"]="외부 가격 출처"; L["EXTERNAL PRICE SOURCES"]="외부 가격 출처"; L["Notification Price Source"]="알림 가격 출처"
 L["External price sources provide auction house values for notifications."]="외부 가격 출처는 알림에 경매장 가격을 제공합니다."; L["Supported addons: TSM4 and Auctionator. Sources are only available while the corresponding addon is enabled and loaded."]="지원 애드온: TSM4, Auctionator. 해당 애드온이 활성화되고 로드된 경우에만 사용할 수 있습니다."; L["No supported price addon is loaded. Enable TSM4 or Auctionator, then reload the UI."]="지원되는 가격 애드온이 없습니다. TSM4 또는 Auctionator를 활성화한 후 UI를 다시 불러오세요."

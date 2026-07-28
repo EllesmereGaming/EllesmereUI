@@ -6,6 +6,18 @@
 local L = EllesmereUI.RegisterLocale("ptBR")
 if not L then return end
 
+L["Vendor"]="Comerciante"
+L["AH"]="CL"
+L["Show Price Labels"]="Mostrar rótulos de preço"
+L["Shows Vendor and AH labels before item values."]="Mostra os rótulos Comerciante e CL antes dos valores dos itens."
+L["Controls the vertical padding inside the notification bar. Available only in Bar mode."]="Controla o espaçamento vertical dentro da barra de notificação. Disponível apenas no modo Barra."
+L["Controls the item icon size. Available only in Icon mode."]="Controla o tamanho do ícone do item. Disponível apenas no modo Ícone."
+L["Market Value"]="Valor de mercado"
+L["Market Value Source"]="Fonte de valor de mercado"
+L["Show Market Value"]="Mostrar valor de mercado"
+L["Alert on Market Value"]="Alertar sobre o valor de mercado"
+L["Shows the selected external market value in item notifications."]="Mostra o valor de mercado externo selecionado nas notificações de itens."
+
 -- EllesmereUI Loot
 L["Loot"]="Saque"; L["Loot Feed"]="Fluxo de saque"; L["Alerts"]="Alertas"; L["External Price Source"]="Fonte externa de preços"; L["EXTERNAL PRICE SOURCES"]="FONTES EXTERNAS DE PREÇOS"; L["Notification Price Source"]="Fonte de preços das notificações"
 L["External price sources provide auction house values for notifications."]="Fontes externas fornecem valores da casa de leilões para as notificações."; L["Supported addons: TSM4 and Auctionator. Sources are only available while the corresponding addon is enabled and loaded."]="Addons compatíveis: TSM4 e Auctionator. As fontes só ficam disponíveis quando o addon correspondente está ativo e carregado."; L["No supported price addon is loaded. Enable TSM4 or Auctionator, then reload the UI."]="Nenhum addon de preços compatível está carregado. Ative o TSM4 ou Auctionator e recarregue a interface."

@@ -6,6 +6,18 @@
 local L = EllesmereUI.RegisterLocale("frFR")
 if not L then return end
 
+L["Vendor"]="Marchand"
+L["AH"]="HV"
+L["Show Price Labels"]="Afficher les libellés de prix"
+L["Shows Vendor and AH labels before item values."]="Affiche les libellés Marchand et HV avant les valeurs des objets."
+L["Controls the vertical padding inside the notification bar. Available only in Bar mode."]="Contrôle l’espacement vertical à l’intérieur de la barre de notification. Disponible uniquement en mode Barre."
+L["Controls the item icon size. Available only in Icon mode."]="Contrôle la taille de l’icône de l’objet. Disponible uniquement en mode Icône."
+L["Market Value"]="Valeur marchande"
+L["Market Value Source"]="Source de valeur marchande"
+L["Show Market Value"]="Afficher la valeur marchande"
+L["Alert on Market Value"]="Alerte sur la valeur marchande"
+L["Shows the selected external market value in item notifications."]="Affiche la valeur marchande externe sélectionnée dans les notifications d’objets."
+
 -- EllesmereUI Loot
 L["Loot"]="Butin"; L["Loot Feed"]="Flux de butin"; L["Alerts"]="Alertes"
 L["External Price Source"]="Source de prix externe"; L["EXTERNAL PRICE SOURCES"]="SOURCES DE PRIX EXTERNES"; L["Notification Price Source"]="Source de prix des notifications"

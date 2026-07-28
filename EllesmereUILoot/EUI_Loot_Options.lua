@@ -1,9 +1,8 @@
 local ADDON_NAME, ns = ...
-local init = CreateFrame("Frame")
-init:RegisterEvent("PLAYER_LOGIN")
-init:SetScript("OnEvent", function(self)
-    self:UnregisterEvent("PLAYER_LOGIN")
-    if not EllesmereUI or not EllesmereUI.RegisterModule then return end
+-- EllesmereUI is a required dependency, so RegisterModule is already available
+-- when this file loads. Register directly instead of creating a PLAYER_LOGIN
+-- frame/event that would briefly exist even for a disabled loot feed.
+if EllesmereUI and EllesmereUI.RegisterModule then
 
     -- Keep SavedVariables access behind this tiny adapter. Options are loaded
     -- independently from the runtime module, so they must tolerate a profile
@@ -103,17 +102,17 @@ init:SetScript("OnEvent", function(self)
                 local selected=Get("externalPriceSource") or "NONE"
                 return selected~="NONE" and sourceValues[selected]~=nil
             end
-            _,h=W:WideDropdown(parent,"Notification Price Source",y,sourceValues,
+            _,h=W:WideDropdown(parent,"Market Value Source",y,sourceValues,
                 function() local v=Get("externalPriceSource") or "NONE"; return sourceValues[v] and v or "NONE" end,
                 function(v) Set("externalPriceSource",v); if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage() end end,
                 sourceOrder,math.min(650,math.max(420,contentWidth-80))); y=y-h
-            local vendorTooltip="Replaces the displayed vendor value with the selected external auction-house price when one is available."
+            local marketTooltip="Shows the selected external market value in item notifications."
             _,h=W:DualRow(parent,y,
-                {type="toggle",text="Replace Vendor Price",tooltip=vendorTooltip,
+                {type="toggle",text="Show Market Value",tooltip=marketTooltip,
                     disabled=function() return not HasPriceSource() end,
                     disabledTooltip="Select an available external price source first.",
-                    getValue=function() return Get("tsmReplaceVendor")==true end,
-                    setValue=function(v) if HasPriceSource() then Set("tsmReplaceVendor",v) end end},
+                    getValue=function() return Get("showMarketValue")~=false end,
+                    setValue=function(v) if HasPriceSource() then Set("showMarketValue",v) end end},
                 {type="toggle",text="Show Total Value",
                     disabled=function() return not HasPriceSource() end,
                     disabledTooltip="Select an available external price source first.",
@@ -247,7 +246,7 @@ init:SetScript("OnEvent", function(self)
             local RefreshPriceAlertRow
             local priceAlertRow
             priceAlertRow,h=W:DualRow(parent,y,
-                {type="toggle",text="Alert on AH Price",
+                {type="toggle",text="Alert on Market Value",
                     disabled=function() return not HasExternalPriceSource() end,
                     disabledTooltip="Select an external price source first.",
                     getValue=function() return Get("externalPriceAlertEnabled")==true end,
@@ -419,12 +418,20 @@ init:SetScript("OnEvent", function(self)
             end
             local cursorWatcher=ns._customItemCursorWatcher
             if not cursorWatcher then
+                -- This watcher belongs strictly to the visible Custom Items
+                -- settings page. It unregisters on hide and never registers
+                -- while the feed is disabled, preserving Zero Cost at runtime.
                 cursorWatcher=CreateFrame("Frame",nil,parent)
                 ns._customItemCursorWatcher=cursorWatcher
-                cursorWatcher:RegisterEvent("CURSOR_CHANGED")
                 cursorWatcher._Refresh=function(self)
                     local activeDrop,activeCards=self._drop,self._cards
                     if not activeDrop or not activeCards then return end
+                    local profile=P()
+                    if not profile or profile.enabled==false then
+                        activeDrop:Hide()
+                        for _,card in ipairs(activeCards) do card:Show() end
+                        return
+                    end
                     local picking=CursorHasItem and CursorHasItem() or select(1,GetCursorInfo())=="item"
                     activeDrop:SetShown(picking)
                     for _,card in ipairs(activeCards) do card:SetShown(not picking) end
@@ -432,28 +439,25 @@ init:SetScript("OnEvent", function(self)
                 cursorWatcher:SetScript("OnEvent",cursorWatcher._Refresh)
                 cursorWatcher:SetScript("OnHide",function(self) self:UnregisterEvent("CURSOR_CHANGED") end)
                 cursorWatcher:SetScript("OnShow",function(self)
-                    self:RegisterEvent("CURSOR_CHANGED")
+                    local profile=P()
+                    if profile and profile.enabled~=false then self:RegisterEvent("CURSOR_CHANGED")
+                    else self:UnregisterEvent("CURSOR_CHANGED") end
                     self:_Refresh()
                 end)
             else
                 cursorWatcher:SetParent(parent)
             end
             cursorWatcher._drop,cursorWatcher._cards=drop,cards
-            cursorWatcher:RegisterEvent("CURSOR_CHANGED")
+            local profile=P()
+            if profile and profile.enabled~=false then cursorWatcher:RegisterEvent("CURSOR_CHANGED")
+            else cursorWatcher:UnregisterEvent("CURSOR_CHANGED") end
             cursorWatcher:Show()
             cursorWatcher:_Refresh()
             local addRow,showAdd
             local addValue=""
-            if not ns._customItemLinkHook and ChatEdit_InsertLink then
-                ns._customItemLinkHook=true
-                hooksecurefunc("ChatEdit_InsertLink",function(link)
-                    local pf=ns._customItemPopup
-                    local box=ns._customItemInput
-                    if pf and pf:IsShown() and box and link then
-                        box:Insert(link); box:SetFocus()
-                    end
-                end)
-            end
+            -- Intentionally no hooksecurefunc("ChatEdit_InsertLink") here:
+            -- secure hooks cannot be removed again and would keep calling into
+            -- this addon after it is disabled. Drag/drop remains event-local.
             _,showAdd=EllesmereUI.BuildCogPopup({title="Add Custom Item",minWidth=410,noOwnerDim=true,rows={
                 {type="input",label="ID, Link or Name",inputWidth=250,get=function() return addValue end,set=function(value)
                     addValue=tostring(value or ""):match("^%s*(.-)%s*$") or ""
@@ -619,10 +623,7 @@ init:SetScript("OnEvent", function(self)
 
         _,h=W:DualRow(parent,y,
             {type="toggle",text="Enabled",getValue=function() return Get("enabled")~=false end,setValue=function(v) Set("enabled",v) end},
-            {type="spacer"}); y=y-h
-        _,h=W:DualRow(parent,y,
-            {type="toggle",text="Show Tooltip",getValue=function() return Get("showTooltip")~=false end,setValue=function(v) Set("showTooltip",v) end},
-            {type="toggle",text="Show Vendor Value",getValue=function() return Get("showItemValue")==true end,setValue=function(v) Set("showItemValue",v) end}); y=y-h
+            {type="toggle",text="Show Tooltip",getValue=function() return Get("showTooltip")~=false end,setValue=function(v) Set("showTooltip",v) end}); y=y-h
         _,h=W:DualRow(parent,y,
             {type="dropdown",text="Alignment",values={LEFT="Left",RIGHT="Right"},order={"LEFT","RIGHT"},getValue=function() return Get("alignment") or "LEFT" end,setValue=function(v)
                 local p=P(); if not p then return end
@@ -648,8 +649,8 @@ init:SetScript("OnEvent", function(self)
                 if EllesmereUI.RefreshPage then C_Timer.After(0,function() EllesmereUI:RefreshPage(true) end) end
             end}); y=y-h
         _,h=W:DualRow(parent,y,
-            {type="slider",text="Spacing",min=5,max=20,step=1,getValue=function() return math.max(5,Get("spacing") or 5) end,setValue=function(v) Set("spacing",math.max(5,v)) end},
-            {type="slider",text="Maximum Shown",min=1,max=12,step=1,getValue=function() return Get("maxVisible") or 6 end,setValue=function(v) Set("maxVisible",v) end}); y=y-h
+            {type="slider",text="Maximum Shown",min=1,max=12,step=1,getValue=function() return Get("maxVisible") or 6 end,setValue=function(v) Set("maxVisible",v) end},
+            {type="slider",text="Spacing",min=5,max=20,step=1,getValue=function() return math.max(5,Get("spacing") or 5) end,setValue=function(v) Set("spacing",math.max(5,v)) end}); y=y-h
 
         _,h=W:SectionHeader(parent,"APPEARANCE",y); y=y-h
         local displayStyleRow
@@ -659,12 +660,27 @@ init:SetScript("OnEvent", function(self)
                 setValue=function(v) Set("displayStyle",v); if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage() end end},
             {type="slider",text="Width",min=180,max=600,step=5,getValue=function() return Get("width") or 310 end,setValue=function(v) Set("width",v) end}); y=y-h
         do
+            local iconSizeTooltip="Controls the item icon size. Available only in Icon mode."
+            local verticalPaddingTooltip="Controls the vertical padding inside the notification bar. Available only in Bar mode."
             local _,showCog=EllesmereUI.BuildCogPopup({title="Display Style Options",rows={
                 {type="toggle",label="Icon Part of Bar",disabled=function() return Get("displayStyle")=="ICON" end,get=function() return Get("iconPartOfBar")~=false end,set=function(v) if Get("displayStyle")~="ICON" then Set("iconPartOfBar",v) end end},
                 {type="slider",label="Icon Gap to Bar",min=5,max=30,step=1,
                     disabled=function() return Get("displayStyle")=="ICON" or Get("iconPartOfBar")~=false end,
                     get=function() return Get("displayStyle")=="ICON" and 5 or math.max(5,Get("iconOffsetX") or 5) end,
                     set=function(v) if Get("displayStyle")~="ICON" then Set("iconOffsetX",v) end end},
+                {type="slider",label="Inner Padding X",min=5,max=15,step=1,
+                    get=function() return math.max(5,math.min(15,Get("innerPaddingX") or 5)) end,
+                    set=function(v) Set("innerPaddingX",v) end},
+                {type="slider",label="Inner Padding Y",min=5,max=15,step=1,
+                    disabled=function() return Get("displayStyle")=="ICON" end,
+                    tooltip=verticalPaddingTooltip,disabledTooltip=verticalPaddingTooltip,
+                    get=function() return math.max(5,math.min(15,Get("innerPaddingY") or 5)) end,
+                    set=function(v) if Get("displayStyle")~="ICON" then Set("innerPaddingY",v) end end},
+                {type="slider",label="Icon Size",min=30,max=80,step=1,
+                    tooltip=iconSizeTooltip,disabledTooltip=iconSizeTooltip,
+                    disabled=function() return Get("displayStyle")~="ICON" end,
+                    get=function() return math.max(30,math.min(80,Get("iconSize") or 44)) end,
+                    set=function(v) if Get("displayStyle")=="ICON" then Set("iconSize",v) end end},
             }})
             local region=displayStyleRow._leftRegion; local control=region and region._control
             local cog=CreateFrame("Button",nil,region); cog:SetSize(22,22)
@@ -673,14 +689,15 @@ init:SetScript("OnEvent", function(self)
             cog:SetAlpha(.45); cog:SetScript("OnEnter",function(s) s:SetAlpha(.8) end); cog:SetScript("OnLeave",function(s) s:SetAlpha(.45) end)
             cog:SetScript("OnClick",function(s) showCog(s) end)
         end
-        _,h=W:DualRow(parent,y,
-            {type="slider",text="Inner Padding X",min=5,max=15,step=1,getValue=function() return math.max(5,math.min(15,Get("innerPaddingX") or 5)) end,setValue=function(v) Set("innerPaddingX",v) end},
-            {type="slider",text="Inner Padding Y",min=5,max=15,step=1,getValue=function() return math.max(5,math.min(15,Get("innerPaddingY") or 5)) end,setValue=function(v) Set("innerPaddingY",v) end}); y=y-h
         local textureNames=ns.notificationBarTextureNames or {__solid="Solid"}
         local textureOrder=ns.notificationBarTextureOrder or {"__solid"}
         local statusbars=ns.notificationBarTextures or {}
-        if EllesmereUI.AppendSharedMediaTextures then
-            EllesmereUI.AppendSharedMediaTextures(textureNames,textureOrder,nil,statusbars)
+        -- Runtime owns SharedMedia registration. Do not turn the Loot table
+        -- into a late-media consumer merely because its disabled options page
+        -- was opened; that would violate Zero Cost after the page closes.
+        local profile=P()
+        if profile and profile.enabled~=false and ns.AttachNotificationBarSharedMedia then
+            ns.AttachNotificationBarSharedMedia()
         end
         local barValues,barOrder={},{}
         for _,key in ipairs(textureOrder) do
@@ -808,6 +825,10 @@ init:SetScript("OnEvent", function(self)
         end
 
         _,h=W:SectionHeader(parent,"DISPLAY & ANIMATION",y); y=y-h
+        _,h=W:DualRow(parent,y,
+            {type="toggle",text="Show Vendor Value",getValue=function() return Get("showItemValue")==true end,setValue=function(v) Set("showItemValue",v) end},
+            {type="toggle",text="Show Price Labels",tooltip="Shows Vendor and AH labels before item values.",
+                getValue=function() return Get("showPriceLabels")==true end,setValue=function(v) Set("showPriceLabels",v) end}); y=y-h
         local verticalSlide=Get("growMode")=="DOWN" and "SLIDE_BOTTOM" or "SLIDE_TOP"
         local animValues={NONE="None",FADE="Fade",SLIDE_LEFT="Slide (Left)",SLIDE_RIGHT="Slide (Right)",ZOOM_IN="Zoom In",ZOOM_OUT="Zoom Out"}
         animValues[verticalSlide]=verticalSlide=="SLIDE_TOP" and "Slide (Top)" or "Slide (Bottom)"
@@ -870,4 +891,4 @@ init:SetScript("OnEvent", function(self)
         if InCombatLockdown and InCombatLockdown() then print("Cannot open options in combat"); return end
         EllesmereUI:ShowModule("EllesmereUILoot")
     end
-end)
+end

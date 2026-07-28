@@ -5,6 +5,18 @@
 local L = EllesmereUI.RegisterLocale("zhTW")
 if not L then return end
 
+L["Vendor"]="商人"
+L["AH"]="拍賣"
+L["Show Price Labels"]="顯示價格標籤"
+L["Shows Vendor and AH labels before item values."]="在物品價值前顯示商人和拍賣標籤。"
+L["Controls the vertical padding inside the notification bar. Available only in Bar mode."]="控制通知條內部的垂直內距。僅在條列模式下可用。"
+L["Controls the item icon size. Available only in Icon mode."]="控制物品圖示大小。僅在圖示模式下可用。"
+L["Market Value"]="市場價值"
+L["Market Value Source"]="市場價值來源"
+L["Show Market Value"]="顯示市場價值"
+L["Alert on Market Value"]="市場價值提醒"
+L["Shows the selected external market value in item notifications."]="在物品通知中顯示所選的外部市場價值。"
+
 -- EllesmereUI Loot
 L["Loot"]="拾取"; L["Loot Feed"]="拾取資訊流"; L["Alerts"]="提醒"; L["External Price Source"]="外部價格來源"; L["EXTERNAL PRICE SOURCES"]="外部價格來源"; L["Notification Price Source"]="通知價格來源"
 L["External price sources provide auction house values for notifications."]="外部價格來源可為通知提供拍賣場價格。"; L["Supported addons: TSM4 and Auctionator. Sources are only available while the corresponding addon is enabled and loaded."]="支援 TSM4 與 Auctionator。只有對應插件已啟用並載入時，價格來源才可用。"; L["No supported price addon is loaded. Enable TSM4 or Auctionator, then reload the UI."]="未載入支援的價格插件。請啟用 TSM4 或 Auctionator，然後重新載入介面。"

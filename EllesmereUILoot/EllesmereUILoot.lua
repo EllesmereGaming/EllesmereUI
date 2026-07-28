@@ -32,16 +32,45 @@ local BAR_TEXTURE_NAMES={
 ns.notificationBarTextures=BAR_TEXTURES
 ns.notificationBarTextureOrder=BAR_TEXTURE_ORDER
 ns.notificationBarTextureNames=BAR_TEXTURE_NAMES
-if EllesmereUI.AppendSharedMediaTextures then
+
+-- Same lifecycle as Damage Meters: bundled textures form the stable base
+-- catalog, while LibSharedMedia entries are discovered at runtime (including
+-- media registered later by other addons). Unlike Damage Meters, Loot can be
+-- toggled off internally, so its SharedMedia consumer is detached again to
+-- preserve the module's Zero Cost contract.
+local sharedMediaAttached=false
+local function AttachBarSharedMedia()
+    if sharedMediaAttached or not EllesmereUI.AppendSharedMediaTextures then return end
     EllesmereUI.AppendSharedMediaTextures(BAR_TEXTURE_NAMES,BAR_TEXTURE_ORDER,nil,BAR_TEXTURES)
+
+    -- Reattaching after a disable may reuse an order table that already owns
+    -- its separator. Tell the shared helper so a late media registration does
+    -- not append a second separator.
+    local consumer=EllesmereUI._smTexConsumers and EllesmereUI._smTexConsumers[BAR_TEXTURES]
+    if not consumer then return end
+    sharedMediaAttached=true
+    if not consumer.sepAdded then
+        for _,key in ipairs(BAR_TEXTURE_ORDER) do
+            if key=="---" then consumer.sepAdded=true; break end
+        end
+    end
 end
+
+local function DetachBarSharedMedia()
+    if not sharedMediaAttached then return end
+    if EllesmereUI._smTexConsumers then EllesmereUI._smTexConsumers[BAR_TEXTURES]=nil end
+    sharedMediaAttached=false
+end
+
+ns.AttachNotificationBarSharedMedia=AttachBarSharedMedia
 local DB_DEFAULTS = { profile = {
     -- Feed behavior and geometry
     enabled = true, duration = 5, maxVisible = 6,
     enterAnimation = "SLIDE_LEFT", exitAnimation = "FADE",
     enterDuration = 0.2, exitDuration = 1.0,
     width = 340, spacing = 5, alignment = "LEFT",
-    fontSize = 16, valueFontSize = 14, innerPaddingX = 10, innerPaddingY = 5, backgroundAlpha = .3,
+    fontSize = 16, valueFontSize = 14, innerPaddingX = 10, innerPaddingY = 5,
+    iconSize = 44, backgroundAlpha = .3,
     growMode = "UP", showItemQuality = true,
     showItemValue = false, showTooltip = true,
     displayStyle = "BAR", borderTexture = "solid", borderSize = 0,
@@ -59,8 +88,9 @@ local DB_DEFAULTS = { profile = {
     alertGlow = true, alertGlowStyle = 6,
     alertSoundEnabled = false, alertSoundKey = "NONE",
     -- External prices
-    tsmReplaceVendor = false,
-    externalPriceSource = "NONE", showTotalLootValue = false, showStackTotalValue = true,
+    externalPriceSource = "NONE", showMarketValue = true,
+    showTotalLootValue = false, showStackTotalValue = true,
+    showPriceLabels = false,
     externalPriceAlertEnabled = false,
     totalValueFontName = "__global", totalValueFontSize = 14,
     totalValueFontStyle = "OUTLINE_SHADOW",
@@ -80,6 +110,8 @@ local DB_DEFAULTS = { profile = {
 
 -- Runtime state is kept outside SavedVariables. Rows are pooled instead of
 -- recreated for every loot event to avoid garbage spikes during mass looting.
+-- Heavy runtime objects are lazy: holder, eventFrame and animationDriver stay
+-- nil when the feed starts disabled, so the off state owns no hidden frames.
 local db, holder, eventFrame
 local rows, active = {}, {}
 local currencyState, factionState = {}, {}
@@ -91,6 +123,18 @@ local previewTicker, previewActive
 local snapshotTimer
 local TrimActive
 local animationDriver, StartAnimationDriver
+-- Replaces per-frame polling during a row's static hold time. It wakes the
+-- animation driver only when the next exit/fade animation must begin.
+local animationWakeTimer
+-- `runtimeEnabled` is the single source of truth for every background path.
+-- Forward declarations let settings changes reach the lifecycle code without
+-- exposing internal implementation functions globally.
+local runtimeEnabled = false
+local SetRuntimeEnabled
+local SetRuntimeEvent
+local ConfigureRuntimeEvents
+local RegisterUnlockIntegration
+local unlockIntegrationRegistered = false
 local nextCenteredSide=1
 
 local function Profile() return db and db.profile end
@@ -115,6 +159,25 @@ local function FormatMoney(copper)
     if silver > 0 or gold > 0 then parts[#parts + 1] = format("%d|cffc7c7cfs|r", silver) end
     parts[#parts + 1] = format("%d|cffeda55fc|r", coin)
     return table.concat(parts, " ")
+end
+
+-- One formatter serves both live rows and the settings preview. Keeping value
+-- labels short leaves more width for prices, while the muted labels and dot
+-- separator create hierarchy without adding more frames or textures.
+local function FormatItemValueLine(p,amount,vendorUnitValue,marketUnitValue)
+    amount=amount or 1
+    local showTotal=amount>1 and p.showStackTotalValue~=false
+    local function Part(label,unitValue)
+        if not unitValue or unitValue<=0 then return nil end
+        local text=(p.showPriceLabels and ("|cff9ca3af"..label.."|r ") or "")..FormatMoney(unitValue)
+        if showTotal then text=text.." |cff8a919c("..FormatMoney(unitValue*amount)..")|r" end
+        return text
+    end
+
+    local market=p.showMarketValue~=false and Part(EllesmereUI.L("AH"),marketUnitValue) or nil
+    local vendor=p.showItemValue and Part(EllesmereUI.L("Vendor"),vendorUnitValue) or nil
+    if vendor and market then return vendor.."  |cff68707c•|r  "..market end
+    return vendor or market or ""
 end
 
 local BIND_LABELS = {
@@ -185,11 +248,30 @@ local function ApplyFontStyle(fontString, path, size, style)
     fontString:SetShadowColor(0, 0, 0, shadow and .9 or 0)
 end
 
+local function RequestedIconSize(p)
+    return max(30,math.min(80,tonumber(p.iconSize) or 44))
+end
+
 local function UniformRowHeight(p)
-    -- Reserve the two-line text block for every row so one- and two-line
-    -- notifications always share exactly the same bar and icon dimensions.
+    -- Bar mode reserves the two-line text block and lets vertical padding set
+    -- both bar height and its attached icon size. Icon mode has no bar interior,
+    -- so padding must not leak into geometry. The row still honors the text
+    -- block's minimum height to prevent two-line notifications from overlapping.
     local textHeight=(p.fontSize or 14)+(p.valueFontSize or 12)+4
+    if p.displayStyle=="ICON" then
+        return max(textHeight,RequestedIconSize(p))
+    end
     return max(26,textHeight+max(5,math.min(15,p.innerPaddingY or 5))*2)
+end
+
+local function VisualIconSize(p,rowHeight)
+    return p.displayStyle=="ICON" and RequestedIconSize(p) or (rowHeight or UniformRowHeight(p))
+end
+
+local function HorizontalTextPadding(p)
+    -- Horizontal padding remains useful in both modes: in Icon mode it acts as
+    -- the configurable gap between the symbol and its text block.
+    return max(5,math.min(15,p.innerPaddingX or 5))
 end
 
 -- These helpers are shared by the live feed and the settings preview. Keeping
@@ -346,6 +428,9 @@ local function UpdateTotalValueFade(self)
 end
 
 local function ApplyBorderStyleCached(frame,size,r,g,b,a,texture,offsetX,offsetY)
+    -- Border construction is relatively expensive. Cache the complete input
+    -- tuple on the frame and skip EllesmereUI.ApplyBorderStyle when a normal
+    -- layout pass would only reapply identical appearance data.
     offsetX,offsetY=offsetX or 0,offsetY or 0
     if frame._elBorderSize==size and frame._elBorderR==r and frame._elBorderG==g
         and frame._elBorderB==b and frame._elBorderA==a and frame._elBorderTexture==texture
@@ -410,7 +495,7 @@ local function Layout()
         local referenceRow=active[1]
         local hasIcon=referenceRow.iconPath~=nil
         if hasIcon then
-            local iconExtent=UniformRowHeight(p)
+            local iconExtent=VisualIconSize(p,UniformRowHeight(p))
             if p.iconPartOfBar==false then
                 iconExtent=iconExtent+max(5,p.iconOffsetX or 5)
             end
@@ -531,20 +616,9 @@ local function Layout()
         local separateIcon = p.iconPartOfBar == false and row.iconPath
         local iconGap = max(5, p.iconOffsetX or 5)
         local attachedIcon = showRowIcon and not separateIcon
-        row.icon:SetSize(rowHeight, rowHeight)
+        local visualIconSize=VisualIconSize(p,rowHeight)
+        row.icon:SetSize(visualIconSize,visualIconSize)
         row.icon:SetShown(showRowIcon)
-        row.qualityBadge:Hide()
-        if showRowIcon and row.reagentQuality then
-            local atlas=row.reagentQualityAtlas or ReagentQualityAtlas(row.itemLink or row.itemKey,row.reagentQuality)
-            local ok = atlas and pcall(row.qualityBadge.SetAtlas, row.qualityBadge,atlas,false)
-            if ok then
-                local badgeSize = math.min(20, math.max(9, rowHeight * .42))
-                row.qualityBadge:SetSize(badgeSize, badgeSize)
-                row.qualityBadge:ClearAllPoints()
-                row.qualityBadge:SetPoint("TOPRIGHT", row.icon, "TOPRIGHT", 2, 2)
-                row.qualityBadge:Show()
-            end
-        end
         row.icon:ClearAllPoints()
         local appliedGap=separateIcon and iconGap or 0
         if iconRight then row.icon:SetPoint("LEFT",row,"RIGHT",appliedGap,0)
@@ -575,7 +649,7 @@ local function Layout()
         row.text:ClearAllPoints()
         row.value:ClearAllPoints()
         local lineGap=4
-        local padX=max(5,math.min(15,p.innerPaddingX or 5))
+        local padX=HorizontalTextPadding(p)
         local mainY=row.hasValue and (((p.valueFontSize or 12)+lineGap)/2) or 0
         local valueY=-(((p.fontSize or 14)+lineGap)/2)
         if separateIcon and not iconRight then
@@ -694,12 +768,9 @@ local function RefreshSettingsPreviewRow(row,previewKind,yOffset)
         sampleText=(p.showItemQuality~=false and "|cffa335ee" or "|cffffffff").."Epic Equipment|r |cffffffffx2|r"
     end
     if previewKind=="ITEM" then
-        local showStackTotal=p.showStackTotalValue~=false
-        local vendor=p.showItemValue and (showStackTotal and "Vendor: 42g 50s (85g)" or "Vendor: 42g 50s") or nil
-        local ah=(p.externalPriceSource or "NONE")~="NONE"
-            and (showStackTotal and "AH Price: 1,250g (2,500g)" or "AH Price: 1,250g") or nil
-        if p.tsmReplaceVendor and ah then sampleValue=ah
-        else sampleValue=vendor and ah and (vendor.."  |  "..ah) or vendor or ah end
+        local marketValue=p.showMarketValue~=false and (p.externalPriceSource or "NONE")~="NONE" and 12500000 or nil
+        sampleValue=FormatItemValueLine(p,2,425000,marketValue)
+        if sampleValue=="" then sampleValue=nil end
     end
     local hasValue=sampleValue~=nil
     row.icon:SetTexture(sampleIcon); row.text:SetText(sampleText); row.value:SetText(sampleValue or "")
@@ -708,11 +779,12 @@ local function RefreshSettingsPreviewRow(row,previewKind,yOffset)
     local attachedIcon=not separateIcon
     local rowWidth=p.width or 310
     local previewHasIcon=true
-    local previewIconExtent=previewHasIcon and (rowHeight+(separateIcon and iconGap or 0)) or 0
+    local previewIconSize=VisualIconSize(p,rowHeight)
+    local previewIconExtent=previewHasIcon and (previewIconSize+(separateIcon and iconGap or 0)) or 0
     row:ClearAllPoints()
     row:SetPoint("CENTER",row:GetParent(),"CENTER",iconRight and -previewIconExtent/2 or previewIconExtent/2,yOffset or 0)
     row:SetSize(rowWidth,rowHeight)
-    row.icon:SetSize(rowHeight,rowHeight); row.icon:Show()
+    row.icon:SetSize(previewIconSize,previewIconSize); row.icon:Show()
     row.icon:ClearAllPoints()
     local appliedGap=separateIcon and iconGap or 0
     if iconRight then row.icon:SetPoint("LEFT",row,"RIGHT",appliedGap,0)
@@ -732,7 +804,7 @@ local function RefreshSettingsPreviewRow(row,previewKind,yOffset)
     ApplyFontStyle(row.value,fontPath,p.valueFontSize or 12,p.fontStyle or "OUTLINE_SHADOW")
     row.text:ClearAllPoints(); row.value:ClearAllPoints()
     local lineGap=4
-    local padX=max(5,math.min(15,p.innerPaddingX or 5))
+    local padX=HorizontalTextPadding(p)
     local mainY=hasValue and ((p.valueFontSize or 12)+lineGap)/2 or 0
     local valueY=-((p.fontSize or 14)+lineGap)/2
     local leftAnchor=separateIcon and row.bg or row.icon
@@ -777,7 +849,7 @@ function ns.RefreshSettingsPreview()
             settingsPreviewTotal:SetText(EllesmereUI.L("Total loot value")..": |cffffffff2,500g|r")
             settingsPreviewTotal:ClearAllPoints()
             local rowHeight=UniformRowHeight(p)
-            local totalWidth=(p.width or 310)+rowHeight+5
+            local totalWidth=(p.width or 310)+VisualIconSize(p,rowHeight)+5
             local inwardX,downwardY=TotalValueOffsets(p)
             settingsPreviewTotal:SetWidth(max(1,totalWidth-inwardX))
             settingsPreviewTotal:SetPoint("TOP",settingsPreview:GetParent(),"CENTER",
@@ -827,7 +899,6 @@ local function AcquireRow()
     row:EnableMouse(true)
     row.bg = row:CreateTexture(nil, "BACKGROUND"); row.bg:SetAllPoints()
     row.icon = row:CreateTexture(nil, "ARTWORK"); row.icon:SetTexCoord(.07, .93, .07, .93)
-    row.qualityBadge = row:CreateTexture(nil, "OVERLAY")
     row.text = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     local fontPath = STANDARD_TEXT_FONT
     if (not fontPath or fontPath == "") and GameFontNormal then
@@ -848,6 +919,7 @@ local function AcquireRow()
 
     local function BeginHover(self)
         local owner=self._lootFeedRow or self
+        if owner._hoverLeaveTimer then owner._hoverLeaveTimer:Cancel(); owner._hoverLeaveTimer=nil end
         local p = Profile()
         if not p or not p.showTooltip or not owner.itemLink then return end
         if not owner.hovered then
@@ -863,7 +935,9 @@ local function AcquireRow()
         local owner=self._lootFeedRow or self
         -- Moving between the detached icon and the bar fires OnLeave first.
         -- Defer one frame so both hit regions can be checked as one surface.
-        C_Timer.After(0,function()
+        if owner._hoverLeaveTimer then owner._hoverLeaveTimer:Cancel() end
+        owner._hoverLeaveTimer=C_Timer.NewTimer(0,function()
+            owner._hoverLeaveTimer=nil
             if not owner.hovered then return end
             if owner:IsMouseOver() or (owner.iconHover and owner.iconHover:IsMouseOver()) then return end
             owner.hovered = nil
@@ -871,6 +945,7 @@ local function AcquireRow()
             owner.pausedRemaining = nil
             GameTooltip:Hide()
             if TrimActive then TrimActive() end
+            if StartAnimationDriver then StartAnimationDriver() end
         end)
     end
     row.iconHover._lootFeedRow=row
@@ -884,6 +959,7 @@ local function RemoveRow(row,deferLayout)
         if candidate == row then table.remove(active, i); break end
     end
     if row.hovered then GameTooltip:Hide() end
+    if row._hoverLeaveTimer then row._hoverLeaveTimer:Cancel(); row._hoverLeaveTimer=nil end
     if row._alertGlowKey and EllesmereUI.Glows then EllesmereUI.Glows.StopGlow(row.alertGlow) end
     row._alertGlowKey, row.alertRule = nil, nil
     row.hovered, row.pausedRemaining, row.enterStarted, row.expires = nil, nil, nil, nil
@@ -898,7 +974,7 @@ local function RemoveRow(row,deferLayout)
     row.itemQuality, row.hasValue, row.centerSide = nil, nil, nil
     row.basePoint, row.baseY = nil, nil
     row.text:SetText(""); row.value:SetText("")
-    row.icon:SetTexture(nil); row.qualityBadge:SetTexture(nil); row.qualityBadge:Hide()
+    row.icon:SetTexture(nil)
     row.iconHover:Hide()
     row:Hide(); row:SetScript("OnUpdate", nil); row:SetAlpha(1); row:SetScale(1)
     rows[#rows + 1] = row
@@ -1002,12 +1078,7 @@ local function UpdateRowAnimation(self,now,p)
     return false
 end
 
-local function UpdateAnimations(self,elapsed)
-    if not self._animating then
-        self._idleElapsed=(self._idleElapsed or 0)+elapsed
-        if self._idleElapsed<.05 then return end
-        self._idleElapsed=0
-    end
+local function UpdateAnimations(self)
     local p=Profile()
     if not p then animationDriver:Hide(); return end
     local now=GetTime()
@@ -1028,19 +1099,46 @@ local function UpdateAnimations(self,elapsed)
         UpdateTotalValueFade(totalFrame)
         if totalFrame._fadeStarted and now>=totalFrame._fadeStarted then animating=true end
     end
-    self._animating=animating
-    if #active==0 and not (totalFrame and totalFrame._fadeStarted) then
-        animationDriver:Hide()
+    if animating then return end
+
+    -- PERFORMANCE TRICK: entry/exit animations need per-frame interpolation,
+    -- but a fully visible row does not change at all during its hold period.
+    -- Hide OnUpdate completely and use one wake timer for the earliest row.
+    -- This changes a five-second notification from hundreds of OnUpdate calls
+    -- into animation frames plus a single timer callback.
+    local wakeAt
+    local exitDuration=max(.01,p.exitDuration or 1)
+    for _,row in ipairs(active) do
+        if not row.hovered and row.expires then
+            local candidate=row.expires-exitDuration
+            if not wakeAt or candidate<wakeAt then wakeAt=candidate end
+        end
+    end
+    if totalFrame and totalFrame._fadeStarted
+        and (not wakeAt or totalFrame._fadeStarted<wakeAt) then
+        wakeAt=totalFrame._fadeStarted
+    end
+    self:Hide()
+    if animationWakeTimer then animationWakeTimer:Cancel(); animationWakeTimer=nil end
+    if wakeAt then
+        animationWakeTimer=C_Timer.NewTimer(max(.01,wakeAt-now),function()
+            animationWakeTimer=nil
+            if runtimeEnabled and StartAnimationDriver then StartAnimationDriver() end
+        end)
     end
 end
 
 StartAnimationDriver=function()
+    if not runtimeEnabled then return end
+    -- New/merged loot can move the next deadline. Cancel the old wake-up so
+    -- only one scheduling primitive exists for the entire feed.
+    if animationWakeTimer then animationWakeTimer:Cancel(); animationWakeTimer=nil end
+    -- Lazy creation is important for Zero Cost: this frame never exists for a
+    -- feed that has stayed disabled since login.
     if not animationDriver then
         animationDriver=CreateFrame("Frame")
         animationDriver:SetScript("OnUpdate",UpdateAnimations)
     end
-    animationDriver._animating=true
-    animationDriver._idleElapsed=0
     animationDriver:Show()
 end
 
@@ -1063,9 +1161,14 @@ local function Push(kind, key, amount, label, icon, quality, reagentQuality, sel
     -- This guarantees that Live Preview never advertises an AH value while
     -- "None" is selected on the External Price Source page.
     local hasExternalSource=(p.externalPriceSource or "NONE")~="NONE"
-    local tsmPrice=kind=="item" and hasExternalSource and previewExternalPrice or nil
+    -- Skip provider/API work entirely when the external value has no display,
+    -- total-value or alert consumer.
+    local needsExternalPrice=hasExternalSource and (p.showMarketValue~=false
+        or p.showTotalLootValue==true or (p.alertsEnabled and p.externalPriceAlertEnabled))
+    local tsmPrice=kind=="item" and needsExternalPrice and previewExternalPrice or nil
     if not tsmPrice then
-        tsmPrice=kind=="item" and (bindType==nil or bindType==0 or bindType==2) and ExternalPrice(itemLink or key,p) or nil
+        tsmPrice=kind=="item" and needsExternalPrice and (bindType==nil or bindType==0 or bindType==2)
+            and ExternalPrice(itemLink or key,p) or nil
     end
     local mergeRow
     if kind == "item" then
@@ -1124,23 +1227,20 @@ local function Push(kind, key, amount, label, icon, quality, reagentQuality, sel
     if kind == "item" then
         local binding = BIND_LABELS[bindType]
         if binding then label = label .. " |cffb8b8b8(" .. binding .. ")|r" end
+        local qualityPrefix = ""
+        if row.reagentQualityAtlas then
+            local qualitySize = math.min(24, math.max(16, (p.fontSize or 14) + 4))
+            qualityPrefix = format("|A:%s:%d:%d|a", row.reagentQualityAtlas, qualitySize, qualitySize)
+        end
         row.formatter = function(n)
             local qty = n > 1 and (" |cffffffffx" .. n .. "|r") or ""
-            return (p.showItemQuality and QualityColor(quality) or "|cffffffff") .. label .. "|r" .. qty
+            return qualityPrefix .. (p.showItemQuality and QualityColor(quality) or "|cffffffff") .. label .. "|r" .. qty
         end
         local hasVendor=p.showItemValue and sellPrice and sellPrice>0
-        row.hasValue = hasVendor or tsmPrice~=nil
+        local hasMarket=p.showMarketValue~=false and tsmPrice~=nil
+        row.hasValue = hasVendor or hasMarket
         row.valueFormatter = row.hasValue and function(n)
-            local function PriceText(prefix,unitPrice)
-                if not unitPrice then return nil end
-                local text=prefix..": "..FormatMoney(unitPrice)
-                if n>1 and p.showStackTotalValue~=false then text=text.." ("..FormatMoney(unitPrice*n)..")" end
-                return text
-            end
-            local ah=PriceText("AH Price",tsmPrice)
-            if p.tsmReplaceVendor and ah then return ah end
-            local vendor=hasVendor and PriceText("Vendor",sellPrice)
-            return vendor and ah and (vendor.."  |  "..ah) or vendor or ah or ""
+            return FormatItemValueLine(p,n,hasVendor and sellPrice or nil,tsmPrice)
         end or nil
     else
         if type(label)=="table" then
@@ -1168,8 +1268,12 @@ end
 local function NotifyItem(itemID, amount)
     local name, itemLink, quality, _, _, _, _, _, _, icon, sellPrice, _, _, bindType = C_Item.GetItemInfo(itemID)
     if not name then
+        -- Item cache misses are uncommon. Do not listen to the global
+        -- GET_ITEM_INFO_RECEIVED stream permanently; register it only while
+        -- at least one requested item is pending, then remove it immediately.
         pendingItems[itemID] = (pendingItems[itemID] or 0) + amount
         if C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
+        if runtimeEnabled and SetRuntimeEvent then SetRuntimeEvent("GET_ITEM_INFO_RECEIVED",true) end
         return
     end
     Push("item", itemID, amount, name, icon, quality, ReagentQuality(itemLink or itemID), sellPrice, bindType, itemLink)
@@ -1185,6 +1289,10 @@ local function IsDisplayableCurrency(info,currencyID)
 end
 
 local function ScanCurrencies(notify)
+    -- Builds the current currency snapshot. With notify=false it establishes a
+    -- silent baseline; with notify=true it emits only positive deltas. The
+    -- direct event payload handles the common path, so this full scan is mainly
+    -- a compatibility fallback for incomplete CURRENCY_DISPLAY_UPDATE data.
     if not C_CurrencyInfo or not C_CurrencyInfo.GetCurrencyListSize then return end
     local nextState=currencyScratch
     wipe(nextState)
@@ -1202,10 +1310,14 @@ local function ScanCurrencies(notify)
             end
         end
     end
+    -- Double-buffer swap: retain both tables and wipe/reuse the old snapshot
+    -- next time instead of allocating a fresh table for every scan.
     currencyState,currencyScratch=nextState,currencyState
 end
 
 local function ScanFactions(notify)
+    -- Reputation events do not identify the changed faction. Compare one
+    -- complete snapshot against the previous one and emit positive deltas.
     local nextState=factionScratch
     wipe(nextState)
     local count = C_Reputation and C_Reputation.GetNumFactions and C_Reputation.GetNumFactions() or GetNumFactions()
@@ -1236,12 +1348,23 @@ local function ScanFactions(notify)
             end
         end
     end
+    -- Same allocation-free double-buffer pattern as currency snapshots.
     factionState,factionScratch=nextState,factionState
 end
 
 local function InitializeSnapshots()
-    ScanCurrencies(false); ScanFactions(false)
-    lastMoney = GetMoney() or 0; lastXP = UnitXP("player") or 0; initialized = true
+    local p=Profile()
+    if not runtimeEnabled or not p or p.enabled==false then return end
+    -- Only snapshot counters that can currently produce a notification.
+    -- Currency/reputation list walks are the most expensive baseline work, so
+    -- disabling their display also removes their scan and scratch-table use.
+    if p.showCurrencies or p.showHonor then ScanCurrencies(false)
+    else wipe(currencyState); wipe(currencyScratch) end
+    if p.showReputation then ScanFactions(false)
+    else wipe(factionState); wipe(factionScratch) end
+    lastMoney = p.showGold and (GetMoney() or 0) or 0
+    lastXP = p.showExperience and (UnitXP("player") or 0) or 0
+    initialized = true
 end
 
 local function ApplyPosition()
@@ -1255,6 +1378,15 @@ end
 
 function ns.Apply()
     local p = Profile()
+    -- Apply is called by every option setter. Lifecycle synchronization comes
+    -- first so changing Enabled to false tears down background work before any
+    -- layout/preview code gets a chance to run.
+    if SetRuntimeEnabled then SetRuntimeEnabled(p and p.enabled ~= false) end
+    if not p or not runtimeEnabled then
+        if ns.RefreshSettingsPreview then ns.RefreshSettingsPreview() end
+        return
+    end
+    if ConfigureRuntimeEvents then ConfigureRuntimeEvents() end
     if p and not p.showTooltip then
         for _, row in ipairs(active) do
             if row.hovered then
@@ -1276,24 +1408,41 @@ local function RunInitializeSnapshots()
     InitializeSnapshots()
 end
 
-local currencyScanPending,factionScanPending=false,false
+local function ScheduleSnapshotInitialization()
+    if snapshotTimer then snapshotTimer:Cancel(); snapshotTimer=nil end
+    local p=Profile()
+    local needsBaseline=p and (p.showCurrencies or p.showHonor or p.showReputation or p.showGold or p.showExperience)
+    if needsBaseline then
+        -- Blizzard counters are not always final during loading screens. One
+        -- cancellable delayed baseline prevents login values from appearing
+        -- as newly earned loot. Item chat events need no numeric baseline.
+        initialized=false
+        snapshotTimer=C_Timer.NewTimer(1,RunInitializeSnapshots)
+    else
+        initialized=true
+    end
+end
+
+local currencyScanTimer,factionScanTimer
 local function RunScheduledCurrencyScan()
-    currencyScanPending=false
+    currencyScanTimer=nil
     if initialized and Profile() and Profile().enabled then ScanCurrencies(true) end
 end
 local function RunScheduledFactionScan()
-    factionScanPending=false
+    factionScanTimer=nil
     if initialized and Profile() and Profile().enabled then ScanFactions(true) end
 end
 local function ScheduleCurrencyScan()
-    if currencyScanPending then return end
-    currencyScanPending=true
-    C_Timer.After(0,RunScheduledCurrencyScan)
+    -- Several currency events can arrive in one frame. A single zero-delay,
+    -- cancellable timer coalesces them into one list scan.
+    if currencyScanTimer then return end
+    currencyScanTimer=C_Timer.NewTimer(0,RunScheduledCurrencyScan)
 end
 local function ScheduleFactionScan()
-    if factionScanPending then return end
-    factionScanPending=true
-    C_Timer.After(0,RunScheduledFactionScan)
+    -- UPDATE_FACTION has no useful delta payload, so a scan is necessary; the
+    -- pending-timer guard prevents duplicate full scans in an event burst.
+    if factionScanTimer then return end
+    factionScanTimer=C_Timer.NewTimer(0,RunScheduledFactionScan)
 end
 _G._EL_Apply = ns.Apply
 
@@ -1311,7 +1460,10 @@ local previewSamples = {
 
 function ns.IsPreviewActive() return previewActive == true end
 function ns.SetPreview(activePreview)
-    previewActive = activePreview == true
+    -- Preview is real runtime work (ticker, rows and animations), therefore it
+    -- is impossible to start while the feed is disabled and is canceled by
+    -- the same lifecycle teardown as live notifications.
+    previewActive = activePreview == true and runtimeEnabled
     if previewTicker then previewTicker:Cancel(); previewTicker = nil end
     if not previewActive then return end
     local function AddPreview()
@@ -1326,15 +1478,19 @@ function ns.SetPreview(activePreview)
     end)
 end
 
-eventFrame = CreateFrame("Frame")
-for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "CHAT_MSG_LOOT", "CURRENCY_DISPLAY_UPDATE", "UPDATE_FACTION", "PLAYER_MONEY", "PLAYER_XP_UPDATE", "GET_ITEM_INFO_RECEIVED" }) do eventFrame:RegisterEvent(event) end
-eventFrame:SetScript("OnEvent", function(_, event, ...)
+local registeredRuntimeEvents = {}
+local runtimeFeatures = {}
+-- One dispatcher is cheaper and easier to tear down than feature-specific
+-- frames. Only events selected by ConfigureRuntimeEvents ever reach it.
+local function HandleRuntimeEvent(_, event, ...)
     if event == "PLAYER_ENTERING_WORLD" then
-        if snapshotTimer then snapshotTimer:Cancel() end
-        snapshotTimer=C_Timer.NewTimer(1,RunInitializeSnapshots)
+        ScheduleSnapshotInitialization()
         return
     end
-    if not initialized or not Profile() or not Profile().enabled then return end
+    if not Profile() or not Profile().enabled then return end
+    -- Stateful counters must wait for their baseline; item chat messages can
+    -- be handled immediately because they already contain the gained item.
+    if not initialized and event~="CHAT_MSG_LOOT" and event~="GET_ITEM_INFO_RECEIVED" then return end
     if event == "GET_ITEM_INFO_RECEIVED" then
         local itemID, success = ...
         local amount=pendingItems[itemID]
@@ -1342,6 +1498,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
             pendingItems[itemID]=nil
             if success then NotifyItem(itemID,amount) end
         end
+        if not next(pendingItems) then SetRuntimeEvent("GET_ITEM_INFO_RECEIVED",false) end
     elseif event == "CHAT_MSG_LOOT" then
         local message = ...
         local senderGUID = select(12, ...)
@@ -1374,29 +1531,151 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         if delta < 0 then delta = xp end; lastXP = xp
         if delta > 0 and Profile().showExperience then Push("xp", 0, delta, function(n) return "+" .. n .. " Experience" end, 894556) end
     end
-end)
-
-function EN:OnInitialize()
-    db = EllesmereUI.Lite.NewDB("EllesmereUILootDB", DB_DEFAULTS)
-    CopyDefaults(db.profile, DB_DEFAULTS.profile)
-    -- Validate the current schema's numeric ranges before creating frames.
-    db.profile.innerPaddingX=math.max(5,math.min(15,tonumber(db.profile.innerPaddingX) or 5))
-    db.profile.innerPaddingY=math.max(5,math.min(15,tonumber(db.profile.innerPaddingY) or 5))
-    db.profile.maxVisible=math.max(1,math.min(12,tonumber(db.profile.maxVisible) or 6))
-    db.profile.duration=math.max(1,math.min(10,tonumber(db.profile.duration) or 5))
-    db.profile.enterDuration=math.max(.2,math.min(1,tonumber(db.profile.enterDuration) or .2))
-    db.profile.exitDuration=math.max(.2,math.min(1,tonumber(db.profile.exitDuration) or 1))
-    if db.profile.exitAnimation~="FADE" and db.profile.exitAnimation~="SLIDE_LEFT" and db.profile.exitAnimation~="SLIDE_RIGHT" then
-        db.profile.exitAnimation="FADE"
-    end
-    _G._EL_AceDB = db
 end
 
-function EN:OnEnable()
-    EnsureHolder(); ApplyPosition(); Layout()
+local function EnsureEventFrame()
+    -- Lazy frame: a profile that starts disabled allocates no runtime event
+    -- frame at all. Once created it may persist in WoW, but with zero events it
+    -- consumes no per-frame CPU while disabled.
+    if eventFrame then return eventFrame end
+    eventFrame=CreateFrame("Frame")
+    eventFrame:SetScript("OnEvent",HandleRuntimeEvent)
+    return eventFrame
+end
+
+SetRuntimeEvent = function(event, shouldRegister)
+    -- Keep a mirror of registration state to avoid redundant API calls when a
+    -- slider or unrelated appearance option invokes Apply repeatedly.
+    if shouldRegister and not registeredRuntimeEvents[event] then
+        EnsureEventFrame():RegisterEvent(event)
+        registeredRuntimeEvents[event]=true
+    elseif eventFrame and not shouldRegister and registeredRuntimeEvents[event] then
+        eventFrame:UnregisterEvent(event)
+        registeredRuntimeEvents[event]=nil
+    end
+end
+
+ConfigureRuntimeEvents = function()
+    if not runtimeEnabled then return end
+    local p=Profile(); if not p then return end
+    -- Register by feature, not by addon. An enabled feed that only shows items
+    -- should not receive money, XP, currency or reputation traffic.
+    local items=p.showItems==true
+    local currencies=p.showCurrencies==true or p.showHonor==true
+    local reputation=p.showReputation==true
+    local money=p.showGold==true
+    local experience=p.showExperience==true
+
+    -- A feature enabled after the initial login snapshot needs its own
+    -- baseline before its event is registered, otherwise old gains would be
+    -- reported as fresh loot.
+    if initialized then
+        if currencies and not runtimeFeatures.currencies then ScanCurrencies(false) end
+        if reputation and not runtimeFeatures.reputation then ScanFactions(false) end
+        if money and not runtimeFeatures.money then lastMoney=GetMoney() or 0 end
+        if experience and not runtimeFeatures.experience then lastXP=UnitXP("player") or 0 end
+    end
+    -- Feature shutdown also releases cached baselines and cancels a coalesced
+    -- scan that might still be waiting for the end of the current frame.
+    if not items then wipe(pendingItems) end
+    if not currencies then
+        if currencyScanTimer then currencyScanTimer:Cancel(); currencyScanTimer=nil end
+        wipe(currencyState); wipe(currencyScratch)
+    end
+    if not reputation then
+        if factionScanTimer then factionScanTimer:Cancel(); factionScanTimer=nil end
+        wipe(factionState); wipe(factionScratch)
+    end
+
+    -- PLAYER_ENTERING_WORLD is the only common runtime event; it refreshes
+    -- baselines after zoning/reloads. Item-info events remain demand-driven.
+    SetRuntimeEvent("PLAYER_ENTERING_WORLD",true)
+    SetRuntimeEvent("CHAT_MSG_LOOT",items)
+    SetRuntimeEvent("GET_ITEM_INFO_RECEIVED",items and next(pendingItems)~=nil)
+    SetRuntimeEvent("CURRENCY_DISPLAY_UPDATE",currencies)
+    SetRuntimeEvent("UPDATE_FACTION",reputation)
+    SetRuntimeEvent("PLAYER_MONEY",money)
+    SetRuntimeEvent("PLAYER_XP_UPDATE",experience)
+    runtimeFeatures.items=items
+    runtimeFeatures.currencies=currencies
+    runtimeFeatures.reputation=reputation
+    runtimeFeatures.money=money
+    runtimeFeatures.experience=experience
+end
+
+-- The addon's settings remain loaded so it can be enabled again, but its
+-- runtime is completely dormant while the profile toggle is off. In
+-- particular, no gameplay event, timer, ticker or OnUpdate remains active.
+SetRuntimeEnabled = function(enabled)
+    enabled = enabled == true
+    -- Idempotence matters because every option change passes through Apply.
+    -- Avoid re-registering events or rebuilding integration for visual edits.
+    if runtimeEnabled == enabled then return end
+    runtimeEnabled = enabled
+
+    if enabled then
+        -- Bring up only the pieces justified by current feature toggles. The
+        -- holder is created later by OnEnable; the animation frame remains
+        -- lazy until an actual notification needs interpolation.
+        AttachBarSharedMedia()
+        ConfigureRuntimeEvents()
+        if RegisterUnlockIntegration then RegisterUnlockIntegration() end
+        ScheduleSnapshotInitialization()
+        return
+    end
+
+    -- ZERO-COST TEARDOWN ORDER:
+    -- 1. Cut off new input first (events/listeners).
+    -- 2. Cancel every scheduled callback/ticker.
+    -- 3. Release snapshot/item data and stop OnUpdate.
+    -- 4. Recycle/hide visuals last.
+    -- This ordering prevents a callback from repopulating state mid-cleanup.
+    if eventFrame then eventFrame:UnregisterAllEvents() end
+    DetachBarSharedMedia()
+    wipe(registeredRuntimeEvents)
+    wipe(runtimeFeatures)
+    if unlockIntegrationRegistered then
+        if EllesmereUI.UnregisterUnlockModeListener then EllesmereUI:UnregisterUnlockModeListener("EL_LootFeed") end
+        if EllesmereUI.UnregisterUnlockElement then EllesmereUI:UnregisterUnlockElement("EL_LootFeed") end
+        unlockIntegrationRegistered = false
+        unlockActive = false
+    end
+    if snapshotTimer then snapshotTimer:Cancel(); snapshotTimer = nil end
+    if previewTicker then previewTicker:Cancel(); previewTicker = nil end
+    if currencyScanTimer then currencyScanTimer:Cancel(); currencyScanTimer = nil end
+    if factionScanTimer then factionScanTimer:Cancel(); factionScanTimer = nil end
+    previewActive = false
+    initialized = false
+    lastMoney, lastXP = 0, 0
+    wipe(currencyState); wipe(currencyScratch)
+    wipe(factionState); wipe(factionScratch)
+    wipe(pendingItems)
+
+    if animationDriver then
+        animationDriver:Hide()
+    end
+    if animationWakeTimer then animationWakeTimer:Cancel(); animationWakeTimer = nil end
+    for i = #active, 1, -1 do RemoveRow(active[i], true) end
+    if holder then
+        holder:Hide()
+        if holder.totalValueFrame then
+            holder.totalValueFrame._fadeStarted = nil
+            holder.totalValueFrame._holdUntil = nil
+            holder.totalValueFrame:Hide()
+        end
+    end
+end
+
+RegisterUnlockIntegration = function()
+    if unlockIntegrationRegistered then return end
+    -- Unlock Mode is also runtime integration. Register it lazily on enable
+    -- and explicitly unregister it on disable so moving/opening Unlock Mode
+    -- cannot call back into a dormant loot feed.
+    unlockIntegrationRegistered = true
     if EllesmereUI.RegisterUnlockModeListener then
         EllesmereUI:RegisterUnlockModeListener("EL_LootFeed", function(activeMode)
-            unlockActive = activeMode == true; Layout()
+            unlockActive = activeMode == true
+            if runtimeEnabled then Layout() elseif holder then holder:Hide() end
         end)
     end
     if EllesmereUI.RegisterUnlockElements and EllesmereUI.MakeUnlockElement then
@@ -1409,11 +1688,37 @@ function EN:OnEnable()
                 local spacing=max(5,p.spacing or 5)
                 return w,p.maxVisible*(h+spacing)-spacing
             end,
-            isHidden=function() return false end,
+            isHidden=function() return not runtimeEnabled end,
             savePos=function(_, point, relPoint, x, y) Profile().position={point=point,relPoint=relPoint,x=x,y=y} end,
             loadPos=function() return Profile().position end,
             clearPos=function() Profile().position=nil end,
             applyPos=ApplyPosition,
         }) }, "EllesmereUILoot")
     end
+end
+
+function EN:OnInitialize()
+    db = EllesmereUI.Lite.NewDB("EllesmereUILootDB", DB_DEFAULTS)
+    CopyDefaults(db.profile, DB_DEFAULTS.profile)
+    -- Validate the current schema's numeric ranges before creating frames.
+    db.profile.innerPaddingX=math.max(5,math.min(15,tonumber(db.profile.innerPaddingX) or 5))
+    db.profile.innerPaddingY=math.max(5,math.min(15,tonumber(db.profile.innerPaddingY) or 5))
+    db.profile.iconSize=math.max(30,math.min(80,tonumber(db.profile.iconSize) or 44))
+    db.profile.maxVisible=math.max(1,math.min(12,tonumber(db.profile.maxVisible) or 6))
+    db.profile.duration=math.max(1,math.min(10,tonumber(db.profile.duration) or 5))
+    db.profile.enterDuration=math.max(.2,math.min(1,tonumber(db.profile.enterDuration) or .2))
+    db.profile.exitDuration=math.max(.2,math.min(1,tonumber(db.profile.exitDuration) or 1))
+    if db.profile.exitAnimation~="FADE" and db.profile.exitAnimation~="SLIDE_LEFT" and db.profile.exitAnimation~="SLIDE_RIGHT" then
+        db.profile.exitAnimation="FADE"
+    end
+    _G._EL_AceDB = db
+end
+
+function EN:OnEnable()
+    SetRuntimeEnabled(Profile() and Profile().enabled ~= false)
+    if runtimeEnabled then EnsureHolder(); ApplyPosition(); Layout() end
+end
+
+function EN:OnDisable()
+    SetRuntimeEnabled(false)
 end
