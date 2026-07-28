@@ -2382,7 +2382,9 @@ do
     HookPixelSnap(hookFrame)
     HookPixelSnap(hookFrame:CreateTexture())
     HookPixelSnap(hookFrame:CreateFontString())
-    HookPixelSnap(hookFrame:CreateMaskTexture())
+    if hookFrame.CreateMaskTexture then
+        HookPixelSnap(hookFrame:CreateMaskTexture())
+    end
 
     -- Enumerate all existing frame types to catch any we missed
     local hookedTypes = { Frame = true }
