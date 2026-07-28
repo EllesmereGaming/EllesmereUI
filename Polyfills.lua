@@ -557,6 +557,29 @@ local function IsItemBound(bag, slot)
     return false
 end
 
+-- C_CVar
+C_CVar = C_CVar or {}
+if not C_CVar.GetCVar then
+    C_CVar.GetCVar = function(name)
+        return GetCVar(name)
+    end
+end
+if not C_CVar.SetCVar then
+    C_CVar.SetCVar = function(name, value)
+        return SetCVar(name, value)
+    end
+end
+if not C_CVar.GetCVarInfo then
+    C_CVar.GetCVarInfo = function(name)
+        return GetCVar(name), GetCVarDefault(name)
+    end
+end
+if not C_CVar.GetCVarBool then
+    C_CVar.GetCVarBool = function(name)
+        return GetCVar(name) == "1"
+    end
+end
+
 -- C_Container
 if not C_Container then
     C_Container = {}
