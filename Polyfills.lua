@@ -1362,6 +1362,9 @@ for _, meta in ipairs(frameMetas) do
                 end
             end
         end
+        if not meta.SetClipsChildren then
+            meta.SetClipsChildren = function(self, clip) end
+        end
         if not meta.SetAlphaFromBoolean then
             meta.SetAlphaFromBoolean = function(self, value, trueAlpha, falseAlpha)
                 if trueAlpha == nil then trueAlpha = 1 end
