@@ -16,7 +16,18 @@ Libs\LibDeflate\LibDeflate.lua
 Libs\LibKeystone\LibKeystone.lua
 
 # Core Polyfills for WotLK 3.3.5
-Polyfills.lua
+Polyfills/Core.lua
+Polyfills/Enum.lua
+Polyfills/Color.lua
+Polyfills/Timer.lua
+Polyfills/Aura.lua
+Polyfills/Item.lua
+Polyfills/Container.lua
+Polyfills/Spell.lua
+Polyfills/Map.lua
+Polyfills/Quest.lua
+Polyfills/Tooltip.lua
+Polyfills/Frame.lua
 
 # Lightweight addon framework (replaces Ace3)
 EllesmereUI_Lite.lua
