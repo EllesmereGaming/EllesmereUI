@@ -1255,6 +1255,12 @@ for _, meta in ipairs(frameMetas) do
         if not meta.SetPixelSnapDisabled then
             meta.SetPixelSnapDisabled = function(self, disable) end
         end
+        if not meta.IsForbidden then
+            meta.IsForbidden = function(self) return false end
+        end
+        if not meta.SetTexelSnappingBias then
+            meta.SetTexelSnappingBias = function(self, bias) end
+        end
         if not meta.PixelSnap then
             meta.PixelSnap = function(self, val) return val end
         end
