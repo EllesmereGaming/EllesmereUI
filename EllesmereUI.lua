@@ -2328,7 +2328,7 @@ do
     ---------------------------------------------------------------------------
     local function WatchPixelSnap(frame, snap)
         if issecrettable and issecrettable(frame) then return end
-        if (frame and not frame:IsForbidden()) and _pixelSnapDisabled[frame] and snap then
+        if (frame and (not frame.IsForbidden or not frame:IsForbidden())) and _pixelSnapDisabled[frame] and snap then
             _pixelSnapDisabled[frame] = nil
         end
     end
@@ -2391,7 +2391,7 @@ do
     local enumObj = EnumerateFrames()
     while enumObj do
         local objType = enumObj:GetObjectType()
-        if not enumObj:IsForbidden() and not hookedTypes[objType] then
+        if (not enumObj.IsForbidden or not enumObj:IsForbidden()) and not hookedTypes[objType] then
             HookPixelSnap(enumObj)
             hookedTypes[objType] = true
         end

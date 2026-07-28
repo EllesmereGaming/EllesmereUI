@@ -1235,12 +1235,45 @@ local EUI_AtlasMap = {
 local cooldownFrame = CreateFrame("Cooldown", nil, WorldFrame)
 local cooldownMeta = getmetatable(cooldownFrame).__index
 
+local function SafeGetMeta(widgetType)
+    local ok, obj = pcall(CreateFrame, widgetType)
+    if not ok or not obj then return nil end
+    local meta = getmetatable(obj)
+    return meta and meta.__index
+end
+
 local frameMetas = {
     getmetatable(CreateFrame("Frame")).__index,
     getmetatable(CreateFrame("Frame"):CreateTexture()).__index,
     getmetatable(CreateFrame("Frame"):CreateFontString()).__index,
     cooldownMeta,
+    SafeGetMeta("Button"),
+    SafeGetMeta("CheckButton"),
+    SafeGetMeta("ScrollFrame"),
+    SafeGetMeta("EditBox"),
+    SafeGetMeta("Slider"),
+    SafeGetMeta("StatusBar"),
+    SafeGetMeta("MessageFrame"),
+    SafeGetMeta("SimpleHTML"),
+    SafeGetMeta("ScrollingMessageFrame"),
+    SafeGetMeta("ColorSelect"),
+    SafeGetMeta("Model"),
+    SafeGetMeta("PlayerModel"),
+    SafeGetMeta("DressUpModel"),
 }
+
+if Minimap then
+    local mmMeta = getmetatable(Minimap)
+    if mmMeta and mmMeta.__index then
+        table.insert(frameMetas, mmMeta.__index)
+    end
+end
+if GameTooltip then
+    local gtMeta = getmetatable(GameTooltip)
+    if gtMeta and gtMeta.__index then
+        table.insert(frameMetas, gtMeta.__index)
+    end
+end
 
 for _, meta in ipairs(frameMetas) do
     if meta then
