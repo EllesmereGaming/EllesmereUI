@@ -1,4 +1,4 @@
-﻿-- EUI_RaidFrames_BuffManager2.lua
+-- EUI_RaidFrames_BuffManager2.lua
 -- 12.1 Buff Manager v2: the spell -> filter -> indicator model.
 --
 -- FILTERS are named spell sets: preset filters ship with the addon

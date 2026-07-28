@@ -559,24 +559,38 @@ end
 
 -- C_CVar
 C_CVar = C_CVar or {}
+
+local CVarMap = {
+    cameraDistanceMaxZoomFactor = "cameraDistanceMaxFactor",
+}
+
 if not C_CVar.GetCVar then
     C_CVar.GetCVar = function(name)
-        return GetCVar(name)
+        name = CVarMap[name] or name
+        local ok, result = pcall(GetCVar, name)
+        return ok and result or nil
     end
 end
 if not C_CVar.SetCVar then
     C_CVar.SetCVar = function(name, value)
-        return SetCVar(name, value)
+        name = CVarMap[name] or name
+        local ok, result = pcall(SetCVar, name, value)
+        return ok and result or false
     end
 end
 if not C_CVar.GetCVarInfo then
     C_CVar.GetCVarInfo = function(name)
-        return GetCVar(name), GetCVarDefault(name)
+        name = CVarMap[name] or name
+        local ok1, val = pcall(GetCVar, name)
+        local ok2, def = pcall(GetCVarDefault, name)
+        return (ok1 and val or nil), (ok2 and def or nil)
     end
 end
 if not C_CVar.GetCVarBool then
     C_CVar.GetCVarBool = function(name)
-        return GetCVar(name) == "1"
+        name = CVarMap[name] or name
+        local ok, result = pcall(GetCVar, name)
+        return ok and result == "1" or false
     end
 end
 

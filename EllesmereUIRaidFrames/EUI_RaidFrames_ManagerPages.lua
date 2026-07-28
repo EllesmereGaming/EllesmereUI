@@ -1,4 +1,4 @@
-﻿-- EUI_RaidFrames_ManagerPages.lua
+-- EUI_RaidFrames_ManagerPages.lua
 -- 12.1 redesigned manager options: the Debuff Manager page (sidebar of
 -- tiles with the undeletable Base Icons tile first) and the Buff Manager
 -- page's Base Icons pieces (pinned sidebar tile + left detail pane) that

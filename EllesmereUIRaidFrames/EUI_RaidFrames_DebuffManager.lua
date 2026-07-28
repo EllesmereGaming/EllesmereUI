@@ -1,4 +1,4 @@
-﻿-- EUI_RaidFrames_DebuffManager.lua
+-- EUI_RaidFrames_DebuffManager.lua
 -- 12.1 Debuff Manager runtime: the base-grid record union (phase 1) plus
 -- user-added custom tiles (phases 3/4).
 --
