@@ -11910,7 +11910,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         -- blizzskin_reskin_master_split_v1 seeds reskinGameMenu for existing users.
         local _reskinMenu = _blizzSkinLoaded and (not EllesmereUIDB or EllesmereUIDB.reskinGameMenu ~= false)
 
-        local btn = CreateFrame("Button", "EllesmereUI_GameMenuButton", GameMenuFrame, "MainMenuFrameButtonTemplate")
+        local btn = CreateFrame("Button", "EllesmereUI_GameMenuButton", GameMenuFrame, "GameMenuButtonTemplate")
         btn:SetSize(200, 35)
         btn:SetScript("OnClick", function()
             if InCombatLockdown() then
@@ -11922,7 +11922,7 @@ initFrame:SetScript("OnEvent", function(self, event)
         end)
         EllesmereUI._GetFFD(GameMenuFrame).euiBtn = btn
 
-        local unlockBtn = CreateFrame("Button", "EllesmereUI_UnlockMenuButton", GameMenuFrame, "MainMenuFrameButtonTemplate")
+        local unlockBtn = CreateFrame("Button", "EllesmereUI_UnlockMenuButton", GameMenuFrame, "GameMenuButtonTemplate")
         unlockBtn:SetSize(200, 35)
         unlockBtn:SetScript("OnClick", function()
             if InCombatLockdown() then

@@ -853,6 +853,17 @@ if not C_Map then
     end
 end
 
+-- Global CreateFrame hook to map modern templates to legacy 3.3.5a equivalents
+local origCreateFrame = CreateFrame
+function CreateFrame(frameType, name, parent, template, id)
+    if template == "MainMenuFrameButtonTemplate" then
+        template = "GameMenuButtonTemplate"
+    elseif template and type(template) == "string" and template:find("MainMenuFrameButtonTemplate") then
+        template = template:gsub("MainMenuFrameButtonTemplate", "GameMenuButtonTemplate")
+    end
+    return origCreateFrame(frameType, name, parent, template, id)
+end
+
 if not GetPhysicalScreenSize then
     function GetPhysicalScreenSize()
         local resIndex = GetCurrentResolution()
