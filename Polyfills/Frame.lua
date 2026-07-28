@@ -158,6 +158,19 @@ for _, meta in ipairs(frameMetas) do
         end
 
         -- Additional missing frame methods required by Retail UI scripts
+        if not meta.SetIgnoreParentAlpha then
+            meta.SetIgnoreParentAlpha = function(self, ignore) end
+        end
+        if not meta.SetMouseClickEnabled then
+            meta.SetMouseClickEnabled = function(self, enabled)
+                if self.EnableMouse then self:EnableMouse(enabled) end
+            end
+        end
+        if not meta.SetMouseMotionEnabled then
+            meta.SetMouseMotionEnabled = function(self, enabled)
+                if self.EnableMouse then self:EnableMouse(enabled) end
+            end
+        end
         if not meta.SetScaleToFit then meta.SetScaleToFit = function(self) end end
         if not meta.GetScaledRect then meta.GetScaledRect = function(self) return self:GetRect() end end
         if not meta.SetIgnoreParentScale then meta.SetIgnoreParentScale = function(self, ignore) end end
@@ -184,6 +197,34 @@ if cooldownMeta then
                 start = durObj.expirationTime - duration
             end
             self:SetCooldown(start or 0, duration or 0)
+        end
+    end
+end
+
+local okAnim, animFrame = pcall(CreateFrame, "Frame")
+if okAnim and animFrame and animFrame.CreateAnimationGroup then
+    local okGrp, animGroup = pcall(animFrame.CreateAnimationGroup, animFrame)
+    if okGrp and animGroup and animGroup.CreateAnimation then
+        local okAlpha, alphaAnim = pcall(animGroup.CreateAnimation, animGroup, "Alpha")
+        if okAlpha and alphaAnim then
+            local animMeta = getmetatable(alphaAnim)
+            if animMeta and animMeta.__index then
+                local meta = animMeta.__index
+                if not meta.SetFromAlpha then
+                    meta.SetFromAlpha = function(self, alpha)
+                        self._fromAlpha = alpha
+                    end
+                end
+                if not meta.SetToAlpha then
+                    meta.SetToAlpha = function(self, alpha)
+                        self._toAlpha = alpha
+                        if self.SetChange then
+                            local from = self._fromAlpha or 0
+                            self:SetChange(alpha - from)
+                        end
+                    end
+                end
+            end
         end
     end
 end
