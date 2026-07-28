@@ -7,11 +7,19 @@
 local L = EllesmereUI.RegisterLocale("koKR")
 if not L then return end
 
+L["ANIMATION"]="애니메이션"
 L["Vendor"]="상인"
 L["AH"]="경매"
 L["Show Price Labels"]="가격 라벨 표시"
+L["Bar Color by Item Quality"]="아이템 품질에 따른 바 색상"
+L["Bar Color Experience"]="경험치 바 색상"
+L["Bar Color Honor"]="명예 바 색상"
+L["Bar Color Currency"]="화폐 바 색상"
+L["Bar Color Reputation by Standing"]="평판 단계에 따른 바 색상"
+L["Bar colors are unavailable in Icon mode."]="아이콘 모드에서는 바 색상을 사용할 수 없습니다."
 L["Shows Vendor and AH labels before item values."]="아이템 가격 앞에 상인 및 경매 라벨을 표시합니다."
 L["Controls the vertical padding inside the notification bar. Available only in Bar mode."]="알림 바 내부의 세로 여백을 조절합니다. 바 모드에서만 사용할 수 있습니다."
+L["Time in seconds during which repeated loot of the same item is combined into one notification (x2, x3, ...)."]="같은 아이템을 반복 획득했을 때 하나의 알림(x2, x3, ...)으로 합치는 시간(초)입니다."
 L["Controls the item icon size. Available only in Icon mode."]="아이템 아이콘 크기를 조절합니다. 아이콘 모드에서만 사용할 수 있습니다."
 L["Market Value"]="시세"
 L["Market Value Source"]="시세 출처"

@@ -621,9 +621,10 @@ if EllesmereUI and EllesmereUI.RegisterModule then
 
         _,h=W:SectionHeader(parent,"GENERAL",y); y=y-h
 
-        _,h=W:DualRow(parent,y,
-            {type="toggle",text="Enabled",getValue=function() return Get("enabled")~=false end,setValue=function(v) Set("enabled",v) end},
-            {type="toggle",text="Show Tooltip",getValue=function() return Get("showTooltip")~=false end,setValue=function(v) Set("showTooltip",v) end}); y=y-h
+        -- The master switch deliberately owns a full-width row so its runtime
+        -- significance is immediately visible and it cannot be mistaken for a
+        -- cosmetic display option.
+        _,h=W:Toggle(parent,"Enabled",y,function() return Get("enabled")~=false end,function(v) Set("enabled",v) end); y=y-h
         _,h=W:DualRow(parent,y,
             {type="dropdown",text="Alignment",values={LEFT="Left",RIGHT="Right"},order={"LEFT","RIGHT"},getValue=function() return Get("alignment") or "LEFT" end,setValue=function(v)
                 local p=P(); if not p then return end
@@ -652,6 +653,7 @@ if EllesmereUI and EllesmereUI.RegisterModule then
             {type="slider",text="Maximum Shown",min=1,max=12,step=1,getValue=function() return Get("maxVisible") or 6 end,setValue=function(v) Set("maxVisible",v) end},
             {type="slider",text="Spacing",min=5,max=20,step=1,getValue=function() return math.max(5,Get("spacing") or 5) end,setValue=function(v) Set("spacing",math.max(5,v)) end}); y=y-h
 
+        local function BarColorDisabled() return Get("displayStyle")=="ICON" end
         _,h=W:SectionHeader(parent,"APPEARANCE",y); y=y-h
         local displayStyleRow
         displayStyleRow,h=W:DualRow(parent,y,
@@ -689,96 +691,8 @@ if EllesmereUI and EllesmereUI.RegisterModule then
             cog:SetAlpha(.45); cog:SetScript("OnEnter",function(s) s:SetAlpha(.8) end); cog:SetScript("OnLeave",function(s) s:SetAlpha(.45) end)
             cog:SetScript("OnClick",function(s) showCog(s) end)
         end
-        local textureNames=ns.notificationBarTextureNames or {__solid="Solid"}
-        local textureOrder=ns.notificationBarTextureOrder or {"__solid"}
-        local statusbars=ns.notificationBarTextures or {}
-        -- Runtime owns SharedMedia registration. Do not turn the Loot table
-        -- into a late-media consumer merely because its disabled options page
-        -- was opened; that would violate Zero Cost after the page closes.
-        local profile=P()
-        if profile and profile.enabled~=false and ns.AttachNotificationBarSharedMedia then
-            ns.AttachNotificationBarSharedMedia()
-        end
-        local barValues,barOrder={},{}
-        for _,key in ipairs(textureOrder) do
-            if key~="---" then barValues[key]=textureNames[key] or key; barOrder[#barOrder+1]=key end
-        end
-        barValues._menuOpts={
-            itemHeight=28,
-            background=function(key) return statusbars[key] end,
-            onItemHover=function(key) if ns.SetSettingsPreviewTextureOverride then ns.SetSettingsPreviewTextureOverride(key) end end,
-            onItemLeave=function() if ns.ClearSettingsPreviewTextureOverride then ns.ClearSettingsPreviewTextureOverride() end end,
-        }
-        _,h=W:DualRow(parent,y,
-            {type="dropdown",text="Bar Texture",values=barValues,order=barOrder,
-                disabled=function() return Get("displayStyle")=="ICON" end,
-                disabledTooltip="Bar settings are unavailable in Icon mode.",getValue=function()
-                local current=Get("barTexture") or "gradient-lr"
-                if barValues[current] then return current end
-                return barValues["sm:"..tostring(current)] and ("sm:"..tostring(current)) or "gradient-lr"
-            end,setValue=function(v) Set("barTexture",v) end},
-            {type="slider",text="Bar Opacity",min=0,max=100,step=5,
-                disabled=function() return Get("displayStyle")=="ICON" end,
-                disabledTooltip="Bar settings are unavailable in Icon mode.",
-                getValue=function() return (Get("backgroundAlpha") or 1)*100 end,setValue=function(v) Set("backgroundAlpha",v/100) end}); y=y-h
-        _,h=W:SectionHeader(parent,"COLOR SETTINGS",y); y=y-h
-        local function BackgroundDisabled() return Get("displayStyle")=="ICON" end
-        local function AddToggleColor(rowFrame,side,getColor,setColor)
-            local region=side=="left" and rowFrame._leftRegion or rowFrame._rightRegion
-            if not region or not EllesmereUI.BuildColorSwatch then return end
-            local control=region._control
-            local swatch,refresh=EllesmereUI.BuildColorSwatch(region,region:GetFrameLevel()+5,getColor,setColor,false,18)
-            if control then
-                control:ClearAllPoints()
-                control:SetPoint("RIGHT",region,"RIGHT",-14,0)
-                swatch:SetPoint("RIGHT",control,"LEFT",-9,0)
-            else
-                swatch:SetPoint("RIGHT",region,"RIGHT",-14,0)
-            end
-            local function RefreshColor()
-                local enabled=not BackgroundDisabled()
-                swatch:SetAlpha(enabled and 1 or .3)
-                swatch:EnableMouse(enabled)
-                if refresh then refresh() end
-            end
-            if EllesmereUI.RegisterWidgetRefresh then EllesmereUI.RegisterWidgetRefresh(RefreshColor) end
-            RefreshColor()
-        end
-        _,h=W:DualRow(parent,y,
-            {type="colorpicker",text="Background Color",disabled=BackgroundDisabled,
-                disabledTooltip="Background colors are unavailable in Icon mode.",
-                getValue=function() return Get("barR") or .035,Get("barG") or .035,Get("barB") or .035,1 end,
-                setValue=function(r,g,b) local p=P(); if p then p.barR,p.barG,p.barB=r,g,b end; if _G._EL_Apply then _G._EL_Apply() end end},
-            {type="toggle",text="Background Color by Item Quality",disabled=BackgroundDisabled,
-                disabledTooltip="Background colors are unavailable in Icon mode.",getValue=function() return Get("colorItemBackgroundByQuality")==true end,setValue=function(v) Set("colorItemBackgroundByQuality",v) end}); y=y-h
-        local experienceHonorRow
-        experienceHonorRow,h=W:DualRow(parent,y,
-            {type="toggle",text="Background Color Experience",disabled=BackgroundDisabled,
-                disabledTooltip="Background colors are unavailable in Icon mode.",getValue=function() return Get("colorExperienceBar")==true end,setValue=function(v) Set("colorExperienceBar",v) end},
-            {type="toggle",text="Background Color Honor",disabled=BackgroundDisabled,
-                disabledTooltip="Background colors are unavailable in Icon mode.",getValue=function() return Get("colorHonorBar")==true end,setValue=function(v) Set("colorHonorBar",v) end}); y=y-h
-        AddToggleColor(experienceHonorRow,"left",
-            function() return Get("experienceBarR") or .48,Get("experienceBarG") or .22,Get("experienceBarB") or .82,1 end,
-            function(r,g,b) local p=P(); if p then p.experienceBarR,p.experienceBarG,p.experienceBarB=r,g,b end; if _G._EL_Apply then _G._EL_Apply() end end)
-        AddToggleColor(experienceHonorRow,"right",
-            function() return Get("honorBarR") or .75,Get("honorBarG") or .18,Get("honorBarB") or .22,1 end,
-            function(r,g,b) local p=P(); if p then p.honorBarR,p.honorBarG,p.honorBarB=r,g,b end; if _G._EL_Apply then _G._EL_Apply() end end)
-        local currencyReputationRow
-        currencyReputationRow,h=W:DualRow(parent,y,
-            {type="toggle",text="Background Color Currency",disabled=BackgroundDisabled,
-                disabledTooltip="Background colors are unavailable in Icon mode.",getValue=function() return Get("colorCurrencyBar")==true end,setValue=function(v) Set("colorCurrencyBar",v) end},
-            {type="toggle",text="Background Color Reputation by Standing",disabled=BackgroundDisabled,
-                disabledTooltip="Background colors are unavailable in Icon mode.",getValue=function() return Get("colorReputationBar")==true end,setValue=function(v) Set("colorReputationBar",v) end}); y=y-h
-        AddToggleColor(currencyReputationRow,"left",
-            function() return Get("currencyBarR") or 0,Get("currencyBarG") or 0,Get("currencyBarB") or 0,1 end,
-            function(r,g,b) local p=P(); if p then p.currencyBarR,p.currencyBarG,p.currencyBarB=r,g,b end; if _G._EL_Apply then _G._EL_Apply() end end)
-        _,h=W:DualRow(parent,y,
-            {type="toggle",text="Item Quality Color",
-                getValue=function() return Get("showItemQuality")~=false end,
-                setValue=function(v) Set("showItemQuality",v) end},
-            {type="spacer",text=""}); y=y-h
-
-        _,h=W:SectionHeader(parent,"BORDER",y); y=y-h
+        -- Border controls belong to the visual styling flow and intentionally
+        -- sit directly above the bar texture controls.
         local borderValues,borderOrder=EllesmereUI.GetBorderTextureDropdown()
         local borderSizeValues={none="None",thin="Thin",normal="Normal",heavy="Heavy",strong="Strong"}
         local borderSizeOrder={"none","thin","normal","heavy","strong"}
@@ -823,12 +737,54 @@ if EllesmereUI and EllesmereUI.RegisterModule then
             cog:SetAlpha(.45); cog:SetScript("OnEnter",function(s) s:SetAlpha(.8) end); cog:SetScript("OnLeave",function(s) s:SetAlpha(.45) end)
             cog:SetScript("OnClick",function(s) showCog(s) end)
         end
-
-        _,h=W:SectionHeader(parent,"DISPLAY & ANIMATION",y); y=y-h
+        local textureNames=ns.notificationBarTextureNames or {__solid="Solid"}
+        local textureOrder=ns.notificationBarTextureOrder or {"__solid"}
+        local statusbars=ns.notificationBarTextures or {}
+        -- Runtime owns SharedMedia registration. Do not turn the Loot table
+        -- into a late-media consumer merely because its disabled options page
+        -- was opened; that would violate Zero Cost after the page closes.
+        local profile=P()
+        if profile and profile.enabled~=false and ns.AttachNotificationBarSharedMedia then
+            ns.AttachNotificationBarSharedMedia()
+        end
+        local barValues,barOrder={},{}
+        for _,key in ipairs(textureOrder) do
+            if key~="---" then barValues[key]=textureNames[key] or key; barOrder[#barOrder+1]=key end
+        end
+        barValues._menuOpts={
+            itemHeight=28,
+            background=function(key) return statusbars[key] end,
+            onItemHover=function(key) if ns.SetSettingsPreviewTextureOverride then ns.SetSettingsPreviewTextureOverride(key) end end,
+            onItemLeave=function() if ns.ClearSettingsPreviewTextureOverride then ns.ClearSettingsPreviewTextureOverride() end end,
+        }
         _,h=W:DualRow(parent,y,
-            {type="toggle",text="Show Vendor Value",getValue=function() return Get("showItemValue")==true end,setValue=function(v) Set("showItemValue",v) end},
+            {type="dropdown",text="Bar Texture",values=barValues,order=barOrder,
+                disabled=function() return Get("displayStyle")=="ICON" end,
+                disabledTooltip="Bar settings are unavailable in Icon mode.",getValue=function()
+                local current=Get("barTexture") or "gradient-lr"
+                if barValues[current] then return current end
+                return barValues["sm:"..tostring(current)] and ("sm:"..tostring(current)) or "gradient-lr"
+            end,setValue=function(v) Set("barTexture",v) end},
+            {type="slider",text="Bar Opacity",min=0,max=100,step=5,
+                disabled=function() return Get("displayStyle")=="ICON" end,
+                disabledTooltip="Bar settings are unavailable in Icon mode.",
+                getValue=function() return (Get("backgroundAlpha") or 1)*100 end,setValue=function(v) Set("backgroundAlpha",v/100) end}); y=y-h
+        _,h=W:DualRow(parent,y,
+            {type="colorpicker",text="Bar Color",disabled=BarColorDisabled,
+                disabledTooltip="Bar colors are unavailable in Icon mode.",
+                getValue=function() return Get("barR") or .035,Get("barG") or .035,Get("barB") or .035,1 end,
+                setValue=function(r,g,b) local p=P(); if p then p.barR,p.barG,p.barB=r,g,b end; if _G._EL_Apply then _G._EL_Apply() end end},
+            {type="spacer",text=""}); y=y-h
+        _,h=W:SectionHeader(parent,"DISPLAY",y); y=y-h
+        _,h=W:DualRow(parent,y,
+            {type="toggle",text="Show Tooltip",getValue=function() return Get("showTooltip")~=false end,setValue=function(v) Set("showTooltip",v) end},
+            {type="toggle",text="Show Vendor Value",getValue=function() return Get("showItemValue")==true end,setValue=function(v) Set("showItemValue",v) end}); y=y-h
+        _,h=W:DualRow(parent,y,
             {type="toggle",text="Show Price Labels",tooltip="Shows Vendor and AH labels before item values.",
-                getValue=function() return Get("showPriceLabels")==true end,setValue=function(v) Set("showPriceLabels",v) end}); y=y-h
+                getValue=function() return Get("showPriceLabels")==true end,setValue=function(v) Set("showPriceLabels",v) end},
+            {type="spacer",text=""}); y=y-h
+
+        _,h=W:SectionHeader(parent,"ANIMATION",y); y=y-h
         local verticalSlide=Get("growMode")=="DOWN" and "SLIDE_BOTTOM" or "SLIDE_TOP"
         local animValues={NONE="None",FADE="Fade",SLIDE_LEFT="Slide (Left)",SLIDE_RIGHT="Slide (Right)",ZOOM_IN="Zoom In",ZOOM_OUT="Zoom Out"}
         animValues[verticalSlide]=verticalSlide=="SLIDE_TOP" and "Slide (Top)" or "Slide (Bottom)"
@@ -851,7 +807,9 @@ if EllesmereUI and EllesmereUI.RegisterModule then
             {type="slider",text="Duration",min=.2,max=1,step=.05,getValue=function() return math.max(.2,math.min(1,Get("exitDuration") or 1)) end,setValue=function(v) Set("exitDuration",v) end}); y=y-h
         _,h=W:DualRow(parent,y,
             {type="slider",text="Display Duration",min=1,max=10,step=.5,getValue=function() return math.max(1,math.min(10,Get("duration") or 5)) end,setValue=function(v) Set("duration",v) end},
-            {type="slider",text="Item Merge Window",min=.2,max=3,step=.1,getValue=function() return Get("mergeWindow") or 1 end,setValue=function(v) Set("mergeWindow",v) end}); y=y-h
+            {type="slider",text="Item Merge Window",min=.2,max=3,step=.1,
+                tooltip="Time in seconds during which repeated loot of the same item is combined into one notification (x2, x3, ...).",
+                getValue=function() return Get("mergeWindow") or 1 end,setValue=function(v) Set("mergeWindow",v) end}); y=y-h
 
         _,h=W:SectionHeader(parent,"TYPOGRAPHY",y); y=y-h
         local fontValues,fontOrder={__global="EllesmereUI Global"},{"__global"}
@@ -876,6 +834,56 @@ if EllesmereUI and EllesmereUI.RegisterModule then
                 {type="toggle",text=a[2],getValue=function() return Get(a[1])~=false end,setValue=function(v) Set(a[1],v) end},
                 {type="toggle",text=b[2],getValue=function() return Get(b[1])~=false end,setValue=function(v) Set(b[1],v) end}); y=y-h
         end
+
+        -- Keep every contextual bar-color override together at the very end. This
+        -- makes the primary layout and behavior controls easier to scan.
+        _,h=W:SectionHeader(parent,"COLOR SETTINGS",y); y=y-h
+        local function AddToggleColor(rowFrame,side,getColor,setColor)
+            local region=side=="left" and rowFrame._leftRegion or rowFrame._rightRegion
+            if not region or not EllesmereUI.BuildColorSwatch then return end
+            local control=region._control
+            local swatch,refresh=EllesmereUI.BuildColorSwatch(region,region:GetFrameLevel()+5,getColor,setColor,false,18)
+            if control then
+                control:ClearAllPoints()
+                control:SetPoint("RIGHT",region,"RIGHT",-14,0)
+                swatch:SetPoint("RIGHT",control,"LEFT",-9,0)
+            else
+                swatch:SetPoint("RIGHT",region,"RIGHT",-14,0)
+            end
+            local function RefreshColor()
+                local enabled=not BarColorDisabled()
+                swatch:SetAlpha(enabled and 1 or .3)
+                swatch:EnableMouse(enabled)
+                if refresh then refresh() end
+            end
+            if EllesmereUI.RegisterWidgetRefresh then EllesmereUI.RegisterWidgetRefresh(RefreshColor) end
+            RefreshColor()
+        end
+        _,h=W:DualRow(parent,y,
+            {type="toggle",text="Bar Color by Item Quality",disabled=BarColorDisabled,
+                disabledTooltip="Bar colors are unavailable in Icon mode.",getValue=function() return Get("colorItemBackgroundByQuality")==true end,setValue=function(v) Set("colorItemBackgroundByQuality",v) end},
+            {type="toggle",text="Bar Color Reputation by Standing",disabled=BarColorDisabled,
+                disabledTooltip="Bar colors are unavailable in Icon mode.",getValue=function() return Get("colorReputationBar")==true end,setValue=function(v) Set("colorReputationBar",v) end}); y=y-h
+        local experienceHonorRow
+        experienceHonorRow,h=W:DualRow(parent,y,
+            {type="toggle",text="Bar Color Experience",disabled=BarColorDisabled,
+                disabledTooltip="Bar colors are unavailable in Icon mode.",getValue=function() return Get("colorExperienceBar")==true end,setValue=function(v) Set("colorExperienceBar",v) end},
+            {type="toggle",text="Bar Color Honor",disabled=BarColorDisabled,
+                disabledTooltip="Bar colors are unavailable in Icon mode.",getValue=function() return Get("colorHonorBar")==true end,setValue=function(v) Set("colorHonorBar",v) end}); y=y-h
+        AddToggleColor(experienceHonorRow,"left",
+            function() return Get("experienceBarR") or .48,Get("experienceBarG") or .22,Get("experienceBarB") or .82,1 end,
+            function(r,g,b) local p=P(); if p then p.experienceBarR,p.experienceBarG,p.experienceBarB=r,g,b end; if _G._EL_Apply then _G._EL_Apply() end end)
+        AddToggleColor(experienceHonorRow,"right",
+            function() return Get("honorBarR") or .75,Get("honorBarG") or .18,Get("honorBarB") or .22,1 end,
+            function(r,g,b) local p=P(); if p then p.honorBarR,p.honorBarG,p.honorBarB=r,g,b end; if _G._EL_Apply then _G._EL_Apply() end end)
+        local currencyRow
+        currencyRow,h=W:DualRow(parent,y,
+            {type="toggle",text="Bar Color Currency",disabled=BarColorDisabled,
+                disabledTooltip="Bar colors are unavailable in Icon mode.",getValue=function() return Get("colorCurrencyBar")==true end,setValue=function(v) Set("colorCurrencyBar",v) end},
+            {type="spacer",text=""}); y=y-h
+        AddToggleColor(currencyRow,"left",
+            function() return Get("currencyBarR") or 0,Get("currencyBarG") or 0,Get("currencyBarB") or 0,1 end,
+            function(r,g,b) local p=P(); if p then p.currencyBarR,p.currencyBarG,p.currencyBarB=r,g,b end; if _G._EL_Apply then _G._EL_Apply() end end)
         parent:SetHeight(math.abs(y-startY))
     end
 

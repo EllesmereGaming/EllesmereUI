@@ -71,7 +71,7 @@ local DB_DEFAULTS = { profile = {
     width = 340, spacing = 5, alignment = "LEFT",
     fontSize = 16, valueFontSize = 14, innerPaddingX = 10, innerPaddingY = 5,
     iconSize = 44, backgroundAlpha = .3,
-    growMode = "UP", showItemQuality = true,
+    growMode = "UP",
     showItemValue = false, showTooltip = true,
     displayStyle = "BAR", borderTexture = "solid", borderSize = 0,
     borderR = 0, borderG = 0, borderB = 0, borderA = 1,
@@ -765,7 +765,7 @@ local function RefreshSettingsPreviewRow(row,previewKind,yOffset)
     else
         previewKind="ITEM"
         sampleIcon=133738
-        sampleText=(p.showItemQuality~=false and "|cffa335ee" or "|cffffffff").."Epic Equipment|r |cffffffffx2|r"
+        sampleText="|cffa335eeEpic Equipment|r |cffffffffx2|r"
     end
     if previewKind=="ITEM" then
         local marketValue=p.showMarketValue~=false and (p.externalPriceSource or "NONE")~="NONE" and 12500000 or nil
@@ -1173,13 +1173,14 @@ local function Push(kind, key, amount, label, icon, quality, reagentQuality, sel
     local mergeRow
     if kind == "item" then
         local currentVariant=itemLink and itemLink:match("(item:[^|]+)")
-        -- Only the most recently displayed item is eligible, but it remains
-        -- eligible for as long as its row exists. Repeated individual loot
-        -- events therefore become x2, x3, ... instead of duplicate rows.
+        -- Only the most recently displayed item is eligible. The configured
+        -- merge window limits how long repeated loot becomes x2, x3, ...
+        -- instead of a new notification.
         for _, candidate in ipairs(active) do
             if candidate.kind == "item" then
                 if candidate.itemKey == key and candidate.reagentQuality == reagentQuality
-                    and candidate.itemVariant == currentVariant then mergeRow = candidate end
+                    and candidate.itemVariant == currentVariant
+                    and now-(candidate.updated or 0)<=(p.mergeWindow or 1) then mergeRow = candidate end
                 break
             end
         end
@@ -1234,7 +1235,9 @@ local function Push(kind, key, amount, label, icon, quality, reagentQuality, sel
         end
         row.formatter = function(n)
             local qty = n > 1 and (" |cffffffffx" .. n .. "|r") or ""
-            return qualityPrefix .. (p.showItemQuality and QualityColor(quality) or "|cffffffff") .. label .. "|r" .. qty
+            -- Item names always use Blizzard's quality color. Keeping this
+            -- unconditional avoids a profile branch in every row refresh.
+            return qualityPrefix .. QualityColor(quality) .. label .. "|r" .. qty
         end
         local hasVendor=p.showItemValue and sellPrice and sellPrice>0
         local hasMarket=p.showMarketValue~=false and tsmPrice~=nil

@@ -6,11 +6,19 @@
 local L = EllesmereUI.RegisterLocale("esES")
 if not L then return end
 
+L["ANIMATION"]="ANIMACIÓN"
 L["Vendor"]="Vendedor"
 L["AH"]="CS"
 L["Show Price Labels"]="Mostrar etiquetas de precio"
+L["Bar Color by Item Quality"]="Color de barra según la calidad del objeto"
+L["Bar Color Experience"]="Color de barra de experiencia"
+L["Bar Color Honor"]="Color de barra de honor"
+L["Bar Color Currency"]="Color de barra de moneda"
+L["Bar Color Reputation by Standing"]="Color de barra de reputación según el nivel"
+L["Bar colors are unavailable in Icon mode."]="Los colores de barra no están disponibles en modo Icono."
 L["Shows Vendor and AH labels before item values."]="Muestra las etiquetas de vendedor y CS antes de los valores de los objetos."
 L["Controls the vertical padding inside the notification bar. Available only in Bar mode."]="Controla el relleno vertical dentro de la barra de notificación. Solo disponible en el modo Barra."
+L["Time in seconds during which repeated loot of the same item is combined into one notification (x2, x3, ...)."]="Tiempo en segundos durante el que el botín repetido del mismo objeto se combina en una sola notificación (x2, x3, ...)."
 L["Controls the item icon size. Available only in Icon mode."]="Controla el tamaño del icono del objeto. Solo disponible en el modo Icono."
 L["Market Value"]="Valor de mercado"
 L["Market Value Source"]="Fuente de valor de mercado"

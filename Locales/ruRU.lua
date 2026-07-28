@@ -7,11 +7,19 @@
 local L = EllesmereUI.RegisterLocale("ruRU")
 if not L then return end
 
+L["ANIMATION"]="АНИМАЦИЯ"
 L["Vendor"]="Торговец"
 L["AH"]="Аук"
 L["Show Price Labels"]="Показывать подписи цен"
+L["Bar Color by Item Quality"]="Цвет полосы по качеству предмета"
+L["Bar Color Experience"]="Цвет полосы опыта"
+L["Bar Color Honor"]="Цвет полосы чести"
+L["Bar Color Currency"]="Цвет полосы валюты"
+L["Bar Color Reputation by Standing"]="Цвет полосы репутации по уровню"
+L["Bar colors are unavailable in Icon mode."]="Цвета полос недоступны в режиме значков."
 L["Shows Vendor and AH labels before item values."]="Показывает подписи торговца и аукциона перед стоимостью предметов."
 L["Controls the vertical padding inside the notification bar. Available only in Bar mode."]="Управляет вертикальными отступами внутри полосы уведомления. Доступно только в режиме полосы."
+L["Time in seconds during which repeated loot of the same item is combined into one notification (x2, x3, ...)."]="Время в секундах, в течение которого повторное получение одного предмета объединяется в одно уведомление (x2, x3, ...)."
 L["Controls the item icon size. Available only in Icon mode."]="Управляет размером значка предмета. Доступно только в режиме значка."
 L["Market Value"]="Рыночная стоимость"
 L["Market Value Source"]="Источник рыночной стоимости"

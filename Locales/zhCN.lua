@@ -6,11 +6,19 @@
 local L = EllesmereUI.RegisterLocale("zhCN")
 if not L then return end
 
+L["ANIMATION"]="动画"
 L["Vendor"]="商人"
 L["AH"]="拍卖"
 L["Show Price Labels"]="显示价格标签"
+L["Bar Color by Item Quality"]="按物品品质设置条形颜色"
+L["Bar Color Experience"]="经验条颜色"
+L["Bar Color Honor"]="荣誉条颜色"
+L["Bar Color Currency"]="货币条颜色"
+L["Bar Color Reputation by Standing"]="按声望等级设置条形颜色"
+L["Bar colors are unavailable in Icon mode."]="图标模式下无法使用条形颜色。"
 L["Shows Vendor and AH labels before item values."]="在物品价值前显示商人和拍卖标签。"
 L["Controls the vertical padding inside the notification bar. Available only in Bar mode."]="控制通知条内部的垂直边距。仅在条形模式下可用。"
+L["Time in seconds during which repeated loot of the same item is combined into one notification (x2, x3, ...)."]="重复拾取同一物品时，将其合并为一条通知（x2、x3……）的时间范围（秒）。"
 L["Controls the item icon size. Available only in Icon mode."]="控制物品图标大小。仅在图标模式下可用。"
 L["Market Value"]="市场价值"
 L["Market Value Source"]="市场价值来源"
