@@ -6254,28 +6254,36 @@ local function Skin_Professions()
         if bf then
             -- Order-type tabs populate LAZILY -- some aren't created until you
             -- click through the types -- so a one-time pass leaves the
-            -- later-created ones unstyled until a full re-skin. Re-run after
-            -- each tab click (deferred, once the new tabs exist) and on the
-            -- browse OnShow. WSkin.Tab is guarded, so re-runs only skin NEW
-            -- tabs; each tab's OnClick is hooked once to trigger the re-run.
+            -- later-created ones unstyled until a full re-skin. WSkin.Tab is
+            -- guarded, so re-runs only skin NEW tabs.
             local ORDER_TAB_KEYS = { "PublicOrdersButton", "NpcOrdersButton",
                                      "GuildOrdersButton", "PersonalOrdersButton" }
             local function SkinOrderTabs()
                 for _, k in ipairs(ORDER_TAB_KEYS) do
                     local b = bf[k]
-                    if b then
-                        WSkin.Tab(b, { darkActive = true })
-                        if not GetFFD(b).clickReskin then
-                            GetFFD(b).clickReskin = true
-                            b:HookScript("OnClick", function()
-                                if C_Timer then C_Timer.After(0, SkinOrderTabs) end
-                            end)
-                        end
-                    end
+                    if b then WSkin.Tab(b, { darkActive = true }) end
                 end
             end
             SkinOrderTabs()
             if C_Timer then C_Timer.After(0, SkinOrderTabs) end
+            -- Re-skin AND repaint selection on every order-type switch. These
+            -- tabs carry no tabID and BrowseFrame is no TabSystem, so nothing
+            -- tied to an order-type switch reaches them: the engine's global
+            -- PanelTemplates / TabSystem hooks only repaint them incidentally,
+            -- when something ELSE in the UI happens to fire them. A per-tab
+            -- OnClick hook doesn't survive either -- Blizzard's
+            -- InitOrderTypeTabs() re-SetScript's each tab's OnClick, and it
+            -- re-runs on PLAYER_ENTERING_WORLD / PLAYER_GUILD_UPDATE (both in
+            -- its always-listen set), so the hook is wiped for good and the
+            -- underline freezes on whichever type was live at skin time
+            -- (Public, from OnLoad). Hook the authoritative setter instead: a
+            -- method hook survives SetScript and also catches programmatic
+            -- switches (the leave-guild fallback to Public). hooksecurefunc
+            -- runs after the original, so isSelected is already current.
+            if op.SetCraftingOrderType and not GetFFD(op).orderTypeHook then
+                GetFFD(op).orderTypeHook = true
+                hooksecurefunc(op, "SetCraftingOrderType", SkinOrderTabs)
+            end
             -- Tab row starts where the sort header starts: shift the chain
             -- root right by the measured delta (one-shot; the other three
             -- tabs chain off it). Rects only exist once the browse frame has
@@ -11374,3 +11382,241 @@ WSkin.RegisterWindow({
     apply = Skin_LootToast,
 })
 
+
+-------------------------------------------------------------------------------
+--  Social UI (12.1 friends window: SocialUIFrame, Blizzard_SocialUI).
+--
+--  CHROME ONLY, by request. We skin the window shell, its border and title,
+--  the close button, the Battle.net bar, and the per-tab controls (search box,
+--  filter dropdown, action button). Deliberately left 100% stock:
+--    * the side tab icons (LargeSideTabButtonTemplate) -- user request
+--    * every ScrollBox, ScrollBar and pooled list row -- friend/ally/quick-join
+--      content is owned by the friends module and must not be reskinned here
+--
+--  This pack is ENUMERATIVE on purpose: no CommonChrome / ControlsIn /
+--  ButtonsIn / ScrollBarsIn sweeps anywhere. Those walk the frame tree and
+--  would reach straight into list content and the tab strip, which is exactly
+--  what we are avoiding. Every target below is named.
+--
+--  ONE file-scope local for the whole pack. This file's main chunk sits at
+--  Lua 5.1's hard 200-local ceiling, and a handful of loose constants and
+--  helpers is enough to blow it ("main function has more than 200 local
+--  variables"). A do...end block does NOT help on its own -- block locals only
+--  release their register slots when the block closes, so the peak count is
+--  unchanged. Everything therefore hangs off SP. Keep it that way when adding
+--  to this pack: no new top-level locals.
+-------------------------------------------------------------------------------
+do
+local SP = {
+    CONTENT_KEYS = {
+        "FriendsList", "RecentAlliesList", "QuickJoinFrame",
+        "FriendRequestsList", "RecruitAFriendFrame", "RaidFrame",
+    },
+
+    -- Blizzard ships the search box at 20 tall and the filter dropdown at 30;
+    -- both meet in the middle so the filter row reads as one strip.
+    CONTROL_H  = 26,
+    FILTER_PAD = 10,   -- left inset of the (now left-aligned) Filter label
+
+    -- The hamburger is a 34px plate around a native-size atlas: shrink the
+    -- plate, shrink the glyph less.
+    MENU_BTN_SZ  = 28,
+    MENU_ICON_SZ = 16,
+    MENU_ICON_Y  = -1,   -- glyph nudged down inside the plate
+
+    -- Where the filter dropdown's right edge lands, measured from the window's
+    -- right edge: content frames sit at BOTTOMRIGHT -2, FilterBar spans them,
+    -- and the dropdown is inset RIGHT -10 inside that. Both WSkin.Dropdown and
+    -- WSkin.Button fill SetAllPoints, so frame edges are the visual edges.
+    DD_RIGHT_INSET = 12,
+
+    -- SearchBar sits at LEFT+15 inside FilterBar, and FilterBar and the
+    -- Battle.net bar's ControlsContainer share the same left edge (the content
+    -- frame is anchored to BattleNetBar's BOTTOMLEFT), so reusing 15 lines the
+    -- status dropdown up with the search box exactly. Blizzard ships it at 65.
+    STATUS_X = 15,
+}
+
+-- Geometry only. Split out from the skin pass because these frames inherit
+-- UserScaledFrameTemplate: TextSizeManager re-derives their size from the
+-- baseHeight KeyValue whenever the user's text scale changes, so a one-shot
+-- resize would silently revert. Re-applied on every pass instead.
+function SP.LayoutFilterBar(cf)
+    local fb = cf.FilterBar
+    if not fb then return end
+
+    local sb = fb.SearchBar
+    if sb and sb.SetHeight then sb:SetHeight(SP.CONTROL_H) end
+
+    local dd = fb.SearchFilterDropdown
+    if dd then
+        if dd.SetHeight then dd:SetHeight(SP.CONTROL_H) end
+        -- Blizzard anchors the label to TOP with no left point, which centers
+        -- it regardless of its LEFT justification. Re-anchor to the left edge.
+        local txt = dd.Text
+        if txt then
+            txt:ClearAllPoints()
+            txt:SetPoint("LEFT", dd, "LEFT", SP.FILTER_PAD, 0)
+            txt:SetJustifyH("LEFT")
+        end
+    end
+end
+
+-- Right-align the Battle.net bar's hamburger with the filter dropdown below it.
+-- These live in different containers: the content frame stretches to the
+-- window's right edge, while ControlsContainer only spans the 413px Battle.net
+-- bar, so there is no shared inset to reuse -- the offset has to be measured
+-- and re-measured whenever the window width changes (side windows resize it).
+function SP.AlignMenuButton(f)
+    local cc = f.BattleNetBar and f.BattleNetBar.ControlsContainer
+    local btn = cc and cc.BattleNetMenuButton
+    if not btn then return end
+
+    local ccRight, winRight = cc:GetRight(), f:GetRight()
+    if not ccRight or not winRight then return end
+    if issecretvalue(ccRight) or issecretvalue(winRight) then return end
+
+    -- Keep the vertical anchor on ControlsContainer (so it stays centred in the
+    -- bar) and shift only x: anchoring straight to the window would drag the
+    -- button to the window's vertical centre.
+    local dx = (winRight - SP.DD_RIGHT_INSET) - ccRight
+    btn:ClearAllPoints()
+    btn:SetPoint("RIGHT", cc, "RIGHT", dx, 0)
+end
+
+function SP.SkinContentFrame(cf)
+    if not cf or cf:IsForbidden() then return end
+
+    -- Geometry runs every pass; the skinning below only once.
+    SP.LayoutFilterBar(cf)
+
+    local d = GetFFD(cf)
+    if d.socialContent then return end
+    d.socialContent = true
+
+    -- Blizzard's perks-divider art brackets the list area; flatten it so the
+    -- shell reads clean. These are the content frame's own regions, not the
+    -- ScrollBox's.
+    if cf.TopDivider then cf.TopDivider:SetAlpha(0) end
+    if cf.BottomDivider then cf.BottomDivider:SetAlpha(0) end
+
+    local fb = cf.FilterBar
+    if fb then
+        if fb.SearchBar then WSkin.EditBox(fb.SearchBar) end
+        if fb.SearchFilterDropdown then WSkin.Dropdown(fb.SearchFilterDropdown) end
+    end
+
+    if cf.ActionButton then
+        WSkin.Button(cf.ActionButton)
+        WSkin.WhiteButtonLabel(cf.ActionButton)
+    end
+
+    -- cf.ScrollBox / cf.ScrollBar / cf.LoadingSpinner: intentionally stock.
+end
+
+function SP.Apply()
+    local f = _G.SocialUIFrame
+    if not f then return end
+
+    WSkin.Shell("socialui", f)
+    WSkin.RemovePortrait(f)
+    if f.NineSlice then WSkin.FadeNineSlice(f.NineSlice) end
+
+    -- Window-level art.
+    if f.TopFade then f.TopFade:SetAlpha(0) end
+    if f.BottomFade then f.BottomFade:SetAlpha(0) end
+    if f.TopTileStreaks then f.TopTileStreaks:SetAlpha(0) end
+    if f.Bg then f.Bg:SetAlpha(0) end
+
+    local title = (f.TitleContainer and f.TitleContainer.TitleText) or f.TitleText
+    if title then
+        WSkin.Font(title)
+        WSkin.White(title)
+    end
+
+    local cb = f.CloseButton
+        or (f.TitleContainer and f.TitleContainer.CloseButton)
+        or (f.GetName and _G[(f:GetName() or "") .. "CloseButton"])
+    if cb then WSkin.CloseButton(cb) end
+
+    -- Battle.net bar: flatten the plate art, skin the status dropdown and the
+    -- square menu button (icon kept -- it is the only thing identifying it).
+    local bar = f.BattleNetBar
+    if bar then
+        if bar.Background then bar.Background:SetAlpha(0) end
+        local cc = bar.ControlsContainer
+        if cc then
+            if cc.BattleNetBackground then cc.BattleNetBackground:SetAlpha(0) end
+
+            local osd = cc.OnlineStatusDropdown
+            if osd then
+                WSkin.Dropdown(osd)
+                -- Blizzard anchors this at LEFT+65. ControlsContainer and the
+                -- content frame's FilterBar share a left edge, so matching the
+                -- SearchBar's own LEFT inset lines the two up exactly.
+                osd:ClearAllPoints()
+                osd:SetPoint("LEFT", cc, "LEFT", SP.STATUS_X, 0)
+            end
+
+            local menuBtn = cc.BattleNetMenuButton
+            if menuBtn then
+                WSkin.Button(menuBtn, { "Icon" })
+                menuBtn:SetSize(SP.MENU_BTN_SZ, SP.MENU_BTN_SZ)
+                -- The glyph is useAtlasSize in XML, so it ignores the button
+                -- and needs an explicit size to grow inside the smaller plate.
+                if menuBtn.Icon then
+                    menuBtn.Icon:SetSize(SP.MENU_ICON_SZ, SP.MENU_ICON_SZ)
+                    -- Re-seat off the XML's bare CENTER. AdjustPointsOffset
+                    -- (the mixin's press feedback) shifts whatever points are
+                    -- current, so it keeps working against this one.
+                    menuBtn.Icon:ClearAllPoints()
+                    menuBtn.Icon:SetPoint("CENTER", menuBtn, "CENTER", 0, SP.MENU_ICON_Y)
+                    -- Strip the atlas's gold tint to match the rest of the
+                    -- chrome. One-shot is enough: the mixin only nudges the
+                    -- icon's offset on mouse down/up, never its colour.
+                    menuBtn.Icon:SetDesaturated(true)
+                    menuBtn.Icon:SetVertexColor(1, 1, 1)
+                end
+            end
+
+            local tag = cc.PersonalBattleTagDisplay
+            if tag and tag.DisplayText then WSkin.White(tag.DisplayText) end
+        end
+    end
+
+    local function SkinContentFrames()
+        for _, key in ipairs(SP.CONTENT_KEYS) do
+            SP.SkinContentFrame(f[key])
+        end
+        SP.AlignMenuButton(f)
+    end
+    SkinContentFrames()
+
+    -- Content frames are only created for tabs the client supports, and the
+    -- set can change when a social system is toggled server-side, so re-run
+    -- on show. SkinSocialContentFrame is idempotent per frame.
+    WSkin.HookShow(f, function()
+        SkinContentFrames()
+        -- On the first open the window has not been laid out yet, so GetRight
+        -- returns nil and the alignment no-ops; re-run once it has.
+        C_Timer.After(0, function() SP.AlignMenuButton(f) end)
+    end)
+
+    -- NO SetWidth/SetSize hooks here. SocialUIFrame is UIPanel-managed and
+    -- resizes itself through SetUIPanelAttribute + UpdateUIPanelPositions when
+    -- a side window opens; hooking its sizers puts our code inside the panel
+    -- manager's own path, which taints it and stops ToggleUIPanel working --
+    -- i.e. the Friends keybind silently dies. Realigning on show is enough:
+    -- the only thing that moves the right edge is a side window, and that
+    -- reshows the frame anyway.
+end
+
+WSkin.RegisterWindow({
+    key = "socialui",
+    -- Gates the whole pack to clients that actually ship the Social UI: on
+    -- 12.0 the addon does not exist, IsAddOnLoaded is false, and apply never
+    -- runs.
+    addons = { Blizzard_SocialUI = true },
+    apply = SP.Apply,
+})
+end

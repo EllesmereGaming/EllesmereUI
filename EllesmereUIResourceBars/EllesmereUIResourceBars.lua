@@ -1210,6 +1210,7 @@ local DEFAULTS = {
         },
         castBar = {
             enabled       = true,
+            alwaysShow    = false,  -- keep the bar on screen (sitting empty) while nothing is being cast
             showIcon      = true,
             iconOnRight   = false,  -- attach the spell icon to the right of the bar instead of the left
             width         = 220,
@@ -3655,7 +3656,7 @@ local function BuildBars()
         EllesmereUI.SetElementVisibility(secondaryFrame, false)
     end
 
-    -- Hash lines on the health and power bars 
+    -- Hash lines on the health and power bars
     do
         local _prof = ERB.db and ERB.db.profile
         if _prof then
@@ -6400,18 +6401,7 @@ BuildCastBar = function()
         bar:SetStatusBarTexture(texPath)
         castBarFrame._bg:SetTexture(nil)
         castBarFrame._bg:SetColorTexture(cb.bgR, cb.bgG, cb.bgB, cb.bgA)
-        -- Fill Opacity below 100: anchor the bg to cover ONLY the empty
-        -- portion of the bar so the translucent fill reveals the world behind
-        -- it instead of the background. The anchor is relational to the fill
-        -- texture's moving edge, so it tracks the cast progress on its own.
-        -- At 100 the bg spans the whole frame (original behavior).
-        castBarFrame._bg:ClearAllPoints()
-        if (cb.fillOpacity or 100) < 100 then
-            castBarFrame._bg:SetPoint("TOPLEFT", bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-            castBarFrame._bg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0)
-        else
-            castBarFrame._bg:SetAllPoints(castBarFrame)
-        end
+        ns.ApplyCastBgAnchor()
     end
 
     -- Bar color / gradient. Fill Opacity multiplies into the fill alpha
@@ -6556,12 +6546,13 @@ end
     -- Hide channel ticks when not channeling
     HideChannelTicks()
 
-    -- Hide when not casting
+    -- Idle when not casting (empty bar with "Always Show", otherwise hidden).
+    -- This runs last on purpose: the idle state re-suppresses the spark and
+    -- icon that the style pass above just re-showed.
     if not castBarFrame._casting and not castBarFrame._channeling and not castBarFrame._empowering then
-        EllesmereUI.SetElementVisibility(castBarFrame, false)
+        ns.ShowIdleCastBar()
     else
-        castBarFrame:Show()
-        EllesmereUI.SetElementVisibility(castBarFrame, true)
+        ns.ActivateCastBar()
     end
 end
 
@@ -6952,6 +6943,92 @@ local function HideLatencyOverlay()
     castBarFrame._latencySuffix = nil
 end
 
+-------------------------------------------------------------------------------
+--  Cast bar background anchoring
+--  At Fill Opacity 100 the background spans the whole frame. Below 100 it is
+--  anchored to the fill texture's moving right edge so the translucent fill
+--  reveals the world behind it instead of the background -- the anchor is
+--  relational, so it tracks cast progress on its own.
+--  An idle bar has no fill to trail and that anchoring would leave the spell
+--  icon's slot uncovered, so the idle state always spans the frame.
+-------------------------------------------------------------------------------
+function ns.ApplyCastBgAnchor()
+    if not castBarFrame then return end
+    local cb = ERB.db.profile.castBar
+    -- The Blizzard texture draws an atlas background that always spans the
+    -- frame; BuildCastBar anchors that one itself.
+    if cb.texture == "blizzard" then return end
+    local bar = castBarFrame._bar
+    local casting = castBarFrame._casting or castBarFrame._channeling or castBarFrame._empowering
+    castBarFrame._bg:ClearAllPoints()
+    if casting and (cb.fillOpacity or 100) < 100 then
+        castBarFrame._bg:SetPoint("TOPLEFT", bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+        castBarFrame._bg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0)
+    else
+        castBarFrame._bg:SetAllPoints(castBarFrame)
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Idle / active cast bar state
+--
+--  Every path that ends a cast routes through ns.ShowIdleCastBar, so the idle
+--  look never depends on how the cast finished. With "Always Show" off it is
+--  the old fade to alpha 0; with it on the frame stays on screen showing just
+--  the background and border -- an empty bar, no fill, icon, text or spark.
+--
+--  ns.ActivateCastBar is the mirror image: it undoes whatever the idle state
+--  suppressed and brings the bar back for a live cast.
+-------------------------------------------------------------------------------
+function ns.ShowIdleCastBar()
+    if not castBarFrame then return end
+    local cb = ERB.db.profile.castBar
+
+    -- Empty the fill. A plain SetValue also cancels the engine-driven cast
+    -- timer armed by ns.ApplyCastTimer, which would otherwise keep animating
+    -- the fill from the finished cast's duration object.
+    castBarFrame._bar:SetValue(0)
+    castBarFrame._nativeFill = nil
+    castBarFrame._cstKey = nil
+
+    -- Cast decoration has nothing to show without a cast. The spark in
+    -- particular is anchored to the RIGHT edge of the fill, so at value 0 it
+    -- would sit as a sliver on the empty bar's left edge.
+    castBarFrame._nameText:SetText("")
+    castBarFrame._timerText:SetText("")
+    castBarFrame._timerTenths = -1  -- "already blanked" (see ns.SetCastTimerText)
+    if castBarFrame._iconFrame then castBarFrame._iconFrame:Hide() end
+    if castBarFrame._spark then castBarFrame._spark:Hide() end
+    if castBarFrame._pips then
+        for i = 1, #castBarFrame._pips do castBarFrame._pips[i]:Hide() end
+    end
+    castBarFrame._numStages = 0
+    HideChannelTicks()
+    HideLatencyOverlay()
+    ns.ApplyCastBgAnchor()
+
+    if cb.alwaysShow and cb.enabled then
+        castBarFrame:Show()
+        EllesmereUI.SetElementVisibility(castBarFrame, true)
+    else
+        EllesmereUI.SetElementVisibility(castBarFrame, false)
+    end
+end
+
+function ns.ActivateCastBar()
+    if not castBarFrame then return end
+    local cb = ERB.db.profile.castBar
+    -- The idle state hides the spark unconditionally; a live cast brings it
+    -- back if the user wants one. The icon is owned by the per-cast code,
+    -- which knows whether the spell actually has one.
+    if castBarFrame._spark then
+        castBarFrame._spark:SetShown(cb.showSpark and true or false)
+    end
+    ns.ApplyCastBgAnchor()
+    castBarFrame:Show()
+    EllesmereUI.SetElementVisibility(castBarFrame, true)
+end
+
 OnCastStart = function()
     if not castBarFrame then return end
     local cb = ERB.db.profile.castBar
@@ -6996,8 +7073,7 @@ OnCastStart = function()
 
     ShowLatencyOverlay("cast")
 
-    castBarFrame:Show()
-    EllesmereUI.SetElementVisibility(castBarFrame, true)
+    ns.ActivateCastBar()
 end
 
 OnChannelStart = function()
@@ -7057,8 +7133,7 @@ OnChannelStart = function()
 
     ShowLatencyOverlay("channel")
 
-    castBarFrame:Show()
-    EllesmereUI.SetElementVisibility(castBarFrame, true)
+    ns.ActivateCastBar()
 end
 
 OnChannelUpdate = function()
@@ -7085,7 +7160,7 @@ local function OnCastComplete(eventCastID)
     if not eventCastID or not castBarFrame._castID or eventCastID ~= castBarFrame._castID then return end
     castBarFrame._casting = false
     castBarFrame._castID = nil
-    EllesmereUI.SetElementVisibility(castBarFrame, false)
+    ns.ShowIdleCastBar()
 end
 
 -- Called for UNIT_SPELLCAST_FAILED / INTERRUPTED.
@@ -7098,7 +7173,7 @@ local function OnCastFailed(eventCastID)
     if not eventCastID or not castBarFrame._castID or eventCastID ~= castBarFrame._castID then return end
     castBarFrame._casting = false
     castBarFrame._castID = nil
-    EllesmereUI.SetElementVisibility(castBarFrame, false)
+    ns.ShowIdleCastBar()
 end
 
 -- Called for UNIT_SPELLCAST_CHANNEL_STOP.
@@ -7108,8 +7183,7 @@ local function OnChannelStop(eventCastID)
     if not eventCastID or not castBarFrame._castID or eventCastID ~= castBarFrame._castID then return end
     castBarFrame._channeling = false
     castBarFrame._castID = nil
-    HideChannelTicks()
-    EllesmereUI.SetElementVisibility(castBarFrame, false)
+    ns.ShowIdleCastBar()
 end
 
 -- Called for UNIT_SPELLCAST_EMPOWER_STOP.
@@ -7152,7 +7226,7 @@ local function OnEmpowerStop(eventCastID)
     end
     cachedStageThresholds = nil
 
-    EllesmereUI.SetElementVisibility(castBarFrame, false)
+    ns.ShowIdleCastBar()
 end
 
 OnCastStop = function()
@@ -7161,16 +7235,9 @@ OnCastStop = function()
     castBarFrame._channeling = false
     castBarFrame._empowering = false
     castBarFrame._castID = nil
-    -- Hide pip textures
-    if castBarFrame._pips then
-        for i = 1, #castBarFrame._pips do
-            castBarFrame._pips[i]:Hide()
-        end
-    end
-    castBarFrame._numStages = 0
-    HideChannelTicks()
-    HideLatencyOverlay()
-    EllesmereUI.SetElementVisibility(castBarFrame, false)
+    -- Pip textures, channel ticks and the latency overlay are all cleared by
+    -- the idle pass below.
+    ns.ShowIdleCastBar()
 end
 
 
@@ -7266,8 +7333,7 @@ OnEmpowerStart = function()
         end
     end
 
-    castBarFrame:Show()
-    EllesmereUI.SetElementVisibility(castBarFrame, true)
+    ns.ActivateCastBar()
 end
 
 OnEmpowerUpdate = function()

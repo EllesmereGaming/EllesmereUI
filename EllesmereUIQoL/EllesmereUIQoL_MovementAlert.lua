@@ -1107,6 +1107,57 @@ local function ShowBuffActiveSlot(index, spellEntry)
     return true
 end
 
+-------------------------------------------------------------------------------
+--  Charge spells: "no movement remaining" must mean ZERO charges left.
+--  currentCharges is a SECRET value -- verified live on Devourer's Shift, where
+--  maxCharges reads 3 but currentCharges, cooldownDuration and every timing
+--  field come back SECRET even out of combat -- so Lua can never branch on the
+--  count, and IsSpellUsable reads true at 0 charges as well (also verified), so
+--  it cannot stand in.
+--  Blizzard's own discriminator is the cooldown's TOTAL duration: while a
+--  charge is banked the spell reports only a GCD-length cooldown, and the full
+--  recharge drives it only once the last charge is spent. A Step curve turns
+--  that secret total into a secret ALPHA the engine resolves itself, with no
+--  Lua comparison anywhere -- the same trick Action Bars uses to stop
+--  banked-charge buttons desaturating (desatCurveReal / GetCdAlphaCurve).
+--  Non-charge spells are forced back to full alpha so a pooled slot can never
+--  keep a stale 0 from a previous occupant.
+-------------------------------------------------------------------------------
+local chargeAlphaCurve = nil   -- nil = not built, false = API unavailable
+local function GetChargeAlphaCurve()
+    if chargeAlphaCurve == nil then
+        if C_CurveUtil and C_CurveUtil.CreateCurve and Enum and Enum.LuaCurveType then
+            local c = C_CurveUtil.CreateCurve()
+            c:SetType(Enum.LuaCurveType.Step)
+            c:AddPoint(0, 0)     -- GCD-length cooldown: a charge is banked -> hide
+            c:AddPoint(1.6, 1)   -- real recharge: out of charges -> show
+            chargeAlphaCurve = c
+        else
+            chargeAlphaCurve = false
+        end
+    end
+    return chargeAlphaCurve or nil
+end
+
+local function ApplyChargeVisibility(slot, spellId, chargeInfo)
+    if not slot then return end
+    -- maxCharges stays PLAIN even when the rest of the charge record is secret,
+    -- so this branch is safe (and is why the entry's cached isChargeSpell flag
+    -- is not consulted -- SafeGetChargeInfo throws the whole record away when
+    -- cooldownDuration is secret, leaving Shift cached as a 1-charge cooldown).
+    local mc = chargeInfo and chargeInfo.maxCharges
+    if mc == nil or IsSecret(mc) or mc <= 1 then slot:SetAlpha(1); return end
+    local curve = GetChargeAlphaCurve()
+    local durObj = C_Spell.GetSpellCooldownDuration and C_Spell.GetSpellCooldownDuration(spellId)
+    if curve and durObj and durObj.EvaluateTotalDuration then
+        -- Result may be SECRET: never compare it. SetAlpha accepts secrets, and
+        -- "or 1" on a secret number is safe (a secret is always truthy).
+        slot:SetAlpha(durObj:EvaluateTotalDuration(curve, 1) or 1)
+    else
+        slot:SetAlpha(1)
+    end
+end
+
 CheckMovementCooldown = function()
     -- The options-panel preview owns the display while it runs; the real
     -- renderer resumes from the preview's stop path. Costs one nil-check.
@@ -1138,6 +1189,8 @@ CheckMovementCooldown = function()
                 if ShowMovementSlot(count + 1, spellInfo, entry, duration) then
                     count = count + 1
                     nowShownReady[entry.spellId] = entry
+                    -- Charge spells alpha-hide while a charge is still banked.
+                    ApplyChargeVisibility(GetDisplaySlot(count), spellId, hasCharges)
                 end
             end
         end

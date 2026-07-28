@@ -1370,6 +1370,10 @@ function ns.FakeActive_Rearm()
             if eff == false then eff = nil end
             local hasCd = eff ~= nil
             local hasSound = cas.cdReadySoundKey ~= nil and cas.cdReadySoundKey ~= "none"
+            -- Keep Colored (On CD) needs no rule of its own -- preset frames read
+            -- it directly (PresetKeepsColor). Gate flipped BEFORE the early return:
+            -- it is valid on a spell with no overlay, cd-state effect or sound.
+            if cas.noDesatOnCD then ns._cdmAnyNoDesatOnCD = true end
             if not (hasDur or hasCd or hasSound) then return end
             local rule = { spellID = matchKey, srcKey = srcKey, cas = cas, user = true }
             _rules[#_rules + 1] = rule

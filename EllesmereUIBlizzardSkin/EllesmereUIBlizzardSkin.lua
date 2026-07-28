@@ -57,6 +57,7 @@ local WINDOW_ENABLE_KEYS = {
     quest           = "reskinQuest",
     inspectrecipe   = "reskinInspectRecipe",
     delves          = "reskinDelves",
+    socialui        = "reskinSocialUI",
 }
 --- Master PER-PROFILE kill switch for ALL Blizzard window skinning: the
 --- window engine + every pack, plus the pre-engine CharacterSheet/Inspect,

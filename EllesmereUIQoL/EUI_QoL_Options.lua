@@ -9,6 +9,7 @@ local PAGE_CURSOR   = "Cursor"
 local PAGE_UPGCALC  = "Upgrade Calc"
 local PAGE_SHIFTER  = "Shifter"
 local PAGE_MOVEMENT = "Movement Alerts"
+local PAGE_RAIDTOOLS = "Raid Tools"
 
 -------------------------------------------------------------------------------
 --  Hide Item Transforms picker popup
@@ -2032,13 +2033,13 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             local chCogRows = {
-                    { type="slider", label="H Length", min=1, max=100, step=1,
+                    { type="slider", label="H Length", min=1, max=500, step=1,
                       get=function() return cget("crosshairHLength") or 40 end,
                       set=function(v) dbset("crosshairHLength", v) end },
                     { type="slider", label="H Width", min=1, max=20, step=1,
                       get=function() return cget("crosshairHWidth") or presetThick() end,
                       set=function(v) dbset("crosshairHWidth", v); refreshSizeLabel() end },
-                    { type="slider", label="V Length", min=1, max=100, step=1,
+                    { type="slider", label="V Length", min=1, max=500, step=1,
                       get=function() return cget("crosshairVLength") or 40 end,
                       set=function(v) dbset("crosshairVLength", v) end },
                     { type="slider", label="V Width", min=1, max=20, step=1,
@@ -2365,8 +2366,8 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUIQoL", {
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
-        pages       = { PAGE_QOL, PAGE_CURSOR, PAGE_UPGCALC, PAGE_SHIFTER, PAGE_MOVEMENT },
-        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement" },
+        pages       = { PAGE_QOL, PAGE_CURSOR, PAGE_UPGCALC, PAGE_SHIFTER, PAGE_MOVEMENT, PAGE_RAIDTOOLS },
+        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown" },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_QOL then
                 return BuildQoLPage(pageName, parent, yOffset)
@@ -2382,6 +2383,9 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if pageName == PAGE_MOVEMENT and _G._EUI_BuildMovementAlertPage then
                 return _G._EUI_BuildMovementAlertPage(pageName, parent, yOffset)
+            end
+            if pageName == PAGE_RAIDTOOLS and _G._EUI_BuildRaidToolsPage then
+                return _G._EUI_BuildRaidToolsPage(pageName, parent, yOffset)
             end
         end,
         onReset = function()

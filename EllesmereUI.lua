@@ -4463,7 +4463,8 @@ end
 
 -- Tip of the Spear tracker (Survival Hunter)
 -- Kill Command (259489) grants 1 stack (2 with Primal Surge talent 1272154).
--- Takedown (1250646) grants 2 stacks when Twin Fang (1272139) is known.
+-- Takedown (1250646) grants 3 stacks when Twin Fangs (1272139) is known and
+-- spends one on its own impact (1253859), so the cast nets 2.
 -- Various spender abilities consume 1 stack each.
 -- Buff duration: 10 seconds, max 3 stacks.
 -- Talent spell: 260285
@@ -4474,8 +4475,10 @@ do
     local TALENT     = 260285
     local KILL_CMD   = 259489
     local PRIMAL     = 1272154
-    local TAKEDOWN   = 1250646
-    local TWIN_FANG  = 1272139
+    local TAKEDOWN     = 1250646
+    local TAKEDOWN_HIT = 1253859
+    local TWIN_FANG    = 1272139
+    local TWIN_FANG_GAIN = 3
 
     local SPENDERS = {
         [186270]  = true,  -- Raptor Strike
@@ -4486,7 +4489,7 @@ do
         [193265]  = true,  -- Hatchet Toss
         [1264949] = true,  -- Chakram
         [1261193] = true,  -- Boomstick
-        [1253859] = true,  -- Takedown (also spends)
+        [TAKEDOWN_HIT] = true,  -- Takedown's impact (only spends without Twin Fangs)
         [1251592] = true,  -- Flamefang Pitch
     }
 
@@ -4503,9 +4506,19 @@ do
             stacks = min(MAX, stacks + gain)
             expiresAt = GetTime() + DURATION
         elseif spellID == TAKEDOWN and C_SpellBook.IsSpellKnown(TWIN_FANG) then
-            stacks = min(MAX, stacks + 2)
+            -- Twin Fangs grants 3 and the impact spends one, so the cast nets 2
+            -- from any starting count -- the grant alone always hits the cap.
+            -- Both halves are resolved here rather than waiting for the impact
+            -- event: at melee range the two arrive in the same frame and the
+            -- impact can be handled first, where an empty tracker swallows it
+            -- and the bar then sticks a stack high for the buff's full duration.
+            stacks = min(MAX, stacks + TWIN_FANG_GAIN) - 1
             expiresAt = GetTime() + DURATION
         elseif SPENDERS[spellID] and stacks > 0 then
+            -- With Twin Fangs the cast above already spent for this impact.
+            if spellID == TAKEDOWN_HIT and C_SpellBook.IsSpellKnown(TWIN_FANG) then
+                return
+            end
             stacks = stacks - 1
             if stacks == 0 then expiresAt = nil end
         end
@@ -11102,7 +11115,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.6.4"
+EllesmereUI.VERSION = "8.6.5"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

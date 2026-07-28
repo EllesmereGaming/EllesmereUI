@@ -232,6 +232,7 @@ do
             showStatCategory_Crests      = true,
             showStatCategory_PvP         = true,
             showAdjustedStats            = false,
+            showManaStat                 = false,
         }
         for k, v in pairs(defaults) do
             if EllesmereUIDB[k] == nil then
@@ -1794,6 +1795,27 @@ local function SkinCharacterSheet()
             and EllesmereUIDB["showCrest_" .. stat.showCrestKey] == false)
     end
 
+    -- Opt-in stat rows. Unlike the crest filter above, this is NOT consulted
+    -- when rows are built -- the row is always created and only its visibility
+    -- is gated, so toggling one on applies immediately instead of waiting for
+    -- a /reload. Default is hidden (the DB flag must be explicitly true).
+    -- showIf adds a live capability check on top of the user's choice.
+    local function ShouldShowOptionalStat(stat)
+        if not stat then return true end
+        if stat.showKey and not (EllesmereUIDB and EllesmereUIDB[stat.showKey] == true) then
+            return false
+        end
+        if stat.showIf and not stat.showIf() then return false end
+        return true
+    end
+
+    -- Max mana pool. Reads 0 for classes that have none (Warrior, Rogue,
+    -- Death Knight, Demon Hunter), which is what gates the Mana row -- the
+    -- same check Blizzard's own PaperDollFrame uses for alternate mana.
+    local function PlayerMaxMana()
+        return UnitPowerMax("player", Enum.PowerType.Mana) or 0
+    end
+
     -- Determine which stats to show based on class/spec
     local function GetFilteredAttributeStats()
         local spec = GetSpecialization()
@@ -1808,11 +1830,17 @@ local function SkinCharacterSheet()
         local primaryStatNames = { "Strength", "Agility", "Stamina", "Intellect" }
         local primaryStat = primaryStatNames[primaryStatIndex]
 
-        -- Return fixed order: Primary Stat, Stamina, Health
+        -- Return fixed order: Primary Stat, Stamina, Health, Mana.
+        -- Mana is always in the list (even for classes without a pool) so the
+        -- row count stays stable -- RefreshAttributeStats pairs rows with this
+        -- list by index on a spec change. Visibility is handled separately.
         return {
             { name = primaryStat, func = function() return UnitStat("player", primaryStatIndex) end, statIndex = primaryStatIndex, tooltip = (primaryStatIndex == 1 and L("Increases melee attack power")) or (primaryStatIndex == 2 and L("Increases dodge chance and melee attack power")) or (primaryStatIndex == 4 and L("Increase the magnitude of your attacks and Abilities")) or L("Primary stat") },
             { name = "Stamina", func = function() return UnitStat("player", 3) end, statIndex = 3, tooltip = L("Increases health") },
             { name = "Health", func = function() return UnitHealthMax("player") end, tooltip = L("The amount of damage you can take") },
+            { name = "Mana", func = PlayerMaxMana, showKey = "showManaStat",
+              showIf = function() return PlayerMaxMana() > 0 end,
+              tooltip = L("The size of your mana pool") },
         }
     end
 
@@ -2047,9 +2075,10 @@ local function SkinCharacterSheet()
                 local visibleCount = 0
                 for si = 1, #sectionData.stats do
                     local stat = sectionData.stats[si]
-                    if stat.label and (stat.showWhen or stat.showCrestKey) then
+                    if stat.label and (stat.showWhen or stat.showCrestKey or stat.showKey) then
                         local shouldShow = ShouldShowStat(stat.showWhen)
                                        and ShouldShowCrest(stat)
+                                       and ShouldShowOptionalStat(stat)
                         stat.label:SetShown(shouldShow)
                         if stat.value then stat.value:SetShown(shouldShow) end
                         if stat.button then stat.button:SetShown(shouldShow) end
@@ -2068,6 +2097,14 @@ local function SkinCharacterSheet()
             end
         end
         GetFFD(frame).recalculateSections()
+        -- A row that just came back on screen was skipped by the last
+        -- UpdateAllStats pass, so its value is stale (or never was set at all).
+        -- Repopulate here instead of leaving it wrong until the next stats
+        -- event fires. This runs on toggles, spec changes and collapse/expand
+        -- only, never on the event path. Guarded because the build calls this
+        -- before UpdateAllStats is published; the build runs its own pass right
+        -- after, so nothing is missed there.
+        if EllesmereUI._refreshStatFormats then EllesmereUI._refreshStatFormats() end
     end
     EllesmereUI._refreshStatsVisibility = RefreshStatsVisibility
 
@@ -2531,7 +2568,7 @@ local function SkinCharacterSheet()
                 })
 
                 -- Store stat elements for collapse/expand (include showWhen for visibility checks)
-                table.insert(sectionData.stats, {label = label, value = value, button = valueButton, showWhen = stat.showWhen, showCrestKey = stat.showCrestKey})
+                table.insert(sectionData.stats, {label = label, value = value, button = valueButton, showWhen = stat.showWhen, showCrestKey = stat.showCrestKey, showKey = stat.showKey, showIf = stat.showIf})
 
                 -- Thin leader between label and value, vertically centered on
                 -- the row and physical-pixel-perfect.
@@ -2693,10 +2730,15 @@ local function SkinCharacterSheet()
         end
     end
 
-    -- Apply initial visibility settings
+    -- Apply initial visibility settings. RefreshStatsVisibility also settles
+    -- the opt-in rows (Mana), which are built unconditionally so they can be
+    -- toggled without a /reload -- without this they would show once, before
+    -- the first OnShow hook runs.
+    RefreshStatsVisibility()
     UpdateStatCategoryVisibility()
     -- Defer a call as some settings may not be fully initialized like section visibility
     C_Timer.After(0, function()
+        RefreshStatsVisibility()
         UpdateStatCategoryVisibility()
     end)
 
@@ -2707,26 +2749,35 @@ local function SkinCharacterSheet()
         local secondaryBoth = EllesmereUIDB and EllesmereUIDB.showSecondaryBoth
         local tertiaryBoth  = EllesmereUIDB and EllesmereUIDB.showTertiaryBoth
         for _, statEntry in ipairs(GetFFD(frame).statsValues) do
-            local isSec = (statEntry.categoryKey == "SecondaryStats")
-            local isTer = (statEntry.categoryKey == "Tertiary")
-            local useBoth = statEntry.rawFunc and ((isSec and secondaryBoth) or (isTer and tertiaryBoth))
-            local useRaw  = (not useBoth) and ((isSec and secondaryRaw) or (isTer and tertiaryRaw))
-            if useBoth then
-                local rawResult = statEntry.rawFunc()
-                local pctResult = statEntry.func and statEntry.func()
-                if rawResult ~= nil and pctResult ~= nil then
-                    statEntry.value:SetText(format("%d (%.2f%%)", rawResult, pctResult))
+            -- Filtered-off rows are built and kept in this list, but their value
+            -- is not on screen, so querying and formatting it is pure waste on a
+            -- path that fires many times per second while the sheet is open.
+            -- Own shown flag, NOT IsVisible(): the build's first pass runs before
+            -- the panel itself is up, and effective visibility would skip every
+            -- row there and leave the whole sheet reading "0" until the next
+            -- event. RefreshStatsVisibility repopulates when a row comes back.
+            if statEntry.value and statEntry.value:IsShown() then
+                local isSec = (statEntry.categoryKey == "SecondaryStats")
+                local isTer = (statEntry.categoryKey == "Tertiary")
+                local useBoth = statEntry.rawFunc and ((isSec and secondaryBoth) or (isTer and tertiaryBoth))
+                local useRaw  = (not useBoth) and ((isSec and secondaryRaw) or (isTer and tertiaryRaw))
+                if useBoth then
+                    local rawResult = statEntry.rawFunc()
+                    local pctResult = statEntry.func and statEntry.func()
+                    if rawResult ~= nil and pctResult ~= nil then
+                        statEntry.value:SetText(format("%d (%.2f%%)", rawResult, pctResult))
+                    else
+                        statEntry.value:SetText("0")
+                    end
                 else
-                    statEntry.value:SetText("0")
-                end
-            else
-                local fn  = (useRaw and statEntry.rawFunc) or statEntry.func
-                local fmt = useRaw and "%d" or statEntry.format
-                local result = fn and fn()
-                if result ~= nil then
-                    statEntry.value:SetText(format(fmt, result))
-                else
-                    statEntry.value:SetText("0")
+                    local fn  = (useRaw and statEntry.rawFunc) or statEntry.func
+                    local fmt = useRaw and "%d" or statEntry.format
+                    local result = fn and fn()
+                    if result ~= nil then
+                        statEntry.value:SetText(format(fmt, result))
+                    else
+                        statEntry.value:SetText("0")
+                    end
                 end
             end
         end
@@ -2743,6 +2794,7 @@ local function SkinCharacterSheet()
     local _STATS_EVENTS = {
         "UNIT_STATS", "COMBAT_RATING_UPDATE", "PLAYER_EQUIPMENT_CHANGED",
         "UNIT_ATTACK_POWER", "UNIT_RANGED_ATTACK_POWER", "UNIT_SPELL_HASTE",
+        "UNIT_MAXPOWER",
         "MASTERY_UPDATE", "SPELL_POWER_CHANGED", "PLAYER_DAMAGE_DONE_MODS",
         "PLAYER_SPECIALIZATION_CHANGED",
         "HONOR_XP_UPDATE", "HONOR_LEVEL_UPDATE", "CURRENCY_DISPLAY_UPDATE",

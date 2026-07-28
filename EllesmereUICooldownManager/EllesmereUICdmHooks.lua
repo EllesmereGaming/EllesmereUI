@@ -1021,6 +1021,22 @@ end
 -- fd._isProcessingOverride so the SetDrawSwipe sibling hook does not recurse.
 -- Secret-safe: HasVisualDataSource_Charges is a clean bool, the ss flag is ours.
 local function ApplyCdmChargeStyle(frame, cd)
+    -- Icon art suppressed (Only Show Numbers / Charges/Stacks Only): there is
+    -- nothing for a charge swipe or recharge edge to decorate, and this is the
+    -- ONLY caller of ApplyCdmEdge -- gating here covers the reactive cooldown
+    -- hooks and ReapplyChargeStyle in one place. Report "handled" so callers do
+    -- not fall through to their own swipe/edge defaults. The reentry guard is
+    -- SAVED and restored, never forced false: ReapplyChargeStyle sets it before
+    -- calling us and clearing it here would drop its guard.
+    local fdOsn = hookFrameData[frame]
+    if fdOsn and fdOsn._osnOn then
+        local prevGuard = fdOsn._isProcessingOverride
+        fdOsn._isProcessingOverride = true
+        if cd.SetDrawSwipe then cd:SetDrawSwipe(false) end
+        if cd.SetDrawEdge then cd:SetDrawEdge(false) end
+        fdOsn._isProcessingOverride = prevGuard
+        return true
+    end
     if type(frame.HasVisualDataSource_Charges) ~= "function"
        or not frame:HasVisualDataSource_Charges() then
         return false
@@ -1510,6 +1526,15 @@ end
 -- that is not an enabled charge spell, so callers wrap their current value with no
 -- behaviour change for anyone not using the feature.
 function ns.CdmShouldHideCountdown(frame, baseHide)
+    -- Charges/Stacks Only (No Icon) hides the duration outright, so the charge
+    -- / stack counter is the entire display. Checked AHEAD of the feature gate
+    -- below so it holds for every caller of this resolver -- the appearance
+    -- pass, the reanchor loop and the SPELL_UPDATE_CHARGES watcher all route
+    -- their countdown writes through here, which is why the setting needs no
+    -- per-site force. (Only Show Numbers does the opposite and never sets the
+    -- flag: for buff bars the number IS the display.)
+    local fdc = hookFrameData[frame]
+    if fdc and fdc._osnHideText then return true end
     if not ns._cdmAnyChargeHideCdText then return baseHide end
     if baseHide then return true end  -- already hidden by the bar/per-icon setting
     local ss = ns._ResolveCdmSS(frame)
@@ -1561,7 +1586,10 @@ local function EvalChargeCdTextFrame(frame, fd)
         -- stop watching. (A per-icon showCooldownText override only exists on buff
         -- bars, which never enable this charge toggle, so the bar value is right.)
         ns._chargeCdTextWatch[frame] = nil
-        cd:SetHideCountdownNumbers(baseHide)
+        -- Through the resolver, not raw: it returns baseHide unchanged here
+        -- (the charge toggle is off) but still honours Charges/Stacks Only, so
+        -- unwatching on a no-icon bar cannot flash the duration back.
+        cd:SetHideCountdownNumbers(ns.CdmShouldHideCountdown(frame, baseHide))
         return
     end
     cd:SetHideCountdownNumbers(ns.CdmShouldHideCountdown(frame, baseHide))
@@ -1913,13 +1941,28 @@ end
 ns.ApplyCustomIcon = ApplyCustomIcon
 
 -------------------------------------------------------------------------------
---  Only Show Numbers (bar setting, buff-family bars)
---  Renders a buff icon as just its countdown number: icon texture, background,
---  square border, shape ring, Blizzard debuff border and the duration swipe
---  are all hidden; the Cooldown widget's engine countdown text is forced ON.
+--  Icon-art suppression (two bar settings, one machine)
+--    buff-family bars: "Only Show Numbers"            -> barData.onlyShowNumbers
+--    cd/utility bars:  "Charges/Stacks Only (No Icon)" -> barData.chargesOnly
+--  Both hide the icon texture, background, square border, shape ring, Blizzard
+--  debuff border, the swipe and the recharge edge. They differ in the text they
+--  leave behind: Only Show Numbers FORCES the Cooldown widget's engine
+--  countdown on (the duration number IS the display), while Charges/Stacks Only
+--  forces it OFF, so the charge / stack counter is all that remains.
+--  Swipe, edge and countdown all have writers that re-assert between our
+--  passes, so each is gated on the frame's flags at its own choke point:
+--  the SetDrawSwipe hook and ApplyCdmChargeStyle (which owns ApplyCdmEdge) read
+--  _osnOn, and ns.CdmShouldHideCountdown -- the resolver every countdown writer
+--  funnels through -- reads _osnHideText.
+--  Every hide is REGION-level (the icon texture itself), never frame alpha:
+--  frame.ChargeCount and frame.Applications are siblings of the icon, and on
+--  the frames whose Icon is a container the stack text lives at Icon.
+--  Applications -- so frame:SetAlpha(0) or Icon:SetAlpha(0) would take the
+--  counters with it. fd.tex is already resolved down to the leaf texture in
+--  DecorateFrame (the GetTexture descent), which is what makes this work.
 --  Applied from DecorateFrame on every (re)claim and re-asserted at the end of
 --  RefreshCDMIconAppearance's per-icon pass (which re-applies borders/shapes
---  and would otherwise undo the hides). All hides are alpha/flag based -- the
+--  and would otherwise undo the hides). Hides are alpha/shown/flag based -- the
 --  regions stay live, so turning the bar setting off restores one-shot via
 --  fd._osnOn (pooled frames moving to a bar without the setting restore the
 --  same way) and the normal style passes re-assert everything else. Cost when
@@ -1928,9 +1971,31 @@ ns.ApplyCustomIcon = ApplyCustomIcon
 local function ApplyOnlyNumbers(frame, fd, barData)
     if not barData then return end
     fd = fd or hookFrameData[frame]
-    if barData.onlyShowNumbers then
+    local osn = barData.onlyShowNumbers
+    if osn or barData.chargesOnly then
+        -- Set BEFORE the swipe/edge writes below: the per-frame SetDrawSwipe
+        -- and SetDrawEdge hooks force their defaults for non-charge frames and
+        -- read _osnOn to stand down (buff frames never reached the swipe hook
+        -- -- they early-out on _isBuffViewerFrame -- which is why cd/utility
+        -- needed the gate). _osnHideText additionally tells
+        -- ns.CdmShouldHideCountdown that the duration is suppressed; every
+        -- countdown writer resolves through it.
+        if fd then
+            fd._osnOn = true
+            fd._osnHideText = (not osn) or nil
+        end
         local tex = (fd and fd.tex) or frame._tex
-        if tex then tex:SetAlpha(0) end
+        if tex then
+            tex:SetAlpha(0)
+            -- Hide() as well, and on cd/utility it is the load-bearing half:
+            -- Texture SetAlpha and SetVertexColor share ONE alpha slot on this
+            -- client, and the resource-dim pass writes a three-arg
+            -- SetVertexColor on injected custom-spell icons, which resets alpha
+            -- to 1 and pops the art back. Shown-state is an independent channel
+            -- no colour writer can touch, and nothing in the addon ever calls
+            -- Show/SetShown on an icon texture.
+            tex:Hide()
+        end
         local bg = (fd and fd.bg) or frame._bg
         if bg then bg:SetAlpha(0) end
         if fd and fd.borderFrame then
@@ -1944,13 +2009,18 @@ local function ApplyOnlyNumbers(frame, fd, barData)
         local cd = (fd and fd.cooldown) or frame.Cooldown or frame._cooldown
         if cd then
             if cd.SetDrawSwipe then cd:SetDrawSwipe(false) end
-            if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(false) end
+            -- No icon means no recharge edge either.
+            if cd.SetDrawEdge then cd:SetDrawEdge(false) end
+            -- Only Show Numbers FORCES the duration on (the number is the whole
+            -- display); Charges/Stacks Only forces it OFF, leaving the charge /
+            -- stack counter alone on the bar.
+            if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(not osn) end
         end
-        if fd then fd._osnOn = true end
     elseif fd and fd._osnOn then
         fd._osnOn = nil
+        fd._osnHideText = nil
         local tex = fd.tex or frame._tex
-        if tex then tex:SetAlpha(1) end
+        if tex then tex:SetAlpha(1); tex:Show() end
         local bg = fd.bg or frame._bg
         if bg then bg:SetAlpha(1) end
         local ifc = _ecmeFC[frame]
@@ -2338,6 +2408,7 @@ local function DecorateFrame(frame, barData)
                 -- single check for everyone who never enables it. The swipe block
                 -- runs for every icon on login, so this also covers /reload.
                 if ss2 and ss2.desatNotActive then ns._cdmAnyDesatNotActive = true end
+                if ss2 and ss2.noDesatOnCD then ns._cdmAnyNoDesatOnCD = true end
                 -- Same one-shot gate for the per-spell charge Hide Swipe so the
                 -- SetDrawSwipe hook can early-out for everyone who never enables
                 -- it. Covers /reload (runs for every icon).
@@ -2488,6 +2559,20 @@ local function DecorateFrame(frame, barData)
                 if fd._isProcessingOverride then return end
                 -- Hosted buff: never toggle its duration swipe from our cd logic.
                 if fd._isBuffViewerFrame then return end
+                -- Charges/Stacks Only (No Icon): the art is hidden, so a swipe
+                -- would just draw a dark pie over empty space on every Blizzard
+                -- cooldown re-push. Suppress instead of falling through to the
+                -- force-true below. Ahead of the charge-style call on purpose:
+                -- with no icon there is nothing for a charge swipe or recharge
+                -- edge to decorate either.
+                if fd._osnOn then
+                    if show then
+                        fd._isProcessingOverride = true
+                        cd:SetDrawSwipe(false)
+                        fd._isProcessingOverride = false
+                    end
+                    return
+                end
                 -- Charge spells get the baseline edge (+ per-spell Hide Swipe).
                 -- ApplyCdmChargeStyle returns true and fully owns the swipe + edge
                 -- only for charge spells, so non-charge frames fall through to the
@@ -2537,6 +2622,15 @@ local function DecorateFrame(frame, barData)
                 hooksecurefunc(cd, "SetDrawEdge", function(_, show)
                     if fd._isProcessingOverride then return end
                     if not show then return end
+                    -- No icon art: no recharge edge, for charge and non-charge
+                    -- spells alike. Blizzard re-enables the edge on every
+                    -- cooldown re-push, so this has to live in the hook.
+                    if fd._osnOn then
+                        fd._isProcessingOverride = true
+                        cd:SetDrawEdge(false)
+                        fd._isProcessingOverride = false
+                        return
+                    end
                     if type(frame.HasVisualDataSource_Charges) ~= "function"
                        or not frame:HasVisualDataSource_Charges() then return end
                     if not ns._cdmAnyChargeStyle then return end
@@ -3164,6 +3258,41 @@ local function DecorateFrame(frame, barData)
             end
         end
 
+        -- Keep Colored (On CD): additive hook on SetDesaturated AND SetDesaturation,
+        -- the mirror of the block above. Desaturating on cooldown is BLIZZARD's own
+        -- behaviour (it greys the icon on every CD tick), so suppressing it means
+        -- re-saturating right after each of those calls rather than skipping a call
+        -- of our own. Deliberately does NOT clear fd._desatNA -- Desaturate When Not
+        -- Active is the more specific, explicitly-asked-for greying, so it wins when
+        -- both are on (bail below) and this setting only ever removes the implicit
+        -- cooldown grey.
+        --
+        -- ZERO-COST WHEN UNUSED: same shape as the block above -- the first line is a
+        -- single flag check, and ns._cdmAnyNoDesatOnCD is flipped on only when a spell
+        -- actually uses the setting (swipe block / options setValue).
+        if fd.tex and not fd._noDesatOnCDHooked then
+            fd._noDesatOnCDHooked = true
+            local function _keepColored()
+                if not ns._cdmAnyNoDesatOnCD then return end
+                if fd._isProcessingOverride then return end
+                local fc2 = _ecmeFC[frame]
+                local sid2 = fc2 and fc2.spellID
+                local bk2 = fc2 and fc2.barKey
+                if not sid2 or not bk2 then return end
+                local ss2 = ResolveSpellSettings(frame, sid2, ns.GetBarSpellData(bk2))
+                if not (ss2 and ss2.noDesatOnCD) then return end
+                if ss2.desatNotActive then return end
+                fd._isProcessingOverride = true
+                fd.tex:SetDesaturated(false)
+                if fd.tex.SetDesaturation then fd.tex:SetDesaturation(0) end
+                fd._isProcessingOverride = false
+            end
+            hooksecurefunc(fd.tex, "SetDesaturated", _keepColored)
+            if fd.tex.SetDesaturation then
+                hooksecurefunc(fd.tex, "SetDesaturation", _keepColored)
+            end
+        end
+
         -- Audio Effect on CD Ready (cd/utility per-icon) is driven purely by the
         -- authoritative SPELL_UPDATE_COOLDOWN / SPELL_UPDATE_CHARGES events via
         -- WatchCdReadySoundIfEnabled (called from DecorateFrame) -- deliberately NOT
@@ -3394,13 +3523,31 @@ local function UpdateTrinketFrame(slotID)
 end
 ns.UpdateTrinketFrame = UpdateTrinketFrame
 
+-- Keep Colored (On CD) for PRESET frames (trinket slots, racials, potions and
+-- user-injected custom spells). Those never run Blizzard's cooldown desaturation
+-- -- the Fake-Active engine greys them itself (UpdateTrinketCooldown below and
+-- ApplySpellDesaturation further down), so there is no SetDesaturated call for
+-- the per-spell hook in DecorateFrame to ride. They read the setting from their
+-- own cas entry instead, at the two points where they would grey the icon.
+-- Zero-cost when unused: the session gate is checked first (flipped by
+-- AddUserRule during the Fake-Active rebuild, so it survives /reload).
+local function PresetKeepsColor(f)
+    if not ns._cdmAnyNoDesatOnCD then return false end
+    local fc = f and _ecmeFC[f]
+    local sid = fc and fc.spellID
+    if not sid or not ns.GetEffectiveCustomActiveState then return false end
+    local cas = ns.GetEffectiveCustomActiveState(sid)
+    return (cas and cas.noDesatOnCD) and true or false
+end
+ns.PresetKeepsColor = PresetKeepsColor
+
 local function UpdateTrinketCooldown(slotID)
     local f = _trinketFrames[slotID]
     if not f or not f._trinketIsOnUse then return false end
     local start, dur, enable = GetInventoryItemCooldown("player", slotID)
     if start and dur and dur > 1.5 and enable == 1 then
         f._cooldown:SetCooldown(start, dur)
-        if f._tex then f._tex:SetDesaturated(true) end
+        if f._tex then f._tex:SetDesaturated(not PresetKeepsColor(f)) end
         return true
     else
         f._cooldown:Clear()
@@ -3656,6 +3803,7 @@ end
 
 local function ApplySpellDesaturation(f, durObj)
     if not f._tex then return end
+    if PresetKeepsColor(f) then f._tex:SetDesaturation(0); return end
     if durObj and _desatCurve and durObj.EvaluateRemainingDuration then
         local val = durObj:EvaluateRemainingDuration(_desatCurve, 0)
         f._tex:SetDesaturation(val or 0)
@@ -3704,8 +3852,11 @@ local function HideAllInjectedCustomBuffs()
 end
 ns.HideAllInjectedCustomBuffs = HideAllInjectedCustomBuffs
 
-local function GetOrCreatePlaceholderFrame(barKey, spellID, iconID)
-    local fkey = barKey .. ":ph:" .. spellID
+-- identKey: optional pooling identity, defaulting to spellID. Buff
+-- placeholders pass one so two viewer slots that collide on spellID do not
+-- share a single pooled frame (see the collision note at the call site).
+local function GetOrCreatePlaceholderFrame(barKey, spellID, iconID, identKey)
+    local fkey = barKey .. ":ph:" .. tostring(identKey or spellID)
     local f = _placeholderFrames[fkey]
     if not f then
         f = CreateFrame("Frame", nil, UIParent)
@@ -4663,6 +4814,35 @@ local function CollectAndReanchor()
                                     -- toggle on. We never touch Blizzard's hidden frame, so nothing
                                     -- fights its hide state.
                                     local bd = barDataByKey[targetBar]
+                                    -- Placeholder identity. Two viewer slots on one bar can
+                                    -- resolve to the SAME realSID. For split-form talents that
+                                    -- is correct (one live spell, one icon) and the dedup below
+                                    -- must collapse them. But it is ALSO what a viewer-level
+                                    -- COLLISION looks like: Blizzard hands the Demonic Art slot
+                                    -- Diabolic Ritual's id, so unlike the split-identity twins
+                                    -- the clean-read cache above cannot separate them either --
+                                    -- both reads return the same id. Keyed on realSID alone the
+                                    -- second slot is skipped and shares the first's pooled frame,
+                                    -- so the pair renders two icons while active and one while
+                                    -- missing, and the bar's icon count swings as the buffs come
+                                    -- and go.
+                                    -- cooldownID is distinct per viewer slot, which is why the
+                                    -- enumeration dedup was moved onto it; this is the same
+                                    -- identity rule arriving in the placeholder path. The FIRST
+                                    -- claimer keeps the plain realSID key, so every non-colliding
+                                    -- spec (unique sid <=> unique cooldownID) is byte-identical
+                                    -- to before; only a later slot carrying a DIFFERENT
+                                    -- cooldownID takes an id of its own instead of vanishing.
+                                    local phIdent = realSID
+                                    do
+                                        local claimKey = "phsid:" .. tostring(realSID)
+                                        local firstCD = barSeen[claimKey]
+                                        if firstCD == nil then
+                                            barSeen[claimKey] = dedupKey or true
+                                        elseif dedupKey and firstCD ~= dedupKey then
+                                            phIdent = "c" .. tostring(dedupKey)
+                                        end
+                                    end
                                     -- Effective Always Show for THIS buff: a per-icon
                                     -- override (ss.alwaysShow "on"/"off") beats the bar
                                     -- toggle. Lookup only when per-icon settings exist
@@ -4695,7 +4875,7 @@ local function CollectAndReanchor()
                                     -- Icons) for cooldowns).
                                     local hostedMissingVis
                                     if hostCD then
-                                        local phMV = GetOrCreatePlaceholderFrame(targetBar, realSID, nil)
+                                        local phMV = GetOrCreatePlaceholderFrame(targetBar, realSID, nil, phIdent)
                                         local ssMV = ns.ResolveSpellSettings(phMV, realSID, ns.GetBarSpellData(targetBar), targetBar)
                                         local mv = ssMV and ssMV.hostedMissingVis
                                         if mv == "hidden" or mv == "hiddenShift" then hostedMissingVis = mv end
@@ -4728,11 +4908,11 @@ local function CollectAndReanchor()
                                         -- against injecting that single frame twice (a second
                                         -- AcquireEntry reserves a phantom slot and over-sizes the
                                         -- bar). Dedup placeholders per bar by resolved spell.
-                                        local phKey = "ph:" .. realSID
+                                        local phKey = "ph:" .. tostring(phIdent)
                                         if not barSeen[phKey] then
                                             barSeen[phKey] = true
                                             local icon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(realSID)
-                                            local ph = GetOrCreatePlaceholderFrame(targetBar, realSID, icon)
+                                            local ph = GetOrCreatePlaceholderFrame(targetBar, realSID, icon, phIdent)
                                             -- Per-spell missing-visibility mark (our own
                                             -- frame): "hidden" renders alpha-0 via the
                                             -- opacity passes while the slot stays

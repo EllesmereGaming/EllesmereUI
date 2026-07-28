@@ -8376,6 +8376,20 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateCogDisIcon()
         end
 
+        -- Row 4: Always Show
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Always Show",
+              tooltip = "Keep the cast bar visible (sitting empty) when you are not casting, instead of hiding it.",
+              disabled = castOff,
+              disabledTooltip = "Player Cast Bar",
+              getValue = function() local p = DB(); return p and p.castBar.alwaysShow end,
+              setValue = function(v)
+                  local p = DB(); if not p then return end
+                  p.castBar.alwaysShow = v; RefreshCast()
+              end },
+            { type = "spacer" }
+        );  y = y - h
+
         _, h = W:Spacer(parent, y, 16);  y = y - h
 
         -----------------------------------------------------------------------

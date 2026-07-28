@@ -805,16 +805,144 @@ qolFrame:SetScript("OnEvent", function(self)
         return out
     end
 
+    -- Junk sweep. C_MerchantFrame.SellAllJunkItems() is fire-and-forget: the
+    -- server drops sell requests past its rate limit, and slots whose item data
+    -- has not been cached yet at MERCHANT_SHOW are skipped entirely, so a single
+    -- call routinely strands grays in the bags. Re-count after each pass and
+    -- fire again while the number is still falling.
+    -- MERCHANT_SHOW/MERCHANT_CLOSED, not MerchantFrame:IsShown(): the vendor
+    -- interaction is what allows selling, and at MERCHANT_SHOW the frame may not
+    -- have been shown yet depending on handler order.
+    local merchantOpen = false
+    local SellJunk, StopJunkSweep
+    do
+        -- Self-rescheduling timer rather than a ticker, so a stalled pass can
+        -- back the delay off. A fixed retry rate is the wrong tool against the
+        -- very rate limiter this works around: if the limiter is what ate a
+        -- pass, retrying at the same cadence is what it keeps eating, and the
+        -- sweep would give up on items that were perfectly sellable.
+        local BASE_DELAY  = 0.4
+        local MAX_DELAY   = 1.6
+        local MAX_PASSES  = 12
+        local MAX_STALLS  = 3
+        local pending, passes, lastCount, stalls, warned, delay
+
+        local function CountJunk()
+            local junk, unknown = 0, 0
+            for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
+                for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                    local info = C_Container.GetContainerItemInfo(bag, slot)
+                    if info and info.itemID then
+                        if info.quality == nil then
+                            unknown = unknown + 1
+                        elseif info.quality == Enum.ItemQuality.Poor and not info.hasNoValue then
+                            junk = junk + 1
+                        end
+                    end
+                end
+            end
+            return junk, unknown
+        end
+
+        StopJunkSweep = function()
+            if pending then pending:Cancel(); pending = nil end
+        end
+
+        local Pass
+        local function Schedule()
+            pending = C_Timer.NewTimer(delay, Pass)
+        end
+
+        -- Verify-and-report, no selling. Used by the pass-cap exit: the sell that
+        -- pass fired is still in flight, so the count it saw cannot say whether
+        -- anything was actually stranded. Re-count once the server has answered.
+        local function Report()
+            pending = nil
+            if not merchantOpen then return end
+            local left = CountJunk()
+            if left > 0 and not warned then
+                warned = true
+                EllesmereUI.Print("|cff0cd29dEllesmereUI:|r " ..
+                    EllesmereUI.Lf("%d junk item(s) could not be sold.", left))
+            end
+        end
+
+        Pass = function()
+            pending = nil
+            if not merchantOpen then return end
+            if EllesmereUIDB and EllesmereUIDB.autoSellJunk == false then return end
+
+            local junk, unknown = CountJunk()
+            if junk == 0 and unknown == 0 then return end
+
+            passes = passes + 1
+            if junk > lastCount then
+                -- Count ROSE: slots whose data had not cached yet resolved into
+                -- newly visible junk. That is the case this sweep exists for, so
+                -- it is discovery, not a stall -- treating it as one would bail
+                -- out precisely when there is more work to do.
+                stalls, delay = 0, BASE_DELAY
+            elseif junk == lastCount then
+                -- Nothing shifted. Could be genuinely unsellable (still-refundable
+                -- purchases open a confirm popup instead of selling), or the rate
+                -- limiter dropping the request. Those are indistinguishable from
+                -- here, so back off and give the limiter room before concluding
+                -- the remainder cannot be sold.
+                stalls = stalls + 1
+                delay = math.min(delay * 2, MAX_DELAY)
+                if stalls >= MAX_STALLS then
+                    if junk > 0 and not warned then
+                        warned = true
+                        EllesmereUI.Print("|cff0cd29dEllesmereUI:|r " ..
+                            EllesmereUI.Lf("%d junk item(s) could not be sold.", junk))
+                    end
+                    return
+                end
+            else
+                stalls, delay = 0, BASE_DELAY
+            end
+
+            lastCount = junk
+            -- Only worth a server round trip when there is something to sell;
+            -- a junk-free pass here is just waiting on item data to cache.
+            if junk > 0 then C_MerchantFrame.SellAllJunkItems() end
+            if passes >= MAX_PASSES then
+                -- Pass cap hit while the count was still moving, so the sweep is
+                -- giving up mid-progress. Bailing silently here is the exact
+                -- failure this sweep exists to fix (grays left in the bags with
+                -- nothing said), so hand off to one verification pass instead.
+                pending = C_Timer.NewTimer(delay, Report)
+                return
+            end
+            Schedule()
+        end
+
+        SellJunk = function()
+            if not (C_MerchantFrame and C_MerchantFrame.SellAllJunkItems) then return end
+            StopJunkSweep()
+            passes, lastCount, stalls, warned = 0, math.huge, 0, false
+            delay = BASE_DELAY
+            -- Pass reschedules itself only when there is more to do, so the
+            -- common case (walking up to a vendor with no grays) costs exactly
+            -- one bag scan and never arms a timer at all.
+            Pass()
+        end
+    end
+
     local merchantFrame = CreateFrame("Frame", "EUI_MerchantHandler", UIParent)
     merchantFrame:RegisterEvent("MERCHANT_SHOW")
-    merchantFrame:SetScript("OnEvent", function()
+    merchantFrame:RegisterEvent("MERCHANT_CLOSED")
+    merchantFrame:SetScript("OnEvent", function(_, event)
+        if event == "MERCHANT_CLOSED" then
+            merchantOpen = false
+            return StopJunkSweep()
+        end
+        merchantOpen = true
         if not EllesmereUIDB then return end
 
         -- Auto sell junk
         if EllesmereUIDB.autoSellJunk ~= false then
-            if C_MerchantFrame and C_MerchantFrame.SellAllJunkItems then
-                C_MerchantFrame.SellAllJunkItems()
-            end
+            SellJunk()
         end
 
         -- Auto repair

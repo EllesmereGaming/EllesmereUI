@@ -247,6 +247,11 @@ local _keybindDebounceTimer  = nil   -- cancellable timer for debounced keybind 
 -- Combat state tracked via events (InCombatLockdown() can lag behind PLAYER_REGEN_DISABLED)
 local _inCombat = false
 
+-- Shared read for the other CDM files (Tracking Bars' "Only In Combat" gate).
+-- Hands out the buffered state above, not raw InCombatLockdown(): combat exit
+-- is debounced there, so short out-of-combat blips never flash a bar away.
+function ns.CDMInCombat() return _inCombat end
+
 -- Resting alpha for a bar's icons: the out-of-combat fade value when enabled
 -- and out of combat, otherwise the bar's opacity. Callers restoring an icon's
 -- alpha go through this so the fade survives cd-state and buff re-renders.

@@ -4301,7 +4301,14 @@ end
 -- Refresh/Destroy and every bar enable/disable/delete (engine calls this
 -- from AfterBarStateChange).
 local mmLastApplied = nil  -- last driver state pushed ("hide"/"show"); nil = never touched
-function ns.RefreshMicroMenuHider()
+-- force: re-push the driver even when the wanted state has not changed. The
+-- driver is registered with a CONSTANT state string, so its snippet runs once
+-- at registration and never re-evaluates -- which means anything that hides
+-- the container afterwards (a pet battle taking the screen) is never undone,
+-- and the steady-state guard below makes every later refresh a no-op. Callers
+-- that know an EXTERNAL actor moved the container pass force to re-assert it.
+-- Settings-driven callers pass nothing and are unchanged.
+function ns.RefreshMicroMenuHider(force)
     local hide = false
     local profile = ns.GetProfile()
     if profile then
@@ -4323,9 +4330,11 @@ function ns.RefreshMicroMenuHider()
     -- without micromenu blocks never create hiders on the managed frames.
     if not hide and mmLastApplied == nil then return end
     -- Steady-state guard: re-registering the same driver re-runs the secure
-    -- snippet (and re-Shows the target) for no reason. Only push changes.
+    -- snippet (and re-Shows the target) for no reason. Only push changes --
+    -- unless a caller is repairing an external hide, where re-running the
+    -- snippet IS the repair.
     local want = hide and "hide" or "show"
-    if want == mmLastApplied then return end
+    if not force and want == mmLastApplied then return end
     mmLastApplied = want
     ns.DeferUntilOOC("edb_mm_blizz", function()
         -- Build the target list without array holes (any of these globals
@@ -4597,6 +4606,16 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         "GUILD_ROSTER_UPDATE", "BN_FRIEND_ACCOUNT_ONLINE", "BN_FRIEND_ACCOUNT_OFFLINE",
         "FRIENDLIST_UPDATE",
         "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_ENTERING_WORLD",
+        -- A pet battle takes the screen over and hides both this block's
+        -- buttons and, with Disable Blizzard Micro Menu on, Blizzard's own
+        -- container. Neither comes back on its own (see the handler below).
+        -- Both end events are registered: OVER fires while the result panel is
+        -- still up and CLOSE when the world UI actually returns, and which one
+        -- lands last differs between a win, a forfeit and a flee. The handler
+        -- is idempotent, so the occasional double call is harmless.
+        -- OPENING_START is deliberately NOT registered: refreshing into the
+        -- takeover restores nothing and only risks fighting it.
+        "PET_BATTLE_OVER", "PET_BATTLE_CLOSE",
     }
 
     -- Per-instance button sets (unique global names per instance).
@@ -4973,6 +4992,22 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
             or event == 'BN_FRIEND_ACCOUNT_OFFLINE'
             or event == 'FRIENDLIST_UPDATE' then
             UpdateFriendText()
+        elseif event == 'PET_BATTLE_OVER' or event == 'PET_BATTLE_CLOSE' then
+            -- Two separate things are hidden by a pet battle and neither
+            -- restores itself:
+            --   * this block's own buttons -- rebuilt by the same
+            --     ApplyCombatState + Refresh pair the REGEN branch below uses;
+            --   * Blizzard's micro menu container, when a block has opted into
+            --     hiding it. Its hider runs off a CONSTANT state driver, so the
+            --     snippet fired once at registration and nothing re-asserts it.
+            --     force makes the refresh re-push instead of no-opping on the
+            --     unchanged state, and re-registering re-runs the snippet.
+            -- Both are safe here: Refresh is what the REGEN path already calls
+            -- in combat, and the hider defers its driver work until out of
+            -- combat on its own.
+            ApplyCombatState()
+            self:Refresh()
+            ns.RefreshMicroMenuHider(true)
         else
             -- REGEN x2 / PLAYER_ENTERING_WORLD: retry deferred button
             -- creation and re-apply the combat state.

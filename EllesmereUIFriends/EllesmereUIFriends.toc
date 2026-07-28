@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: A modern friends list with built-in organization tools.
 ## Author: Ellesmere
-## Version: 8.6.4
+## Version: 8.6.5
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIFriendsDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -12,6 +12,16 @@
 # Main Luas
 EllesmereUIFriends_RealmGroups.lua
 EllesmereUIFriends.lua
+
+# 12.1 Social UI tile styling (self-gated, inert on 12.0)
+EUI_Friends_Tiles_121.lua
+
+# EUI_Friends_Groups_121.lua is deliberately NOT loaded. Every renderer it can
+# use taints BNet whispers on 12.1 (proven by bisect: mutating the friends list
+# data in any form -- our rows, our element data, or merely re-parenting
+# Blizzard's own nodes -- taints the execution Blizzard's secure OnClick needs,
+# and SetTellTarget's whisper target is a secret value there). Kept on disk so
+# the work is not lost if a later patch changes the rules.
 
 # Options
 EUI_Friends_Options.lua

@@ -264,6 +264,7 @@ local TBB_DEFAULT_BAR = {
     name      = "New Bar",
     enabled   = true,
     hideWhenInactive = true,  -- hide the bar unless the tracked aura is active
+    onlyInCombat = false,     -- keep the bar hidden entirely while out of combat
     grouped   = true,   -- per-bar "Group Tracking Bars" checkbox; checked bars chain + share width/height
     height    = 24,
     width     = 270,
@@ -1479,7 +1480,7 @@ local TBB_STYLE_KEYS = {
     "fillColorMode", "fillR", "fillG", "fillB", "fillA",
     "bgR", "bgG", "bgB", "bgA",
     "gradientEnabled", "gradientR", "gradientG", "gradientB", "gradientA", "gradientDir",
-    "opacity", "hideWhenInactive",
+    "opacity", "hideWhenInactive", "onlyInCombat",
     "showTimer", "timerPosition", "timerSize", "timerX", "timerY",
     "timerDecimals", "timerDecimalThreshold",
     "showName", "namePosition", "nameSize", "nameX", "nameY",
@@ -4624,6 +4625,39 @@ local function _UpdateCooldownBar(bar, cfg)
 end
 
 -------------------------------------------------------------------------------
+--  "Only In Combat" gate
+--
+--  Combat state comes from the main module's event-tracked flag (debounced
+--  combat exit, so a mob dying between pulls doesn't flash every bar away).
+--  InCombatLockdown() is only the fallback for a load order that hasn't
+--  published the shared read yet.
+-------------------------------------------------------------------------------
+local function TBBInCombat()
+    if ns.CDMInCombat then return ns.CDMInCombat() end
+    return InCombatLockdown() and true or false
+end
+
+-- Park a bar the combat gate hides. Drops the same transient render state the
+-- inactive branches drop, so the next in-combat show re-resolves icon, name and
+-- fill from scratch instead of mirroring a stale frame.
+local function HideTBBBarForCombat(bar)
+    -- Already parked: nothing to tear down, and clearing _nameSet here would
+    -- make the deferred name-fill pass below re-resolve the spell every frame
+    -- for the whole time the player is out of combat.
+    if not bar:IsShown() then return end
+    if bar._pandemicGlowActive then ClearPandemic(bar) end
+    if bar._stacksText then bar._stacksText:Hide() end
+    bar._stackCount = 0
+    bar._cachedBlizzFillTex   = nil
+    bar._cachedOurFillTex     = nil
+    bar._cachedBlizzIconTex   = nil
+    bar._cachedBlizzIconOwner = nil
+    bar._lastIconSID = nil
+    bar._nameSet     = nil
+    bar:Hide()
+end
+
+-------------------------------------------------------------------------------
 --  Main Tick: UpdateTrackedBuffBarTimers
 --  Direct reskin of Blizzard's BuffBarCooldownViewer StatusBars.
 --  Reads min/max/value from Blizzard's Bar -- zero duration computation.
@@ -4670,6 +4704,10 @@ function ns.UpdateTrackedBuffBarTimers()
             if not bar:IsShown() then bar:Show() end
         elseif cfg.enabled == false then
             bar:Hide()
+        elseif cfg.onlyInCombat and not TBBInCombat() then
+            -- "Only In Combat": out of combat the bar is gone regardless of
+            -- aura/cooldown state, and regardless of Hide When Inactive.
+            HideTBBBarForCombat(bar)
         elseif cfg.popularKey == "bloodlust" then
             -- Self-driven 40s lust bar; no Blizzard frame to mirror.
             UpdateLustBar(bar, cfg)

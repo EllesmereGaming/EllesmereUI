@@ -72,6 +72,25 @@ local function GetBorderColor(cfg)
     return cfg.borderR, cfg.borderG, cfg.borderB, cfg.borderA or 1
 end
 
+-- 12.1 replaces the friends window wholesale with the Social UI. The legacy
+-- FriendsFrame still loads there but is never what the player sees, and
+-- skinning it is not free: this module re-anchors Blizzard scroll boxes and
+-- SetScripts their mouse wheel, which is a documented way to taint Battle.net
+-- whisper handling (SetTellTarget on a secret target). Running a full skin over
+-- a window nobody looks at is all cost and no benefit, so on a client serving
+-- the Social UI the entire legacy skin stays off and EUI_Friends_Groups_121.lua
+-- owns that window instead.
+--
+-- Resolved live rather than at load: the Social UI is behind a server-side
+-- switch that can flip mid-session. On 12.0 IS_121 is false, so this is always
+-- false and nothing about live behaviour changes.
+local function LegacyFriendsRetired()
+    if not (EllesmereUI and EllesmereUI.IS_121) then return false end
+    if not (C_SocialUI and C_SocialUI.IsSystemEnabled) then return false end
+    local ok, enabled = pcall(C_SocialUI.IsSystemEnabled)
+    return ok and enabled == true
+end
+
 -------------------------------------------------------------------------------
 --  Combat safety
 -------------------------------------------------------------------------------
@@ -1087,6 +1106,7 @@ end
 
 -- Process all visible friend buttons (safety net for initial show)
 local function ProcessFriendButtons()
+    if LegacyFriendsRetired() then return end
     local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
     if not scrollBox then return end
     for _, button in scrollBox:EnumerateFrames() do
@@ -1357,6 +1377,7 @@ local FRAME_BG_R, FRAME_BG_G, FRAME_BG_B = 0.03, 0.045, 0.05
 --  SkinFriendsFrame (one-time structural setup)
 -------------------------------------------------------------------------------
 local function SkinFriendsFrame()
+    if LegacyFriendsRetired() then return end
     local frame = FriendsFrame
     if not frame or friendsSkinned then return end
     friendsSkinned = true
@@ -3142,6 +3163,7 @@ end
 
 -- Live updates: colors, border, opacity
 local function ApplyFriends()
+    if LegacyFriendsRetired() then return end
     local _mplus = C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive()
     local _, _iT = IsInInstance()
     local _pvp = (_iT == "pvp" or _iT == "arena")
@@ -3199,6 +3221,7 @@ end
 --  Visibility
 -------------------------------------------------------------------------------
 local function UpdateFriendsVisibility()
+    if LegacyFriendsRetired() then return end
     local p = EBS.db and EBS.db.profile and EBS.db.profile.friends
     if not p or not p.enabled then return end
     if not FriendsFrame or not FriendsFrame:IsShown() then return end
@@ -3271,8 +3294,10 @@ function EBS:OnEnable()
         C_Timer.After(0, ApplyAll)
     end)
 
-    -- Hook FriendsFrame for load-on-demand
-    if EBS.db.profile.friends.enabled then
+    -- Hook FriendsFrame for load-on-demand. Skipped entirely once the Social UI
+    -- is the active friends window: there is nothing to hook that the player
+    -- will ever see, and the hook only exists to drive the legacy skin.
+    if EBS.db.profile.friends.enabled and not LegacyFriendsRetired() then
         if not FriendsFrame then
             local hookFrame = CreateFrame("Frame")
             hookFrame:RegisterEvent("ADDON_LOADED")

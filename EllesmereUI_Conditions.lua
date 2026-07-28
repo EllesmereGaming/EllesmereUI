@@ -253,6 +253,35 @@ function EllesmereUI.Conditions_Recheck()
     -- success -- the next signal then converges values and pointer.
     local est = _establish
     _establish = false
+    -- The options panel's Default Editing Mode is not a reason to defer, only
+    -- one to step out of: the Dark Mode condition's inputs are all options
+    -- widgets, so its flips are ALWAYS raised with that view up, and a
+    -- deferred flip left the outgoing conditional applied (and reporting
+    -- itself applied) until an unrelated event or a /reload -- silently
+    -- filing the user's baseline edits into the override's maps in between.
+    -- Establish transitions never harvest, so they run in place; only real
+    -- flips need the roundtrip.
+    local resumeView = false
+    if not est and EllesmereUI.SpecOverrides_SuspendDefaultView then
+        resumeView = EllesmereUI.SpecOverrides_SuspendDefaultView()
+    end
+    if resumeView then
+        -- Leaving the view restores the spec's values and runs the touched
+        -- modules' refreshers, and an unmapped module falls back to a full
+        -- RefreshAllAddons -- whose tail re-enters this resolver and can
+        -- converge the flip on its own. Re-read both ends so the handler
+        -- never harvests live against an outgoing group it no longer holds.
+        g = EllesmereUI.Conditions_ActiveGroup()
+        gid = g and g.id or nil
+        applied = EllesmereUI.Conditions_AppliedGid()
+        if gid == applied then
+            _appliedGid = applied
+            if EllesmereUI.SpecOverrides_ResumeDefaultView then
+                EllesmereUI.SpecOverrides_ResumeDefaultView()
+            end
+            return
+        end
+    end
     if handler(applied, gid, est) then
         _appliedGid = gid
         PersistAppliedGid(gid)
@@ -261,6 +290,11 @@ function EllesmereUI.Conditions_Recheck()
         -- the request and retry on the next signal.
         _establish = est or _establish
         _flipPending = true
+    end
+    -- Strictly AFTER the pointer advances: re-entering the view harvests
+    -- through HarvestCurrent, which banks against the APPLIED gid.
+    if resumeView and EllesmereUI.SpecOverrides_ResumeDefaultView then
+        EllesmereUI.SpecOverrides_ResumeDefaultView()
     end
 end
 
