@@ -1113,16 +1113,16 @@ initFrame:SetScript("OnEvent", function(self)
     --  CVar helpers
     ---------------------------------------------------------------------------
     local function GetCVarNum(cvar)
-        return tonumber(GetCVar(cvar)) or 0
+        return tonumber(C_CVar.GetCVar(cvar)) or 0
     end
 
     local function GetCVarBool(cvar)
-        return GetCVar(cvar) == "1"
+        return C_CVar.GetCVarBool(cvar)
     end
 
     local function SetCVarSafe(cvar, value)
         if InCombatLockdown() then return end
-        SetCVar(cvar, value)
+        C_CVar.SetCVar(cvar, value)
     end
 
     --- Returns current, default as strings (nil-safe)
@@ -1159,9 +1159,11 @@ initFrame:SetScript("OnEvent", function(self)
     end
     ApplySmartDefaults()
 
-    -- Apply suppress lua errors on login (default: ON)
-    if not EllesmereUIDB or EllesmereUIDB.suppressErrors ~= false then
+    -- Apply suppress lua errors on login (default: OFF)
+    if EllesmereUIDB and EllesmereUIDB.suppressErrors then
         SetCVarSafe("scriptErrors", "0")
+    else
+        SetCVarSafe("scriptErrors", "1")
     end
 
     -- NOTE: Optimized graphics settings are NOT re-applied on login.
@@ -1207,9 +1209,9 @@ initFrame:SetScript("OnEvent", function(self)
             if not EllesmereUIDB.gfxBackup then
                 local backup = {}
                 for _, entry in ipairs(OPTIMIZED_CVARS) do
-                    backup[entry[1]] = GetCVar(entry[1])
+                    backup[entry[1]] = C_CVar.GetCVar(entry[1])
                 end
-                backup["Contrast"] = GetCVar("Contrast")
+                backup["Contrast"] = C_CVar.GetCVar("Contrast")
                 EllesmereUIDB.gfxBackup = backup
             end
             -- Apply optimized CVars
@@ -1217,7 +1219,7 @@ initFrame:SetScript("OnEvent", function(self)
                 SetCVarSafe(entry[1], entry[2])
             end
             -- Contrast boost: if current contrast <= 55, add 10
-            local curContrast = tonumber(GetCVar("Contrast")) or 50
+            local curContrast = tonumber(C_CVar.GetCVar("Contrast")) or 50
             if curContrast <= 55 then
                 SetCVarSafe("Contrast", curContrast + 10)
             end
@@ -1962,7 +1964,7 @@ initFrame:SetScript("OnEvent", function(self)
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Suppress Lua Errors",
                   getValue=function()
-                    return not (EllesmereUIDB and EllesmereUIDB.suppressErrors == false)
+                    return EllesmereUIDB and EllesmereUIDB.suppressErrors or false
                   end,
                   setValue=function(v)
                     if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -7245,7 +7247,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Developer settings defaults
                 EllesmereUIDB.showSpellID = false
                 if EllesmereUI.SyncAuraSpellIDCVar then EllesmereUI.SyncAuraSpellIDCVar() end
-                EllesmereUIDB.suppressErrors = true
+                EllesmereUIDB.suppressErrors = false
                 -- Crosshair: the root is the inherited global default, so reset it
                 -- here (per-profile overrides are cleared by the profile's own
                 -- reset). With the root off, profiles without an override inherit
