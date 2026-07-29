@@ -2849,6 +2849,7 @@ EllesmereUI.RegisterMigration({
             "bagScale", "bagColumns", "bagCatTitleSize", "bagCountFontSize",
             "itemlevelFontSize", "showItemlevelInBags", "showUpgradeIndicator",
             "bagShowTrackRank", "itemlevelUseCustomColor", "itemlevelCustomColor",
+            "itemlevelIgnoreTrackColor",
             "bagHideEmptyCategories", "bagSidebarCollapsed", "bankSidebarCollapsed",
             "bagShowPinnedItems", "bagShowRecentItems", "bagPinnedInOneBag",
             "bagRecentInOneBag", "bagShowPinRecentTips", "bagShowSortIcon",
@@ -4364,5 +4365,40 @@ EllesmereUI.RegisterMigration({
                 if type(qol) == "table" then qol.chars = nil end
             end
         end
+    end,
+})
+
+-- The Bags item-level "custom color" override briefly had a cog UI to set it
+-- during development of the "Color by Rarity" toggle; that UI was replaced
+-- before shipping, but anyone who clicked it in the meantime is left with
+-- itemlevelUseCustomColor pinned true, which silently outranks the new
+-- Color by Rarity toggle (and the upgrade-track color) forever. Clear both
+-- keys so the item level falls back to track/rarity coloring like everyone
+-- else; nothing legitimate depends on this dead setting.
+EllesmereUI.RegisterMigration({
+    id          = "bags_ilvl_custom_color_cleanup_v1",
+    scope       = "profile",
+    description = "Clear the never-shipped Bags item-level custom-color override so it can't shadow the Color by Rarity toggle.",
+    body = function(ctx)
+        local bags = ctx.profile.addons and ctx.profile.addons.EllesmereUIBags
+        if not bags then return end
+        bags.itemlevelUseCustomColor = nil
+        bags.itemlevelCustomColor = nil
+    end,
+})
+
+-- Same story for the character sheet / inspect sheet item-level color: a
+-- short-lived cog UI let someone pin charSheetItemLevelUseColor true, which
+-- outranks both the upgrade-track color and the new "Color by Rarity"
+-- toggle. Clear it account-wide.
+EllesmereUI.RegisterMigration({
+    id          = "charsheet_ilvl_custom_color_cleanup_v1",
+    scope       = "global",
+    description = "Clear the never-shipped character-sheet item-level custom-color override so it can't shadow the Color by Rarity toggle.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db then return end
+        db.charSheetItemLevelUseColor = nil
+        db.charSheetItemLevelColor = nil
     end,
 })
