@@ -16,7 +16,14 @@ Libs\LibDeflate\LibDeflate.lua
 Libs\LibKeystone\LibKeystone.lua
 
 # Core Polyfills for WotLK 3.3.5
-Polyfills.lua
+Compatibility/API.lua
+Compatibility/Frame.lua
+Compatibility/Texture.lua
+Compatibility/Cooldown.lua
+Compatibility/Atlas.lua
+Compatibility/Secure.lua
+Compatibility/Layout.lua
+Compatibility/Timer.lua
 
 # Lightweight addon framework (replaces Ace3)
 EllesmereUI_Lite.lua
