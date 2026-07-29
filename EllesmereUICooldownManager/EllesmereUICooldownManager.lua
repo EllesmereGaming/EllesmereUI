@@ -4122,7 +4122,11 @@ local function ComputeCDMBarSize(barData, count)
     local stride, rows = ComputeTopRowStride(barData, count)
     if rows < 1 then rows = 1 end
     local grow = barData.growDirection or "CENTER"
-    local isH = (grow == "RIGHT" or grow == "LEFT" or grow == "CENTER")
+    -- CENTER does not imply horizontal: orientation is an independent setting.
+    -- Mirror LayoutCDMBar's rule so the pre-layout/fallback footprint exposes
+    -- visual width and height on the same axes as the eventual live frame.
+    local isH = (grow == "RIGHT" or grow == "LEFT"
+        or (grow == "CENTER" and not barData.verticalOrientation))
     if isH then
         return stride * iW + (stride - 1) * sp,
                rows * iH + (rows - 1) * sp
@@ -10038,4 +10042,3 @@ SlashCmdList.CDMBUFFID = function(msg)
     end
     P("=== END PROBE ===")
 end
-

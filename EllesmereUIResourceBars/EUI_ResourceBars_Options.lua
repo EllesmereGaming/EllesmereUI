@@ -2998,11 +2998,14 @@ initFrame:SetScript("OnEvent", function(self)
               order = { "HORIZONTAL", "VERTICAL_UP", "VERTICAL_DOWN" },
               getValue = function()
                   local c = cfg(); local p = DB()
-                  return (c and c.orientation) or (p and p.general.orientation) or "HORIZONTAL"
+                  local v = (c and c.orientation)
+                      or (p and p.general.orientation) or "HORIZONTAL"
+                  return v == "VERTICAL" and "VERTICAL_DOWN" or v
               end,
               setValue = function(v)
                   local c = cfg(); if not c then return end
                   c.orientation = v; Refresh()
+                  EllesmereUI:RefreshPage()
               end }
         );  y = y - h
         AddFormBarBtn(healthEnableRow._leftRegion, cfg, RebuildHealth)
@@ -3782,11 +3785,14 @@ initFrame:SetScript("OnEvent", function(self)
               order = { "HORIZONTAL", "VERTICAL_UP", "VERTICAL_DOWN" },
               getValue = function()
                   local c = cfg(); local p = DB()
-                  return (c and c.orientation) or (p and p.general.orientation) or "HORIZONTAL"
+                  local v = (c and c.orientation)
+                      or (p and p.general.orientation) or "HORIZONTAL"
+                  return v == "VERTICAL" and "VERTICAL_DOWN" or v
               end,
               setValue = function(v)
                   local c = cfg(); if not c then return end
                   c.orientation = v; Refresh()
+                  EllesmereUI:RefreshPage()
               end }
         );  y = y - h
         AddFormBarBtn(powerEnableRow._leftRegion, cfg, RebuildPower)
@@ -7863,7 +7869,7 @@ initFrame:SetScript("OnEvent", function(self)
         return _castBarIconPool[_castBarIconIdx]
     end
 
-    local function UpdateCastBarPreview()
+    local function UpdateCastBarPreview(skipHeaderResize)
         local p = DB()
         if not p then return end
         local cb = p.castBar
@@ -7880,28 +7886,48 @@ initFrame:SetScript("OnEvent", function(self)
 
         local w, h = Snap(cb.width), Snap(cb.height)
         local bs = cb.borderSize
+        local orientation = cb.orientation or "HORIZONTAL"
+        local isVertical = orientation == "VERTICAL_UP"
+            or orientation == "VERTICAL_DOWN" or orientation == "VERTICAL"
 
-        -- Container size: icon (hxh) + bar (only when icon shown)
+        -- Width remains cast length and height remains thickness; vertical
+        -- modes swap those axes only for the rendered preview.
         local hasIcon = cb.showIcon ~= false
-        local iconW = hasIcon and Snap(h) or 0
-        pf.container:SetSize(w + iconW, h)
+        local iconLength = hasIcon and Snap(h) or 0
+        local totalLength = w + iconLength
+        local containerW = isVertical and h or totalLength
+        local containerH = isVertical and totalLength or h
+        pf.container:SetSize(containerW, containerH)
 
-        -- Scale down to fit when the cast bar is wider than the panel
+        -- Scale down to fit either axis. Vertical previews receive a taller
+        -- header so their direction remains easy to see.
         local PAD = EllesmereUI.CONTENT_PAD or 10
         local hdr = pf.container:GetParent()
+        local hintH = (_previewHintFS and _previewHintFS:IsShown()) and 35 or 0
         local availW = (hdr:GetWidth() - PAD * 2) / _castBarPreviewScale
-        local fitScale = 1
-        if (w + iconW) > availW and (w + iconW) > 0 and availW > 0 then
-            fitScale = availW / (w + iconW)
-        end
+        local previewH = isVertical and 180 or 80
+        _headerBaseH = previewH
+        local availH = (previewH - 12) / _castBarPreviewScale
+        local fitScale = math.min(1,
+            (containerW > 0 and availW > 0) and (availW / containerW) or 1,
+            (containerH > 0 and availH > 0) and (availH / containerH) or 1)
         pf.container:SetScale(_castBarPreviewScale * fitScale)
 
-        pf.container:ClearAllPoints(); pf.container:SetPoint("CENTER", hdr, "CENTER", 0, 0)
-        -- Bar frame (sits beside the icon; iconOnRight puts the icon on the right)
-        local iconOnRight = hasIcon and cb.iconOnRight
-        pf.barFrame:SetSize(w, h)
+        pf.container:ClearAllPoints()
+        pf.container:SetPoint("CENTER", hdr, "CENTER", 0, hintH / 2)
+        -- "Icon on fill end" maps to right, top, or bottom based on direction.
+        local iconOnEnd = hasIcon and cb.iconOnRight
+        local iconAtTop = isVertical and hasIcon and
+            ((orientation == "VERTICAL_UP" and iconOnEnd) or
+             (orientation ~= "VERTICAL_UP" and not iconOnEnd))
+        pf.barFrame:SetSize(isVertical and h or w, isVertical and w or h)
         pf.barFrame:ClearAllPoints()
-        pf.barFrame:SetPoint("LEFT", pf.container, "LEFT", iconOnRight and 0 or iconW, 0)
+        if isVertical then
+            pf.barFrame:SetPoint(iconAtTop and "BOTTOM" or "TOP", pf.container,
+                iconAtTop and "BOTTOM" or "TOP", 0, 0)
+        else
+            pf.barFrame:SetPoint("LEFT", pf.container, "LEFT", iconOnEnd and 0 or iconLength, 0)
+        end
 
         -- Background
         local texKey = cb.texture
@@ -7928,7 +7954,6 @@ initFrame:SetScript("OnEvent", function(self)
         -- Status bar: full bar frame, no inset
         pf.bar:ClearAllPoints()
         pf.bar:SetAllPoints(pf.barFrame)
-        pf.bar:SetValue(_castBarPreviewFill)
 
         -- Bar texture
         local texLookup = _G._ERB_CastBarTextures or {}
@@ -7941,6 +7966,20 @@ initFrame:SetScript("OnEvent", function(self)
         else
             pf.bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
         end
+        if orientation == "VERTICAL_UP" then
+            pf.bar:SetOrientation("VERTICAL")
+            pf.bar:SetRotatesTexture(true)
+            pf.bar:SetReverseFill(false)
+        elseif isVertical then
+            pf.bar:SetOrientation("VERTICAL")
+            pf.bar:SetRotatesTexture(true)
+            pf.bar:SetReverseFill(true)
+        else
+            pf.bar:SetOrientation("HORIZONTAL")
+            pf.bar:SetRotatesTexture(false)
+            pf.bar:SetReverseFill(false)
+        end
+        pf.bar:SetValue(_castBarPreviewFill)
 
         -- Bar color / gradient
         local fillTex = pf.bar:GetStatusBarTexture()
@@ -7963,8 +8002,16 @@ initFrame:SetScript("OnEvent", function(self)
         if texKey ~= "blizzard" then
             pf.bg:ClearAllPoints()
             if (cb.fillOpacity or 100) < 100 then
-                pf.bg:SetPoint("TOPLEFT", fillTex, "TOPRIGHT", 0, 0)
-                pf.bg:SetPoint("BOTTOMRIGHT", pf.barFrame, "BOTTOMRIGHT", 0, 0)
+                if orientation == "VERTICAL_UP" then
+                    pf.bg:SetPoint("TOPLEFT", pf.barFrame, "TOPLEFT", 0, 0)
+                    pf.bg:SetPoint("BOTTOMRIGHT", fillTex, "TOPRIGHT", 0, 0)
+                elseif isVertical then
+                    pf.bg:SetPoint("TOPLEFT", fillTex, "BOTTOMLEFT", 0, 0)
+                    pf.bg:SetPoint("BOTTOMRIGHT", pf.barFrame, "BOTTOMRIGHT", 0, 0)
+                else
+                    pf.bg:SetPoint("TOPLEFT", fillTex, "TOPRIGHT", 0, 0)
+                    pf.bg:SetPoint("BOTTOMRIGHT", pf.barFrame, "BOTTOMRIGHT", 0, 0)
+                end
             else
                 pf.bg:SetAllPoints(pf.barFrame)
             end
@@ -7972,20 +8019,26 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Spark
         if cb.showSpark then
-            pf.spark:SetSize(8, h)
+            pf.spark:SetSize(isVertical and h or 8, isVertical and 8 or h)
+            pf.spark:SetRotation(isVertical and math.pi / 2 or 0)
             pf.spark:ClearAllPoints()
-            pf.spark:SetPoint("CENTER", fillTex, "RIGHT", 0, 0)
+            local sparkPoint = orientation == "VERTICAL_UP" and "TOP"
+                or (isVertical and "BOTTOM" or "RIGHT")
+            pf.spark:SetPoint("CENTER", fillTex, sparkPoint, 0, 0)
             pf.spark:Show()
         else
             pf.spark:Hide()
         end
 
-        -- Icon: left or right side of container, full size
+        -- Icon: at the start or end of the selected cast axis.
         do
             local iSize = Snap(h)
             pf.iconFrame:SetSize(iSize, iSize)
             pf.iconFrame:ClearAllPoints()
-            if iconOnRight then
+            if isVertical then
+                pf.iconFrame:SetPoint(iconAtTop and "TOP" or "BOTTOM", pf.container,
+                    iconAtTop and "TOP" or "BOTTOM", 0, 0)
+            elseif iconOnEnd then
                 pf.iconFrame:SetPoint("TOPRIGHT", pf.container, "TOPRIGHT", 0, 0)
             else
                 pf.iconFrame:SetPoint("TOPLEFT", pf.container, "TOPLEFT", 0, 0)
@@ -8001,10 +8054,18 @@ initFrame:SetScript("OnEvent", function(self)
         -- Timer / duration text
         if cb.showTimer then
             SetPVFont(pf.timerText, FONT_PATH, cb.timerSize or 11)
-            local pt, xb, jh = ns.GetCastTextAnchor(cbDurSide, false, cbTimerW)
             pf.timerText:ClearAllPoints()
-            pf.timerText:SetJustifyH(jh)
-            pf.timerText:SetPoint(pt, pf.bar, pt, xb + (cb.timerX or 0), cb.timerY or 0)
+            if isVertical and cbDurSide ~= "center" then
+                local pt = cbDurSide == "left" and "RIGHT" or "LEFT"
+                local rel = cbDurSide == "left" and "LEFT" or "RIGHT"
+                local xb = cbDurSide == "left" and -4 or 4
+                pf.timerText:SetJustifyH(cbDurSide == "left" and "RIGHT" or "LEFT")
+                pf.timerText:SetPoint(pt, pf.bar, rel, xb + (cb.timerX or 0), cb.timerY or 0)
+            else
+                local pt, xb, jh = ns.GetCastTextAnchor(cbDurSide, false, cbTimerW)
+                pf.timerText:SetJustifyH(jh)
+                pf.timerText:SetPoint(pt, pf.bar, pt, xb + (cb.timerX or 0), cb.timerY or 0)
+            end
             -- Preview total cast time is 3.0s; mirror the live "elapsed / total" mode.
             if cb.showTotalDuration then
                 pf.timerText:SetText(string.format("%.1f / %.1f", 3.0 * _castBarPreviewFill, 3.0))
@@ -8019,14 +8080,27 @@ initFrame:SetScript("OnEvent", function(self)
         -- Spell name text
         if cb.showSpellText then
             SetPVFont(pf.spellText, FONT_PATH, cb.spellTextSize or 11)
-            local pt, xb, jh = ns.GetCastTextAnchor(cbSpellSide, cb.showTimer and cbDurSide == cbSpellSide, cbTimerW)
             pf.spellText:ClearAllPoints()
-            pf.spellText:SetJustifyH(jh)
-            pf.spellText:SetPoint(pt, pf.bar, pt, xb + (cb.spellTextX or 0), cb.spellTextY or 0)
-            if cbSpellSide == "center" then
-                pf.spellText:SetWidth(cbBarW * 0.6)
-            elseif cbBarW > 0 then
-                pf.spellText:SetWidth(cbBarW - 8 - (cb.showTimer and cbTimerW or 0))
+            if isVertical and cbSpellSide ~= "center" then
+                local pt = cbSpellSide == "left" and "RIGHT" or "LEFT"
+                local rel = cbSpellSide == "left" and "LEFT" or "RIGHT"
+                local xb = cbSpellSide == "left" and -4 or 4
+                local sharedSideY = (cb.showTimer and cbDurSide == cbSpellSide)
+                    and -((cb.timerSize or 11) + 2) or 0
+                pf.spellText:SetJustifyH(cbSpellSide == "left" and "RIGHT" or "LEFT")
+                pf.spellText:SetPoint(pt, pf.bar, rel, xb + (cb.spellTextX or 0),
+                    (cb.spellTextY or 0) + sharedSideY)
+                pf.spellText:SetWidth(math.max(50, cb.width * 0.6))
+            else
+                local pt, xb, jh = ns.GetCastTextAnchor(cbSpellSide,
+                    cb.showTimer and cbDurSide == cbSpellSide, cbTimerW)
+                pf.spellText:SetJustifyH(jh)
+                pf.spellText:SetPoint(pt, pf.bar, pt, xb + (cb.spellTextX or 0), cb.spellTextY or 0)
+                if cbSpellSide == "center" then
+                    pf.spellText:SetWidth((isVertical and cb.width or cbBarW) * 0.6)
+                elseif cbBarW > 0 then
+                    pf.spellText:SetWidth(cbBarW - 8 - (cb.showTimer and cbTimerW or 0))
+                end
             end
             pf.spellText:SetText(EllesmereUI.L("Spell Name"))
             pf.spellText:Show()
@@ -8037,9 +8111,11 @@ initFrame:SetScript("OnEvent", function(self)
         ns.ReflowFontString(pf.timerText)
         ns.ReflowFontString(pf.spellText)
 
-        -- Update header height: 80px preview + optional hint text
-        local hintH = (_previewHintFS and _previewHintFS:IsShown()) and 35 or 0
-        EllesmereUI:UpdateContentHeaderHeight(80 + hintH)
+        -- Update header height: vertical previews need enough room to show
+        -- direction, while horizontal previews keep the compact header.
+        if not skipHeaderResize then
+            EllesmereUI:UpdateContentHeaderHeight(previewH + hintH)
+        end
     end
 
     local _castBarPreviewBuilder = function(hdr, hdrW)
@@ -8199,7 +8275,10 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Hint text
-        local TOTAL_H = 80
+        local orientation = cb.orientation or "HORIZONTAL"
+        local isVertical = orientation == "VERTICAL_UP"
+            or orientation == "VERTICAL_DOWN" or orientation == "VERTICAL"
+        local TOTAL_H = isVertical and 180 or 80
         _headerBaseH = TOTAL_H
         local hintShown = not IsPreviewHintDismissed()
         if hintShown then
@@ -8220,6 +8299,9 @@ initFrame:SetScript("OnEvent", function(self)
             _previewHintFS:Hide()
         end
 
+        -- The preview objects are all available now; apply the current
+        -- orientation before the header's first rendered frame.
+        UpdateCastBarPreview(true)
         return TOTAL_H
     end
 
@@ -8289,8 +8371,14 @@ initFrame:SetScript("OnEvent", function(self)
         -- Strata dropdown values for the Cast Bar Frame Strata control.
         local cbStrataValues = { BACKGROUND = "Background", LOW = "Low", MEDIUM = "Medium", HIGH = "High", DIALOG = "Dialog" }
         local cbStrataOrder = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
+        local cbOrientationValues = {
+            HORIZONTAL = "Horizontal",
+            VERTICAL_UP = "Vertical Up",
+            VERTICAL_DOWN = "Vertical Down",
+        }
+        local cbOrientationOrder = { "HORIZONTAL", "VERTICAL_UP", "VERTICAL_DOWN" }
 
-        -- Row 1: Enable Player Cast Bar | Frame Strata
+        -- Row 1: Enable Player Cast Bar | Orientation
         local castEnableRow
         castEnableRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Enable Player Cast Bar",
@@ -8300,17 +8388,20 @@ initFrame:SetScript("OnEvent", function(self)
                   p.castBar.enabled = v; RefreshCast()
                   EllesmereUI:RefreshPage()
               end },
-            { type = "dropdown", text = "Frame Strata",
-              tooltip = "Controls the order that overlapping elements display in. Set higher to show above other elements.",
+            { type = "dropdown", text = "Orientation",
+              tooltip = "Choose whether the cast fills horizontally, upward, or downward.",
               disabled = castOff,
               disabledTooltip = "Player Cast Bar",
-              values = cbStrataValues, order = cbStrataOrder,
+              values = cbOrientationValues, order = cbOrientationOrder,
               getValue = function()
-                  local p = DB(); return p and p.castBar.frameStrata or "MEDIUM"
+                  local p = DB()
+                  local v = p and p.castBar.orientation or "HORIZONTAL"
+                  return v == "VERTICAL" and "VERTICAL_DOWN" or v
               end,
               setValue = function(v)
                   local p = DB(); if not p then return end
-                  p.castBar.frameStrata = v; RefreshCast()
+                  p.castBar.orientation = v; RefreshCast()
+                  EllesmereUI:RefreshPage()
               end }
         );  y = y - h
         -- (No position cog here: the cast bar is positioned via Unlock Mode;
@@ -8318,10 +8409,15 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Row 2: Height | Width (sync icons push to power + health bars)
         local classSizeRow
-        local cbhDis, cbhTip, cbhRaw = EllesmereUI.MatchGuard("ERB_CastBar", "Height", castOff, "Player Cast Bar")
-        local cbwDis, cbwTip, cbwRaw = EllesmereUI.MatchGuard("ERB_CastBar", "Width", castOff, "Player Cast Bar")
+        local castOrientation = (DB() and DB().castBar.orientation) or "HORIZONTAL"
+        local castVertical = castOrientation == "VERTICAL_UP"
+            or castOrientation == "VERTICAL_DOWN" or castOrientation == "VERTICAL"
+        local cbhDis, cbhTip, cbhRaw = EllesmereUI.MatchGuard("ERB_CastBar",
+            castVertical and "Width" or "Height", castOff, "Player Cast Bar")
+        local cbwDis, cbwTip, cbwRaw = EllesmereUI.MatchGuard("ERB_CastBar",
+            castVertical and "Height" or "Width", castOff, "Player Cast Bar")
         classSizeRow, h = W:DualRow(parent, y,
-            { type = "slider", text = "Height",
+            { type = "slider", text = castVertical and "Width" or "Height",
               min = 1, max = 60, step = 1,
               disabled = cbhDis, disabledTooltip = cbhTip, rawTooltip = cbhRaw,
               getValue = function() local p = DB(); return p and p.castBar.height or 20 end,
@@ -8329,7 +8425,7 @@ initFrame:SetScript("OnEvent", function(self)
                   local p = DB(); if not p then return end
                   p.castBar.height = v; RefreshCast()
               end },
-            { type = "slider", text = "Width",
+            { type = "slider", text = castVertical and "Height" or "Width",
               min = 50, max = 800, step = 1,
               disabled = cbwDis, disabledTooltip = cbwTip, rawTooltip = cbwRaw,
               getValue = function() local p = DB(); return p and p.castBar.width or 220 end,
@@ -8339,7 +8435,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Row 3: Show Spell Icon (cog: Icon on Right) | Show Spark
+        -- Row 3: Show Spell Icon (cog: Icon at Fill End) | Show Spark
         local iconRow
         iconRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Show Spell Icon",
@@ -8360,14 +8456,14 @@ initFrame:SetScript("OnEvent", function(self)
                   p.castBar.showSpark = v; RefreshCast()
               end }
         );  y = y - h
-        -- Inline cog on Show Spell Icon: Icon on Right
+        -- Inline cog on Show Spell Icon: Icon at Fill End
         do
             local rgn = iconRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Spell Icon Settings",
                 rows = {
-                    { type = "toggle", label = "Icon on Right",
-                      tooltip = "Attach the spell icon to the right of the cast bar instead of the left.",
+                    { type = "toggle", label = "Icon at Fill End",
+                      tooltip = "Attach the spell icon to the end of the fill direction instead of its starting edge.",
                       get = function() local p = DB(); return p and p.castBar.iconOnRight end,
                       set = function(v)
                           local p = DB(); if not p then return end
@@ -8395,7 +8491,7 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateCogDisIcon()
         end
 
-        -- Row 4: Always Show
+        -- Row 4: Always Show | Frame Strata
         _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Always Show",
               tooltip = "Keep the cast bar visible (sitting empty) when you are not casting, instead of hiding it.",
@@ -8406,7 +8502,18 @@ initFrame:SetScript("OnEvent", function(self)
                   local p = DB(); if not p then return end
                   p.castBar.alwaysShow = v; RefreshCast()
               end },
-            { type = "spacer" }
+            { type = "dropdown", text = "Frame Strata",
+              tooltip = "Controls the order that overlapping elements display in. Set higher to show above other elements.",
+              disabled = castOff,
+              disabledTooltip = "Player Cast Bar",
+              values = cbStrataValues, order = cbStrataOrder,
+              getValue = function()
+                  local p = DB(); return p and p.castBar.frameStrata or "MEDIUM"
+              end,
+              setValue = function(v)
+                  local p = DB(); if not p then return end
+                  p.castBar.frameStrata = v; RefreshCast()
+              end }
         );  y = y - h
 
         _, h = W:Spacer(parent, y, 16);  y = y - h

@@ -2889,6 +2889,12 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
     -- Compute child center
     local cx, cy
     local ai = GetAnchorInfo(childKey)
+    -- A fresh anchor has no edge offsets yet. Remember that state before the
+    -- side-snap block below creates them: growth bars must first land at the
+    -- selected target side, then capture their fixed-edge pin from that landed
+    -- position. Treating the newly-created offsets as pre-existing captures
+    -- the pin from the bar's old screen position and preserves a stale gap.
+    local hadAnchorOffsets = ai and ai.offsetX ~= nil and ai.offsetY ~= nil
     if ai and ai.offsetX ~= nil and ai.offsetY ~= nil then
         -- Edge-to-edge offset mode: offset is stored from the child's
         -- near edge to the target's anchor edge. This means when the
@@ -2977,15 +2983,15 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
     -- Unified growth-edge pin (anchored custom-growth bars): the bar's fixed
     -- growth edge holds a stored offset from a LIVE target reference edge --
     -- one formula for login, cascade, save and revert, with no saved-edge
-    -- duality, no follow baselines, and no mode flags. Engages only once the
-    -- anchor's offsets exist (a fresh anchor's first apply still side-snaps
-    -- and the follow-up batch apply captures the pin from the placed
-    -- position). Legacy anchors and grow-direction changes recapture lazily
+    -- duality, no follow baselines, and no mode flags. Engages only when the
+    -- anchor's offsets existed before this apply (a fresh anchor's first apply
+    -- must still side-snap; its pin is captured from the placed position
+    -- below). Legacy anchors and grow-direction changes recapture lazily
     -- and movement-free from the bar's current position; while frames lack
     -- bounds the legacy pin below still applies, so early-login frames
     -- degrade gracefully.
     local growPinned = false
-    if isCdmOrAB and ai and ai.target and ai.offsetX ~= nil and ai.offsetY ~= nil then
+    if isCdmOrAB and ai and ai.target and hadAnchorOffsets then
         local gd = GetBarGrowDirActual(childKey)
         if gd and gd ~= "CENTER" then
             -- Lazy capture ONLY at provable quiescence: the settle pass (the
@@ -3473,6 +3479,14 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
                 ai.offsetY = snap(actualCY - tCY)
             end
         end
+    end
+
+    -- Complete a fresh growth-bar anchor in two phases: the standard path
+    -- above performs the flush side-snap, then the pin records the fixed edge
+    -- from that new position. Capturing earlier reads the pre-anchor bounds.
+    if not noMove and isCdmOrAB and ai and not hadAnchorOffsets
+       and isUnlocked and EllesmereUI._unlockCaptureGrowPin then
+        EllesmereUI._unlockCaptureGrowPin(childKey, ai, side)
     end
 
     -- Update mover position to match (CENTER anchor so hover-expand stays symmetric)
