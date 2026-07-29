@@ -2423,6 +2423,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.instanceResetAnnounceMsg = ""
                 EllesmereUIDB.quickSignup = false
                 EllesmereUIDB.persistSignupNote = false
+                EllesmereUIDB.autoKeyReply = false
                 EllesmereUIDB.ahCurrentExpansion = false
                 EllesmereUIDB.healthMacroEnabled = false
                 EllesmereUIDB.healthMacroPrio1 = 1

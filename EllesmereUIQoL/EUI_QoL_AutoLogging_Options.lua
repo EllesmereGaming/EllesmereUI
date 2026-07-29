@@ -113,6 +113,25 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
     ); y = y - h
     end   -- close /keys popup hidden-while-disabled gate
 
+    -- Independent of the /keys popup above: this one answers other players in
+    -- chat, so it stays outside the popup's hidden-while-disabled gate.
+    _, h = W:DualRow(parent, y,
+        { type    = "toggle",
+          text    = "Auto Reply to !keys",
+          tooltip = "Replies with your Mythic+ keystone when someone asks for it with \"!keys\" in party, raid, instance or guild chat. A whispered request is answered by whisper.",
+          getValue = function()
+              return EllesmereUIDB and EllesmereUIDB.autoKeyReply or false
+          end,
+          setValue = function(v)
+              if not EllesmereUIDB then EllesmereUIDB = {} end
+              EllesmereUIDB.autoKeyReply = v
+              if EllesmereUI._applyAutoKeyReply then
+                  EllesmereUI._applyAutoKeyReply()
+              end
+          end },
+        { type = "label", text = "" }
+    ); y = y - h
+
     _, h = W:Spacer(parent, y, 20); y = y - h
 
     ---------------------------------------------------------------------------

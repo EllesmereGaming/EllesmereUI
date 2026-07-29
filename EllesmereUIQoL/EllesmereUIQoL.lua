@@ -1549,6 +1549,121 @@ qolFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
+    --  Auto Reply to !keys
+    --  Answers a "!keys" (or "!key") request in party, raid, instance or
+    --  guild chat with this character's Mythic+ keystone, replying on the
+    --  channel the request arrived on; a whispered request is whispered back.
+    --
+    --  The keystone's own bag item link is sent, so the reply is clickable
+    --  and carries the real tooltip. When no link can be read (no keystone in
+    --  the bags, or item data not cached yet) the dungeon name and level are
+    --  spelled out as plain text instead.
+    ---------------------------------------------------------------------------
+    do
+        -- At most one reply per this many seconds, so a burst of "!keys"
+        -- (several people at once, or one person repeating it) cannot make
+        -- us flood the channel.
+        local KEY_REPLY_COOLDOWN = 3
+        local lastReplyAt = 0
+
+        -- Chat events answered, each mapped to the channel its reply goes out
+        -- on; leader variants answer on the same channel as the plain one.
+        local CHANNEL_FOR_EVENT = {
+            CHAT_MSG_PARTY                = "PARTY",
+            CHAT_MSG_PARTY_LEADER         = "PARTY",
+            CHAT_MSG_RAID                 = "RAID",
+            CHAT_MSG_RAID_LEADER          = "RAID",
+            CHAT_MSG_INSTANCE_CHAT        = "INSTANCE_CHAT",
+            CHAT_MSG_INSTANCE_CHAT_LEADER = "INSTANCE_CHAT",
+            CHAT_MSG_GUILD                = "GUILD",
+            CHAT_MSG_WHISPER              = "WHISPER",
+        }
+
+        -- Leading "!keys" / "!key", case-insensitive, with or without trailing
+        -- text ("!keys pls"). The plain-text find runs first because nearly
+        -- every chat line has no "!" at all, and that path costs one scan and
+        -- no allocation.
+        local function IsKeysCommand(msg)
+            if not msg:find("!", 1, true) then return false end
+            local cmd = msg:match("^%s*(!%a+)")
+            if not cmd then return false end
+            cmd = cmd:lower()
+            return cmd == "!keys" or cmd == "!key"
+        end
+
+        -- The keystone item link out of the bags, or nil when there is none.
+        -- Only walked when a reply is actually about to be sent, so the scan
+        -- never runs on the chat path itself.
+        local function OwnKeystoneLink()
+            for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
+                for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                    local link = C_Container.GetContainerItemLink(bag, slot)
+                    if link and link:find("|Hkeystone:", 1, true) then return link end
+                end
+            end
+            return nil
+        end
+
+        -- "Dungeon Name +Level" fallback for when no item link is available.
+        local function KeystoneSummary()
+            if not (C_MythicPlus and C_MythicPlus.GetOwnedKeystoneChallengeMapID
+                and C_MythicPlus.GetOwnedKeystoneLevel) then
+                return nil
+            end
+            local mapID = C_MythicPlus.GetOwnedKeystoneChallengeMapID()
+            local level = C_MythicPlus.GetOwnedKeystoneLevel()
+            if not mapID or mapID == 0 or not level or level == 0 then return nil end
+            local name = C_ChallengeMode and C_ChallengeMode.GetMapUIInfo
+                and C_ChallengeMode.GetMapUIInfo(mapID)
+            if not name then return nil end
+            return name .. " +" .. level
+        end
+
+        local function OnChatMessage(_, event, msg, author)
+            if not msg or not IsKeysCommand(msg) then return end
+
+            local channel = CHANNEL_FOR_EVENT[event]
+            if not channel then return end
+
+            local now = GetTime()
+            if now - lastReplyAt < KEY_REPLY_COOLDOWN then return end
+            lastReplyAt = now
+
+            -- Real item link first so the reply is clickable; the spelled-out
+            -- dungeon and level only stand in when there is no link to send.
+            local body = OwnKeystoneLink() or KeystoneSummary()
+            local text = body
+                and ("[EUI] " .. EllesmereUI.Lf("My keystone: %1$s", body))
+                or ("[EUI] " .. EllesmereUI.L("No keystone."))
+
+            if channel == "WHISPER" then
+                SendChatMessage(text, channel, nil, author)
+            else
+                SendChatMessage(text, channel)
+            end
+        end
+
+        -- The frame is built on first enable and its events are registered
+        -- only while the option is on, so the feature costs nothing at all
+        -- until it is switched on. Re-applied live by the options toggle.
+        local keyReplyFrame
+        EllesmereUI._applyAutoKeyReply = function()
+            if EllesmereUIDB and EllesmereUIDB.autoKeyReply then
+                if not keyReplyFrame then
+                    keyReplyFrame = CreateFrame("Frame")
+                    keyReplyFrame:SetScript("OnEvent", OnChatMessage)
+                end
+                for evt in pairs(CHANNEL_FOR_EVENT) do
+                    keyReplyFrame:RegisterEvent(evt)
+                end
+            elseif keyReplyFrame then
+                keyReplyFrame:UnregisterAllEvents()
+            end
+        end
+        EllesmereUI._applyAutoKeyReply()
+    end
+
+    ---------------------------------------------------------------------------
     --  24-Hour Clock Fix (Blizzard bug: CVar resets to 12h on every login)
     --  We save the user's preference when they toggle the checkbox, then
     --  restore it on login if Blizzard's bug reset it.
