@@ -252,6 +252,9 @@ local function PreSkinCharacterSheet()
     local frame = CharacterFrame
     if not frame then _preSkinned = false; return end
 
+    -- Expand CharacterFrame to fit full EUI theme width (550px)
+    frame:SetWidth(550)
+
     if CharacterFrame.NineSlice then CharacterFrame.NineSlice:Hide() end
     if frame.Background then frame.Background:Hide() end
     if frame.TitleBg then frame.TitleBg:Hide() end
@@ -263,6 +266,11 @@ local function PreSkinCharacterSheet()
     if CharacterModelFrameBackgroundBotLeft then CharacterModelFrameBackgroundBotLeft:Hide() end
     if CharacterModelFrameBackgroundTopRight then CharacterModelFrameBackgroundTopRight:Hide() end
     if CharacterModelFrameBackgroundBotRight then CharacterModelFrameBackgroundBotRight:Hide() end
+    if CharacterModelFrame then
+        CharacterModelFrame:Hide()
+        CharacterModelFrame:SetAlpha(0)
+        hooksecurefunc(CharacterModelFrame, "Show", function(self) self:Hide() end)
+    end
     if CharacterFrameInsetRight then
         if CharacterFrameInsetRight.NineSlice then CharacterFrameInsetRight.NineSlice:Hide() end
         CharacterFrameInsetRight:ClearAllPoints()
@@ -304,6 +312,49 @@ local function PreSkinCharacterSheet()
             region:SetAlpha(0)
         end
     end
+
+    -- WotLK specific textures & frames to hide
+    local wotlk_stats = {
+        "PlayerStatFrameLeft1", "PlayerStatFrameLeft2", "PlayerStatFrameLeft3",
+        "PlayerStatFrameLeft4", "PlayerStatFrameLeft5", "PlayerStatFrameLeft6",
+        "PlayerStatFrameRight1", "PlayerStatFrameRight2", "PlayerStatFrameRight3",
+        "PlayerStatFrameRight4", "PlayerStatFrameRight5", "PlayerStatFrameRight6",
+        "PlayerStatLeftDropDown", "PlayerStatRightDropDown",
+        "CharacterAttributesFrame", "CharacterResistanceFrame",
+        "CharacterFramePortrait", "CharacterFrameTitleText", "CharacterFrameHeader",
+        "CharacterFrameTopLeft", "CharacterFrameTopRight", "CharacterFrameBottomLeft", "CharacterFrameBottomRight",
+        "PaperDollFrameItemBg", "PaperDollFrameItemBgTop", "PaperDollFrameItemBgBottom",
+        "GearManagerToggleButton", "PlayerTitleFrame", "PlayerTitleDropDown", "PlayerTitlePicker"
+    }
+    for _, name in ipairs(wotlk_stats) do
+        local f = _G[name]
+        if f then
+            if f.Hide then f:Hide() end
+            if f.SetAlpha then f:SetAlpha(0) end
+            if f.SetShown then if false then f:Show() else f:Hide() end end
+            if f.HookScript then hooksecurefunc(f, "Show", function(self) self:Hide() end) end
+        end
+    end
+
+    if PaperDollFrame then
+        for i = 1, select("#", PaperDollFrame:GetRegions()) do
+            local r = select(i, PaperDollFrame:GetRegions())
+            if r and r:IsObjectType("Texture") then
+                r:SetAlpha(0)
+            end
+        end
+    end
+
+    -- Hide native WotLK bottom tabs (Character, Pets, Reputation, Skills, Currency)
+    for i = 1, 5 do
+        local tab = _G["CharacterFrameTab" .. i]
+        if tab then
+            tab:Hide()
+            tab:SetAlpha(0)
+            hooksecurefunc(tab, "Show", function(self) self:Hide() end)
+        end
+    end
+
     -- Background scales proportionally to fill the frame without distorting.
     -- Native aspect ratio: 561x433. On resize, compute the size that covers
     -- the full frame (like CSS "cover") and center it, clipping overflow via
@@ -630,20 +681,27 @@ local function PreSkinCharacterSheet()
     end
 
     -- Weapons live in the bottom strip, outside the 2-column grid.
-    _G.CharacterMainHandSlot:ClearAllPoints()
-    _G.CharacterMainHandSlot:SetPoint("BOTTOMLEFT", CharacterFrame, "BOTTOMLEFT", 128, 10)
-    _G.CharacterSecondaryHandSlot:ClearAllPoints()
-    _G.CharacterSecondaryHandSlot:SetPoint("TOPLEFT", _G.CharacterMainHandSlot, "TOPRIGHT", 12, 0)
+    if _G.CharacterMainHandSlot then
+        _G.CharacterMainHandSlot:ClearAllPoints()
+        _G.CharacterMainHandSlot:SetPoint("BOTTOMLEFT", CharacterFrame, "BOTTOMLEFT", 100, 18)
+    end
+    if _G.CharacterSecondaryHandSlot then
+        _G.CharacterSecondaryHandSlot:ClearAllPoints()
+        _G.CharacterSecondaryHandSlot:SetPoint("TOPLEFT", _G.CharacterMainHandSlot, "TOPRIGHT", 12, 0)
+    end
+    if _G.CharacterRangedSlot then
+        _G.CharacterRangedSlot:ClearAllPoints()
+        _G.CharacterRangedSlot:SetPoint("TOPLEFT", _G.CharacterSecondaryHandSlot, "TOPRIGHT", 12, 0)
+    end
 
-
-
-    -- Hide the two extra regions on weapon slots (indices 16/17 are the
-    -- ornamented border/frame textures). Shifting texcoords off-atlas is
-    -- cheaper than SetTexture("") and survives Blizzard re-applying the atlas.
-    select(16, _G.CharacterMainHandSlot:GetRegions()):SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8)
-    select(17, _G.CharacterMainHandSlot:GetRegions()):SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8)
-    select(16, _G.CharacterSecondaryHandSlot:GetRegions()):SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8)
-    select(17, _G.CharacterSecondaryHandSlot:GetRegions()):SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8)
+    -- Hide extra region borders on weapon slots
+    for _, f in ipairs({_G.CharacterMainHandSlot, _G.CharacterSecondaryHandSlot, _G.CharacterRangedSlot}) do
+        if f then
+            local r16, r17 = select(16, f:GetRegions())
+            if r16 and r16.SetTexCoord then r16:SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8) end
+            if r17 and r17.SetTexCoord then r17:SetTexCoord(.8,.8,.8,.8,.8,.8,.8,.8) end
+        end
+    end
 
     -- Strip icon borders on the equipment slots and crop icon texcoords
     -- so they fill the slot cleanly.
@@ -677,10 +735,13 @@ local function PreSkinCharacterSheet()
 
     -- Re-apply to weapon-slot regions 16/17 after the loop above may have
     -- clobbered them (the slots are also in slotsToHide).
-    select(16, _G.CharacterMainHandSlot:GetRegions()):SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
-    select(17, _G.CharacterMainHandSlot:GetRegions()):SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
-    select(16, _G.CharacterSecondaryHandSlot:GetRegions()):SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
-    select(17, _G.CharacterSecondaryHandSlot:GetRegions()):SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
+    for _, f in ipairs({_G.CharacterMainHandSlot, _G.CharacterSecondaryHandSlot, _G.CharacterRangedSlot}) do
+        if f then
+            local r16, r17 = select(16, f:GetRegions())
+            if r16 and r16.SetTexCoord then r16:SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8) end
+            if r17 and r17.SetTexCoord then r17:SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8) end
+        end
+    end
 
     local slotNames = {
         "CharacterHeadSlot", "CharacterNeckSlot", "CharacterShoulderSlot", "CharacterBackSlot",
@@ -919,10 +980,10 @@ local function SkinCharacterSheet()
                 local slot = _G[slotName]
                 if slot then
                     if isCharacterTab then slot:Show() else slot:Hide() end
-                    if GetFFD(slot).itemLevelLabel    then GetFFD(slot)if isCharacterTab then .itemLevelLabel:Show() else .itemLevelLabel:Hide() end    end
-                    if GetFFD(slot).enchantLabel      then GetFFD(slot)if isCharacterTab then .enchantLabel:Show() else .enchantLabel:Hide() end      end
-                    if GetFFD(slot).enchantHoverFrame then GetFFD(slot)if isCharacterTab then .enchantHoverFrame:Show() else .enchantHoverFrame:Hide() end end
-                    if GetFFD(slot).upgradeTrackLabel then GetFFD(slot)if isCharacterTab then .upgradeTrackLabel:Show() else .upgradeTrackLabel:Hide() end end
+                    if GetFFD(slot).itemLevelLabel    then if isCharacterTab then GetFFD(slot).itemLevelLabel:Show() else GetFFD(slot).itemLevelLabel:Hide() end    end
+                    if GetFFD(slot).enchantLabel      then if isCharacterTab then GetFFD(slot).enchantLabel:Show() else GetFFD(slot).enchantLabel:Hide() end      end
+                    if GetFFD(slot).enchantHoverFrame then if isCharacterTab then GetFFD(slot).enchantHoverFrame:Show() else GetFFD(slot).enchantHoverFrame:Hide() end end
+                    if GetFFD(slot).upgradeTrackLabel then if isCharacterTab then GetFFD(slot).upgradeTrackLabel:Show() else GetFFD(slot).upgradeTrackLabel:Hide() end end
                 end
             end
         end
@@ -932,13 +993,13 @@ local function SkinCharacterSheet()
             if btn then if isCharacterTab then btn:Show() else btn:Hide() end end
         end
 
-        if GetFFD(frame).modelBgFrame     then GetFFD(frame)if isCharacterTab then .modelBgFrame:Show() else .modelBgFrame:Hide() end     end
-        if GetFFD(frame).statsPanel       then GetFFD(frame)if isCharacterTab then .statsPanel:Show() else .statsPanel:Hide() end       end
-        if GetFFD(frame).iLvlText         then GetFFD(frame)if isCharacterTab then .iLvlText:Show() else .iLvlText:Hide() end         end
-        if GetFFD(frame).sidebarBgFrame   then GetFFD(frame)if isCharacterTab then .sidebarBgFrame:Show() else .sidebarBgFrame:Hide() end   end
-        if GetFFD(frame).scrollFrame      then GetFFD(frame)if isCharacterTab then .scrollFrame:Show() else .scrollFrame:Hide() end      end
-        if GetFFD(frame).scrollBar        then GetFFD(frame)if isCharacterTab then .scrollBar:Show() else .scrollBar:Hide() end        end
-        if GetFFD(frame).socketContainer  then GetFFD(frame)if isCharacterTab then .socketContainer:Show() else .socketContainer:Hide() end  end
+        if GetFFD(frame).modelBgFrame     then if isCharacterTab then GetFFD(frame).modelBgFrame:Show() else GetFFD(frame).modelBgFrame:Hide() end     end
+        if GetFFD(frame).statsPanel       then if isCharacterTab then GetFFD(frame).statsPanel:Show() else GetFFD(frame).statsPanel:Hide() end       end
+        if GetFFD(frame).iLvlText         then if isCharacterTab then GetFFD(frame).iLvlText:Show() else GetFFD(frame).iLvlText:Hide() end         end
+        if GetFFD(frame).sidebarBgFrame   then if isCharacterTab then GetFFD(frame).sidebarBgFrame:Show() else GetFFD(frame).sidebarBgFrame:Hide() end   end
+        if GetFFD(frame).scrollFrame      then if isCharacterTab then GetFFD(frame).scrollFrame:Show() else GetFFD(frame).scrollFrame:Hide() end      end
+        if GetFFD(frame).scrollBar        then if isCharacterTab then GetFFD(frame).scrollBar:Show() else GetFFD(frame).scrollBar:Hide() end        end
+        if GetFFD(frame).socketContainer  then if isCharacterTab then GetFFD(frame).socketContainer:Show() else GetFFD(frame).socketContainer:Hide() end  end
 
         if GetFFD(frame).statsSections then
             for _, sectionData in ipairs(GetFFD(frame).statsSections) do
@@ -950,12 +1011,12 @@ local function SkinCharacterSheet()
 
         -- Titles / Equipment sub-panels only exist on the Character tab.
         if not isCharacterTab then
-            if GetFFD(frame).titlesPanel then GetFFD(frame)if false then .titlesPanel:Show() else .titlesPanel:Hide() end end
-            if GetFFD(frame).equipPanel  then GetFFD(frame)if false then .equipPanel:Show() else .equipPanel:Hide() end  end
+            if GetFFD(frame).titlesPanel then if false then GetFFD(frame).titlesPanel:Show() else GetFFD(frame).titlesPanel:Hide() end end
+            if GetFFD(frame).equipPanel  then if false then GetFFD(frame).equipPanel:Show() else GetFFD(frame).equipPanel:Hide() end  end
         end
 
-        if GetFFD(frame).modelScene   then GetFFD(frame)if isCharacterTab then .modelScene:Show() else .modelScene:Hide() end   end
-        if GetFFD(frame).modelBgFrame then GetFFD(frame)if isCharacterTab then .modelBgFrame:Show() else .modelBgFrame:Hide() end end
+        if GetFFD(frame).modelScene   then if isCharacterTab then GetFFD(frame).modelScene:Show() else GetFFD(frame).modelScene:Hide() end   end
+        if GetFFD(frame).modelBgFrame then if isCharacterTab then GetFFD(frame).modelBgFrame:Show() else GetFFD(frame).modelBgFrame:Hide() end end
     end
 
     local function _hookPaneOnShow(pane, isChar)
@@ -1235,9 +1296,9 @@ local function SkinCharacterSheet()
         -- Check all bag slots (0 = backpack, 1-4 = bag slots, 5 = reagent
         -- bag -- included since it can hold any item, not just reagents).
         for bagSlot = 0, 5 do
-            local bagSize = C_Container.GetContainerNumSlots(bagSlot)
+            local bagSize = (C_Container and C_Container.GetContainerNumSlots) and C_Container.GetContainerNumSlots(bagSlot) or GetContainerNumSlots(bagSlot)
             for slotIndex = 1, bagSize do
-                local itemLink = C_Container.GetContainerItemLink(bagSlot, slotIndex)
+                local itemLink = (C_Container and C_Container.GetContainerItemLink) and C_Container.GetContainerItemLink(bagSlot, slotIndex) or GetContainerItemLink(bagSlot, slotIndex)
                 if itemLink then
                     local itemName, _, itemRarity, _, _, _, _, _, equipSlot, itemIcon = GetItemInfo(itemLink)
                     -- GetItemInfo's cached itemLevel can be wrong for a
@@ -1462,7 +1523,7 @@ local function SkinCharacterSheet()
         local pvpVisible = false
         if showPvP and avgItemLevelPvP and avgItemLevelPvP > 0 and GetFFD(frame).pvpIlvlText then
             GetFFD(frame).pvpIlvlText:SetText(format("PvP iLvl: |cff00cc66%d|r", math.floor(avgItemLevelPvP)))
-            GetFFD(frame)if isCharTab then .pvpIlvlText:Show() else .pvpIlvlText:Hide() end
+            if isCharTab then GetFFD(frame).pvpIlvlText:Show() else GetFFD(frame).pvpIlvlText:Hide() end
             pvpVisible = isCharTab
         elseif GetFFD(frame).pvpIlvlText then
             GetFFD(frame).pvpIlvlText:Hide()
@@ -1480,12 +1541,13 @@ local function SkinCharacterSheet()
         -- the Character sub-pane is active (selectedTab is unreliable on the
         -- initial open path).
         if EllesmereUIDB and EllesmereUIDB.showMythicRating and GetFFD(frame).mythicRatingLabel then
-            local mythicRating = C_ChallengeMode.GetOverallDungeonScore()
+            -- TODO WotLK: Implement PvP rating/Arena points instead of M+
+            local mythicRating = C_ChallengeMode and C_ChallengeMode.GetOverallDungeonScore and C_ChallengeMode.GetOverallDungeonScore() or 0
             if mythicRating and mythicRating > 0 then
                 local score = math.floor(mythicRating)
                 local hex = GetMPScoreHex(score)
                 GetFFD(frame).mythicRatingLabel:SetText(L("M+ Score:") .. string.format(" |cff%s%d|r", hex, score))
-                GetFFD(frame)if isCharTab then .mythicRatingLabel:Show() else .mythicRatingLabel:Hide() end
+                if isCharTab then GetFFD(frame).mythicRatingLabel:Show() else GetFFD(frame).mythicRatingLabel:Hide() end
             else
                 GetFFD(frame).mythicRatingLabel:Hide()
             end
@@ -1717,7 +1779,7 @@ local function SkinCharacterSheet()
     EllesmereUI._updateScrollHeaderOffset = function()
         local showMP = EllesmereUIDB and EllesmereUIDB.showMythicRating
         if showMP and C_ChallengeMode and C_ChallengeMode.GetOverallDungeonScore then
-            local score = C_ChallengeMode.GetOverallDungeonScore()
+            local score = (C_ChallengeMode and C_ChallengeMode.GetOverallDungeonScore) and C_ChallengeMode.GetOverallDungeonScore() or 0
             if not score or score <= 0 then showMP = false end
         end
         local showPvP = EllesmereUIDB and EllesmereUIDB.showPvpItemLevel
@@ -3186,8 +3248,8 @@ local function SkinCharacterSheet()
         SetActiveTopButton(characterBtn)
         if not statsPanel:IsShown() then
             if true then statsPanel:Show() else statsPanel:Hide() end
-            if GetFFD(CharacterFrame).titlesPanel then GetFFD(CharacterFrame)if false then .titlesPanel:Show() else .titlesPanel:Hide() end end
-            if GetFFD(CharacterFrame).equipPanel  then GetFFD(CharacterFrame)if false then .equipPanel:Show() else .equipPanel:Hide() end  end
+            if GetFFD(CharacterFrame).titlesPanel then if false then GetFFD(CharacterFrame).titlesPanel:Show() else GetFFD(CharacterFrame).titlesPanel:Hide() end end
+            if GetFFD(CharacterFrame).equipPanel  then if false then GetFFD(CharacterFrame).equipPanel:Show() else GetFFD(CharacterFrame).equipPanel:Hide() end  end
             -- Deactivate equipment sidebar (hides flyout arrows).
             local sidebarTab = _G.PaperDollSidebarTab1
             if sidebarTab and sidebarTab.Click then pcall(sidebarTab.Click, sidebarTab) end
@@ -3197,9 +3259,9 @@ local function SkinCharacterSheet()
     -- Titles button to show titles
     CreateEUIButton("Titles", L("Titles"), function()
         if not GetFFD(CharacterFrame).titlesPanel:IsShown() then
-            GetFFD(CharacterFrame)if true then .titlesPanel:Show() else .titlesPanel:Hide() end
+            if true then GetFFD(CharacterFrame).titlesPanel:Show() else GetFFD(CharacterFrame).titlesPanel:Hide() end
             if false then statsPanel:Show() else statsPanel:Hide() end
-            if GetFFD(CharacterFrame).equipPanel then GetFFD(CharacterFrame)if false then .equipPanel:Show() else .equipPanel:Hide() end end
+            if GetFFD(CharacterFrame).equipPanel then if false then GetFFD(CharacterFrame).equipPanel:Show() else GetFFD(CharacterFrame).equipPanel:Hide() end end
             -- Deactivate equipment sidebar (hides flyout arrows).
             local sidebarTab = _G.PaperDollSidebarTab1
             if sidebarTab and sidebarTab.Click then pcall(sidebarTab.Click, sidebarTab) end
@@ -3794,9 +3856,9 @@ local function SkinCharacterSheet()
     -- EquipmentManagerPane with our own gear-sets UI.
     CreateEUIButton("Equipment", L("Equipment"), function()
         if not GetFFD(CharacterFrame).equipPanel:IsShown() then
-            GetFFD(CharacterFrame)if true then .equipPanel:Show() else .equipPanel:Hide() end
+            if true then GetFFD(CharacterFrame).equipPanel:Show() else GetFFD(CharacterFrame).equipPanel:Hide() end
             if false then statsPanel:Show() else statsPanel:Hide() end
-            if GetFFD(CharacterFrame).titlesPanel then GetFFD(CharacterFrame)if false then .titlesPanel:Show() else .titlesPanel:Hide() end end
+            if GetFFD(CharacterFrame).titlesPanel then if false then GetFFD(CharacterFrame).titlesPanel:Show() else GetFFD(CharacterFrame).titlesPanel:Hide() end end
             -- Activate Blizzard's equipment sidebar for flyout arrows.
             local sidebarTab = _G.PaperDollSidebarTab3
             if sidebarTab and sidebarTab.Click then
@@ -4475,8 +4537,8 @@ local function SkinCharacterSheet()
         -- un-clickable until the user clicks Currency to resync.
         if isCharacterTab then
             if statsPanel        then if true then statsPanel:Show() else statsPanel:Hide() end          end
-            if GetFFD(frame).titlesPanel then GetFFD(frame)if false then .titlesPanel:Show() else .titlesPanel:Hide() end end
-            if GetFFD(frame).equipPanel  then GetFFD(frame)if false then .equipPanel:Show() else .equipPanel:Hide() end  end
+            if GetFFD(frame).titlesPanel then if false then GetFFD(frame).titlesPanel:Show() else GetFFD(frame).titlesPanel:Hide() end end
+            if GetFFD(frame).equipPanel  then if false then GetFFD(frame).equipPanel:Show() else GetFFD(frame).equipPanel:Hide() end  end
             if SetActiveTopButton and characterBtn then
                 SetActiveTopButton(characterBtn)
             end
@@ -4578,7 +4640,7 @@ local function SkinCharacterSheet()
 
             if showItemLevel then
                 GetFFD(slot).itemLevelLabel:SetText(tostring(itemLevel) or "")
-                GetFFD(slot)if isCharTab then .itemLevelLabel:Show() else .itemLevelLabel:Hide() end
+                if isCharTab then GetFFD(slot).itemLevelLabel:Show() else GetFFD(slot).itemLevelLabel:Hide() end
                 GetFFD(slot).itemLevelLabel:SetTextColor(ilvlColor.r, ilvlColor.g, ilvlColor.b, 0.9)
             else
                 GetFFD(slot).itemLevelLabel:Hide()
@@ -4662,10 +4724,10 @@ local function SkinCharacterSheet()
                     GetFFD(slot).enchantLabel:SetTextColor(1, 1, 1, 0.8)
                     GetFFD(slot).enchantLabel:SetWidth(0)
                 end
-                GetFFD(slot)if isCharTab then .enchantLabel:Show() else .enchantLabel:Hide() end
+                if isCharTab then GetFFD(slot).enchantLabel:Show() else GetFFD(slot).enchantLabel:Hide() end
 
                 if GetFFD(slot).enchantHoverFrame then
-                    GetFFD(slot)if isCharTab then .enchantHoverFrame:Show() else .enchantHoverFrame:Hide() end
+                    if isCharTab then GetFFD(slot).enchantHoverFrame:Show() else GetFFD(slot).enchantHoverFrame:Hide() end
                     GetFFD(slot).enchantHoverFrame:SetScript("OnEnter", function(self)
                         if not tooltipText or tooltipText == "" then return end
                         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -4695,7 +4757,7 @@ local function SkinCharacterSheet()
 
             if showUpgradeTrack then
                 GetFFD(slot).upgradeTrackLabel:SetText(upgradeTrackText ~= "" and ("(" .. upgradeTrackText .. ")") or "")
-                GetFFD(slot)if isCharTab then .upgradeTrackLabel:Show() else .upgradeTrackLabel:Hide() end
+                if isCharTab then GetFFD(slot).upgradeTrackLabel:Show() else GetFFD(slot).upgradeTrackLabel:Hide() end
 
                 -- Determine color to use
                 local displayColor
@@ -4882,6 +4944,19 @@ if EllesmereUI then
                             inset:ClearAllPoints()
                             inset:SetPoint("TOPLEFT", CharacterFrame, "TOPLEFT", 10000, -10000)
                         end
+                        -- WotLK specific: Hide native stat frames and dropdowns at the bottom
+                        local wotlk_stats = {
+                            "PlayerStatFrameLeft1", "PlayerStatFrameLeft2", "PlayerStatFrameLeft3",
+                            "PlayerStatFrameLeft4", "PlayerStatFrameLeft5", "PlayerStatFrameLeft6",
+                            "PlayerStatFrameRight1", "PlayerStatFrameRight2", "PlayerStatFrameRight3",
+                            "PlayerStatFrameRight4", "PlayerStatFrameRight5", "PlayerStatFrameRight6",
+                            "PlayerStatLeftDropDown", "PlayerStatRightDropDown",
+                            "CharacterAttributesFrame", "CharacterResistanceFrame"
+                        }
+                        for _, stat in ipairs(wotlk_stats) do
+                            local f = _G[stat]
+                            if f then f:Hide(); f:SetAlpha(0); hooksecurefunc(f, "Show", function(self) self:Hide() end) end
+                        end
                         if CharacterFrame.Portrait then
                             if false then CharacterFrame.Portrait:Show() else CharacterFrame.Portrait:Hide() end
                             CharacterFrame.Portrait:SetAlpha(0)
@@ -4990,7 +5065,7 @@ if EllesmereUI then
             -- Auto-equip equipment set when spec changes
             local specChangeFrame = EllesmereUI.SafeCreateFrame("Frame")
             local lastSpecIndex = GetSpecialization()
-            specChangeFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+            specChangeFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
             specChangeFrame:RegisterEvent("EQUIPMENT_SETS_CHANGED")
             specChangeFrame:SetScript("OnEvent", function(self, event)
                 if event == "EQUIPMENT_SETS_CHANGED" then

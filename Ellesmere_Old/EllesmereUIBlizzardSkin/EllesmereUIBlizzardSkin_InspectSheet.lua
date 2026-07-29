@@ -256,13 +256,13 @@ local function ApplyTabVisibility(showLabels)
         if slot then
             -- Only show labels if on Tab 1 and settings allow
             if GetFFD(slot).iLvlText then
-                GetFFD(slot)if showLabels and showItemLevel then .iLvlText:Show() else .iLvlText:Hide() end
+                if showLabels and showItemLevel then GetFFD(slot).iLvlText:Show() else GetFFD(slot).iLvlText:Hide() end
             end
             if GetFFD(slot).upgradeText then
-                GetFFD(slot)if showLabels and showUpgradeTrack then .upgradeText:Show() else .upgradeText:Hide() end
+                if showLabels and showUpgradeTrack then GetFFD(slot).upgradeText:Show() else GetFFD(slot).upgradeText:Hide() end
             end
             if GetFFD(slot).enchantText then
-                GetFFD(slot)if showLabels and showEnchants then .enchantText:Show() else .enchantText:Hide() end
+                if showLabels and showEnchants then GetFFD(slot).enchantText:Show() else GetFFD(slot).enchantText:Hide() end
             end
         end
     end
@@ -270,8 +270,8 @@ local function ApplyTabVisibility(showLabels)
     -- Hide/show avg ilvl + M+ score
     local frame = InspectFrame
     if frame then
-        if GetFFD(frame).avgIlvlText then GetFFD(frame)if showLabels then .avgIlvlText:Show() else .avgIlvlText:Hide() end end
-        if GetFFD(frame).mPlusScoreText then GetFFD(frame)if showLabels then .mPlusScoreText:Show() else .mPlusScoreText:Hide() end end
+        if GetFFD(frame).avgIlvlText then if showLabels then GetFFD(frame).avgIlvlText:Show() else GetFFD(frame).avgIlvlText:Hide() end end
+        if GetFFD(frame).mPlusScoreText then if showLabels then GetFFD(frame).mPlusScoreText:Show() else GetFFD(frame).mPlusScoreText:Hide() end end
     end
 end
 
@@ -973,18 +973,18 @@ local function SkinInspectSheet()
 
         -- Show model background only on Tab 1
         if GetFFD(frame).modelBg then
-            GetFFD(frame)if isTab1 then .modelBg:Show() else .modelBg:Hide() end
+            if isTab1 then GetFFD(frame).modelBg:Show() else GetFFD(frame).modelBg:Hide() end
         end
         if GetFFD(frame).modelBgGlow then
-            GetFFD(frame)if isTab1 then .modelBgGlow:Show() else .modelBgGlow:Hide() end
+            if isTab1 then GetFFD(frame).modelBgGlow:Show() else GetFFD(frame).modelBgGlow:Hide() end
         end
 
         -- Show Talents/Transmog buttons only on Tab 1 (Character sheet)
         if GetFFD(frame).talentsBtn then
-            GetFFD(frame)if isTab1 then .talentsBtn:Show() else .talentsBtn:Hide() end
+            if isTab1 then GetFFD(frame).talentsBtn:Show() else GetFFD(frame).talentsBtn:Hide() end
         end
         if GetFFD(frame).transmogBtn then
-            GetFFD(frame)if isTab1 then .transmogBtn:Show() else .transmogBtn:Hide() end
+            if isTab1 then GetFFD(frame).transmogBtn:Show() else GetFFD(frame).transmogBtn:Hide() end
         end
 
         -- Update label visibility with ApplyTabVisibility - only show on Tab 1
@@ -1002,10 +1002,10 @@ local function SkinInspectSheet()
                     GetFFD(tab).label:SetTextColor(1, 1, 1, isActive and 1 or 0.5)
                 end
                 if GetFFD(tab).underline then
-                    GetFFD(tab)if isActive then .underline:Show() else .underline:Hide() end
+                    if isActive then GetFFD(tab).underline:Show() else GetFFD(tab).underline:Hide() end
                 end
                 if GetFFD(tab).activeHL then
-                    GetFFD(tab)if isActive then .activeHL:Show() else .activeHL:Hide() end
+                    if isActive then GetFFD(tab).activeHL:Show() else GetFFD(tab).activeHL:Hide() end
                 end
             end
         end
@@ -1419,7 +1419,7 @@ function EllesmereUI._refreshInspectItemLevelVisibility()
         local slot = _G[slotName]
         if slot and GetFFD(slot).iLvlText then
             -- Only show if Tab 1 AND setting is enabled
-            GetFFD(slot)if isTab1 and showItemLevel then .iLvlText:Show() else .iLvlText:Hide() end
+            if isTab1 and showItemLevel then GetFFD(slot).iLvlText:Show() else GetFFD(slot).iLvlText:Hide() end
         end
     end
 end
@@ -1435,7 +1435,7 @@ function EllesmereUI._refreshInspectUpgradeTrackVisibility()
         local slot = _G[slotName]
         if slot and GetFFD(slot).upgradeText then
             -- Only show if Tab 1 AND setting is enabled
-            GetFFD(slot)if isTab1 and showUpgradeTrack then .upgradeText:Show() else .upgradeText:Hide() end
+            if isTab1 and showUpgradeTrack then GetFFD(slot).upgradeText:Show() else GetFFD(slot).upgradeText:Hide() end
         end
     end
 end
@@ -1451,7 +1451,7 @@ function EllesmereUI._refreshInspectEnchantsVisibility()
         local slot = _G[slotName]
         if slot and GetFFD(slot).enchantText then
             -- Only show if Tab 1 AND setting is enabled
-            GetFFD(slot)if isTab1 and showEnchants then .enchantText:Show() else .enchantText:Hide() end
+            if isTab1 and showEnchants then GetFFD(slot).enchantText:Show() else GetFFD(slot).enchantText:Hide() end
         end
     end
 end
