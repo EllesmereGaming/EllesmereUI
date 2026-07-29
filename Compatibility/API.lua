@@ -412,6 +412,7 @@ Enum.TooltipDataType = {
     Item = 3,
     Macro = 4,
     PetAction = 5,
+    Unit = 6,
 }
 
 Enum.PowerType = {
@@ -1062,13 +1063,26 @@ if not TooltipDataProcessor then
         end
     end
 
+    local function OnTooltipSetUnit(self)
+        if not self.GetUnit then return end
+        local name, unit = self:GetUnit()
+        if tooltipCallbacks[Enum.TooltipDataType.Unit] then
+            local tooltipData = { name = name, unit = unit }
+            for _, cb in ipairs(tooltipCallbacks[Enum.TooltipDataType.Unit]) do
+                pcall(cb, self, tooltipData)
+            end
+        end
+    end
+
     if GameTooltip then
         GameTooltip:HookScript("OnTooltipSetSpell", OnTooltipSetSpell)
         GameTooltip:HookScript("OnTooltipSetItem", OnTooltipSetItem)
+        GameTooltip:HookScript("OnTooltipSetUnit", OnTooltipSetUnit)
     end
     if ItemRefTooltip then
         ItemRefTooltip:HookScript("OnTooltipSetSpell", OnTooltipSetSpell)
         ItemRefTooltip:HookScript("OnTooltipSetItem", OnTooltipSetItem)
+        ItemRefTooltip:HookScript("OnTooltipSetUnit", OnTooltipSetUnit)
     end
 
     if GameTooltip.SetUnitAura then
