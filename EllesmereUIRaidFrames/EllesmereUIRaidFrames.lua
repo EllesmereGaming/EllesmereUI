@@ -551,6 +551,15 @@ local defaults = {
         -- fill the empty part of the health bar (and on Default Blizz Frames the
         -- glow line stays pinned at the right edge during overshields).
         showOvershield   = true,
+        -- Show Absorbs as Health: paint the part of a shield that fills the
+        -- EMPTY health with the health bar's own texture/color/opacity, so a
+        -- shield reads as health until the bar is full and only the overshield
+        -- still renders as an absorb. Overlay-like placements only -- the
+        -- right/left edge modes have no missing-health vs overshield split.
+        absorbAsHealth   = false,
+        -- Hairline on the TRUE health edge while Show Absorbs as Health is on, so
+        -- the shield-painted-as-health section is still tellable at a glance.
+        absorbAsHealthEdge = true,
         healAbsorbStyle  = "clean",
         healAbsorbOpacity = 75,
         healAbsorbColor  = { r = 0.8, g = 0.15, b = 0.15 },
@@ -1103,6 +1112,28 @@ local function PixelSnap(value)
     return floor(value / onePixel + 0.5 + 0.001) * onePixel
 end
 
+-- One physical pixel, expressed in a frame's own units.
+--
+-- NOT interchangeable with PixelSnap(1). PixelSnap aligns a UI-unit value onto
+-- the pixel grid, so PixelSnap(1) means "1 UI unit, aligned" -- on a scaled-up UI
+-- that is several physical pixels wide. For a genuine hairline we want the
+-- thinnest renderable line instead, which is what this returns. Same onePx idiom
+-- as Nameplates / Resource Bars / Unit Frames, and like PixelSnap it reads the
+-- REAL PP (EllesmereUI.PP.perfect), not the file-local PanelPP whose mult can be
+-- 1 even when the frame's effective scale is not.
+ns.OnePixel = function(frame)
+    local realPP = EllesmereUI and EllesmereUI.PP
+    local perfect = realPP and realPP.perfect
+    if not perfect then return (realPP and realPP.mult) or 1 end
+    local es = frame and frame.GetEffectiveScale and frame:GetEffectiveScale()
+    if not es or es <= 0 then
+        es = (containerFrame and containerFrame:GetEffectiveScale())
+            or (UIParent and UIParent:GetEffectiveScale()) or 1
+    end
+    if es <= 0 then return realPP.mult or 1 end
+    return perfect / es
+end
+
 -------------------------------------------------------------------------------
 --  Font helper (matches UF/CDM pattern)
 -------------------------------------------------------------------------------
@@ -1453,7 +1484,30 @@ function ns._ApplyHealthBg(d, health, s, unit)
     end
     if not bg then return end
     bg:ClearAllPoints()
-    bg:SetPoint("TOPLEFT", health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    -- The background covers the MISSING health only, so it starts where the health
+    -- fill ends. "Show Absorbs as Health" paints the shield over exactly that spot
+    -- in the health bar's own colour, so the background has to start where the
+    -- SHIELD ends instead -- otherwise it sits under the shield section and, at any
+    -- fill alpha below 1 (Dark Mode's is 0.9), makes it read washed out next to
+    -- real health. The clamp bar's fill is the shield capped at missing health, so
+    -- its right edge never runs past the bar even while overshielding.
+    --
+    -- Do NOT sanity-check the clamp bar's geometry here. It is anchored to the
+    -- health bar's FILL texture, whose rect is driven by SetValue(secret percent),
+    -- so the frame's own rect is secret-derived and clamp:GetWidth() returns a
+    -- SECRET number -- comparing it throws "attempt to compare a secret number
+    -- value", even though the width was set from a plain one. Keeping the fill
+    -- inside the bar is UpdateAbsorb's job: it re-sizes the clamp bar to the health
+    -- bar every update, and because this is a live anchor to the fill rather than a
+    -- computed position, the background re-follows on its own as soon as it does.
+    local edge = health:GetStatusBarTexture()
+    if ns.AbsorbAsHealthActive(s) then
+        local ab = d.absorbBar
+        local clamp = ab and ab._forward and ab._forward._clampBar
+        local clampFill = clamp and clamp:GetStatusBarTexture()
+        if clampFill then edge = clampFill end
+    end
+    bg:SetPoint("TOPLEFT", edge, "TOPRIGHT", 0, 0)
     bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
     if s.healthColorMode == "dark" then
         bg:SetColorTexture(EllesmereUI.GetDarkModeBg())
@@ -1946,10 +2000,74 @@ ns.HideModernAbsorbBase = function(bar)
     if bar and bar._modernBase then bar._modernBase:Hide() end
 end
 
-local function ApplyAbsorbStyle(absorbBar, style, settings)
+-- "Show Absorbs as Health" (absorbAsHealth): paint the FORWARD absorb bar -- the
+-- one clipped to the missing-health region -- with the health bar's own texture
+-- and color, so a shield reads as health until the bar is full and only the
+-- backfill (the overshield) still renders as an absorb. Nothing about the
+-- geometry changes, so this stays secret-value safe.
+--
+-- Called every update because the color tracks the live health bar (class /
+-- custom / dynamic / Dark Mode all follow for free). The texture swap is guarded
+-- on _ahTex since SetStatusBarTexture can replace the fill object; ApplyAbsorbStyle
+-- clears _ahTex whenever it repaints the forward bar with an absorb texture.
+--
+-- r/g/b/a may be SECRET: the Classic and Custom Dynamic health colour modes derive
+-- the colour from the secret health via UnitHealthPercent, so GetStatusBarColor
+-- hands back secret components. They can be passed straight to SetStatusBarColor,
+-- but any arithmetic on them throws "attempt to perform arithmetic on a secret
+-- number value" -- which is why fillAlpha (the health fill texture's own alpha,
+-- always a plain number, and where Dark Mode puts its opacity) travels separately
+-- and goes on the texture instead of being multiplied into the colour.
+
+-- "Show Absorbs as Health" is actually rendering right now: the toggle is on, an
+-- absorb style is selected (style "none" hides the shield bars outright) and the
+-- placement is overlay-like -- the edge modes draw the whole absorb through the
+-- backfill and have no missing-health section to paint. Shared by the renderer and
+-- by ns._ApplyHealthBg, which must stop the background at the shield's edge rather
+-- than the health edge while this is on.
+ns.AbsorbAsHealthActive = function(s)
+    if not s or s.absorbAsHealth ~= true then return false end
+    local style = s.absorbStyle
+    if not style or style == "none" then return false end
+    return style == "blizzardModern" or (s.absorbEdgeMode or "overlay") == "overlay"
+end
+
+ns.ApplyAbsorbAsHealth = function(fw, tex, r, g, b, a, fillAlpha, mask)
+    if not fw then return end
+    if fw._ahTex ~= tex then
+        fw._ahTex = tex
+        fw:SetStatusBarTexture(tex)
+        local fill = fw:GetStatusBarTexture()
+        if fill then
+            fill:SetDrawLayer("ARTWORK", 1)
+            fill:SetHorizTile(false); fill:SetVertTile(false)
+            if mask then fill:AddMaskTexture(mask) end
+        end
+    end
+    fw:SetStatusBarColor(r, g, b, a)
+    local fill = fw:GetStatusBarTexture()
+    if fill then fill:SetAlpha(fillAlpha or 1) end
+end
+
+-- asHealth: "Show Absorbs as Health" is active -- leave the forward bar alone
+-- (ns.ApplyAbsorbAsHealth paints it) and only style the backfill/overshield.
+local function ApplyAbsorbStyle(absorbBar, style, settings, asHealth)
     if not absorbBar then return end
     local mask = absorbBar._absorbMask
     local fw = absorbBar._forward
+    if asHealth and fw then
+        -- Forward bar is health-painted: drop it from the styling below and make
+        -- sure no leftover modern base shows through.
+        ns.HideModernAbsorbBase(fw)
+        fw = nil
+    elseif fw then
+        -- Repainting with an absorb texture invalidates the health-look cache, and
+        -- clears the health fill's texture alpha (Dark Mode leaves it below 1) so
+        -- the absorb style is not dimmed by a leftover.
+        fw._ahTex = nil
+        local rf = fw:GetStatusBarTexture()
+        if rf then rf:SetAlpha(1) end
+    end
 
     -- "Default Blizz Frames": forward (missing-health shield) = compound modern
     -- texture (c6c8ff base + 9196ff stripes); backfill (overshield over existing
@@ -2157,6 +2275,74 @@ local function CreateAbsorbBar(button, healthBar)
     bfSpark:Hide()
     forwardBar._bfSpark = bfSpark
 
+    -- "Absorbs as Health" delimiter: a hairline pinned to the TRUE health edge
+    -- (the forward bar's left edge) so the shield-painted-as-health section stays
+    -- distinguishable at a glance. Self-gates exactly like the seam spark above --
+    -- a 1px StatusBar fed the absorb with a tiny max, so ANY shield fills it and
+    -- no shield collapses it to nothing, all without reading the secret. Lives on
+    -- sparkHost so it draws above the shield and is clipped to the bar interior.
+    local hairGate = CreateFrame("StatusBar", nil, sparkHost)
+    hairGate:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    hairGate:SetStatusBarColor(1, 1, 1, 0)
+    hairGate:SetSize(1, healthBar:GetHeight())
+    hairGate:SetMinMaxValues(0, 1)
+    hairGate:SetValue(0)
+    hairGate:SetPoint("CENTER", forwardBar, "LEFT", 0, 0)
+    local hairLine = sparkHost:CreateTexture(nil, "OVERLAY")
+    hairLine:SetColorTexture(1, 1, 1, 0.7)
+    hairLine:SetAllPoints(hairGate:GetStatusBarTexture())
+    hairLine:Hide()
+    forwardBar._hairGate = hairGate
+    forwardBar._hairLine = hairLine
+
+    -- Shield-edge clamp bar: invisible, and fed the absorb ALREADY CAPPED to
+    -- missing health (the calculator's MissingHealth clamp mode), unlike the
+    -- forward bar which gets the full absorb so the overshield still renders. Its
+    -- fill therefore ends exactly where the shield stops painting and never runs
+    -- past the bar's right edge -- which is what ns._ApplyHealthBg anchors the
+    -- missing-health background to while "Show Absorbs as Health" is on. Anchoring
+    -- (rather than repositioning per update) means the background tracks the shield
+    -- for free, the same way it already tracks the health fill.
+    local clampBar = CreateFrame("StatusBar", nil, healthBar)
+    clampBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    clampBar:SetStatusBarColor(1, 1, 1, 0)
+    clampBar:SetWidth(healthBar:GetWidth())
+    clampBar:SetHeight(healthBar:GetHeight())
+    clampBar:SetMinMaxValues(0, 1)
+    clampBar:SetValue(0)
+    forwardBar._clampBar = clampBar
+
+    -- "Absorbs as Health" overshield band: the surplus shield, right-aligned at the
+    -- bar's end. The backfill's own overshield grows LEFTWARD from the health edge,
+    -- which is invisible normally (it joins the forward shield into one absorb
+    -- block) but strands it mid-bar once the forward shield is painted as health.
+    -- Right-aligning makes every health level render the way 100% health already
+    -- does, where the health edge IS the bar's end. The backfill is alpha'd out in
+    -- this mode -- it still needs its VALUE for the geometry below.
+    --
+    -- overGate positions the band with no arithmetic on secrets: anchored to the
+    -- backfill fill's LEFT edge (maxHealth - absorb) and fed the absorb ALREADY
+    -- CLAMPED to missing health, its own fill ends at
+    --     (maxHealth - absorb) + min(absorb, missing) == maxHealth - overshield
+    -- which is exactly where the band starts. No shield, or a shield that fits,
+    -- collapses it to zero width. Re-anchored per update because
+    -- SetStatusBarTexture can replace the backfill's fill object.
+    local overGate = CreateFrame("StatusBar", nil, healthBar)
+    overGate:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    overGate:SetStatusBarColor(1, 1, 1, 0)
+    overGate:SetWidth(healthBar:GetWidth())
+    overGate:SetHeight(healthBar:GetHeight())
+    overGate:SetMinMaxValues(0, 1)
+    overGate:SetValue(0)
+    -- On the spark host: above the forward shield (level +3), masked to the bar so
+    -- a huge shield cannot spill past the left edge, and below the hairline/sparks
+    -- (ARTWORK < OVERLAY within the same frame).
+    local overBand = sparkHost:CreateTexture(nil, "ARTWORK")
+    if absorbMask then overBand:AddMaskTexture(absorbMask) end
+    overBand:Hide()
+    forwardBar._overGate = overGate
+    forwardBar._overBand = overBand
+
     -- Absorb Bar: solid bar above the frame showing the shield amount,
     -- filling from the right edge. Always created (hidden) so toggling the
     -- setting on later needs no rebuild; UpdateAbsorb drives it.
@@ -2202,6 +2388,12 @@ local function CreateAbsorbBar(button, healthBar)
         forwardBar:ClearAllPoints()
         forwardBar:SetPoint("TOPLEFT", fill, "TOPRIGHT", 0, 0)
         forwardBar:SetPoint("BOTTOMLEFT", fill, "BOTTOMRIGHT", 0, 0)
+        -- Shield-edge clamp bar tracks the health fill exactly like the forward bar.
+        if forwardBar._clampBar then
+            forwardBar._clampBar:ClearAllPoints()
+            forwardBar._clampBar:SetPoint("TOPLEFT", fill, "TOPRIGHT", 0, 0)
+            forwardBar._clampBar:SetPoint("BOTTOMLEFT", fill, "BOTTOMRIGHT", 0, 0)
+        end
         if healPredBar then
             healPredBar:ClearAllPoints()
             healPredBar:SetPoint("TOPLEFT", fill, "TOPRIGHT", 0, 0)
@@ -2474,25 +2666,49 @@ local function UpdateAbsorb(button, unit)
         if fw then fw:Hide() end
         if fw and fw._edgeSpark then fw._edgeSpark:Hide() end
         if fw and fw._bfSpark then fw._bfSpark:Hide() end
+        if fw and fw._hairLine then fw._hairLine:Hide() end
+        if fw and fw._overBand then fw._overBand:Hide() end
         if ha then ha:Hide() end
         if topBar then topBar:Hide() end
         if healTopBar then healTopBar:Hide() end
         return
     end
 
+    -- Shield-edge clamp bar: drives where the missing-health background starts
+    -- while "Show Absorbs as Health" is on (see ns._ApplyHealthBg). It is fed the
+    -- CLAMPED absorb so its fill stops at the bar's right edge instead of
+    -- overshooting. Set inside each branch: the clamped amount is itself a secret,
+    -- so it is never compared or tested, only handed to SetValue.
+    local cb, og = fw and fw._clampBar, fw and fw._overGate
+    -- Re-size every update, exactly like ab/fw below. The width is what converts a
+    -- health value into pixels, so a stale one is not cosmetic: the raid tier sizes
+    -- (ns._activeSizeW) and the party width resize the health bar long after these
+    -- bars were created, and a clamp bar left too WIDE pushes its fill past the bar's
+    -- right edge -- which puts the background's TOPLEFT right of its BOTTOMRIGHT and
+    -- stops it drawing at all. Height comes from the anchors in ReanchorAbsorbToFill.
+    if cb then cb:SetWidth(hp:GetWidth()) end
+    if og then og:SetWidth(hp:GetWidth()) end
     local maxHealth, absorbAmt, isClamped
     if calc and UnitGetDetailedHealPrediction then
         UnitGetDetailedHealPrediction(unit, nil, calc)
         calc:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.Default)
         maxHealth = calc:GetMaximumHealth()
-        -- 2nd return (Missing Health clamp) = secret-safe overshield boolean.
-        local _, clampedBool = calc:GetDamageAbsorbs()
+        -- 1st return (Missing Health clamp) = the absorb already capped to the
+        -- empty health, i.e. exactly the part the shield actually paints; 2nd is
+        -- the secret-safe overshield boolean.
+        local clampedAmt, clampedBool = calc:GetDamageAbsorbs()
         isClamped = clampedBool
         -- Bars get the FULL absorb so the overflow/backfill renders correctly.
         absorbAmt = (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0
+        if cb then cb:SetMinMaxValues(0, maxHealth); cb:SetValue(clampedAmt) end
+        if og then og:SetMinMaxValues(0, maxHealth); og:SetValue(clampedAmt) end
     else
         maxHealth = UnitHealthMax(unit) or 0
         absorbAmt = (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0
+        -- No calculator: no clamped value to be had. The full absorb only differs
+        -- while overshielding, where the background is fully covered anyway.
+        if cb then cb:SetMinMaxValues(0, maxHealth); cb:SetValue(absorbAmt) end
+        if og then og:SetMinMaxValues(0, maxHealth); og:SetValue(absorbAmt) end
     end
 
     -- Absorb Bar: solid bar above the frame, fills from the right edge.
@@ -2595,6 +2811,8 @@ local function UpdateAbsorb(button, unit)
         if fw then fw:Hide() end
         if fw and fw._edgeSpark then fw._edgeSpark:Hide() end
         if fw and fw._bfSpark then fw._bfSpark:Hide() end
+        if fw and fw._hairLine then fw._hairLine:Hide() end
+        if fw and fw._overBand then fw._overBand:Hide() end
         return
     end
 
@@ -2606,10 +2824,34 @@ local function UpdateAbsorb(button, unit)
     -- Re-apply style when style, color, or opacity changes
     local absStyle = s.absorbStyle
     local ac = s.absorbColor or { r = 1, g = 1, b = 1 }
-    local absKey = (absStyle or "") .. (s.absorbOpacity or 90) .. ac.r .. ac.g .. ac.b
+    -- Overlay-like placements are the only ones with a missing-health vs
+    -- overshield split (the edge modes draw the whole absorb through ab), so both
+    -- "Show Overshield" and "Show Absorbs as Health" key off this.
+    local overlayLike = absStyle == "blizzardModern" or (s.absorbEdgeMode or "overlay") == "overlay"
+    -- Shared with ns._ApplyHealthBg on purpose: if the two disagreed, the background
+    -- would anchor to the wrong edge and reintroduce the wash-out this fixes.
+    local asHealth = ns.AbsorbAsHealthActive(s)
+    local absKey = (absStyle or "") .. (s.absorbOpacity or 90) .. ac.r .. ac.g .. ac.b .. (asHealth and "H" or "")
     if absStyle and absStyle ~= "none" and ab._lastAbsKey ~= absKey then
         ab._lastAbsKey = absKey
-        ApplyAbsorbStyle(ab, absStyle, s)
+        ApplyAbsorbStyle(ab, absStyle, s, asHealth)
+    end
+    -- Show Absorbs as Health: copy the health bar's live look onto the forward
+    -- (missing-health) shield every update, so class/custom/dynamic colours, the
+    -- opacity slider and Dark Mode all carry over.
+    --
+    -- The bar colour and the fill texture's own alpha are handed over on the SAME
+    -- two channels the health bar uses (Dark Mode puts its opacity on the texture,
+    -- everything else on the colour) rather than multiplied into one. The Classic
+    -- and Custom Dynamic colour modes derive the health colour from the secret
+    -- health via UnitHealthPercent, so GetStatusBarColor hands back secret
+    -- components -- they can be passed straight to SetStatusBarColor, but any
+    -- arithmetic on them raises "attempt to perform arithmetic on a secret number".
+    if asHealth and fw then
+        local hr, hg, hb, hA = hp:GetStatusBarColor()
+        local hpFill = hp:GetStatusBarTexture()
+        ns.ApplyAbsorbAsHealth(fw, ResolveHealthTexture(), hr, hg, hb, hA,
+            hpFill and hpFill:GetAlpha() or 1, ab._absorbMask)
     end
 
     -- Show Overshield (opt-in, default ON). The "overshield" is the absorb that
@@ -2621,7 +2863,6 @@ local function UpdateAbsorb(button, unit)
     -- is hidden below), so they are left untouched -- overshield is meaningless
     -- there. With the toggle ON this is byte-for-byte the previous behavior.
     local overshieldOn = s.showOvershield ~= false
-    local overlayLike = absStyle == "blizzardModern" or (s.absorbEdgeMode or "overlay") == "overlay"
     local abValue = absorbAmt
     if not overshieldOn and overlayLike then abValue = 0 end
 
@@ -2630,6 +2871,11 @@ local function UpdateAbsorb(button, unit)
     ab:SetMinMaxValues(0, maxHealth)
     ab:SetValue(abValue)
     ab:Show()
+    -- Show Absorbs as Health draws the overshield itself, right-aligned (see the
+    -- band below). The backfill keeps its VALUE -- overGate anchors to its fill to
+    -- find maxHealth-absorb -- but is alpha'd out so its leftward version does not
+    -- render on top. Alpha, not Hide/value, precisely so that geometry survives.
+    ab:SetAlpha(asHealth and 0 or 1)
 
     if fw then
         fw:SetMinMaxValues(0, maxHealth)
@@ -2651,13 +2897,19 @@ local function UpdateAbsorb(button, unit)
             local fmb = fw._modernBase
             if fmb then fmb:SetAllPoints(fw:GetStatusBarTexture()) end
             -- Seam spark: full 16px when any shield (binary gate), hidden while overshielding.
+            -- With Show Absorbs as Health the forward shield IS the health look, so there is
+            -- no seam at the current-HP edge to mark -- the glow would land mid-fill.
             local g, sp = fw._edgeGate, fw._edgeSpark
             if g and sp then
-                g:SetHeight(hpH)
-                g:SetValue(absorbAmt)
-                sp:SetAllPoints(g:GetStatusBarTexture())
-                if sp.SetAlphaFromBoolean then sp:SetAlphaFromBoolean(isClamped, 0, 1) else sp:SetAlpha(1) end
-                sp:Show()
+                if asHealth then
+                    sp:Hide()
+                else
+                    g:SetHeight(hpH)
+                    g:SetValue(absorbAmt)
+                    sp:SetAllPoints(g:GetStatusBarTexture())
+                    if sp.SetAlphaFromBoolean then sp:SetAlphaFromBoolean(isClamped, 0, 1) else sp:SetAlpha(1) end
+                    sp:Show()
+                end
             end
             -- Overshield spark: normally rides the backfill's LEFT edge (slides
             -- left over the health fill as the overshield grows). With Show
@@ -2668,7 +2920,11 @@ local function UpdateAbsorb(button, unit)
             if bsp then
                 bsp:SetSize(16, hpH)
                 bsp:ClearAllPoints()
-                if overshieldOn then
+                if asHealth and overshieldOn and fw._overGate then
+                    -- Overshield is right-aligned in this mode: the shield boundary
+                    -- is the band's left edge, i.e. overGate's fill right edge.
+                    bsp:SetPoint("CENTER", fw._overGate:GetStatusBarTexture(), "RIGHT", -1, 0)
+                elseif overshieldOn then
                     bsp:SetPoint("CENTER", ab:GetStatusBarTexture(), "LEFT", -1, 0)
                 else
                     bsp:SetPoint("CENTER", ab, "RIGHT", -1, 0)
@@ -2680,6 +2936,59 @@ local function UpdateAbsorb(button, unit)
     elseif fw and fw._edgeSpark then
         fw._edgeSpark:Hide()
         if fw._bfSpark then fw._bfSpark:Hide() end
+    end
+
+    -- "Absorbs as Health" overshield band (see CreateAbsorbBar): the surplus shield,
+    -- right-aligned at the bar's end so every health level renders the way 100%
+    -- health already does. overGate's fill ends at maxHealth-overshield, so the band
+    -- runs from there to the bar's right edge and collapses to nothing when the
+    -- shield fits. Styled like the backfill would have been.
+    if fw and fw._overGate and fw._overBand then
+        local gate, band = fw._overGate, fw._overBand
+        if asHealth and overshieldOn then
+            -- Width drives the value->pixels scale; the two left anchors pin it to
+            -- the backfill fill's left edge and take the height from it.
+            local abFill = ab:GetStatusBarTexture()
+            gate:SetWidth(hpW)
+            gate:ClearAllPoints()
+            gate:SetPoint("TOPLEFT", abFill, "TOPLEFT", 0, 0)
+            gate:SetPoint("BOTTOMLEFT", abFill, "BOTTOMLEFT", 0, 0)
+            band:ClearAllPoints()
+            band:SetPoint("TOPLEFT", gate:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+            band:SetPoint("BOTTOMRIGHT", hp, "BOTTOMRIGHT", 0, 0)
+            if absStyle == "blizzardModern" then
+                -- Matches the modern backfill: flat 10% white, colour hardcoded.
+                band:SetTexture("Interface\\Buttons\\WHITE8X8")
+                band:SetVertexColor(1, 1, 1, 0.10)
+                band:SetHorizTile(false); band:SetVertTile(false)
+            else
+                band:SetTexture(ns.ResolveAbsorbStyleTex(absStyle, "Interface\\Buttons\\WHITE8X8"))
+                band:SetVertexColor(ac.r, ac.g, ac.b, (s.absorbOpacity or 90) / 100)
+                local tiled = (absStyle == "striped" or absStyle == "stripedReversed" or absStyle == "largeStripes" or absStyle == "largeStripesR" or absStyle == "largeOutlinedStripes" or absStyle == "largeOutlinedStripesR")
+                band:SetHorizTile(tiled); band:SetVertTile(tiled)
+            end
+            band:Show()
+        else
+            band:Hide()
+        end
+    end
+
+    -- "Absorbs as Health" hairline on the true health edge (see CreateAbsorbBar).
+    -- Tinted with the absorb color so it reads as part of the shield rather than
+    -- a bar border; the gate collapses it to nothing when there is no shield.
+    if fw and fw._hairGate and fw._hairLine then
+        if asHealth and s.absorbAsHealthEdge ~= false then
+            -- ns.OnePixel, not PixelSnap(1): a hairline is one PHYSICAL pixel, and
+            -- PixelSnap(1) is one UI unit aligned to the grid -- several pixels
+            -- wide once the UI is scaled up, which reads as a band, not a hairline.
+            fw._hairGate:SetSize(ns.OnePixel(hp), hpH)
+            fw._hairGate:SetValue(absorbAmt)
+            fw._hairLine:SetColorTexture(ac.r, ac.g, ac.b, 0.7)
+            fw._hairLine:SetAllPoints(fw._hairGate:GetStatusBarTexture())
+            fw._hairLine:Show()
+        else
+            fw._hairLine:Hide()
+        end
     end
 
     -- Heal prediction: extends from current HP into missing health
@@ -10254,6 +10563,7 @@ do
         },
         absorbs = {
             "absorbStyle", "absorbOpacity", "absorbColor", "absorbEdgeMode", "showOvershield",
+            "absorbAsHealth", "absorbAsHealthEdge",
             "absorbBarEnabled", "absorbBarPosition", "absorbBarHeight", "absorbBarColor",
             "absorbBarGrowDir",
             "healAbsorbBarPosition", "healAbsorbBarHeight", "healAbsorbBarColor",
@@ -12533,6 +12843,43 @@ local function CreatePreviewFrame(index)
     bfSpark:Hide()
     forwardBar._bfSpark = bfSpark
 
+    -- "Absorbs as Health" hairline (preview): mirrors live -- a 1px gate on the
+    -- forward bar's LEFT edge marking the true health edge.
+    local hairGate = CreateFrame("StatusBar", nil, sparkHost)
+    hairGate:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    hairGate:SetStatusBarColor(1, 1, 1, 0)
+    hairGate:SetSize(1, health:GetHeight())
+    hairGate:SetMinMaxValues(0, 1)
+    hairGate:SetValue(0)
+    hairGate:SetPoint("CENTER", forwardBar, "LEFT", 0, 0)
+    local hairLine = sparkHost:CreateTexture(nil, "OVERLAY")
+    hairLine:SetColorTexture(1, 1, 1, 0.7)
+    hairLine:SetAllPoints(hairGate:GetStatusBarTexture())
+    hairLine:Hide()
+    forwardBar._hairGate = hairGate
+    forwardBar._hairLine = hairLine
+
+    -- Shield-edge clamp bar (preview): mirrors live; fed the absorb already capped
+    -- to missing health so the background can anchor to its right edge.
+    local clampBar = CreateFrame("StatusBar", nil, health)
+    clampBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    clampBar:SetStatusBarColor(1, 1, 1, 0)
+    clampBar:SetPoint("TOPLEFT", health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    clampBar:SetPoint("BOTTOMLEFT", health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+    clampBar:SetWidth(health:GetWidth())
+    clampBar:SetHeight(health:GetHeight())
+    clampBar:SetMinMaxValues(0, 100)
+    clampBar:SetValue(0)
+    forwardBar._clampBar = clampBar
+
+    -- "Absorbs as Health" overshield band (preview): mirrors live. Preview values
+    -- are plain numbers, so the renderer sizes it with arithmetic instead of the
+    -- live path's overGate.
+    local overBand = sparkHost:CreateTexture(nil, "ARTWORK")
+    if absorbMask then overBand:AddMaskTexture(absorbMask) end
+    overBand:Hide()
+    forwardBar._overBand = overBand
+
     -- Heal absorb bar (preview): red overlay eating into filled health from HP edge
     do
         -- Own clip frame (mirrors live): right/left span the full bar, overlay
@@ -13326,6 +13673,40 @@ local function ApplyPreviewData(f, index)
             local hpH = healthH
             local mask = f._absorbBar._mask
             local ac = s.absorbColor or { r = 1, g = 1, b = 1 }
+            -- Show Absorbs as Health (preview): same rule as live -- the forward
+            -- (missing-health) shield takes the preview health bar's own texture
+            -- and color, so only the overshield reads as an absorb. Read off
+            -- f._health, which this renderer styles further up, so every health
+            -- color mode (including Dark Mode's texture alpha) carries over.
+            local pvAsHealth = s.absorbAsHealth == true
+                and (modern or (s.absorbEdgeMode or "overlay") == "overlay")
+                and f._health ~= nil
+            if pvAsHealth and fw then
+                local hr, hg, hb, hA = f._health:GetStatusBarColor()
+                local hpFill = f._health:GetStatusBarTexture()
+                ns.HideModernAbsorbBase(fw)
+                ns.ApplyAbsorbAsHealth(fw, ResolveHealthTexture(), hr, hg, hb, hA,
+                    hpFill and hpFill:GetAlpha() or 1, mask)
+            elseif fw then
+                fw._ahTex = nil
+            end
+            -- Mirrors ns._ApplyHealthBg: the missing-health background has to stop
+            -- where the SHIELD stops, not where health stops, or it sits under the
+            -- shield section and washes it out. Preview values are plain numbers, so
+            -- the "clamped to missing health" amount is a normal min(). Only applied
+            -- here -- the background block above already set the default anchor for
+            -- every other case.
+            if pvAsHealth and fw and fw._clampBar and f._bg then
+                local pvClamp = fw._clampBar
+                -- Re-size per render for the same reason as live: a stale width
+                -- pushes the fill past the bar and collapses the background's rect.
+                pvClamp:SetWidth(hpW)
+                pvClamp:SetMinMaxValues(0, 100)
+                pvClamp:SetValue(math.min(absorbAmt, math.max(0, 100 - (healthPct or 100))))
+                f._bg:ClearAllPoints()
+                f._bg:SetPoint("TOPLEFT", pvClamp:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+                f._bg:SetPoint("BOTTOMRIGHT", f._health, "BOTTOMRIGHT", 0, 0)
+            end
 
             f._absorbBar:SetWidth(hpW)
             f._absorbBar:SetHeight(hpH)
@@ -13333,7 +13714,7 @@ local function ApplyPreviewData(f, index)
 
             if modern then
                 -- Forward = modern texture; backfill = flat 10% white overshield (mirrors live).
-                if fw then ns.ApplyModernAbsorbBar(fw, mask) end
+                if fw and not pvAsHealth then ns.ApplyModernAbsorbBar(fw, mask) end
                 ns.HideModernAbsorbBase(f._absorbBar)
                 f._absorbBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
                 f._absorbBar:SetStatusBarColor(1, 1, 1, 0.10)
@@ -13358,8 +13739,8 @@ local function ApplyPreviewData(f, index)
                     if mask then bfFill:AddMaskTexture(mask) end
                 end
 
-                -- Apply style to forward bar
-                if fw then
+                -- Apply style to forward bar (skipped while it wears the health look)
+                if fw and not pvAsHealth then
                     fw:SetStatusBarTexture(tex)
                     fw:SetStatusBarColor(ac.r, ac.g, ac.b, alpha)
                     local fwFill = fw:GetStatusBarTexture()
@@ -13381,10 +13762,38 @@ local function ApplyPreviewData(f, index)
             f._absorbBar:SetMinMaxValues(0, 100)
             f._absorbBar:SetValue(pvAbValue)
             f._absorbBar:Show()
+            -- Mirrors live: Show Absorbs as Health draws the overshield itself,
+            -- right-aligned, so the backfill's leftward version is alpha'd out.
+            f._absorbBar:SetAlpha(pvAsHealth and 0 or 1)
             if fw then
                 fw:SetMinMaxValues(0, 100)
                 fw:SetValue(absorbAmt)
                 fw:Show()
+            end
+
+            -- "Absorbs as Health" overshield band (preview): surplus shield, right-
+            -- aligned at the bar's end. Plain numbers here, so the width is just the
+            -- overshield amount rather than the live path's overGate geometry.
+            if fw and fw._overBand then
+                local band = fw._overBand
+                local pvOver = absorbAmt - (100 - (healthPct or 100))
+                if pvAsHealth and pvOvershieldOn and pvOver > 0 then
+                    band:ClearAllPoints()
+                    band:SetPoint("TOPRIGHT", f._health, "TOPRIGHT", 0, 0)
+                    band:SetSize(hpW * math.min(pvOver, 100) / 100, hpH)
+                    if modern then
+                        band:SetTexture("Interface\\Buttons\\WHITE8X8")
+                        band:SetVertexColor(1, 1, 1, 0.10)
+                        band:SetHorizTile(false); band:SetVertTile(false)
+                    else
+                        band:SetTexture(tex)
+                        band:SetVertexColor(ac.r, ac.g, ac.b, alpha)
+                        band:SetHorizTile(tiled); band:SetVertTile(tiled)
+                    end
+                    band:Show()
+                else
+                    band:Hide()
+                end
             end
 
             -- "Default Blizz Frames": seam spark + overshield spark (preview values are
@@ -13396,11 +13805,17 @@ local function ApplyPreviewData(f, index)
                     local previewOver = absorbAmt > (100 - (healthPct or 100))
                     local g, sp = fw._edgeGate, fw._edgeSpark
                     if g and sp then
-                        g:SetHeight(hpH)
-                        g:SetValue(absorbAmt)
-                        sp:SetAllPoints(g:GetStatusBarTexture())
-                        sp:SetAlpha(previewOver and 0 or 1)
-                        sp:Show()
+                        -- Mirrors live: no seam to mark once the forward shield
+                        -- wears the health look.
+                        if pvAsHealth then
+                            sp:Hide()
+                        else
+                            g:SetHeight(hpH)
+                            g:SetValue(absorbAmt)
+                            sp:SetAllPoints(g:GetStatusBarTexture())
+                            sp:SetAlpha(previewOver and 0 or 1)
+                            sp:Show()
+                        end
                     end
                     local bsp = fw._bfSpark
                     if bsp then
@@ -13419,6 +13834,19 @@ local function ApplyPreviewData(f, index)
                 fw._edgeSpark:Hide()
                 if fw._bfSpark then fw._bfSpark:Hide() end
             end
+
+            -- "Absorbs as Health" hairline (preview): mirrors live.
+            if fw and fw._hairGate and fw._hairLine then
+                if pvAsHealth and s.absorbAsHealthEdge ~= false then
+                    fw._hairGate:SetSize(ns.OnePixel(f._health), hpH)
+                    fw._hairGate:SetValue(absorbAmt)
+                    fw._hairLine:SetColorTexture(ac.r, ac.g, ac.b, 0.7)
+                    fw._hairLine:SetAllPoints(fw._hairGate:GetStatusBarTexture())
+                    fw._hairLine:Show()
+                else
+                    fw._hairLine:Hide()
+                end
+            end
         else
             f._absorbBar:Hide()
             if fw then fw:Hide() end
@@ -13426,6 +13854,8 @@ local function ApplyPreviewData(f, index)
             if fw then ns.HideModernAbsorbBase(fw) end
             if fw and fw._edgeSpark then fw._edgeSpark:Hide() end
             if fw and fw._bfSpark then fw._bfSpark:Hide() end
+            if fw and fw._hairLine then fw._hairLine:Hide() end
+            if fw and fw._overBand then fw._overBand:Hide() end
         end
         -- Position clip frames + backfill based on shield absorb placement
         -- (mirrors the live ReanchorAbsorbToFill).
