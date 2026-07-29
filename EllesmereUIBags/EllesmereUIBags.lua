@@ -2419,8 +2419,8 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
 
     if not data.info then
         -- Empty slot
-        btn:SetItemButtonTexture(nil)
-        btn:SetItemButtonCount(0)
+        if btn.SetItemButtonTexture then btn:SetItemButtonTexture(nil) else SetItemButtonTexture(btn, nil) end
+        if btn.SetItemButtonCount then btn:SetItemButtonCount(0) else SetItemButtonCount(btn, 0) end
         SetItemButtonDesaturated(btn, false)
         if btn.icon then btn.icon:Hide() end
         btn._emptyBg:Show()
@@ -2451,8 +2451,8 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         btn:EnableMouse(true)
         btn._emptyBg:Hide()
         if btn.icon then btn.icon:Show() end
-        btn:SetItemButtonTexture(data.info.iconFileID)
-        btn:SetItemButtonCount(data._mergedCount or data.info.stackCount)
+        if btn.SetItemButtonTexture then btn:SetItemButtonTexture(data.info.iconFileID) else SetItemButtonTexture(btn, data.info.iconFileID) end
+        if btn.SetItemButtonCount then btn:SetItemButtonCount(data._mergedCount or data.info.stackCount) else SetItemButtonCount(btn, data._mergedCount or data.info.stackCount) end
         btn._isMerged = data._mergedCount and true or nil
 
         -- Desature: 1) locked items 2) junk items if option is active
@@ -2528,7 +2528,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         -- Profession quality overlay: let Blizzard decide via SetItemButtonQuality
         -- (handles all item types, not just ones we think are "profession")
         if data.itemLink then
-            btn:SetItemButtonQuality(quality, data.itemLink, false, false)
+            if btn.SetItemButtonQuality then btn:SetItemButtonQuality(quality, data.itemLink, false, false) end
         end
         -- Control overlay via alpha (immune to parent visibility inheritance).
         -- SetItemButtonQuality may have called Show() internally, but we use
@@ -6233,16 +6233,16 @@ function EUI_BagsReagent:RefreshInventory()
         parent:SetID(data.bag)
 
         if not data.info then
-            btn:SetItemButtonTexture(nil)
-            btn:SetItemButtonCount(0)
+            if btn.SetItemButtonTexture then btn:SetItemButtonTexture(nil) else SetItemButtonTexture(btn, nil) end
+            if btn.SetItemButtonCount then btn:SetItemButtonCount(0) else SetItemButtonCount(btn, 0) end
             SetItemButtonDesaturated(btn, false)
             if btn.icon then btn.icon:Hide() end
             if btn.ItemLevelText then btn.ItemLevelText:SetText("") end
             SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
         else
             if btn.icon then btn.icon:Show() end
-            btn:SetItemButtonTexture(data.info.iconFileID)
-            btn:SetItemButtonCount(data.info.stackCount)
+            if btn.SetItemButtonTexture then btn:SetItemButtonTexture(data.info.iconFileID) else SetItemButtonTexture(btn, data.info.iconFileID) end
+            if btn.SetItemButtonCount then btn:SetItemButtonCount(data.info.stackCount) else SetItemButtonCount(btn, data.info.stackCount) end
             SetItemButtonDesaturated(btn, data.info.isLocked)
             local filtered = data.info.isFiltered
             btn:SetAlpha(filtered and 0.2 or 1)

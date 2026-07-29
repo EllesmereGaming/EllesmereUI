@@ -1797,8 +1797,8 @@ function EUI_Bank:RefreshBank()
         if btn.IconOverlay2 then btn.IconOverlay2:SetAlpha(0); btn.IconOverlay2:Hide() end
         local info = cachedInfo or C_Container.GetContainerItemInfo(bagID, slot)
         if not info then
-            btn:SetItemButtonTexture(nil)
-            btn:SetItemButtonCount(0)
+            if btn.SetItemButtonTexture then btn:SetItemButtonTexture(nil) else SetItemButtonTexture(btn, nil) end
+            if btn.SetItemButtonCount then btn:SetItemButtonCount(0) else SetItemButtonCount(btn, 0) end
             SetItemButtonDesaturated(btn, false)
             if btn.icon then btn.icon:Hide() end
             btn._emptyBg:Show(); btn._emptyBg:SetAlpha(0.35)
@@ -1813,12 +1813,12 @@ function EUI_Bank:RefreshBank()
             btn:EnableMouse(true)
             btn._emptyBg:Hide()
             if btn.icon then btn.icon:Show() end
-            btn:SetItemButtonTexture(info.iconFileID)
-            btn:SetItemButtonCount(info.stackCount)
+            if btn.SetItemButtonTexture then btn:SetItemButtonTexture(info.iconFileID) else SetItemButtonTexture(btn, info.iconFileID) end
+            if btn.SetItemButtonCount then btn:SetItemButtonCount(info.stackCount) else SetItemButtonCount(btn, info.stackCount) end
             SetItemButtonDesaturated(btn, info.isLocked)
             local itemLink = C_Container.GetContainerItemLink(bagID, slot)
             local quality = info.quality or 1
-            if itemLink then btn:SetItemButtonQuality(quality, itemLink, false, false) end
+            if itemLink and btn.SetItemButtonQuality then btn:SetItemButtonQuality(quality, itemLink, false, false) end
             if btn.ProfessionQualityOverlay and btn.ProfessionQualityOverlay:IsShown() and btn._textOverlay then
                 btn.ProfessionQualityOverlay:SetAlpha(1)
                 btn.ProfessionQualityOverlay:SetParent(btn._textOverlay)

@@ -784,7 +784,7 @@ function ECHAT.ApplyBorders()
         end
         if cf and CFD(cf).inputDiv then
             CFD(cf).inputDiv:SetTexture(r, g, b, a)
-            if not hide then CFD(cf).inputDiv:Show() else CFD(cf).inputDiv:Hide() end
+            CFD(cf)if not hide then .inputDiv:Show() else .inputDiv:Hide() end
         end
     end
     local cf1 = _G.ChatFrame1
@@ -796,7 +796,7 @@ function ECHAT.ApplyBorders()
         end
         if CFD(cf1).sidebarDiv then
             CFD(cf1).sidebarDiv:SetTexture(r, g, b, a)
-            if not hide then CFD(cf1).sidebarDiv:Show() else CFD(cf1).sidebarDiv:Hide() end
+            CFD(cf1)if not hide then .sidebarDiv:Show() else .sidebarDiv:Hide() end
         end
     end
     -- Mirror border visibility onto the behind-tabs divider continuation.
@@ -1011,7 +1011,7 @@ function ECHAT.ApplySidebarPosition()
             CFD(cf1).sidebarDiv:SetPoint("TOPRIGHT", sb, "TOPRIGHT", 0, 0)
             CFD(cf1).sidebarDiv:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0)
         end
-        if cfg.sidebarSeparate ~= true then CFD(cf1).sidebarDiv:Show() else CFD(cf1).sidebarDiv:Hide() end
+        CFD(cf1)if cfg.sidebarSeparate ~= true then .sidebarDiv:Show() else .sidebarDiv:Hide() end
     end
 
     -- Re-place the behind-tabs divider continuation onto the new edge.
@@ -3822,7 +3822,7 @@ local function UpdateTabColors()
     if cf1 and CFD(cf1).resizeGrip then
         local cfg = ECHAT.DB()
         local locked = cfg and cfg.lockChatSize
-        if not locked and selected == cf1 then CFD(cf1).resizeGrip:Show() else CFD(cf1).resizeGrip:Hide() end
+        CFD(cf1)if not locked and selected == cf1 then .resizeGrip:Show() else .resizeGrip:Hide() end
     end
 end
 

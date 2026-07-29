@@ -898,10 +898,10 @@ local function SkinCharacterSheet()
                     GetFFD(tab).label:SetTextColor(1, 1, 1, isActive and 1 or 0.5)
                 end
                 if GetFFD(tab).underline then
-                    if isActive then GetFFD(tab).underline:Show() else GetFFD(tab).underline:Hide() end
+                    GetFFD(tab)if isActive then .underline:Show() else .underline:Hide() end
                 end
                 if GetFFD(tab).activeHL then
-                    if isActive then GetFFD(tab).activeHL:Show() else GetFFD(tab).activeHL:Hide() end
+                    GetFFD(tab)if isActive then .activeHL:Show() else .activeHL:Hide() end
                 end
             end
         end
@@ -975,10 +975,10 @@ local function SkinCharacterSheet()
                 local slot = _G[slotName]
                 if slot then
                     if isCharacterTab then slot:Show() else slot:Hide() end
-                    if GetFFD(slot).itemLevelLabel    then if isCharacterTab then GetFFD(slot).itemLevelLabel:Show() else GetFFD(slot).itemLevelLabel:Hide() end    end
-                    if GetFFD(slot).enchantLabel      then if isCharacterTab then GetFFD(slot).enchantLabel:Show() else GetFFD(slot).enchantLabel:Hide() end      end
-                    if GetFFD(slot).enchantHoverFrame then if isCharacterTab then GetFFD(slot).enchantHoverFrame:Show() else GetFFD(slot).enchantHoverFrame:Hide() end end
-                    if GetFFD(slot).upgradeTrackLabel then if isCharacterTab then GetFFD(slot).upgradeTrackLabel:Show() else GetFFD(slot).upgradeTrackLabel:Hide() end end
+                    if GetFFD(slot).itemLevelLabel    then GetFFD(slot)if isCharacterTab then .itemLevelLabel:Show() else .itemLevelLabel:Hide() end    end
+                    if GetFFD(slot).enchantLabel      then GetFFD(slot)if isCharacterTab then .enchantLabel:Show() else .enchantLabel:Hide() end      end
+                    if GetFFD(slot).enchantHoverFrame then GetFFD(slot)if isCharacterTab then .enchantHoverFrame:Show() else .enchantHoverFrame:Hide() end end
+                    if GetFFD(slot).upgradeTrackLabel then GetFFD(slot)if isCharacterTab then .upgradeTrackLabel:Show() else .upgradeTrackLabel:Hide() end end
                 end
             end
         end
@@ -988,13 +988,13 @@ local function SkinCharacterSheet()
             if btn then if isCharacterTab then btn:Show() else btn:Hide() end end
         end
 
-        if GetFFD(frame).modelBgFrame     then if isCharacterTab then GetFFD(frame).modelBgFrame:Show() else GetFFD(frame).modelBgFrame:Hide() end     end
-        if GetFFD(frame).statsPanel       then if isCharacterTab then GetFFD(frame).statsPanel:Show() else GetFFD(frame).statsPanel:Hide() end       end
-        if GetFFD(frame).iLvlText         then if isCharacterTab then GetFFD(frame).iLvlText:Show() else GetFFD(frame).iLvlText:Hide() end         end
-        if GetFFD(frame).sidebarBgFrame   then if isCharacterTab then GetFFD(frame).sidebarBgFrame:Show() else GetFFD(frame).sidebarBgFrame:Hide() end   end
-        if GetFFD(frame).scrollFrame      then if isCharacterTab then GetFFD(frame).scrollFrame:Show() else GetFFD(frame).scrollFrame:Hide() end      end
-        if GetFFD(frame).scrollBar        then if isCharacterTab then GetFFD(frame).scrollBar:Show() else GetFFD(frame).scrollBar:Hide() end        end
-        if GetFFD(frame).socketContainer  then if isCharacterTab then GetFFD(frame).socketContainer:Show() else GetFFD(frame).socketContainer:Hide() end  end
+        if GetFFD(frame).modelBgFrame     then GetFFD(frame)if isCharacterTab then .modelBgFrame:Show() else .modelBgFrame:Hide() end     end
+        if GetFFD(frame).statsPanel       then GetFFD(frame)if isCharacterTab then .statsPanel:Show() else .statsPanel:Hide() end       end
+        if GetFFD(frame).iLvlText         then GetFFD(frame)if isCharacterTab then .iLvlText:Show() else .iLvlText:Hide() end         end
+        if GetFFD(frame).sidebarBgFrame   then GetFFD(frame)if isCharacterTab then .sidebarBgFrame:Show() else .sidebarBgFrame:Hide() end   end
+        if GetFFD(frame).scrollFrame      then GetFFD(frame)if isCharacterTab then .scrollFrame:Show() else .scrollFrame:Hide() end      end
+        if GetFFD(frame).scrollBar        then GetFFD(frame)if isCharacterTab then .scrollBar:Show() else .scrollBar:Hide() end        end
+        if GetFFD(frame).socketContainer  then GetFFD(frame)if isCharacterTab then .socketContainer:Show() else .socketContainer:Hide() end  end
 
         if GetFFD(frame).statsSections then
             for _, sectionData in ipairs(GetFFD(frame).statsSections) do
@@ -1006,12 +1006,12 @@ local function SkinCharacterSheet()
 
         -- Titles / Equipment sub-panels only exist on the Character tab.
         if not isCharacterTab then
-            if GetFFD(frame).titlesPanel then if false then GetFFD(frame).titlesPanel:Show() else GetFFD(frame).titlesPanel:Hide() end end
-            if GetFFD(frame).equipPanel  then if false then GetFFD(frame).equipPanel:Show() else GetFFD(frame).equipPanel:Hide() end  end
+            if GetFFD(frame).titlesPanel then GetFFD(frame)if false then .titlesPanel:Show() else .titlesPanel:Hide() end end
+            if GetFFD(frame).equipPanel  then GetFFD(frame)if false then .equipPanel:Show() else .equipPanel:Hide() end  end
         end
 
-        if GetFFD(frame).modelScene   then if isCharacterTab then GetFFD(frame).modelScene:Show() else GetFFD(frame).modelScene:Hide() end   end
-        if GetFFD(frame).modelBgFrame then if isCharacterTab then GetFFD(frame).modelBgFrame:Show() else GetFFD(frame).modelBgFrame:Hide() end end
+        if GetFFD(frame).modelScene   then GetFFD(frame)if isCharacterTab then .modelScene:Show() else .modelScene:Hide() end   end
+        if GetFFD(frame).modelBgFrame then GetFFD(frame)if isCharacterTab then .modelBgFrame:Show() else .modelBgFrame:Hide() end end
     end
 
     local function _hookPaneOnShow(pane, isChar)
@@ -1518,7 +1518,7 @@ local function SkinCharacterSheet()
         local pvpVisible = false
         if showPvP and avgItemLevelPvP and avgItemLevelPvP > 0 and GetFFD(frame).pvpIlvlText then
             GetFFD(frame).pvpIlvlText:SetText(format("PvP iLvl: |cff00cc66%d|r", math.floor(avgItemLevelPvP)))
-            if isCharTab then GetFFD(frame).pvpIlvlText:Show() else GetFFD(frame).pvpIlvlText:Hide() end
+            GetFFD(frame)if isCharTab then .pvpIlvlText:Show() else .pvpIlvlText:Hide() end
             pvpVisible = isCharTab
         elseif GetFFD(frame).pvpIlvlText then
             GetFFD(frame).pvpIlvlText:Hide()
@@ -1541,7 +1541,7 @@ local function SkinCharacterSheet()
                 local score = math.floor(mythicRating)
                 local hex = GetMPScoreHex(score)
                 GetFFD(frame).mythicRatingLabel:SetText(L("M+ Score:") .. string.format(" |cff%s%d|r", hex, score))
-                if isCharTab then GetFFD(frame).mythicRatingLabel:Show() else GetFFD(frame).mythicRatingLabel:Hide() end
+                GetFFD(frame)if isCharTab then .mythicRatingLabel:Show() else .mythicRatingLabel:Hide() end
             else
                 GetFFD(frame).mythicRatingLabel:Hide()
             end
@@ -3242,8 +3242,8 @@ local function SkinCharacterSheet()
         SetActiveTopButton(characterBtn)
         if not statsPanel:IsShown() then
             if true then statsPanel:Show() else statsPanel:Hide() end
-            if GetFFD(CharacterFrame).titlesPanel then if false then GetFFD(CharacterFrame).titlesPanel:Show() else GetFFD(CharacterFrame).titlesPanel:Hide() end end
-            if GetFFD(CharacterFrame).equipPanel  then if false then GetFFD(CharacterFrame).equipPanel:Show() else GetFFD(CharacterFrame).equipPanel:Hide() end  end
+            if GetFFD(CharacterFrame).titlesPanel then GetFFD(CharacterFrame)if false then .titlesPanel:Show() else .titlesPanel:Hide() end end
+            if GetFFD(CharacterFrame).equipPanel  then GetFFD(CharacterFrame)if false then .equipPanel:Show() else .equipPanel:Hide() end  end
             -- Deactivate equipment sidebar (hides flyout arrows).
             local sidebarTab = _G.PaperDollSidebarTab1
             if sidebarTab and sidebarTab.Click then pcall(sidebarTab.Click, sidebarTab) end
@@ -3253,9 +3253,9 @@ local function SkinCharacterSheet()
     -- Titles button to show titles
     CreateEUIButton("Titles", L("Titles"), function()
         if not GetFFD(CharacterFrame).titlesPanel:IsShown() then
-            if true then GetFFD(CharacterFrame).titlesPanel:Show() else GetFFD(CharacterFrame).titlesPanel:Hide() end
+            GetFFD(CharacterFrame)if true then .titlesPanel:Show() else .titlesPanel:Hide() end
             if false then statsPanel:Show() else statsPanel:Hide() end
-            if GetFFD(CharacterFrame).equipPanel then if false then GetFFD(CharacterFrame).equipPanel:Show() else GetFFD(CharacterFrame).equipPanel:Hide() end end
+            if GetFFD(CharacterFrame).equipPanel then GetFFD(CharacterFrame)if false then .equipPanel:Show() else .equipPanel:Hide() end end
             -- Deactivate equipment sidebar (hides flyout arrows).
             local sidebarTab = _G.PaperDollSidebarTab1
             if sidebarTab and sidebarTab.Click then pcall(sidebarTab.Click, sidebarTab) end
@@ -3850,9 +3850,9 @@ local function SkinCharacterSheet()
     -- EquipmentManagerPane with our own gear-sets UI.
     CreateEUIButton("Equipment", L("Equipment"), function()
         if not GetFFD(CharacterFrame).equipPanel:IsShown() then
-            if true then GetFFD(CharacterFrame).equipPanel:Show() else GetFFD(CharacterFrame).equipPanel:Hide() end
+            GetFFD(CharacterFrame)if true then .equipPanel:Show() else .equipPanel:Hide() end
             if false then statsPanel:Show() else statsPanel:Hide() end
-            if GetFFD(CharacterFrame).titlesPanel then if false then GetFFD(CharacterFrame).titlesPanel:Show() else GetFFD(CharacterFrame).titlesPanel:Hide() end end
+            if GetFFD(CharacterFrame).titlesPanel then GetFFD(CharacterFrame)if false then .titlesPanel:Show() else .titlesPanel:Hide() end end
             -- Activate Blizzard's equipment sidebar for flyout arrows.
             local sidebarTab = _G.PaperDollSidebarTab3
             if sidebarTab and sidebarTab.Click then
@@ -4531,8 +4531,8 @@ local function SkinCharacterSheet()
         -- un-clickable until the user clicks Currency to resync.
         if isCharacterTab then
             if statsPanel        then if true then statsPanel:Show() else statsPanel:Hide() end          end
-            if GetFFD(frame).titlesPanel then if false then GetFFD(frame).titlesPanel:Show() else GetFFD(frame).titlesPanel:Hide() end end
-            if GetFFD(frame).equipPanel  then if false then GetFFD(frame).equipPanel:Show() else GetFFD(frame).equipPanel:Hide() end  end
+            if GetFFD(frame).titlesPanel then GetFFD(frame)if false then .titlesPanel:Show() else .titlesPanel:Hide() end end
+            if GetFFD(frame).equipPanel  then GetFFD(frame)if false then .equipPanel:Show() else .equipPanel:Hide() end  end
             if SetActiveTopButton and characterBtn then
                 SetActiveTopButton(characterBtn)
             end
@@ -4634,7 +4634,7 @@ local function SkinCharacterSheet()
 
             if showItemLevel then
                 GetFFD(slot).itemLevelLabel:SetText(tostring(itemLevel) or "")
-                if isCharTab then GetFFD(slot).itemLevelLabel:Show() else GetFFD(slot).itemLevelLabel:Hide() end
+                GetFFD(slot)if isCharTab then .itemLevelLabel:Show() else .itemLevelLabel:Hide() end
                 GetFFD(slot).itemLevelLabel:SetTextColor(ilvlColor.r, ilvlColor.g, ilvlColor.b, 0.9)
             else
                 GetFFD(slot).itemLevelLabel:Hide()
@@ -4718,10 +4718,10 @@ local function SkinCharacterSheet()
                     GetFFD(slot).enchantLabel:SetTextColor(1, 1, 1, 0.8)
                     GetFFD(slot).enchantLabel:SetWidth(0)
                 end
-                if isCharTab then GetFFD(slot).enchantLabel:Show() else GetFFD(slot).enchantLabel:Hide() end
+                GetFFD(slot)if isCharTab then .enchantLabel:Show() else .enchantLabel:Hide() end
 
                 if GetFFD(slot).enchantHoverFrame then
-                    if isCharTab then GetFFD(slot).enchantHoverFrame:Show() else GetFFD(slot).enchantHoverFrame:Hide() end
+                    GetFFD(slot)if isCharTab then .enchantHoverFrame:Show() else .enchantHoverFrame:Hide() end
                     GetFFD(slot).enchantHoverFrame:SetScript("OnEnter", function(self)
                         if not tooltipText or tooltipText == "" then return end
                         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -4751,7 +4751,7 @@ local function SkinCharacterSheet()
 
             if showUpgradeTrack then
                 GetFFD(slot).upgradeTrackLabel:SetText(upgradeTrackText ~= "" and ("(" .. upgradeTrackText .. ")") or "")
-                if isCharTab then GetFFD(slot).upgradeTrackLabel:Show() else GetFFD(slot).upgradeTrackLabel:Hide() end
+                GetFFD(slot)if isCharTab then .upgradeTrackLabel:Show() else .upgradeTrackLabel:Hide() end
 
                 -- Determine color to use
                 local displayColor
