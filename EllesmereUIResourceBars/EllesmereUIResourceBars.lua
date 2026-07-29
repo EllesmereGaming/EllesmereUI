@@ -1400,7 +1400,7 @@ local function FormatNumber(n)
 end
 
 local function IsVerticalOrientation(ori)
-    return ori == "VERTICAL_UP" or ori == "VERTICAL_DOWN"
+    return ori == "VERTICAL_UP" or ori == "VERTICAL_DOWN" or ori == "VERTICAL"
 end
 -- Shared with the options file, which has to know a bar's drawn axes to grey
 -- the right size slider when a dimension is matched. Exported rather than
@@ -1628,11 +1628,12 @@ end
 
 local function ApplyBarOrientation(bar, orientation)
     if not bar then return end
+    bar._erbOrientation = orientation or "HORIZONTAL"
     if orientation == "VERTICAL_UP" then
         bar:SetOrientation("VERTICAL")
         bar:SetRotatesTexture(true)
         bar:SetReverseFill(false)
-    elseif orientation == "VERTICAL_DOWN" then
+    elseif orientation == "VERTICAL_DOWN" or orientation == "VERTICAL" then
         bar:SetOrientation("VERTICAL")
         bar:SetRotatesTexture(true)
         bar:SetReverseFill(true)
@@ -2754,10 +2755,12 @@ end
 --   Bar-type only; pip resources always use counts. Default false (legacy).
 -- maxRenderVal (optional): suppress any tick whose resource-value position exceeds
 -- it (e.g. Devourer in Void Meta caps at 39 so nothing renders at the 40 edge).
--- vInset (optional): amount to shrink each tick vertically at the top and
--- bottom, so hash lines sit inside the border instead of spanning over it. Default
--- 0. Callers pass borderSize * PP.mult.
-local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, hashR, hashG, hashB, hashA, hashIsPercent, maxRenderVal, vInset)
+-- crossInset (optional): amount to shrink each tick on the cross axis so hash
+-- lines sit inside the border instead of spanning over it. Default 0. Callers
+-- pass borderSize * PP.mult.
+local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth,
+    hashR, hashG, hashB, hashA, hashIsPercent, maxRenderVal, crossInset,
+    orientation)
     -- UNIT_POWER_FREQUENT drives this several times a second for as long as power
     -- regenerates, but the tick layout is a pure function of the arguments below
     -- plus the bar's size and the pixel multiplier -- never of the live resource
@@ -2771,14 +2774,16 @@ local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, 
         local st = sb._tickState
         if st and st.maxVal == maxVal and st.tickStr == tickStr and st.hw == hashWidth
            and st.r == hashR and st.g == hashG and st.b == hashB and st.a == hashA
-           and st.pct == hashIsPercent and st.cap == maxRenderVal and st.vi == vInset
+           and st.pct == hashIsPercent and st.cap == maxRenderVal
+           and st.ci == crossInset and st.ori == orientation
            and st.w == w and st.h == h and st.mult == mult then
             return
         end
         if not st then st = {}; sb._tickState = st end
         st.maxVal, st.tickStr, st.hw = maxVal, tickStr, hashWidth
         st.r, st.g, st.b, st.a = hashR, hashG, hashB, hashA
-        st.pct, st.cap, st.vi = hashIsPercent, maxRenderVal, vInset
+        st.pct, st.cap, st.ci, st.ori = hashIsPercent, maxRenderVal,
+            crossInset, orientation
         st.w, st.h, st.mult = w, h, mult
     end
 
@@ -2817,10 +2822,15 @@ local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, 
     local pxW = PP and (tickW * PP.mult) or tickW
     local barW = sb:GetWidth()
     local barH = sb:GetHeight()
-    local vI = vInset or 0
-    -- Clamp so a fat border on a short bar can never invert the height.
-    if vI * 2 >= barH then vI = math.max(0, (barH - 1) / 2) end
-    local tickH = barH - vI * 2
+    local isVertical = IsVerticalOrientation(orientation)
+    local barLength = isVertical and barH or barW
+    local crossLength = isVertical and barW or barH
+    local cI = crossInset or 0
+    -- Clamp so a fat border on a thin bar can never invert the cross axis.
+    if cI * 2 >= crossLength then
+        cI = math.max(0, (crossLength - 1) / 2)
+    end
+    local tickCross = crossLength - cI * 2
     for i, v in ipairs(vals) do
         local frac, inRange
         if hashIsPercent then
@@ -2839,12 +2849,53 @@ local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, 
             local t = tickCache[i]
             t:SetColorTexture(tR, tG, tB, tA)
             t:ClearAllPoints()
-            local off = PP and PP.Scale(barW * frac) or (barW * frac)
-            t:SetSize(pxW, tickH)
-            t:SetPoint("TOPLEFT", sb, "TOPLEFT", off, -vI)
+            local off = PP and PP.Scale(barLength * frac) or (barLength * frac)
+            -- A marker at 100% belongs just inside the far edge, not one
+            -- marker-width outside the frame.
+            if off > barLength - pxW then off = barLength - pxW end
+            if off < 0 then off = 0 end
+            if isVertical then
+                t:SetSize(tickCross, pxW)
+                if orientation == "VERTICAL_UP" then
+                    t:SetPoint("BOTTOMLEFT", sb, "BOTTOMLEFT", cI, off)
+                else
+                    t:SetPoint("TOPLEFT", sb, "TOPLEFT", cI, -off)
+                end
+            else
+                t:SetSize(pxW, tickCross)
+                t:SetPoint("TOPLEFT", sb, "TOPLEFT", off, -cI)
+            end
             t:Show()
         end
     end
+end
+
+-- Place a moving resource marker at a fill-relative fraction. Guardian
+-- Ironfur and Ignore Pain share this path so their duration markers follow
+-- the same left/up/down axis as the resource StatusBar.
+function ns.PlaceResourceMarker(tex, bar, frac, thickness, orientation)
+    if not tex or not bar then return false end
+    local barW = bar:GetWidth() or 0
+    local barH = bar:GetHeight() or 0
+    local isVertical = IsVerticalOrientation(orientation)
+    local barLength = isVertical and barH or barW
+    if barLength <= 0 then return false end
+    local off = frac * barLength
+    if off > barLength - thickness then off = barLength - thickness end
+    if off < 0 then off = 0 end
+    tex:ClearAllPoints()
+    if isVertical then
+        tex:SetSize(barW, thickness)
+        if orientation == "VERTICAL_UP" then
+            tex:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 0, off)
+        else
+            tex:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, -off)
+        end
+    else
+        tex:SetSize(thickness, barH)
+        tex:SetPoint("TOPLEFT", bar, "TOPLEFT", off, 0)
+    end
+    return true
 end
 
 -- Value mode needs a readable max: getMaxFn returns the current max, if
@@ -2871,12 +2922,15 @@ function ns.ApplyHashLines(sb, cfg, getMaxFn)
         end
         maxVal = mx or 0
     end
-    -- Shrink the hash vertically by the border so it sits inside the bar
+    -- Shrink the hash on its cross axis by the border so it stays inside.
     local PP = EllesmereUI and EllesmereUI.PP
-    local vInset = (cfg.borderSize or 0) * ((PP and PP.mult) or 1)
+    local crossInset = (cfg.borderSize or 0) * ((PP and PP.mult) or 1)
+    local orientation = cfg.orientation
+        or (ERB.db.profile.general and ERB.db.profile.general.orientation)
+        or "HORIZONTAL"
     ApplyResourceBarTicks(sb, maxVal, cfg.hashValues, tickCache,
         cfg.hashWidth, cfg.hashColorR, cfg.hashColorG, cfg.hashColorB, cfg.hashColorA,
-        isPercent, nil, vInset)
+        isPercent, nil, crossInset, orientation)
 end
 
 -- Moving-hash overlay for the Guardian Ironfur bar. Lives above the inner
@@ -3009,8 +3063,10 @@ local function BuildBars()
         end
         healthBar:ApplyBorder(hp.borderSize, hp.borderR, hp.borderG, hp.borderB, hp.borderA, hp.borderTexture, hp.borderTextureOffset, hp.borderTextureOffsetY, hp.borderTextureShiftX, hp.borderTextureShiftY, "resourcebars", hp.borderSize, hp.borderBehind)
 
-        -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color)
+        -- Bar texture and orientation must be applied before colors since
+        -- SetStatusBarTexture and SetRotatesTexture both reset vertex color.
         ApplyBarTexture(healthBar, g.barTexture or "none")
+        ApplyBarOrientation(healthBar, hpOri)
 
         -- Colors: custom colored > class color.
         -- Gradient is additive: when enabled it fills from the resolved custom/class
@@ -3053,7 +3109,6 @@ local function BuildBars()
         end
         healthBar:Show()
         healthBar:SetAlpha(ns.ResolveBarAlpha(hp))
-        ApplyBarOrientation(healthBar, hpOri)
         ns.ApplyFillOpacity(healthBar, hpOri, hp.fillOpacity)
         if IsSpecDisabled(hp) then
             EllesmereUI.SetElementVisibility(healthBar, false)
@@ -3184,8 +3239,10 @@ local function BuildBars()
         -- anchorTo and unlock-anchored branches grow per their own anchor edge.
         primaryBar:ApplyBorder(pp.borderSize, pp.borderR, pp.borderG, pp.borderB, pp.borderA, pp.borderTexture, pp.borderTextureOffset, pp.borderTextureOffsetY, pp.borderTextureShiftX, pp.borderTextureShiftY, "resourcebars", pp.borderSize, pp.borderBehind)
 
-        -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color)
+        -- Bar texture and orientation must be applied before colors since
+        -- SetStatusBarTexture and SetRotatesTexture both reset vertex color.
         ApplyBarTexture(primaryBar, g.barTexture or "none")
+        ApplyBarOrientation(primaryBar, ppOri)
 
         -- Colors: custom colored > power type color.
         -- Gradient is additive: when enabled it fills from the resolved custom/power
@@ -3233,7 +3290,6 @@ local function BuildBars()
         else
             primaryBar:SetAlpha(ns.ResolveBarAlpha(pp))
         end
-        ApplyBarOrientation(primaryBar, ppOri)
         ns.ApplyFillOpacity(primaryBar, ppOri, pp.fillOpacity)
         if IsSpecDisabled(pp) then
             EllesmereUI.SetElementVisibility(primaryBar, false)
@@ -3486,7 +3542,9 @@ local function BuildBars()
                 -- hash above 39 (nothing at/beyond the meta edge).
                 local _buildHashCap = (cachedSecondary.power == "SOUL_FRAGMENTS_DEVOURER"
                     and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID(1217607)) and 39 or nil
-                ApplyResourceBarTicks(secondaryBar, maxPts, _buildTickStr, secondaryBarTicks, _buildHW, _buildHR, _buildHG, _buildHB, _buildHA, _buildHPct, _buildHashCap)
+                ApplyResourceBarTicks(secondaryBar, maxPts, _buildTickStr,
+                    secondaryBarTicks, _buildHW, _buildHR, _buildHG, _buildHB,
+                    _buildHA, _buildHPct, _buildHashCap, nil, pipOri)
             end
             secondaryBar:Show()
         elseif cachedSecondary.type == "runes" then
@@ -3574,7 +3632,9 @@ local function BuildBars()
             local _runeHG = _runeTsEntry and _runeTsEntry.hashColorG or 1
             local _runeHB = _runeTsEntry and _runeTsEntry.hashColorB or 1
             local _runeHA = _runeTsEntry and _runeTsEntry.hashColorA or 0.7
-            ApplyResourceBarTicks(secondaryFrame, 6, _runeTickStr, secondaryPipTicks, _runeHW, _runeHR, _runeHG, _runeHB, _runeHA)
+            ApplyResourceBarTicks(secondaryFrame, 6, _runeTickStr,
+                secondaryPipTicks, _runeHW, _runeHR, _runeHG, _runeHB,
+                _runeHA, nil, nil, nil, pipOri)
             ERB.ApplyGapFills(secondaryFrame, slots, numPips, isVertical, isReversed, sp)
         else
             -- Frame size already set above with the SAME _crEs. Slot
@@ -3638,7 +3698,9 @@ local function BuildBars()
             local _pipHG = _pipTsEntry and _pipTsEntry.hashColorG or 1
             local _pipHB = _pipTsEntry and _pipTsEntry.hashColorB or 1
             local _pipHA = _pipTsEntry and _pipTsEntry.hashColorA or 0.7
-            ApplyResourceBarTicks(secondaryFrame, maxPts, _pipTickStr, secondaryPipTicks, _pipHW, _pipHR, _pipHG, _pipHB, _pipHA)
+            ApplyResourceBarTicks(secondaryFrame, maxPts, _pipTickStr,
+                secondaryPipTicks, _pipHW, _pipHR, _pipHG, _pipHB, _pipHA,
+                nil, nil, nil, pipOri)
         end
 
         -- Full-bar border (wraps the entire class resource bar)
@@ -3730,7 +3792,9 @@ local function BuildBars()
         -- at zero alpha so anchored elements have a valid target.
         local pipH = sp.pipHeight or 20
         local pipW = sp.pipWidth or ((pp.width or 214))
-        secondaryFrame:SetSize(pipW, pipH)
+        local ow, oh = OrientedSize(pipW, pipH,
+            sp.pipOrientation or "HORIZONTAL")
+        secondaryFrame:SetSize(ow, oh)
         secondaryFrame:Show()
         if not EllesmereUI.IsUnlockAnchored("ERB_ClassResource") then
             if sp.unlockPos and sp.unlockPos.point then
@@ -3750,9 +3814,9 @@ local function BuildBars()
     do
         local _prof = ERB.db and ERB.db.profile
         if _prof then
-            ns.ApplyHashLines(healthBar, _prof.health,
+            ns.ApplyHashLines(healthBar, hp,
                 function() return UnitHealthMax("player") end)
-            ns.ApplyHashLines(primaryBar, _prof.primary,
+            ns.ApplyHashLines(primaryBar, pp,
                 function() return UnitPowerMax("player", GetPrimaryPowerType()) end)
         end
     end
@@ -4292,8 +4356,8 @@ local function SecondaryTracksBuff(sp)
 end
 
 -- Per-frame render for the Guardian Ironfur bar: prune expired ticks, position
--- the moving hash lines (right -> left as each cast decays), and drive the fill
--- to the longest-remaining fraction.
+-- the moving hash lines toward the fill origin as each cast decays, and drive
+-- the fill to the longest-remaining fraction.
 local function UpdateIronfurBar()
     if not (secondaryBar and secondaryBar:IsShown()) then return end
     local sp = _G._ERB_ResolveSecondaryCfg() or ERB.db.profile.secondary
@@ -4307,12 +4371,11 @@ local function UpdateIronfurBar()
     end
 
     local count = #ironfurTicks
-    local barW = secondaryBar:GetWidth() or 0
-    local barH = secondaryBar:GetHeight() or 0
     local overlay = secondaryBar._ifOverlay
     local showHash = sp.guardianShowHashLines ~= false
     local PP = EllesmereUI and EllesmereUI.PP
     local tickW = PP and (2 * PP.mult) or 2
+    local orientation = sp.pipOrientation or "HORIZONTAL"
     local maxFrac = 0
     local shown = 0
 
@@ -4321,7 +4384,7 @@ local function UpdateIronfurBar()
         local frac = (t.duration > 0) and ((t.endTime - now) / t.duration) or 0
         if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
         if frac > maxFrac then maxFrac = frac end
-        if showHash and overlay and barW > 0 then
+        if showHash and overlay then
             shown = shown + 1
             local tex = ironfurTickTex[shown]
             if not tex then
@@ -4331,13 +4394,13 @@ local function UpdateIronfurBar()
                 ironfurTickTex[shown] = tex
             end
             tex:SetColorTexture(1, 1, 1, 0.9)
-            local x = frac * barW
-            if x > barW - tickW then x = barW - tickW end
-            if x < 0 then x = 0 end
-            tex:ClearAllPoints()
-            tex:SetSize(tickW, barH)
-            tex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", x, 0)
-            tex:Show()
+            if ns.PlaceResourceMarker(tex, secondaryBar, frac, tickW,
+                orientation) then
+                tex:Show()
+            else
+                tex:Hide()
+                shown = shown - 1
+            end
         end
     end
 
@@ -4421,9 +4484,9 @@ local function UpdateIronfurBar()
 end
 
 -- Single moving hash line for the Prot Ignore Pain bar (Ironfur-style):
--- resets to the right edge on each Ignore Pain cast and slides left as the
--- buff duration decays. Reuses the Ironfur overlay host; one pooled texture.
--- Driven every frame from the main OnUpdate while the bar is shown.
+-- resets to the far fill edge on each Ignore Pain cast and slides toward the
+-- fill origin as the buff duration decays. Reuses the Ironfur overlay host;
+-- one pooled texture. Driven every frame while the bar is shown.
 IP.UpdateHash = function()
     local sp = ERB.db.profile.secondary
     local remain = IP.hashEndTime - GetTime()
@@ -4431,9 +4494,6 @@ IP.UpdateHash = function()
         if IP.hashTex then IP.hashTex:Hide() end
         return
     end
-    local barW = secondaryBar:GetWidth() or 0
-    local barH = secondaryBar:GetHeight() or 0
-    if barW <= 0 then return end
     local overlay = EnsureIronfurOverlay(secondaryBar)
     if not IP.hashTex then
         IP.hashTex = overlay:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -4445,13 +4505,12 @@ IP.UpdateHash = function()
     local tickW = PP and (2 * PP.mult) or 2
     local frac = remain / IP.DURATION
     if frac > 1 then frac = 1 end
-    local x = frac * barW
-    if x > barW - tickW then x = barW - tickW end
-    if x < 0 then x = 0 end
-    IP.hashTex:ClearAllPoints()
-    IP.hashTex:SetSize(tickW, barH)
-    IP.hashTex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", x, 0)
-    IP.hashTex:Show()
+    if ns.PlaceResourceMarker(IP.hashTex, secondaryBar, frac, tickW,
+        secondaryBar._erbOrientation or sp.pipOrientation or "HORIZONTAL") then
+        IP.hashTex:Show()
+    else
+        IP.hashTex:Hide()
+    end
 end
 
 -- In-combat text source: the ONLY clean stack number available in combat is
@@ -5083,8 +5142,11 @@ local function UpdateSecondaryResource()
             end
             -- Reapply hash line positions when max changes or on first valid layout
             -- (bar width may be 0 at BuildBars time before layout settles)
-            local barW = secondaryBar:GetWidth()
-            if barW > 0 and (maxChanged or not secondaryBar._hashApplied) and powerType ~= "IGNOREPAIN_BAR" then
+            local pipOri = sp.pipOrientation or "HORIZONTAL"
+            local barLength = IsVerticalOrientation(pipOri)
+                and secondaryBar:GetHeight() or secondaryBar:GetWidth()
+            if barLength > 0 and (maxChanged or not secondaryBar._hashApplied)
+               and powerType ~= "IGNOREPAIN_BAR" then
                 secondaryBar._hashApplied = true
                 local _rtTsEntry = ResolveThresholdSpecEntry(sp)
                 local _rtTickStr = (_rtTsEntry and _rtTsEntry.hashValues ~= "") and _rtTsEntry.hashValues or sp.tickValues
@@ -5097,7 +5159,9 @@ local function UpdateSecondaryResource()
                 -- Devourer in Void Meta: hide any hash above 39.
                 local _rtHashCap = (powerType == "SOUL_FRAGMENTS_DEVOURER"
                     and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID(1217607)) and 39 or nil
-                ApplyResourceBarTicks(secondaryBar, barMax, _rtTickStr, secondaryBarTicks, _rtHW, _rtHR, _rtHG, _rtHB, _rtHA, _rtHPct, _rtHashCap)
+                ApplyResourceBarTicks(secondaryBar, barMax, _rtTickStr,
+                    secondaryBarTicks, _rtHW, _rtHR, _rtHG, _rtHB, _rtHA,
+                    _rtHPct, _rtHashCap, nil, pipOri)
             end
             -- Apply fill color (dark theme / class colored / custom).
             -- Brewmaster stagger uses threshold colors unless darkTheme is active.
@@ -5236,9 +5300,6 @@ local function UpdateSecondaryResource()
                                 local ob = bars[shown]
                                 if not ob then
                                     ob = CreateFrame("StatusBar", nil, host)
-                                    -- Anchors are constant to the fill texture; set once.
-                                    ob:SetPoint("TOPLEFT", ft, "TOPLEFT", 0, 0)
-                                    ob:SetPoint("BOTTOMRIGHT", ft, "BOTTOMRIGHT", 1, 0)
                                     bars[shown] = ob
                                 end
                                 -- Texture/level change on config/rebuild, not per tick.
@@ -5247,6 +5308,20 @@ local function UpdateSecondaryResource()
                                     local _obt = ob:GetStatusBarTexture()
                                     if _obt then _obt:SetSnapToPixelGrid(false); _obt:SetTexelSnappingBias(0) end
                                     ob._texPath = texPath
+                                    ob._orientation = nil
+                                end
+                                local pipOri = sp.pipOrientation or "HORIZONTAL"
+                                if ob._anchor ~= ft or ob._anchorOrientation ~= pipOri then
+                                    ob:ClearAllPoints()
+                                    ob:SetPoint("TOPLEFT", ft, "TOPLEFT", 0, 0)
+                                    ob:SetPoint("BOTTOMRIGHT", ft, "BOTTOMRIGHT",
+                                        IsVerticalOrientation(pipOri) and 0 or 1, 0)
+                                    ob._anchor = ft
+                                    ob._anchorOrientation = pipOri
+                                end
+                                if ob._orientation ~= pipOri then
+                                    ApplyBarOrientation(ob, pipOri)
+                                    ob._orientation = pipOri
                                 end
                                 local _lvl = host:GetFrameLevel() + shown
                                 if ob._lvl ~= _lvl then ob:SetFrameLevel(_lvl); ob._lvl = _lvl end

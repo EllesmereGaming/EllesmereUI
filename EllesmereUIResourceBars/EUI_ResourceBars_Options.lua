@@ -2998,11 +2998,14 @@ initFrame:SetScript("OnEvent", function(self)
               order = { "HORIZONTAL", "VERTICAL_UP", "VERTICAL_DOWN" },
               getValue = function()
                   local c = cfg(); local p = DB()
-                  return (c and c.orientation) or (p and p.general.orientation) or "HORIZONTAL"
+                  local v = (c and c.orientation)
+                      or (p and p.general.orientation) or "HORIZONTAL"
+                  return v == "VERTICAL" and "VERTICAL_DOWN" or v
               end,
               setValue = function(v)
                   local c = cfg(); if not c then return end
                   c.orientation = v; Refresh()
+                  EllesmereUI:RefreshPage()
               end }
         );  y = y - h
         AddFormBarBtn(healthEnableRow._leftRegion, cfg, RebuildHealth)
@@ -3782,11 +3785,14 @@ initFrame:SetScript("OnEvent", function(self)
               order = { "HORIZONTAL", "VERTICAL_UP", "VERTICAL_DOWN" },
               getValue = function()
                   local c = cfg(); local p = DB()
-                  return (c and c.orientation) or (p and p.general.orientation) or "HORIZONTAL"
+                  local v = (c and c.orientation)
+                      or (p and p.general.orientation) or "HORIZONTAL"
+                  return v == "VERTICAL" and "VERTICAL_DOWN" or v
               end,
               setValue = function(v)
                   local c = cfg(); if not c then return end
                   c.orientation = v; Refresh()
+                  EllesmereUI:RefreshPage()
               end }
         );  y = y - h
         AddFormBarBtn(powerEnableRow._leftRegion, cfg, RebuildPower)
