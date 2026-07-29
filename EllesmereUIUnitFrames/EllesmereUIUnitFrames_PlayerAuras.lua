@@ -213,7 +213,7 @@ local function SkinAuraButton(btn, isDebuff)
     local skipBorder = isDebuff and cfg.noBorderDebuffs
     local border = ffd._paBorder
     if not border then
-        border = CreateFrame("Frame", nil, btn)
+        border = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
         border:EnableMouse(false)
         ffd._paBorder = border
     end
@@ -460,7 +460,7 @@ local function EDF_StyleButton(btn, cfg)
 end
 
 local function EDF_CreateButton(i)
-    local btn = CreateFrame("Frame", nil, edfRoot)
+    local btn = EllesmereUI.SafeCreateFrame("Frame", nil, edfRoot)
     btn._index = i
     btn:EnableMouse(false)
 
@@ -468,20 +468,20 @@ local function EDF_CreateButton(i)
     icon:SetAllPoints()
     btn._icon = icon
 
-    local cd = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
+    local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
     cd:SetAllPoints()
     cd:SetReverse(true)
     if cd.SetDrawEdge then cd:SetDrawEdge(false) end
     btn._cd = cd
 
-    local borderHost = CreateFrame("Frame", nil, btn)
+    local borderHost = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
     borderHost:SetAllPoints(btn)
     borderHost:EnableMouse(false)
     btn._borderHost = borderHost
 
     -- Count + border live on a host above the cooldown, so the permanent-aura
     -- alpha mask on the cd (see EDF_Update) never takes them down with it.
-    local txtHost = CreateFrame("Frame", nil, btn)
+    local txtHost = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
     txtHost:SetAllPoints()
     txtHost:SetFrameLevel(cd:GetFrameLevel() + 1)
     local cnt = txtHost:CreateFontString(nil, "OVERLAY")
@@ -688,10 +688,10 @@ local function EDF_Setup()
     local cfg = ED()
     local enabled = cfg and cfg.enabled
     if enabled and not edfRoot then
-        edfRoot = CreateFrame("Frame", "EUF_ExternalDefensives", UIParent)
+        edfRoot = EllesmereUI.SafeCreateFrame("Frame", "EUF_ExternalDefensives", UIParent)
         edfRoot:EnableMouse(false)
         edfFont = CreateFont("EUI_EDF_CountdownFont")
-        edfEvt = CreateFrame("Frame")
+        edfEvt = EllesmereUI.SafeCreateFrame("Frame")
         edfEvt:SetScript("OnEvent", EDF_Update)
         EDF_RegisterUnlock()
     end
@@ -709,7 +709,7 @@ local function EDF_Setup()
 end
 ns.RefreshExternalDefensives = EDF_Setup
 
-local edfInit = CreateFrame("Frame")
+local edfInit = EllesmereUI.SafeCreateFrame("Frame")
 edfInit:RegisterEvent("PLAYER_LOGIN")
 edfInit:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
@@ -720,7 +720,7 @@ end)
 -------------------------------------------------------------------------------
 --  Initialization
 -------------------------------------------------------------------------------
-local initFrame = CreateFrame("Frame")
+local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "PLAYER_LOGIN" then

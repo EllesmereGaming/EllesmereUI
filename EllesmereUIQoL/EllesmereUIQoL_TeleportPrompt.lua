@@ -109,7 +109,7 @@ end
 ApplyDisableVisibility = function()
     if not popup then return end
     local show = TeleCfg().showDisable ~= false
-    if popup._disableBtn then popup._disableBtn:SetShown(show) end
+    if popup._disableBtn then if show then popup._disableBtn:Show() else popup._disableBtn:Hide() end end
     popup:SetHeight(show and POPUP_H or (POPUP_H - 20))
 end
 
@@ -119,7 +119,7 @@ end
 BuildPopup = function()
     if popup then return popup end
 
-    popup = CreateFrame("Frame", "EUITeleportPopup", UIParent)
+    popup = EllesmereUI.SafeCreateFrame("Frame", "EUITeleportPopup", UIParent)
     popup:SetSize(POPUP_W, POPUP_H)
     popup:SetFrameStrata("DIALOG")
     popup:SetMovable(true)
@@ -134,13 +134,13 @@ BuildPopup = function()
     bg:SetTexCoord(0.25, 1, 0, 0.75)
     local overlay = popup:CreateTexture(nil, "BACKGROUND", nil, 1)
     overlay:SetAllPoints()
-    overlay:SetColorTexture(0, 0, 0, 0.55)
+    overlay:SetTexture(0, 0, 0, 0.55)
 
     if PP and PP.CreateBorder then PP.CreateBorder(popup, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7) end
 
     -- Header bar with the dungeon title
     local hdrBg = popup:CreateTexture(nil, "BORDER")
-    hdrBg:SetColorTexture(0, 0, 0, 0.25)
+    hdrBg:SetTexture(0, 0, 0, 0.25)
     hdrBg:SetPoint("TOPLEFT", 1, -1); hdrBg:SetPoint("TOPRIGHT", -1, 0); hdrBg:SetHeight(TITLE_H)
 
     local title = MakeLabel(popup, 11, 1, 1, 1, 1)
@@ -161,7 +161,7 @@ BuildPopup = function()
 
     -- Close (X) in the header
     local ICON_SZ, ICON_ALPHA = 14, 0.5
-    local xBtn = CreateFrame("Button", nil, popup)
+    local xBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
     xBtn:SetSize(ICON_SZ, ICON_SZ)
     xBtn:SetPoint("RIGHT", hdrBg, "RIGHT", -8, 0)
     local xTex = xBtn:CreateTexture(nil, "ARTWORK")
@@ -174,7 +174,7 @@ BuildPopup = function()
 
     -- Secure teleport button (created out of combat, once). type + clicks are
     -- set here and NEVER touched again; only "spell" is rewritten (out of combat).
-    secureBtn = CreateFrame("Button", "EUITeleportButton", popup, "SecureActionButtonTemplate")
+    secureBtn = EllesmereUI.SafeCreateFrame("Button", "EUITeleportButton", popup, "SecureActionButtonTemplate")
     secureBtn:SetSize(POPUP_W - PAD * 2, BTN_H)
     -- A protected frame can only be anchored to another FRAME, never to a region
     -- (texture/fontstring). Anchor to the popup frame, below the name text.
@@ -184,7 +184,7 @@ BuildPopup = function()
 
     local btnBg = secureBtn:CreateTexture(nil, "BACKGROUND")
     btnBg:SetAllPoints()
-    btnBg:SetColorTexture(0.04, 0.04, 0.06, 0.9)
+    btnBg:SetTexture(0.04, 0.04, 0.06, 0.9)
     if PP and PP.CreateBorder then PP.CreateBorder(secureBtn, 0, 0, 0, 1, 1, "OVERLAY", 7) end
 
     local icon = secureBtn:CreateTexture(nil, "ARTWORK")
@@ -203,11 +203,11 @@ BuildPopup = function()
 
     local hover = secureBtn:CreateTexture(nil, "HIGHLIGHT")
     hover:SetAllPoints()
-    hover:SetColorTexture(1, 1, 1, 0.12)
+    hover:SetTexture(1, 1, 1, 0.12)
 
     -- The cooldown inherits the button's protection, so anchor it to the button
     -- FRAME (matching the icon's position/size), never to the icon texture.
-    local cd = CreateFrame("Cooldown", nil, secureBtn, "CooldownFrameTemplate")
+    local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, secureBtn, "CooldownFrameTemplate")
     cd:SetPoint("LEFT", secureBtn, "LEFT", 8, 0)
     cd:SetSize(40, 40)
     cd:SetHideCountdownNumbers(true)
@@ -236,7 +236,7 @@ BuildPopup = function()
 
     -- "Disable Feature" text below the teleport button. Clicking it turns the
     -- whole LFG Reminder feature off and hides the popup immediately.
-    local disableBtn = CreateFrame("Button", nil, popup)
+    local disableBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
     disableBtn:SetSize(POPUP_W - PAD * 2, DISABLE_H)
     disableBtn:SetPoint("TOP", popup, "TOP", 0, -DISABLE_TOP)
     local disableLbl = MakeLabel(disableBtn, 10, 0.6, 0.6, 0.6, 1)
@@ -378,7 +378,7 @@ end
 --  Events. No Blizzard frame is ever hooked or SetScript-ed. Heavy events are
 --  only registered when the feature is enabled (zero cost when disabled).
 -------------------------------------------------------------------------------
-local ev = CreateFrame("Frame")
+local ev = EllesmereUI.SafeCreateFrame("Frame")
 
 -- Feature events are registered only while enabled and unregistered on
 -- disable, so a disabled reminder costs nothing on roster/zone/combat events.

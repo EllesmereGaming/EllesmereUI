@@ -49,7 +49,7 @@ do
         _curFrameTotal = _curFrameTotal + elapsed
     end
 
-    local profFrame = CreateFrame("Frame")
+    local profFrame = EllesmereUI.SafeCreateFrame("Frame")
     profFrame:Hide()
     profFrame:SetScript("OnUpdate", function()
         if not _profActive then profFrame:Hide(); return end
@@ -765,7 +765,7 @@ local _combatGen = 0     -- monotonic segment token; stale deferred teardowns co
 
 -- Keystone start: wipe data so Overall = this dungeon run
 -- Keystone end: auto-swap windows from Current to Overall (if enabled)
-local instanceFrame = CreateFrame("Frame")
+local instanceFrame = EllesmereUI.SafeCreateFrame("Frame")
 instanceFrame:RegisterEvent("CHALLENGE_MODE_START")
 instanceFrame:RegisterEvent("CHALLENGE_MODE_COMPLETED")
 instanceFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -1065,7 +1065,7 @@ local THIN_LINE_PX = 1
 
 local function SetupThinLine(fill, edge)
     if not fill._thinLine then
-        local tl = CreateFrame("StatusBar", nil, fill)
+        local tl = EllesmereUI.SafeCreateFrame("StatusBar", nil, fill)
         tl:SetStatusBarTexture(BAR_TEX)
         fill._thinLine = tl
         -- Hook SetStatusBarColor to forward to overlay
@@ -1528,7 +1528,7 @@ end
 local function ApplyInheritedBlizzardBorder(frame, prefix)
     if not frame or not BlizzardSkinBordersAvailable() then return false end
     if prefix == "tooltip" and frame._bg and EUI.GetTooltipBg then
-        frame._bg:SetColorTexture(EUI.GetTooltipBg())
+        frame._bg:SetTexture(EUI.GetTooltipBg())
     end
     local ok = pcall(EUI._applyBlizzardConfiguredBorder, frame, prefix, 1)
     if ok and frame._legacyBorder and frame._legacyBorder._frame then
@@ -1544,18 +1544,18 @@ local function EnsureTooltipFrame()
         ApplyInheritedBlizzardBorder(_ttFrame, "tooltip")
         return
     end
-    _ttFrame = CreateFrame("Frame", nil, UIParent)
+    _ttFrame = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     _ttFrame:SetFrameStrata("TOOLTIP")
     _ttFrame:SetSize(TT_WIDTH, 10)
     _ttFrame:SetClampedToScreen(true)
     _ttFrame._bg = _ttFrame:CreateTexture(nil, "BACKGROUND")
     _ttFrame._bg:SetAllPoints()
-    _ttFrame._bg:SetColorTexture(0, 0, 0, 0.95)
+    _ttFrame._bg:SetTexture(0, 0, 0, 0.95)
     if EUI.MakeBorder then _ttFrame._legacyBorder = EUI.MakeBorder(_ttFrame, 0, 0, 0, 1) end
     ApplyInheritedBlizzardBorder(_ttFrame, "tooltip")
 
     -- Header bar
-    _ttFrame._hdr = CreateFrame("Frame", nil, _ttFrame)
+    _ttFrame._hdr = EllesmereUI.SafeCreateFrame("Frame", nil, _ttFrame)
     _ttFrame._hdr:SetHeight(TT_HDR_H)
     _ttFrame._hdr:SetPoint("TOPLEFT", _ttFrame, "TOPLEFT", 0, 0)
     _ttFrame._hdr:SetPoint("TOPRIGHT", _ttFrame, "TOPRIGHT", 0, 0)
@@ -1590,18 +1590,18 @@ local function EnsureTTBar(i)
     EnsureTooltipFrame()
     local ttSp = PhysicalPixels(1)
     local b = {}
-    b.row = CreateFrame("Frame", nil, _ttFrame)
+    b.row = EllesmereUI.SafeCreateFrame("Frame", nil, _ttFrame)
     b.row:SetHeight(TT_BAR_H)
     b.row:SetPoint("TOPLEFT", _ttFrame, "TOPLEFT", 0, -(TT_HDR_H + (i-1) * (TT_BAR_H + ttSp)))
     b.row:SetPoint("TOPRIGHT", _ttFrame, "TOPRIGHT", 0, -(TT_HDR_H + (i-1) * (TT_BAR_H + ttSp)))
-    b.fill = CreateFrame("StatusBar", nil, b.row)
+    b.fill = EllesmereUI.SafeCreateFrame("StatusBar", nil, b.row)
     b.fill:SetAllPoints(); b.fill:SetMinMaxValues(0, 1); b.fill:SetValue(0); b.fill:SetStatusBarTexture(BAR_TEX)
     b.spellIcon = b.row:CreateTexture(nil, "OVERLAY")
     b.spellIcon:SetSize(TT_BAR_H, TT_BAR_H)
     b.spellIcon:SetPoint("LEFT", b.row, "LEFT", 0, 0)
     b.spellIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     b.spellIcon:Hide()
-    local tf = CreateFrame("Frame", nil, b.fill)
+    local tf = EllesmereUI.SafeCreateFrame("Frame", nil, b.fill)
     tf:SetAllPoints(b.fill); tf:SetFrameLevel(b.fill:GetFrameLevel() + 2)
     b.label = tf:CreateFontString(nil, "OVERLAY"); b.label:SetPoint("LEFT", tf, "LEFT", 2, 0); b.label:SetJustifyH("LEFT"); SetDMFont(b.label, 10)
     b.amount = tf:CreateFontString(nil, "OVERLAY"); b.amount:SetPoint("RIGHT", tf, "RIGHT", -2, 0); b.amount:SetJustifyH("RIGHT"); SetDMFont(b.amount, 10)
@@ -1647,7 +1647,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
         _ttFrame._hdrText:SetText(playerName .. "'s " .. typeName .. " Breakdown")
         local cfg = DB()
         local hc = cfg.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
-        _ttFrame._hdrBg:SetColorTexture(hR, hG, hB, cfg.hdrBgAlpha or 1)
+        _ttFrame._hdrBg:SetTexture(hR, hG, hB, cfg.hdrBgAlpha or 1)
         local tR, tG, tB
         if cfg.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
         else local tc = cfg.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
@@ -1855,16 +1855,16 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
             -- Lazy-create tooltip target elements
             if not _ttFrame._tgtDivider then
                 _ttFrame._tgtDivider = _ttFrame:CreateTexture(nil, "ARTWORK")
-                _ttFrame._tgtDivider:SetHeight(PhysicalPixels(1)); _ttFrame._tgtDivider:SetColorTexture(1, 1, 1, 0.15)
+                _ttFrame._tgtDivider:SetHeight(PhysicalPixels(1)); _ttFrame._tgtDivider:SetTexture(1, 1, 1, 0.15)
                 _ttFrame._tgtLabel = _ttFrame:CreateFontString(nil, "OVERLAY")
                 SetDMFont(_ttFrame._tgtLabel, 9); _ttFrame._tgtLabel:SetTextColor(0.6, 0.6, 0.6, 1)
                 _ttFrame._tgtLabel:SetText("Targets")
                 _ttFrame._tgtBars = {}
                 for ti = 1, 3 do
                     local tb = {}
-                    tb.row = CreateFrame("Frame", nil, _ttFrame); tb.row:SetHeight(TT_BAR_H)
-                    tb.fill = CreateFrame("StatusBar", nil, tb.row); tb.fill:SetAllPoints(); tb.fill:SetMinMaxValues(0, 1); tb.fill:SetStatusBarTexture(BAR_TEX)
-                    local tf = CreateFrame("Frame", nil, tb.fill); tf:SetAllPoints(tb.fill); tf:SetFrameLevel(tb.fill:GetFrameLevel() + 2)
+                    tb.row = EllesmereUI.SafeCreateFrame("Frame", nil, _ttFrame); tb.row:SetHeight(TT_BAR_H)
+                    tb.fill = EllesmereUI.SafeCreateFrame("StatusBar", nil, tb.row); tb.fill:SetAllPoints(); tb.fill:SetMinMaxValues(0, 1); tb.fill:SetStatusBarTexture(BAR_TEX)
+                    local tf = EllesmereUI.SafeCreateFrame("Frame", nil, tb.fill); tf:SetAllPoints(tb.fill); tf:SetFrameLevel(tb.fill:GetFrameLevel() + 2)
                     tb.label = tf:CreateFontString(nil, "OVERLAY"); tb.label:SetPoint("LEFT", tf, "LEFT", 2, 0); tb.label:SetJustifyH("LEFT"); SetDMFont(tb.label, 10)
                     tb.amount = tf:CreateFontString(nil, "OVERLAY"); tb.amount:SetPoint("RIGHT", tf, "RIGHT", -2, 0); tb.amount:SetJustifyH("RIGHT"); SetDMFont(tb.amount, 10)
                     tb.label:SetPoint("RIGHT", tb.amount, "LEFT", -3, 0)
@@ -1947,7 +1947,7 @@ local function ShowBarTooltip(bar, curSession, curSessionID, curDMType)
     end
 end
 
-local _hoverPollFrame = CreateFrame("Frame")
+local _hoverPollFrame = EllesmereUI.SafeCreateFrame("Frame")
 _hoverPollFrame:Hide()
 _hoverPollFrame:SetScript("OnUpdate", function()
     local t0 = ns.ProfBegin("TooltipPoll")
@@ -1973,11 +1973,11 @@ local CTX_ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow.
 
 local function MakeMenuPanel(level)
     local RS = EUI.RESKIN or {}
-    local f = CreateFrame("Frame", nil, UIParent)
+    local f = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     f:SetFrameStrata("FULLSCREEN_DIALOG"); f:SetFrameLevel(200 + (level or 0) * 10)
     f:SetClampedToScreen(true); f:EnableMouse(true)
     local bg = f:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints()
-    bg:SetColorTexture(RS.BG_R or 0.067, RS.BG_G or 0.067, RS.BG_B or 0.067, RS.CTX_ALPHA or 0.95)
+    bg:SetTexture(RS.BG_R or 0.067, RS.BG_G or 0.067, RS.BG_B or 0.067, RS.CTX_ALPHA or 0.95)
     local PP_L = EUI.PP
     if PP_L and PP_L.CreateBorder then PP_L.CreateBorder(f, 1, 1, 1, RS.BRD_ALPHA or 0.18, 1) end
     ApplyInheritedBlizzardBorder(f, "popupMenu")
@@ -1992,7 +1992,7 @@ local function EnsureMenuRow(menu, idx)
     if row then return row end
     local fontPath = (EUI.GetFontPath and EUI.GetFontPath("damageMeters")) or "Fonts\\FRIZQT__.TTF"
     local outline = (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("damageMeters")) or ""
-    row = CreateFrame("Button", nil, menu)
+    row = EllesmereUI.SafeCreateFrame("Button", nil, menu)
     row._hl = row:CreateTexture(nil, "BACKGROUND", nil, 1); row._hl:SetAllPoints()
     row._lbl = row:CreateFontString(nil, "OVERLAY"); row._lbl:SetFont(fontPath, CTX_FONT_SZ, outline)
     row._lbl:SetPoint("LEFT", row, "LEFT", 8, 0); row._lbl:SetJustifyH("LEFT")
@@ -2003,7 +2003,7 @@ local function EnsureMenuRow(menu, idx)
     row._timer:SetPoint("RIGHT", row, "RIGHT", -8, 0); row._timer:SetJustifyH("RIGHT"); row._timer:SetText("")
     row._sep = row:CreateTexture(nil, "ARTWORK"); row._sep:SetHeight(1)
     row._sep:SetPoint("LEFT", row, "LEFT", 6, 0); row._sep:SetPoint("RIGHT", row, "RIGHT", -6, 0)
-    row._sep:SetColorTexture(1, 1, 1, 0.12); row._sep:SetPoint("CENTER"); row._sep:Hide()
+    row._sep:SetTexture(1, 1, 1, 0.12); row._sep:SetPoint("CENTER"); row._sep:Hide()
     menu._pool[idx] = row
     return row
 end
@@ -2031,7 +2031,7 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
     local y = -CTX_PAD
     for idx, item in ipairs(items) do
         local row = EnsureMenuRow(menu, idx)
-        row._sep:Hide(); row._arrow:Hide(); row._hl:SetColorTexture(1, 1, 1, 0)
+        row._sep:Hide(); row._arrow:Hide(); row._hl:SetTexture(1, 1, 1, 0)
         if row._timer then row._timer:SetText("") end
         if item == "---" then
             row:SetSize(menuW, CTX_SEP_H); row:ClearAllPoints(); row:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, y)
@@ -2065,7 +2065,7 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
                 row:EnableMouse(false)
                 row:SetScript("OnEnter", nil); row:SetScript("OnLeave", nil); row:SetScript("OnClick", nil)
                 if not row._editBox then
-                    local box = CreateFrame("EditBox", nil, row)
+                    local box = EllesmereUI.SafeCreateFrame("EditBox", nil, row)
                     box:SetSize(50, 18)
                     box:SetPoint("RIGHT", row, "RIGHT", -8, 0)
                     box:SetFrameLevel(row:GetFrameLevel() + 3)
@@ -2073,7 +2073,7 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
                     box:SetTextColor(1, 1, 1, 0.9)
                     box:SetJustifyH("CENTER")
                     local boxBg = box:CreateTexture(nil, "BACKGROUND")
-                    boxBg:SetAllPoints(); boxBg:SetColorTexture(0, 0, 0, 0.4)
+                    boxBg:SetAllPoints(); boxBg:SetTexture(0, 0, 0, 0.4)
                     box:SetAutoFocus(false)
                     box:SetNumeric(true)
                     box:SetMaxLetters(5)
@@ -2101,10 +2101,10 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
             else
                 local active = item.isActive
                 if active and EG then row._lbl:SetTextColor(EG.r, EG.g, EG.b, 1) else row._lbl:SetTextColor(1, 1, 1, 1) end
-                if active then row._hl:SetColorTexture(1, 1, 1, hlAlpha); row._hl:Show() end
+                if active then row._hl:SetTexture(1, 1, 1, hlAlpha); row._hl:Show() end
                 local itemRef = item
                 row:SetScript("OnEnter", function(self)
-                    self._hl:SetColorTexture(1, 1, 1, hlAlpha)
+                    self._hl:SetTexture(1, 1, 1, hlAlpha)
                     if EG then self._lbl:SetTextColor(EG.r, EG.g, EG.b, 1) end
                     if itemRef.tooltip and EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, itemRef.tooltip) end
                     if itemRef.children then
@@ -2120,7 +2120,7 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
                 end)
                 row:SetScript("OnLeave", function(self)
                     if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
-                    self._hl:SetColorTexture(1, 1, 1, active and hlAlpha or 0)
+                    self._hl:SetTexture(1, 1, 1, active and hlAlpha or 0)
                     if active and EG then self._lbl:SetTextColor(EG.r, EG.g, EG.b, 1) else self._lbl:SetTextColor(1, 1, 1, 1) end
                     if isChild then return end
                     if _edmSub and _edmSub:IsShown() and _edmSub:IsMouseOver() then return end
@@ -2221,9 +2221,9 @@ local function CreateDMWindow(winIdx)
     ---------------------------------------------------------------------------
     local function MakeRow(parent)
         local bar = {}
-        bar.row = CreateFrame("Button", nil, parent)
+        bar.row = EllesmereUI.SafeCreateFrame("Button", nil, parent)
         bar.row:SetHeight(18); bar.row:EnableMouse(true); bar.row:RegisterForClicks("AnyUp")
-        bar.fill = CreateFrame("StatusBar", nil, bar.row)
+        bar.fill = EllesmereUI.SafeCreateFrame("StatusBar", nil, bar.row)
         bar.fill:SetMinMaxValues(0, 1); bar.fill:SetValue(0); bar.fill:SetStatusBarTexture(BAR_TEX)
         bar.classIcon = bar.fill:CreateTexture(nil, "OVERLAY")
         bar.classIcon:SetSize(18, 18); bar.classIcon:SetPoint("LEFT", bar.row, "LEFT", 0, 0)
@@ -2249,7 +2249,7 @@ local function CreateDMWindow(winIdx)
                 if bar._borderFrame then bar._borderFrame:Hide() end
                 local fb = bar._fillBorder
                 if not fb then
-                    fb = CreateFrame("Frame", nil, bar.row)
+                    fb = EllesmereUI.SafeCreateFrame("Frame", nil, bar.row)
                     fb:SetFrameLevel(bar.row:GetFrameLevel() + 3)
                     fb:SetPoint("TOPLEFT", bar.row, "TOPLEFT")
                     fb:SetSize(1, 1)  -- inert; the strips carry the shape
@@ -2262,10 +2262,10 @@ local function CreateDMWindow(winIdx)
                 local ft = bar.fill:GetStatusBarTexture()
                 local anchorL = c.borderFollowFillIcon and bar.row or bar.fill
                 local r, g, b, a = c.borderR or 0, c.borderG or 0, c.borderB or 0, c.borderA or 1
-                fb.top:SetColorTexture(r, g, b, a)
-                fb.bottom:SetColorTexture(r, g, b, a)
-                fb.left:SetColorTexture(r, g, b, a)
-                fb.right:SetColorTexture(r, g, b, a)
+                fb.top:SetTexture(r, g, b, a)
+                fb.bottom:SetTexture(r, g, b, a)
+                fb.left:SetTexture(r, g, b, a)
+                fb.right:SetTexture(r, g, b, a)
                 fb.top:ClearAllPoints()
                 fb.top:SetPoint("TOPLEFT", anchorL, "TOPLEFT", 0, 0)
                 fb.top:SetPoint("TOPRIGHT", ft, "TOPRIGHT", 0, 0)
@@ -2287,7 +2287,7 @@ local function CreateDMWindow(winIdx)
             end
             if bar._fillBorder then bar._fillBorder:Hide() end
             if not bar._borderFrame then
-                bar._borderFrame = CreateFrame("Frame", nil, bar.row)
+                bar._borderFrame = EllesmereUI.SafeCreateFrame("Frame", nil, bar.row)
                 bar._borderFrame:SetAllPoints(bar.row)
                 bar._borderFrame:SetFrameLevel(bar.row:GetFrameLevel() + 3)
             end
@@ -2308,14 +2308,14 @@ local function CreateDMWindow(winIdx)
                 return
             end
             if not bar._iconBorderFrame then
-                bar._iconBorderFrame = CreateFrame("Frame", nil, bar.row)
+                bar._iconBorderFrame = EllesmereUI.SafeCreateFrame("Frame", nil, bar.row)
                 bar._iconBorderFrame:SetFrameLevel(bar.row:GetFrameLevel() + 6)
                 bar._iconBorderFrame:SetAllPoints(bar.classIcon) -- tracks icon size/position
             end
             -- Follow the icon's actual shown state: ResolveIcon hides the icon
             -- for sources without a usable class (secret/NPC rows), and a frame
             -- anchored to a hidden texture would still render a floating border.
-            bar._iconBorderFrame:SetShown(bar.classIcon:IsShown())
+            if bar.classIcon:IsShown() then bar._iconBorderFrame:Show() else bar._iconBorderFrame:Hide() end
             local tex = c.iconBorderTexture or "solid"
             EllesmereUI.ApplyBorderStyle(bar._iconBorderFrame, sz,
                 c.iconBorderR or 0, c.iconBorderG or 0, c.iconBorderB or 0, c.iconBorderA or 1,
@@ -2338,13 +2338,13 @@ local function CreateDMWindow(winIdx)
                 local cf = bar._class
                 if cf and (not issecretvalue or not issecretvalue(cf)) and RAID_CLASS_COLORS[cf] then
                     local cc = EUI.GetClassColor(cf)
-                    if cc then bar._bg:SetColorTexture(cc.r, cc.g, cc.b, a); return end
+                    if cc then bar._bg:SetTexture(cc.r, cc.g, cc.b, a); return end
                 end
             end
-            bar._bg:SetColorTexture(c.barBgR or 0, c.barBgG or 0, c.barBgB or 0, a)
+            bar._bg:SetTexture(c.barBgR or 0, c.barBgG or 0, c.barBgB or 0, a)
         end
         bar.ApplyBg()
-        local tf = CreateFrame("Frame", nil, bar.fill)
+        local tf = EllesmereUI.SafeCreateFrame("Frame", nil, bar.fill)
         -- Keep text ABOVE the per-bar border (bar.row +3, lazy-created in
         -- ApplyBorder). Keyed off bar.row like the border so the two can't tie
         -- and let the border (created later, when enabled) cover the text.
@@ -2385,7 +2385,7 @@ local function CreateDMWindow(winIdx)
             end
         end)
         bar._hl = tf:CreateTexture(nil, "BACKGROUND")
-        bar._hl:SetAllPoints(bar.row); bar._hl:SetColorTexture(1, 1, 1, 0.08); bar._hl:Hide()
+        bar._hl:SetAllPoints(bar.row); bar._hl:SetTexture(1, 1, 1, 0.08); bar._hl:Hide()
         bar.row:SetScript("OnEnter", function()
             bar._hl:Show()
             -- Deaths without recap: show "no recap available" tooltip
@@ -2402,7 +2402,7 @@ local function CreateDMWindow(winIdx)
                     _ttFrame._hdrText:SetText(playerName .. "'s Death Recap")
                     local cfg2 = DB()
                     local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
-                    _ttFrame._hdrBg:SetColorTexture(hR, hG, hB, cfg2.hdrBgAlpha or 1)
+                    _ttFrame._hdrBg:SetTexture(hR, hG, hB, cfg2.hdrBgAlpha or 1)
                     local tR, tG, tB
                     if cfg2.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
                     else local tc = cfg2.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
@@ -2429,7 +2429,7 @@ local function CreateDMWindow(winIdx)
                 _ttFrame._hdrText:SetText(playerName .. "'s " .. typeName .. " Breakdown")
                 local cfg2 = DB()
                 local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
-                _ttFrame._hdrBg:SetColorTexture(hR, hG, hB, cfg2.hdrBgAlpha or 1)
+                _ttFrame._hdrBg:SetTexture(hR, hG, hB, cfg2.hdrBgAlpha or 1)
                 local tR, tG, tB
                 if cfg2.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
                 else local tc = cfg2.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
@@ -2489,10 +2489,10 @@ local function CreateDMWindow(winIdx)
 
     local function MakeSpellRow(parent)
         local bar = {}
-        bar.row = CreateFrame("Button", nil, parent); bar.row:SetHeight(18); bar.row:EnableMouse(true); bar.row:RegisterForClicks("AnyUp")
-        bar.fill = CreateFrame("StatusBar", nil, bar.row); bar.fill:SetMinMaxValues(0, 1); bar.fill:SetValue(0); bar.fill:SetStatusBarTexture(BAR_TEX)
+        bar.row = EllesmereUI.SafeCreateFrame("Button", nil, parent); bar.row:SetHeight(18); bar.row:EnableMouse(true); bar.row:RegisterForClicks("AnyUp")
+        bar.fill = EllesmereUI.SafeCreateFrame("StatusBar", nil, bar.row); bar.fill:SetMinMaxValues(0, 1); bar.fill:SetValue(0); bar.fill:SetStatusBarTexture(BAR_TEX)
         bar.classIcon = bar.fill:CreateTexture(nil, "OVERLAY"); bar.classIcon:SetSize(18, 18); bar.classIcon:SetPoint("LEFT", bar.row, "LEFT", 0, 0); bar.classIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92); bar.classIcon:Hide()
-        local tf = CreateFrame("Frame", nil, bar.fill); tf:SetAllPoints(bar.fill); tf:SetFrameLevel(bar.fill:GetFrameLevel() + 2)
+        local tf = EllesmereUI.SafeCreateFrame("Frame", nil, bar.fill); tf:SetAllPoints(bar.fill); tf:SetFrameLevel(bar.fill:GetFrameLevel() + 2)
         bar.label = tf:CreateFontString(nil, "OVERLAY"); bar.label:SetPoint("LEFT", tf, "LEFT", 3, 0); bar.label:SetPoint("RIGHT", tf, "RIGHT", -70, 0); bar.label:SetJustifyH("LEFT"); SetDMFont(bar.label, 11)
         bar.label:SetWordWrap(false)
         bar.amount = tf:CreateFontString(nil, "OVERLAY"); bar.amount:SetPoint("RIGHT", tf, "RIGHT", -3, 0); bar.amount:SetJustifyH("RIGHT"); SetDMFont(bar.amount, 11)
@@ -2506,7 +2506,7 @@ local function CreateDMWindow(winIdx)
     ---------------------------------------------------------------------------
     --  Main container
     ---------------------------------------------------------------------------
-    local frame = CreateFrame("Frame", "EllesmereUIDMFrame" .. winIdx, UIParent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIDMFrame" .. winIdx, UIParent)
     frame:SetSize(wdb.width or 300, wdb.height or 200)
     frame:SetClampedToScreen(true); frame:SetMovable(true)
     W.frame = frame
@@ -2519,25 +2519,25 @@ local function CreateDMWindow(winIdx)
     frame._bg = frame:CreateTexture(nil, "BACKGROUND")
     frame._bg:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -GetHeaderH())
     frame._bg:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
-    frame._bg:SetColorTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75)
+    frame._bg:SetTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75)
 
     ---------------------------------------------------------------------------
     --  Header
     ---------------------------------------------------------------------------
-    local header = CreateFrame("Frame", nil, frame)
+    local header = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     header:SetHeight(GetHeaderH()); header:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0); header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
     header:SetFrameLevel(frame:GetFrameLevel() + 5)
     W.header = header
 
     -- Independent overlay target so the frame border can start either at the
     -- window top or exactly below the header without affecting window layout.
-    local windowBorderTarget = CreateFrame("Frame", nil, frame)
+    local windowBorderTarget = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     windowBorderTarget:EnableMouse(false)
     windowBorderTarget:SetFrameLevel(header:GetFrameLevel() + 4)
     W.windowBorderTarget = windowBorderTarget
 
     do local hc = cfg.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
-    header._hdrBg = header:CreateTexture(nil, "BACKGROUND"); header._hdrBg:SetAllPoints(); header._hdrBg:SetColorTexture(hR, hG, hB, cfg.hdrBgAlpha or 1) end
+    header._hdrBg = header:CreateTexture(nil, "BACKGROUND"); header._hdrBg:SetAllPoints(); header._hdrBg:SetTexture(hR, hG, hB, cfg.hdrBgAlpha or 1) end
     header._bottomBorder = header:CreateTexture(nil, "OVERLAY", nil, 7)
     header._bottomBorder:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
     header._bottomBorder:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
@@ -2545,8 +2545,8 @@ local function CreateDMWindow(winIdx)
         local size = cfg.hdrBottomBorderSize or 0
         local color = cfg.hdrBottomBorderColor or {}
         header._bottomBorder:SetHeight(PhysicalPixels(size))
-        header._bottomBorder:SetColorTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
-        header._bottomBorder:SetShown(size > 0)
+        header._bottomBorder:SetTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
+        if size > 0 then header._bottomBorder:Show() else header._bottomBorder:Hide() end
     end
 
     local hdrFS = cfg.hdrFontSize or 11
@@ -2596,7 +2596,7 @@ local function CreateDMWindow(winIdx)
     end
 
     local function MakeHeaderBtn(texFile, xOff, tooltip, onClick)
-        local btn = CreateFrame("Button", nil, header)
+        local btn = EllesmereUI.SafeCreateFrame("Button", nil, header)
         btn:SetSize(btnSize, btnSize); btn:SetPoint("RIGHT", header, "RIGHT", xOff, 0)
         btn:SetFrameLevel(header:GetFrameLevel() + 2)
         local ir, ig, ib = GetIconColor()
@@ -2677,7 +2677,7 @@ local function CreateDMWindow(winIdx)
             end },
             { text = L("Hide Timer"), isActive = wdb.hideTimer, onClick = function()
                 wdb.hideTimer = not wdb.hideTimer
-                W.timerText:SetShown(not wdb.hideTimer)
+                if not wdb.hideTimer then W.timerText:Show() else W.timerText:Hide() end
             end },
             { text = L("Auto Swap Current/Overall"),
               tooltip = L("Auto switch your window to overall at the end of an M+ run, and current at the start"),
@@ -2987,7 +2987,7 @@ local function CreateDMWindow(winIdx)
     header:EnableMouse(true)
     local dragging = false
     local dragStartCX, dragStartCY, dragStartLeft, dragStartTop
-    local dragFrame = CreateFrame("Frame"); dragFrame:Hide()
+    local dragFrame = EllesmereUI.SafeCreateFrame("Frame"); dragFrame:Hide()
     dragFrame:SetScript("OnUpdate", function()
         if not dragging then return end
         -- Stop drag if mouse button was released (catches cases where OnMouseUp doesn't fire)
@@ -3085,7 +3085,7 @@ local function CreateDMWindow(winIdx)
     --  Catches right-clicks on empty space to open home screen.
     --  Sits behind the viewport so bar clicks pass through normally.
     ---------------------------------------------------------------------------
-    local rightClickCatcher = CreateFrame("Button", nil, frame)
+    local rightClickCatcher = EllesmereUI.SafeCreateFrame("Button", nil, frame)
     rightClickCatcher:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, 0)
     rightClickCatcher:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
     rightClickCatcher:SetFrameLevel(frame:GetFrameLevel() + 1)
@@ -3097,12 +3097,12 @@ local function CreateDMWindow(winIdx)
     ---------------------------------------------------------------------------
     --  Viewport + scroll
     ---------------------------------------------------------------------------
-    local viewport = CreateFrame("ScrollFrame", nil, frame)
+    local viewport = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, frame)
     viewport:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, 0)
     viewport:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
     W.viewport = viewport
 
-    local content = CreateFrame("Frame", nil, viewport); content:SetSize(1, 1)
+    local content = EllesmereUI.SafeCreateFrame("Frame", nil, viewport); content:SetSize(1, 1)
     viewport:SetScrollChild(content)
     W.content = content
 
@@ -3146,23 +3146,23 @@ local function CreateDMWindow(winIdx)
     W.stickyPlayer.row:Hide()
 
     local onePx = (PP and PP.mult) or 1
-    W.stickySep = CreateFrame("Frame", nil, frame)
+    W.stickySep = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     W.stickySep:SetHeight(onePx); W.stickySep:SetFrameLevel(frame:GetFrameLevel() + 10)
-    local sepTex = W.stickySep:CreateTexture(nil, "OVERLAY", nil, 6); sepTex:SetAllPoints(); sepTex:SetColorTexture(0, 0, 0, 1)
+    local sepTex = W.stickySep:CreateTexture(nil, "OVERLAY", nil, 6); sepTex:SetAllPoints(); sepTex:SetTexture(0, 0, 0, 1)
     W.stickySep:Hide()
 
     ---------------------------------------------------------------------------
     --  Source window
     ---------------------------------------------------------------------------
-    W.sourceFrame = CreateFrame("Frame", nil, frame)
+    W.sourceFrame = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     W.sourceFrame:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, 0)
     W.sourceFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
     W.sourceFrame:SetFrameLevel(frame:GetFrameLevel() + 20); W.sourceFrame:EnableMouse(true); W.sourceFrame:Hide()
     W.sourceFrame._bg = W.sourceFrame:CreateTexture(nil, "BACKGROUND"); W.sourceFrame._bg:SetAllPoints()
-    W.sourceFrame._bg:SetColorTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75)
+    W.sourceFrame._bg:SetTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75)
 
-    W.srcViewport = CreateFrame("ScrollFrame", nil, W.sourceFrame); W.srcViewport:SetAllPoints()
-    W.srcContent = CreateFrame("Frame", nil, W.srcViewport); W.srcContent:SetSize(1, 1); W.srcViewport:SetScrollChild(W.srcContent)
+    W.srcViewport = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, W.sourceFrame); W.srcViewport:SetAllPoints()
+    W.srcContent = EllesmereUI.SafeCreateFrame("Frame", nil, W.srcViewport); W.srcContent:SetSize(1, 1); W.srcViewport:SetScrollChild(W.srcContent)
     W.srcViewport:SetScript("OnSizeChanged", function(_, w) W.srcContent:SetWidth(w) end)
 
     -- Mouse wheel scrolling for spell breakdown
@@ -3186,7 +3186,7 @@ local function CreateDMWindow(winIdx)
     ---------------------------------------------------------------------------
     --  Resize grip
     ---------------------------------------------------------------------------
-    W.resizeGrip = CreateFrame("Button", nil, frame)
+    W.resizeGrip = EllesmereUI.SafeCreateFrame("Button", nil, frame)
     W.resizeGrip:SetSize(18, 18); W.resizeGrip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
     W.resizeGrip:SetFrameStrata("HIGH"); W.resizeGrip:SetFrameLevel(frame:GetFrameLevel() + 15)
     local gripTex = W.resizeGrip:CreateTexture(nil, "ARTWORK"); gripTex:SetAllPoints()
@@ -3196,7 +3196,7 @@ local function CreateDMWindow(winIdx)
     W.resizeGrip:SetScript("OnLeave", function(self) self:SetAlpha((W.isHovered and not W.windowLocked) and 0.3 or 0) end)
 
     -- Lock icon (shows/hides with resize grip, click toggles lock state)
-    W.lockBtn = CreateFrame("Button", nil, frame)
+    W.lockBtn = EllesmereUI.SafeCreateFrame("Button", nil, frame)
     W.lockBtn:SetSize(13, 17)
     W.lockBtn:SetFrameStrata("HIGH"); W.lockBtn:SetFrameLevel(frame:GetFrameLevel() + 16)
     W.lockBtn:EnableMouse(true); W.lockBtn:SetAlpha(0)
@@ -3252,7 +3252,7 @@ local function CreateDMWindow(winIdx)
 
     local resizeStartX, resizeStartY, resizeStartW, resizeStartH
     local resizeAnchorLeft, resizeAnchorTop  -- pinned TOPLEFT during resize
-    local resizeFrame = CreateFrame("Frame"); resizeFrame:Hide()
+    local resizeFrame = EllesmereUI.SafeCreateFrame("Frame"); resizeFrame:Hide()
     local resizeAxis = nil  -- nil = free, "w" = width only, "h" = height only
     local resizeShiftWas = false
     resizeFrame:SetScript("OnUpdate", function()
@@ -3326,7 +3326,7 @@ local function CreateDMWindow(winIdx)
     ---------------------------------------------------------------------------
     do
         local fadeSpeed = 1 / 0.12; local fadeAlpha = 0; local fadeTarget = 0
-        local fadeFrame2 = CreateFrame("Frame"); fadeFrame2:Hide()
+        local fadeFrame2 = EllesmereUI.SafeCreateFrame("Frame"); fadeFrame2:Hide()
         fadeFrame2:SetScript("OnUpdate", function(self, dt)
             local t0 = ns.ProfBegin("HoverFade")
             local step = fadeSpeed * dt
@@ -3487,7 +3487,7 @@ local function CreateDMWindow(winIdx)
             W._stickyClassCache = classFile
             local iconOffset = showIcon and ResolveIcon(src, bar.classIcon, barH) or 0
             if not showIcon then bar.classIcon:Hide() end
-            if bar._iconBorderFrame then bar._iconBorderFrame:SetShown(bar.classIcon:IsShown()) end
+            if bar._iconBorderFrame then if bar.classIcon:IsShown() then bar._iconBorderFrame:Show() else bar._iconBorderFrame:Hide() end end
             bar.fill:SetPoint("TOPLEFT", bar.row, "TOPLEFT", iconOffset, 0)
             bar.fill:SetPoint("TOPRIGHT", bar.row, "TOPRIGHT", 0, 0)
             if showClassColor then
@@ -3639,7 +3639,7 @@ local function CreateDMWindow(winIdx)
                             bar._cachedClass = classFile
                             local iconOffset = showIcon and ResolveIcon(src, bar.classIcon, barH) or 0
                             if not showIcon then bar.classIcon:Hide() end
-                            if bar._iconBorderFrame then bar._iconBorderFrame:SetShown(bar.classIcon:IsShown()) end
+                            if bar._iconBorderFrame then if bar.classIcon:IsShown() then bar._iconBorderFrame:Show() else bar._iconBorderFrame:Hide() end end
                             bar.fill:SetPoint("TOPLEFT", bar.row, "TOPLEFT", iconOffset, 0)
                             bar.fill:SetPoint("TOPRIGHT", bar.row, "TOPRIGHT", 0, 0)
                             bar._cachedColorClass = nil
@@ -4045,7 +4045,7 @@ local function CreateDMWindow(winIdx)
                 local divY = -(spCount * stride + barSp * 2)
                 if not W._targetDivider then
                     W._targetDivider = W.srcContent:CreateTexture(nil, "ARTWORK")
-                    W._targetDivider:SetHeight(PhysicalPixels(1)); W._targetDivider:SetColorTexture(1, 1, 1, 0.15)
+                    W._targetDivider:SetHeight(PhysicalPixels(1)); W._targetDivider:SetTexture(1, 1, 1, 0.15)
                     W._targetLabel = W.srcContent:CreateFontString(nil, "OVERLAY")
                     SetDMFont(W._targetLabel, leftFS - 1)
                     W._targetLabel:SetTextColor(0.6, 0.6, 0.6, 1); W._targetLabel:SetText("Targets")
@@ -4143,14 +4143,14 @@ local function CreateDMWindow(winIdx)
     -- HOME_ICONS is at file scope
 
     local function MakeCard(parent)
-        local card = CreateFrame("Button", nil, parent)
+        local card = EllesmereUI.SafeCreateFrame("Button", nil, parent)
         card:SetHeight(CARD_H)
         card:RegisterForClicks("AnyUp")
 
         -- Card background
         card._bg = card:CreateTexture(nil, "BACKGROUND")
         card._bg:SetAllPoints()
-        card._bg:SetColorTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A)
+        card._bg:SetTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A)
 
         -- Accent left edge indicator (2px wide)
         card._accent = card:CreateTexture(nil, "ARTWORK")
@@ -4224,14 +4224,14 @@ local function CreateDMWindow(winIdx)
             card:SetWidth(colW)
 
             -- Visuals
-            card._bg:SetColorTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A)
+            card._bg:SetTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A)
             card._lbl:SetFont(fontPath, CTX_FONT_SZ, outline)
             card._lbl:SetText(label)
             card._icon:SetTexture(DM_TYPE_ICONS[dmType] or MEDIA .. "dm_home_damage.png")
             card._arrow:Show()
 
             if isActive then
-                card._accent:SetColorTexture(acR, acG, acB, 1)
+                card._accent:SetTexture(acR, acG, acB, 1)
                 card._accent:Show()
                 card._icon:SetVertexColor(acR, acG, acB, 1)
                 card._lbl:SetTextColor(1, 1, 1, 1)
@@ -4244,12 +4244,12 @@ local function CreateDMWindow(winIdx)
             end
 
             card:SetScript("OnEnter", function(self)
-                self._bg:SetColorTexture(CARD_BG_R + 0.06, CARD_BG_G + 0.06, CARD_BG_B + 0.06, CARD_BG_A + CARD_HL_A)
+                self._bg:SetTexture(CARD_BG_R + 0.06, CARD_BG_G + 0.06, CARD_BG_B + 0.06, CARD_BG_A + CARD_HL_A)
                 self._lbl:SetTextColor(1, 1, 1, 1)
                 self._arrow:SetVertexColor(1, 1, 1, 1)
             end)
             card:SetScript("OnLeave", function(self)
-                self._bg:SetColorTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A)
+                self._bg:SetTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A)
                 if isActive then
                     self._lbl:SetTextColor(1, 1, 1, 1)
                     self._arrow:SetVertexColor(1, 1, 1, 1)
@@ -4278,7 +4278,7 @@ local function CreateDMWindow(winIdx)
         local addRow = (col > 0) and (row + 1) or row
         if #bookmarks < HOME_MAX then
             if not homeAddBtn then
-                homeAddBtn = CreateFrame("Button", nil, homeChild)
+                homeAddBtn = EllesmereUI.SafeCreateFrame("Button", nil, homeChild)
                 homeAddBtn:SetHeight(CARD_H)
                 homeAddBtn._bg = homeAddBtn:CreateTexture(nil, "BACKGROUND"); homeAddBtn._bg:SetAllPoints()
                 homeAddBtn._plus = homeAddBtn:CreateFontString(nil, "OVERLAY")
@@ -4287,7 +4287,7 @@ local function CreateDMWindow(winIdx)
                 homeAddBtn._plus:SetPoint("RIGHT", homeAddBtn._lbl, "LEFT", -4, 0)
                 homeAddBtn._hint:SetPoint("LEFT", homeAddBtn._lbl, "RIGHT", 6, 0)
             end
-            homeAddBtn._bg:SetColorTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A * 0.5)
+            homeAddBtn._bg:SetTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A * 0.5)
             homeAddBtn._plus:SetFont(fontPath, 13, outline)
             homeAddBtn._plus:SetText("+")
             homeAddBtn._plus:SetTextColor(1, 1, 1, 0.3)
@@ -4307,11 +4307,11 @@ local function CreateDMWindow(winIdx)
             homeAddBtn:SetPoint("TOPLEFT", homeChild, "TOPLEFT", CARD_PAD_X, startY - addRow * (CARD_H + CARD_GAP))
             homeAddBtn:SetPoint("TOPRIGHT", homeChild, "TOPRIGHT", -CARD_PAD_X, startY - addRow * (CARD_H + CARD_GAP))
             homeAddBtn:SetScript("OnEnter", function(self)
-                self._bg:SetColorTexture(CARD_BG_R + 0.04, CARD_BG_G + 0.04, CARD_BG_B + 0.04, CARD_BG_A * 0.7)
+                self._bg:SetTexture(CARD_BG_R + 0.04, CARD_BG_G + 0.04, CARD_BG_B + 0.04, CARD_BG_A * 0.7)
                 self._lbl:SetTextColor(1, 1, 1, 0.5); self._plus:SetTextColor(1, 1, 1, 0.5)
             end)
             homeAddBtn:SetScript("OnLeave", function(self)
-                self._bg:SetColorTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A * 0.5)
+                self._bg:SetTexture(CARD_BG_R, CARD_BG_G, CARD_BG_B, CARD_BG_A * 0.5)
                 self._lbl:SetTextColor(1, 1, 1, 0.3); self._plus:SetTextColor(1, 1, 1, 0.3)
             end)
             homeAddBtn:SetScript("OnClick", function()
@@ -4347,7 +4347,7 @@ local function CreateDMWindow(winIdx)
 
     function W.ShowHome()
         if not homeFrame then
-            homeFrame = CreateFrame("Frame", nil, frame)
+            homeFrame = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
             homeFrame:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, 0)
             homeFrame:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", 0, 0)
             homeFrame:SetFrameLevel(frame:GetFrameLevel() + 25)
@@ -4355,13 +4355,13 @@ local function CreateDMWindow(winIdx)
 
             local hBg = homeFrame:CreateTexture(nil, "BACKGROUND")
             hBg:SetAllPoints()
-            hBg:SetColorTexture(0.03, 0.03, 0.03, 0.95)
+            hBg:SetTexture(0.03, 0.03, 0.03, 0.95)
 
             -- Scrollable content area
-            homeScroll = CreateFrame("ScrollFrame", nil, homeFrame)
+            homeScroll = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, homeFrame)
             homeScroll:SetPoint("TOPLEFT", homeFrame, "TOPLEFT", 0, 0)
             homeScroll:SetPoint("BOTTOMRIGHT", homeFrame, "BOTTOMRIGHT", 0, 0)
-            homeChild = CreateFrame("Frame", nil, homeScroll)
+            homeChild = EllesmereUI.SafeCreateFrame("Frame", nil, homeScroll)
             homeChild:SetSize(1, 1)
             homeScroll:SetScrollChild(homeChild)
             homeScroll:SetScript("OnSizeChanged", function(_, w) homeChild:SetWidth(w) end)
@@ -4540,8 +4540,8 @@ ns.ApplyBackground = function()
     local cfg = DB()
     local r, g, b, a = cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75
     for _, w in ipairs(_windows) do
-        if w.frame and w.frame._bg then w.frame._bg:SetColorTexture(r, g, b, a) end
-        if w.sourceFrame and w.sourceFrame._bg then w.sourceFrame._bg:SetColorTexture(r, g, b, a) end
+        if w.frame and w.frame._bg then w.frame._bg:SetTexture(r, g, b, a) end
+        if w.sourceFrame and w.sourceFrame._bg then w.sourceFrame._bg:SetTexture(r, g, b, a) end
     end
 end
 
@@ -4587,13 +4587,13 @@ ns.ApplyHeader = function()
     for _, w in ipairs(_windows) do
         if w.header then
             w.header:SetHeight(hdrH)
-            if w.header._hdrBg then w.header._hdrBg:SetColorTexture(hR, hG, hB, hA) end
+            if w.header._hdrBg then w.header._hdrBg:SetTexture(hR, hG, hB, hA) end
             if w.header._bottomBorder then
                 local size = cfg.hdrBottomBorderSize or 0
                 local color = cfg.hdrBottomBorderColor or {}
                 w.header._bottomBorder:SetHeight(PhysicalPixels(size))
-                w.header._bottomBorder:SetColorTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
-                w.header._bottomBorder:SetShown(size > 0)
+                w.header._bottomBorder:SetTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
+                if size > 0 then w.header._bottomBorder:Show() else w.header._bottomBorder:Hide() end
             end
         end
         if w.frame and w.frame._bg then
@@ -4811,7 +4811,7 @@ local function CreateSATimer()
     if _saTimer then return end
     local cfg = DB()
 
-    _saTimer = CreateFrame("Frame", "EllesmereUIDMStandaloneTimer", UIParent)
+    _saTimer = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIDMStandaloneTimer", UIParent)
     _saTimer:SetSize(1, 1)
     _saTimer:SetClampedToScreen(true)
     _saTimer:SetMovable(true)
@@ -5029,7 +5029,7 @@ end
 -------------------------------------------------------------------------------
 --  Combat state tracking (shared, group-aware)
 -------------------------------------------------------------------------------
-local combatFrame = CreateFrame("Frame")
+local combatFrame = EllesmereUI.SafeCreateFrame("Frame")
 combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 combatFrame:RegisterEvent("UNIT_FLAGS")
@@ -5194,7 +5194,7 @@ do
     local _pvpMatchActive = false
     local _pvpBlockUntil = 0
 
-    local pvpFrame = CreateFrame("Frame")
+    local pvpFrame = EllesmereUI.SafeCreateFrame("Frame")
     pvpFrame:RegisterEvent("PVP_MATCH_COMPLETE")
     pvpFrame:RegisterEvent("PVP_MATCH_STATE_CHANGED")
     pvpFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -5229,7 +5229,7 @@ end
 --  Reset Data keybind button (hidden, receives override binding click)
 -------------------------------------------------------------------------------
 if not _G["EllesmereUIDMResetBindBtn"] then
-    local btn = CreateFrame("Button", "EllesmereUIDMResetBindBtn", UIParent)
+    local btn = EllesmereUI.SafeCreateFrame("Button", "EllesmereUIDMResetBindBtn", UIParent)
     btn:Hide()
     btn:SetScript("OnClick", function()
         if C_DamageMeter and C_DamageMeter.ResetAllCombatSessions then
@@ -5243,7 +5243,7 @@ end
 -------------------------------------------------------------------------------
 --  Init
 -------------------------------------------------------------------------------
-local initFrame = CreateFrame("Frame")
+local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")

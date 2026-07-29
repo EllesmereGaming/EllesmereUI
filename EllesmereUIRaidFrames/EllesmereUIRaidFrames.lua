@@ -973,10 +973,10 @@ do
             end
             -- Per-frame Blizzard selection textures. No-op if absent.
             if frame.selectionHighlight and frame.selectionHighlight.SetShown then
-                frame.selectionHighlight:SetShown(false)
+                if false then frame.selectionHighlight:Show() else frame.selectionHighlight:Hide() end
             end
             if frame.selectionIndicator and frame.selectionIndicator.SetShown then
-                frame.selectionIndicator:SetShown(false)
+                if false then frame.selectionIndicator:Show() else frame.selectionIndicator:Hide() end
             end
         end)
     end
@@ -1438,7 +1438,7 @@ function ns._ApplyHealthBg(d, health, s, unit)
         if bg then
             local c = s.statusColorDead or { r = 0x24/255, g = 0x17/255, b = 0x17/255 }
             bg:ClearAllPoints(); bg:SetAllPoints(health)
-            bg:SetColorTexture(c.r, c.g, c.b, 1)
+            bg:SetTexture(c.r, c.g, c.b, 1)
         end
         if health then health:SetStatusBarColor(0.3, 0.3, 0.3, 0.5) end
         return
@@ -1446,7 +1446,7 @@ function ns._ApplyHealthBg(d, health, s, unit)
         if bg then
             local c = s.statusColorOffline or { r = 0x66/255, g = 0x66/255, b = 0x66/255 }
             bg:ClearAllPoints(); bg:SetAllPoints(health)
-            bg:SetColorTexture(c.r, c.g, c.b, 1)
+            bg:SetTexture(c.r, c.g, c.b, 1)
         end
         if health then health:SetStatusBarColor(0.3, 0.3, 0.3, 0.3) end
         return
@@ -1456,13 +1456,13 @@ function ns._ApplyHealthBg(d, health, s, unit)
     bg:SetPoint("TOPLEFT", health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
     bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
     if s.healthColorMode == "dark" then
-        bg:SetColorTexture(EllesmereUI.GetDarkModeBg())
+        bg:SetTexture(EllesmereUI.GetDarkModeBg())
     else
         -- Class-colored when bgClassColored is on, else the custom bg color
         -- (GetBgColor handles the secret-value guard + alpha = bgDarkness). Must
         -- match the layout-pass and preview paths so the per-unit UNIT_HEALTH
         -- refresh no longer clobbers the class-colored background back to custom.
-        bg:SetColorTexture(ns.GetBgColor(unit, s))
+        bg:SetTexture(ns.GetBgColor(unit, s))
     end
 end
 
@@ -1700,7 +1700,7 @@ local function LayoutTopNameBar(s, baseH, powerH, healthBar, tnb, tnbBg, tnbText
     tnb:SetHeight(topBarH)
     if tnbBg then
         local bgc = s.topNameBarBgColor or {}
-        tnbBg:SetColorTexture(bgc.r or 17/255, bgc.g or 17/255, bgc.b or 17/255, (s.topNameBarBgOpacity or 80) / 100)
+        tnbBg:SetTexture(bgc.r or 17/255, bgc.g or 17/255, bgc.b or 17/255, (s.topNameBarBgOpacity or 80) / 100)
     end
     if tnbText then
         ApplyFont(tnbText, s.topNameBarTextSize or 11)
@@ -2080,7 +2080,7 @@ local function CreateAbsorbBar(button, healthBar)
     -- fill (ARTWORK sublevel 0 < fill sublevel 1). Masked once here; shown only
     -- when that style is active and re-anchored to the fill rect each update.
     local bfBase = backfillBar:CreateTexture(nil, "ARTWORK", nil, 0)
-    bfBase:SetColorTexture(0.776, 0.784, 1.0, 1)
+    bfBase:SetTexture(0.776, 0.784, 1.0, 1)
     if absorbMask then bfBase:AddMaskTexture(absorbMask) end
     bfBase:Hide()
     backfillBar._modernBase = bfBase
@@ -2102,7 +2102,7 @@ local function CreateAbsorbBar(button, healthBar)
     if fwFill then fwFill:SetDrawLayer("ARTWORK", 1); fwFill:AddMaskTexture(absorbMask) end
     -- Modern solid base (c6c8ff) for the forward bar (see backfill above).
     local fwBase = forwardBar:CreateTexture(nil, "ARTWORK", nil, 0)
-    fwBase:SetColorTexture(0.776, 0.784, 1.0, 1)
+    fwBase:SetTexture(0.776, 0.784, 1.0, 1)
     if absorbMask then fwBase:AddMaskTexture(absorbMask) end
     fwBase:Hide()
     forwardBar._modernBase = fwBase
@@ -2312,7 +2312,7 @@ local function CreateAbsorbBar(button, healthBar)
     -- masked + SetAllPoints'd to the fill rect each update so it tracks the secret
     -- heal-absorb amount and collapses to nothing when there is none.
     local haBg = healAbsorbBar:CreateTexture(nil, "ARTWORK", nil, 1)
-    haBg:SetColorTexture(0, 0, 0, 0.25)
+    haBg:SetTexture(0, 0, 0, 0.25)
     if absorbMask then haBg:AddMaskTexture(absorbMask) end
     haBg:Hide()
     healAbsorbBar._bg = haBg
@@ -2346,7 +2346,7 @@ local function CreateAbsorbBar(button, healthBar)
     reducedBar:SetMinMaxValues(0, 1)
     reducedBar:Hide()
     local rmhBg = reducedBar:CreateTexture(nil, "ARTWORK", nil, 2)
-    rmhBg:SetColorTexture(0, 0, 0, 1)
+    rmhBg:SetTexture(0, 0, 0, 1)
 
     -- Store references in FFD (never on the Blizzard-owned button)
     backfillBar._forward      = forwardBar
@@ -2580,7 +2580,7 @@ local function UpdateAbsorb(button, unit)
             -- Black backing: track the heal-absorb fill rect, opacity from settings.
             local hbg = ha._bg
             if hbg then
-                hbg:SetColorTexture(0, 0, 0, (s.healAbsorbBgOpacity or 25) / 100)
+                hbg:SetTexture(0, 0, 0, (s.healAbsorbBgOpacity or 25) / 100)
                 hbg:SetAllPoints(ha:GetStatusBarTexture())
                 hbg:Show()
             end
@@ -2716,7 +2716,7 @@ local function UpdateAbsorb(button, unit)
             -- Backing: track the fill rect, opacity from settings (every update).
             local rmhBg = ab._reducedMaxBg
             if rmhBg then
-                rmhBg:SetColorTexture(0, 0, 0, (s.maxHealthBgOpacity or 100) / 100)
+                rmhBg:SetTexture(0, 0, 0, (s.maxHealthBgOpacity or 100) / 100)
                 rmhBg:SetAllPoints(rmh:GetStatusBarTexture())
             end
             rmh:Show()
@@ -2930,7 +2930,7 @@ local function StyleButton(button)
     local bg = button:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     local bgc = s.customBgColor
-    bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
+    bg:SetTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
     if PP then PP.DisablePixelSnap(bg) end
     d.bg = bg
 
@@ -2978,7 +2978,7 @@ local function StyleButton(button)
         power:SetValue(1)
         local pwBg = power:CreateTexture(nil, "BACKGROUND")
         pwBg:SetAllPoints()
-        pwBg:SetColorTexture((s.powerBgColor or {}).r or 0, (s.powerBgColor or {}).g or 0, (s.powerBgColor or {}).b or 0, (s.powerBgDarkness or 70) / 100)
+        pwBg:SetTexture((s.powerBgColor or {}).r or 0, (s.powerBgColor or {}).g or 0, (s.powerBgColor or {}).b or 0, (s.powerBgDarkness or 70) / 100)
         if PP then PP.DisablePixelSnap(pwBg) end
         d.power = power
         d.powerBg = pwBg
@@ -4351,7 +4351,7 @@ local function UpdateButton(button)
             -- (opt-in; the custom color is applied statically in ReloadFrames).
             if s.powerBgPowerColored and d.powerBg then
                 local f = EllesmereUI.GetPowerBgDarkenFactor()
-                d.powerBg:SetColorTexture(pr * f, pg * f, pb * f, (s.powerBgDarkness or 70) / 100)
+                d.powerBg:SetTexture(pr * f, pg * f, pb * f, (s.powerBgDarkness or 70) / 100)
                 d._pwBgTintType = pType
                 d._pwBgTintF = f
             end
@@ -5309,13 +5309,13 @@ local function ApplyDispelOverlay(d, dc, s, olA)
                 olTex:SetAllPoints(health)
             end
         end
-        olTex:SetColorTexture(dc.r, dc.g, dc.b, alpha)
+        olTex:SetTexture(dc.r, dc.g, dc.b, alpha)
     elseif mode == "full" then
         -- Cover the entire health bar area
         if health then
             olTex:SetAllPoints(health)
         end
-        olTex:SetColorTexture(dc.r, dc.g, dc.b, alpha)
+        olTex:SetTexture(dc.r, dc.g, dc.b, alpha)
     elseif mode == "gradient" or mode == "gradient_sharp" then
         -- Pre-baked vertical gradient texture (solid at the top, fading to
         -- transparent at the bottom; the sharp variant falls off faster) tinted
@@ -6751,7 +6751,7 @@ FB.EnsureBuilt = function()
             if b then b:Hide() end
         end
     ]]
-    local controller = CreateFrame("Frame", "ERFFriendlyBossController", nil, "SecureHandlerAttributeTemplate")
+    local controller = CreateFrame("Frame", "ERFFriendlyBossController", nil, "SecureFrameTemplate, SecureHandlerBaseTemplate")
     for i = 1, 5 do
         controller:SetFrameRef("slot" .. i, FB.buttons[i])
     end
@@ -6759,8 +6759,8 @@ FB.EnsureBuilt = function()
     -- wildcard receiving name/value -- same idiom as the Action Bars
     -- controllers). The relayout body lives in its own attribute so the
     -- handler and FB_Apply's force-run share one definition.
-    controller:SetAttributeNoHandler("fb_relayout", FB.RELAYOUT)
-    controller:SetAttributeNoHandler("_onattributechanged", [[
+    EUI.API.SetSecureAttr(controller, "fb_relayout", FB.RELAYOUT)
+    EUI.API.SetSecureAttr(controller, "_onattributechanged", [[
         if name == "state-inraid" or name == "state-fb1" or name == "state-fb2"
            or name == "state-fb3" or name == "state-fb4" or name == "state-fb5" then
             self:RunAttribute("fb_relayout")
@@ -6819,7 +6819,7 @@ FB.ApplyStyle = function(owner)
             b:SetPoint("TOPLEFT", owner.container, "TOPLEFT", 0, -off * stepH)
         end
 
-        b._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
+        b._bg:SetTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
         b._health:SetStatusBarTexture(texPath)
         local ft = b._health:GetStatusBarTexture()
         if ft then ft:SetHorizTile(false) end
@@ -7036,7 +7036,7 @@ FB.SetMoverShown = function(owner, show, frameName, labelText)
         m:RegisterForDrag("LeftButton")
         local mbg = m:CreateTexture(nil, "BACKGROUND")
         mbg:SetAllPoints()
-        mbg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+        mbg:SetTexture(0.075, 0.113, 0.141, 0.95)
         local ar, ag, ab = EllesmereUI.ResolveActiveAccent()
         if EllesmereUI.MakeBorder then
             EllesmereUI.MakeBorder(m, ar or 1, ag or 1, ab or 1, 0.6)
@@ -7547,7 +7547,7 @@ XF.EnsureBuilt = function(count)
                     if s.powerBgPowerColored and d.powerBg then
                         local f = EllesmereUI.GetPowerBgDarkenFactor()
                         if d._pwBgTintType ~= pType or d._pwBgTintF ~= f then
-                            d.powerBg:SetColorTexture(pr * f, pg * f, pb * f, (s.powerBgDarkness or 70) / 100)
+                            d.powerBg:SetTexture(pr * f, pg * f, pb * f, (s.powerBgDarkness or 70) / 100)
                             d._pwBgTintType = pType
                             d._pwBgTintF = f
                         end
@@ -8585,7 +8585,7 @@ local function ReloadFrames()
 
         -- Background
         if d.bg then
-            d.bg:SetColorTexture(ns.GetBgColor(btn:GetAttribute("unit"), s))
+            d.bg:SetTexture(ns.GetBgColor(btn:GetAttribute("unit"), s))
         end
 
         -- Health bar height/anchor + Top Name Bar. The helper reserves the top
@@ -8608,7 +8608,7 @@ local function ReloadFrames()
             end
         end
         if d.powerBg then
-            d.powerBg:SetColorTexture((s.powerBgColor or {}).r or 0, (s.powerBgColor or {}).g or 0, (s.powerBgColor or {}).b or 0, (s.powerBgDarkness or 70) / 100)
+            d.powerBg:SetTexture((s.powerBgColor or {}).r or 0, (s.powerBgColor or {}).g or 0, (s.powerBgColor or {}).b or 0, (s.powerBgDarkness or 70) / 100)
             d._pwBgTintType = nil
         end
         if d.UpdatePowerBorder then d.UpdatePowerBorder() end
@@ -9924,7 +9924,7 @@ local function OnEvent(self, event, arg1, ...)
             if s.powerBgPowerColored and d.powerBg then
                 local f = EllesmereUI.GetPowerBgDarkenFactor()
                 if d._pwBgTintType ~= pType or d._pwBgTintF ~= f then
-                    d.powerBg:SetColorTexture(pr * f, pg * f, pb * f, (s.powerBgDarkness or 70) / 100)
+                    d.powerBg:SetTexture(pr * f, pg * f, pb * f, (s.powerBgDarkness or 70) / 100)
                     d._pwBgTintType = pType
                     d._pwBgTintF = f
                 end
@@ -10960,7 +10960,7 @@ ns.ReloadPartyFrames = function()
 
         -- Background
         if d.bg then
-            d.bg:SetColorTexture(ns.GetBgColor(btn:GetAttribute("unit"), raw))
+            d.bg:SetTexture(ns.GetBgColor(btn:GetAttribute("unit"), raw))
         end
 
         -- Health bar height/anchor + Top Name Bar (reads party-resolved `raw`)
@@ -10981,7 +10981,7 @@ ns.ReloadPartyFrames = function()
             end
         end
         if d.powerBg then
-            d.powerBg:SetColorTexture((raw.powerBgColor or {}).r or 0, (raw.powerBgColor or {}).g or 0, (raw.powerBgColor or {}).b or 0, (raw.powerBgDarkness or 70) / 100)
+            d.powerBg:SetTexture((raw.powerBgColor or {}).r or 0, (raw.powerBgColor or {}).g or 0, (raw.powerBgColor or {}).b or 0, (raw.powerBgDarkness or 70) / 100)
             d._pwBgTintType = nil
         end
         if d.UpdatePowerBorder then d.UpdatePowerBorder() end
@@ -12091,7 +12091,7 @@ ns.PvBuffApply = function(spellInfo, frameIndex, slot)
         icon._tex:SetVertexColor(1, 1, 1)
     else
         local c = spellInfo.color or { r = 0.05, g = 0.82, b = 0.62 }
-        icon._tex:SetColorTexture(c.r, c.g, c.b, 1)
+        icon._tex:SetTexture(c.r, c.g, c.b, 1)
         icon._tex:SetTexCoord(0, 1, 0, 1)
     end
 
@@ -12393,7 +12393,7 @@ local function CreatePreviewFrame(index)
     local bgc = s.customBgColor
     local bg = f:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
+    bg:SetTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
     if PP then PP.DisablePixelSnap(bg) end
 
     -- Health bar
@@ -12443,7 +12443,7 @@ local function CreatePreviewFrame(index)
     -- Modern compound absorb base (preview): mirrors the live frame's solid c6c8ff
     -- base drawn under the striped fill. Anchored to the fill at render time.
     local bfBase = backfillBar:CreateTexture(nil, "ARTWORK", nil, 0)
-    bfBase:SetColorTexture(0.776, 0.784, 1.0, 1)
+    bfBase:SetTexture(0.776, 0.784, 1.0, 1)
     if absorbMask then bfBase:AddMaskTexture(absorbMask) end
     bfBase:Hide()
     backfillBar._modernBase = bfBase
@@ -12465,7 +12465,7 @@ local function CreatePreviewFrame(index)
     if fwFill then fwFill:SetDrawLayer("ARTWORK", 1); fwFill:AddMaskTexture(absorbMask) end
     -- Modern compound absorb base (preview) for the forward bar.
     local fwBase = forwardBar:CreateTexture(nil, "ARTWORK", nil, 0)
-    fwBase:SetColorTexture(0.776, 0.784, 1.0, 1)
+    fwBase:SetTexture(0.776, 0.784, 1.0, 1)
     if absorbMask then fwBase:AddMaskTexture(absorbMask) end
     fwBase:Hide()
     forwardBar._modernBase = fwBase
@@ -12533,7 +12533,7 @@ local function CreatePreviewFrame(index)
         ha._mask = absorbMask
         -- Black backing behind the heal-absorb texture (preview; mirrors live).
         local haBg = ha:CreateTexture(nil, "ARTWORK", nil, 1)
-        haBg:SetColorTexture(0, 0, 0, 0.25)
+        haBg:SetTexture(0, 0, 0, 0.25)
         if absorbMask then haBg:AddMaskTexture(absorbMask) end
         haBg:Hide()
         ha._bg = haBg
@@ -12577,7 +12577,7 @@ local function CreatePreviewFrame(index)
         -- Black background behind the stripes
         local rmhBg = rmh:CreateTexture(nil, "ARTWORK", nil, 2)
         rmhBg:SetAllPoints(rmhFill)
-        rmhBg:SetColorTexture(0, 0, 0, 1)
+        rmhBg:SetTexture(0, 0, 0, 1)
         f._reducedMaxHealthBar = rmh
         f._reducedMaxHealthBg = rmhBg
     end
@@ -12634,7 +12634,7 @@ local function CreatePreviewFrame(index)
         power:SetValue(100)
         local pwBg = power:CreateTexture(nil, "BACKGROUND")
         pwBg:SetAllPoints()
-        pwBg:SetColorTexture((s.powerBgColor or {}).r or 0, (s.powerBgColor or {}).g or 0, (s.powerBgColor or {}).b or 0, (s.powerBgDarkness or 70) / 100)
+        pwBg:SetTexture((s.powerBgColor or {}).r or 0, (s.powerBgColor or {}).g or 0, (s.powerBgColor or {}).b or 0, (s.powerBgDarkness or 70) / 100)
         if PP then PP.DisablePixelSnap(pwBg) end
         f._powerBg = pwBg
 
@@ -13218,7 +13218,7 @@ local function ApplyPreviewData(f, index)
             f._bg:ClearAllPoints()
             f._bg:SetPoint("TOPLEFT", f._health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
             f._bg:SetPoint("BOTTOMRIGHT", f._health, "BOTTOMRIGHT", 0, 0)
-            f._bg:SetColorTexture(EllesmereUI.GetDarkModeBg())
+            f._bg:SetTexture(EllesmereUI.GetDarkModeBg())
         else
             -- BG covers the missing-health portion only (never behind the fill),
             -- matching the real-frame themed branch + Dark mode. Keeps the preview
@@ -13229,10 +13229,10 @@ local function ApplyPreviewData(f, index)
             local bgA = (s.bgDarkness or 50) / 100
             local cc = s.bgClassColored and classToken and EllesmereUI.GetClassColor(classToken)
             if cc then
-                f._bg:SetColorTexture(cc.r, cc.g, cc.b, bgA)
+                f._bg:SetTexture(cc.r, cc.g, cc.b, bgA)
             else
                 local bgc = s.customBgColor
-                f._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bgA)
+                f._bg:SetTexture(bgc.r, bgc.g, bgc.b, bgA)
             end
         end
     end
@@ -13476,7 +13476,7 @@ local function ApplyPreviewData(f, index)
             f._healAbsorbBar:Show()
             local hbg = f._healAbsorbBar._bg
             if hbg then
-                hbg:SetColorTexture(0, 0, 0, (s.healAbsorbBgOpacity or 25) / 100)
+                hbg:SetTexture(0, 0, 0, (s.healAbsorbBgOpacity or 25) / 100)
                 hbg:SetAllPoints(f._healAbsorbBar:GetStatusBarTexture())
                 hbg:Show()
             end
@@ -13547,7 +13547,7 @@ local function ApplyPreviewData(f, index)
             f._reducedMaxHealthBar:SetValue(rmhAmt)
             local rmhBg = f._reducedMaxHealthBg
             if rmhBg then
-                rmhBg:SetColorTexture(0, 0, 0, (s.maxHealthBgOpacity or 100) / 100)
+                rmhBg:SetTexture(0, 0, 0, (s.maxHealthBgOpacity or 100) / 100)
                 rmhBg:SetAllPoints(f._reducedMaxHealthBar:GetStatusBarTexture())
             end
             f._reducedMaxHealthBar:Show()
@@ -13603,7 +13603,7 @@ local function ApplyPreviewData(f, index)
                 and EllesmereUI.GetPowerColor(ns._PV_CLASS_POWER[classToken] or "MANA")
             local pf = bgc and EllesmereUI.GetPowerBgDarkenFactor() or 1
             bgc = bgc or s.powerBgColor
-            f._powerBg:SetColorTexture(((bgc or {}).r or 0) * pf, ((bgc or {}).g or 0) * pf, ((bgc or {}).b or 0) * pf, (s.powerBgDarkness or 70) / 100)
+            f._powerBg:SetTexture(((bgc or {}).r or 0) * pf, ((bgc or {}).g or 0) * pf, ((bgc or {}).b or 0) * pf, (s.powerBgDarkness or 70) / 100)
             f._powerBg:Show()
         end
     end
@@ -13712,10 +13712,10 @@ local function ApplyPreviewData(f, index)
                 else
                     olTex:SetAllPoints(f._health)
                 end
-                olTex:SetColorTexture(dispelDC.r, dispelDC.g, dispelDC.b, olAlpha)
+                olTex:SetTexture(dispelDC.r, dispelDC.g, dispelDC.b, olAlpha)
             elseif olMode == "full" then
                 olTex:SetAllPoints(f._health)
-                olTex:SetColorTexture(dispelDC.r, dispelDC.g, dispelDC.b, olAlpha)
+                olTex:SetTexture(dispelDC.r, dispelDC.g, dispelDC.b, olAlpha)
             elseif olMode == "gradient" or olMode == "gradient_sharp" then
                 -- Same pre-baked gradient textures as the live frames so the preview matches.
                 olTex:SetAllPoints(f._health)
@@ -14211,7 +14211,7 @@ local function ApplyPreviewData(f, index)
         if f._bg then
             local c = s.statusColorDead or { r = 0x24/255, g = 0x17/255, b = 0x17/255 }
             f._bg:ClearAllPoints(); f._bg:SetAllPoints(f._health)
-            f._bg:SetColorTexture(c.r, c.g, c.b, 1)
+            f._bg:SetTexture(c.r, c.g, c.b, 1)
         end
         -- Hide shield on dead players
         if f._absorbBar then
@@ -14228,7 +14228,7 @@ local function ApplyPreviewData(f, index)
         if f._bg then
             local c = s.statusColorOffline or { r = 0x66/255, g = 0x66/255, b = 0x66/255 }
             f._bg:ClearAllPoints(); f._bg:SetAllPoints(f._health)
-            f._bg:SetColorTexture(c.r, c.g, c.b, 1)
+            f._bg:SetTexture(c.r, c.g, c.b, 1)
         end
     end
 
@@ -14397,7 +14397,7 @@ local function GetOrCreateOverlayContainer()
 
     local bg = oc:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0, 0, 0, 0.9)
+    bg:SetTexture(0, 0, 0, 0.9)
     oc._bg = bg
 
     -- Centered title at the top of the preview. Font/text/color/visibility are
@@ -15071,7 +15071,7 @@ ns._ShowSizePreview = function(tier)
         if f._health:GetStatusBarTexture() then f._health:GetStatusBarTexture():SetHorizTile(false) end
         f._health:SetStatusBarColor(0.24, 0.26, 0.30, 1)
         f._health:SetValue(100)
-        f._bg:SetColorTexture(0.09, 0.09, 0.11, 1)
+        f._bg:SetTexture(0.09, 0.09, 0.11, 1)
         if f._power then f._power:Hide() end
         if f._topNameBar then f._topNameBar:Hide() end
         if f._roleIcon then f._roleIcon:Hide() end
@@ -15423,7 +15423,7 @@ local function GetOrCreatePartyOverlayContainer()
 
     local bg = oc:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0, 0, 0, 0.9)
+    bg:SetTexture(0, 0, 0, 0.9)
     oc._bg = bg
 
     -- Centered title at the top of the preview. Font/text/color/visibility are

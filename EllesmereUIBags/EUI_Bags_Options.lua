@@ -47,7 +47,7 @@ local BAGS_DEFAULTS = {
 local db = EllesmereUI.Lite.NewDB("EllesmereUIBagsDB", BAGS_DEFAULTS)
 EllesmereUI._bagsDB = db
 
-local initFrame = CreateFrame("Frame")
+local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
@@ -132,7 +132,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Reposition info label
             do
                 local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("bags")) or "Fonts\\FRIZQT__.TTF"
-                local infoFrame = CreateFrame("Frame", nil, parent)
+                local infoFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
                 infoFrame:SetSize(parent:GetWidth(), 34)
                 infoFrame:SetPoint("TOP", parent, "TOP", 0, y - 10)
                 infoFrame._isSpacer = true
@@ -252,7 +252,7 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
                 local rightRgn = bindRow._rightRegion
-                local btCog = CreateFrame("Button", nil, rightRgn)
+                local btCog = EllesmereUI.SafeCreateFrame("Button", nil, rightRgn)
                 btCog:SetSize(26, 26)
                 btCog:SetPoint("RIGHT", rightRgn._control, "LEFT", -8, 0)
                 btCog:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
@@ -273,7 +273,7 @@ initFrame:SetScript("OnEvent", function(self)
                 btCog:SetScript("OnClick", function(self)
                     if not btCogOff() then btCogShow(self) end
                 end)
-                local btBlock = CreateFrame("Frame", nil, btCog)
+                local btBlock = EllesmereUI.SafeCreateFrame("Frame", nil, btCog)
                 btBlock:SetAllPoints(); btBlock:SetFrameLevel(btCog:GetFrameLevel() + 10); btBlock:EnableMouse(true)
                 btBlock:SetScript("OnEnter", function()
                     EllesmereUI.ShowWidgetTooltip(btCog, EllesmereUI.DisabledTooltip("Show BoE / Warbound Text"))
@@ -321,7 +321,7 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
                 local rightRgn = ilvlRow._rightRegion
-                local ilCog = CreateFrame("Button", nil, rightRgn)
+                local ilCog = EllesmereUI.SafeCreateFrame("Button", nil, rightRgn)
                 ilCog:SetSize(26, 26)
                 ilCog:SetPoint("RIGHT", rightRgn._control, "LEFT", -8, 0)
                 ilCog:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
@@ -342,7 +342,7 @@ initFrame:SetScript("OnEvent", function(self)
                 ilCog:SetScript("OnClick", function(self)
                     if not ilCogOff() then ilCogShow(self) end
                 end)
-                local ilBlock = CreateFrame("Frame", nil, ilCog)
+                local ilBlock = EllesmereUI.SafeCreateFrame("Frame", nil, ilCog)
                 ilBlock:SetAllPoints(); ilBlock:SetFrameLevel(ilCog:GetFrameLevel() + 10); ilBlock:EnableMouse(true)
                 ilBlock:SetScript("OnEnter", function()
                     EllesmereUI.ShowWidgetTooltip(ilCog, EllesmereUI.DisabledTooltip("Show Item Level"))
@@ -572,7 +572,7 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
                 local leftRgn = pinRecRow._leftRegion
-                local pcCog = CreateFrame("Button", nil, leftRgn)
+                local pcCog = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
                 pcCog:SetSize(26, 26)
                 pcCog:SetPoint("RIGHT", leftRgn._control, "LEFT", -8, 0)
                 pcCog:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
@@ -593,7 +593,7 @@ initFrame:SetScript("OnEvent", function(self)
                 pcCog:SetScript("OnClick", function(self)
                     if not pcCogOff() then pinCogShow(self) end
                 end)
-                local pcBlock = CreateFrame("Frame", nil, pcCog)
+                local pcBlock = EllesmereUI.SafeCreateFrame("Frame", nil, pcCog)
                 pcBlock:SetAllPoints(); pcBlock:SetFrameLevel(pcCog:GetFrameLevel() + 10); pcBlock:EnableMouse(true)
                 pcBlock:SetScript("OnEnter", function()
                     EllesmereUI.ShowWidgetTooltip(pcCog, EllesmereUI.DisabledTooltip("Show Pinned Items"))
@@ -620,7 +620,7 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
                 local rightRgn = pinRecRow._rightRegion
-                local rcCog = CreateFrame("Button", nil, rightRgn)
+                local rcCog = EllesmereUI.SafeCreateFrame("Button", nil, rightRgn)
                 rcCog:SetSize(26, 26)
                 rcCog:SetPoint("RIGHT", rightRgn._control, "LEFT", -8, 0)
                 rcCog:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
@@ -641,7 +641,7 @@ initFrame:SetScript("OnEvent", function(self)
                 rcCog:SetScript("OnClick", function(self)
                     if not rcCogOff() then recentCogShow(self) end
                 end)
-                local rcBlock = CreateFrame("Frame", nil, rcCog)
+                local rcBlock = EllesmereUI.SafeCreateFrame("Frame", nil, rcCog)
                 rcBlock:SetAllPoints(); rcBlock:SetFrameLevel(rcCog:GetFrameLevel() + 10); rcBlock:EnableMouse(true)
                 rcBlock:SetScript("OnEnter", function()
                     EllesmereUI.ShowWidgetTooltip(rcCog, EllesmereUI.DisabledTooltip("Show Recent Items"))

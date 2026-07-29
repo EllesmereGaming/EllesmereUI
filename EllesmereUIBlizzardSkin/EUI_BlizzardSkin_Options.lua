@@ -6,7 +6,7 @@ local PAGE_WINDOWSKINS   = "Blizzard Window Skins"
 local PAGE_TOOLTIPS      = "Tooltips, Menus & Popups"
 local PAGE_DRAGONRIDING  = "Dragon Riding"
 
-local initFrame = CreateFrame("Frame")
+local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
@@ -39,7 +39,7 @@ initFrame:SetScript("OnEvent", function(self)
                 }
             end
             local _, showOffset = EllesmereUI.BuildCogPopup({ title="Border Offset", rows=popupRows })
-            local cog=CreateFrame("Button",nil,left); cog:SetSize(26,26); cog:SetPoint("RIGHT",left._control,"LEFT",-8,0); cog:SetAlpha(.4)
+            local cog=EllesmereUI.SafeCreateFrame("Button",nil,left); cog:SetSize(26,26); cog:SetPoint("RIGHT",left._control,"LEFT",-8,0); cog:SetAlpha(.4)
             local ico=cog:CreateTexture(nil,"OVERLAY"); ico:SetAllPoints(); ico:SetTexture(EllesmereUI.DIRECTIONS_ICON)
             cog:SetScript("OnClick",function(self) showOffset(self) end); left._lastInline=cog
             -- Gray + mouse-off with the row like the mode swatches below
@@ -191,7 +191,7 @@ initFrame:SetScript("OnEvent", function(self)
             local toggle = rgn._control
             if toggle then
                 local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
-                local warnBtn = CreateFrame("Button", nil, rgn)
+                local warnBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
                 warnBtn:SetSize(28, 28)
                 warnBtn:SetPoint("RIGHT", toggle, "LEFT", -4, 0)
                 warnBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
@@ -328,7 +328,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
             -- Manual position button (this file has no shared button helper)
-            local ttPosBtn = CreateFrame("Button", nil, rightRgn)
+            local ttPosBtn = EllesmereUI.SafeCreateFrame("Button", nil, rightRgn)
             ttPosBtn:SetSize(26, 26)
             ttPosBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
             rightRgn._lastInline = ttPosBtn
@@ -342,7 +342,7 @@ initFrame:SetScript("OnEvent", function(self)
             ttPosBtn:SetScript("OnClick", function(self) ttCursorPosShow(self) end)
 
             -- Blocking overlay + disabled tooltip when the toggle is off
-            local ttPosBlock = CreateFrame("Frame", nil, ttPosBtn)
+            local ttPosBlock = EllesmereUI.SafeCreateFrame("Frame", nil, ttPosBtn)
             ttPosBlock:SetAllPoints()
             ttPosBlock:SetFrameLevel(ttPosBtn:GetFrameLevel() + 10)
             ttPosBlock:EnableMouse(true)
@@ -448,7 +448,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local ttContentBtn = CreateFrame("Button", nil, leftRgn)
+            local ttContentBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             ttContentBtn:SetSize(26, 26)
             ttContentBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
             leftRgn._lastInline = ttContentBtn
@@ -546,7 +546,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local sidModBtn = CreateFrame("Button", nil, rightRgn)
+            local sidModBtn = EllesmereUI.SafeCreateFrame("Button", nil, rightRgn)
             sidModBtn:SetSize(26, 26)
             sidModBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
             rightRgn._lastInline = sidModBtn
@@ -560,7 +560,7 @@ initFrame:SetScript("OnEvent", function(self)
             sidModBtn:SetScript("OnClick", function(self) sidModShow(self) end)
 
             -- Blocking overlay + disabled tooltip when Show Spell ID is off
-            local sidModBlock = CreateFrame("Frame", nil, sidModBtn)
+            local sidModBlock = EllesmereUI.SafeCreateFrame("Frame", nil, sidModBtn)
             sidModBlock:SetAllPoints()
             sidModBlock:SetFrameLevel(sidModBtn:GetFrameLevel() + 10)
             sidModBlock:EnableMouse(true)
@@ -600,7 +600,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local showModBtn = CreateFrame("Button", nil, leftRgn)
+            local showModBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             showModBtn:SetSize(26, 26)
             showModBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
             leftRgn._lastInline = showModBtn
@@ -613,7 +613,7 @@ initFrame:SetScript("OnEvent", function(self)
             showModBtn:SetScript("OnLeave", function(self) self:SetAlpha(showModOff() and 0.15 or 0.4) end)
             showModBtn:SetScript("OnClick", function(self) showModShow(self) end)
 
-            local showModBlock = CreateFrame("Frame", nil, showModBtn)
+            local showModBlock = EllesmereUI.SafeCreateFrame("Frame", nil, showModBtn)
             showModBlock:SetAllPoints()
             showModBlock:SetFrameLevel(showModBtn:GetFrameLevel() + 10)
             showModBlock:EnableMouse(true)
@@ -703,7 +703,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local iStacksModBtn = CreateFrame("Button", nil, rightRgn)
+            local iStacksModBtn = EllesmereUI.SafeCreateFrame("Button", nil, rightRgn)
             iStacksModBtn:SetSize(26, 26)
             iStacksModBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
             rightRgn._lastInline = iStacksModBtn
@@ -717,7 +717,7 @@ initFrame:SetScript("OnEvent", function(self)
             iStacksModBtn:SetScript("OnClick", function(self) iStacksModShow(self) end)
 
             -- Blocking overlay + disabled tooltip when Show Max Stack for Items is off
-            local iStacksModBlock = CreateFrame("Frame", nil, iStacksModBtn)
+            local iStacksModBlock = EllesmereUI.SafeCreateFrame("Frame", nil, iStacksModBtn)
             iStacksModBlock:SetAllPoints()
             iStacksModBlock:SetFrameLevel(iStacksModBtn:GetFrameLevel() + 10)
             iStacksModBlock:EnableMouse(true)
@@ -764,7 +764,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         local function AttachDisabledOverlay(target)
-            local block = CreateFrame("Frame", nil, target)
+            local block = EllesmereUI.SafeCreateFrame("Frame", nil, target)
             block:SetAllPoints(target)
             block:SetFrameLevel(target:GetFrameLevel() + 10)
             block:EnableMouse(true)
@@ -812,7 +812,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             if cogOpts then
                 local _, cogShow = EllesmereUI.BuildCogPopup(cogOpts)
-                local cogBtn = CreateFrame("Button", nil, rgn)
+                local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
                 cogBtn:SetSize(26, 26)
                 cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
                 rgn._lastInline = cogBtn
@@ -980,7 +980,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
+            local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
             cogBtn:SetSize(26, 26)
             cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = cogBtn
@@ -1214,7 +1214,7 @@ initFrame:SetScript("OnEvent", function(self)
                 return not (EllesmereUIDB and EllesmereUIDB.themedInspectSheet)
             end
 
-            local itemLevelInspectBlock = CreateFrame("Frame", nil, itemLevelInspectRow)
+            local itemLevelInspectBlock = EllesmereUI.SafeCreateFrame("Frame", nil, itemLevelInspectRow)
             itemLevelInspectBlock:SetAllPoints(itemLevelInspectRow)
             itemLevelInspectBlock:SetFrameLevel(itemLevelInspectRow:GetFrameLevel() + 10)
             itemLevelInspectBlock:EnableMouse(true)
@@ -1275,7 +1275,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         local function AttachDisabledOverlay(target)
-            local block = CreateFrame("Frame", nil, target)
+            local block = EllesmereUI.SafeCreateFrame("Frame", nil, target)
             block:SetAllPoints(target)
             block:SetFrameLevel(target:GetFrameLevel() + 10)
             block:EnableMouse(true)
@@ -1904,7 +1904,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- point only, so a frame that gets its width from a second point
         -- collapses to zero width the first time a search is cleared.
         local cardW = parent:GetWidth() - (EllesmereUI.CONTENT_PAD - WS_CARD_INSET) * 2
-        local hdr = CreateFrame("Button", nil, parent)
+        local hdr = EllesmereUI.SafeCreateFrame("Button", nil, parent)
         PP.Size(hdr, cardW, WS_HEADER_H)
         PP.Point(hdr, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD - WS_CARD_INSET, y)
         hdr:SetFrameLevel(parent:GetFrameLevel() + 3)
@@ -1947,7 +1947,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Procedural mini-window glyph: a tiny framed "window" with a title
         -- bar. The bar lights up in accent while the reskin is enabled, but
         -- only on cards that actually have settings.
-        local glyph = CreateFrame("Frame", nil, hdr)
+        local glyph = EllesmereUI.SafeCreateFrame("Frame", nil, hdr)
         PP.Size(glyph, 22, 16)
         PP.Point(glyph, "LEFT", hdr, "LEFT", 16, 0)
         local glyphBrd = EllesmereUI.MakeBorder(glyph, 1, 1, 1, 0.35, PP)
@@ -1999,26 +1999,26 @@ initFrame:SetScript("OnEvent", function(self)
             -- settings; windows without any keep a gray bar darker than the
             -- glyph border.
             if not hasSettings then
-                glyphBar:SetColorTexture(1, 1, 1, 0.12)
+                glyphBar:SetTexture(1, 1, 1, 0.12)
             elseif on then
-                glyphBar:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
+                glyphBar:SetTexture(EG.r, EG.g, EG.b, 0.85)
             else
-                glyphBar:SetColorTexture(1, 1, 1, 0.2)
+                glyphBar:SetTexture(1, 1, 1, 0.2)
             end
             -- Accent edge marks cards that actually have settings; windows
             -- without any keep the faint neutral strip.
             if strip then
                 if hasSettings then
-                    strip:SetColorTexture(EG.r, EG.g, EG.b, 0.7)
+                    strip:SetTexture(EG.r, EG.g, EG.b, 0.7)
                 else
-                    strip:SetColorTexture(1, 1, 1, 0.10)
+                    strip:SetTexture(1, 1, 1, 0.10)
                 end
             end
             if dd._refreshLabel then dd._refreshLabel() end
         end
 
         local function ApplyHeaderHover()
-            hbg:SetColorTexture(1, 1, 1, 0.05)
+            hbg:SetTexture(1, 1, 1, 0.05)
             title:SetAlpha(1)
             chev:SetAlpha(0.85)
             if brd then brd:SetColor(1, 1, 1, 0.22) end
@@ -2027,7 +2027,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Moving between the header and its dropdown fires OnLeave first;
             -- keep the row highlight while the pointer is still inside the header.
             if hdr:IsMouseOver() then return end
-            hbg:SetColorTexture(0, 0, 0, 0)
+            hbg:SetTexture(0, 0, 0, 0)
             title:SetAlpha(0.9)
             chev:SetAlpha(0.45)
             if brd then brd:SetColor(1, 1, 1, expanded and 0.16 or 0.12) end
@@ -2052,7 +2052,7 @@ initFrame:SetScript("OnEvent", function(self)
         if expanded then
             -- Divider between the header and the card's settings
             local div = hdr:CreateTexture(nil, "ARTWORK")
-            div:SetColorTexture(1, 1, 1, 0.07)
+            div:SetTexture(1, 1, 1, 0.07)
             div:SetHeight(1)
             PP.Point(div, "BOTTOMLEFT", hdr, "BOTTOMLEFT", 1, 0)
             PP.Point(div, "BOTTOMRIGHT", hdr, "BOTTOMRIGHT", -1, 0)
@@ -2069,7 +2069,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- collected as a row, follows the header wherever the search re-flows
         -- it, and hides/shows with it for free. Explicitly sized because the
         -- header's own rect is the only anchor left.
-        local bg = CreateFrame("Frame", nil, hdr)
+        local bg = EllesmereUI.SafeCreateFrame("Frame", nil, hdr)
         bg:SetFrameLevel(parent:GetFrameLevel())
         PP.Size(bg, cardW, cardTop - y)
         PP.Point(bg, "TOPLEFT", hdr, "TOPLEFT", 0, 0)
@@ -2118,7 +2118,7 @@ initFrame:SetScript("OnEvent", function(self)
         local FONT = EllesmereUI._font or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
 
         local HERO_H = 470
-        local host = CreateFrame("Frame", nil, parent)
+        local host = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
         PP.Size(host, parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2, HERO_H)
         PP.Point(host, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, yOffset - 24)
 
@@ -2134,39 +2134,39 @@ initFrame:SetScript("OnEvent", function(self)
             local isCenter = (i == 2)
             local w = CARD_W
             local ch = isCenter and (CARD_H + 10) or CARD_H
-            local card = CreateFrame("Frame", nil, host)
+            local card = EllesmereUI.SafeCreateFrame("Frame", nil, host)
             card:SetFrameLevel(host:GetFrameLevel() + 1)
             PP.Size(card, w, ch)
             PP.Point(card, "CENTER", host, "TOP", (i - 2) * (CARD_W + CARD_GAP), -64)
             local cbg = card:CreateTexture(nil, "BACKGROUND")
             cbg:SetAllPoints()
-            cbg:SetColorTexture(0.12, 0.13, 0.15, 1)
+            cbg:SetTexture(0.12, 0.13, 0.15, 1)
             local c = titleColors[i]
             local bar = card:CreateTexture(nil, "ARTWORK")
-            bar:SetColorTexture(c[1], c[2], c[3], isCenter and 0.95 or 0.75)
+            bar:SetTexture(c[1], c[2], c[3], isCenter and 0.95 or 0.75)
             bar:SetHeight(8)
             PP.Point(bar, "TOPLEFT", card, "TOPLEFT", 1, -1)
             PP.Point(bar, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
             if bar.SetSnapToPixelGrid then bar:SetSnapToPixelGrid(false); bar:SetTexelSnappingBias(0) end
             local dot = card:CreateTexture(nil, "OVERLAY")
-            dot:SetColorTexture(0, 0, 0, 0.4)
+            dot:SetTexture(0, 0, 0, 0.4)
             PP.Size(dot, 4, 4)
             PP.Point(dot, "RIGHT", bar, "RIGHT", -3, 0)
             local l1 = card:CreateTexture(nil, "ARTWORK")
-            l1:SetColorTexture(1, 1, 1, isCenter and 0.42 or 0.32)
+            l1:SetTexture(1, 1, 1, isCenter and 0.42 or 0.32)
             PP.Size(l1, w - 26, 5)
             PP.Point(l1, "TOPLEFT", card, "TOPLEFT", 13, -18)
             local l2 = card:CreateTexture(nil, "ARTWORK")
-            l2:SetColorTexture(1, 1, 1, 0.18)
+            l2:SetTexture(1, 1, 1, 0.18)
             PP.Size(l2, w - 46, 5)
             PP.Point(l2, "TOPLEFT", l1, "BOTTOMLEFT", 0, -7)
             if isCenter then
                 local l3 = card:CreateTexture(nil, "ARTWORK")
-                l3:SetColorTexture(1, 1, 1, 0.14)
+                l3:SetTexture(1, 1, 1, 0.14)
                 PP.Size(l3, w - 66, 5)
                 PP.Point(l3, "TOPLEFT", l2, "BOTTOMLEFT", 0, -7)
                 local grip = card:CreateTexture(nil, "OVERLAY")
-                grip:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
+                grip:SetTexture(EG.r, EG.g, EG.b, 0.85)
                 PP.Size(grip, 5, 5)
                 PP.Point(grip, "BOTTOMRIGHT", card, "BOTTOMRIGHT", -2, 2)
             end
@@ -2213,13 +2213,13 @@ initFrame:SetScript("OnEvent", function(self)
             end
             bl:SetText(L(text))
             local bdot = host:CreateTexture(nil, "OVERLAY")
-            bdot:SetColorTexture(EG.r, EG.g, EG.b, 1)
+            bdot:SetTexture(EG.r, EG.g, EG.b, 1)
             PP.Size(bdot, 5, 5)
             PP.Point(bdot, "RIGHT", bl, "LEFT", -10, 0)
             prev = bl
         end
 
-        local enableBtn = CreateFrame("Button", nil, host)
+        local enableBtn = EllesmereUI.SafeCreateFrame("Button", nil, host)
         PP.Size(enableBtn, 220, 40)
         PP.Point(enableBtn, "TOP", host, "TOP", 0, -344)
         enableBtn:SetFrameLevel(host:GetFrameLevel() + 2)
@@ -2257,7 +2257,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Hosted on a sized frame (not a raw region on the wrapper) so the
         -- inline search hides it while filtering and restores it on clear;
         -- regions are invisible to the search and would float over results.
-        local introHost = CreateFrame("Frame", nil, parent)
+        local introHost = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
         PP.Size(introHost, parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2, 20)
         PP.Point(introHost, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
         local intro = EllesmereUI.MakeFont(introHost, 13, nil, 1, 1, 1, 0.5)
@@ -2267,7 +2267,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Per-profile master switch (top right; the only per-profile setting
         -- in this section). One step below Blizz Default: no-ops the whole
         -- window engine + CharacterSheet/Inspect + LFG skinning. Reload-bound.
-        local disBtn = CreateFrame("Button", nil, introHost)
+        local disBtn = EllesmereUI.SafeCreateFrame("Button", nil, introHost)
         PP.Size(disBtn, 160, 24)
         PP.Point(disBtn, "RIGHT", introHost, "RIGHT", 0, 0)
         disBtn:SetFrameLevel(introHost:GetFrameLevel() + 3)
@@ -2294,7 +2294,7 @@ initFrame:SetScript("OnEvent", function(self)
         allDD._ttText = "Style to apply to every window below."
         AttachModernSwatch(parent, allDD)
 
-        local applyBtn = CreateFrame("Button", nil, parent)
+        local applyBtn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
         PP.Size(applyBtn, 110, 30)
         PP.Point(applyBtn, "LEFT", allDD, "RIGHT", 10, 0)
         applyBtn:SetFrameLevel(parent:GetFrameLevel() + 3)
@@ -2631,7 +2631,7 @@ initFrame:SetScript("OnEvent", function(self)
                   set = function(v) EDR_SetField("speedText", "offsetY", v); EDR_Redraw() end },
             },
         })
-        local cogBtn = CreateFrame("Button", nil, speedTextRow._rightRegion)
+        local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, speedTextRow._rightRegion)
         cogBtn:SetSize(26, 26)
         cogBtn:SetPoint("RIGHT", speedTextRow._rightRegion._lastInline or speedTextRow._rightRegion._control, "LEFT", -8, 0)
         speedTextRow._rightRegion._lastInline = cogBtn

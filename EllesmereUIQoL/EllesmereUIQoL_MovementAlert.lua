@@ -323,7 +323,7 @@ end
 --  Movement Cooldown Alert display frame (pooled multi-slot: some specs
 --  track more than one mobility spell, e.g. Druid across forms)
 -------------------------------------------------------------------------------
-local movementFrame = CreateFrame("Frame", "EUI_MovementAlertFrame", UIParent)
+local movementFrame = EllesmereUI.SafeCreateFrame("Frame", "EUI_MovementAlertFrame", UIParent)
 movementFrame:SetSize(200, 40)
 movementFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 50)
 movementFrame:Hide()
@@ -397,23 +397,23 @@ local activeSlotCount = 0
 local readyAlertShown = {}
 
 local function CreateDisplaySlot()
-    local slot = CreateFrame("Frame", nil, movementFrame)
+    local slot = EllesmereUI.SafeCreateFrame("Frame", nil, movementFrame)
     slot:SetSize(200, 40)
 
     slot.text = slot:CreateFontString(nil, "OVERLAY")
     slot.text:SetPoint("CENTER")
 
-    slot.icon = CreateFrame("Frame", nil, slot)
+    slot.icon = EllesmereUI.SafeCreateFrame("Frame", nil, slot)
     slot.icon:SetSize(40, 40)
     slot.icon:SetPoint("CENTER")
     slot.icon.border = slot.icon:CreateTexture(nil, "BACKGROUND")
     slot.icon.border:SetAllPoints()
-    slot.icon.border:SetColorTexture(0, 0, 0, 1)
+    slot.icon.border:SetTexture(0, 0, 0, 1)
     slot.icon.tex = slot.icon:CreateTexture(nil, "ARTWORK")
     slot.icon.tex:SetPoint("TOPLEFT", 2, -2)
     slot.icon.tex:SetPoint("BOTTOMRIGHT", -2, 2)
     slot.icon.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    slot.icon.cooldown = CreateFrame("Cooldown", nil, slot.icon, "CooldownFrameTemplate")
+    slot.icon.cooldown = EllesmereUI.SafeCreateFrame("Cooldown", nil, slot.icon, "CooldownFrameTemplate")
     slot.icon.cooldown:SetAllPoints(slot.icon.tex)
     slot.icon.cooldown:SetDrawEdge(false)
     if slot.icon.cooldown.SetCountdownFont then
@@ -421,7 +421,7 @@ local function CreateDisplaySlot()
     end
     slot.icon:Hide()
 
-    slot.bar = CreateFrame("StatusBar", nil, slot)
+    slot.bar = EllesmereUI.SafeCreateFrame("StatusBar", nil, slot)
     slot.bar:SetSize(150, 20)
     slot.bar:SetPoint("CENTER")
     slot.bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
@@ -429,7 +429,7 @@ local function CreateDisplaySlot()
     slot.bar:SetValue(0)
     slot.bar.bg = slot.bar:CreateTexture(nil, "BACKGROUND")
     slot.bar.bg:SetAllPoints()
-    slot.bar.bg:SetColorTexture(0.1, 0.1, 0.1, 0.8)
+    slot.bar.bg:SetTexture(0.1, 0.1, 0.1, 0.8)
     slot.bar.text = slot.bar:CreateFontString(nil, "OVERLAY")
     slot.bar.text:SetPoint("CENTER")
     slot.bar.icon = slot.bar:CreateTexture(nil, "OVERLAY")
@@ -997,7 +997,7 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
             slot.bar:SetValue(cdInfo.timeUntilEndOfStartRecovery)
             local r, g, b = ResolveAlertColor("textColor", "textColorUseClass")
             slot.bar:SetStatusBarColor(r, g, b)
-            slot.bar.text:SetShown(ma.barShowDuration ~= false)
+            if ma.barShowDuration ~= false then slot.bar.text:Show() else slot.bar.text:Hide() end
             if ma.barShowDuration ~= false then
                 slot.bar.text:SetFormattedText("%." .. precision .. "f", cdInfo.timeUntilEndOfStartRecovery)
             end
@@ -1058,7 +1058,7 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
         slot.bar:SetValue(cdRemaining)
         local r, g, b = ResolveAlertColor("textColor", "textColorUseClass")
         slot.bar:SetStatusBarColor(r, g, b)
-        slot.bar.text:SetShown(ma.barShowDuration ~= false)
+        if ma.barShowDuration ~= false then slot.bar.text:Show() else slot.bar.text:Hide() end
         if ma.barShowDuration ~= false then
             slot.bar.text:SetFormattedText("%." .. precision .. "f", cdRemaining)
         end
@@ -1292,7 +1292,7 @@ end
 --  once will fire both alerts off the same glow event -- harmless, just a
 --  possible double-notification if a user turns both on.
 -------------------------------------------------------------------------------
-local timeSpiralFrame = CreateFrame("Frame", "EUI_TimeSpiralFrame", UIParent)
+local timeSpiralFrame = EllesmereUI.SafeCreateFrame("Frame", "EUI_TimeSpiralFrame", UIParent)
 timeSpiralFrame:SetSize(200, 40)
 timeSpiralFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 100)
 timeSpiralFrame:Hide()
@@ -1424,7 +1424,7 @@ EllesmereUI._applyTimeSpiral = ApplyTimeSpiralFrame
 --  Gateway Shard -- Warlock's Demonic Gateway control item
 -------------------------------------------------------------------------------
 local GATEWAY_SHARD_ITEM_ID = 188152
-local gatewayFrame = CreateFrame("Frame", "EUI_GatewayShardFrame", UIParent)
+local gatewayFrame = EllesmereUI.SafeCreateFrame("Frame", "EUI_GatewayShardFrame", UIParent)
 gatewayFrame:SetSize(200, 40)
 gatewayFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 150)
 gatewayFrame:Hide()
@@ -1518,7 +1518,7 @@ EllesmereUI._applyGateway = ApplyGatewayFrame
 -------------------------------------------------------------------------------
 --  Event registration
 -------------------------------------------------------------------------------
-local loader = CreateFrame("Frame")
+local loader = EllesmereUI.SafeCreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
 
 -- Baseline events (spec/talent/combat/world transitions) drive the shared

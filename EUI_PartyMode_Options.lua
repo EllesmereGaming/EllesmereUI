@@ -74,7 +74,7 @@ do
         do
             local ROW_H = 50
             local SIDE_PAD = 20
-            local kbFrame = CreateFrame("Frame", nil, parent)
+            local kbFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
             local totalW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
             PP.Size(kbFrame, totalW, ROW_H)
             PP.Point(kbFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
@@ -85,7 +85,7 @@ do
             label:SetText(EllesmereUI.L("Toggle On/Off Keybind"))
 
             local KB_W, KB_H = 140, 30
-            local kbBtn = CreateFrame("Button", nil, kbFrame)
+            local kbBtn = EllesmereUI.SafeCreateFrame("Button", nil, kbFrame)
             PP.Size(kbBtn, KB_W, KB_H)
             PP.Point(kbBtn, "RIGHT", kbFrame, "RIGHT", -SIDE_PAD, 0)
             kbBtn:SetFrameLevel(kbFrame:GetFrameLevel() + 2)
@@ -170,7 +170,7 @@ do
             end)
 
             kbBtn:SetScript("OnEnter", function(self)
-                kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+                kbBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
                 if kbBtn._border and kbBtn._border.SetColor then
                     kbBtn._border:SetColor(1, 1, 1, 0.3)
                 end
@@ -178,7 +178,7 @@ do
             end)
             kbBtn:SetScript("OnLeave", function()
                 if listening then return end
-                kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+                kbBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
                 if kbBtn._border and kbBtn._border.SetColor then
                     kbBtn._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
                 end
@@ -202,7 +202,7 @@ do
         do
             local ROW_H = 50
             local SIDE_PAD = 20
-            local frame = CreateFrame("Frame", nil, parent)
+            local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
             local totalW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
             PP.Size(frame, totalW, ROW_H)
             PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
@@ -325,7 +325,7 @@ do
         do
             local totalW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
             local sep = parent:CreateTexture(nil, "ARTWORK", nil, 7)
-            sep:SetColorTexture(EllesmereUI.BORDER_R, EllesmereUI.BORDER_G, EllesmereUI.BORDER_B, 0.02)
+            sep:SetTexture(EllesmereUI.BORDER_R, EllesmereUI.BORDER_G, EllesmereUI.BORDER_B, 0.02)
             PP.Size(sep, totalW, 1)
             PP.Point(sep, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y + 1)
         end
@@ -406,7 +406,7 @@ do
                 end
 
                 -- Label hit zone (left half)
-                local durHitLabel = CreateFrame("Frame", nil, durFrame)
+                local durHitLabel = EllesmereUI.SafeCreateFrame("Frame", nil, durFrame)
                 durHitLabel:SetFrameLevel(durFrame:GetFrameLevel() + 10)
                 durHitLabel:EnableMouse(false)
                 if durLabel then
@@ -422,7 +422,7 @@ do
                 durHitLabel:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
                 -- Control hit zone (right half)
-                local durHitControl = CreateFrame("Frame", nil, durFrame)
+                local durHitControl = EllesmereUI.SafeCreateFrame("Frame", nil, durFrame)
                 durHitControl:SetFrameLevel(durFrame:GetFrameLevel() + 10)
                 durHitControl:EnableMouse(false)
                 durHitControl:SetPoint("TOPRIGHT", durFrame, "TOPRIGHT", 0, 0)
@@ -502,7 +502,7 @@ do
                 end
 
                 -- Label hit zone (left half)
-                local cdHitLabel = CreateFrame("Frame", nil, cdFrame)
+                local cdHitLabel = EllesmereUI.SafeCreateFrame("Frame", nil, cdFrame)
                 cdHitLabel:SetFrameLevel(cdFrame:GetFrameLevel() + 10)
                 cdHitLabel:EnableMouse(false)
                 if cdLabel then
@@ -519,7 +519,7 @@ do
                 cdHitLabel:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
                 -- Control hit zone (right half)
-                local cdHitControl = CreateFrame("Frame", nil, cdFrame)
+                local cdHitControl = EllesmereUI.SafeCreateFrame("Frame", nil, cdFrame)
                 cdHitControl:SetFrameLevel(cdFrame:GetFrameLevel() + 10)
                 cdHitControl:EnableMouse(false)
                 cdHitControl:SetPoint("TOPRIGHT", cdFrame, "TOPRIGHT", 0, 0)

@@ -47,7 +47,7 @@ end
 -- Auto-accept / auto-turn-in
 -------------------------------------------------------------------------------
 local function InstallAutoQuests()
-    local autoFrame = CreateFrame("Frame")
+    local autoFrame = EllesmereUI.SafeCreateFrame("Frame")
     local autoPreventNPCGUID = nil
     autoFrame:RegisterEvent("QUEST_DETAIL")
     autoFrame:RegisterEvent("QUEST_COMPLETE")
@@ -152,8 +152,8 @@ local function ScanForQuestItem()
 end
 
 local function InstallQuestItemHotkey()
-    local qItemBtn = CreateFrame("Button", "EUI_QuestItemHotkeyBtn", UIParent,
-        "SecureActionButtonTemplate, SecureHandlerAttributeTemplate")
+    local qItemBtn = EllesmereUI.SafeCreateFrame("Button", "EUI_QuestItemHotkeyBtn", UIParent,
+        "SecureActionButtonTemplate, SecureFrameTemplate, SecureHandlerBaseTemplate")
     qItemBtn:SetSize(32, 32)
     qItemBtn:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     qItemBtn:SetAlpha(0)
@@ -174,7 +174,7 @@ local function InstallQuestItemHotkey()
         ]])
     end
     if InCombatLockdown() then
-        local initFrame = CreateFrame("Frame")
+        local initFrame = EllesmereUI.SafeCreateFrame("Frame")
         initFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
         initFrame:SetScript("OnEvent", function(f)
             f:UnregisterAllEvents()
@@ -247,7 +247,7 @@ local function InstallQuestItemHotkey()
     end
     EQT.UpdateQuestItemAttribute = UpdateQuestItemAttribute
 
-    local qItemFrame = CreateFrame("Frame")
+    local qItemFrame = EllesmereUI.SafeCreateFrame("Frame")
     qItemFrame:RegisterEvent("QUEST_LOG_UPDATE")
     qItemFrame:RegisterEvent("QUEST_ACCEPTED")
     qItemFrame:RegisterEvent("QUEST_REMOVED")

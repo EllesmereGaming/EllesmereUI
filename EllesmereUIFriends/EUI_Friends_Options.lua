@@ -15,7 +15,7 @@ local PAGE_DMG_METERS    = "Damage Meters"
 local SECTION_CHAT    = "CHAT"
 local SECTION_MINIMAP = "DISPLAY"
 
-local initFrame = CreateFrame("Frame")
+local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
@@ -193,7 +193,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- and blocks (with a requirement tooltip) while disabledFn() is true --
     -- the standard inline-control disabled-state pattern.
     local function MakeCogBtn(rgn, showFn, disabledFn, disabledLabel)
-        local cogBtn = CreateFrame("Button", nil, rgn)
+        local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
         cogBtn:SetSize(26, 26)
         cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = cogBtn
@@ -210,7 +210,7 @@ initFrame:SetScript("OnEvent", function(self)
         cogBtn:SetScript("OnClick", function(s) showFn(s) end)
 
         if disabledFn then
-            local block = CreateFrame("Frame", nil, cogBtn)
+            local block = EllesmereUI.SafeCreateFrame("Frame", nil, cogBtn)
             block:SetAllPoints()
             block:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
             block:EnableMouse(true)

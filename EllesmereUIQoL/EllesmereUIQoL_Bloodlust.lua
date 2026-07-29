@@ -680,7 +680,7 @@ end
 
 local function _ensureEvents(enabled)
     if not _eventFrame then
-        _eventFrame = CreateFrame("Frame")
+        _eventFrame = EllesmereUI.SafeCreateFrame("Frame")
         _eventFrame:SetScript("OnEvent", _onEvent)
     end
     if enabled then
@@ -704,7 +704,7 @@ end
 -------------------------------------------------------------------------------
 local function CreateBloodlustFrame()
     if frame then return frame end
-    frame = CreateFrame("Frame", "EllesmereUIBloodlustIcon", UIParent)
+    frame = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIBloodlustIcon", UIParent)
     frame:SetFrameStrata("MEDIUM")
     frame:SetSize(40, 40)
     frame:Hide()
@@ -721,7 +721,7 @@ local function CreateBloodlustFrame()
     borderTex = frame:CreateTexture(nil, "OVERLAY")
     borderTex:Hide()
 
-    cooldownFrame = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
+    cooldownFrame = EllesmereUI.SafeCreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
     cooldownFrame:SetAllPoints(frame)
     cooldownFrame:SetDrawEdge(false)
     cooldownFrame:SetHideCountdownNumbers(true)  -- we render our own duration text
@@ -738,7 +738,7 @@ local function CreateBloodlustFrame()
     -- 40s active-lust overlay. Sits ABOVE the debuff icon and its swipe; shown
     -- for 40s on a fresh debuff acquire, then hidden, revealing the untouched
     -- debuff icon underneath. We never modify the debuff icon itself.
-    buffOverlay = CreateFrame("Frame", nil, frame)
+    buffOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     buffOverlay:SetAllPoints(frame)
     buffOverlay:SetFrameLevel(cooldownFrame:GetFrameLevel() + 4)
     buffOverlay:Hide()
@@ -746,7 +746,7 @@ local function CreateBloodlustFrame()
     buffTex = buffOverlay:CreateTexture(nil, "ARTWORK")
     buffTex:SetAllPoints(buffOverlay)
 
-    buffCooldown = CreateFrame("Cooldown", nil, buffOverlay, "CooldownFrameTemplate")
+    buffCooldown = EllesmereUI.SafeCreateFrame("Cooldown", nil, buffOverlay, "CooldownFrameTemplate")
     buffCooldown:SetAllPoints(buffOverlay)
     buffCooldown:SetDrawEdge(false)
     buffCooldown:SetHideCountdownNumbers(true)
@@ -860,7 +860,7 @@ _G._EUI_Bloodlust_RegisterUnlock = RegisterUnlock
 --  BattleRes runtime loads first via the TOC; the retry guard covers any
 --  ordering surprise).
 -------------------------------------------------------------------------------
-local boot = CreateFrame("Frame")
+local boot = EllesmereUI.SafeCreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")
 boot:SetScript("OnEvent", function(self)
     self:UnregisterAllEvents()

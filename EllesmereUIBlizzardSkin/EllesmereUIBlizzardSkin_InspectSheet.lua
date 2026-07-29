@@ -186,7 +186,7 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
             enchantLabel:SetText(iconOnly)
             GetFFD(slot).enchantText = enchantLabel
 
-            local hoverFrame = CreateFrame("Frame", nil, textOverlayFrame)
+            local hoverFrame = EllesmereUI.SafeCreateFrame("Frame", nil, textOverlayFrame)
             hoverFrame:SetSize(20, 20)
             hoverFrame:SetFrameLevel(textOverlayFrame:GetFrameLevel() + 20)
             if slotName == "InspectMainHandSlot" then
@@ -256,13 +256,13 @@ local function ApplyTabVisibility(showLabels)
         if slot then
             -- Only show labels if on Tab 1 and settings allow
             if GetFFD(slot).iLvlText then
-                GetFFD(slot).iLvlText:SetShown(showLabels and showItemLevel)
+                GetFFD(slot)if showLabels and showItemLevel then .iLvlText:Show() else .iLvlText:Hide() end
             end
             if GetFFD(slot).upgradeText then
-                GetFFD(slot).upgradeText:SetShown(showLabels and showUpgradeTrack)
+                GetFFD(slot)if showLabels and showUpgradeTrack then .upgradeText:Show() else .upgradeText:Hide() end
             end
             if GetFFD(slot).enchantText then
-                GetFFD(slot).enchantText:SetShown(showLabels and showEnchants)
+                GetFFD(slot)if showLabels and showEnchants then .enchantText:Show() else .enchantText:Hide() end
             end
         end
     end
@@ -270,8 +270,8 @@ local function ApplyTabVisibility(showLabels)
     -- Hide/show avg ilvl + M+ score
     local frame = InspectFrame
     if frame then
-        if GetFFD(frame).avgIlvlText then GetFFD(frame).avgIlvlText:SetShown(showLabels) end
-        if GetFFD(frame).mPlusScoreText then GetFFD(frame).mPlusScoreText:SetShown(showLabels) end
+        if GetFFD(frame).avgIlvlText then GetFFD(frame)if showLabels then .avgIlvlText:Show() else .avgIlvlText:Hide() end end
+        if GetFFD(frame).mPlusScoreText then GetFFD(frame)if showLabels then .mPlusScoreText:Show() else .mPlusScoreText:Hide() end end
     end
 end
 
@@ -315,7 +315,7 @@ local function SkinInspectSheet()
         bg:SetAlpha(1)
         GetFFD(frame).bg = bg
         GetFFD(frame).bgOverlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-        GetFFD(frame).bgOverlay:SetColorTexture(0, 0, 0, 0.62)
+        GetFFD(frame).bgOverlay:SetTexture(0, 0, 0, 0.62)
         GetFFD(frame).bgOverlay:SetAllPoints(frame)
         -- Aspect-ratio-preserving cover mode (matches character sheet)
         local BASE_L, BASE_R, BASE_T, BASE_B = 0.25, 1, 0, 0.75
@@ -370,7 +370,7 @@ local function SkinInspectSheet()
         if GetFFD(frame).modelBgFrame then return end
         local myModel = _G.InspectModelFrame
         if not myModel then return end
-        local bgFrame = CreateFrame("Frame", nil, myModel)
+        local bgFrame = EllesmereUI.SafeCreateFrame("Frame", nil, myModel)
         bgFrame:SetFrameLevel(math.max(1, myModel:GetFrameLevel() - 1))
         bgFrame:ClearAllPoints()
         -- Match the Character sheet: span the backdrop across the full gear
@@ -722,7 +722,7 @@ local function SkinInspectSheet()
     -- Reuse existing overlay to prevent frame multiplication on repeated reskins
     local textOverlayFrame = GetFFD(frame).textOverlayFrame
     if not textOverlayFrame then
-        textOverlayFrame = CreateFrame("Frame", "EUI_InspectSheet_TextOverlay", frame)
+        textOverlayFrame = EllesmereUI.SafeCreateFrame("Frame", "EUI_InspectSheet_TextOverlay", frame)
         textOverlayFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
         textOverlayFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
         textOverlayFrame:SetFrameLevel(frame:GetFrameLevel() + 10)
@@ -739,7 +739,7 @@ local function SkinInspectSheet()
     if not GetFFD(frame).textEyeBtn then
         local EYE_VISIBLE   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-visible.png"
         local EYE_INVISIBLE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-invisible.png"
-        local eyeBtn = CreateFrame("Button", "EUI_InspectSheet_TextEyeBtn", frame)
+        local eyeBtn = EllesmereUI.SafeCreateFrame("Button", "EUI_InspectSheet_TextEyeBtn", frame)
         eyeBtn:SetSize(20, 20)
         eyeBtn:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -6)
         eyeBtn:SetFrameLevel(frame:GetFrameLevel() + 20)
@@ -808,7 +808,7 @@ local function SkinInspectSheet()
 
         -- Text overlay frame above model bg and fade
         if not GetFFD(frame).textOverlay then
-            local txo = CreateFrame("Frame", nil, frame)
+            local txo = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
             txo:SetAllPoints(frame)
             txo:SetFrameLevel((_G.InspectModelFrame and _G.InspectModelFrame:GetFrameLevel() or frame:GetFrameLevel()) + 5)
             txo:EnableMouse(false)
@@ -898,17 +898,17 @@ local function SkinInspectSheet()
             if not GetFFD(tab).bg then
                 GetFFD(tab).bg = tab:CreateTexture(nil, "BACKGROUND")
                 GetFFD(tab).bg:SetAllPoints()
-                GetFFD(tab).bg:SetColorTexture(0.043, 0.031, 0.027, 1)
+                GetFFD(tab).bg:SetTexture(0.043, 0.031, 0.027, 1)
             else
                 GetFFD(tab).bg:Show()
-                GetFFD(tab).bg:SetColorTexture(0.043, 0.031, 0.027, 1)
+                GetFFD(tab).bg:SetTexture(0.043, 0.031, 0.027, 1)
             end
 
             -- Add active highlight
             if not GetFFD(tab).activeHL then
                 local activeHL = tab:CreateTexture(nil, "ARTWORK", nil, -6)
                 activeHL:SetAllPoints()
-                activeHL:SetColorTexture(1, 1, 1, 0.02)
+                activeHL:SetTexture(1, 1, 1, 0.02)
                 activeHL:SetBlendMode("ADD")
                 activeHL:Hide()
                 GetFFD(tab).activeHL = activeHL
@@ -918,7 +918,7 @@ local function SkinInspectSheet()
                 -- (inspect re-skins on every INSPECT_READY as data streams in).
                 -- Restore the fill, or the active-tab highlight blanks out --
                 -- the same reason the background is re-colored above.
-                GetFFD(tab).activeHL:SetColorTexture(1, 1, 1, 0.02)
+                GetFFD(tab).activeHL:SetTexture(1, 1, 1, 0.02)
                 GetFFD(tab).activeHL:SetBlendMode("ADD")
             end
 
@@ -952,7 +952,7 @@ local function SkinInspectSheet()
                 end
                 underline:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", 0, 0)
                 underline:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
-                underline:SetColorTexture(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 1)
+                underline:SetTexture(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 1)
                 if EllesmereUI and EllesmereUI.RegAccent then
                     EllesmereUI.RegAccent({ type = "solid", obj = underline, a = 1 })
                 end
@@ -961,7 +961,7 @@ local function SkinInspectSheet()
             else
                 -- Same strip-loop restore as activeHL above: re-apply the accent
                 -- fill so the active-tab underline does not blank out on re-skin.
-                GetFFD(tab).underline:SetColorTexture(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 1)
+                GetFFD(tab).underline:SetTexture(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 1)
             end
         end
     end
@@ -973,18 +973,18 @@ local function SkinInspectSheet()
 
         -- Show model background only on Tab 1
         if GetFFD(frame).modelBg then
-            GetFFD(frame).modelBg:SetShown(isTab1)
+            GetFFD(frame)if isTab1 then .modelBg:Show() else .modelBg:Hide() end
         end
         if GetFFD(frame).modelBgGlow then
-            GetFFD(frame).modelBgGlow:SetShown(isTab1)
+            GetFFD(frame)if isTab1 then .modelBgGlow:Show() else .modelBgGlow:Hide() end
         end
 
         -- Show Talents/Transmog buttons only on Tab 1 (Character sheet)
         if GetFFD(frame).talentsBtn then
-            GetFFD(frame).talentsBtn:SetShown(isTab1)
+            GetFFD(frame)if isTab1 then .talentsBtn:Show() else .talentsBtn:Hide() end
         end
         if GetFFD(frame).transmogBtn then
-            GetFFD(frame).transmogBtn:SetShown(isTab1)
+            GetFFD(frame)if isTab1 then .transmogBtn:Show() else .transmogBtn:Hide() end
         end
 
         -- Update label visibility with ApplyTabVisibility - only show on Tab 1
@@ -1002,10 +1002,10 @@ local function SkinInspectSheet()
                     GetFFD(tab).label:SetTextColor(1, 1, 1, isActive and 1 or 0.5)
                 end
                 if GetFFD(tab).underline then
-                    GetFFD(tab).underline:SetShown(isActive)
+                    GetFFD(tab)if isActive then .underline:Show() else .underline:Hide() end
                 end
                 if GetFFD(tab).activeHL then
-                    GetFFD(tab).activeHL:SetShown(isActive)
+                    GetFFD(tab)if isActive then .activeHL:Show() else .activeHL:Hide() end
                 end
             end
         end
@@ -1070,7 +1070,7 @@ local DOCK_MARGIN = 4
 -- taints. The handler is parented to UIParent, so self:GetParent() inside the
 -- snippet IS UIParent and the frame anchors relative to UIParent. Combat-gated,
 -- since secure repositioning of a protected frame is blocked in combat.
-local securePositioner = CreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
+local securePositioner = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
 local function SecureSetPoint(frame, point, relPoint, x, y)
     if InCombatLockdown() then return false end
     securePositioner:SetFrameRef("f", frame)
@@ -1241,7 +1241,7 @@ if EllesmereUI then
 
     -- Register hooks when Blizzard_InspectUI loads (it's load-on-demand,
     -- so InspectFrame doesn't exist at PLAYER_LOGIN)
-    local initFrame = CreateFrame("Frame")
+    local initFrame = EllesmereUI.SafeCreateFrame("Frame")
     local _inspHooked = false
 
     local function HookInspectFrame()
@@ -1288,7 +1288,7 @@ if EllesmereUI then
             end)
         end
 
-        local nineSliceHiddenFrame = CreateFrame("Frame")
+        local nineSliceHiddenFrame = EllesmereUI.SafeCreateFrame("Frame")
         nineSliceHiddenFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
         nineSliceHiddenFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
         nineSliceHiddenFrame:SetScript("OnEvent", function(self, event, ...)
@@ -1354,7 +1354,7 @@ if EllesmereUI then
     end
 
     -- Also hook to INSPECT_READY to reskin when new inspection data arrives
-    local inspectHook = CreateFrame("Frame")
+    local inspectHook = EllesmereUI.SafeCreateFrame("Frame")
     inspectHook:RegisterEvent("INSPECT_READY")
     inspectHook:SetScript("OnEvent", function(self, event, guid)
         if not InspectFrame or not InspectFrame:IsShown() then return end
@@ -1388,7 +1388,7 @@ end
 
 -- Initialize defaults
 do
-    local defaultStamp = CreateFrame("Frame")
+    local defaultStamp = EllesmereUI.SafeCreateFrame("Frame")
     defaultStamp:RegisterEvent("ADDON_LOADED")
     defaultStamp:SetScript("OnEvent", function(self, _, addon)
         if addon ~= "EllesmereUI" then return end
@@ -1419,7 +1419,7 @@ function EllesmereUI._refreshInspectItemLevelVisibility()
         local slot = _G[slotName]
         if slot and GetFFD(slot).iLvlText then
             -- Only show if Tab 1 AND setting is enabled
-            GetFFD(slot).iLvlText:SetShown(isTab1 and showItemLevel)
+            GetFFD(slot)if isTab1 and showItemLevel then .iLvlText:Show() else .iLvlText:Hide() end
         end
     end
 end
@@ -1435,7 +1435,7 @@ function EllesmereUI._refreshInspectUpgradeTrackVisibility()
         local slot = _G[slotName]
         if slot and GetFFD(slot).upgradeText then
             -- Only show if Tab 1 AND setting is enabled
-            GetFFD(slot).upgradeText:SetShown(isTab1 and showUpgradeTrack)
+            GetFFD(slot)if isTab1 and showUpgradeTrack then .upgradeText:Show() else .upgradeText:Hide() end
         end
     end
 end
@@ -1451,7 +1451,7 @@ function EllesmereUI._refreshInspectEnchantsVisibility()
         local slot = _G[slotName]
         if slot and GetFFD(slot).enchantText then
             -- Only show if Tab 1 AND setting is enabled
-            GetFFD(slot).enchantText:SetShown(isTab1 and showEnchants)
+            GetFFD(slot)if isTab1 and showEnchants then .enchantText:Show() else .enchantText:Hide() end
         end
     end
 end

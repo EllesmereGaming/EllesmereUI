@@ -111,7 +111,7 @@ do
         _curFrameTotal = _curFrameTotal + elapsed
     end
 
-    local profFrame = CreateFrame("Frame")
+    local profFrame = EllesmereUI.SafeCreateFrame("Frame")
     profFrame:Hide()
     profFrame:SetScript("OnUpdate", function()
         if not _profActive then profFrame:Hide(); return end
@@ -1690,7 +1690,7 @@ end
 
 local function GetOrCreateCombatIcon(index)
     if combatIconPool[index] then return combatIconPool[index] end
-    local f = CreateFrame("Frame", "EABR_CombatIcon"..index, combatAnchor)
+    local f = EllesmereUI.SafeCreateFrame("Frame", "EABR_CombatIcon"..index, combatAnchor)
     f:SetSize(ICON_SIZE, ICON_SIZE)
     f:SetFrameStrata(GetStrata())
     f:SetFrameLevel(120)
@@ -1773,7 +1773,7 @@ end
 -------------------------------------------------------------------------------
 local function GetOrCreateCursorIcon(index)
     if cursorIconPool[index] then return cursorIconPool[index] end
-    local f = CreateFrame("Frame", "EABR_CursorIcon"..index, cursorAnchor)
+    local f = EllesmereUI.SafeCreateFrame("Frame", "EABR_CursorIcon"..index, cursorAnchor)
     f:SetSize(ICON_SIZE, ICON_SIZE)
     f:SetFrameStrata("TOOLTIP")
     f:SetFrameLevel(9980)
@@ -1871,7 +1871,7 @@ local function ApplyGlow(btn, glowType, cr, cg, cb, overrideSz)
         cr, cg, cb = 1.0, 0.788, 0.137
     end
     if not btn._eabrGlowWrapper then
-        local w = CreateFrame("Frame", nil, btn); w:SetAllPoints(btn); w:SetFrameLevel(btn:GetFrameLevel()+4)
+        local w = EllesmereUI.SafeCreateFrame("Frame", nil, btn); w:SetAllPoints(btn); w:SetFrameLevel(btn:GetFrameLevel()+4)
         btn._eabrGlowWrapper = w
     end
     local wrapper = btn._eabrGlowWrapper; local sz = overrideSz or btn:GetWidth() or ICON_SIZE
@@ -1891,7 +1891,7 @@ end
 local function GetOrCreateIcon(index)
     if iconPool[index] then return iconPool[index] end
     -- SecureActionButtonTemplate for click-to-cast in combat
-    local btn = CreateFrame("Button", "EABR_Icon"..index, iconAnchor, "SecureActionButtonTemplate")
+    local btn = EllesmereUI.SafeCreateFrame("Button", "EABR_Icon"..index, iconAnchor, "SecureActionButtonTemplate")
     btn:SetSize(ICON_SIZE, ICON_SIZE)
     btn:RegisterForClicks("LeftButtonDown", "LeftButtonUp", "MiddleButtonUp")
     securecallfunction(btn.SetPassThroughButtons, btn, "RightButton")
@@ -2669,7 +2669,7 @@ local function Refresh()
     -- OnEnable (PLAYER_LOGIN). Several of mainFrame's file-scope events
     -- (SPELLS_CHANGED, PLAYER_TALENT_UPDATE, TRAIT_CONFIG_UPDATED, ...) can fire
     -- DURING loading, before OnEnable runs. If a reminder is missing at that
-    -- moment, GetOrCreateIcon would CreateFrame the button with a nil parent --
+    -- moment, GetOrCreateIcon would EllesmereUI.SafeCreateFrame the button with a nil parent --
     -- it then never inherits the pixel-perfect UIParent scale and renders
     -- oversized (ES 1.0 instead of the UI scale) for the rest of the session,
     -- because pooled buttons are only ever re-sized/re-pointed, never
@@ -3166,7 +3166,7 @@ end
 --  Standalone Beacon Reminders — IsSpellOverlayed-based, combat-safe.
 --  Independent from the main aura/buff system.
 -------------------------------------------------------------------------------
-_B.frame = CreateFrame("Frame")
+_B.frame = EllesmereUI.SafeCreateFrame("Frame")
 _B.isPaladin = false
 _B.overlayRegistered = false
 _B.anchor = nil
@@ -3212,7 +3212,7 @@ local function BeaconUpdateOverlayEvents()
 end
 
 local function BeaconMakeIcon(spellID)
-    local f = CreateFrame("Frame", nil, UIParent)
+    local f = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     f:SetSize(ICON_SIZE, ICON_SIZE)
     f:SetFrameStrata("HIGH")
     f:SetFrameLevel(120)
@@ -3392,7 +3392,7 @@ local function BeaconInit()
     _B.icons[_B.BOF] = BeaconMakeIcon(_B.BOF)
 
     -- Anchor follows the main combat anchor position
-    _B.anchor = CreateFrame("Frame", "EABR_BeaconAnchor", UIParent)
+    _B.anchor = EllesmereUI.SafeCreateFrame("Frame", "EABR_BeaconAnchor", UIParent)
     _B.anchor:SetSize(1, 1)
     _B.anchor:SetFrameStrata("HIGH")
     _B.anchor:EnableMouse(false)
@@ -3459,7 +3459,7 @@ end)
 -------------------------------------------------------------------------------
 --  MAIN EVENT FRAME (forward-declared so OnEnable can reference it)
 -------------------------------------------------------------------------------
-local mainFrame = CreateFrame("Frame")
+local mainFrame = EllesmereUI.SafeCreateFrame("Frame")
 
 -- Toggle broad vs player-only UNIT_AURA registration.
 -- Defined at file scope so both OnEnable and the event handler can use it.
@@ -3537,7 +3537,7 @@ function EABR:OnEnable()
     _G._EABR_STRATA_ORDER = STRATA_ORDER
 
     -- Create anchor
-    iconAnchor = CreateFrame("Frame", "EABR_Anchor", UIParent)
+    iconAnchor = EllesmereUI.SafeCreateFrame("Frame", "EABR_Anchor", UIParent)
     iconAnchor:SetSize(1, 1)
     iconAnchor:SetFrameStrata(GetStrata())
     iconAnchor:EnableMouse(false)
@@ -3545,7 +3545,7 @@ function EABR:OnEnable()
 
     -- Create combat anchor (non-secure, follows iconAnchor position)
     -- Parented to UIParent so Show/Hide is never blocked by combat lockdown.
-    combatAnchor = CreateFrame("Frame", "EABR_CombatAnchor", UIParent)
+    combatAnchor = EllesmereUI.SafeCreateFrame("Frame", "EABR_CombatAnchor", UIParent)
     combatAnchor:SetSize(1, 1)
     combatAnchor:SetFrameStrata(GetStrata())
     combatAnchor:SetFrameLevel(110)
@@ -3555,7 +3555,7 @@ function EABR:OnEnable()
     EllesmereUI.SetElementVisibility(combatAnchor, false)
 
     -- Cursor anchor: tracks cursor position via OnUpdate (same as CDM).
-    cursorAnchor = CreateFrame("Frame", "EABR_CursorAnchor", UIParent)
+    cursorAnchor = EllesmereUI.SafeCreateFrame("Frame", "EABR_CursorAnchor", UIParent)
     cursorAnchor:SetSize(1, 1)
     cursorAnchor:SetFrameStrata("TOOLTIP")
     cursorAnchor:SetFrameLevel(9980)
@@ -3665,7 +3665,7 @@ function EABR:OnEnable()
     for i = 1, 40 do _raidTokens[i] = "raid" .. i end
     for i = 1, 4 do _partyTokens[i] = "party" .. i end
 
-    local rangeFrame = CreateFrame("Frame")
+    local rangeFrame = EllesmereUI.SafeCreateFrame("Frame")
     local _rangeTrackers = {}
     local function _checkUnit(u)
         if not UnitExists(u) then
@@ -3715,7 +3715,7 @@ function EABR:OnEnable()
         if UnitIsUnit(unit, "player") then return end
         local tracker = _rangeTrackers[unit]
         if not tracker then
-            tracker = CreateFrame("Frame")
+            tracker = EllesmereUI.SafeCreateFrame("Frame")
             tracker:SetScript("OnEvent", _onRangeEvent)
             _rangeTrackers[unit] = tracker
         end
@@ -3936,7 +3936,7 @@ local function DetectUsedItem()
 end
 
 do
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f:RegisterEvent("BAG_UPDATE_DELAYED")
     f:RegisterEvent("PLAYER_LOGIN")
     f:SetScript("OnEvent", function(_, ev)
@@ -4065,7 +4065,7 @@ local SetupReadyCheckManaWarning = function()
 
     local function BuildWarnFrame()
         if warnFrame then return end
-        warnFrame = CreateFrame("Frame", nil, UIParent)
+        warnFrame = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         warnFrame:SetSize(600, 60)
         warnFrame:SetFrameStrata("FULLSCREEN")
         warnFrame:SetFrameLevel(100)
@@ -4095,7 +4095,7 @@ local SetupReadyCheckManaWarning = function()
     -- Only listen for READY_CHECK when out of combat AND in a raid.
     -- GROUP_ROSTER_UPDATE / zone change track raid membership.
     -- PLAYER_REGEN toggles combat state.
-    local rcFrame = CreateFrame("Frame")
+    local rcFrame = EllesmereUI.SafeCreateFrame("Frame")
     local _inRaid = false
 
     local function UpdateReadyCheckRegistration()

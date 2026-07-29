@@ -1,0 +1,26 @@
+## Interface: 30300
+## Title: |cff0cd29fEllesmereUI|r Blizz UI Enhanced
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Clean and beautiful visual refreshes for Blizzard UI elements.
+## Author: Ellesmere
+## Version: 8.6.4
+## Dependencies: EllesmereUI
+## SavedVariables: EllesmereUIBlizzardSkinDB, EllesmereUIDragonRidingDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+# Main Luas
+EllesmereUIBlizzardSkin.lua
+EllesmereUIBlizzardSkin_DiminishingReturns.lua
+EllesmereUIBlizzardSkin_CharacterSheet.lua
+EllesmereUIBlizzardSkin_SocketPanel.lua
+EllesmereUIBlizzardSkin_InspectSheet.lua
+EllesmereUIBlizzardSkin_GroupFinder.lua
+
+# Framework
+EllesmereUIBlizzardSkin_Toolkit.lua
+EllesmereUIBlizzardSkin_Core.lua
+
+
+# Options
+EUI_BlizzardSkin_Options.lua

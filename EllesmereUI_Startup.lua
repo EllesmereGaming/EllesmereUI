@@ -23,7 +23,7 @@ do
 
     local function ApplyScaleSafe(scale)
         if InCombatLockdown() then
-            local f = CreateFrame("Frame")
+            local f = EllesmereUI.SafeCreateFrame("Frame")
             f:RegisterEvent("PLAYER_REGEN_ENABLED")
             f:SetScript("OnEvent", function(self)
                 self:UnregisterEvent("PLAYER_REGEN_ENABLED")
@@ -47,7 +47,7 @@ do
         end
     end
 
-    local scaleFrame = CreateFrame("Frame")
+    local scaleFrame = EllesmereUI.SafeCreateFrame("Frame")
     scaleFrame:RegisterEvent("ADDON_LOADED")
     scaleFrame:RegisterEvent("PLAYER_LOGIN")
     scaleFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -180,7 +180,7 @@ do
     -- Re-apply on ADDON_LOADED (our addon or Blizzard_CombatText), PLAYER_LOGIN,
     -- and PLAYER_ENTERING_WORLD to cover all timing windows where the engine
     -- may cache or reset the combat text font.
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f:RegisterEvent("ADDON_LOADED")
     f:RegisterEvent("PLAYER_LOGIN")
     f:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -228,7 +228,7 @@ do
     local BAG_ADDONS = {
         "AdiBags", "ArkInventory", "Baganator", "Bagnon", "BetterBags", "Sorted",
     }
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f:RegisterEvent("ADDON_LOADED")
     f:SetScript("OnEvent", function(self, event, addonName)
         if addonName ~= ADDON_NAME then return end

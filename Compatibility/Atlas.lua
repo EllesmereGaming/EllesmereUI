@@ -1,4 +1,4 @@
-local EUI_AtlasMap = {
+_G.EUI_AtlasMap = {
     ["uitools-icon-close"] = "Interface\\Buttons\\UI-Panel-MinimizeButton-Up",
     ["Azerite-PointingArrow"] = "Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up",
     ["shop-card-wide-frame-default"] = "Interface\\DialogFrame\\UI-DialogBox-Background",

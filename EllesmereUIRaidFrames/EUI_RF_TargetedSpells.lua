@@ -12,7 +12,7 @@
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
-local CreateFrame   = CreateFrame
+local CreateFrame = EllesmereUI.SafeCreateFrame
 local C_Timer       = C_Timer
 local C_NamePlate    = C_NamePlate
 local GetTime       = GetTime
@@ -216,7 +216,7 @@ local function StyleIcon(icon)
 end
 
 local function CreateIcon(btn, raid)
-    local icon = CreateFrame("Frame", nil, btn)
+    local icon = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
     icon._tsRaid = raid or false
     -- Ride the aura band (ns.LVL_AURA, same as regular aura icons) so the
     -- targeted-spell icon sorts WITH auras instead of under them; its border
@@ -231,7 +231,7 @@ local function CreateIcon(btn, raid)
     tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     icon._tex = tex
 
-    local cd = CreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
+    local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
     cd:SetAllPoints()
     cd:SetDrawEdge(false)
     cd:SetDrawSwipe(true)
@@ -240,7 +240,7 @@ local function CreateIcon(btn, raid)
     cd:SetHideCountdownNumbers(true)
     icon._cooldown = cd
 
-    local bdr = CreateFrame("Frame", nil, icon)
+    local bdr = EllesmereUI.SafeCreateFrame("Frame", nil, icon)
     bdr:SetAllPoints()
     bdr:SetFrameLevel(icon:GetFrameLevel() + 1)
     local PP = EllesmereUI and (EllesmereUI.PanelPP or EllesmereUI.PP)
@@ -354,7 +354,7 @@ end
 -------------------------------------------------------------------------------
 --  Active cast tracking
 -------------------------------------------------------------------------------
-local ev = CreateFrame("Frame")
+local ev = EllesmereUI.SafeCreateFrame("Frame")
 
 local gen = {}          -- casterUnit -> generation counter (stale-timer guard)
 local activeIcons = {}  -- casterUnit -> { icon, ... } currently shown for it

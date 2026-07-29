@@ -255,7 +255,7 @@ end
 --  Events are only registered when at least one feature is enabled.
 -------------------------------------------------------------------------------
 local _eventsActive = false
-local eventFrame = CreateFrame("Frame")
+local eventFrame = EllesmereUI.SafeCreateFrame("Frame")
 
 local function OnSpellEvent(_, event, unit, ...)
     if unit ~= "player" then return end
@@ -516,7 +516,7 @@ local function ScheduleFade(fadeTime, maxIcons)
     end
     if fading then
         if not _fadeDriver then
-            _fadeDriver = CreateFrame("Frame")
+            _fadeDriver = EllesmereUI.SafeCreateFrame("Frame")
             _fadeDriver:Hide()
             local acc = 0
             _fadeDriver:SetScript("OnUpdate", function(_, dt)
@@ -534,7 +534,7 @@ end
 
 local function EnsureFadeEvents()
     if _fadeEvents then return end
-    _fadeEvents = CreateFrame("Frame")
+    _fadeEvents = EllesmereUI.SafeCreateFrame("Frame")
     _fadeEvents:RegisterEvent("PLAYER_REGEN_DISABLED")
     _fadeEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
     _fadeEvents:SetScript("OnEvent", function(_, event)
@@ -624,7 +624,7 @@ end
 
 local function MakeIcon(parent)
     local ic = {}
-    ic.frame = CreateFrame("Frame", nil, parent)
+    ic.frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     ic.frame:EnableMouse(false)
     -- Shift+drag on any icon moves the entire strip
     ic.frame:SetScript("OnMouseDown", function(_, btn)
@@ -648,7 +648,7 @@ local function MakeIcon(parent)
     end)
     local bg = ic.frame:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0, 0, 0, 0.4)
+    bg:SetTexture(0, 0, 0, 0.4)
     ic.bg = bg
     ic.tex = ic.frame:CreateTexture(nil, "ARTWORK")
     ic.tex:SetAllPoints()
@@ -697,7 +697,7 @@ BuildIconStrip = function()
     end
 
     if not _iconStrip then
-        _iconStrip = CreateFrame("Frame", "EllesmereUIDMIconStrip", UIParent)
+        _iconStrip = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIDMIconStrip", UIParent)
         _iconStrip:SetFrameStrata("MEDIUM")
         _iconStrip:SetFrameLevel(10)
         _iconStrip:SetClampedToScreen(true)
@@ -720,7 +720,7 @@ BuildIconStrip = function()
             end
         end)
         -- Click-through unless shift is held (strip + all icon children)
-        local modFrame = CreateFrame("Frame")
+        local modFrame = EllesmereUI.SafeCreateFrame("Frame")
         modFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
         modFrame:SetScript("OnEvent", function(_, _, key, down)
             if key == "LSHIFT" or key == "RSHIFT" then
@@ -918,7 +918,7 @@ local _lastBarVisible = 0 -- tracks visible bar count for minimal loop
 
 local function MakeHistoryBar(parent)
     local bar = {}
-    bar.row = CreateFrame("Frame", nil, parent)
+    bar.row = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     bar.row:SetHeight(18)
 
     -- Icon anchored to row left; fill starts right of icon
@@ -928,14 +928,14 @@ local function MakeHistoryBar(parent)
     local z = DB().iconZoom or 0.08
     bar.icon:SetTexCoord(z, 1 - z, z, 1 - z)
 
-    bar.fill = CreateFrame("StatusBar", nil, bar.row)
+    bar.fill = EllesmereUI.SafeCreateFrame("StatusBar", nil, bar.row)
     bar.fill:SetPoint("TOPLEFT", bar.icon, "TOPRIGHT", 0, 0)
     bar.fill:SetPoint("BOTTOMRIGHT", bar.row, "BOTTOMRIGHT", 0, 0)
     bar.fill:SetMinMaxValues(0, 1)
     bar.fill:SetValue(1)
     bar.fill:SetStatusBarTexture(BAR_TEX)
 
-    local tf = CreateFrame("Frame", nil, bar.fill)
+    local tf = EllesmereUI.SafeCreateFrame("Frame", nil, bar.fill)
     tf:SetAllPoints(bar.fill)
     tf:SetFrameLevel(bar.fill:GetFrameLevel() + 2)
 
@@ -973,7 +973,7 @@ local function BuildBarWindow()
     end
 
     if not _barWin then
-        local frame = CreateFrame("Frame", "EllesmereUIDMBarHistory", UIParent)
+        local frame = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIDMBarHistory", UIParent)
         frame:SetClampedToScreen(true)
         frame:SetMovable(true)
         frame:SetFrameStrata("MEDIUM")
@@ -987,7 +987,7 @@ local function BuildBarWindow()
         frame._bg:SetAllPoints()
 
         -- Header
-        local hdr = CreateFrame("Frame", nil, frame)
+        local hdr = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         hdr:SetHeight(22)
         hdr:SetPoint("TOPLEFT"); hdr:SetPoint("TOPRIGHT")
         hdr:SetFrameLevel(frame:GetFrameLevel() + 5)
@@ -1011,7 +1011,7 @@ local function BuildBarWindow()
         local btnPad = -2
 
         local function MakeHdrBtn(texFile, xOff, tooltip, onClick)
-            local btn = CreateFrame("Button", nil, hdr)
+            local btn = EllesmereUI.SafeCreateFrame("Button", nil, hdr)
             btn:SetSize(btnSize, btnSize)
             btn:SetPoint("RIGHT", hdr, "RIGHT", xOff, 0)
             btn:SetFrameLevel(hdr:GetFrameLevel() + 2)
@@ -1072,7 +1072,7 @@ local function BuildBarWindow()
         local resizeBtnHdr = MakeHdrBtn(MEDIA .. "dm_width_resize.png", -(btnSize * 2 + btnPad * 3 + 2), "Resize Width", function() end)
         -- Override: drag to resize width
         local resizeStartX, resizeStartW
-        local resizeFrame = CreateFrame("Frame")
+        local resizeFrame = EllesmereUI.SafeCreateFrame("Frame")
         resizeFrame:Hide()
         resizeFrame:SetScript("OnUpdate", function()
             if not frame._resizing then return end
@@ -1111,7 +1111,7 @@ local function BuildBarWindow()
         end)
 
         -- Content (click-through, mouse wheel only)
-        local content = CreateFrame("Frame", nil, frame)
+        local content = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         content:SetPoint("TOPLEFT", hdr, "BOTTOMLEFT", 0, 0)
         content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
         content:EnableMouse(false)
@@ -1127,11 +1127,11 @@ local function BuildBarWindow()
     end
 
     -- Apply styling (bg from spell history settings, header from DM settings)
-    _barWin._bg:SetColorTexture(sh.bgR or 0, sh.bgG or 0, sh.bgB or 0, sh.bgAlpha or 0.25)
+    _barWin._bg:SetTexture(sh.bgR or 0, sh.bgG or 0, sh.bgB or 0, sh.bgAlpha or 0.25)
 
     local hc = dmCfg.hdrBgColor
     local hR, hG, hB = hc and hc.r or 0x1B/255, hc and hc.g or 0x1B/255, hc and hc.b or 0x1B/255
-    _barWin._hdrBg:SetColorTexture(hR, hG, hB, dmCfg.hdrBgAlpha or 1)
+    _barWin._hdrBg:SetTexture(hR, hG, hB, dmCfg.hdrBgAlpha or 1)
 
     local tR, tG, tB
     if dmCfg.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
@@ -1314,7 +1314,7 @@ end
 -------------------------------------------------------------------------------
 -- Lightweight per-frame updater: only touches fill values + right text on
 -- bars with active casts.  Full RefreshBarWindow runs on PushEntry/Finish.
-local _castAnimFrame = CreateFrame("Frame")
+local _castAnimFrame = EllesmereUI.SafeCreateFrame("Frame")
 _castAnimFrame:Hide()
 _castAnimFrame:SetScript("OnUpdate", function(self)
     if not next(_pendingCasts) then self:Hide(); return end
@@ -1374,7 +1374,7 @@ end
 -------------------------------------------------------------------------------
 --  Init (deferred to PLAYER_LOGIN so DM DB is ready)
 -------------------------------------------------------------------------------
-local initFrame = CreateFrame("Frame")
+local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterAllEvents()
@@ -1385,7 +1385,7 @@ initFrame:SetScript("OnEvent", function(self)
 end)
 
 -- Re-evaluate visibility when entering/leaving instances; refresh preview on spec change
-local zoneFrame = CreateFrame("Frame")
+local zoneFrame = EllesmereUI.SafeCreateFrame("Frame")
 zoneFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 zoneFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 zoneFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")

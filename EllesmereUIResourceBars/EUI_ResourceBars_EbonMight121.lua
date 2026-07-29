@@ -70,7 +70,7 @@ local function Build()
     AK.styles["erb:emb121"] = AK.styles["erb:emb121"]
         or { noRegions = true, width = 1, height = 1 }
     if not S.proxy then
-        S.proxy = CreateFrame("Frame", nil, UIParent)
+        S.proxy = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         S.proxy:Hide()
     end
 
@@ -122,7 +122,7 @@ local function Build()
             if button.SetMouseClickEnabled then button:SetMouseClickEnabled(false) end
             if button.SetMouseMotionEnabled then button:SetMouseMotionEnabled(false) end
 
-            local bar = CreateFrame("StatusBar", nil, button)
+            local bar = EllesmereUI.SafeCreateFrame("StatusBar", nil, button)
             bar:SetAllPoints(button)
             bar:SetStatusBarTexture(texPath)
             local bft = bar:GetStatusBarTexture()
@@ -153,7 +153,7 @@ local function Build()
                 -- CreateFrameBatch and kills the slot. Text is optional
                 -- polish; failures land in S.fsErr.
                 local okFS, errFS = pcall(function()
-                    local tc = CreateFrame("Frame", nil, button)
+                    local tc = EllesmereUI.SafeCreateFrame("Frame", nil, button)
                     tc:SetAllPoints(button)
                     tc:SetFrameLevel(bar:GetFrameLevel() + 5)
                     local fs = tc:CreateFontString(nil, "OVERLAY")

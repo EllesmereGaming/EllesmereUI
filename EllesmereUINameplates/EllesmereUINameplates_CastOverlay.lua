@@ -42,7 +42,7 @@ end
 local function GetLift(plate)
     local lift = plate._castLift
     if not lift then
-        lift = CreateFrame("Frame", nil, UIParent)
+        lift = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         lift:SetFrameStrata(LIFT_STRATA)
         lift:SetIgnoreParentScale(true)
         lift:SetSize(1, 1)

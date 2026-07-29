@@ -1,0 +1,12 @@
+## Interface: 30300
+## Title: |cff0cd29fEllesmereUI|r Basics (legacy)
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Temporary legacy addon to help with one time migration of user data, feel free to disable.
+## Author: Ellesmere
+## Version: 8.6.4
+## Dependencies: EllesmereUI
+## SavedVariables: EllesmereUIBasicsDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+EllesmereUIBasics.lua

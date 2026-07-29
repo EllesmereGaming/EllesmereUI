@@ -14,14 +14,14 @@ local _, ns = ...
 -- forever (probe-verified; see EllesmereUI_Ticker.lua). These shells are
 -- born HERE, in the first-loading file's main chunk, which stamps them to
 -- CooldownManager. Runtime code in ANY of this addon's files adopts one via
--- ns.TakeShell() instead of CreateFrame("Frame") whenever the frame will
+-- ns.TakeShell() instead of EllesmereUI.SafeCreateFrame("Frame") whenever the frame will
 -- carry event registrations or script handlers.
 -- Plain unnamed Frames only, persistent hosts only: the pool has no
--- release, so transient throwaway frames keep using CreateFrame.
+-- release, so transient throwaway frames keep using EllesmereUI.SafeCreateFrame.
 do
     local pool = {}
     local n = 32
-    for i = 1, n do pool[i] = CreateFrame("Frame") end
+    for i = 1, n do pool[i] = EllesmereUI.SafeCreateFrame("Frame") end
     ns.TakeShell = function()
         if n > 0 then
             local f = pool[n]
@@ -31,7 +31,7 @@ do
         end
         -- Pool exhausted (not expected): everything still works, the frame
         -- just bills the parent. Bump the pool size if this ever happens.
-        return CreateFrame("Frame")
+        return EllesmereUI.SafeCreateFrame("Frame")
     end
 end
 
@@ -50,7 +50,7 @@ do
             local EG   = EllesmereUI.ELLESMERE_GREEN or { r = 0.047, g = 0.824, b = 0.624 }
             local FONT = EllesmereUI.EXPRESSWAY or STANDARD_TEXT_FONT
 
-            local dimmer = CreateFrame("Frame", nil, UIParent)
+            local dimmer = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
             dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
             dimmer:SetFrameLevel(150)
             dimmer:SetAllPoints(UIParent)
@@ -60,9 +60,9 @@ do
             dimmer:SetScript("OnMouseDown", function() end) -- no click-outside dismiss
             local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
             dimTex:SetAllPoints()
-            dimTex:SetColorTexture(0, 0, 0, 0.45)
+            dimTex:SetTexture(0, 0, 0, 0.45)
 
-            local popup = CreateFrame("Frame", nil, dimmer)
+            local popup = EllesmereUI.SafeCreateFrame("Frame", nil, dimmer)
             popup:SetSize(POPUP_W, POPUP_H)
             popup:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
             popup:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -74,7 +74,7 @@ do
 
             local bg = popup:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
-            bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+            bg:SetTexture(0.06, 0.08, 0.10, 1)
             if EllesmereUI.MakeBorder and EllesmereUI.PanelPP then
                 EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
             end
@@ -96,28 +96,28 @@ do
             msg:SetText("Ayije_CDM and EllesmereUI's Cooldown Manager cannot both be loaded at the same time. Disable EllesmereUI's CDM for now, you can choose to disable/enable one or the other after reloading.")
 
             local BTN_W, BTN_H = 170, 29
-            local btn = CreateFrame("Button", nil, popup)
+            local btn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
             btn:SetSize(BTN_W + 2, BTN_H + 2)
             btn:SetPoint("BOTTOM", popup, "BOTTOM", 0, 14)
             btn:SetFrameLevel(popup:GetFrameLevel() + 2)
             local btnBrd = btn:CreateTexture(nil, "BACKGROUND")
             btnBrd:SetAllPoints()
-            btnBrd:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
+            btnBrd:SetTexture(EG.r, EG.g, EG.b, 0.9)
             local btnBg = btn:CreateTexture(nil, "BORDER")
             btnBg:SetPoint("TOPLEFT", 1, -1)
             btnBg:SetPoint("BOTTOMRIGHT", -1, 1)
-            btnBg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+            btnBg:SetTexture(0.06, 0.08, 0.10, 0.92)
             local btnLbl = btn:CreateFontString(nil, "OVERLAY")
             btnLbl:SetFont(FONT, 12, EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("cdm") or "")
             btnLbl:SetTextColor(EG.r, EG.g, EG.b, 0.9)
             btnLbl:SetPoint("CENTER")
             btnLbl:SetText("Disable & Reload")
             btn:SetScript("OnEnter", function()
-                btnBrd:SetColorTexture(EG.r, EG.g, EG.b, 1)
+                btnBrd:SetTexture(EG.r, EG.g, EG.b, 1)
                 btnLbl:SetTextColor(EG.r, EG.g, EG.b, 1)
             end)
             btn:SetScript("OnLeave", function()
-                btnBrd:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
+                btnBrd:SetTexture(EG.r, EG.g, EG.b, 0.9)
                 btnLbl:SetTextColor(EG.r, EG.g, EG.b, 0.9)
             end)
             btn:SetScript("OnClick", function()
@@ -2090,7 +2090,7 @@ local function GetOrCreateCDMBorder(slot)
     local iconSize = slot.__ECMEIcon and slot.__ECMEIcon:GetWidth() or slot:GetWidth() or 35
     local edgeSize = iconSize < 35 and 2 or 1
 
-    local border = CreateFrame("Frame", nil, slot)
+    local border = EllesmereUI.SafeCreateFrame("Frame", nil, slot)
     if slot.__ECMEIcon then border:SetAllPoints(slot.__ECMEIcon) else border:SetAllPoints() end
     border:SetFrameLevel(slot:GetFrameLevel() + 5)
     EllesmereUI.PP.CreateBorder(border, 0, 0, 0, 1, edgeSize)
@@ -3624,7 +3624,7 @@ BuildCDMBar = function(barIndex)
     local frame = cdmBarFrames[key]
 
     if not frame then
-        frame = CreateFrame("Frame", "ECME_CDMBar_" .. key, UIParent)
+        frame = EllesmereUI.SafeCreateFrame("Frame", "ECME_CDMBar_" .. key, UIParent)
         -- Per-bar Bar Strata (Extras); MEDIUM = the historical hardcoded value.
         frame:SetFrameStrata(barData.barStrata or "MEDIUM")
         frame:SetFrameLevel(5)
@@ -4457,7 +4457,7 @@ LayoutCDMBar = function(barKey)
         frame._barBg:ClearAllPoints()
         frame._barBg:SetPoint("TOPLEFT", 0, 0)
         frame._barBg:SetPoint("BOTTOMRIGHT", 0, 0)
-        frame._barBg:SetColorTexture(barData.barBgR or 0, barData.barBgG or 0, barData.barBgB or 0, barData.barBgA or 0.5)
+        frame._barBg:SetTexture(barData.barBgR or 0, barData.barBgG or 0, barData.barBgB or 0, barData.barBgA or 0.5)
         frame._barBg:Show()
     elseif frame._barBg then
         frame._barBg:Hide()
@@ -4910,7 +4910,7 @@ local _tooltipBars = {}  -- [barKey] = true for bars with tooltips enabled
 -- tooltips via native OnEnter. Custom injected frames (item presets,
 -- racials, custom spells) don't need OnUpdate polling -- they get
 -- OnEnter/OnLeave scripts installed in DecorateFrame / preset creation.
-local _tooltipFrame = CreateFrame("Frame")
+local _tooltipFrame = EllesmereUI.SafeCreateFrame("Frame")
 _tooltipFrame:Hide()
 
 local function ApplyCDMTooltipState(barKey)
@@ -5127,7 +5127,7 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
 
     -- Shape border texture (on a dedicated frame above the cooldown swipe)
     if not ifc.shapeBorderFrame then
-        local sbf = CreateFrame("Frame", nil, icon)
+        local sbf = EllesmereUI.SafeCreateFrame("Frame", nil, icon)
         sbf:SetAllPoints(icon)
         sbf:SetFrameLevel(icon:GetFrameLevel() + 2)
         ifc.shapeBorderFrame = sbf
@@ -5731,7 +5731,7 @@ local function RefreshCDMIconAppearance(barKey)
         end
         -- Update background
         if bg then
-            bg:SetColorTexture(barData.bgR or 0.08, barData.bgG or 0.08, barData.bgB or 0.08, barData.bgA or 0.6)
+            bg:SetTexture(barData.bgR or 0.08, barData.bgG or 0.08, barData.bgB or 0.08, barData.bgA or 0.6)
         end
         -- Style Blizzard's native stack/charge text elements.
         -- Raise Blizzard's text sub-frames above our border frame (+5)
@@ -6591,7 +6591,7 @@ local function ShowFocusReminder(token)
 
     local fs = _focusReminders[token]
     if not fs then
-        local holder = CreateFrame("Frame", nil, plate)
+        local holder = EllesmereUI.SafeCreateFrame("Frame", nil, plate)
         holder:SetSize(1, 1)
         holder:SetFrameStrata("HIGH")
         holder:SetFrameLevel(plate:GetFrameLevel() + 10)
@@ -8526,7 +8526,7 @@ function ECME:CDMFinishSetup()
                             local key = barData.key
                             local frame = cdmBarFrames[key]
                             if not frame then
-                                frame = CreateFrame("Frame", "ECME_CDMBar_" .. key, UIParent)
+                                frame = EllesmereUI.SafeCreateFrame("Frame", "ECME_CDMBar_" .. key, UIParent)
                                 frame:SetFrameStrata(barData.barStrata or "MEDIUM")
                                 frame:SetFrameLevel(5)
                                 if frame.SetSnapToPixelGrid then frame:SetSnapToPixelGrid(false) end
@@ -8629,7 +8629,7 @@ function ECME:CDMFinishSetup()
     -- One-time vehicle/petbattle proxy. Drives _CDMApplyVisibility on state
     -- change so CDM bars hide while the vehicle UI or pet battle UI is active.
     if not _cdmVehicleProxy then
-        _cdmVehicleProxy = CreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
+        _cdmVehicleProxy = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
         _cdmVehicleProxy:SetAttribute("_onstate-cdmvehicle", [[
             self:CallMethod("OnVehicleStateChanged", newstate)
         ]])
@@ -8700,7 +8700,7 @@ local function _rotCVarOn()
 end
 
 local function _rotCreateHighlight(icon)
-    local ok, hf = pcall(CreateFrame, "Frame", nil, icon, "ActionBarButtonAssistedCombatHighlightTemplate")
+    local ok, hf = pcall(EllesmereUI.SafeCreateFrame, "Frame", nil, icon, "ActionBarButtonAssistedCombatHighlightTemplate")
     if not ok or not hf then return nil end
     hf:SetAllPoints()
     -- Sit above everything on the icon: Blizzard's cooldown swipe, our border
@@ -8803,7 +8803,7 @@ ns.UpdateRotationHighlights = UpdateRotationHighlights
 -- One-frame defer after a bar rebuild: icon frames may have just been
 -- recycled or re-shown, so we want to re-run the match after the layout
 -- settles (dirty-frame pattern).
-local _rotDirty = CreateFrame("Frame")
+local _rotDirty = EllesmereUI.SafeCreateFrame("Frame")
 _rotDirty:Hide()
 _rotDirty:SetScript("OnUpdate", function(self)
     self:Hide()
@@ -8880,7 +8880,7 @@ end
 --  rather than performed inline in the event callback.
 -------------------------------------------------------------------------------
 -- Event frame
-local eventFrame = CreateFrame("Frame")
+local eventFrame = EllesmereUI.SafeCreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 eventFrame:RegisterEvent("SPELLS_CHANGED")

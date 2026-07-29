@@ -282,7 +282,7 @@ end
 -- never get applied. This fallback detects the missing CDM and fires the
 -- same pass from the parent addon instead.
 do
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f:RegisterEvent("PLAYER_ENTERING_WORLD")
     f:SetScript("OnEvent", function(self)
         self:UnregisterEvent("PLAYER_ENTERING_WORLD")
@@ -327,7 +327,7 @@ end
 -- work the session pays shortly after PEW anyway (CDM setup or the fallback
 -- above) -- doing it during the loading screen hides it entirely.
 do
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f:RegisterEvent("PLAYER_LOGIN")
     f:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
@@ -1882,7 +1882,7 @@ end
 -- listener cancels/replaces PP.SetUIScale's own pending timer (or vice
 -- versa) instead of both firing a full match pass back to back.
 do
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f:RegisterEvent("UI_SCALE_CHANGED")
     f:SetScript("OnEvent", function()
         local PPu = EllesmereUI and EllesmereUI.PP
@@ -1994,14 +1994,14 @@ local function FadeOverlayForSelectElement(entering)
     local startA = entering and (unlockFrame._overlayMaxAlpha or 0.20) or SELECT_ELEMENT_ALPHA
     local endA   = entering and SELECT_ELEMENT_ALPHA or (unlockFrame._overlayMaxAlpha or 0.20)
     if not _overlayFadeFrame then
-        _overlayFadeFrame = CreateFrame("Frame")
+        _overlayFadeFrame = EllesmereUI.SafeCreateFrame("Frame")
     end
     local elapsed = 0
     _overlayFadeFrame:SetScript("OnUpdate", function(self, dt)
         elapsed = elapsed + dt
         local t = math.min(elapsed / SELECT_ELEMENT_FADE, 1)
         local a = startA + (endA - startA) * t
-        unlockFrame._overlay:SetColorTexture(0.02, 0.03, 0.04, a)
+        unlockFrame._overlay:SetTexture(0.02, 0.03, 0.04, a)
         if t >= 1 then self:SetScript("OnUpdate", nil) end
     end)
 end
@@ -2066,7 +2066,7 @@ local function FlashRedBorder(m)
     local brd = m._redFlashBrd
     local elapsed = 0
     if not m._redFlashFrame then
-        m._redFlashFrame = CreateFrame("Frame")
+        m._redFlashFrame = EllesmereUI.SafeCreateFrame("Frame")
     end
     m._redFlashFrame:SetScript("OnUpdate", function(self, dt)
         elapsed = elapsed + dt
@@ -2085,9 +2085,9 @@ end
 local RejectH = {}
 function RejectH.ShowTooltip(text)
     if not RejectH._anchor then
-        RejectH._anchor = CreateFrame("Frame", nil, UIParent)
+        RejectH._anchor = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         RejectH._anchor:SetSize(1, 1)
-        RejectH._timer = CreateFrame("Frame")
+        RejectH._timer = EllesmereUI.SafeCreateFrame("Frame")
     end
     local sc = UIParent:GetEffectiveScale()
     local mx, my = GetCursorPosition()
@@ -2134,7 +2134,7 @@ do
     local function AnchorPark_EnsureFrame()
         local f = AnchorPark.frame
         if not f then
-            f = CreateFrame("Frame")
+            f = EllesmereUI.SafeCreateFrame("Frame")
             AnchorPark.frame = f
             f:SetScript("OnEvent", function()
                 f:UnregisterAllEvents()
@@ -2408,7 +2408,7 @@ do
             end
         end
         if needPet and not petWatcher then
-            petWatcher = CreateFrame("Frame")
+            petWatcher = EllesmereUI.SafeCreateFrame("Frame")
             petWatcher:RegisterUnitEvent("UNIT_PET", "player")
             petWatcher:SetScript("OnEvent", function()
                 if petPassPending then return end
@@ -2568,7 +2568,7 @@ do
     end
 
     local function CreateGhost(childKey)
-        local g = CreateFrame("Frame", nil, unlockFrame)
+        local g = EllesmereUI.SafeCreateFrame("Frame", nil, unlockFrame)
         g._childKey = childKey
         g:SetFrameLevel(300)
         g:SetClampedToScreen(true)
@@ -2586,13 +2586,13 @@ do
         local bg = g:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         if darkOverlaysEnabled then
-            bg:SetColorTexture(0.075 + (1 - 0.075) * 0.10, 0.113 + (1 - 0.113) * 0.10, 0.141 + (1 - 0.141) * 0.10, 0.95)
+            bg:SetTexture(0.075 + (1 - 0.075) * 0.10, 0.113 + (1 - 0.113) * 0.10, 0.141 + (1 - 0.141) * 0.10, 0.95)
         else
-            bg:SetColorTexture(wr, wg, wb, 0.10)
+            bg:SetTexture(wr, wg, wb, 0.10)
         end
         g._brd = EllesmereUI.MakeBorder(g, wr, wg, wb, 0.6)
 
-        local labelFrame = CreateFrame("Frame", nil, g)
+        local labelFrame = EllesmereUI.SafeCreateFrame("Frame", nil, g)
         labelFrame:SetAllPoints()
         labelFrame:SetClipsChildren(true)
         labelFrame:SetFrameLevel(g:GetFrameLevel() + 2)
@@ -4044,7 +4044,7 @@ ApplyCenterPosition = function(barKey, pos)
             -- Store on the frame so repeated calls overwrite instead of stacking
             local ffd = EllesmereUI._GetFFD(frame)
             if not ffd.combatDefer then
-                ffd.combatDefer = CreateFrame("Frame")
+                ffd.combatDefer = EllesmereUI.SafeCreateFrame("Frame")
                 ffd.combatDefer:RegisterEvent("PLAYER_REGEN_ENABLED")
                 ffd.combatDefer:SetScript("OnEvent", function(self)
                     self:UnregisterAllEvents()
@@ -4353,7 +4353,7 @@ local function ApplySavedPositions()
 
     -- If we skipped protected frames, re-run once combat drops
     if inCombat then
-        local reapplyFrame = CreateFrame("Frame")
+        local reapplyFrame = EllesmereUI.SafeCreateFrame("Frame")
         reapplyFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
         reapplyFrame:SetScript("OnEvent", function(self)
             self:UnregisterAllEvents()
@@ -4472,7 +4472,7 @@ end
 -- loading screens. CDM icon counts fluctuate as Blizzard recycles viewer
 -- frames, causing transient sizes that would corrupt matched elements.
 do
-    local ztFrame = CreateFrame("Frame")
+    local ztFrame = EllesmereUI.SafeCreateFrame("Frame")
     ztFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     ztFrame:RegisterEvent("PLAYER_LEAVING_WORLD")
     ztFrame:SetScript("OnEvent", function(_, event)
@@ -4501,7 +4501,7 @@ end
 -- event-driven path worked it produces zero visible effect. If something
 -- missed an emission, this is the only retry.
 if not EAB then
-    local _posFrame = CreateFrame("Frame")
+    local _posFrame = EllesmereUI.SafeCreateFrame("Frame")
     _posFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     _posFrame:SetScript("OnEvent", function(self)
         -- IMPORTANT: do NOT unregister. PEW also fires on every zone change
@@ -4542,7 +4542,7 @@ local function CreateGrid(parent)
     if gridFrame then return gridFrame end
     -- Grid lives on its own BACKGROUND-strata frame so it renders
     -- BEHIND the actual game UI elements (action bars, unit frames, etc.)
-    gridFrame = CreateFrame("Frame", nil, UIParent)
+    gridFrame = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     gridFrame:SetFrameStrata("BACKGROUND")
     gridFrame:SetAllPoints(UIParent)
     gridFrame:SetFrameLevel(1)
@@ -4579,7 +4579,7 @@ local function CreateGrid(parent)
                 end
                 self._lines[idx] = tex
             end
-            tex:SetColorTexture(ar, ag, ab, baseA)
+            tex:SetTexture(ar, ag, ab, baseA)
             tex._baseAlpha = baseA
             tex._isWhite = false
             tex._isVert = isVert
@@ -4620,7 +4620,7 @@ local function CreateGrid(parent)
                 end
                 self._lines[idx] = tex
             end
-            tex:SetColorTexture(ar, ag, ab, centerA)
+            tex:SetTexture(ar, ag, ab, centerA)
             tex._baseAlpha = centerA
             tex._isWhite = false
             tex._isVert = (axis == "V")
@@ -4651,7 +4651,7 @@ local function CreateGrid(parent)
                 end
                 self._lines[idx] = tex
             end
-            tex:SetColorTexture(1, 1, 1, CROSS_ALPHA)
+            tex:SetTexture(1, 1, 1, CROSS_ALPHA)
             tex._baseAlpha = CROSS_ALPHA
             tex._isWhite = true
             tex._isVert = (axis == "V")
@@ -4773,9 +4773,9 @@ local function CreateGrid(parent)
                                     glowIdx = glowIdx + 1
                                     local g = GetGlow(glowIdx)
                                     if isW then
-                                        g:SetColorTexture(1, 1, 1, alpha)
+                                        g:SetTexture(1, 1, 1, alpha)
                                     else
-                                        g:SetColorTexture(cachedAR, cachedAG, cachedAB, alpha)
+                                        g:SetTexture(cachedAR, cachedAG, cachedAB, alpha)
                                     end
                                     g:ClearAllPoints()
                                     g:SetSize(1, segEnd - segY)
@@ -4802,9 +4802,9 @@ local function CreateGrid(parent)
                                     glowIdx = glowIdx + 1
                                     local g = GetGlow(glowIdx)
                                     if isW then
-                                        g:SetColorTexture(1, 1, 1, alpha)
+                                        g:SetTexture(1, 1, 1, alpha)
                                     else
-                                        g:SetColorTexture(cachedAR, cachedAG, cachedAB, alpha)
+                                        g:SetTexture(cachedAR, cachedAG, cachedAB, alpha)
                                     end
                                     g:ClearAllPoints()
                                     g:SetSize(segEnd - segX, 1)
@@ -4836,7 +4836,7 @@ local measurePool = {}   -- pool of { frame, line, label } for distance markers
 local function GetGuide(idx)
     if guidePool[idx] then return guidePool[idx] end
     local tex = unlockFrame:CreateTexture(nil, "OVERLAY", nil, 6)
-    tex:SetColorTexture(1, 1, 1, 1)
+    tex:SetTexture(1, 1, 1, 1)
     guidePool[idx] = tex
     return tex
 end
@@ -4844,12 +4844,12 @@ end
 local function GetMeasure(idx)
     if measurePool[idx] then return measurePool[idx] end
     -- Each measurement marker: a small frame with a line + label
-    local f = CreateFrame("Frame", nil, unlockFrame)
+    local f = EllesmereUI.SafeCreateFrame("Frame", nil, unlockFrame)
     f:SetFrameStrata("FULLSCREEN_DIALOG")
     f:SetFrameLevel(200)
     -- Background pill for the label
     local bg = f:CreateTexture(nil, "BACKGROUND")
-    bg:SetColorTexture(0.85, 0.15, 0.85, 0.85)
+    bg:SetTexture(0.85, 0.15, 0.85, 0.85)
     f._bg = bg
     -- Distance text
     local fs = f:CreateFontString(nil, "OVERLAY")
@@ -4858,14 +4858,14 @@ local function GetMeasure(idx)
     f._label = fs
     -- Connector line (magenta)
     local line = f:CreateTexture(nil, "OVERLAY", nil, 5)
-    line:SetColorTexture(0.85, 0.15, 0.85, 0.7)
+    line:SetTexture(0.85, 0.15, 0.85, 0.7)
     f._line = line
     -- Arrow caps (small triangles simulated with tiny textures)
     local arrowA = f:CreateTexture(nil, "OVERLAY", nil, 6)
-    arrowA:SetColorTexture(0.85, 0.15, 0.85, 0.85)
+    arrowA:SetTexture(0.85, 0.15, 0.85, 0.85)
     f._arrowA = arrowA
     local arrowB = f:CreateTexture(nil, "OVERLAY", nil, 6)
-    arrowB:SetColorTexture(0.85, 0.15, 0.85, 0.85)
+    arrowB:SetTexture(0.85, 0.15, 0.85, 0.85)
     f._arrowB = arrowB
     measurePool[idx] = f
     return f
@@ -4891,7 +4891,7 @@ local function ClearSnapHighlight()
         if m._snapBrd then m._snapBrd:SetColor(1, 1, 1, 0) end
         -- Restore normal overlay brightness
         if darkOverlaysEnabled and m._bg then
-            m._bg:SetColorTexture(m._bgR or 0.075, m._bgG or 0.113, m._bgB or 0.141, 0.95)
+            m._bg:SetTexture(m._bgR or 0.075, m._bgG or 0.113, m._bgB or 0.141, 0.95)
         end
     end
     snapHighlightKey = nil
@@ -4909,7 +4909,7 @@ local function ShowSnapHighlight(targetKey)
         local old = movers[snapHighlightKey]
         if old._snapBrd then old._snapBrd:SetColor(1, 1, 1, 0) end
         if darkOverlaysEnabled and old._bg then
-            old._bg:SetColorTexture(old._bgR or 0.075, old._bgG or 0.113, old._bgB or 0.141, 0.95)
+            old._bg:SetTexture(old._bgR or 0.075, old._bgG or 0.113, old._bgB or 0.141, 0.95)
         end
     end
     local m = movers[targetKey]
@@ -4922,10 +4922,10 @@ local function ShowSnapHighlight(targetKey)
     GetOrCreateSnapBorder(m)
     -- Brighten the mover's base color
     if darkOverlaysEnabled and m._bg then
-        m._bg:SetColorTexture((m._bgR or 0.075) * 1.4, (m._bgG or 0.113) * 1.4, (m._bgB or 0.141) * 1.4, 0.95)
+        m._bg:SetTexture((m._bgR or 0.075) * 1.4, (m._bgG or 0.113) * 1.4, (m._bgB or 0.141) * 1.4, 0.95)
     end
     if not snapHighlightAnim then
-        snapHighlightAnim = CreateFrame("Frame")
+        snapHighlightAnim = EllesmereUI.SafeCreateFrame("Frame")
     end
     snapHighlightAnim:SetScript("OnUpdate", function(self, dt)
         snapHighlightElapsed = snapHighlightElapsed + dt
@@ -5057,7 +5057,7 @@ local function ShowAlignmentGuides(dragKey)
     if lastSnapInfo.snapXPos then
         guideIdx = guideIdx + 1
         local g = GetGuide(guideIdx)
-        g:SetColorTexture(ar, ag, ab, 0.5)
+        g:SetTexture(ar, ag, ab, 0.5)
         g:ClearAllPoints()
         g:SetSize(onePx, screenH)
         g:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", lastSnapInfo.snapXPos, 0)
@@ -5067,7 +5067,7 @@ local function ShowAlignmentGuides(dragKey)
     if lastSnapInfo.snapYPos then
         guideIdx = guideIdx + 1
         local g = GetGuide(guideIdx)
-        g:SetColorTexture(ar, ag, ab, 0.5)
+        g:SetTexture(ar, ag, ab, 0.5)
         g:ClearAllPoints()
         g:SetSize(screenW, onePx)
         g:SetPoint("LEFT", UIParent, "BOTTOMLEFT", 0, lastSnapInfo.snapYPos)
@@ -5250,7 +5250,7 @@ local function SetSelectionHighlight(m, on)
         if not m._selHl then
             local hl = m:CreateTexture(nil, "ARTWORK")
             hl:SetAllPoints()
-            hl:SetColorTexture(1, 1, 1, 1)
+            hl:SetTexture(1, 1, 1, 1)
             m._selHl = hl
         end
         m._selHl:SetAlpha(0.10)
@@ -5345,14 +5345,14 @@ EllesmereUI._DeselectSelectedMover = DeselectMover
 local function ApplyDarkOverlays()
     for _, m in pairs(movers) do
         if darkOverlaysEnabled then
-            m._bg:SetColorTexture(m._bgR or 0.075, m._bgG or 0.113, m._bgB or 0.141, 0.95)
+            m._bg:SetTexture(m._bgR or 0.075, m._bgG or 0.113, m._bgB or 0.141, 0.95)
             if m._label then m._label:SetAlpha(1); m._label:Show() end
             if m._subtitle then m._subtitle:SetAlpha(1); m._subtitle:Show() end
             if m._coordFS then m._coordFS:SetAlpha(1) end
             -- Action row is hover-only now, don't show it here
             if not m._dragging then m:SetAlpha(1) end
         else
-            m._bg:SetColorTexture(0, 0, 0, 0)
+            m._bg:SetTexture(0, 0, 0, 0)
             if m._label then m._label:Hide() end
             if m._subtitle then m._subtitle:Hide() end
             -- When coords-always-on is active, show coords for all movers; otherwise hide
@@ -5479,7 +5479,7 @@ EllesmereUI._unlockNudge = NudgeMover
 -- Arrow key nudge: single press only, no hold-to-repeat
 local function SetupArrowKeyFrame()
     if arrowKeyFrame then return end
-    arrowKeyFrame = CreateFrame("Frame", nil, UIParent)
+    arrowKeyFrame = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     arrowKeyFrame:SetFrameStrata("FULLSCREEN_DIALOG")
     arrowKeyFrame:SetFrameLevel(500)
     arrowKeyFrame:EnableKeyboard(true)
@@ -5678,12 +5678,12 @@ local BLIZZ_OWNED_OVERLAY_DEFS = {
 
 local function CreateBlizzOwnedOverlay(def, parent)
     local ar, ag, ab = GetAccent()
-    local ov = CreateFrame("Frame", nil, parent)
+    local ov = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     ov:EnableMouse(true)
     -- Background: same as regular movers
     local bg = ov:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+    bg:SetTexture(0.075, 0.113, 0.141, 0.95)
     -- Border: accent at idle, white on hover
     local brd = EllesmereUI.MakeBorder(ov, ar, ag, ab, 0.6)
     ov._brd = brd
@@ -5706,7 +5706,7 @@ local function CreateBlizzOwnedOverlay(def, parent)
     actionFs:SetAlpha(0)
     ov._actionFs = actionFs
     -- Clickable button sized to the action text only
-    local actionBtn = CreateFrame("Button", nil, ov)
+    local actionBtn = EllesmereUI.SafeCreateFrame("Button", nil, ov)
     actionBtn:SetFrameLevel(ov:GetFrameLevel() + 2)
     actionBtn:SetPoint("TOPLEFT", actionFs, "TOPLEFT", -4, 2)
     actionBtn:SetPoint("BOTTOMRIGHT", actionFs, "BOTTOMRIGHT", 4, -2)
@@ -5714,7 +5714,7 @@ local function CreateBlizzOwnedOverlay(def, parent)
     -- Hover animation state
     local hoverT = 0
     local hoverTarget = 0
-    local animFrame = CreateFrame("Frame")
+    local animFrame = EllesmereUI.SafeCreateFrame("Frame")
     local function ApplyHover(t)
         actionFs:SetAlpha(t)
         if t > 0.01 then actionBtn:Show() else actionBtn:Hide() end
@@ -5869,7 +5869,7 @@ local function CreateMover(barKey)
     local label = GetBarLabel(barKey)
     local cogBtn  -- forward declaration; assigned later in CreateMover
 
-    local mover = CreateFrame("Button", nil, unlockFrame)
+    local mover = EllesmereUI.SafeCreateFrame("Button", nil, unlockFrame)
     -- Party Frames always render above Raid Frames in unlock mode
     local MOVER_LEVEL_BUMP = (barKey == "RF_PartyFrames") and 10 or 0
     local MOVER_BASE_LEVEL = unlockFrame:GetFrameLevel() + 20 + MOVER_LEVEL_BUMP
@@ -5897,9 +5897,9 @@ local function CreateMover(barKey)
     local bg = mover:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     if darkOverlaysEnabled then
-        bg:SetColorTexture(mover._bgR, mover._bgG, mover._bgB, 0.95)
+        bg:SetTexture(mover._bgR, mover._bgG, mover._bgB, 0.95)
     else
-        bg:SetColorTexture(0, 0, 0, 0)
+        bg:SetTexture(0, 0, 0, 0)
     end
     mover._bg = bg
 
@@ -5908,7 +5908,7 @@ local function CreateMover(barKey)
     mover._brd = brd
 
     -- Label — on a higher-level frame so it renders above the border
-    local labelFrame = CreateFrame("Frame", nil, mover)
+    local labelFrame = EllesmereUI.SafeCreateFrame("Frame", nil, mover)
     labelFrame:SetAllPoints()
     labelFrame:SetClipsChildren(true)
     labelFrame:SetFrameLevel(mover:GetFrameLevel() + 3)
@@ -5960,25 +5960,25 @@ local function CreateMover(barKey)
     local GD_TEXT = "Grow"
 
     -- Clickable buttons for each action (parented to labelFrame for correct level)
-    local wmBtn = CreateFrame("Button", nil, labelFrame)
+    local wmBtn = EllesmereUI.SafeCreateFrame("Button", nil, labelFrame)
     wmBtn:SetFrameLevel(labelFrame:GetFrameLevel() + 2)
     wmBtn:RegisterForClicks("LeftButtonUp")
     wmBtn:EnableMouse(true)
     wmBtn:Hide()
 
-    local hmBtn = CreateFrame("Button", nil, labelFrame)
+    local hmBtn = EllesmereUI.SafeCreateFrame("Button", nil, labelFrame)
     hmBtn:SetFrameLevel(labelFrame:GetFrameLevel() + 2)
     hmBtn:RegisterForClicks("LeftButtonUp")
     hmBtn:EnableMouse(true)
     hmBtn:Hide()
 
-    local atBtn = CreateFrame("Button", nil, labelFrame)
+    local atBtn = EllesmereUI.SafeCreateFrame("Button", nil, labelFrame)
     atBtn:SetFrameLevel(labelFrame:GetFrameLevel() + 2)
     atBtn:RegisterForClicks("LeftButtonUp")
     atBtn:EnableMouse(true)
     atBtn:Hide()
 
-    local gdBtn = CreateFrame("Button", nil, labelFrame)
+    local gdBtn = EllesmereUI.SafeCreateFrame("Button", nil, labelFrame)
     gdBtn:SetFrameLevel(labelFrame:GetFrameLevel() + 2)
     gdBtn:RegisterForClicks("LeftButtonUp")
     gdBtn:EnableMouse(true)
@@ -6021,21 +6021,21 @@ local function CreateMover(barKey)
     local divPx = PP and PP.mult or 1
 
     local div1 = labelFrame:CreateTexture(nil, "OVERLAY")
-    div1:SetColorTexture(1, 1, 1, 0.25)
+    div1:SetTexture(1, 1, 1, 0.25)
     div1:SetWidth(divPx)
     div1:SetHeight(10)
     if div1.SetSnapToPixelGrid then div1:SetSnapToPixelGrid(false); div1:SetTexelSnappingBias(0) end
     div1:Hide()
 
     local div2 = labelFrame:CreateTexture(nil, "OVERLAY")
-    div2:SetColorTexture(1, 1, 1, 0.25)
+    div2:SetTexture(1, 1, 1, 0.25)
     div2:SetWidth(divPx)
     div2:SetHeight(10)
     if div2.SetSnapToPixelGrid then div2:SetSnapToPixelGrid(false); div2:SetTexelSnappingBias(0) end
     div2:Hide()
 
     local div3 = labelFrame:CreateTexture(nil, "OVERLAY")
-    div3:SetColorTexture(1, 1, 1, 0.25)
+    div3:SetTexture(1, 1, 1, 0.25)
     div3:SetWidth(divPx)
     div3:SetHeight(10)
     if div3.SetSnapToPixelGrid then div3:SetSnapToPixelGrid(false); div3:SetTexelSnappingBias(0) end
@@ -6227,7 +6227,7 @@ local function CreateMover(barKey)
         end
     end
 
-    local animFrame = CreateFrame("Frame", nil, labelFrame)
+    local animFrame = EllesmereUI.SafeCreateFrame("Frame", nil, labelFrame)
 
     local function ApplyHoverState(s)
         -- Name shifts up on hover to make room for action links below
@@ -6688,14 +6688,14 @@ local function CreateMover(barKey)
         EllesmereUI.HideWidgetTooltip()
         -- Build and show the grow direction dropdown
         if not growDropdownFrame then
-            growDropdownFrame = CreateFrame("Frame", nil, unlockFrame)
+            growDropdownFrame = EllesmereUI.SafeCreateFrame("Frame", nil, unlockFrame)
             growDropdownFrame:SetFrameStrata("FULLSCREEN_DIALOG")
             growDropdownFrame:SetFrameLevel(260)
             growDropdownFrame:SetClampedToScreen(true)
             growDropdownFrame:EnableMouse(true)
         end
         if not growDropdownCatcher then
-            growDropdownCatcher = CreateFrame("Button", nil, unlockFrame)
+            growDropdownCatcher = EllesmereUI.SafeCreateFrame("Button", nil, unlockFrame)
             growDropdownCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
             growDropdownCatcher:SetFrameLevel(259)
             growDropdownCatcher:SetAllPoints(UIParent)
@@ -6721,7 +6721,7 @@ local function CreateMover(barKey)
 
         local ddBg = growDropdownFrame:CreateTexture(nil, "BACKGROUND")
         ddBg:SetAllPoints()
-        ddBg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+        ddBg:SetTexture(0.075, 0.113, 0.141, 0.95)
         EllesmereUI.MakeBorder(growDropdownFrame, 1, 1, 1, 0.20)
 
         local ddY = -4
@@ -6735,7 +6735,7 @@ local function CreateMover(barKey)
         ddY = ddY - 18
         local titleDiv = growDropdownFrame:CreateTexture(nil, "ARTWORK")
         titleDiv:SetHeight(1)
-        titleDiv:SetColorTexture(1, 1, 1, 0.10)
+        titleDiv:SetTexture(1, 1, 1, 0.10)
         titleDiv:SetPoint("TOPLEFT", growDropdownFrame, "TOPLEFT", 1, ddY - 2)
         titleDiv:SetPoint("TOPRIGHT", growDropdownFrame, "TOPRIGHT", -1, ddY - 2)
         ddY = ddY - 5
@@ -6798,7 +6798,7 @@ local function CreateMover(barKey)
             local isDisabled = false
             local isCurrent = (entry.val == currentVal)
 
-            local item = CreateFrame("Button", nil, growDropdownFrame)
+            local item = EllesmereUI.SafeCreateFrame("Button", nil, growDropdownFrame)
             item:SetHeight(DD_ITEM_H)
             item:SetPoint("TOPLEFT", growDropdownFrame, "TOPLEFT", 1, ddY)
             item:SetPoint("TOPRIGHT", growDropdownFrame, "TOPRIGHT", -1, ddY)
@@ -6806,7 +6806,7 @@ local function CreateMover(barKey)
             item:RegisterForClicks("AnyUp")
             local hl = item:CreateTexture(nil, "ARTWORK")
             hl:SetAllPoints()
-            hl:SetColorTexture(1, 1, 1, 0)
+            hl:SetTexture(1, 1, 1, 0)
             local lbl = item:CreateFontString(nil, "OVERLAY")
             if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(lbl, true) end
             lbl:SetFont(FONT_PATH, 11, "")
@@ -6826,11 +6826,11 @@ local function CreateMover(barKey)
                 local baseR, baseG, baseB, baseA = isCurrent and 1 or 0.75, isCurrent and 0.7 or 0.75, isCurrent and 0.3 or 0.75, isCurrent and 0.9 or 0.9
                 lbl:SetTextColor(baseR, baseG, baseB, baseA)
                 item:SetScript("OnEnter", function()
-                    hl:SetColorTexture(1, 1, 1, 0.08)
+                    hl:SetTexture(1, 1, 1, 0.08)
                     lbl:SetTextColor(1, 1, 1, 1)
                 end)
                 item:SetScript("OnLeave", function()
-                    hl:SetColorTexture(1, 1, 1, 0)
+                    hl:SetTexture(1, 1, 1, 0)
                     lbl:SetTextColor(baseR, baseG, baseB, baseA)
                 end)
                 local sideVal = entry.val
@@ -7819,7 +7819,7 @@ local function CreateMover(barKey)
                     CancelPickMode()
                     -- Build and show the anchor direction dropdown
                     if not anchorDropdownFrame then
-                        anchorDropdownFrame = CreateFrame("Frame", nil, unlockFrame)
+                        anchorDropdownFrame = EllesmereUI.SafeCreateFrame("Frame", nil, unlockFrame)
                         anchorDropdownFrame:SetFrameStrata("FULLSCREEN_DIALOG")
                         anchorDropdownFrame:SetFrameLevel(260)
                         anchorDropdownFrame:SetClampedToScreen(true)
@@ -7827,7 +7827,7 @@ local function CreateMover(barKey)
                     end
                     -- Click catcher behind dropdown
                     if not anchorDropdownCatcher then
-                        anchorDropdownCatcher = CreateFrame("Button", nil, unlockFrame)
+                        anchorDropdownCatcher = EllesmereUI.SafeCreateFrame("Button", nil, unlockFrame)
                         anchorDropdownCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
                         anchorDropdownCatcher:SetFrameLevel(259)
                         anchorDropdownCatcher:SetAllPoints(UIParent)
@@ -7853,7 +7853,7 @@ local function CreateMover(barKey)
 
                     local ddBg = anchorDropdownFrame:CreateTexture(nil, "BACKGROUND")
                     ddBg:SetAllPoints()
-                    ddBg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+                    ddBg:SetTexture(0.075, 0.113, 0.141, 0.95)
                     EllesmereUI.MakeBorder(anchorDropdownFrame, 1, 1, 1, 0.20)
 
                     local ddY = -4
@@ -7877,7 +7877,7 @@ local function CreateMover(barKey)
                     end
                     local titleDiv = anchorDropdownFrame:CreateTexture(nil, "ARTWORK")
                     titleDiv:SetHeight(1)
-                    titleDiv:SetColorTexture(1, 1, 1, 0.10)
+                    titleDiv:SetTexture(1, 1, 1, 0.10)
                     titleDiv:SetPoint("TOPLEFT", anchorDropdownFrame, "TOPLEFT", 1, ddY - 2)
                     titleDiv:SetPoint("TOPRIGHT", anchorDropdownFrame, "TOPRIGHT", -1, ddY - 2)
                     ddY = ddY - 5
@@ -7885,7 +7885,7 @@ local function CreateMover(barKey)
                     local sides = { "Left", "Right", "Top", "Bottom" }
                     for _, sideName in ipairs(sides) do
                         local sideVal = string.upper(sideName)
-                        local item = CreateFrame("Button", nil, anchorDropdownFrame)
+                        local item = EllesmereUI.SafeCreateFrame("Button", nil, anchorDropdownFrame)
                         item:SetHeight(DD_ITEM_H)
                         item:SetPoint("TOPLEFT", anchorDropdownFrame, "TOPLEFT", 1, ddY)
                         item:SetPoint("TOPRIGHT", anchorDropdownFrame, "TOPRIGHT", -1, ddY)
@@ -7893,7 +7893,7 @@ local function CreateMover(barKey)
                         item:RegisterForClicks("AnyUp")
                         local hl = item:CreateTexture(nil, "ARTWORK")
                         hl:SetAllPoints()
-                        hl:SetColorTexture(1, 1, 1, 0)
+                        hl:SetTexture(1, 1, 1, 0)
                         local lbl = item:CreateFontString(nil, "OVERLAY")
                         lbl:SetFont(FONT_PATH, 11, "OUTLINE, SLUG")
                         lbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
@@ -7901,11 +7901,11 @@ local function CreateMover(barKey)
                         lbl:SetPoint("LEFT", item, "LEFT", 10, 0)
                         lbl:SetText(EllesmereUI.Lf(fbPick and "Fallback to %1$s" or "Anchor to %1$s", EllesmereUI.L(sideName)))
                         item:SetScript("OnEnter", function()
-                            hl:SetColorTexture(1, 1, 1, 0.08)
+                            hl:SetTexture(1, 1, 1, 0.08)
                             lbl:SetTextColor(1, 1, 1, 1)
                         end)
                         item:SetScript("OnLeave", function()
-                            hl:SetColorTexture(1, 1, 1, 0)
+                            hl:SetTexture(1, 1, 1, 0)
                             lbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
                         end)
                         item:SetScript("OnClick", function()
@@ -7973,12 +7973,12 @@ local function CreateMover(barKey)
                     if not fbPick and IsAnchored(pmKey) then
                         local divR = anchorDropdownFrame:CreateTexture(nil, "ARTWORK")
                         divR:SetHeight(1)
-                        divR:SetColorTexture(1, 1, 1, 0.10)
+                        divR:SetTexture(1, 1, 1, 0.10)
                         divR:SetPoint("TOPLEFT", anchorDropdownFrame, "TOPLEFT", 1, ddY - 4)
                         divR:SetPoint("TOPRIGHT", anchorDropdownFrame, "TOPRIGHT", -1, ddY - 4)
                         ddY = ddY - 9
 
-                        local removeItem = CreateFrame("Button", nil, anchorDropdownFrame)
+                        local removeItem = EllesmereUI.SafeCreateFrame("Button", nil, anchorDropdownFrame)
                         removeItem:SetHeight(DD_ITEM_H)
                         removeItem:SetPoint("TOPLEFT", anchorDropdownFrame, "TOPLEFT", 1, ddY)
                         removeItem:SetPoint("TOPRIGHT", anchorDropdownFrame, "TOPRIGHT", -1, ddY)
@@ -7986,7 +7986,7 @@ local function CreateMover(barKey)
                         removeItem:RegisterForClicks("AnyUp")
                         local rHl = removeItem:CreateTexture(nil, "ARTWORK")
                         rHl:SetAllPoints()
-                        rHl:SetColorTexture(1, 1, 1, 0)
+                        rHl:SetTexture(1, 1, 1, 0)
                         local rLbl = removeItem:CreateFontString(nil, "OVERLAY")
                         rLbl:SetFont(FONT_PATH, 11, "OUTLINE, SLUG")
                         rLbl:SetTextColor(0.9, 0.3, 0.3, 0.9)
@@ -7994,11 +7994,11 @@ local function CreateMover(barKey)
                         rLbl:SetPoint("LEFT", removeItem, "LEFT", 10, 0)
                         rLbl:SetText(EllesmereUI.L("Remove Anchor"))
                         removeItem:SetScript("OnEnter", function()
-                            rHl:SetColorTexture(1, 1, 1, 0.08)
+                            rHl:SetTexture(1, 1, 1, 0.08)
                             rLbl:SetTextColor(1, 0.4, 0.4, 1)
                         end)
                         removeItem:SetScript("OnLeave", function()
-                            rHl:SetColorTexture(1, 1, 1, 0)
+                            rHl:SetTexture(1, 1, 1, 0)
                             rLbl:SetTextColor(0.9, 0.3, 0.3, 0.9)
                         end)
                         removeItem:SetScript("OnClick", function()
@@ -8076,7 +8076,7 @@ local function CreateMover(barKey)
     local DD_W = 150        -- dropdown width
 
     -- Cog settings button (opens a dropdown with Reset / Center / Orientation)
-    cogBtn = CreateFrame("Button", nil, unlockFrame)
+    cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, unlockFrame)
     cogBtn:SetFrameLevel(mover:GetFrameLevel() + 10)
     cogBtn:RegisterForClicks("AnyUp")
     cogBtn:EnableMouse(true)
@@ -8084,7 +8084,7 @@ local function CreateMover(barKey)
     do
         local bg = cogBtn:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+        bg:SetTexture(0.075, 0.113, 0.141, 0.9)
         cogBtn._bg = bg
         local brd = EllesmereUI.MakeBorder(cogBtn, 1, 1, 1, 0.20)
         cogBtn._brd = brd
@@ -8095,7 +8095,7 @@ local function CreateMover(barKey)
         icon:SetAlpha(0.7)
         cogBtn._icon = icon
         cogBtn:SetScript("OnEnter", function(self)
-            self._bg:SetColorTexture(0.075, 0.113, 0.141, 0.98)
+            self._bg:SetTexture(0.075, 0.113, 0.141, 0.98)
             self._brd:SetColor(1, 1, 1, 0.30)
             self._icon:SetAlpha(1)
             mover:SetFrameLevel(mover._raisedLevel + 100)
@@ -8103,7 +8103,7 @@ local function CreateMover(barKey)
             if not darkOverlaysEnabled then mover:SetAlpha(MOVER_HOVER) end
         end)
         cogBtn:SetScript("OnLeave", function(self)
-            self._bg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+            self._bg:SetTexture(0.075, 0.113, 0.141, 0.9)
             self._brd:SetColor(1, 1, 1, 0.20)
             self._icon:SetAlpha(0.7)
         end)
@@ -8122,7 +8122,7 @@ local function CreateMover(barKey)
 
     -- Re-set cogBtn hover scripts now that fade helpers are in scope
     cogBtn:SetScript("OnEnter", function(self)
-        self._bg:SetColorTexture(0.075, 0.113, 0.141, 0.98)
+        self._bg:SetTexture(0.075, 0.113, 0.141, 0.98)
         self._brd:SetColor(1, 1, 1, 0.30)
         self._icon:SetAlpha(1)
         -- Restore mover highlight immediately (mover:OnLeave resets it when mouse moves to cog)
@@ -8131,7 +8131,7 @@ local function CreateMover(barKey)
         if not darkOverlaysEnabled then mover:SetAlpha(MOVER_HOVER) end
     end)
     cogBtn:SetScript("OnLeave", function(self)
-        self._bg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+        self._bg:SetTexture(0.075, 0.113, 0.141, 0.9)
         self._brd:SetColor(1, 1, 1, 0.20)
         self._icon:SetAlpha(0.7)
     end)
@@ -8139,14 +8139,14 @@ local function CreateMover(barKey)
     ---------------------------------------------------------------------------
     --  Snap-to dropdown (custom styled, per-mover memory)
     ---------------------------------------------------------------------------
-    local snapDD = CreateFrame("Button", nil, unlockFrame)
+    local snapDD = EllesmereUI.SafeCreateFrame("Button", nil, unlockFrame)
     snapDD:SetFrameLevel(mover:GetFrameLevel() + 10)
     snapDD:RegisterForClicks("AnyUp")
     snapDD:EnableMouse(true)
     snapDD:SetSize(DD_W, 30)
     local snapDDBg = snapDD:CreateTexture(nil, "BACKGROUND")
     snapDDBg:SetAllPoints()
-    snapDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+    snapDDBg:SetTexture(0.075, 0.113, 0.141, 0.9)
     snapDD._bg = snapDDBg
     local snapDDBrd = EllesmereUI.MakeBorder(snapDD, 1, 1, 1, 0.20)
     snapDD._brd = snapDDBrd
@@ -8166,14 +8166,14 @@ local function CreateMover(barKey)
             EllesmereUI.ShowWidgetTooltip(self, "This feature requires Snap Elements to be enabled")
             return
         end
-        self._bg:SetColorTexture(0.075, 0.113, 0.141, 0.98)
+        self._bg:SetTexture(0.075, 0.113, 0.141, 0.98)
         self._brd:SetColor(1, 1, 1, 0.30)
         snapDDLbl:SetTextColor(1, 1, 1, 0.60)
     end)
     snapDD:SetScript("OnLeave", function(self)
         EllesmereUI.HideWidgetTooltip()
         if not snapEnabled then return end
-        self._bg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+        self._bg:SetTexture(0.075, 0.113, 0.141, 0.9)
         self._brd:SetColor(1, 1, 1, 0.20)
         snapDDLbl:SetTextColor(1, 1, 1, 0.50)
     end)
@@ -8182,12 +8182,12 @@ local function CreateMover(barKey)
     -- Helper: apply grayed-out or normal visual state to the dropdown
     local function RefreshSnapDDState()
         if not snapEnabled then
-            snapDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.50)
+            snapDDBg:SetTexture(0.075, 0.113, 0.141, 0.50)
             snapDDBrd:SetColor(1, 1, 1, 0.07)
             snapDDLbl:SetTextColor(1, 1, 1, 0.20)
             snapDDArrow:SetAlpha(0.10)
         else
-            snapDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+            snapDDBg:SetTexture(0.075, 0.113, 0.141, 0.9)
             snapDDBrd:SetColor(1, 1, 1, 0.20)
             snapDDLbl:SetTextColor(1, 1, 1, 0.50)
             snapDDArrow:SetAlpha(1)
@@ -8234,7 +8234,7 @@ local function CreateMover(barKey)
             for _, child in ipairs({snapMenu:GetChildren()}) do child:Hide(); child:SetParent(nil) end
             for _, tex in ipairs({snapMenu:GetRegions()}) do if tex.Hide then tex:Hide() end end
         end
-        snapMenu = snapMenu or CreateFrame("Frame", nil, unlockFrame)
+        snapMenu = snapMenu or EllesmereUI.SafeCreateFrame("Frame", nil, unlockFrame)
         snapMenu:SetFrameStrata("FULLSCREEN_DIALOG")
         snapMenu:SetFrameLevel(250)
         snapMenu:SetClampedToScreen(true)
@@ -8244,7 +8244,7 @@ local function CreateMover(barKey)
         -- Background + border
         local menuBg = snapMenu:CreateTexture(nil, "BACKGROUND")
         menuBg:SetAllPoints()
-        menuBg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+        menuBg:SetTexture(0.075, 0.113, 0.141, 0.95)
         EllesmereUI.MakeBorder(snapMenu, 1, 1, 1, 0.20)
 
         local ITEM_H = 24
@@ -8263,13 +8263,13 @@ local function CreateMover(barKey)
         -- Title divider
         local titleDiv = snapMenu:CreateTexture(nil, "ARTWORK")
         titleDiv:SetHeight(1)
-        titleDiv:SetColorTexture(1, 1, 1, 0.10)
+        titleDiv:SetTexture(1, 1, 1, 0.10)
         titleDiv:SetPoint("TOPLEFT", snapMenu, "TOPLEFT", 1, yOff - 2)
         titleDiv:SetPoint("TOPRIGHT", snapMenu, "TOPRIGHT", -1, yOff - 2)
         yOff = yOff - 5
 
         local function MakeItem(parent, text, onClick, isSelected)
-            local item = CreateFrame("Button", nil, parent)
+            local item = EllesmereUI.SafeCreateFrame("Button", nil, parent)
             item:SetHeight(ITEM_H)
             item:SetPoint("TOPLEFT", parent, "TOPLEFT", 1, yOff)
             item:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -1, yOff)
@@ -8277,7 +8277,7 @@ local function CreateMover(barKey)
             item:RegisterForClicks("AnyUp")
             local hl = item:CreateTexture(nil, "ARTWORK")
             hl:SetAllPoints()
-            hl:SetColorTexture(1, 1, 1, 0)
+            hl:SetTexture(1, 1, 1, 0)
             local lbl = item:CreateFontString(nil, "OVERLAY")
             lbl:SetFont(FONT_PATH, 11, "OUTLINE, SLUG")
             lbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
@@ -8285,18 +8285,18 @@ local function CreateMover(barKey)
             lbl:SetPoint("LEFT", item, "LEFT", 10, 0)
             lbl:SetText(EllesmereUI.L(text))
             if isSelected then
-                hl:SetColorTexture(1, 1, 1, 0.04)
+                hl:SetTexture(1, 1, 1, 0.04)
                 lbl:SetTextColor(1, 1, 1, 1)
             end
             item:SetScript("OnEnter", function()
-                hl:SetColorTexture(1, 1, 1, 0.08)
+                hl:SetTexture(1, 1, 1, 0.08)
                 lbl:SetTextColor(1, 1, 1, 1)
             end)
             item:SetScript("OnLeave", function()
                 if isSelected then
-                    hl:SetColorTexture(1, 1, 1, 0.04)
+                    hl:SetTexture(1, 1, 1, 0.04)
                 else
-                    hl:SetColorTexture(1, 1, 1, 0)
+                    hl:SetTexture(1, 1, 1, 0)
                 end
                 lbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
             end)
@@ -8325,7 +8325,7 @@ local function CreateMover(barKey)
         -- Divider before element groups
         local div = snapMenu:CreateTexture(nil, "ARTWORK")
         div:SetHeight(1)
-        div:SetColorTexture(1, 1, 1, 0.10)
+        div:SetTexture(1, 1, 1, 0.10)
         div:SetPoint("TOPLEFT", snapMenu, "TOPLEFT", 1, yOff - 4)
         div:SetPoint("TOPRIGHT", snapMenu, "TOPRIGHT", -1, yOff - 4)
         yOff = yOff - 9
@@ -8358,7 +8358,7 @@ local function CreateMover(barKey)
         wipe(regSubMenus)
         for _, gName in ipairs(regGroupOrder) do
             local gElems = regGroups[gName]
-            local rgItem = CreateFrame("Button", nil, snapMenu)
+            local rgItem = EllesmereUI.SafeCreateFrame("Button", nil, snapMenu)
             rgItem:SetHeight(ITEM_H)
             rgItem:SetPoint("TOPLEFT", snapMenu, "TOPLEFT", 1, yOff)
             rgItem:SetPoint("TOPRIGHT", snapMenu, "TOPRIGHT", -1, yOff)
@@ -8366,7 +8366,7 @@ local function CreateMover(barKey)
             rgItem:RegisterForClicks("AnyUp")
             local rgHl = rgItem:CreateTexture(nil, "ARTWORK")
             rgHl:SetAllPoints()
-            rgHl:SetColorTexture(1, 1, 1, 0)
+            rgHl:SetTexture(1, 1, 1, 0)
             local rgLbl = rgItem:CreateFontString(nil, "OVERLAY")
             rgLbl:SetFont(FONT_PATH, 11, "OUTLINE, SLUG")
             rgLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
@@ -8390,7 +8390,7 @@ local function CreateMover(barKey)
                     for _, child in ipairs({regSub:GetChildren()}) do child:Hide(); child:SetParent(nil) end
                     for _, tex in ipairs({regSub:GetRegions()}) do if tex.Hide then tex:Hide() end end
                 end
-                regSub = regSub or CreateFrame("Frame", nil, unlockFrame)
+                regSub = regSub or EllesmereUI.SafeCreateFrame("Frame", nil, unlockFrame)
                 regSub:SetFrameStrata("FULLSCREEN_DIALOG")
                 regSub:SetFrameLevel(260)
                 regSub:SetClampedToScreen(true)
@@ -8398,13 +8398,13 @@ local function CreateMover(barKey)
                 regSub:SetPoint("TOPLEFT", rgItem, "TOPRIGHT", 2, 0)
                 local rsBg = regSub:CreateTexture(nil, "BACKGROUND")
                 rsBg:SetAllPoints()
-                rsBg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+                rsBg:SetTexture(0.075, 0.113, 0.141, 0.95)
                 EllesmereUI.MakeBorder(regSub, 1, 1, 1, 0.20)
                 local rsYOff = -4
                 for _, eInfo in ipairs(gElems) do
                     local ek, eLbl = eInfo.key, eInfo.label
                     local isSel = (curTarget == ek)
-                    local si = CreateFrame("Button", nil, regSub)
+                    local si = EllesmereUI.SafeCreateFrame("Button", nil, regSub)
                     si:SetHeight(ITEM_H)
                     si:SetPoint("TOPLEFT", regSub, "TOPLEFT", 1, rsYOff)
                     si:SetPoint("TOPRIGHT", regSub, "TOPRIGHT", -1, rsYOff)
@@ -8412,7 +8412,7 @@ local function CreateMover(barKey)
                     si:RegisterForClicks("AnyUp")
                     local sHl = si:CreateTexture(nil, "ARTWORK")
                     sHl:SetAllPoints()
-                    sHl:SetColorTexture(1, 1, 1, isSel and 0.04 or 0)
+                    sHl:SetTexture(1, 1, 1, isSel and 0.04 or 0)
                     local sLbl = si:CreateFontString(nil, "OVERLAY")
                     sLbl:SetFont(FONT_PATH, 11, "OUTLINE, SLUG")
                     sLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
@@ -8421,11 +8421,11 @@ local function CreateMover(barKey)
                     sLbl:SetText(EllesmereUI.L(eLbl))
                     if isSel then sLbl:SetTextColor(1, 1, 1, 1) end
                     si:SetScript("OnEnter", function()
-                        sHl:SetColorTexture(1, 1, 1, 0.08)
+                        sHl:SetTexture(1, 1, 1, 0.08)
                         sLbl:SetTextColor(1, 1, 1, 1)
                     end)
                     si:SetScript("OnLeave", function()
-                        sHl:SetColorTexture(1, 1, 1, isSel and 0.04 or 0)
+                        sHl:SetTexture(1, 1, 1, isSel and 0.04 or 0)
                         sLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
                     end)
                     si:SetScript("OnClick", function()
@@ -8457,13 +8457,13 @@ local function CreateMover(barKey)
             end
 
             rgItem:SetScript("OnEnter", function()
-                rgHl:SetColorTexture(1, 1, 1, 0.08)
+                rgHl:SetTexture(1, 1, 1, 0.08)
                 rgLbl:SetTextColor(1, 1, 1, 1)
                 rgArrow:SetAlpha(0.9)
                 ShowRegSub()
             end)
             rgItem:SetScript("OnLeave", function()
-                rgHl:SetColorTexture(1, 1, 1, 0)
+                rgHl:SetTexture(1, 1, 1, 0)
                 rgLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
                 rgArrow:SetAlpha(0.5)
                 C_Timer.After(0.05, function()
@@ -8483,7 +8483,7 @@ local function CreateMover(barKey)
     local snapClickCatcher
     local function ShowClickCatcher()
         if not snapClickCatcher then
-            snapClickCatcher = CreateFrame("Button", nil, unlockFrame)
+            snapClickCatcher = EllesmereUI.SafeCreateFrame("Button", nil, unlockFrame)
             snapClickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
             snapClickCatcher:SetFrameLevel(249)  -- just below snapMenu (250)
             snapClickCatcher:SetAllPoints(UIParent)
@@ -8578,7 +8578,7 @@ local function CreateMover(barKey)
             for _, child in ipairs({cogMenu:GetChildren()}) do child:Hide(); child:SetParent(nil) end
             for _, tex in ipairs({cogMenu:GetRegions()}) do if tex.Hide then tex:Hide() end end
         end
-        cogMenu = cogMenu or CreateFrame("Frame", nil, unlockFrame)
+        cogMenu = cogMenu or EllesmereUI.SafeCreateFrame("Frame", nil, unlockFrame)
         cogMenu:SetFrameStrata("FULLSCREEN_DIALOG")
         cogMenu:SetFrameLevel(250)
         cogMenu:SetClampedToScreen(true)
@@ -8588,7 +8588,7 @@ local function CreateMover(barKey)
 
         local menuBg = cogMenu:CreateTexture(nil, "BACKGROUND")
         menuBg:SetAllPoints()
-        menuBg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+        menuBg:SetTexture(0.075, 0.113, 0.141, 0.95)
         EllesmereUI.MakeBorder(cogMenu, 1, 1, 1, 0.20)
 
         local ITEM_H = 24
@@ -8616,7 +8616,7 @@ local function CreateMover(barKey)
             local hintDivPx = PP and PP.mult or 1
             hintDiv:SetHeight(hintDivPx)
             if hintDiv.SetSnapToPixelGrid then hintDiv:SetSnapToPixelGrid(false); hintDiv:SetTexelSnappingBias(0) end
-            hintDiv:SetColorTexture(1, 1, 1, 0.10)
+            hintDiv:SetTexture(1, 1, 1, 0.10)
             hintDiv:SetPoint("TOPLEFT", cogMenu, "TOPLEFT", 1, yOff - 4)
             hintDiv:SetPoint("TOPRIGHT", cogMenu, "TOPRIGHT", -1, yOff - 4)
             yOff = yOff - 9
@@ -8638,7 +8638,7 @@ local function CreateMover(barKey)
         -- (the same action as clicking a Blizzard Edit Mode overlay in unlock mode).
         local opensEditMode = (barKey == "QueueStatus")
         if settingsMapping or opensEditMode then
-            local optItem = CreateFrame("Button", nil, cogMenu)
+            local optItem = EllesmereUI.SafeCreateFrame("Button", nil, cogMenu)
             optItem:SetHeight(ITEM_H)
             optItem:SetPoint("TOPLEFT", cogMenu, "TOPLEFT", 1, yOff)
             optItem:SetPoint("TOPRIGHT", cogMenu, "TOPRIGHT", -1, yOff)
@@ -8646,7 +8646,7 @@ local function CreateMover(barKey)
             optItem:RegisterForClicks("AnyUp")
             local optHl = optItem:CreateTexture(nil, "ARTWORK")
             optHl:SetAllPoints()
-            optHl:SetColorTexture(1, 1, 1, 0)
+            optHl:SetTexture(1, 1, 1, 0)
             local optLbl = optItem:CreateFontString(nil, "OVERLAY")
             if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(optLbl, true) end
             optLbl:SetFont(FONT_PATH, 11, "")
@@ -8655,11 +8655,11 @@ local function CreateMover(barKey)
             optLbl:SetPoint("LEFT", optItem, "LEFT", 10, 0)
             optLbl:SetText(EllesmereUI.L("Element Options"))
             optItem:SetScript("OnEnter", function()
-                optHl:SetColorTexture(1, 1, 1, 0.08)
+                optHl:SetTexture(1, 1, 1, 0.08)
                 optLbl:SetTextColor(1, 1, 1, 1)
             end)
             optItem:SetScript("OnLeave", function()
-                optHl:SetColorTexture(1, 1, 1, 0)
+                optHl:SetTexture(1, 1, 1, 0)
                 optLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
             end)
             optItem:SetScript("OnClick", function()
@@ -8691,7 +8691,7 @@ local function CreateMover(barKey)
             local optDivPx = PP and PP.mult or 1
             optDiv:SetHeight(optDivPx)
             if optDiv.SetSnapToPixelGrid then optDiv:SetSnapToPixelGrid(false); optDiv:SetTexelSnappingBias(0) end
-            optDiv:SetColorTexture(1, 1, 1, 0.10)
+            optDiv:SetTexture(1, 1, 1, 0.10)
             optDiv:SetPoint("TOPLEFT", cogMenu, "TOPLEFT", 1, yOff - 4)
             optDiv:SetPoint("TOPRIGHT", cogMenu, "TOPRIGHT", -1, yOff - 4)
             yOff = yOff - 9
@@ -8711,7 +8711,7 @@ local function CreateMover(barKey)
             local wBox, hBox
 
             local function MakeSizeRow(axis, initVal)
-                local rowFrame = CreateFrame("Frame", nil, cogMenu)
+                local rowFrame = EllesmereUI.SafeCreateFrame("Frame", nil, cogMenu)
                 rowFrame:SetHeight(ROW_H)
                 rowFrame:SetPoint("TOPLEFT", cogMenu, "TOPLEFT", 1, yOff)
                 rowFrame:SetPoint("TOPRIGHT", cogMenu, "TOPRIGHT", -1, yOff)
@@ -8725,7 +8725,7 @@ local function CreateMover(barKey)
                 lbl:SetPoint("LEFT", rowFrame, "LEFT", 10, 0)
                 lbl:SetText((EllesmereUI and EllesmereUI.L and EllesmereUI.L(axis)) or axis)
 
-                local box = CreateFrame("EditBox", nil, rowFrame)
+                local box = EllesmereUI.SafeCreateFrame("EditBox", nil, rowFrame)
                 box:SetSize(INPUT_W, INPUT_H)
                 box:SetPoint("RIGHT", rowFrame, "RIGHT", -8, 0)
                 box:SetFrameLevel(cogMenu:GetFrameLevel() + 3)
@@ -8734,7 +8734,7 @@ local function CreateMover(barKey)
                 box:SetJustifyH("CENTER")
                 local boxBg = box:CreateTexture(nil, "BACKGROUND")
                 boxBg:SetAllPoints()
-                boxBg:SetColorTexture(0, 0, 0, 0.4)
+                boxBg:SetTexture(0, 0, 0, 0.4)
                 box:SetAutoFocus(false)
                 box:SetNumeric(true)
                 box:SetMaxLetters(5)
@@ -8872,7 +8872,7 @@ local function CreateMover(barKey)
                 end
 
                 local function MakePosRow(axis, initVal)
-                    local rowFrame = CreateFrame("Frame", nil, cogMenu)
+                    local rowFrame = EllesmereUI.SafeCreateFrame("Frame", nil, cogMenu)
                     rowFrame:SetHeight(ROW_H)
                     rowFrame:SetPoint("TOPLEFT", cogMenu, "TOPLEFT", 1, yOff)
                     rowFrame:SetPoint("TOPRIGHT", cogMenu, "TOPRIGHT", -1, yOff)
@@ -8886,7 +8886,7 @@ local function CreateMover(barKey)
                     lbl:SetPoint("LEFT", rowFrame, "LEFT", 10, 0)
                     lbl:SetText(axis == "X" and EllesmereUI.L("X Position") or EllesmereUI.L("Y Position"))
 
-                    local box = CreateFrame("EditBox", nil, rowFrame)
+                    local box = EllesmereUI.SafeCreateFrame("EditBox", nil, rowFrame)
                     box:SetSize(INPUT_W, INPUT_H)
                     box:SetPoint("RIGHT", rowFrame, "RIGHT", -8, 0)
                     box:SetFrameLevel(cogMenu:GetFrameLevel() + 3)
@@ -8895,7 +8895,7 @@ local function CreateMover(barKey)
                     box:SetJustifyH("CENTER")
                     local boxBg = box:CreateTexture(nil, "BACKGROUND")
                     boxBg:SetAllPoints()
-                    boxBg:SetColorTexture(0, 0, 0, 0.4)
+                    boxBg:SetTexture(0, 0, 0, 0.4)
                     box:SetAutoFocus(false)
                     box:SetNumeric(false)
                     box:SetMaxLetters(6)
@@ -8955,13 +8955,13 @@ local function CreateMover(barKey)
             local sizeDivPx = PP and PP.mult or 1
             sizeDiv:SetHeight(sizeDivPx)
             if sizeDiv.SetSnapToPixelGrid then sizeDiv:SetSnapToPixelGrid(false); sizeDiv:SetTexelSnappingBias(0) end
-            sizeDiv:SetColorTexture(1, 1, 1, 0.10)
+            sizeDiv:SetTexture(1, 1, 1, 0.10)
             sizeDiv:SetPoint("TOPLEFT", cogMenu, "TOPLEFT", 1, yOff - 4)
             sizeDiv:SetPoint("TOPRIGHT", cogMenu, "TOPRIGHT", -1, yOff - 4)
             yOff = yOff - 9
         end
         -- Snap Target: enter pick mode or clear existing target
-        local selElemItem = CreateFrame("Button", nil, cogMenu)
+        local selElemItem = EllesmereUI.SafeCreateFrame("Button", nil, cogMenu)
         selElemItem:SetHeight(ITEM_H)
         selElemItem:SetPoint("TOPLEFT", cogMenu, "TOPLEFT", 1, yOff)
         selElemItem:SetPoint("TOPRIGHT", cogMenu, "TOPRIGHT", -1, yOff)
@@ -8969,7 +8969,7 @@ local function CreateMover(barKey)
         selElemItem:RegisterForClicks("AnyUp")
         local selElemHl = selElemItem:CreateTexture(nil, "ARTWORK")
         selElemHl:SetAllPoints()
-        selElemHl:SetColorTexture(1, 1, 1, 0)
+        selElemHl:SetTexture(1, 1, 1, 0)
         local selElemLbl = selElemItem:CreateFontString(nil, "OVERLAY")
         if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(selElemLbl, true) end
         selElemLbl:SetFont(FONT_PATH, 11, "")
@@ -8986,11 +8986,11 @@ local function CreateMover(barKey)
             selElemLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
         end
         selElemItem:SetScript("OnEnter", function()
-            selElemHl:SetColorTexture(1, 1, 1, 0.08)
+            selElemHl:SetTexture(1, 1, 1, 0.08)
             selElemLbl:SetTextColor(1, 1, 1, 1)
         end)
         selElemItem:SetScript("OnLeave", function()
-            selElemHl:SetColorTexture(1, 1, 1, 0)
+            selElemHl:SetTexture(1, 1, 1, 0)
             selElemLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
         end)
         selElemItem:SetScript("OnClick", function()
@@ -9011,7 +9011,7 @@ local function CreateMover(barKey)
 
         -- Helper: menu action item
         local function MakeActionItem(text, onClick)
-            local item = CreateFrame("Button", nil, cogMenu)
+            local item = EllesmereUI.SafeCreateFrame("Button", nil, cogMenu)
             item:SetHeight(ITEM_H)
             item:SetPoint("TOPLEFT", cogMenu, "TOPLEFT", 1, yOff)
             item:SetPoint("TOPRIGHT", cogMenu, "TOPRIGHT", -1, yOff)
@@ -9019,7 +9019,7 @@ local function CreateMover(barKey)
             item:RegisterForClicks("AnyUp")
             local hl = item:CreateTexture(nil, "ARTWORK")
             hl:SetAllPoints()
-            hl:SetColorTexture(1, 1, 1, 0)
+            hl:SetTexture(1, 1, 1, 0)
             local lbl = item:CreateFontString(nil, "OVERLAY")
             if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(lbl, true) end
             lbl:SetFont(FONT_PATH, 11, "")
@@ -9028,11 +9028,11 @@ local function CreateMover(barKey)
             lbl:SetPoint("LEFT", item, "LEFT", 10, 0)
             lbl:SetText(EllesmereUI.L(text))
             item:SetScript("OnEnter", function()
-                hl:SetColorTexture(1, 1, 1, 0.08)
+                hl:SetTexture(1, 1, 1, 0.08)
                 lbl:SetTextColor(1, 1, 1, 1)
             end)
             item:SetScript("OnLeave", function()
-                hl:SetColorTexture(1, 1, 1, 0)
+                hl:SetTexture(1, 1, 1, 0)
                 lbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
             end)
             item:SetScript("OnClick", function()
@@ -9136,7 +9136,7 @@ local function CreateMover(barKey)
                 local fbDivPx = PP and PP.mult or 1
                 fbDiv:SetHeight(fbDivPx)
                 if fbDiv.SetSnapToPixelGrid then fbDiv:SetSnapToPixelGrid(false); fbDiv:SetTexelSnappingBias(0) end
-                fbDiv:SetColorTexture(1, 1, 1, 0.10)
+                fbDiv:SetTexture(1, 1, 1, 0.10)
                 fbDiv:SetPoint("TOPLEFT", cogMenu, "TOPLEFT", 1, yOff - 4)
                 fbDiv:SetPoint("TOPRIGHT", cogMenu, "TOPRIGHT", -1, yOff - 4)
                 yOff = yOff - 9
@@ -9165,7 +9165,7 @@ local function CreateMover(barKey)
     -- Click-catcher for cog menu
     local function ShowCogClickCatcher()
         if not cogClickCatcher then
-            cogClickCatcher = CreateFrame("Button", nil, unlockFrame)
+            cogClickCatcher = EllesmereUI.SafeCreateFrame("Button", nil, unlockFrame)
             cogClickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
             cogClickCatcher:SetFrameLevel(249)
             cogClickCatcher:SetAllPoints(UIParent)
@@ -9291,7 +9291,7 @@ local function CreateHUD(parent)
     -- (initial scale, user banner scale, slide-in offsets read GetScale()).
     if UIParent:GetEffectiveScale() < 0.6 then uiScale = uiScale * 1.08 end
 
-    hudFrame = CreateFrame("Frame", nil, parent)
+    hudFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     hudFrame:SetFrameStrata("TOOLTIP")
     hudFrame:SetFrameLevel(900)
     hudFrame:SetSize(BANNER_PX_W, BANNER_PX_H)
@@ -9331,7 +9331,7 @@ local function CreateHUD(parent)
     ---------------------------------------------------------------
     --  Grid toggle (left of center): label LEFT of icon
     ---------------------------------------------------------------
-    local gridBtn = CreateFrame("Button", nil, hudFrame)
+    local gridBtn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
     -- Size will be set after label is created to encompass icon + gap + label
     gridBtn:SetPoint("RIGHT", hudFrame, "TOP", -80 + iconSz / 2, iconCenterY)
 
@@ -9385,7 +9385,7 @@ local function CreateHUD(parent)
     ---------------------------------------------------------------
     --  Dark Overlays toggle (left of grid): label LEFT of icon
     ---------------------------------------------------------------
-    local darkOverlayBtn = CreateFrame("Button", nil, hudFrame)
+    local darkOverlayBtn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
     darkOverlayBtn:SetPoint("RIGHT", gridBtn, "LEFT", -20, 0)
 
     local darkOverlayTex = darkOverlayBtn:CreateTexture(nil, "OVERLAY")
@@ -9420,7 +9420,7 @@ local function CreateHUD(parent)
     ---------------------------------------------------------------
     --  Flashlight toggle (left of grid): label LEFT of icon
     ---------------------------------------------------------------
-    local flashBtn = CreateFrame("Button", nil, hudFrame)
+    local flashBtn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
     flashBtn:SetPoint("RIGHT", darkOverlayBtn, "LEFT", -20, 0)
 
     local flashTex = flashBtn:CreateTexture(nil, "OVERLAY")
@@ -9454,7 +9454,7 @@ local function CreateHUD(parent)
     ---------------------------------------------------------------
     --  Magnet/Snap toggle (right of center): label RIGHT of icon
     ---------------------------------------------------------------
-    local magnetBtn = CreateFrame("Button", nil, hudFrame)
+    local magnetBtn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
     magnetBtn:SetPoint("LEFT", hudFrame, "TOP", 76 - iconSz / 2, iconCenterY)
 
     local magnetTex = magnetBtn:CreateTexture(nil, "OVERLAY")
@@ -9493,7 +9493,7 @@ local function CreateHUD(parent)
     ---------------------------------------------------------------
     --  Coordinates toggle (right of snap): label RIGHT of icon
     ---------------------------------------------------------------
-    local coordBtn = CreateFrame("Button", nil, hudFrame)
+    local coordBtn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
     coordBtn:SetPoint("LEFT", magnetBtn, "RIGHT", 7, 0)
 
     local coordTex = coordBtn:CreateTexture(nil, "OVERLAY")
@@ -9540,7 +9540,7 @@ local function CreateHUD(parent)
     ---------------------------------------------------------------
     --  Hover toggle (right of coords): label RIGHT of icon
     ---------------------------------------------------------------
-    local hoverBtn = CreateFrame("Button", nil, hudFrame)
+    local hoverBtn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
     hoverBtn:SetPoint("LEFT", coordBtn, "RIGHT", 2, 0)
 
     local hoverTex = hoverBtn:CreateTexture(nil, "OVERLAY")
@@ -9581,7 +9581,7 @@ local function CreateHUD(parent)
     local btnCenterY = iconCenterY  -- same vertical center as icons
 
     -- Exit button (left side, 90px from left edge)
-    local exitBtn = CreateFrame("Button", nil, hudFrame)
+    local exitBtn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
     exitBtn:SetSize(60, BTN_H)
     exitBtn:SetPoint("LEFT", hudFrame, "TOPLEFT", 85, btnCenterY)
     EllesmereUI.MakeStyledButton(exitBtn, "Exit", BTN_FONT,
@@ -9590,7 +9590,7 @@ local function CreateHUD(parent)
 
     -- Save & Exit button (right side, 50px from right edge, green "Done" style)
     do
-        local btn = CreateFrame("Button", nil, hudFrame)
+        local btn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
         btn:SetSize(90, BTN_H)
         btn:SetPoint("RIGHT", hudFrame, "TOPRIGHT", -85, btnCenterY)
         btn:SetFrameLevel(hudFrame:GetFrameLevel() + 2)
@@ -9599,7 +9599,7 @@ local function CreateHUD(parent)
         EllesmereUI.MakeBorder(btn, eg.r, eg.g, eg.b, 0.7)
         local bg = btn:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+        bg:SetTexture(0.06, 0.08, 0.10, 0.92)
 
         local lbl = btn:CreateFontString(nil, "OVERLAY")
         lbl:SetFont(FONT_PATH, BTN_FONT, "OUTLINE, SLUG")
@@ -9702,7 +9702,7 @@ local function CreateHUD(parent)
 
         -- Helper: create a text button with drop shadow
         local function MakeScaleBtn(text, anchorPoint, anchorTo, anchorRel, xOff, yOff)
-            local btn = CreateFrame("Button", nil, hudFrame)
+            local btn = EllesmereUI.SafeCreateFrame("Button", nil, hudFrame)
             btn:SetSize(30, 30)
             btn:SetPoint(anchorPoint, anchorTo, anchorRel, xOff, yOff)
             btn:SetFrameLevel(hudFrame:GetFrameLevel() + 3)
@@ -9771,7 +9771,7 @@ local function CreateHUD(parent)
 
     -- Invisible hover detection zone (parented to UIParent, not hudFrame,
     -- so it's always accessible even when hudFrame alpha is 0)
-    local hoverZone = CreateFrame("Frame", nil, parent)
+    local hoverZone = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     hoverZone:SetFrameStrata("FULLSCREEN_DIALOG")
     hoverZone:SetFrameLevel(parent:GetFrameLevel() + 56)
     hoverZone:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
@@ -9977,13 +9977,13 @@ do
             return
         end
         if not specOvBanner then
-            specOvBanner = CreateFrame("Frame", nil, unlockFrame)
+            specOvBanner = EllesmereUI.SafeCreateFrame("Frame", nil, unlockFrame)
             specOvBanner:SetFrameLevel(unlockFrame:GetFrameLevel() + 60)
             specOvBanner:SetHeight(28)
             specOvBanner:SetPoint("TOP", unlockFrame, "TOP", 0, -64)
             local bg = specOvBanner:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
-            bg:SetColorTexture(0.16, 0.12, 0.04, 0.92)
+            bg:SetTexture(0.16, 0.12, 0.04, 0.92)
             EllesmereUI.MakeBorder(specOvBanner, 199/255, 166/255, 90/255, 0.7)
             local fs = specOvBanner:CreateFontString(nil, "OVERLAY")
             fs:SetFont(FONT_PATH, 12, "OUTLINE, SLUG")
@@ -10592,19 +10592,19 @@ end
 local function CreateUnlockFrame()
     if unlockFrame then return unlockFrame end
 
-    unlockFrame = CreateFrame("Frame", "EllesmereUnlockMode", UIParent)
+    unlockFrame = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUnlockMode", UIParent)
     unlockFrame:SetFrameStrata("FULLSCREEN_DIALOG")
     unlockFrame:SetAllPoints(UIParent)
     unlockFrame:EnableMouse(false)  -- let clicks pass through to game world
     unlockFrame:EnableKeyboard(true)
 
     -- Dark overlay background — on a dedicated sub-frame so movers render ABOVE it
-    local overlayFrame = CreateFrame("Frame", nil, unlockFrame)
+    local overlayFrame = EllesmereUI.SafeCreateFrame("Frame", nil, unlockFrame)
     overlayFrame:SetFrameLevel(unlockFrame:GetFrameLevel() + 1)
     overlayFrame:SetAllPoints(UIParent)
     local overlay = overlayFrame:CreateTexture(nil, "BACKGROUND")
     overlay:SetAllPoints()
-    overlay:SetColorTexture(0.02, 0.03, 0.04, 0.20)
+    overlay:SetTexture(0.02, 0.03, 0.04, 0.20)
     unlockFrame._overlay = overlay
     unlockFrame._overlayMaxAlpha = 0.20
 
@@ -10612,7 +10612,7 @@ local function CreateUnlockFrame()
     -- between each anchored child and its parent, rendered behind all elements.
     local anchorLinePool = {}
     local anchorPulsePool = {}
-    local anchorLineFrame = CreateFrame("Frame", nil, UIParent)
+    local anchorLineFrame = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     anchorLineFrame:SetFrameStrata("BACKGROUND")
     anchorLineFrame:SetFrameLevel(1)
     anchorLineFrame:SetAllPoints(UIParent)
@@ -10744,7 +10744,7 @@ local function CreateUnlockFrame()
     end
 
     -- Drive line updates every frame while unlock mode is open
-    local anchorLineDriver = CreateFrame("Frame")
+    local anchorLineDriver = EllesmereUI.SafeCreateFrame("Frame")
     anchorLineDriver:SetScript("OnUpdate", UpdateAnchorLines)
     anchorLineDriver:Hide()
     unlockFrame._anchorLineDriver = anchorLineDriver
@@ -10823,13 +10823,13 @@ local OUTER_Y_OFFSET = -7  -- outer ring sits 7px lower than center
 local function CreateOpenAnimFrame(parent)
     if openAnimFrame then return openAnimFrame end
 
-    openAnimFrame = CreateFrame("Frame", nil, parent)
+    openAnimFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     openAnimFrame:SetFrameLevel(50)  -- above movers (~20), below confirm popup (100)
     openAnimFrame:SetAllPoints(UIParent)
 
     -- Container frame: sized to hold the largest texture at native res.
     -- SetScale on this frame handles ALL sizing uniformly.
-    local container = CreateFrame("Frame", nil, openAnimFrame)
+    local container = EllesmereUI.SafeCreateFrame("Frame", nil, openAnimFrame)
     container:SetSize(CONTAINER_SZ, CONTAINER_SZ)
     container:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     container:SetScale(BASE_SCALE)
@@ -10859,7 +10859,7 @@ local function CreateOpenAnimFrame(parent)
     openAnimFrame._top = top
 
     -- Sweep shine: tightly clipped to logo center (lives inside container)
-    local sweepClip = CreateFrame("Frame", nil, container)
+    local sweepClip = EllesmereUI.SafeCreateFrame("Frame", nil, container)
     sweepClip:SetSize(CONTAINER_SZ * 0.75, CONTAINER_SZ * 0.75)
     sweepClip:SetPoint("CENTER", container, "CENTER", 0, 0)
     sweepClip:SetFrameLevel(container:GetFrameLevel() + 5)
@@ -10867,7 +10867,7 @@ local function CreateOpenAnimFrame(parent)
     openAnimFrame._sweepClip = sweepClip
 
     local sweep = sweepClip:CreateTexture(nil, "OVERLAY", nil, 7)
-    sweep:SetColorTexture(1, 1, 1, 0.30)
+    sweep:SetTexture(1, 1, 1, 0.30)
     sweep:SetSize(12, 120)
     sweep:SetRotation(math.rad(20))
     sweep:ClearAllPoints()
@@ -10892,7 +10892,7 @@ function ns.ShowUnlockTip()
         local TIP_W, TIP_H = 450, 175
         local ar, ag, ab = GetAccent()
 
-        local tip = CreateFrame("Frame", nil, UIParent)
+        local tip = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         tip:SetFrameStrata("TOOLTIP")
         tip:SetFrameLevel(900)
         tip:SetSize(TIP_W, TIP_H)
@@ -10909,7 +10909,7 @@ function ns.ShowUnlockTip()
         -- Background
         local bg = tip:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(0.06, 0.08, 0.10, 0.95)
+        bg:SetTexture(0.06, 0.08, 0.10, 0.95)
 
         -- Border
         EllesmereUI.MakeBorder(tip, ar, ag, ab, 0.25)
@@ -10920,7 +10920,7 @@ function ns.ShowUnlockTip()
         local ARROW_SZ = 16  -- diamond size
         -- Clip frame: sits above the popup top edge, clips to show only top half
         -- Shifted up 2px so the arrow appears 2px higher
-        local arrowClip = CreateFrame("Frame", nil, tip)
+        local arrowClip = EllesmereUI.SafeCreateFrame("Frame", nil, tip)
         arrowClip:SetFrameStrata("TOOLTIP")
         arrowClip:SetFrameLevel(tip:GetFrameLevel() + 10)
         arrowClip:SetClipsChildren(true)
@@ -10931,7 +10931,7 @@ function ns.ShowUnlockTip()
 
         -- The actual diamond frame inside the clip, positioned so its center
         -- (widest point) is exactly at the clip's bottom edge
-        local arrowFrame = CreateFrame("Frame", nil, arrowClip)
+        local arrowFrame = EllesmereUI.SafeCreateFrame("Frame", nil, arrowClip)
         arrowFrame:SetFrameLevel(arrowClip:GetFrameLevel() + 1)
         arrowFrame:SetSize(ARROW_SZ + 4, ARROW_SZ + 4)
         arrowFrame:SetPoint("CENTER", arrowClip, "BOTTOM", 0, 0)
@@ -10942,7 +10942,7 @@ function ns.ShowUnlockTip()
         local arrowBorder = arrowFrame:CreateTexture(nil, "ARTWORK", nil, 7)
         arrowBorder:SetSize(ARROW_SZ + 2, ARROW_SZ + 2)
         arrowBorder:SetPoint("CENTER")
-        arrowBorder:SetColorTexture(ar, ag, ab, 0.18)
+        arrowBorder:SetTexture(ar, ag, ab, 0.18)
         arrowBorder:SetRotation(math.rad(45))
         if arrowBorder.SetSnapToPixelGrid then arrowBorder:SetSnapToPixelGrid(false); arrowBorder:SetTexelSnappingBias(0) end
 
@@ -10950,7 +10950,7 @@ function ns.ShowUnlockTip()
         local arrowFill = arrowFrame:CreateTexture(nil, "OVERLAY", nil, 6)
         arrowFill:SetSize(ARROW_SZ, ARROW_SZ)
         arrowFill:SetPoint("CENTER")
-        arrowFill:SetColorTexture(0.06, 0.08, 0.10, 0.95)
+        arrowFill:SetTexture(0.06, 0.08, 0.10, 0.95)
         arrowFill:SetRotation(math.rad(45))
         if arrowFill.SetSnapToPixelGrid then arrowFill:SetSnapToPixelGrid(false); arrowFill:SetTexelSnappingBias(0) end
 
@@ -10965,7 +10965,7 @@ function ns.ShowUnlockTip()
         msg:SetText(EllesmereUI.L("This is where you can control the settings of Unlock Mode.\n\nElements can be repositioned by dragging or arrow keys (+shift)\nAnchor, Height Match, or Width match any element.\nSnapping is based on closest element, but you can snap only to\n a specific element via right click or the settings icon."))
 
         -- Okay button
-        local okBtn = CreateFrame("Button", nil, tip)
+        local okBtn = EllesmereUI.SafeCreateFrame("Button", nil, tip)
         okBtn:SetSize(80, 24)
         okBtn:SetPoint("BOTTOM", tip, "BOTTOM", 0, 15)
         EllesmereUI.MakeStyledButton(okBtn, "Okay", 10,
@@ -11257,7 +11257,7 @@ function ns.OpenUnlockMode()
 
     -- Start overlay at 0 alpha, will fade in during animation
     if unlockFrame._overlay then
-        unlockFrame._overlay:SetColorTexture(0.02, 0.03, 0.04, 0)
+        unlockFrame._overlay:SetTexture(0.02, 0.03, 0.04, 0)
     end
 
     -- Phase timings
@@ -11330,7 +11330,7 @@ function ns.OpenUnlockMode()
         local OVERLAY_FADE_DUR = 0.75
         if unlockFrame._overlay then
             local oa = min(1, elapsed / OVERLAY_FADE_DUR) * (unlockFrame._overlayMaxAlpha or 0.20)
-            unlockFrame._overlay:SetColorTexture(0.02, 0.03, 0.04, oa)
+            unlockFrame._overlay:SetTexture(0.02, 0.03, 0.04, oa)
         end
 
         ---------------------------------------------------------------
@@ -11696,7 +11696,7 @@ function ns.OpenUnlockMode()
         local LOGO_FADE_DUR = 2.0
         local fadeElapsed = 0
         if not logoFadeFrame then
-            logoFadeFrame = CreateFrame("Frame", nil, UIParent)
+            logoFadeFrame = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         end
         logoFadeFrame:Show()
         logoFadeFrame:SetScript("OnUpdate", function(ff, fdt)
@@ -11921,7 +11921,7 @@ local function ResumeAfterCombat()
 end
 
 do
-    local combatFrame = CreateFrame("Frame")
+    local combatFrame = EllesmereUI.SafeCreateFrame("Frame")
     combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     combatFrame:SetScript("OnEvent", function(_, event)

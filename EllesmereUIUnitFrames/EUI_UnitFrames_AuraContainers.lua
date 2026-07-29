@@ -588,7 +588,7 @@ local function ApplyGroupConfig(container, unit, base, s, chain, own, declared)
         end
     end
 
-    container:SetShown(shown)
+    if shown then container:Show() else container:Hide() end
     return shown
 end
 
@@ -687,11 +687,11 @@ local function ApplyDispelSlotStyle(button, d, style)
         else
             tex:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
         end
-        tex:SetColorTexture(c.r, c.g, c.b, alpha)
+        tex:SetTexture(c.r, c.g, c.b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
     else -- "full"
         tex:SetAllPoints(health)
-        tex:SetColorTexture(c.r, c.g, c.b, alpha)
+        tex:SetTexture(c.r, c.g, c.b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
     end
 end
@@ -794,7 +794,7 @@ local function CreateDispelSlots(frame, entry)
     end
     AK.FinishContainer(container, "player")
 
-    container:SetShown(mode ~= "none")
+    if mode ~= "none" then container:Show() else container:Hide() end
     ns.UF_DispelOverlayDisabled = true
 end
 
@@ -817,7 +817,7 @@ local function ReloadDispelSlots(frame, entry)
             AK.RestyleSoon(DispelStyleKey(DISPEL_SLOTS[i].key .. "_byme"))
         end
     end
-    entry.dispel:SetShown((p.dispelOverlay or "none") ~= "none")
+    if (p.dispelOverlay or "none") ~= "none" then entry.dispel:Show() else entry.dispel:Hide() end
 end
 
 -- Options-panel poke (via ns.UpdatePlayerDispelOverlay): re-run the
@@ -940,7 +940,7 @@ end
 -- fixed SendUnitPing upstream (PingManager securecopys the receiver info at
 -- the secure boundary); contextual pings on our frames are legal again.
 
-local unitWatcher = CreateFrame("Frame")
+local unitWatcher = EllesmereUI.SafeCreateFrame("Frame")
 unitWatcher:RegisterEvent("PLAYER_TARGET_CHANGED")
 unitWatcher:RegisterEvent("PLAYER_FOCUS_CHANGED")
 unitWatcher:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")

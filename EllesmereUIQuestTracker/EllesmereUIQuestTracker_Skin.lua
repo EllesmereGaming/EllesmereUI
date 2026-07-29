@@ -304,7 +304,7 @@ local function EnsureAccentDivider(header)
     local onePixel = (es and es > 0) and (perfect / es) or (PP_SEC and PP_SEC.mult) or 1
     tex:SetHeight(onePixel)
     local r, g, b = GetLineRGB()
-    tex:SetColorTexture(r, g, b, 1)
+    tex:SetTexture(r, g, b, 1)
     tex:Show()
     return tex
 end
@@ -451,7 +451,7 @@ local function SkinHeader(header, knownCollapsed)
     -- a secure redirect without fresh taint-log evidence.
     if not _headerClickOverlays[header] and header.MinimizeButton then
         local minBtn = header.MinimizeButton
-        local overlay = CreateFrame("Button", nil, header)
+        local overlay = EllesmereUI.SafeCreateFrame("Button", nil, header)
         overlay:SetFrameLevel(header:GetFrameLevel() + 1)
         overlay:RegisterForClicks("LeftButtonUp")
         overlay:SetPoint("TOPLEFT", header, "TOPLEFT", 0, 0)
@@ -576,7 +576,7 @@ local function _refreshClassifyCache()
 end
 
 do
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f:RegisterEvent("QUEST_LOG_UPDATE")
     f:RegisterEvent("QUEST_ACCEPTED")
     f:RegisterEvent("QUEST_REMOVED")
@@ -686,7 +686,7 @@ end
 local _superTrackedID = nil
 local function GetSuperTrackedIDCached() return _superTrackedID end
 do
-    local sf = CreateFrame("Frame")
+    local sf = EllesmereUI.SafeCreateFrame("Frame")
     sf:RegisterEvent("SUPER_TRACKING_CHANGED")
     sf:RegisterEvent("PLAYER_ENTERING_WORLD")
     sf:SetScript("OnEvent", function(_, event)
@@ -1232,7 +1232,7 @@ function EQT.InitSkin()
         -- the existing PLAYER_ENTERING_WORLD + C_Timer.After debounce pattern
         -- used elsewhere in this file (see _refreshClassifyCache above).
         do
-            local reentry = CreateFrame("Frame")
+            local reentry = EllesmereUI.SafeCreateFrame("Frame")
             reentry:RegisterEvent("PLAYER_ENTERING_WORLD")
             reentry:SetScript("OnEvent", function(self)
                 self:UnregisterEvent("PLAYER_ENTERING_WORLD")
@@ -1250,7 +1250,7 @@ function EQT.InitSkin()
     -- Re-skin on tracker refresh events. Each of these fires when Blizzard
     -- re-populates blocks; we piggy-back to catch newly-pooled-but-not-yet-
     -- hooked children and to reapply fonts/colors Blizzard just reset.
-    local evt = CreateFrame("Frame")
+    local evt = EllesmereUI.SafeCreateFrame("Frame")
     evt:RegisterEvent("QUEST_LOG_UPDATE")
     evt:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
     evt:RegisterEvent("SCENARIO_UPDATE")

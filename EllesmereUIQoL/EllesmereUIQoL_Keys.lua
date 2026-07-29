@@ -177,7 +177,7 @@ end
 
 local function MakeSolid(parent, layer, r, g, b, a, sub)
     local t = parent:CreateTexture(nil, layer, nil, sub or 0)
-    t:SetColorTexture(r, g, b, a)
+    t:SetTexture(r, g, b, a)
     return t
 end
 
@@ -185,7 +185,7 @@ local function BuildPopup()
     if popup then return popup end
     rowFrames = {}
 
-    popup = CreateFrame("Frame", "EUIKeysPopup", UIParent)
+    popup = EllesmereUI.SafeCreateFrame("Frame", "EUIKeysPopup", UIParent)
     popup:SetSize(POPUP_W, 100)
     popup:SetPoint("CENTER", UIParent, "CENTER", 0, 100)
     popup:SetFrameStrata("DIALOG")
@@ -201,7 +201,7 @@ local function BuildPopup()
     bg:SetTexCoord(0.25, 1, 0, 0.75)
     local overlay = popup:CreateTexture(nil, "BACKGROUND", nil, 1)
     overlay:SetAllPoints()
-    overlay:SetColorTexture(0, 0, 0, 0.55)
+    overlay:SetTexture(0, 0, 0, 0.55)
 
     if PP and PP.CreateBorder then PP.CreateBorder(popup, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7) end
 
@@ -214,7 +214,7 @@ local function BuildPopup()
     local ICON_SZ = 14
     local ICON_ALPHA = 0.5
 
-    local xBtn = CreateFrame("Button", nil, popup)
+    local xBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
     xBtn:SetSize(ICON_SZ, ICON_SZ)
     xBtn:SetPoint("RIGHT", hdrBg, "RIGHT", -8, 0)
     local xTex = xBtn:CreateTexture(nil, "ARTWORK")
@@ -226,7 +226,7 @@ local function BuildPopup()
     xBtn:SetScript("OnClick", function() popup:Hide() end)
 
     -- Refresh button
-    local refBtn = CreateFrame("Button", nil, popup)
+    local refBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
     refBtn:SetSize(ICON_SZ, ICON_SZ)
     refBtn:SetPoint("RIGHT", xBtn, "LEFT", -6, 0)
     local refTex = refBtn:CreateTexture(nil, "ARTWORK")
@@ -261,7 +261,7 @@ local function BuildPopup()
     if EUI and EUI.RegisterEscapeClose then EUI.RegisterEscapeClose(popup) end
 
     -- Scroll frame for content
-    local sf = CreateFrame("ScrollFrame", nil, popup)
+    local sf = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, popup)
     sf:SetPoint("TOPLEFT", PAD, -(TITLE_H + 8))
     sf:SetPoint("BOTTOMRIGHT", -PAD, PAD)
     sf:EnableMouseWheel(true)
@@ -271,7 +271,7 @@ local function BuildPopup()
         local maxS = math.max(0, (child and child:GetHeight() or 0) - self:GetHeight())
         self:SetVerticalScroll(math.max(0, math.min(maxS, cur - delta * 20)))
     end)
-    popup._body = CreateFrame("Frame", nil, sf)
+    popup._body = EllesmereUI.SafeCreateFrame("Frame", nil, sf)
     popup._body:SetWidth(POPUP_W - PAD * 2)
     popup._body:SetHeight(1)
     sf:SetScrollChild(popup._body)
@@ -288,7 +288,7 @@ end
 local function AcquireRow(i)
     if rowFrames[i] then return rowFrames[i] end
     local p = BuildPopup()
-    local r = CreateFrame("Frame", nil, p._body)
+    local r = EllesmereUI.SafeCreateFrame("Frame", nil, p._body)
     r:SetHeight(ROW_H)
 
     if i % 2 == 0 then
@@ -308,7 +308,7 @@ local function AcquireRow(i)
     r._dungeonFS:SetWordWrap(false)
 
     -- Teleport button overlaying the dungeon name
-    local tpBtn = CreateFrame("Button", nil, r, "InsecureActionButtonTemplate")
+    local tpBtn = EllesmereUI.SafeCreateFrame("Button", nil, r, "InsecureActionButtonTemplate")
     tpBtn:SetPoint("TOPLEFT", r._dungeonFS, "TOPLEFT", 0, 0)
     tpBtn:SetPoint("BOTTOMLEFT", r._dungeonFS, "BOTTOMLEFT", 0, 0)
     tpBtn:SetWidth(130)
@@ -341,7 +341,7 @@ local function AcquireRow(i)
     r._levelFS:SetPoint("RIGHT", -2, 0); r._levelFS:SetJustifyH("RIGHT")
 
     local sep = r:CreateTexture(nil, "ARTWORK")
-    sep:SetColorTexture(1, 1, 1, 0.10)
+    sep:SetTexture(1, 1, 1, 0.10)
     if PP and PP.DisablePixelSnap then PP.DisablePixelSnap(sep) end
     sep:SetHeight((PP and PP.mult) or 1)
     local gapMid = -math.floor(ROW_GAP / 2)
@@ -356,7 +356,7 @@ local secHeaders = {}
 local function AcquireSecHeader(i)
     if secHeaders[i] then return secHeaders[i] end
     local p = BuildPopup()
-    local h = CreateFrame("Frame", nil, p._body)
+    local h = EllesmereUI.SafeCreateFrame("Frame", nil, p._body)
     h:SetHeight(HDR_H)
     h._label = MakeLabel(h, 10, "OUTLINE", 1, 1, 1, 0.56)
     h._label:SetPoint("LEFT", 0, 0)

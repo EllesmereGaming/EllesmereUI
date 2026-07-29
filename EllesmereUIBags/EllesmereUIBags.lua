@@ -3,7 +3,7 @@
 --  Enhanced Bags System for EllesmereUI (Midnight)
 --  Sidebar category filter + flat item grid layout.
 -------------------------------------------------------------------------------
-EUI_Bags = CreateFrame("Frame", "EUI_MainBagFrame", UIParent)
+EUI_Bags = EllesmereUI.SafeCreateFrame("Frame", "EUI_MainBagFrame", UIParent)
 EUI_Bags:Hide()
 -- Auto-size (grow-to-fit) state. Reset on close so the next open sizes itself
 -- from its first/active tab; while open it only ever grows (never shrinks).
@@ -13,10 +13,10 @@ EUI_Bags:HookScript("OnHide", function(self)
     self._asMaxH  = nil
 end)
 
-EUI_BagsReagent = CreateFrame("Frame", "EUI_ReagentBagFrame", UIParent)
+EUI_BagsReagent = EllesmereUI.SafeCreateFrame("Frame", "EUI_ReagentBagFrame", UIParent)
 EUI_BagsReagent:Hide()
 
-EUI_BagsWindow = CreateFrame("Frame", "EUI_BagsWindowFrame", UIParent)
+EUI_BagsWindow = EllesmereUI.SafeCreateFrame("Frame", "EUI_BagsWindowFrame", UIParent)
 EUI_BagsWindow:Hide()
 
 local SLOT_SIZE, SPACING = 34, 4
@@ -68,7 +68,7 @@ local function BagsItemUnusable(bagID, slot, itemLink, itemID)
 end
 EllesmereUI._BagsItemUnusable = BagsItemUnusable  -- local EUI alias is declared further down
 do
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f:RegisterEvent("PLAYER_LEVEL_UP")
     f:RegisterEvent("PLAYER_LEVEL_CHANGED")
     f:SetScript("OnEvent", function() wipe(_canUseCache) end)
@@ -218,7 +218,7 @@ do
 
     -- OnUpdate only for C_AddOnProfiler addon total (authoritative reference)
     local _peakAddonFrameMs = 0  -- C_AddOnProfiler value for the peak instrumented frame
-    local profFrame = CreateFrame("Frame")
+    local profFrame = EllesmereUI.SafeCreateFrame("Frame")
     profFrame:Hide()
     profFrame:SetScript("OnUpdate", function()
         if not _profActive then profFrame:Hide(); return end
@@ -688,13 +688,13 @@ end
 -------------------------------------------------------------------------------
 local function CreateHeader()
     if EUI_Bags.Header then return end
-    local header = CreateFrame("Frame", nil, EUI_Bags)
+    local header = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bags)
     header:SetPoint("TOPLEFT", 1, -1)
     header:SetPoint("TOPRIGHT", -1, -1)
     header:SetHeight(HEADER_H)
     header.bg = header:CreateTexture(nil, "BACKGROUND")
     header.bg:SetAllPoints()
-    header.bg:SetColorTexture(0, 0, 0, 0.5)
+    header.bg:SetTexture(0, 0, 0, 0.5)
 
     -- Title
     header.title = header:CreateFontString(nil, "OVERLAY")
@@ -710,7 +710,7 @@ local function CreateHeader()
     header.itemCount:SetTextColor(0.6, 0.6, 0.6)
 
     -- Search box
-    local search = CreateFrame("EditBox", "EUI_BagSearchBox", header)
+    local search = EllesmereUI.SafeCreateFrame("EditBox", "EUI_BagSearchBox", header)
     search:SetSize(160, 22)
     search:SetPoint("RIGHT", -35, 0)
     search:SetFont(GetFont(), 12, GetOutline())
@@ -718,7 +718,7 @@ local function CreateHeader()
     search:SetTextInsets(5, 26, 0, 0)
     search.bg = search:CreateTexture(nil, "BACKGROUND")
     search.bg:SetAllPoints()
-    search.bg:SetColorTexture(0.02, 0.02, 0.02, 1)
+    search.bg:SetTexture(0.02, 0.02, 0.02, 1)
     if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(search, 0.25, 0.25, 0.25, 1, 1, "OVERLAY", 7) end
 
     local placeholder = search:CreateFontString(nil, "OVERLAY")
@@ -729,7 +729,7 @@ local function CreateHeader()
     EUI_Bags._searchBox = search
 
     -- Sort Button (icon)
-    local sort = CreateFrame("Button", nil, header)
+    local sort = EllesmereUI.SafeCreateFrame("Button", nil, header)
     sort:SetSize(24, 24)
     sort:SetPoint("RIGHT", search, "LEFT", -13, 0)
     sort.icon = sort:CreateTexture(nil, "OVERLAY")
@@ -851,7 +851,7 @@ local function CreateHeader()
             end
 
             local consolidateRetry = 0
-            local consolidateFrame = CreateFrame("Frame")
+            local consolidateFrame = EllesmereUI.SafeCreateFrame("Frame")
             consolidateFrame:RegisterEvent("BAG_UPDATE")
             consolidateFrame:SetScript("OnEvent", function(self)
                 self:UnregisterAllEvents()
@@ -982,7 +982,7 @@ local function CreateHeader()
             if not moved then onDone(); return end
 
             local retryCount = 0
-            local retryFrame = CreateFrame("Frame")
+            local retryFrame = EllesmereUI.SafeCreateFrame("Frame")
             retryFrame:RegisterEvent("BAG_UPDATE")
             retryFrame:SetScript("OnEvent", function(self)
                 self:UnregisterAllEvents()
@@ -1136,7 +1136,7 @@ local function CreateHeader()
     if BP().bagShowSortIcon == false then sort:Hide() end
 
     -- Randomize Button (dice icon, OneBag only, top-right of bag frame)
-    local dice = CreateFrame("Button", nil, EUI_Bags)
+    local dice = EllesmereUI.SafeCreateFrame("Button", nil, EUI_Bags)
     dice:SetSize(20, 20)
     dice:SetFrameLevel(EUI_Bags:GetFrameLevel() + 20)
     dice.icon = dice:CreateTexture(nil, "OVERLAY")
@@ -1248,7 +1248,7 @@ local function CreateHeader()
     EUI_Bags._diceBtn = dice
 
     -- Bags Button (icon)
-    local bagsBtn = CreateFrame("Button", nil, header)
+    local bagsBtn = EllesmereUI.SafeCreateFrame("Button", nil, header)
     bagsBtn:SetSize(24, 24)
     if sort:IsShown() then
         bagsBtn:SetPoint("RIGHT", sort, "LEFT", -6, 0)
@@ -1282,7 +1282,7 @@ local function CreateHeader()
     EUI_Bags._bagsBtn = bagsBtn
 
     -- Clear button for search
-    local clear = CreateFrame("Button", nil, search)
+    local clear = EllesmereUI.SafeCreateFrame("Button", nil, search)
     clear:SetSize(22, 22)
     clear:SetPoint("RIGHT", search, "RIGHT", 0, 0)
     clear.tex = clear:CreateFontString(nil, "OVERLAY")
@@ -1300,14 +1300,14 @@ local function CreateHeader()
     end)
     search:SetScript("OnTextChanged", function(self)
         local text = self:GetText()
-        placeholder:SetShown(text == "")
-        clear:SetShown(text ~= "")
+        if text == "" then placeholder:Show() else placeholder:Hide() end
+        if text ~= "" then clear:Show() else clear:Hide() end
         C_Container.SetItemSearch(text)
         if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
     end)
 
     -- Close button
-    local close = CreateFrame("Button", nil, header)
+    local close = EllesmereUI.SafeCreateFrame("Button", nil, header)
     close:SetSize(12, 12)
     close:SetPoint("RIGHT", -9, 0)
     close.icon = close:CreateTexture(nil, "OVERLAY")
@@ -1330,7 +1330,7 @@ local function CreateHeader()
     hdrSep:SetHeight(px)
     hdrSep:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
     hdrSep:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
-    hdrSep:SetColorTexture(0.15, 0.15, 0.15, 1)
+    hdrSep:SetTexture(0.15, 0.15, 0.15, 1)
 
     EUI_Bags.Header = header
     EUI_Bags._bagsBtn = bagsBtn
@@ -1474,7 +1474,7 @@ local GOLD_PAD = 8
 
 local function GetGoldTooltip()
     if _goldTT then return _goldTT end
-    local f = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    local f = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent, "BackdropTemplate")
     f:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
         edgeFile = "Interface\\ChatFrame\\ChatFrameBackground", edgeSize = 1 })
     f:SetBackdropColor(0.06, 0.06, 0.06, 0.90)
@@ -1664,20 +1664,20 @@ end
 
 local function CreateFooter()
     if EUI_Bags.Footer then return end
-    local footer = CreateFrame("Frame", nil, EUI_Bags)
+    local footer = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bags)
     footer:SetPoint("BOTTOMLEFT", 0, 0)
     footer:SetPoint("BOTTOMRIGHT", 0, 0)
     footer:SetHeight(FOOTER_H)
     footer.bg = footer:CreateTexture(nil, "BACKGROUND", nil, 1)
     footer.bg:SetAllPoints()
-    footer.bg:SetColorTexture(0, 0, 0, 0.35)
+    footer.bg:SetTexture(0, 0, 0, 0.35)
 
     -- Currency displays are created dynamically from Blizzard's tracked currencies
     if not EUI_Bags._currencyPool then
         EUI_Bags._currencyPool = { displays = {}, hitboxes = {} }
     end
 
-    local money = CreateFrame("Frame", "EUI_BagMoneyFrame", footer, "SmallMoneyFrameTemplate")
+    local money = EllesmereUI.SafeCreateFrame("Frame", "EUI_BagMoneyFrame", footer, "SmallMoneyFrameTemplate")
     money:SetPoint("BOTTOMRIGHT", footer, "BOTTOMRIGHT", 0, 7)
     MoneyFrame_SetType(money, "PLAYER")
 
@@ -1694,7 +1694,7 @@ local function CreateFooter()
     for _, child in pairs({ money:GetChildren() }) do
         child:EnableMouse(false)
     end
-    local moneyHitbox = CreateFrame("Frame", nil, footer)
+    local moneyHitbox = EllesmereUI.SafeCreateFrame("Frame", nil, footer)
     moneyHitbox:SetPoint("BOTTOMRIGHT", money, "BOTTOMRIGHT", 5, -5)
     moneyHitbox:SetPoint("TOPLEFT", money, "TOPLEFT", -5, 5)
     moneyHitbox:SetFrameLevel(money:GetFrameLevel() + 10)
@@ -1717,7 +1717,7 @@ local function CreateFooter()
     ftrSep:SetHeight(px)
     ftrSep:SetPoint("TOPLEFT", footer, "TOPLEFT", 0, 0)
     ftrSep:SetPoint("TOPRIGHT", footer, "TOPRIGHT", 0, 0)
-    ftrSep:SetColorTexture(0.15, 0.15, 0.15, 1)
+    ftrSep:SetTexture(0.15, 0.15, 0.15, 1)
 
     EUI_Bags.Footer, EUI_Bags.Money = footer, money
 end
@@ -1750,7 +1750,7 @@ local function UpdateCurrencyDisplays(footerWidth)
         display:SetTextColor(1, 1, 1)
         pool.displays[i] = display
 
-        local hb = CreateFrame("Frame", nil, footer)
+        local hb = EllesmereUI.SafeCreateFrame("Frame", nil, footer)
         hb:SetFrameLevel(footer:GetFrameLevel() + 5)
         hb:EnableMouse(true)
         hb:SetScript("OnEnter", function(self)
@@ -1850,19 +1850,19 @@ end
 -------------------------------------------------------------------------------
 local function CreateReagentBagUI()
     if EUI_BagsReagent.Header then return end
-    local header = CreateFrame("Frame", nil, EUI_BagsReagent)
+    local header = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_BagsReagent)
     header:SetPoint("TOPLEFT", 1, -1)
     header:SetPoint("TOPRIGHT", -1, -1)
     header:SetHeight(35)
     header.bg = header:CreateTexture(nil, "BACKGROUND")
     header.bg:SetAllPoints()
-    header.bg:SetColorTexture(0, 0, 0, 0.5)
+    header.bg:SetTexture(0, 0, 0, 0.5)
     header.title = header:CreateFontString(nil, "OVERLAY")
     SetBagFont(header.title, 13)
     header.title:SetPoint("LEFT", 15, 0)
     header.title:SetText(EllesmereUI.L("REAGENTS"))
     header.title:SetTextColor(1, 1, 1)
-    local close = CreateFrame("Button", nil, header)
+    local close = EllesmereUI.SafeCreateFrame("Button", nil, header)
     close:SetSize(20, 20)
     close:SetPoint("RIGHT", -5, 0)
     close.icon = close:CreateTexture(nil, "OVERLAY")
@@ -1873,7 +1873,7 @@ local function CreateReagentBagUI()
     close:SetScript("OnLeave", function() close.icon:SetAlpha(0.7) end)
     close:SetScript("OnClick", function() EUI_BagsReagent:Hide() end)
     EUI_BagsReagent.Header = header
-    local footer = CreateFrame("Frame", nil, EUI_BagsReagent)
+    local footer = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_BagsReagent)
     footer:SetPoint("BOTTOMLEFT", 1, 1)
     footer:SetPoint("BOTTOMRIGHT", -1, 1)
     footer:SetHeight(FOOTER_H)
@@ -1908,10 +1908,10 @@ end
 
 local function SetInsetBorderColor(btn, cr, cg, cb, ca)
     if btn._brdT then
-        btn._brdT:SetColorTexture(cr, cg, cb, ca)
-        btn._brdB:SetColorTexture(cr, cg, cb, ca)
-        btn._brdL:SetColorTexture(cr, cg, cb, ca)
-        btn._brdR:SetColorTexture(cr, cg, cb, ca)
+        btn._brdT:SetTexture(cr, cg, cb, ca)
+        btn._brdB:SetTexture(cr, cg, cb, ca)
+        btn._brdL:SetTexture(cr, cg, cb, ca)
+        btn._brdR:SetTexture(cr, cg, cb, ca)
     end
 end
 
@@ -1932,7 +1932,7 @@ local QUEST_BORDER_COLOR = { r = 1.0, g = 0.82, b = 0.0 }
 -------------------------------------------------------------------------------
 --  Drag-to-drop: template handles pickup, we handle drop on mouse release
 -------------------------------------------------------------------------------
-local _itemDragFrame = CreateFrame("Frame")
+local _itemDragFrame = EllesmereUI.SafeCreateFrame("Frame")
 _itemDragFrame:Hide()
 _itemDragFrame:SetScript("OnUpdate", function(self)
     if IsMouseButtonDown("LeftButton") then return end
@@ -1994,16 +1994,16 @@ end)
 -------------------------------------------------------------------------------
 local function GetOrCreateSlot(idx)
     if itemSlots[idx] then return itemSlots[idx] end
-    -- Never CreateFrame a secure ContainerFrameItemButtonTemplate button during
+    -- Never EllesmereUI.SafeCreateFrame a secure ContainerFrameItemButtonTemplate button during
     -- combat lockdown: a button born in combat is tainted and its click gets
     -- UseContainerItem() blocked (ADDON_ACTION_FORBIDDEN) in M+/Delves. The
     -- pre-warmed pool covers normal counts; if we somehow run past it in combat
     -- the caller skips this slot and PLAYER_REGEN_ENABLED replays a full refresh.
     if InCombatLockdown() then return nil end
 
-    local slotParent = CreateFrame("Frame", nil, EUI_Bags)
+    local slotParent = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bags)
     slotParent:SetSize(SLOT_SIZE, SLOT_SIZE)
-    local btn = CreateFrame("ItemButton", nil, slotParent, "ContainerFrameItemButtonTemplate")
+    local btn = EllesmereUI.SafeCreateFrame("ItemButton", nil, slotParent, "ContainerFrameItemButtonTemplate")
     btn:SetAllPoints(slotParent)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:RegisterForDrag("LeftButton")
@@ -2151,7 +2151,7 @@ local function GetOrCreateSlot(idx)
     SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
 
     -- Text overlay frame: sits above Cooldown so count/ilvl aren't covered by swipe
-    local textOverlay = CreateFrame("Frame", nil, btn)
+    local textOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
     textOverlay:SetAllPoints()
     textOverlay:SetFrameLevel((btn.Cooldown and btn.Cooldown:GetFrameLevel() or btn:GetFrameLevel()) + 2)
     btn._textOverlay = textOverlay
@@ -2212,9 +2212,9 @@ local function GetOrCreateReagentSlot(idx)
     -- Never create a secure button during combat (taint). See GetOrCreateSlot.
     if InCombatLockdown() then return nil end
 
-    local slotParent = CreateFrame("Frame", nil, EUI_BagsReagent)
+    local slotParent = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_BagsReagent)
     slotParent:SetSize(SLOT_SIZE, SLOT_SIZE)
-    local btn = CreateFrame("ItemButton", nil, slotParent, "ContainerFrameItemButtonTemplate")
+    local btn = EllesmereUI.SafeCreateFrame("ItemButton", nil, slotParent, "ContainerFrameItemButtonTemplate")
     btn:SetAllPoints(slotParent)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:RegisterForDrag("LeftButton")
@@ -2268,7 +2268,7 @@ local function GetOrCreateReagentSlot(idx)
     SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
 
     -- Text overlay frame: sits above Cooldown so count/ilvl aren't covered by swipe
-    local textOverlay = CreateFrame("Frame", nil, btn)
+    local textOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
     textOverlay:SetAllPoints()
     textOverlay:SetFrameLevel((btn.Cooldown and btn.Cooldown:GetFrameLevel() or btn:GetFrameLevel()) + 2)
     btn._textOverlay = textOverlay
@@ -2296,9 +2296,9 @@ end
 
 local function GetOrCreateBagSlot(idx)
     if bagSlots[idx] then return bagSlots[idx] end
-    local slotParent = CreateFrame("Frame", nil, EUI_BagsWindow)
+    local slotParent = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_BagsWindow)
     slotParent:SetSize(SLOT_SIZE, SLOT_SIZE)
-    local btn = CreateFrame("Button", nil, slotParent)
+    local btn = EllesmereUI.SafeCreateFrame("Button", nil, slotParent)
     btn:SetAllPoints(slotParent)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn.icon = btn:CreateTexture(nil, "ARTWORK")
@@ -2607,12 +2607,12 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         -- Warbank dim overlay: when a warband bank tab is selected,
         -- dim non-warbound items so the user can see what's eligible.
         if not btn._warbankDim then
-            local dimFrame = CreateFrame("Frame", nil, btn)
+            local dimFrame = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
             dimFrame:SetAllPoints()
             dimFrame:SetFrameLevel((btn._textOverlay and btn._textOverlay:GetFrameLevel() or btn:GetFrameLevel()) + 3)
             local dim = dimFrame:CreateTexture(nil, "OVERLAY")
             dim:SetAllPoints()
-            dim:SetColorTexture(0, 0, 0, 0.75)
+            dim:SetTexture(0, 0, 0, 0.75)
             dimFrame:Hide()
             btn._warbankDim = dimFrame
         end
@@ -2649,12 +2649,12 @@ local EnterAssignSelectMode  -- forward declaration
 -- Pin "+" overlay: a click-catcher frame placed over a regular empty slot
 local function GetOrCreatePinOverlay()
     if EUI_Bags._pinOverlayBtn then return EUI_Bags._pinOverlayBtn end
-    local ov = CreateFrame("Button", nil, EUI_Bags)
+    local ov = EllesmereUI.SafeCreateFrame("Button", nil, EUI_Bags)
     ov:SetSize(SLOT_SIZE, SLOT_SIZE)
     ov:SetFrameLevel(100)
     ov.bg = ov:CreateTexture(nil, "BACKGROUND")
     ov.bg:SetAllPoints()
-    ov.bg:SetColorTexture(0, 0, 0, 0.4)
+    ov.bg:SetTexture(0, 0, 0, 0.4)
     ov.plus = ov:CreateFontString(nil, "OVERLAY")
     ov.plus:SetFont(GetFont(), 18, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     ov.plus:SetPoint("CENTER", 0, 0)
@@ -2714,12 +2714,12 @@ local _assignOverlayIdx = 0
 local function GetOrCreateAssignOverlay()
     _assignOverlayIdx = _assignOverlayIdx + 1
     if _assignOverlays[_assignOverlayIdx] then return _assignOverlays[_assignOverlayIdx] end
-    local ov = CreateFrame("Button", nil, EUI_Bags)
+    local ov = EllesmereUI.SafeCreateFrame("Button", nil, EUI_Bags)
     ov:SetSize(SLOT_SIZE, SLOT_SIZE)
     ov:SetFrameLevel(100)
     ov.bg = ov:CreateTexture(nil, "BACKGROUND")
     ov.bg:SetAllPoints()
-    ov.bg:SetColorTexture(0, 0, 0, 0.4)
+    ov.bg:SetTexture(0, 0, 0, 0.4)
     ov.plus = ov:CreateFontString(nil, "OVERLAY")
     ov.plus:SetFont(GetFont(), 18, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     ov.plus:SetPoint("CENTER", 0, 0)
@@ -2814,14 +2814,14 @@ EnterAssignSelectMode = function(catKey)
 
     -- Dark overlay
     if not EUI_Bags._assignOverlay then
-        local ov = CreateFrame("Frame", nil, UIParent)
+        local ov = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         ov:SetFrameStrata("FULLSCREEN_DIALOG")
         ov:SetFrameLevel(0)
         ov:SetAllPoints(UIParent)
         ov:EnableMouse(true)
         ov.bg = ov:CreateTexture(nil, "BACKGROUND")
         ov.bg:SetAllPoints()
-        ov.bg:SetColorTexture(0, 0, 0, 0.6)
+        ov.bg:SetTexture(0, 0, 0, 0.6)
         ov:SetScript("OnMouseDown", function() ExitAssignSelectMode() end)
         ov:SetScript("OnKeyDown", function(self, key)
             if key == "ESCAPE" then
@@ -2870,13 +2870,13 @@ EnterAssignSelectMode = function(catKey)
 
     -- Click catcher with hover highlight
     if not EUI_Bags._assignCatcher then
-        local cf = CreateFrame("Frame", nil, UIParent)
+        local cf = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         cf:SetFrameStrata("FULLSCREEN_DIALOG")
         cf:SetFrameLevel(500)
         cf:EnableMouse(true)
 
         local hoverOv = cf:CreateTexture(nil, "OVERLAY")
-        hoverOv:SetColorTexture(1, 1, 1, 0.4)
+        hoverOv:SetTexture(1, 1, 1, 0.4)
         hoverOv:Hide()
         local hoveredBtn = nil
         local savedR, savedG, savedB, savedA, savedBrdSize
@@ -2955,14 +2955,14 @@ EnterPinSelectMode = function()
 
     -- Dark overlay covers the entire screen including bags
     if not EUI_Bags._pinOverlay then
-        local ov = CreateFrame("Frame", nil, UIParent)
+        local ov = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         ov:SetFrameStrata("FULLSCREEN_DIALOG")
         ov:SetFrameLevel(0)
         ov:SetAllPoints(UIParent)
         ov:EnableMouse(true)
         ov.bg = ov:CreateTexture(nil, "BACKGROUND")
         ov.bg:SetAllPoints()
-        ov.bg:SetColorTexture(0, 0, 0, 0.6)
+        ov.bg:SetTexture(0, 0, 0, 0.6)
         ov:SetScript("OnMouseDown", function() ExitPinSelectMode() end)
         ov:SetScript("OnKeyDown", function(self, key)
             if key == "ESCAPE" then
@@ -3013,14 +3013,14 @@ EnterPinSelectMode = function()
     -- Intercepts clicks so items don't get used/equipped, finds which icon
     -- was clicked, and pins it.
     if not EUI_Bags._pinCatcher then
-        local cf = CreateFrame("Frame", nil, UIParent)
+        local cf = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         cf:SetFrameStrata("FULLSCREEN_DIALOG")
         cf:SetFrameLevel(500)
         cf:EnableMouse(true)
 
         -- Hover highlight: accent border (2px) + white overlay
         local pinHoverOv = cf:CreateTexture(nil, "OVERLAY")
-        pinHoverOv:SetColorTexture(1, 1, 1, 0.4)
+        pinHoverOv:SetTexture(1, 1, 1, 0.4)
         pinHoverOv:Hide()
         local pinHoveredBtn = nil
         local pinSavedR, pinSavedG, pinSavedB, pinSavedA
@@ -3139,7 +3139,7 @@ local _dragInsertGroup    -- group name when insert position is inside a group
 
 local function EnsureDragGhost()
     if _dragGhost then return _dragGhost end
-    local g = CreateFrame("Frame", nil, UIParent)
+    local g = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     g:SetFrameStrata("TOOLTIP")
     g:SetSize(SIDEBAR_W_EXPANDED, SIDEBAR_BTN_H)
     g:SetAlpha(0.7)
@@ -3147,7 +3147,7 @@ local function EnsureDragGhost()
     g:EnableMouse(false)
     g.bg = g:CreateTexture(nil, "BACKGROUND")
     g.bg:SetAllPoints()
-    g.bg:SetColorTexture(0.08, 0.08, 0.08, 0.9)
+    g.bg:SetTexture(0.08, 0.08, 0.08, 0.9)
     g.icon = g:CreateTexture(nil, "ARTWORK")
     g.icon:SetSize(SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE)
     g.icon:SetPoint("LEFT", 8, 0)
@@ -3167,7 +3167,7 @@ local function EnsureInsertLine()
     if not sidebar then return nil end
     local eg = EUI.ELLESMERE_GREEN or { r = 0.047, g = 0.824, b = 0.616 }
     local line = sidebar:CreateTexture(nil, "OVERLAY", nil, 7)
-    line:SetColorTexture(eg.r, eg.g, eg.b, 0.9)
+    line:SetTexture(eg.r, eg.g, eg.b, 0.9)
     local PP = EUI and EUI.PP
     local px = (PP and PP.mult) or 1
     line:SetHeight(px * 2)
@@ -3181,17 +3181,17 @@ local function EnsureGroupHighlight()
     local sidebar = EUI_Bags._sidebar
     if not sidebar then return nil end
     local eg = EUI.ELLESMERE_GREEN or { r = 0.047, g = 0.824, b = 0.616 }
-    local hl = CreateFrame("Frame", nil, sidebar)
+    local hl = EllesmereUI.SafeCreateFrame("Frame", nil, sidebar)
     hl:SetFrameLevel(sidebar:GetFrameLevel() + 10)
     hl.bg = hl:CreateTexture(nil, "OVERLAY", nil, 6)
     hl.bg:SetAllPoints()
-    hl.bg:SetColorTexture(eg.r, eg.g, eg.b, 0.15)
+    hl.bg:SetTexture(eg.r, eg.g, eg.b, 0.15)
     -- Accent border
     local PP = EUI and EUI.PP
     local px = (PP and PP.mult) or 1
     local function MakeLine(point1, rel1, point2, rel2, w, h)
         local t = hl:CreateTexture(nil, "OVERLAY", nil, 7)
-        t:SetColorTexture(eg.r, eg.g, eg.b, 0.6)
+        t:SetTexture(eg.r, eg.g, eg.b, 0.6)
         t:SetPoint(point1, hl, rel1, 0, 0)
         t:SetPoint(point2, hl, rel2, 0, 0)
         if w then t:SetWidth(w) end
@@ -3326,7 +3326,7 @@ end
 local StartSidebarDrag  -- forward declaration (defined below)
 
 -- Shared drag-detect frame for sidebar buttons (hidden when not dragging)
-local _sidebarDragDetect = CreateFrame("Frame")
+local _sidebarDragDetect = EllesmereUI.SafeCreateFrame("Frame")
 _sidebarDragDetect:Hide()
 _sidebarDragDetect._btn = nil
 _sidebarDragDetect:SetScript("OnUpdate", function(self)
@@ -3341,7 +3341,7 @@ _sidebarDragDetect:SetScript("OnUpdate", function(self)
     end
 end)
 
-local _dragUpdateFrame = CreateFrame("Frame")
+local _dragUpdateFrame = EllesmereUI.SafeCreateFrame("Frame")
 _dragUpdateFrame:Hide()
 _dragUpdateFrame:SetScript("OnUpdate", function()
     if not _dragFromCatIdx then _dragUpdateFrame:Hide(); return end
@@ -3759,13 +3759,13 @@ end
 local function CreateSidebar()
     if EUI_Bags._sidebar then return end
 
-    local sidebar = CreateFrame("Frame", nil, EUI_Bags)
+    local sidebar = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bags)
     sidebar:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", 0, -(HEADER_H))
     sidebar:SetPoint("BOTTOMLEFT", EUI_Bags.Footer, "TOPLEFT", 0, 0)
     sidebar:SetWidth(GetSidebarWidth())
     sidebar.bg = sidebar:CreateTexture(nil, "BACKGROUND", nil, 2)
     sidebar.bg:SetAllPoints()
-    sidebar.bg:SetColorTexture(0, 0, 0, 0.25)
+    sidebar.bg:SetTexture(0, 0, 0, 0.25)
 
     -- Right-edge separator
     local PP = EUI and EUI.PP
@@ -3774,11 +3774,11 @@ local function CreateSidebar()
     sidebar.sep:SetWidth(px)
     sidebar.sep:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", 0, 0)
     sidebar.sep:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", 0, 0)
-    sidebar.sep:SetColorTexture(0.15, 0.15, 0.15, 1)
+    sidebar.sep:SetTexture(0.15, 0.15, 0.15, 1)
 
     -- Sidebar header: "Categories" label + collapse arrow
     local SIDEBAR_HDR_H = 24
-    local sidebarHdr = CreateFrame("Frame", nil, sidebar)
+    local sidebarHdr = EllesmereUI.SafeCreateFrame("Frame", nil, sidebar)
     sidebarHdr:SetHeight(SIDEBAR_HDR_H)
     sidebarHdr:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 0, 0)
     sidebarHdr:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", 0, 0)
@@ -3790,7 +3790,7 @@ local function CreateSidebar()
     sidebarHdr._label:SetTextColor(0.5, 0.5, 0.5)
 
     local ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.png"
-    local collapseBtn = CreateFrame("Button", nil, sidebarHdr)
+    local collapseBtn = EllesmereUI.SafeCreateFrame("Button", nil, sidebarHdr)
     collapseBtn:SetSize(12, 12)
     collapseBtn:SetPoint("RIGHT", sidebarHdr, "RIGHT", -6, 0)
     collapseBtn._icon = collapseBtn:CreateTexture(nil, "OVERLAY")
@@ -3843,11 +3843,11 @@ local function CreateSidebar()
     end)
 
     -- Sidebar scroll frame (below header, above footer)
-    local sidebarSF = CreateFrame("ScrollFrame", nil, sidebar)
+    local sidebarSF = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, sidebar)
     sidebarSF:SetPoint("TOPLEFT", sidebarHdr, "BOTTOMLEFT", 0, 0)
     sidebarSF:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", 0, 0)
     sidebarSF:EnableMouseWheel(true)
-    local sidebarChild = CreateFrame("Frame", nil, sidebarSF)
+    local sidebarChild = EllesmereUI.SafeCreateFrame("Frame", nil, sidebarSF)
     sidebarChild:SetWidth(GetSidebarWidth())
     sidebarSF:SetScrollChild(sidebarChild)
 
@@ -4099,7 +4099,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
     -- Ensure enough buttons exist
     for i = 1, #displayList do
         if not _sidebarBtns[i] then
-            local btn = CreateFrame("Button", nil, EUI_Bags._sidebarChild or sidebar)
+            local btn = EllesmereUI.SafeCreateFrame("Button", nil, EUI_Bags._sidebarChild or sidebar)
             btn:SetHeight(SIDEBAR_BTN_H)
             btn._indicator = btn:CreateTexture(nil, "OVERLAY")
             local PP = EUI and EUI.PP
@@ -4109,7 +4109,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             btn._indicator:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
             btn._bg = btn:CreateTexture(nil, "BACKGROUND", nil, 2)
             btn._bg:SetAllPoints()
-            btn._bg:SetColorTexture(1, 1, 1, 0)
+            btn._bg:SetTexture(1, 1, 1, 0)
             btn._icon = btn:CreateTexture(nil, "ARTWORK")
             btn._icon:SetSize(SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE)
             btn._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -4129,7 +4129,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                 if _dragFromCatIdx then return end
                 local isSel = (self._isGroupHeader and self._groupName == selectedGroupName)
                     or (not self._isGroupHeader and self._catIdx == selectedCategoryIndex and not selectedGroupName)
-                if not isSel then self._bg:SetColorTexture(1, 1, 1, 0.06) end
+                if not isSel then self._bg:SetTexture(1, 1, 1, 0.06) end
                 if (BP().bagSidebarCollapsed) and EUI.ShowWidgetTooltip then
                     EUI.ShowWidgetTooltip(self, (self._catName or "?") .. " (" .. (self._catCount or 0) .. ")")
                 end
@@ -4137,7 +4137,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             btn:SetScript("OnLeave", function(self)
                 local isSel = (self._isGroupHeader and self._groupName == selectedGroupName)
                     or (not self._isGroupHeader and self._catIdx == selectedCategoryIndex and not selectedGroupName)
-                if not isSel then self._bg:SetColorTexture(1, 1, 1, 0) end
+                if not isSel then self._bg:SetTexture(1, 1, 1, 0) end
                 if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
             end)
             btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -4207,7 +4207,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         local px = (PP and PP.mult) or 1
         local div = (sidebarChild or sidebar):CreateTexture(nil, "ARTWORK")
         div:SetHeight(px)
-        div:SetColorTexture(0.2, 0.2, 0.2, 1)
+        div:SetTexture(0.2, 0.2, 0.2, 1)
         sidebar._catDivider = div
     end
 
@@ -4278,12 +4278,12 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         end
 
         if isSelected then
-            btn._indicator:SetColorTexture(ar, ag, ab, 1)
+            btn._indicator:SetTexture(ar, ag, ab, 1)
             btn._indicator:Show()
-            btn._bg:SetColorTexture(ar, ag, ab, 0.1)
+            btn._bg:SetTexture(ar, ag, ab, 0.1)
         else
             btn._indicator:Hide()
-            btn._bg:SetColorTexture(1, 1, 1, 0)
+            btn._bg:SetTexture(1, 1, 1, 0)
         end
 
         btn:Show()
@@ -4310,11 +4310,11 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
     local hideAddCat = BP().bagHideAddCategory
     if not collapsed and not hideAddCat then
         if not sidebar._addCatBtn then
-            local btn = CreateFrame("Button", nil, sidebarChild or sidebar)
+            local btn = EllesmereUI.SafeCreateFrame("Button", nil, sidebarChild or sidebar)
             btn:SetHeight(SIDEBAR_BTN_H)
             btn._bg = btn:CreateTexture(nil, "BACKGROUND", nil, 2)
             btn._bg:SetAllPoints()
-            btn._bg:SetColorTexture(1, 1, 1, 0)
+            btn._bg:SetTexture(1, 1, 1, 0)
             btn._icon = btn:CreateTexture(nil, "ARTWORK")
             btn._icon:SetSize(SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE)
             btn._icon:SetPoint("LEFT", btn, "LEFT", 8, 0)
@@ -4330,12 +4330,12 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             btn._label:SetText(EllesmereUI.L("Add Category"))
             btn._label:SetTextColor(1, 1, 1, 0.4)
             btn:SetScript("OnEnter", function(self)
-                self._bg:SetColorTexture(1, 1, 1, 0.06)
+                self._bg:SetTexture(1, 1, 1, 0.06)
                 self._label:SetTextColor(1, 1, 1, 0.8)
                 self._icon:SetAlpha(0.8)
             end)
             btn:SetScript("OnLeave", function(self)
-                self._bg:SetColorTexture(1, 1, 1, 0)
+                self._bg:SetTexture(1, 1, 1, 0)
                 self._label:SetTextColor(1, 1, 1, 0.4)
                 self._icon:SetAlpha(0.5)
             end)
@@ -4343,13 +4343,13 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                 local popup = EUI_Bags._newCatPopup
                 if popup and popup:IsShown() then popup:Hide(); return end
                 if not popup then
-                    popup = CreateFrame("Frame", nil, EUI_Bags)
+                    popup = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bags)
                     popup:SetFrameStrata("DIALOG")
                     popup:SetSize(240, 230)
                     popup:EnableMouse(true)
                     local bg = popup:CreateTexture(nil, "BACKGROUND")
                     bg:SetAllPoints()
-                    bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
+                    bg:SetTexture(0.067, 0.067, 0.067, 0.95)
                     local PP = EUI and EUI.PP
                     if PP and PP.CreateBorder then PP.CreateBorder(popup, 0.2, 0.2, 0.2, 1) end
 
@@ -4361,7 +4361,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     title:SetText(EllesmereUI.L("New Custom Category"))
 
                     -- Name editbox
-                    local eb = CreateFrame("EditBox", nil, popup)
+                    local eb = EllesmereUI.SafeCreateFrame("EditBox", nil, popup)
                     eb:SetSize(220, 22)
                     eb:SetPoint("TOPLEFT", popup, "TOPLEFT", 10, -30)
                     eb:SetAutoFocus(false)
@@ -4371,7 +4371,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     eb:SetMaxLetters(30)
                     local ebBg = eb:CreateTexture(nil, "BACKGROUND")
                     ebBg:SetAllPoints()
-                    ebBg:SetColorTexture(0.1, 0.1, 0.1, 1)
+                    ebBg:SetTexture(0.1, 0.1, 0.1, 1)
                     if PP and PP.CreateBorder then PP.CreateBorder(eb, 0.15, 0.15, 0.15, 1) end
                     eb:SetScript("OnEscapePressed", function(s) s:ClearFocus() end)
                     eb:SetScript("OnEnterPressed", function(s) s:ClearFocus() end)
@@ -4418,7 +4418,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     popup._updateSelection = UpdateSelection
 
                     for idx, iconID in ipairs(ICON_IDS) do
-                        local ib = CreateFrame("Button", nil, popup)
+                        local ib = EllesmereUI.SafeCreateFrame("Button", nil, popup)
                         ib:SetSize(ICON_SZ, ICON_SZ)
                         local col = (idx - 1) % ICONS_PER_ROW
                         local row = math.floor((idx - 1) / ICONS_PER_ROW)
@@ -4430,17 +4430,17 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                         ib._tex = tex
                         ib._iconID = iconID
                         -- Accent-colored 2px border for selection
-                        local border = CreateFrame("Frame", nil, ib)
+                        local border = EllesmereUI.SafeCreateFrame("Frame", nil, ib)
                         border:SetPoint("TOPLEFT", -bPx, bPx)
                         border:SetPoint("BOTTOMRIGHT", bPx, -bPx)
                         border:SetFrameLevel(ib:GetFrameLevel() + 2)
-                        local bTop = border:CreateTexture(nil, "OVERLAY"); bTop:SetColorTexture(ar, ag, ab, 1)
+                        local bTop = border:CreateTexture(nil, "OVERLAY"); bTop:SetTexture(ar, ag, ab, 1)
                         bTop:SetPoint("TOPLEFT"); bTop:SetPoint("TOPRIGHT"); bTop:SetHeight(bPx)
-                        local bBot = border:CreateTexture(nil, "OVERLAY"); bBot:SetColorTexture(ar, ag, ab, 1)
+                        local bBot = border:CreateTexture(nil, "OVERLAY"); bBot:SetTexture(ar, ag, ab, 1)
                         bBot:SetPoint("BOTTOMLEFT"); bBot:SetPoint("BOTTOMRIGHT"); bBot:SetHeight(bPx)
-                        local bLeft = border:CreateTexture(nil, "OVERLAY"); bLeft:SetColorTexture(ar, ag, ab, 1)
+                        local bLeft = border:CreateTexture(nil, "OVERLAY"); bLeft:SetTexture(ar, ag, ab, 1)
                         bLeft:SetPoint("TOPLEFT"); bLeft:SetPoint("BOTTOMLEFT"); bLeft:SetWidth(bPx)
-                        local bRight = border:CreateTexture(nil, "OVERLAY"); bRight:SetColorTexture(ar, ag, ab, 1)
+                        local bRight = border:CreateTexture(nil, "OVERLAY"); bRight:SetTexture(ar, ag, ab, 1)
                         bRight:SetPoint("TOPRIGHT"); bRight:SetPoint("BOTTOMRIGHT"); bRight:SetWidth(bPx)
                         border:Hide()
                         ib._border = border
@@ -4466,7 +4466,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     customLbl:SetText(EllesmereUI.L("Custom Icon ID:"))
 
                     -- Preview icon to the left of the editbox
-                    local preview = CreateFrame("Frame", nil, popup)
+                    local preview = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
                     preview:SetSize(22, 22)
                     preview:SetPoint("TOPLEFT", customLbl, "BOTTOMLEFT", 0, -4)
                     local prevTex = preview:CreateTexture(nil, "ARTWORK")
@@ -4475,22 +4475,22 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     prevTex:SetTexture(ICON_IDS[1])
                     popup._prevTex = prevTex
                     -- Accent border on the preview (for custom mode)
-                    local cBorder = CreateFrame("Frame", nil, preview)
+                    local cBorder = EllesmereUI.SafeCreateFrame("Frame", nil, preview)
                     cBorder:SetPoint("TOPLEFT", -bPx, bPx)
                     cBorder:SetPoint("BOTTOMRIGHT", bPx, -bPx)
                     cBorder:SetFrameLevel(preview:GetFrameLevel() + 2)
-                    local cbTop = cBorder:CreateTexture(nil, "OVERLAY"); cbTop:SetColorTexture(ar, ag, ab, 1)
+                    local cbTop = cBorder:CreateTexture(nil, "OVERLAY"); cbTop:SetTexture(ar, ag, ab, 1)
                     cbTop:SetPoint("TOPLEFT"); cbTop:SetPoint("TOPRIGHT"); cbTop:SetHeight(bPx)
-                    local cbBot = cBorder:CreateTexture(nil, "OVERLAY"); cbBot:SetColorTexture(ar, ag, ab, 1)
+                    local cbBot = cBorder:CreateTexture(nil, "OVERLAY"); cbBot:SetTexture(ar, ag, ab, 1)
                     cbBot:SetPoint("BOTTOMLEFT"); cbBot:SetPoint("BOTTOMRIGHT"); cbBot:SetHeight(bPx)
-                    local cbLeft = cBorder:CreateTexture(nil, "OVERLAY"); cbLeft:SetColorTexture(ar, ag, ab, 1)
+                    local cbLeft = cBorder:CreateTexture(nil, "OVERLAY"); cbLeft:SetTexture(ar, ag, ab, 1)
                     cbLeft:SetPoint("TOPLEFT"); cbLeft:SetPoint("BOTTOMLEFT"); cbLeft:SetWidth(bPx)
-                    local cbRight = cBorder:CreateTexture(nil, "OVERLAY"); cbRight:SetColorTexture(ar, ag, ab, 1)
+                    local cbRight = cBorder:CreateTexture(nil, "OVERLAY"); cbRight:SetTexture(ar, ag, ab, 1)
                     cbRight:SetPoint("TOPRIGHT"); cbRight:SetPoint("BOTTOMRIGHT"); cbRight:SetWidth(bPx)
                     cBorder:Hide()
                     popup._customBorder = cBorder
 
-                    local customEB = CreateFrame("EditBox", nil, popup)
+                    local customEB = EllesmereUI.SafeCreateFrame("EditBox", nil, popup)
                     customEB:SetSize(80, 22)
                     customEB:SetPoint("LEFT", preview, "RIGHT", 8, 0)
                     customEB:SetAutoFocus(false)
@@ -4500,7 +4500,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     customEB:SetNumeric(true)
                     local cBg = customEB:CreateTexture(nil, "BACKGROUND")
                     cBg:SetAllPoints()
-                    cBg:SetColorTexture(0.1, 0.1, 0.1, 1)
+                    cBg:SetTexture(0.1, 0.1, 0.1, 1)
                     if PP and PP.CreateBorder then PP.CreateBorder(customEB, 0.15, 0.15, 0.15, 1) end
                     customEB:SetScript("OnEscapePressed", function(s) s:ClearFocus() end)
                     customEB:SetScript("OnEnterPressed", function(s) s:ClearFocus() end)
@@ -4519,30 +4519,30 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     popup._customEB = customEB
 
                     -- Create button
-                    local createBtn = CreateFrame("Button", nil, popup)
+                    local createBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
                     createBtn:SetSize(220, 26)
                     createBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOMLEFT", 10, 10)
                     local cBtnBg = createBtn:CreateTexture(nil, "BACKGROUND")
                     cBtnBg:SetAllPoints()
-                    cBtnBg:SetColorTexture(0.15, 0.15, 0.15, 1)
+                    cBtnBg:SetTexture(0.15, 0.15, 0.15, 1)
                     if PP and PP.CreateBorder then PP.CreateBorder(createBtn, 0.25, 0.25, 0.25, 1) end
                     local cBtnLbl = createBtn:CreateFontString(nil, "OVERLAY")
                     SetBagFont(cBtnLbl, 12)
                     cBtnLbl:SetPoint("CENTER")
                     cBtnLbl:SetTextColor(1, 1, 1, 0.9)
                     cBtnLbl:SetText(EllesmereUI.L("Create"))
-                    createBtn:SetScript("OnEnter", function() cBtnBg:SetColorTexture(0.2, 0.2, 0.2, 1) end)
-                    createBtn:SetScript("OnLeave", function() cBtnBg:SetColorTexture(0.15, 0.15, 0.15, 1) end)
+                    createBtn:SetScript("OnEnter", function() cBtnBg:SetTexture(0.2, 0.2, 0.2, 1) end)
+                    createBtn:SetScript("OnLeave", function() cBtnBg:SetTexture(0.15, 0.15, 0.15, 1) end)
                     -- Red flash validation for empty fields
                     local function MakeFlashBorder(parent)
-                        local fb = CreateFrame("Frame", nil, parent)
+                        local fb = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
                         fb:SetPoint("TOPLEFT", -1, 1)
                         fb:SetPoint("BOTTOMRIGHT", 1, -1)
                         fb:SetFrameLevel(parent:GetFrameLevel() + 5)
                         local edges = {}
                         local function MakeEdge(p1, p2, isHoriz)
                             local t = fb:CreateTexture(nil, "OVERLAY")
-                            t:SetColorTexture(0.9, 0.15, 0.15, 0)
+                            t:SetTexture(0.9, 0.15, 0.15, 0)
                             if isHoriz then
                                 t:SetPoint(p1); t:SetPoint(p2); t:SetHeight(1)
                             else
@@ -4562,19 +4562,19 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                             self._elapsed = self._elapsed + dt
                             if self._elapsed >= 0.7 then
                                 self._active = false
-                                for _, e in ipairs(self._edges) do e:SetColorTexture(0.9, 0.15, 0.15, 0) end
+                                for _, e in ipairs(self._edges) do e:SetTexture(0.9, 0.15, 0.15, 0) end
                                 self:Hide()
                                 return
                             end
                             local t = self._elapsed / 0.7
                             local a = 0.7 * (1 - t)
-                            for _, e in ipairs(self._edges) do e:SetColorTexture(0.9, 0.15, 0.15, a) end
+                            for _, e in ipairs(self._edges) do e:SetTexture(0.9, 0.15, 0.15, a) end
                         end)
                         fb:Hide()
                         fb.Flash = function(self)
                             self._elapsed = 0
                             self._active = true
-                            for _, e in ipairs(self._edges) do e:SetColorTexture(0.9, 0.15, 0.15, 0.7) end
+                            for _, e in ipairs(self._edges) do e:SetTexture(0.9, 0.15, 0.15, 0.7) end
                             self:Show()
                         end
                         return fb
@@ -4651,7 +4651,7 @@ local _catHeaders = {}  -- pool of header frames
 
 local function GetOrCreateCatHeader(idx)
     if _catHeaders[idx] then return _catHeaders[idx] end
-    local f = CreateFrame("Frame", nil, EUI_Bags)
+    local f = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bags)
     f:SetHeight(20)
     f._label = f:CreateFontString(nil, "OVERLAY")
     SetBagFont(f._label, 11)
@@ -4670,7 +4670,7 @@ local function GetOrCreateCatHeader(idx)
     f._line:SetHeight(px)
     f._line:SetPoint("LEFT", f._hint, "RIGHT", 6, 0)
     f._line:SetPoint("RIGHT", f, "RIGHT", -SPACING, 0)
-    f._line:SetColorTexture(0.7, 0.7, 0.7, 0.2)
+    f._line:SetTexture(0.7, 0.7, 0.7, 0.2)
     _catHeaders[idx] = f
     return f
 end
@@ -4680,7 +4680,7 @@ local _expSubHeaders = {}
 
 local function GetOrCreateExpSubHeader(idx)
     if _expSubHeaders[idx] then return _expSubHeaders[idx] end
-    local f = CreateFrame("Frame", nil, EUI_Bags)
+    local f = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bags)
     f:SetHeight(16)
     f._label = f:CreateFontString(nil, "OVERLAY")
     SetBagFont(f._label, 9)
@@ -4705,20 +4705,20 @@ local function CreateBagScrollFrame()
     local sidebarW = GetSidebarWidth()
 
     -- ScrollFrame: fills between header, footer, and sidebar
-    local sf = CreateFrame("ScrollFrame", nil, EUI_Bags)
+    local sf = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, EUI_Bags)
     sf:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", sidebarW, -(HEADER_H + 1))
     sf:SetPoint("BOTTOMRIGHT", EUI_Bags.Footer, "TOPRIGHT", -1, 0)
     sf:EnableMouseWheel(true)
 
     -- Scroll child: tall frame that holds all items
-    local child = CreateFrame("Frame", nil, sf)
+    local child = EllesmereUI.SafeCreateFrame("Frame", nil, sf)
     child:SetWidth(sf:GetWidth())
     child:SetHeight(1)  -- updated by RefreshInventory
     child:EnableMouse(false)  -- let clicks pass through to item buttons
     sf:SetScrollChild(child)
 
     -- Track (always visible)
-    local track = CreateFrame("Button", nil, EUI_Bags)
+    local track = EllesmereUI.SafeCreateFrame("Button", nil, EUI_Bags)
     track:SetWidth(SCROLLBAR_HIT_W)
     track:SetPoint("TOPRIGHT", EUI_Bags, "TOPRIGHT", -1, -(HEADER_H + 1))
     track:SetPoint("BOTTOMRIGHT", EUI_Bags.Footer, "TOPRIGHT", -1, 0)
@@ -4729,12 +4729,12 @@ local function CreateBagScrollFrame()
     trackBg:SetPoint("TOP", track, "TOP", 0, 0)
     trackBg:SetPoint("BOTTOM", track, "BOTTOM", 0, 0)
     trackBg:SetPoint("RIGHT", track, "RIGHT", 0, 0)
-    trackBg:SetColorTexture(1, 1, 1, 0.06)
+    trackBg:SetTexture(1, 1, 1, 0.06)
 
     -- Thumb
     local thumb = track:CreateTexture(nil, "ARTWORK")
     thumb:SetWidth(SCROLLBAR_W)
-    thumb:SetColorTexture(1, 1, 1, 0.25)
+    thumb:SetTexture(1, 1, 1, 0.25)
     thumb:Hide()
 
     local _isDragging = false
@@ -4793,13 +4793,13 @@ local function CreateBagScrollFrame()
     end)
 
     -- Thumb dragging (dragUpdate must be declared before OnMouseDown uses it)
-    local dragUpdate = CreateFrame("Frame")
+    local dragUpdate = EllesmereUI.SafeCreateFrame("Frame")
     dragUpdate:Hide()
     dragUpdate:SetScript("OnUpdate", function(self)
         if not _isDragging then self:Hide(); return end
         if not IsMouseButtonDown("LeftButton") then
             _isDragging = false; self:Hide()
-            thumb:SetColorTexture(1, 1, 1, 0.25)
+            thumb:SetTexture(1, 1, 1, 0.25)
             return
         end
         local pct, thumbH, maxTravel, scrollRange = GetScrollMetrics()
@@ -4851,9 +4851,9 @@ local function CreateBagScrollFrame()
     end)
 
     -- Hover effect on thumb
-    track:SetScript("OnEnter", function() thumb:SetColorTexture(1, 1, 1, 0.4) end)
+    track:SetScript("OnEnter", function() thumb:SetTexture(1, 1, 1, 0.4) end)
     track:SetScript("OnLeave", function()
-        if not _isDragging then thumb:SetColorTexture(1, 1, 1, 0.25) end
+        if not _isDragging then thumb:SetTexture(1, 1, 1, 0.25) end
     end)
 
     EUI_Bags._scrollFrame = sf
@@ -5207,7 +5207,7 @@ function EUI_Bags:RefreshInventory()
 
     local function GetOrCreateEmptyPad(idx)
         if _emptyPads[idx] then return _emptyPads[idx] end
-        local f = CreateFrame("Frame", nil, EUI_Bags)
+        local f = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bags)
         f:SetSize(SLOT_SIZE, SLOT_SIZE)
         f:EnableMouse(false)
         f._bg = f:CreateTexture(nil, "BACKGROUND", nil, 1)
@@ -5289,7 +5289,7 @@ function EUI_Bags:RefreshInventory()
             pinHdr._label:SetText(EllesmereUI.L("Pinned Items"))
             pinHdr._hint:SetText(showTips and EllesmereUI.L("(Middle Click to Add or Remove)") or "")
             if not pinHdr._hideBtn then
-                local hb = CreateFrame("Button", nil, pinHdr)
+                local hb = EllesmereUI.SafeCreateFrame("Button", nil, pinHdr)
                 hb:SetSize(30, 16)
                 hb._fs = hb:CreateFontString(nil, "OVERLAY")
                 SetBagFont(hb._fs, 9)
@@ -5383,7 +5383,7 @@ function EUI_Bags:RefreshInventory()
             recHdr._label:SetText(EllesmereUI.L("Recent Items"))
             recHdr._hint:SetText(showTips and EllesmereUI.L("(Extra quickview display, your items are also in their category)") or "")
             if not recHdr._hideBtn then
-                local hb = CreateFrame("Button", nil, recHdr)
+                local hb = EllesmereUI.SafeCreateFrame("Button", nil, recHdr)
                 hb:SetSize(30, 16)
                 hb._fs = hb:CreateFontString(nil, "OVERLAY")
                 SetBagFont(hb._fs, 9)
@@ -5633,7 +5633,7 @@ function EUI_Bags:RefreshInventory()
             -- Hide button for Pinned / Recent sections
             if showPinAdd or alwaysShow then
                 if not hdr._hideBtn then
-                    local hb = CreateFrame("Button", nil, hdr)
+                    local hb = EllesmereUI.SafeCreateFrame("Button", nil, hdr)
                     hb:SetSize(30, 16)
                     hb._fs = hb:CreateFontString(nil, "OVERLAY")
                     SetBagFont(hb._fs, 9)
@@ -5973,11 +5973,11 @@ function EUI_Bags:RefreshInventory()
 
                 -- "Edit | Delete" links for user-created categories
                 if not hdr._editDeleteFrame then
-                    local ef = CreateFrame("Frame", nil, child)
+                    local ef = EllesmereUI.SafeCreateFrame("Frame", nil, child)
                     ef:SetHeight(16)
                     ef:SetFrameLevel((hdr:GetFrameLevel() or 1) + 1)
 
-                    local delBtn = CreateFrame("Button", nil, ef)
+                    local delBtn = EllesmereUI.SafeCreateFrame("Button", nil, ef)
                     delBtn:SetHeight(20)
                     delBtn._fs = delBtn:CreateFontString(nil, "OVERLAY")
                     SetBagFont(delBtn._fs, 10)
@@ -6014,7 +6014,7 @@ function EUI_Bags:RefreshInventory()
                     divider:SetTextColor(0.3, 0.3, 0.3, 0.7)
                     ef._divider = divider
 
-                    local editBtn = CreateFrame("Button", nil, ef)
+                    local editBtn = EllesmereUI.SafeCreateFrame("Button", nil, ef)
                     editBtn:SetHeight(20)
                     editBtn._fs = editBtn:CreateFontString(nil, "OVERLAY")
                     SetBagFont(editBtn._fs, 10)
@@ -6383,7 +6383,7 @@ local function StartAddon()
     local _bagDragging = false
     local _bagDragStartCX, _bagDragStartCY = 0, 0
     local _bagDragStartLeft, _bagDragStartTop = 0, 0
-    local _bagDragFrame = CreateFrame("Frame")
+    local _bagDragFrame = EllesmereUI.SafeCreateFrame("Frame")
     _bagDragFrame:Hide()
     _bagDragFrame:SetScript("OnUpdate", function(self)
         if not _bagDragging then self:Hide(); return end
@@ -6443,7 +6443,7 @@ local function StartAddon()
     -- Dark overlay on top of the atlas (25% black)
     EUI_Bags.bgOverlay = EUI_Bags:CreateTexture(nil, "BACKGROUND", nil, 1)
     EUI_Bags.bgOverlay:SetAllPoints()
-    EUI_Bags.bgOverlay:SetColorTexture(0, 0, 0, 0.25)
+    EUI_Bags.bgOverlay:SetTexture(0, 0, 0, 0.25)
 
     if EUI and EUI.PanelPP then
         EUI.PanelPP.CreateBorder(EUI_Bags, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7)
@@ -6503,7 +6503,7 @@ local function StartAddon()
     EUI_BagsWindow:EnableMouse(true)
     EUI_BagsWindow.bg = EUI_BagsWindow:CreateTexture(nil, "BACKGROUND")
     EUI_BagsWindow.bg:SetAllPoints()
-    EUI_BagsWindow.bg:SetColorTexture(0.02, 0.02, 0.02, 0.95)
+    EUI_BagsWindow.bg:SetTexture(0.02, 0.02, 0.02, 0.95)
     if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(EUI_BagsWindow, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7) end
     EllesmereUI.RegisterEscapeClose(EUI_BagsWindow)
 
@@ -6514,7 +6514,7 @@ local function StartAddon()
     EUI_BagsReagent:EnableMouse(true)
     EUI_BagsReagent.bg = EUI_BagsReagent:CreateTexture(nil, "BACKGROUND")
     EUI_BagsReagent.bg:SetAllPoints()
-    EUI_BagsReagent.bg:SetColorTexture(0.02, 0.02, 0.02, 0.95)
+    EUI_BagsReagent.bg:SetTexture(0.02, 0.02, 0.02, 0.95)
     if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(EUI_BagsReagent, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7) end
 
     EUI_BagsReagent:RegisterEvent("BAG_UPDATE")
@@ -6579,7 +6579,7 @@ local function StartAddon()
 
     -- Hide Blizzard bag frames by reparenting to a hidden container.
     -- Never write .Show/.Hide onto Blizzard frames (causes taint).
-    local _blizzBagHidden = CreateFrame("Frame")
+    local _blizzBagHidden = EllesmereUI.SafeCreateFrame("Frame")
     _blizzBagHidden:Hide()
 
     local function KillBlizzard()
@@ -6806,7 +6806,7 @@ end
 -------------------------------------------------------------------------------
 --  Loader
 -------------------------------------------------------------------------------
-local loader = CreateFrame("Frame")
+local loader = EllesmereUI.SafeCreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function(self)
     self:UnregisterAllEvents()

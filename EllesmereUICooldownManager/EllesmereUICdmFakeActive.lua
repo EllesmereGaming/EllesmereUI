@@ -31,7 +31,7 @@ local GetTime                = GetTime
 local UnitClass              = UnitClass
 local GetSpecialization      = GetSpecialization
 local GetInventoryItemID     = GetInventoryItemID
-local CreateFrame            = CreateFrame
+local CreateFrame = EllesmereUI.SafeCreateFrame
 local C_Timer                = C_Timer
 local C_Item                 = C_Item
 local C_SpellBook            = C_SpellBook
@@ -186,7 +186,7 @@ GetOverlay = function(iconFrame)
     o = {}
     local lvl = (iconFrame:GetFrameLevel() or 0) + 20
 
-    local f = CreateFrame("Frame", nil, iconFrame)
+    local f = EllesmereUI.SafeCreateFrame("Frame", nil, iconFrame)
     f:SetAllPoints(iconFrame)
     f:SetFrameLevel(lvl)
     f:SetAlpha(0)
@@ -196,7 +196,7 @@ GetOverlay = function(iconFrame)
     icon:SetAllPoints(f)
     o.icon = icon
 
-    local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+    local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
     cd:SetAllPoints(f)
     cd:SetFrameLevel(lvl + 1)
     cd:SetDrawEdge(false)
@@ -207,7 +207,7 @@ GetOverlay = function(iconFrame)
 
     -- Own glow frame for ns.ApplyActiveOverlays (never collides with the real
     -- active-state path's fd.glowOverlay).
-    local glow = CreateFrame("Frame", nil, f)
+    local glow = EllesmereUI.SafeCreateFrame("Frame", nil, f)
     glow:SetAllPoints(f)
     glow:SetFrameLevel(lvl + 4)
     glow:SetAlpha(0)
@@ -503,7 +503,7 @@ if EllesmereUI and EllesmereUI.IS_121 then
         AK.styles["cdm:fa121"] = AK.styles["cdm:fa121"]
             or { noRegions = true, width = 1, height = 1 }
         if not st.proxy then
-            st.proxy = CreateFrame("Frame", nil, UIParent)
+            st.proxy = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
             st.proxy:Hide()
         end
         -- Resolve the rule's styling NOW (build runs at rearm time, when the
@@ -585,7 +585,7 @@ if EllesmereUI and EllesmereUI.IS_121 then
                 else
                     tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                 end
-                local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+                local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
                 cd:SetAllPoints(button)
                 cd:SetDrawEdge(false)
                 cd:SetDrawBling(false)
@@ -628,7 +628,7 @@ if EllesmereUI and EllesmereUI.IS_121 then
                         -- on a Cooldown render UNDER its swipe (the classic
                         -- gotcha -- field-hit here as "healthy dump, no
                         -- text"). Same pattern as AuraKit's stackCarrier.
-                        local tc = CreateFrame("Frame", nil, button)
+                        local tc = EllesmereUI.SafeCreateFrame("Frame", nil, button)
                         tc:SetAllPoints(button)
                         tc:SetFrameLevel(cd:GetFrameLevel() + 5)
                         local fs = tc:CreateFontString(nil, "OVERLAY")
@@ -761,7 +761,7 @@ end
 -- ---------------------------------------------------------------------------
 EnsureTicker = function()
     if not _ticker then
-        _ticker = CreateFrame("Frame")
+        _ticker = EllesmereUI.SafeCreateFrame("Frame")
         _ticker:Hide()
         _ticker._acc = 0
         _ticker:SetScript("OnUpdate", function(self, elapsed)
@@ -886,7 +886,7 @@ end
 UpdateListeners = function()
     if _needAura or _needCast or _hasUserRules then
         if not _events then
-            _events = CreateFrame("Frame")
+            _events = EllesmereUI.SafeCreateFrame("Frame")
             _events:SetScript("OnEvent", OnEvent)
         end
         if _needAura then _events:RegisterUnitEvent("UNIT_AURA", "player")
@@ -1206,7 +1206,7 @@ end
 
 EnsureCdStateTicker = function()
     if not _cdStateTicker then
-        _cdStateTicker = CreateFrame("Frame")
+        _cdStateTicker = EllesmereUI.SafeCreateFrame("Frame")
         _cdStateTicker:Hide()
         _cdStateTicker._acc = 0
         _cdStateTicker:SetScript("OnUpdate", function(self, elapsed)

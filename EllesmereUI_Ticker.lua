@@ -7,7 +7,7 @@
 --
 --  ATTRIBUTION (probe-verified 2026-07-26): the engine bills a script
 --  handler's ENTIRE call tree to the addon whose execution context called
---  CreateFrame for the frame carrying the handler. The handler closure's
+--  EllesmereUI.SafeCreateFrame for the frame carrying the handler. The handler closure's
 --  origin does not matter; who called SetScript does not matter; only the
 --  frame's birth context matters -- and that context is inherited from the
 --  current engine entry point (taint-style), NOT from the file the code
@@ -28,7 +28,7 @@
 --
 --  Usage:
 --      -- child file scope:
---      ns.Drv = EllesmereUI.Tick.NewDriver(CreateFrame("Frame"))
+--      ns.Drv = EllesmereUI.Tick.NewDriver(EllesmereUI.SafeCreateFrame("Frame"))
 --      -- anywhere:
 --      ns.Drv.Add("erb_cast", function(dt) ... end)
 --      ns.Drv.Remove("erb_cast")
@@ -61,7 +61,7 @@ EllesmereUI.Tick = Tick
 -- fallback creates a parent-stamped frame here: everything still works, but
 -- the work is billed to the parent.
 local function NewDriver(frame)
-    if not frame then frame = CreateFrame("Frame") end
+    if not frame then frame = EllesmereUI.SafeCreateFrame("Frame") end
     local reg   = {}   -- dense array of keys
     local regFn = {}   -- parallel array of tick functions
     local index = {}   -- key -> position in reg
@@ -146,7 +146,7 @@ Tick.NewDriver = NewDriver
 -- indiscriminate. As with NewDriver, pass a frame created in the SUBSCRIBING
 -- addon's main chunk so the engine bills that addon.
 function Tick.NewAnimTicker(frame, fn, interval)
-    if not frame then frame = CreateFrame("Frame") end
+    if not frame then frame = EllesmereUI.SafeCreateFrame("Frame") end
     local ag = frame:CreateAnimationGroup()
     ag:SetLooping("REPEAT")
     local anim = ag:CreateAnimation("Animation")
@@ -175,7 +175,7 @@ end
 -- The shared driver: frame created here in the parent, so subscriber work is
 -- billed to the parent addon. Parent-owned subscribers only; children should
 -- carry their own NewDriver(frame) with a file-scope-created frame.
-local shared = NewDriver(CreateFrame("Frame"))
+local shared = NewDriver(EllesmereUI.SafeCreateFrame("Frame"))
 Tick.Add    = shared.Add
 Tick.Remove = shared.Remove
 Tick.Has    = shared.Has

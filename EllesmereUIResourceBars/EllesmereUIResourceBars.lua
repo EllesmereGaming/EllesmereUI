@@ -1323,7 +1323,7 @@ local _totemOrigParent
 -- there is billed to the parent forever. Creating the frame here, in this
 -- file's main chunk, stamps it to ResourceBars; handlers and event
 -- registrations can be attached later from anywhere without changing that.
-local _erbEventFrame = CreateFrame("Frame")   -- event entry; events registered in OnEnable
+local _erbEventFrame = EllesmereUI.SafeCreateFrame("Frame")   -- event entry; events registered in OnEnable
 
 -- Native fill easing for event-driven bar updates: SetValue(v, ns.EASE) has
 -- the engine animate toward the new value, replacing the old per-frame Lua
@@ -1334,7 +1334,7 @@ ns.EASE = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.E
 -- mouse-follow anchor): shells are born HERE so their per-frame work bills
 -- ResourceBars, same attribution rule as the entry frames above.
 do
-    local pool = { CreateFrame("Frame"), CreateFrame("Frame"), CreateFrame("Frame"), CreateFrame("Frame") }
+    local pool = { EllesmereUI.SafeCreateFrame("Frame"), EllesmereUI.SafeCreateFrame("Frame"), EllesmereUI.SafeCreateFrame("Frame"), EllesmereUI.SafeCreateFrame("Frame") }
     local n = 4
     ns.TakeShell = function()
         if n > 0 then
@@ -1343,7 +1343,7 @@ do
             n = n - 1
             return f
         end
-        return CreateFrame("Frame")
+        return EllesmereUI.SafeCreateFrame("Frame")
     end
 end
 local isInCombat = false
@@ -1355,7 +1355,7 @@ local targetAlpha = 1
 -- own frame so the OnEvent work it carries bills ResourceBars. Child textures
 -- and sub-frames are still built lazily; they carry no handlers, so their
 -- birth context does not matter.
-ns.GCDShell = CreateFrame("Frame", "ERB_GCDBarFrame", UIParent)
+ns.GCDShell = EllesmereUI.SafeCreateFrame("Frame", "ERB_GCDBarFrame", UIParent)
 
 -- Effective bar alpha. When "Fade Out of Combat" is enabled and the player is
 -- out of combat, the bar shows its chosen oocAlpha; otherwise its normal
@@ -1672,7 +1672,7 @@ end
 local function MakePixelBorder(parent, r, g, b, a, size, textureKey, texOffset, texOffsetY, shiftX, shiftY)
     local alpha = a or 1
     local sz = size or 1
-    local bf = CreateFrame("Frame", nil, parent)
+    local bf = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     bf:SetAllPoints(parent)
     bf:SetFrameLevel(parent:GetFrameLevel() + 1)
 
@@ -1702,13 +1702,13 @@ end
 -------------------------------------------------------------------------------
 local function CreateStatusBar(parent, name, w, h, borderSize, borderR, borderG, borderB, borderA)
     -- Outer container: holds the border and text (never clipped).
-    local bar = CreateFrame("Frame", name, parent)
+    local bar = EllesmereUI.SafeCreateFrame("Frame", name, parent)
     bar:SetSize(w, h)
     bar:EnableMouse(false)
 
     -- Inner StatusBar: clips its fill. Inset by half a physical pixel so
     -- the fill can never bleed past the border at any resolution.
-    local sb = CreateFrame("StatusBar", nil, bar)
+    local sb = EllesmereUI.SafeCreateFrame("StatusBar", nil, bar)
     local halfPx = PP.mult * 0.5
     sb:SetPoint("TOPLEFT", bar, "TOPLEFT", halfPx, -halfPx)
     sb:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -halfPx, halfPx)
@@ -1743,7 +1743,7 @@ local function CreateStatusBar(parent, name, w, h, borderSize, borderR, borderG,
     -- Background (inside the clipped area)
     local bg = sb:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0x11/255, 0x11/255, 0x11/255, 0.75)
+    bg:SetTexture(0x11/255, 0x11/255, 0x11/255, 0.75)
     bar._bg = bg
 
     -- Pixel-perfect border (on outer container, not clipped)
@@ -1761,7 +1761,7 @@ local function CreateStatusBar(parent, name, w, h, borderSize, borderR, borderG,
     end
 
     -- Text overlay (above all bar borders)
-    local textFrame = CreateFrame("Frame", nil, bar)
+    local textFrame = EllesmereUI.SafeCreateFrame("Frame", nil, bar)
     textFrame:SetAllPoints(bar)
     textFrame:SetFrameLevel(25)
     textFrame:EnableMouse(false)
@@ -1777,17 +1777,17 @@ end
 
 -- Create a single pip (for combo points, holy power, etc.)
 local function CreatePip(parent, w, h, idx, borderSize, borderR, borderG, borderB, borderA)
-    local pip = CreateFrame("Frame", nil, parent)
+    local pip = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     pip:SetSize(w, h)
 
     local bg = pip:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.1, 0.1, 0.1, 0.5)
+    bg:SetTexture(0.1, 0.1, 0.1, 0.5)
     pip._bg = bg
 
     local fill = pip:CreateTexture(nil, "ARTWORK")
     fill:SetAllPoints()
-    fill:SetColorTexture(1, 1, 1, 1)
+    fill:SetTexture(1, 1, 1, 1)
     pip._fill = fill
     pip._texKey = nil  -- current bar texture key
 
@@ -1907,7 +1907,7 @@ function ERB.ApplyGapFills(frame, slots, count, isVertical, isReversed, sp)
                 tex = frame:CreateTexture(nil, "BACKGROUND", nil, 0)  -- above _barBg (sublevel -1)
                 fills[n] = tex
             end
-            tex:SetColorTexture(r, g, b, a)
+            tex:SetTexture(r, g, b, a)
             tex:ClearAllPoints()
             if isVertical then
                 if isReversed then
@@ -1978,7 +1978,7 @@ local function BuildMainFrame()
 
     local g = ERB.db.profile.general or DEFAULTS.profile.general
 
-    mainFrame = CreateFrame("Frame", "EllesmereUIResourceBarsFrame", UIParent)
+    mainFrame = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIResourceBarsFrame", UIParent)
     mainFrame:SetPoint("CENTER", UIParent, "CENTER", g.anchorX or 0, g.anchorY or -100)
     mainFrame:SetSize(1, 1)  -- invisible anchor point
     mainFrame:SetFrameStrata(g.frameStrata or "MEDIUM")
@@ -2705,7 +2705,7 @@ local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, 
     -- fill texture doesn't cover them. Use a dedicated overlay frame parented to
     -- the outer bar container, sitting one level above the inner StatusBar.
     if not sb._tickOverlay then
-        local ov = CreateFrame("Frame", nil, sb)
+        local ov = EllesmereUI.SafeCreateFrame("Frame", nil, sb)
         ov:SetAllPoints()
         local innerSb = sb._sb
         if innerSb then
@@ -2746,7 +2746,7 @@ local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, 
         end
         if inRange then
             local t = tickCache[i]
-            t:SetColorTexture(tR, tG, tB, tA)
+            t:SetTexture(tR, tG, tB, tA)
             t:ClearAllPoints()
             local off = PP and PP.Scale(barW * frac) or (barW * frac)
             t:SetSize(pxW, tickH)
@@ -2794,7 +2794,7 @@ end
 local ironfurTickTex = {}
 local function EnsureIronfurOverlay(sb)
     if sb._ifOverlay then return sb._ifOverlay end
-    local ov = CreateFrame("Frame", nil, sb)
+    local ov = EllesmereUI.SafeCreateFrame("Frame", nil, sb)
     ov:SetAllPoints()
     local innerSb = sb._sb
     if innerSb then ov:SetFrameLevel(innerSb:GetFrameLevel() + 2) end
@@ -2941,7 +2941,7 @@ local function BuildBars()
             else
                 ApplyBarFlat(hft, fR, fG, fB, fA)
             end
-            healthBar._bg:SetColorTexture(hp.bgR, hp.bgG, hp.bgB, hp.bgA)
+            healthBar._bg:SetTexture(hp.bgR, hp.bgG, hp.bgB, hp.bgA)
         end
 
         -- Text positioning
@@ -3116,7 +3116,7 @@ local function BuildBars()
             else
                 ApplyBarFlat(pft, fR, fG, fB, fA)
             end
-            primaryBar._bg:SetColorTexture(pp.bgR, pp.bgG, pp.bgB, pp.bgA)
+            primaryBar._bg:SetTexture(pp.bgR, pp.bgG, pp.bgB, pp.bgA)
         end
 
         -- Text positioning
@@ -3177,7 +3177,7 @@ local function BuildBars()
     -- whether the bar is hidden via the spec picker OR the "Show Class Resource"
     -- toggle. When off, the branch below keeps it sized + zero-alpha.
     if not secondaryFrame then
-        secondaryFrame = CreateFrame("Frame", "ERB_SecondaryFrame", mainFrame)
+        secondaryFrame = EllesmereUI.SafeCreateFrame("Frame", "ERB_SecondaryFrame", mainFrame)
         secondaryFrame:SetFrameStrata(g.frameStrata or "MEDIUM")
         secondaryFrame:SetFrameLevel(10)
     end
@@ -3337,12 +3337,12 @@ local function BuildBars()
                 local _dfr, _dfg, _dfb = EllesmereUI.GetDarkModeFill()
                 local _dbr, _dbg, _dbb = EllesmereUI.GetDarkModeBg()
                 secondaryBar:GetStatusBarTexture():SetVertexColor(_dfr, _dfg, _dfb, DARK_FILL_A)
-                secondaryBar._bg:SetColorTexture(_dbr, _dbg, _dbb, DARK_BG_A)
+                secondaryBar._bg:SetTexture(_dbr, _dbg, _dbb, DARK_BG_A)
             elseif cachedSecondary.power == "BREWMASTER_STAGGER" then
                 -- Brewmaster Stagger: always use threshold colors (green/yellow/red), start with green
                 secondaryBar:GetStatusBarTexture():SetVertexColor(0.2, 0.8, 0.2, 1)
                 secondaryBar._lastStaggerR, secondaryBar._lastStaggerG, secondaryBar._lastStaggerB = 0.2, 0.8, 0.2
-                secondaryBar._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
+                secondaryBar._bg:SetTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
             elseif sp.resourceColored then
                 -- Per-spec resource/power color; falls back to class color.
                 local rr, rg, rb = ERB.ResolveSecondaryResourceColor(cachedSecondary.power)
@@ -3351,7 +3351,7 @@ local function BuildBars()
                     if cc then rr, rg, rb = cc[1], cc[2], cc[3] else rr, rg, rb = 1, 1, 1 end
                 end
                 secondaryBar:GetStatusBarTexture():SetVertexColor(rr, rg, rb, 1)
-                secondaryBar._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
+                secondaryBar._bg:SetTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
             elseif sp.classColored ~= false then
                 -- Power types in secondary slot use power color; class resources use class color
                 local pc2 = POWER_COLORS[cachedSecondary.power]
@@ -3363,11 +3363,11 @@ local function BuildBars()
                         secondaryBar:GetStatusBarTexture():SetVertexColor(cc[1], cc[2], cc[3], 1)
                     end
                 end
-                secondaryBar._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
+                secondaryBar._bg:SetTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
             else
                 -- classColored explicitly false -- use custom fill color
                 secondaryBar:GetStatusBarTexture():SetVertexColor(sp.fillR, sp.fillG, sp.fillB, 1)
-                secondaryBar._bg:SetColorTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
+                secondaryBar._bg:SetTexture(sp.bgR, sp.bgG, sp.bgB, sp.bgA)
             end
             ns.ApplyFillOpacity(secondaryBar, pipOri, sp.fillOpacity)
             secondaryBar:ApplyBorder(0, 0, 0, 0, 0)
@@ -3416,7 +3416,7 @@ local function BuildBars()
                     -- Stays below the count/value text overlay (level 25). The
                     -- recharge fill stays framed by the border (matches the
                     -- ready-rune fill).
-                    local cdOverlay = CreateFrame("Frame", nil, runeFrames[i])
+                    local cdOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, runeFrames[i])
                     cdOverlay:SetAllPoints(runeFrames[i])
                     cdOverlay:SetFrameLevel(secondaryFrame:GetFrameLevel() + 10)
                     local cdText = cdOverlay:CreateFontString(nil, "OVERLAY")
@@ -3460,7 +3460,7 @@ local function BuildBars()
                 ApplyRunePos()
                 runeFrames[i]:ApplyBorder(0, 0, 0, 0, 0)
                 runeFrames[i]:ApplyTexture(g.barTexture or "none")
-                runeFrames[i]._bg:SetColorTexture(ERB.PipBgColor(sp))
+                runeFrames[i]._bg:SetTexture(ERB.PipBgColor(sp))
                 -- Fill Opacity: same stamp as regular pips (consumed by
                 -- SetActive in the rune update). Inert at 100 unless restoring.
                 local _runeOp = sp.fillOpacity or 100
@@ -3522,7 +3522,7 @@ local function BuildBars()
                 ApplyPipPos()
                 pips[i]:ApplyBorder(0, 0, 0, 0, 0)
                 pips[i]:ApplyTexture(g.barTexture or "none")
-                pips[i]._bg:SetColorTexture(ERB.PipBgColor(sp))
+                pips[i]._bg:SetTexture(ERB.PipBgColor(sp))
                 -- Fill Opacity: stamp the per-pip factor (consumed by SetActive
                 -- and the secret renderer). Inert at 100 unless restoring.
                 local _pipOp = sp.fillOpacity or 100
@@ -3593,9 +3593,9 @@ local function BuildBars()
             secondaryFrame._barBg:Show()
         end
         if sp.darkTheme then
-            secondaryFrame._barBg:SetColorTexture(0, 0, 0, 1)
+            secondaryFrame._barBg:SetTexture(0, 0, 0, 1)
         else
-            secondaryFrame._barBg:SetColorTexture(sp.barBgR or 0, sp.barBgG or 0, sp.barBgB or 0, sp.barBgA or 0.5)
+            secondaryFrame._barBg:SetTexture(sp.barBgR or 0, sp.barBgG or 0, sp.barBgB or 0, sp.barBgA or 0.5)
         end
 
         -- Count text
@@ -3603,7 +3603,7 @@ local function BuildBars()
             if not secondaryFrame._countText then
                 -- Parent to a high-level overlay so text renders above pip fills and borders
                 if not secondaryFrame._countTextOverlay then
-                    secondaryFrame._countTextOverlay = CreateFrame("Frame", nil, secondaryFrame)
+                    secondaryFrame._countTextOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, secondaryFrame)
                     secondaryFrame._countTextOverlay:SetAllPoints(secondaryFrame)
                 end
                 secondaryFrame._countTextOverlay:SetFrameLevel(25)
@@ -4239,7 +4239,7 @@ local function UpdateIronfurBar()
                 tex:SetTexelSnappingBias(0)
                 ironfurTickTex[shown] = tex
             end
-            tex:SetColorTexture(1, 1, 1, 0.9)
+            tex:SetTexture(1, 1, 1, 0.9)
             local x = frac * barW
             if x > barW - tickW then x = barW - tickW end
             if x < 0 then x = 0 end
@@ -4348,7 +4348,7 @@ IP.UpdateHash = function()
         IP.hashTex = overlay:CreateTexture(nil, "OVERLAY", nil, 7)
         IP.hashTex:SetSnapToPixelGrid(false)
         IP.hashTex:SetTexelSnappingBias(0)
-        IP.hashTex:SetColorTexture(1, 1, 1, 0.9)
+        IP.hashTex:SetTexture(1, 1, 1, 0.9)
     end
     local PP = EllesmereUI and EllesmereUI.PP
     local tickW = PP and (2 * PP.mult) or 2
@@ -4833,7 +4833,7 @@ local function UpdateSecondaryResource()
 
                         -- Lazily create a StatusBar overlay for recharge progress
                         if not rf._rechargeBar then
-                            local sb = CreateFrame("StatusBar", nil, rf)
+                            local sb = EllesmereUI.SafeCreateFrame("StatusBar", nil, rf)
                             sb:SetAllPoints(rf)
                             sb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
                             sb:SetFrameLevel(rf:GetFrameLevel())
@@ -5144,7 +5144,7 @@ local function UpdateSecondaryResource()
                                 shown = shown + 1
                                 local ob = bars[shown]
                                 if not ob then
-                                    ob = CreateFrame("StatusBar", nil, host)
+                                    ob = EllesmereUI.SafeCreateFrame("StatusBar", nil, host)
                                     -- Anchors are constant to the fill texture; set once.
                                     ob:SetPoint("TOPLEFT", ft, "TOPLEFT", 0, 0)
                                     ob:SetPoint("BOTTOMRIGHT", ft, "BOTTOMRIGHT", 1, 0)
@@ -5323,7 +5323,7 @@ local function UpdateSecondaryResource()
                     local texKey = ERB.db and ERB.db.profile and ERB.db.profile.general and ERB.db.profile.general.barTexture or "none"
                     local texPath = EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, texKey, "Interface\\Buttons\\WHITE8x8")
                     if not pip._secretBar then
-                        local sb = CreateFrame("StatusBar", nil, pip)
+                        local sb = EllesmereUI.SafeCreateFrame("StatusBar", nil, pip)
                         sb:SetAllPoints(pip._fill)
                         sb:SetStatusBarTexture(texPath)
                         sb._texPath = texPath
@@ -5349,7 +5349,7 @@ local function UpdateSecondaryResource()
                         for k = 1, #_tsBands do
                             local bb = pip._bandBars[k]
                             if not bb then
-                                bb = CreateFrame("StatusBar", nil, pip)
+                                bb = EllesmereUI.SafeCreateFrame("StatusBar", nil, pip)
                                 bb:SetAllPoints(pip._fill)
                                 pip._bandBars[k] = bb
                             end
@@ -5376,7 +5376,7 @@ local function UpdateSecondaryResource()
                             -- fill color. A topmost overlay fills when cur > top band's `to`.
                             local _topTo = _tsBands[#_tsBands] and _tsBands[#_tsBands].to or 0
                             if not pip._bandResetBar then
-                                local rb = CreateFrame("StatusBar", nil, pip)
+                                local rb = EllesmereUI.SafeCreateFrame("StatusBar", nil, pip)
                                 rb:SetAllPoints(pip._fill)
                                 pip._bandResetBar = rb
                             end
@@ -5406,7 +5406,7 @@ local function UpdateSecondaryResource()
                         local showThresh = _useThresh and not (_tsPartialOnly and i < _tsThreshCount)
                         if showThresh then
                             if not pip._secretThreshBar then
-                                local tb = CreateFrame("StatusBar", nil, pip)
+                                local tb = EllesmereUI.SafeCreateFrame("StatusBar", nil, pip)
                                 tb:SetAllPoints(pip._fill)
                                 tb:SetStatusBarTexture(texPath)
                                 tb._texPath = texPath
@@ -5694,7 +5694,7 @@ local function UpdateSecondaryResource()
         if frac > 0 and cur < maxPts and pips[cur + 1] and pips[cur + 1]:IsShown() then
             local nextPip = pips[cur + 1]
             if not nextPip._rechargeBar then
-                local sb = CreateFrame("StatusBar", nil, nextPip)
+                local sb = EllesmereUI.SafeCreateFrame("StatusBar", nil, nextPip)
                 sb:SetAllPoints(nextPip)
                 sb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
                 sb:SetFrameLevel(nextPip:GetFrameLevel())
@@ -5892,7 +5892,7 @@ end
 -- Ebon Might drain (Aug Evoker; on 12.1 the engine slot owns the countdown).
 -- 20 Hz drain + text; the eased SetValue keeps the fill continuous between
 -- fires. Re-armed by UNIT_AURA via ns.ArmTick.
-ns.EMTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()    if ns.EMB121_Owns then return end
+ns.EMTick = EllesmereUI.Tick.NewAnimTicker(EllesmereUI.SafeCreateFrame("Frame"), function()    if ns.EMB121_Owns then return end
     if cachedPrimary ~= "EBON_MIGHT" then return end
     if not (primaryBar and primaryBar:IsShown() and primaryBar:GetAlpha() > 0) then return end
     local remaining = (_ebonMightExpiry > 0) and max(0, _ebonMightExpiry - GetTime()) or 0
@@ -5916,7 +5916,7 @@ end, 0.05)
 -- continuously-moving visuals outside the cast bar. 30 Hz keeps the motion
 -- fluid at a seventh of frame-rate cost; both update paths are change-gated
 -- internally.
-ns.MotionTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()    local cs = cachedSecondary
+ns.MotionTick = EllesmereUI.Tick.NewAnimTicker(EllesmereUI.SafeCreateFrame("Frame"), function()    local cs = cachedSecondary
     if not (cs and secondaryBar and secondaryBar:IsShown() and secondaryBar:GetAlpha() > 0) then return end
     if cs.power == "IRONFUR_BAR" then
         UpdateIronfurBar()
@@ -5933,7 +5933,7 @@ end, 1 / 30)
 -- the 10 Hz jobs skip every other fire. All paths funnel into
 -- UpdateSecondaryResource, whose value early-out makes an unchanged poll
 -- nearly free.
-ns.PollTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()    local cs = cachedSecondary
+ns.PollTick = EllesmereUI.Tick.NewAnimTicker(EllesmereUI.SafeCreateFrame("Frame"), function()    local cs = cachedSecondary
     if not cs then return end
     local pwr, typ = cs.power, cs.type
     if _essenceNextTick and pwr == PT.ESSENCE then
@@ -6014,7 +6014,7 @@ end
 -- covered without wiring Stop calls into each handler; the cost of that is
 -- at most one no-op fire after the cast ends.
 do
-    local host = CreateFrame("Frame")
+    local host = EllesmereUI.SafeCreateFrame("Frame")
     local ag = host:CreateAnimationGroup()
     ag:SetLooping("REPEAT")
     local tick = ag:CreateAnimation("Animation")
@@ -6041,7 +6041,7 @@ end
 -- GCD bar ticker: 20 Hz; the eased SetValue inside UpdateGCDBar carries the
 -- fill between fires. Runs only while a GCD is live, and the final fire
 -- renders the idle state before the loop stops itself.
-ns.GCDTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()
+ns.GCDTick = EllesmereUI.Tick.NewAnimTicker(EllesmereUI.SafeCreateFrame("Frame"), function()
     UpdateGCDBar()
     return gcdBarFrame and gcdBarFrame._gcdStart ~= nil
 end, 0.05)
@@ -6212,7 +6212,7 @@ BuildCastBar = function()
     end
 
     if not castBarFrame then
-        castBarFrame = CreateFrame("Frame", "ERB_CastBarFrame", UIParent)
+        castBarFrame = EllesmereUI.SafeCreateFrame("Frame", "ERB_CastBarFrame", UIParent)
         castBarFrame:SetFrameStrata(cb.frameStrata or "MEDIUM")
         castBarFrame:SetFrameLevel(15)
 
@@ -6222,7 +6222,7 @@ BuildCastBar = function()
         castBarFrame._bg = bg
 
         -- Border frame: child that covers the full cast bar (bar + icon)
-        local bdrFrame = CreateFrame("Frame", nil, castBarFrame)
+        local bdrFrame = EllesmereUI.SafeCreateFrame("Frame", nil, castBarFrame)
         bdrFrame:SetAllPoints(castBarFrame)
         bdrFrame:SetFrameLevel(castBarFrame:GetFrameLevel() + 5)
         castBarFrame._border = bdrFrame
@@ -6230,12 +6230,12 @@ BuildCastBar = function()
         if PP then PP.CreateBorder(bdrFrame, 0, 0, 0, 1, 1) end
 
         -- Clip frame to prevent bar fill from bleeding past the border
-        local clipFrame = CreateFrame("Frame", nil, castBarFrame)
+        local clipFrame = EllesmereUI.SafeCreateFrame("Frame", nil, castBarFrame)
         clipFrame:SetClipsChildren(true)
         castBarFrame._barClip = clipFrame
 
         -- Status bar (inside clip frame)
-        local bar = CreateFrame("StatusBar", "ERB_CastBar", clipFrame)
+        local bar = EllesmereUI.SafeCreateFrame("StatusBar", "ERB_CastBar", clipFrame)
         bar:SetMinMaxValues(0, 1)
         bar:SetValue(0)
         castBarFrame._bar = bar
@@ -6246,7 +6246,7 @@ BuildCastBar = function()
         -- looked complete even though the timer read full duration.
 
         -- Spark (in its own child frame inside clip so it gets clipped)
-        local sparkFrame = CreateFrame("Frame", nil, clipFrame)
+        local sparkFrame = EllesmereUI.SafeCreateFrame("Frame", nil, clipFrame)
         sparkFrame:SetAllPoints(bar)
         sparkFrame:SetFrameLevel(bar:GetFrameLevel() + 2)
         local spark = sparkFrame:CreateTexture(nil, "OVERLAY", nil, 1)
@@ -6260,7 +6260,7 @@ BuildCastBar = function()
         castBarFrame._latencyOverlay = latOverlay
 
         -- Spell icon
-        local iconFrame = CreateFrame("Frame", nil, castBarFrame)
+        local iconFrame = EllesmereUI.SafeCreateFrame("Frame", nil, castBarFrame)
         local icon = iconFrame:CreateTexture(nil, "ARTWORK")
         icon:SetAllPoints()
         icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -6268,7 +6268,7 @@ BuildCastBar = function()
         castBarFrame._icon = icon
 
         -- Text overlay frame (above all bar borders)
-        local textFrame = CreateFrame("Frame", nil, castBarFrame)
+        local textFrame = EllesmereUI.SafeCreateFrame("Frame", nil, castBarFrame)
         textFrame:SetAllPoints(bar)
         textFrame:SetFrameLevel(25)
         castBarFrame._textFrame = textFrame
@@ -6399,7 +6399,7 @@ BuildCastBar = function()
         local texPath = EllesmereUI.ResolveTexturePath(CAST_BAR_TEXTURES, texKey, "Interface\\Buttons\\WHITE8x8")
         bar:SetStatusBarTexture(texPath)
         castBarFrame._bg:SetTexture(nil)
-        castBarFrame._bg:SetColorTexture(cb.bgR, cb.bgG, cb.bgB, cb.bgA)
+        castBarFrame._bg:SetTexture(cb.bgR, cb.bgG, cb.bgB, cb.bgA)
         -- Fill Opacity below 100: anchor the bg to cover ONLY the empty
         -- portion of the bar so the translucent fill reveals the world behind
         -- it instead of the background. The anchor is relational to the fill
@@ -6489,10 +6489,10 @@ end
                 lo:SetTexture(texPath)
                 lo:SetVertexColor(lR, lG, lB, lA)
             else
-                lo:SetColorTexture(lR, lG, lB, lA)
+                lo:SetTexture(lR, lG, lB, lA)
             end
         else
-            lo:SetColorTexture(lR, lG, lB, lA)
+            lo:SetTexture(lR, lG, lB, lA)
         end
     else
         if castBarFrame._latencyOverlay then castBarFrame._latencyOverlay:Hide() end
@@ -6641,10 +6641,10 @@ ShowChannelTicks = function(spellID)
                 local snappedOffset = floor(barWidth * (numTicks - i) / numTicks * effectiveScale + 0.5) / effectiveScale
 
                 if isLastTick and showLastTick then
-                    tick:SetColorTexture(ltR, ltG, ltB, ltA)
+                    tick:SetTexture(ltR, ltG, ltB, ltA)
                     tick:SetSize(highlightWidth, snappedHeight)
                 else
-                    tick:SetColorTexture(tmR, tmG, tmB, tmA)
+                    tick:SetTexture(tmR, tmG, tmB, tmA)
                     tick:SetSize(tickWidth, snappedHeight)
                 end
 
@@ -7246,7 +7246,7 @@ OnEmpowerStart = function()
             local pip = castBarFrame._pips[i]
             if not pip then
                 pip = bar:CreateTexture(nil, "OVERLAY", nil, 2)
-                pip:SetColorTexture(1, 1, 1, 0.85)
+                pip:SetTexture(1, 1, 1, 0.85)
                 castBarFrame._pips[i] = pip
             end
             local rawOffset = lastOffset + (barWidth * stages[i])
@@ -7316,7 +7316,7 @@ BuildGCDBar = function()
         gcdBarFrame._bg = bg
 
         -- Border frame
-        local bdrFrame = CreateFrame("Frame", nil, gcdBarFrame)
+        local bdrFrame = EllesmereUI.SafeCreateFrame("Frame", nil, gcdBarFrame)
         bdrFrame:SetAllPoints(gcdBarFrame)
         bdrFrame:SetFrameLevel(gcdBarFrame:GetFrameLevel() + 5)
         gcdBarFrame._border = bdrFrame
@@ -7324,12 +7324,12 @@ BuildGCDBar = function()
         if PP then PP.CreateBorder(bdrFrame, 0, 0, 0, 1, 1) end
 
         -- Clip frame
-        local clipFrame = CreateFrame("Frame", nil, gcdBarFrame)
+        local clipFrame = EllesmereUI.SafeCreateFrame("Frame", nil, gcdBarFrame)
         clipFrame:SetClipsChildren(true)
         gcdBarFrame._barClip = clipFrame
 
         -- Status bar
-        local bar = CreateFrame("StatusBar", "ERB_GCDBar", clipFrame)
+        local bar = EllesmereUI.SafeCreateFrame("StatusBar", "ERB_GCDBar", clipFrame)
         bar:SetMinMaxValues(0, 1)
         bar:SetValue(0)
         gcdBarFrame._bar = bar
@@ -7337,7 +7337,7 @@ BuildGCDBar = function()
         bar._castInterp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
 
         -- Spark (same texture/approach as the cast bar)
-        local sparkFrame = CreateFrame("Frame", nil, clipFrame)
+        local sparkFrame = EllesmereUI.SafeCreateFrame("Frame", nil, clipFrame)
         sparkFrame:SetAllPoints(bar)
         sparkFrame:SetFrameLevel(bar:GetFrameLevel() + 2)
         local spark = sparkFrame:CreateTexture(nil, "OVERLAY", nil, 1)
@@ -7509,7 +7509,7 @@ BuildGCDBar = function()
     local texPath = EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, g.texture, "Interface\\Buttons\\WHITE8x8")
     bar:SetStatusBarTexture(texPath)
     gcdBarFrame._bg:SetTexture(nil)
-    gcdBarFrame._bg:SetColorTexture(g.bgR, g.bgG, g.bgB, g.bgA)
+    gcdBarFrame._bg:SetTexture(g.bgR, g.bgG, g.bgB, g.bgA)
 
     ApplyBarOrientation(bar, ori)
     -- HORIZONTAL_LEFT = horizontal, but the fill grows right->left (reverse).
@@ -7838,7 +7838,7 @@ local function LayoutTotemBar()
         -- Border overlay (our own frame in the button's scale space)
         local overlay = _totemBorderOverlays[btn]
         if not overlay then
-            overlay = CreateFrame("Frame", nil, btn)
+            overlay = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
             _totemBorderOverlays[btn] = overlay
         end
         -- "Show Behind": +3 in front of the icon, level-1 behind it.
@@ -7896,7 +7896,7 @@ local function BuildTotemBar()
     end
 
     if not totemBarFrame then
-        totemBarFrame = CreateFrame("Frame", "ERB_TotemBarFrame", UIParent)
+        totemBarFrame = EllesmereUI.SafeCreateFrame("Frame", "ERB_TotemBarFrame", UIParent)
         local tb = ERB.db and ERB.db.profile and ERB.db.profile.totemBar
         totemBarFrame:SetFrameStrata(tb and tb.frameStrata or "MEDIUM")
         totemBarFrame:SetFrameLevel(15)
@@ -8117,7 +8117,7 @@ function ERB:ApplyAll()
     if not ERB._vehicleProxy then
         local function InitVehicleProxy()
             if ERB._vehicleProxy then return end
-            ERB._vehicleProxy = CreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
+            ERB._vehicleProxy = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
             ERB._vehicleProxy:SetAttribute("_onstate-erbvehicle", [[
                 self:CallMethod("OnVehicleStateChanged", newstate)
             ]])
@@ -8128,7 +8128,7 @@ function ERB:ApplyAll()
             RegisterStateDriver(ERB._vehicleProxy, "erbvehicle", "[vehicleui][petbattle] hide; show")
         end
         if InCombatLockdown() then
-            local waiter = CreateFrame("Frame")
+            local waiter = EllesmereUI.SafeCreateFrame("Frame")
             waiter:RegisterEvent("PLAYER_REGEN_ENABLED")
             waiter:SetScript("OnEvent", function(self)
                 self:UnregisterEvent("PLAYER_REGEN_ENABLED")

@@ -124,7 +124,7 @@ local function ShowFirstInstallPopup()
     local ppScale = (EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale()) or 1
 
     -- Dimmer
-    local dimmer = CreateFrame("Frame", "EUIFirstInstallDimmer", UIParent)
+    local dimmer = EllesmereUI.SafeCreateFrame("Frame", "EUIFirstInstallDimmer", UIParent)
     dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
     dimmer:SetAllPoints(UIParent)
     dimmer:EnableMouse(true)
@@ -133,10 +133,10 @@ local function ShowFirstInstallPopup()
     dimmer:SetScale(ppScale)
     local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
     dimTex:SetAllPoints()
-    dimTex:SetColorTexture(0, 0, 0, 0.35)
+    dimTex:SetTexture(0, 0, 0, 0.35)
 
     -- Popup
-    local popup = CreateFrame("Frame", "EUIFirstInstallPopup", dimmer)
+    local popup = EllesmereUI.SafeCreateFrame("Frame", "EUIFirstInstallPopup", dimmer)
     popup:SetScale(ppScale)
     popup:SetFrameStrata("FULLSCREEN_DIALOG")
     popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
@@ -146,7 +146,7 @@ local function ShowFirstInstallPopup()
 
     local bg = popup:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+    bg:SetTexture(0.06, 0.08, 0.10, 1)
 
     -- 1 physical-pixel white border (announcement-popup chrome), scale-derived
     -- so each edge stays exactly one physical pixel. Snap disabled.
@@ -154,7 +154,7 @@ local function ShowFirstInstallPopup()
     local BRD_A = 0.15
     local function MakeEdge()
         local t = popup:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(1, 1, 1, BRD_A)
+        t:SetTexture(1, 1, 1, BRD_A)
         if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
         return t
     end
@@ -175,17 +175,17 @@ local function ShowFirstInstallPopup()
             local isCenter = (i == 2)
             local w = CARD_W
             local h = isCenter and (CARD_H + 10) or CARD_H
-            local card = CreateFrame("Frame", nil, popup)
+            local card = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
             card:SetFrameLevel(popup:GetFrameLevel() + 1)
             PP.Size(card, w, h)
             PP.Point(card, "CENTER", popup, "TOP", (i - 2) * (CARD_W + CARD_GAP), MIDLINE)
             local cbg = card:CreateTexture(nil, "BACKGROUND")
             cbg:SetAllPoints()
-            cbg:SetColorTexture(0.12, 0.13, 0.15, 1)
+            cbg:SetTexture(0.12, 0.13, 0.15, 1)
 
             -- Green top accent (the suite's hero-card signature).
             local accent = card:CreateTexture(nil, "ARTWORK")
-            accent:SetColorTexture(EGh.r, EGh.g, EGh.b, isCenter and 0.95 or 0.7)
+            accent:SetTexture(EGh.r, EGh.g, EGh.b, isCenter and 0.95 or 0.7)
             accent:SetHeight(2)
             PP.Point(accent, "TOPLEFT", card, "TOPLEFT", 1, -1)
             PP.Point(accent, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
@@ -193,24 +193,24 @@ local function ShowFirstInstallPopup()
 
             -- Checked box + stand-in lines: the picker rows in miniature.
             local box = card:CreateTexture(nil, "ARTWORK")
-            box:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
+            box:SetTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
             PP.Size(box, 12, 12)
             PP.Point(box, "TOPLEFT", card, "TOPLEFT", 12, -14)
             local check = card:CreateTexture(nil, "OVERLAY")
-            check:SetColorTexture(EGh.r, EGh.g, EGh.b, isCenter and 1 or 0.8)
+            check:SetTexture(EGh.r, EGh.g, EGh.b, isCenter and 1 or 0.8)
             PP.Size(check, 6, 6)
             PP.Point(check, "CENTER", box, "CENTER", 0, 0)
             local l1 = card:CreateTexture(nil, "ARTWORK")
-            l1:SetColorTexture(1, 1, 1, isCenter and 0.42 or 0.32)
+            l1:SetTexture(1, 1, 1, isCenter and 0.42 or 0.32)
             PP.Size(l1, w - 52, 5)
             PP.Point(l1, "LEFT", box, "RIGHT", 8, 0)
             local l2 = card:CreateTexture(nil, "ARTWORK")
-            l2:SetColorTexture(1, 1, 1, 0.16)
+            l2:SetTexture(1, 1, 1, 0.16)
             PP.Size(l2, w - 72, 5)
             PP.Point(l2, "TOPLEFT", box, "BOTTOMLEFT", 0, -8)
             if isCenter then
                 local l3 = card:CreateTexture(nil, "ARTWORK")
-                l3:SetColorTexture(1, 1, 1, 0.12)
+                l3:SetTexture(1, 1, 1, 0.12)
                 PP.Size(l3, w - 84, 5)
                 PP.Point(l3, "TOPLEFT", l2, "BOTTOMLEFT", 0, -7)
             end
@@ -246,7 +246,7 @@ local function ShowFirstInstallPopup()
     local LINK_Y = -196
     local LINK_GAP = 20
 
-    local checkAllBtn = CreateFrame("Button", nil, popup)
+    local checkAllBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
     checkAllBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
     local checkAllLbl = checkAllBtn:CreateFontString(nil, "OVERLAY")
     checkAllLbl:SetFont(FONT, 14, "")
@@ -259,13 +259,13 @@ local function ShowFirstInstallPopup()
     checkAllBtn:SetScript("OnLeave", function() checkAllLbl:SetTextColor(1, 1, 1, 0.45) end)
 
     local linkDivider = popup:CreateTexture(nil, "OVERLAY", nil, 7)
-    linkDivider:SetColorTexture(1, 1, 1, 0.18)
+    linkDivider:SetTexture(1, 1, 1, 0.18)
     if linkDivider.SetSnapToPixelGrid then linkDivider:SetSnapToPixelGrid(false); linkDivider:SetTexelSnappingBias(0) end
     PP.Point(linkDivider, "LEFT", checkAllBtn, "RIGHT", LINK_GAP / 2, 0)
     linkDivider:SetWidth(1)
     linkDivider:SetHeight(12)
 
-    local uncheckAllBtn = CreateFrame("Button", nil, popup)
+    local uncheckAllBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
     uncheckAllBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
     local uncheckAllLbl = uncheckAllBtn:CreateFontString(nil, "OVERLAY")
     uncheckAllLbl:SetFont(FONT, 14, "")
@@ -285,7 +285,7 @@ local function ShowFirstInstallPopup()
 
     -- Build the three columns
     for colIdx, group in ipairs(GROUPS) do
-        local col = CreateFrame("Frame", nil, popup)
+        local col = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
         col:SetFrameLevel(popup:GetFrameLevel() + 1)
         local colX = CONTENT_LEFT + (colIdx - 1) * (COL_W + COL_GAP)
         PP.Point(col, "TOPLEFT", popup, "TOPLEFT", colX, -CONTENT_TOP)
@@ -301,25 +301,25 @@ local function ShowFirstInstallPopup()
         local yOff = HEADER_H + HEADER_PAD
 
         for _, entry in ipairs(group.entries) do
-            local row = CreateFrame("Button", nil, col)
+            local row = EllesmereUI.SafeCreateFrame("Button", nil, col)
             PP.Size(row, COL_W, ROW_H)
             row:ClearAllPoints()
             PP.Point(row, "TOPLEFT", col, "TOPLEFT", 0, -yOff)
 
-            local box = CreateFrame("Frame", nil, row)
+            local box = EllesmereUI.SafeCreateFrame("Frame", nil, row)
             PP.Size(box, BOX_SZ, BOX_SZ)
             PP.Point(box, "LEFT", row, "LEFT", 8, 0)
             box:SetFrameLevel(row:GetFrameLevel() + 1)
 
             local boxBg = box:CreateTexture(nil, "BACKGROUND")
             boxBg:SetAllPoints()
-            boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
+            boxBg:SetTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
             local boxBorder = MakeBorder(box, BORDER_R, BORDER_G, BORDER_B, CB_BRD_A, PP)
 
             local check = box:CreateTexture(nil, "ARTWORK")
             PP.Point(check, "TOPLEFT", box, "TOPLEFT", CHECK_INSET, -CHECK_INSET)
             PP.Point(check, "BOTTOMRIGHT", box, "BOTTOMRIGHT", -CHECK_INSET, CHECK_INSET)
-            check:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
+            check:SetTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
 
             local lbl = row:CreateFontString(nil, "OVERLAY")
             lbl:SetFont(FONT, 17, "")
@@ -356,7 +356,7 @@ local function ShowFirstInstallPopup()
                 if r._informational then
                     r._check:Hide()
                     r._boxBorder:SetColor(BORDER_R, BORDER_G, BORDER_B, CB_BRD_A * 0.4)
-                    r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 0.35)
+                    r._boxBg:SetTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 0.35)
                     r._lbl:SetTextColor(1, 1, 1, 0.25)
                 elseif r._checked then
                     r._check:Show()
@@ -396,13 +396,13 @@ local function ShowFirstInstallPopup()
 
     -- Done button (text swaps between "Okay" and "Reload UI" based on changes)
     local EG = ELLESMERE_GREEN
-    local doneBtn = CreateFrame("Button", nil, popup)
+    local doneBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
     doneBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
     PP.Size(doneBtn, 200, 39)
     PP.Point(doneBtn, "BOTTOM", popup, "BOTTOM", 0, 38)
     local doneBg = doneBtn:CreateTexture(nil, "BACKGROUND")
     doneBg:SetAllPoints()
-    doneBg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+    doneBg:SetTexture(0.06, 0.08, 0.10, 0.92)
     local doneBrd = MakeBorder(doneBtn, EG.r, EG.g, EG.b, 0.9, PP)
     local doneLbl = doneBtn:CreateFontString(nil, "OVERLAY")
     doneLbl:SetFont(FONT, 16, "")
@@ -572,7 +572,7 @@ local function ComputeShowOnLogin()
     return true
 end
 
-local loader = CreateFrame("Frame")
+local loader = EllesmereUI.SafeCreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function(self, event, addonName)

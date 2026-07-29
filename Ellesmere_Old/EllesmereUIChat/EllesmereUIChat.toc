@@ -1,0 +1,20 @@
+## Interface: 30300
+## Title: |cff0cd29fEllesmereUI|r Chat
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Modern chat enhancements with useful utilities.
+## Author: Ellesmere
+## Version: 8.6.4
+## Dependencies: EllesmereUI
+## SavedVariables: EllesmereUIChatDB
+## SavedVariablesPerCharacter: EllesmereUIChatScrollDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+# Main Luas
+EllesmereUIChat.lua
+
+# Options
+EUI_Chat_Options.lua
+
+# Session scrollback via CHAT_MSG (open world, PushBack restore)
+EllesmereUIChat_SessionHistory.lua

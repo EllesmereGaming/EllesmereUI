@@ -571,7 +571,7 @@ function ns.ApplyCustomBorderStyle(plate, szOverride)
     if behind == nil then behind = defaults.customBorderBehind end
     local bf = plate._customBorder
     if not bf then
-        bf = CreateFrame("Frame", nil, plate.health)
+        bf = EllesmereUI.SafeCreateFrame("Frame", nil, plate.health)
         bf:SetAllPoints(plate.health)
         plate._customBorder = bf
     end
@@ -911,7 +911,7 @@ do
             end
         end
     end
-    local dispelFrame = CreateFrame("Frame")
+    local dispelFrame = EllesmereUI.SafeCreateFrame("Frame")
     dispelFrame:RegisterEvent("SPELLS_CHANGED")
     dispelFrame:RegisterEvent("UNIT_PET")
     dispelFrame:SetScript("OnEvent", function(_, event, unit)
@@ -1566,7 +1566,7 @@ local function StartPandemicGlow(slot, slotSize)
     local sz = slotSize or 26
 
     if not pg then
-        local wrapper = CreateFrame("Frame", nil, slot)
+        local wrapper = EllesmereUI.SafeCreateFrame("Frame", nil, slot)
         wrapper:SetAllPoints()
         -- Sit ABOVE the cooldown frame (slot.cd at +2) so the duration swipe
         -- can't render on top of the pandemic border and dim it. Matches the
@@ -1710,7 +1710,7 @@ local function StartDispelGlow(slot, slotSize, typeColor)
     local sz = slotSize or 26
 
     if not dg then
-        local wrapper = CreateFrame("Frame", nil, slot)
+        local wrapper = EllesmereUI.SafeCreateFrame("Frame", nil, slot)
         wrapper:SetAllPoints()
         wrapper:SetFrameLevel(slot:GetFrameLevel() + 5)
         local flipTex = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -2147,7 +2147,7 @@ local GLOW_EXTEND = 6
 
 local function EnsureGlow(plate)
     if plate.glow then return end
-    plate.glowFrame = CreateFrame("Frame", nil, plate)
+    plate.glowFrame = EllesmereUI.SafeCreateFrame("Frame", nil, plate)
     plate.glowFrame:SetFrameStrata("BACKGROUND")
     plate.glowFrame:SetFrameLevel(1)
     plate.glowFrame:SetPoint("TOPLEFT", plate.health, "TOPLEFT", -GLOW_EXTEND, GLOW_EXTEND)
@@ -2313,7 +2313,7 @@ do
     do
         local _, cls = UnitClass("player")
         if EXEC_CLASSES[cls] then
-            local watcher = CreateFrame("Frame")
+            local watcher = EllesmereUI.SafeCreateFrame("Frame")
             watcher:RegisterEvent("PLAYER_LOGIN")
             watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
             watcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
@@ -2339,7 +2339,7 @@ end
 
 function ns.EnsureLowHpGlow(plate)
     if plate.lowHpGlowFrame then return end
-    local f = CreateFrame("Frame", nil, plate)
+    local f = EllesmereUI.SafeCreateFrame("Frame", nil, plate)
     f:SetFrameStrata("BACKGROUND")
     f:SetFrameLevel(1)
     f:SetPoint("TOPLEFT", plate.health, "TOPLEFT", -GLOW_EXTEND, GLOW_EXTEND)
@@ -2406,7 +2406,7 @@ local function EnsureTargetHighlight(plate)
     local t = plate.health:CreateTexture(nil, "OVERLAY", nil, 5)
     t:SetAllPoints(plate.health)
     local c = ns.GetTargetHighlightColor()
-    t:SetColorTexture(c.r, c.g, c.b, ns.GetTargetHighlightAlpha())
+    t:SetTexture(c.r, c.g, c.b, ns.GetTargetHighlightAlpha())
     t:Hide()
     plate.targetHighlight = t
 end
@@ -2483,7 +2483,7 @@ local function EnsureArrows(plate)
         -- aura containers while the legacy writers keep anchoring them to
         -- readable frames. Stale builds without the template keep the
         -- plain parent (their containers carry no aspect either).
-        local ok, holder = pcall(CreateFrame, "Frame", nil, plate.health,
+        local ok, holder = pcall(EllesmereUI.SafeCreateFrame, "Frame", nil, plate.health,
             "DisableUntrustedLayoutScriptsTemplate")
         if ok and holder then
             holder:SetAllPoints(plate.health)
@@ -2566,7 +2566,7 @@ local function EnsureFocusOverlay(plate)
     local overlayColor = (p and p.focusOverlayColor) or defaults.focusOverlayColor
     local STRIPE_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\striped-v2.png"
     local fillTex = plate.health:GetStatusBarTexture()
-    plate.focusClipFill = CreateFrame("Frame", nil, plate.health)
+    plate.focusClipFill = EllesmereUI.SafeCreateFrame("Frame", nil, plate.health)
     plate.focusClipFill:SetClipsChildren(true)
     -- Vertical bounds come from the health bar itself (full nameplate height)
     -- so the overlay can never pixel-snap 1px short on the top or bottom edge
@@ -2588,7 +2588,7 @@ local function EnsureFocusOverlay(plate)
     plate.focusOverlayFill:SetAlpha(overlayAlpha)
     plate.focusOverlayFill:SetVertexColor(overlayColor.r, overlayColor.g, overlayColor.b)
     plate.focusClipFill:Hide()
-    plate.focusClipBg = CreateFrame("Frame", nil, plate.health)
+    plate.focusClipBg = EllesmereUI.SafeCreateFrame("Frame", nil, plate.health)
     plate.focusClipBg:SetClipsChildren(true)
     plate.focusClipBg:SetPoint("TOPRIGHT", plate.health, "TOPRIGHT", 0, 0)
     plate.focusClipBg:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMRIGHT", 0, 0)
@@ -2674,7 +2674,7 @@ ns.EnsureHoverOverlay = function(plate)
     local overlayColor = (p and p.hoverColor) or defaults.hoverColor
     local STRIPE_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\striped-v2.png"
     local fillTex = plate.health:GetStatusBarTexture()
-    plate.hoverClipFill = CreateFrame("Frame", nil, plate.health)
+    plate.hoverClipFill = EllesmereUI.SafeCreateFrame("Frame", nil, plate.health)
     plate.hoverClipFill:SetClipsChildren(true)
     plate.hoverClipFill:SetPoint("TOPLEFT", plate.health, "TOPLEFT", 0, 0)
     plate.hoverClipFill:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMLEFT", 0, 0)
@@ -2688,7 +2688,7 @@ ns.EnsureHoverOverlay = function(plate)
     plate.hoverOverlayFill:SetAlpha(overlayAlpha)
     plate.hoverOverlayFill:SetVertexColor(overlayColor.r, overlayColor.g, overlayColor.b)
     plate.hoverClipFill:Hide()
-    plate.hoverClipBg = CreateFrame("Frame", nil, plate.health)
+    plate.hoverClipBg = EllesmereUI.SafeCreateFrame("Frame", nil, plate.health)
     plate.hoverClipBg:SetClipsChildren(true)
     plate.hoverClipBg:SetPoint("TOPRIGHT", plate.health, "TOPRIGHT", 0, 0)
     plate.hoverClipBg:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMRIGHT", 0, 0)
@@ -2713,7 +2713,7 @@ ns.EnsureTargetOverlay = function(plate)
     local overlayColor = (p and p.targetOverlayColor) or defaults.targetOverlayColor
     local STRIPE_TEX = "Interface\\AddOns\\EllesmereUINameplates\\Media\\striped-v2.png"
     local fillTex = plate.health:GetStatusBarTexture()
-    plate.targetClipFill = CreateFrame("Frame", nil, plate.health)
+    plate.targetClipFill = EllesmereUI.SafeCreateFrame("Frame", nil, plate.health)
     plate.targetClipFill:SetClipsChildren(true)
     -- Vertical bounds come from the health bar itself (full nameplate height)
     -- so the overlay can never pixel-snap 1px short on the top or bottom edge
@@ -2735,7 +2735,7 @@ ns.EnsureTargetOverlay = function(plate)
     plate.targetOverlayFill:SetAlpha(overlayAlpha)
     plate.targetOverlayFill:SetVertexColor(overlayColor.r, overlayColor.g, overlayColor.b)
     plate.targetClipFill:Hide()
-    plate.targetClipBg = CreateFrame("Frame", nil, plate.health)
+    plate.targetClipBg = EllesmereUI.SafeCreateFrame("Frame", nil, plate.health)
     plate.targetClipBg:SetClipsChildren(true)
     plate.targetClipBg:SetPoint("TOPRIGHT", plate.health, "TOPRIGHT", 0, 0)
     plate.targetClipBg:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMRIGHT", 0, 0)
@@ -2756,7 +2756,7 @@ end
 
 local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(plate)
     plate:SetFlattensRenderLayers(true)
-    plate.health = CreateFrame("StatusBar", nil, plate)
+    plate.health = EllesmereUI.SafeCreateFrame("StatusBar", nil, plate)
     plate.health:SetFrameLevel(10)
     plate.health:SetPoint("CENTER", plate, "CENTER", 0, GetNameplateYOffset())
     plate.health:SetSize(GetHealthBarWidth(), GetHealthBarHeight())
@@ -2766,10 +2766,10 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.healthBG:SetAllPoints()
     local _bg = (p and p.bgColor) or defaults.bgColor
     local _bga = (p and p.bgAlpha) or defaults.bgAlpha
-    plate.healthBG:SetColorTexture(_bg.r, _bg.g, _bg.b, _bga)
+    plate.healthBG:SetTexture(_bg.r, _bg.g, _bg.b, _bga)
     -- Hash line: thin vertical marker at a configurable health percentage
     plate.hashLine = plate.health:CreateTexture(nil, "OVERLAY", nil, 3)
-    plate.hashLine:SetColorTexture(1, 1, 1, 0.8)
+    plate.hashLine:SetTexture(1, 1, 1, 0.8)
     plate.hashLine:SetWidth(2)
     plate.hashLine:SetPoint("TOP", plate.health, "TOP", 0, 0)
     plate.hashLine:SetPoint("BOTTOM", plate.health, "BOTTOM", 0, 0)
@@ -2782,7 +2782,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     absorbMask:SetTexture("Interface\\Buttons\\WHITE8X8")
     plate._absorbMask = absorbMask
 
-    plate.absorb = CreateFrame("StatusBar", nil, plate.health)
+    plate.absorb = EllesmereUI.SafeCreateFrame("StatusBar", nil, plate.health)
     plate.absorb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     plate.absorb:GetStatusBarTexture():AddMaskTexture(absorbMask)
     plate.absorb:SetReverseFill(true)
@@ -2791,7 +2791,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.absorb:SetWidth(GetHealthBarWidth())
     plate.absorb:SetHeight(GetHealthBarHeight())
     plate.absorb:SetFrameLevel(plate.health:GetFrameLevel())
-    plate.absorbForward = CreateFrame("StatusBar", nil, plate.health)
+    plate.absorbForward = EllesmereUI.SafeCreateFrame("StatusBar", nil, plate.health)
     plate.absorbForward:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     plate.absorbForward:GetStatusBarTexture():AddMaskTexture(absorbMask)
     plate.absorbForward:SetReverseFill(false)
@@ -2801,7 +2801,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.absorbForward:SetHeight(GetHealthBarHeight())
     plate.absorbForward:SetFrameLevel(plate.health:GetFrameLevel())
     plate.absorbForward:Hide()
-    plate.absorbOverflow = CreateFrame("StatusBar", nil, plate.health)
+    plate.absorbOverflow = EllesmereUI.SafeCreateFrame("StatusBar", nil, plate.health)
     plate.absorbOverflow:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     plate.absorbOverflow:SetReverseFill(false)
     plate.absorbOverflow:SetPoint("TOPLEFT", plate.health, "TOPRIGHT", 0, 0)
@@ -2810,7 +2810,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.absorbOverflow:SetFrameLevel(plate.health:GetFrameLevel())
     plate.absorbOverflow:Hide()
     plate.absorbOverflowDivider = plate.health:CreateTexture(nil, "OVERLAY", nil, 7)
-    plate.absorbOverflowDivider:SetColorTexture(0, 0, 0, 1)
+    plate.absorbOverflowDivider:SetTexture(0, 0, 0, 1)
     plate.absorbOverflowDivider:SetPoint("TOPRIGHT", plate.health, "TOPRIGHT", 0, 0)
     plate.absorbOverflowDivider:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMRIGHT", 0, 0)
     plate.absorbOverflowDivider:SetWidth(1)
@@ -2870,7 +2870,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     -- demand (EnsureGlow / EnsureArrows / EnsureFocusOverlay) since only
     -- 1 plate at a time ever shows them. This saves ~14 objects per plate.
     -- Text overlay frame: renders above focus stripe overlay (level +1)
-    plate.healthTextFrame = CreateFrame("Frame", nil, plate)
+    plate.healthTextFrame = EllesmereUI.SafeCreateFrame("Frame", nil, plate)
     plate.healthTextFrame:SetAllPoints(plate.health)
     -- TEXT TIER (top of the hierarchy). All three layered groups -- text (900),
     -- aura icons (800) and indicators (raid marker / classification, ~13-18) --
@@ -2894,10 +2894,10 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.highlight:SetAllPoints(plate.health)
     local _hc = (p and p.hoverColor) or defaults.hoverColor
     local _ha = (p and p.hoverAlpha) or defaults.hoverAlpha
-    plate.highlight:SetColorTexture(_hc.r, _hc.g, _hc.b, _ha)
+    plate.highlight:SetTexture(_hc.r, _hc.g, _hc.b, _ha)
     plate.highlight:Hide()
     -- Top text overlay: renders above health bar + borders so top-slot text is never hidden
-    plate.topTextFrame = CreateFrame("Frame", nil, plate)
+    plate.topTextFrame = EllesmereUI.SafeCreateFrame("Frame", nil, plate)
     plate.topTextFrame:SetAllPoints(plate.health)
     -- TEXT TIER (see healthTextFrame). MEDIUM + level 900 so name text renders
     -- above the aura icons (the name/health fontstrings are reparented between
@@ -2910,7 +2910,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     PP.Width(plate.name, math.max(GetHealthBarWidth(), 20))
     plate.name:SetWordWrap(false)
     plate.name:SetMaxLines(1)
-    plate.nameRaidFrame = CreateFrame("Frame", nil, plate)
+    plate.nameRaidFrame = EllesmereUI.SafeCreateFrame("Frame", nil, plate)
     local nameRmSize = (p and p.nameRaidMarkerSize) or defaults.nameRaidMarkerSize or 14
     PP.Size(plate.nameRaidFrame, nameRmSize, nameRmSize)
     plate.nameRaidFrame:SetFrameStrata("MEDIUM")
@@ -2919,7 +2919,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.nameRaid = plate.nameRaidFrame:CreateTexture(nil, "ARTWORK")
     plate.nameRaid:SetAllPoints()
     plate.nameRaid:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-    plate.raidFrame = CreateFrame("Frame", nil, plate)
+    plate.raidFrame = EllesmereUI.SafeCreateFrame("Frame", nil, plate)
     local rmSize = GetRaidMarkerSize()
     PP.Size(plate.raidFrame, rmSize, rmSize)
     -- INDICATOR TIER (bottom of the three layered groups). Explicit MEDIUM strata
@@ -2934,7 +2934,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.raid = plate.raidFrame:CreateTexture(nil, "ARTWORK")
     plate.raid:SetAllPoints()
     plate.raid:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-    plate.classFrame = CreateFrame("Frame", nil, plate)
+    plate.classFrame = EllesmereUI.SafeCreateFrame("Frame", nil, plate)
     local _reIconSz = GetRareEliteIconSize()
     PP.Size(plate.classFrame, _reIconSz, _reIconSz)
     PP.Point(plate.classFrame, "LEFT", plate.health, "LEFT", 2, 0)
@@ -2946,7 +2946,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.classFrame:Hide()
     plate.class = plate.classFrame:CreateTexture(nil, "ARTWORK")
     plate.class:SetAllPoints()
-    plate.cast = CreateFrame("StatusBar", nil, plate)
+    plate.cast = EllesmereUI.SafeCreateFrame("StatusBar", nil, plate)
     -- Cast bar spans the health bar width. By default the icon hangs outside to
     -- the left; with "Make Icon Part of the Bar" the bar shrinks so the icon
     -- sits inside the width. LayoutCastBar handles both (must run after
@@ -2959,7 +2959,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.castBG:SetAllPoints()
     local _cbg = (p and p.castBgColor) or defaults.castBgColor
     local _cba = (p and p.castBgAlpha) or defaults.castBgAlpha
-    plate.castBG:SetColorTexture(_cbg.r, _cbg.g, _cbg.b, _cba)
+    plate.castBG:SetTexture(_cbg.r, _cbg.g, _cbg.b, _cba)
     -- Cast bar border: pixel-perfect PP.CreateBorder, lazy-created (off by
     -- default at size 0, so it costs nothing unless the user enables it).
     -- Mirrors the nameplate health border. The border is a child of plate.cast
@@ -3034,7 +3034,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
                 -- subtree, the unreliable cross-flatten case (the "disappears" bug).
                 local region = plate.castWrapRegion
                 if not region then
-                    region = CreateFrame("Frame", nil, plate.cast)
+                    region = EllesmereUI.SafeCreateFrame("Frame", nil, plate.cast)
                     plate.castWrapRegion = region
                 end
                 region:ClearAllPoints()
@@ -3116,14 +3116,14 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     end
     plate:ApplyCastBorder()
     plate.castLeftBorder = plate.cast:CreateTexture(nil, "OVERLAY", nil, 7)
-    plate.castLeftBorder:SetColorTexture(0, 0, 0, 1)
+    plate.castLeftBorder:SetTexture(0, 0, 0, 1)
     plate.castLeftBorder:SetWidth(1)
     plate.castLeftBorder:SetPoint("TOPLEFT", plate.cast, "TOPLEFT", 0, 0)
     plate.castLeftBorder:SetPoint("BOTTOMLEFT", plate.cast, "BOTTOMLEFT", 0, 0)
     -- Icon frame hangs outside the cast bar's left edge.
     -- Parented to cast (auto-hides with cast) and anchored to cast (same frame
     -- = single-pass layout resolve, no cross-frame jitter).
-    plate.castIconFrame = CreateFrame("Frame", nil, plate.cast)
+    plate.castIconFrame = EllesmereUI.SafeCreateFrame("Frame", nil, plate.cast)
     -- Lift above the health bar (level 10) once, so a full-size icon (which
     -- spans up into the health band) is never occluded by the health bar.
     -- Harmless for the normal case (the icon sits below the health bar there).
@@ -3146,10 +3146,10 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.castSpark:SetPoint("CENTER", plate.cast:GetStatusBarTexture(), "RIGHT", 0, 0)
     plate.castSpark:SetBlendMode("ADD")
     -- Show Spark (Cast Color cog): default on; explicit false hides it.
-    plate.castSpark:SetShown(not (p and p.castBarSparkEnabled == false))
+    if not (p and p.castBarSparkEnabled == false) then plate.castSpark:Show() else plate.castSpark:Hide() end
     local shieldHeight = CAST_H * 0.75
     local shieldWidth = shieldHeight * (29 / 35)
-    plate.castShieldFrame = CreateFrame("Frame", nil, plate.cast)
+    plate.castShieldFrame = EllesmereUI.SafeCreateFrame("Frame", nil, plate.cast)
     plate.castShieldFrame:SetSize(shieldWidth, shieldHeight)
     plate.castShieldFrame:SetPoint("CENTER", plate.cast, "LEFT", 0, 0)
     plate.castShieldFrame:SetFrameLevel(plate.castIconFrame:GetFrameLevel() + 5)
@@ -3165,10 +3165,10 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     -- when kick CD exceeds remaining cast time. Only the kick elements live
     -- inside this clip frame; everything else (icon, text, shield, spark)
     -- stays on the unclipped cast bar so nothing gets cut off.
-    plate.kickClip = CreateFrame("Frame", nil, plate.cast)
+    plate.kickClip = EllesmereUI.SafeCreateFrame("Frame", nil, plate.cast)
     plate.kickClip:SetAllPoints(plate.cast)
     plate.kickClip:SetClipsChildren(true)
-    plate.kickPositioner = CreateFrame("StatusBar", nil, plate.kickClip)
+    plate.kickPositioner = EllesmereUI.SafeCreateFrame("StatusBar", nil, plate.kickClip)
     plate.kickPositioner:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
     plate.kickPositioner:GetStatusBarTexture():SetAlpha(0)
     -- Pixel-snap OFF on the fill texture. The tick sits at positioner_width +
@@ -3187,7 +3187,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.kickPositioner:SetPoint("CENTER", plate.cast)
     plate.kickPositioner:SetFrameLevel(plate.cast:GetFrameLevel() + 1)
     plate.kickPositioner:Hide()
-    plate.kickMarker = CreateFrame("StatusBar", nil, plate.kickClip)
+    plate.kickMarker = EllesmereUI.SafeCreateFrame("StatusBar", nil, plate.kickClip)
     plate.kickMarker:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
     plate.kickMarker:GetStatusBarTexture():SetAlpha(0)
     if plate.kickMarker:GetStatusBarTexture().SetSnapToPixelGrid then
@@ -3199,7 +3199,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.kickMarker:SetFrameLevel(plate.cast:GetFrameLevel() + 2)
     plate.kickMarker:Hide()
     plate.kickTick = plate.kickMarker:CreateTexture(nil, "OVERLAY", nil, 3)
-    plate.kickTick:SetColorTexture(1, 1, 1, 1)
+    plate.kickTick:SetTexture(1, 1, 1, 1)
     plate.kickTick:SetWidth(2)
     plate.kickTick:SetPoint("TOP", plate.kickMarker, "TOP", 0, 0)
     plate.kickTick:SetPoint("BOTTOM", plate.kickMarker, "BOTTOM", 0, 0)
@@ -3216,7 +3216,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     -- fill but below the OVERLAY cast text and below the uninterruptible grey
     -- overlay (sublevel 2). Anchors are (re)applied per cast in UpdateKickTick.
     plate.kickReadyFill = plate.cast:CreateTexture(nil, "ARTWORK", nil, 1)
-    plate.kickReadyFill:SetColorTexture(1, 1, 1, 1)
+    plate.kickReadyFill:SetTexture(1, 1, 1, 1)
     plate.kickReadyFill:SetAlpha(0)
     plate.kickReadyFill:Hide()
     -- Cast bar text: three independent fixed zones
@@ -3224,7 +3224,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     -- Hosted on an explicit MEDIUM frame so the cast text is pulled out of the
     -- plate's flattened render layer and renders ABOVE the cast bar border (the
     -- border sits in the flattened pass and would otherwise cover the text).
-    plate.castTextFrame = CreateFrame("Frame", nil, plate.cast)
+    plate.castTextFrame = EllesmereUI.SafeCreateFrame("Frame", nil, plate.cast)
     plate.castTextFrame:SetAllPoints(plate.cast)
     plate.castTextFrame:SetFrameStrata("MEDIUM")
     plate.castTextFrame:SetFrameLevel(900)
@@ -3310,7 +3310,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.debuffs = {}
     local maxDbf = (p and p.maxDebuffs) or defaults.maxDebuffs
     for i = 1, maxDbf do
-        local d = CreateFrame("Frame", nil, plate)
+        local d = EllesmereUI.SafeCreateFrame("Frame", nil, plate)
         d:SetFrameStrata("MEDIUM")
         d:SetFrameLevel(800)
         PP.Size(d, 26, 26)
@@ -3324,7 +3324,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         -- PP.RawSetTexture (pre-hook original), which never re-triggers
         -- the pixel-snap hook on this pooled texture.
         PP.DisablePixelSnap(d.icon)
-        d.cd = CreateFrame("Cooldown", nil, d, "CooldownFrameTemplate")
+        d.cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, d, "CooldownFrameTemplate")
         PP.Point(d.cd, "TOPLEFT", d, "TOPLEFT", 1, -1)
         PP.Point(d.cd, "BOTTOMRIGHT", d, "BOTTOMRIGHT", -1, 1)
         d.cd:SetFrameLevel(d:GetFrameLevel() + 2)
@@ -3336,7 +3336,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         -- Stack count lives on a carrier ABOVE the cooldown so the zero-duration
         -- alpha mask on d.cd (which kills the permanent-aura swipe strobe) never
         -- hides the stack number.
-        d.countCarrier = CreateFrame("Frame", nil, d)
+        d.countCarrier = EllesmereUI.SafeCreateFrame("Frame", nil, d)
         d.countCarrier:SetAllPoints(d)
         d.countCarrier:SetFrameLevel(d.cd:GetFrameLevel() + 1)
         d.count = d.countCarrier:CreateFontString(nil, "OVERLAY")
@@ -3360,7 +3360,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     end
     plate.buffs = {}
     for i = 1, 4 do
-        local b = CreateFrame("Frame", nil, plate)
+        local b = EllesmereUI.SafeCreateFrame("Frame", nil, plate)
         b:SetFrameStrata("MEDIUM")
         b:SetFrameLevel(800)
         PP.Size(b, 24, 24)
@@ -3371,7 +3371,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         PP.Point(b.icon, "BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
         b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         PP.DisablePixelSnap(b.icon)
-        b.cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
+        b.cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
         PP.Point(b.cd, "TOPLEFT", b, "TOPLEFT", 1, -1)
         PP.Point(b.cd, "BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
         b.cd:SetFrameLevel(b:GetFrameLevel() + 2)
@@ -3382,7 +3382,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         if b.cd.SetHideCountdownNumbers then b.cd:SetHideCountdownNumbers(false) end
         -- Stack count on a carrier ABOVE the cooldown (see debuff slot) so the
         -- zero-duration alpha mask on b.cd never hides the stack number.
-        b.countCarrier = CreateFrame("Frame", nil, b)
+        b.countCarrier = EllesmereUI.SafeCreateFrame("Frame", nil, b)
         b.countCarrier:SetAllPoints(b)
         b.countCarrier:SetFrameLevel(b.cd:GetFrameLevel() + 1)
         b.count = b.countCarrier:CreateFontString(nil, "OVERLAY")
@@ -3403,7 +3403,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     end
     plate.cc = {}
     for i = 1, 2 do
-        local c = CreateFrame("Frame", nil, plate)
+        local c = EllesmereUI.SafeCreateFrame("Frame", nil, plate)
         c:SetFrameStrata("MEDIUM")
         c:SetFrameLevel(800)
         PP.Size(c, 24, 24)
@@ -3414,7 +3414,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         PP.Point(c.icon, "BOTTOMRIGHT", c, "BOTTOMRIGHT", -1, 1)
         c.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         PP.DisablePixelSnap(c.icon)
-        c.cd = CreateFrame("Cooldown", nil, c, "CooldownFrameTemplate")
+        c.cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, c, "CooldownFrameTemplate")
         PP.Point(c.cd, "TOPLEFT", c, "TOPLEFT", 1, -1)
         PP.Point(c.cd, "BOTTOMRIGHT", c, "BOTTOMRIGHT", -1, 1)
         c.cd:SetFrameLevel(c:GetFrameLevel() + 2)
@@ -3443,7 +3443,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
 end)
 
 -- Pre-warm the plate frame pool so AoE pulls don't pay the 2 ms+
--- per-frame creation cost (CreateFrame + child textures + cooldowns)
+-- per-frame creation cost (EllesmereUI.SafeCreateFrame + child textures + cooldowns)
 -- on every plate Acquire when many plates appear in the same engine
 -- frame. Without prewarm, a 5-mob pack can stack 10+ ms of synchronous
 -- frame setup into a single render frame -> visible stutter.
@@ -3453,7 +3453,7 @@ end)
 -- runs the pool's creation function; Release returns the now-built
 -- frame to the inactive list, ready for instant reuse.
 do
-    local prewarmFrame = CreateFrame("Frame")
+    local prewarmFrame = EllesmereUI.SafeCreateFrame("Frame")
     prewarmFrame:RegisterEvent("PLAYER_LOGIN")
     prewarmFrame:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
@@ -3632,13 +3632,13 @@ function ns._ApplyHitboxOverlay(plate)
     if ns._hitboxOverlayShown then
         local ov = plate.hitboxOverlay
         if not ov then
-            ov = CreateFrame("Frame", nil, np)
+            ov = EllesmereUI.SafeCreateFrame("Frame", nil, np)
             local fill = ov:CreateTexture(nil, "BACKGROUND")
             fill:SetAllPoints()
-            fill:SetColorTexture(0.047, 0.824, 0.624, 0.18)
+            fill:SetTexture(0.047, 0.824, 0.624, 0.18)
             local function Edge()
                 local t = ov:CreateTexture(nil, "BORDER")
-                t:SetColorTexture(0.047, 0.824, 0.624, 0.85)
+                t:SetTexture(0.047, 0.824, 0.624, 0.85)
                 return t
             end
             local top, bottom, left, right = Edge(), Edge(), Edge(), Edge()
@@ -3788,7 +3788,7 @@ function ns.ShowHoverEffect(plate)
     if plate.hoverClipBg then plate.hoverClipBg:Hide() end
     plate._ovHoverShown = nil
     if plate.highlight then
-        plate.highlight:SetColorTexture(hc.r, hc.g, hc.b, ha)
+        plate.highlight:SetTexture(hc.r, hc.g, hc.b, ha)
         plate.highlight:Show()
     end
 end
@@ -3799,7 +3799,7 @@ function ns.RefreshHoverEffect()
     local a = (p and p.hoverAlpha) or defaults.hoverAlpha
     for _, plate in pairs(ns.plates) do
         if plate.highlight then
-            plate.highlight:SetColorTexture(c.r, c.g, c.b, a)
+            plate.highlight:SetTexture(c.r, c.g, c.b, a)
         end
         if plate == ns._currentMouseoverPlate then
             ns.ShowHoverEffect(plate)
@@ -3809,7 +3809,7 @@ function ns.RefreshHoverEffect()
     end
     for _, plate in pairs(ns.friendlyPlates or {}) do
         if plate.highlight then
-            plate.highlight:SetColorTexture(c.r, c.g, c.b, a)
+            plate.highlight:SetTexture(c.r, c.g, c.b, a)
         end
         if plate == ns._currentMouseoverPlate then
             ns.ShowHoverEffect(plate)
@@ -3819,7 +3819,7 @@ function ns.RefreshHoverEffect()
     end
 end
 
-local kickWatcher = CreateFrame("Frame")
+local kickWatcher = EllesmereUI.SafeCreateFrame("Frame")
 local activeCastCount = 0
 -- PERF: set of plates currently casting so kick/color updates iterate only
 -- the 1-3 casting plates instead of all 20+ plates in the scene.
@@ -4244,14 +4244,14 @@ end
 -- Lazy-create a single StatusBar for bar-type class resources (e.g. stagger)
 local function EnsureClassPowerBar(plate)
     if plate._cpBar then return end
-    local bar = CreateFrame("StatusBar", nil, plate)
+    local bar = EllesmereUI.SafeCreateFrame("StatusBar", nil, plate)
     bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     bar:SetFrameLevel(plate:GetFrameLevel() + 5)
     bar:Hide()
     -- Background texture behind the bar
     local bg = bar:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.082, 0.082, 0.082, 1)
+    bg:SetTexture(0.082, 0.082, 0.082, 1)
     bar._bg = bg
     plate._cpBar = bar
 end
@@ -4341,7 +4341,7 @@ local function UpdateClassPowerOnPlate(plate)
             end
         end
 
-        bar._bg:SetColorTexture(bgCol.r, bgCol.g, bgCol.b, bgCol.a)
+        bar._bg:SetTexture(bgCol.r, bgCol.g, bgCol.b, bgCol.a)
         bar:Show()
         return
     end
@@ -4376,7 +4376,7 @@ local function UpdateClassPowerOnPlate(plate)
         end
         bar:SetStatusBarColor(cpColor[1], cpColor[2], cpColor[3], 1)
 
-        bar._bg:SetColorTexture(bgCol.r, bgCol.g, bgCol.b, bgCol.a)
+        bar._bg:SetTexture(bgCol.r, bgCol.g, bgCol.b, bgCol.a)
         bar:Show()
         return
     end
@@ -4411,7 +4411,7 @@ local function UpdateClassPowerOnPlate(plate)
         end
         bar:SetStatusBarColor(cpColor[1], cpColor[2], cpColor[3], 1)
 
-        bar._bg:SetColorTexture(bgCol.r, bgCol.g, bgCol.b, bgCol.a)
+        bar._bg:SetTexture(bgCol.r, bgCol.g, bgCol.b, bgCol.a)
         bar:Show()
         return
     end
@@ -4447,7 +4447,7 @@ local function UpdateClassPowerOnPlate(plate)
         end
         bar:SetStatusBarColor(cpColor[1], cpColor[2], cpColor[3], 1)
 
-        bar._bg:SetColorTexture(bgCol.r, bgCol.g, bgCol.b, bgCol.a)
+        bar._bg:SetTexture(bgCol.r, bgCol.g, bgCol.b, bgCol.a)
         bar:Show()
         return
     end
@@ -4590,7 +4590,7 @@ local function UpdateClassPowerOnPlate(plate)
 
             if isSecret then
                 if not pip._secretBar then
-                    local sb = CreateFrame("StatusBar", nil, plate)
+                    local sb = EllesmereUI.SafeCreateFrame("StatusBar", nil, plate)
                     sb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
                     sb:SetFrameLevel(plate:GetFrameLevel() + 5)
                     pip._secretBar = sb
@@ -4741,7 +4741,7 @@ local function EnableClassPowerWatcher()
     local specIdx = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization()
     local isResto = (PLAYER_CLASS == "DRUID" and specIdx == 4)
     classPowerFormReq = isResto and 1 or nil
-    classPowerWatcher = CreateFrame("Frame")
+    classPowerWatcher = EllesmereUI.SafeCreateFrame("Frame")
 
     -- String-type resources (custom-tracked): use OnUpdate poll + events
     if type(classPowerType) == "string" then
@@ -5028,7 +5028,7 @@ end
 
 -- Invalidate quest cache on quest log changes (throttled to avoid
 -- recoloring all plates on every QUEST_LOG_UPDATE burst).
-local questCacheWatcher = CreateFrame("Frame")
+local questCacheWatcher = EllesmereUI.SafeCreateFrame("Frame")
 questCacheWatcher:RegisterEvent("QUEST_LOG_UPDATE")
 ns._questDirty = false
 questCacheWatcher:SetScript("OnEvent", function()
@@ -5394,7 +5394,7 @@ end
 local hookedUFs = {}
 local hookedHighlights = {}
 local hookedAurasFrames = {}
-local npOffscreenParent = CreateFrame("Frame")
+local npOffscreenParent = EllesmereUI.SafeCreateFrame("Frame")
 npOffscreenParent:Hide()
 local storedParents = {}
 local function HideBlizzardElement(element)
@@ -5642,7 +5642,7 @@ local function RestoreBlizzardFrame(nameplate)
     end
 end
 ns.HideBlizzardFrame = HideBlizzardFrame
-local castFallbackFrame = CreateFrame("Frame")
+local castFallbackFrame = EllesmereUI.SafeCreateFrame("Frame")
 local fallbackCastCount = 0
 local _fallbackPlates = {}
 castFallbackFrame._textAccum = 0.1
@@ -5689,7 +5689,7 @@ castFallbackFrame:Hide()
 -- glows. Lives on ns (NOT a local): the registrar (ApplyPandemicGlow) is
 -- inside the glow-engine do/end block and cannot see file locals declared
 -- out here -- a block-local forward declaration shipped this ticker dead.
-ns._pandemicTickFrame = CreateFrame("Frame")
+ns._pandemicTickFrame = EllesmereUI.SafeCreateFrame("Frame")
 local pandemicTickAccum = 0
 ns._pandemicTickFrame:SetScript("OnUpdate", function(self, elapsed)
     pandemicTickAccum = pandemicTickAccum + elapsed
@@ -5830,9 +5830,9 @@ function NameplateFrame:UpdateCastText(spellName)
         local nameWidth = combine and 80 or (db.castNameWidthPct or defaults.castNameWidthPct)
         self.castName:SetWidth(castW * nameWidth / 100)
     end
-    self.castName:SetShown((db.castNameSide or defaults.castNameSide) ~= "none")
-    self.castTarget:SetShown(not combine and hasTarget
-        and (db.castTargetSide or defaults.castTargetSide) ~= "none")
+    if (db.castNameSide or defaults.castNameSide) ~= "none" then self.castName:Show() else self.castName:Hide() end
+    if not combine and hasTarget
+        and (db.castTargetSide or defaults.castTargetSide) ~= "none" then self.castTarget:Show() else self.castTarget:Hide() end
 end
 
 -- Appearance generation: bumped by RefreshAllSettings so plates re-apply
@@ -5867,7 +5867,7 @@ function NameplateFrame:ApplyAppearance()
     self.castLeftBorder:SetWidth(1)
     self.castSpark:SetHeight(castH)
     -- Show Spark (Cast Color cog): default on; explicit false hides it.
-    self.castSpark:SetShown(not (p and p.castBarSparkEnabled == false))
+    if not (p and p.castBarSparkEnabled == false) then self.castSpark:Show() else self.castSpark:Hide() end
     self.kickMarker:SetSize(GetHealthBarWidth(), castH)
     -- Enemy name color (per-slot)
     local nameSlotKey = FindSlotForElement("enemyName")
@@ -5941,9 +5941,9 @@ function NameplateFrame:ApplyAppearance()
         self.castTimer:SetPoint(tpt, self.cast, tpt, txb + tmOX, tmOY)
     end
     -- Base visibility by side (UpdateCast refines the target per cast on hasTarget).
-    self.castName:SetShown(nameSide ~= "none")
-    self.castTarget:SetShown(not combineNameTarget and targetSide ~= "none")
-    self.castTimer:SetShown(showTimer)
+    if nameSide ~= "none" then self.castName:Show() else self.castName:Hide() end
+    if not combineNameTarget and targetSide ~= "none" then self.castTarget:Show() else self.castTarget:Hide() end
+    if showTimer then self.castTimer:Show() else self.castTimer:Hide() end
     -- Force the new justify to take effect on text that is already rendered (e.g.
     -- changing the side while a plate is mid-cast). A fresh cast re-flows on its own
     -- because UpdateCast sets the text after this, but a live setting change does not.
@@ -6294,13 +6294,13 @@ function NameplateFrame:SetUnit(unit, nameplate)
             -- Stacking bounds
             if np and np.SetStackingBoundsFrame then
                 if not self._stackBounds then
-                    self._stackBounds = CreateFrame("Frame", nil, np)
+                    self._stackBounds = EllesmereUI.SafeCreateFrame("Frame", nil, np)
                     -- Load-bearing: SetStackingBoundsFrame reads this frame's
                     -- rendered bounds (union of its regions), NOT its SetSize.
                     -- Without a full-size region the bounds rect is empty and
                     -- plates stop stacking. Alpha 0 so it never shows.
                     local tex = self._stackBounds:CreateTexture(nil, "BACKGROUND")
-                    tex:SetColorTexture(1, 0, 0, 0)
+                    tex:SetTexture(1, 0, 0, 0)
                     tex:SetAllPoints(self._stackBounds)
                 end
                 self._stackBounds:SetParent(np)
@@ -6658,7 +6658,7 @@ function NameplateFrame:UpdateHealthValues()
         self.hashLine:SetPoint("TOP", self.health, "TOPLEFT", xPos, 0)
         self.hashLine:SetPoint("BOTTOM", self.health, "BOTTOMLEFT", xPos, 0)
         local hlc = (p and p.hashLineColor) or defaults.hashLineColor
-        self.hashLine:SetColorTexture(hlc.r, hlc.g, hlc.b, 0.8)
+        self.hashLine:SetTexture(hlc.r, hlc.g, hlc.b, 0.8)
         self.hashLine:Show()
     else
         self.hashLine:Hide()
@@ -7001,8 +7001,8 @@ function NameplateFrame:ApplyNameVisibility()
     if not GetHideEnemyNameWhileCasting() then return end
     local hasNameSlot = FindSlotForElement("enemyName") ~= nil
     local shown = hasNameSlot and not self.cast:IsShown()
-    self.name:SetShown(shown)
-    if self.nameRaidFrame then self.nameRaidFrame:SetShown(shown and self._nameRaidMarkerShown == true) end
+    if shown then self.name:Show() else self.name:Hide() end
+    if self.nameRaidFrame then if shown and self._nameRaidMarkerShown == true then self.nameRaidFrame:Show() else self.nameRaidFrame:Hide() end end
 end
 -- The full-size cast icon (a child of the cast bar) only occupies its side-slot
 -- space while a cast is up, so its reserve is gated on the cast bar being shown
@@ -7215,7 +7215,7 @@ function NameplateFrame:ApplyTarget()
     if isTarget and ns.GetTargetGlowHighlight() then
         EnsureTargetHighlight(self)
         local c = ns.GetTargetHighlightColor()
-        self.targetHighlight:SetColorTexture(c.r, c.g, c.b, ns.GetTargetHighlightAlpha())
+        self.targetHighlight:SetTexture(c.r, c.g, c.b, ns.GetTargetHighlightAlpha())
         self.targetHighlight:Show()
     elseif self.targetHighlight then
         self.targetHighlight:Hide()
@@ -7975,7 +7975,7 @@ function NameplateFrame:UpdateImportantCastGlow(spellID)
     end
 
     if not self._importantCastOverlay then
-        local ov = CreateFrame("Frame", nil, self.cast)
+        local ov = EllesmereUI.SafeCreateFrame("Frame", nil, self.cast)
         ov:SetAllPoints(self.cast)
         ov:SetFrameLevel(self.cast:GetFrameLevel() + 5)
         ov:EnableMouse(false)
@@ -8125,7 +8125,7 @@ function NameplateFrame:UpdateCast()
             self.castIcon:SetTexture(nil)
         end
         self:UpdateCastText(name)
-        self.castTimer:SetShown(self._showCastTimer)
+        if self._showCastTimer then self.castTimer:Show() else self.castTimer:Hide() end
 
         if type(kickProtected) == "nil" then
             kickProtected = false
@@ -8218,7 +8218,7 @@ do
     local SPEED = 11     -- exponential approach rate (higher = snappier)
     local SNAP  = 0.004  -- within this of dest -> finish and drop from set
     local anim  = ns._scaleAnim
-    local driver = CreateFrame("Frame")
+    local driver = EllesmereUI.SafeCreateFrame("Frame")
     driver:Hide()
     driver:SetScript("OnUpdate", function(_, elapsed)
         -- Frame-rate independent ease: same settle time at any FPS.
@@ -8384,7 +8384,7 @@ function NameplateFrame:UpdateKickTick(kickProtected, isChannel, isEmpowered)
         self.kickMarker:SetValue(interruptCD:GetRemainingDuration())
         -- Apply color
         local kr, kg, kb = GetKickTickColor()
-        self.kickTick:SetColorTexture(kr, kg, kb, 1)
+        self.kickTick:SetTexture(kr, kg, kb, 1)
         -- Handle channel vs cast fill direction. Empowered channels fill
         -- forward (like a normal cast), so treat them as non-channel here.
         if isChannel and not isEmpowered then
@@ -8449,8 +8449,8 @@ function NameplateFrame:UpdateKickTick(kickProtected, isChannel, isEmpowered)
         -- never forces the other to appear.
         local mc = (p and p.interruptMidCastColor) or defaults.interruptMidCastColor
         self.kickReadyFill:SetVertexColor(mc.r, mc.g, mc.b, 1)
-        self.kickTick:SetShown(tickOn)
-        self.kickReadyFill:SetShown(midOn)
+        if tickOn then self.kickTick:Show() else self.kickTick:Hide() end
+        if midOn then self.kickReadyFill:Show() else self.kickReadyFill:Hide() end
         -- Compute initial tick alpha immediately (avoids split-second delay
         -- from waiting for the first ticker fire at 0.1s).
         if interruptCD.IsZero and C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean then
@@ -8797,7 +8797,7 @@ end
 do
     local queueA, queueB = {}, {}
     local active = queueA
-    local dispatcher = CreateFrame("Frame")
+    local dispatcher = EllesmereUI.SafeCreateFrame("Frame")
     dispatcher:Hide()
 
     local function DrainPlate(plate)
@@ -8976,7 +8976,7 @@ end
 --      tear down and invalidate all cast caches
 -------------------------------------------------------------------------------
 do
-    local castDispatcher = CreateFrame("Frame")
+    local castDispatcher = EllesmereUI.SafeCreateFrame("Frame")
     castDispatcher:RegisterEvent("UNIT_SPELLCAST_START")
     castDispatcher:RegisterEvent("UNIT_SPELLCAST_DELAYED")
     castDispatcher:RegisterEvent("UNIT_SPELLCAST_STOP")
@@ -8999,7 +8999,7 @@ do
     ns._castDispatcher = castDispatcher
 end
 
-local manager = CreateFrame("Frame")
+local manager = EllesmereUI.SafeCreateFrame("Frame")
 manager:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 manager:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
 manager:RegisterEvent("PLAYER_TARGET_CHANGED")
@@ -9024,7 +9024,7 @@ local CreatePendingWatcher, CreateEnemyWatcher
 -- Watches a friendly/pending unit for becoming attackable (e.g. duel start)
 local enemyWatchers = {}
 CreatePendingWatcher = function(unit, nameplate)
-    local watcher = CreateFrame("Frame")
+    local watcher = EllesmereUI.SafeCreateFrame("Frame")
     watcher:RegisterUnitEvent("UNIT_FLAGS", unit)
     watcher:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
     watcher:SetScript("OnEvent", function(self, event, u)
@@ -9057,7 +9057,7 @@ end
 
 -- Watches a promoted-enemy unit for becoming friendly again (e.g. duel end)
 CreateEnemyWatcher = function(unit)
-    local watcher = CreateFrame("Frame")
+    local watcher = EllesmereUI.SafeCreateFrame("Frame")
     watcher:RegisterUnitEvent("UNIT_FLAGS", unit)
     watcher:SetScript("OnEvent", function(self, event, u)
         if UnitCanAttack("player", u) then return end
@@ -9085,7 +9085,7 @@ end
 -- Single shared UNIT_FACTION handler avoids N watchers each registering
 -- the global event.  Dispatches to the correct watcher's OnEvent handler.
 -- Only active in the open world (duels can't happen in instanced content).
-local factionFrame = CreateFrame("Frame")
+local factionFrame = EllesmereUI.SafeCreateFrame("Frame")
 local factionFrameActive = false
 
 local function UpdateFactionFrameForZone()
@@ -9526,7 +9526,7 @@ do
     ns._appendDisplayPresetKeys(ns._displayPresetKeys)
 
     -- Also handle spec changes that happen before the UI is ever opened
-    local specLoginFrame = CreateFrame("Frame")
+    local specLoginFrame = EllesmereUI.SafeCreateFrame("Frame")
     specLoginFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     specLoginFrame:SetScript("OnEvent", function(_, event, unit)
         if unit ~= "player" then return end
@@ -9648,7 +9648,7 @@ do
         end
         if plate ~= RT.plate then
             if not RT.carrier then
-                RT.carrier = CreateFrame("Frame")
+                RT.carrier = EllesmereUI.SafeCreateFrame("Frame")
                 RT.carrier:SetSize(2, 2)
                 RT.fs = RT.carrier:CreateFontString(nil, "OVERLAY")
             end
@@ -9688,7 +9688,7 @@ do
     ns.RangeText_Apply = function()
         if p and p.rangeTextEnabled then
             if not RT.drv then
-                RT.drv = CreateFrame("Frame")
+                RT.drv = EllesmereUI.SafeCreateFrame("Frame")
                 RT.drv:Hide()
                 RT.drv:SetScript("OnUpdate", function(_, dt)
                     RT.acc = RT.acc + dt

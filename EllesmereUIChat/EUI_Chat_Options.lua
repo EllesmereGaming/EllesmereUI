@@ -7,7 +7,7 @@
 local _, ns = ...
 local ECHAT = ns.ECHAT
 
-local initFrame = CreateFrame("Frame")
+local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
@@ -48,7 +48,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Edit Mode reposition label + "Reset Chat Position" link
         do
             local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
-            local infoFrame = CreateFrame("Frame", nil, parent)
+            local infoFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
             infoFrame:SetSize(parent:GetWidth(), 20)
             infoFrame:SetPoint("TOP", parent, "TOP", 0, y - 20)
             infoFrame._isSpacer = true
@@ -66,7 +66,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- ECHAT.ApplyForceOnScreen(), so it persists through reload/logout. Edit
             -- Mode is opened so the user can reposition the frame after toggling.
             local EG = EllesmereUI.ELLESMERE_GREEN
-            local fosBtn = CreateFrame("Button", nil, parent)
+            local fosBtn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
             local fosFS = fosBtn:CreateFontString(nil, "OVERLAY")
             fosFS:SetFont(fontPath, 15, "")
             fosFS:SetTextColor(EG.r, EG.g, EG.b, 0.75)
@@ -240,7 +240,7 @@ initFrame:SetScript("OnEvent", function(self)
                           end },
                     },
                 })
-                local cogBtn = CreateFrame("Button", nil, rrgn)
+                local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rrgn)
                 cogBtn:SetSize(26, 26)
                 cogBtn:SetPoint("RIGHT", rrgn._lastInline or rrgn._control, "LEFT", -8, 0)
                 rrgn._lastInline = cogBtn
@@ -357,7 +357,7 @@ initFrame:SetScript("OnEvent", function(self)
                           end },
                     },
                 })
-                local cogBtn = CreateFrame("Button", nil, rgn)
+                local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
                 cogBtn:SetSize(26, 26)
                 cogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = cogBtn
@@ -547,7 +547,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, lrgn)
+            local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, lrgn)
             cogBtn:SetSize(26, 26)
             cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
             lrgn._lastInline = cogBtn
@@ -695,7 +695,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, lrgn)
+            local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, lrgn)
             cogBtn:SetSize(26, 26)
             cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
             lrgn._lastInline = cogBtn
@@ -716,7 +716,7 @@ initFrame:SetScript("OnEvent", function(self)
             resetFS:SetTextColor(1, 1, 1, 0.8)
             resetFS:SetText(EllesmereUI.L("Reset"))
             resetFS:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-            local hitBtn = CreateFrame("Button", nil, rgn)
+            local hitBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
             hitBtn:SetAllPoints(resetFS)
             hitBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
             hitBtn:SetScript("OnEnter", function() resetFS:SetTextColor(1, 0.3, 0.3, 1) end)
@@ -727,8 +727,8 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             local function UpdateResetVis()
                 local on = Cfg("freeMoveIcons")
-                resetFS:SetShown(on)
-                hitBtn:SetShown(on)
+                if on then resetFS:Show() else resetFS:Hide() end
+                if on then hitBtn:Show() else hitBtn:Hide() end
             end
             UpdateResetVis()
             EllesmereUI.RegisterWidgetRefresh(UpdateResetVis)
@@ -763,7 +763,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, lrgn)
+            local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, lrgn)
             cogBtn:SetSize(26, 26)
             cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
             lrgn._lastInline = cogBtn
@@ -1094,7 +1094,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) Set("tabBorderShiftY", v == 0 and nil or v); ECHAT.ApplyTabBorders() end },
                     },
                 })
-                local btn = CreateFrame("Button", nil, rgn)
+                local btn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
                 btn:SetSize(26,26); btn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
                 btn:SetFrameLevel(rgn:GetFrameLevel()+5)
                 local tex = btn:CreateTexture(nil,"OVERLAY"); tex:SetAllPoints(); tex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
@@ -1246,7 +1246,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) Set("persistChatHistoryMaxLines", v) end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, lrgn)
+            local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, lrgn)
             cogBtn:SetSize(26, 26)
             cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
             lrgn._lastInline = cogBtn

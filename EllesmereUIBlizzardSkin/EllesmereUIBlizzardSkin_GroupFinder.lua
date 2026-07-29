@@ -66,7 +66,7 @@ local function SolidTex(parent, layer, r, g, b, a, sublevel)
         return EUI.SolidTex(parent, layer, r, g, b, a)
     end
     local t = parent:CreateTexture(nil, layer, nil, sublevel)
-    t:SetColorTexture(r, g, b, a)
+    t:SetTexture(r, g, b, a)
     return t
 end
 
@@ -157,14 +157,14 @@ local function SkinAtlasPanel(frame)
         bg:SetAllPoints(frame)
         d.bg = bg
         local overlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-        overlay:SetColorTexture(0, 0, 0, 0.62)
+        overlay:SetTexture(0, 0, 0, 0.62)
         overlay:SetAllPoints(frame)
         d.bgOverlay = overlay
 
         -- Black top bar behind the window title, matching the engine shell's
         -- strip. Sits above both style backdrops (-8/-7/-6) and below content.
         local topBar = frame:CreateTexture(nil, "BACKGROUND", nil, -5)
-        topBar:SetColorTexture(0, 0, 0, 0.5)
+        topBar:SetTexture(0, 0, 0, 0.5)
         topBar:SetPoint("TOPLEFT")
         topBar:SetPoint("TOPRIGHT")
         topBar:SetHeight(25)
@@ -219,7 +219,7 @@ local function SkinPanel(frame, opts)
         local r, g, b, a = Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA
         if opts.inset then r, g, b, a = Theme.insetR, Theme.insetG, Theme.insetB, Theme.insetA end
         local bg = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-        bg:SetColorTexture(r, g, b, a)
+        bg:SetTexture(r, g, b, a)
         bg:SetAllPoints(frame)
         d.bg = bg
     end
@@ -329,7 +329,7 @@ local function SkinCheckbox(cb)
         local t = cb[g] and cb[g](cb)
         if t and t.SetTexture then t:SetTexture("") end
     end
-    local boxF = CreateFrame("Frame", nil, cb)
+    local boxF = EllesmereUI.SafeCreateFrame("Frame", nil, cb)
     boxF:SetSize(14, 14)
     boxF:SetPoint("LEFT", cb, "LEFT", 4, 0)
     local fill = SolidTex(boxF, "BACKGROUND", 0.02, 0.02, 0.02, 1)
@@ -339,7 +339,7 @@ local function SkinCheckbox(cb)
     local tick = boxF:CreateTexture(nil, "OVERLAY")
     tick:SetPoint("TOPLEFT", 3, -3)
     tick:SetPoint("BOTTOMRIGHT", -3, 3)
-    tick:SetColorTexture(Theme.accR, Theme.accG, Theme.accB, 1)
+    tick:SetTexture(Theme.accR, Theme.accG, Theme.accB, 1)
     local wash = SolidTex(boxF, "ARTWORK", 1, 1, 1, 0.1)
     wash:SetAllPoints(boxF)
     wash:Hide()
@@ -355,13 +355,13 @@ local function SkinCheckbox(cb)
                 tick:Show()
                 tick:SetAlphaFromBoolean(checked, 1, 0)
             end
-            wash:SetShown(hovering)
+            if hovering then wash:Show() else wash:Hide() end
             return
         end
         checked = checked and true or false
         tick:SetAlpha(1)
-        tick:SetShown(checked)
-        wash:SetShown(hovering or checked)
+        if checked then tick:Show() else tick:Hide() end
+        if hovering or checked then wash:Show() else wash:Hide() end
     end
     cb:HookScript("OnEnter", function() hovering = true; updState() end)
     cb:HookScript("OnLeave", function() hovering = false; updState() end)
@@ -475,7 +475,7 @@ local function SkinTab(tab)
 
     local activeHL = tab:CreateTexture(nil, "ARTWORK", nil, -6)
     activeHL:SetAllPoints()
-    activeHL:SetColorTexture(1, 1, 1, 0.02)
+    activeHL:SetTexture(1, 1, 1, 0.02)
     activeHL:SetBlendMode("ADD")
     activeHL:Hide()
     d.activeHL = activeHL
@@ -509,10 +509,10 @@ local function SkinTab(tab)
     local wsk = ns.WSkin
     if wsk and wsk.AccentBarColor then
         local ur, ug, ub = wsk.AccentBarColor()
-        underline:SetColorTexture(ur, ug, ub, 1)
+        underline:SetTexture(ur, ug, ub, 1)
         if wsk.RegisterAccentUnderline then wsk.RegisterAccentUnderline(underline) end
     else
-        underline:SetColorTexture(Theme.accR, Theme.accG, Theme.accB, 1)
+        underline:SetTexture(Theme.accR, Theme.accG, Theme.accB, 1)
         if EUI and EUI.RegAccent then EUI.RegAccent({ type = "solid", obj = underline, a = 1 }) end
     end
     underline:Hide()
@@ -529,8 +529,8 @@ local function UpdateRailZone()
     if not d then return end
     local show = (GroupFinderFrame and GroupFinderFrame:IsShown())
         or (_G.PVPUIFrame and _G.PVPUIFrame:IsShown()) or false
-    if d.leftWash then d.leftWash:SetShown(show and true or false) end
-    if d.leftSep then d.leftSep:SetShown(show and true or false) end
+    if d.leftWash then if show and true or false then d.leftWash:Show() else d.leftWash:Hide() end end
+    if d.leftSep then if show and true or false then d.leftSep:Show() else d.leftSep:Hide() end end
 end
 
 local function UpdateTabVisuals()
@@ -544,8 +544,8 @@ local function UpdateTabVisuals()
         if d then
             local isActive = (sel == i)
             if d.label then d.label:SetTextColor(1, 1, 1, isActive and 1 or 0.5) end
-            if d.underline then d.underline:SetShown(isActive and barsOn) end
-            if d.activeHL then d.activeHL:SetShown(isActive) end
+            if d.underline then if isActive and barsOn then d.underline:Show() else d.underline:Hide() end end
+            if d.activeHL then if isActive then d.activeHL:Show() else d.activeHL:Hide() end end
         end
     end
     -- Registered lazily: the engine file loads after this one, so ns.WSkin
@@ -747,7 +747,7 @@ local function UpdateCategorySelection()
         local btn = CategoryButton(i)
         local d = btn and FFD[btn]
         if d and d.selWash then
-            d.selWash:SetShown((sel == i or sel == btn) and true or false)
+            if (sel == i or sel == btn) and true or false then d.selWash:Show() else d.selWash:Hide() end
         end
     end
 end
@@ -785,7 +785,7 @@ local function Skin_PVEFrame()
         local es = PVEFrame:GetEffectiveScale()
         if PPx and PPx.perfect and es and es > 0 then px = PPx.perfect / es end
         local wash = PVEFrame:CreateTexture(nil, "BACKGROUND", nil, -6)
-        wash:SetColorTexture(0, 0, 0, 0.1)
+        wash:SetTexture(0, 0, 0, 0.1)
         if leftInset then
             wash:SetAllPoints(leftInset)
         else
@@ -794,7 +794,7 @@ local function Skin_PVEFrame()
         end
         d.leftWash = wash
         local sep = PVEFrame:CreateTexture(nil, "ARTWORK")
-        sep:SetColorTexture(0.15, 0.15, 0.15, 1)
+        sep:SetTexture(0.15, 0.15, 0.15, 1)
         sep:SetWidth(px)
         sep:SetPoint("TOPLEFT", wash, "TOPRIGHT", 0, 0)
         sep:SetPoint("BOTTOMLEFT", wash, "BOTTOMRIGHT", 0, 0)
@@ -848,7 +848,7 @@ local function SkinLFGCategoryButton(btn)
         d.selWash = selWash
     end
     -- Match the sidebar rail: hover + active both 0.05 white.
-    if d.hover then d.hover:SetColorTexture(1, 1, 1, 0.05) end
+    if d.hover then d.hover:SetTexture(1, 1, 1, 0.05) end
 end
 
 -- Is this category button the active pick? Blizzard's authoritative state is
@@ -869,7 +869,7 @@ local function UpdateLFGCategorySelection()
     for _, btn in ipairs(CS.CategoryButtons) do
         local d = FFD[btn]
         if d and d.selWash then
-            d.selWash:SetShown(IsLFGCategorySelected(CS, btn) and true or false)
+            if IsLFGCategorySelected(CS, btn) and true or false then d.selWash:Show() else d.selWash:Hide() end
         end
     end
 end
@@ -925,7 +925,7 @@ local function Skin_LFGList()
                 local d = FFD[b]
                 if d and d.selWash then
                     local sel = (cs.selectedCategory == categoryID) and (cs.selectedFilters == filters)
-                    d.selWash:SetShown(sel and true or false)
+                    if sel and true or false then d.selWash:Show() else d.selWash:Hide() end
                 end
             end)
         end
@@ -1087,7 +1087,7 @@ local function UpdatePVPCategorySelection()
         local btn = PVPCategoryButton(i)
         local d = btn and FFD[btn]
         if d and d.selWash then
-            d.selWash:SetShown((sel == i or sel == btn) and true or false)
+            if (sel == i or sel == btn) and true or false then d.selWash:Show() else d.selWash:Hide() end
         end
     end
 end
@@ -1550,7 +1550,7 @@ local ON_ADDON = {
     end,
 }
 
-local boot = CreateFrame("Frame")
+local boot = EllesmereUI.SafeCreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")
 boot:RegisterEvent("ADDON_LOADED")
 boot:SetScript("OnEvent", function(_, event, name)

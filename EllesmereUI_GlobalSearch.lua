@@ -337,12 +337,12 @@ local _CONTENT_HEADER_METHODS = {
 -- be searchable after the player manually visits that selector value once.
 local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
     if not _hiddenParent then
-        _hiddenParent = CreateFrame("Frame", nil, UIParent)
+        _hiddenParent = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         _hiddenParent:Hide()
     end
     if selectorSetter and selectorKey then selectorSetter(selectorKey) end
 
-    local wrapper = CreateFrame("Frame", nil, _hiddenParent)
+    local wrapper = EllesmereUI.SafeCreateFrame("Frame", nil, _hiddenParent)
     wrapper:SetSize(1030, 4000)
     EllesmereUI._buildingModule = folder
     EllesmereUI._buildingPage = page
@@ -468,7 +468,7 @@ local function RunPrebuildPass(onComplete)
         -- that during combat. Pause the pass and resume once combat ends.
         if InCombatLockdown() then
             if not combatWait then
-                combatWait = CreateFrame("Frame")
+                combatWait = EllesmereUI.SafeCreateFrame("Frame")
                 combatWait:SetScript("OnEvent", function(self)
                     self:UnregisterEvent("PLAYER_REGEN_ENABLED")
                     C_Timer.After(0.05, StepJob)
@@ -596,7 +596,7 @@ local function EnsureSearchUI()
     local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
 
     -- Results popup, anchored below the existing sidebar search box.
-    popup = CreateFrame("Frame", nil, clickArea)
+    popup = EllesmereUI.SafeCreateFrame("Frame", nil, clickArea)
     popup:SetSize(380, MAX_VISIBLE_RESULTS * (RESULT_ROW_H + RESULT_ROW_GAP) - RESULT_ROW_GAP + 8)
     popup:SetPoint("TOPLEFT", sidebarSearchBox, "BOTTOMLEFT", 0, -4)
     popup:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -605,23 +605,23 @@ local function EnsureSearchUI()
     popup:Hide()
     local popupBg = popup:CreateTexture(nil, "BACKGROUND")
     popupBg:SetAllPoints()
-    popupBg:SetColorTexture(0.10, 0.10, 0.12, 0.97)
+    popupBg:SetTexture(0.10, 0.10, 0.12, 0.97)
     if EllesmereUI.MakeBorder then EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.12, PP) end
 
-    local resultsFrame = CreateFrame("Frame", nil, popup)
+    local resultsFrame = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
     resultsFrame:SetPoint("TOPLEFT", popup, "TOPLEFT", 4, -4)
     resultsFrame:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -4, 4)
 
     resultRows = {}
     for i = 1, MAX_VISIBLE_RESULTS do
-        local row = CreateFrame("Button", nil, resultsFrame)
+        local row = EllesmereUI.SafeCreateFrame("Button", nil, resultsFrame)
         row:SetHeight(RESULT_ROW_H)
         row:SetPoint("TOPLEFT", resultsFrame, "TOPLEFT", 1, -(i - 1) * (RESULT_ROW_H + RESULT_ROW_GAP))
         row:SetPoint("TOPRIGHT", resultsFrame, "TOPRIGHT", -1, -(i - 1) * (RESULT_ROW_H + RESULT_ROW_GAP))
 
         local hl = row:CreateTexture(nil, "ARTWORK")
         hl:SetAllPoints()
-        hl:SetColorTexture(1, 1, 1, 0)
+        hl:SetTexture(1, 1, 1, 0)
 
         local lbl = row:CreateFontString(nil, "OVERLAY")
         if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(lbl, true) end
@@ -639,8 +639,8 @@ local function EnsureSearchUI()
         sub:SetPoint("LEFT", row, "LEFT", 8, -9)
         sub:SetJustifyH("LEFT")
 
-        row:SetScript("OnEnter", function() hl:SetColorTexture(1, 1, 1, 0.08) end)
-        row:SetScript("OnLeave", function() hl:SetColorTexture(1, 1, 1, 0) end)
+        row:SetScript("OnEnter", function() hl:SetTexture(1, 1, 1, 0.08) end)
+        row:SetScript("OnLeave", function() hl:SetTexture(1, 1, 1, 0) end)
 
         row._label = lbl
         row._sub = sub
@@ -722,7 +722,7 @@ local function EnsureSearchUI()
     -- dropdown widgets) -- non-blocking, world clicks pass through, and no
     -- per-frame OnUpdate work. Row clicks fire on mouse UP, and the DOWN
     -- lands while the cursor is over the popup, so results stay clickable.
-    local clickOff = CreateFrame("Frame")
+    local clickOff = EllesmereUI.SafeCreateFrame("Frame")
     clickOff:SetScript("OnEvent", function()
         if not popup:IsMouseOver() and not sidebarSearchBox:IsMouseOver() then
             popup:Hide()

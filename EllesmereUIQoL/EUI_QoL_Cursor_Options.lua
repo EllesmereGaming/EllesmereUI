@@ -16,7 +16,7 @@ local SECTION_CAST         = "CAST BAR"
 local strupper, strgsub, strmatch, strsub = string.upper, string.gsub, string.match, string.sub
 local floor = math.floor
 
-local initFrame = CreateFrame("Frame")
+local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
@@ -93,7 +93,7 @@ initFrame:SetScript("OnEvent", function(self)
     --  MakeCogBtn helper
     ---------------------------------------------------------------------------
     local function MakeCogBtn(rgn, showFn, anchorTo, iconPath)
-        local cogBtn = CreateFrame("Button", nil, rgn)
+        local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
         cogBtn:SetSize(26, 26)
         cogBtn:SetPoint("RIGHT", anchorTo or rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = cogBtn
@@ -216,7 +216,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Block overlay on the right region when Cursor Circle is disabled
         do
             local rightRgn = row._rightRegion
-            local circleBlock = CreateFrame("Frame", nil, rightRgn)
+            local circleBlock = EllesmereUI.SafeCreateFrame("Frame", nil, rightRgn)
             circleBlock:SetAllPoints()
             circleBlock:SetFrameLevel(rightRgn:GetFrameLevel() + 20)
             circleBlock:EnableMouse(true)
@@ -227,7 +227,7 @@ initFrame:SetScript("OnEvent", function(self)
             local function UpdateCircleBlock()
                 local p = DB()
                 local off = not p or p.enabled == false
-                circleBlock:SetShown(off)
+                if off then circleBlock:Show() else circleBlock:Hide() end
                 -- Dim the "Color" label with its swatches
                 if rightRgn._label then rightRgn._label:SetAlpha(off and 0.3 or 1) end
             end
@@ -388,7 +388,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Block overlay on the right region when GCD Circle is disabled
         do
             local rightRgn = row._rightRegion
-            local gcdBlock = CreateFrame("Frame", nil, rightRgn)
+            local gcdBlock = EllesmereUI.SafeCreateFrame("Frame", nil, rightRgn)
             gcdBlock:SetAllPoints()
             gcdBlock:SetFrameLevel(rightRgn:GetFrameLevel() + 20)
             gcdBlock:EnableMouse(true)
@@ -398,7 +398,7 @@ initFrame:SetScript("OnEvent", function(self)
             gcdBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateGCDBlock()
                 local off = not GCD_DB().enabled
-                gcdBlock:SetShown(off)
+                if off then gcdBlock:Show() else gcdBlock:Hide() end
                 -- Dim the "Color" label with its swatches
                 if rightRgn._label then rightRgn._label:SetAlpha(off and 0.3 or 1) end
             end
@@ -539,7 +539,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Block overlay on the right region when Cast Bar Circle is disabled
         do
             local rightRgn = row._rightRegion
-            local castBlock = CreateFrame("Frame", nil, rightRgn)
+            local castBlock = EllesmereUI.SafeCreateFrame("Frame", nil, rightRgn)
             castBlock:SetAllPoints()
             castBlock:SetFrameLevel(rightRgn:GetFrameLevel() + 20)
             castBlock:EnableMouse(true)
@@ -549,7 +549,7 @@ initFrame:SetScript("OnEvent", function(self)
             castBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateCastBlock()
                 local off = not Cast_DB().enabled
-                castBlock:SetShown(off)
+                if off then castBlock:Show() else castBlock:Hide() end
                 -- Dim the "Color" label with its swatches
                 if rightRgn._label then rightRgn._label:SetAlpha(off and 0.3 or 1) end
             end

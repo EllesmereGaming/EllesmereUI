@@ -72,7 +72,7 @@ local function ShowWindowSkinsPopup()
     local ppScale = (EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale()) or 1
 
     -- Dimmer (eats clicks; no close on outside click)
-    local dimmer = CreateFrame("Frame", "EUIWindowSkinsIntroDimmer", UIParent)
+    local dimmer = EllesmereUI.SafeCreateFrame("Frame", "EUIWindowSkinsIntroDimmer", UIParent)
     dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
     dimmer:SetAllPoints(UIParent)
     dimmer:EnableMouse(true)
@@ -81,10 +81,10 @@ local function ShowWindowSkinsPopup()
     dimmer:SetScale(ppScale)
     local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
     dimTex:SetAllPoints()
-    dimTex:SetColorTexture(0, 0, 0, 0.35)
+    dimTex:SetTexture(0, 0, 0, 0.35)
 
     -- Panel
-    local popup = CreateFrame("Frame", "EUIWindowSkinsIntroPopup", dimmer)
+    local popup = EllesmereUI.SafeCreateFrame("Frame", "EUIWindowSkinsIntroPopup", dimmer)
     popup:SetScale(ppScale * 1.15)
     popup:SetFrameStrata("FULLSCREEN_DIALOG")
     popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
@@ -94,7 +94,7 @@ local function ShowWindowSkinsPopup()
 
     local bg = popup:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+    bg:SetTexture(0.06, 0.08, 0.10, 1)
 
     -- 1 physical-pixel white border (alpha 0.15). Thickness is derived from the
     -- popup's effective scale (after the 1.15x SetScale above) so each edge stays
@@ -103,7 +103,7 @@ local function ShowWindowSkinsPopup()
     local BRD_A = 0.15
     local function MakeEdge()
         local t = popup:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(1, 1, 1, BRD_A)
+        t:SetTexture(1, 1, 1, BRD_A)
         if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
         return t
     end
@@ -128,46 +128,46 @@ local function ShowWindowSkinsPopup()
         local isCenter = (i == 2)
         local w = CARD_W
         local h = isCenter and (CARD_H + 10) or CARD_H
-        local card = CreateFrame("Frame", nil, popup)
+        local card = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
         card:SetFrameLevel(popup:GetFrameLevel() + 1)
         PP.Size(card, w, h)
         PP.Point(card, "CENTER", popup, "TOP", (i - 2) * (CARD_W + CARD_GAP), MIDLINE)
         local cbg = card:CreateTexture(nil, "BACKGROUND")
         cbg:SetAllPoints()
-        cbg:SetColorTexture(0.12, 0.13, 0.15, 1)
+        cbg:SetTexture(0.12, 0.13, 0.15, 1)
 
         -- Window title bar (colored, full width inset 1px so the border reads
         -- around it), with a small close-dot at its right to sell the "window".
         local c = titleColors[i]
         local bar = card:CreateTexture(nil, "ARTWORK")
-        bar:SetColorTexture(c[1], c[2], c[3], isCenter and 0.95 or 0.75)
+        bar:SetTexture(c[1], c[2], c[3], isCenter and 0.95 or 0.75)
         bar:SetHeight(8)
         PP.Point(bar, "TOPLEFT", card, "TOPLEFT", 1, -1)
         PP.Point(bar, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
         if bar.SetSnapToPixelGrid then bar:SetSnapToPixelGrid(false); bar:SetTexelSnappingBias(0) end
         local dot = card:CreateTexture(nil, "OVERLAY")
-        dot:SetColorTexture(0, 0, 0, 0.4)
+        dot:SetTexture(0, 0, 0, 0.4)
         PP.Size(dot, 4, 4)
         PP.Point(dot, "RIGHT", bar, "RIGHT", -3, 0)
 
         -- Stand-in body lines: brighter title line then dimmer body lines. The
         -- taller center window gets a third line.
         local l1 = card:CreateTexture(nil, "ARTWORK")
-        l1:SetColorTexture(1, 1, 1, isCenter and 0.42 or 0.32)
+        l1:SetTexture(1, 1, 1, isCenter and 0.42 or 0.32)
         PP.Size(l1, w - 26, 5)
         PP.Point(l1, "TOPLEFT", card, "TOPLEFT", 13, -18)
         local l2 = card:CreateTexture(nil, "ARTWORK")
-        l2:SetColorTexture(1, 1, 1, 0.18)
+        l2:SetTexture(1, 1, 1, 0.18)
         PP.Size(l2, w - 46, 5)
         PP.Point(l2, "TOPLEFT", l1, "BOTTOMLEFT", 0, -7)
         if isCenter then
             local l3 = card:CreateTexture(nil, "ARTWORK")
-            l3:SetColorTexture(1, 1, 1, 0.14)
+            l3:SetTexture(1, 1, 1, 0.14)
             PP.Size(l3, w - 66, 5)
             PP.Point(l3, "TOPLEFT", l2, "BOTTOMLEFT", 0, -7)
             -- Resize grip in the bottom-right corner (Shifter scaling hint).
             local grip = card:CreateTexture(nil, "OVERLAY")
-            grip:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
+            grip:SetTexture(EG.r, EG.g, EG.b, 0.85)
             PP.Size(grip, 5, 5)
             PP.Point(grip, "BOTTOMRIGHT", card, "BOTTOMRIGHT", -2, 2)
         end
@@ -217,7 +217,7 @@ local function ShowWindowSkinsPopup()
         end
         bl:SetText(text)
         local dot = popup:CreateTexture(nil, "OVERLAY")
-        dot:SetColorTexture(EG.r, EG.g, EG.b, 1)
+        dot:SetTexture(EG.r, EG.g, EG.b, 1)
         PP.Size(dot, 5, 5)
         PP.Point(dot, "RIGHT", bl, "LEFT", -10, 0)
         prev = bl
@@ -243,12 +243,12 @@ local function ShowWindowSkinsPopup()
     -- white that warms to the power-button red on hover).
     local BTN_W, BTN_H, BTN_GAP = 184, 38, 14
     local function MakeActionButton(text, r, g, b, secondary)
-        local btn = CreateFrame("Button", nil, popup)
+        local btn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
         btn:SetFrameLevel(popup:GetFrameLevel() + 2)
         PP.Size(btn, BTN_W, BTN_H)
         local bbg = btn:CreateTexture(nil, "BACKGROUND")
         bbg:SetAllPoints()
-        bbg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+        bbg:SetTexture(0.06, 0.08, 0.10, 0.92)
         local brd = MakeBorder(btn, r, g, b, secondary and 0.35 or 0.9, PP)
         local lbl = btn:CreateFontString(nil, "OVERLAY")
         lbl:SetFont(FONT, 15, "")
@@ -337,7 +337,7 @@ local function ComputeDecision()
     return "new"
 end
 
-local loader = CreateFrame("Frame")
+local loader = EllesmereUI.SafeCreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function(self, event, addonName)

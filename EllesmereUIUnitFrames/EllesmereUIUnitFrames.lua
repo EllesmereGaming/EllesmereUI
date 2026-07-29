@@ -23,14 +23,14 @@ local PP = EllesmereUI.PP
 -- fires Blizzard's synchronous layout handlers in the caller's execution.
 -- Units this addon never disables fall through to the stock implementation.
 do
-    local hiddenParent = CreateFrame("Frame", nil, UIParent)
+    local hiddenParent = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     hiddenParent:Hide()
     local pendingParent, looseFrames, hookedFrames = {}, {}, {}
     local bossHandled = false
 
     -- Combat fallback: protected frames can't be re-parented in lockdown;
     -- park them here and sweep at regen (mirrors the stock lib's behavior).
-    local regenWatcher = CreateFrame("Frame")
+    local regenWatcher = EllesmereUI.SafeCreateFrame("Frame")
     regenWatcher:SetScript("OnEvent", function(self)
         if InCombatLockdown() then return end
         self:UnregisterEvent("PLAYER_REGEN_ENABLED")
@@ -1679,7 +1679,7 @@ local function ApplyDarkTheme(health)
             AnchorHealthBg(health)
             -- Background opacity carried in the texture alpha; region alpha stays 1
             -- so the two never multiply into a double-darkened background.
-            health.bg:SetColorTexture(dbr, dbg, dbb, dba)
+            health.bg:SetTexture(dbr, dbg, dbb, dba)
             health.bg:SetAlpha(1)
         end
         -- PostUpdateColor: re-apply dark color after oUF tries to class-color,
@@ -1780,17 +1780,17 @@ local function ApplyDarkTheme(health)
                 end
                 if bgClassR then
                     -- Full class color; opacity is controlled by customBgAlpha (SetAlpha).
-                    self.bg:SetColorTexture(bgClassR, bgClassG, bgClassB, 1)
+                    self.bg:SetTexture(bgClassR, bgClassG, bgClassB, 1)
                 elseif cBg then
-                    self.bg:SetColorTexture(cBg.r, cBg.g, cBg.b, 1)
+                    self.bg:SetTexture(cBg.r, cBg.g, cBg.b, 1)
                 elseif cFill and not classColored then
-                    self.bg:SetColorTexture(cFill.r * 0.2, cFill.g * 0.2, cFill.b * 0.2, 1)
+                    self.bg:SetTexture(cFill.r * 0.2, cFill.g * 0.2, cFill.b * 0.2, 1)
                 elseif color and color.GetRGB then
                     local r, g, b = color:GetRGB()
-                    self.bg:SetColorTexture(r * 0.2, g * 0.2, b * 0.2, 1)
+                    self.bg:SetTexture(r * 0.2, g * 0.2, b * 0.2, 1)
                 else
                     -- No color source available (e.g. no target) -- use default bg
-                    self.bg:SetColorTexture(DARK_HEALTH_R, DARK_HEALTH_G, DARK_HEALTH_B, 1)
+                    self.bg:SetTexture(DARK_HEALTH_R, DARK_HEALTH_G, DARK_HEALTH_B, 1)
                 end
             end
         end
@@ -1814,14 +1814,14 @@ local function ApplyDarkTheme(health)
             end
             if bgClassR then
                 -- Full class color; PostUpdateColor keeps it correct on updates.
-                health.bg:SetColorTexture(bgClassR, bgClassG, bgClassB, 1)
+                health.bg:SetTexture(bgClassR, bgClassG, bgClassB, 1)
             elseif customBg then
-                health.bg:SetColorTexture(customBg.r, customBg.g, customBg.b, 1)
+                health.bg:SetTexture(customBg.r, customBg.g, customBg.b, 1)
             elseif customFill then
-                health.bg:SetColorTexture(customFill.r * 0.2, customFill.g * 0.2, customFill.b * 0.2, 1)
+                health.bg:SetTexture(customFill.r * 0.2, customFill.g * 0.2, customFill.b * 0.2, 1)
             else
                 -- No custom colors set -- use default dark bg (#111)
-                health.bg:SetColorTexture(DARK_HEALTH_R, DARK_HEALTH_G, DARK_HEALTH_B, 1)
+                health.bg:SetTexture(DARK_HEALTH_R, DARK_HEALTH_G, DARK_HEALTH_B, 1)
             end
         end
     end
@@ -2250,7 +2250,7 @@ do
         end
     end
 
-    local ev = CreateFrame("Frame")
+    local ev = EllesmereUI.SafeCreateFrame("Frame")
     ev:RegisterEvent("PLAYER_ENTERING_WORLD")
     ev:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
@@ -2294,7 +2294,7 @@ do
         return false
     end
     if not (RegisterNSRT() and RegisterTR()) then
-        local nf = CreateFrame("Frame")
+        local nf = EllesmereUI.SafeCreateFrame("Frame")
         nf:RegisterEvent("PLAYER_LOGIN")
         nf:RegisterEvent("PLAYER_ENTERING_WORLD")
         nf:SetScript("OnEvent", function(self, event)
@@ -3156,7 +3156,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
     local btbW = isDetached and (settings.btbWidth or 0) or 0
     local totalWidth = (btbW > 0 and isDetached) and btbW or (overrideWidth or settings.frameWidth)
 
-    local btb = CreateFrame("Frame", nil, frame)
+    local btb = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     PP.Size(btb, totalWidth, btbH)
     btb._isDetached = isDetached
 
@@ -3174,11 +3174,11 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
     local bga = settings.btbBgOpacity or 1.0
     local bg = btb:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bga)
+    bg:SetTexture(bgc.r, bgc.g, bgc.b, bga)
     btb.bg = bg
 
     -- Text overlay (above unified border at frame+10)
-    local textOvr = CreateFrame("Frame", nil, btb)
+    local textOvr = EllesmereUI.SafeCreateFrame("Frame", nil, btb)
     textOvr:SetAllPoints()
     textOvr:SetFrameLevel(frame:GetFrameLevel() + 15)
 
@@ -3292,7 +3292,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
     btb._applyBTBPowerColors = ApplyBTBPowerColors
 
     -- Class icon overlay -- on a high-level frame so it renders above the border
-    local classIconHolder = CreateFrame("Frame", nil, frame)
+    local classIconHolder = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     classIconHolder:SetAllPoints(textOvr)
     classIconHolder:SetFrameLevel(frame:GetFrameLevel() + 12)
     local classIconTex = classIconHolder:CreateTexture(nil, "ARTWORK")
@@ -3365,7 +3365,7 @@ end
 -- cannot render bar pixels outside the border, regardless of rounding.
 local function EnsureBarClip(frame)
     if frame._barClip then return frame._barClip end
-    local clip = CreateFrame("Frame", nil, frame)
+    local clip = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     clip:SetAllPoints(frame)
     clip:SetClipsChildren(true)
     clip:SetFrameLevel(frame:GetFrameLevel())
@@ -3681,7 +3681,7 @@ local function CreateHealthBar(frame, unit, height, xOffset, settings, rightInse
     local ppPos = settings.powerPosition or "below"
     local powerAboveOff = (ppPos == "above") and (settings.powerHeight or 0) or 0
 
-    local health = CreateFrame("StatusBar", nil, frame)
+    local health = EllesmereUI.SafeCreateFrame("StatusBar", nil, frame)
     health:SetFrameStrata(frame:GetFrameStrata())
     health:SetFrameLevel(frame:GetFrameLevel() + 2)
     -- Two-point horizontal anchoring: width is derived from the frame so it can
@@ -3698,7 +3698,7 @@ local function CreateHealthBar(frame, unit, height, xOffset, settings, rightInse
     local bg = health:CreateTexture(nil, "BACKGROUND")
     PP.Point(bg, "TOPLEFT", health, "TOPLEFT", 0, 0)
     PP.Point(bg, "BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
-    bg:SetColorTexture(0, 0, 0, 0.5)
+    bg:SetTexture(0, 0, 0, 0.5)
     health.bg = bg
 
     health.colorClass = true
@@ -4026,7 +4026,7 @@ local function CreateAbsorbBar(frame, unit, settings)
     local isReversed = settings.healthReverseFill and true or false
 
     -- Current HP clip: bounds the backfill bar to the filled health area.
-    local curClip = CreateFrame("Frame", nil, hpBar)
+    local curClip = EllesmereUI.SafeCreateFrame("Frame", nil, hpBar)
     if isReversed then
         curClip:SetPoint("TOPRIGHT",    hpBar, "TOPRIGHT", 0, 0)
         curClip:SetPoint("BOTTOMLEFT",  hpBar:GetStatusBarTexture(), "BOTTOMLEFT", 0, 0)
@@ -4037,7 +4037,7 @@ local function CreateAbsorbBar(frame, unit, settings)
     curClip:SetClipsChildren(true)
 
     -- Missing HP clip: bounds the forward bar to the empty health area.
-    local missClip = CreateFrame("Frame", nil, hpBar)
+    local missClip = EllesmereUI.SafeCreateFrame("Frame", nil, hpBar)
     if isReversed then
         missClip:SetPoint("TOPRIGHT",    hpBar:GetStatusBarTexture(), "TOPLEFT", 1, 0)
         missClip:SetPoint("BOTTOMLEFT",  hpBar, "BOTTOMLEFT", 0, 0)
@@ -4048,7 +4048,7 @@ local function CreateAbsorbBar(frame, unit, settings)
     missClip:SetClipsChildren(true)
 
     -- Backfill bar (overflow): grows into filled health from the edge.
-    local backfillBar = CreateFrame("StatusBar", nil, curClip)
+    local backfillBar = EllesmereUI.SafeCreateFrame("StatusBar", nil, curClip)
     backfillBar:SetStatusBarTexture(ABSORB_SHIELD_TEX)
     local bfFill = backfillBar:GetStatusBarTexture()
     if bfFill then bfFill:SetDrawLayer("ARTWORK", 1); bfFill:AddMaskTexture(absorbMask) end
@@ -4067,7 +4067,7 @@ local function CreateAbsorbBar(frame, unit, settings)
     backfillBar:Hide()
 
     -- Forward bar (primary): grows into missing health from the HP edge.
-    local forwardBar = CreateFrame("StatusBar", nil, missClip)
+    local forwardBar = EllesmereUI.SafeCreateFrame("StatusBar", nil, missClip)
     forwardBar:SetStatusBarTexture(ABSORB_SHIELD_TEX)
     local fwFill = forwardBar:GetStatusBarTexture()
     if fwFill then fwFill:SetDrawLayer("ARTWORK", 1); fwFill:AddMaskTexture(absorbMask) end
@@ -4102,7 +4102,7 @@ local function CreateAbsorbBar(frame, unit, settings)
     -- placement is independent: overlay clips to the filled health, while
     -- right/left span the FULL bar (filled + missing health). Bounds are set
     -- per healAbsorbEdgeMode in UpdateAbsorbBarReverseFill.
-    local healClip = CreateFrame("Frame", nil, hpBar)
+    local healClip = EllesmereUI.SafeCreateFrame("Frame", nil, hpBar)
     if isReversed then
         healClip:SetPoint("TOPRIGHT",   hpBar, "TOPRIGHT", 0, 0)
         healClip:SetPoint("BOTTOMLEFT", hpBar:GetStatusBarTexture(), "BOTTOMLEFT", 0, 0)
@@ -4111,7 +4111,7 @@ local function CreateAbsorbBar(frame, unit, settings)
         healClip:SetPoint("BOTTOMRIGHT", hpBar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
     end
     healClip:SetClipsChildren(true)
-    local healAbsorbBar = CreateFrame("StatusBar", nil, healClip)
+    local healAbsorbBar = EllesmereUI.SafeCreateFrame("StatusBar", nil, healClip)
     healAbsorbBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     healAbsorbBar._absorbMask = absorbMask
     local haFill = healAbsorbBar:GetStatusBarTexture()
@@ -4135,7 +4135,7 @@ local function CreateAbsorbBar(frame, unit, settings)
     -- fill's 2), masked + SetAllPoints'd to the fill rect each update so it
     -- tracks the secret heal-absorb amount and collapses when there is none.
     local haBg = healAbsorbBar:CreateTexture(nil, "ARTWORK", nil, 1)
-    haBg:SetColorTexture(0, 0, 0, 0.15)
+    haBg:SetTexture(0, 0, 0, 0.15)
     if absorbMask then haBg:AddMaskTexture(absorbMask) end
     haBg:Hide()
     healAbsorbBar._bg = haBg
@@ -4144,7 +4144,7 @@ local function CreateAbsorbBar(frame, unit, settings)
     -- showing the shield / heal-absorb amount at a configurable position.
     -- Parented to the frame so "above" positions can sit outside the health bar.
     -- Always created hidden; the Override drives them.
-    local absorbTopBar = CreateFrame("StatusBar", nil, frame)
+    local absorbTopBar = EllesmereUI.SafeCreateFrame("StatusBar", nil, frame)
     absorbTopBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     absorbTopBar:SetStatusBarColor(1, 1, 1, 1)
     absorbTopBar:SetReverseFill(true)
@@ -4154,7 +4154,7 @@ local function CreateAbsorbBar(frame, unit, settings)
     absorbTopBar:SetFrameLevel(hpBar:GetFrameLevel() + 3)
     absorbTopBar:Hide()
 
-    local healAbsorbTopBar = CreateFrame("StatusBar", nil, frame)
+    local healAbsorbTopBar = EllesmereUI.SafeCreateFrame("StatusBar", nil, frame)
     healAbsorbTopBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     healAbsorbTopBar:SetStatusBarColor(200/255, 29/255, 29/255, 1)
     healAbsorbTopBar:SetReverseFill(true)
@@ -4404,7 +4404,7 @@ local function CreateAbsorbBar(frame, unit, settings)
                     -- Black backing: track the heal-absorb fill rect, opacity from settings.
                     local hbg = ha._bg
                     if hbg then
-                        hbg:SetColorTexture(0, 0, 0, ((s and s.healAbsorbBgOpacity) or 15) / 100)
+                        hbg:SetTexture(0, 0, 0, ((s and s.healAbsorbBgOpacity) or 15) / 100)
                         hbg:SetAllPoints(ha:GetStatusBarTexture())
                         hbg:Show()
                     end
@@ -4434,7 +4434,7 @@ function ns.UpdatePowerBorder(power, settings)
     if not border then
         -- Nothing to render and nothing to hide: stay lazy.
         if not ((isDet or isAttached) and size > 0) then return end
-        border = CreateFrame("Frame", nil, power)
+        border = EllesmereUI.SafeCreateFrame("Frame", nil, power)
         PP.Point(border, "TOPLEFT", power, "TOPLEFT", 0, 0)
         PP.Point(border, "BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
         power._pbBorder = border
@@ -4478,7 +4478,7 @@ end
 local function CreatePowerBar(frame, unit, settings)
     local powerPos = settings.powerPosition or "below"
 
-    local power = CreateFrame("StatusBar", nil, frame)
+    local power = EllesmereUI.SafeCreateFrame("StatusBar", nil, frame)
     local isDetached = (powerPos == "detached_top" or powerPos == "detached_bottom")
     if isDetached then
         -- Custom strata if user has enabled it, otherwise default MEDIUM
@@ -4527,9 +4527,9 @@ local function CreatePowerBar(frame, unit, settings)
     PP.Point(bg, "BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
     local initBg = settings.customPowerBgColor
     if initBg then
-        bg:SetColorTexture(initBg.r, initBg.g, initBg.b, 1)
+        bg:SetTexture(initBg.r, initBg.g, initBg.b, 1)
     else
-        bg:SetColorTexture(17/255, 17/255, 17/255, 1)
+        bg:SetTexture(17/255, 17/255, 17/255, 1)
     end
     UnsnapTex(bg)
     power.bg = bg
@@ -4588,7 +4588,7 @@ local function CreatePowerBar(frame, unit, settings)
             local pr, pg, pb = EllesmereUI.ResolveUnitPowerColor(unit)
             if pr then
                 local f = EllesmereUI.GetPowerBgDarkenFactor()
-                self.bg:SetColorTexture(pr * f, pg * f, pb * f, 1)
+                self.bg:SetTexture(pr * f, pg * f, pb * f, 1)
             end
         end
         -- Keep the power-percent text color in sync with THIS unit (fires on
@@ -4608,14 +4608,14 @@ local function CreatePowerBar(frame, unit, settings)
     -- Custom power bar background color
     local customBg = settings.customPowerBgColor
     if customBg then
-        bg:SetColorTexture(customBg.r, customBg.g, customBg.b, 1)
+        bg:SetTexture(customBg.r, customBg.g, customBg.b, 1)
     end
 
     power:SetReverseFill(settings.powerReverseFill and true or false)
 
     -- Power percent text overlay
     -- Parent to frame (not power) so text isn't clipped by the bar clip container
-    local ppTextOvr = CreateFrame("Frame", nil, frame)
+    local ppTextOvr = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     ppTextOvr:SetAllPoints(power)
     ppTextOvr:SetFrameLevel(frame:GetFrameLevel() + 15)
     local ppFS = ppTextOvr:CreateFontString(nil, "OVERLAY")
@@ -4763,7 +4763,7 @@ local function CreatePowerBar(frame, unit, settings)
         if shouldGray and not self._grayedOut then
             self._grayedOut = true
             if self.bg then
-                self.bg:SetColorTexture(0.25, 0.25, 0.25, 1)
+                self.bg:SetTexture(0.25, 0.25, 0.25, 1)
                 self.bg:SetAlpha(1)
             end
         elseif not shouldGray and self._grayedOut then
@@ -4774,14 +4774,14 @@ local function CreatePowerBar(frame, unit, settings)
                 local pr, pg, pb = EllesmereUI.ResolveUnitPowerColor(u)
                 if pr then
                     local f = EllesmereUI.GetPowerBgDarkenFactor()
-                    self.bg:SetColorTexture(pr * f, pg * f, pb * f, 1)
-                else self.bg:SetColorTexture(17/255, 17/255, 17/255, 1) end
+                    self.bg:SetTexture(pr * f, pg * f, pb * f, 1)
+                else self.bg:SetTexture(17/255, 17/255, 17/255, 1) end
             else
                 local customBg = s.customPowerBgColor
                 if customBg then
-                    if self.bg then self.bg:SetColorTexture(customBg.r, customBg.g, customBg.b, 1) end
+                    if self.bg then self.bg:SetTexture(customBg.r, customBg.g, customBg.b, 1) end
                 else
-                    if self.bg then self.bg:SetColorTexture(17/255, 17/255, 17/255, 1) end
+                    if self.bg then self.bg:SetTexture(17/255, 17/255, 17/255, 1) end
                 end
             end
             -- Restore bg alpha from its own setting. (This used to read
@@ -4865,7 +4865,7 @@ local function CreatePortrait(frame, side, frameHeight, unit)
         isInside = false
     end
 
-    local backdrop = CreateFrame("Frame", nil, frame)
+    local backdrop = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     backdrop:SetFrameStrata(frame:GetFrameStrata())
     backdrop:SetFrameLevel(frame:GetFrameLevel() + 1)
     if isInside then
@@ -4879,7 +4879,7 @@ local function CreatePortrait(frame, side, frameHeight, unit)
     local bgTex = backdrop:CreateTexture(nil, "BACKGROUND")
     PP.Point(bgTex, "TOPLEFT", backdrop, "TOPLEFT", 0, 0)
     PP.Point(bgTex, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", 0, 0)
-    bgTex:SetColorTexture(0.1, 0.1, 0.1, 1)
+    bgTex:SetTexture(0.1, 0.1, 0.1, 1)
     if isInside then bgTex:Hide() end
     backdrop._bg = bgTex
 
@@ -4918,7 +4918,7 @@ local function CreatePortrait(frame, side, frameHeight, unit)
 
     local function EnsureModel3D()
         if model3D then return model3D end
-        model3D = CreateFrame("PlayerModel", nil, backdrop)
+        model3D = EllesmereUI.SafeCreateFrame("PlayerModel", nil, backdrop)
         PP.Point(model3D, "TOPLEFT", backdrop, "TOPLEFT", 0, 0)
         PP.Point(model3D, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", 0, 0)
         model3D:SetCamera(0)
@@ -5200,7 +5200,7 @@ local function UpdateUnitFrameKickTick(castbar)
     castbar.kickMarker:SetSize(barW, barH)
     castbar.kickPositioner:SetValue(castDuration:GetElapsedDuration())
     castbar.kickMarker:SetValue(interruptCD:GetRemainingDuration())
-    castbar.kickTick:SetColorTexture(1, 1, 1, 1)
+    castbar.kickTick:SetTexture(1, 1, 1, 1)
     if isChannel and not isEmpowered then
         castbar.kickPositioner:SetFillStyle(Enum.StatusBarFillStyle.Reverse)
         castbar.kickMarker:SetFillStyle(Enum.StatusBarFillStyle.Reverse)
@@ -5259,8 +5259,8 @@ local function UpdateUnitFrameKickTick(castbar)
     -- SetShown gates each element to its own toggle so one never forces the other.
     local mc = (settings and settings.castbarInterruptMidCastColor) or { r = 0.318, g = 0.820, b = 0.357 }
     castbar.kickReadyFill:SetVertexColor(mc.r, mc.g, mc.b, 1)
-    castbar.kickTick:SetShown(tickOn)
-    castbar.kickReadyFill:SetShown(midOn)
+    if tickOn then castbar.kickTick:Show() else castbar.kickTick:Hide() end
+    if midOn then castbar.kickReadyFill:Show() else castbar.kickReadyFill:Hide() end
     if interruptCD.IsZero and C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean then
         local interruptible = C_CurveUtil.EvaluateColorValueFromBoolean(kickProtected, 0, 1)
         local kickReady = interruptCD:IsZero()
@@ -5337,7 +5337,7 @@ end
 ns._castingCastbars = {}
 local activeCastbarCount = 0
 local _ufCastColorTicker
-local ufKickWatcher = CreateFrame("Frame")
+local ufKickWatcher = EllesmereUI.SafeCreateFrame("Frame")
 ufKickWatcher:SetScript("OnEvent", function(_, event)
     if event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
         for cb in pairs(ns._castingCastbars) do
@@ -5399,7 +5399,7 @@ local function CreateCastBar(frame, unit, settings)
     
     -- Castbar is a standalone element parented to the oUF frame for
     -- compatibility, but sized and positioned independently.
-    local castbarBg = CreateFrame("Frame", nil, frame)
+    local castbarBg = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
 
     -- Determine width and height from settings (no auto-derive, always stored)
     local cbWidth, cbHeight
@@ -5427,10 +5427,10 @@ local function CreateCastBar(frame, unit, settings)
     -- Background color/alpha: nil settings fall back to the original black 0.5 so
     -- existing frames are unchanged unless the user sets castBgColor/castBgAlpha.
     local _cbgC = settings.castBgColor
-    bgTex:SetColorTexture(_cbgC and _cbgC.r or 0, _cbgC and _cbgC.g or 0, _cbgC and _cbgC.b or 0, settings.castBgAlpha or 0.5)
+    bgTex:SetTexture(_cbgC and _cbgC.r or 0, _cbgC and _cbgC.g or 0, _cbgC and _cbgC.b or 0, settings.castBgAlpha or 0.5)
     castbarBg._bgTex = bgTex
 
-    local castbar = CreateFrame("StatusBar", nil, castbarBg)
+    local castbar = EllesmereUI.SafeCreateFrame("StatusBar", nil, castbarBg)
     PP.Point(castbar, "TOPLEFT", castbarBg, "TOPLEFT", 0, 0)
     PP.Point(castbar, "BOTTOMRIGHT", castbarBg, "BOTTOMRIGHT", 0, 0)
     castbar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
@@ -5448,7 +5448,7 @@ local function CreateCastBar(frame, unit, settings)
     -- [spell name LEFT 42%] [target RIGHT-of-center 42%] [timer RIGHT]
     -- All zones truncate with ellipsis (WordWrap off, MaxLines 1).
     -- Text overlay must sit above the unified border (frame +10).
-    local textOverlay = CreateFrame("Frame", nil, castbar)
+    local textOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, castbar)
     textOverlay:SetAllPoints(castbar)
     textOverlay:SetFrameLevel(frame:GetFrameLevel() + 11)
 
@@ -5607,11 +5607,11 @@ local function CreateCastBar(frame, unit, settings)
     end
 
     if IsKickCastbarUnit(unit) then
-        local kickClip = CreateFrame("Frame", nil, castbar)
+        local kickClip = EllesmereUI.SafeCreateFrame("Frame", nil, castbar)
         kickClip:SetAllPoints(castbar)
         kickClip:SetClipsChildren(true)
         castbar.kickClip = kickClip
-        local kickPositioner = CreateFrame("StatusBar", nil, kickClip)
+        local kickPositioner = EllesmereUI.SafeCreateFrame("StatusBar", nil, kickClip)
         kickPositioner:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
         kickPositioner:GetStatusBarTexture():SetAlpha(0)
         -- Pixel-snap OFF on the fill texture (mirrors Nameplates). The tick sits
@@ -5626,7 +5626,7 @@ local function CreateCastBar(frame, unit, settings)
         kickPositioner:SetFrameLevel(castbar:GetFrameLevel() + 1)
         kickPositioner:Hide()
         castbar.kickPositioner = kickPositioner
-        local kickMarker = CreateFrame("StatusBar", nil, kickClip)
+        local kickMarker = EllesmereUI.SafeCreateFrame("StatusBar", nil, kickClip)
         kickMarker:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
         kickMarker:GetStatusBarTexture():SetAlpha(0)
         if kickMarker:GetStatusBarTexture().SetSnapToPixelGrid then
@@ -5639,7 +5639,7 @@ local function CreateCastBar(frame, unit, settings)
         kickMarker:Hide()
         castbar.kickMarker = kickMarker
         local kickTick = kickMarker:CreateTexture(nil, "OVERLAY", nil, 3)
-        kickTick:SetColorTexture(1, 1, 1, 1)
+        kickTick:SetTexture(1, 1, 1, 1)
         kickTick:SetWidth(2)
         kickTick:SetPoint("TOP", kickMarker, "TOP", 0, 0)
         kickTick:SetPoint("BOTTOM", kickMarker, "BOTTOM", 0, 0)
@@ -5657,7 +5657,7 @@ local function CreateCastBar(frame, unit, settings)
         -- text (OVERLAY) and the uninterruptible grey (sublevel 2). Anchors are
         -- (re)applied per cast in UpdateUnitFrameKickTick.
         local kickReadyFill = castbar:CreateTexture(nil, "ARTWORK", nil, 1)
-        kickReadyFill:SetColorTexture(1, 1, 1, 1)
+        kickReadyFill:SetTexture(1, 1, 1, 1)
         kickReadyFill:SetAlpha(0)
         kickReadyFill:Hide()
         castbar.kickReadyFill = kickReadyFill
@@ -5686,12 +5686,12 @@ local function CreateCastBar(frame, unit, settings)
     -- which is unreliable this early in layout; LayoutCastbarIcon anchors the
     -- height to the bar regardless, this is just the initial square.
     local iconSize = cbHeight
-    local iconFrame = CreateFrame("Frame", nil, castbarBg)
+    local iconFrame = EllesmereUI.SafeCreateFrame("Frame", nil, castbarBg)
     iconFrame:SetSize(iconSize, iconSize)
     PP.Point(iconFrame, "TOPRIGHT", castbarBg, "TOPLEFT", 0, 0)
     local iconBg = iconFrame:CreateTexture(nil, "BACKGROUND")
     iconBg:SetAllPoints()
-    iconBg:SetColorTexture(0, 0, 0, 1)
+    iconBg:SetTexture(0, 0, 0, 1)
     -- 1px black border via unified PP system
     PP.CreateBorder(iconFrame, 0, 0, 0, 1)
     local iconTex = iconFrame:CreateTexture(nil, "ARTWORK")
@@ -5815,7 +5815,7 @@ local function SetupShowOnCastBar(frame, unit)
                 -- stands untouched.
             else
                 self.Target:SetText(spellTarget or "")
-                self.Target:SetShown(hasTarget and self._showTarget ~= false)
+                if hasTarget and self._showTarget ~= false then self.Target:Show() else self.Target:Hide() end
                 -- Class color the target name
                 if hasTarget and spellTargetClass and C_ClassColor then
                     local c = C_ClassColor.GetClassColor(spellTargetClass)
@@ -5869,7 +5869,7 @@ local function SetupShowOnCastBar(frame, unit)
             local pip = element.Pips[stage]
             if not pip then
                 pip = (element.CreatePip or function(e)
-                    return CreateFrame("Frame", nil, e, "CastingBarFrameStagePipTemplate")
+                    return EllesmereUI.SafeCreateFrame("Frame", nil, e, "CastingBarFrameStagePipTemplate")
                 end)(element, stage)
                 element.Pips[stage] = pip
             end
@@ -5970,7 +5970,7 @@ local function CreateUnifiedBorder(frame, unit)
     local bc = settings.borderColor or { r = 0, g = 0, b = 0 }
     local textureKey = settings.borderTexture or "solid"
 
-    local border = CreateFrame("Frame", nil, frame)
+    local border = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     PP.Point(border, "TOPLEFT", frame, "TOPLEFT", 0, 0)
     PP.Point(border, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
     local borderBehind = settings.borderBehind
@@ -6016,7 +6016,7 @@ end
 -- unified border so it ADDS to whatever border the user already has.
 local function PT_EnsureBorder(pf)
     if pf._threatShadowBorder then return pf._threatShadowBorder end
-    local b = CreateFrame("Frame", nil, pf)
+    local b = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
     PP.Point(b, "TOPLEFT", pf, "TOPLEFT", 0, 0)
     PP.Point(b, "BOTTOMRIGHT", pf, "BOTTOMRIGHT", 0, 0)
     b:SetFrameLevel(math.max(0, pf:GetFrameLevel() - 1))
@@ -6068,7 +6068,7 @@ end
 function ns.SetPlayerThreatEnabled(on)
     if on then
         if not _ptWatcher then
-            _ptWatcher = CreateFrame("Frame")
+            _ptWatcher = EllesmereUI.SafeCreateFrame("Frame")
             _ptWatcher:SetScript("OnEvent", function() ns.UpdatePlayerThreatBorder() end)
         end
         _ptWatcher:RegisterUnitEvent("UNIT_THREAT_SITUATION_UPDATE", "player")
@@ -6314,7 +6314,7 @@ local function CreateTargetAuras(frame, unit)
         if button._euiABGen == gen then return end
         local s = GetSettingsForUnit(unit or "target")
         if not button._euiAuraBorder then
-            button._euiAuraBorder = CreateFrame("Frame", nil, button)
+            button._euiAuraBorder = EllesmereUI.SafeCreateFrame("Frame", nil, button)
             button._euiAuraBorder:SetAllPoints()
         end
         local border = button._euiAuraBorder
@@ -6478,7 +6478,7 @@ local function CreateTargetAuras(frame, unit)
         auraSize = PP.Scale(settings.healthHeight + powerH)
     end
 
-    local buffs = CreateFrame("Frame", nil, frame)
+    local buffs = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     -- Boss frames: lift auras above the unified border so it renders BEHIND the
     -- buffs/debuffs instead of over their flush edge. The border FRAME is at
     -- frame+10, but its solid PP border textures live on a sub-container at
@@ -6569,7 +6569,7 @@ local function CreateTargetAuras(frame, unit)
         dAnc = simpleMode  -- "left" or "right"
     end
     do
-        local debuffs = CreateFrame("Frame", nil, frame)
+        local debuffs = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         -- Boss frames: lift auras above the unified border so it renders BEHIND
         -- them. The border FRAME is frame+10 but its solid PP border textures sit
         -- on a sub-container at frame+11, so clear frame+11 (frame+13 also clears
@@ -6779,7 +6779,7 @@ local function StyleFullFrame(frame, unit)
     -- visibility via RAID_TARGET_UPDATE. We only assign the element when
     -- enabled so oUF registers/unregisters the event accordingly.
     do
-        local raidIconHolder = CreateFrame("Frame", nil, frame)
+        local raidIconHolder = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         raidIconHolder:SetAllPoints(frame)
         raidIconHolder:SetFrameLevel(frame:GetFrameLevel() + 20)
         local raidIcon = raidIconHolder:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -6802,7 +6802,7 @@ local function StyleFullFrame(frame, unit)
     end
 
     -- Text overlay frame -- sits above the StatusBar for clean text rendering.
-    local textOverlay = CreateFrame("Frame", nil, frame)
+    local textOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     textOverlay:SetAllPoints(frame.Health)
     textOverlay:SetFrameStrata(frame:GetFrameStrata())
     textOverlay:SetFrameLevel(math.max(frame:GetFrameLevel() + 20, frame.Health:GetFrameLevel() + 12))
@@ -6867,12 +6867,12 @@ local function StyleFullFrame(frame, unit)
             if not g then
                 frame._absGate = frame._absGate or {}
                 frame._absClip = frame._absClip or {}
-                g = CreateFrame("StatusBar", nil, textOverlay)
+                g = EllesmereUI.SafeCreateFrame("StatusBar", nil, textOverlay)
                 g:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
                 g:SetStatusBarColor(1, 1, 1, 0)  -- geometry only; never drawn
                 g:SetMinMaxValues(0, 1)
                 g:SetValue(0)
-                local clip = CreateFrame("Frame", nil, textOverlay)
+                local clip = EllesmereUI.SafeCreateFrame("Frame", nil, textOverlay)
                 clip:SetClipsChildren(true)
                 clip:SetFrameLevel(textOverlay:GetFrameLevel() + 1)
                 clip:SetPoint("TOPLEFT", g, "TOPLEFT", 0, 0)
@@ -7112,7 +7112,7 @@ local function StyleFocusFrame(frame, unit)
 
     -- Raid target marker icon
     do
-        local raidIconHolder = CreateFrame("Frame", nil, frame)
+        local raidIconHolder = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         raidIconHolder:SetAllPoints(frame)
         raidIconHolder:SetFrameLevel(frame:GetFrameLevel() + 20)
         local raidIcon = raidIconHolder:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -7136,7 +7136,7 @@ local function StyleFocusFrame(frame, unit)
 
     -- Text overlay frame -- sits above the StatusBar and unified border.
     -- Parented to frame (not Health) so text is not clipped by the health bar.
-    local textOverlay = CreateFrame("Frame", nil, frame)
+    local textOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     textOverlay:SetAllPoints(frame.Health)
     textOverlay:SetFrameStrata(frame:GetFrameStrata())
     textOverlay:SetFrameLevel(math.max(frame:GetFrameLevel() + 20, frame.Health:GetFrameLevel() + 12))
@@ -7201,12 +7201,12 @@ local function StyleFocusFrame(frame, unit)
             if not g then
                 frame._absGate = frame._absGate or {}
                 frame._absClip = frame._absClip or {}
-                g = CreateFrame("StatusBar", nil, textOverlay)
+                g = EllesmereUI.SafeCreateFrame("StatusBar", nil, textOverlay)
                 g:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
                 g:SetStatusBarColor(1, 1, 1, 0)  -- geometry only; never drawn
                 g:SetMinMaxValues(0, 1)
                 g:SetValue(0)
-                local clip = CreateFrame("Frame", nil, textOverlay)
+                local clip = EllesmereUI.SafeCreateFrame("Frame", nil, textOverlay)
                 clip:SetClipsChildren(true)
                 clip:SetFrameLevel(textOverlay:GetFrameLevel() + 1)
                 clip:SetPoint("TOPLEFT", g, "TOPLEFT", 0, 0)
@@ -7381,7 +7381,7 @@ local function StyleSimpleFrame(frame, unit)
 
     PP.Size(frame, totalWidth, settings.healthHeight)
 
-    local health = CreateFrame("StatusBar", nil, frame)
+    local health = EllesmereUI.SafeCreateFrame("StatusBar", nil, frame)
     PP.Point(health, "TOPLEFT", frame, "TOPLEFT", portraitOffset, 0)
     PP.Point(health, "RIGHT", frame, "RIGHT", -healthRightInset, 0)
     PP.Height(health, settings.healthHeight)
@@ -7391,7 +7391,7 @@ local function StyleSimpleFrame(frame, unit)
     local bg = health:CreateTexture(nil, "BACKGROUND")
     PP.Point(bg, "TOPLEFT", health, "TOPLEFT", 0, 0)
     PP.Point(bg, "BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
-    bg:SetColorTexture(0, 0, 0, 0.5)
+    bg:SetTexture(0, 0, 0, 0.5)
     health.bg = bg
 
     health.colorClass = true
@@ -7440,7 +7440,7 @@ local function StyleSimpleFrame(frame, unit)
     ReparentBarsToClip(frame, settings.powerPosition, settings)
 
     -- Text overlay frame (parented to frame, not health, to avoid clipping)
-    local textOverlay = CreateFrame("Frame", nil, frame)
+    local textOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     textOverlay:SetAllPoints(health)
     textOverlay:SetFrameLevel(health:GetFrameLevel() + 12)
     frame._textOverlay = textOverlay
@@ -7495,12 +7495,12 @@ local function StyleSimpleFrame(frame, unit)
             if not g then
                 frame._absGate = frame._absGate or {}
                 frame._absClip = frame._absClip or {}
-                g = CreateFrame("StatusBar", nil, textOverlay)
+                g = EllesmereUI.SafeCreateFrame("StatusBar", nil, textOverlay)
                 g:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
                 g:SetStatusBarColor(1, 1, 1, 0)  -- geometry only; never drawn
                 g:SetMinMaxValues(0, 1)
                 g:SetValue(0)
-                local clip = CreateFrame("Frame", nil, textOverlay)
+                local clip = EllesmereUI.SafeCreateFrame("Frame", nil, textOverlay)
                 clip:SetClipsChildren(true)
                 clip:SetFrameLevel(textOverlay:GetFrameLevel() + 1)
                 clip:SetPoint("TOPLEFT", g, "TOPLEFT", 0, 0)
@@ -7627,7 +7627,7 @@ local function StylePetFrame(frame, unit)
 
     PP.Size(frame, totalWidth, settings.healthHeight)
 
-    local health = CreateFrame("StatusBar", nil, frame)
+    local health = EllesmereUI.SafeCreateFrame("StatusBar", nil, frame)
     PP.Point(health, "TOPLEFT", frame, "TOPLEFT", portraitOffset, 0)
     PP.Point(health, "RIGHT", frame, "RIGHT", -healthRightInset, 0)
     PP.Height(health, settings.healthHeight)
@@ -7637,7 +7637,7 @@ local function StylePetFrame(frame, unit)
     local bg = health:CreateTexture(nil, "BACKGROUND")
     PP.Point(bg, "TOPLEFT", health, "TOPLEFT", 0, 0)
     PP.Point(bg, "BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
-    bg:SetColorTexture(0, 0, 0, 0.5)
+    bg:SetTexture(0, 0, 0, 0.5)
     health.bg = bg
 
     health.colorReaction = true
@@ -7686,7 +7686,7 @@ local function StylePetFrame(frame, unit)
     ReparentBarsToClip(frame, settings.powerPosition, settings)
 
     -- Text overlay frame (parented to frame, not health, to avoid clipping)
-    local textOverlay = CreateFrame("Frame", nil, frame)
+    local textOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     textOverlay:SetAllPoints(health)
     textOverlay:SetFrameLevel(health:GetFrameLevel() + 12)
     frame._textOverlay = textOverlay
@@ -7740,12 +7740,12 @@ local function StylePetFrame(frame, unit)
             if not g then
                 frame._absGate = frame._absGate or {}
                 frame._absClip = frame._absClip or {}
-                g = CreateFrame("StatusBar", nil, textOverlay)
+                g = EllesmereUI.SafeCreateFrame("StatusBar", nil, textOverlay)
                 g:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
                 g:SetStatusBarColor(1, 1, 1, 0)  -- geometry only; never drawn
                 g:SetMinMaxValues(0, 1)
                 g:SetValue(0)
-                local clip = CreateFrame("Frame", nil, textOverlay)
+                local clip = EllesmereUI.SafeCreateFrame("Frame", nil, textOverlay)
                 clip:SetClipsChildren(true)
                 clip:SetFrameLevel(textOverlay:GetFrameLevel() + 1)
                 clip:SetPoint("TOPLEFT", g, "TOPLEFT", 0, 0)
@@ -7918,7 +7918,7 @@ local function StyleBossFrame(frame, unit)
 
     -- Raid target marker icon (boss frames) -- anchored outside the LEFT edge
     do
-        local raidIconHolder = CreateFrame("Frame", nil, frame)
+        local raidIconHolder = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         raidIconHolder:SetAllPoints(frame)
         raidIconHolder:SetFrameLevel(frame:GetFrameLevel() + 20)
         local raidIcon = raidIconHolder:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -7944,7 +7944,7 @@ local function StyleBossFrame(frame, unit)
     end
 
     -- Text overlay frame (parented to frame, not health, to avoid clipping)
-    local textOverlay = CreateFrame("Frame", nil, frame)
+    local textOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     textOverlay:SetAllPoints(frame.Health)
     textOverlay:SetFrameLevel(frame.Health:GetFrameLevel() + 12)
     frame._textOverlay = textOverlay
@@ -8008,12 +8008,12 @@ local function StyleBossFrame(frame, unit)
             if not g then
                 frame._absGate = frame._absGate or {}
                 frame._absClip = frame._absClip or {}
-                g = CreateFrame("StatusBar", nil, textOverlay)
+                g = EllesmereUI.SafeCreateFrame("StatusBar", nil, textOverlay)
                 g:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
                 g:SetStatusBarColor(1, 1, 1, 0)  -- geometry only; never drawn
                 g:SetMinMaxValues(0, 1)
                 g:SetValue(0)
-                local clip = CreateFrame("Frame", nil, textOverlay)
+                local clip = EllesmereUI.SafeCreateFrame("Frame", nil, textOverlay)
                 clip:SetClipsChildren(true)
                 clip:SetFrameLevel(textOverlay:GetFrameLevel() + 1)
                 clip:SetPoint("TOPLEFT", g, "TOPLEFT", 0, 0)
@@ -8340,9 +8340,9 @@ end
 -- the frame, so drivers recreated there would bill the parent's CPU row
 -- for their polling. Creating them ONCE here (child main chunk) and
 -- reconfiguring per build keeps every rebuild attribution-safe.
-ns._cpDriver = CreateFrame("Frame")
+ns._cpDriver = EllesmereUI.SafeCreateFrame("Frame")
 ns._cpDriver:Hide()
-ns._cpCastWatcher = CreateFrame("Frame")
+ns._cpCastWatcher = EllesmereUI.SafeCreateFrame("Frame")
 ns._cpCastWatcher:Hide()
 
 -- 10 Hz anim tickers for the two class-power polls. A per-frame OnUpdate
@@ -8475,7 +8475,7 @@ local function CreateCustomClassPower(playerFrame, style)
     local totalW = drawPipCount * pipSize + (drawPipCount - 1) * gap + pad
     local totalH = pipH + pad
 
-    local container = CreateFrame("Frame", nil, UIParent)
+    local container = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     PP.Size(container, totalW, totalH)
     container:SetFrameStrata("MEDIUM")
     container:SetFrameLevel(10)
@@ -8484,7 +8484,7 @@ local function CreateCustomClassPower(playerFrame, style)
     local bgCol = db.profile.player.classPowerBgColor or { r = 0.082, g = 0.082, b = 0.082, a = 1.0 }
     local containerBg = container:CreateTexture(nil, "BACKGROUND")
     containerBg:SetAllPoints()
-    containerBg:SetColorTexture(bgCol.r, bgCol.g, bgCol.b, bgCol.a)
+    containerBg:SetTexture(bgCol.r, bgCol.g, bgCol.b, bgCol.a)
     container._bg = containerBg
 
     -- Empty pip color (shown when pip is not filled)
@@ -8498,7 +8498,7 @@ local function CreateCustomClassPower(playerFrame, style)
     -- 1px inset bottom border for "above" position (matches frame border color)
     -- Must be on a separate overlay frame at a higher frame level than pip child frames,
     -- because child frames always render over parent textures regardless of draw layer.
-    local cpBdrOverlay = CreateFrame("Frame", nil, container)
+    local cpBdrOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, container)
     cpBdrOverlay:SetAllPoints()
     cpBdrOverlay:SetFrameLevel(container:GetFrameLevel() + 20)
     local cpBottomBdr = cpBdrOverlay:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -8526,7 +8526,7 @@ local function CreateCustomClassPower(playerFrame, style)
     end
 
     local function MakePip(parent, index)
-        local pip = CreateFrame("Frame", nil, parent)
+        local pip = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
         PP.Size(pip, pipSize, pipH)
         local x = (index - 1) * (pipSize + gap) + pad / 2
         PP.Point(pip, "LEFT", parent, "LEFT", x, 0)
@@ -8538,7 +8538,7 @@ local function CreateCustomClassPower(playerFrame, style)
             pipEmpty:SetTexture("Interface\\COMMON\\Indicator-Gray")
             pipEmpty:SetVertexColor(emptyCol.r, emptyCol.g, emptyCol.b, emptyCol.a)
         else
-            pipEmpty:SetColorTexture(emptyCol.r, emptyCol.g, emptyCol.b, emptyCol.a)
+            pipEmpty:SetTexture(emptyCol.r, emptyCol.g, emptyCol.b, emptyCol.a)
         end
 
         -- Fill color (on top of empty)
@@ -8549,7 +8549,7 @@ local function CreateCustomClassPower(playerFrame, style)
             pipFill:SetTexture("Interface\\COMMON\\Indicator-Gray")
             pipFill:SetVertexColor(cr, cg, cb, 1)
         else
-            pipFill:SetColorTexture(cr, cg, cb, 1)
+            pipFill:SetTexture(cr, cg, cb, 1)
         end
 
         pip._fill = pipFill
@@ -8562,7 +8562,7 @@ local function CreateCustomClassPower(playerFrame, style)
     if isBarMode then
         -- Single StatusBar filling the container; color updates per-tier.
         local inset = pad / 2
-        staggerBar = CreateFrame("StatusBar", nil, container)
+        staggerBar = EllesmereUI.SafeCreateFrame("StatusBar", nil, container)
         staggerBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
         staggerBar:GetStatusBarTexture():SetHorizTile(false)
         PP.Point(staggerBar, "TOPLEFT",     container, "TOPLEFT",     inset, 0)
@@ -8700,7 +8700,7 @@ local function CreateCustomClassPower(playerFrame, style)
             for i = 1, #pips do
                 if pips[i] then
                     if not pips[i]._secretBar then
-                        local sb = CreateFrame("StatusBar", nil, pips[i])
+                        local sb = EllesmereUI.SafeCreateFrame("StatusBar", nil, pips[i])
                         sb:SetAllPoints(pips[i]._fill or pips[i])
                         sb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
                         sb:SetStatusBarColor(cr, cg, cb, 1)
@@ -8845,7 +8845,7 @@ local function CreateCustomClassPower(playerFrame, style)
         eventFrame:SetScript("OnEvent", function(_, event, unit)
             if druidFormToggle and (event == "UPDATE_SHAPESHIFT_FORM" or event == "PLAYER_ENTERING_WORLD") then
                 local form = GetShapeshiftFormID and GetShapeshiftFormID() or 0
-                container:SetShown(form == 1)
+                if form == 1 then container:Show() else container:Hide() end
             end
             if event == "PLAYER_ENTERING_WORLD" or event == "RUNE_POWER_UPDATE"
                or (unit == "player") then
@@ -9408,7 +9408,7 @@ local function ReloadFrames()
                             if shouldGray then
                                 frame.Power._grayedOut = true
                                 if frame.Power.bg then
-                                    frame.Power.bg:SetColorTexture(0.25, 0.25, 0.25, 1)
+                                    frame.Power.bg:SetTexture(0.25, 0.25, 0.25, 1)
                                     frame.Power.bg:SetAlpha(1)
                                 end
                             else
@@ -9426,7 +9426,7 @@ local function ReloadFrames()
                                 PP.Size(castbarBg, cbW, cbH)
                                 if castbarBg._bgTex then
                                     local cbg = settings.castBgColor
-                                    castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
+                                    castbarBg._bgTex:SetTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                                 end
                                 LayoutCastbarIcon(frame.Castbar, CastIconInWidth("player", settings), nil, CastIconOnRight("player", settings), CastIconOffsets("player", settings))
                                 -- Resize cast icon to match castbar height
@@ -9684,7 +9684,7 @@ local function ReloadFrames()
                             if btb.bg then
                                 local bgc = settings.btbBgColor or { r = 0.2, g = 0.2, b = 0.2 }
                                 local bga = settings.btbBgOpacity or 1.0
-                                btb.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bga)
+                                btb.bg:SetTexture(bgc.r, bgc.g, bgc.b, bga)
                             end
                             if btb._applyBTBTextTags then
                                 btb._applyBTBTextTags(settings.btbLeftContent or "none", settings.btbRightContent or "none", settings.btbCenterContent or "none")
@@ -9821,7 +9821,7 @@ local function ReloadFrames()
                             if shouldGray then
                                 frame.Power._grayedOut = true
                                 if frame.Power.bg then
-                                    frame.Power.bg:SetColorTexture(0.25, 0.25, 0.25, 1)
+                                    frame.Power.bg:SetTexture(0.25, 0.25, 0.25, 1)
                                     frame.Power.bg:SetAlpha(1)
                                 end
                             else
@@ -9869,7 +9869,7 @@ local function ReloadFrames()
                             if btb.bg then
                                 local bgc = settings.btbBgColor or { r = 0.2, g = 0.2, b = 0.2 }
                                 local bga = settings.btbBgOpacity or 1.0
-                                btb.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bga)
+                                btb.bg:SetTexture(bgc.r, bgc.g, bgc.b, bga)
                             end
                             if btb._applyBTBTextTags then
                                 btb._applyBTBTextTags(settings.btbLeftContent or "none", settings.btbRightContent or "none", settings.btbCenterContent or "none")
@@ -9897,7 +9897,7 @@ local function ReloadFrames()
                                 PP.Size(castbarBg, cbW2, cbH2)
                                 if castbarBg._bgTex then
                                     local cbg = settings.castBgColor
-                                    castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
+                                    castbarBg._bgTex:SetTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                                 end
                                 LayoutCastbarIcon(frame.Castbar, CastIconInWidth("target", settings), nil, CastIconOnRight("target", settings), CastIconOffsets("target", settings))
                                 if frame.Castbar._iconFrame then
@@ -10236,7 +10236,7 @@ local function ReloadFrames()
                         if btb.bg then
                             local bgc = settings.btbBgColor or { r = 0.2, g = 0.2, b = 0.2 }
                             local bga = settings.btbBgOpacity or 1.0
-                            btb.bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bga)
+                            btb.bg:SetTexture(bgc.r, bgc.g, bgc.b, bga)
                         end
                         if btb._applyBTBTextTags then
                             btb._applyBTBTextTags(settings.btbLeftContent or "none", settings.btbRightContent or "none", settings.btbCenterContent or "none")
@@ -10264,7 +10264,7 @@ local function ReloadFrames()
                             PP.Size(castbarBg, cbW3, cbH3)
                             if castbarBg._bgTex then
                                 local cbg = settings.castBgColor
-                                castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
+                                castbarBg._bgTex:SetTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                             end
                             LayoutCastbarIcon(frame.Castbar, CastIconInWidth("focus", settings), nil, CastIconOnRight("focus", settings), CastIconOffsets("focus", settings))
                             if frame.Castbar._iconFrame then
@@ -10568,7 +10568,7 @@ local function ReloadFrames()
                         if shouldGray then
                             frame.Power._grayedOut = true
                             if frame.Power.bg then
-                                frame.Power.bg:SetColorTexture(0.25, 0.25, 0.25, 1)
+                                frame.Power.bg:SetTexture(0.25, 0.25, 0.25, 1)
                                 frame.Power.bg:SetAlpha(1)
                             end
                         else
@@ -10583,7 +10583,7 @@ local function ReloadFrames()
                     if castbarBg then
                         if castbarBg._bgTex then
                             local cbg = settings.castBgColor
-                            castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
+                            castbarBg._bgTex:SetTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                         end
                         if settings.showCastbar ~= false then
                             if not frame:IsElementEnabled("Castbar") then
@@ -10983,7 +10983,7 @@ local function ReloadFrames()
                         local pr, pg, pb = EllesmereUI.ResolveUnitPowerColor(unit)
                         if pr then
                             local f = EllesmereUI.GetPowerBgDarkenFactor()
-                            self.bg:SetColorTexture(pr * f, pg * f, pb * f, 1)
+                            self.bg:SetTexture(pr * f, pg * f, pb * f, 1)
                         end
                     end
                     -- Keep the power-percent text color in sync with this unit
@@ -11000,9 +11000,9 @@ local function ReloadFrames()
                 end
                 local customBg = settings.customPowerBgColor
                 if customBg and frame.Power.bg then
-                    frame.Power.bg:SetColorTexture(customBg.r, customBg.g, customBg.b, 1)
+                    frame.Power.bg:SetTexture(customBg.r, customBg.g, customBg.b, 1)
                 elseif frame.Power.bg then
-                    frame.Power.bg:SetColorTexture(17/255, 17/255, 17/255, 1)
+                    frame.Power.bg:SetTexture(17/255, 17/255, 17/255, 1)
                 end
                 frame.Power:SetReverseFill(settings.powerReverseFill and true or false)
                 -- The reverse-fill direction is only final here; re-derive the
@@ -11405,7 +11405,7 @@ function InitializeFrames()
     -- driver chain continues to work.
     if frames.player then
     local origParent = frames.player:GetParent() or UIParent
-    local playerVisWrap = CreateFrame("Frame", nil, origParent)
+    local playerVisWrap = EllesmereUI.SafeCreateFrame("Frame", nil, origParent)
     playerVisWrap:SetAllPoints(origParent)
     playerVisWrap:SetFrameStrata(frames.player:GetFrameStrata())
     frames.player:SetParent(playerVisWrap)
@@ -11428,7 +11428,7 @@ function InitializeFrames()
         local pf = frames.player
         if pf and pf.Health then
             if not pf._restHolder then
-                pf._restHolder = CreateFrame("Frame", nil, pf.Health)
+                pf._restHolder = EllesmereUI.SafeCreateFrame("Frame", nil, pf.Health)
                 local restText = pf._restHolder:CreateFontString(nil, "OVERLAY")
                 SetFSFont(restText, 9)
                 restText:SetTextColor(1, 1, 1)
@@ -11436,7 +11436,7 @@ function InitializeFrames()
                 restText:Hide()
                 pf._restIndicator = restText
 
-                pf._restEventFrame = CreateFrame("Frame", nil, pf)
+                pf._restEventFrame = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
                 pf._restEventFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
                 pf._restEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
                 pf._restEventFrame:SetScript("OnEvent", function()
@@ -11468,7 +11468,7 @@ function InitializeFrames()
     -- Re-apply after zone changes and after Edit Mode closes, both of which
     -- can cause Blizzard to reparent or re-hide the cast bar.
     if not frames._cbSuppressFrame then
-        frames._cbSuppressFrame = CreateFrame("Frame")
+        frames._cbSuppressFrame = EllesmereUI.SafeCreateFrame("Frame")
         frames._cbSuppressFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         frames._cbSuppressFrame:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
         frames._cbSuppressFrame:SetScript("OnEvent", function()
@@ -11530,7 +11530,7 @@ function InitializeFrames()
         else
             frame._pendingSize = { totalWidth, totalH }
             if not frame._pendingSizeListener then
-                frame._pendingSizeListener = CreateFrame("Frame")
+                frame._pendingSizeListener = EllesmereUI.SafeCreateFrame("Frame")
                 frame._pendingSizeListener:SetScript("OnEvent", function(self)
                     self:UnregisterAllEvents()
                     if frame._pendingSize and not InCombatLockdown() then
@@ -11618,7 +11618,7 @@ function InitializeFrames()
             -- Show 1px bottom border matching frame border color
             if bar._bottomBdrFrame then
                 local bdrC = db.profile.player.borderColor or { r = 0, g = 0, b = 0 }
-                bar._bottomBdr:SetColorTexture(bdrC.r, bdrC.g, bdrC.b, 1)
+                bar._bottomBdr:SetTexture(bdrC.r, bdrC.g, bdrC.b, 1)
                 bar._bottomBdrFrame:Show()
             end
         elseif style == "modern" and position == "top" then
@@ -11868,7 +11868,7 @@ function InitializeFrames()
 
     -- Persistent spec-change watcher for class power rebuild.
     -- Lives outside the class power container so it survives DestroyCustomClassPower.
-    local cpSpecWatcher = CreateFrame("Frame")
+    local cpSpecWatcher = EllesmereUI.SafeCreateFrame("Frame")
     local cpSpecInitDone = false
     cpSpecWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
     cpSpecWatcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
@@ -11933,7 +11933,7 @@ function InitializeFrames()
         _suppressedChildren = _suppressedChildren or {}
         _rehidePending = _rehidePending or {}
         if not _suppressWatcher then
-            _suppressWatcher = CreateFrame("Frame")
+            _suppressWatcher = EllesmereUI.SafeCreateFrame("Frame")
             _suppressWatcher:SetScript("OnEvent", function(self)
                 self:UnregisterEvent("PLAYER_REGEN_ENABLED")
                 if InCombatLockdown() then return end
@@ -11989,7 +11989,7 @@ function InitializeFrames()
 
         -- Create holder + texture ONCE, reuse on subsequent calls
         if not pf._combatHolder then
-            pf._combatHolder = CreateFrame("Frame", nil, pf)
+            pf._combatHolder = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
             pf._combatHolder:SetAllPoints(pf)
             pf._combatIndicator = pf._combatHolder:CreateTexture(nil, "OVERLAY", nil, 7)
             pf._combatIndicator:Hide()
@@ -12071,7 +12071,7 @@ function InitializeFrames()
 
         -- Event frame for combat state changes (reuse existing)
         if not pf._combatEventFrame then
-            pf._combatEventFrame = CreateFrame("Frame", nil, pf)
+            pf._combatEventFrame = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
             if ciUnit == "player" then
                 pf._combatEventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
                 pf._combatEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -12175,7 +12175,7 @@ function InitializeFrames()
         _setupLeaderIndicator(frames.target, db.profile.target)
 
         if #_leaderUnits > 0 then
-            local leaderEvents = CreateFrame("Frame")
+            local leaderEvents = EllesmereUI.SafeCreateFrame("Frame")
             leaderEvents:RegisterEvent("PARTY_LEADER_CHANGED")
             leaderEvents:RegisterEvent("GROUP_ROSTER_UPDATE")
             leaderEvents:RegisterEvent("PLAYER_TARGET_CHANGED")
@@ -12751,7 +12751,7 @@ function InitializeFrames()
     ns.UpdateFrameVisibility = UpdateFrameVisibility
 
     if not frames._visFrame then
-        frames._visFrame = CreateFrame("Frame")
+        frames._visFrame = EllesmereUI.SafeCreateFrame("Frame")
         frames._visFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
         frames._visFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         frames._visFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
@@ -12788,7 +12788,7 @@ function InitializeFrames()
     --  so "class color" mode reflects the new unit's color.
     ---------------------------------------------------------------------------
     if not frames._portraitBorderUpdater then
-        frames._portraitBorderUpdater = CreateFrame("Frame")
+        frames._portraitBorderUpdater = EllesmereUI.SafeCreateFrame("Frame")
         frames._portraitBorderUpdater:RegisterEvent("PLAYER_TARGET_CHANGED")
         frames._portraitBorderUpdater:RegisterEvent("PLAYER_FOCUS_CHANGED")
     end
@@ -12863,7 +12863,7 @@ function InitializeFrames()
         end
     end
     if not frames._miniTextClassUpdater then
-        frames._miniTextClassUpdater = CreateFrame("Frame")
+        frames._miniTextClassUpdater = EllesmereUI.SafeCreateFrame("Frame")
         frames._miniTextClassUpdater:RegisterEvent("PLAYER_TARGET_CHANGED")
         frames._miniTextClassUpdater:RegisterEvent("PLAYER_FOCUS_CHANGED")
         frames._miniTextClassUpdater:RegisterUnitEvent("UNIT_TARGET", "target", "focus")
@@ -12911,7 +12911,7 @@ function InitializeFrames()
         end
     end
     if not frames._bossTargetBorderUpdater then
-        frames._bossTargetBorderUpdater = CreateFrame("Frame")
+        frames._bossTargetBorderUpdater = EllesmereUI.SafeCreateFrame("Frame")
         frames._bossTargetBorderUpdater:RegisterEvent("PLAYER_TARGET_CHANGED")
         frames._bossTargetBorderUpdater:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
         frames._bossTargetBorderUpdater:RegisterEvent("UNIT_TARGETABLE_CHANGED")
@@ -12999,7 +12999,7 @@ function SetupOptionsPanel()
     ns.ApplyFramePosition = ApplyFramePosition
     ns.GetFrameDimensions = GetFrameDimensions
     local reloadPending = false
-    local reloadThrottle = CreateFrame("Frame")
+    local reloadThrottle = EllesmereUI.SafeCreateFrame("Frame")
     reloadThrottle:Hide()
     reloadThrottle:SetScript("OnUpdate", function(self)
         self:Hide()
@@ -13092,7 +13092,7 @@ function SetupOptionsPanel()
         -- Inter-icon spacing from the configured slider (physical pixels). `gap`
         -- stays at 1 for the holder-to-frame edge offset (matches the runtime).
         local iconGap = PP.FromPixels(ns.GetBossDebuffSpacing(settings, simple))
-        local holder = CreateFrame("Frame", nil, frame)
+        local holder = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         holder:SetSize(iconSize * count + iconGap * (count - 1), iconSize)
         -- Above the unified border so it sits BEHIND the preview debuffs, matching
         -- the live boss aura layering. The border FRAME is frame+10 but its solid
@@ -13156,7 +13156,7 @@ function SetupOptionsPanel()
         local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or "Fonts\\FRIZQT__.TTF"
         local now = GetTime()
         for idx, spellID in ipairs(FAKE_DEBUFF_SPELLS) do
-            local iconFrame = CreateFrame("Frame", nil, holder)
+            local iconFrame = EllesmereUI.SafeCreateFrame("Frame", nil, holder)
             iconFrame:SetSize(iconSize, iconSize)
             if simpleMode == "right" then
                 iconFrame:SetPoint("LEFT", holder, "LEFT", (idx - 1) * (iconSize + iconGap), 0)
@@ -13175,7 +13175,7 @@ function SetupOptionsPanel()
             -- fraction so the wedge never visibly moves. Native countdown
             -- numbers stay hidden; the duration text below is a manual static
             -- FontString instead.
-            local cd = CreateFrame("Cooldown", nil, iconFrame, "CooldownFrameTemplate")
+            local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, iconFrame, "CooldownFrameTemplate")
             cd:SetAllPoints(iconFrame)
             -- Swipe sits above the border (border at +1, PP container at +2) so
             -- the layering matches the live boss aura buttons.
@@ -13190,7 +13190,7 @@ function SetupOptionsPanel()
             cd:SetCooldown(now - 3600 * (1 - frac), 3600)
             -- Text host above the swipe AND the border container so the
             -- duration/stack text renders over the icon border, not under it.
-            local textHost = CreateFrame("Frame", nil, iconFrame)
+            local textHost = EllesmereUI.SafeCreateFrame("Frame", nil, iconFrame)
             textHost:SetAllPoints(iconFrame)
             textHost:SetFrameLevel(iconFrame:GetFrameLevel() + 4)
             local durText = textHost:CreateFontString(nil, "OVERLAY")
@@ -13212,7 +13212,7 @@ function SetupOptionsPanel()
             end
             -- Border just above the icon; its PP container renders at border+1
             -- (iconFrame+2), below the swipe and text host so both stay on top.
-            local border = CreateFrame("Frame", nil, iconFrame)
+            local border = EllesmereUI.SafeCreateFrame("Frame", nil, iconFrame)
             border:SetAllPoints(icon)
             border:SetFrameLevel(iconFrame:GetFrameLevel() + 1)
             if PP and PP.CreateBorder then PP.CreateBorder(border, 0, 0, 0, 1) end
@@ -13269,7 +13269,7 @@ function SetupOptionsPanel()
         -- Inter-icon spacing from the configured slider (physical pixels). `gap`
         -- stays at 1 for the holder-to-frame edge offset (matches the runtime).
         local iconGap = PP.FromPixels(ns.GetBossBuffSpacing(settings, simple))
-        local holder = CreateFrame("Frame", nil, frame)
+        local holder = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         holder:SetSize(iconSize * count + iconGap * (count - 1), iconSize)
         -- Above the unified border so it sits BEHIND the preview buffs, matching
         -- the live boss aura layering. The border FRAME is frame+10 but its solid
@@ -13302,7 +13302,7 @@ function SetupOptionsPanel()
             holder:SetPoint("RIGHT", frame, "LEFT", -gap + bOffX, 0 + bOffY)
         end
         for idx, spellID in ipairs(FAKE_BUFF_SPELLS) do
-            local iconFrame = CreateFrame("Frame", nil, holder)
+            local iconFrame = EllesmereUI.SafeCreateFrame("Frame", nil, holder)
             iconFrame:SetSize(iconSize, iconSize)
             if simple and simpleMode == "left" then
                 -- Left mode grows leftward from the right edge of the holder.
@@ -13318,7 +13318,7 @@ function SetupOptionsPanel()
             if tex then icon:SetTexture(tex) end
             local z = settings.buffIconZoom or 0.07
             icon:SetTexCoord(z, 1 - z, z, 1 - z)
-            local border = CreateFrame("Frame", nil, iconFrame)
+            local border = EllesmereUI.SafeCreateFrame("Frame", nil, iconFrame)
             border:SetAllPoints(icon)
             border:SetFrameLevel(iconFrame:GetFrameLevel() + 1)
             if PP and PP.CreateBorder then PP.CreateBorder(border, 0, 0, 0, 1) end
@@ -14048,7 +14048,7 @@ do
         local sz = db.profile.player.paSize or 20
         st.frames = {}
         for i = 1, PA_SLOT_COUNT do
-            local f = CreateFrame("Frame", nil, frame)
+            local f = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
             f:SetFrameLevel(frame:GetFrameLevel() + PA_LVL_AURA)
             f:SetSize(sz, sz)
             f:EnableMouse(false)
@@ -14245,7 +14245,7 @@ do
         CreateSlots(pf)
         -- Lazy PEW watcher: exists and is registered only while enabled.
         if not st.ev then
-            st.ev = CreateFrame("Frame")
+            st.ev = EllesmereUI.SafeCreateFrame("Frame")
             st.ev:SetScript("OnEvent", function() Apply() end)
         end
         st.ev:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -14322,7 +14322,7 @@ end
 
 do
     local loginFired = false
-    local router = CreateFrame("Frame")
+    local router = EllesmereUI.SafeCreateFrame("Frame")
     router:RegisterEvent("PLAYER_LOGIN")
     -- Backstop only: PLAYER_LOGIN always fires for a startup-loaded addon,
     -- but if it were ever missed the next world entry drains the flag.
@@ -14472,7 +14472,7 @@ do
         UpdateTicker()
     end
 
-    local ev = CreateFrame("Frame")
+    local ev = EllesmereUI.SafeCreateFrame("Frame")
     ev:RegisterEvent("PLAYER_LOGIN")
     ev:RegisterEvent("PLAYER_ENTERING_WORLD")
     ev:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
@@ -14573,7 +14573,7 @@ do
         olTex:SetVertexColor(1, 1, 1, 1)
         if mode == "full" then
             olTex:SetAllPoints(health)
-            olTex:SetColorTexture(r, g, b, alpha)
+            olTex:SetTexture(r, g, b, alpha)
         elseif mode == "gradient" or mode == "gradient_sharp" then
             -- Pre-baked vertical gradient tinted via vertex color (CreateColor
             -- cannot wrap secret components; SetVertexColor passes them natively)
@@ -14590,7 +14590,7 @@ do
             else
                 olTex:SetAllPoints(health)
             end
-            olTex:SetColorTexture(r, g, b, alpha)
+            olTex:SetTexture(r, g, b, alpha)
         end
         olTex:Show()
     end
@@ -14663,7 +14663,7 @@ do
         end
     end
 
-    local ev2 = CreateFrame("Frame")
+    local ev2 = EllesmereUI.SafeCreateFrame("Frame")
     ev2:RegisterUnitEvent("UNIT_AURA", "player")
     ev2:RegisterEvent("PLAYER_ENTERING_WORLD")
     ev2:SetScript("OnEvent", function()

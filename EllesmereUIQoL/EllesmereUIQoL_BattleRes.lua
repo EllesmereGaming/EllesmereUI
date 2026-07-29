@@ -363,7 +363,7 @@ _G._EUI_BattleRes_UpdateVisibility = UpdateVisibility
 -------------------------------------------------------------------------------
 local function CreateBrezFrame()
     if frame then return frame end
-    frame = CreateFrame("Frame", "EllesmereUIBattleResIcon", UIParent)
+    frame = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIBattleResIcon", UIParent)
     frame:SetFrameStrata("MEDIUM")
     frame:SetSize(40, 40)
     frame:Hide()
@@ -380,7 +380,7 @@ local function CreateBrezFrame()
     borderTex = frame:CreateTexture(nil, "OVERLAY")
     borderTex:Hide()
 
-    cooldownFrame = CreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
+    cooldownFrame = EllesmereUI.SafeCreateFrame("Cooldown", nil, frame, "CooldownFrameTemplate")
     cooldownFrame:SetAllPoints(frame)
     cooldownFrame:SetDrawEdge(false)
     cooldownFrame:SetHideCountdownNumbers(true)  -- we render our own duration text
@@ -464,7 +464,7 @@ _syncEventRegistration = function()
     _eventsRegistered = want
     if want then
         if not _eventFrame then
-            _eventFrame = CreateFrame("Frame")
+            _eventFrame = EllesmereUI.SafeCreateFrame("Frame")
             _eventFrame:SetScript("OnEvent", OnEvent)
         end
         _eventFrame:RegisterEvent("ENCOUNTER_START")
@@ -558,7 +558,7 @@ _G._EUI_BattleRes_RegisterUnlock = RegisterUnlock
 -------------------------------------------------------------------------------
 --  Init
 -------------------------------------------------------------------------------
-local boot = CreateFrame("Frame")
+local boot = EllesmereUI.SafeCreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")
 boot:SetScript("OnEvent", function(self)
     self:UnregisterAllEvents()

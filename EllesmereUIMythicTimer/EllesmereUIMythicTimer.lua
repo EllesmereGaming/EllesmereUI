@@ -89,7 +89,7 @@ local function ApplyBarTexture(tex, texKey, r, g, b, a)
         tex:SetVertexColor(r, g, b, a)
     else
         tex:SetVertexColor(1, 1, 1, 1)
-        tex:SetColorTexture(r, g, b, a)
+        tex:SetTexture(r, g, b, a)
     end
 end
 
@@ -775,7 +775,7 @@ local function HideTracker(otf)
     if InCombatLockdown() then
         otf:SetAlpha(0)
         if not _trackerRegenFrame then
-            _trackerRegenFrame = CreateFrame("Frame")
+            _trackerRegenFrame = EllesmereUI.SafeCreateFrame("Frame")
             _trackerRegenFrame:SetScript("OnEvent", function(self)
                 self:UnregisterEvent("PLAYER_REGEN_ENABLED")
                 local f = _G.ObjectiveTrackerFrame
@@ -1012,7 +1012,7 @@ local function ApplyBorderTo(parent, anchor, key, p, size, texKey, r, g, b, a)
         return
     end
     if not bf then
-        bf = CreateFrame("Frame", nil, parent)
+        bf = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
         bf:EnableMouse(false)
         bf:SetFrameLevel(parent:GetFrameLevel() + 10)
         -- Clip every border (including textured styles with an outward
@@ -1247,7 +1247,7 @@ local function CreateStandaloneFrame()
     if standaloneCreated then return standaloneFrame end
     standaloneCreated = true
 
-    local f = CreateFrame("Frame", "EllesmereUIMythicTimerStandalone", UIParent, "BackdropTemplate")
+    local f = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIMythicTimerStandalone", UIParent, "BackdropTemplate")
     f:SetSize(260, 200)
     -- Default position: top of quest tracker, or right-side fallback
     local otf = _G.ObjectiveTrackerFrame
@@ -1275,7 +1275,7 @@ local function CreateStandaloneFrame()
     -- border would therefore ALWAYS sit above the text, whatever draw layer the
     -- text uses (frame level beats draw layer across different frames). Must be
     -- created BEFORE the fontstrings below so they can be reparented onto it.
-    f._emtTextLayer = CreateFrame("Frame", nil, f)
+    f._emtTextLayer = EllesmereUI.SafeCreateFrame("Frame", nil, f)
     f._emtTextLayer:SetFrameLevel(f:GetFrameLevel() + 30)
     f._emtTextLayer:EnableMouse(false)
 
@@ -1319,18 +1319,18 @@ local function CreateStandaloneFrame()
     f._threshRemFS:SetWordWrap(false)
     f._deathFS = f:CreateFontString(nil, "OVERLAY")
     f._deathFS:SetWordWrap(false)
-    f._deathHit = CreateFrame("Frame", nil, f)
+    f._deathHit = EllesmereUI.SafeCreateFrame("Frame", nil, f)
     f._deathHit:SetFrameLevel(f:GetFrameLevel() + 5)
     f._deathHit:EnableMouse(true)
 
     -- Custom two-column death tooltip
-    local deathTT = CreateFrame("Frame", nil, UIParent)
+    local deathTT = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     deathTT:SetFrameStrata("TOOLTIP")
     deathTT:SetFrameLevel(200)
     deathTT:Hide()
     local ttBg = deathTT:CreateTexture(nil, "BACKGROUND")
     ttBg:SetAllPoints()
-    ttBg:SetColorTexture(0.067, 0.067, 0.067, 0.90)
+    ttBg:SetTexture(0.067, 0.067, 0.067, 0.90)
     EllesmereUI.MakeBorder(deathTT, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
     deathTT._rows = {}
 
@@ -1507,7 +1507,7 @@ local function RenderStandalone()
 
     local aR, aG, aB = GetAccentColor()
     if p.showAccent then
-        f._accent:SetColorTexture(aR, aG, aB, 0.9)
+        f._accent:SetTexture(aR, aG, aB, 0.9)
         f._accent:Show()
     else
         f._accent:Hide()
@@ -2383,9 +2383,9 @@ local function RenderStandalone()
             f._seg3:SetSize(_tickW, TBAR_H)
             f._seg3:SetPoint("TOPLEFT", f._barBg, "TOPLEFT", _snap(barW * (plusThreeT / maxTime)) - _tickW / 2, 0)
             if p.timerTickColor or whiteTicks or elapsed > plusThreeT then
-                f._seg3:SetColorTexture(tickR, tickG, tickB, tickA)
+                f._seg3:SetTexture(tickR, tickG, tickB, tickA)
             else
-                f._seg3:SetColorTexture(0.4, 1, 0.4, tickA)
+                f._seg3:SetTexture(0.4, 1, 0.4, tickA)
             end
             f._seg3:Show()
 
@@ -2393,9 +2393,9 @@ local function RenderStandalone()
             f._seg2:SetSize(_tickW, TBAR_H)
             f._seg2:SetPoint("TOPLEFT", f._barBg, "TOPLEFT", _snap(barW * (plusTwoT / maxTime)) - _tickW / 2, 0)
             if p.timerTickColor or whiteTicks or elapsed > plusTwoT then
-                f._seg2:SetColorTexture(tickR, tickG, tickB, tickA)
+                f._seg2:SetTexture(tickR, tickG, tickB, tickA)
             else
-                f._seg2:SetColorTexture(0.3, 0.8, 1, tickA)
+                f._seg2:SetTexture(0.3, 0.8, 1, tickA)
             end
             f._seg2:Show()
         end
@@ -2690,7 +2690,7 @@ end
 -- done" detection (no need for a per-tick poller). Multi-event detection
 -- with GetInstanceInfo difficulty fallback (IsChallengeModeActive returns
 -- false post-completion, so map-id alone isn't reliable).
-local runtimeFrame = CreateFrame("Frame")
+local runtimeFrame = EllesmereUI.SafeCreateFrame("Frame")
 
 local function _isInChallengeMode()
     if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive

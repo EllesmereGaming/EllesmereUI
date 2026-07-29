@@ -22,8 +22,17 @@ local tinsert, tremove = table.insert, table.remove
 local xpcall, geterrorhandler = xpcall, geterrorhandler
 
 local function errorhandler(err) return geterrorhandler()(err) end
-local function safecall(func, ...)
-    if type(func) == "function" then return xpcall(func, errorhandler, ...) end
+local function safecall(func, arg1, ...)
+    if type(func) == "function" then
+        if select("#", ...) > 0 then
+            local args = {arg1, ...}
+            return xpcall(function() return func(unpack(args)) end, errorhandler)
+        elseif arg1 ~= nil then
+            return xpcall(function() return func(arg1) end, errorhandler)
+        else
+            return xpcall(func, errorhandler)
+        end
+    end
 end
 
 --------------------------------------------------------------------------------
@@ -37,7 +46,7 @@ local statuses = {}        -- name -> true if enabled
 -- Per-addon event frame. Defined ABOVE NewAddon because NewAddon creates it
 -- EAGERLY, and that timing is load-bearing for CPU attribution: the engine
 -- bills an event handler's entire call tree to the addon whose execution
--- context called CreateFrame for the frame (probe-verified 2026-07-26; see
+-- context called EllesmereUI.SafeCreateFrame for the frame (probe-verified 2026-07-26; see
 -- EllesmereUI_Ticker.lua). NewAddon runs in the child's MAIN CHUNK, so the
 -- frame is stamped to the child and its event work bills that addon. The old
 -- lazy creation happened at first RegisterEvent -- usually inside
@@ -46,7 +55,7 @@ local statuses = {}        -- name -> true if enabled
 -- suite's event handling was billed to the parent addon.
 local function GetOrCreateEventFrame(addon)
     if addon._eventFrame then return addon._eventFrame end
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f._handlers = {}
     f:SetScript("OnEvent", function(self, event, ...)
         local handler = self._handlers[event]
@@ -331,7 +340,7 @@ function EUILite.RegisterPreLogout(fn)
     tinsert(preLogoutCallbacks, fn)
 end
 
-local logoutFrame = CreateFrame("Frame")
+local logoutFrame = EllesmereUI.SafeCreateFrame("Frame")
 logoutFrame:RegisterEvent("PLAYER_LOGOUT")
 logoutFrame:SetScript("OnEvent", function()
     -- Fire pre-logout callbacks while data is still intact
@@ -452,7 +461,7 @@ local function FlushEnableQueue()
     end
 end
 
-local lifecycleFrame = CreateFrame("Frame")
+local lifecycleFrame = EllesmereUI.SafeCreateFrame("Frame")
 lifecycleFrame:RegisterEvent("ADDON_LOADED")
 lifecycleFrame:RegisterEvent("PLAYER_LOGIN")
 lifecycleFrame:SetScript("OnEvent", function(self, event, arg1)

@@ -14,7 +14,7 @@ local _, ns = ...
 local EQT = ns.EQT
 
 -- Hidden reparent target -- NEVER recursed into.
-local hiddenFrame = CreateFrame("Frame", "EllesmereUIQTHiddenParent", UIParent)
+local hiddenFrame = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIQTHiddenParent", UIParent)
 hiddenFrame:Hide()
 
 local _eqtCollapsed       = false
@@ -264,7 +264,7 @@ local function EnsureBG()
     if _bgFrame then return _bgFrame end
     local otf = GetTracker()
     if not otf then return nil end
-    _bgFrame = CreateFrame("Frame", "EllesmereUIQTBackground", UIParent)
+    _bgFrame = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIQTBackground", UIParent)
     _bgFrame:SetFrameStrata(otf:GetFrameStrata() or "MEDIUM")
     _bgFrame:SetFrameLevel(math.max(0, otf:GetFrameLevel() - 1))
     -- Start the background flush with the top anchor (see GetBGTopAnchor()
@@ -310,7 +310,7 @@ local function ApplyTopDivider()
     tex:SetHeight(onePixel)
     local eg = EllesmereUI and EllesmereUI.ELLESMERE_GREEN
     local r, g, b = (eg and eg.r) or 0.047, (eg and eg.g) or 0.824, (eg and eg.b) or 0.624
-    tex:SetColorTexture(r, g, b, 1)
+    tex:SetTexture(r, g, b, 1)
     tex:Show()
 end
 
@@ -468,7 +468,7 @@ function EQT.ApplyBackground()
     local g = cfg.bgG or 0
     local b = cfg.bgB or 0
     local a = cfg.bgAlpha or 0.5
-    bg._tex:SetColorTexture(r, g, b, a)
+    bg._tex:SetTexture(r, g, b, a)
     ResizeBGToContent()
     ApplyTopDivider()
 end
@@ -510,7 +510,7 @@ function EQT.InitVisibility()
     C_Timer.After(0.1, SyncBGToTracker)
     C_Timer.After(0.5, SyncBGToTracker)
 
-    local evt = CreateFrame("Frame")
+    local evt = EllesmereUI.SafeCreateFrame("Frame")
     evt:RegisterEvent("PLAYER_ENTERING_WORLD")
     evt:RegisterEvent("ZONE_CHANGED_NEW_AREA")
     evt:RegisterEvent("ENCOUNTER_START")

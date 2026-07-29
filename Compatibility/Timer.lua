@@ -4,10 +4,13 @@
 if not C_Timer then
     C_Timer = {}
     local timers = {}
+    local newTimers = {}
+    local iterating = false
     local tickerId = 0
     local timerFrame = CreateFrame("Frame")
 
     timerFrame:SetScript("OnUpdate", function(self, elapsed)
+        iterating = true
         for id, t in pairs(timers) do
             if not t.cancelled then
                 t.remaining = t.remaining - elapsed
@@ -18,7 +21,7 @@ if not C_Timer then
                         if t.remaining <= 0 then
                             t.remaining = t.duration
                         end
-                        local success, err = pcall(t.callback)
+                        local success, err = pcall(t.callback, t)
                         if not success then
                             geterrorhandler()(err)
                         end
@@ -41,6 +44,13 @@ if not C_Timer then
                 timers[id] = nil
             end
         end
+        iterating = false
+        
+        for id, t in pairs(newTimers) do
+            timers[id] = t
+            newTimers[id] = nil
+        end
+
         if not next(timers) then
             self:Hide()
         end
@@ -63,8 +73,13 @@ if not C_Timer then
         function t:Cancel()
             self.cancelled = true
             timers[id] = nil
+            newTimers[id] = nil
         end
-        timers[id] = t
+        if iterating then
+            newTimers[id] = t
+        else
+            timers[id] = t
+        end
         timerFrame:Show()
         return t
     end

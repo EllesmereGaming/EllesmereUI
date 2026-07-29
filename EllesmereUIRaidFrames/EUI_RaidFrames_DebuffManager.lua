@@ -691,7 +691,7 @@ end
 local function FxCreateVisuals(button, dd, kind, hostBtn, health)
     if not dd then return end
     if kind == "glow" then
-        local g = CreateFrame("Frame", nil, button)
+        local g = EllesmereUI.SafeCreateFrame("Frame", nil, button)
         g:SetAllPoints(hostBtn)
         g:SetFrameLevel((hostBtn:GetFrameLevel() or 1) + 15)
         g:EnableMouse(false)
@@ -704,7 +704,7 @@ local function FxCreateVisuals(button, dd, kind, hostBtn, health)
         -- heal absorb/prediction bars (+1) and the shield bars (+3) -- and
         -- anchored to the FILL texture so it covers only the filled
         -- portion. The wrapper is ours, so the level tie stays legal.
-        local f = CreateFrame("Frame", nil, button)
+        local f = EllesmereUI.SafeCreateFrame("Frame", nil, button)
         local fill = health.GetStatusBarTexture and health:GetStatusBarTexture()
         f:SetAllPoints(fill or health)
         f:SetFrameLevel(health:GetFrameLevel())
@@ -714,7 +714,7 @@ local function FxCreateVisuals(button, dd, kind, hostBtn, health)
         dd.dmFxHcFrame = f
         dd.dmFxHc = tex
     elseif kind == "square" then
-        local f = CreateFrame("Frame", nil, button)
+        local f = EllesmereUI.SafeCreateFrame("Frame", nil, button)
         f:SetPoint("CENTER", health, "CENTER")
         f:SetSize(10, 10)
         local tex = f:CreateTexture(nil, "ARTWORK", nil, 1)
@@ -723,7 +723,7 @@ local function FxCreateVisuals(button, dd, kind, hostBtn, health)
         dd.dmFxGeoF = f
         dd.dmFxSq = tex
     elseif kind == "bar" then
-        local sb = CreateFrame("StatusBar", nil, button)
+        local sb = EllesmereUI.SafeCreateFrame("StatusBar", nil, button)
         sb:SetPoint("CENTER", health, "CENTER")
         sb:SetSize(10, 10)
         sb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
@@ -781,7 +781,7 @@ local function FxApplyInner(button, dd, refs, fx)
         -- Level tie is set at creation; NO re-check here -- reads on the
         -- slot-button subtree (our frames included) are denied outside the
         -- creation window and would kill this whole branch.
-        tex:SetColorTexture(fx.r or 1, fx.g or 0.2, fx.b or 0.2, fx.a or 0.5)
+        tex:SetTexture(fx.r or 1, fx.g or 0.2, fx.b or 0.2, fx.a or 0.5)
         f:Show()
 
     elseif fx.kind == "square" then
@@ -801,7 +801,7 @@ local function FxApplyInner(button, dd, refs, fx)
             dd.dmFxGeo = sig
         end
         local tex = dd.dmFxSq
-        if tex then tex:SetColorTexture(fx.r or 1, fx.g or 1, fx.b or 1, fx.a or 1) end
+        if tex then tex:SetTexture(fx.r or 1, fx.g or 1, fx.b or 1, fx.a or 1) end
         gf:Show()
 
     elseif fx.kind == "bar" then
@@ -859,7 +859,7 @@ local function FxApplyInner(button, dd, refs, fx)
         gf:SetStatusBarColor(fx.r or 0.25, fx.g or 0.8, fx.b or 0.45,
             (fx.colorOp or 100) / 100)
         if dd.dmFxBarBg then
-            dd.dmFxBarBg:SetColorTexture(fx.bgR or 0, fx.bgG or 0, fx.bgB or 0,
+            dd.dmFxBarBg:SetTexture(fx.bgR or 0, fx.bgG or 0, fx.bgB or 0,
                 (fx.bgOp or 50) / 100)
         end
         gf:Show()
@@ -1560,7 +1560,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                     if gatedContent then
                         gatedTiles = gatedTiles or {}
                         gatedTiles[#gatedTiles + 1] = t.id
-                        tc:SetShown(assist)
+                        if assist then tc:Show() else tc:Hide() end
                     else
                         tc:Show()
                     end
@@ -1638,7 +1638,7 @@ function ns.DM_OnAssistChanged(d)
     if tiles and d.dmTiles then
         for i = 1, #tiles do
             local c = d.dmTiles[tiles[i]]
-            if c then c:SetShown(assist) end
+            if c then if assist then c:Show() else c:Hide() end end
         end
     end
 end

@@ -1083,7 +1083,7 @@ local function ApplyMaxStacksGlow(frame, fd, ss2, atMax)
             -- the active glow (StartNativeGlow stops glows on the passed overlay only).
             local mo = fd.maxStacksGlowOverlay
             if not mo and frame then
-                mo = CreateFrame("Frame", nil, frame)
+                mo = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
                 mo:SetAllPoints(frame)
                 mo:SetAlpha(0)
                 mo:EnableMouse(false)
@@ -1371,7 +1371,7 @@ local function EvalCdReadySound(frame, fd, primeOnly)
         end
         -- Became ready. Confirm one frame later (let the API settle) before playing.
         if not fd._cdReadyPending then
-            fd._cdReadyPending = CreateFrame("Frame")
+            fd._cdReadyPending = EllesmereUI.SafeCreateFrame("Frame")
             fd._cdReadyPending:Hide()
             fd._cdReadyPending:SetScript("OnUpdate", function(self)
                 self:Hide()
@@ -1655,7 +1655,7 @@ end
 local function ArmCdStateEval(frame, fd, cse, cseShift, lowAlpha, hideUntilSpent)
     local pending = fd._cdStatePending
     if not pending then
-        pending = CreateFrame("Frame")
+        pending = EllesmereUI.SafeCreateFrame("Frame")
         pending:Hide()
         fd._cdStatePending = pending
         pending:SetScript("OnUpdate", function(self)
@@ -1996,7 +1996,7 @@ local function DecorateFrame(frame, barData)
         bg:SetAllPoints()
         fd.bg = bg
     end
-    fd.bg:SetColorTexture(barData.bgR or 0.08, barData.bgG or 0.08,
+    fd.bg:SetTexture(barData.bgR or 0.08, barData.bgG or 0.08,
         barData.bgB or 0.08, barData.bgA or 0.6)
 
     -- Custom-shape bars own their border: ApplyShapeToCDMIcon draws the ring
@@ -2017,7 +2017,7 @@ local function DecorateFrame(frame, barData)
         end
     else
         if not fd.borderFrame then
-            local bf = CreateFrame("Frame", nil, frame)
+            local bf = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
             bf:SetAllPoints(frame)
             fd.borderFrame = bf
         end
@@ -2153,7 +2153,7 @@ local function DecorateFrame(frame, barData)
     -- glowOverlay/textOverlay structural creation stays one-time; their frame
     -- levels are (re)applied unconditionally near the top of this function.
     if not fd.glowOverlay then
-        local go = CreateFrame("Frame", nil, frame)
+        local go = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         go:SetAllPoints(frame)
         go:SetAlpha(0)
         go:EnableMouse(false)
@@ -2168,7 +2168,7 @@ local function DecorateFrame(frame, barData)
     fd._activeGlowNoCfg = nil
 
     if not fd.textOverlay then
-        local txo = CreateFrame("Frame", nil, frame)
+        local txo = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         txo:SetAllPoints(frame)
         txo:EnableMouse(false)
         fd.textOverlay = txo
@@ -3068,7 +3068,7 @@ local function DecorateFrame(frame, barData)
                     -- plain field writes, never closure creation.
                     local pending = fd._cdStateGlowPending
                     if not pending then
-                        pending = CreateFrame("Frame")
+                        pending = EllesmereUI.SafeCreateFrame("Frame")
                         pending:Hide()
                         fd._cdStateGlowPending = pending
                         pending:SetScript("OnUpdate", function(self)
@@ -3221,7 +3221,7 @@ local function GetOrCreateTrinketFrame(slotID)
     local f = _trinketFrames[slotID]
     if f then return f end
 
-    f = CreateFrame("Frame", nil, UIParent)
+    f = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     f:SetSize(36, 36)
     f:Hide()
     f:EnableMouse(false)
@@ -3232,7 +3232,7 @@ local function GetOrCreateTrinketFrame(slotID)
     f.Icon = tex
     f._tex = tex
 
-    local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+    local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
     cd:SetAllPoints()
     cd:SetDrawEdge(false)
     cd:SetDrawBling(false)
@@ -3410,7 +3410,7 @@ local function UpdateTrinketCooldown(slotID)
 end
 ns.UpdateTrinketCooldown = UpdateTrinketCooldown
 
-local _trinketEventFrame = CreateFrame("Frame")
+local _trinketEventFrame = EllesmereUI.SafeCreateFrame("Frame")
 _trinketEventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 _trinketEventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
 _trinketEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -3708,14 +3708,14 @@ local function GetOrCreatePlaceholderFrame(barKey, spellID, iconID)
     local fkey = barKey .. ":ph:" .. spellID
     local f = _placeholderFrames[fkey]
     if not f then
-        f = CreateFrame("Frame", nil, UIParent)
+        f = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         f:SetSize(36, 36); f:Hide()
         f:EnableMouse(true)
         if f.SetMouseClickEnabled then f:SetMouseClickEnabled(false) end
         local tex = f:CreateTexture(nil, "ARTWORK")
         tex:SetAllPoints(); tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         f.Icon = tex; f._tex = tex
-        local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+        local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
         cd:SetAllPoints(); cd:SetDrawEdge(false); cd:SetDrawBling(false)
         cd:SetHideCountdownNumbers(true); cd:EnableMouse(false)
         if cd.SetMouseClickEnabled then cd:SetMouseClickEnabled(false) end
@@ -3758,13 +3758,13 @@ local function GetOrCreateCustomBuffFrame(barKey, sid)
     local fkey = barKey .. ":custombuff:" .. sid
     local f = _presetFrames[fkey]
     if not f then
-        f = CreateFrame("Frame", nil, UIParent)
+        f = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         f:SetSize(36, 36); f:Hide()
         f:EnableMouse(false)
         local tex = f:CreateTexture(nil, "ARTWORK")
         tex:SetAllPoints(); tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         f.Icon = tex; f._tex = tex
-        local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+        local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
         cd:SetAllPoints(); cd:SetDrawEdge(false); cd:SetDrawBling(false)
         cd:SetReverse(true)
         f.Cooldown = cd; f._cooldown = cd
@@ -3810,7 +3810,7 @@ local function GetOrCreateItemPresetFrame(barKey, itemID)
     local icon = preset and preset.icon or C_Item.GetItemIconByID(itemID)
     if not icon then return nil end
 
-    f = CreateFrame("Frame", nil, UIParent)
+    f = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     f:SetSize(36, 36); f:Hide()
     -- Enable mouse motion (OnEnter/OnLeave) for tooltips but pass through clicks.
     f:EnableMouse(true)
@@ -3819,7 +3819,7 @@ local function GetOrCreateItemPresetFrame(barKey, itemID)
     tex:SetAllPoints(); tex:SetTexture(icon)
     tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     f.Icon = tex; f._tex = tex
-    local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+    local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
     cd:SetAllPoints(); cd:SetDrawEdge(false); cd:SetDrawBling(false)
     cd:SetHideCountdownNumbers(true)
     cd:EnableMouse(false)
@@ -3982,7 +3982,7 @@ ns._BumpPotResolveGen = PotSwap.Bump
 -- Uses a timestamp so the grace period works regardless of event ordering.
 local _encounterResetUntil = 0
 
-local _racialCdListener = CreateFrame("Frame")
+local _racialCdListener = EllesmereUI.SafeCreateFrame("Frame")
 _racialCdListener:RegisterEvent("SPELL_UPDATE_COOLDOWN")
 _racialCdListener:RegisterEvent("SPELL_UPDATE_CHARGES")
 _racialCdListener:RegisterEvent("BAG_UPDATE_COOLDOWN")
@@ -4341,7 +4341,7 @@ local _pendingCastIDs = {}
 -- read the live timer to decide which custom buffs to render.
 local _customAuraTimers = {}
 local _customBuffDirty = false
-local _customBuffFrame = CreateFrame("Frame")
+local _customBuffFrame = EllesmereUI.SafeCreateFrame("Frame")
 _customBuffFrame:Hide()
 local CUSTOM_BUFF_THROTTLE = 0.05
 local _lastCustomBuffTime = 0
@@ -4444,7 +4444,7 @@ function ns.AnyCustomAuraTimeSpiral()
     return false
 end
 
-local _spellCastListener = CreateFrame("Frame")
+local _spellCastListener = EllesmereUI.SafeCreateFrame("Frame")
 _spellCastListener:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 _spellCastListener:SetScript("OnEvent", function(_, _, _, _, spellID)
     if spellID then
@@ -5572,14 +5572,14 @@ local function CollectAndReanchor()
                                     local fkey = barKey .. ":" .. (isRacial and "racial" or "custom") .. ":" .. sid
                                     local f = _presetFrames[fkey]
                                     if not f then
-                                        f = CreateFrame("Frame", nil, UIParent)
+                                        f = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
                                         f:SetSize(36, 36); f:Hide()
                                         f:EnableMouse(true)
                                         if f.SetMouseClickEnabled then f:SetMouseClickEnabled(false) end
                                         local tex = f:CreateTexture(nil, "ARTWORK")
                                         tex:SetAllPoints(); tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                                         f.Icon = tex; f._tex = tex
-                                        local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+                                        local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
                                         cd:SetAllPoints(); cd:SetDrawEdge(false); cd:SetDrawBling(false)
                                         cd:SetHideCountdownNumbers(true)
                                         cd:SetScript("OnCooldownDone", function()
@@ -6461,13 +6461,13 @@ local function UpdateCustomBuffBars()
                                 local fkey = barKey .. ":custombuff:" .. sid
                                 local f = _presetFrames[fkey]
                                 if not f then
-                                    f = CreateFrame("Frame", nil, UIParent)
+                                    f = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
                                     f:SetSize(36, 36); f:Hide()
                                     f:EnableMouse(false)
                                     local tex = f:CreateTexture(nil, "ARTWORK")
                                     tex:SetAllPoints(); tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                                     f.Icon = tex; f._tex = tex
-                                    local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+                                    local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
                                     cd:SetAllPoints(); cd:SetDrawEdge(false); cd:SetDrawBling(false)
                                     cd:SetHideCountdownNumbers(not barData.showCooldownText)
                                     cd:SetReverse(true)
@@ -6754,7 +6754,7 @@ function ns.SetupViewerHooks()
                 -- icons get collected and centered. Batched via C_Timer to
                 -- collapse the spam (fires many times per frame).
                 if frame.OnActiveStateChanged then
-                    local _asDeferFrame = CreateFrame("Frame")
+                    local _asDeferFrame = EllesmereUI.SafeCreateFrame("Frame")
                     _asDeferFrame:Hide()
                     local _asDeferTicks = 0
                     _asDeferFrame:SetScript("OnUpdate", function(self)
@@ -7057,7 +7057,7 @@ function ns.SetupViewerHooks()
                                 if fd and fd._bgT ~= nil then effGlowType = fd._bgT end
                                 if effGlowType > 0 and fd and glowActive then
                                     if not fd.buffGlowOverlay then
-                                        local ov = CreateFrame("Frame", nil, frame)
+                                        local ov = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
                                         ov:SetAllPoints(frame)
                                         ov:EnableMouse(false)
                                         fd.buffGlowOverlay = ov
@@ -7126,7 +7126,7 @@ function ns.SetupViewerHooks()
                                     end
                                     if inPandemic then
                                         if not fd.pandemicOverlay then
-                                            local ov = CreateFrame("Frame", nil, frame)
+                                            local ov = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
                                             ov:SetAllPoints(frame)
                                             ov:EnableMouse(false)
                                             fd.pandemicOverlay = ov
@@ -7595,7 +7595,7 @@ do
             if pType <= 3 then
                 tex:SetAtlas(nil); tex:SetTexture(AB_HIGHLIGHT[pType] or AB_HIGHLIGHT[2]); tex:SetVertexColor(cr, cg, cb, 1)
             elseif pType == 4 then
-                tex:SetColorTexture(cr, cg, cb, 0.35)
+                tex:SetTexture(cr, cg, cb, 0.35)
             end
             return true
         end
@@ -7612,7 +7612,7 @@ do
         local edges = {}
         for j = 1, 4 do
             local t = ov:CreateTexture(nil, "OVERLAY", nil, 2)
-            t:SetColorTexture(1, 1, 1, 1)
+            t:SetTexture(1, 1, 1, 1)
             t:Hide()
             edges[j] = t
         end
@@ -7623,7 +7623,7 @@ do
     local function ShowPush(icon)
         local ov = _pushOverlay[icon]
         if not ov then
-            ov = CreateFrame("Frame", nil, icon)
+            ov = EllesmereUI.SafeCreateFrame("Frame", nil, icon)
             ov:SetFrameLevel(icon:GetFrameLevel() + 15)  -- above icon + cooldown swipe
             ov:Hide()
             local tex = ov:CreateTexture(nil, "OVERLAY")

@@ -204,7 +204,7 @@ do
             local ppScale = EllesmereUI.GetPopupScale()
 
             -- Dimmer
-            local dimmer = CreateFrame("Frame", "EUISpecAssignDimmer", UIParent)
+            local dimmer = EllesmereUI.SafeCreateFrame("Frame", "EUISpecAssignDimmer", UIParent)
             dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
             dimmer:SetAllPoints(UIParent)
             dimmer:EnableMouse(true)
@@ -215,10 +215,10 @@ do
 
             local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
             dimTex:SetAllPoints()
-            dimTex:SetColorTexture(0, 0, 0, 0.25)
+            dimTex:SetTexture(0, 0, 0, 0.25)
 
             -- Popup frame
-            local popup = CreateFrame("Frame", "EUISpecAssignPopup", dimmer)
+            local popup = EllesmereUI.SafeCreateFrame("Frame", "EUISpecAssignPopup", dimmer)
             popup:SetScale(ppScale)
             popup:SetFrameStrata("FULLSCREEN_DIALOG")
             popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
@@ -231,20 +231,20 @@ do
             -- Background
             local bg = popup:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
-            bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+            bg:SetTexture(0.06, 0.08, 0.10, 1)
 
             -- Border (2px inset)
             local BRD_A_SP = 0.15
-            local spT = popup:CreateTexture(nil, "BORDER"); spT:SetColorTexture(1, 1, 1, BRD_A_SP)
+            local spT = popup:CreateTexture(nil, "BORDER"); spT:SetTexture(1, 1, 1, BRD_A_SP)
             if spT.SetSnapToPixelGrid then spT:SetSnapToPixelGrid(false); spT:SetTexelSnappingBias(0) end
             spT:SetPoint("TOPLEFT", 0, 0); spT:SetPoint("TOPRIGHT", 0, 0); spT:SetHeight(2)
-            local spB = popup:CreateTexture(nil, "BORDER"); spB:SetColorTexture(1, 1, 1, BRD_A_SP)
+            local spB = popup:CreateTexture(nil, "BORDER"); spB:SetTexture(1, 1, 1, BRD_A_SP)
             if spB.SetSnapToPixelGrid then spB:SetSnapToPixelGrid(false); spB:SetTexelSnappingBias(0) end
             spB:SetPoint("BOTTOMLEFT", 0, 0); spB:SetPoint("BOTTOMRIGHT", 0, 0); spB:SetHeight(2)
-            local spL = popup:CreateTexture(nil, "BORDER"); spL:SetColorTexture(1, 1, 1, BRD_A_SP)
+            local spL = popup:CreateTexture(nil, "BORDER"); spL:SetTexture(1, 1, 1, BRD_A_SP)
             if spL.SetSnapToPixelGrid then spL:SetSnapToPixelGrid(false); spL:SetTexelSnappingBias(0) end
             spL:SetPoint("TOPLEFT", spT, "BOTTOMLEFT"); spL:SetPoint("BOTTOMLEFT", spB, "TOPLEFT"); spL:SetWidth(2)
-            local spR = popup:CreateTexture(nil, "BORDER"); spR:SetColorTexture(1, 1, 1, BRD_A_SP)
+            local spR = popup:CreateTexture(nil, "BORDER"); spR:SetTexture(1, 1, 1, BRD_A_SP)
             if spR.SetSnapToPixelGrid then spR:SetSnapToPixelGrid(false); spR:SetTexelSnappingBias(0) end
             spR:SetPoint("TOPRIGHT", spT, "BOTTOMRIGHT"); spR:SetPoint("BOTTOMRIGHT", spB, "TOPRIGHT"); spR:SetWidth(2)
 
@@ -272,7 +272,7 @@ do
 
             local prevLink
             local function MakeLink(text)
-                local btn = CreateFrame("Button", nil, popup)
+                local btn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
                 btn:SetFrameLevel(popup:GetFrameLevel() + 2)
                 local lbl = btn:CreateFontString(nil, "OVERLAY")
                 lbl:SetFont(FONT, 14, "")
@@ -282,7 +282,7 @@ do
                 btn:SetSize(lbl:GetStringWidth() + 4, 20)
                 if prevLink then
                     local div = popup:CreateTexture(nil, "OVERLAY", nil, 7)
-                    div:SetColorTexture(1, 1, 1, 0.18)
+                    div:SetTexture(1, 1, 1, 0.18)
                     if div.SetSnapToPixelGrid then div:SetSnapToPixelGrid(false); div:SetTexelSnappingBias(0) end
                     PP.Point(div, "LEFT", prevLink, "RIGHT", LINK_GAP / 2, 0)
                     div:SetWidth(1)
@@ -306,7 +306,7 @@ do
             -- Column container frames
             popup._columns = {}
             for colIdx = 1, NUM_COLS do
-                local col = CreateFrame("Frame", nil, popup)
+                local col = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
                 col:SetFrameLevel(popup:GetFrameLevel() + 1)
                 local colX = CONTENT_LEFT + (colIdx - 1) * (COL_W + COL_GAP)
                 PP.Point(col, "TOPLEFT", popup, "TOPLEFT", colX, -CONTENT_TOP)
@@ -321,7 +321,7 @@ do
             local DEFAULT_DD_H = 30
 
             -- Default Profile dropdown container (hidden by default)
-            local defDDContainer = CreateFrame("Frame", nil, popup)
+            local defDDContainer = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
             defDDContainer:SetFrameLevel(popup:GetFrameLevel() + 2)
             PP.Size(defDDContainer, POPUP_W - 52, 68)
             PP.Point(defDDContainer, "BOTTOM", popup, "BOTTOM", 0, BOTTOM_ROW_Y)
@@ -335,30 +335,30 @@ do
             defDDLabel:SetText(EllesmereUI.L("Default Profile (for non-assigned specs)"))
             popup._defDDLabel = defDDLabel
 
-            local defDDBtn = CreateFrame("Button", nil, defDDContainer)
+            local defDDBtn = EllesmereUI.SafeCreateFrame("Button", nil, defDDContainer)
             defDDBtn:SetFrameLevel(defDDContainer:GetFrameLevel() + 2)
             PP.Size(defDDBtn, DEFAULT_DD_W, DEFAULT_DD_H)
             PP.Point(defDDBtn, "TOP", defDDContainer, "CENTER", 0, -7)
 
             local defDDBg = defDDBtn:CreateTexture(nil, "BACKGROUND")
             defDDBg:SetAllPoints()
-            defDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+            defDDBg:SetTexture(0.075, 0.113, 0.141, 0.9)
 
             -- Border textures for the default dropdown
             local defBrdT = defDDBtn:CreateTexture(nil, "OVERLAY", nil, 7)
-            defBrdT:SetColorTexture(1, 1, 1, 0.20)
+            defBrdT:SetTexture(1, 1, 1, 0.20)
             if defBrdT.SetSnapToPixelGrid then defBrdT:SetSnapToPixelGrid(false); defBrdT:SetTexelSnappingBias(0) end
             defBrdT:SetPoint("TOPLEFT"); defBrdT:SetPoint("TOPRIGHT"); defBrdT:SetHeight(1)
             local defBrdB = defDDBtn:CreateTexture(nil, "OVERLAY", nil, 7)
-            defBrdB:SetColorTexture(1, 1, 1, 0.20)
+            defBrdB:SetTexture(1, 1, 1, 0.20)
             if defBrdB.SetSnapToPixelGrid then defBrdB:SetSnapToPixelGrid(false); defBrdB:SetTexelSnappingBias(0) end
             defBrdB:SetPoint("BOTTOMLEFT"); defBrdB:SetPoint("BOTTOMRIGHT"); defBrdB:SetHeight(1)
             local defBrdL = defDDBtn:CreateTexture(nil, "OVERLAY", nil, 7)
-            defBrdL:SetColorTexture(1, 1, 1, 0.20)
+            defBrdL:SetTexture(1, 1, 1, 0.20)
             if defBrdL.SetSnapToPixelGrid then defBrdL:SetSnapToPixelGrid(false); defBrdL:SetTexelSnappingBias(0) end
             defBrdL:SetPoint("TOPLEFT", defBrdT, "BOTTOMLEFT"); defBrdL:SetPoint("BOTTOMLEFT", defBrdB, "TOPLEFT"); defBrdL:SetWidth(1)
             local defBrdR = defDDBtn:CreateTexture(nil, "OVERLAY", nil, 7)
-            defBrdR:SetColorTexture(1, 1, 1, 0.20)
+            defBrdR:SetTexture(1, 1, 1, 0.20)
             if defBrdR.SetSnapToPixelGrid then defBrdR:SetSnapToPixelGrid(false); defBrdR:SetTexelSnappingBias(0) end
             defBrdR:SetPoint("TOPRIGHT", defBrdT, "BOTTOMRIGHT"); defBrdR:SetPoint("BOTTOMRIGHT", defBrdB, "TOPRIGHT"); defBrdR:SetWidth(1)
             popup._defBrdEdges = { defBrdT, defBrdB, defBrdL, defBrdR }
@@ -373,7 +373,7 @@ do
             popup._defDDBtn = defDDBtn
 
             -- Flash animation for error state on the default dropdown
-            local defFlashFrame = CreateFrame("Frame", nil, defDDBtn)
+            local defFlashFrame = EllesmereUI.SafeCreateFrame("Frame", nil, defDDBtn)
             defFlashFrame:Hide()
             local defFlashElapsed = 0
             local DEF_FLASH_DUR = 0.7
@@ -381,7 +381,7 @@ do
                 defFlashElapsed = defFlashElapsed + elapsed
                 if defFlashElapsed >= DEF_FLASH_DUR then
                     self:Hide()
-                    for _, e in ipairs(popup._defBrdEdges) do e:SetColorTexture(1, 1, 1, 0.20) end
+                    for _, e in ipairs(popup._defBrdEdges) do e:SetTexture(1, 1, 1, 0.20) end
                     return
                 end
                 local t = defFlashElapsed / DEF_FLASH_DUR
@@ -389,16 +389,16 @@ do
                 local lg = lerp(0.15, 1, t)
                 local lb = lerp(0.15, 1, t)
                 local la = lerp(0.7, 0.20, t)
-                for _, e in ipairs(popup._defBrdEdges) do e:SetColorTexture(lr, lg, lb, la) end
+                for _, e in ipairs(popup._defBrdEdges) do e:SetTexture(lr, lg, lb, la) end
             end)
             popup._flashDefaultDD = function()
                 defFlashElapsed = 0
-                for _, e in ipairs(popup._defBrdEdges) do e:SetColorTexture(0.9, 0.15, 0.15, 0.7) end
+                for _, e in ipairs(popup._defBrdEdges) do e:SetTexture(0.9, 0.15, 0.15, 0.7) end
                 defFlashFrame:Show()
             end
 
             -- Default dropdown menu (popout list)
-            local defMenu = CreateFrame("Frame", nil, UIParent)
+            local defMenu = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
             defMenu:SetFrameStrata("FULLSCREEN_DIALOG")
             defMenu:SetFrameLevel(300)
             defMenu:SetClampedToScreen(true)
@@ -407,32 +407,32 @@ do
             defMenu:Hide()
             local defMenuBg = defMenu:CreateTexture(nil, "BACKGROUND")
             defMenuBg:SetAllPoints()
-            defMenuBg:SetColorTexture(0.075, 0.113, 0.141, 0.98)
-            local dmT = defMenu:CreateTexture(nil, "OVERLAY", nil, 7); dmT:SetColorTexture(1,1,1,0.20)
+            defMenuBg:SetTexture(0.075, 0.113, 0.141, 0.98)
+            local dmT = defMenu:CreateTexture(nil, "OVERLAY", nil, 7); dmT:SetTexture(1,1,1,0.20)
             if dmT.SetSnapToPixelGrid then dmT:SetSnapToPixelGrid(false); dmT:SetTexelSnappingBias(0) end
             dmT:SetPoint("TOPLEFT"); dmT:SetPoint("TOPRIGHT"); dmT:SetHeight(1)
-            local dmB = defMenu:CreateTexture(nil, "OVERLAY", nil, 7); dmB:SetColorTexture(1,1,1,0.20)
+            local dmB = defMenu:CreateTexture(nil, "OVERLAY", nil, 7); dmB:SetTexture(1,1,1,0.20)
             if dmB.SetSnapToPixelGrid then dmB:SetSnapToPixelGrid(false); dmB:SetTexelSnappingBias(0) end
             dmB:SetPoint("BOTTOMLEFT"); dmB:SetPoint("BOTTOMRIGHT"); dmB:SetHeight(1)
-            local dmL = defMenu:CreateTexture(nil, "OVERLAY", nil, 7); dmL:SetColorTexture(1,1,1,0.20)
+            local dmL = defMenu:CreateTexture(nil, "OVERLAY", nil, 7); dmL:SetTexture(1,1,1,0.20)
             if dmL.SetSnapToPixelGrid then dmL:SetSnapToPixelGrid(false); dmL:SetTexelSnappingBias(0) end
             dmL:SetPoint("TOPLEFT", dmT, "BOTTOMLEFT"); dmL:SetPoint("BOTTOMLEFT", dmB, "TOPLEFT"); dmL:SetWidth(1)
-            local dmR = defMenu:CreateTexture(nil, "OVERLAY", nil, 7); dmR:SetColorTexture(1,1,1,0.20)
+            local dmR = defMenu:CreateTexture(nil, "OVERLAY", nil, 7); dmR:SetTexture(1,1,1,0.20)
             if dmR.SetSnapToPixelGrid then dmR:SetSnapToPixelGrid(false); dmR:SetTexelSnappingBias(0) end
             dmR:SetPoint("TOPRIGHT", dmT, "BOTTOMRIGHT"); dmR:SetPoint("BOTTOMRIGHT", dmB, "TOPRIGHT"); dmR:SetWidth(1)
             popup._defMenu = defMenu
             popup._defMenuItems = {}
 
             defDDBtn:SetScript("OnEnter", function()
-                defDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.98)
+                defDDBg:SetTexture(0.075, 0.113, 0.141, 0.98)
                 defDDLbl:SetTextColor(1, 1, 1, 0.60)
-                for _, e in ipairs(popup._defBrdEdges) do e:SetColorTexture(1, 1, 1, 0.30) end
+                for _, e in ipairs(popup._defBrdEdges) do e:SetTexture(1, 1, 1, 0.30) end
             end)
             defDDBtn:SetScript("OnLeave", function()
                 if not defMenu:IsShown() then
-                    defDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+                    defDDBg:SetTexture(0.075, 0.113, 0.141, 0.9)
                     defDDLbl:SetTextColor(1, 1, 1, 0.50)
-                    for _, e in ipairs(popup._defBrdEdges) do e:SetColorTexture(1, 1, 1, 0.20) end
+                    for _, e in ipairs(popup._defBrdEdges) do e:SetTexture(1, 1, 1, 0.20) end
                 end
             end)
             defDDBtn:SetScript("OnClick", function()
@@ -456,25 +456,25 @@ do
             defMenu:SetScript("OnHide", function(self)
                 self:SetScript("OnUpdate", nil)
                 if defDDBtn:IsMouseOver() then
-                    defDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.98)
+                    defDDBg:SetTexture(0.075, 0.113, 0.141, 0.98)
                     defDDLbl:SetTextColor(1, 1, 1, 0.60)
-                    for _, e in ipairs(popup._defBrdEdges) do e:SetColorTexture(1, 1, 1, 0.30) end
+                    for _, e in ipairs(popup._defBrdEdges) do e:SetTexture(1, 1, 1, 0.30) end
                 else
-                    defDDBg:SetColorTexture(0.075, 0.113, 0.141, 0.9)
+                    defDDBg:SetTexture(0.075, 0.113, 0.141, 0.9)
                     defDDLbl:SetTextColor(1, 1, 1, 0.50)
-                    for _, e in ipairs(popup._defBrdEdges) do e:SetColorTexture(1, 1, 1, 0.20) end
+                    for _, e in ipairs(popup._defBrdEdges) do e:SetTexture(1, 1, 1, 0.20) end
                 end
             end)
 
             -- Done button
             local EG = ELLESMERE_GREEN
-            local closeBtn = CreateFrame("Button", nil, popup)
+            local closeBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
             closeBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
             PP.Size(closeBtn, 200, 39)
             PP.Point(closeBtn, "BOTTOM", popup, "BOTTOM", 0, 38)
             local closeBg = closeBtn:CreateTexture(nil, "BACKGROUND")
             closeBg:SetAllPoints()
-            closeBg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+            closeBg:SetTexture(0.06, 0.08, 0.10, 0.92)
             local closeBrd = MakeBorder(closeBtn, EG.r, EG.g, EG.b, 0.9, PP)
             local closeLbl = closeBtn:CreateFontString(nil, "OVERLAY")
             closeLbl:SetFont(FONT, 16, "")
@@ -493,13 +493,13 @@ do
             popup._closeLbl = closeLbl
 
             -- Cancel button (hidden by default, shown when onCancel is provided)
-            local cancelBtn = CreateFrame("Button", nil, popup)
+            local cancelBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
             cancelBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
             PP.Size(cancelBtn, 200, 39)
             PP.Point(cancelBtn, "BOTTOM", popup, "BOTTOM", 0, 38)
             local cancelBg = cancelBtn:CreateTexture(nil, "BACKGROUND")
             cancelBg:SetAllPoints()
-            cancelBg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+            cancelBg:SetTexture(0.06, 0.08, 0.10, 0.92)
             local cancelBrd = MakeBorder(cancelBtn, 1, 1, 1, 0.25, PP)
             local cancelLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
             cancelLbl:SetFont(FONT, 16, "")
@@ -667,7 +667,7 @@ do
                 rowIdx = rowIdx + 1
                 local hdr = col._rows[rowIdx]
                 if not hdr then
-                    hdr = CreateFrame("Frame", nil, col)
+                    hdr = EllesmereUI.SafeCreateFrame("Frame", nil, col)
                     col._rows[rowIdx] = hdr
                 end
                 PP.Size(hdr, COL_W, CLASS_H)
@@ -694,23 +694,23 @@ do
                     rowIdx = rowIdx + 1
                     local row = col._rows[rowIdx]
                     if not row then
-                        row = CreateFrame("Button", nil, col)
+                        row = EllesmereUI.SafeCreateFrame("Button", nil, col)
                         col._rows[rowIdx] = row
 
-                        local box = CreateFrame("Frame", nil, row)
+                        local box = EllesmereUI.SafeCreateFrame("Frame", nil, row)
                         PP.Size(box, BOX_SZ, BOX_SZ)
                         PP.Point(box, "LEFT", row, "LEFT", 8, 0)
                         box:SetFrameLevel(row:GetFrameLevel() + 1)
                         local boxBg = box:CreateTexture(nil, "BACKGROUND")
                         boxBg:SetAllPoints()
-                        boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
+                        boxBg:SetTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
                         row._boxBg = boxBg
                         local boxBorder = MakeBorder(box, BORDER_R, BORDER_G, BORDER_B, CB_BRD_A, PP)
                         row._boxBorder = boxBorder
                         local check = box:CreateTexture(nil, "ARTWORK")
                         PP.Point(check, "TOPLEFT", box, "TOPLEFT", CHECK_INSET, -CHECK_INSET)
                         PP.Point(check, "BOTTOMRIGHT", box, "BOTTOMRIGHT", -CHECK_INSET, CHECK_INSET)
-                        check:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
+                        check:SetTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
                         row._check = check
                         row._box = box
 
@@ -748,22 +748,22 @@ do
                             -- Always-on (e.g. the sync source): checked but locked/grayed.
                             r._check:Show()
                             r._boxBorder:SetColor(EG.r, EG.g, EG.b, CB_ACT_BRD_A * 0.5)
-                            r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 0.5)
+                            r._boxBg:SetTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 0.5)
                             r._lbl:SetTextColor(1, 1, 1, 0.4)
                         elseif r._locked or r._disabled then
                             r._check:Hide()
                             r._boxBorder:SetColor(BORDER_R, BORDER_G, BORDER_B, CB_BRD_A * 0.4)
-                            r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 0.35)
+                            r._boxBg:SetTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 0.35)
                             r._lbl:SetTextColor(1, 1, 1, 0.25)
                         elseif r._checked then
                             r._check:Show()
                             r._boxBorder:SetColor(EG.r, EG.g, EG.b, CB_ACT_BRD_A)
-                            r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
+                            r._boxBg:SetTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
                             r._lbl:SetTextColor(1, 1, 1, 0.65)
                         else
                             r._check:Hide()
                             r._boxBorder:SetColor(BORDER_R, BORDER_G, BORDER_B, CB_BRD_A)
-                            r._boxBg:SetColorTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
+                            r._boxBg:SetTexture(CB_BOX_R, CB_BOX_G, CB_BOX_B, 1)
                             r._lbl:SetTextColor(1, 1, 1, 0.65)
                         end
                     end
@@ -874,7 +874,7 @@ do
                 for idx, entry in ipairs(presetList) do
                     local itm = items[idx]
                     if not itm then
-                        itm = CreateFrame("Button", nil, specPopup._defMenu)
+                        itm = EllesmereUI.SafeCreateFrame("Button", nil, specPopup._defMenu)
                         itm:SetHeight(26)
                         itm:SetFrameLevel(specPopup._defMenu:GetFrameLevel() + 1)
                         local lbl = itm:CreateFontString(nil, "OVERLAY")
@@ -884,7 +884,7 @@ do
                         itm._lbl = lbl
                         local hl = itm:CreateTexture(nil, "ARTWORK")
                         hl:SetAllPoints()
-                        hl:SetColorTexture(1, 1, 1, 1)
+                        hl:SetTexture(1, 1, 1, 1)
                         hl:SetAlpha(0)
                         itm._hl = hl
                         itm:SetScript("OnEnter", function() lbl:SetTextColor(1, 1, 1, 1); hl:SetAlpha(0.08) end)

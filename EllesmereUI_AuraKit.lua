@@ -19,7 +19,7 @@ local AK = {}
 EllesmereUI.AuraKit = AK
 
 local InCombatLockdown = InCombatLockdown
-local CreateFrame = CreateFrame
+local CreateFrame = EllesmereUI.SafeCreateFrame
 local issecretvalue = issecretvalue or function() return false end
 
 ------------------------------------------------------------------------------
@@ -200,7 +200,7 @@ local function ApplyStyleToRegions(button, style)
         d.cooldown:SetReverse(style.cooldownReverse ~= false)
         d.cooldown:SetDrawEdge(style.cooldownDrawEdge == true)
         d.cooldown:SetHideCountdownNumbers(true) -- duration text comes from the binding, not the swipe
-        d.cooldown:SetShown(style.hideSwipe ~= true)
+        if style.hideSwipe ~= true then d.cooldown:Show() else d.cooldown:Hide() end
     end
 
     -- Modules with their own text pipeline (fonts, anchors, outline rules) set
@@ -237,7 +237,7 @@ local function ApplyStyleToRegions(button, style)
             end
         end
         -- The engine keeps writing the text either way; visibility is ours.
-        d.duration:SetShown(not style.hideDurationText)
+        if not style.hideDurationText then d.duration:Show() else d.duration:Hide() end
     end
 
     if d.borderHost then
@@ -568,7 +568,7 @@ function AK.MakeInitializer(styleKey, extra)
         -- CooldownFrameTemplate supplies the swipe/edge textures; a bare
         -- Cooldown renders no swipe at all. The template carries no frame
         -- scripts, so it is aspect-safe on button children.
-        d.cooldown = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+        d.cooldown = EllesmereUI.SafeCreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
         d.cooldown:SetAllPoints(button)
 
         -- Level order above the swipe: border first (as close to the icon
@@ -581,7 +581,7 @@ function AK.MakeInitializer(styleKey, extra)
         -- target -- unmissable in M+, where every enemy plate is covered in
         -- debuff icons. The button itself keeps its mouse for tooltips.
         -- (EUI_Nameplates_AuraContainers does the same for its glow host.)
-        d.borderHost = CreateFrame("Frame", nil, button)
+        d.borderHost = EllesmereUI.SafeCreateFrame("Frame", nil, button)
         d.borderHost:SetAllPoints(button)
         d.borderHost:SetFrameLevel(d.cooldown:GetFrameLevel() + 1)
         d.borderHost:EnableMouse(false)
@@ -595,14 +595,14 @@ function AK.MakeInitializer(styleKey, extra)
         -- guaranteed-legal window for parenting a frame to the button, and
         -- a style can gain dispelBorder later via a settings toggle (UF)
         -- when the window is long closed.
-        d.dispelHolder = CreateFrame("Frame", nil, button)
+        d.dispelHolder = EllesmereUI.SafeCreateFrame("Frame", nil, button)
         d.dispelHolder:SetAllPoints(button)
         d.dispelHolder:SetFrameLevel(d.borderHost:GetFrameLevel() + 3)
         d.dispelHolder:EnableMouse(false)
 
         -- Stack and duration text ride a carrier frame above the cooldown,
         -- borders and dispel ring so none of them can cover the text.
-        d.stackCarrier = CreateFrame("Frame", nil, button)
+        d.stackCarrier = EllesmereUI.SafeCreateFrame("Frame", nil, button)
         d.stackCarrier:SetAllPoints(button)
         d.stackCarrier:SetFrameLevel(d.borderHost:GetFrameLevel() + 4)
         d.stackCarrier:EnableMouse(false)
@@ -667,7 +667,7 @@ local RESTYLE_BUDGET = 200 -- buttons per frame
 
 local restyleQueue = {}
 local restyleWork
-local restyler = CreateFrame("Frame")
+local restyler = EllesmereUI.SafeCreateFrame("Frame")
 restyler:Hide()
 restyler:SetScript("OnUpdate", function(self)
     local budget = RESTYLE_BUDGET
@@ -758,7 +758,7 @@ function AK.OnRestrictionLift(fn)
     liftCallbacks[#liftCallbacks + 1] = fn
 end
 
-local liftWatcher = CreateFrame("Frame")
+local liftWatcher = EllesmereUI.SafeCreateFrame("Frame")
 liftWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
 liftWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
 liftWatcher:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -863,7 +863,7 @@ function AK.CreateContainerShell(parent, spec)
     -- Combat creation is legal since 68914 (PTR-7 notes; /euit3 field PASS
     -- 2026-07-23). The old in-combat zombie soft-fail -- and the OOC assert
     -- that guarded against it -- are gone.
-    local container = CreateFrame("AuraContainer", nil, parent, "CustomAuraContainerTemplate")
+    local container = EllesmereUI.SafeCreateFrame("AuraContainer", nil, parent, "CustomAuraContainerTemplate")
 
     -- Anchor and a provisional size up front: the engine drains its parse and
     -- layout phases from an OnUpdate armed in run-when-visible mode, so the
@@ -990,7 +990,7 @@ local function RunJob(entry)
     geterrorhandler()(verdict)
 end
 
-local buildWorker = CreateFrame("Frame")
+local buildWorker = EllesmereUI.SafeCreateFrame("Frame")
 buildWorker:Hide()
 buildWorker:SetScript("OnUpdate", function(self)
     local inCombat = InCombatLockdown()
@@ -1057,7 +1057,7 @@ end
 -- only opens the worker's login-window turbo budget: the whole demand-
 -- architecture queue drains in a handful of 250ms frames DURING the
 -- world fade-in (per-frame executions never approach the watchdog).
-local burstFrame = CreateFrame("Frame")
+local burstFrame = EllesmereUI.SafeCreateFrame("Frame")
 burstFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 burstFrame:SetScript("OnEvent", function()
     loginStamp = GetTime()
@@ -1080,7 +1080,7 @@ function AK.RequestContainer(parent, unitToken, spec, callback)
     pending[#pending + 1] = { parent = parent, unit = unitToken, spec = spec, callback = callback }
 
     if not regenListener then
-        regenListener = CreateFrame("Frame")
+        regenListener = EllesmereUI.SafeCreateFrame("Frame")
         regenListener:RegisterEvent("PLAYER_REGEN_ENABLED")
         regenListener:SetScript("OnEvent", function()
             local queue = pending

@@ -83,7 +83,7 @@ local function QueueApplyAll()
     pendingApply = true
 end
 
-local combatFrame = CreateFrame("Frame")
+local combatFrame = EllesmereUI.SafeCreateFrame("Frame")
 combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 combatFrame:SetScript("OnEvent", function()
     if pendingApply then
@@ -106,7 +106,7 @@ end
 -------------------------------------------------------------------------------
 --  Raid Tab Skinning
 -------------------------------------------------------------------------------
--- Taint-safe raid tab skinning: NEVER CreateTexture, CreateFrame, or
+-- Taint-safe raid tab skinning: NEVER CreateTexture, EllesmereUI.SafeCreateFrame, or
 -- PP.CreateBorder on any frame in the RaidFrame tree. These permanently
 -- taint the frame, breaking ClaimRaidFrame -> RaidFrame:SetParent().
 -- Safe operations: SetTexture(""), font/color on FontStrings, HookScript,
@@ -844,7 +844,7 @@ local function SkinFriendButton(button)
     -- Tile background
     local tileBg = button:CreateTexture(nil, "BACKGROUND", nil, 2)
     tileBg:SetAllPoints()
-    tileBg:SetColorTexture(0, 0, 0, 0.10)
+    tileBg:SetTexture(0, 0, 0, 0.10)
     GetFFD(button).tileBg = tileBg
 
     -- Keep Blizzard's highlight texture for native selection/hover
@@ -859,7 +859,7 @@ local function SkinFriendButton(button)
     hover:Hide()
     local hoverFill = button:CreateTexture(nil, "ARTWORK", nil, -8)
     hoverFill:SetAllPoints()
-    hoverFill:SetColorTexture(1, 1, 1, 0.02)
+    hoverFill:SetTexture(1, 1, 1, 0.02)
     hoverFill:SetBlendMode("ADD")
     hoverFill:Hide()
     button:HookScript("OnEnter", function() hover:Show(); hoverFill:Show() end)
@@ -1046,7 +1046,7 @@ local function PostUpdateFriendButton(button)
 
         if friendMini and friendFull and friendFull ~= myFull then
             if not GetFFD(button).regionBtn then
-                local rb = CreateFrame("Button", nil, button)
+                local rb = EllesmereUI.SafeCreateFrame("Button", nil, button)
                 rb:SetFrameLevel(button:GetFrameLevel() + 5)
                 rb._tex = rb:CreateTexture(nil, "OVERLAY", nil, 7)
                 rb._tex:SetAllPoints()
@@ -1108,7 +1108,7 @@ local function SkinOneScrollbar(scrollBox, scrollBar)
     scrollBar:SetAlpha(0)
     GetFFD(scrollBox).scrollBar = scrollBar
 
-    local track = CreateFrame("Frame", nil, UIParent)
+    local track = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     track:Hide()
     track:SetFrameStrata("HIGH")
     track:SetWidth(4)
@@ -1118,10 +1118,10 @@ local function SkinOneScrollbar(scrollBox, scrollBar)
     GetFFD(scrollBox).track = track
 
     local trackBg = track:CreateTexture(nil, "BACKGROUND")
-    trackBg:SetColorTexture(1, 1, 1, 0)
+    trackBg:SetTexture(1, 1, 1, 0)
     trackBg:SetAllPoints()
 
-    local thumb = CreateFrame("Button", nil, track)
+    local thumb = EllesmereUI.SafeCreateFrame("Button", nil, track)
     thumb:SetWidth(4)
     thumb:SetHeight(60)
     thumb:SetPoint("TOP", track, "TOP", 0, 0)
@@ -1130,10 +1130,10 @@ local function SkinOneScrollbar(scrollBox, scrollBar)
     thumb:RegisterForDrag("LeftButton")
 
     local thumbTex = thumb:CreateTexture(nil, "ARTWORK")
-    thumbTex:SetColorTexture(1, 1, 1, 0.4)
+    thumbTex:SetTexture(1, 1, 1, 0.4)
     thumbTex:SetAllPoints()
 
-    local hitArea = CreateFrame("Button", nil, UIParent)
+    local hitArea = EllesmereUI.SafeCreateFrame("Button", nil, UIParent)
     hitArea:SetFrameStrata("HIGH")
     hitArea:Hide()
     track._hitArea = hitArea
@@ -1264,7 +1264,7 @@ local function SkinBottomButton(btn)
     StripTextures(btn)
 
     GetFFD(btn).bg = btn:CreateTexture(nil, "BACKGROUND", nil, -6)
-    GetFFD(btn).bg:SetColorTexture(0.025, 0.035, 0.045, 0.92)
+    GetFFD(btn).bg:SetTexture(0.025, 0.035, 0.045, 0.92)
     GetFFD(btn).bg:SetAllPoints()
 
     PP.CreateBorder(btn, 1, 1, 1, 0.4, 1, "OVERLAY", 7)
@@ -1450,7 +1450,7 @@ local function SkinFriendsFrame()
                         raThumb:DisableDrawLayer("ARTWORK")
                         raThumb:DisableDrawLayer("BACKGROUND")
                         local raTex = raThumb:CreateTexture(nil, "OVERLAY")
-                        raTex:SetColorTexture(1, 1, 1, 0.4)
+                        raTex:SetTexture(1, 1, 1, 0.4)
                         raTex:SetWidth(3)
                         raTex:SetPoint("TOP", raThumb, "TOP", 0, 0)
                         raTex:SetPoint("BOTTOM", raThumb, "BOTTOM", 0, 0)
@@ -1494,7 +1494,7 @@ local function SkinFriendsFrame()
 
     -- Dark background
     GetFFD(frame).bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
-    GetFFD(frame).bg:SetColorTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B)
+    GetFFD(frame).bg:SetTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B)
     GetFFD(frame).bg:SetAllPoints()
     GetFFD(frame).bg:SetAlpha(1)
 
@@ -1524,7 +1524,7 @@ local function SkinFriendsFrame()
     local firstTab = _G.FriendsFrameTab1
     if firstTab then
         GetFFD(frame).tabBarBg = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-        GetFFD(frame).tabBarBg:SetColorTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B)
+        GetFFD(frame).tabBarBg:SetTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B)
         GetFFD(frame).tabBarBg:SetAlpha(1)
         GetFFD(frame).tabBarBg:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 2)
         GetFFD(frame).tabBarBg:SetPoint("TOPRIGHT", frame, "BOTTOMRIGHT", 0, 2)
@@ -1555,14 +1555,14 @@ local function SkinFriendsFrame()
             if not GetFFD(tab).bg then
                 GetFFD(tab).bg = tab:CreateTexture(nil, "BACKGROUND")
                 GetFFD(tab).bg:SetAllPoints()
-                GetFFD(tab).bg:SetColorTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B, 1)
+                GetFFD(tab).bg:SetTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B, 1)
             end
 
             local tfd = GetFFD(tab)
             if not tfd.activeHL then
                 local activeHL = tab:CreateTexture(nil, "ARTWORK", nil, -6)
                 activeHL:SetAllPoints()
-                activeHL:SetColorTexture(1, 1, 1, 0.05)
+                activeHL:SetTexture(1, 1, 1, 0.05)
                 activeHL:SetBlendMode("ADD")
                 activeHL:Hide()
                 tfd.activeHL = activeHL
@@ -1586,7 +1586,7 @@ local function SkinFriendsFrame()
                 underline:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", 0, 0)
                 underline:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
                 local ar, ag, ab = EG.r, EG.g, EG.b
-                underline:SetColorTexture(ar, ag, ab, 1)
+                underline:SetTexture(ar, ag, ab, 1)
                 EllesmereUI.RegAccent({ type = "solid", obj = underline, a = 1 })
                 underline:Hide()
                 tfd.underline = underline
@@ -1608,35 +1608,35 @@ local function SkinFriendsFrame()
             local ctd = GetFFD(ct)
             if ctd.label then ctd.label:SetTextColor(1, 1, 1, isActive and 1 or 0.5) end
             if ctd.underline then
-                ctd.underline:SetShown(isActive)
+                if isActive then ctd.underline:Show() else ctd.underline:Hide() end
                 if isActive then
                     if useAccent then
                         local ar, ag, ab = EG.r, EG.g, EG.b
-                        ctd.underline:SetColorTexture(ar, ag, ab, 1)
+                        ctd.underline:SetTexture(ar, ag, ab, 1)
                     else
-                        ctd.underline:SetColorTexture(1, 1, 1, 0.6)
+                        ctd.underline:SetTexture(1, 1, 1, 0.6)
                     end
                 end
             end
-            if ctd.activeHL then ctd.activeHL:SetShown(isActive) end
+            if ctd.activeHL then if isActive then ctd.activeHL:Show() else ctd.activeHL:Hide() end end
         end
         local showContactsUI = isContacts and _activeSubTab == 1
         local addBtn = _G.FriendsFrameAddFriendButton
         local msgBtn = _G.FriendsFrameSendMessageButton
         if addBtn then addBtn:SetAlpha(showContactsUI and 1 or 0); addBtn:EnableMouse(showContactsUI) end
         if msgBtn then msgBtn:SetAlpha(showContactsUI and 1 or 0); msgBtn:EnableMouse(showContactsUI) end
-        if GetFFD(frame).addBdr then GetFFD(frame).addBdr:SetShown(showContactsUI) end
-        if GetFFD(frame).msgBdr then GetFFD(frame).msgBdr:SetShown(showContactsUI) end
+        if GetFFD(frame).addBdr then GetFFD(frame)if showContactsUI then .addBdr:Show() else .addBdr:Hide() end end
+        if GetFFD(frame).msgBdr then GetFFD(frame)if showContactsUI then .msgBdr:Show() else .msgBdr:Hide() end end
         local showListChrome = isContacts and _activeSubTab ~= 3
-        if GetFFD(frame).listOverlay then GetFFD(frame).listOverlay:SetShown(showListChrome) end
-        if GetFFD(frame).listBdr then GetFFD(frame).listBdr:SetShown(showListChrome) end
-        if GetFFD(frame).searchBox then GetFFD(frame).searchBox:SetShown(isContacts) end
+        if GetFFD(frame).listOverlay then GetFFD(frame)if showListChrome then .listOverlay:Show() else .listOverlay:Hide() end end
+        if GetFFD(frame).listBdr then GetFFD(frame)if showListChrome then .listBdr:Show() else .listBdr:Hide() end end
+        if GetFFD(frame).searchBox then GetFFD(frame)if isContacts then .searchBox:Show() else .searchBox:Hide() end end
         if not isContacts and GetFFD(frame).searchDropdown then GetFFD(frame).searchDropdown:Hide() end
         local showTopUI = (selected ~= 3)
         if not isContacts and GetFFD(frame).subTabs then
             for _, ct in ipairs(GetFFD(frame).subTabs) do
                 ct._label:SetTextColor(1, 1, 1, 0.53)
-                ct:SetShown(showTopUI)
+                if showTopUI then ct:Show() else ct:Hide() end
             end
         elseif GetFFD(frame).subTabs then
             for _, ct in ipairs(GetFFD(frame).subTabs) do
@@ -1644,15 +1644,15 @@ local function SkinFriendsFrame()
             end
             if GetFFD(frame).updateSubTabs then GetFFD(frame).updateSubTabs() end
         end
-        if GetFFD(frame).statusOrb then GetFFD(frame).statusOrb:SetShown(isContacts) end
-        if GetFFD(frame).broadcastBtn then GetFFD(frame).broadcastBtn:SetShown(isContacts) end
+        if GetFFD(frame).statusOrb then GetFFD(frame)if isContacts then .statusOrb:Show() else .statusOrb:Hide() end end
+        if GetFFD(frame).broadcastBtn then GetFFD(frame)if isContacts then .broadcastBtn:Show() else .broadcastBtn:Hide() end end
         if GetFFD(frame).titleBtn then GetFFD(frame).titleBtn:Show() end
         if GetFFD(frame).titleDiv then GetFFD(frame).titleDiv:Show() end
         -- Sync scrollbar visibility
         local function SetTrackVisSB(sb, vis)
             if sb and GetFFD(sb).track then
-                GetFFD(sb).track:SetShown(vis)
-                if GetFFD(sb).track._hitArea then GetFFD(sb).track._hitArea:SetShown(vis) end
+                GetFFD(sb)if vis then .track:Show() else .track:Hide() end
+                if GetFFD(sb).track._hitArea then GetFFD(sb)if vis then .track._hitArea:Show() else .track._hitArea:Hide() end end
             end
         end
         local shown = frame:IsShown()
@@ -1724,7 +1724,7 @@ local function SkinFriendsFrame()
 
     local _, battleTag = BNGetInfo()
     local titleText = battleTag or (FRIENDS or "Friends")
-    local titleBtn = CreateFrame("Button", nil, frame)
+    local titleBtn = EllesmereUI.SafeCreateFrame("Button", nil, frame)
     titleBtn:SetFrameLevel(frame:GetFrameLevel() + 5)
 
     local titleLabel = titleBtn:CreateFontString(nil, "OVERLAY")
@@ -1757,13 +1757,13 @@ local function SkinFriendsFrame()
 
     local function ShowCopyPopup(text, anchorBtn)
         if not copyPopup then
-            copyBackdrop = CreateFrame("Button", nil, UIParent)
+            copyBackdrop = EllesmereUI.SafeCreateFrame("Button", nil, UIParent)
             copyBackdrop:SetFrameStrata("DIALOG")
             copyBackdrop:SetFrameLevel(499)
             copyBackdrop:SetAllPoints(UIParent)
             local bdTex = copyBackdrop:CreateTexture(nil, "BACKGROUND")
             bdTex:SetAllPoints()
-            bdTex:SetColorTexture(0, 0, 0, 0.10)
+            bdTex:SetTexture(0, 0, 0, 0.10)
             local fadeIn = copyBackdrop:CreateAnimationGroup()
             fadeIn:SetToFinalAlpha(true)
             local a = fadeIn:CreateAnimation("Alpha")
@@ -1773,7 +1773,7 @@ local function SkinFriendsFrame()
             copyBackdrop:SetScript("OnClick", HideCopyPopup)
             copyBackdrop:Hide()
 
-            copyPopup = CreateFrame("Frame", nil, UIParent)
+            copyPopup = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
             copyPopup:SetFrameStrata("DIALOG")
             copyPopup:SetFrameLevel(500)
             copyPopup:SetSize(220, 52)
@@ -1785,7 +1785,7 @@ local function SkinFriendsFrame()
 
             local bg = copyPopup:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
-            bg:SetColorTexture(0.06, 0.08, 0.10, 0.97)
+            bg:SetTexture(0.06, 0.08, 0.10, 0.97)
             PP.CreateBorder(copyPopup, 1, 1, 1, 0.15, 1, "OVERLAY", 7)
 
             local hint = copyPopup:CreateFontString(nil, "OVERLAY")
@@ -1794,14 +1794,14 @@ local function SkinFriendsFrame()
             hint:SetPoint("TOP", copyPopup, "TOP", 0, -6)
             hint:SetText("Ctrl+C to copy, Escape to close")
 
-            local eb = CreateFrame("EditBox", nil, copyPopup)
+            local eb = EllesmereUI.SafeCreateFrame("EditBox", nil, copyPopup)
             eb:SetSize(160, 16)
             eb:SetPoint("TOP", hint, "BOTTOM", 0, -4)
             eb:SetFontObject(GameFontHighlight)
             eb:SetAutoFocus(false)
             eb:SetJustifyH("CENTER")
             local ebBg = eb:CreateTexture(nil, "BACKGROUND")
-            ebBg:SetColorTexture(0.10, 0.12, 0.16, 1)
+            ebBg:SetTexture(0.10, 0.12, 0.16, 1)
             ebBg:SetPoint("TOPLEFT", -6, 4); ebBg:SetPoint("BOTTOMRIGHT", 6, -4)
             PP.CreateBorder(eb, 1, 1, 1, 0.02, 1, "OVERLAY", 7)
             eb:SetScript("OnEscapePressed", function(self) self:ClearFocus(); HideCopyPopup() end)
@@ -1829,7 +1829,7 @@ local function SkinFriendsFrame()
 
     -- Divider under title
     GetFFD(frame).titleDiv = frame:CreateTexture(nil, "OVERLAY", nil, 1)
-    GetFFD(frame).titleDiv:SetColorTexture(1, 1, 1, 0.06)
+    GetFFD(frame).titleDiv:SetTexture(1, 1, 1, 0.06)
     GetFFD(frame).titleDiv:SetHeight(1)
     GetFFD(frame).titleDiv:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -30)
     GetFFD(frame).titleDiv:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -30)
@@ -1939,7 +1939,7 @@ local function SkinFriendsFrame()
 
         local ar, ag, ab = EG.r, EG.g, EG.b
         for i, info in ipairs(blizSubTabs) do
-            local ct = CreateFrame("Button", nil, frame)
+            local ct = EllesmereUI.SafeCreateFrame("Button", nil, frame)
             ct:SetFrameLevel(frame:GetFrameLevel() + 5)
             ct:SetHeight(20)
 
@@ -2022,7 +2022,7 @@ local function SkinFriendsFrame()
         -- Extra sub-tab: "Ignored"
         do
             local idx = #customSubTabs + 1
-            local ct = CreateFrame("Button", nil, frame)
+            local ct = EllesmereUI.SafeCreateFrame("Button", nil, frame)
             ct:SetFrameLevel(frame:GetFrameLevel() + 5)
             ct:SetHeight(20)
 
@@ -2055,7 +2055,7 @@ local function SkinFriendsFrame()
         -- Status orb
         local lastSubTab = customSubTabs[#customSubTabs]
         if lastSubTab then
-            local orbBtn = CreateFrame("Button", nil, frame)
+            local orbBtn = EllesmereUI.SafeCreateFrame("Button", nil, frame)
             orbBtn:SetSize(26, 26)
             orbBtn:SetFrameLevel(frame:GetFrameLevel() + 5)
             orbBtn:SetPoint("RIGHT", FriendsListFrame, "TOPRIGHT", -10, -80)
@@ -2110,14 +2110,14 @@ local function SkinFriendsFrame()
                 if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
             end)
 
-            local statusEvt = CreateFrame("Frame")
+            local statusEvt = EllesmereUI.SafeCreateFrame("Frame")
             statusEvt:RegisterEvent("PLAYER_FLAGS_CHANGED")
             statusEvt:SetScript("OnEvent", function() UpdatePlayerOrb() end)
 
             GetFFD(frame).statusOrb = orbBtn
 
             -- Broadcast message button
-            local bcBtn = CreateFrame("Button", nil, frame)
+            local bcBtn = EllesmereUI.SafeCreateFrame("Button", nil, frame)
             bcBtn:SetSize(20, 20)
             bcBtn:SetFrameLevel(orbBtn:GetFrameLevel())
             bcBtn:SetPoint("RIGHT", orbBtn, "LEFT", -2, 0)
@@ -2181,7 +2181,7 @@ local function SkinFriendsFrame()
                 thumb:DisableDrawLayer("ARTWORK")
                 thumb:DisableDrawLayer("BACKGROUND")
                 local thumbTex = thumb:CreateTexture(nil, "OVERLAY")
-                thumbTex:SetColorTexture(1, 1, 1, 0.4)
+                thumbTex:SetTexture(1, 1, 1, 0.4)
                 thumbTex:SetWidth(3)
                 thumbTex:SetPoint("TOP", thumb, "TOP", 0, 0)
                 thumbTex:SetPoint("BOTTOM", thumb, "BOTTOM", 0, 0)
@@ -2209,7 +2209,7 @@ local function SkinFriendsFrame()
     --  Search bar with instant dropdown results
     ---------------------------------------------------------------------------
     do -- search bar
-        local search = CreateFrame("EditBox", nil, frame)
+        local search = EllesmereUI.SafeCreateFrame("EditBox", nil, frame)
         search:SetSize(FriendsListFrame:GetWidth() - 30, 20)
         search:SetPoint("TOPLEFT", FriendsListFrame, "TOPLEFT", 15, -40)
         search:SetPoint("TOPRIGHT", FriendsListFrame, "TOPRIGHT", -15, -40)
@@ -2222,7 +2222,7 @@ local function SkinFriendsFrame()
 
         local sBg = search:CreateTexture(nil, "BACKGROUND")
         sBg:SetAllPoints()
-        sBg:SetColorTexture(0, 0, 0, 0.4)
+        sBg:SetTexture(0, 0, 0, 0.4)
         PP.CreateBorder(search, 1, 1, 1, 0.1, 1, "OVERLAY", 7)
 
         local sPh = search:CreateFontString(nil, "OVERLAY")
@@ -2232,7 +2232,7 @@ local function SkinFriendsFrame()
         sPh:SetText("Invite Friend...")
 
         -- Clear button
-        local clearBtn = CreateFrame("Button", nil, search)
+        local clearBtn = EllesmereUI.SafeCreateFrame("Button", nil, search)
         clearBtn:SetSize(14, 14)
         clearBtn:SetPoint("RIGHT", search, "RIGHT", -4, 0)
         clearBtn:SetFrameLevel(search:GetFrameLevel() + 1)
@@ -2259,7 +2259,7 @@ local function SkinFriendsFrame()
         end)
 
         -- Dropdown results frame
-        local dropdown = CreateFrame("Frame", nil, frame)
+        local dropdown = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         dropdown:SetPoint("TOPLEFT", search, "BOTTOMLEFT", 0, -2)
         dropdown:SetPoint("TOPRIGHT", search, "BOTTOMRIGHT", 0, -2)
         dropdown:SetFrameLevel(frame:GetFrameLevel() + 10)
@@ -2267,20 +2267,20 @@ local function SkinFriendsFrame()
 
         local ddBg = dropdown:CreateTexture(nil, "BACKGROUND")
         ddBg:SetAllPoints()
-        ddBg:SetColorTexture(0.04, 0.05, 0.06, 0.97)
+        ddBg:SetTexture(0.04, 0.05, 0.06, 0.97)
         PP.CreateBorder(dropdown, 1, 1, 1, 0.15, 1, "OVERLAY", 7)
 
         -- Accent border flash highlight (matches EUI options panel search flash)
         local _searchHL
         local function GetSearchHL()
             if _searchHL then return _searchHL end
-            local hl = CreateFrame("Frame", nil, UIParent)
+            local hl = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
             hl:SetFrameStrata("HIGH")
             hl:Hide()
             local c = EG
             local function MkEdge()
                 local t = hl:CreateTexture(nil, "OVERLAY", nil, 7)
-                t:SetColorTexture(c.r, c.g, c.b, 1)
+                t:SetTexture(c.r, c.g, c.b, 1)
                 return t
             end
             hl._top = MkEdge()
@@ -2360,14 +2360,14 @@ local function SkinFriendsFrame()
 
         local function GetResultRow(idx)
             if resultRows[idx] then return resultRows[idx] end
-            local row = CreateFrame("Button", nil, dropdown)
+            local row = EllesmereUI.SafeCreateFrame("Button", nil, dropdown)
             row:SetHeight(ROW_H)
             row:SetPoint("TOPLEFT", dropdown, "TOPLEFT", 1, -1 - (idx - 1) * ROW_H)
             row:SetPoint("TOPRIGHT", dropdown, "TOPRIGHT", -1, -1 - (idx - 1) * ROW_H)
 
             local hover = row:CreateTexture(nil, "HIGHLIGHT")
             hover:SetAllPoints()
-            hover:SetColorTexture(1, 1, 1, 0.06)
+            hover:SetTexture(1, 1, 1, 0.06)
 
             local nameFS = row:CreateFontString(nil, "OVERLAY")
             nameFS:SetFont(fontPath, 11, "")
@@ -2542,8 +2542,8 @@ local function SkinFriendsFrame()
 
         search:SetScript("OnTextChanged", function(self)
             local t = strtrim(self:GetText())
-            sPh:SetShown(t == "")
-            clearBtn:SetShown(t ~= "")
+            if t == "" then sPh:Show() else sPh:Hide() end
+            if t ~= "" then clearBtn:Show() else clearBtn:Hide() end
             UpdateDropdown(t:lower())
         end)
         search:SetScript("OnEscapePressed", function(self)
@@ -2578,7 +2578,7 @@ local function SkinFriendsFrame()
     -- without touching Blizzard's ScrollBar/ScrollBox at all. Just reads
     -- GetScrollPercentage and debounces ProcessFriendButtons.
     do
-        local scrollPoller = CreateFrame("Frame", nil, frame)
+        local scrollPoller = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         scrollPoller:Hide()
         scrollPoller:SetScript("OnUpdate", function()
             local sb = FriendsListFrame and FriendsListFrame.ScrollBox
@@ -2621,7 +2621,7 @@ local function SkinFriendsFrame()
     -- Deferred skinning: sets a dirty flag, processed on next frame via OnUpdate.
     -- This ensures we NEVER run addon code inside Blizzard's secure dispatch.
     local _skinDirty = false
-    local skinDriver = CreateFrame("Frame")
+    local skinDriver = EllesmereUI.SafeCreateFrame("Frame")
     skinDriver:Hide()
     skinDriver:SetScript("OnUpdate", function(self)
         self:Hide()
@@ -2638,7 +2638,7 @@ local function SkinFriendsFrame()
     end
 
     -- Friend events: refresh cache, mark dirty for deferred restyle
-    local friendsEventFrame = CreateFrame("Frame")
+    local friendsEventFrame = EllesmereUI.SafeCreateFrame("Frame")
     friendsEventFrame:SetScript("OnEvent", function(_, event)
         RefreshFriendCache()
         -- Clear stamps so buttons get restyled with fresh data
@@ -2672,7 +2672,7 @@ local function SkinFriendsFrame()
 
     -- Auto-accept group invites from friends
     local _autoAcceptHideStatic = false
-    local autoAcceptFrame = CreateFrame("Frame")
+    local autoAcceptFrame = EllesmereUI.SafeCreateFrame("Frame")
     autoAcceptFrame:RegisterEvent("PARTY_INVITE_REQUEST")
     autoAcceptFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
     autoAcceptFrame:SetScript("OnEvent", function(_, event, _, _, _, _, _, _, inviterGUID)
@@ -2751,7 +2751,7 @@ local function SkinFriendsFrame()
                 whoInset:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -15, 35)
                 local whoBg = whoInset:CreateTexture(nil, "BACKGROUND", nil, -5)
                 whoBg:SetAllPoints()
-                whoBg:SetColorTexture(0, 0.08, 0.10, 0.35)
+                whoBg:SetTexture(0, 0.08, 0.10, 0.35)
                 PP.CreateBorder(whoInset, 1, 1, 1, 0.1, 1, "OVERLAY", 5)
             end
 
@@ -2779,7 +2779,7 @@ local function SkinFriendsFrame()
                 headerBg:SetPoint("TOPLEFT", col1, "TOPLEFT", 0, 0)
                 headerBg:SetPoint("RIGHT", whoInset2, "RIGHT", 0, 0)
                 headerBg:SetHeight(col1:GetHeight())
-                headerBg:SetColorTexture(0, 0, 0, 0.3)
+                headerBg:SetTexture(0, 0, 0, 0.3)
             end
 
             for i = 1, 4 do
@@ -2807,13 +2807,13 @@ local function SkinFriendsFrame()
                             hlTex:SetAllPoints()
                         end
                     end
-                    hlTex:SetColorTexture(1, 1, 1, 0.1)
+                    hlTex:SetTexture(1, 1, 1, 0.1)
                     hlTex:SetBlendMode("ADD")
                     if i > 1 then
                         local div = col:CreateTexture(nil, "OVERLAY", nil, 7)
                         PP.DisablePixelSnap(div)
                         div:SetWidth(PP.mult or 1)
-                        div:SetColorTexture(1, 1, 1, 0.1)
+                        div:SetTexture(1, 1, 1, 0.1)
                         div:SetPoint("TOPLEFT", col, "TOPLEFT", 0, -2)
                         div:SetPoint("BOTTOMLEFT", col, "BOTTOMLEFT", 0, 2)
                     end
@@ -2838,7 +2838,7 @@ local function SkinFriendsFrame()
                     editBox:SetPoint(p1, rel, p2, (ox or 0) - 1, (oy or 0) + 3)
                 end
                 local ebBg = editBox:CreateTexture(nil, "BACKGROUND", nil, -6)
-                ebBg:SetColorTexture(0, 0, 0, 0.4)
+                ebBg:SetTexture(0, 0, 0, 0.4)
                 ebBg:SetAllPoints()
                 editBox:SetTextColor(1, 1, 1, 0.8)
                 PP.CreateBorder(editBox, 1, 1, 1, 0.1, 1, "OVERLAY", 7)
@@ -2898,7 +2898,7 @@ local function SkinFriendsFrame()
                         StripTextures(btn)
                         local hover2 = btn:CreateTexture(nil, "HIGHLIGHT")
                         hover2:SetAllPoints()
-                        hover2:SetColorTexture(1, 1, 1, 0.04)
+                        hover2:SetTexture(1, 1, 1, 0.04)
                         hover2:SetBlendMode("ADD")
                         for _, key in ipairs({"Name", "Level", "Class", "Variable"}) do
                             local txt = _G["WhoFrameButton" .. i .. key]
@@ -2946,7 +2946,7 @@ local function SkinFriendsFrame()
 
                 if not GetFFD(qjScroll).borderAdded then
                     GetFFD(qjScroll).borderAdded = true
-                    local bdr = CreateFrame("Frame", nil, qjf)
+                    local bdr = EllesmereUI.SafeCreateFrame("Frame", nil, qjf)
                     bdr:SetPoint("TOPLEFT", qjScroll, "TOPLEFT", 0, 0)
                     bdr:SetPoint("BOTTOMRIGHT", qjScroll, "BOTTOMRIGHT", 0, 0)
                     bdr:SetFrameLevel(qjScroll:GetFrameLevel() + 2)
@@ -2975,16 +2975,16 @@ local function SkinFriendsFrame()
     -- NEVER reference FriendsListFrame.ScrollBox (even as anchor) -- any
     -- interaction with Blizzard's ScrollBox taints BNet whisper processing.
     if not GetFFD(frame).listOverlay then
-        local overlay = CreateFrame("Frame", nil, frame)
+        local overlay = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         overlay:SetPoint("TOPLEFT", frame, "TOPLEFT", 15, -92)
         overlay:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -15, 35)
         overlay:SetFrameLevel(frame:GetFrameLevel() + 1)
         local sbBg = overlay:CreateTexture(nil, "BACKGROUND", nil, -8)
         sbBg:SetAllPoints()
-        sbBg:SetColorTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B, 1)
+        sbBg:SetTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B, 1)
         GetFFD(frame).listOverlay = overlay
 
-        local bdr = CreateFrame("Frame", nil, frame)
+        local bdr = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         bdr:SetPoint("TOPLEFT", frame, "TOPLEFT", 15, -92)
         bdr:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -15, 35)
         bdr:SetFrameLevel(frame:GetFrameLevel() + 3)
@@ -3020,12 +3020,12 @@ local function SkinFriendsFrame()
             local btnY = -BTN_H - BTN_GAP + 10
 
             -- Fake border overlays (our own frames, border only, no background)
-            local addBdr = CreateFrame("Frame", nil, frame)
+            local addBdr = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
             addBdr:SetFrameLevel(frame:GetFrameLevel() + 3)
             PP.CreateBorder(addBdr, 1, 1, 1, 0.4, 1, "OVERLAY", 7)
             GetFFD(frame).addBdr = addBdr
 
-            local msgBdr = CreateFrame("Frame", nil, frame)
+            local msgBdr = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
             msgBdr:SetFrameLevel(frame:GetFrameLevel() + 3)
             local fp7 = EBS.db and EBS.db.profile and EBS.db.profile.friends
             local useAccent = fp7 and fp7.accentColors ~= false
@@ -3091,7 +3091,7 @@ local function SkinFriendsFrame()
                     ctd.div = ct:CreateTexture(nil, "OVERLAY", nil, 7)
                     PP.DisablePixelSnap(ctd.div)
                 end
-                ctd.div:SetColorTexture(1, 1, 1, 0.08)
+                ctd.div:SetTexture(1, 1, 1, 0.08)
                 ctd.div:SetSize(onePx, snappedTabH)
                 ctd.div:ClearAllPoints()
                 ctd.div:SetPoint("TOPLEFT", ct, "TOPLEFT", 0, 0)
@@ -3110,7 +3110,7 @@ local function SkinFriendsFrame()
         if not GetFFD(frame).tabTopBorder then
             GetFFD(frame).tabTopBorder = customTabs[1]:CreateTexture(nil, "OVERLAY", nil, 7)
             PP.DisablePixelSnap(GetFFD(frame).tabTopBorder)
-            GetFFD(frame).tabTopBorder:SetColorTexture(1, 1, 1, 0.08)
+            GetFFD(frame).tabTopBorder:SetTexture(1, 1, 1, 0.08)
             GetFFD(frame).tabTopBorder:SetHeight(onePx)
             GetFFD(frame).tabTopBorder:ClearAllPoints()
             GetFFD(frame).tabTopBorder:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, 0)
@@ -3166,11 +3166,11 @@ local function ApplyFriends()
         PP.SetBorderColor(FriendsFrame, r, g, b, 0)
     end
     if GetFFD(FriendsFrame).bg then
-        GetFFD(FriendsFrame).bg:SetColorTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B)
+        GetFFD(FriendsFrame).bg:SetTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B)
         GetFFD(FriendsFrame).bg:SetAlpha(1)
     end
     if GetFFD(FriendsFrame).tabBarBg then
-        GetFFD(FriendsFrame).tabBarBg:SetColorTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B)
+        GetFFD(FriendsFrame).tabBarBg:SetTexture(FRAME_BG_R, FRAME_BG_G, FRAME_BG_B)
         GetFFD(FriendsFrame).tabBarBg:SetAlpha(1)
     end
 
@@ -3179,7 +3179,7 @@ local function ApplyFriends()
     if scrollBox then
         for _, button in scrollBox:EnumerateFrames() do
             if GetFFD(button).tileBg then
-                GetFFD(button).tileBg:SetColorTexture(0, 0, 0, 0.10)
+                GetFFD(button).tileBg:SetTexture(0, 0, 0, 0.10)
             end
         end
     end
@@ -3236,7 +3236,7 @@ function EBS:OnInitialize()
         EllesmereUI.RegisterVisibilityUpdater(UpdateFriendsVisibility)
     end
     if EllesmereUI.RegisterMouseoverTarget then
-        local proxy = CreateFrame("Frame")
+        local proxy = EllesmereUI.SafeCreateFrame("Frame")
         proxy.IsShown    = function() return FriendsFrame and FriendsFrame:IsShown() end
         proxy.IsMouseOver = function() return FriendsFrame and FriendsFrame:IsMouseOver() end
         proxy.SetAlpha   = function(_, a2) if FriendsFrame then FriendsFrame:SetAlpha(a2) end end
@@ -3264,7 +3264,7 @@ function EBS:OnEnable()
         }
     end
 
-    local loginRefresh = CreateFrame("Frame")
+    local loginRefresh = EllesmereUI.SafeCreateFrame("Frame")
     loginRefresh:RegisterEvent("PLAYER_ENTERING_WORLD")
     loginRefresh:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
@@ -3274,7 +3274,7 @@ function EBS:OnEnable()
     -- Hook FriendsFrame for load-on-demand
     if EBS.db.profile.friends.enabled then
         if not FriendsFrame then
-            local hookFrame = CreateFrame("Frame")
+            local hookFrame = EllesmereUI.SafeCreateFrame("Frame")
             hookFrame:RegisterEvent("ADDON_LOADED")
             hookFrame:SetScript("OnEvent", function(self, event, addon)
                 if addon == "Blizzard_SocialUI" then

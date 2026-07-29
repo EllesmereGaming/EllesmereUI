@@ -332,7 +332,7 @@ function EllesmereUI.Range_SetActive(key, on)
     RG.activeCount = RG.activeCount + (on and 1 or -1)
     if on and RG.activeCount == 1 then
         if not RG.evt then
-            RG.evt = CreateFrame("Frame")
+            RG.evt = EllesmereUI.SafeCreateFrame("Frame")
             RG.evt:SetScript("OnEvent", function()
                 RG.dirty = true
             end)

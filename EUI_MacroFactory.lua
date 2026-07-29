@@ -109,7 +109,7 @@ function EllesmereUI.BuildHealthRecoveryMacroBody(db, items)
 end
 
 do
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     local bagPending = false
     f:RegisterEvent("PLAYER_LOGIN")
     f:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -743,7 +743,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     local maxRows = math.max(generalRows, MAX_SPEC_VISIBLE_ROWS)
     local SECTION_H = 102 + ROW_STRIDE * (maxRows - 1)
 
-    local container = CreateFrame("Frame", nil, parent)
+    local container = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     container:SetSize(parent:GetWidth(), SECTION_H)
     container:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, y)
 
@@ -756,7 +756,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     divider:SetWidth(1)
     divider:SetPoint("TOP", container, "TOP", 0, 0)
     divider:SetPoint("BOTTOM", container, "BOTTOM", 0, 0)
-    divider:SetColorTexture(1, 1, 1, 0.15)
+    divider:SetTexture(1, 1, 1, 0.15)
     if divider.SetSnapToPixelGrid then
         divider:SetSnapToPixelGrid(false)
         divider:SetTexelSnappingBias(0)
@@ -791,28 +791,28 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             local visH = math.abs(FIRST_ICON_Y) + maxVisibleRows * ROW_STRIDE
             local contentH = math.abs(FIRST_ICON_Y) + totalRows * ROW_STRIDE
 
-            local sf = CreateFrame("ScrollFrame", nil, container)
+            local sf = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, container)
             sf:SetPoint("TOPLEFT", container, isLeft and "TOPLEFT" or "TOP", 0, FIRST_ICON_Y + ICON_SIZE / 2 + 4)
             sf:SetSize(halfW, visH)
             sf:SetFrameLevel(container:GetFrameLevel() + 1)
             sf:EnableMouseWheel(true)
             sf:SetClipsChildren(true)
 
-            local sc = CreateFrame("Frame", nil, sf)
+            local sc = EllesmereUI.SafeCreateFrame("Frame", nil, sf)
             sc:SetSize(halfW, contentH)
             sf:SetScrollChild(sc)
 
             -- Scrollbar track
-            local scrollTrack = CreateFrame("Frame", nil, sf)
+            local scrollTrack = EllesmereUI.SafeCreateFrame("Frame", nil, sf)
             scrollTrack:SetWidth(4)
             scrollTrack:SetPoint("TOPRIGHT", sf, "TOPRIGHT", -70, -32)
             scrollTrack:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", -70, 8)
             scrollTrack:SetFrameLevel(sf:GetFrameLevel() + 2)
             scrollTrack:Hide()
             local trackBg = scrollTrack:CreateTexture(nil, "BACKGROUND")
-            trackBg:SetAllPoints(); trackBg:SetColorTexture(1, 1, 1, 0.02)
+            trackBg:SetAllPoints(); trackBg:SetTexture(1, 1, 1, 0.02)
 
-            local scrollThumb = CreateFrame("Button", nil, scrollTrack)
+            local scrollThumb = EllesmereUI.SafeCreateFrame("Button", nil, scrollTrack)
             scrollThumb:SetWidth(4); scrollThumb:SetHeight(60)
             scrollThumb:SetPoint("TOP", scrollTrack, "TOP", 0, 0)
             scrollThumb:SetFrameLevel(scrollTrack:GetFrameLevel() + 1)
@@ -821,11 +821,11 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             scrollThumb:SetScript("OnDragStart", function() end)
             scrollThumb:SetScript("OnDragStop", function() end)
             local thumbTex = scrollThumb:CreateTexture(nil, "ARTWORK")
-            thumbTex:SetAllPoints(); thumbTex:SetColorTexture(1, 1, 1, 0.27)
+            thumbTex:SetAllPoints(); thumbTex:SetTexture(1, 1, 1, 0.27)
 
             local scrollTarget = 0
             local isSmoothing = false
-            local smoothFrame = CreateFrame("Frame"); smoothFrame:Hide()
+            local smoothFrame = EllesmereUI.SafeCreateFrame("Frame"); smoothFrame:Hide()
 
             local function UpdateThumb()
                 local maxScroll = EllesmereUI.SafeScrollRange(sf)
@@ -920,7 +920,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             local iconX = scrollCenterX - rowW / 2 + ICON_SIZE / 2 + colIdx * (ICON_SIZE + gap)
             local iconY = FIRST_ICON_Y - rowIdx * ROW_STRIDE
 
-            local btn = CreateFrame("Button", nil, iconParent)
+            local btn = EllesmereUI.SafeCreateFrame("Button", nil, iconParent)
             PP.Size(btn, ICON_SIZE, ICON_SIZE)
             btn:SetPoint("TOP", iconAnchor, "TOPLEFT", iconX, iconY)
             btn:SetFrameLevel(iconParent:GetFrameLevel() + 5)
@@ -929,11 +929,11 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             tex:SetAllPoints(); tex:SetTexture(def.macroIcon or def.icon); tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             btn._tex = tex
 
-            local bdr = CreateFrame("Frame", nil, btn)
+            local bdr = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
             bdr:SetAllPoints(); bdr:SetFrameLevel(btn:GetFrameLevel() + 1)
             PP.CreateBorder(bdr, 0, 0, 0, 1, 1)
 
-            local hoverBdr = CreateFrame("Frame", nil, btn)
+            local hoverBdr = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
             hoverBdr:SetPoint("TOPLEFT", btn, "TOPLEFT", -1, 1)
             hoverBdr:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 1, -1)
             hoverBdr:SetFrameLevel(btn:GetFrameLevel() + 2)
@@ -959,18 +959,18 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             flashFS:SetFont(fontPath, 9, ""); flashFS:SetTextColor(1, 1, 1, 0)
             flashFS:SetPoint("TOP", btn, "BOTTOM", 0, -4); flashFS:Hide()
             local flashTex = btn:CreateTexture(nil, "OVERLAY")
-            flashTex:SetAllPoints(); flashTex:SetColorTexture(1, 1, 1, 0)
-            local flashDriver = CreateFrame("Frame", nil, iconParent); flashDriver:Hide()
+            flashTex:SetAllPoints(); flashTex:SetTexture(1, 1, 1, 0)
+            local flashDriver = EllesmereUI.SafeCreateFrame("Frame", nil, iconParent); flashDriver:Hide()
             local flashElapsed = 0
             flashDriver:SetScript("OnUpdate", function(self, dt)
                 flashElapsed = flashElapsed + dt
-                if flashElapsed < 0.08 then flashTex:SetColorTexture(1, 1, 1, 0.7 * (flashElapsed / 0.08))
-                elseif flashElapsed < 0.38 then flashTex:SetColorTexture(1, 1, 1, 0.7 * (1 - (flashElapsed - 0.08) / 0.3))
-                else flashTex:SetColorTexture(1, 1, 1, 0) end
+                if flashElapsed < 0.08 then flashTex:SetTexture(1, 1, 1, 0.7 * (flashElapsed / 0.08))
+                elseif flashElapsed < 0.38 then flashTex:SetTexture(1, 1, 1, 0.7 * (1 - (flashElapsed - 0.08) / 0.3))
+                else flashTex:SetTexture(1, 1, 1, 0) end
                 if flashElapsed < 0.15 then flashFS:SetTextColor(1, 1, 1, flashElapsed / 0.15)
                 elseif flashElapsed < 0.95 then flashFS:SetTextColor(1, 1, 1, 1)
                 elseif flashElapsed < 1.55 then flashFS:SetTextColor(1, 1, 1, 1 - (flashElapsed - 0.95) / 0.6)
-                else flashFS:Hide(); flashTex:SetColorTexture(1, 1, 1, 0); btn._label:Show(); self:Hide() end
+                else flashFS:Hide(); flashTex:SetTexture(1, 1, 1, 0); btn._label:Show(); self:Hide() end
             end)
             local function PlayFlash()
                 flashElapsed = 0; flashFS:SetText(EllesmereUI.L("Macro Created")); flashFS:SetTextColor(1, 1, 1, 0)
@@ -1037,31 +1037,31 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                     menuH = menuH + DH + HH + (#cbItems * MH)
                 end
 
-                menuFrame = CreateFrame("Frame", nil, UIParent)
+                menuFrame = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
                 menuFrame:SetFrameStrata("FULLSCREEN_DIALOG"); menuFrame:SetFrameLevel(200)
                 menuFrame:SetClampedToScreen(true); menuFrame:EnableMouse(true)
                 menuFrame:SetSize(MW, menuH)
                 menuFrame:Hide()
                 local mBg = menuFrame:CreateTexture(nil, "BACKGROUND"); mBg:SetAllPoints()
-                mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA or 0.92)
+                mBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA or 0.92)
                 EllesmereUI.MakeBorder(menuFrame, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
                 local mY = -4
 
                 -- Create/Delete action row
-                local aR = CreateFrame("Button", nil, menuFrame)
+                local aR = EllesmereUI.SafeCreateFrame("Button", nil, menuFrame)
                 aR:SetHeight(MH); aR:SetFrameLevel(menuFrame:GetFrameLevel() + 2)
                 aR:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
                 aR:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, mY)
                 local aL = aR:CreateFontString(nil, "OVERLAY")
                 aL:SetFont(fontPath, 13, ""); aL:SetTextColor(0.75, 0.75, 0.75, 1)
                 aL:SetPoint("LEFT", aR, "LEFT", 12, 0)
-                local aHL = aR:CreateTexture(nil, "ARTWORK"); aHL:SetAllPoints(); aHL:SetColorTexture(1, 1, 1, 0)
+                local aHL = aR:CreateTexture(nil, "ARTWORK"); aHL:SetAllPoints(); aHL:SetTexture(1, 1, 1, 0)
                 local function RefAct()
                     if MacroExists() then aL:SetText(EllesmereUI.L("|cffff4444Delete Macro|r")) else aL:SetText(EllesmereUI.L("Create Macro")) end
                 end
                 RefAct(); menuFrame._refreshAction = RefAct
-                aR:SetScript("OnEnter", function() aL:SetTextColor(1, 1, 1, 1); aHL:SetColorTexture(1, 1, 1, 0.04) end)
-                aR:SetScript("OnLeave", function() RefAct(); aHL:SetColorTexture(1, 1, 1, 0) end)
+                aR:SetScript("OnEnter", function() aL:SetTextColor(1, 1, 1, 1); aHL:SetTexture(1, 1, 1, 0.04) end)
+                aR:SetScript("OnLeave", function() RefAct(); aHL:SetTexture(1, 1, 1, 0) end)
                 aR:SetScript("OnClick", function()
                     if InCombatLockdown() then return end
                     if MacroExists() then
@@ -1087,26 +1087,26 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 mY = mY - MH
 
                 -- Show Tooltip checkbox
-                local tR = CreateFrame("Button", nil, menuFrame)
+                local tR = EllesmereUI.SafeCreateFrame("Button", nil, menuFrame)
                 tR:SetHeight(MH); tR:SetFrameLevel(menuFrame:GetFrameLevel() + 2)
                 tR:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
                 tR:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, mY)
-                local tB = CreateFrame("Frame", nil, tR); tB:SetSize(16, 16); tB:SetPoint("RIGHT", tR, "RIGHT", -10, 0)
-                local tBg = tB:CreateTexture(nil, "BACKGROUND"); tBg:SetAllPoints(); tBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                local tB = EllesmereUI.SafeCreateFrame("Frame", nil, tR); tB:SetSize(16, 16); tB:SetPoint("RIGHT", tR, "RIGHT", -10, 0)
+                local tBg = tB:CreateTexture(nil, "BACKGROUND"); tBg:SetAllPoints(); tBg:SetTexture(0.12, 0.12, 0.14, 1)
                 local tBrd = EllesmereUI.MakeBorder(tB, 0.4, 0.4, 0.4, 0.6, PP)
                 local tCk = tB:CreateTexture(nil, "ARTWORK"); PP.SetInside(tCk, tB, 2, 2)
-                tCk:SetColorTexture(EG.r, EG.g, EG.b, 1); tCk:SetSnapToPixelGrid(false)
+                tCk:SetTexture(EG.r, EG.g, EG.b, 1); tCk:SetSnapToPixelGrid(false)
                 local tL = tR:CreateFontString(nil, "OVERLAY"); tL:SetFont(fontPath, 13, "")
                 tL:SetTextColor(0.75, 0.75, 0.75, 1); tL:SetPoint("LEFT", tR, "LEFT", 12, 0); tL:SetText(EllesmereUI.L("Show Tooltip"))
-                local tHL = tR:CreateTexture(nil, "ARTWORK"); tHL:SetAllPoints(); tHL:SetColorTexture(1, 1, 1, 0)
+                local tHL = tR:CreateTexture(nil, "ARTWORK"); tHL:SetAllPoints(); tHL:SetTexture(1, 1, 1, 0)
                 local function RefTT()
                     local db = GetDB()
                     if db.showTooltip ~= false then tCk:Show(); tBrd:SetColor(EG.r, EG.g, EG.b, 0.8)
                     else tCk:Hide(); tBrd:SetColor(0.4, 0.4, 0.4, 0.6) end
                 end
                 RefTT()
-                tR:SetScript("OnEnter", function() tL:SetTextColor(1, 1, 1, 1); tHL:SetColorTexture(1, 1, 1, 0.04) end)
-                tR:SetScript("OnLeave", function() tL:SetTextColor(0.75, 0.75, 0.75, 1); tHL:SetColorTexture(1, 1, 1, 0) end)
+                tR:SetScript("OnEnter", function() tL:SetTextColor(1, 1, 1, 1); tHL:SetTexture(1, 1, 1, 0.04) end)
+                tR:SetScript("OnLeave", function() tL:SetTextColor(0.75, 0.75, 0.75, 1); tHL:SetTexture(1, 1, 1, 0) end)
                 tR:SetScript("OnClick", function()
                     local db = GetDB()
                     if db.showTooltip ~= false then db.showTooltip = false
@@ -1119,16 +1119,16 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 -- Item checkboxes (only for item-based macros)
                 if hasCheckboxes then
                     -- Divider
-                    local dv = CreateFrame("Frame", nil, menuFrame); dv:SetHeight(DH)
+                    local dv = EllesmereUI.SafeCreateFrame("Frame", nil, menuFrame); dv:SetHeight(DH)
                     dv:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
                     dv:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, mY)
                     local dl = dv:CreateTexture(nil, "ARTWORK"); dl:SetHeight(1)
                     dl:SetPoint("LEFT", dv, "LEFT", 10, 0); dl:SetPoint("RIGHT", dv, "RIGHT", -10, 0)
-                    dl:SetColorTexture(1, 1, 1, 0.08)
+                    dl:SetTexture(1, 1, 1, 0.08)
                     mY = mY - DH
 
                     -- Hint text
-                    local ht = CreateFrame("Frame", nil, menuFrame); ht:SetHeight(HH)
+                    local ht = EllesmereUI.SafeCreateFrame("Frame", nil, menuFrame); ht:SetHeight(HH)
                     ht:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
                     ht:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, mY)
                     local hfs = ht:CreateFontString(nil, "OVERLAY"); hfs:SetFont(fontPath, 10, "")
@@ -1140,10 +1140,10 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                     local rowFrames = {}
                     local isDragging = false
                     local insLine = menuFrame:CreateTexture(nil, "OVERLAY", nil, 7)
-                    insLine:SetHeight(2); insLine:SetColorTexture(EG.r, EG.g, EG.b, 0.9); insLine:Hide()
+                    insLine:SetHeight(2); insLine:SetTexture(EG.r, EG.g, EG.b, 0.9); insLine:Hide()
 
                     for ci, cb in ipairs(cbItems) do
-                        local row = CreateFrame("Button", nil, menuFrame)
+                        local row = EllesmereUI.SafeCreateFrame("Button", nil, menuFrame)
                         row:SetHeight(MH); row._baseY = mY; row._cbIndex = ci; row._cb = cb
                         row:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, mY)
                         row:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, mY)
@@ -1151,12 +1151,12 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
 
                         local rl = row:CreateFontString(nil, "OVERLAY"); rl:SetFont(fontPath, 13, "")
                         rl:SetTextColor(0.75, 0.75, 0.75, 1); rl:SetPoint("LEFT", row, "LEFT", 12, 0); rl:SetText(OptionDisplayName(cb))
-                        local rb = CreateFrame("Frame", nil, row); rb:SetSize(16, 16); rb:SetPoint("RIGHT", row, "RIGHT", -10, 0)
-                        local rBg = rb:CreateTexture(nil, "BACKGROUND"); rBg:SetAllPoints(); rBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                        local rb = EllesmereUI.SafeCreateFrame("Frame", nil, row); rb:SetSize(16, 16); rb:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+                        local rBg = rb:CreateTexture(nil, "BACKGROUND"); rBg:SetAllPoints(); rBg:SetTexture(0.12, 0.12, 0.14, 1)
                         local rBrd = EllesmereUI.MakeBorder(rb, 0.4, 0.4, 0.4, 0.6, PP)
                         local rCk = rb:CreateTexture(nil, "ARTWORK"); PP.SetInside(rCk, rb, 2, 2)
-                        rCk:SetColorTexture(EG.r, EG.g, EG.b, 1); rCk:SetSnapToPixelGrid(false)
-                        local rHL = row:CreateTexture(nil, "ARTWORK"); rHL:SetAllPoints(); rHL:SetColorTexture(1, 1, 1, 0)
+                        rCk:SetTexture(EG.r, EG.g, EG.b, 1); rCk:SetSnapToPixelGrid(false)
+                        local rHL = row:CreateTexture(nil, "ARTWORK"); rHL:SetAllPoints(); rHL:SetTexture(1, 1, 1, 0)
 
                         local function UC()
                             local db = GetDB()
@@ -1168,11 +1168,11 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
 
                         row:SetScript("OnEnter", function()
                             if isDragging then return end
-                            rl:SetTextColor(1, 1, 1, 1); rHL:SetColorTexture(1, 1, 1, 0.04)
+                            rl:SetTextColor(1, 1, 1, 1); rHL:SetTexture(1, 1, 1, 0.04)
                         end)
                         row:SetScript("OnLeave", function()
                             if isDragging then return end
-                            rl:SetTextColor(0.75, 0.75, 0.75, 1); rHL:SetColorTexture(1, 1, 1, 0)
+                            rl:SetTextColor(0.75, 0.75, 0.75, 1); rHL:SetTexture(1, 1, 1, 0)
                         end)
                         row:SetScript("OnClick", function()
                             if isDragging then return end
@@ -1384,7 +1384,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     end
 
     -- Poll for macro state changes (2s interval)
-    local pollFrame = CreateFrame("Frame", nil, container)
+    local pollFrame = EllesmereUI.SafeCreateFrame("Frame", nil, container)
     local elapsed = 0
     pollFrame:SetScript("OnUpdate", function(self, dt)
         elapsed = elapsed + dt
@@ -1412,7 +1412,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     end)
 
     -- Update macros when bag changes (throttled), spec changes, login, or combat ends
-    local eventFrame = CreateFrame("Frame", nil, container)
+    local eventFrame = EllesmereUI.SafeCreateFrame("Frame", nil, container)
     local bagUpdatePending = false
     -- Spec changes are handled by a single persistent watcher (see end of file)
     -- that rebuilds only this section, not here -- registering per build would
@@ -1482,7 +1482,7 @@ function EllesmereUI.RefreshMacroFactory()
     end
 end
 
-EllesmereUI._macroSpecWatcher = EllesmereUI._macroSpecWatcher or CreateFrame("Frame")
+EllesmereUI._macroSpecWatcher = EllesmereUI._macroSpecWatcher or EllesmereUI.SafeCreateFrame("Frame")
 EllesmereUI._macroSpecWatcher:UnregisterAllEvents()
 EllesmereUI._macroSpecWatcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 EllesmereUI._macroSpecWatcher:SetScript("OnEvent", function()

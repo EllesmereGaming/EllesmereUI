@@ -2015,7 +2015,7 @@ function EllesmereUI.SpecOverrides_FlushUnlock()
     if InCombatLockdown() then
         _unlockFlushScheduled = true  -- keeps ScheduleUnlockFlush deduped
         if not _unlockFlushCombatWatch then
-            _unlockFlushCombatWatch = CreateFrame("Frame")
+            _unlockFlushCombatWatch = EllesmereUI.SafeCreateFrame("Frame")
             _unlockFlushCombatWatch:SetScript("OnEvent", function(self)
                 self:UnregisterEvent("PLAYER_REGEN_ENABLED")
                 if _unlockFlushScheduled then EllesmereUI.SpecOverrides_FlushUnlock() end
@@ -3961,7 +3961,7 @@ end
 
 
 local function MakeBorderHost(region, r, g, b)
-    local host = CreateFrame("Frame", nil, region)
+    local host = EllesmereUI.SafeCreateFrame("Frame", nil, region)
     host:SetAllPoints()
     host:SetFrameLevel(region:GetFrameLevel() + 30)
     if EllesmereUI.PP and EllesmereUI.PP.CreateBorder then
@@ -3982,13 +3982,13 @@ local function SetSlotMark(region, mode, conflictSpecID, condName)
     end
     if mode == "red" and not region._specOvRed then
         local host = MakeBorderHost(region, 0.9, 0.2, 0.2)
-        local blocker = CreateFrame("Button", nil, host)
+        local blocker = EllesmereUI.SafeCreateFrame("Button", nil, host)
         blocker:SetAllPoints()
         blocker:SetFrameLevel(region:GetFrameLevel() + 45)
         blocker:EnableMouse(true)
         local tint = blocker:CreateTexture(nil, "OVERLAY")
         tint:SetAllPoints()
-        tint:SetColorTexture(0.9, 0.2, 0.2, 0.05)
+        tint:SetTexture(0.9, 0.2, 0.2, 0.05)
         blocker:SetScript("OnEnter", function(self)
             if self._tipText and EllesmereUI.ShowWidgetTooltip then
                 EllesmereUI.ShowWidgetTooltip(self, self._tipText)
@@ -4006,16 +4006,16 @@ local function SetSlotMark(region, mode, conflictSpecID, condName)
         -- override identity: gold border + gold label text. The border is
         -- drawn on the BLOCKER at a high sublevel so it renders above the
         -- solid background (a border on the host would be covered).
-        local host = CreateFrame("Frame", nil, region)
+        local host = EllesmereUI.SafeCreateFrame("Frame", nil, region)
         host:SetAllPoints()
         host:SetFrameLevel(region:GetFrameLevel() + 30)
-        local blocker = CreateFrame("Button", nil, host)
+        local blocker = EllesmereUI.SafeCreateFrame("Button", nil, host)
         blocker:SetAllPoints()
         blocker:SetFrameLevel(region:GetFrameLevel() + 45)
         blocker:EnableMouse(true)
         local bg = blocker:CreateTexture(nil, "OVERLAY")
         bg:SetAllPoints()
-        bg:SetColorTexture(13/255, 17/255, 25/255, 1)
+        bg:SetTexture(13/255, 17/255, 25/255, 1)
         if EllesmereUI.PP and EllesmereUI.PP.CreateBorder then
             EllesmereUI.PP.CreateBorder(blocker, GOLD_R, GOLD_G, GOLD_B, 0.9, 1, "OVERLAY", 7)
         end
@@ -4043,9 +4043,9 @@ local function SetSlotMark(region, mode, conflictSpecID, condName)
         host._label = label
         region._specOvCondActive = host
     end
-    if region._specOvGold then region._specOvGold:SetShown(mode == "gold") end
+    if region._specOvGold then if mode == "gold" then region._specOvGold:Show() else region._specOvGold:Hide() end end
     if region._specOvRed then
-        region._specOvRed:SetShown(mode == "red")
+        if mode == "red" then region._specOvRed:Show() else region._specOvRed:Hide() end
         if mode == "red" and region._specOvRed._blocker then
             region._specOvRed._blocker._tipText = string.format(
                 L("This setting already has an override for %s"),
@@ -4053,7 +4053,7 @@ local function SetSlotMark(region, mode, conflictSpecID, condName)
         end
     end
     if region._specOvCondActive then
-        region._specOvCondActive:SetShown(mode == "condActive")
+        if mode == "condActive" then region._specOvCondActive:Show() else region._specOvCondActive:Hide() end
         if mode == "condActive" then
             local host = region._specOvCondActive
             if host._label then
@@ -4084,9 +4084,9 @@ local function UpdateEditLocks()
         -- Dark Mode condition locks, active only during a darkmode-conditional
         -- session); plain locks keep the original any-spec-session behavior.
         if host._predicate then
-            host:SetShown(host._predicate() and true or false)
+            if host._predicate() and true or false then host:Show() else host:Hide() end
         else
-            host:SetShown(specOn)
+            if specOn then host:Show() else host:Hide() end
         end
     end
 end
@@ -4124,13 +4124,13 @@ function EllesmereUI.SpecOverrides_AttachEditLock(region, tip, predicate)
     local host = _editLocks[region]
     if not host then
         host = MakeBorderHost(region, 0.9, 0.2, 0.2)
-        local blocker = CreateFrame("Button", nil, host)
+        local blocker = EllesmereUI.SafeCreateFrame("Button", nil, host)
         blocker:SetAllPoints()
         blocker:SetFrameLevel(region:GetFrameLevel() + 45)
         blocker:EnableMouse(true)
         local tint = blocker:CreateTexture(nil, "OVERLAY")
         tint:SetAllPoints()
-        tint:SetColorTexture(0.9, 0.2, 0.2, 0.05)
+        tint:SetTexture(0.9, 0.2, 0.2, 0.05)
         blocker:SetScript("OnEnter", function(self)
             if self._tipText and EllesmereUI.ShowWidgetTooltip then
                 EllesmereUI.ShowWidgetTooltip(self, self._tipText)
@@ -4145,9 +4145,9 @@ function EllesmereUI.SpecOverrides_AttachEditLock(region, tip, predicate)
     host._blocker._tipText = tip
     host._predicate = predicate
     if predicate then
-        host:SetShown(predicate() and true or false)
+        if predicate() and true or false then host:Show() else host:Hide() end
     else
-        host:SetShown(_editGroup ~= nil)
+        if _editGroup ~= nil then host:Show() else host:Hide() end
     end
 end
 
@@ -4688,7 +4688,7 @@ end
 local function EnsureEditBanner()
     if editBanner then return editBanner end
     local root = _G.EllesmereUIFrame or UIParent
-    editBanner = CreateFrame("Frame", nil, root)
+    editBanner = EllesmereUI.SafeCreateFrame("Frame", nil, root)
     editBanner:SetSize(680, 44)
     -- Sits ON TOP of the visible panel: banner bottom flush with the window's
     -- top edge (the click area is the actual window; the outer frame includes
@@ -4698,11 +4698,11 @@ local function EnsureEditBanner()
     editBanner:SetFrameStrata("DIALOG")
     local bg = editBanner:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.05, 0.05, 0.06, 0.92)
+    bg:SetTexture(0.05, 0.05, 0.06, 0.92)
     local brd = editBanner:CreateTexture(nil, "BORDER")
     brd:SetPoint("BOTTOMLEFT"); brd:SetPoint("BOTTOMRIGHT")
     brd:SetHeight(1)
-    brd:SetColorTexture(EDIT_R, EDIT_G, EDIT_B, 0.7)
+    brd:SetTexture(EDIT_R, EDIT_G, EDIT_B, 0.7)
     editBannerText = editBanner:CreateFontString(nil, "OVERLAY")
     editBannerText:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 13, "")
     editBannerText:SetPoint("TOPLEFT", editBanner, "TOPLEFT", 16, -8)
@@ -4711,7 +4711,7 @@ local function EnsureEditBanner()
     editBannerStatus:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 11, "")
     editBannerStatus:SetPoint("BOTTOMLEFT", editBanner, "BOTTOMLEFT", 16, 7)
     editBannerStatus:SetTextColor(1, 1, 1, 0.6)
-    local done = CreateFrame("Button", nil, editBanner)
+    local done = EllesmereUI.SafeCreateFrame("Button", nil, editBanner)
     done:SetSize(74, 24)
     done:SetPoint("RIGHT", editBanner, "RIGHT", -12, 0)
     EllesmereUI.SolidTex(done, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
@@ -4770,7 +4770,7 @@ local _overlayWanted = false
 
 ApplyEditOverlay = function()
     if not editOverlay then return end
-    editOverlay:SetShown(_overlayWanted and not IsExcludedContext())
+    if _overlayWanted and not IsExcludedContext() then editOverlay:Show() else editOverlay:Hide() end
 end
 
 local function SetEditOverlayShown(shown)
@@ -4778,7 +4778,7 @@ local function SetEditOverlayShown(shown)
     if shown and not editOverlay then
         local root = _G.EllesmereUIFrame
         if not root then return end
-        editOverlay = CreateFrame("Frame", nil, root)
+        editOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, root)
         editOverlay:SetAllPoints(root)
         editOverlay:SetFrameLevel(root:GetFrameLevel() + 1)
         editOverlay:EnableMouse(false)
@@ -5233,14 +5233,14 @@ function EllesmereUI.SpecOverrides_PulseButton()
     if not specBtn then return end
     local p = specBtn._pulse
     if not p then
-        p = CreateFrame("Frame", nil, specBtn)
+        p = EllesmereUI.SafeCreateFrame("Frame", nil, specBtn)
         p:SetPoint("TOPLEFT", specBtn, "TOPLEFT", -5, 5)
         p:SetPoint("BOTTOMRIGHT", specBtn, "BOTTOMRIGHT", 5, -5)
         -- Soft gold wash (low alpha so the glyph stays readable through it)
         -- plus a gold ring; the whole frame's alpha is what pulses.
         local wash = p:CreateTexture(nil, "ARTWORK")
         wash:SetAllPoints()
-        wash:SetColorTexture(1, 0.82, 0.30, 0.14)
+        wash:SetTexture(1, 0.82, 0.30, 0.14)
         EllesmereUI.MakeBorder(p, 1, 0.82, 0.30, 0.9)
         local ag = p:CreateAnimationGroup()
         ag:SetLooping("REPEAT")
@@ -5260,7 +5260,7 @@ function EllesmereUI.SpecOverrides_PulseButton()
     -- Bouncing callout chip below the button: "New Overrides System".
     local tip = specBtn._pulseTip
     if not tip then
-        tip = CreateFrame("Frame", nil, specBtn)
+        tip = EllesmereUI.SafeCreateFrame("Frame", nil, specBtn)
         tip:SetFrameStrata("DIALOG")   -- above the page content below the bar
         local lbl = EllesmereUI.MakeFont(tip, 12, nil, 1, 0.82, 0.30, 1)
         lbl:SetPoint("CENTER")
@@ -5349,7 +5349,7 @@ local nameIconPopup
 
 local function ShowNameIconPopup(specIDs, editing)
     if not nameIconPopup then
-        local p = CreateFrame("Frame", nil, UIParent)
+        local p = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         p:SetSize(380, 300)
         p:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
         p:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -5357,7 +5357,7 @@ local function ShowNameIconPopup(specIDs, editing)
         p:EnableMouse(true)
         local bg = p:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(0.06, 0.06, 0.07, 0.97)
+        bg:SetTexture(0.06, 0.06, 0.07, 0.97)
         EllesmereUI.MakeBorder(p, 1, 1, 1, 0.15)
 
         local title = EllesmereUI.MakeFont(p, 14, nil, ACCENT_R, ACCENT_G, ACCENT_B, 1)
@@ -5369,7 +5369,7 @@ local function ShowNameIconPopup(specIDs, editing)
         nameLbl:SetPoint("TOPLEFT", p, "TOPLEFT", 20, -44)
         nameLbl:SetText(L("Name"))
 
-        local nameBox = CreateFrame("EditBox", nil, p)
+        local nameBox = EllesmereUI.SafeCreateFrame("EditBox", nil, p)
         nameBox:SetSize(340, 26)
         nameBox:SetPoint("TOPLEFT", p, "TOPLEFT", 20, -62)
         nameBox:SetAutoFocus(false)
@@ -5400,7 +5400,7 @@ local function ShowNameIconPopup(specIDs, editing)
         for i, def in ipairs(defs) do
             local col = (i - 1) % PER_ROW
             local rowI = math.floor((i - 1) / PER_ROW)
-            local b = CreateFrame("Button", nil, p)
+            local b = EllesmereUI.SafeCreateFrame("Button", nil, p)
             b:SetSize(SZ, SZ)
             b:SetPoint("TOPLEFT", p, "TOPLEFT", 20 + col * (SZ + GAP), -122 - rowI * (SZ + GAP))
             local t = b:CreateTexture(nil, "ARTWORK")
@@ -5425,7 +5425,7 @@ local function ShowNameIconPopup(specIDs, editing)
             p._iconBtns[#p._iconBtns + 1] = b
         end
 
-        local create = CreateFrame("Button", nil, p)
+        local create = EllesmereUI.SafeCreateFrame("Button", nil, p)
         create:SetSize(110, 28)
         -- +44 centers the action+cancel pair (110 + 8 gap + 80 = 198 wide).
         create:SetPoint("BOTTOM", p, "BOTTOM", 44, 14)
@@ -5475,7 +5475,7 @@ local function ShowNameIconPopup(specIDs, editing)
             if RefreshCardsPopup then RefreshCardsPopup() end
         end)
 
-        local cancel = CreateFrame("Button", nil, p)
+        local cancel = EllesmereUI.SafeCreateFrame("Button", nil, p)
         cancel:SetSize(80, 28)
         cancel:SetPoint("RIGHT", create, "LEFT", -8, 0)
         EllesmereUI.SolidTex(cancel, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
@@ -5550,12 +5550,12 @@ end
 local cardsPopup
 
 local function BuildCardRow(parent, y, opts)
-    local row = CreateFrame("Button", nil, parent)
+    local row = EllesmereUI.SafeCreateFrame("Button", nil, parent)
     row:SetSize(parent:GetWidth() - 20, 40)
     row:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
     local hl = row:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.05)
+    hl:SetTexture(1, 1, 1, 0.05)
     local brd = EllesmereUI.MakeBorder(row, 1, 1, 1, opts.active and 0 or 0.08)
     if opts.active and brd and brd.SetColor then
         brd:SetColor(ACCENT_R, ACCENT_G, ACCENT_B, 0.8)
@@ -5589,7 +5589,7 @@ local function BuildCardRow(parent, y, opts)
     end
     local del
     if opts.deletable then
-        del = CreateFrame("Button", nil, row)
+        del = EllesmereUI.SafeCreateFrame("Button", nil, row)
         del:SetSize(20, 20)
         del:SetPoint("RIGHT", row, "RIGHT", -6, 1)
         del:SetFrameLevel(row:GetFrameLevel() + 2)
@@ -5614,7 +5614,7 @@ local function BuildCardRow(parent, y, opts)
     end
     local ed
     if opts.onEdit then
-        ed = CreateFrame("Button", nil, row)
+        ed = EllesmereUI.SafeCreateFrame("Button", nil, row)
         ed:SetSize(16, 16)
         if del then
             -- del sits 1px high; -2 relative lands the pencil 1px low on the row.
@@ -5641,7 +5641,7 @@ local function BuildCardRow(parent, y, opts)
         ed:SetScript("OnClick", opts.onEdit)
     end
     if opts.onUnlock then
-        local ub = CreateFrame("Button", nil, row)
+        local ub = EllesmereUI.SafeCreateFrame("Button", nil, row)
         -- Native art is 37x42; keep the aspect ratio at 16px height.
         ub:SetSize(16 * 37 / 42, 16)
         if ed then
@@ -6037,7 +6037,7 @@ RefreshCardsPopup = function()
     -- Centered with breathing room below, matching the "Spec Overrides"
     -- title at the top of the popup.
     do
-        local hdr = CreateFrame("Frame", nil, p)
+        local hdr = EllesmereUI.SafeCreateFrame("Frame", nil, p)
         hdr:SetSize(p:GetWidth() - 20, 26)
         hdr:SetPoint("TOPLEFT", p, "TOPLEFT", 10, y - 6)
         local hl = EllesmereUI.MakeFont(hdr, 13, nil, ACCENT_R, ACCENT_G, ACCENT_B, 1)
@@ -6161,7 +6161,7 @@ RefreshCardsPopup = function()
 
     -- Link to the management list (single link for both systems; the
     -- Conditional Overrides tab sits right next to Spec Overrides).
-    local link = CreateFrame("Button", nil, p)
+    local link = EllesmereUI.SafeCreateFrame("Button", nil, p)
     link:SetSize(p:GetWidth() - 20, 22)
     link:SetPoint("TOPLEFT", p, "TOPLEFT", 10, y - 2)
     local ll = EllesmereUI.MakeFont(link, 12, nil, ACCENT_R, ACCENT_G, ACCENT_B, 0.9)
@@ -6191,7 +6191,7 @@ function EllesmereUI.SpecOverrides_ToggleCardsPopup(anchorBtn)
         return
     end
     if not cardsPopup then
-        local p = CreateFrame("Frame", nil, _G.EllesmereUIFrame or UIParent)
+        local p = EllesmereUI.SafeCreateFrame("Frame", nil, _G.EllesmereUIFrame or UIParent)
         p:Hide()   -- born hidden so the first Show() fires OnShow (click-off arming)
         p:SetSize(280, 100)
         p:SetFrameStrata("DIALOG")
@@ -6200,7 +6200,7 @@ function EllesmereUI.SpecOverrides_ToggleCardsPopup(anchorBtn)
         p:SetClampedToScreen(true)
         local bg = p:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(0.06, 0.06, 0.07, 0.99)
+        bg:SetTexture(0.06, 0.06, 0.07, 0.99)
         EllesmereUI.MakeBorder(p, 1, 1, 1, 0.15)
         local title = EllesmereUI.MakeFont(p, 13, nil, ACCENT_R, ACCENT_G, ACCENT_B, 1)
         title:SetPoint("TOP", p, "TOP", 0, -12)
@@ -6210,7 +6210,7 @@ function EllesmereUI.SpecOverrides_ToggleCardsPopup(anchorBtn)
         -- a global mouse-down listener (non-blocking, world clicks pass
         -- through). Clicks on the spec button / indicator are excluded so
         -- their own OnClick handles the toggle instead of close-then-reopen.
-        local clickOff = CreateFrame("Frame")
+        local clickOff = EllesmereUI.SafeCreateFrame("Frame")
         clickOff:Hide()
         clickOff:SetScript("OnEvent", function()
             -- A modal dialog (delete confirm / spec picker) owns clicks while
@@ -6287,7 +6287,7 @@ end
 function Cond.ShowNameIconPopup(conds, keyStr, existing)
     local p = Cond._namePopup
     if not p then
-        p = CreateFrame("Frame", nil, UIParent)
+        p = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         p:SetSize(380, 300)
         p:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
         p:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -6295,7 +6295,7 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
         p:EnableMouse(true)
         local bg = p:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(0.06, 0.06, 0.07, 0.97)
+        bg:SetTexture(0.06, 0.06, 0.07, 0.97)
         EllesmereUI.MakeBorder(p, 1, 1, 1, 0.15)
 
         local title = EllesmereUI.MakeFont(p, 14, nil, ACCENT_R, ACCENT_G, ACCENT_B, 1)
@@ -6306,7 +6306,7 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
         nameLbl:SetPoint("TOPLEFT", p, "TOPLEFT", 20, -44)
         nameLbl:SetText(L("Name"))
 
-        local nameBox = CreateFrame("EditBox", nil, p)
+        local nameBox = EllesmereUI.SafeCreateFrame("EditBox", nil, p)
         nameBox:SetSize(340, 26)
         nameBox:SetPoint("TOPLEFT", p, "TOPLEFT", 20, -62)
         nameBox:SetAutoFocus(false)
@@ -6336,7 +6336,7 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
         for i, def in ipairs(defs) do
             local col = (i - 1) % PER_ROW
             local rowI = math.floor((i - 1) / PER_ROW)
-            local b = CreateFrame("Button", nil, p)
+            local b = EllesmereUI.SafeCreateFrame("Button", nil, p)
             b:SetSize(SZ, SZ)
             b:SetPoint("TOPLEFT", p, "TOPLEFT", 20 + col * (SZ + GAP), -122 - rowI * (SZ + GAP))
             local t = b:CreateTexture(nil, "ARTWORK")
@@ -6361,7 +6361,7 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
             p._iconBtns[#p._iconBtns + 1] = b
         end
 
-        local create = CreateFrame("Button", nil, p)
+        local create = EllesmereUI.SafeCreateFrame("Button", nil, p)
         create:SetSize(110, 28)
         -- +44 centers the action+cancel pair (110 + 8 gap + 80 = 198 wide).
         create:SetPoint("BOTTOM", p, "BOTTOM", 44, 14)
@@ -6422,7 +6422,7 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
             end
         end)
 
-        local cancel = CreateFrame("Button", nil, p)
+        local cancel = EllesmereUI.SafeCreateFrame("Button", nil, p)
         cancel:SetSize(80, 28)
         cancel:SetPoint("RIGHT", create, "LEFT", -8, 0)
         EllesmereUI.SolidTex(cancel, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
@@ -6476,7 +6476,7 @@ end
 function Cond.ShowPickerPopup(existing)
     local p = Cond._pickerPopup
     if not p then
-        p = CreateFrame("Frame", nil, UIParent)
+        p = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         p:SetSize(340, 100)
         p:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
         p:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -6484,7 +6484,7 @@ function Cond.ShowPickerPopup(existing)
         p:EnableMouse(true)
         local bg = p:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(0.06, 0.06, 0.07, 0.97)
+        bg:SetTexture(0.06, 0.06, 0.07, 0.97)
         EllesmereUI.MakeBorder(p, 1, 1, 1, 0.15)
 
         local title = EllesmereUI.MakeFont(p, 14, nil, ACCENT_R, ACCENT_G, ACCENT_B, 1)
@@ -6497,17 +6497,17 @@ function Cond.ShowPickerPopup(existing)
         p._rows = {}
         local y = -52
         for _, def in ipairs(EllesmereUI.CONDITIONS) do
-            local row = CreateFrame("Button", nil, p)
+            local row = EllesmereUI.SafeCreateFrame("Button", nil, p)
             row:SetSize(300, 24)
             row:SetPoint("TOPLEFT", p, "TOPLEFT", 20, y)
             local box = row:CreateTexture(nil, "ARTWORK")
             box:SetSize(14, 14)
             box:SetPoint("LEFT", row, "LEFT", 0, 0)
-            box:SetColorTexture(0.10, 0.10, 0.11, 0.9)
+            box:SetTexture(0.10, 0.10, 0.11, 0.9)
             local check = row:CreateTexture(nil, "OVERLAY")
             check:SetSize(8, 8)
             check:SetPoint("CENTER", box, "CENTER", 0, 0)
-            check:SetColorTexture(ACCENT_R, ACCENT_G, ACCENT_B, 1)
+            check:SetTexture(ACCENT_R, ACCENT_G, ACCENT_B, 1)
             check:Hide()
             local lbl = EllesmereUI.MakeFont(row, 12, nil, 1, 1, 1, def.comingSoon and 0.35 or 0.85)
             lbl:SetPoint("LEFT", box, "RIGHT", 8, 0)
@@ -6534,7 +6534,7 @@ function Cond.ShowPickerPopup(existing)
                 row:SetScript("OnClick", function(self)
                     if not p._staged[self._condID] and not self._reqFn() then return end
                     p._staged[self._condID] = not p._staged[self._condID] or nil
-                    self._check:SetShown(p._staged[self._condID] and true or false)
+                    if p._staged[self._condID] and true or false then self._check:Show() else self._check:Hide() end
                     p._syncKeyRow()
                     if p._refreshReqRows then p._refreshReqRows() end
                 end)
@@ -6550,7 +6550,7 @@ function Cond.ShowPickerPopup(existing)
             else
                 row:SetScript("OnClick", function(self)
                     p._staged[self._condID] = not p._staged[self._condID] or nil
-                    self._check:SetShown(p._staged[self._condID] and true or false)
+                    if p._staged[self._condID] and true or false then self._check:Show() else self._check:Hide() end
                     p._syncKeyRow()
                 end)
             end
@@ -6572,13 +6572,13 @@ function Cond.ShowPickerPopup(existing)
 
         -- Keybind capture row (shown only while the keybind condition is
         -- checked). Standard capture: click, press a key (ESC cancels).
-        local keyRow = CreateFrame("Frame", nil, p)
+        local keyRow = EllesmereUI.SafeCreateFrame("Frame", nil, p)
         keyRow:SetSize(300, 26)
         keyRow:SetPoint("TOPLEFT", p, "TOPLEFT", 20, y - 4)
         local keyLbl = EllesmereUI.MakeFont(keyRow, 12, nil, 1, 1, 1, 0.6)
         keyLbl:SetPoint("LEFT", keyRow, "LEFT", 0, 0)
         keyLbl:SetText(L("Toggle Key"))
-        local keyBtn = CreateFrame("Button", nil, keyRow)
+        local keyBtn = EllesmereUI.SafeCreateFrame("Button", nil, keyRow)
         keyBtn:SetSize(150, 22)
         keyBtn:SetPoint("LEFT", keyLbl, "RIGHT", 12, 0)
         EllesmereUI.SolidTex(keyBtn, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
@@ -6620,7 +6620,7 @@ function Cond.ShowPickerPopup(existing)
             end
             ShowKeyText()
         end)
-        local keyClear = CreateFrame("Button", nil, keyRow)
+        local keyClear = EllesmereUI.SafeCreateFrame("Button", nil, keyRow)
         keyClear:SetSize(20, 20)
         keyClear:SetPoint("LEFT", keyBtn, "RIGHT", 6, 0)
         local kx = EllesmereUI.MakeFont(keyClear, 13, nil, 1, 1, 1, 0.6)
@@ -6634,13 +6634,13 @@ function Cond.ShowPickerPopup(existing)
         end)
 
         p._syncKeyRow = function()
-            keyRow:SetShown(p._staged.keybind and true or false)
+            if p._staged.keybind and true or false then keyRow:Show() else keyRow:Hide() end
             local extra = p._staged.keybind and 34 or 0
             p:SetHeight(-y + 56 + extra)
             ShowKeyText()
         end
 
-        local nextBtn = CreateFrame("Button", nil, p)
+        local nextBtn = EllesmereUI.SafeCreateFrame("Button", nil, p)
         nextBtn:SetSize(110, 28)
         -- +44 centers the action+cancel pair (110 + 8 gap + 80 = 198 wide).
         nextBtn:SetPoint("BOTTOM", p, "BOTTOM", 44, 14)
@@ -6665,7 +6665,7 @@ function Cond.ShowPickerPopup(existing)
             Cond.ShowNameIconPopup(conds, p._stagedKey, p._editing)
         end)
 
-        local cancel = CreateFrame("Button", nil, p)
+        local cancel = EllesmereUI.SafeCreateFrame("Button", nil, p)
         cancel:SetSize(80, 28)
         cancel:SetPoint("RIGHT", nextBtn, "LEFT", -8, 0)
         EllesmereUI.SolidTex(cancel, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
@@ -6692,7 +6692,7 @@ function Cond.ShowPickerPopup(existing)
         for k, v in pairs(existing.conds) do p._staged[k] = v end
     end
     for _, row in ipairs(p._rows) do
-        row._check:SetShown(p._staged[row._condID] and true or false)
+        if p._staged[row._condID] and true or false then row._check:Show() else row._check:Hide() end
     end
     if p._refreshReqRows then p._refreshReqRows() end
     p._title:SetText(existing and string.format(L("Edit Conditional: %s"), existing.name or "?")
@@ -6759,7 +6759,7 @@ end
 
 local function BuildListRow(parent, y, entry)
     local CONTENT_PAD = EllesmereUI.CONTENT_PAD or 40
-    local row = CreateFrame("Frame", nil, parent)
+    local row = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     row:SetSize(parent:GetWidth() - CONTENT_PAD * 2, 36)
     row:SetPoint("TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, y)
 
@@ -6772,7 +6772,7 @@ local function BuildListRow(parent, y, entry)
     crumb:SetText(entry.crumb and TitleCase(entry.crumb) or "")
 
     local function MakeBtn(text, xOff, w)
-        local b = CreateFrame("Button", nil, row)
+        local b = EllesmereUI.SafeCreateFrame("Button", nil, row)
         b:SetSize(w or 110, 22)
         b:SetPoint("RIGHT", row, "RIGHT", xOff, 0)
         EllesmereUI.SolidTex(b, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
@@ -6845,7 +6845,7 @@ end
 -- possible for these -- no editing session can reach them.
 local function BuildStrandedRow(parent, y, entry, specID)
     local CONTENT_PAD = EllesmereUI.CONTENT_PAD or 40
-    local row = CreateFrame("Frame", nil, parent)
+    local row = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     row:SetSize(parent:GetWidth() - CONTENT_PAD * 2, 36)
     row:SetPoint("TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, y)
 
@@ -6859,7 +6859,7 @@ local function BuildStrandedRow(parent, y, entry, specID)
     crumb:SetText(string.format("%s  -  %s", L(entry.label or "?"),
         string.format(L("held by '%s'"), (owner and owner.name) or "?")))
 
-    local rm = CreateFrame("Button", nil, row)
+    local rm = EllesmereUI.SafeCreateFrame("Button", nil, row)
     rm:SetSize(116, 22)
     rm:SetPoint("RIGHT", row, "RIGHT", -20, 0)
     EllesmereUI.SolidTex(rm, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
@@ -7039,7 +7039,7 @@ local function BuildUnlockLayoutRow(parent, y, g, opts)
     local removeFn = opts.removeFn or EllesmereUI.SpecOverrides_RemoveUnlockLayout
 
     local CONTENT_PAD = EllesmereUI.CONTENT_PAD or 40
-    local row = CreateFrame("Frame", nil, parent)
+    local row = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     row:SetSize(parent:GetWidth() - CONTENT_PAD * 2, 36)
     row:SetPoint("TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, y)
 
@@ -7051,7 +7051,7 @@ local function BuildUnlockLayoutRow(parent, y, g, opts)
     crumb:SetPoint("LEFT", name, "RIGHT", 10, 0)
     crumb:SetText(L(crumbText))
 
-    local b = CreateFrame("Button", nil, row)
+    local b = EllesmereUI.SafeCreateFrame("Button", nil, row)
     b:SetSize(116, 22)
     b:SetPoint("RIGHT", row, "RIGHT", -20, 0)
     EllesmereUI.SolidTex(b, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
@@ -7301,7 +7301,7 @@ function EllesmereUI.SpecOverrides_BuildListPage(parent, startY)
     if (not store or #store == 0) and not layoutGroups and not bmGroups then
         local _, h = W:SectionHeader(parent, L("Spec Overrides"), y);  y = y - h
         local CONTENT_PAD = EllesmereUI.CONTENT_PAD or 40
-        local hint = CreateFrame("Frame", nil, parent)
+        local hint = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
         hint:SetSize(parent:GetWidth() - CONTENT_PAD * 2, 80)
         hint:SetPoint("TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, y)
         local fs = EllesmereUI.MakeFont(hint, 13, nil, 1, 1, 1, 0.5)
@@ -7442,7 +7442,7 @@ function EllesmereUI.SpecOverrides_BuildListPage(parent, startY)
         local BTN_W, BTN_H = 300, 38
         local lerp = EllesmereUI.lerp
         local DARK_BG = EllesmereUI.DARK_BG or { r = 0.05, g = 0.07, b = 0.09 }
-        local btn = CreateFrame("Button", nil, parent)
+        local btn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
         btn:SetSize(BTN_W, BTN_H)
         btn:SetPoint("TOP", parent, "TOP", 0, y)
         btn:SetFrameLevel(parent:GetFrameLevel() + 5)
@@ -7560,7 +7560,7 @@ function EllesmereUI.Conditions_BuildListPage(parent, startY)
     if (not store or #store == 0) and not layoutGroups and not bmGroups and #groups == 0 then
         local _, h = W:SectionHeader(parent, L("Conditional Overrides"), y);  y = y - h
         local CONTENT_PAD = EllesmereUI.CONTENT_PAD or 40
-        local hint = CreateFrame("Frame", nil, parent)
+        local hint = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
         hint:SetSize(parent:GetWidth() - CONTENT_PAD * 2, 80)
         hint:SetPoint("TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, y)
         local fs = EllesmereUI.MakeFont(hint, 13, nil, 1, 1, 1, 0.5)
@@ -7577,7 +7577,7 @@ function EllesmereUI.Conditions_BuildListPage(parent, startY)
         local _, hh = W:SectionHeader(parent, "Custom Unlock Modes", y);  y = y - hh
         for _, g in ipairs(layoutGroups) do
             local CONTENT_PAD = EllesmereUI.CONTENT_PAD or 40
-            local row = CreateFrame("Frame", nil, parent)
+            local row = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
             row:SetSize(parent:GetWidth() - CONTENT_PAD * 2, 36)
             row:SetPoint("TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, y)
             local name = EllesmereUI.MakeFont(row, 13, nil, 1, 1, 1, 0.9)
@@ -7586,7 +7586,7 @@ function EllesmereUI.Conditions_BuildListPage(parent, startY)
             local crumb = EllesmereUI.MakeFont(row, 11, nil, GOLD_R, GOLD_G, GOLD_B, 0.75)
             crumb:SetPoint("LEFT", name, "RIGHT", 10, 0)
             crumb:SetText(L("Custom Unlock Mode"))
-            local b = CreateFrame("Button", nil, row)
+            local b = EllesmereUI.SafeCreateFrame("Button", nil, row)
             b:SetSize(116, 22)
             b:SetPoint("RIGHT", row, "RIGHT", -20, 0)
             EllesmereUI.SolidTex(b, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
@@ -7769,7 +7769,7 @@ SlashCmdList.EUISPECOV = function()
     end
 end
 
-local evFrame = CreateFrame("Frame")
+local evFrame = EllesmereUI.SafeCreateFrame("Frame")
 evFrame:RegisterEvent("PLAYER_LOGIN")
 evFrame:RegisterEvent("PLAYER_LOGOUT")
 evFrame:RegisterEvent("PLAYER_REGEN_ENABLED")

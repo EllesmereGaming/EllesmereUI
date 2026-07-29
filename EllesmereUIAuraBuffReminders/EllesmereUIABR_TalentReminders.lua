@@ -128,7 +128,7 @@ local talentActiveIcons = {}
 
 local function GetOrCreateIcon(index)
     if talentIconPool[index] then return talentIconPool[index] end
-    local btn = CreateFrame("Button", "EABR_TalentIcon" .. index, talentIconAnchor, "SecureActionButtonTemplate")
+    local btn = EllesmereUI.SafeCreateFrame("Button", "EABR_TalentIcon" .. index, talentIconAnchor, "SecureActionButtonTemplate")
     btn:SetSize(ICON_SIZE, ICON_SIZE)
     btn:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
     securecallfunction(btn.SetPassThroughButtons, btn, "RightButton", "MiddleButton")
@@ -361,7 +361,7 @@ end
 -------------------------------------------------------------------------------
 --  Events
 -------------------------------------------------------------------------------
-local eventFrame = CreateFrame("Frame")
+local eventFrame = EllesmereUI.SafeCreateFrame("Frame")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "PLAYER_LOGIN" then
@@ -378,7 +378,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         end
 
         -- Create anchor
-        talentIconAnchor = CreateFrame("Frame", "EABR_TalentAnchor", UIParent)
+        talentIconAnchor = EllesmereUI.SafeCreateFrame("Frame", "EABR_TalentAnchor", UIParent)
         talentIconAnchor:SetSize(1, 1)
         talentIconAnchor:SetFrameStrata("MEDIUM")
         talentIconAnchor:SetFrameLevel(100)

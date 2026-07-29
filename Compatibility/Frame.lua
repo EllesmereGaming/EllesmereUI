@@ -1,6 +1,15 @@
 EUI = EUI or {}
 EUI.API = EUI.API or {}
 
+function EUI.API.SetSecureAttr(frame, name, value)
+    if not frame then return end
+    if frame.SetAttributeNoHandler then
+        frame:SetAttributeNoHandler(name, value)
+    elseif frame.SetAttribute then
+        frame:SetAttribute(name, EUI.API.FixSecureSnippet and type(value) == "string" and EUI.API.FixSecureSnippet(value) or value)
+    end
+end
+
 function EUI.API.ApplyFrameCompat(frame)
     if not frame then return frame end
 
@@ -42,7 +51,6 @@ function EUI.API.ApplyFrameCompat(frame)
     if not frame.SetTexelSnappingBias then frame.SetTexelSnappingBias = function(self, bias) end end
     if not frame.PixelSnap then frame.PixelSnap = function(self, val) return val end end
     if not frame.SetClipsChildren then frame.SetClipsChildren = function(self, clip) end end
-    if not frame.SetMaxLines then frame.SetMaxLines = function(self, limit) end end
 
     if not frame.SetAlphaFromBoolean then
         frame.SetAlphaFromBoolean = function(self, value, trueAlpha, falseAlpha)
@@ -77,6 +85,13 @@ function EUI.API.ApplyFrameCompat(frame)
     if not frame.GetLayoutIndex then frame.GetLayoutIndex = function(self) return self.layoutIndex or 1 end end
     if not frame.SetFrameStrataFromParent then frame.SetFrameStrataFromParent = function(self) end end
     if not frame.SetFixedFrameStrata then frame.SetFixedFrameStrata = function(self, fixed) end end
+    if not frame.SetPropagateKeyboardInput then
+        frame.SetPropagateKeyboardInput = function(self, propagate)
+            if self.EnableKeyboard then
+                self:EnableKeyboard(not propagate)
+            end
+        end
+    end
 
     if frame:GetObjectType() == "Cooldown" and not frame.SetCooldownFromDurationObject then
         frame.SetCooldownFromDurationObject = function(self, durObj)
@@ -90,6 +105,18 @@ function EUI.API.ApplyFrameCompat(frame)
                 start = durObj.expirationTime - duration
             end
             self:SetCooldown(start or 0, duration or 0)
+        end
+    end
+
+    if frame.CreateFontString and not frame._fsHooked then
+        frame._fsHooked = true
+        local origCreateFontString = frame.CreateFontString
+        frame.CreateFontString = function(self, ...)
+            local fs = origCreateFontString(self, ...)
+            if fs and not fs.SetMaxLines then
+                fs.SetMaxLines = function(self, limit) end
+            end
+            return fs
         end
     end
 
@@ -176,3 +203,55 @@ if not GetPhysicalScreenSize then
         return w, h
     end
 end
+
+-- Global metatable patching for WoW 3.3.5 frame compatibility methods.
+-- In WoW 3.3.5 all widget instances of the same type share a single C metatable
+-- whose __index is a plain Lua table.  Inserting here fixes EVERY instance of
+-- that type globally, so we never need per-frame ApplyFrameCompat for these stubs.
+local function PatchWidgetMetatable(obj)
+    if not obj then return end
+    local meta = getmetatable(obj)
+    local idx = meta and meta.__index
+    if type(idx) == "table" then
+        -- Shared metatable table -- patch it once, covers all instances.
+        if not idx.IsForbidden         then idx.IsForbidden         = function(self) return false end end
+        if not idx.SetSnapToPixelGrid  then idx.SetSnapToPixelGrid  = function(self) end end
+        if not idx.SetPixelSnapDisabled then idx.SetPixelSnapDisabled = function(self) end end
+        if not idx.SetTexelSnappingBias then idx.SetTexelSnappingBias = function(self) end end
+        if not idx.PixelSnap           then idx.PixelSnap           = function(self, v) return v end end
+        if not idx.SetClipsChildren    then idx.SetClipsChildren    = function(self) end end
+    else
+        -- Fallback: __index is a function or absent; patch the object directly.
+        -- This is less efficient but safe.
+        if not obj.IsForbidden         then obj.IsForbidden         = function(self) return false end end
+        if not obj.SetSnapToPixelGrid  then obj.SetSnapToPixelGrid  = function(self) end end
+        if not obj.SetPixelSnapDisabled then obj.SetPixelSnapDisabled = function(self) end end
+        if not obj.SetTexelSnappingBias then obj.SetTexelSnappingBias = function(self) end end
+        if not obj.PixelSnap           then obj.PixelSnap           = function(self, v) return v end end
+        if not obj.SetClipsChildren    then obj.SetClipsChildren    = function(self) end end
+    end
+end
+
+do
+    local dummy = CreateFrame("Frame")
+    if dummy then
+        PatchWidgetMetatable(dummy)
+        local tex = dummy:CreateTexture()
+        if tex then PatchWidgetMetatable(tex) end
+        local fs = dummy:CreateFontString()
+        if fs then PatchWidgetMetatable(fs) end
+        dummy:Hide()
+    end
+    -- Each frame type shares a single C metatable across all instances.
+    -- Patching __index on one instance's metatable fixes ALL instances of that type.
+    local types = { "Button", "CheckButton", "Cooldown", "Slider", "EditBox",
+                    "ScrollFrame", "SimpleHTML", "MessageFrame", "Model", "StatusBar" }
+    for _, t in ipairs(types) do
+        local ok, f = pcall(CreateFrame, t)
+        if ok and f then
+            PatchWidgetMetatable(f)
+            f:Hide()
+        end
+    end
+end
+

@@ -117,7 +117,7 @@ function EQT.IsSuppressed() return next(_qtSuppressors) ~= nil end
 -------------------------------------------------------------------------------
 -- Loader
 -------------------------------------------------------------------------------
-local loader = CreateFrame("Frame")
+local loader = EllesmereUI.SafeCreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
 loader:RegisterEvent("PLAYER_LOGIN")
 

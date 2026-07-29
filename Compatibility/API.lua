@@ -1114,3 +1114,30 @@ if not TooltipDataProcessor then
     end
 end
 
+-- 18. RegisterAttributeDriver / UnregisterAttributeDriver Polyfills for WotLK 3.3.5
+if not _G.RegisterAttributeDriver then
+    LoadAddOn("Blizzard_SecureTemplates")
+    
+    if not _G.RegisterAttributeDriver then
+        _G.RegisterAttributeDriver = function(frame, attribute, conditional)
+            if not frame or not attribute then return end
+            local state = attribute
+            if attribute:sub(1, 6) == "state-" then
+                state = attribute:sub(7)
+            end
+            RegisterStateDriver(frame, state, conditional)
+        end
+    end
+end
+
+if not _G.UnregisterAttributeDriver then
+    _G.UnregisterAttributeDriver = function(frame, attribute)
+        if not frame or not attribute then return end
+        local state = attribute
+        if attribute:sub(1, 6) == "state-" then
+            state = attribute:sub(7)
+        end
+        UnregisterStateDriver(frame, state)
+    end
+end
+

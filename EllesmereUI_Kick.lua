@@ -106,7 +106,7 @@ function EllesmereUI.GetSecureMenuProxy(frame)
             proxyCounter = proxyCounter + 1
             proxyName = "EUISecureMenuProxy" .. proxyCounter
         end
-        proxy = CreateFrame("Button", proxyName, frame, "SecureActionButtonTemplate")
+        proxy = EllesmereUI.SafeCreateFrame("Button", proxyName, frame, "SecureActionButtonTemplate")
         proxy:SetSize(1, 1)
         proxy:SetAlpha(0)
         proxy:EnableMouse(false)          -- never catches real mouse; only the secure click delegate reaches it
@@ -141,7 +141,7 @@ function EllesmereUI.GetSecureTargetProxy(frame)
             proxyCounter = proxyCounter + 1
             proxyName = "EUISecureTargetProxy" .. proxyCounter
         end
-        proxy = CreateFrame("Button", proxyName, frame, "SecureActionButtonTemplate")
+        proxy = EllesmereUI.SafeCreateFrame("Button", proxyName, frame, "SecureActionButtonTemplate")
         proxy:SetSize(1, 1)
         proxy:SetAlpha(0)
         proxy:EnableMouse(false)          -- never catches real mouse; only the secure click delegate reaches it
@@ -177,7 +177,7 @@ function EllesmereUI.AttachSecureUnitMenu(frame)
     return proxy
 end
 
-local kickFrame = CreateFrame("Frame")
+local kickFrame = EllesmereUI.SafeCreateFrame("Frame")
 kickFrame:RegisterEvent("PLAYER_LOGIN")
 kickFrame:RegisterEvent("SPELLS_CHANGED")
 kickFrame:SetScript("OnEvent", function()

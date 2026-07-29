@@ -39,12 +39,12 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
         local BTN_H = 38
         local GAP = 40
         local ROW_H = BTN_H + 20
-        local rowFrame = CreateFrame("Frame", nil, parent)
+        local rowFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
         local totalW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
         PP.Size(rowFrame, totalW, ROW_H)
         PP.Point(rowFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
 
-        local openBtn = CreateFrame("Button", nil, rowFrame)
+        local openBtn = EllesmereUI.SafeCreateFrame("Button", nil, rowFrame)
         PP.Size(openBtn, BTN_W, BTN_H)
         PP.Point(openBtn, "RIGHT", rowFrame, "CENTER", -(GAP / 2), 0)
         openBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 1)
@@ -56,7 +56,7 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
                 end
             end)
 
-        local clearBtn = CreateFrame("Button", nil, rowFrame)
+        local clearBtn = EllesmereUI.SafeCreateFrame("Button", nil, rowFrame)
         PP.Size(clearBtn, BTN_W, BTN_H)
         PP.Point(clearBtn, "LEFT", rowFrame, "CENTER", GAP / 2, 0)
         clearBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 1)
@@ -73,7 +73,7 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
     -- Reposition hint
     do
         local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
-        local infoFrame = CreateFrame("Frame", nil, parent)
+        local infoFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
         infoFrame:SetSize(parent:GetWidth(), 20)
         infoFrame:SetPoint("TOP", parent, "TOP", 0, y - 10)
         infoFrame._isSpacer = true
@@ -242,7 +242,7 @@ local function HookCharacterSheet()
     end)
 end
 
-local loginFrame = CreateFrame("Frame")
+local loginFrame = EllesmereUI.SafeCreateFrame("Frame")
 loginFrame:RegisterEvent("PLAYER_LOGIN")
 loginFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")

@@ -14,7 +14,7 @@
 --                         even mode) as if it were not in the bar.
 --   inst:Destroy()        full teardown; secure frames park OOC
 --
--- All frames created here are OURS (CreateFrame by this file), so SetScript
+-- All frames created here are OURS (EllesmereUI.SafeCreateFrame by this file), so SetScript
 -- and custom fields are allowed. The only Blizzard frames touched are the
 -- micro menu containers (via a SecureHandlerStateTemplate hider) and the
 -- Blizzard MicroButtons / ProfessionMicroButton / QuestLogMicroButton (via
@@ -98,7 +98,7 @@ end
 
 -- Upvalues
 local _G                = _G
-local CreateFrame       = CreateFrame
+local CreateFrame = EllesmereUI.SafeCreateFrame
 local UIParent          = UIParent
 local InCombatLockdown  = InCombatLockdown
 local C_Timer           = C_Timer
@@ -125,7 +125,7 @@ local function InstKey(barCtx, blockCfg)
 end
 
 local function MakeEventFrame(inst, handler)
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f:SetScript("OnEvent", function(_, event, ...) handler(inst, event, ...) end)
     return f
 end
@@ -443,7 +443,7 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
     end
 
     -- Frames
-    local clockTextFrame = CreateFrame("Button", nil, content)
+    local clockTextFrame = EllesmereUI.SafeCreateFrame("Button", nil, content)
     clockTextFrame:SetSize(100, 20)
     clockTextFrame:SetPoint("CENTER")
     clockTextFrame:EnableMouse(true)
@@ -466,7 +466,7 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
     -- margins), and the grid is 6 columns x 7 rows, 42 frames, 1.5s
     -- REPEAT with setToFinalAlpha. No OnUpdate: the animation only runs
     -- while the frame is shown.
-    local restFrame = CreateFrame("Frame", nil, content)
+    local restFrame = EllesmereUI.SafeCreateFrame("Frame", nil, content)
     restFrame:SetSize(16, 21)
     restFrame:Hide()
     local restIcon = restFrame:CreateTexture(nil, "OVERLAY")
@@ -528,7 +528,7 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
             -- Mail can arrive mid-fight; showing/hiding our own texture is
             -- combat-legal (geometry still waits for needsResize).
             local dCombat = D()
-            mailIcon:SetShown(dCombat.showMail ~= false and HasNewMail())
+            if dCombat.showMail ~= false and HasNewMail() then mailIcon:Show() else mailIcon:Hide() end
             RebuildInfoItems()
             if #infoItems > 0 then
                 eventText:SetText(infoItems[infoIndex] or "")
@@ -578,7 +578,7 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
         else
             restFrame:Hide()
         end
-        mailIcon:SetShown(dc.showMail ~= false and HasNewMail())
+        if dc.showMail ~= false and HasNewMail() then mailIcon:Show() else mailIcon:Hide() end
 
         local barAtTop = barCtx.IsBarAtTop()
         -- Square frame; the texture draws 1.5x the frame size, centered
@@ -865,7 +865,7 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
     local tickCount = 0
     local _fitBuf = { "" }
 
-    local frame = CreateFrame("Button", nil, content)
+    local frame = EllesmereUI.SafeCreateFrame("Button", nil, content)
     frame:SetSize(60, 20); frame:EnableMouse(true); frame:RegisterForClicks("AnyUp")
     -- Icon is optional: blocks without opts.texture are text-only.
     local icon
@@ -1126,7 +1126,7 @@ ns.BlockFactories.ms = function(blockCfg, slot, content, barCtx)
     local function D() return blockCfg.settings or {} end
     local function BC() return barCtx.cfg end
 
-    local button = CreateFrame("Button", nil, content)
+    local button = EllesmereUI.SafeCreateFrame("Button", nil, content)
     button:EnableMouse(true)
     button:RegisterForClicks("AnyUp")
 
@@ -1459,7 +1459,7 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
     local ticker
     local lastText
 
-    local frame = CreateFrame("Button", nil, content)
+    local frame = EllesmereUI.SafeCreateFrame("Button", nil, content)
     frame:SetSize(60, 20); frame:EnableMouse(true); frame:RegisterForClicks("AnyUp")
     -- Icon is optional: blocks without opts.texture are text-only.
     local icon
@@ -1521,7 +1521,7 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
         if clickBtn or InCombatLockdown() then return clickBtn end
         local micro = _G.QuestLogMicroButton
         if not micro then return nil end
-        clickBtn = CreateFrame("Button", "EWB_LOC_" .. inst.key, frame,
+        clickBtn = EllesmereUI.SafeCreateFrame("Button", "EWB_LOC_" .. inst.key, frame,
             "SecureActionButtonTemplate,SecureHandlerStateTemplate")
         clickBtn:SetAllPoints(frame)
         clickBtn:SetAttribute("*clickbutton1", micro)
@@ -1848,7 +1848,7 @@ end
 local function UpdateGoldEvents()
     if next(goldInstances) then
         if not goldEventFrame then
-            goldEventFrame = CreateFrame("Frame")
+            goldEventFrame = EllesmereUI.SafeCreateFrame("Frame")
             goldEventFrame:SetScript("OnEvent", GoldOnEvent)
         end
         goldEventFrame:RegisterEvent("PLAYER_MONEY")
@@ -1891,7 +1891,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
     local function D() return blockCfg.settings or {} end
     local function BC() return barCtx.cfg end
 
-    local goldButton = CreateFrame("Button", nil, content)
+    local goldButton = EllesmereUI.SafeCreateFrame("Button", nil, content)
     goldButton:SetSize(120, 20); goldButton:SetPoint("CENTER")
     goldButton:EnableMouse(true); goldButton:RegisterForClicks("AnyUp")
 
@@ -2276,7 +2276,7 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
         return pCur, pMax, max(0, min(100, floor((pCur / pMax) * 100)))
     end
 
-    local barButton = CreateFrame("Button", nil, content)
+    local barButton = EllesmereUI.SafeCreateFrame("Button", nil, content)
     barButton:SetAllPoints()
     barButton:EnableMouse(true)
     barButton:RegisterForClicks("AnyUp")
@@ -2290,10 +2290,10 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
 
     local nameText = content:CreateFontString(nil, "OVERLAY")
     AttachTextOffset(inst, nameText)
-    local bar = CreateFrame("StatusBar", nil, content)
+    local bar = EllesmereUI.SafeCreateFrame("StatusBar", nil, content)
     bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     local barTrack = content:CreateTexture(nil, "BACKGROUND")
-    local restBar = CreateFrame("StatusBar", nil, content)
+    local restBar = EllesmereUI.SafeCreateFrame("StatusBar", nil, content)
     restBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     restBar:SetStatusBarColor(0.3, 0.3, 1, 0.5)
     restBar:Hide()
@@ -2406,7 +2406,7 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
             barTrack:ClearAllPoints()
             barTrack:SetPoint("TOP", content, "TOP", 0, -(3 + textH + 3))
             barTrack:SetSize(innerW, bH)
-            barTrack:SetColorTexture(1, 1, 1, 0.1)
+            barTrack:SetTexture(1, 1, 1, 0.1)
             bar:ClearAllPoints()
             bar:SetSize(innerW, bH)
             bar:SetPoint("TOP", content, "TOP", 0, -(3 + textH + 3))
@@ -2449,7 +2449,7 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
             barTrack:ClearAllPoints()
             barTrack:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(pad + textH + 2))
             barTrack:SetSize(barW, bH)
-            barTrack:SetColorTexture(1, 1, 1, 0.1)
+            barTrack:SetTexture(1, 1, 1, 0.1)
             bar:ClearAllPoints(); bar:SetSize(barW, bH)
             bar:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(pad + textH + 2))
             restBar:ClearAllPoints(); restBar:SetAllPoints(bar)
@@ -2807,7 +2807,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         built = true
         if placeholder then placeholder:Hide() end
 
-        hearthButton = CreateFrame("Button", "EllesmereUIDataBarsHearth_" .. inst.key, content, "SecureActionButtonTemplate")
+        hearthButton = EllesmereUI.SafeCreateFrame("Button", "EllesmereUIDataBarsHearth_" .. inst.key, content, "SecureActionButtonTemplate")
         -- Up only + useOnKeyDown=false: registering both Up and Down lets
         -- the ActionButtonUseKeyDown CVar fire the macro twice (the second
         -- /use cancels the hearth cast the first one started). Middle click
@@ -3153,7 +3153,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         return text
     end
 
-    local specButton = CreateFrame("Button", nil, content)
+    local specButton = EllesmereUI.SafeCreateFrame("Button", nil, content)
     specButton:SetAllPoints()
     specButton:EnableMouse(true)
     specButton:RegisterForClicks("AnyUp")
@@ -3225,7 +3225,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
                 btn._hl = btn:CreateTexture(nil, "HIGHLIGHT")
                 btn._hl:SetAllPoints()
             end
-            btn._hl:SetColorTexture(1, 1, 1, 0.10)
+            btn._hl:SetTexture(1, 1, 1, 0.10)
 
             if not btn._icon then btn._icon = btn:CreateTexture(nil, "OVERLAY") end
             btn._icon:SetSize(iconSz, iconSz)
@@ -3680,7 +3680,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
     -- The spec popup opens on hover and closes only once the cursor is over
     -- neither the block nor the popup. Both rects are padded 8px so the 4px
     -- anchor gap between bar and popup never counts as "outside" mid-travel.
-    hoverWatch = CreateFrame("Frame")
+    hoverWatch = EllesmereUI.SafeCreateFrame("Frame")
     hoverWatch:Hide()
     hoverWatch:SetScript("OnUpdate", function(self)
         -- Watches whichever pool armed it (spec hover popup, or the loot
@@ -3883,7 +3883,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
                 local bH = 3
                 profBar:Show()
                 profBar:SetMinMaxValues(1, profData.maxRank); profBar:SetValue(profData.rank)
-                profBar:SetStatusBarColor(ar, ag, ab, 1); profBarBg:SetColorTexture(0.15, 0.15, 0.15, 0.6)
+                profBar:SetStatusBarColor(ar, ag, ab, 1); profBarBg:SetTexture(0.15, 0.15, 0.15, 0.6)
                 profBar:SetSize(innerW, bH)
                 profBar:ClearAllPoints()
                 profBar:SetPoint("TOP", profText, "BOTTOM", 0, -3)
@@ -3920,7 +3920,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
                 end
                 local ar, ag, ab = ns.GetAccent()
                 profBar:SetMinMaxValues(1, profData.maxRank); profBar:SetValue(profData.rank)
-                profBar:SetStatusBarColor(ar, ag, ab, 1); profBarBg:SetColorTexture(0.15, 0.15, 0.15, 0.6)
+                profBar:SetStatusBarColor(ar, ag, ab, 1); profBarBg:SetTexture(0.15, 0.15, 0.15, 0.6)
                 -- Icon left; text top-right; bar bottom-right -- the bar
                 -- shares the text's left edge and tracks the TEXT width,
                 -- bottom-aligned to the icon (same recipe as xprep).
@@ -3955,7 +3955,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
         built = true
 
         local function MakeProfFrame(name)
-            local f = CreateFrame("Button", name, content, "SecureActionButtonTemplate")
+            local f = EllesmereUI.SafeCreateFrame("Button", name, content, "SecureActionButtonTemplate")
             f:SetSize(1, barCtx.GetThickness()); f:EnableMouse(true); f:RegisterForClicks("AnyUp")
             f:SetAttribute("useOnKeyDown", false)
             if secondary then
@@ -3968,7 +3968,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
             end
             local icon = f:CreateTexture(nil, "OVERLAY")
             local text = f:CreateFontString(nil, "OVERLAY")
-            local bar  = CreateFrame("StatusBar", nil, f); bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+            local bar  = EllesmereUI.SafeCreateFrame("StatusBar", nil, f); bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
             local bg   = bar:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints()
             return f, icon, text, bar, bg
         end
@@ -4285,7 +4285,7 @@ local function MMGetHider(frame)
     local hider = mmHiders[frame]
     if hider then return hider end
     if InCombatLockdown() then return nil end
-    hider = CreateFrame("Frame", nil, nil, "SecureHandlerStateTemplate")
+    hider = EllesmereUI.SafeCreateFrame("Frame", nil, nil, "SecureHandlerStateTemplate")
     hider:SetFrameRef("target", frame)
     hider:SetAttribute("_onstate-vis", [[
         local target = self:GetFrameRef('target')
@@ -4777,7 +4777,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         local gname = "EWB_MM_" .. inst.key .. "_" .. key
         if microRef then
             -- Taint-safe: pass clicks through to the Blizzard MicroButton.
-            frame = CreateFrame("Button", gname, content,
+            frame = EllesmereUI.SafeCreateFrame("Button", gname, content,
                 "SecureActionButtonTemplate,SecureHandlerStateTemplate")
             frame:SetAttribute("*clickbutton1", microRef)
             -- Without this, the ActionButtonUseKeyDown CVar makes the secure
@@ -4800,7 +4800,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
             ]])
         else
             -- Plain button for special actions with no secure backing.
-            frame = CreateFrame("Button", gname, content)
+            frame = EllesmereUI.SafeCreateFrame("Button", gname, content)
             frame:EnableMouse(true)
         end
         frames[key] = frame
@@ -4871,7 +4871,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         textFS.guild:SetPoint('CENTER', frames.guild, 'CENTER', 0, 0)
         if bgTexture.guild then
             bgTexture.guild:SetPoint('CENTER', textFS.guild)
-            bgTexture.guild:SetColorTexture(0.04, 0.04, 0.04, 0.85)
+            bgTexture.guild:SetTexture(0.04, 0.04, 0.04, 0.85)
             bgTexture.guild:Show()
         end
         textFS.guild:Show()
@@ -4895,7 +4895,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         textFS.social:SetPoint('CENTER', frames.social, 'CENTER', 0, 0)
         if bgTexture.social then
             bgTexture.social:SetPoint('CENTER', textFS.social)
-            bgTexture.social:SetColorTexture(0.04, 0.04, 0.04, 0.85)
+            bgTexture.social:SetTexture(0.04, 0.04, 0.04, 0.85)
         end
     end
 
@@ -5035,7 +5035,7 @@ ns.BlockFactories.currency = function(blockCfg, slot, content, barCtx)
     local function D() return blockCfg.settings or {} end
     local function BC() return barCtx.cfg end
 
-    local button = CreateFrame("Button", nil, content)
+    local button = EllesmereUI.SafeCreateFrame("Button", nil, content)
     button:SetAllPoints()
     button:EnableMouse(true)
     button:RegisterForClicks("AnyUp")
@@ -5557,7 +5557,7 @@ local function GVToggleVault()
     local wrf = _G.WeeklyRewardsFrame
     if not wrf then return end
     if EllesmereUI.RegisterEscapeClose then EllesmereUI.RegisterEscapeClose(wrf) end
-    wrf:SetShown(not wrf:IsShown())
+    if not wrf:IsShown() then wrf:Show() else wrf:Hide() end
 end
 
 ns.BlockFactories.greatvault = function(blockCfg, slot, content, barCtx)
@@ -5567,7 +5567,7 @@ ns.BlockFactories.greatvault = function(blockCfg, slot, content, barCtx)
 
     local mouseOver = false
 
-    local button = CreateFrame("Button", nil, content)
+    local button = EllesmereUI.SafeCreateFrame("Button", nil, content)
     button:SetAllPoints()
     button:EnableMouse(true)
     button:RegisterForClicks("AnyUp")
@@ -5776,7 +5776,7 @@ ns.BlockFactories.audio = function(blockCfg, slot, content, barCtx)
         SetCVar(Chan().cvar, v)
     end
 
-    local audioButton = CreateFrame("Button", nil, content)
+    local audioButton = EllesmereUI.SafeCreateFrame("Button", nil, content)
     audioButton:SetAllPoints()
     audioButton:EnableMouse(true)
     audioButton:EnableMouseWheel(true)
@@ -5787,14 +5787,14 @@ ns.BlockFactories.audio = function(blockCfg, slot, content, barCtx)
     -- Volume bar: flat fill + dark track, same visual recipe as the
     -- profession skill bars.
     local volTrack = audioButton:CreateTexture(nil, "BACKGROUND")
-    volTrack:SetColorTexture(0.15, 0.15, 0.15, 0.6)
-    local volBar = CreateFrame("StatusBar", nil, audioButton)
+    volTrack:SetTexture(0.15, 0.15, 0.15, 0.6)
+    local volBar = EllesmereUI.SafeCreateFrame("StatusBar", nil, audioButton)
     volBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     volBar:SetMinMaxValues(0, 1)
 
     -- Drag hit frame: covers the track plus 4px above/below so the thin
     -- bar is easy to grab; clicks on the icon never set the volume.
-    local hit = CreateFrame("Button", nil, audioButton)
+    local hit = EllesmereUI.SafeCreateFrame("Button", nil, audioButton)
     hit:EnableMouse(true)
 
     local function SetFromCursor()

@@ -189,10 +189,10 @@ local function ApplyNPText(button, d, style)
             d.npDurAnchor = aKey
         end
         d.duration:SetJustifyH(m.justify)
-        d.duration:SetShown(not style.hideDurationText)
+        if not style.hideDurationText then d.duration:Show() else d.duration:Hide() end
     end
     if d.stack then
-        d.stack:SetShown(style.showStacks ~= false)
+        if style.showStacks ~= false then d.stack:Show() else d.stack:Hide() end
         local fontKey = path .. "|" .. (style.stackSize or 11)
         if d.npStackFont ~= fontKey then
             d.npStackFont = fontKey
@@ -275,7 +275,7 @@ local function ApplyNPBuffExtra(button, d, style)
             -- too -- the glow renders statically there, same accepted
             -- degrade as the RF CC glow. The alpha binding decides whether
             -- it renders at all (dispellability).
-            host = CreateFrame("Frame", nil, button)
+            host = EllesmereUI.SafeCreateFrame("Frame", nil, button)
             host:SetAllPoints(button)
             -- Just above the border, below the duration/stack text: the
             -- text carrier sits one level over the border host, so slot in
@@ -645,7 +645,7 @@ end
 -- hidden-when-idle worker sweeps every pending bundle per 0.05s window.
 local purgePendingSet = {}
 local purgeElapsed = 0
-local purgeDrain = CreateFrame("Frame")
+local purgeDrain = EllesmereUI.SafeCreateFrame("Frame")
 purgeDrain:Hide()
 purgeDrain:SetScript("OnUpdate", function(self, dt)
     purgeElapsed = purgeElapsed + dt
@@ -672,7 +672,7 @@ end
 -- batch (~4-6ms), and a whole bundle in one gulp was a per-frame spike
 -- during the post-login pool build.
 local function CreateBundleShell()
-    local holder = CreateFrame("Frame", nil, UIParent)
+    local holder = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     holder:Hide()
     holder:SetSize(1, 1)
     holder:SetPoint("CENTER", UIParent, "BOTTOMLEFT", -200, -200)
@@ -830,10 +830,10 @@ local function AnchorNPContainer(container, kind, plate, slotVal)
     if not container then return end
     container:ClearAllPoints()
     if not slotVal or slotVal == "none" then
-        container:SetShown(false)
+        if false then container:Show() else container:Hide() end
         return
     end
-    container:SetShown(kind ~= "buffs" or container._npcAttackable ~= false)
+    if kind ~= "buffs" or container._npcAttackable ~= false then container:Show() else container:Hide() end
 
     local size = NPSize(kind)
     local height = NPHeight(kind, size)
@@ -880,7 +880,7 @@ local function AnchorNPContainer(container, kind, plate, slotVal)
             gV = "UP"
         end
     else
-        container:SetShown(false)
+        if false then container:Show() else container:Hide() end
         return
     end
 
@@ -979,13 +979,13 @@ function ns.NPC_UpdateLockout(plate)
     local f = plate.npcLockout
     if lockout and plate.health then
         if not f then
-            f = CreateFrame("Frame", nil, plate)
+            f = EllesmereUI.SafeCreateFrame("Frame", nil, plate)
             f:SetFrameStrata("MEDIUM")
             f:SetFrameLevel(800)
             f.icon = f:CreateTexture(nil, "ARTWORK")
             f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
             f.icon:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
-            f.cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+            f.cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
             f.cd:SetAllPoints(f)
             f.cd:SetReverse(true)
             f.cd:SetDrawEdge(false)
@@ -1454,7 +1454,7 @@ local function QueuePoolBuild()
     end
 end
 
-local boot = CreateFrame("Frame")
+local boot = EllesmereUI.SafeCreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")
 boot:RegisterEvent("PLAYER_ENTERING_WORLD")
 boot:RegisterEvent("PLAYER_TARGET_CHANGED")

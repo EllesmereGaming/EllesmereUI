@@ -213,7 +213,7 @@ local function ApplyDmFx(button, d, style)
     local gov = d.dmFxgHost
     if gType > 0 and Glows and Glows.StartGlow then
         if not gov then
-            gov = CreateFrame("Frame", nil, button)
+            gov = EllesmereUI.SafeCreateFrame("Frame", nil, button)
             gov:SetAllPoints(button)
             -- Above BOTH borders (style border strips at borderHost+1;
             -- the fx border override's container at +2), below the dispel
@@ -254,7 +254,7 @@ local function ApplyDmFx(button, d, style)
     if bSize > 0 and PP then
         local host = d.dmFxBdr
         if not host then
-            host = CreateFrame("Frame", nil, button)
+            host = EllesmereUI.SafeCreateFrame("Frame", nil, button)
             host:SetAllPoints(button)
             local base = (d.borderHost and d.borderHost:GetFrameLevel())
                 or (button:GetFrameLevel() + 1)
@@ -311,10 +311,10 @@ local function ApplyRFDebuffText(button, d, style)
             d.duration:SetPoint("CENTER", button, "CENTER", style.durOffX or 0, style.durOffY or 0)
             d.rfDurAnchor = aKey
         end
-        d.duration:SetShown(not style.hideDurationText)
+        if not style.hideDurationText then d.duration:Show() else d.duration:Hide() end
     end
     if d.stack then
-        d.stack:SetShown(style.showStacks ~= false)
+        if style.showStacks ~= false then d.stack:Show() else d.stack:Hide() end
         local fontKey = path .. "|" .. (style.stackSize or 8)
         if d.rfStackFont ~= fontKey then
             d.rfStackFont = fontKey
@@ -345,7 +345,7 @@ local function ApplyRFDebuffText(button, d, style)
             d.dmSqTex = tex
         end
         local c = style.squareColor
-        tex:SetColorTexture(c.r or 1, c.g or 0.35, c.b or 0.35, c.a or 1)
+        tex:SetTexture(c.r or 1, c.g or 0.35, c.b or 0.35, c.a or 1)
         tex:Show()
     elseif d.dmSqTex then
         d.dmSqTex:Hide()
@@ -631,7 +631,7 @@ local function ApplyDefConfig(container, s, d)
     -- 12.1 redesign: defensives row retired (see RFC_DefensivesRetired) --
     -- the container is never built, and any stale one stays parked.
     if ns.RFC_DefensivesRetired then
-        if container then container:SetShown(false) end
+        if container then if false then container:Show() else container:Hide() end end
         return
     end
     local size = s.defSize or 22
@@ -773,7 +773,7 @@ local function ApplyRFDispelSlot(button, dd, style)
     elseif style.mode == "full" then
         tex:Show()
         tex:SetAllPoints(health)
-        tex:SetColorTexture(r, g, b, alpha)
+        tex:SetTexture(r, g, b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
     else -- "fill"
         tex:Show()
@@ -784,14 +784,14 @@ local function ApplyRFDispelSlot(button, dd, style)
         else
             tex:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
         end
-        tex:SetColorTexture(r, g, b, alpha)
+        tex:SetTexture(r, g, b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
     end
 
     -- Type-colored border around the health bar.
     if (style.borderSize or 0) > 0 and PP then
         if not dd.borderHost then
-            dd.borderHost = CreateFrame("Frame", nil, button)
+            dd.borderHost = EllesmereUI.SafeCreateFrame("Frame", nil, button)
             dd.borderHost:SetAllPoints(health)
         end
         dd.borderHost:SetFrameLevel(health:GetFrameLevel() + 6 + def.level)
@@ -809,7 +809,7 @@ local function ApplyRFDispelSlot(button, dd, style)
     -- Dispel type icon.
     if style.showIcon then
         if not dd.iconHost then
-            dd.iconHost = CreateFrame("Frame", nil, button)
+            dd.iconHost = EllesmereUI.SafeCreateFrame("Frame", nil, button)
             dd.icon = dd.iconHost:CreateTexture(nil, "ARTWORK")
             dd.icon:SetAllPoints(dd.iconHost)
         end
@@ -1326,7 +1326,7 @@ local function ApplyBmIconGlow(button, dd, style)
     if gType > 0 and Glows.StartGlow then
         local gov = dd.bmGlow
         if not gov then
-            gov = CreateFrame("Frame", nil, button)
+            gov = EllesmereUI.SafeCreateFrame("Frame", nil, button)
             gov:SetAllPoints(button)
             -- Just above the border, below the duration/stack text.
             if dd.stackCarrier then
@@ -1360,7 +1360,7 @@ end
 -- style flags), duration text and stacks unaffected.
 local function ApplyBmIconExtra(button, dd, style)
     ApplyRFDebuffText(button, dd, style)
-    if dd.icon then dd.icon:SetShown(not style.hideIcon) end
+    if dd.icon then if not style.hideIcon then dd.icon:Show() else dd.icon:Hide() end end
     -- Button-object calls are denied while auras are secret (12.1 access
     -- restriction): the base level is read ONCE inside the creation window
     -- and cached, and alpha/level writes are change-guarded with the stamp
@@ -1472,8 +1472,8 @@ local function BmApplySquare(button, dd, style)
     if not dd.tex then return end
     local ind = style.ind
     local r, g, b = BmColor(style.sqColor, 12 / 255, 210 / 255, 157 / 255)
-    dd.tex:SetColorTexture(r, g, b, 1)
-    if dd.cooldown then dd.cooldown:SetShown(ind.showDuration ~= false) end
+    dd.tex:SetTexture(r, g, b, 1)
+    if dd.cooldown then if ind.showDuration ~= false then dd.cooldown:Show() else dd.cooldown:Hide() end end
     local br, bg2, bb = BmColor(ind.indBorderColor, 0, 0, 0)
     BmUpdateBorder(dd, dd.borderHost, ind.indBorderSize or 1, br, bg2, bb, 1)
     ApplyRFDebuffText(button, dd, style)
@@ -1508,7 +1508,7 @@ local function BmApplyBar(button, dd, style)
     dd.bar:GetStatusBarTexture():SetVertexColor(r, g, b, (ind.barColorOpacity or 100) / 100)
     dd.bar:SetReverseFill(ind.reverseFill == true)
     local bgr, bgg, bgb = BmColor(ind.barBgColor, 0, 0, 0)
-    dd.barBg:SetColorTexture(bgr, bgg, bgb, (ind.barBgOpacity or 50) / 100)
+    dd.barBg:SetTexture(bgr, bgg, bgb, (ind.barBgOpacity or 50) / 100)
     -- Cached base + change-guarded level: see ApplyBmIconExtra.
     local base = dd.bmBase
     if not base then
@@ -1527,7 +1527,7 @@ local function BmApplyEffect(button, dd, style)
     if ind.type == "healthcolor" then
         if dd.tex then
             local r, g, b = BmColor(ind.color, 0, 1, 0)
-            dd.tex:SetColorTexture(r, g, b, (ind.opacity or 100) / 100)
+            dd.tex:SetTexture(r, g, b, (ind.opacity or 100) / 100)
         end
     elseif ind.type == "border" then
         local r, g, b = BmColor(ind.color, 0.05, 0.82, 0.62)
@@ -1545,7 +1545,7 @@ local function BmSquareInit(button, dd, style, ind, health)
     dd.tex = button:CreateTexture(nil, "ARTWORK")
     dd.tex:SetAllPoints(button)
 
-    local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+    local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
     cd:SetAllPoints(button)
     cd:SetReverse(true)
     cd:SetDrawEdge(false)
@@ -1553,14 +1553,14 @@ local function BmSquareInit(button, dd, style, ind, health)
     dd.cooldown = cd
     button:SetDurationCooldown(cd)
 
-    dd.borderHost = CreateFrame("Frame", nil, button)
+    dd.borderHost = EllesmereUI.SafeCreateFrame("Frame", nil, button)
     dd.borderHost:SetAllPoints(button)
     dd.borderHost:SetFrameLevel(button:GetFrameLevel() + 1)
 
     -- Duration/stack text, same carrier arrangement as the standard icon
     -- regions (above the swipe). Fonts MUST be applied before the engine
     -- registrations below (style-before-register contract).
-    dd.stackCarrier = CreateFrame("Frame", nil, button)
+    dd.stackCarrier = EllesmereUI.SafeCreateFrame("Frame", nil, button)
     dd.stackCarrier:SetAllPoints(button)
     dd.stackCarrier:SetFrameLevel(cd:GetFrameLevel() + 1)
     dd.stack = dd.stackCarrier:CreateFontString(nil, "OVERLAY")
@@ -1583,7 +1583,7 @@ end
 
 local function BmBarInit(button, dd, style, ind, health)
     if button.SetMouseMotionEnabled then button:SetMouseMotionEnabled(false) end
-    local bar = CreateFrame("StatusBar", nil, button)
+    local bar = EllesmereUI.SafeCreateFrame("StatusBar", nil, button)
     bar:SetAllPoints(button)
     bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     dd.bar = bar
@@ -1622,7 +1622,7 @@ local function BmEffectInit(button, dd, style, ind, health)
         local unitButton = button:GetParent() and button:GetParent():GetParent()
         if unitButton then
             button:SetFrameLevel(unitButton:GetFrameLevel() + 11)
-            dd.borderHost = CreateFrame("Frame", nil, button)
+            dd.borderHost = EllesmereUI.SafeCreateFrame("Frame", nil, button)
             dd.borderHost:SetAllPoints(unitButton)
             dd.borderHost:SetFrameLevel(button:GetFrameLevel())
         end
@@ -2181,7 +2181,7 @@ local function CreateBmSimpleContainer(button, health, d, unit, specKey)
         c:SetAuraGroupCandidateFilters("simple", BmSimpleCand())
         AK.RestyleSoon(styleKey)
         AnchorBmSimpleContainer(c, health, bs, iscale, d)
-        c:SetShown(bs.showBuffs and true or false)
+        if bs.showBuffs and true or false then c:Show() else c:Hide() end
         local st = bmSimpleFP[styleKey]
         if not st then st = {}; bmSimpleFP[styleKey] = st end
         st.style = BmSimpleStyleFP(bs, font, iscale)
@@ -2213,7 +2213,7 @@ local function CreateBmSimpleContainer(button, health, d, unit, specKey)
         AK.FinishContainer(shell, unit)
         d.rfcBmSimple = shell
         AnchorBmSimpleContainer(shell, health, bs, iscale, d)
-        shell:SetShown(bs.showBuffs and true or false)
+        if bs.showBuffs and true or false then shell:Show() else shell:Hide() end
         local st = bmSimpleFP[styleKey]
         if not st then st = {}; bmSimpleFP[styleKey] = st end
         st.style = BmSimpleStyleFP(bs, font, iscale)
@@ -2239,7 +2239,7 @@ local function CreateBmSimpleContainer(button, health, d, unit, specKey)
     })
     d.rfcBmSimple = c
     AnchorBmSimpleContainer(c, health, bs, iscale, d)
-    c:SetShown(bs.showBuffs and true or false)
+    if bs.showBuffs and true or false then c:Show() else c:Hide() end
 
     local st = bmSimpleFP[styleKey]
     if not st then st = {}; bmSimpleFP[styleKey] = st end
@@ -2283,8 +2283,8 @@ local function ReloadBmSimple(button, d, cls)
     end
     -- Untracked specs have no whitelist; an empty include-map's semantics
     -- are unverified, so the grid simply hides there.
-    c:SetShown(d.rfcAssist ~= false and baseOn and simpleKey ~= nil
-        and (bs.showBuffs and true or false))
+    if d.rfcAssist ~= false and baseOn and simpleKey ~= nil
+        and (bs.showBuffs and true or false) then c:Show() else c:Hide() end
 
     if not cls.simpleChecked then
         cls.simpleChecked = true
@@ -2410,7 +2410,7 @@ local function BmAcquireChain(button, d, health, ind, spells, iscale, counters)
     cc:SetUnit(button:GetAttribute("unit") or "player")
     cc:SetAuraGroupCandidateFilters("chain", BuildBmCand(ind, spells))
     AnchorBmChainContainer(cc, ns.RF_AnchorHost and ns.RF_AnchorHost(health, ProxyFor(d)) or health, ind, iscale, #spells)
-    cc:SetShown(d.rfcAssist ~= false)
+    if d.rfcAssist ~= false then cc:Show() else cc:Hide() end
     return cc, styleKey
 end
 
@@ -2427,7 +2427,7 @@ local function BmParkUnbound(d, counters)
             if not bound and not entry.parked then
                 entry.parked = true
                 entry.container:SetAuraGroupMaxFrameCount("chain", 0)
-                entry.container:SetShown(false)
+                if false then entry.container:Show() else entry.container:Hide() end
             end
         end
     end
@@ -2442,7 +2442,7 @@ local function CreateBmContainer(button, health, d, unit)
     if ns.BM_BaseActive and ns.BM_BaseActive() and simpleKey then
         CreateBmSimpleContainer(button, health, d, unit, simpleKey)
     elseif d.rfcBmSimple then
-        d.rfcBmSimple:SetShown(false)
+        if false then d.rfcBmSimple:Show() else d.rfcBmSimple:Hide() end
     end
     if not inds then
         d.rfcBmSig = sig
@@ -2915,7 +2915,7 @@ local function QueueDispLocPhase(button, health, d)
         if sNow then
             AnchorDispLocContainer(c, health, sNow)
             ApplyDispLocConfig(c, d, sNow)
-            c:SetShown(DispLocActive(sNow))
+            if DispLocActive(sNow) then c:Show() else c:Hide() end
         end
     end, "rf:disploc-finish")
 end
@@ -2968,7 +2968,7 @@ local function QueueButtonGroups(button, health, d)
         AK.FinishContainer(c, unit)
         d.rfcDispel = c
         local sNow = ProxyFor(d)
-        c:SetShown(DispelVisible(sNow or s))
+        if DispelVisible(sNow or s) then c:Show() else c:Hide() end
         d.rfcUnit = unit
     end, "rf:dispel-finish")
 
@@ -3141,7 +3141,7 @@ local function ApplyAssistGate(button, d, unit)
         -- Whole container: the leak was observed at the defensives anchor,
         -- so token groups hide for degraded units too (defense in depth on
         -- top of the per-group candidate counts).
-        d.rfcDefs:SetShown(assist)
+        if assist then d.rfcDefs:Show() else d.rfcDefs:Hide() end
         for i = 1, #DEF_GROUPS do
             local g = DEF_GROUPS[i]
             -- Setters on undeclared (lazily-built) groups error.
@@ -3152,11 +3152,11 @@ local function ApplyAssistGate(button, d, unit)
         end
     end
     if d.rfcDispel and s then
-        d.rfcDispel:SetShown(assist and DispelVisible(s))
+        if assist and DispelVisible(s) then d.rfcDispel:Show() else d.rfcDispel:Hide() end
     end
-    if d.rfcBm then d.rfcBm:SetShown(assist) end
+    if d.rfcBm then if assist then d.rfcBm:Show() else d.rfcBm:Hide() end end
     if d.rfcBmChain then
-        for _, cc in pairs(d.rfcBmChain) do cc:SetShown(assist) end
+        for _, cc in pairs(d.rfcBmChain) do if assist then cc:Show() else cc:Hide() end end
     end
     if d.rfcBmSimple then
         -- The simple container PERSISTS, so the gate must be state-aware:
@@ -3167,8 +3167,8 @@ local function ApplyAssistGate(button, d, unit)
         -- Same option-aware key the grid tracks with (Show Own on All Specs).
         local specKey = (ns.BM_SimpleSpecKey and ns.BM_SimpleSpecKey())
             or (ns.BM_CurrentSpecKey and ns.BM_CurrentSpecKey())
-        d.rfcBmSimple:SetShown(assist and baseOn and specKey ~= nil
-            and (bs and bs.showBuffs) and true or false)
+        if assist and baseOn and specKey ~= nil
+            and (bs and bs.showBuffs) and true or false then d.rfcBmSimple:Show() else d.rfcBmSimple:Hide() end
     end
     -- Debuff Manager: its identity-gated (candidate-boolean) records hide
     -- for untrusted units; token records stay on like the legacy row.
@@ -3358,7 +3358,7 @@ function ns.RFC_ReloadAll()
                     if c2 then
                         AnchorDispLocContainer(c2, d.rfcHealth, s)
                         ApplyDispLocConfig(c2, d, s)
-                        c2:SetShown(DispLocActive(s))
+                        if DispLocActive(s) then c2:Show() else c2:Hide() end
                     elseif DispLocActive(s) and not d.rfcDispLocShell and not d.rfcDispLocBuild then
                         -- Split enabled mid-session: containers cannot be
                         -- created in combat, so the shell build rides the OOC
@@ -3389,7 +3389,7 @@ function ns.RFC_ReloadAll()
                             d.rfcDispel:SetAuraSlotFilterString(DISPEL_SLOTS[j].key, flags.dispelFilter)
                         end
                     end
-                    d.rfcDispel:SetShown(d.rfcAssist ~= false and DispelVisible(s))
+                    if d.rfcAssist ~= false and DispelVisible(s) then d.rfcDispel:Show() else d.rfcDispel:Hide() end
                 end
                 local cls = clsCache[styleKey]
                 if not cls then
@@ -3420,7 +3420,7 @@ end
 -- container swap, which is deferred to out-of-combat. Spec changes swap the
 -- whole indicator set, so they re-drive the reload directly (the signature
 -- check makes a no-change reload cheap).
-local bmRegen = CreateFrame("Frame")
+local bmRegen = EllesmereUI.SafeCreateFrame("Frame")
 bmRegen:RegisterEvent("PLAYER_REGEN_ENABLED")
 bmRegen:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 bmRegen:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -3451,7 +3451,7 @@ end)
 -- when a member's phase/distance relationship to us changes (the eye-icon
 -- transitions), UNIT_CONNECTION on connect state, UNIT_IN_RANGE_UPDATE on
 -- the range boundary, GROUP_ROSTER_UPDATE on membership churn.
-local assistWatch = CreateFrame("Frame")
+local assistWatch = EllesmereUI.SafeCreateFrame("Frame")
 assistWatch:RegisterEvent("UNIT_PHASE")
 assistWatch:RegisterEvent("UNIT_CONNECTION")
 assistWatch:RegisterEvent("UNIT_IN_RANGE_UPDATE")

@@ -170,7 +170,7 @@ local function BuildToggleControl(parent, frameLevel, getValue, setValue, opts)
     local onKB  = opts.onColors and opts.onColors[4] or TG.KNOB_ON_B
     local onKA  = opts.onColors and opts.onColors[5] or TG.KNOB_ON_A
 
-    local toggle = CreateFrame("Button", nil, parent)
+    local toggle = EllesmereUI.SafeCreateFrame("Button", nil, parent)
     RealPP.Size(toggle, TOGGLE_W, TOGGLE_H)
     toggle:SetFrameLevel(frameLevel)
 
@@ -185,7 +185,7 @@ local function BuildToggleControl(parent, frameLevel, getValue, setValue, opts)
 
     local knob = toggle:CreateTexture(nil, "ARTWORK")
     DisablePixelSnap(knob)
-    knob:SetColorTexture(offKR, offKG, offKB, offKA)
+    knob:SetTexture(offKR, offKG, offKB, offKA)
 
     -- Two-point vertical anchoring: knob top/bottom are always exactly
     -- snappedPad from the track edges. No independent size calculation.
@@ -236,12 +236,12 @@ local function BuildToggleControl(parent, frameLevel, getValue, setValue, opts)
             end
         end
         SetKnobPos(xOff)
-        tBg:SetColorTexture(
+        tBg:SetTexture(
             lerp(offTR, ELLESMERE_GREEN.r, p),
             lerp(offTG, ELLESMERE_GREEN.g, p),
             lerp(offTB, ELLESMERE_GREEN.b, p),
             lerp(offTA, onTA, p))
-        knob:SetColorTexture(
+        knob:SetTexture(
             lerp(offKR, onKR, p),
             lerp(offKG, onKG, p),
             lerp(offKB, onKB, p),
@@ -307,7 +307,7 @@ local function BuildCheckboxControl(parent, frameLevel)
     local BOX_SZ  = 18
     local BOX_PAD = 2
 
-    local box = CreateFrame("Frame", nil, parent)
+    local box = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     RealPP.Size(box, BOX_SZ, BOX_SZ)
     box:SetFrameLevel(frameLevel)
 
@@ -321,15 +321,15 @@ local function BuildCheckboxControl(parent, frameLevel)
     RealPP.SetInside(check, box, BOX_PAD, BOX_PAD)
 
     local function ApplyVisual(isOn, isHovering)
-        check:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
+        check:SetTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
         if isOn then
             check:Show()
-            boxBg:SetColorTexture(CB.BOX_R, CB.BOX_G, CB.BOX_B, 1)
+            boxBg:SetTexture(CB.BOX_R, CB.BOX_G, CB.BOX_B, 1)
             boxBorder:SetColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, CB.ACT_BRD_A)
         else
             check:Hide()
             local a = isHovering and 1 or 0.8
-            boxBg:SetColorTexture(CB.BOX_R, CB.BOX_G, CB.BOX_B, 1 * a)
+            boxBg:SetTexture(CB.BOX_R, CB.BOX_G, CB.BOX_B, 1 * a)
             boxBorder:SetColor(BORDER_R, BORDER_G, BORDER_B, CB.BRD_A * a)
         end
     end
@@ -389,12 +389,12 @@ local function MakeStyledButton(btn, text, fontSize, colours, onClick)
     btn:SetScript("OnEnter", function()
         lbl:SetTextColor(c[21], c[22], c[23], c[24])
         brd:SetColor(c[13], c[14], c[15], c[16])
-        bg:SetColorTexture(c[5], c[6], c[7], c[8])
+        bg:SetTexture(c[5], c[6], c[7], c[8])
     end)
     btn:SetScript("OnLeave", function()
         lbl:SetTextColor(c[17], c[18], c[19], c[20])
         brd:SetColor(c[9], c[10], c[11], c[12])
-        bg:SetColorTexture(c[1], c[2], c[3], c[4])
+        bg:SetTexture(c[1], c[2], c[3], c[4])
     end)
     btn:SetScript("OnClick", function() if onClick then onClick() end end)
     return bg, brd, lbl
@@ -489,7 +489,7 @@ end
 local function AddControlDisabledTooltip(controlAnchor, cfg)
     if not cfg.disabledTooltip or not cfg.disabled then return end
     local parent = controlAnchor:GetParent()
-    local hit = CreateFrame("Frame", nil, parent)
+    local hit = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     hit:SetAllPoints(controlAnchor)
     local baseLevel = controlAnchor.GetFrameLevel and controlAnchor:GetFrameLevel() or parent:GetFrameLevel()
     hit:SetFrameLevel(baseLevel + 10)
@@ -617,7 +617,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     -- INHERITS that frame's scale and layers within it -- no manual scale matching
     -- (fixes the giant-font / behind-render nested dropdown).
     -- Otherwise UIParent (default) so page dropdowns escape the scroll-frame clip.
-    local menu = CreateFrame("Frame", nil, (_menuOpts and _menuOpts.parent) or UIParent)
+    local menu = EllesmereUI.SafeCreateFrame("Frame", nil, (_menuOpts and _menuOpts.parent) or UIParent)
     -- Spec Overrides auto-capture: edits made through this menu attribute to
     -- the slot whose dropdown opened it (see the attribution walk).
     menu._euiOptionsPopup = true
@@ -643,7 +643,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
 
     if _moSearchable then
         local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("options") or "Fonts\\FRIZQT__.TTF"
-        searchEdit = CreateFrame("EditBox", nil, menu)
+        searchEdit = EllesmereUI.SafeCreateFrame("EditBox", nil, menu)
         searchEdit:SetSize(menuW - 16, SEARCH_H)
         searchEdit:SetPoint("TOP", menu, "TOP", 0, -4)
         searchEdit:SetFrameLevel(menu:GetFrameLevel() + 4)
@@ -655,7 +655,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         searchEdit:SetTextInsets(4, 4, 0, 0)
         local sBg = searchEdit:CreateTexture(nil, "BACKGROUND")
         sBg:SetAllPoints()
-        sBg:SetColorTexture(0, 0, 0, 0.4)
+        sBg:SetTexture(0, 0, 0, 0.4)
         searchPlaceholder = searchEdit:CreateFontString(nil, "OVERLAY")
         searchPlaceholder:SetFont(fontPath, 11, "")
         searchPlaceholder:SetTextColor(0.5, 0.5, 0.5, 0.6)
@@ -666,7 +666,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
 
     -- Inner container: items are always parented here.
     -- If scrolling is needed, this becomes the scroll child.
-    local innerContainer = CreateFrame("Frame", nil, menu)
+    local innerContainer = EllesmereUI.SafeCreateFrame("Frame", nil, menu)
     innerContainer:SetWidth(menuW)
     innerContainer:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, 0)
 
@@ -677,7 +677,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         if IsDividerKey(key) then
             local div = innerContainer:CreateTexture(nil, "ARTWORK")
             div:SetHeight(1)
-            div:SetColorTexture(1, 1, 1, 0.10)
+            div:SetTexture(1, 1, 1, 0.10)
             div:SetPoint("TOPLEFT", innerContainer, "TOPLEFT", 1, -mH - 4)
             div:SetPoint("TOPRIGHT", innerContainer, "TOPRIGHT", -1, -mH - 4)
             mH = mH + 9
@@ -688,7 +688,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
             if type(dn) == 'table' and dn.subnav then
                 local sn = dn.subnav
                 local parentText = dn.text or tostring(key)
-                local item = CreateFrame('Button', nil, innerContainer)
+                local item = EllesmereUI.SafeCreateFrame('Button', nil, innerContainer)
                 item:SetHeight(26)
                 item:SetPoint('TOPLEFT', innerContainer, 'TOPLEFT', 1, -mH)
                 item:SetPoint('TOPRIGHT', innerContainer, 'TOPRIGHT', -1, -mH)
@@ -714,7 +714,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                 menuItems[#menuItems + 1] = item
 
                 -- Build flyout sub-menu
-                local flyout = CreateFrame('Frame', nil, UIParent)
+                local flyout = EllesmereUI.SafeCreateFrame('Frame', nil, UIParent)
                 flyout:SetFrameStrata('FULLSCREEN_DIALOG')
                 flyout:SetFrameLevel(menu:GetFrameLevel() + 10)
                 flyout:SetClampedToScreen(true)
@@ -730,7 +730,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                 for _, childKey in ipairs(sn.order) do
                     local childText = sn.values[childKey]
                     if childText then
-                        local ci = CreateFrame('Button', nil, flyout)
+                        local ci = EllesmereUI.SafeCreateFrame('Button', nil, flyout)
                         ci:SetHeight(sn.itemHeight or 26)
                         ci:SetPoint('TOPLEFT', flyout, 'TOPLEFT', 1, -fH)
                         ci:SetPoint('TOPRIGHT', flyout, 'TOPRIGHT', -1, -fH)
@@ -834,7 +834,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
             else
                 mainText = dn
             end
-            local item = CreateFrame("Button", nil, innerContainer)
+            local item = EllesmereUI.SafeCreateFrame("Button", nil, innerContainer)
             item:SetHeight(_moItemH)
             item:SetPoint("TOPLEFT", innerContainer, "TOPLEFT", 1, -mH)
             item:SetPoint("TOPRIGHT", innerContainer, "TOPRIGHT", -1, -mH)
@@ -879,7 +879,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
             if _haveAtlas or _iconPath then
                 local icoSz = _moItemH - 8
                 if _moIconOnClick then
-                    local iconBtn = CreateFrame("Button", nil, item)
+                    local iconBtn = EllesmereUI.SafeCreateFrame("Button", nil, item)
                     iconBtn:SetSize(icoSz, icoSz)
                     iconBtn:SetPoint("RIGHT", item, "RIGHT", -6, 0)
                     iconBtn:SetFrameLevel(item:GetFrameLevel() + 2)
@@ -1009,7 +1009,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     if totalContentH > (_menuOpts and _menuOpts.maxHeight or DD_MAX_HEIGHT) then
         menu:SetHeight((_menuOpts and _menuOpts.maxHeight or DD_MAX_HEIGHT) + searchPad)
 
-        local sf = CreateFrame("ScrollFrame", nil, menu)
+        local sf = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, menu)
         sf:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, -searchPad)
         sf:SetPoint("BOTTOMRIGHT", menu, "BOTTOMRIGHT", 0, 0)
         sf:SetFrameLevel(menu:GetFrameLevel() + 1)
@@ -1018,14 +1018,14 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         innerContainer:SetWidth(menuW)
 
         -- Thin scrollbar track (4px, right side, matching main panel style)
-        local ddTrack = CreateFrame("Frame", nil, sf)
+        local ddTrack = EllesmereUI.SafeCreateFrame("Frame", nil, sf)
         ddTrack:SetWidth(4)
         ddTrack:SetPoint("TOPRIGHT", sf, "TOPRIGHT", -4, -4)
         ddTrack:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", -4, 4)
         ddTrack:SetFrameLevel(sf:GetFrameLevel() + 2)
         SolidTex(ddTrack, "BACKGROUND", 1, 1, 1, 0.02):SetAllPoints()
 
-        local ddThumb = CreateFrame("Button", nil, ddTrack)
+        local ddThumb = EllesmereUI.SafeCreateFrame("Button", nil, ddTrack)
         ddThumb:SetWidth(4)
         ddThumb:SetFrameLevel(ddTrack:GetFrameLevel() + 1)
         ddThumb:EnableMouse(true)
@@ -1040,7 +1040,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         local SCROLL_STEP = 40
         local SMOOTH_SPEED = 12
 
-        local ddSmoothFrame = CreateFrame("Frame")
+        local ddSmoothFrame = EllesmereUI.SafeCreateFrame("Frame")
         ddSmoothFrame:Hide()
 
         local function UpdateDDThumb()
@@ -1172,7 +1172,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     if searchEdit then
         local function ApplySearchFilter(raw)
             local q = strlower(strtrim(raw or ""))
-            if searchPlaceholder then searchPlaceholder:SetShown(q == "") end
+            if searchPlaceholder then if q == "" then searchPlaceholder:Show() else searchPlaceholder:Hide() end end
             local visIdx = 0
             for _, item in ipairs(menuItems) do
                 local name = (item._label and item._label:GetText()) or item._displayName or ""
@@ -1243,12 +1243,12 @@ local function WireDropdownScripts(ddBtn, ddLbl, bg, brd, menu, refresh, s, keep
     local function ApplyNormal()
         ddLbl:SetTextColor(s[17], s[18], s[19], s[20])
         brd:SetColor(s[9], s[10], s[11], s[12])
-        bg:SetColorTexture(s[1], s[2], s[3], s[4])
+        bg:SetTexture(s[1], s[2], s[3], s[4])
     end
     local function ApplyHover()
         ddLbl:SetTextColor(s[21], s[22], s[23], s[24])
         brd:SetColor(s[13], s[14], s[15], s[16])
-        bg:SetColorTexture(s[5], s[6], s[7], s[8])
+        bg:SetTexture(s[5], s[6], s[7], s[8])
     end
     ddBtn:SetScript("OnEnter", function()
         ApplyHover()
@@ -1377,7 +1377,7 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
         inputAlpha = math.min(1, inputAlpha + SL.MW_INPUT_BOOST)
     end
 
-    local trackFrame = CreateFrame("Frame", nil, parent)
+    local trackFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     PP.Size(trackFrame, trackW, 20)
     trackFrame:SetFrameLevel(parent:GetFrameLevel() + 1)
 
@@ -1389,7 +1389,7 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
     PP.Height(trackFill, trackH)
     PP.Point(trackFill, "LEFT", trackDark, "LEFT", 0, 0)
 
-    local thumb = CreateFrame("Button", nil, trackFrame)
+    local thumb = EllesmereUI.SafeCreateFrame("Button", nil, trackFrame)
     PP.Size(thumb, thumbSz, thumbSz)
     thumb:SetFrameLevel(trackFrame:GetFrameLevel() + 2)
     thumb:EnableMouse(true)
@@ -1397,18 +1397,18 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
     -- Opaque blocker behind thumb to hide the track fill line.
     -- Uses a child Frame with SetIgnoreParentAlpha so it stays solid
     -- even when the slider is grayed out at 0.3 alpha.
-    local thumbBlockerFrame = CreateFrame("Frame", nil, thumb)
+    local thumbBlockerFrame = EllesmereUI.SafeCreateFrame("Frame", nil, thumb)
     thumbBlockerFrame:SetAllPoints()
     thumbBlockerFrame:SetFrameLevel(thumb:GetFrameLevel())
     thumbBlockerFrame:SetIgnoreParentAlpha(true)
     local thumbBlocker = thumbBlockerFrame:CreateTexture(nil, "BACKGROUND")
     thumbBlocker:SetAllPoints()
-    thumbBlocker:SetColorTexture(DARK_BG.r, DARK_BG.g, DARK_BG.b, 1)
+    thumbBlocker:SetTexture(DARK_BG.r, DARK_BG.g, DARK_BG.b, 1)
     local thumbTex = SolidTex(thumb, "ARTWORK", ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
     thumbTex:SetAllPoints()
 
     -- Value input box
-    local valBox = CreateFrame("EditBox", nil, parent)
+    local valBox = EllesmereUI.SafeCreateFrame("EditBox", nil, parent)
     PP.Size(valBox, inputW, inputH)
     valBox:SetFrameLevel(parent:GetFrameLevel() + 2)
     valBox:SetAutoFocus(false)
@@ -1596,8 +1596,8 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
             currentVal = v; rawDragVal = v; UpdateSliderVisual(v)
         end
         -- Re-apply accent color (in case theme changed on another tab)
-        trackFill:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, SL.FILL_A)
-        thumbTex:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
+        trackFill:SetTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, SL.FILL_A)
+        thumbTex:SetTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
     end
     RegisterWidgetRefresh(RefreshSlider)
 
@@ -1654,7 +1654,7 @@ local tooltipFrame
 
 local function GetTooltipFrame()
     if not tooltipFrame then
-        tooltipFrame = CreateFrame("Frame", nil, UIParent)
+        tooltipFrame = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         tooltipFrame:SetFrameStrata("TOOLTIP")
         tooltipFrame:SetFrameLevel(200)
         tooltipFrame:SetSize(250, 40)
@@ -1672,7 +1672,7 @@ local function GetTooltipFrame()
     -- Unified, user-customizable background (shared with the Blizzard tooltip
     -- reskin via EllesmereUI.GetTooltipBg). Re-applied each call so a settings
     -- change shows on the next tooltip. Border stays fixed (not customizable).
-    tooltipFrame.bg:SetColorTexture(EllesmereUI.GetTooltipBg())
+    tooltipFrame.bg:SetTexture(EllesmereUI.GetTooltipBg())
     return tooltipFrame
 end
 
@@ -1873,9 +1873,9 @@ local _gradEnd   = CreateColor(0, 0, 0, 0)
 local function UpdateAccentElements(r, g, b)
     for _, entry in ipairs(EllesmereUI._accentElements) do
         if entry.type == "solid" and entry.obj then
-            entry.obj:SetColorTexture(r, g, b, entry.a or 1)
+            entry.obj:SetTexture(r, g, b, entry.a or 1)
         elseif entry.type == "gradient" and entry.obj then
-            entry.obj:SetColorTexture(r, g, b, 1)
+            entry.obj:SetTexture(r, g, b, 1)
             _gradStart.r, _gradStart.g, _gradStart.b, _gradStart.a = r, g, b, entry.startA or 0.15
             _gradEnd.r, _gradEnd.g, _gradEnd.b, _gradEnd.a = r, g, b, 0
             entry.obj:SetGradient("HORIZONTAL", _gradStart, _gradEnd)
@@ -1894,7 +1894,7 @@ local accentFadeTo   = { r = 0, g = 0, b = 0 }
 local accentFadeProgress = 1  -- 1 = done
 local accentRefreshAccum = 0
 local accentGCFrame, accentGCDelay  -- reused for deferred GC after fade
-local accentFadeTicker = CreateFrame("Frame")
+local accentFadeTicker = EllesmereUI.SafeCreateFrame("Frame")
 accentFadeTicker:Hide()
 accentFadeTicker:SetScript("OnUpdate", function(self, elapsed)
     accentFadeProgress = accentFadeProgress + elapsed / ACCENT_FADE_DURATION
@@ -1916,7 +1916,7 @@ accentFadeTicker:SetScript("OnUpdate", function(self, elapsed)
         -- renderer and cause a visible blink).  By frame +2, the transition
         -- is fully settled and the GC cost is the only work in that tick.
         if not accentGCFrame then
-            accentGCFrame = CreateFrame("Frame")
+            accentGCFrame = EllesmereUI.SafeCreateFrame("Frame")
         end
         accentGCDelay = 2
         accentGCFrame:SetScript("OnUpdate", function(gcSelf)
@@ -2133,7 +2133,7 @@ EllesmereUI.DD_STYLE = {
 function WidgetFactory:SectionHeader(parent, text, yOffset)
     local splitParent = parent._splitParent
     local fullW = (splitParent or parent):GetWidth() - CONTENT_PAD * 2
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     PP.Size(frame, parent:GetWidth() - CONTENT_PAD * 2, 40)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
 
@@ -2145,7 +2145,7 @@ function WidgetFactory:SectionHeader(parent, text, yOffset)
     -- Separator spans full width when in split mode
     local sepParent = splitParent or frame
     local sep = sepParent:CreateTexture(nil, "ARTWORK")
-    sep:SetColorTexture(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.02)
+    sep:SetTexture(BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.02)
     if splitParent then
         sep:SetHeight(1)
         PP.Point(sep, "LEFT", splitParent, "LEFT", CONTENT_PAD, 0)
@@ -2183,7 +2183,7 @@ end
 -- Returns ddBtn, ddLbl so caller can position the button and register refresh
 -- Menu is created lazily on first click to reduce initial memory allocation.
 local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue, setValue, disabledValuesFn)
-    local ddBtn = CreateFrame("Button", nil, parent)
+    local ddBtn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
     PP.Size(ddBtn, ddW, 30)
     ddBtn:SetFrameLevel(fLevel)
     local ddBg = SolidTex(ddBtn, "BACKGROUND", DD_BG_R, DD_BG_G, DD_BG_B, DD_BG_A)
@@ -2245,12 +2245,12 @@ local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue
     local function ApplyNormal()
         ddLbl:SetTextColor(s[17], s[18], s[19], s[20])
         ddBrd:SetColor(s[9], s[10], s[11], s[12])
-        ddBg:SetColorTexture(s[1], s[2], s[3], s[4])
+        ddBg:SetTexture(s[1], s[2], s[3], s[4])
     end
     local function ApplyHover()
         ddLbl:SetTextColor(s[21], s[22], s[23], s[24])
         ddBrd:SetColor(s[13], s[14], s[15], s[16])
-        ddBg:SetColorTexture(s[5], s[6], s[7], s[8])
+        ddBg:SetTexture(s[5], s[6], s[7], s[8])
     end
     ddBtn:SetScript("OnEnter", function()
         ApplyHover()
@@ -2303,7 +2303,7 @@ end
 -- only when there is something to show.
 local function AttachLabelHover(parent, label, hoverText)
     if not hoverText then return end
-    local hit = CreateFrame("Frame", nil, parent)
+    local hit = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     hit:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
     hit:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 5, -5)
     hit:SetScript("OnEnter", function() ShowWidgetTooltip(label, hoverText) end)
@@ -2315,7 +2315,7 @@ end
 -- Toggle switch  (pill-shaped, teal when ON, dark when OFF, animated)
 function WidgetFactory:Toggle(parent, text, yOffset, getValue, setValue, tooltip)
     local ROW_H = 50
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     PP.Size(frame, parent:GetWidth() - CONTENT_PAD * 2, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
 
@@ -2341,7 +2341,7 @@ end
 -- Slider with teal fill bar
 function WidgetFactory:Slider(parent, text, yOffset, minVal, maxVal, step, getValue, setValue, tooltip, pixel)
     local ROW_H = 50
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     PP.Size(frame, parent:GetWidth() - CONTENT_PAD * 2, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
     RowBg(frame, parent)
@@ -2362,7 +2362,7 @@ end
 -- Dropdown  (optional 'order' is an array of keys for display order)
 function WidgetFactory:Dropdown(parent, text, yOffset, values, getValue, setValue, order, tooltip)
     local ROW_H = 50
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     PP.Size(frame, parent:GetWidth() - CONTENT_PAD * 2, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
     RowBg(frame, parent)
@@ -2375,7 +2375,7 @@ function WidgetFactory:Dropdown(parent, text, yOffset, values, getValue, setValu
     PP.Point(ddBtn, "RIGHT", frame, "RIGHT", -20, 0)
     local hoverText = ClampRowLabel(label, ddBtn, "LEFT", 12, text, tooltip)
     if hoverText then
-        local hitFrame = CreateFrame("Frame", nil, frame)
+        local hitFrame = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         hitFrame:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
         hitFrame:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 5, -5)
         hitFrame:SetScript("OnEnter", function()
@@ -2397,14 +2397,14 @@ end
 function WidgetFactory:Checkbox(parent, text, yOffset, getValue, setValue, tooltip)
     do local _r = setValue; setValue = function(...) _r(...); EllesmereUI._settingsChanged = true end end
     local ROW_H = 36
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     PP.Size(frame, parent:GetWidth() - CONTENT_PAD * 2, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
 
     RowBg(frame, parent)
     TagOptionRow(frame, parent, text, tooltip)
 
-    local btn = CreateFrame("Button", nil, frame)
+    local btn = EllesmereUI.SafeCreateFrame("Button", nil, frame)
     PP.Size(btn, parent:GetWidth() - CONTENT_PAD * 2, ROW_H)
     btn:SetAllPoints(frame)
 
@@ -2558,7 +2558,7 @@ local function BuildColorPickerPopup()
     local hasOpacity = false
     local updating = false
 
-    local popup = CreateFrame("Frame", "EllesmereUIColorPicker", UIParent)
+    local popup = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIColorPicker", UIParent)
     popup:SetSize(BASE_W, POPUP_H)
     popup:SetPoint("CENTER")
     popup:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -2570,7 +2570,7 @@ local function BuildColorPickerPopup()
 
     -- Click-off detection: close picker when clicking outside it
     -- Uses a global OnMouseDown hook (non-blocking, preserves all hover/click on other frames)
-    local clickOffFrame = CreateFrame("Frame")
+    local clickOffFrame = EllesmereUI.SafeCreateFrame("Frame")
     clickOffFrame:Hide()
     clickOffFrame:SetScript("OnEvent", function(_, event)
         if event == "GLOBAL_MOUSE_DOWN" then
@@ -2596,13 +2596,13 @@ local function BuildColorPickerPopup()
     end)
 
     local bg = popup:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(); bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+    bg:SetAllPoints(); bg:SetTexture(0.06, 0.08, 0.10, 1)
 
     -- Pixel-perfect border (matching popup style)
     MakeBorder(popup, BORDER_R, BORDER_G, BORDER_B, 0.15, PP)
 
     -- Title bar (draggable)
-    local titleBar = CreateFrame("Frame", nil, popup)
+    local titleBar = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
     titleBar:SetHeight(28)
     titleBar:SetPoint("TOPLEFT"); titleBar:SetPoint("TOPRIGHT")
     titleBar:EnableMouse(true)
@@ -2613,7 +2613,7 @@ local function BuildColorPickerPopup()
     titleLbl:SetAlpha(0.5); titleLbl:SetPoint("CENTER", 0, -10); titleLbl:SetText(EllesmereUI.L("Color Picker"))
 
     -- Close button (top-right icon)
-    local closeBtn = CreateFrame("Button", nil, popup)
+    local closeBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
     closeBtn:SetSize(25, 25)
     closeBtn:SetPoint("TOPRIGHT", popup, "TOPRIGHT", -13, -12)
     closeBtn:SetFrameLevel(popup:GetFrameLevel() + 5)
@@ -2621,8 +2621,10 @@ local function BuildColorPickerPopup()
     closeIcon:SetAllPoints()
     closeIcon:SetTexture(MEDIA_PATH .. "icons/close-popup-4.png")
     closeIcon:SetAlpha(0.40)
-    closeIcon:SetSnapToPixelGrid(false)
-    closeIcon:SetTexelSnappingBias(0)
+    if closeIcon.SetSnapToPixelGrid then
+        closeIcon:SetSnapToPixelGrid(false)
+        closeIcon:SetTexelSnappingBias(0)
+    end
     closeBtn:SetScript("OnEnter", function() closeIcon:SetAlpha(0.50) end)
     closeBtn:SetScript("OnLeave", function() closeIcon:SetAlpha(0.40) end)
     closeBtn:SetScript("OnClick", function()
@@ -2656,38 +2658,38 @@ local function BuildColorPickerPopup()
         if UpdateAlphaBar then UpdateAlphaBar(r, g, b, currentA) end
         if UpdateHexInput then UpdateHexInput(r, g, b) end
         if UpdateOpacityInput then UpdateOpacityInput(currentA) end
-        if newPreviewTex then newPreviewTex:SetColorTexture(r, g, b, currentA) end
+        if newPreviewTex then newPreviewTex:SetTexture(r, g, b, currentA) end
         updating = false
     end
 
     -- SV Pad
-    local svPad = CreateFrame("Frame", nil, popup)
+    local svPad = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
     svPad:SetSize(SV_SIZE, SV_SIZE)
     svPad:SetPoint("TOPLEFT", popup, "TOPLEFT", PAD, -(PAD_TOP + 28))
     svPad:EnableMouse(true)
 
     local svHue = svPad:CreateTexture(nil, "BACKGROUND")
-    svHue:SetAllPoints(); svHue:SetColorTexture(1, 0, 0, 1)
+    svHue:SetAllPoints(); svHue:SetTexture(1, 0, 0, 1)
 
     local svWhite = svPad:CreateTexture(nil, "BORDER")
-    svWhite:SetAllPoints(); svWhite:SetColorTexture(1, 1, 1, 1)
+    svWhite:SetAllPoints(); svWhite:SetTexture(1, 1, 1, 1)
     svWhite:SetGradient("HORIZONTAL", CreateColor(1, 1, 1, 1), CreateColor(1, 1, 1, 0))
 
     local svBlack = svPad:CreateTexture(nil, "ARTWORK")
-    svBlack:SetAllPoints(); svBlack:SetColorTexture(0, 0, 0, 1)
+    svBlack:SetAllPoints(); svBlack:SetTexture(0, 0, 0, 1)
     svBlack:SetGradient("VERTICAL", CreateColor(0, 0, 0, 1), CreateColor(0, 0, 0, 0))
 
     MakeBorder(svPad, 1, 1, 1, 0.06, PP)
 
     local ARM = 6
-    local chT = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chT:SetSize(1, ARM); chT:SetColorTexture(1,1,1,0.9)
-    local chB = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chB:SetSize(1, ARM); chB:SetColorTexture(1,1,1,0.9)
-    local chL = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chL:SetSize(ARM, 1); chL:SetColorTexture(1,1,1,0.9)
-    local chR = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chR:SetSize(ARM, 1); chR:SetColorTexture(1,1,1,0.9)
+    local chT = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chT:SetSize(1, ARM); chT:SetTexture(1,1,1,0.9)
+    local chB = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chB:SetSize(1, ARM); chB:SetTexture(1,1,1,0.9)
+    local chL = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chL:SetSize(ARM, 1); chL:SetTexture(1,1,1,0.9)
+    local chR = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chR:SetSize(ARM, 1); chR:SetTexture(1,1,1,0.9)
 
     UpdateSVPadHue = function(h)
         local r, g, b = HSVtoRGB(h, 1, 1)
-        svHue:SetColorTexture(r, g, b, 1)
+        svHue:SetTexture(r, g, b, 1)
     end
     UpdateSVCrosshair = function(s, v)
         local x = s * SV_SIZE
@@ -2723,7 +2725,7 @@ local function BuildColorPickerPopup()
     svPad:SetScript("OnMouseUp", function(self) svDragging = false; self:SetScript("OnUpdate", nil) end)
 
     -- Hue Bar
-    local hueBar = CreateFrame("Frame", nil, popup)
+    local hueBar = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
     hueBar:SetSize(BAR_W, SV_SIZE)
     hueBar:SetPoint("TOPLEFT", svPad, "TOPRIGHT", BAR_GAP, 0)
     hueBar:EnableMouse(true)
@@ -2735,14 +2737,14 @@ local function BuildColorPickerPopup()
     for i = 1, 6 do
         local seg = hueBar:CreateTexture(nil, "BACKGROUND")
         seg:SetSize(BAR_W, segH); seg:SetPoint("TOPLEFT", hueBar, "TOPLEFT", 0, -(i-1)*segH)
-        seg:SetColorTexture(1,1,1,1)
+        seg:SetTexture(1,1,1,1)
         local top, bot = HUE_COLORS[i], HUE_COLORS[i+1]
         seg:SetGradient("VERTICAL", CreateColor(bot[1],bot[2],bot[3],1), CreateColor(top[1],top[2],top[3],1))
     end
     MakeBorder(hueBar, 1, 1, 1, 0.06, PP)
 
     local hueInd = hueBar:CreateTexture(nil, "OVERLAY", nil, 7)
-    hueInd:SetSize(BAR_W + 4, 2); hueInd:SetColorTexture(1,1,1,1)
+    hueInd:SetSize(BAR_W + 4, 2); hueInd:SetTexture(1,1,1,1)
 
     UpdateHueIndicator = function(h)
         hueInd:ClearAllPoints()
@@ -2767,7 +2769,7 @@ local function BuildColorPickerPopup()
     hueBar:SetScript("OnMouseUp", function(self) hueDragging = false; self:SetScript("OnUpdate", nil) end)
 
     -- Alpha Bar
-    local alphaBar = CreateFrame("Frame", nil, popup)
+    local alphaBar = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
     alphaBar:SetSize(BAR_W, SV_SIZE)
     alphaBar:SetPoint("TOPLEFT", hueBar, "TOPRIGHT", BAR_GAP, 0)
     alphaBar:EnableMouse(true)
@@ -2781,15 +2783,15 @@ local function BuildColorPickerPopup()
             local c = ((row + col) % 2 == 0) and 0.3 or 0.15
             local ck = alphaBar:CreateTexture(nil, "BACKGROUND")
             ck:SetSize(CK, CK); ck:SetPoint("TOPLEFT", alphaBar, "TOPLEFT", col * CK, -row * CK)
-            ck:SetColorTexture(c, c, c, 1)
+            ck:SetTexture(c, c, c, 1)
         end
     end
 
     local alphaGrad = alphaBar:CreateTexture(nil, "ARTWORK")
-    alphaGrad:SetAllPoints(); alphaGrad:SetColorTexture(1,0,0,1)
+    alphaGrad:SetAllPoints(); alphaGrad:SetTexture(1,0,0,1)
 
     local alphaInd = alphaBar:CreateTexture(nil, "OVERLAY", nil, 7)
-    alphaInd:SetSize(BAR_W+4, 2); alphaInd:SetColorTexture(1,1,1,1)
+    alphaInd:SetSize(BAR_W+4, 2); alphaInd:SetTexture(1,1,1,1)
     MakeBorder(alphaBar, 1, 1, 1, 0.06, PP)
 
     -- Reusable CreateColor objects to avoid per-frame allocation during drag
@@ -2824,7 +2826,7 @@ local function BuildColorPickerPopup()
     ---------------------------------------------------------------------------
     --  Right column: New, Prev, Hex#, OK
     ---------------------------------------------------------------------------
-    local rightCol = CreateFrame("Frame", nil, popup)
+    local rightCol = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
     rightCol:SetSize(RIGHT_W, SV_SIZE)
     rightCol:SetPoint("TOPLEFT", alphaBar, "TOPRIGHT", RIGHT_GAP, 0)
 
@@ -2834,16 +2836,16 @@ local function BuildColorPickerPopup()
 
     newPreviewTex = rightCol:CreateTexture(nil, "ARTWORK")
     newPreviewTex:SetSize(RIGHT_W, 26); newPreviewTex:SetPoint("TOPLEFT", rightCol, "TOPLEFT", 0, -14)
-    newPreviewTex:SetColorTexture(1,1,1,1)
+    newPreviewTex:SetTexture(1,1,1,1)
 
     -- Prev preview (directly below New)
     local prevPrev = rightCol:CreateTexture(nil, "ARTWORK")
     prevPrev:SetSize(RIGHT_W, 26); prevPrev:SetPoint("TOPLEFT", newPreviewTex, "BOTTOMLEFT", 0, -4)
-    prevPrev:SetColorTexture(1,1,1,1)
+    prevPrev:SetTexture(1,1,1,1)
     prevPreviewTex = prevPrev
 
     -- Clickable overlay on prev swatch: clicking restores the previous color
-    local prevBtn = CreateFrame("Button", nil, rightCol)
+    local prevBtn = EllesmereUI.SafeCreateFrame("Button", nil, rightCol)
     prevBtn:SetAllPoints(prevPrev)
     prevBtn:SetFrameLevel(rightCol:GetFrameLevel() + 5)
     prevBtn:SetScript("OnClick", function()
@@ -2859,13 +2861,13 @@ local function BuildColorPickerPopup()
     local hexLbl = MakeFont(rightCol, 10, nil, 1,1,1); hexLbl:SetAlpha(TEXT_DIM_A)
     hexLbl:SetPoint("TOPLEFT", pl, "BOTTOMLEFT", 0, -21); hexLbl:SetText(EllesmereUI.L("Hex#"))
 
-    local hexBox = CreateFrame("EditBox", nil, rightCol)
+    local hexBox = EllesmereUI.SafeCreateFrame("EditBox", nil, rightCol)
     hexBox:SetSize(RIGHT_W, 24); hexBox:SetPoint("TOPLEFT", hexLbl, "BOTTOMLEFT", 0, -4)
     hexBox:SetFont(EXPRESSWAY, 10, ""); hexBox:SetTextColor(TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, TEXT_DIM_A)
     hexBox:SetMaxLetters(6); hexBox:SetAutoFocus(false); hexBox:EnableMouse(true)
     hexBox:SetJustifyH("CENTER")
     local hbg = hexBox:CreateTexture(nil, "BACKGROUND")
-    hbg:SetAllPoints(); hbg:SetColorTexture(0.22, 0.24, 0.28, 0.5)
+    hbg:SetAllPoints(); hbg:SetTexture(0.22, 0.24, 0.28, 0.5)
     MakeBorder(hexBox, 1, 1, 1, 0.04, PP)
 
     local lastValidHex = "FFFFFF"
@@ -2915,13 +2917,13 @@ local function BuildColorPickerPopup()
     local opacityLbl = MakeFont(rightCol, 10, nil, 1,1,1); opacityLbl:SetAlpha(TEXT_DIM_A)
     opacityLbl:SetPoint("TOPLEFT", hexBox, "BOTTOMLEFT", 0, -10); opacityLbl:SetText(EllesmereUI.L("Opacity"))
 
-    local opacityBox = CreateFrame("EditBox", nil, rightCol)
+    local opacityBox = EllesmereUI.SafeCreateFrame("EditBox", nil, rightCol)
     opacityBox:SetSize(RIGHT_W, 24); opacityBox:SetPoint("TOPLEFT", opacityLbl, "BOTTOMLEFT", 0, -4)
     opacityBox:SetFont(EXPRESSWAY, 10, ""); opacityBox:SetTextColor(TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, TEXT_DIM_A)
     opacityBox:SetMaxLetters(3); opacityBox:SetAutoFocus(false); opacityBox:EnableMouse(true)
     opacityBox:SetNumeric(true); opacityBox:SetJustifyH("CENTER")
     local obg = opacityBox:CreateTexture(nil, "BACKGROUND")
-    obg:SetAllPoints(); obg:SetColorTexture(0.22, 0.24, 0.28, 0.5)
+    obg:SetAllPoints(); obg:SetTexture(0.22, 0.24, 0.28, 0.5)
     MakeBorder(opacityBox, 1, 1, 1, 0.04, PP)
 
     local lastOpacityPct = -1
@@ -2966,7 +2968,7 @@ local function BuildColorPickerPopup()
     opacityLbl:Hide(); opacityBox:Hide()
 
     -- OK Button (bottom of right column, styled like reset/reload buttons)
-    local okBtn = CreateFrame("Button", nil, rightCol)
+    local okBtn = EllesmereUI.SafeCreateFrame("Button", nil, rightCol)
     okBtn:SetSize(RIGHT_W, 21)
     okBtn:SetPoint("BOTTOMLEFT", rightCol, "BOTTOMLEFT", 0, 0)
     okBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
@@ -2979,7 +2981,7 @@ local function BuildColorPickerPopup()
     end)
 
     -- Cancel text above OK button
-    local cancelBtn = CreateFrame("Button", nil, rightCol)
+    local cancelBtn = EllesmereUI.SafeCreateFrame("Button", nil, rightCol)
     cancelBtn:SetSize(RIGHT_W, 14)
     cancelBtn:SetPoint("BOTTOM", okBtn, "TOP", 0, 5)
     cancelBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
@@ -3003,7 +3005,7 @@ local function BuildColorPickerPopup()
     local SWATCH_SPACING = 4
 
     local function MakeSwatchBtn(parent, isFavorites)
-        local btn = CreateFrame("Button", nil, parent)
+        local btn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
         btn:SetSize(SWATCH_SZ, SWATCH_SZ)
         btn:SetFrameLevel(parent:GetFrameLevel() + 2)
         local tex = btn:CreateTexture(nil, "ARTWORK"); tex:SetAllPoints(); btn._tex = tex
@@ -3040,7 +3042,7 @@ local function BuildColorPickerPopup()
     favLbl:SetPoint("TOPLEFT", svPad, "BOTTOMLEFT", 0, -10)
     favLbl:SetText(EllesmereUI.L("Favorites"))
 
-    local favRow = CreateFrame("Frame", nil, popup)
+    local favRow = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
     favRow:SetSize(BASE_W - PAD - PAD_RIGHT, SWATCH_SZ)
     favRow:SetPoint("TOPLEFT", favLbl, "BOTTOMLEFT", 0, -3)
     favRow._label = favLbl; favRow._isFavorites = true
@@ -3050,7 +3052,7 @@ local function BuildColorPickerPopup()
     rcLbl:SetPoint("TOPLEFT", favRow, "BOTTOMLEFT", 0, -8)
     rcLbl:SetText(EllesmereUI.L("Recent Colors"))
 
-    local rcRow = CreateFrame("Frame", nil, popup)
+    local rcRow = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
     rcRow:SetSize(BASE_W - PAD - PAD_RIGHT, SWATCH_SZ)
     rcRow:SetPoint("TOPLEFT", rcLbl, "BOTTOMLEFT", 0, -3)
     rcRow._label = rcLbl; rcRow._isFavorites = false
@@ -3064,7 +3066,7 @@ local function BuildColorPickerPopup()
             if not btn then btn = MakeSwatchBtn(row, row._isFavorites); swatchPool[i] = btn end
             if i <= count then
                 btn._color = data[i]
-                btn._tex:SetColorTexture(data[i][1], data[i][2], data[i][3], 1)
+                btn._tex:SetTexture(data[i][1], data[i][2], data[i][3], 1)
                 btn:Show(); btn:ClearAllPoints()
                 if i == 1 then btn:SetPoint("LEFT", row, "LEFT", 0, 0)
                 else btn:SetPoint("LEFT", swatchPool[i-1], "RIGHT", SWATCH_SPACING, 0) end
@@ -3109,7 +3111,7 @@ local function BuildColorPickerPopup()
         prevR, prevG, prevB, prevA = r, g, b, a
         currentH, currentS, currentV = RGBtoHSV(r, g, b)
         currentA = hasOpacity and a or 1
-        prevPreviewTex:SetColorTexture(r, g, b, hasOpacity and a or 1)
+        prevPreviewTex:SetTexture(r, g, b, hasOpacity and a or 1)
         -- Reposition right column based on alpha bar visibility. When an alpha
         -- slider is present, only the right column is made taller so OK/Cancel
         -- drop down to clear the Opacity input inserted below Hex#. The favorites
@@ -3184,7 +3186,7 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
     end
     do local _r = setValue; setValue = function(...) _r(...); EllesmereUI._settingsChanged = true end end
     local SWATCH_SZ = overrideSize or 24
-    local swatch = CreateFrame("Button", nil, parentFrame)
+    local swatch = EllesmereUI.SafeCreateFrame("Button", nil, parentFrame)
     PP.Size(swatch, SWATCH_SZ, SWATCH_SZ)
     swatch:SetFrameLevel(baseLevel)
 
@@ -3201,28 +3203,28 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
         local T = CS.BRD_THICK
 
         local wt = swatch:CreateTexture(nil, "BORDER")
-        wt:SetColorTexture(1, 1, 1, 1)
+        wt:SetTexture(1, 1, 1, 1)
         wt:SetPoint("BOTTOMLEFT", swatch, "TOPLEFT", -T, 0); wt:SetPoint("BOTTOMRIGHT", swatch, "TOPRIGHT", T, 0); PP.Height(wt, T)
         local wb = swatch:CreateTexture(nil, "BORDER")
-        wb:SetColorTexture(1, 1, 1, 1)
+        wb:SetTexture(1, 1, 1, 1)
         wb:SetPoint("TOPLEFT", swatch, "BOTTOMLEFT", -T, 0); wb:SetPoint("TOPRIGHT", swatch, "BOTTOMRIGHT", T, 0); PP.Height(wb, T)
         local wl = swatch:CreateTexture(nil, "BORDER")
-        wl:SetColorTexture(1, 1, 1, 1)
+        wl:SetTexture(1, 1, 1, 1)
         wl:SetPoint("TOPLEFT", swatch, "TOPLEFT", -T, 0); wl:SetPoint("BOTTOMLEFT", swatch, "BOTTOMLEFT", -T, 0); PP.Width(wl, T)
         local wr = swatch:CreateTexture(nil, "BORDER")
-        wr:SetColorTexture(1, 1, 1, 1)
+        wr:SetTexture(1, 1, 1, 1)
         wr:SetPoint("TOPRIGHT", swatch, "TOPRIGHT", T, 0); wr:SetPoint("BOTTOMRIGHT", swatch, "BOTTOMRIGHT", T, 0); PP.Width(wr, T)
     end
 
     local function UpdateSwatch()
         local r, g, b, a = getValue()
-        sFill:SetColorTexture(r or 0, g or 0, b or 0, a or 1)
+        sFill:SetTexture(r or 0, g or 0, b or 0, a or 1)
     end
 
     -- Set initial fill color immediately (no border needed yet)
     do
         local r, g, b, a = getValue()
-        sFill:SetColorTexture(r or 0, g or 0, b or 0, a or 1)
+        sFill:SetTexture(r or 0, g or 0, b or 0, a or 1)
     end
 
     -- Build border lazily on first show
@@ -3242,7 +3244,7 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
             if not popup then return end
             local cr, cg, cb = popup:GetColorRGB()
             local ca = hasAlpha and popup:GetColorAlpha() or 1
-            sFill:SetColorTexture(cr, cg, cb, ca)
+            sFill:SetTexture(cr, cg, cb, ca)
             setValue(cr, cg, cb, ca)
             UpdateSwatch()
         end
@@ -3370,7 +3372,7 @@ end
 -- Color Picker  (swatch that opens Blizzard's ColorPickerFrame)
 function WidgetFactory:ColorPicker(parent, text, yOffset, getValue, setValue, hasAlpha)
     local ROW_H = 50
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     PP.Size(frame, parent:GetWidth() - CONTENT_PAD * 2, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
 
@@ -3394,12 +3396,12 @@ end
 -- Button  (execute action, matches the reset/reload button style)
 function WidgetFactory:Button(parent, text, yOffset, onClick)
     local ROW_H = 50
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     PP.Size(frame, parent:GetWidth() - CONTENT_PAD * 2, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
     RowBg(frame, parent)
     TagOptionRow(frame, parent, text)
-    local btn = CreateFrame("Button", nil, frame)
+    local btn = EllesmereUI.SafeCreateFrame("Button", nil, frame)
     PP.Size(btn, 200, 32)
     PP.Point(btn, "LEFT", frame, "LEFT", 20, 0)
     btn:SetFrameLevel(frame:GetFrameLevel() + 1)
@@ -3412,11 +3414,11 @@ function WidgetFactory:WideButton(parent, text, yOffset, onClick, btnWidth)
     btnWidth = btnWidth or 450
     local BTN_H = 42
     local ROW_H = BTN_H + 20
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     PP.Size(frame, parent:GetWidth() - CONTENT_PAD * 2, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
     TagOptionRow(frame, parent, text)
-    local btn = CreateFrame("Button", nil, frame)
+    local btn = EllesmereUI.SafeCreateFrame("Button", nil, frame)
     PP.Size(btn, btnWidth, BTN_H)
     PP.Point(btn, "CENTER", frame, "CENTER", 0, 0)
     btn:SetFrameLevel(frame:GetFrameLevel() + 1)
@@ -3461,7 +3463,7 @@ end
 function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
     local ROW_H = 50
     local SIDE_PAD = 20  -- padding inside each half
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     local totalW = parent:GetWidth() - CONTENT_PAD * 2
     PP.Size(frame, totalW, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
@@ -3478,11 +3480,11 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
     -- Half regions (invisible, just for anchoring)
     local fullWidth = not rightCfg
     local halfW = math.floor(totalW / 2)
-    local leftRegion = CreateFrame("Frame", nil, frame)
+    local leftRegion = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     leftRegion:SetSize(fullWidth and totalW or halfW, ROW_H)
     leftRegion:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
 
-    local rightRegion = CreateFrame("Frame", nil, frame)
+    local rightRegion = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     rightRegion:SetSize(halfW, ROW_H)
     rightRegion:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
 
@@ -3528,7 +3530,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
         -- after the dropdown button so it can check whether the menu is open.
         if (cfg.tooltip or cfg.disabledTooltip) and t ~= "dropdown" then
             local ttOpts = cfg.tooltipOpts
-            local hitFrame = CreateFrame("Frame", nil, region)
+            local hitFrame = EllesmereUI.SafeCreateFrame("Frame", nil, region)
             hitFrame:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
             hitFrame:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 5, -5)
             hitFrame:SetFrameLevel(region:GetFrameLevel() + 10)
@@ -3638,7 +3640,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                     ddBtn._ttOpts = cfg.tooltipOpts
                 end
                 local ttOpts = cfg.tooltipOpts
-                local hitFrame = CreateFrame("Frame", nil, region)
+                local hitFrame = EllesmereUI.SafeCreateFrame("Frame", nil, region)
                 hitFrame:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
                 hitFrame:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 5, -5)
                 hitFrame:SetFrameLevel(region:GetFrameLevel() + 10)
@@ -3703,7 +3705,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
         elseif t == "button" then
             -- Button inside a half-row: label is hidden, the button IS the content
             label:Hide()
-            local btn = CreateFrame("Button", nil, region)
+            local btn = EllesmereUI.SafeCreateFrame("Button", nil, region)
             PP.Size(btn, cfg.width or 180, 32)
             PP.Point(btn, "CENTER", region, "CENTER", 0, 0)
             btn:SetFrameLevel(frame:GetFrameLevel() + 2)
@@ -3715,7 +3717,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
 
         elseif t == "labeledButton" then
             -- Label on the left (standard), button anchored to the right
-            local btn = CreateFrame("Button", nil, region)
+            local btn = EllesmereUI.SafeCreateFrame("Button", nil, region)
             PP.Size(btn, cfg.width or 180, 32)
             PP.Point(btn, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
             btn:SetFrameLevel(frame:GetFrameLevel() + 2)
@@ -3754,7 +3756,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                 end
                 -- Disabled overlay: greys + blocks the swatch when disabled (row or per-swatch)
                 if cfg.disabled or sc.disabled then
-                    local swatchBlock = CreateFrame("Frame", nil, swatch)
+                    local swatchBlock = EllesmereUI.SafeCreateFrame("Frame", nil, swatch)
                     swatchBlock:SetAllPoints()
                     swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
                     swatchBlock:EnableMouse(true)
@@ -3813,7 +3815,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
             -- supports cfg.placeholder ghost text while empty.
             local isPopupStyle = cfg.inputStyle == "popup"
             local boxW = cfg.inputWidth or 64
-            local box = CreateFrame("EditBox", nil, region)
+            local box = EllesmereUI.SafeCreateFrame("EditBox", nil, region)
             box:SetSize(boxW, isPopupStyle and 28 or 22)
             PP.Point(box, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
             box:SetAutoFocus(false)
@@ -3824,7 +3826,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                 box:SetFont(EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 11, "")
                 box:SetJustifyH("LEFT")
                 box:SetTextInsets(10, 10, 0, 0)
-                boxBg:SetColorTexture(0, 0, 0, 0.5)
+                boxBg:SetTexture(0, 0, 0, 0.5)
                 MakeBorder(box, 1, 1, 1, 0.2)
                 if cfg.placeholder then
                     local ph = box:CreateFontString(nil, "ARTWORK")
@@ -3833,14 +3835,14 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                     ph:SetPoint("LEFT", box, "LEFT", 10, 0)
                     ph:SetText(EllesmereUI.L(cfg.placeholder))
                     box:SetScript("OnTextChanged", function(self)
-                        ph:SetShown((self:GetText() or "") == "")
+                        if (self:GetText() or "") == "" then ph:Show() else ph:Hide() end
                     end)
                 end
             else
                 box:SetFont(EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 13, "")
                 box:SetJustifyH("CENTER")
                 box:SetTextInsets(4, 4, 0, 0)
-                boxBg:SetColorTexture(0.12, 0.12, 0.12, 0.85)
+                boxBg:SetTexture(0.12, 0.12, 0.12, 0.85)
             end
             local function RefreshInput()
                 if box:HasFocus() then return end
@@ -3888,7 +3890,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
     -- 1px center divider (matches global BORDER style)
     if not fullWidth then
         local div = frame:CreateTexture(nil, "ARTWORK")
-        div:SetColorTexture(BORDER_R, BORDER_G, BORDER_B, 0.05)
+        div:SetTexture(BORDER_R, BORDER_G, BORDER_B, 0.05)
         div:SetWidth(1)
         div:SetPoint("TOP", frame, "TOP", 0, 0)
         div:SetPoint("BOTTOM", frame, "BOTTOM", 0, 0)
@@ -3910,7 +3912,7 @@ end
 function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, splits)
     local ROW_H = (splits and splits.rowHeight) or 50
     local SIDE_PAD = 20
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     local totalW = parent:GetWidth() - CONTENT_PAD * 2
     PP.Size(frame, totalW, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
@@ -3929,15 +3931,15 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
     local midW   = math.floor(totalW * ((splits and splits[2]) or 0.28))
     local rightW = totalW - leftW - midW
 
-    local leftRegion = CreateFrame("Frame", nil, frame)
+    local leftRegion = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     leftRegion:SetSize(leftW, ROW_H)
     leftRegion:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
 
-    local midRegion = CreateFrame("Frame", nil, frame)
+    local midRegion = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     midRegion:SetSize(midW, ROW_H)
     midRegion:SetPoint("TOPLEFT", leftRegion, "TOPRIGHT", 0, 0)
 
-    local rightRegion = CreateFrame("Frame", nil, frame)
+    local rightRegion = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     rightRegion:SetSize(rightW, ROW_H)
     rightRegion:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
 
@@ -3956,7 +3958,7 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
 
         if (cfg.tooltip or cfg.disabledTooltip) and t ~= "dropdown" then
             local ttOpts = cfg.tooltipOpts
-            local hitFrame = CreateFrame("Frame", nil, region)
+            local hitFrame = EllesmereUI.SafeCreateFrame("Frame", nil, region)
             hitFrame:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
             hitFrame:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 5, -5)
             hitFrame:SetFrameLevel(region:GetFrameLevel() + 10)
@@ -4053,7 +4055,7 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
                     ddBtn._ttOpts = cfg.tooltipOpts
                 end
                 local ttOpts = cfg.tooltipOpts
-                local hitFrame = CreateFrame("Frame", nil, region)
+                local hitFrame = EllesmereUI.SafeCreateFrame("Frame", nil, region)
                 hitFrame:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
                 hitFrame:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 5, -5)
                 hitFrame:SetFrameLevel(region:GetFrameLevel() + 10)
@@ -4121,7 +4123,7 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
         elseif t == "checkbox" then
             -- Hide the generic label; checkbox draws its own label+box
             label:Hide()
-            local btn = CreateFrame("Button", nil, region)
+            local btn = EllesmereUI.SafeCreateFrame("Button", nil, region)
             btn:SetSize(region:GetWidth(), ROW_H)
             btn:SetAllPoints(region)
             btn:SetFrameLevel(frame:GetFrameLevel() + 2)
@@ -4160,7 +4162,7 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
             ApplyDisabledState()
         elseif t == "button" then
             label:Hide()
-            local btn = CreateFrame("Button", nil, region)
+            local btn = EllesmereUI.SafeCreateFrame("Button", nil, region)
             PP.Size(btn, cfg.width or 140, 32)
             PP.Point(btn, "CENTER", region, "CENTER", 0, 0)
             btn:SetFrameLevel(frame:GetFrameLevel() + 2)
@@ -4170,7 +4172,7 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
             ApplyDisabledState()
 
         elseif t == "labeledButton" then
-            local btn = CreateFrame("Button", nil, region)
+            local btn = EllesmereUI.SafeCreateFrame("Button", nil, region)
             PP.Size(btn, cfg.width or 140, 32)
             PP.Point(btn, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
             btn:SetFrameLevel(frame:GetFrameLevel() + 2)
@@ -4207,7 +4209,7 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
     -- 1px dividers at column boundaries (same style as RowBg center divider)
     for _, rgn in ipairs({ leftRegion, midRegion }) do
         local div = frame:CreateTexture(nil, "ARTWORK")
-        div:SetColorTexture(1, 1, 1, 0.06)
+        div:SetTexture(1, 1, 1, 0.06)
         if div.SetSnapToPixelGrid then div:SetSnapToPixelGrid(false); div:SetTexelSnappingBias(0) end
         div:SetWidth(1)
         PP.Point(div, "TOP", rgn, "TOPRIGHT", 0, 0)
@@ -4238,7 +4240,7 @@ function WidgetFactory:MultiSwatchRow(parent, yOffset, cfg)
     local ROW_H = 50
     local SIDE_PAD = 20
     local SWATCH_GAP = 8
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     local totalW = parent:GetWidth() - CONTENT_PAD * 2
     PP.Size(frame, totalW, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
@@ -4263,7 +4265,7 @@ function WidgetFactory:MultiSwatchRow(parent, yOffset, cfg)
 
         -- Per-swatch disabled overlay
         if sc.disabled then
-            local swatchBlock = CreateFrame("Frame", nil, swatch)
+            local swatchBlock = EllesmereUI.SafeCreateFrame("Frame", nil, swatch)
             swatchBlock:SetAllPoints()
             swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
             swatchBlock:EnableMouse(true)
@@ -4329,7 +4331,7 @@ end
 function WidgetFactory:DropdownWithOffsets(parent, yOffset, dropdownCfg, xSliderCfg, ySliderCfg)
     local ROW_H = 50
     local SIDE_PAD = 20
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     local totalW = parent:GetWidth() - CONTENT_PAD * 2
     PP.Size(frame, totalW, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
@@ -4342,7 +4344,7 @@ function WidgetFactory:DropdownWithOffsets(parent, yOffset, dropdownCfg, xSlider
     local halfW = math.floor(totalW / 2)
 
     -- Left half: label + dropdown (same as DualRow dropdown half)
-    local leftRegion = CreateFrame("Frame", nil, frame)
+    local leftRegion = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     leftRegion:SetSize(halfW, ROW_H)
     leftRegion:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
 
@@ -4364,7 +4366,7 @@ function WidgetFactory:DropdownWithOffsets(parent, yOffset, dropdownCfg, xSlider
     end
 
     -- Right half: X and Y mini-sliders side by side on one line
-    local rightRegion = CreateFrame("Frame", nil, frame)
+    local rightRegion = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     rightRegion:SetSize(halfW, ROW_H)
     rightRegion:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
 
@@ -4420,7 +4422,7 @@ function WidgetFactory:DropdownWithOffsets(parent, yOffset, dropdownCfg, xSlider
 
     -- 1px center divider between dropdown and sliders
     local div = frame:CreateTexture(nil, "ARTWORK")
-    div:SetColorTexture(BORDER_R, BORDER_G, BORDER_B, 0.05)
+    div:SetTexture(BORDER_R, BORDER_G, BORDER_B, 0.05)
     div:SetWidth(1)
     div:SetPoint("TOP", frame, "TOP", 0, 0)
     div:SetPoint("BOTTOM", frame, "BOTTOM", 0, 0)
@@ -4447,7 +4449,7 @@ function WidgetFactory:WideDualButton(parent, text1, text2, yOffset, onClick1, o
     btnWidth = btnWidth or DUAL_ITEM_W
     local BTN_H = 37
     local ROW_H = BTN_H + 20
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     PP.Size(frame, parent:GetWidth() - CONTENT_PAD * 2, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
     TagOptionRow(frame, parent, (text1 or "") .. " " .. (text2 or ""), nil, true)
@@ -4455,7 +4457,7 @@ function WidgetFactory:WideDualButton(parent, text1, text2, yOffset, onClick1, o
     IndexSlotForSearch(parent, text2)
     local halfGap = DUAL_GAP / 2
     for i, info in ipairs({{text1, -(btnWidth/2 + halfGap), onClick1}, {text2, (btnWidth/2 + halfGap), onClick2}}) do
-        local btn = CreateFrame("Button", nil, frame)
+        local btn = EllesmereUI.SafeCreateFrame("Button", nil, frame)
         PP.Size(btn, btnWidth, BTN_H)
         PP.Point(btn, "CENTER", frame, "CENTER", info[2], 0)
         btn:SetFrameLevel(frame:GetFrameLevel() + 1)
@@ -4473,7 +4475,7 @@ function WidgetFactory:WideTripleButton(parent, text1, text2, text3, yOffset, on
     btnWidth = btnWidth or 205
     local BTN_H = 37
     local ROW_H = BTN_H + 20
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     PP.Size(frame, parent:GetWidth() - CONTENT_PAD * 2, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
     TagOptionRow(frame, parent, (text1 or "") .. " " .. (text2 or "") .. " " .. (text3 or ""), nil, true)
@@ -4483,7 +4485,7 @@ function WidgetFactory:WideTripleButton(parent, text1, text2, text3, yOffset, on
     local gap = DUAL_GAP
     local offsets = { -(btnWidth + gap), 0, (btnWidth + gap) }
     for i, info in ipairs({ {text1, onClick1}, {text2, onClick2}, {text3, onClick3} }) do
-        local btn = CreateFrame("Button", nil, frame)
+        local btn = EllesmereUI.SafeCreateFrame("Button", nil, frame)
         PP.Size(btn, btnWidth, BTN_H)
         PP.Point(btn, "CENTER", frame, "CENTER", offsets[i], 0)
         btn:SetFrameLevel(frame:GetFrameLevel() + 1)
@@ -4506,14 +4508,14 @@ function WidgetFactory:WideDropdown(parent, title, yOffset, values, getValue, se
     btnWidth = btnWidth or 450
     local BTN_H, TITLE_H, GAP = 38, 20, 12
     local ROW_H = TITLE_H + GAP + BTN_H + 5
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     PP.Size(frame, parent:GetWidth() - CONTENT_PAD * 2, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
     TagOptionRow(frame, parent, title)
     local titleLabel = MakeFont(frame, 13, nil, EllesmereUI.TEXT_SECTION_R, EllesmereUI.TEXT_SECTION_G, EllesmereUI.TEXT_SECTION_B, EllesmereUI.TEXT_SECTION_A)
     PP.Point(titleLabel, "TOP", frame, "TOP", 0, 0)
     titleLabel:SetText(EllesmereUI.L(title))
-    local ddBtn = CreateFrame("Button", nil, frame)
+    local ddBtn = EllesmereUI.SafeCreateFrame("Button", nil, frame)
     PP.Size(ddBtn, btnWidth, BTN_H)
     PP.Point(ddBtn, "TOP", titleLabel, "BOTTOM", 0, -GAP)
     ddBtn:SetFrameLevel(frame:GetFrameLevel() + 1)
@@ -4541,7 +4543,7 @@ end
 function WidgetFactory:TripleDropdown(parent, configs, yOffset)
     local DD_W, DD_H, TITLE_H, GAP_Y = TRIPLE_ITEM_W, 30, 16, 6
     local ROW_H = TITLE_H + GAP_Y + DD_H + 12
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     local frameW = parent:GetWidth() - CONTENT_PAD * 2
     PP.Size(frame, frameW, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
@@ -4570,7 +4572,7 @@ end
 function WidgetFactory:TripleSlider(parent, configs, yOffset)
     local SL_W, SL_H = TRIPLE_ITEM_W, 26
     local ROW_H = SL_H + 12
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     local frameW = parent:GetWidth() - CONTENT_PAD * 2
     PP.Size(frame, frameW, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
@@ -4584,7 +4586,7 @@ function WidgetFactory:TripleSlider(parent, configs, yOffset)
         local step   = cfg.step   or 1
         local INPUT_W = 36
         local TRACK_W = SL_W - INPUT_W - 16
-        local slRow = CreateFrame("Frame", nil, frame)
+        local slRow = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
         PP.Size(slRow, SL_W, SL_H)
         PP.Point(slRow, "TOPLEFT", frame, "TOPLEFT", col, -((ROW_H - SL_H) / 2))
         slRow:SetFrameLevel(frame:GetFrameLevel() + 1)
@@ -4598,7 +4600,7 @@ end
 -- Spacer
 function WidgetFactory:Spacer(parent, yOffset, height)
     height = height or 16
-    local frame = CreateFrame("Frame", nil, parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     PP.Size(frame, parent:GetWidth(), height)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", 0, yOffset)
     frame._isSpacer = true
@@ -4737,7 +4739,7 @@ local function BuildCogPopup(opts)
         end
 
         -- Create popup frame
-        local pf = CreateFrame("Frame", nil, UIParent)
+        local pf = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         pf:SetSize(POPUP_W, totalH)
         pf:SetFrameStrata(opts.frameStrata or "DIALOG"); pf:SetFrameLevel(opts.frameLevel or 200)
         pf:EnableMouse(true); pf:Hide()
@@ -4775,7 +4777,7 @@ local function BuildCogPopup(opts)
 
                 -- Tooltip on label hover
                 if row.tooltip then
-                    local hitFrame = CreateFrame("Frame", nil, pf)
+                    local hitFrame = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
                     hitFrame:SetPoint("TOPLEFT", lbl, "TOPLEFT", -2, 2)
                     hitFrame:SetPoint("BOTTOMRIGHT", lbl, "BOTTOMRIGHT", 2, -2)
                     hitFrame:SetFrameLevel(pf:GetFrameLevel() + 3)
@@ -4799,7 +4801,7 @@ local function BuildCogPopup(opts)
                 -- Disabled overlay for slider
                 local sliderDis
                 if row.disabled then
-                    sliderDis = CreateFrame("Frame", nil, pf)
+                    sliderDis = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
                     sliderDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
                     sliderDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
                     sliderDis:SetHeight(ROW_H)
@@ -4826,7 +4828,7 @@ local function BuildCogPopup(opts)
 
                 -- Tooltip on label hover
                 if row.tooltip then
-                    local hitFrame = CreateFrame("Frame", nil, pf)
+                    local hitFrame = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
                     hitFrame:SetPoint("TOPLEFT", lbl, "TOPLEFT", -2, 2)
                     hitFrame:SetPoint("BOTTOMRIGHT", lbl, "BOTTOMRIGHT", 2, -2)
                     hitFrame:SetFrameLevel(pf:GetFrameLevel() + 3)
@@ -4857,7 +4859,7 @@ local function BuildCogPopup(opts)
                 -- Disabled overlay for toggle
                 local toggleDis
                 if row.disabled then
-                    toggleDis = CreateFrame("Frame", nil, pf)
+                    toggleDis = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
                     toggleDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
                     toggleDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
                     toggleDis:SetHeight(TOGGLE_ROW_H)
@@ -4915,7 +4917,7 @@ local function BuildCogPopup(opts)
                 -- Disabled overlay for dropdown (mirrors slider/input handling)
                 local ddDis
                 if row.disabled then
-                    ddDis = CreateFrame("Frame", nil, pf)
+                    ddDis = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
                     ddDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
                     ddDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
                     ddDis:SetHeight(DROPDOWN_ROW_H)
@@ -4957,7 +4959,7 @@ local function BuildCogPopup(opts)
 
                 local segDis
                 if row.disabled then
-                    segDis = CreateFrame("Frame", nil, pf)
+                    segDis = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
                     segDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
                     segDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
                     segDis:SetHeight(TOGGLE_ROW_H)
@@ -4996,7 +4998,7 @@ local function BuildCogPopup(opts)
                 if row.disabled then
 
                     -- Block on swatch
-                    cpSwBlock = CreateFrame("Frame", nil, cpSwatch)
+                    cpSwBlock = EllesmereUI.SafeCreateFrame("Frame", nil, cpSwatch)
                     cpSwBlock:SetAllPoints()
                     cpSwBlock:SetFrameLevel(cpSwatch:GetFrameLevel() + 10)
                     cpSwBlock:EnableMouse(true)
@@ -5009,7 +5011,7 @@ local function BuildCogPopup(opts)
                     cpSwBlock:SetScript("OnLeave", function() if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end end)
 
                     -- Block on label
-                    cpLblBlock = CreateFrame("Frame", nil, pf)
+                    cpLblBlock = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
                     cpLblBlock:SetPoint("TOPLEFT", lbl, "TOPLEFT", -2, 2)
                     cpLblBlock:SetPoint("BOTTOMRIGHT", lbl, "BOTTOMRIGHT", 2, -2)
                     cpLblBlock:SetFrameLevel(pf:GetFrameLevel() + 10)
@@ -5091,7 +5093,7 @@ local function BuildCogPopup(opts)
                 -- Row-level disabled overlay (same as the slider/input rows).
                 local mswDis
                 if row.disabled then
-                    mswDis = CreateFrame("Frame", nil, pf)
+                    mswDis = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
                     mswDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
                     mswDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
                     mswDis:SetHeight(ROW_H)
@@ -5130,7 +5132,7 @@ local function BuildCogPopup(opts)
                 local EG = ELLESMERE_GREEN
                 local saveBtn, saveBg, saveLbl
                 if not commitOnBlur then
-                    saveBtn = CreateFrame("Button", nil, pf)
+                    saveBtn = EllesmereUI.SafeCreateFrame("Button", nil, pf)
                     saveBtn:SetSize(SAVE_W, ROW_H - 4)
                     saveBtn:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
                     saveBtn:SetFrameLevel(pf:GetFrameLevel() + 3)
@@ -5141,14 +5143,14 @@ local function BuildCogPopup(opts)
                     saveLbl:SetText(EllesmereUI.L("Save"))
                     saveLbl:SetPoint("CENTER")
                     saveBtn:SetScript("OnEnter", function()
-                        saveBg:SetColorTexture(EG.r + (1 - EG.r) * 0.25, EG.g + (1 - EG.g) * 0.25, EG.b + (1 - EG.b) * 0.25, 0.95)
+                        saveBg:SetTexture(EG.r + (1 - EG.r) * 0.25, EG.g + (1 - EG.g) * 0.25, EG.b + (1 - EG.b) * 0.25, 0.95)
                         saveLbl:SetAlpha(1)
                     end)
-                    saveBtn:SetScript("OnLeave", function() saveBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85); saveLbl:SetAlpha(0.9) end)
+                    saveBtn:SetScript("OnLeave", function() saveBg:SetTexture(EG.r, EG.g, EG.b, 0.85); saveLbl:SetAlpha(0.9) end)
                 end
 
                 -- Input box (left of save button, or flush right in commitOnBlur mode)
-                local box = CreateFrame("EditBox", nil, pf)
+                local box = EllesmereUI.SafeCreateFrame("EditBox", nil, pf)
                 box:SetSize(inputW, ROW_H - 4)
                 if commitOnBlur then
                     box:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
@@ -5172,10 +5174,10 @@ local function BuildCogPopup(opts)
                     if pf._refresh then pf._refresh() end
                     -- Brief white flash on save button as confirmation
                     if saveBg then
-                        saveBg:SetColorTexture(1, 1, 1, 0.9)
+                        saveBg:SetTexture(1, 1, 1, 0.9)
                         saveLbl:SetText(EllesmereUI.L("Saved"))
                         C_Timer.After(0.4, function()
-                            saveBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
+                            saveBg:SetTexture(EG.r, EG.g, EG.b, 0.85)
                             saveLbl:SetText(EllesmereUI.L("Save"))
                         end)
                     end
@@ -5201,7 +5203,7 @@ local function BuildCogPopup(opts)
                 -- Disabled overlay for input
                 local inputDis
                 if row.disabled then
-                    inputDis = CreateFrame("Frame", nil, pf)
+                    inputDis = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
                     inputDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
                     inputDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
                     inputDis:SetHeight(ROW_H)
@@ -5223,7 +5225,7 @@ local function BuildCogPopup(opts)
 
             elseif row.type == 'button' then
                 local BTN_ROW_H = ROW_H + 4
-                local btn = CreateFrame("Button", nil, pf)
+                local btn = EllesmereUI.SafeCreateFrame("Button", nil, pf)
                 PP.Size(btn, POPUP_W - SIDE_PAD * 2, BTN_ROW_H)
                 PP.Point(btn, "TOP", pf, "TOPLEFT", POPUP_W / 2, curY)
                 btn:SetFrameLevel(pf:GetFrameLevel() + 2)
@@ -5233,8 +5235,8 @@ local function BuildCogPopup(opts)
                 btnLbl:SetAlpha(0.7)
                 btnLbl:SetPoint("CENTER")
                 btnLbl:SetText(EllesmereUI.L(row.label))
-                btn:SetScript("OnEnter", function() btnBg:SetColorTexture(0.25, 0.25, 0.25, 0.85); btnLbl:SetAlpha(1) end)
-                btn:SetScript("OnLeave", function() btnBg:SetColorTexture(0.18, 0.18, 0.18, 0.85); btnLbl:SetAlpha(0.7) end)
+                btn:SetScript("OnEnter", function() btnBg:SetTexture(0.25, 0.25, 0.25, 0.85); btnLbl:SetAlpha(1) end)
+                btn:SetScript("OnLeave", function() btnBg:SetTexture(0.18, 0.18, 0.18, 0.85); btnLbl:SetAlpha(0.7) end)
                 btn:SetScript("OnClick", function()
                     if row.action then row.action() end
                     if pf._refresh then pf._refresh() end
@@ -5247,7 +5249,7 @@ local function BuildCogPopup(opts)
                 -- matching the raid/party "Sort By" reorder section (hint label +
                 -- draggable rows). Used for the party Class Order list.
                 local RR_W = POPUP_W - SIDE_PAD * 2
-                local ddBtn = CreateFrame("Button", nil, pf)
+                local ddBtn = EllesmereUI.SafeCreateFrame("Button", nil, pf)
                 ddBtn:SetSize(RR_W, DROPDOWN_ROW_H - 2)
                 ddBtn:SetPoint("TOP", pf, "TOPLEFT", POPUP_W / 2, curY - 1)
                 ddBtn:SetFrameLevel(pf:GetFrameLevel() + 2)
@@ -5262,12 +5264,12 @@ local function BuildCogPopup(opts)
                 local rArrow = MakeDropdownArrow(ddBtn, 12, PP)
                 rLbl:SetPoint("RIGHT", rArrow, "LEFT", -5, 0)
                 ddBtn:SetScript("OnEnter", function()
-                    rBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+                    rBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
                     rBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_HA)
                     rLbl:SetAlpha(EllesmereUI.DD_TXT_HA)
                 end)
                 ddBtn:SetScript("OnLeave", function()
-                    rBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+                    rBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
                     rBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
                     rLbl:SetAlpha(EllesmereUI.DD_TXT_A)
                 end)
@@ -5275,7 +5277,7 @@ local function BuildCogPopup(opts)
                 -- Drag-to-reorder menu (FULLSCREEN_DIALOG so it floats above the popup)
                 local MH = 26
                 local FONT = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
-                local menu = CreateFrame("Frame", nil, UIParent)
+                local menu = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
                 menu:SetFrameStrata("FULLSCREEN_DIALOG")
                 menu:SetFrameLevel(220)
                 menu:SetClampedToScreen(true)
@@ -5316,7 +5318,7 @@ local function BuildCogPopup(opts)
                 local insLine = menu:CreateTexture(nil, "OVERLAY", nil, 7)
                 insLine:SetHeight(2)
                 local EG2 = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
-                insLine:SetColorTexture(EG2.r, EG2.g, EG2.b, 0.9)
+                insLine:SetTexture(EG2.r, EG2.g, EG2.b, 0.9)
                 insLine:Hide()
 
                 local function PersistOrder()
@@ -5326,7 +5328,7 @@ local function BuildCogPopup(opts)
                 end
 
                 for ci, it in ipairs(items) do
-                    local rf = CreateFrame("Button", nil, menu)
+                    local rf = EllesmereUI.SafeCreateFrame("Button", nil, menu)
                     rf:SetHeight(MH)
                     rf._baseY = mY
                     rf._cbIndex = ci
@@ -5350,15 +5352,15 @@ local function BuildCogPopup(opts)
                     grip:SetTextColor(1, 1, 1, 0.2)
 
                     local rHL = rf:CreateTexture(nil, "ARTWORK")
-                    rHL:SetAllPoints(); rHL:SetColorTexture(1, 1, 1, 0)
+                    rHL:SetAllPoints(); rHL:SetTexture(1, 1, 1, 0)
 
                     rf:SetScript("OnEnter", function()
                         if isDragging then return end
-                        rl:SetTextColor(1, 1, 1, 1); rHL:SetColorTexture(1, 1, 1, 0.04)
+                        rl:SetTextColor(1, 1, 1, 1); rHL:SetTexture(1, 1, 1, 0.04)
                     end)
                     rf:SetScript("OnLeave", function()
                         if isDragging then return end
-                        rl:SetTextColor(0.75, 0.75, 0.75, 1); rHL:SetColorTexture(1, 1, 1, 0)
+                        rl:SetTextColor(0.75, 0.75, 0.75, 1); rHL:SetTexture(1, 1, 1, 0)
                     end)
 
                     rf:SetScript("OnMouseDown", function(self, b)
@@ -5449,7 +5451,7 @@ local function BuildCogPopup(opts)
                 -- Disabled overlay (dim + block + hide menu)
                 local reorderDis
                 if row.disabled then
-                    reorderDis = CreateFrame("Frame", nil, pf)
+                    reorderDis = EllesmereUI.SafeCreateFrame("Frame", nil, pf)
                     reorderDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
                     reorderDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
                     reorderDis:SetHeight(DROPDOWN_ROW_H)
@@ -5479,7 +5481,7 @@ local function BuildCogPopup(opts)
             line1:SetText(EllesmereUI.L("Reposition freely with"))
             line1:SetPoint("TOP", pf, "TOPLEFT", POPUP_W / 2, footerY)
 
-            local unlockBtn = CreateFrame("Button", nil, pf)
+            local unlockBtn = EllesmereUI.SafeCreateFrame("Button", nil, pf)
             unlockBtn:SetSize(80, 14)
             unlockBtn:SetPoint("TOP", line1, "BOTTOM", 0, -5)
             local _ugr, _ugg, _ugb = ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b
@@ -5555,7 +5557,7 @@ local function BuildCogPopup(opts)
                     end
                     -- Refresh save button color to match current theme
                     if rw.saveBg then
-                        rw.saveBg:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 0.85)
+                        rw.saveBg:SetTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 0.85)
                     end
                 elseif rw.type == 'segmented' then
                     if rw.disOverlay and rw.disCheck then
@@ -5763,17 +5765,17 @@ local function BuildSegmentedControl(cfg)
     local overlapTotal = (numKeys - 1) * 1
     local totalW = pillW + capW * 2 - overlapTotal
 
-    local frame = CreateFrame("Frame", nil, cfg.parent)
+    local frame = EllesmereUI.SafeCreateFrame("Frame", nil, cfg.parent)
     frame:SetSize(totalW, SEG_H)
 
-    local pillBody = CreateFrame("Frame", nil, frame)
+    local pillBody = EllesmereUI.SafeCreateFrame("Frame", nil, frame)
     pillBody:SetSize(pillW - overlapTotal, SEG_H)
     PP.Point(pillBody, "TOP", frame, "TOP", 0, 0)
     pillBody:SetFrameLevel(frame:GetFrameLevel() + 1)
 
     local bg = pillBody:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0, 0, 0, 0)  -- transparent; per-segment segBg handles background
+    bg:SetTexture(0, 0, 0, 0)  -- transparent; per-segment segBg handles background
 
     -------------------------------------------------------------------
     -- Pill caps
@@ -5815,7 +5817,7 @@ local function BuildSegmentedControl(cfg)
     capRightAccent:Hide()
 
     -- Cap click zones anchored to pillBody for now, re-anchored after segments
-    local capLeftBtn = CreateFrame("Button", nil, frame)
+    local capLeftBtn = EllesmereUI.SafeCreateFrame("Button", nil, frame)
     capLeftBtn:SetSize(capW, SEG_H)
     PP.Point(capLeftBtn, "RIGHT", pillBody, "LEFT", 0, 0)
     capLeftBtn:SetFrameLevel(pillBody:GetFrameLevel() + 4)
@@ -5842,7 +5844,7 @@ local function BuildSegmentedControl(cfg)
         if frame._refreshAll then frame._refreshAll() end
     end)
 
-    local capRightBtn = CreateFrame("Button", nil, frame)
+    local capRightBtn = EllesmereUI.SafeCreateFrame("Button", nil, frame)
     capRightBtn:SetSize(capW, SEG_H)
     PP.Point(capRightBtn, "LEFT", pillBody, "RIGHT", 0, 0)
     capRightBtn:SetFrameLevel(pillBody:GetFrameLevel() + 4)
@@ -5879,7 +5881,7 @@ local function BuildSegmentedControl(cfg)
     for i, key in ipairs(cfg.keys) do
         local thisW = segWidths[key]
 
-        local btn = CreateFrame("Button", nil, pillBody)
+        local btn = EllesmereUI.SafeCreateFrame("Button", nil, pillBody)
         PP.Size(btn, thisW, SEG_H)
         if i == 1 then
             PP.Point(btn, "TOPLEFT", pillBody, "TOPLEFT", 0, 0)
@@ -5892,37 +5894,37 @@ local function BuildSegmentedControl(cfg)
         -- Per-segment hover background overlay
         local segBg = btn:CreateTexture(nil, "BACKGROUND", nil, 1)
         segBg:SetAllPoints()
-        segBg:SetColorTexture(PILL_BG[1], PILL_BG[2], PILL_BG[3], PILL_BGA)
+        segBg:SetTexture(PILL_BG[1], PILL_BG[2], PILL_BG[3], PILL_BGA)
 
         -- Accent tint overlay for checked/active segments (5% opacity)
         local accentBg = btn:CreateTexture(nil, "BACKGROUND", nil, 2)
         accentBg:SetAllPoints()
-        accentBg:SetColorTexture(ACCENT.r, ACCENT.g, ACCENT.b, 0.05)
+        accentBg:SetTexture(ACCENT.r, ACCENT.g, ACCENT.b, 0.05)
         accentBg:Hide()
 
         -- Full 1px border on all 4 sides matches MakeBorder's pixel-perfect
         -- technique: vertical edges inset by 1px to avoid overlapping corners.
         local segTop = btn:CreateTexture(nil, "ARTWORK", nil, 7)
-        segTop:SetColorTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
+        segTop:SetTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
         segTop:SetHeight(1)
         PP.Point(segTop, "TOPLEFT", btn, "TOPLEFT", 0, 0)
         PP.Point(segTop, "TOPRIGHT", btn, "TOPRIGHT", 0, 0)
 
         local segBot = btn:CreateTexture(nil, "ARTWORK", nil, 7)
-        segBot:SetColorTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
+        segBot:SetTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
         segBot:SetHeight(1)
         PP.Point(segBot, "BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
         PP.Point(segBot, "BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
 
         -- Vertical edges anchored to horizontal edges (inset 1px) to avoid bright corners
         local segLeft = btn:CreateTexture(nil, "ARTWORK", nil, 7)
-        segLeft:SetColorTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
+        segLeft:SetTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
         segLeft:SetWidth(1)
         PP.Point(segLeft, "TOPLEFT", segTop, "BOTTOMLEFT", 0, 0)
         PP.Point(segLeft, "BOTTOMLEFT", segBot, "TOPLEFT", 0, 0)
 
         local segRight = btn:CreateTexture(nil, "ARTWORK", nil, 7)
-        segRight:SetColorTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
+        segRight:SetTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
         segRight:SetWidth(1)
         PP.Point(segRight, "TOPRIGHT", segTop, "BOTTOMRIGHT", 0, 0)
         PP.Point(segRight, "BOTTOMRIGHT", segBot, "TOPRIGHT", 0, 0)
@@ -6029,10 +6031,10 @@ local function BuildSegmentedControl(cfg)
                 br, bg2, bb, ba = INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A
             end
 
-            seg.segTop:SetColorTexture(br, bg2, bb, ba)
-            seg.segBot:SetColorTexture(br, bg2, bb, ba)
-            seg.segLeft:SetColorTexture(br, bg2, bb, ba)
-            seg.segRight:SetColorTexture(br, bg2, bb, ba)
+            seg.segTop:SetTexture(br, bg2, bb, ba)
+            seg.segBot:SetTexture(br, bg2, bb, ba)
+            seg.segLeft:SetTexture(br, bg2, bb, ba)
+            seg.segRight:SetTexture(br, bg2, bb, ba)
 
             -- All 4 borders visible, except (pill mode only): first segment hides
             -- its left, last hides its right -- the rounded caps draw those edges.
@@ -6046,20 +6048,20 @@ local function BuildSegmentedControl(cfg)
 
             -- Background: disabled = 50% opacity, hover = lighten by 4%, normal = PILL_BGA
             if disabled then
-                seg.segBg:SetColorTexture(PILL_BG[1], PILL_BG[2], PILL_BG[3], 0.50)
+                seg.segBg:SetTexture(PILL_BG[1], PILL_BG[2], PILL_BG[3], 0.50)
                 seg.accentBg:Hide()
             elseif isHover then
                 local hr, hg, hb = PILL_BG[1] + BG_HOVER_BOOST, PILL_BG[2] + BG_HOVER_BOOST, PILL_BG[3] + BG_HOVER_BOOST
-                seg.segBg:SetColorTexture(hr, hg, hb, PILL_BGA)
+                seg.segBg:SetTexture(hr, hg, hb, PILL_BGA)
                 if checked then
-                    seg.accentBg:SetColorTexture(ACCENT.r, ACCENT.g, ACCENT.b, 0.05); seg.accentBg:Show()
+                    seg.accentBg:SetTexture(ACCENT.r, ACCENT.g, ACCENT.b, 0.05); seg.accentBg:Show()
                 else
                     seg.accentBg:Hide()
                 end
             else
-                seg.segBg:SetColorTexture(PILL_BG[1], PILL_BG[2], PILL_BG[3], PILL_BGA)
+                seg.segBg:SetTexture(PILL_BG[1], PILL_BG[2], PILL_BG[3], PILL_BGA)
                 if checked then
-                    seg.accentBg:SetColorTexture(ACCENT.r, ACCENT.g, ACCENT.b, 0.05); seg.accentBg:Show()
+                    seg.accentBg:SetTexture(ACCENT.r, ACCENT.g, ACCENT.b, 0.05); seg.accentBg:Show()
                 else
                     seg.accentBg:Hide()
                 end
@@ -6146,11 +6148,11 @@ local function PlaySyncFlash(targetFrame)
     if not targetFrame then return end
     local glow = _syncGlowPool[targetFrame]
     if not glow then
-        glow = CreateFrame("Frame", nil, targetFrame)
+        glow = EllesmereUI.SafeCreateFrame("Frame", nil, targetFrame)
         local ar, ag, ab = EllesmereUI.GetAccentColor()
         local function MkEdge()
             local t = glow:CreateTexture(nil, "OVERLAY", nil, 7)
-            t:SetColorTexture(ar, ag, ab, 1)
+            t:SetTexture(ar, ag, ab, 1)
             glow["_c_" .. (glow._edgeN or 0)] = t
             glow._edgeN = (glow._edgeN or 0) + 1
             return t
@@ -6171,7 +6173,7 @@ local function PlaySyncFlash(targetFrame)
     local ar, ag, ab = EllesmereUI.GetAccentColor()
     for i = 0, (glow._edgeN or 0) - 1 do
         local e = glow["_c_" .. i]
-        if e then e:SetColorTexture(ar, ag, ab, 1) end
+        if e then e:SetTexture(ar, ag, ab, 1) end
     end
     glow:SetAllPoints(targetFrame)
     glow:SetFrameLevel(targetFrame:GetFrameLevel() + 5)
@@ -6204,7 +6206,7 @@ local function PlayWhiteFlash(targetFrame)
     -- Recolor edges white
     for i = 0, (glow._edgeN or 0) - 1 do
         local e = glow["_c_" .. i]
-        if e then e:SetColorTexture(1, 1, 1, 1) end
+        if e then e:SetTexture(1, 1, 1, 1) end
     end
     glow:SetAllPoints(targetFrame)
     glow:SetFrameLevel(targetFrame:GetFrameLevel() + 5)
@@ -6264,7 +6266,7 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
     local menuW = 180
     local menuH = PAD + APPLY_H + 2 + #keys * ITEM_H + PAD
 
-    local menu = CreateFrame("Frame", nil, UIParent)
+    local menu = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     menu:SetFrameStrata("FULLSCREEN_DIALOG")
     menu:SetFrameLevel(200)
     menu:SetClampedToScreen(true)
@@ -6274,7 +6276,7 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
 
     local mBg = menu:CreateTexture(nil, "BACKGROUND")
     mBg:SetAllPoints()
-    mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.96)
+    mBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.96)
     EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
 
     local ppScale = EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale() or 1
@@ -6294,7 +6296,7 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
     local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("options") or "Fonts\\FRIZQT__.TTF"
 
     -- "Apply" button at top -- styled like the footer Reset/Reload buttons (white, muted, fade hover)
-    local applyRow = CreateFrame("Button", nil, menu)
+    local applyRow = EllesmereUI.SafeCreateFrame("Button", nil, menu)
     applyRow:SetHeight(APPLY_H)
     applyRow:SetPoint("TOPLEFT", menu, "TOPLEFT", PAD, -PAD)
     applyRow:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -PAD, -PAD)
@@ -6303,7 +6305,7 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
     local DB_BG = EllesmereUI.DARK_BG or { r = 0.05, g = 0.07, b = 0.09 }
     local applyBg = applyRow:CreateTexture(nil, "BACKGROUND")
     applyBg:SetAllPoints()
-    applyBg:SetColorTexture(DB_BG.r, DB_BG.g, DB_BG.b, 0.92)
+    applyBg:SetTexture(DB_BG.r, DB_BG.g, DB_BG.b, 0.92)
     local applyBrd = EllesmereUI.MakeBorder(applyRow, 1, 1, 1, 0.4, PP)
 
     local applyLbl = applyRow:CreateFontString(nil, "OVERLAY")
@@ -6342,7 +6344,7 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
     sep:SetHeight(1)
     sep:SetPoint("TOPLEFT", applyRow, "BOTTOMLEFT", 0, -1)
     sep:SetPoint("TOPRIGHT", applyRow, "BOTTOMRIGHT", 0, -1)
-    sep:SetColorTexture(1, 1, 1, 0.08)
+    sep:SetTexture(1, 1, 1, 0.08)
 
     -- Count checked (excluding current) for disabled state
     local function CountChecked()
@@ -6358,12 +6360,12 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
         if n > 0 then
             applyLbl:SetTextColor(1, 1, 1, 0.5)
             applyBrd:SetColor(1, 1, 1, 0.4)
-            applyBg:SetColorTexture(DB_BG.r, DB_BG.g, DB_BG.b, 0.92)
+            applyBg:SetTexture(DB_BG.r, DB_BG.g, DB_BG.b, 0.92)
             applyRow:Enable()
         else
             applyLbl:SetTextColor(1, 1, 1, 0.2)
             applyBrd:SetColor(1, 1, 1, 0.15)
-            applyBg:SetColorTexture(DB_BG.r, DB_BG.g, DB_BG.b, 0.92)
+            applyBg:SetTexture(DB_BG.r, DB_BG.g, DB_BG.b, 0.92)
             applyRow:Disable()
         end
     end
@@ -6373,24 +6375,24 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
     local checkRows = {}
     for _, key in ipairs(keys) do
         local isCurrent = (key == currentKey)
-        local row = CreateFrame("Button", nil, menu)
+        local row = EllesmereUI.SafeCreateFrame("Button", nil, menu)
         row:SetHeight(ITEM_H)
         row:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, yOff)
         row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, yOff)
         row:SetFrameLevel(menu:GetFrameLevel() + 2)
 
-        local box = CreateFrame("Frame", nil, row)
+        local box = EllesmereUI.SafeCreateFrame("Frame", nil, row)
         box:SetSize(16, 16)
         box:SetPoint("LEFT", row, "LEFT", 10, 0)
         local boxBg = box:CreateTexture(nil, "BACKGROUND")
         boxBg:SetAllPoints()
-        boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+        boxBg:SetTexture(0.12, 0.12, 0.14, 1)
         local boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
 
         local chk = box:CreateTexture(nil, "ARTWORK")
         PP.SetInside(chk, box, 2, 2)
         local gr = EllesmereUI.ELLESMERE_GREEN
-        chk:SetColorTexture(gr.r, gr.g, gr.b, 1)
+        chk:SetTexture(gr.r, gr.g, gr.b, 1)
 
         local lbl = row:CreateFontString(nil, "OVERLAY")
         lbl:SetFont(fontPath, 13, "")
@@ -6399,7 +6401,7 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
 
         local hl = row:CreateTexture(nil, "ARTWORK")
         hl:SetAllPoints()
-        hl:SetColorTexture(1, 1, 1, 0)
+        hl:SetTexture(1, 1, 1, 0)
 
         local function UpdateCheck()
             if checked[key] then
@@ -6423,11 +6425,11 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
             UpdateCheck()
             row:SetScript("OnEnter", function()
                 lbl:SetTextColor(1, 1, 1, 1)
-                hl:SetColorTexture(1, 1, 1, 0.04)
+                hl:SetTexture(1, 1, 1, 0.04)
             end)
             row:SetScript("OnLeave", function()
                 lbl:SetTextColor(0.75, 0.75, 0.75, 1)
-                hl:SetColorTexture(1, 1, 1, 0)
+                hl:SetTexture(1, 1, 1, 0)
             end)
             row:SetScript("OnClick", function()
                 checked[key] = not checked[key]
@@ -6463,7 +6465,7 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
     end)
 
     -- Click-outside-to-close
-    local blocker = CreateFrame("Button", nil, UIParent)
+    local blocker = EllesmereUI.SafeCreateFrame("Button", nil, UIParent)
     blocker:SetFrameStrata("FULLSCREEN")
     blocker:SetFrameLevel(199)
     blocker:SetAllPoints(UIParent)
@@ -6523,7 +6525,7 @@ local function BuildSyncIcon(opts)
     local ar, ag, ab = EllesmereUI.GetAccentColor()
 
     -- "Apply to:" prefix label + "All" clickable link
-    local applyBtn = CreateFrame("Button", nil, region)
+    local applyBtn = EllesmereUI.SafeCreateFrame("Button", nil, region)
     applyBtn:SetFrameLevel(region:GetFrameLevel() + 4)
 
     local prefixText = applyBtn:CreateFontString(nil, "OVERLAY")
@@ -6532,7 +6534,7 @@ local function BuildSyncIcon(opts)
     prefixText:SetText(EllesmereUI.L("Apply to:"))
     prefixText:SetPoint("LEFT", applyBtn, "LEFT", 0, 0)
 
-    local allBtn = CreateFrame("Button", nil, region)
+    local allBtn = EllesmereUI.SafeCreateFrame("Button", nil, region)
     allBtn:SetFrameLevel(region:GetFrameLevel() + 4)
     local allText = allBtn:CreateFontString(nil, "OVERLAY")
     allText:SetFont(EXPRESSWAY, 11, "")
@@ -6562,7 +6564,7 @@ local function BuildSyncIcon(opts)
         sepText:SetText("|")
         sepText:SetPoint("LEFT", allBtn, "RIGHT", 4, 0)
 
-        multiBtn = CreateFrame("Button", nil, region)
+        multiBtn = EllesmereUI.SafeCreateFrame("Button", nil, region)
         multiBtn:SetFrameLevel(region:GetFrameLevel() + 4)
         multiText = multiBtn:CreateFontString(nil, "OVERLAY")
         multiText:SetFont(EXPRESSWAY, 11, "")
@@ -6639,7 +6641,7 @@ local function BuildSyncIcon(opts)
     --  Animate state transitions (uses a dedicated frame to avoid
     --  conflicting with the pulse OnUpdate on applyBtn)
     -- ----------------------------------------------------------------
-    local animFrame = CreateFrame("Frame", nil, region)
+    local animFrame = EllesmereUI.SafeCreateFrame("Frame", nil, region)
     local animTarget = animState
     local function AnimateTo(target)
         if target == animTarget and not animFrame:GetScript("OnUpdate") and
@@ -6795,7 +6797,7 @@ local LESS_COMMON_ARROW_UP   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eu
 -- lookup keys.
 local function BuildLessCommonLink(parent, y, sectionKey, label, expanded)
     local ARROW_SZ, ARROW_GAP = 12, 6
-    local btn = CreateFrame("Button", nil, parent)
+    local btn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
     btn:SetHeight(22)
     btn:SetPoint("TOP", parent, "TOP", 0, y - 12)
     btn:SetFrameLevel(parent:GetFrameLevel() + 5)
@@ -6939,7 +6941,7 @@ local function BuildInlineSwatches(region, swatches, opts)
             return false
         end
         if opts.disabled or sc.disabled then
-            local swatchBlock = CreateFrame("Frame", nil, swatch)
+            local swatchBlock = EllesmereUI.SafeCreateFrame("Frame", nil, swatch)
             swatchBlock:SetAllPoints()
             swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
             swatchBlock:EnableMouse(true)
@@ -7067,7 +7069,7 @@ local _ctxMenu
 local function ShowContextMenu(anchor, items)
     local PP_L = EllesmereUI.PP
     if not _ctxMenu then
-        _ctxMenu = CreateFrame("Frame", nil, UIParent)
+        _ctxMenu = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         _ctxMenu:SetFrameStrata("FULLSCREEN_DIALOG")
         _ctxMenu:SetFrameLevel(200)
         _ctxMenu:SetClampedToScreen(true)
@@ -7076,7 +7078,7 @@ local function ShowContextMenu(anchor, items)
         local RS = EllesmereUI.RESKIN or {}
         local bg = _ctxMenu:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(RS.BG_R or 0.067, RS.BG_G or 0.067, RS.BG_B or 0.067, RS.QT_ALPHA or 0.97)
+        bg:SetTexture(RS.BG_R or 0.067, RS.BG_G or 0.067, RS.BG_B or 0.067, RS.QT_ALPHA or 0.97)
         _ctxMenu._bg = bg
 
         if PP_L and PP_L.CreateBorder then
@@ -7134,7 +7136,7 @@ local function ShowContextMenu(anchor, items)
     for i, item in ipairs(items) do
         local btn = _ctxMenu._items[i]
         if not btn then
-            btn = CreateFrame("Button", nil, _ctxMenu)
+            btn = EllesmereUI.SafeCreateFrame("Button", nil, _ctxMenu)
             local hl = btn:CreateTexture(nil, "BACKGROUND", nil, 1)
             hl:SetAllPoints()
             btn._hl = hl
@@ -7148,7 +7150,7 @@ local function ShowContextMenu(anchor, items)
         btn:SetSize(MENU_W - MENU_PAD * 2, ITEM_H)
         btn:ClearAllPoints()
         btn:SetPoint("TOPLEFT", _ctxMenu, "TOPLEFT", MENU_PAD, -(MENU_PAD + (i - 1) * ITEM_H))
-        btn._hl:SetColorTexture(1, 1, 1, 0)
+        btn._hl:SetTexture(1, 1, 1, 0)
         btn._lbl:SetFont(fontPath, 12, outline)
         btn._lbl:SetText(EllesmereUI.L(item.text or ""))
 
@@ -7167,7 +7169,7 @@ local function ShowContextMenu(anchor, items)
                 if btn._onClick then btn._onClick() end
             end)
             btn:SetScript("OnEnter", function()
-                btn._hl:SetColorTexture(1, 1, 1, hlAlpha)
+                btn._hl:SetTexture(1, 1, 1, hlAlpha)
                 if EG then
                     btn._lbl:SetTextColor(EG.r, EG.g, EG.b, 1)
                 else
@@ -7175,7 +7177,7 @@ local function ShowContextMenu(anchor, items)
                 end
             end)
             btn:SetScript("OnLeave", function()
-                btn._hl:SetColorTexture(1, 1, 1, 0)
+                btn._hl:SetTexture(1, 1, 1, 0)
                 btn._lbl:SetTextColor(1, 1, 1, 1)
             end)
         end
@@ -7341,12 +7343,12 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         itemsFn = items
         items = itemsFn() or {}
     end
-    local ddBtn = CreateFrame("Button", nil, parentFrame)
+    local ddBtn = EllesmereUI.SafeCreateFrame("Button", nil, parentFrame)
     PP.Size(ddBtn, ddW, 30)
     ddBtn:SetFrameLevel(fLevel)
     local ddBg = ddBtn:CreateTexture(nil, "BACKGROUND")
     ddBg:SetAllPoints()
-    ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+    ddBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
     local ddBrd = EllesmereUI.MakeBorder(ddBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
     local ddLbl = ddBtn:CreateFontString(nil, "OVERLAY")
     local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("options") or "Fonts\\FRIZQT__.TTF"
@@ -7405,7 +7407,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         local needsScroll = maxVisibleItems and checkableCount > maxVisibleItems
         -- +2 accounts for scroll frame 1px top + 1px bottom insets so non-scrolling menus don't scroll
         local menuH = (needsScroll and (4 + maxVisibleItems * ITEM_H + 4 + CLOSE_BTN_H) or (contentH + 4)) + SEARCH_H + TOP_H
-        menu = CreateFrame("Frame", nil, UIParent)
+        menu = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         menu:SetFrameStrata("FULLSCREEN_DIALOG")
         menu:SetFrameLevel(200)
         menu:SetClampedToScreen(true)
@@ -7415,7 +7417,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         menu:Hide()
         local mBg = menu:CreateTexture(nil, "BACKGROUND")
         mBg:SetAllPoints()
-        mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA or 0.92)
+        mBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA or 0.92)
         EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
         local ppScale = EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale() or 1
         menu:SetScale(ppScale)
@@ -7425,7 +7427,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             local ay = -4
             for i = 1, #topActions do
                 local item = topActions[i]
-                local row = CreateFrame("Button", nil, menu)
+                local row = EllesmereUI.SafeCreateFrame("Button", nil, menu)
                 row:SetHeight(ITEM_H)
                 row:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, ay)
                 row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, ay)
@@ -7441,9 +7443,9 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 lbl:SetText(EllesmereUI.L(item.label))
                 local hl = row:CreateTexture(nil, "ARTWORK")
                 hl:SetAllPoints()
-                hl:SetColorTexture(1, 1, 1, 0)
-                row:SetScript("OnEnter", function() hl:SetColorTexture(1, 1, 1, 0.06) end)
-                row:SetScript("OnLeave", function() hl:SetColorTexture(1, 1, 1, 0) end)
+                hl:SetTexture(1, 1, 1, 0)
+                row:SetScript("OnEnter", function() hl:SetTexture(1, 1, 1, 0.06) end)
+                row:SetScript("OnLeave", function() hl:SetTexture(1, 1, 1, 0) end)
                 row:SetScript("OnClick", function()
                     menu:Hide()
                     if item.onClick then item.onClick() end
@@ -7454,13 +7456,13 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             divider:SetHeight(1)
             divider:SetPoint("TOPLEFT", menu, "TOPLEFT", 10, ay - 3)
             divider:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -10, ay - 3)
-            divider:SetColorTexture(0.3, 0.3, 0.3, 0.5)
+            divider:SetTexture(0.3, 0.3, 0.3, 0.5)
         end
 
         -- Search box (optional)
         local searchEdit, searchPlaceholder
         if searchable then
-            searchEdit = CreateFrame("EditBox", nil, menu)
+            searchEdit = EllesmereUI.SafeCreateFrame("EditBox", nil, menu)
             searchEdit:SetSize(ddW - 16, SEARCH_H)
             searchEdit:SetPoint("TOP", menu, "TOP", 0, -4 - TOP_H)
             searchEdit:SetFrameLevel(menu:GetFrameLevel() + 3)
@@ -7472,7 +7474,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             searchEdit:SetTextInsets(4, 4, 0, 0)
             local sBg = searchEdit:CreateTexture(nil, "BACKGROUND")
             sBg:SetAllPoints()
-            sBg:SetColorTexture(0, 0, 0, 0.4)
+            sBg:SetTexture(0, 0, 0, 0.4)
             searchPlaceholder = searchEdit:CreateFontString(nil, "OVERLAY")
             searchPlaceholder:SetFont(fontPath, 11, "")
             searchPlaceholder:SetTextColor(0.5, 0.5, 0.5, 0.6)
@@ -7482,33 +7484,33 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         end
 
         -- Scroll frame for items
-        local sf = CreateFrame("ScrollFrame", nil, menu)
+        local sf = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, menu)
         local sfTop = -((SEARCH_H > 0 and (SEARCH_H + 8) or 1) + TOP_H)
         sf:SetPoint("TOPLEFT", 1, sfTop)
         sf:SetPoint("BOTTOMRIGHT", -1, 1)
         sf:EnableMouseWheel(true)
-        local child = CreateFrame("Frame", nil, sf)
+        local child = EllesmereUI.SafeCreateFrame("Frame", nil, sf)
         child:SetWidth(ddW - 2)
         child:SetHeight(contentH)
         sf:SetScrollChild(child)
         -- Thin scrollbar track (4px, right side, matching standard dropdown)
-        local cbTrack = CreateFrame("Frame", nil, sf)
+        local cbTrack = EllesmereUI.SafeCreateFrame("Frame", nil, sf)
         cbTrack:SetWidth(4)
         cbTrack:SetPoint("TOPRIGHT", sf, "TOPRIGHT", -4, -4)
         cbTrack:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", -4, 4)
         cbTrack:SetFrameLevel(sf:GetFrameLevel() + 2)
         local cbTrackBg = cbTrack:CreateTexture(nil, "BACKGROUND")
         cbTrackBg:SetAllPoints()
-        cbTrackBg:SetColorTexture(1, 1, 1, 0.02)
+        cbTrackBg:SetTexture(1, 1, 1, 0.02)
 
-        local cbThumb = CreateFrame("Button", nil, cbTrack)
+        local cbThumb = EllesmereUI.SafeCreateFrame("Button", nil, cbTrack)
         cbThumb:SetWidth(4)
         cbThumb:SetFrameLevel(cbTrack:GetFrameLevel() + 1)
         cbThumb:EnableMouse(true)
         cbThumb:RegisterForDrag("LeftButton")
         local cbThumbBg = cbThumb:CreateTexture(nil, "ARTWORK")
         cbThumbBg:SetAllPoints()
-        cbThumbBg:SetColorTexture(1, 1, 1, 0.27)
+        cbThumbBg:SetTexture(1, 1, 1, 0.27)
 
         local function SafeMaxScroll()
             return math.max(0, child:GetHeight() - sf:GetHeight())
@@ -7575,7 +7577,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             -- Header/divider items: non-interactive label
             elseif item.isHeader then
                 local hdrH = 22
-                local hdr = CreateFrame("Frame", nil, itemParent)
+                local hdr = EllesmereUI.SafeCreateFrame("Frame", nil, itemParent)
                 hdr:SetHeight(hdrH)
                 hdr:SetPoint("TOPLEFT", child, "TOPLEFT", 1, yOff)
                 hdr:SetPoint("TOPRIGHT", child, "TOPRIGHT", -1, yOff)
@@ -7590,7 +7592,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 hdrLine:SetHeight(1)
                 hdrLine:SetPoint("LEFT", hdrLbl, "RIGHT", 6, 0)
                 hdrLine:SetPoint("RIGHT", hdr, "RIGHT", -10, 0)
-                hdrLine:SetColorTexture(0.3, 0.3, 0.3, 0.5)
+                hdrLine:SetTexture(0.3, 0.3, 0.3, 0.5)
                 if item.tooltip then
                     hdr:EnableMouse(true)
                     hdr:SetScript("OnEnter", function()
@@ -7604,7 +7606,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 yOff = yOff - hdrH
             elseif item.isAction then
                 -- Action item: clickable text, no checkbox (for "All Specs", "All Healers", etc.)
-                local row = CreateFrame("Button", nil, itemParent)
+                local row = EllesmereUI.SafeCreateFrame("Button", nil, itemParent)
                 row:SetHeight(ITEM_H)
                 row:SetPoint("TOPLEFT", child, "TOPLEFT", 1, yOff)
                 row:SetPoint("TOPRIGHT", child, "TOPRIGHT", -1, yOff)
@@ -7624,7 +7626,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 row._updateActionLabel = UpdateActionLabel
                 local hl = row:CreateTexture(nil, "ARTWORK")
                 hl:SetAllPoints()
-                hl:SetColorTexture(1, 1, 1, 0)
+                hl:SetTexture(1, 1, 1, 0)
                 local EG_r, EG_g, EG_b = EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b
                 local function UpdateActionLocked()
                     local isLocked = item.lockedFn and item.lockedFn()
@@ -7638,8 +7640,8 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 end
                 row._updateLocked = UpdateActionLocked
                 UpdateActionLocked()
-                row:SetScript("OnEnter", function() lbl:SetTextColor(1, 1, 1, 1); hl:SetColorTexture(1, 1, 1, 0.04) end)
-                row:SetScript("OnLeave", function() UpdateActionLocked(); hl:SetColorTexture(1, 1, 1, 0) end)
+                row:SetScript("OnEnter", function() lbl:SetTextColor(1, 1, 1, 1); hl:SetTexture(1, 1, 1, 0.04) end)
+                row:SetScript("OnLeave", function() UpdateActionLocked(); hl:SetTexture(1, 1, 1, 0) end)
                 row:SetScript("OnClick", function()
                     if item.lockedFn and item.lockedFn() then return end
                     setFn(item.key, true)
@@ -7655,7 +7657,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 yOff = yOff - ITEM_H
             else
 
-            local row = CreateFrame("Button", nil, itemParent)
+            local row = EllesmereUI.SafeCreateFrame("Button", nil, itemParent)
             row:SetHeight(ITEM_H)
             row:SetPoint("TOPLEFT", child, "TOPLEFT", 1, yOff)
             row:SetPoint("TOPRIGHT", child, "TOPRIGHT", -1, yOff)
@@ -7666,17 +7668,17 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             -- whose getFn is constant-false always selects with true.
             local box, boxBrd, chk
             if not item.noCheck then
-                box = CreateFrame("Frame", nil, row)
+                box = EllesmereUI.SafeCreateFrame("Frame", nil, row)
                 box:SetSize(16, 16)
                 box:SetPoint("LEFT", row, "LEFT", 10, 0)
                 local boxBg = box:CreateTexture(nil, "BACKGROUND")
                 boxBg:SetAllPoints()
-                boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                boxBg:SetTexture(0.12, 0.12, 0.14, 1)
                 boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
                 chk = box:CreateTexture(nil, "ARTWORK")
                 PP.SetInside(chk, box, 2, 2)
-                chk:SetColorTexture(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 1)
-                chk:SetSnapToPixelGrid(false)
+                chk:SetTexture(EllesmereUI.ELLESMERE_GREEN.r, EllesmereUI.ELLESMERE_GREEN.g, EllesmereUI.ELLESMERE_GREEN.b, 1)
+                if chk.SetSnapToPixelGrid then chk:SetSnapToPixelGrid(false) end
             end
             -- Optional icon (spell icon etc.) between checkbox and label
             local lblAnchor = box
@@ -7708,7 +7710,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             lbl:SetText(EllesmereUI.L(item.label))
             local hl = row:CreateTexture(nil, "ARTWORK")
             hl:SetAllPoints()
-            hl:SetColorTexture(1, 1, 1, 0)
+            hl:SetTexture(1, 1, 1, 0)
             local function UpdateCheck()
                 if not chk then return end -- noCheck rows have no box to paint
                 if getFn(item.key) then
@@ -7734,7 +7736,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                     return
                 end
                 lbl:SetTextColor(1, 1, 1, 1)
-                hl:SetColorTexture(1, 1, 1, 0.04)
+                hl:SetTexture(1, 1, 1, 0.04)
                 if item.tooltip then
                     EllesmereUI.ShowWidgetTooltip(row, item.tooltip)
                 end
@@ -7747,7 +7749,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                     return
                 end
                 lbl:SetTextColor(0.75, 0.75, 0.75, 1)
-                hl:SetColorTexture(1, 1, 1, 0)
+                hl:SetTexture(1, 1, 1, 0)
                 if item.tooltip then
                     EllesmereUI.HideWidgetTooltip()
                 end
@@ -7804,7 +7806,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             local CLOSE_H = 26
             local closePad = 6
             yOff = yOff - closePad
-            local closeBtn = CreateFrame("Button", nil, itemParent)
+            local closeBtn = EllesmereUI.SafeCreateFrame("Button", nil, itemParent)
             closeBtn:SetHeight(CLOSE_H)
             local closeBtnW = math.floor((ddW - 2) * 0.75)
             closeBtn:SetWidth(closeBtnW)
@@ -7813,15 +7815,15 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             local closeBg = closeBtn:CreateTexture(nil, "BACKGROUND")
             closeBg:SetAllPoints()
             local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
-            closeBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
+            closeBg:SetTexture(EG.r, EG.g, EG.b, 0.85)
             local closeLbl = closeBtn:CreateFontString(nil, "OVERLAY")
             closeLbl:SetFont(fontPath, 12, "")
             closeLbl:SetPoint("CENTER")
             closeLbl:SetText(EllesmereUI.L(type(closeButton) == "string" and closeButton or "Okay"))
             closeLbl:SetTextColor(1, 1, 1, 1)
             closeBtn:SetScript("OnClick", function() menu:Hide() end)
-            closeBtn:SetScript("OnEnter", function() closeBg:SetColorTexture(EG.r, EG.g, EG.b, 1) end)
-            closeBtn:SetScript("OnLeave", function() closeBg:SetColorTexture(EG.r, EG.g, EG.b, 0.85) end)
+            closeBtn:SetScript("OnEnter", function() closeBg:SetTexture(EG.r, EG.g, EG.b, 1) end)
+            closeBtn:SetScript("OnLeave", function() closeBg:SetTexture(EG.r, EG.g, EG.b, 0.85) end)
             yOff = yOff - CLOSE_H - closePad
         end
 
@@ -7831,7 +7833,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         if searchEdit then
             searchEdit:SetScript("OnTextChanged", function(self)
                 local t = strlower(strtrim(self:GetText()))
-                searchPlaceholder:SetShown(t == "")
+                if t == "" then searchPlaceholder:Show() else searchPlaceholder:Hide() end
                 local visY = -4
                 local lastHdr = nil
                 local lastHdrY = 0
@@ -7901,12 +7903,12 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
     local function ApplyNormal()
         ddLbl:SetTextColor(1, 1, 1, EllesmereUI.DD_TXT_A)
         ddBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
-        ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+        ddBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
     end
     local function ApplyHover()
         ddLbl:SetTextColor(1, 1, 1, EllesmereUI.DD_TXT_HA)
         ddBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_HA)
-        ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+        ddBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
     end
     ddBtn:SetScript("OnEnter", function()
         ApplyHover()
@@ -8258,12 +8260,12 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
         else movable[#movable + 1] = it end
     end
 
-    local ddBtn = CreateFrame("Button", nil, parentFrame)
+    local ddBtn = EllesmereUI.SafeCreateFrame("Button", nil, parentFrame)
     PP.Size(ddBtn, ddW, 30)
     ddBtn:SetFrameLevel(fLevel)
     local ddBg = ddBtn:CreateTexture(nil, "BACKGROUND")
     ddBg:SetAllPoints()
-    ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+    ddBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
     local ddBrd = EllesmereUI.MakeBorder(ddBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
     local ddLbl = ddBtn:CreateFontString(nil, "OVERLAY")
     ddLbl:SetFont(fontPath, 13, "")
@@ -8307,7 +8309,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
         local ROWS_BASE_Y = -4 - HINT_H
         local menuH = 4 + HINT_H + #movable * ITEM_H
             + ((#fixedItems > 0) and (DIV_H + #fixedItems * ITEM_H) or 0) + 4
-        menu = CreateFrame("Frame", nil, UIParent)
+        menu = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         menu:SetFrameStrata("FULLSCREEN_DIALOG")
         menu:SetFrameLevel(200)
         menu:SetClampedToScreen(true)
@@ -8317,7 +8319,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
         menu:Hide()
         local mBg = menu:CreateTexture(nil, "BACKGROUND")
         mBg:SetAllPoints()
-        mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA or 0.92)
+        mBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA or 0.92)
         EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
 
         -- Hint line(s) above the rows
@@ -8339,30 +8341,30 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
         local isDragging = false
         local insLine = menu:CreateTexture(nil, "OVERLAY", nil, 7)
         insLine:SetHeight(2)
-        insLine:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
+        insLine:SetTexture(EG.r, EG.g, EG.b, 0.9)
         insLine:Hide()
 
         local function SlotY(i) return ROWS_BASE_Y - (i - 1) * ITEM_H end
 
         local function BuildRow(item, slotY, draggable)
-            local row = CreateFrame("Button", nil, menu)
+            local row = EllesmereUI.SafeCreateFrame("Button", nil, menu)
             row:SetHeight(ITEM_H)
             row:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, slotY)
             row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, slotY)
             row:SetFrameLevel(menu:GetFrameLevel() + 2)
             row._item = item
             row._slotY = slotY
-            local box = CreateFrame("Frame", nil, row)
+            local box = EllesmereUI.SafeCreateFrame("Frame", nil, row)
             box:SetSize(16, 16)
             box:SetPoint("LEFT", row, "LEFT", 10, 0)
             local boxBg = box:CreateTexture(nil, "BACKGROUND")
             boxBg:SetAllPoints()
-            boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+            boxBg:SetTexture(0.12, 0.12, 0.14, 1)
             local boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
             local chk = box:CreateTexture(nil, "ARTWORK")
             PP.SetInside(chk, box, 2, 2)
-            chk:SetColorTexture(EG.r, EG.g, EG.b, 1)
-            chk:SetSnapToPixelGrid(false)
+            chk:SetTexture(EG.r, EG.g, EG.b, 1)
+            if chk.SetSnapToPixelGrid then chk:SetSnapToPixelGrid(false) end
             local lbl = row:CreateFontString(nil, "OVERLAY")
             lbl:SetFont(fontPath, 13, "")
             lbl:SetTextColor(0.75, 0.75, 0.75, 1)
@@ -8374,7 +8376,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
             lbl:SetText(EllesmereUI.L(item.label))
             local hl = row:CreateTexture(nil, "ARTWORK")
             hl:SetAllPoints()
-            hl:SetColorTexture(1, 1, 1, 0)
+            hl:SetTexture(1, 1, 1, 0)
             local function UpdateCheck()
                 if getFn(row._item.key) then
                     chk:Show()
@@ -8390,12 +8392,12 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
             row:SetScript("OnEnter", function()
                 if isDragging then return end
                 lbl:SetTextColor(1, 1, 1, 1)
-                hl:SetColorTexture(1, 1, 1, 0.04)
+                hl:SetTexture(1, 1, 1, 0.04)
             end)
             row:SetScript("OnLeave", function()
                 if isDragging then return end
                 lbl:SetTextColor(0.75, 0.75, 0.75, 1)
-                hl:SetColorTexture(1, 1, 1, 0)
+                hl:SetTexture(1, 1, 1, 0)
             end)
             row:SetScript("OnClick", function()
                 if isDragging then return end
@@ -8526,7 +8528,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
             dl:SetHeight(1)
             dl:SetPoint("TOPLEFT", menu, "TOPLEFT", 10, divY)
             dl:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -10, divY)
-            dl:SetColorTexture(1, 1, 1, 0.08)
+            dl:SetTexture(1, 1, 1, 0.08)
             for i = 1, #fixedItems do
                 BuildRow(fixedItems[i], ROWS_BASE_Y - #movable * ITEM_H - DIV_H - (i - 1) * ITEM_H, false)
             end
@@ -8554,12 +8556,12 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
     local function ApplyNormal()
         ddLbl:SetTextColor(1, 1, 1, EllesmereUI.DD_TXT_A)
         ddBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
-        ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+        ddBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
     end
     local function ApplyHover()
         ddLbl:SetTextColor(1, 1, 1, EllesmereUI.DD_TXT_HA)
         ddBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_HA)
-        ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+        ddBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
     end
     ddBtn:SetScript("OnEnter", ApplyHover)
     ddBtn:SetScript("OnLeave", function()
@@ -8614,7 +8616,7 @@ function EllesmereUI.BuildUnlockPlaceholder(opts)
     local eg = EllesmereUI.ELLESMERE_GREEN
     local ar, ag, ab = eg.r, eg.g, eg.b
 
-    local f = CreateFrame("Button", nil, parent)
+    local f = EllesmereUI.SafeCreateFrame("Button", nil, parent)
     f:SetAllPoints(parent)
     if opts.level then
         f:SetFrameLevel(opts.level)
@@ -8627,7 +8629,7 @@ function EllesmereUI.BuildUnlockPlaceholder(opts)
     -- Dark background matching unlock mode movers
     local bg = f:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.075, 0.113, 0.141, 0.95)
+    bg:SetTexture(0.075, 0.113, 0.141, 0.95)
     f._bg = bg
 
     -- Accent border at 60% alpha

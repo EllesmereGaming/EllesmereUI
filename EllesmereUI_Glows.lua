@@ -142,7 +142,7 @@ end
 
 local function _Arm()
     if not _driver then
-        _driver = CreateFrame("Frame")
+        _driver = EllesmereUI.SafeCreateFrame("Frame")
         _driver:Hide()
         _driver:SetScript("OnUpdate", _DriverOnUpdate)
     end
@@ -351,10 +351,10 @@ local function StartProceduralAnts(wrapper, N, th, period, lineLen, cr, cg, cb, 
         bgA = bgA or 1
         d.bgTop:SetHeight(th); d.bgBottom:SetHeight(th)
         d.bgLeft:SetWidth(th); d.bgRight:SetWidth(th)
-        d.bgTop:SetColorTexture(bgR, bgG or 0, bgB or 0, bgA);       d.bgTop:Show()
-        d.bgBottom:SetColorTexture(bgR, bgG or 0, bgB or 0, bgA);    d.bgBottom:Show()
-        d.bgLeft:SetColorTexture(bgR, bgG or 0, bgB or 0, bgA);      d.bgLeft:Show()
-        d.bgRight:SetColorTexture(bgR, bgG or 0, bgB or 0, bgA);     d.bgRight:Show()
+        d.bgTop:SetTexture(bgR, bgG or 0, bgB or 0, bgA);       d.bgTop:Show()
+        d.bgBottom:SetTexture(bgR, bgG or 0, bgB or 0, bgA);    d.bgBottom:Show()
+        d.bgLeft:SetTexture(bgR, bgG or 0, bgB or 0, bgA);      d.bgLeft:Show()
+        d.bgRight:SetTexture(bgR, bgG or 0, bgB or 0, bgA);     d.bgRight:Show()
     elseif d.bgTop then
         d.bgTop:Hide(); d.bgBottom:Hide(); d.bgLeft:Hide(); d.bgRight:Hide()
     end
@@ -646,7 +646,7 @@ local function StartShapeGlow(wrapper, sz, cr, cg, cb, scale, opts)
     if maskPath then
         d.glow:SetTexture(maskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
     else
-        d.glow:SetColorTexture(1, 1, 1, 1)
+        d.glow:SetTexture(1, 1, 1, 1)
     end
     d.glow:SetVertexColor(cr, cg, cb, 1)
     d.glow:SetAlpha(1); d.glow:Show()
@@ -659,7 +659,7 @@ local function StartShapeGlow(wrapper, sz, cr, cg, cb, scale, opts)
     if borderPath then
         d.bright:SetTexture(borderPath)
     else
-        d.bright:SetColorTexture(0, 0, 0, 0)
+        d.bright:SetTexture(0, 0, 0, 0)
     end
     d.bright:SetVertexColor(cr, cg, cb, 1)
     d.bright:SetAlpha(0.5); d.bright:Show()
@@ -1011,7 +1011,7 @@ do
         wipe(_addonTotal); wipe(_addonPeak)
     end
 
-    local sampler = CreateFrame("Frame")
+    local sampler = EllesmereUI.SafeCreateFrame("Frame")
     sampler:Hide()
     sampler:SetScript("OnUpdate", function()
         if not _glowProf then sampler:Hide(); return end

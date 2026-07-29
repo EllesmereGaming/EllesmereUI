@@ -48,7 +48,7 @@ local math_rad    = math.rad
 --  The bound key is saved in EllesmereUIDB.partyModeKey (nil = unbound).
 -------------------------------------------------------------------------------
 if not _G["EllesmereUIPartyModeBindBtn"] then
-    local btn = CreateFrame("Button", "EllesmereUIPartyModeBindBtn", UIParent)
+    local btn = EllesmereUI.SafeCreateFrame("Button", "EllesmereUIPartyModeBindBtn", UIParent)
     btn:Hide()
     btn:SetScript("OnClick", function()
         EllesmereUI_TogglePartyMode()
@@ -63,7 +63,6 @@ local randomTimer = nil
 local randomScheduledTimer = nil
 local randomCooldownTimer = nil
 local dimLightsActive = false
-local savedContrast = nil
 local savedBrightness = nil
 
 -------------------------------------------------------------------------------
@@ -75,16 +74,13 @@ end
 
 function EllesmereUI_ApplyDimLights()
     if dimLightsActive then return end
-    savedContrast = tonumber(GetCVar("contrast")) or 50
     savedBrightness = tonumber(GetCVar("brightness")) or 50
-    SetCVar("contrast", math.max(0, math.min(100, savedContrast + 14)))
     SetCVar("brightness", math.max(0, savedBrightness - (savedBrightness - 10) * 0.7))
     dimLightsActive = true
 end
 
 function EllesmereUI_RestoreDimLights()
     if not dimLightsActive then return end
-    SetCVar("contrast", savedContrast)
     SetCVar("brightness", savedBrightness)
     dimLightsActive = false
 end
@@ -163,7 +159,7 @@ local NUM_LAYERS = #LAYER_DEFS
 
 local function CreateOverlay()
     if container then return end
-    container = CreateFrame("Frame", "EllesmereUIPartyModeFrame", UIParent)
+    container = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIPartyModeFrame", UIParent)
     container:SetFrameStrata("TOOLTIP")
     container:SetFrameLevel(9999)
     container:SetAllPoints(UIParent)
@@ -380,7 +376,7 @@ local function _pmPlayerHasSated()
     return false
 end
 
-local pmInit = CreateFrame("Frame")
+local pmInit = EllesmereUI.SafeCreateFrame("Frame")
 pmInit:RegisterEvent("PLAYER_LOGIN")
 pmInit:RegisterEvent("PLAYER_LOGOUT")
 

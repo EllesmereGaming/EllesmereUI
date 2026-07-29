@@ -29,7 +29,7 @@ local EllesmereUI = EllesmereUI
 local type, tonumber, pairs, select = type, tonumber, pairs, select
 local GetLocale = GetLocale
 local issecretvalue = issecretvalue
-local CreateFrame = CreateFrame
+local CreateFrame = EllesmereUI.SafeCreateFrame
 
 local SUPPORTED = {
     enUS = true, deDE = true, esES = true, esMX = true, frFR = true,
@@ -151,7 +151,7 @@ Activate()
 
 -- Re-resolve once SavedVariables (the override) are available and every locale
 -- file has populated. Nothing renders before this point.
-local f = CreateFrame("Frame")
+local f = EllesmereUI.SafeCreateFrame("Frame")
 f:RegisterEvent("ADDON_LOADED")
 f:SetScript("OnEvent", function(self, _, loaded)
     if loaded == ADDON_NAME then

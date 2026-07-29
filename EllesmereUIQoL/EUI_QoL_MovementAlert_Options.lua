@@ -191,22 +191,22 @@ local function ShowAddSpellPopup(onAdded)
     local FONT = EllesmereUI._font or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
 
     if not addSpellPopup then
-        local dimmer = CreateFrame("Frame", nil, UIParent)
+        local dimmer = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
         dimmer:SetAllPoints(UIParent)
         dimmer:EnableMouse(true)
         dimmer:Hide()
         local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
-        dimTex:SetAllPoints(); dimTex:SetColorTexture(0, 0, 0, 0.25)
+        dimTex:SetAllPoints(); dimTex:SetTexture(0, 0, 0, 0.25)
 
-        local popup = CreateFrame("Frame", nil, dimmer)
+        local popup = EllesmereUI.SafeCreateFrame("Frame", nil, dimmer)
         popup:SetSize(240, 150)
         popup:SetPoint("CENTER", EllesmereUI._mainFrame or UIParent, "CENTER", 0, 60)
         popup:SetFrameStrata("FULLSCREEN_DIALOG")
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
         popup:EnableMouse(true)
         local bg = popup:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints(); bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+        bg:SetAllPoints(); bg:SetTexture(0.06, 0.08, 0.10, 1)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, PP)
 
         local title = popup:CreateFontString(nil, "OVERLAY")
@@ -221,7 +221,7 @@ local function ShowAddSpellPopup(onAdded)
         sidLbl:SetTextColor(0.7, 0.7, 0.7, 1)
         sidLbl:SetText(EllesmereUI.L("Spell ID"))
 
-        local sidBox = CreateFrame("EditBox", nil, popup)
+        local sidBox = EllesmereUI.SafeCreateFrame("EditBox", nil, popup)
         sidBox:SetSize(192, 28)
         sidBox:SetPoint("TOPLEFT", sidLbl, "BOTTOMLEFT", 0, -4)
         sidBox:SetAutoFocus(false)
@@ -232,7 +232,7 @@ local function ShowAddSpellPopup(onAdded)
         sidBox:SetJustifyH("LEFT")
         sidBox:SetTextInsets(6, 6, 0, 0)
         local sidBg = sidBox:CreateTexture(nil, "BACKGROUND")
-        sidBg:SetAllPoints(); sidBg:SetColorTexture(0.04, 0.06, 0.08, 1)
+        sidBg:SetAllPoints(); sidBg:SetTexture(0.04, 0.06, 0.08, 1)
         EllesmereUI.MakeBorder(sidBox, 1, 1, 1, 0.12, PP)
         popup._sidBox = sidBox
 
@@ -243,11 +243,11 @@ local function ShowAddSpellPopup(onAdded)
         popup._status = status
 
         local ar, ag, ab = EllesmereUI.GetAccentColor()
-        local addBtn = CreateFrame("Button", nil, popup)
+        local addBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
         addBtn:SetSize(80, 26)
         addBtn:SetPoint("BOTTOM", popup, "BOTTOM", 0, 16)
         local addBg = addBtn:CreateTexture(nil, "BACKGROUND")
-        addBg:SetAllPoints(); addBg:SetColorTexture(ar, ag, ab, 0.15)
+        addBg:SetAllPoints(); addBg:SetTexture(ar, ag, ab, 0.15)
         EllesmereUI.MakeBorder(addBtn, ar, ag, ab, 0.4, PP)
         local addLbl = addBtn:CreateFontString(nil, "OVERLAY")
         addLbl:SetFont(FONT, 12, "")
@@ -296,22 +296,22 @@ local function ShowCustomTextPopup(titleText, initial, onSave)
     local FONT = EllesmereUI._font or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
 
     if not customTextPopup then
-        local dimmer = CreateFrame("Frame", nil, UIParent)
+        local dimmer = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
         dimmer:SetAllPoints(UIParent)
         dimmer:EnableMouse(true)
         dimmer:Hide()
         local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
-        dimTex:SetAllPoints(); dimTex:SetColorTexture(0, 0, 0, 0.25)
+        dimTex:SetAllPoints(); dimTex:SetTexture(0, 0, 0, 0.25)
 
-        local popup = CreateFrame("Frame", nil, dimmer)
+        local popup = EllesmereUI.SafeCreateFrame("Frame", nil, dimmer)
         popup:SetSize(260, 150)
         popup:SetPoint("CENTER", EllesmereUI._mainFrame or UIParent, "CENTER", 0, 60)
         popup:SetFrameStrata("FULLSCREEN_DIALOG")
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
         popup:EnableMouse(true)
         local bg = popup:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints(); bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+        bg:SetAllPoints(); bg:SetTexture(0.06, 0.08, 0.10, 1)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, PP)
 
         local title = popup:CreateFontString(nil, "OVERLAY")
@@ -326,7 +326,7 @@ local function ShowCustomTextPopup(titleText, initial, onSave)
         lbl:SetTextColor(0.7, 0.7, 0.7, 1)
         lbl:SetText(EllesmereUI.L("Custom Alert Text (empty = ability name)"))
 
-        local box = CreateFrame("EditBox", nil, popup)
+        local box = EllesmereUI.SafeCreateFrame("EditBox", nil, popup)
         box:SetSize(212, 28)
         box:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", 0, -4)
         box:SetAutoFocus(false)
@@ -336,16 +336,16 @@ local function ShowCustomTextPopup(titleText, initial, onSave)
         box:SetJustifyH("LEFT")
         box:SetTextInsets(6, 6, 0, 0)
         local boxBg = box:CreateTexture(nil, "BACKGROUND")
-        boxBg:SetAllPoints(); boxBg:SetColorTexture(0.04, 0.06, 0.08, 1)
+        boxBg:SetAllPoints(); boxBg:SetTexture(0.04, 0.06, 0.08, 1)
         EllesmereUI.MakeBorder(box, 1, 1, 1, 0.12, PP)
         popup._box = box
 
         local ar, ag, ab = EllesmereUI.GetAccentColor()
-        local saveBtn = CreateFrame("Button", nil, popup)
+        local saveBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
         saveBtn:SetSize(80, 26)
         saveBtn:SetPoint("BOTTOM", popup, "BOTTOM", 0, 16)
         local saveBg = saveBtn:CreateTexture(nil, "BACKGROUND")
-        saveBg:SetAllPoints(); saveBg:SetColorTexture(ar, ag, ab, 0.15)
+        saveBg:SetAllPoints(); saveBg:SetTexture(ar, ag, ab, 0.15)
         EllesmereUI.MakeBorder(saveBtn, ar, ag, ab, 0.4, PP)
         local saveLbl = saveBtn:CreateFontString(nil, "OVERLAY")
         saveLbl:SetFont(FONT, 12, "")
@@ -601,7 +601,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                   set=function(v) ma.barShowDuration = v; Refresh() end },
             },
         })
-        local cogBtn = CreateFrame("Button", nil, rgn)
+        local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
         cogBtn:SetSize(26, 26)
         cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
         rgn._lastInline = cogBtn
@@ -613,7 +613,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
         cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(BarCogOff() and 0.15 or 0.4) end)
         cogBtn:SetScript("OnClick", function(self) barCogShow(self) end)
 
-        local cogBlock = CreateFrame("Frame", nil, cogBtn)
+        local cogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, cogBtn)
         cogBlock:SetAllPoints()
         cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
         cogBlock:EnableMouse(true)
@@ -711,7 +711,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                   set=function(v) ma.precision = v and 1 or 0; Refresh() end },
             },
         })
-        local cogBtn = CreateFrame("Button", nil, leftRgn)
+        local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
         cogBtn:SetSize(26, 26)
         cogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
         leftRgn._lastInline = cogBtn
@@ -723,7 +723,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
         cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(maOff() and 0.15 or 0.4) end)
         cogBtn:SetScript("OnClick", function(self) dmCogShow(self) end)
 
-        local cogBlock = CreateFrame("Frame", nil, cogBtn)
+        local cogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, cogBtn)
         cogBlock:SetAllPoints()
         cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
         cogBlock:EnableMouse(true)
@@ -778,7 +778,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                   set=function(v) ma.maTtsVolume = v end },
             },
         })
-        local cogBtn = CreateFrame("Button", nil, leftRgn)
+        local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
         cogBtn:SetSize(26, 26)
         cogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
         leftRgn._lastInline = cogBtn
@@ -790,7 +790,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
         cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(TtsCogOff() and 0.15 or 0.4) end)
         cogBtn:SetScript("OnClick", function(self) ttsCogShow(self) end)
 
-        local cogBlock = CreateFrame("Frame", nil, cogBtn)
+        local cogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, cogBtn)
         cogBlock:SetAllPoints()
         cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
         cogBlock:EnableMouse(true)
@@ -912,7 +912,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
         local colW = math.floor(totalW / GRID_COLS)
 
         for row = 0, totalRows - 1 do
-            local rowFrame = CreateFrame("Frame", nil, parent)
+            local rowFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
             PP.Size(rowFrame, totalW, GRID_ROW_H)
             PP.Point(rowFrame, "TOPLEFT", parent, "TOPLEFT", GRID_PAD, y - row * GRID_ROW_H)
             rowFrame._skipRowDivider = true
@@ -920,7 +920,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
 
             for d = 1, GRID_COLS - 1 do
                 local div = rowFrame:CreateTexture(nil, "ARTWORK")
-                div:SetColorTexture(1, 1, 1, 0.06)
+                div:SetTexture(1, 1, 1, 0.06)
                 if div.SetSnapToPixelGrid then div:SetSnapToPixelGrid(false); div:SetTexelSnappingBias(0) end
                 div:SetWidth(1)
                 local xPos = d * colW
@@ -933,14 +933,14 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                 local item = items[idx]
                 if not item then break end
 
-                local cell = CreateFrame("Frame", nil, rowFrame)
+                local cell = EllesmereUI.SafeCreateFrame("Frame", nil, rowFrame)
                 cell:SetSize(colW, GRID_ROW_H)
                 cell:SetPoint("TOPLEFT", rowFrame, "TOPLEFT", col * colW, 0)
 
                 if item.addButton then
                     -- Keybind-button style (dropdown-look bg/border with the
                     -- hover brighten), centered in its grid slot.
-                    local addBtn = CreateFrame("Button", nil, cell)
+                    local addBtn = EllesmereUI.SafeCreateFrame("Button", nil, cell)
                     PP.Size(addBtn, 126, 29)
                     addBtn:SetPoint("CENTER", cell, "CENTER", 0, 0)
                     addBtn:SetFrameLevel(cell:GetFrameLevel() + 2)
@@ -953,11 +953,11 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                     addLbl:SetPoint("CENTER")
                     addLbl:SetText(EllesmereUI.L("+ Add Spell"))
                     addBtn:SetScript("OnEnter", function()
-                        addBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+                        addBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
                         if addBrd and addBrd.SetColor then addBrd:SetColor(1, 1, 1, 0.3) end
                     end)
                     addBtn:SetScript("OnLeave", function()
-                        addBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+                        addBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
                         if addBrd and addBrd.SetColor then addBrd:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A) end
                     end)
                     addBtn:SetScript("OnClick", function()
@@ -981,21 +981,21 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                     label:SetMaxLines(2)
                     label:SetText(item.label)
 
-                    local box = CreateFrame("Frame", nil, cell)
+                    local box = EllesmereUI.SafeCreateFrame("Frame", nil, cell)
                     box:SetSize(GRID_BOX_SZ, GRID_BOX_SZ)
                     box:SetPoint("RIGHT", cell, "RIGHT", -GRID_SIDE_PAD, 0)
                     local boxBg = box:CreateTexture(nil, "BACKGROUND")
                     boxBg:SetAllPoints()
-                    boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                    boxBg:SetTexture(0.12, 0.12, 0.14, 1)
                     if boxBg.SetSnapToPixelGrid then boxBg:SetSnapToPixelGrid(false); boxBg:SetTexelSnappingBias(0) end
                     local boxBrd = EllesmereUI.MakeBorder(box, 0.25, 0.25, 0.28, 0.6, EllesmereUI.PanelPP)
                     local check = box:CreateTexture(nil, "ARTWORK")
                     check:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
                     check:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
-                    check:SetColorTexture(EG.r, EG.g, EG.b, 1)
+                    check:SetTexture(EG.r, EG.g, EG.b, 1)
                     if check.SetSnapToPixelGrid then check:SetSnapToPixelGrid(false); check:SetTexelSnappingBias(0) end
 
-                    local btn = CreateFrame("Button", nil, cell)
+                    local btn = EllesmereUI.SafeCreateFrame("Button", nil, cell)
                     btn:SetAllPoints(cell)
                     btn:SetFrameLevel(cell:GetFrameLevel() + 2)
                     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -1066,7 +1066,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                     EllesmereUI.RegisterWidgetRefresh(ApplyVisual)
 
                     if item.custom then
-                        local delBtn = CreateFrame("Button", nil, cell)
+                        local delBtn = EllesmereUI.SafeCreateFrame("Button", nil, cell)
                         delBtn:SetSize(12, 12)
                         delBtn:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -4, -4)
                         delBtn:SetFrameLevel(btn:GetFrameLevel() + 2)
@@ -1167,7 +1167,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
             },
             footer = { unlockKey = "EUI_TimeSpiralAlert" },
         })
-        local cogBtn = CreateFrame("Button", nil, leftRgn)
+        local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
         cogBtn:SetSize(26, 26)
         cogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
         leftRgn._lastInline = cogBtn
@@ -1179,7 +1179,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
         cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(tsOff() and 0.15 or 0.4) end)
         cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
 
-        local cogBlock = CreateFrame("Frame", nil, cogBtn)
+        local cogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, cogBtn)
         cogBlock:SetAllPoints()
         cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
         cogBlock:EnableMouse(true)
@@ -1244,7 +1244,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
             },
             footer = { unlockKey = "EUI_GatewayShardAlert" },
         })
-        local cogBtn = CreateFrame("Button", nil, rgn)
+        local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
         cogBtn:SetSize(26, 26)
         cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
         rgn._lastInline = cogBtn
@@ -1256,7 +1256,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
         cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(gwOff() and 0.15 or 0.4) end)
         cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
 
-        local cogBlock = CreateFrame("Frame", nil, cogBtn)
+        local cogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, cogBtn)
         cogBlock:SetAllPoints()
         cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
         cogBlock:EnableMouse(true)

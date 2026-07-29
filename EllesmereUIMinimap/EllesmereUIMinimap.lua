@@ -230,7 +230,7 @@ local function QueueApplyAll()
     pendingApply = true
 end
 
-local combatFrame = CreateFrame("Frame")
+local combatFrame = EllesmereUI.SafeCreateFrame("Frame")
 combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 combatFrame:SetScript("OnEvent", function()
     if pendingApply then
@@ -602,7 +602,7 @@ local _flyoutBuilt = false
 
 local function EnsureFlyoutPanel()
     if not flyoutPanel then
-        flyoutPanel = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+        flyoutPanel = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent, "BackdropTemplate")
         flyoutPanel:SetFrameStrata("DIALOG")
         flyoutPanel:SetBackdrop({
             bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
@@ -779,7 +779,7 @@ local function CreateFlyoutToggle()
         return flyoutToggle
     end
 
-    local btn = CreateFrame("Button", nil, Minimap)
+    local btn = EllesmereUI.SafeCreateFrame("Button", nil, Minimap)
     local iconSize = GetInteractableBtnSize()
     btn:SetSize(iconSize, iconSize)
     btn:SetPoint("BOTTOMRIGHT", Minimap, "BOTTOMLEFT", 0, 0)
@@ -818,7 +818,7 @@ local function CreateFlyoutToggle()
     EllesmereUI.RegAccent({ type = "vertex", obj = hl })
 
     -- Black background to match indicator icons
-    local bg = CreateFrame("Frame", nil, btn, "BackdropTemplate")
+    local bg = EllesmereUI.SafeCreateFrame("Frame", nil, btn, "BackdropTemplate")
     bg:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground" })
     bg:SetBackdropColor(0, 0, 0, 0.8)
     bg:SetAllPoints(btn)
@@ -1411,13 +1411,13 @@ local INDICATOR_ATLAS_OFFSET = {
 }
 
 local function CreateIndicatorBtn(name, parent, upAtlas, overAtlas, downAtlas, onClick)
-    local btn = CreateFrame("Button", nil, parent)
+    local btn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
     btn:SetSize(GetInteractableBtnSize(), GetInteractableBtnSize())
     btn:SetFrameLevel(parent:GetFrameLevel() + 20)
     btn:EnableMouse(true)
 
     -- Black background
-    local bg = CreateFrame("Frame", nil, btn, "BackdropTemplate")
+    local bg = EllesmereUI.SafeCreateFrame("Frame", nil, btn, "BackdropTemplate")
     bg:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground" })
     bg:SetBackdropColor(0, 0, 0, 0.8)
     bg:SetAllPoints(btn)
@@ -1577,7 +1577,7 @@ local VAULT_PAD = 6
 
 local function GetVaultTooltip()
     if _vaultTT then return _vaultTT end
-    local f = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    local f = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent, "BackdropTemplate")
     f:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
         edgeFile = "Interface\\ChatFrame\\ChatFrameBackground", edgeSize = 1 })
     f:SetBackdropColor(0.06, 0.06, 0.06, 0.90)
@@ -1718,14 +1718,14 @@ local function ToggleGreatVault()
     end
     RegisterVaultEscClose()
     if WeeklyRewardsFrame then
-        WeeklyRewardsFrame:SetShown(not WeeklyRewardsFrame:IsShown())
+        if not WeeklyRewardsFrame:IsShown() then WeeklyRewardsFrame:Show() else WeeklyRewardsFrame:Hide() end
     end
 end
 
 local function SizeGreatVaultBtn(btn, showBg)
     local btnSz = GetInteractableBtnSize()
     btn:SetSize(btnSz, btnSz)
-    if btn._bg then btn._bg:SetShown(showBg ~= false) end
+    if btn._bg then if showBg ~= false then btn._bg:Show() else btn._bg:Hide() end end
     local inset = 3
     local avail = btnSz - inset * 2
     -- Whole is 105x108: height is the limiting dimension. Fit by height.
@@ -1737,12 +1737,12 @@ local function SizeGreatVaultBtn(btn, showBg)
 end
 
 local function CreateGreatVaultBtn(parent)
-    local btn = CreateFrame("Button", nil, parent)
+    local btn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
     btn:SetSize(GetInteractableBtnSize(), GetInteractableBtnSize())
     btn:SetFrameLevel(parent:GetFrameLevel() + 10)
     btn:EnableMouse(true)
 
-    local bg = CreateFrame("Frame", nil, btn, "BackdropTemplate")
+    local bg = EllesmereUI.SafeCreateFrame("Frame", nil, btn, "BackdropTemplate")
     bg:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground" })
     bg:SetBackdropColor(0, 0, 0, 0.8)
     bg:SetAllPoints(btn)
@@ -1838,7 +1838,7 @@ local function CreateMinimapPortalFlyout()
     local hsX = PADDING + COLS * BTN_SIZE + (COLS - 1) * SPACING + SPACING
     local flyW = hsX + HS_H + PADDING
 
-    local flyout = CreateFrame("Frame", "EUIMinimapPortalFlyout", UIParent)
+    local flyout = EllesmereUI.SafeCreateFrame("Frame", "EUIMinimapPortalFlyout", UIParent)
     flyout:SetSize(flyW, flyH)
     flyout:SetFrameStrata("DIALOG")
     flyout:SetFrameLevel(100)
@@ -1847,14 +1847,14 @@ local function CreateMinimapPortalFlyout()
 
     local bg = flyout:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.04, 0.04, 0.06, 0.95)
+    bg:SetTexture(0.04, 0.04, 0.06, 0.95)
 
     local PP = EllesmereUI and EllesmereUI.PP
     if PP and PP.CreateBorder then
         PP.CreateBorder(flyout, 1, 1, 1, 0.06, 1, "OVERLAY", 7)
     end
 
-    local guard = CreateFrame("Frame")
+    local guard = EllesmereUI.SafeCreateFrame("Frame")
     guard:RegisterEvent("PLAYER_REGEN_DISABLED")
     guard:SetScript("OnEvent", function() flyout:Hide() end)
 
@@ -1863,7 +1863,7 @@ local function CreateMinimapPortalFlyout()
         local col = (i - 1) % COLS
         local row = math.floor((i - 1) / COLS)
 
-        local btn = CreateFrame("Button", "EUIMinimapPortal" .. i, flyout, "SecureActionButtonTemplate")
+        local btn = EllesmereUI.SafeCreateFrame("Button", "EUIMinimapPortal" .. i, flyout, "SecureActionButtonTemplate")
         btn:SetSize(BTN_SIZE, BTN_SIZE)
         btn:SetPoint("TOPLEFT", flyout, "TOPLEFT",
             PADDING + col * (BTN_SIZE + SPACING),
@@ -1882,7 +1882,7 @@ local function CreateMinimapPortalFlyout()
             PP.CreateBorder(btn, 0, 0, 0, 1, 1, "OVERLAY", 7)
         end
 
-        local cd = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
+        local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
         cd:SetAllPoints()
         cd:SetHideCountdownNumbers(true)
         cd:SetDrawSwipe(true)
@@ -1893,7 +1893,7 @@ local function CreateMinimapPortalFlyout()
         local short = PORTAL_SHORT[spellID]
         if short then
             local fontPath = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("minimap")) or "Fonts\\FRIZQT__.TTF"
-            local labelFrame = CreateFrame("Frame", nil, btn)
+            local labelFrame = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
             labelFrame:SetAllPoints()
             labelFrame:SetFrameLevel(cd:GetFrameLevel() + 2)
             local label = labelFrame:CreateFontString(nil, "OVERLAY", nil)
@@ -1906,11 +1906,11 @@ local function CreateMinimapPortalFlyout()
 
         local hover = btn:CreateTexture(nil, "HIGHLIGHT")
         hover:SetAllPoints()
-        hover:SetColorTexture(1, 1, 1, 0.20)
+        hover:SetTexture(1, 1, 1, 0.20)
 
         local castHL = btn:CreateTexture(nil, "OVERLAY", nil, 1)
         castHL:SetAllPoints()
-        castHL:SetColorTexture(1, 1, 1, 0.4)
+        castHL:SetTexture(1, 1, 1, 0.4)
         castHL:Hide()
         btn._castHL = castHL
 
@@ -1931,7 +1931,7 @@ local function CreateMinimapPortalFlyout()
     -- Hearthstone column: 3 icons stacked vertically as a 5th column
     local _hearthBtns = {}
     for i = 1, HS_COUNT do
-        local btn = CreateFrame("Button", "EUIMinimapHearth" .. i, flyout, "SecureActionButtonTemplate")
+        local btn = EllesmereUI.SafeCreateFrame("Button", "EUIMinimapHearth" .. i, flyout, "SecureActionButtonTemplate")
         btn:SetSize(HS_H, HS_H)
         btn:SetPoint("TOPLEFT", flyout, "TOPLEFT",
             hsX,
@@ -1946,7 +1946,7 @@ local function CreateMinimapPortalFlyout()
             PP.CreateBorder(btn, 0, 0, 0, 1, 1, "OVERLAY", 7)
         end
 
-        local cd = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
+        local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
         cd:SetAllPoints()
         cd:SetHideCountdownNumbers(true)
         cd:SetDrawSwipe(true)
@@ -1956,7 +1956,7 @@ local function CreateMinimapPortalFlyout()
 
         local hover = btn:CreateTexture(nil, "HIGHLIGHT")
         hover:SetAllPoints()
-        hover:SetColorTexture(1, 1, 1, 0.20)
+        hover:SetTexture(1, 1, 1, 0.20)
 
         btn:RegisterForClicks("AnyUp", "AnyDown")
 
@@ -1978,7 +1978,7 @@ local function CreateMinimapPortalFlyout()
         btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
         local castHL = btn:CreateTexture(nil, "OVERLAY", nil, 1)
         castHL:SetAllPoints()
-        castHL:SetColorTexture(1, 1, 1, 0.4)
+        castHL:SetTexture(1, 1, 1, 0.4)
         castHL:Hide()
         btn._castHL = castHL
 
@@ -2089,7 +2089,7 @@ local function CreateMinimapPortalFlyout()
             local casting = (event == "UNIT_SPELLCAST_START") and spellID or nil
             for _, btn in ipairs(_portalFlyoutBtns) do
                 if btn._castHL then
-                    btn._castHL:SetShown(casting and casting == btn.spellID)
+                    if casting and casting == btn.spellID then btn._castHL:Show() else btn._castHL:Hide() end
                 end
             end
             if not casting then
@@ -2151,7 +2151,7 @@ end
 local function SizePortalBtn(btn, showBg)
     local btnSz = GetInteractableBtnSize()
     btn:SetSize(btnSz, btnSz)
-    if btn._bg then btn._bg:SetShown(showBg ~= false) end
+    if btn._bg then if showBg ~= false then btn._bg:Show() else btn._bg:Hide() end end
     local inset = 4
     local avail = btnSz - inset * 2
     btn._icon:SetSize(avail, avail)
@@ -2160,12 +2160,12 @@ local function SizePortalBtn(btn, showBg)
 end
 
 local function CreatePortalBtn(parent)
-    local btn = CreateFrame("Button", nil, parent)
+    local btn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
     btn:SetSize(GetInteractableBtnSize(), GetInteractableBtnSize())
     btn:SetFrameLevel(parent:GetFrameLevel() + 10)
     btn:EnableMouse(true)
 
-    local bg = CreateFrame("Frame", nil, btn, "BackdropTemplate")
+    local bg = EllesmereUI.SafeCreateFrame("Frame", nil, btn, "BackdropTemplate")
     bg:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground" })
     bg:SetBackdropColor(0, 0, 0, 0.8)
     bg:SetAllPoints(btn)
@@ -2416,7 +2416,7 @@ local _fttMenu
 local function GetFTTMenu()
     if _fttMenu then return _fttMenu end
     local PAD, RH, MW = 4, 18, 96
-    local m = CreateFrame("Frame", nil, UIParent)
+    local m = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     m:SetFrameStrata("TOOLTIP")
     m:SetFrameLevel(500)
     m:SetClampedToScreen(true)
@@ -2425,17 +2425,17 @@ local function GetFTTMenu()
     m:Hide()
     local bg = m:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
+    bg:SetTexture(0.067, 0.067, 0.067, 0.95)
     EllesmereUI.MakeBorder(m, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
 
     local function MakeItem(text, yOff, onClick)
-        local b = CreateFrame("Button", nil, m)
+        local b = EllesmereUI.SafeCreateFrame("Button", nil, m)
         b:RegisterForClicks("AnyUp")
         b:SetPoint("TOPLEFT", m, "TOPLEFT", PAD, yOff)
         b:SetPoint("TOPRIGHT", m, "TOPRIGHT", -PAD, yOff)
         b:SetHeight(RH)
         local hl = b:CreateTexture(nil, "BACKGROUND")
-        hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.10); hl:Hide()
+        hl:SetAllPoints(); hl:SetTexture(1, 1, 1, 0.10); hl:Hide()
         b:SetScript("OnEnter", function() hl:Show() end)
         b:SetScript("OnLeave", function() hl:Hide() end)
         b:SetScript("OnClick", function()
@@ -2484,7 +2484,7 @@ end
 
 local function GetFriendsTT()
     if _friendsTT then return _friendsTT end
-    local f = CreateFrame("Frame", nil, UIParent)
+    local f = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     f:SetFrameStrata("TOOLTIP")
     f:SetFrameLevel(200)
     f:SetClampedToScreen(true)
@@ -2495,7 +2495,7 @@ local function GetFriendsTT()
     f:Hide()
     local bg = f:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.067, 0.067, 0.067, 0.92)
+    bg:SetTexture(0.067, 0.067, 0.067, 0.92)
     EllesmereUI.MakeBorder(f, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
     -- Mouseover Extra Buttons: hovering this tooltip counts as hovering the
     -- button stack, so crossing onto it must not hide the extra buttons.
@@ -2512,13 +2512,13 @@ end
 local function EnsureFTTRow(idx)
     if _friendsTTRows[idx] then return _friendsTTRows[idx] end
     local tt = GetFriendsTT()
-    local btn = CreateFrame("Button", nil, tt)
+    local btn = EllesmereUI.SafeCreateFrame("Button", nil, tt)
     btn:EnableMouse(true)
     btn:RegisterForClicks("AnyUp")
     btn:SetHeight(FTT_ROW_H)
     local hl = btn:CreateTexture(nil, "BACKGROUND")
     hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0.08)
+    hl:SetTexture(1, 1, 1, 0.08)
     hl:Hide()
     btn._hl = hl
     btn:SetScript("OnEnter", function(self)
@@ -2575,7 +2575,7 @@ local function EnsureFTTDivider(idx)
     if _friendsTTDividers[idx] then return _friendsTTDividers[idx] end
     local tt = GetFriendsTT()
     local tex = tt:CreateTexture(nil, "ARTWORK")
-    tex:SetColorTexture(1, 1, 1, 0.12)
+    tex:SetTexture(1, 1, 1, 0.12)
     local PP = EllesmereUI.PP
     if PP and PP.Snap then
         tex:SetHeight(PP.Snap(1))
@@ -2779,14 +2779,14 @@ local CTT_GAP = 6
 
 local function GetCalendarTT()
     if _calendarTT then return _calendarTT end
-    local f = CreateFrame("Frame", nil, UIParent)
+    local f = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     f:SetFrameStrata("TOOLTIP")
     f:SetFrameLevel(200)
     f:SetClampedToScreen(true)
     f:Hide()
     local bg = f:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.067, 0.067, 0.067, 0.92)
+    bg:SetTexture(0.067, 0.067, 0.067, 0.92)
     EllesmereUI.MakeBorder(f, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
     _calendarTT = f
     return f
@@ -3212,12 +3212,12 @@ local function SyncIndicatorVisibility()
                 hasMail = raw or false
             end
         end
-        _customIndicators.mail:SetShown(hasMail)
+        if hasMail then _customIndicators.mail:Show() else _customIndicators.mail:Hide() end
     end
     if _customIndicators.crafting then
         local blizCraft = indicator and indicator.CraftingOrderFrame
         local hasCraft = blizCraft and blizCraft:IsShown()
-        _customIndicators.crafting:SetShown(hasCraft or false)
+        if hasCraft or false then _customIndicators.crafting:Show() else _customIndicators.crafting:Hide() end
     end
 end
 
@@ -3366,7 +3366,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
     local function ResizeIndicator(btn)
         if not btn then return end
         btn:SetSize(sz, sz)
-        if btn._bg then btn._bg:SetShown(showBg) end
+        if btn._bg then if showBg then btn._bg:Show() else btn._bg:Hide() end end
         local ratio = btn._upAtlas and INDICATOR_ATLAS_RATIO[btn._upAtlas]
         if ratio and btn._icon then
             local scale = INDICATOR_ATLAS_SCALE[btn._upAtlas] or 1
@@ -3397,11 +3397,11 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
     ResizeIndicator(ci.crafting)
     -- Corner-pinned mail renders bare: no black box, just the mail icon
     if mailCorner and ci.mail and ci.mail._bg then
-        ci.mail._bg:SetShown(false)
+        if false then ci.mail._bg:Show() else ci.mail._bg:Hide() end
     end
     if flyoutToggle then
         flyoutToggle:SetSize(sz, sz)
-        if flyoutToggle._bg then flyoutToggle._bg:SetShown(showBg) end
+        if flyoutToggle._bg then if showBg then flyoutToggle._bg:Show() else flyoutToggle._bg:Hide() end end
         -- Reset to base anchor so free-move offsets don't accumulate across relayouts
         local rowMode = GetBtnRowMode(p)
         local rowBaseX, rowBaseY = GetRowBase(rowMode, p.btnRowDistance)
@@ -3412,7 +3412,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
     end
 
     -- Calendar visibility
-    if ci.calendar then ci.calendar:SetShown(not p.hideGameTime) end
+    if ci.calendar then if not p.hideGameTime then ci.calendar:Show() else ci.calendar:Hide() end end
 
     -- Difficulty flag (instance type/size indicator)
     local diffFrame = (MinimapCluster and MinimapCluster.InstanceDifficulty) or _G.MiniMapInstanceDifficulty
@@ -3610,7 +3610,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
                 end
                 -- Black square background
                 if not GetFFD(btn).ungroupBg then
-                    local ubg = CreateFrame("Frame", nil, btn, "BackdropTemplate")
+                    local ubg = EllesmereUI.SafeCreateFrame("Frame", nil, btn, "BackdropTemplate")
                     ubg:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground" })
                     ubg:SetBackdropColor(0, 0, 0, 0.8)
                     ubg:SetAllPoints(btn)
@@ -3665,7 +3665,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
                         ci.friends:Hide()
                     else
                         ci.friends:SetSize(sz, sz)
-                        if ci.friends._bg then ci.friends._bg:SetShown(showBg) end
+                        if ci.friends._bg then if showBg then ci.friends._bg:Show() else ci.friends._bg:Hide() end end
                         ci.friends:SetParent(minimap)
                         ci.friends:SetFrameLevel(minimap:GetFrameLevel() + 11)
                         ci.friends:ClearAllPoints()
@@ -4123,7 +4123,7 @@ local function ApplyMinimap()
     -- circular, so wheel zoom handled on the Minimap dies in the square skin's
     -- corners -- the overlay covers the full rect and handles the wheel there.
     if not GetFFD(minimap).pingBlocker then
-        local blocker = CreateFrame("Frame", nil, minimap)
+        local blocker = EllesmereUI.SafeCreateFrame("Frame", nil, minimap)
         blocker:SetAllPoints()
         blocker:SetFrameLevel(minimap:GetFrameLevel() + 10)
         blocker:SetPassThroughButtons("LeftButton", "RightButton")
@@ -4171,7 +4171,7 @@ local function ApplyMinimap()
     local compartment = _G.AddonCompartmentFrame
     if compartment then
         if not EBS._hiddenFrame then
-            EBS._hiddenFrame = CreateFrame("Frame")
+            EBS._hiddenFrame = EllesmereUI.SafeCreateFrame("Frame")
             EBS._hiddenFrame:Hide()
         end
         GetFFD(compartment).origParent = GetFFD(compartment).origParent or compartment:GetParent()
@@ -4200,7 +4200,7 @@ local function ApplyMinimap()
         local bs = p.borderSize or 1
         local host = GetFFD(minimap).borderHost
         if not host then
-            host = CreateFrame("Frame", nil, minimap)
+            host = EllesmereUI.SafeCreateFrame("Frame", nil, minimap)
             host:EnableMouse(false)
             GetFFD(minimap).borderHost = host
         end
@@ -4236,7 +4236,7 @@ local function ApplyMinimap()
         -- Circle: solid colored disc behind the minimap, slightly larger = border ring
         if GetFFD(minimap).borderHost then GetFFD(minimap).borderHost:Hide() end
         if not GetFFD(minimap).circBorder then
-            local disc = CreateFrame("Frame", nil, minimap)
+            local disc = EllesmereUI.SafeCreateFrame("Frame", nil, minimap)
             disc:SetFrameLevel(minimap:GetFrameLevel() - 1)
             local tex = disc:CreateTexture(nil, "BACKGROUND")
             tex:SetAllPoints(disc)
@@ -4308,7 +4308,7 @@ local function ApplyMinimap()
     -- the housing indoor map when Blizzard hides the real minimap content.
     -- Fully owned by us, no Blizzard frame manipulation.
     if not GetFFD(minimap).housingTex then
-        local frame = CreateFrame("Frame", nil, minimap)
+        local frame = EllesmereUI.SafeCreateFrame("Frame", nil, minimap)
         frame:SetAllPoints(minimap)
         frame:SetFrameLevel(minimap:GetFrameLevel() + 1)
         local tex = frame:CreateTexture(nil, "ARTWORK")
@@ -4360,7 +4360,7 @@ local function ApplyMinimap()
             -- Check on zone transitions
             if not GetFFD(minimap).housingZoneHook then
                 GetFFD(minimap).housingZoneHook = true
-                local zf = CreateFrame("Frame")
+                local zf = EllesmereUI.SafeCreateFrame("Frame")
                 zf:RegisterEvent("PLAYER_ENTERING_WORLD")
                 zf:RegisterEvent("ZONE_CHANGED_NEW_AREA")
                 zf:RegisterEvent("ZONE_CHANGED_INDOORS")
@@ -4402,7 +4402,7 @@ local function ApplyMinimap()
     local zoomOut = minimap.ZoomOut or _G.MinimapZoomOut
     local hideZoom = p.hideZoomButtons
     if hideZoom and (zoomIn or zoomOut) and not EBS._hiddenFrame then
-        EBS._hiddenFrame = CreateFrame("Frame")
+        EBS._hiddenFrame = EllesmereUI.SafeCreateFrame("Frame")
         EBS._hiddenFrame:Hide()
     end
     if zoomIn then
@@ -4415,7 +4415,7 @@ local function ApplyMinimap()
         -- Start in Blizzard's between-hovers state (hidden; its hover
         -- handlers Show/Hide on map enter/leave) so the button is not
         -- visible from /reload until hovered.
-        zoomIn:SetShown(minimap:IsMouseOver())
+        if minimap:IsMouseOver() then zoomIn:Show() else zoomIn:Hide() end
         if not GetFFD(zoomIn).hooked then
             hooksecurefunc(zoomIn, "SetPoint", function(self)
                 if GetFFD(self).inHook then return end
@@ -4435,7 +4435,7 @@ local function ApplyMinimap()
         zoomOut:EnableMouse(true)
         zoomOut:SetAlpha(1)
         -- Same between-hovers start as ZoomIn above
-        zoomOut:SetShown(minimap:IsMouseOver())
+        if minimap:IsMouseOver() then zoomOut:Show() else zoomOut:Hide() end
         if not GetFFD(zoomOut).hooked then
             hooksecurefunc(zoomOut, "SetPoint", function(self)
                 if GetFFD(self).inHook then return end
@@ -4503,7 +4503,7 @@ local function ApplyMinimap()
 
     -- Poll for late-loading addons that attach buttons after ADDON_LOADED
     if not addonButtonPoll then
-        addonButtonPoll = CreateFrame("Frame")
+        addonButtonPoll = EllesmereUI.SafeCreateFrame("Frame")
         addonButtonPoll:RegisterEvent("ADDON_LOADED")
         local pollPending = false
         addonButtonPoll:SetScript("OnEvent", function()
@@ -4547,7 +4547,7 @@ local function ApplyMinimap()
     local clockMode, locationMode = GetElementModes(p)
     if clockMode ~= "none" then
         if not clockBg then
-            clockBg = CreateFrame("Button", nil, minimap, "BackdropTemplate")
+            clockBg = EllesmereUI.SafeCreateFrame("Button", nil, minimap, "BackdropTemplate")
             clockBg:SetSize(80, 16)
             clockBg:SetPoint("TOP", minimap, "TOP", 0, 7)
             clockBg:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground" })
@@ -4600,7 +4600,7 @@ local function ApplyMinimap()
         clockBg:Show()
         clockFrame:Show()
         if not clockTicker then
-            clockTicker = CreateFrame("Frame")  -- kept for CVar event + Show/Hide API
+            clockTicker = EllesmereUI.SafeCreateFrame("Frame")  -- kept for CVar event + Show/Hide API
             clockTicker._ticker = nil
             clockTicker.Show = function(self)
                 if self._ticker then return end
@@ -4682,7 +4682,7 @@ local function ApplyMinimap()
     -- Location bar -- none, inside the map, or boxed on the map edge
     if locationMode ~= "none" then
         if not locationBg then
-            locationBg = CreateFrame("Frame", nil, minimap, "BackdropTemplate")
+            locationBg = EllesmereUI.SafeCreateFrame("Frame", nil, minimap, "BackdropTemplate")
             locationBg:SetSize(120, 18)
             locationBg:SetPoint("BOTTOM", minimap, "BOTTOM", 0, -7)
             locationBg:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground" })
@@ -4746,7 +4746,7 @@ local function ApplyMinimap()
     coordFrame:SetScale(p and p.coordsScale or 1.0)
     _G._EBS_CoordFrame = coordFrame
     if not coordTicker then
-        coordTicker = CreateFrame("Frame")  -- kept for Show/Hide API
+        coordTicker = EllesmereUI.SafeCreateFrame("Frame")  -- kept for Show/Hide API
         coordTicker._ticker = nil
         coordTicker.Show = function(self)
             if self._ticker then return end
@@ -4774,7 +4774,7 @@ local function ApplyMinimap()
     -- options as the Quality of Life FPS counter, hosted on the minimap
     if p.showFPS then
         if not fpsBg then
-            fpsBg = CreateFrame("Frame", nil, minimap)
+            fpsBg = EllesmereUI.SafeCreateFrame("Frame", nil, minimap)
             fpsBg:SetSize(60, 20)
             fpsBg:SetFrameLevel(minimap:GetFrameLevel() + 5)
             fpsBg:EnableMouse(false)
@@ -4789,7 +4789,7 @@ local function ApplyMinimap()
             local DIV_PAD = 6
             local function MakeDivider()
                 local d = fpsBg:CreateTexture(nil, "OVERLAY")
-                d:SetColorTexture(1, 1, 1, 1)
+                d:SetTexture(1, 1, 1, 1)
                 d:SetSize(DIV_W, DIV_H)
                 return d
             end
@@ -4925,7 +4925,7 @@ local function ApplyMinimap()
     -- color (same accent/custom system as the FPS/MS suffixes).
     if p.diffTextEnabled then
         if not diffTextFrame then
-            diffTextFrame = CreateFrame("Frame", nil, minimap)
+            diffTextFrame = EllesmereUI.SafeCreateFrame("Frame", nil, minimap)
             local fs = minimap:CreateFontString(nil, "OVERLAY")
             fs:SetTextColor(1, 1, 1, 1)
             diffTextFrame._text = fs
@@ -5226,7 +5226,7 @@ do
     end
 
     local function CreateMenuFrame()
-        menuFrame = CreateFrame("Frame", "EllesmereUIMicroMenu", UIParent, "BackdropTemplate")
+        menuFrame = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIMicroMenu", UIParent, "BackdropTemplate")
         menuFrame:SetFrameStrata("TOOLTIP")
         menuFrame:SetBackdrop({
             bgFile   = "Interface\\Buttons\\WHITE8X8",
@@ -5252,18 +5252,18 @@ do
                 div:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 8, y - 4)
                 div:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -8, y - 4)
                 div:SetHeight(1)
-                div:SetColorTexture(0.3, 0.3, 0.3, 0.6)
+                div:SetTexture(0.3, 0.3, 0.3, 0.6)
                 y = y - DIVIDER_H
             elseif item.fn then
                 -- Plain button (no secure template needed)
-                local btn = CreateFrame("Button", nil, menuFrame)
+                local btn = EllesmereUI.SafeCreateFrame("Button", nil, menuFrame)
                 btn:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, y)
                 btn:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, y)
                 btn:SetHeight(BUTTON_H)
 
                 local hl = btn:CreateTexture(nil, "HIGHLIGHT")
                 hl:SetAllPoints()
-                hl:SetColorTexture(1, 1, 1, 0.08)
+                hl:SetTexture(1, 1, 1, 0.08)
 
                 local label = btn:CreateFontString(nil, "OVERLAY")
                 if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(label, true) end
@@ -5283,7 +5283,7 @@ do
                 -- Secure click passthrough to a Blizzard MicroButton
                 local microRef = item.microButton and _G[item.microButton]
                 local btnName = "EUI_MicroMenu_" .. item.text:gsub("%s", "")
-                local btn = CreateFrame("Button", btnName, menuFrame, "SecureActionButtonTemplate,SecureHandlerStateTemplate")
+                local btn = EllesmereUI.SafeCreateFrame("Button", btnName, menuFrame, "SecureActionButtonTemplate,SecureHandlerStateTemplate")
                 btn:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 1, y)
                 btn:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -1, y)
                 btn:SetHeight(BUTTON_H)
@@ -5323,7 +5323,7 @@ do
 
                 local hl = btn:CreateTexture(nil, "HIGHLIGHT")
                 hl:SetAllPoints()
-                hl:SetColorTexture(1, 1, 1, 0.08)
+                hl:SetTexture(1, 1, 1, 0.08)
 
                 local label = btn:CreateFontString(nil, "OVERLAY")
                 if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(label, true) end
@@ -5353,7 +5353,7 @@ do
     end
     EBS._ToggleMicroMenu = ToggleMicroMenu
 
-    local hookFrame = CreateFrame("Frame")
+    local hookFrame = EllesmereUI.SafeCreateFrame("Frame")
     hookFrame:RegisterEvent("PLAYER_LOGIN")
     hookFrame:SetScript("OnEvent", function(self)
         self:UnregisterEvent("PLAYER_LOGIN")
@@ -5478,7 +5478,7 @@ function EBS:OnEnable()
 
     -- Re-apply after PLAYER_ENTERING_WORLD so accent colors from the theme
     -- system (which updates ELLESMERE_GREEN at PLAYER_LOGIN) are picked up.
-    local loginRefresh = CreateFrame("Frame")
+    local loginRefresh = EllesmereUI.SafeCreateFrame("Frame")
     loginRefresh:RegisterEvent("PLAYER_ENTERING_WORLD")
     loginRefresh:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
@@ -5494,7 +5494,7 @@ function EBS:OnEnable()
     -- which is idempotent when the button is already shown and correctly placed
     -- (it only nudges RefreshButton when the button is hidden). Deferred a frame
     -- so Blizzard's own PLAYER_ENTERING_WORLD handling runs first.
-    local folioRefresh = CreateFrame("Frame")
+    local folioRefresh = EllesmereUI.SafeCreateFrame("Frame")
     folioRefresh:RegisterEvent("PLAYER_ENTERING_WORLD")
     folioRefresh:SetScript("OnEvent", function()
         C_Timer.After(0, ApplyOmniumFolio)
@@ -5502,7 +5502,7 @@ function EBS:OnEnable()
 
     -- If GameTimeFrame still doesn't exist, watch for Blizzard_TimeManager to load
     if not _G.GameTimeFrame then
-        local tmWatcher = CreateFrame("Frame")
+        local tmWatcher = EllesmereUI.SafeCreateFrame("Frame")
         tmWatcher:RegisterEvent("ADDON_LOADED")
         tmWatcher:SetScript("OnEvent", function(self, _, addon)
             if addon == "Blizzard_TimeManager" then
@@ -5569,7 +5569,7 @@ end
 do
     local _fhLock = false
 
-    local fhFix = CreateFrame("Frame")
+    local fhFix = EllesmereUI.SafeCreateFrame("Frame")
     fhFix:RegisterEvent("PLAYER_ENTERING_WORLD")
     fhFix:SetScript("OnEvent", function(self)
         if not FarmHud then return end

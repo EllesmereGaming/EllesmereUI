@@ -57,7 +57,7 @@ ns.ERB_OverlayHealOnShow = function(ov, obg, olbl, bgAlpha)
 				for p = 1, #pts do ov:SetPoint(unpack(pts[p])) end
 			end
 			if ovH and ovH > 0 then ov:SetHeight(ovH) end
-			obg:SetColorTexture(13 / 255, 17 / 255, 25 / 255, bgAlpha or 0.96)
+			obg:SetTexture(13 / 255, 17 / 255, 25 / 255, bgAlpha or 0.96)
 			obg:ClearAllPoints(); obg:SetAllPoints(ov)
 			olbl:ClearAllPoints(); olbl:SetPoint("CENTER")
 			olbl:SetText(""); olbl:SetText(txt)
@@ -78,14 +78,14 @@ ns.ERB_SimpleOverrideOverlay = function(parent, topY, botY, sectionKey)
 	local EGc  = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
 	local CPAD = EllesmereUI.CONTENT_PAD or 45
 	local PP   = EllesmereUI.PanelPP or EllesmereUI.PP
-	local ov   = CreateFrame("Button", nil, parent)
+	local ov   = EllesmereUI.SafeCreateFrame("Button", nil, parent)
 	-- Anchor via PP so it lines up with the section header/rows.
 	PP.Point(ov, "TOPLEFT", parent, "TOPLEFT", CPAD, topY)
 	PP.Point(ov, "TOPRIGHT", parent, "TOPRIGHT", -CPAD, topY)
 	PP.Point(ov, "BOTTOMLEFT", parent, "TOPLEFT", CPAD, botY)
 	ov:SetFrameLevel(parent:GetFrameLevel() + 50)
 	local obg = ov:CreateTexture(nil, "BACKGROUND"); obg:SetAllPoints()
-	obg:SetColorTexture(13 / 255, 17 / 255, 25 / 255, 0.9)
+	obg:SetTexture(13 / 255, 17 / 255, 25 / 255, 0.9)
 	local olbl = EllesmereUI.MakeFont(ov, 12, nil, 1, 1, 1); olbl:SetPoint("CENTER")
 	olbl:SetTextColor(1, 1, 1, 0.7)
 	olbl:SetText(EllesmereUI.L("Active spec uses Advanced settings")

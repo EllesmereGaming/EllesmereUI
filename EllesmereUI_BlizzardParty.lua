@@ -27,7 +27,7 @@ local function ApplyHideBlizzardPartyFrame()
 
     if shouldHide then
         if not _partyHiddenParent then
-            _partyHiddenParent = CreateFrame("Frame")
+            _partyHiddenParent = EllesmereUI.SafeCreateFrame("Frame")
             _partyHiddenParent:Hide()
         end
         if not _partyOrigParent then
@@ -38,7 +38,7 @@ local function ApplyHideBlizzardPartyFrame()
         end
         if not hookedMgr then
             hookedMgr = true
-            local regenFrame = CreateFrame("Frame")
+            local regenFrame = EllesmereUI.SafeCreateFrame("Frame")
             regenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
             regenFrame:SetScript("OnEvent", function()
                 if EllesmereUIDB and EllesmereUIDB.hideBlizzardPartyFrame then
@@ -58,7 +58,7 @@ end
 
 EllesmereUI._applyHideBlizzardPartyFrame = ApplyHideBlizzardPartyFrame
 
-local initFrame = CreateFrame("Frame")
+local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 initFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 initFrame:SetScript("OnEvent", function(self, event)

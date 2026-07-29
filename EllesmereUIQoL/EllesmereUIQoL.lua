@@ -37,7 +37,7 @@ function EllesmereUI.QoLExtrasSet(k, v)
     EllesmereUIDB[k] = v
 end
 
-local qolFrame = CreateFrame("Frame")
+local qolFrame = EllesmereUI.SafeCreateFrame("Frame")
 qolFrame:RegisterEvent("PLAYER_LOGIN")
 qolFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
@@ -140,7 +140,7 @@ qolFrame:SetScript("OnEvent", function(self)
             end
         end)
 
-        local f = CreateFrame("Frame")
+        local f = EllesmereUI.SafeCreateFrame("Frame")
         f:RegisterEvent("PLAYER_LOGIN")
         f:RegisterEvent("NEW_MOUNT_ADDED")
         f:RegisterEvent("NEW_PET_ADDED")
@@ -297,7 +297,7 @@ qolFrame:SetScript("OnEvent", function(self)
         local _scanBag = BACKPACK_CONTAINER
         local _scanSlot = 1
 
-        local scanFrame = CreateFrame("Frame")
+        local scanFrame = EllesmereUI.SafeCreateFrame("Frame")
         scanFrame:Hide()
         scanFrame:SetScript("OnUpdate", function(self)
             if not IsEnabled() then self:Hide(); return end
@@ -329,7 +329,7 @@ qolFrame:SetScript("OnEvent", function(self)
         end)
 
         -- After cache is built, BAG_UPDATE_DELAYED only checks changed slots
-        local containerFrame = CreateFrame("Frame")
+        local containerFrame = EllesmereUI.SafeCreateFrame("Frame")
 
         -- Live apply: registers the bag listener and (until the cache exists)
         -- runs the incremental scan; disable unregisters and stops any
@@ -635,7 +635,7 @@ qolFrame:SetScript("OnEvent", function(self)
 
         EllesmereUI._applyScreenshotStatus = ApplyScreenshotStatus
 
-        local ssFrame = CreateFrame("Frame")
+        local ssFrame = EllesmereUI.SafeCreateFrame("Frame")
         ssFrame:RegisterEvent("SCREENSHOT_SUCCEEDED")
         ssFrame:RegisterEvent("SCREENSHOT_FAILED")
         ssFrame:SetScript("OnEvent", function()
@@ -700,7 +700,7 @@ qolFrame:SetScript("OnEvent", function(self)
             if not ClassTrainerFrame or not ClassTrainerTrainButton then return end
             if trainBtn then trainBtn:Show(); RefreshButton(); return end
 
-            trainBtn = CreateFrame("Button", "EUI_TrainAllButton", ClassTrainerFrame, "MagicButtonTemplate")
+            trainBtn = EllesmereUI.SafeCreateFrame("Button", "EUI_TrainAllButton", ClassTrainerFrame, "MagicButtonTemplate")
             trainBtn:SetText("Train All")
             trainBtn:SetHeight(ClassTrainerTrainButton:GetHeight() or 22)
             trainBtn:SetWidth(80)
@@ -750,7 +750,7 @@ qolFrame:SetScript("OnEvent", function(self)
 
         EllesmereUI._applyTrainAllButton = ApplyTrainAllButton
 
-        local f = CreateFrame("Frame")
+        local f = EllesmereUI.SafeCreateFrame("Frame")
         f:RegisterEvent("PLAYER_LOGIN")
         f:RegisterEvent("ADDON_LOADED")
         f:SetScript("OnEvent", function(self, event, addonName)
@@ -768,7 +768,7 @@ qolFrame:SetScript("OnEvent", function(self)
     --  AH Current Expansion Only
     ---------------------------------------------------------------------------
     do
-        local ahFrame = CreateFrame("Frame")
+        local ahFrame = EllesmereUI.SafeCreateFrame("Frame")
         ahFrame:RegisterEvent("AUCTION_HOUSE_SHOW")
         ahFrame:SetScript("OnEvent", function()
             if not (EllesmereUIDB and EllesmereUIDB.ahCurrentExpansion) then return end
@@ -805,7 +805,7 @@ qolFrame:SetScript("OnEvent", function(self)
         return out
     end
 
-    local merchantFrame = CreateFrame("Frame", "EUI_MerchantHandler", UIParent)
+    local merchantFrame = EllesmereUI.SafeCreateFrame("Frame", "EUI_MerchantHandler", UIParent)
     merchantFrame:RegisterEvent("MERCHANT_SHOW")
     merchantFrame:SetScript("OnEvent", function()
         if not EllesmereUIDB then return end
@@ -863,7 +863,7 @@ qolFrame:SetScript("OnEvent", function(self)
         EllesmereUI._applyQuickLoot = function()
             if EllesmereUIDB and EllesmereUIDB.quickLoot then
                 if not lootFrame then
-                    lootFrame = CreateFrame("Frame")
+                    lootFrame = EllesmereUI.SafeCreateFrame("Frame")
                     lootFrame:SetScript("OnEvent", function()
                         if IsShiftKeyDown() then return end
                         for i = 1, GetNumLootItems() do
@@ -963,7 +963,7 @@ qolFrame:SetScript("OnEvent", function(self)
             CinematicFrame:HookScript("OnKeyDown", ConsumeArmedSkip)
         end
 
-        local cinEventFrame = CreateFrame("Frame")
+        local cinEventFrame = EllesmereUI.SafeCreateFrame("Frame")
         cinEventFrame:RegisterEvent("CINEMATIC_START")
         cinEventFrame:RegisterEvent("CINEMATIC_STOP")
         cinEventFrame:RegisterEvent("PLAY_MOVIE")
@@ -1014,7 +1014,7 @@ qolFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        local ksFrame = CreateFrame("Frame")
+        local ksFrame = EllesmereUI.SafeCreateFrame("Frame")
         ksFrame:RegisterEvent("CHALLENGE_MODE_KEYSTONE_RECEPTABLE_OPEN")
         ksFrame:RegisterEvent("ADDON_LOADED")
         ksFrame:SetScript("OnEvent", function(self, event, arg1)
@@ -1089,7 +1089,7 @@ qolFrame:SetScript("OnEvent", function(self)
             end
 
             -- Classic Dungeon Finder role check for Quick Signup
-            roleFrame = CreateFrame("Frame")
+            roleFrame = EllesmereUI.SafeCreateFrame("Frame")
             roleFrame:SetScript("OnEvent", function()
                 if not (EllesmereUIDB and EllesmereUIDB.quickSignup) then return end
                 if not UnitInParty("player") then return end
@@ -1204,7 +1204,7 @@ qolFrame:SetScript("OnEvent", function(self)
         if _G.TalkingHeadFrame then
             HookTalkingHead()
         else
-            local hookFrame = CreateFrame("Frame")
+            local hookFrame = EllesmereUI.SafeCreateFrame("Frame")
             hookFrame:RegisterEvent("ADDON_LOADED")
             hookFrame:SetScript("OnEvent", function(self, _, addon)
                 if _G.TalkingHeadFrame then
@@ -1268,7 +1268,7 @@ qolFrame:SetScript("OnEvent", function(self)
         local resetAnnouncePending = false -- one announce per /reset batch (multi-dungeon reset = multiple system msgs)
         local resetFailPending = false
 
-        local resetAnnounceFrame = CreateFrame("Frame")
+        local resetAnnounceFrame = EllesmereUI.SafeCreateFrame("Frame")
         resetAnnounceFrame:SetScript("OnEvent", function(self, event, msg)
             if not (EllesmereUIDB and EllesmereUIDB.instanceResetAnnounce) then return end
 
@@ -1351,7 +1351,7 @@ qolFrame:SetScript("OnEvent", function(self)
         if TimeManagerMilitaryTimeCheck then
             HookClockCheckbox()
         else
-            local hookFrame = CreateFrame("Frame")
+            local hookFrame = EllesmereUI.SafeCreateFrame("Frame")
             hookFrame:RegisterEvent("ADDON_LOADED")
             hookFrame:SetScript("OnEvent", function(self, _, addon)
                 if addon == "Blizzard_TimeManager" then
@@ -1390,12 +1390,12 @@ do
         end
 
         if not overlay then
-            overlay = CreateFrame("Button", nil, UIParent)
+            overlay = EllesmereUI.SafeCreateFrame("Button", nil, UIParent)
             overlay:SetFrameStrata("DIALOG")
             local bg = overlay:CreateTexture(nil, "BACKGROUND")
             bg:SetPoint("TOPLEFT", -2, 0)
             bg:SetPoint("BOTTOMRIGHT", 2, -4)
-            bg:SetColorTexture(0.133, 0.133, 0.133, 1)
+            bg:SetTexture(0.133, 0.133, 0.133, 1)
             local txt = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
             txt:SetPoint("CENTER")
             txt:SetText("Click to Show")
@@ -1412,7 +1412,7 @@ do
                 overlay._hooked = true
             end
         else
-            local loader = CreateFrame("Frame")
+            local loader = EllesmereUI.SafeCreateFrame("Frame")
             loader:RegisterEvent("ADDON_LOADED")
             loader:SetScript("OnEvent", function(self, _, addon)
                 if addon == "Blizzard_Communities" then
@@ -1430,7 +1430,7 @@ do
     end
     EllesmereUI._applyGuildChatPrivacy = ApplyGuildChatPrivacy
 
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f:RegisterEvent("PLAYER_LOGIN")
     f:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
@@ -1527,7 +1527,7 @@ do
             return
         end
         if not statsFrame then
-            statsFrame = CreateFrame("Frame", "EUI_SecondaryStats", UIParent)
+            statsFrame = EllesmereUI.SafeCreateFrame("Frame", "EUI_SecondaryStats", UIParent)
             statsFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 12, -12)
             statsFrame:SetSize(160, 60)
             statsFrame:SetFrameStrata("LOW")
@@ -1596,7 +1596,7 @@ do
         return statsFrame
     end
 
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f:RegisterEvent("PLAYER_LOGIN")
     f:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
@@ -1616,7 +1616,7 @@ do
         local FONT = EllesmereUI.GetFontPath("extras")
         local FONT_SIZE = EllesmereUI.QoLExtrasGet("fpsTextSize") or 12
         local LABEL_SIZE = FONT_SIZE - 2
-        fpsFrame = CreateFrame("Frame", "EUI_FPSCounter", UIParent)
+        fpsFrame = EllesmereUI.SafeCreateFrame("Frame", "EUI_FPSCounter", UIParent)
         fpsFrame:SetSize(60, 20)
         fpsFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 10, -10)
         fpsFrame:SetFrameStrata("MEDIUM")
@@ -1640,7 +1640,7 @@ do
 
         local function MakeDivider()
             local d = fpsFrame:CreateTexture(nil, "OVERLAY")
-            d:SetColorTexture(1, 1, 1, 0.25)
+            d:SetTexture(1, 1, 1, 0.25)
             d:SetSize(DIV_W, DIV_H)
             return d
         end
@@ -1668,8 +1668,8 @@ do
             fsWorldLbl:SetTextColor(cr, cg, cb, ca * 0.6)
             fsLocalVal:SetTextColor(cr, cg, cb, ca)
             fsLocalLbl:SetTextColor(cr, cg, cb, ca * 0.6)
-            divWorld:SetColorTexture(cr, cg, cb, ca * 0.35)
-            divLocal:SetColorTexture(cr, cg, cb, ca * 0.35)
+            divWorld:SetTexture(cr, cg, cb, ca * 0.35)
+            divLocal:SetTexture(cr, cg, cb, ca * 0.35)
 
             local fps = floor(GetFramerate() + 0.5)
             fsFps:SetText(fps .. " fps")
@@ -1871,7 +1871,7 @@ do
         })
     end)
 
-    local fpsBind = CreateFrame("Button", "EUI_FPSBindBtn", UIParent)
+    local fpsBind = EllesmereUI.SafeCreateFrame("Button", "EUI_FPSBindBtn", UIParent)
     fpsBind:Hide()
     fpsBind:SetScript("OnClick", function()
         EllesmereUI.QoLExtrasSet("showFPS", not EllesmereUI.QoLExtrasGet("showFPS"))
@@ -1888,7 +1888,7 @@ do
             end
         end
         if InCombatLockdown() then
-            local w = CreateFrame("Frame")
+            local w = EllesmereUI.SafeCreateFrame("Frame")
             w:RegisterEvent("PLAYER_REGEN_ENABLED")
             w:SetScript("OnEvent", function(self)
                 self:UnregisterAllEvents()
@@ -1908,7 +1908,7 @@ do
     local function CreateDurabilityWarning()
         if durWarnOverlay then return end
 
-        durWarnOverlay = CreateFrame("Frame", nil, UIParent)
+        durWarnOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         durWarnOverlay:SetSize(400, 40)
         durWarnOverlay:SetFrameStrata("HIGH")
         durWarnOverlay:SetFrameLevel(50)
@@ -1988,7 +1988,7 @@ do
         if durWarnOverlay then durWarnOverlay:Hide() end
     end
 
-    local repairWarnFrame = CreateFrame("Frame", nil, UIParent)
+    local repairWarnFrame = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
 
     local function CheckDurabilityAndShow()
         if not EllesmereUIDB then return end
@@ -2060,7 +2060,7 @@ do
 
     EllesmereUI._applyPPUIScale = ApplyPPUIScale
 
-    local ppScaleFrame = CreateFrame("Frame")
+    local ppScaleFrame = EllesmereUI.SafeCreateFrame("Frame")
     ppScaleFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     ppScaleFrame:SetScript("OnEvent", function(self)
         self:UnregisterEvent("PLAYER_ENTERING_WORLD")
@@ -2072,17 +2072,17 @@ end
 --  Disable Right Click Targeting
 -------------------------------------------------------------------------------
 do
-    local mlookBtn = CreateFrame("Button", "EUI_MouseLookBtn", UIParent)
+    local mlookBtn = EllesmereUI.SafeCreateFrame("Button", "EUI_MouseLookBtn", UIParent)
     mlookBtn:RegisterForClicks("AnyDown", "AnyUp")
     mlookBtn:SetScript("OnClick", function(_, _, down)
         if down then MouselookStart() else MouselookStop() end
     end)
 
-    local stateFrame = CreateFrame("Frame", "EUI_NoRightClickState", UIParent, "SecureHandlerStateTemplate")
+    local stateFrame = EllesmereUI.SafeCreateFrame("Frame", "EUI_NoRightClickState", UIParent, "SecureHandlerStateTemplate")
 
     local function ApplyRightClickTarget()
         if InCombatLockdown() then
-            local deferFrame = CreateFrame("Frame")
+            local deferFrame = EllesmereUI.SafeCreateFrame("Frame")
             deferFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
             deferFrame:SetScript("OnEvent", function(self)
                 self:UnregisterAllEvents()
@@ -2125,7 +2125,7 @@ do
 
     EllesmereUI._applyRightClickTarget = ApplyRightClickTarget
 
-    local rcInitFrame = CreateFrame("Frame")
+    local rcInitFrame = EllesmereUI.SafeCreateFrame("Frame")
     rcInitFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     rcInitFrame:SetScript("OnEvent", function(self)
         self:UnregisterEvent("PLAYER_ENTERING_WORLD")
@@ -2279,7 +2279,7 @@ do
 
     local function CreateCrosshair()
         if crosshairFrame then return end
-        crosshairFrame = CreateFrame("Frame", "EUI_CharacterCrosshair", UIParent)
+        crosshairFrame = EllesmereUI.SafeCreateFrame("Frame", "EUI_CharacterCrosshair", UIParent)
         -- MEDIUM sits above gameplay HUD but below DIALOG/HIGH panels (talents, character, etc.).
         crosshairFrame:SetFrameStrata("MEDIUM")
         crosshairFrame:SetFrameLevel(100)
@@ -2314,8 +2314,8 @@ do
                 EllesmereUI.Range_SetActive("crosshair", false)
                 if self._meleeActive then
                     self._meleeActive = false
-                    self._hBar:SetColorTexture(nc.r, nc.g, nc.b, nc.a)
-                    self._vBar:SetColorTexture(nc.r, nc.g, nc.b, nc.a)
+                    self._hBar:SetTexture(nc.r, nc.g, nc.b, nc.a)
+                    self._vBar:SetTexture(nc.r, nc.g, nc.b, nc.a)
                 end
                 return
             end
@@ -2326,8 +2326,8 @@ do
             if outOfRange ~= self._meleeActive then
                 self._meleeActive = outOfRange
                 local c = outOfRange and (CrosshairGet("crosshairMeleeColor") or { r = 1, g = 0, b = 0, a = 1 }) or nc
-                self._hBar:SetColorTexture(c.r or 1, c.g or 0, c.b or 0, c.a or 1)
-                self._vBar:SetColorTexture(c.r or 1, c.g or 0, c.b or 0, c.a or 1)
+                self._hBar:SetTexture(c.r or 1, c.g or 0, c.b or 0, c.a or 1)
+                self._vBar:SetTexture(c.r or 1, c.g or 0, c.b or 0, c.a or 1)
             end
         end)
     end
@@ -2346,7 +2346,7 @@ do
     -- crosshair is enabled: with the size set to "None" nothing fires here.
     -- On the off->on transition the cutoff range is re-read directly to catch
     -- spec changes that happened while unregistered.
-    local visWatch = CreateFrame("Frame")
+    local visWatch = EllesmereUI.SafeCreateFrame("Frame")
     local visWatchRegistered = false
     visWatch:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_ENTERING_WORLD" or event == "TRAIT_CONFIG_UPDATED" then
@@ -2416,12 +2416,12 @@ do
         hBar:ClearAllPoints()
         hBar:SetSize(PP.Scale(hLen), PP.Scale(hWidth))
         hBar:SetPoint("CENTER", crosshairFrame, "CENTER", 0, 0)
-        hBar:SetColorTexture(cr, cg, cb, ca)
+        hBar:SetTexture(cr, cg, cb, ca)
 
         vBar:ClearAllPoints()
         vBar:SetSize(PP.Scale(vWidth), PP.Scale(vLen))
         vBar:SetPoint("CENTER", crosshairFrame, "CENTER", 0, 0)
-        vBar:SetColorTexture(cr, cg, cb, ca)
+        vBar:SetTexture(cr, cg, cb, ca)
 
         -- Base colour for the out-of-melee-range recolor, reset the melee state
         -- so the OnUpdate re-applies the range colour next tick if still needed.
@@ -2435,12 +2435,12 @@ do
             hBorder:ClearAllPoints()
             hBorder:SetSize(PP.Scale(hLen) + bp * 2, PP.Scale(hWidth) + bp * 2)
             hBorder:SetPoint("CENTER", crosshairFrame, "CENTER", 0, 0)
-            hBorder:SetColorTexture(br, bg, bb, ba)
+            hBorder:SetTexture(br, bg, bb, ba)
             hBorder:Show()
             vBorder:ClearAllPoints()
             vBorder:SetSize(PP.Scale(vWidth) + bp * 2, PP.Scale(vLen) + bp * 2)
             vBorder:SetPoint("CENTER", crosshairFrame, "CENTER", 0, 0)
-            vBorder:SetColorTexture(br, bg, bb, ba)
+            vBorder:SetTexture(br, bg, bb, ba)
             vBorder:Show()
         else
             hBorder:Hide()
@@ -2477,7 +2477,7 @@ do
             local mapLoaded = C_AddOns.IsAddOnLoaded("Blizzard_WorldMap")
             if not mapLoaded or not WorldMapFrame then return end
 
-            coordFrame = CreateFrame("Frame", nil, WorldMapFrame.ScrollContainer)
+            coordFrame = EllesmereUI.SafeCreateFrame("Frame", nil, WorldMapFrame.ScrollContainer)
             coordFrame:SetFrameStrata("HIGH")
             coordFrame:SetSize(1, 1)
             coordFrame:SetPoint("BOTTOM", WorldMapFrame.ScrollContainer, "BOTTOM", 0, 10)
@@ -2488,7 +2488,7 @@ do
             local sz = (EllesmereUIDB and EllesmereUIDB.mapCoordsTextSize) or 12
 
             local divider = coordFrame:CreateTexture(nil, "OVERLAY")
-            divider:SetColorTexture(1, 1, 1, 0.9)
+            divider:SetTexture(1, 1, 1, 0.9)
             PP.Size(divider, 2, sz)
             divider:SetPoint("BOTTOM", coordFrame, "BOTTOM", 0, 0)
 
@@ -2590,7 +2590,7 @@ do
         if C_AddOns.IsAddOnLoaded("Blizzard_WorldMap") then
             EllesmereUI._applyMapCoords()
         else
-            local loader = CreateFrame("Frame")
+            local loader = EllesmereUI.SafeCreateFrame("Frame")
             loader:RegisterEvent("ADDON_LOADED")
             loader:SetScript("OnEvent", function(self, _, addonName)
                 if addonName == "Blizzard_WorldMap" then
@@ -2668,7 +2668,7 @@ do
     end
     EllesmereUI._applyHideErrorMessages = ApplyHideErrorMessages
 
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f:RegisterEvent("PLAYER_LOGIN")
     f:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
@@ -2824,7 +2824,7 @@ do
     end
     EllesmereUI._applyHideTutorials = ApplyHideTutorials
 
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f:RegisterEvent("PLAYER_LOGIN")
     f:RegisterEvent("ADDON_LOADED")
     f:SetScript("OnEvent", function(_, event, addon)
@@ -2886,7 +2886,7 @@ do
     local function CreateAlertOverlay()
         if alertOverlay then return end
 
-        alertOverlay = CreateFrame("Frame", nil, UIParent)
+        alertOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         alertOverlay:SetSize(240, 50)
         alertOverlay:SetFrameStrata("HIGH")
         alertOverlay:SetFrameLevel(60)
@@ -3171,10 +3171,10 @@ do
         })
     end)
 
-    watcher = CreateFrame("Frame")
+    watcher = EllesmereUI.SafeCreateFrame("Frame")
     watcher:SetScript("OnEvent", function() UpdateActive() end)
 
-    local boot = CreateFrame("Frame")
+    local boot = EllesmereUI.SafeCreateFrame("Frame")
     boot:RegisterEvent("PLAYER_LOGIN")
     boot:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
@@ -3267,7 +3267,7 @@ do
     local function CreateAlertFrame()
         if alertFrame then return end
 
-        alertFrame = CreateFrame("Frame", nil, UIParent)
+        alertFrame = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         alertFrame:SetSize(240, 50)
         alertFrame:SetFrameStrata("HIGH")
         alertFrame:SetFrameLevel(60)
@@ -3356,7 +3356,7 @@ do
         ApplyOverlaySettings()
     end
 
-    watcher = CreateFrame("Frame")
+    watcher = EllesmereUI.SafeCreateFrame("Frame")
     watcher:SetScript("OnEvent", OnCombatEvent)
 
     -- Register the alert with Unlock Mode so its position can be dragged.
@@ -3407,7 +3407,7 @@ do
         })
     end)
 
-    local boot = CreateFrame("Frame")
+    local boot = EllesmereUI.SafeCreateFrame("Frame")
     boot:RegisterEvent("PLAYER_LOGIN")
     boot:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
@@ -3540,7 +3540,7 @@ do
 
     local function CreateDistFrame()
         if distFrame then return end
-        distFrame = CreateFrame("Frame", nil, UIParent)
+        distFrame = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         distFrame:SetSize(100, 28)
         distFrame:SetFrameStrata("HIGH")
         distFrame:SetFrameLevel(55)
@@ -3584,11 +3584,11 @@ do
 
     local function StartDriver()
         if not drv then
-            drv = CreateFrame("Frame")
+            drv = EllesmereUI.SafeCreateFrame("Frame")
             drv:Hide()
         end
         if not evt then
-            evt = CreateFrame("Frame")
+            evt = EllesmereUI.SafeCreateFrame("Frame")
             evt:SetScript("OnEvent", function()
                 if not IsEnabled() then return end
                 Tick()
@@ -3700,7 +3700,7 @@ do
     end)
 
     -- One-shot login: only starts the driver when the option is already on.
-    local boot = CreateFrame("Frame")
+    local boot = EllesmereUI.SafeCreateFrame("Frame")
     boot:RegisterEvent("PLAYER_LOGIN")
     boot:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
@@ -3790,7 +3790,7 @@ do
         end
     end
 
-    local auraFrame = CreateFrame("Frame")
+    local auraFrame = EllesmereUI.SafeCreateFrame("Frame")
 
     -- 12.1: index scans hard-error while aura restrictions are active
     -- (M+/raids, even out of combat). Transforms are cosmetic; skipping the
@@ -3847,7 +3847,7 @@ do
     -- Fishing outfit: aura 394009 sticks while the fishing channel (131476)
     -- runs, so it is cleared when the channel stops. Only registered while the
     -- feature is on and the Fishing entry is included.
-    local fishFrame = CreateFrame("Frame")
+    local fishFrame = EllesmereUI.SafeCreateFrame("Frame")
     fishFrame:SetScript("OnEvent", function(_, _, _, _, spellID)
         if issecretvalue and issecretvalue(spellID) then return end
         if spellID ~= 131476 then return end
@@ -3908,7 +3908,7 @@ do
         ApplyHideTransforms()
     end
 
-    local boot = CreateFrame("Frame")
+    local boot = EllesmereUI.SafeCreateFrame("Frame")
     boot:RegisterEvent("PLAYER_LOGIN")
     boot:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()
@@ -4045,7 +4045,7 @@ do
         end)
     end
 
-    local f = CreateFrame("Frame")
+    local f = EllesmereUI.SafeCreateFrame("Frame")
     f:RegisterEvent("PLAYER_LOGIN")
     f:SetScript("OnEvent", function(self)
         self:UnregisterAllEvents()

@@ -68,13 +68,13 @@ local BISECT_TEX_SHIFT_OFF = false      -- 8: CLEARED (this cycle) -- textures
 -- module avoided exactly this ("zero writes to Blizzard frames" -- its
 -- underline lived on a UIParent clip frame). FIX: all per-tab host frames
 -- are parented to the shared UIParent clip container below and only
--- ANCHORED to their tab. NEVER CreateFrame with a Blizzard chat tab (or
+-- ANCHORED to their tab. NEVER EllesmereUI.SafeCreateFrame with a Blizzard chat tab (or
 -- chat frame) as parent. Textures created directly on tabs (bg/hover)
 -- are fine -- they existed in 8.5.2, field-clean.
 local _tabHostClip
 local function GetTabHostClip()
     if _tabHostClip then return _tabHostClip end
-    local clip = CreateFrame("Frame", nil, UIParent)
+    local clip = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     clip:SetFrameStrata("DIALOG")
     clip:EnableMouse(false)
     clip:SetClipsChildren(true)
@@ -260,7 +260,7 @@ local function GetOutlineFlag()
     return ""
 end
 
-local _hiddenParent = CreateFrame("Frame")
+local _hiddenParent = EllesmereUI.SafeCreateFrame("Frame")
 _hiddenParent:Hide()
 
 -- Unified fade system: all alpha changes go through a target + lerp.
@@ -276,7 +276,7 @@ local FADE_OUT_DURATION = 1.0
 local IDLE_FADE_OUT_DURATION = 2.0
 local _chatAlphaTarget = 1
 local _chatAlphaCurrent = 1
-local _chatFadeFrame = CreateFrame("Frame")
+local _chatFadeFrame = EllesmereUI.SafeCreateFrame("Frame")
 _chatFadeFrame:Hide()
 local _visAlpha = 1
 local _euiDockStyled
@@ -458,7 +458,7 @@ function ECHAT.ApplyBackground()
                     -- Clear any texture-mode tint before returning to solid,
                     -- or the color would double-tint through the vertex color.
                     if bgTex.SetVertexColor then bgTex:SetVertexColor(1, 1, 1, 1) end
-                    bgTex:SetColorTexture(BG_R, BG_G, BG_B, BG_A)
+                    bgTex:SetTexture(BG_R, BG_G, BG_B, BG_A)
                 end
             end
         end
@@ -468,7 +468,7 @@ function ECHAT.ApplyBackground()
     if cf1 and CFD(cf1).sidebar then
         local sbBg = CFD(cf1).sidebar:GetRegions()
         if sbBg and sbBg.SetColorTexture then
-            sbBg:SetColorTexture(BG_R, BG_G, BG_B, BG_A)
+            sbBg:SetTexture(BG_R, BG_G, BG_B, BG_A)
         end
     end
     -- Keep the behind-tabs extension in sync with the new color/opacity.
@@ -505,7 +505,7 @@ function ECHAT.ApplyExtendedBackground()
 
     local ext = ns._chatBgExt
     if extend and not ext then
-        ext = CreateFrame("Frame", nil, UIParent)
+        ext = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         ext:SetPoint("BOTTOMLEFT", bg1, "TOPLEFT", 0, 0)
         ext:SetPoint("BOTTOMRIGHT", bg1, "TOPRIGHT", 0, 0)
         ext:SetHeight(GetTabAreaHeight())
@@ -517,7 +517,7 @@ function ECHAT.ApplyExtendedBackground()
     end
     if ext then
         ext:SetHeight(GetTabAreaHeight())
-        if ns._chatBgExtTex then ns._chatBgExtTex:SetColorTexture(BG_R, BG_G, BG_B, BG_A) end
+        if ns._chatBgExtTex then ns._chatBgExtTex:SetTexture(BG_R, BG_G, BG_B, BG_A) end
         -- Sit at the very bottom of the UI so the tabs (and their own dark
         -- backgrounds) always render in front of this strip. BACKGROUND is still
         -- above the 3D world, and the strip never overlaps the chat text or the
@@ -527,7 +527,7 @@ function ECHAT.ApplyExtendedBackground()
         -- mode, whose outward half stays visible around the strip.
         ext:SetFrameLevel(1)
         if _chatAlphaCurrent then ext:SetAlpha(_chatAlphaCurrent) end
-        ext:SetShown(extend)
+        if extend then ext:Show() else ext:Hide() end
     end
 
     -- Sidebar (ChatFrame1 only): a matching strip above the sidebar, plus a 1px
@@ -539,7 +539,7 @@ function ECHAT.ApplyExtendedBackground()
         local showSb = extend and not cfg.hideSidebarBg
         local sext = d1.sidebarExt
         if showSb and not sext then
-            sext = CreateFrame("Frame", nil, sb)
+            sext = EllesmereUI.SafeCreateFrame("Frame", nil, sb)
             sext:SetPoint("BOTTOMLEFT", sb, "TOPLEFT", 0, 0)
             sext:SetPoint("BOTTOMRIGHT", sb, "TOPRIGHT", 0, 0)
             sext:SetHeight(GetTabAreaHeight())
@@ -550,7 +550,7 @@ function ECHAT.ApplyExtendedBackground()
             local div = sext:CreateTexture(nil, "OVERLAY", nil, 7)
             div._euiOwned = true
             div:SetWidth((PP and PP.mult) or 1)
-            div:SetColorTexture(GetInnerBorderColor(cfg))
+            div:SetTexture(GetInnerBorderColor(cfg))
             if PP and PP.DisablePixelSnap then PP.DisablePixelSnap(div) end
             d1.sidebarExt = sext
             d1.sidebarExtTex = t
@@ -558,10 +558,10 @@ function ECHAT.ApplyExtendedBackground()
         end
         if sext then
             sext:SetHeight(GetTabAreaHeight())
-            if d1.sidebarExtTex then d1.sidebarExtTex:SetColorTexture(BG_R, BG_G, BG_B, BG_A) end
+            if d1.sidebarExtTex then d1.sidebarExtTex:SetTexture(BG_R, BG_G, BG_B, BG_A) end
             local div = d1.sidebarExtDiv
             if div then
-                div:SetColorTexture(GetInnerBorderColor(cfg))
+                div:SetTexture(GetInnerBorderColor(cfg))
                 div:ClearAllPoints()
                 if cfg.sidebarRight then
                     div:SetPoint("TOPLEFT", sext, "TOPLEFT", 0, 0)
@@ -570,9 +570,9 @@ function ECHAT.ApplyExtendedBackground()
                     div:SetPoint("TOPRIGHT", sext, "TOPRIGHT", 0, 0)
                     div:SetPoint("BOTTOMRIGHT", sext, "BOTTOMRIGHT", 0, 0)
                 end
-                div:SetShown(not cfg.hideBorders)
+                if not cfg.hideBorders then div:Show() else div:Hide() end
             end
-            sext:SetShown(showSb)
+            if showSb then sext:Show() else sext:Hide() end
         end
     end
 
@@ -580,7 +580,7 @@ function ECHAT.ApplyExtendedBackground()
     -- background, and the sidebar on whichever side it currently occupies.
     local border = ns._chatPanelBorder
     if not border then
-        border = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+        border = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent, "BackdropTemplate")
         border:EnableMouse(false)
         ns._chatPanelBorder = border
     end
@@ -648,7 +648,7 @@ function ECHAT.ApplyExtendedBackground()
                 and (cfg.sidebarVisibility or "always") ~= "never"
             local sbBorder = ns._sidebarSeparateBorder
             if wantSbBorder and not sbBorder then
-                sbBorder = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+                sbBorder = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent, "BackdropTemplate")
                 sbBorder:EnableMouse(false)
                 ns._sidebarSeparateBorder = sbBorder
             end
@@ -751,7 +751,7 @@ function ECHAT.ApplySidebarVisibility()
 
     -- Create fade frame once, reuse
     if not _sidebarFadeFrame then
-        _sidebarFadeFrame = CreateFrame("Frame")
+        _sidebarFadeFrame = EllesmereUI.SafeCreateFrame("Frame")
         _sidebarFadeFrame:Hide()
         _sidebarFadeFrame:SetScript("OnUpdate", function(self, dt)
             local step = dt * 4  -- 0.25s fade
@@ -780,11 +780,11 @@ function ECHAT.ApplyBorders()
         local cf = _G["ChatFrame" .. i]
         if cf and CFD(cf).bg and PP.GetBorders(CFD(cf).bg) then
             PP.SetBorderColor(CFD(cf).bg, r, g, b, a)
-            PP.GetBorders(CFD(cf).bg):SetShown(not hide)
+            if not hide then PP.GetBorders(CFD(cf).bg):Show() else PP.GetBorders(CFD(cf).bg):Hide() end
         end
         if cf and CFD(cf).inputDiv then
-            CFD(cf).inputDiv:SetColorTexture(r, g, b, a)
-            CFD(cf).inputDiv:SetShown(not hide)
+            CFD(cf).inputDiv:SetTexture(r, g, b, a)
+            CFD(cf)if not hide then .inputDiv:Show() else .inputDiv:Hide() end
         end
     end
     local cf1 = _G.ChatFrame1
@@ -792,11 +792,11 @@ function ECHAT.ApplyBorders()
         local sbBgHidden = cfg.hideSidebarBg
         if PP.GetBorders(CFD(cf1).sidebar) then
             PP.SetBorderColor(CFD(cf1).sidebar, r, g, b, a)
-            PP.GetBorders(CFD(cf1).sidebar):SetShown(not hide and not sbBgHidden)
+            if not hide and not sbBgHidden then PP.GetBorders(CFD(cf1).sidebar):Show() else PP.GetBorders(CFD(cf1).sidebar):Hide() end
         end
         if CFD(cf1).sidebarDiv then
-            CFD(cf1).sidebarDiv:SetColorTexture(r, g, b, a)
-            CFD(cf1).sidebarDiv:SetShown(not hide)
+            CFD(cf1).sidebarDiv:SetTexture(r, g, b, a)
+            CFD(cf1)if not hide then .sidebarDiv:Show() else .sidebarDiv:Hide() end
         end
     end
     -- Mirror border visibility onto the behind-tabs divider continuation.
@@ -839,9 +839,9 @@ function ECHAT.ApplySidebarIcons()
         local btn = refs and sbd[refs.btn]
         if btn then
             local shown = cfg[key] ~= false
-            btn:SetShown(shown)
+            if shown then btn:Show() else btn:Hide() end
             local tail = refs.tail and sbd[refs.tail]
-            if tail then tail:SetShown(shown) end
+            if tail then if shown then tail:Show() else tail:Hide() end end
             if shown then
                 btn:ClearAllPoints()
                 if anchor then
@@ -855,7 +855,7 @@ function ECHAT.ApplySidebarIcons()
     end
 
     -- Scroll is independent
-    if sbd.scrollBtn then sbd.scrollBtn:SetShown(cfg.showScroll ~= false) end
+    if sbd.scrollBtn then if cfg.showScroll ~= false then sbd.scrollBtn:Show() else sbd.scrollBtn:Hide() end end
 
     -- Re-apply free move offsets after chain layout
     if ECHAT.ApplyIconFreeMove then ECHAT.ApplyIconFreeMove() end
@@ -1011,7 +1011,7 @@ function ECHAT.ApplySidebarPosition()
             CFD(cf1).sidebarDiv:SetPoint("TOPRIGHT", sb, "TOPRIGHT", 0, 0)
             CFD(cf1).sidebarDiv:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0)
         end
-        CFD(cf1).sidebarDiv:SetShown(cfg.sidebarSeparate ~= true)
+        CFD(cf1)if cfg.sidebarSeparate ~= true then .sidebarDiv:Show() else .sidebarDiv:Hide() end
     end
 
     -- Re-place the behind-tabs divider continuation onto the new edge.
@@ -1117,10 +1117,10 @@ function ECHAT.ApplySidebarBackground()
     local show = not cfg.hideSidebarBg
     local sbBg = sb:GetRegions()
     if sbBg and sbBg.SetShown then
-        sbBg:SetShown(show)
+        if show then sbBg:Show() else sbBg:Hide() end
     end
     if PP.GetBorders(sb) then
-        PP.GetBorders(sb):SetShown(show)
+        if show then PP.GetBorders(sb):Show() else PP.GetBorders(sb):Hide() end
     end
     -- Hide the sidebar extension too when the sidebar background is hidden.
     if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
@@ -1408,7 +1408,7 @@ local function CreatePortalFlyout()
     local hsX = PADDING + COLS * BTN_SIZE + (COLS - 1) * SPACING + SPACING
     local flyW = hsX + HS_H + PADDING
 
-    local flyout = CreateFrame("Frame", "EUIChatPortalFlyout", UIParent)
+    local flyout = EllesmereUI.SafeCreateFrame("Frame", "EUIChatPortalFlyout", UIParent)
     flyout:SetSize(flyW, flyH)
     flyout:SetFrameStrata("DIALOG")
     flyout:SetFrameLevel(100)
@@ -1416,14 +1416,14 @@ local function CreatePortalFlyout()
 
     local bg = flyout:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(BG_R, BG_G, BG_B, 0.95)
+    bg:SetTexture(BG_R, BG_G, BG_B, 0.95)
 
     if PP and PP.CreateBorder then
         PP.CreateBorder(flyout, 1, 1, 1, 0.06, 1, "OVERLAY", 7)
     end
 
     -- Close in combat
-    local guard = CreateFrame("Frame")
+    local guard = EllesmereUI.SafeCreateFrame("Frame")
     guard:RegisterEvent("PLAYER_REGEN_DISABLED")
     guard:SetScript("OnEvent", function()
         flyout:Hide()
@@ -1435,7 +1435,7 @@ local function CreatePortalFlyout()
         local col = (i - 1) % COLS
         local row = floor((i - 1) / COLS)
 
-        local btn = CreateFrame("Button", "EUIChatPortal" .. i, flyout, "SecureActionButtonTemplate")
+        local btn = EllesmereUI.SafeCreateFrame("Button", "EUIChatPortal" .. i, flyout, "SecureActionButtonTemplate")
         btn:SetSize(BTN_SIZE, BTN_SIZE)
         btn:SetPoint("TOPLEFT", flyout, "TOPLEFT",
             PADDING + col * (BTN_SIZE + SPACING),
@@ -1455,7 +1455,7 @@ local function CreatePortalFlyout()
             PP.CreateBorder(btn, 0, 0, 0, 1, 1, "OVERLAY", 7)
         end
 
-        local cd = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
+        local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
         cd:SetAllPoints()
         cd:SetHideCountdownNumbers(true)
         cd:SetDrawSwipe(true)
@@ -1465,7 +1465,7 @@ local function CreatePortalFlyout()
 
         local short = PORTAL_SHORT[spellID]
         if short then
-            local labelFrame = CreateFrame("Frame", nil, btn)
+            local labelFrame = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
             labelFrame:SetAllPoints()
             labelFrame:SetFrameLevel(cd:GetFrameLevel() + 2)
             local label = labelFrame:CreateFontString(nil, "OVERLAY", nil)
@@ -1479,12 +1479,12 @@ local function CreatePortalFlyout()
         -- Hover highlight (HIGHLIGHT layer auto-shows on mouseover)
         local hover = btn:CreateTexture(nil, "HIGHLIGHT")
         hover:SetAllPoints()
-        hover:SetColorTexture(1, 1, 1, 0.20)
+        hover:SetTexture(1, 1, 1, 0.20)
 
         -- Casting highlight overlay
         local castHL = btn:CreateTexture(nil, "OVERLAY", nil, 1)
         castHL:SetAllPoints()
-        castHL:SetColorTexture(1, 1, 1, 0.4)
+        castHL:SetTexture(1, 1, 1, 0.4)
         castHL:Hide()
         btn._castHL = castHL
 
@@ -1508,7 +1508,7 @@ local function CreatePortalFlyout()
     -- on the right side, separated by a thin vertical divider.
     local _hearthBtns = {}
     for i = 1, HS_COUNT do
-        local btn = CreateFrame("Button", "EUIChatHearth" .. i, flyout, "SecureActionButtonTemplate")
+        local btn = EllesmereUI.SafeCreateFrame("Button", "EUIChatHearth" .. i, flyout, "SecureActionButtonTemplate")
         btn:SetSize(HS_H, HS_H)
         btn:SetPoint("TOPLEFT", flyout, "TOPLEFT",
             hsX,
@@ -1523,7 +1523,7 @@ local function CreatePortalFlyout()
             PP.CreateBorder(btn, 0, 0, 0, 1, 1, "OVERLAY", 7)
         end
 
-        local cd = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
+        local cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
         cd:SetAllPoints()
         cd:SetHideCountdownNumbers(true)
         cd:SetDrawSwipe(true)
@@ -1533,7 +1533,7 @@ local function CreatePortalFlyout()
 
         local hover = btn:CreateTexture(nil, "HIGHLIGHT")
         hover:SetAllPoints()
-        hover:SetColorTexture(1, 1, 1, 0.20)
+        hover:SetTexture(1, 1, 1, 0.20)
 
         btn:RegisterForClicks("AnyUp", "AnyDown")
 
@@ -1556,7 +1556,7 @@ local function CreatePortalFlyout()
         -- Casting highlight overlay (same as portal buttons)
         local castHL = btn:CreateTexture(nil, "OVERLAY", nil, 1)
         castHL:SetAllPoints()
-        castHL:SetColorTexture(1, 1, 1, 0.4)
+        castHL:SetTexture(1, 1, 1, 0.4)
         castHL:Hide()
         btn._castHL = castHL
 
@@ -1673,7 +1673,7 @@ local function CreatePortalFlyout()
             local casting = (event == "UNIT_SPELLCAST_START") and spellID or nil
             for _, btn in ipairs(_portalBtns) do
                 if btn._castHL then
-                    btn._castHL:SetShown(casting and casting == btn.spellID)
+                    if casting and casting == btn.spellID then btn._castHL:Show() else btn._castHL:Hide() end
                 end
             end
             -- Clear hearthstone cast highlights on cast end
@@ -1986,7 +1986,7 @@ local function ShowCopyPopup(text)
         local POPUP_W, POPUP_H = 520, 340
 
         -- Dimmer
-        local dimmer = CreateFrame("Frame", nil, UIParent)
+        local dimmer = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
         dimmer:SetAllPoints(UIParent)
         dimmer:EnableMouse(true)
@@ -1997,7 +1997,7 @@ local function ShowCopyPopup(text)
         dimTex:SetAllPoints()
 
         -- Popup frame
-        local popup = CreateFrame("Frame", nil, dimmer)
+        local popup = EllesmereUI.SafeCreateFrame("Frame", nil, dimmer)
         popup:SetSize(POPUP_W, POPUP_H)
         popup:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
         popup:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -2009,7 +2009,7 @@ local function ShowCopyPopup(text)
         EUI.MakeBorder(popup, 1, 1, 1, 0.15, EUI.PanelPP)
 
         -- ScrollingEditBox (Blizzard template: scrolling + selection built-in)
-        local textBox = CreateFrame("Frame", nil, popup, "ScrollingEditBoxTemplate")
+        local textBox = EllesmereUI.SafeCreateFrame("Frame", nil, popup, "ScrollingEditBoxTemplate")
         textBox:SetPoint("TOPLEFT", popup, "TOPLEFT", 20, -20)
         textBox:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -20, 60)
 
@@ -2029,7 +2029,7 @@ local function ShowCopyPopup(text)
 
         -- Thin interactive scrollbar reading from the template's ScrollBox
         local scrollBox = textBox:GetScrollBox()
-        local track = CreateFrame("Button", nil, popup)
+        local track = EllesmereUI.SafeCreateFrame("Button", nil, popup)
         track:SetWidth(8)
         track:SetPoint("TOPRIGHT", textBox, "TOPRIGHT", 2, -2)
         track:SetPoint("BOTTOMRIGHT", textBox, "BOTTOMRIGHT", 2, 2)
@@ -2038,7 +2038,7 @@ local function ShowCopyPopup(text)
         track:RegisterForClicks("AnyUp")
 
         local thumb = track:CreateTexture(nil, "ARTWORK")
-        thumb:SetColorTexture(1, 1, 1, 0.27)
+        thumb:SetTexture(1, 1, 1, 0.27)
         thumb:SetWidth(4)
         thumb:SetHeight(40)
         thumb:SetPoint("TOP", track, "TOP", 0, 0)
@@ -2098,7 +2098,7 @@ local function ShowCopyPopup(text)
         track:SetScript("OnMouseUp", function() _sbDragging = false end)
 
         -- Poll only while popup is open
-        local pollFrame = CreateFrame("Frame")
+        local pollFrame = EllesmereUI.SafeCreateFrame("Frame")
         pollFrame:Hide()
         local _lastPct, _lastExt = -1, -1
         pollFrame:SetScript("OnUpdate", function()
@@ -2119,7 +2119,7 @@ local function ShowCopyPopup(text)
         popup._editBox = editBox
 
         -- Close button
-        local closeBtn = CreateFrame("Button", nil, popup)
+        local closeBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
         closeBtn:SetSize(90, 24)
         closeBtn:SetPoint("BOTTOM", popup, "BOTTOM", 0, 14)
         closeBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
@@ -2206,13 +2206,13 @@ end
 
 local function ShowUrlPopup(url)
     if not urlPopup then
-        urlBackdrop = CreateFrame("Button", nil, UIParent)
+        urlBackdrop = EllesmereUI.SafeCreateFrame("Button", nil, UIParent)
         urlBackdrop:SetFrameStrata("DIALOG")
         urlBackdrop:SetFrameLevel(499)
         urlBackdrop:SetAllPoints(UIParent)
         local bdTex = urlBackdrop:CreateTexture(nil, "BACKGROUND")
         bdTex:SetAllPoints()
-        bdTex:SetColorTexture(0, 0, 0, 0.10)
+        bdTex:SetTexture(0, 0, 0, 0.10)
         local fadeIn = urlBackdrop:CreateAnimationGroup()
         fadeIn:SetToFinalAlpha(true)
         local a = fadeIn:CreateAnimation("Alpha")
@@ -2222,7 +2222,7 @@ local function ShowUrlPopup(url)
         urlBackdrop:SetScript("OnClick", HideUrlPopup)
         urlBackdrop:Hide()
 
-        urlPopup = CreateFrame("Frame", nil, UIParent)
+        urlPopup = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         urlPopup:SetFrameStrata("DIALOG")
         urlPopup:SetFrameLevel(500)
         urlPopup:SetSize(340, 52)
@@ -2235,7 +2235,7 @@ local function ShowUrlPopup(url)
 
         local bg = urlPopup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(0.06, 0.08, 0.10, 0.97)
+        bg:SetTexture(0.06, 0.08, 0.10, 0.97)
         if PP and PP.CreateBorder then
             PP.CreateBorder(urlPopup, 1, 1, 1, 0.15, 1, "OVERLAY", 7)
         end
@@ -2246,14 +2246,14 @@ local function ShowUrlPopup(url)
         hint:SetPoint("TOP", urlPopup, "TOP", 0, -6)
         hint:SetText("Ctrl+C to copy, Escape to close")
 
-        local eb = CreateFrame("EditBox", nil, urlPopup)
+        local eb = EllesmereUI.SafeCreateFrame("EditBox", nil, urlPopup)
         eb:SetSize(300, 16)
         eb:SetPoint("TOP", hint, "BOTTOM", 0, -4)
         eb:SetFont(GetFont(), 11, "")
         eb:SetAutoFocus(false)
         eb:SetJustifyH("CENTER")
         local ebBg = eb:CreateTexture(nil, "BACKGROUND")
-        ebBg:SetColorTexture(0.10, 0.12, 0.16, 1)
+        ebBg:SetTexture(0.10, 0.12, 0.16, 1)
         ebBg:SetPoint("TOPLEFT", -6, 4); ebBg:SetPoint("BOTTOMRIGHT", 6, -4)
         if PP and PP.CreateBorder then
             PP.CreateBorder(eb, 1, 1, 1, 0.02, 1, "OVERLAY", 7)
@@ -2467,7 +2467,7 @@ local function UpdateTabStyle(tab)
         else
             -- Clear texture-mode tint before returning to solid color.
             bgRegion:SetVertexColor(1, 1, 1, 1)
-            bgRegion:SetColorTexture(c.r or .03, c.g or .045, c.b or .05, c.a == nil and 1 or c.a)
+            bgRegion:SetTexture(c.r or .03, c.g or .045, c.b or .05, c.a == nil and 1 or c.a)
         end
     end
 
@@ -2494,8 +2494,8 @@ local function UpdateTabStyle(tab)
             local c = cfg.activeUnderlineColor or {r=.05,g=.82,b=.61,a=1}
             r, g, b, a = c.r, c.g, c.b, c.a == nil and 1 or c.a
         end
-        underline:SetColorTexture(r, g, b, a)
-        underline:SetShown(cfg.activeUnderline ~= false and isActive)
+        underline:SetTexture(r, g, b, a)
+        if cfg.activeUnderline ~= false and isActive then underline:Show() else underline:Hide() end
     end
 
 end
@@ -2642,7 +2642,7 @@ function ECHAT.ApplyTabBorders()
                 B("ShiftX", nil), B("ShiftY", nil), "chat", thicknessKey)
             local solidBorder = PP and PP.GetBorders and PP.GetBorders(host)
             if solidBorder then solidBorder:SetFrameLevel(level + 1) end
-            host:SetShown(show and size > 0 and tab:IsShown())
+            if show and size > 0 and tab:IsShown() then host:Show() else host:Hide() end
         end
     end
 end
@@ -2692,7 +2692,7 @@ function ECHAT.ApplyTabSeparators()
             ns._tabPanelBottomSeparatorTex = nil
         end
         if not ns._tabPanelSepHost then
-            local host = CreateFrame("Frame", nil, clip)
+            local host = EllesmereUI.SafeCreateFrame("Frame", nil, clip)
             host:SetFrameStrata("DIALOG")
             host:SetFrameLevel(90)
             host:EnableMouse(false)
@@ -2706,23 +2706,23 @@ function ECHAT.ApplyTabSeparators()
             ns._tabPanelBottomSeparatorTex = tex
             ns._tabPanelSepY = y
         end
-        ns._tabPanelBottomSeparatorTex:SetColorTexture(r, g, b, a)
-        ns._tabPanelSepHost:SetShown(show)
+        ns._tabPanelBottomSeparatorTex:SetTexture(r, g, b, a)
+        if show then ns._tabPanelSepHost:Show() else ns._tabPanelSepHost:Hide() end
     end
 
     for i = 1, 20 do
         local tab = _G["ChatFrame" .. i .. "Tab"]
         local d = tab and CFD(tab)
         if d and d.tabSeparatorHost then
-            d.tabSeparatorBottom:SetColorTexture(r, g, b, a)
-            d.tabSeparatorLeft:SetColorTexture(r, g, b, a)
+            d.tabSeparatorBottom:SetTexture(r, g, b, a)
+            d.tabSeparatorLeft:SetTexture(r, g, b, a)
             d.tabSeparatorBottom:Hide()
             -- A right edge on every docked tab creates all between-tab lines
             -- and gives the final tab the same clean outer edge.
-            d.tabSeparatorLeft:SetShown(show and dockedTabs[tab] == true)
+            if show and dockedTabs[tab] == true then d.tabSeparatorLeft:Show() else d.tabSeparatorLeft:Hide() end
             -- Clip-parented host no longer auto-hides with its tab; couple
             -- visibility explicitly.
-            d.tabSeparatorHost:SetShown(show and tab:IsShown())
+            if show and tab:IsShown() then d.tabSeparatorHost:Show() else d.tabSeparatorHost:Hide() end
         end
     end
 end
@@ -2746,14 +2746,14 @@ local function SkinTab(cf)
     local bg = tab:CreateTexture(nil, "BACKGROUND")
     bg._euiOwned = true
     bg:SetAllPoints()
-    bg:SetColorTexture(BG_R, BG_G, BG_B, BG_A * 0.67)
+    bg:SetTexture(BG_R, BG_G, BG_B, BG_A * 0.67)
     CFD(tab).bg = bg
 
     -- Hover highlight
     local hover = tab:CreateTexture(nil, "HIGHLIGHT")
     hover._euiOwned = true
     hover:SetAllPoints()
-    hover:SetColorTexture(1, 1, 1, 0.05)
+    hover:SetTexture(1, 1, 1, 0.05)
     CFD(tab).hover = hover
 
     -- Cache the tab's text FontString for UpdateTabStyle (avoids
@@ -2771,12 +2771,12 @@ local function SkinTab(cf)
     local hostParent = GetTabHostClip()
     -- NO tab anchors on hosts, ever (see FINAL HOST DESIGN at the top).
     -- PositionTabHosts places them numerically; they start hidden.
-    local panelBorder = CreateFrame("Frame", nil, hostParent)
+    local panelBorder = EllesmereUI.SafeCreateFrame("Frame", nil, hostParent)
     panelBorder:EnableMouse(false)
     panelBorder:Hide()
     CFD(tab).panelBorder = panelBorder
 
-    local separatorHost = CreateFrame("Frame", nil, hostParent)
+    local separatorHost = EllesmereUI.SafeCreateFrame("Frame", nil, hostParent)
     separatorHost:Hide()
     separatorHost:SetFrameStrata("DIALOG")
     separatorHost:SetFrameLevel(90)
@@ -2798,7 +2798,7 @@ local function SkinTab(cf)
     CFD(tab).tabSeparatorBottom = separatorBottom
     CFD(tab).tabSeparatorLeft = separatorLeft
 
-    local underlineHost = CreateFrame("Frame", nil, hostParent)
+    local underlineHost = EllesmereUI.SafeCreateFrame("Frame", nil, hostParent)
     underlineHost:Hide()
     underlineHost:SetFrameStrata("DIALOG")
     underlineHost:SetFrameLevel(95)
@@ -3150,7 +3150,7 @@ local function SkinChatFrame(cf)
 
     -- Unified dark background (covers chat + edit box as one panel)
     if not CFD(cf).bg then
-        local bg = CreateFrame("Frame", nil, cf)
+        local bg = EllesmereUI.SafeCreateFrame("Frame", nil, cf)
         local eb = _G[name .. "EditBox"]
         bg:SetPoint("TOPLEFT", cf, "TOPLEFT", -10, 3)
         bg:SetPoint("BOTTOMRIGHT", eb or cf, "BOTTOMRIGHT", 5, eb and -4 or -6)
@@ -3159,7 +3159,7 @@ local function SkinChatFrame(cf)
         local bgTex = bg:CreateTexture(nil, "BACKGROUND")
         bgTex._euiOwned = true
         bgTex:SetAllPoints()
-        bgTex:SetColorTexture(BG_R, BG_G, BG_B, BG_A)
+        bgTex:SetTexture(BG_R, BG_G, BG_B, BG_A)
 
         if not cf:IsShown() then
             bg:Hide()
@@ -3171,7 +3171,7 @@ local function SkinChatFrame(cf)
     -- Sidebar: 40px panel to the left of the main chat frame for icons.
     -- Parented to UIParent so it stays visible regardless of active tab.
     if name == "ChatFrame1" and not CFD(cf).sidebar then
-        local sidebar = CreateFrame("Frame", nil, UIParent)
+        local sidebar = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         sidebar:SetWidth(40)
         sidebar:SetPoint("TOPRIGHT", CFD(cf).bg, "TOPLEFT", 0, 0)
         sidebar:SetPoint("BOTTOMRIGHT", CFD(cf).bg, "BOTTOMLEFT", 0, 0)
@@ -3180,7 +3180,7 @@ local function SkinChatFrame(cf)
 
         local sbBg = sidebar:CreateTexture(nil, "BACKGROUND")
         sbBg:SetAllPoints()
-        sbBg:SetColorTexture(BG_R, BG_G, BG_B, BG_A)
+        sbBg:SetTexture(BG_R, BG_G, BG_B, BG_A)
 
         -- Sidebar mouseover hover (for "mouseover" visibility mode)
         sidebar:EnableMouse(true)
@@ -3210,7 +3210,7 @@ local function SkinChatFrame(cf)
         local sbDiv = sidebar:CreateTexture(nil, "OVERLAY", nil, 7)
         sbDiv._euiOwned = true
         sbDiv:SetWidth(onePx)
-        sbDiv:SetColorTexture(GetInnerBorderColor(ECHAT.DB()))
+        sbDiv:SetTexture(GetInnerBorderColor(ECHAT.DB()))
         sbDiv:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", 0, 0)
         sbDiv:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", 0, 0)
         if PP and PP.DisablePixelSnap then PP.DisablePixelSnap(sbDiv) end
@@ -3223,7 +3223,7 @@ local function SkinChatFrame(cf)
         local ICON_HOVER_ALPHA = 0.9
 
         local function MakeSidebarIcon(parent, texPath, anchorTo, anchorPoint, yOff)
-            local btn = CreateFrame("Button", nil, parent)
+            local btn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
             btn:SetSize(ICON_SIZE, ICON_SIZE)
             if anchorTo then
                 btn:SetPoint("TOP", anchorTo, "BOTTOM", 0, -ICON_SPACING)
@@ -3297,7 +3297,7 @@ local function SkinChatFrame(cf)
                 friendsCount:SetText(numOnline + wowOnline)
             end
 
-            local fcEvents = CreateFrame("Frame")
+            local fcEvents = EllesmereUI.SafeCreateFrame("Frame")
             fcEvents:RegisterEvent("BN_FRIEND_LIST_SIZE_CHANGED")
             fcEvents:RegisterEvent("BN_FRIEND_INFO_CHANGED")
             fcEvents:RegisterEvent("FRIENDLIST_UPDATE")
@@ -3345,7 +3345,7 @@ local function SkinChatFrame(cf)
                 guildCount:SetText(online)
             end
 
-            local gcEvents = CreateFrame("Frame")
+            local gcEvents = EllesmereUI.SafeCreateFrame("Frame")
             gcEvents:RegisterEvent("GUILD_ROSTER_UPDATE")
             gcEvents:RegisterEvent("PLAYER_GUILD_UPDATE")
             gcEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -3388,7 +3388,7 @@ local function SkinChatFrame(cf)
                 durabilityPct:SetText(math.floor(lowest) .. "%")
             end
 
-            local durEvents = CreateFrame("Frame")
+            local durEvents = EllesmereUI.SafeCreateFrame("Frame")
             durEvents:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
             durEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
             durEvents:SetScript("OnEvent", UpdateDurability)
@@ -3574,7 +3574,7 @@ local function SkinChatFrame(cf)
         local div = CFD(cf).bg:CreateTexture(nil, "OVERLAY", nil, 7)
         div._euiOwned = true
         div:SetHeight(onePx)
-        div:SetColorTexture(GetInnerBorderColor(ECHAT.DB()))
+        div:SetTexture(GetInnerBorderColor(ECHAT.DB()))
         div:SetPoint("BOTTOMLEFT", cf, "BOTTOMLEFT", -10, -8)
         div:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", 10, -8)
         if PP and PP.DisablePixelSnap then PP.DisablePixelSnap(div) end
@@ -3711,7 +3711,7 @@ local function SkinChatFrame(cf)
             -- Dark background matching our panel
             local qbfBg = qbf:CreateTexture(nil, "BACKGROUND")
             qbfBg:SetAllPoints()
-            qbfBg:SetColorTexture(BG_R, BG_G, BG_B, 1)
+            qbfBg:SetTexture(BG_R, BG_G, BG_B, 1)
 
 
             -- Bottom divider (separates filter tabs from messages)
@@ -3719,7 +3719,7 @@ local function SkinChatFrame(cf)
             local qbfDiv = qbf:CreateTexture(nil, "OVERLAY", nil, 7)
             qbfDiv._euiOwned = true
             qbfDiv:SetHeight(onePx)
-            qbfDiv:SetColorTexture(1, 1, 1, 0.06)
+            qbfDiv:SetTexture(1, 1, 1, 0.06)
             qbfDiv:SetPoint("BOTTOMLEFT", qbf, "BOTTOMLEFT", 0, 0)
             qbfDiv:SetPoint("BOTTOMRIGHT", qbf, "BOTTOMRIGHT", 0, 0)
             if PP and PP.DisablePixelSnap then PP.DisablePixelSnap(qbfDiv) end
@@ -3822,7 +3822,7 @@ local function UpdateTabColors()
     if cf1 and CFD(cf1).resizeGrip then
         local cfg = ECHAT.DB()
         local locked = cfg and cfg.lockChatSize
-        CFD(cf1).resizeGrip:SetShown(not locked and selected == cf1)
+        CFD(cf1)if not locked and selected == cf1 then .resizeGrip:Show() else .resizeGrip:Hide() end
     end
 end
 
@@ -3830,7 +3830,7 @@ end
 -------------------------------------------------------------------------------
 --  Initialization (PLAYER_LOGIN)
 -------------------------------------------------------------------------------
-local initFrame = CreateFrame("Frame")
+local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterAllEvents()
@@ -3969,7 +3969,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- The yellow-reset moments (login passes, zone transitions, dock
         -- config loads) all coincide with these events on our own frame --
         -- outside Blizzard's dispatch, deferred one tick.
-        local tabPassFrame = CreateFrame("Frame")
+        local tabPassFrame = EllesmereUI.SafeCreateFrame("Frame")
         tabPassFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         tabPassFrame:RegisterEvent("UPDATE_CHAT_WINDOWS")
         tabPassFrame:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS")
@@ -4002,7 +4002,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- deferred pass installs the per-tab SetPoint hook -- SkinTab's
     -- one-shot anchor catch-up handles that missed first write.
     do
-        local tempWinFrame = CreateFrame("Frame")
+        local tempWinFrame = EllesmereUI.SafeCreateFrame("Frame")
         tempWinFrame:RegisterEvent("CHAT_MSG_WHISPER")
         tempWinFrame:RegisterEvent("CHAT_MSG_WHISPER_INFORM")
         tempWinFrame:RegisterEvent("CHAT_MSG_BN_WHISPER")
@@ -4044,7 +4044,7 @@ initFrame:SetScript("OnEvent", function(self)
         UpdateTabColors()
     end
     do
-        local pinFrame = CreateFrame("Frame")
+        local pinFrame = EllesmereUI.SafeCreateFrame("Frame")
         pinFrame:RegisterEvent("LOADING_SCREEN_DISABLED")
         pinFrame:SetScript("OnEvent", function(self)
             self:UnregisterAllEvents()
@@ -4148,7 +4148,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Idle reset via standalone event frame (no hooks on chat frames).
-        local idleEventFrame = CreateFrame("Frame")
+        local idleEventFrame = EllesmereUI.SafeCreateFrame("Frame")
         for ev in pairs(CHAT_MSG_EVENTS) do
             idleEventFrame:RegisterEvent(ev)
         end
@@ -4230,7 +4230,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             local _whisperThrottle = 0
-            local whisperFrame = CreateFrame("Frame")
+            local whisperFrame = EllesmereUI.SafeCreateFrame("Frame")
             whisperFrame:RegisterEvent("CHAT_MSG_WHISPER")
             whisperFrame:RegisterEvent("CHAT_MSG_BN_WHISPER")
             whisperFrame:SetScript("OnEvent", function()
@@ -4283,7 +4283,7 @@ initFrame:SetScript("OnEvent", function(self)
             local bg1 = CFD(cf1).bg
             local sb = CFD(cf1).sidebar
             if bg1 and gdm then
-                local overlay = CreateFrame("Frame", nil, UIParent)
+                local overlay = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
                 overlay:SetPoint("TOPLEFT", gdm, "TOPLEFT", sb and -40 or 0, 0)
                 overlay:SetPoint("BOTTOMRIGHT", bg1, "BOTTOMRIGHT", 0, 0)
                 overlay:SetFrameStrata("BACKGROUND")
@@ -4363,7 +4363,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- secret errors). The deferred tab passes (PEW + C_Timer) are the
     -- field-proven-clean home for this work -- same cadence, one tick later.
     do
-        local bordersDefer = CreateFrame("Frame")
+        local bordersDefer = EllesmereUI.SafeCreateFrame("Frame")
         bordersDefer:RegisterEvent("PLAYER_ENTERING_WORLD")
         bordersDefer:SetScript("OnEvent", function(self)
             self:UnregisterAllEvents()
@@ -4377,13 +4377,13 @@ initFrame:SetScript("OnEvent", function(self)
         local _cf1 = _G.ChatFrame1
         if _cfg and _cf1 then
             local _sbd = CFD(_cf1)
-            if _sbd.scrollBtn then _sbd.scrollBtn:SetShown(_cfg.showScroll ~= false) end
-            if _sbd.friendsBtn then _sbd.friendsBtn:SetShown(_cfg.showFriends ~= false) end
-            if _sbd.durabilityBtn then _sbd.durabilityBtn:SetShown(_cfg.showDurability ~= false) end
-            if _sbd.copyBtn then _sbd.copyBtn:SetShown(_cfg.showCopy ~= false) end
-            if _sbd.portalBtn then _sbd.portalBtn:SetShown(_cfg.showPortals ~= false) end
-            if _sbd.voiceBtn then _sbd.voiceBtn:SetShown(_cfg.showVoice ~= false) end
-            if _sbd.settingsBtn then _sbd.settingsBtn:SetShown(_cfg.showSettings ~= false) end
+            if _sbd.scrollBtn then if _cfg.showScroll ~= false then _sbd.scrollBtn:Show() else _sbd.scrollBtn:Hide() end end
+            if _sbd.friendsBtn then if _cfg.showFriends ~= false then _sbd.friendsBtn:Show() else _sbd.friendsBtn:Hide() end end
+            if _sbd.durabilityBtn then if _cfg.showDurability ~= false then _sbd.durabilityBtn:Show() else _sbd.durabilityBtn:Hide() end end
+            if _sbd.copyBtn then if _cfg.showCopy ~= false then _sbd.copyBtn:Show() else _sbd.copyBtn:Hide() end end
+            if _sbd.portalBtn then if _cfg.showPortals ~= false then _sbd.portalBtn:Show() else _sbd.portalBtn:Hide() end end
+            if _sbd.voiceBtn then if _cfg.showVoice ~= false then _sbd.voiceBtn:Show() else _sbd.voiceBtn:Hide() end end
+            if _sbd.settingsBtn then if _cfg.showSettings ~= false then _sbd.settingsBtn:Show() else _sbd.settingsBtn:Hide() end end
         end
     end
     ECHAT.ApplySidebarPosition()
@@ -4409,13 +4409,13 @@ initFrame:SetScript("OnEvent", function(self)
             local _cf1 = _G.ChatFrame1
             if _cfg and _cf1 then
                 local _sbd = CFD(_cf1)
-                if _sbd.scrollBtn then _sbd.scrollBtn:SetShown(_cfg.showScroll ~= false) end
-                if _sbd.friendsBtn then _sbd.friendsBtn:SetShown(_cfg.showFriends ~= false) end
-                if _sbd.durabilityBtn then _sbd.durabilityBtn:SetShown(_cfg.showDurability ~= false) end
-                if _sbd.copyBtn then _sbd.copyBtn:SetShown(_cfg.showCopy ~= false) end
-                if _sbd.portalBtn then _sbd.portalBtn:SetShown(_cfg.showPortals ~= false) end
-                if _sbd.voiceBtn then _sbd.voiceBtn:SetShown(_cfg.showVoice ~= false) end
-                if _sbd.settingsBtn then _sbd.settingsBtn:SetShown(_cfg.showSettings ~= false) end
+                if _sbd.scrollBtn then if _cfg.showScroll ~= false then _sbd.scrollBtn:Show() else _sbd.scrollBtn:Hide() end end
+                if _sbd.friendsBtn then if _cfg.showFriends ~= false then _sbd.friendsBtn:Show() else _sbd.friendsBtn:Hide() end end
+                if _sbd.durabilityBtn then if _cfg.showDurability ~= false then _sbd.durabilityBtn:Show() else _sbd.durabilityBtn:Hide() end end
+                if _sbd.copyBtn then if _cfg.showCopy ~= false then _sbd.copyBtn:Show() else _sbd.copyBtn:Hide() end end
+                if _sbd.portalBtn then if _cfg.showPortals ~= false then _sbd.portalBtn:Show() else _sbd.portalBtn:Hide() end end
+                if _sbd.voiceBtn then if _cfg.showVoice ~= false then _sbd.voiceBtn:Show() else _sbd.voiceBtn:Hide() end end
+                if _sbd.settingsBtn then if _cfg.showSettings ~= false then _sbd.settingsBtn:Show() else _sbd.settingsBtn:Hide() end end
             end
         end
         ECHAT.ApplySidebarPosition()
@@ -4445,14 +4445,14 @@ initFrame:SetScript("OnEvent", function(self)
         if cfg and not cfg._editModeNoticeDismissed and cfg.chatPosition then
             local cf1bg = CFD(ChatFrame1).bg
             if cf1bg then
-                local overlay = CreateFrame("Frame", nil, cf1bg)
+                local overlay = EllesmereUI.SafeCreateFrame("Frame", nil, cf1bg)
                 overlay:SetAllPoints(cf1bg)
                 overlay:SetFrameLevel(cf1bg:GetFrameLevel() + 50)
                 overlay:EnableMouse(true)
 
                 local bg = overlay:CreateTexture(nil, "BACKGROUND")
                 bg:SetAllPoints()
-                bg:SetColorTexture(0.04, 0.06, 0.07, 0.95)
+                bg:SetTexture(0.04, 0.06, 0.07, 0.95)
 
                 local msg = overlay:CreateFontString(nil, "OVERLAY")
                 msg:SetFont(GetFont(), 12, "")
@@ -4462,18 +4462,18 @@ initFrame:SetScript("OnEvent", function(self)
                 msg:SetJustifyH("CENTER")
                 msg:SetText("Your chat position is now controlled by Blizzard Edit Mode.\nPlease adjust its position there.")
 
-                local btn = CreateFrame("Button", nil, overlay)
+                local btn = EllesmereUI.SafeCreateFrame("Button", nil, overlay)
                 btn:SetSize(90, 24)
                 btn:SetPoint("TOP", msg, "BOTTOM", 0, -12)
                 btn:SetFrameLevel(overlay:GetFrameLevel() + 1)
 
                 local btnBg = btn:CreateTexture(nil, "BACKGROUND")
                 btnBg:SetAllPoints()
-                btnBg:SetColorTexture(0.12, 0.14, 0.18, 1)
+                btnBg:SetTexture(0.12, 0.14, 0.18, 1)
 
                 local btnHL = btn:CreateTexture(nil, "HIGHLIGHT")
                 btnHL:SetAllPoints()
-                btnHL:SetColorTexture(1, 1, 1, 0.06)
+                btnHL:SetTexture(1, 1, 1, 0.06)
 
                 local btnText = btn:CreateFontString(nil, "OVERLAY")
                 btnText:SetFont(GetFont(), 11, "")
@@ -4496,7 +4496,7 @@ initFrame:SetScript("OnEvent", function(self)
     --[[ REMOVED: sections 9-12 (position capture, reparent, enforcement, unlock)
     ---------------------------------------------------------------------------
     do
-        local captureFrame = CreateFrame("Frame")
+        local captureFrame = EllesmereUI.SafeCreateFrame("Frame")
         captureFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         captureFrame:SetScript("OnEvent", function()
             local cfg = ECHAT.DB()
@@ -4522,7 +4522,7 @@ initFrame:SetScript("OnEvent", function(self)
     --      Breaks it out of Blizzard's Edit Mode hierarchy so we can call
     --      SetSize without tainting. Hides Edit Mode overlay + resize button.
     ---------------------------------------------------------------------------
-    local chatContainer = CreateFrame("Frame", nil, UIParent)
+    local chatContainer = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     chatContainer:SetAllPoints(UIParent)
     chatContainer:EnableMouse(false)
     ChatFrame1:SetParent(chatContainer)

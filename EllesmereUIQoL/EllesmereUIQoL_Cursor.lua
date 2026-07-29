@@ -145,7 +145,7 @@ local trailContainer  -- high-strata parent for trail dots
 
 local function InitTrailDotPool()
     if not trailContainer then
-        trailContainer = CreateFrame("Frame", "ECL_TrailContainer", UIParent)
+        trailContainer = EllesmereUI.SafeCreateFrame("Frame", "ECL_TrailContainer", UIParent)
         trailContainer:SetAllPoints(UIParent)
         trailContainer:SetFrameStrata("TOOLTIP")
         trailContainer:SetFrameLevel(9998)
@@ -299,7 +299,7 @@ end
 --- @param a number  alpha
 --- @return Frame  the ring frame with :StartRing / :StopRing / :SetRingColor / :SetRingTexture
 local function CreateRing(parent, radius, ringTex, r, g, b, a)
-    local ring = CreateFrame("Frame", nil, parent)
+    local ring = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
     ring:SetSize(radius * 2, radius * 2)
     ring:SetPoint("CENTER", parent, "CENTER", 0, 0)
     ring:SetFrameLevel(parent:GetFrameLevel() + 1)
@@ -319,7 +319,7 @@ local function CreateRing(parent, radius, ringTex, r, g, b, a)
     ring._fg:Hide()
 
     -- Cooldown swipe for smooth progress using the ring texture directly.
-    ring._cd = CreateFrame("Cooldown", nil, ring, "CooldownFrameTemplate")
+    ring._cd = EllesmereUI.SafeCreateFrame("Cooldown", nil, ring, "CooldownFrameTemplate")
     ring._cd:SetAllPoints(ring)
     ring._cd:SetFrameLevel(ring:GetFrameLevel() + 1)
     ring._cd:SetHideCountdownNumbers(true)
@@ -395,7 +395,7 @@ local function CreateGCDCircle()
     local r, ng, b = ParseHex(g.hex)
     local a = (g.alpha or 100) / 100
 
-    gcdRoot = CreateFrame("Frame", "ECL_GCDRoot", UIParent)
+    gcdRoot = EllesmereUI.SafeCreateFrame("Frame", "ECL_GCDRoot", UIParent)
     gcdRoot:SetSize(radius * 2, radius * 2)
     gcdRoot:SetFrameStrata("TOOLTIP")
     gcdRoot:SetFrameLevel(9990)
@@ -711,7 +711,7 @@ local function CreateCastCircle()
     local r, ng, b = ParseHex(c.hex)
     local a = (c.alpha or 100) / 100
 
-    castRoot = CreateFrame("Frame", "ECL_CastRoot", UIParent)
+    castRoot = EllesmereUI.SafeCreateFrame("Frame", "ECL_CastRoot", UIParent)
     castRoot:SetSize(radius * 2, radius * 2)
     castRoot:SetFrameStrata("TOOLTIP")
     castRoot:SetFrameLevel(9988)
@@ -721,7 +721,7 @@ local function CreateCastCircle()
     castRing = CreateRing(castRoot, radius, c.ringTex or "normal", r, ng, b, a)
 
     -- Spark textures: main spark + glow layer for vibrancy
-    local sparkOverlay = CreateFrame("Frame", nil, castRoot)
+    local sparkOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, castRoot)
     sparkOverlay:SetAllPoints(castRoot)
     sparkOverlay:SetFrameLevel(castRoot:GetFrameLevel() + 3)
 
@@ -1230,7 +1230,7 @@ end
 
 function ECL:OnEnable()
     if _G._EBS_TEMP_DISABLED and _G._EBS_TEMP_DISABLED.cursor then return end
-    f = CreateFrame("Frame", "EllesmereUICursorFrame", UIParent)
+    f = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUICursorFrame", UIParent)
     f:SetFrameStrata("TOOLTIP")
     f:SetFrameLevel(9999)
     f:SetClampedToScreen(true)

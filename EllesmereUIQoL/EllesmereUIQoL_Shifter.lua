@@ -185,7 +185,7 @@ end
 --  snippet instead, which executes securely and never taints the frame.
 --  Parented to UIParent so self:GetParent() inside the snippet IS UIParent.
 -------------------------------------------------------------------------------
-local securePositioner = CreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
+local securePositioner = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
 local function SecureSetPoint(frame, point, relPoint, x, y)
     if InCombatLockdown() then return false end
     securePositioner:SetFrameRef("f", frame)
@@ -350,7 +350,7 @@ end
 --  costs nothing.
 -------------------------------------------------------------------------------
 local wheelTarget, wheelTargetName
-local wheelOverlay = CreateFrame("Frame", nil, UIParent)
+local wheelOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
 wheelOverlay:Hide()
 wheelOverlay:EnableMouse(false)
 wheelOverlay:EnableMouseWheel(true)
@@ -416,7 +416,7 @@ end)
 --  Only one protected frame can be dragged at a time.
 -------------------------------------------------------------------------------
 local secureDrag = {}  -- { frame, name, mode, cursorX, cursorY, startX, startY, curX, curY }
-local secureDragUpdater = CreateFrame("Frame")
+local secureDragUpdater = EllesmereUI.SafeCreateFrame("Frame")
 secureDragUpdater:Hide()
 
 local function StopSecureDrag()
@@ -848,7 +848,7 @@ end
 local function EnsureLootProxy(info)
     local proxy = lootProxies[info.name]
     if proxy then return proxy end
-    proxy = CreateFrame("Frame", nil, UIParent)
+    proxy = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     proxy:Hide()
     proxy:SetSize(info.defW, info.defH)
     local pos = GetLootPos(info.name)
@@ -1030,7 +1030,7 @@ local function HookTopBar()
     frame:HookScript("OnShow", function()
         ApplyTopBarPos()
     end)
-    topBarRegen = CreateFrame("Frame")
+    topBarRegen = EllesmereUI.SafeCreateFrame("Frame")
     topBarRegen:RegisterEvent("PLAYER_REGEN_ENABLED")
     topBarRegen:SetScript("OnEvent", function()
         if topBarDirty then
@@ -1043,7 +1043,7 @@ end
 -- Hidden rect-only ghost the unlock mover attaches to; never visible.
 local function EnsureTopBarProxy()
     if topBarProxy then return topBarProxy end
-    topBarProxy = CreateFrame("Frame", nil, UIParent)
+    topBarProxy = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     topBarProxy:Hide()
     topBarProxy:SetSize(TOPBAR_DEFW, TOPBAR_DEFH)
     local pos = GetTopBarPos()
@@ -1142,7 +1142,7 @@ end
 --  Event-driven initialization
 -------------------------------------------------------------------------------
 local pendingAddons = {}
-eventFrame = CreateFrame("Frame")
+eventFrame = EllesmereUI.SafeCreateFrame("Frame")
 
 local function InitShifter()
     for i = 1, #PRELOADED do

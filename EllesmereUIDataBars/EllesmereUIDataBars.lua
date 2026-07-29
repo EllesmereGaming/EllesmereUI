@@ -142,7 +142,7 @@ ns.L = L
 
 -- Upvalues
 local _G                = _G
-local CreateFrame       = CreateFrame
+local CreateFrame = EllesmereUI.SafeCreateFrame
 local UIParent          = UIParent
 local InCombatLockdown  = InCombatLockdown
 local C_Timer           = C_Timer
@@ -436,7 +436,7 @@ do
         if not InCombatLockdown() then fn(); return end
         local f = deferFrames[key]
         if not f then
-            f = CreateFrame("Frame")
+            f = EllesmereUI.SafeCreateFrame("Frame")
             deferFrames[key] = f
         end
         f._fn = fn
@@ -487,7 +487,7 @@ function ns.CreateFramePool(frameType, parent, template)
     function pool:Acquire()
         local f = tremove(self._inactive)
         if not f then
-            f = CreateFrame(self._type, nil, self._parent, self._template)
+            f = EllesmereUI.SafeCreateFrame(self._type, nil, self._parent, self._template)
         end
         f:SetParent(self._parent)
         f:Show()
@@ -565,7 +565,7 @@ do
 
     local function GetClickCatcher()
         if not sharedClickCatcher then
-            sharedClickCatcher = CreateFrame("Button", nil, UIParent)
+            sharedClickCatcher = EllesmereUI.SafeCreateFrame("Button", nil, UIParent)
             sharedClickCatcher:SetAllPoints(UIParent)
             sharedClickCatcher:SetFrameStrata("DIALOG")
             sharedClickCatcher:SetFrameLevel(100)
@@ -583,10 +583,10 @@ do
         -- House tooltip styling (same recipe as ns.Tip_*'s EnsureTip), NOT
         -- Blizzard's TooltipBackdropTemplate -- the popups must look like
         -- every other EllesmereUI tooltip.
-        local popup = CreateFrame("Frame", nil, UIParent)
+        local popup = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         local bg = popup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(0.067, 0.067, 0.067, 0.97)
+        bg:SetTexture(0.067, 0.067, 0.067, 0.97)
         if PP and PP.CreateBorder then
             PP.CreateBorder(popup, 0, 0, 0, 0.9, 1, "OVERLAY", 7)
         end
@@ -744,13 +744,13 @@ do
 
     local function EnsureTip()
         if tip then return tip end
-        tip = CreateFrame("Frame", "EllesmereUIDataBarsTip", UIParent)
+        tip = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIDataBarsTip", UIParent)
         tip:SetFrameStrata("TOOLTIP")
         tip:SetClampedToScreen(true)
         tip:Hide()
         local bg = tip:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(0.067, 0.067, 0.067, 0.97)
+        bg:SetTexture(0.067, 0.067, 0.067, 0.97)
         if PP and PP.CreateBorder then
             PP.CreateBorder(tip, 0, 0, 0, 0.9, 1, "OVERLAY", 7)
         end
@@ -805,7 +805,7 @@ do
 
     local function EnsureActionHost()
         if actionHost then return actionHost end
-        actionHost = CreateFrame("Frame", "EllesmereUIDataBarsTipActions", UIParent, "SecureHandlerStateTemplate")
+        actionHost = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIDataBarsTipActions", UIParent, "SecureHandlerStateTemplate")
         actionHost:SetFrameStrata("TOOLTIP")
         actionHost:SetFrameLevel(250)
         actionHost:SetAllPoints(tip)
@@ -813,7 +813,7 @@ do
         -- securely the instant lockdown starts and re-shows it on regen for
         -- the next out-of-combat tip.
         RegisterStateDriver(actionHost, "visibility", "[combat] hide; show")
-        local regen = CreateFrame("Frame")
+        local regen = EllesmereUI.SafeCreateFrame("Frame")
         regen:RegisterEvent("PLAYER_REGEN_ENABLED")
         regen:RegisterEvent("PLAYER_REGEN_DISABLED")
         regen:SetScript("OnEvent", function(_, event)
@@ -853,14 +853,14 @@ do
     local function AddRowHighlight(b)
         local hl = b:CreateTexture(nil, "HIGHLIGHT")
         hl:SetAllPoints()
-        hl:SetColorTexture(1, 1, 1, 0.10)
+        hl:SetTexture(1, 1, 1, 0.10)
     end
 
     local function AcquireActionButton()
         activeActions = activeActions + 1
         local b = actionPool[activeActions]
         if not b then
-            b = CreateFrame("Button", nil, EnsureActionHost(), "SecureActionButtonTemplate")
+            b = EllesmereUI.SafeCreateFrame("Button", nil, EnsureActionHost(), "SecureActionButtonTemplate")
             b:SetFrameLevel(250)
             b:EnableMouse(true)
             -- AnyUp only + useOnKeyDown=false: registering both click phases
@@ -903,7 +903,7 @@ do
         activeClicks = activeClicks + 1
         local b = clickPool[activeClicks]
         if not b then
-            b = CreateFrame("Button", nil, EnsureTip())
+            b = EllesmereUI.SafeCreateFrame("Button", nil, EnsureTip())
             b:SetFrameLevel(tip:GetFrameLevel() + 5)
             b:EnableMouse(true)
             b:RegisterForClicks("AnyUp")
@@ -1672,10 +1672,10 @@ local function EnsureThemeTextures(host)
     bgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
     bgAtlas:SetAllPoints(host)
     local bgOverlay = host:CreateTexture(nil, "BACKGROUND", nil, -7)
-    bgOverlay:SetColorTexture(0, 0, 0, 0.5)
+    bgOverlay:SetTexture(0, 0, 0, 0.5)
     bgOverlay:SetAllPoints(host)
     local modernBg = host:CreateTexture(nil, "BACKGROUND", nil, -7)
-    modernBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
+    modernBg:SetTexture(0.067, 0.067, 0.067, 0.95)
     modernBg:SetAllPoints(host)
     -- Bar Texture layer: when a texture is picked it replaces the flat /
     -- art background, tinted by the style's color+opacity knobs.
@@ -1730,7 +1730,7 @@ local function ApplyThemeToHost(host, theme, texKey)
             host._edbModernBg:SetAlpha(0)
         else
             host._edbBarTex:SetAlpha(0)
-            host._edbModernBg:SetColorTexture(c.r or 0.067, c.g or 0.067, c.b or 0.067, c.a or 0.95)
+            host._edbModernBg:SetTexture(c.r or 0.067, c.g or 0.067, c.b or 0.067, c.a or 0.95)
             host._edbModernBg:SetAlpha(1)
         end
         op = c.a
@@ -1744,7 +1744,7 @@ local function ApplyThemeToHost(host, theme, texKey)
         if op == nil then op = 1 end
         host._edbBarTex:SetAlpha(0)
         host._edbBgAtlas:SetAlpha(op)
-        host._edbBgOverlay:SetColorTexture(0, 0, 0, theme.euiAlpha or 0.5)
+        host._edbBgOverlay:SetTexture(0, 0, 0, theme.euiAlpha or 0.5)
         host._edbBgOverlay:SetAlpha(op)
         host._edbModernBg:SetAlpha(0)
     end
@@ -1767,7 +1767,7 @@ ns._live = live
 ns._moEligible = {}
 
 -- Hidden park for retired secure frames (never reused, never destroyed).
-local parkFrame = CreateFrame("Frame")
+local parkFrame = EllesmereUI.SafeCreateFrame("Frame")
 parkFrame:Hide()
 ns._park = parkFrame
 
@@ -1917,9 +1917,9 @@ end
 local function EnsureSlot(rec, blockCfg)
     local slot = rec.slots[blockCfg.id]
     if not slot then
-        slot = CreateFrame("Frame", nil, rec.bar)
+        slot = EllesmereUI.SafeCreateFrame("Frame", nil, rec.bar)
         slot:SetSize(10, 10)
-        local content = CreateFrame("Frame", nil, slot)
+        local content = EllesmereUI.SafeCreateFrame("Frame", nil, slot)
         content:SetSize(10, 10)
         slot._edbContent = content
         rec.slots[blockCfg.id] = slot
@@ -1935,7 +1935,7 @@ local function ApplyBlockDecor(slot, blockCfg, barCfg)
             slot._edbBg:SetAllPoints(slot)
         end
         local c = blockCfg.bg
-        slot._edbBg:SetColorTexture(c.r or 0, c.g or 0, c.b or 0, c.a or 0.5)
+        slot._edbBg:SetTexture(c.r or 0, c.g or 0, c.b or 0, c.a or 0.5)
         slot._edbBg:Show()
     elseif slot._edbBg then
         slot._edbBg:Hide()
@@ -1947,7 +1947,7 @@ local function ApplyBlockDecor(slot, blockCfg, barCfg)
         if not slot._edbHover then
             slot._edbHover = slot:CreateTexture(nil, "OVERLAY", nil, 6)
             slot._edbHover:SetAllPoints(slot)
-            slot._edbHover:SetColorTexture(1, 1, 1, 0.04)
+            slot._edbHover:SetTexture(1, 1, 1, 0.04)
             slot._edbHover:Hide()
         end
         if slot.EnableMouseMotion then slot:EnableMouseMotion(true) end
@@ -2096,7 +2096,7 @@ ApplyLayout = function(id)
             end
             -- Respect the visibility engine's content gate: a layout pass on
             -- a visibility-hidden bar must not resurrect click-catchers.
-            slot:SetShown(rec.contentShown ~= false)
+            if rec.contentShown ~= false then slot:Show() else slot:Hide() end
             -- Centered-fill content pinning: re-anchor when the solver's
             -- shift changes (or clears) so the content tracks true center
             -- while its slot spans the whole middle.
@@ -2152,7 +2152,7 @@ function ns.ApplyBar(id)
 
     if not rec then
         rec = { slots = {}, insts = {}, assigned = {}, enabled = false }
-        rec.bar = CreateFrame("Frame", "EllesmereUIDataBarsBar" .. id, UIParent)
+        rec.bar = EllesmereUI.SafeCreateFrame("Frame", "EllesmereUIDataBarsBar" .. id, UIParent)
         rec.bar:SetFrameStrata("MEDIUM")
         rec.bar:SetFrameLevel(10)
         rec.bar:SetMovable(true)
@@ -2368,7 +2368,7 @@ local function SetBarContentShown(id, shown)
         if inCombat and slot:IsProtected() then
             rec.contentDeferred = true
         elseif slot:IsShown() ~= s then
-            slot:SetShown(s)
+            if s then slot:Show() else slot:Hide() end
         end
     end
     if not shown then
@@ -2403,7 +2403,7 @@ function ns.SetBlockEditHighlight(barId, blockId)
     if not slot._edbEditHL then
         local t = slot:CreateTexture(nil, "OVERLAY", nil, 6)
         t:SetAllPoints(slot)
-        t:SetColorTexture(1, 1, 1, 0.15)
+        t:SetTexture(1, 1, 1, 0.15)
         slot._edbEditHL = t
     end
     slot._edbEditHL:Show()
@@ -2503,7 +2503,7 @@ do
     function visRuntime.UpdateEventRegistration()
         if AnyEnabledBar() then
             if not visFrame then
-                visFrame = CreateFrame("Frame")
+                visFrame = EllesmereUI.SafeCreateFrame("Frame")
                 visFrame:SetScript("OnEvent", OnVisEvent)
             end
             for _, e in ipairs(VIS_EVENTS) do visFrame:RegisterEvent(e) end
@@ -2593,7 +2593,7 @@ do
     function dispRuntime.UpdateEventRegistration()
         if AnyFullBar() then
             if not dispFrame then
-                dispFrame = CreateFrame("Frame")
+                dispFrame = EllesmereUI.SafeCreateFrame("Frame")
                 dispFrame:SetScript("OnEvent", OnDispEvent)
             end
             dispFrame:RegisterEvent("DISPLAY_SIZE_CHANGED")

@@ -68,7 +68,7 @@ local function ShowRaidFramesPopup()
     local ppScale = (EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale()) or 1
 
     -- Dimmer (eats clicks; no close on outside click)
-    local dimmer = CreateFrame("Frame", "EUIRaidFramesIntroDimmer", UIParent)
+    local dimmer = EllesmereUI.SafeCreateFrame("Frame", "EUIRaidFramesIntroDimmer", UIParent)
     dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
     dimmer:SetAllPoints(UIParent)
     dimmer:EnableMouse(true)
@@ -77,10 +77,10 @@ local function ShowRaidFramesPopup()
     dimmer:SetScale(ppScale)
     local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
     dimTex:SetAllPoints()
-    dimTex:SetColorTexture(0, 0, 0, 0.35)
+    dimTex:SetTexture(0, 0, 0, 0.35)
 
     -- Panel
-    local popup = CreateFrame("Frame", "EUIRaidFramesIntroPopup", dimmer)
+    local popup = EllesmereUI.SafeCreateFrame("Frame", "EUIRaidFramesIntroPopup", dimmer)
     popup:SetScale(ppScale * 1.15)
     popup:SetFrameStrata("FULLSCREEN_DIALOG")
     popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
@@ -90,7 +90,7 @@ local function ShowRaidFramesPopup()
 
     local bg = popup:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+    bg:SetTexture(0.06, 0.08, 0.10, 1)
 
     -- 1 physical-pixel white border (alpha 0.15). Thickness is derived from the
     -- popup's effective scale (after the 1.2x SetScale above) so each edge stays
@@ -99,7 +99,7 @@ local function ShowRaidFramesPopup()
     local BRD_A = 0.15
     local function MakeEdge()
         local t = popup:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(1, 1, 1, BRD_A)
+        t:SetTexture(1, 1, 1, BRD_A)
         if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
         return t
     end
@@ -119,16 +119,16 @@ local function ShowRaidFramesPopup()
     local cellFills = { 0.80, 0.60, 0.88, 0.52, 0.72 }
     local gridLeft = (POPUP_W - gridW) / 2
     for i = 1, GRID_COLS do
-        local cell = CreateFrame("Frame", nil, popup)
+        local cell = EllesmereUI.SafeCreateFrame("Frame", nil, popup)
         cell:SetFrameLevel(popup:GetFrameLevel() + 1)
         PP.Size(cell, CELL_W, CELL_H)
         PP.Point(cell, "TOPLEFT", popup, "TOPLEFT", gridLeft + (i - 1) * (CELL_W + CELL_GAP), -28)
         local cbg = cell:CreateTexture(nil, "BACKGROUND")
         cbg:SetAllPoints()
-        cbg:SetColorTexture(0.12, 0.13, 0.15, 1)
+        cbg:SetTexture(0.12, 0.13, 0.15, 1)
         local c = cellColors[i]
         local fill = cell:CreateTexture(nil, "ARTWORK")
-        fill:SetColorTexture(c[1], c[2], c[3], 0.9)
+        fill:SetTexture(c[1], c[2], c[3], 0.9)
         fill:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 1, 1)
         fill:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -1, 1)
         fill:SetHeight((CELL_H - 2) * cellFills[i])
@@ -179,7 +179,7 @@ local function ShowRaidFramesPopup()
         end
         bl:SetText(text)
         local dot = popup:CreateTexture(nil, "OVERLAY")
-        dot:SetColorTexture(EG.r, EG.g, EG.b, 1)
+        dot:SetTexture(EG.r, EG.g, EG.b, 1)
         PP.Size(dot, 5, 5)
         PP.Point(dot, "RIGHT", bl, "LEFT", -10, 0)
         prev = bl
@@ -204,12 +204,12 @@ local function ShowRaidFramesPopup()
     -- white that warms to the power-button red on hover).
     local BTN_W, BTN_H, BTN_GAP = 184, 38, 14
     local function MakeActionButton(text, r, g, b, secondary)
-        local btn = CreateFrame("Button", nil, popup)
+        local btn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
         btn:SetFrameLevel(popup:GetFrameLevel() + 2)
         PP.Size(btn, BTN_W, BTN_H)
         local bbg = btn:CreateTexture(nil, "BACKGROUND")
         bbg:SetAllPoints()
-        bbg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+        bbg:SetTexture(0.06, 0.08, 0.10, 0.92)
         local brd = MakeBorder(btn, r, g, b, secondary and 0.35 or 0.9, PP)
         local lbl = btn:CreateFontString(nil, "OVERLAY")
         lbl:SetFont(FONT, 15, "")
@@ -298,7 +298,7 @@ local function ComputeDecision()
     return "new"
 end
 
-local loader = CreateFrame("Frame")
+local loader = EllesmereUI.SafeCreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function(self, event, addonName)

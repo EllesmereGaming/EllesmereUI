@@ -284,7 +284,7 @@ end
 function EllesmereUI.Conditions_RebuildKeyBindings()
     if InCombatLockdown() then
         if not _bindCombatFrame then
-            _bindCombatFrame = CreateFrame("Frame")
+            _bindCombatFrame = EllesmereUI.SafeCreateFrame("Frame")
             _bindCombatFrame:SetScript("OnEvent", function(self)
                 self:UnregisterEvent("PLAYER_REGEN_ENABLED")
                 EllesmereUI.Conditions_RebuildKeyBindings()
@@ -304,7 +304,7 @@ function EllesmereUI.Conditions_RebuildKeyBindings()
             i = i + 1
             local btn = _keyBtnPool[i]
             if not btn then
-                btn = CreateFrame("Button", "EUICondKeyBtn" .. i, UIParent)
+                btn = EllesmereUI.SafeCreateFrame("Button", "EUICondKeyBtn" .. i, UIParent)
                 btn:Hide()
                 _keyBtnPool[i] = btn
             end
@@ -321,7 +321,7 @@ end
 --  regen drain: this file loads after EllesmereUI_Profiles.lua, so the spec
 --  pipeline's regen branch runs first and our recompute sees settled state.
 -------------------------------------------------------------------------------
-local evFrame = CreateFrame("Frame")
+local evFrame = EllesmereUI.SafeCreateFrame("Frame")
 evFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 evFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 evFrame:RegisterEvent("GROUP_ROSTER_UPDATE")

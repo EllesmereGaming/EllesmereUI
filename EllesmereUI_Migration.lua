@@ -3751,7 +3751,7 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
-local migrationFrame = CreateFrame("Frame")
+local migrationFrame = EllesmereUI.SafeCreateFrame("Frame")
 migrationFrame:RegisterEvent("ADDON_LOADED")
 migrationFrame:SetScript("OnEvent", function(self, event, addonName)
     if addonName ~= "EllesmereUI" then return end

@@ -84,10 +84,10 @@ end
 
 local function SetInsetBorderColor(btn, cr, cg, cb, ca)
     if btn._brdT then
-        btn._brdT:SetColorTexture(cr, cg, cb, ca)
-        btn._brdB:SetColorTexture(cr, cg, cb, ca)
-        btn._brdL:SetColorTexture(cr, cg, cb, ca)
-        btn._brdR:SetColorTexture(cr, cg, cb, ca)
+        btn._brdT:SetTexture(cr, cg, cb, ca)
+        btn._brdB:SetTexture(cr, cg, cb, ca)
+        btn._brdL:SetTexture(cr, cg, cb, ca)
+        btn._brdR:SetTexture(cr, cg, cb, ca)
     end
 end
 
@@ -198,7 +198,7 @@ end
 -------------------------------------------------------------------------------
 --  Main Frame
 -------------------------------------------------------------------------------
-local EUI_Bank = CreateFrame("Frame", "EUI_BankFrame", UIParent)
+local EUI_Bank = EllesmereUI.SafeCreateFrame("Frame", "EUI_BankFrame", UIParent)
 EUI_Bank:SetFrameStrata("HIGH")
 EUI_Bank:SetFrameLevel(50)
 EUI_Bank:EnableMouse(true)
@@ -212,18 +212,18 @@ bgAtlas:SetAllPoints()
 bgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
 local bgOverlay = EUI_Bank:CreateTexture(nil, "BACKGROUND", nil, 1)
 bgOverlay:SetAllPoints()
-bgOverlay:SetColorTexture(0, 0, 0, 0.25)
+bgOverlay:SetTexture(0, 0, 0, 0.25)
 if EUI.MakeBorder then EUI.MakeBorder(EUI_Bank, 1, 1, 1, 0.15, EUI.PP) end
 
 -------------------------------------------------------------------------------
 --  Header
 -------------------------------------------------------------------------------
-local header = CreateFrame("Frame", nil, EUI_Bank)
+local header = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bank)
 header:SetPoint("TOPLEFT", EUI_Bank, "TOPLEFT", 0, 0)
 header:SetPoint("TOPRIGHT", EUI_Bank, "TOPRIGHT", 0, 0)
 header:SetHeight(HEADER_H)
 local hdrBg = header:CreateTexture(nil, "BACKGROUND", nil, 1)
-hdrBg:SetAllPoints(); hdrBg:SetColorTexture(0, 0, 0, 0.5)
+hdrBg:SetAllPoints(); hdrBg:SetTexture(0, 0, 0, 0.5)
 
 local title = header:CreateFontString(nil, "OVERLAY")
 SetBankFont(title, 13)
@@ -238,7 +238,7 @@ itemCount:SetTextColor(0.6, 0.6, 0.6)
 EUI_Bank._headerItemCount = itemCount
 
 -- Search box
-local bankSearch = CreateFrame("EditBox", "EUI_BankSearchBox", header)
+local bankSearch = EllesmereUI.SafeCreateFrame("EditBox", "EUI_BankSearchBox", header)
 bankSearch:SetSize(160, 22)
 bankSearch:SetPoint("RIGHT", header, "RIGHT", -35, 0)
 bankSearch:SetFont(GetFont(), 12, "")
@@ -246,7 +246,7 @@ bankSearch:SetAutoFocus(false)
 bankSearch:SetTextInsets(5, 26, 0, 0)
 local searchBg = bankSearch:CreateTexture(nil, "BACKGROUND")
 searchBg:SetAllPoints()
-searchBg:SetColorTexture(0.02, 0.02, 0.02, 1)
+searchBg:SetTexture(0.02, 0.02, 0.02, 1)
 if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(bankSearch, 0.25, 0.25, 0.25, 1, 1, "OVERLAY", 7) end
 
 local searchPlaceholder = bankSearch:CreateFontString(nil, "OVERLAY")
@@ -257,7 +257,7 @@ searchPlaceholder:SetTextColor(0.4, 0.4, 0.4)
 EUI_Bank._searchBox = bankSearch
 
 -- Search clear button
-local searchClear = CreateFrame("Button", nil, bankSearch)
+local searchClear = EllesmereUI.SafeCreateFrame("Button", nil, bankSearch)
 searchClear:SetSize(22, 22)
 searchClear:SetPoint("RIGHT", bankSearch, "RIGHT", 0, 0)
 searchClear.tex = searchClear:CreateFontString(nil, "OVERLAY")
@@ -280,13 +280,13 @@ bankSearch:SetScript("OnEscapePressed", function(self)
 end)
 bankSearch:SetScript("OnTextChanged", function(self)
     local text = self:GetText()
-    searchPlaceholder:SetShown(text == "")
-    searchClear:SetShown(text ~= "")
+    if text == "" then searchPlaceholder:Show() else searchPlaceholder:Hide() end
+    if text ~= "" then searchClear:Show() else searchClear:Hide() end
     if EUI_Bank:IsVisible() then EUI_Bank:RefreshBank() end
 end)
 
 -- Sort button
-local sortBtn = CreateFrame("Button", nil, header)
+local sortBtn = EllesmereUI.SafeCreateFrame("Button", nil, header)
 sortBtn:SetSize(24, 24)
 sortBtn:SetPoint("RIGHT", bankSearch, "LEFT", -13, 0)
 sortBtn.icon = sortBtn:CreateTexture(nil, "OVERLAY")
@@ -331,7 +331,7 @@ sortBtn:SetScript("OnClick", function()
 end)
 
 -- Close button (created after search/sort so it renders on top)
-local close = CreateFrame("Button", nil, header)
+local close = EllesmereUI.SafeCreateFrame("Button", nil, header)
 close:SetSize(12, 12)
 close:SetPoint("RIGHT", header, "RIGHT", -9, 0)
 close.icon = close:CreateTexture(nil, "OVERLAY")
@@ -352,19 +352,19 @@ do
     hdrSep:SetHeight(px)
     hdrSep:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
     hdrSep:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
-    hdrSep:SetColorTexture(0.15, 0.15, 0.15, 1)
+    hdrSep:SetTexture(0.15, 0.15, 0.15, 1)
 end
 
 -------------------------------------------------------------------------------
 --  Footer: Player Gold (left) + Warband Gold (right)
 -------------------------------------------------------------------------------
 do
-    local footer = CreateFrame("Frame", nil, EUI_Bank)
+    local footer = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bank)
     footer:SetPoint("BOTTOMLEFT", EUI_Bank, "BOTTOMLEFT", 0, 0)
     footer:SetPoint("BOTTOMRIGHT", EUI_Bank, "BOTTOMRIGHT", 0, 0)
     footer:SetHeight(FOOTER_H)
     local ftrBg = footer:CreateTexture(nil, "BACKGROUND", nil, 1)
-    ftrBg:SetAllPoints(); ftrBg:SetColorTexture(0, 0, 0, 0.35)
+    ftrBg:SetAllPoints(); ftrBg:SetTexture(0, 0, 0, 0.35)
 
     -- Top-edge separator
     local PP = EUI and EUI.PP
@@ -373,7 +373,7 @@ do
     ftrSep:SetHeight(px)
     ftrSep:SetPoint("TOPLEFT", footer, "TOPLEFT", 0, 0)
     ftrSep:SetPoint("TOPRIGHT", footer, "TOPRIGHT", 0, 0)
-    ftrSep:SetColorTexture(0.15, 0.15, 0.15, 1)
+    ftrSep:SetTexture(0.15, 0.15, 0.15, 1)
 
     -- Shared formatting
     local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:14:14:0:0|t"
@@ -389,7 +389,7 @@ do
     playerGold:SetPoint("LEFT", footer, "LEFT", 10, 0)
     playerGold:SetTextColor(1, 1, 1)
 
-    local playerHitbox = CreateFrame("Frame", nil, footer)
+    local playerHitbox = EllesmereUI.SafeCreateFrame("Frame", nil, footer)
     playerHitbox:SetPoint("TOPLEFT", playerGold, "TOPLEFT", -4, 4)
     playerHitbox:SetPoint("BOTTOMRIGHT", playerGold, "BOTTOMRIGHT", 4, -4)
     playerHitbox:SetFrameLevel(footer:GetFrameLevel() + 5)
@@ -408,7 +408,7 @@ do
     warbandGold:SetPoint("RIGHT", footer, "RIGHT", -10, 0)
     warbandGold:SetTextColor(1, 1, 1)
 
-    local warbandHitbox = CreateFrame("Frame", nil, footer)
+    local warbandHitbox = EllesmereUI.SafeCreateFrame("Frame", nil, footer)
     warbandHitbox:SetPoint("TOPLEFT", warbandGold, "TOPLEFT", -4, 4)
     warbandHitbox:SetPoint("BOTTOMRIGHT", warbandGold, "BOTTOMRIGHT", 4, -4)
     warbandHitbox:SetFrameLevel(footer:GetFrameLevel() + 5)
@@ -429,7 +429,7 @@ do
     local GOLD_R, GOLD_G, GOLD_B = 0.855, 0.722, 0.259  -- #dab842
 
     local function MakeStyledFooterBtn(label, tooltipText)
-        local btn = CreateFrame("Button", nil, footer)
+        local btn = EllesmereUI.SafeCreateFrame("Button", nil, footer)
         btn:SetSize(70, 18)
         btn:EnableMouse(true)
         btn:SetFrameLevel(footer:GetFrameLevel() + 2)
@@ -499,7 +499,7 @@ do
     end)
 
     -- Deposit Warbound Items / Deposit Reagents button (center)
-    local depositItemsBtn = CreateFrame("Button", nil, footer)
+    local depositItemsBtn = EllesmereUI.SafeCreateFrame("Button", nil, footer)
     depositItemsBtn:SetHeight(18)
     depositItemsBtn:SetPoint("CENTER", footer, "CENTER", 0, 0)
     depositItemsBtn:EnableMouse(true)
@@ -573,7 +573,7 @@ end)
 -------------------------------------------------------------------------------
 -- Bank Tab Settings Dialog
 -------------------------------------------------------------------------------
-local EUI_BankTabConfigFrame = CreateFrame("Frame", "EUI_BankFrame_TabSettingsMenu", EUI_Bank)
+local EUI_BankTabConfigFrame = EllesmereUI.SafeCreateFrame("Frame", "EUI_BankFrame_TabSettingsMenu", EUI_Bank)
 EUI_BankTabConfigFrame:SetWidth(240) -- Height is automatically determined by content
 EUI_BankTabConfigFrame:SetFrameStrata("DIALOG")
 EUI_BankTabConfigFrame:Hide()
@@ -586,16 +586,16 @@ local function EnsureBankTabConfigFrame()
     bgAtlasBTC:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
     local bgOverlayBTC = EUI_BankTabConfigFrame:CreateTexture(nil, "BACKGROUND", nil, 1)
     bgOverlayBTC:SetAllPoints()
-    bgOverlayBTC:SetColorTexture(0, 0, 0, 0.25)
+    bgOverlayBTC:SetTexture(0, 0, 0, 0.25)
     if EUI.MakeBorder then EUI.MakeBorder(EUI_BankTabConfigFrame, 1, 1, 1, 0.15, EUI.PP) end
 
     -- Header
-    local headerBTC = CreateFrame("Frame", nil, EUI_BankTabConfigFrame)
+    local headerBTC = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_BankTabConfigFrame)
     headerBTC:SetPoint("TOPLEFT", EUI_BankTabConfigFrame, "TOPLEFT", 0, 0)
     headerBTC:SetPoint("TOPRIGHT", EUI_BankTabConfigFrame, "TOPRIGHT", 0, 0)
     headerBTC:SetHeight(HEADER_H)
     local hdrBgBTC = headerBTC:CreateTexture(nil, "BACKGROUND", nil, 1)
-    hdrBgBTC:SetAllPoints(); hdrBgBTC:SetColorTexture(0, 0, 0, 0.5)
+    hdrBgBTC:SetAllPoints(); hdrBgBTC:SetTexture(0, 0, 0, 0.5)
 
     local titleBTC = headerBTC:CreateFontString(nil, "OVERLAY")
     SetBankFont(titleBTC, 13)
@@ -604,12 +604,12 @@ local function EnsureBankTabConfigFrame()
     titleBTC:SetText(EllesmereUI.L("Edit Tab Settings"))
 
     -- Footer
-    local footerBTC = CreateFrame("Frame", nil, EUI_BankTabConfigFrame)
+    local footerBTC = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_BankTabConfigFrame)
     footerBTC:SetPoint("BOTTOMLEFT", EUI_BankTabConfigFrame, "BOTTOMLEFT", 0, 0)
     footerBTC:SetPoint("BOTTOMRIGHT", EUI_BankTabConfigFrame, "BOTTOMRIGHT", 0, 0)
     footerBTC:SetHeight(FOOTER_H)
     local ftrBgBTC = footerBTC:CreateTexture(nil, "BACKGROUND", nil, 1)
-    ftrBgBTC:SetAllPoints(); ftrBgBTC:SetColorTexture(0, 0, 0, 0.35)
+    ftrBgBTC:SetAllPoints(); ftrBgBTC:SetTexture(0, 0, 0, 0.35)
 
     -- Top-edge separator
     local PP = EUI and EUI.PP
@@ -618,7 +618,7 @@ local function EnsureBankTabConfigFrame()
     ftrSepBTC:SetHeight(px)
     ftrSepBTC:SetPoint("TOPLEFT", footerBTC, "TOPLEFT", 0, 0)
     ftrSepBTC:SetPoint("TOPRIGHT", footerBTC, "TOPRIGHT", 0, 0)
-    ftrSepBTC:SetColorTexture(0.15, 0.15, 0.15, 1)
+    ftrSepBTC:SetTexture(0.15, 0.15, 0.15, 1)
 
     -------------------------------------------------------------------------------
     -- Content for Bank Tab Settings Frame
@@ -630,7 +630,7 @@ local function EnsureBankTabConfigFrame()
 
     local contentHeight = 0
 
-    local bodyBTC = CreateFrame("Frame", nil, EUI_BankTabConfigFrame)
+    local bodyBTC = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_BankTabConfigFrame)
     bodyBTC:SetPoint("TOPLEFT", headerBTC, "BOTTOMLEFT", 0, 0)
     bodyBTC:SetPoint("BOTTOMRIGHT", footerBTC, "TOPRIGHT", 0, 0)
     bodyBTC:SetWidth(EUI_BankTabConfigFrame:GetWidth())  -- Height is automatically determined by content
@@ -644,7 +644,7 @@ local function EnsureBankTabConfigFrame()
     contentHeight = contentHeight + bankTabNameLabel:GetStringHeight() + PADDING_Y
 
     -- Bank Tab Name EditBox
-    local bankTabNameEditBox = CreateFrame("EditBox", "EUI_BankFrame_TabSettingsMenu_NameBox", bodyBTC)
+    local bankTabNameEditBox = EllesmereUI.SafeCreateFrame("EditBox", "EUI_BankFrame_TabSettingsMenu_NameBox", bodyBTC)
     bankTabNameEditBox:SetSize(170, WIDGET_HEIGHT)
     bankTabNameEditBox:SetPoint("TOPLEFT", bankTabNameLabel, "BOTTOMLEFT", 0, -PADDING_Y / 2)
     SetBankFont(bankTabNameEditBox, 10)
@@ -652,7 +652,7 @@ local function EnsureBankTabConfigFrame()
     bankTabNameEditBox:SetTextInsets(5, 5, 0, 0)
     local bankTabNameBg = bankTabNameEditBox:CreateTexture(nil, "BACKGROUND")
     bankTabNameBg:SetAllPoints()
-    bankTabNameBg:SetColorTexture(0.02, 0.02, 0.02, 1)
+    bankTabNameBg:SetTexture(0.02, 0.02, 0.02, 1)
     if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(bankTabNameEditBox, 0.25, 0.25, 0.25, 1, 1, "OVERLAY", 7) end
     contentHeight = contentHeight + bankTabNameEditBox:GetHeight() + (PADDING_Y / 2)
 
@@ -680,13 +680,13 @@ local function EnsureBankTabConfigFrame()
         { text = BAG_FILTER_JUNK, value = Enum.BagSlotFlags.ClassJunk, row = 2, column = 2 },
     }
 
-    local assignToTabFrame = CreateFrame("Frame", nil, bodyBTC) -- Switched to standard Frame context
+    local assignToTabFrame = EllesmereUI.SafeCreateFrame("Frame", nil, bodyBTC) -- Switched to standard Frame context
     assignToTabFrame:SetSize(bodyBTC:GetWidth(), WIDGET_HEIGHT * ASSIGN_TO_TAB_ROWS)
     assignToTabFrame:SetPoint("TOPLEFT", assignToTabLabel, "BOTTOMLEFT", 0, -PADDING_Y / 2)
     contentHeight = contentHeight + assignToTabFrame:GetHeight() + (PADDING_Y / 2)
 
     local function makeAssignToTabBtn(option)
-        local btn = CreateFrame("Button", nil, assignToTabFrame)
+        local btn = EllesmereUI.SafeCreateFrame("Button", nil, assignToTabFrame)
         btn:SetSize(assignToTabFrame:GetWidth() / ASSIGN_TO_TAB_COLUMNS, WIDGET_HEIGHT)
 
         local xOffset = (option.column - 1) * (assignToTabFrame:GetWidth() / ASSIGN_TO_TAB_COLUMNS)
@@ -758,7 +758,7 @@ local function EnsureBankTabConfigFrame()
     bodyBTC:SetHeight(contentHeight + (PADDING_Y / 2)) -- Adjusted height to accommodate three rows with padding
 
     -- Save Button
-    local saveBTCBtn = CreateFrame("Button", nil, footerBTC)
+    local saveBTCBtn = EllesmereUI.SafeCreateFrame("Button", nil, footerBTC)
     saveBTCBtn:SetSize(100, WIDGET_HEIGHT)
     saveBTCBtn:SetPoint("RIGHT", footerBTC, "RIGHT", -10, 0)
     saveBTCBtn:EnableMouse(true)
@@ -796,7 +796,7 @@ local function EnsureBankTabConfigFrame()
     end)
 
     -- Cancel Button
-    local cancelBTCBtn = CreateFrame("Button", nil, footerBTC)
+    local cancelBTCBtn = EllesmereUI.SafeCreateFrame("Button", nil, footerBTC)
     cancelBTCBtn:SetSize(100, WIDGET_HEIGHT)
     cancelBTCBtn:SetPoint("LEFT", footerBTC, "LEFT", 10, 0)
     cancelBTCBtn:EnableMouse(true)
@@ -860,12 +860,12 @@ end
 -------------------------------------------------------------------------------
 --  Sidebar
 -------------------------------------------------------------------------------
-local sidebar = CreateFrame("Frame", nil, EUI_Bank)
+local sidebar = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bank)
 sidebar:SetPoint("TOPLEFT", EUI_Bank, "TOPLEFT", 0, -HEADER_H)
 sidebar:SetPoint("BOTTOMLEFT", EUI_Bank, "BOTTOMLEFT", 0, FOOTER_H)
 sidebar:SetWidth(GetBankSidebarWidth())
 local sidebarBg = sidebar:CreateTexture(nil, "BACKGROUND", nil, 2)
-sidebarBg:SetAllPoints(); sidebarBg:SetColorTexture(0, 0, 0, 0.25)
+sidebarBg:SetAllPoints(); sidebarBg:SetTexture(0, 0, 0, 0.25)
 
 -- Right-edge separator
 do
@@ -875,7 +875,7 @@ do
     sidebarSep:SetWidth(px)
     sidebarSep:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", 0, 0)
     sidebarSep:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", 0, 0)
-    sidebarSep:SetColorTexture(0.15, 0.15, 0.15, 1)
+    sidebarSep:SetTexture(0.15, 0.15, 0.15, 1)
 end
 
 -- Secure purchase buttons: inherit BankPanelPurchaseButtonScriptTemplate so
@@ -883,7 +883,7 @@ end
 local _purchaseBtnChar, _purchaseBtnWarband
 do
     local function MakeSecurePurchaseBtn(bankType)
-        local b = CreateFrame("Button", nil, sidebar, "BankPanelPurchaseButtonScriptTemplate")
+        local b = EllesmereUI.SafeCreateFrame("Button", nil, sidebar, "BankPanelPurchaseButtonScriptTemplate")
         b:SetAttribute("overrideBankType", bankType)
         b:SetFrameStrata("HIGH")
         b:SetFrameLevel(sidebar:GetFrameLevel() + 20)
@@ -892,10 +892,10 @@ do
         b:Hide()
         -- Hover: brighten the visual entry underneath
         b:SetScript("OnEnter", function(self)
-            if self._visualBtn then self._visualBtn._bg:SetColorTexture(1, 1, 1, 0.06) end
+            if self._visualBtn then self._visualBtn._bg:SetTexture(1, 1, 1, 0.06) end
         end)
         b:SetScript("OnLeave", function(self)
-            if self._visualBtn then self._visualBtn._bg:SetColorTexture(1, 1, 1, 0) end
+            if self._visualBtn then self._visualBtn._bg:SetTexture(1, 1, 1, 0) end
         end)
         return b
     end
@@ -905,7 +905,7 @@ end
 
 -- Sidebar header: "Tabs" label + collapse arrow
 local SIDEBAR_HDR_H = 24
-local sidebarHdr = CreateFrame("Frame", nil, sidebar)
+local sidebarHdr = EllesmereUI.SafeCreateFrame("Frame", nil, sidebar)
 sidebarHdr:SetHeight(SIDEBAR_HDR_H)
 sidebarHdr:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 0, 0)
 sidebarHdr:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", 0, 0)
@@ -917,7 +917,7 @@ sidebarHdr._label:SetText(EllesmereUI.L("Tabs"))
 sidebarHdr._label:SetTextColor(0.5, 0.5, 0.5)
 
 local ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.png"
-local collapseBtn = CreateFrame("Button", nil, sidebarHdr)
+local collapseBtn = EllesmereUI.SafeCreateFrame("Button", nil, sidebarHdr)
 collapseBtn:SetSize(12, 12)
 collapseBtn:SetPoint("RIGHT", sidebarHdr, "RIGHT", -6, 0)
 collapseBtn._icon = collapseBtn:CreateTexture(nil, "OVERLAY")
@@ -975,11 +975,11 @@ collapseBtn:SetScript("OnClick", function()
 end)
 
 -- Sidebar scroll frame (below header, fills rest of sidebar)
-local sidebarSF = CreateFrame("ScrollFrame", nil, sidebar)
+local sidebarSF = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, sidebar)
 sidebarSF:SetPoint("TOPLEFT", sidebarHdr, "BOTTOMLEFT", 0, 0)
 sidebarSF:SetSize(GetBankSidebarWidth(), FIXED_H - HEADER_H - FOOTER_H - SIDEBAR_HDR_H)
 sidebarSF:EnableMouseWheel(true)
-local sidebarChild = CreateFrame("Frame", nil, sidebarSF)
+local sidebarChild = EllesmereUI.SafeCreateFrame("Frame", nil, sidebarSF)
 sidebarChild:SetSize(GetBankSidebarWidth(), 1)
 sidebarSF:SetScrollChild(sidebarChild)
 
@@ -998,17 +998,17 @@ local _sidebarBtns = {}
 -------------------------------------------------------------------------------
 --  Scroll Frame + Scrollbar
 -------------------------------------------------------------------------------
-local sf = CreateFrame("ScrollFrame", nil, EUI_Bank)
+local sf = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, EUI_Bank)
 sf:SetPoint("TOPLEFT", EUI_Bank, "TOPLEFT", GetBankSidebarWidth(), -HEADER_H)
 sf:SetPoint("BOTTOMRIGHT", EUI_Bank, "BOTTOMRIGHT", -1, FOOTER_H)
 sf:EnableMouseWheel(true)
-local child = CreateFrame("Frame", nil, sf)
+local child = EllesmereUI.SafeCreateFrame("Frame", nil, sf)
 child:SetWidth(1); child:SetHeight(1)
 child:EnableMouse(false)
 sf:SetScrollChild(child)
 
 -- Track (always visible when content scrolls)
-local track = CreateFrame("Button", nil, EUI_Bank)
+local track = EllesmereUI.SafeCreateFrame("Button", nil, EUI_Bank)
 track:SetWidth(SCROLLBAR_HIT_W)
 track:SetPoint("TOPRIGHT", EUI_Bank, "TOPRIGHT", -1, -(HEADER_H + 1))
 track:SetPoint("BOTTOMRIGHT", EUI_Bank, "BOTTOMRIGHT", -1, FOOTER_H)
@@ -1019,12 +1019,12 @@ trackBg:SetWidth(SCROLLBAR_W)
 trackBg:SetPoint("TOP", track, "TOP", 0, 0)
 trackBg:SetPoint("BOTTOM", track, "BOTTOM", 0, 0)
 trackBg:SetPoint("RIGHT", track, "RIGHT", 0, 0)
-trackBg:SetColorTexture(1, 1, 1, 0.06)
+trackBg:SetTexture(1, 1, 1, 0.06)
 
 -- Thumb
 local thumb = track:CreateTexture(nil, "ARTWORK")
 thumb:SetWidth(SCROLLBAR_W)
-thumb:SetColorTexture(1, 1, 1, 0.25)
+thumb:SetTexture(1, 1, 1, 0.25)
 thumb:Hide()
 
 local _isDragging = false
@@ -1079,13 +1079,13 @@ EUI_Bank:SetScript("OnMouseWheel", function(_, delta)
 end)
 
 -- Thumb dragging (dragUpdate must be declared before OnMouseDown uses it)
-local dragUpdate = CreateFrame("Frame")
+local dragUpdate = EllesmereUI.SafeCreateFrame("Frame")
 dragUpdate:Hide()
 dragUpdate:SetScript("OnUpdate", function(self)
     if not _isDragging then self:Hide(); return end
     if not IsMouseButtonDown("LeftButton") then
         _isDragging = false; self:Hide()
-        thumb:SetColorTexture(1, 1, 1, 0.25)
+        thumb:SetTexture(1, 1, 1, 0.25)
         return
     end
     local pct, thumbH, maxTravel, scrollRange = GetScrollMetrics()
@@ -1137,9 +1137,9 @@ track:SetScript("OnMouseUp", function()
 end)
 
 -- Hover effect on thumb
-track:SetScript("OnEnter", function() thumb:SetColorTexture(1, 1, 1, 0.4) end)
+track:SetScript("OnEnter", function() thumb:SetTexture(1, 1, 1, 0.4) end)
 track:SetScript("OnLeave", function()
-    if not _isDragging then thumb:SetColorTexture(1, 1, 1, 0.25) end
+    if not _isDragging then thumb:SetTexture(1, 1, 1, 0.25) end
 end)
 
 EUI_Bank._scrollFrame = sf
@@ -1364,7 +1364,7 @@ end
 
 local function EnsureTransferEventFrame()
     if _transferEventFrame then return end
-    _transferEventFrame = CreateFrame("Frame")
+    _transferEventFrame = EllesmereUI.SafeCreateFrame("Frame")
     _transferEventFrame:SetScript("OnEvent", function() DrainQueue() end)
 end
 
@@ -1380,9 +1380,9 @@ end
 
 local function GetOrCreateBankSlot(idx)
     if _bankSlots[idx] then return _bankSlots[idx] end
-    local slotParent = CreateFrame("Frame", nil, EUI_Bank)
+    local slotParent = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bank)
     slotParent:SetSize(SLOT_SIZE, SLOT_SIZE)
-    local btn = CreateFrame("ItemButton", nil, slotParent, "ContainerFrameItemButtonTemplate")
+    local btn = EllesmereUI.SafeCreateFrame("ItemButton", nil, slotParent, "ContainerFrameItemButtonTemplate")
     btn:SetAllPoints(slotParent)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:RegisterForDrag("LeftButton")
@@ -1405,7 +1405,7 @@ local function GetOrCreateBankSlot(idx)
 
     -- Remove highlight/pushed textures shape
     local ht = btn.HighlightTexture or btn:GetHighlightTexture()
-    if ht then ht:SetTexture(nil); ht:SetColorTexture(1, 1, 1, 0.08); ht:ClearAllPoints(); ht:SetAllPoints(btn) end
+    if ht then ht:SetTexture(nil); ht:SetTexture(1, 1, 1, 0.08); ht:ClearAllPoints(); ht:SetAllPoints(btn) end
     local pt = btn.PushedTexture or btn:GetPushedTexture()
     if pt then
         pt:SetAtlas(nil)
@@ -1426,7 +1426,7 @@ local function GetOrCreateBankSlot(idx)
     SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
 
     -- Text overlay above cooldown
-    local textOverlay = CreateFrame("Frame", nil, btn)
+    local textOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
     textOverlay:SetAllPoints()
     textOverlay:SetFrameLevel((btn.Cooldown and btn.Cooldown:GetFrameLevel() or btn:GetFrameLevel()) + 2)
     btn._textOverlay = textOverlay
@@ -1478,7 +1478,7 @@ end
 local _bankHeaders = {}
 local function GetOrCreateBankHeader(idx)
     if _bankHeaders[idx] then return _bankHeaders[idx] end
-    local f = CreateFrame("Frame", nil, EUI_Bank)
+    local f = EllesmereUI.SafeCreateFrame("Frame", nil, EUI_Bank)
     f:SetHeight(20)
     f._label = f:CreateFontString(nil, "OVERLAY")
     SetBankFont(f._label, 11)
@@ -1491,7 +1491,7 @@ local function GetOrCreateBankHeader(idx)
     f._line:SetHeight(px)
     f._line:SetPoint("LEFT", f._label, "RIGHT", 6, 0)
     f._line:SetPoint("RIGHT", f, "RIGHT", -SPACING, 0)
-    f._line:SetColorTexture(0.7, 0.7, 0.7, 0.2)
+    f._line:SetTexture(0.7, 0.7, 0.7, 0.2)
     _bankHeaders[idx] = f
     return f
 end
@@ -1940,7 +1940,7 @@ function EUI_Bank:RefreshBank()
     -- Remaining batches deferred via OnUpdate for large refreshes (tab open).
     RenderBatch()
     if not EUI_Bank._batchFrame then
-        EUI_Bank._batchFrame = CreateFrame("Frame")
+        EUI_Bank._batchFrame = EllesmereUI.SafeCreateFrame("Frame")
     end
     EUI_Bank._batchFrame:SetScript("OnUpdate", function(self)
         if rendered >= #_layout or not EUI_Bank:IsVisible() then
@@ -1985,7 +1985,7 @@ function BuildBankSidebar()
 
     local function MakeSidebarBtn(idx)
         if _sidebarBtns[idx] then return _sidebarBtns[idx] end
-        local btn = CreateFrame("Button", nil, sidebarChild)
+        local btn = EllesmereUI.SafeCreateFrame("Button", nil, sidebarChild)
         btn:SetHeight(SIDEBAR_BTN_H)
         btn._indicator = btn:CreateTexture(nil, "OVERLAY")
         local PP = EUI and EUI.PP
@@ -1994,7 +1994,7 @@ function BuildBankSidebar()
         btn._indicator:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
         btn._indicator:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
         btn._bg = btn:CreateTexture(nil, "BACKGROUND", nil, 2)
-        btn._bg:SetAllPoints(); btn._bg:SetColorTexture(1, 1, 1, 0)
+        btn._bg:SetAllPoints(); btn._bg:SetTexture(1, 1, 1, 0)
         btn._icon = btn:CreateTexture(nil, "ARTWORK")
         btn._icon:SetSize(SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE)
         btn._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -2011,7 +2011,7 @@ function BuildBankSidebar()
         btn:SetScript("OnEnter", function(self)
             local showEditableTabTooltip = EUI.ShowWidgetTooltip and not self._isPurchaseTab and self._viewIdx and self._viewIdx > 0
 
-            if not self._isSelected then self._bg:SetColorTexture(1, 1, 1, 0.06) end
+            if not self._isSelected then self._bg:SetTexture(1, 1, 1, 0.06) end
             if (BP().bankSidebarCollapsed) and EUI.ShowWidgetTooltip then
                 EUI.ShowWidgetTooltip(self, (self._entryName or "?") .. " (" .. (self._entryCount or 0) .. ")" .. (showEditableTabTooltip and ("\n|cffdab842" .. BANK_TAB_TOOLTIP_CLICK_INSTRUCTION .. "|r") or ""))
             end
@@ -2020,7 +2020,7 @@ function BuildBankSidebar()
             end
         end)
         btn:SetScript("OnLeave", function(self)
-            if not self._isSelected then self._bg:SetColorTexture(1, 1, 1, 0) end
+            if not self._isSelected then self._bg:SetTexture(1, 1, 1, 0) end
             if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
         end)
         btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -2065,7 +2065,7 @@ function BuildBankSidebar()
         btn._entryName = locLabel
         btn._entryCount = 0
         btn._indicator:Hide()
-        btn._bg:SetColorTexture(1, 1, 1, 0)
+        btn._bg:SetTexture(1, 1, 1, 0)
         btn:SetParent(sidebarChild)
         btn:ClearAllPoints()
         btn:SetPoint("TOPLEFT", sidebarChild, "TOPLEFT", 0, y)
@@ -2136,11 +2136,11 @@ function BuildBankSidebar()
         end
 
         if isSelected then
-            btn._indicator:SetColorTexture(ar, ag, ab, 1); btn._indicator:Show()
-            btn._bg:SetColorTexture(ar, ag, ab, 0.1)
+            btn._indicator:SetTexture(ar, ag, ab, 1); btn._indicator:Show()
+            btn._bg:SetTexture(ar, ag, ab, 0.1)
         else
             btn._indicator:Hide()
-            btn._bg:SetColorTexture(1, 1, 1, 0)
+            btn._bg:SetTexture(1, 1, 1, 0)
         end
         btn:Show()
         y = y - SIDEBAR_BTN_H - SIDEBAR_PAD
@@ -2210,7 +2210,7 @@ function BuildBankSidebar()
             local px = (PP and PP.mult) or 1
             local div = sidebarChild:CreateTexture(nil, "ARTWORK")
             div:SetHeight(px)
-            div:SetColorTexture(0.2, 0.2, 0.2, 1)
+            div:SetTexture(0.2, 0.2, 0.2, 1)
             sidebarChild[key] = div
         end
         y = y - 4
@@ -2285,7 +2285,7 @@ local function ScheduleBankRefresh()
     end)
 end
 
-local eventFrame = CreateFrame("Frame")
+local eventFrame = EllesmereUI.SafeCreateFrame("Frame")
 eventFrame:RegisterEvent("BANKFRAME_OPENED")
 eventFrame:RegisterEvent("BANKFRAME_CLOSED")
 eventFrame:RegisterEvent("BAG_UPDATE")
@@ -2339,7 +2339,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
         -- Bank item data loads asynchronously after BANKFRAME_OPENED.
         -- Defer discovery + refresh to next frame via OnUpdate.
         if not EUI_Bank._openPoller then
-            EUI_Bank._openPoller = CreateFrame("Frame")
+            EUI_Bank._openPoller = EllesmereUI.SafeCreateFrame("Frame")
         end
         EUI_Bank._openPoller:SetScript("OnUpdate", function(self)
             self:SetScript("OnUpdate", nil)
@@ -2375,7 +2375,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
             -- Poll until tab count changes or we give up after 5 seconds.
             if #_allTabs == prevCount then
                 local attempts = 0
-                local poller = CreateFrame("Frame")
+                local poller = EllesmereUI.SafeCreateFrame("Frame")
                 poller:SetScript("OnUpdate", function(self, elapsed)
                     attempts = attempts + 1
                     if attempts % 6 ~= 0 then return end -- ~0.1s per check
@@ -2410,7 +2410,7 @@ end)
 -- Do NOT use SetScript on BankFrame -- that taints it and breaks
 -- PurchaseBankTab() and other secure bank operations.
 do
-    local hiddenParent = CreateFrame("Frame")
+    local hiddenParent = EllesmereUI.SafeCreateFrame("Frame")
     hiddenParent:Hide()
     if BankFrame then
         BankFrame:SetParent(hiddenParent)
@@ -2432,7 +2432,7 @@ end)
 -------------------------------------------------------------------------------
 --  Loader (deferred init)
 -------------------------------------------------------------------------------
-local loader = CreateFrame("Frame")
+local loader = EllesmereUI.SafeCreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function(self)
     self:UnregisterAllEvents()

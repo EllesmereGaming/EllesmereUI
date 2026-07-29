@@ -1842,7 +1842,7 @@ ns.RefreshBuffBarGating  = function() end
 --  Frame Creation
 -------------------------------------------------------------------------------
 local function CreateTrackedBuffBarFrame(parent, idx)
-    local wrapFrame = CreateFrame("Frame", "ECME_TBBWrap" .. idx, parent)
+    local wrapFrame = EllesmereUI.SafeCreateFrame("Frame", "ECME_TBBWrap" .. idx, parent)
     -- MEDIUM strata at level 100 by default; the user can move the whole bar
     -- to another strata (cfg.strata, applied in ApplyTrackedBuffBarSettings).
     -- Level 100 keeps the bar above the buff-icon displays (MEDIUM, low
@@ -1851,7 +1851,7 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     wrapFrame:SetFrameStrata("MEDIUM")
     wrapFrame:SetFrameLevel(100)
 
-    local bar = CreateFrame("StatusBar", "ECME_TBB" .. idx, wrapFrame)
+    local bar = EllesmereUI.SafeCreateFrame("StatusBar", "ECME_TBB" .. idx, wrapFrame)
     if bar.EnableMouseClicks then bar:EnableMouseClicks(false) end
     bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
     bar:SetMinMaxValues(0, 1)
@@ -1861,7 +1861,7 @@ local function CreateTrackedBuffBarFrame(parent, idx)
 
     local bg = bar:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0, 0, 0, 0.4)
+    bg:SetTexture(0, 0, 0, 0.4)
     wrapFrame._bg = bg
 
     -- Spark on a dedicated overlay frame above the (gradient) fill and the
@@ -1872,7 +1872,7 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     -- past the ends. SnapToPixelGrid off so it tracks the smoothly-interpolated
     -- fill edge at sub-pixel precision instead of jumping a pixel as the edge
     -- crosses a grid line.
-    local sparkOverlay = CreateFrame("Frame", nil, bar)
+    local sparkOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, bar)
     sparkOverlay:SetAllPoints(bar)
     sparkOverlay:SetClipsChildren(true)
     sparkOverlay:SetFrameLevel(bar:GetFrameLevel() + 2)
@@ -1895,7 +1895,7 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     -- pandemic glow overlay (wrapFrame +7 = bar +6) so the timer/name/stacks
     -- text renders on top of both. Keyed off bar (like the border) so the two
     -- track together.
-    local textOverlay = CreateFrame("Frame", nil, wrapFrame)
+    local textOverlay = EllesmereUI.SafeCreateFrame("Frame", nil, wrapFrame)
     textOverlay:SetAllPoints(bar)
     textOverlay:SetFrameLevel(bar:GetFrameLevel() + 7)
     wrapFrame._textOverlay = textOverlay
@@ -1925,7 +1925,7 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     wrapFrame._stacksText = stacksText
 
     -- Icon
-    local icon = CreateFrame("Frame", nil, wrapFrame)
+    local icon = EllesmereUI.SafeCreateFrame("Frame", nil, wrapFrame)
     icon:SetSize(24, 24)
     icon:Hide()
     local iconTex = icon:CreateTexture(nil, "ARTWORK")
@@ -1935,7 +1935,7 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     wrapFrame._icon = icon
 
     -- Border container
-    local bdrContainer = CreateFrame("Frame", nil, wrapFrame)
+    local bdrContainer = EllesmereUI.SafeCreateFrame("Frame", nil, wrapFrame)
     bdrContainer:SetAllPoints(wrapFrame)
     bdrContainer:SetFrameLevel(wrapFrame:GetFrameLevel() + 5)
     bdrContainer:Hide()
@@ -1944,7 +1944,7 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     -- Pandemic glow overlay. Sits above the border, whose PP strips draw at +6
     -- (border frame +5, plus the +1 the strip container adds), so a thick border
     -- can't bury the edge-hugging glow.
-    local panGlow = CreateFrame("Frame", nil, wrapFrame)
+    local panGlow = EllesmereUI.SafeCreateFrame("Frame", nil, wrapFrame)
     panGlow:SetAllPoints(wrapFrame)
     panGlow:SetFrameLevel(wrapFrame:GetFrameLevel() + 7)
     panGlow:SetAlpha(0)
@@ -1976,7 +1976,7 @@ local function EnsureTBBThresholdOverlay(bar, i)
     if pool[i] then return pool[i] end
     local sb = bar._bar
     if not sb then return nil end
-    local overlay = CreateFrame("StatusBar", nil, pool[i - 1] or sb)
+    local overlay = EllesmereUI.SafeCreateFrame("StatusBar", nil, pool[i - 1] or sb)
     overlay:SetAllPoints(sb:GetStatusBarTexture())
     overlay:SetFrameLevel(sb:GetFrameLevel() + 2)
     overlay:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
@@ -2144,7 +2144,7 @@ local function ApplyTBBTickMarks(sb, cfg, tickCache, isVert, tickParent)
         if v <= maxStacks then
             local t = tickCache[i]
             local frac = v / maxStacks
-            t:SetColorTexture(tickR, tickG, tickB, tickA)
+            t:SetTexture(tickR, tickG, tickB, tickA)
             t:ClearAllPoints()
             if isVert then
                 local off = PP and PP.Scale(barH * frac) or (barH * frac)
@@ -2229,7 +2229,7 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
     end
 
     if not bar._chargeHashOverlay then
-        local overlay = CreateFrame("Frame", nil, sb)
+        local overlay = EllesmereUI.SafeCreateFrame("Frame", nil, sb)
         overlay:SetAllPoints(sb)
         overlay:SetFrameLevel(sb:GetFrameLevel() + 5)
         bar._chargeHashOverlay = overlay
@@ -2252,7 +2252,7 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
     for i = 1, maxCharges - 1 do
         local tick = ticks[i]
         local frac = i / maxCharges
-        tick:SetColorTexture(lineR, lineG, lineB, lineA)
+        tick:SetTexture(lineR, lineG, lineB, lineA)
         tick:ClearAllPoints()
         if isVert then
             local offset = PP and PP.Scale(barH * frac) or (barH * frac)
@@ -2452,7 +2452,7 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
 
     -- Background
     if bar._bg then
-        bar._bg:SetColorTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgA or 0.4)
+        bar._bg:SetTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgA or 0.4)
     end
 
     -- Gradient
@@ -2460,7 +2460,7 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         local dir = cfg.gradientDir or "HORIZONTAL"
         fillTex:SetVertexColor(1, 1, 1, 0)
         if not bar._gradClip then
-            local clip = CreateFrame("Frame", nil, sb)
+            local clip = EllesmereUI.SafeCreateFrame("Frame", nil, sb)
             clip:SetClipsChildren(true)
             clip:SetFrameLevel(sb:GetFrameLevel() + 1)
             local tex = clip:CreateTexture(nil, "ARTWORK", nil, 1)
@@ -2654,7 +2654,7 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     SetupTBBThresholdOverlay(bar, cfg)
     if not bar._threshTicks then bar._threshTicks = {} end
     if not bar._tickOverlay then
-        local to = CreateFrame("Frame", nil, sb)
+        local to = EllesmereUI.SafeCreateFrame("Frame", nil, sb)
         to:SetAllPoints(sb)
         to:SetFrameLevel(sb:GetFrameLevel() + 4)
         bar._tickOverlay = to
@@ -3812,7 +3812,7 @@ local function _ensureTBBChargeHashFill(bar)
     local sb = bar._bar
     if not sb then return end
 
-    local countBar = CreateFrame("StatusBar", nil, sb)
+    local countBar = EllesmereUI.SafeCreateFrame("StatusBar", nil, sb)
     countBar:SetAllPoints(sb)
     countBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
     local countTexture = countBar:GetStatusBarTexture()
@@ -3823,7 +3823,7 @@ local function _ensureTBBChargeHashFill(bar)
     bar._chargeHashCountBar = countBar
     bar._chargeHashCountTexture = countTexture
 
-    local progressBar = CreateFrame("StatusBar", nil, sb)
+    local progressBar = EllesmereUI.SafeCreateFrame("StatusBar", nil, sb)
     progressBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
     local progressTexture = progressBar:GetStatusBarTexture()
     progressTexture:SetSnapToPixelGrid(false)
@@ -3833,7 +3833,7 @@ local function _ensureTBBChargeHashFill(bar)
     bar._chargeHashProgressBar = progressBar
     bar._chargeHashProgressTexture = progressTexture
 
-    local clip = CreateFrame("Frame", nil, sb)
+    local clip = EllesmereUI.SafeCreateFrame("Frame", nil, sb)
     clip:SetClipsChildren(true)
     clip:SetFrameLevel(sb:GetFrameLevel() + 1)
     clip:Hide()
@@ -4997,7 +4997,7 @@ function ns.UpdateTrackedBuffBarTimers()
                             bar._timerText:Hide()
                         end
                     elseif bar._timerText then
-                        bar._timerText:SetShown(MirrorEngineTimer(bar, cfg))
+                        if MirrorEngineTimer(bar, cfg) then bar._timerText:Show() else bar._timerText:Hide() end
                     end
                     if cfg.showSpark and bar._spark then bar._spark:Show() end
                 elseif sb then
@@ -5032,7 +5032,7 @@ function ns.UpdateTrackedBuffBarTimers()
                             -- Engine-bound decimal mirror (12.1) can render the
                             -- secret remaining time we cannot; otherwise no
                             -- readable time -> no text.
-                            bar._timerText:SetShown(MirrorEngineTimer(bar, cfg))
+                            if MirrorEngineTimer(bar, cfg) then bar._timerText:Show() else bar._timerText:Hide() end
                         end
                     end
                     if cfg.showSpark and bar._spark then bar._spark:Show() end

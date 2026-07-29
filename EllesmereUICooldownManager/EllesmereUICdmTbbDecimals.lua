@@ -258,7 +258,7 @@ local function BuildContainer(desired)
         -- and the noRegions slot buttons render nothing anyway. Alpha 0 on
         -- the host is belt-and-braces; it does not reach the bound timer
         -- FontStrings (they live on the TBB bars, not in this tree).
-        host = CreateFrame("Frame", nil, UIParent)
+        host = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         host:SetSize(1, 1)
         host:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", 0, 0)
         host:SetFrameStrata("BACKGROUND")
@@ -289,7 +289,7 @@ local function BuildContainer(desired)
                 -- carrier arrangement as the standard AuraKit regions; fonted
                 -- BEFORE registration (style-before-register contract). It is
                 -- never rendered (alpha-0 host); only its string is read.
-                local carrier = CreateFrame("Frame", nil, button)
+                local carrier = EllesmereUI.SafeCreateFrame("Frame", nil, button)
                 carrier:SetAllPoints(button)
                 local fs = carrier:CreateFontString(nil, "OVERLAY")
                 fs:SetFont((ns.GetCDMFont and ns.GetCDMFont())

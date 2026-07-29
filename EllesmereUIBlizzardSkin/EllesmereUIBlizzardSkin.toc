@@ -15,13 +15,20 @@ EllesmereUIBlizzardSkin_DiminishingReturns.lua
 EllesmereUIBlizzardSkin_CharacterSheet.lua
 EllesmereUIBlizzardSkin_SocketPanel.lua
 EllesmereUIBlizzardSkin_InspectSheet.lua
-EllesmereUIBlizzardSkin_DragonRiding.lua
-EllesmereUIBlizzardSkin_GreatVault.lua
 EllesmereUIBlizzardSkin_GroupFinder.lua
 
-# Window Skins (shared engine + per-window packs)
-EllesmereUIBlizzardSkin_WindowEngine.lua
-EllesmereUIBlizzardSkin_WindowPacks.lua
+# Framework
+EllesmereUIBlizzardSkin_Toolkit.lua
+EllesmereUIBlizzardSkin_Core.lua
+
+# Skins
+Skins\Character.lua
+Skins\Spellbook.lua
+Skins\Gossip.lua
+Skins\Merchant.lua
+Skins\Quest.lua
+Skins\Talent.lua
+Skins\Worldmap.lua
 
 # Options
 EUI_BlizzardSkin_Options.lua

@@ -101,7 +101,7 @@ end
 -------------------------------------------------------------------------------
 --  Event frame
 -------------------------------------------------------------------------------
-local visFrame = CreateFrame("Frame")
+local visFrame = EllesmereUI.SafeCreateFrame("Frame")
 visFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 visFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 visFrame:RegisterEvent("PLAYER_DEAD")
@@ -152,7 +152,7 @@ end)
 -------------------------------------------------------------------------------
 --  Mouseover poll
 -------------------------------------------------------------------------------
-local mouseoverPoll = CreateFrame("Frame")
+local mouseoverPoll = EllesmereUI.SafeCreateFrame("Frame")
 -- Cursor-in-bounds check (works on hidden frames using saved position/size)
 local function IsCursorOver(frame)
     if not frame.GetRect then return false end

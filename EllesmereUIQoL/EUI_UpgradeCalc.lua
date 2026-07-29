@@ -579,7 +579,7 @@ local TRACK_RGB = {
     Voidforged = {0.55, 0.0,  1.0 },
 }
 
-local f = CreateFrame("Frame", "EUIUpgCalcFrame", UIParent)
+local f = EllesmereUI.SafeCreateFrame("Frame", "EUIUpgCalcFrame", UIParent)
 PP.Size(f, FRAME_W, FRAME_H)
 f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 20, -40)
 f:SetFrameStrata("DIALOG")
@@ -596,13 +596,13 @@ fBg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
 fBg:SetTexCoord(0.25, 1, 0, 0.75)
 local fBgOverlay = f:CreateTexture(nil, "BACKGROUND", nil, 1)
 fBgOverlay:SetAllPoints(f)
-fBgOverlay:SetColorTexture(0, 0, 0, 0.5)
+fBgOverlay:SetTexture(0, 0, 0, 0.5)
 
 function Calc.ApplyBgOpacity()
     local opts  = Opts()
     local alpha = opts and opts.bgOpacity
     if alpha == nil then alpha = 50 end
-    fBgOverlay:SetColorTexture(0, 0, 0, alpha / 100)
+    fBgOverlay:SetTexture(0, 0, 0, alpha / 100)
 end
 
 function Calc.ApplyScale()
@@ -625,7 +625,7 @@ local titleTxt = MFont(f, 13, "OUTLINE", 1, 1, 1, 1)
 PP.Point(titleTxt, "TOPLEFT", f, "TOPLEFT", 10, -10)
 titleTxt:SetText(EUI.L("Upgrade Calculator"))
 
-local closeBtn = CreateFrame("Button", nil, f)
+local closeBtn = EllesmereUI.SafeCreateFrame("Button", nil, f)
 PP.Size(closeBtn, 24, 24)
 closeBtn:SetPoint("RIGHT", titleBg, "RIGHT", -5, 5)
 local closeTxt = MFont(closeBtn, 16, "", 1, 1, 1, 0.75)
@@ -676,7 +676,7 @@ local function MakeRow(parent, cols, yOffset, isAlt)
 end
 
 local function MakeButton(parent, label, w, h, yOff, xOff)
-    local btn = CreateFrame("Button", nil, parent)
+    local btn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
     PP.Size(btn, w, h)
     PP.Point(btn, "TOPLEFT", parent, "TOPLEFT", xOff, yOff)
     local btnBg = SolidTex(btn, "BACKGROUND", 0, 0, 0, 0.35)
@@ -691,7 +691,7 @@ local function MakeButton(parent, label, w, h, yOff, xOff)
 end
 
 -- Character Pane ──────────────────────────────────────────────────────────────
-f.charPane = CreateFrame("Frame", nil, f)
+f.charPane = EllesmereUI.SafeCreateFrame("Frame", nil, f)
 f.charPane:SetAllPoints(f)
 
 local ilvlStatLbl = MFont(f.charPane, 12, "OUTLINE", 1, 1, 1, 1)
@@ -701,7 +701,7 @@ local ilvlEstLbl = MFont(f.charPane, 10, "OUTLINE", 0.53, 0.53, 0.53, 1)
 PP.Point(ilvlEstLbl, "LEFT", ilvlStatLbl, "RIGHT", 4, 0)
 ilvlEstLbl:SetText(EUI.L(""))
 
-local cc = CreateFrame("Frame", nil, f.charPane)
+local cc = EllesmereUI.SafeCreateFrame("Frame", nil, f.charPane)
 PP.Point(cc, "TOPLEFT",  f.charPane, "TOPLEFT",  10, tabY - 30)
 PP.Point(cc, "TOPRIGHT", f.charPane, "TOPRIGHT", -10, tabY - 30)
 PP.Height(cc, FRAME_H - 100)
@@ -715,7 +715,7 @@ PP.Height(tlTrack, 10)
 tlTrack:SetPoint("RIGHT", f.charPane, "LEFT", 10 + TILE_ROW_W, 0)
 
 -- Fill lives inside a clip frame so it can't overflow the track
-local tlClip = CreateFrame("Frame", nil, f.charPane)
+local tlClip = EllesmereUI.SafeCreateFrame("Frame", nil, f.charPane)
 tlClip:SetPoint("TOPLEFT", tlTrack, "TOPLEFT", 0, 0)
 tlClip:SetPoint("BOTTOMRIGHT", tlTrack, "BOTTOMRIGHT", 0, 0)
 tlClip:SetClipsChildren(true)
@@ -729,7 +729,7 @@ local ToggleTileQueue  -- forward declaration (defined in queue section)
 
 local tileFrames = {}
 for i = 1, 18 do
-    local btn = CreateFrame("Button", nil, cc)
+    local btn = EllesmereUI.SafeCreateFrame("Button", nil, cc)
     PP.Size(btn, TILE_W, TILE_H)
     btn:Hide()
     local bg = SolidTex(btn, "BACKGROUND", 1, 1, 1, 0.05)
@@ -744,7 +744,7 @@ for i = 1, 18 do
     accentBar:SetTexelSnappingBias(0)
     btn.accentBar = accentBar
     -- Queue overlay: 50% black with "In Queue" text
-    local queueOv = CreateFrame("Frame", nil, btn)
+    local queueOv = EllesmereUI.SafeCreateFrame("Frame", nil, btn)
     queueOv:SetAllPoints(btn)
     queueOv:SetFrameLevel(btn:GetFrameLevel() + 5)
     local queueOvBg = SolidTex(queueOv, "BACKGROUND", 0, 0, 0, 0.75)
@@ -786,7 +786,7 @@ for i = 1, 18 do
         if self.tileEntry then ToggleTileQueue(self.tileEntry, self) end
     end)
     btn:SetScript("OnEnter", function(self)
-        self.bg:SetColorTexture(1, 1, 1, 0.1)
+        self.bg:SetTexture(1, 1, 1, 0.1)
         local e = self.tileEntry
         if not e or not EUI.ShowWidgetTooltip then return end
         local lines = {}
@@ -822,11 +822,11 @@ for i = 1, 18 do
         local e = self.tileEntry
         if not e then return end
         if e.isAtMax then
-            self.bg:SetColorTexture(0.1, 0.4, 0.1, 0.2)
+            self.bg:SetTexture(0.1, 0.4, 0.1, 0.2)
         elseif type(e.max) == "number" and (e.max - e.ilvl) >= 10 then
-            self.bg:SetColorTexture(0.5, 0.1, 0.1, 0.2)
+            self.bg:SetTexture(0.5, 0.1, 0.1, 0.2)
         else
-            self.bg:SetColorTexture(0.5, 0.35, 0.05, 0.2)
+            self.bg:SetTexture(0.5, 0.35, 0.05, 0.2)
         end
         if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
     end)
@@ -843,7 +843,7 @@ PP.Width(groupSepLine, TILE_ROW_W)
 
 
 -- ── Queue panel ──────────────────────────────────────────────────────────────────
-local queuePane = CreateFrame("Frame", nil, cc)
+local queuePane = EllesmereUI.SafeCreateFrame("Frame", nil, cc)
 PP.Size(queuePane, QUEUE_W, FRAME_H - 140)
 PP.Point(queuePane, "TOPLEFT", cc, "TOPLEFT", QUEUE_X_OFF, -10)
 
@@ -852,7 +852,7 @@ PP.Point(qHdrLbl, "TOPLEFT", queuePane, "TOPLEFT", 0, 0)
 qHdrLbl:SetText(EUI.L("Upgrade Queue"))
 
 -- Sort-by-crest button sits in the header bar, right-aligned (swaps with qSubLbl)
-local qSortBtn = CreateFrame("Button", nil, queuePane)
+local qSortBtn = EllesmereUI.SafeCreateFrame("Button", nil, queuePane)
 qSortBtn:SetHeight(16)
 local qSortTxt = MFont(qSortBtn, 11, "OUTLINE", 1, 1, 1, 0.75)
 qSortTxt:SetPoint("RIGHT", qSortBtn, "RIGHT", 0, 0)
@@ -868,14 +868,14 @@ qSortBtn:SetScript("OnLeave", function()
 end)
 qSortBtn:Hide()  -- shown only when queue has items
 
-local qHdrSep = CreateFrame("Frame", nil, queuePane)
+local qHdrSep = EllesmereUI.SafeCreateFrame("Frame", nil, queuePane)
 qHdrSep:SetPoint("TOPLEFT",  queuePane, "TOPLEFT",  0, -18)
 qHdrSep:SetPoint("TOPRIGHT", queuePane, "TOPRIGHT", 0, -18)
 qHdrSep:SetHeight(math.max(PP.mult, 1))
 qHdrSep:SetFrameLevel(queuePane:GetFrameLevel() + 5)
 local qHdrSepTex = qHdrSep:CreateTexture(nil, "OVERLAY")
 qHdrSepTex:SetAllPoints()
-qHdrSepTex:SetColorTexture(1, 1, 1, 0.15)
+qHdrSepTex:SetTexture(1, 1, 1, 0.15)
 
 local qEmptyLbl = MFont(queuePane, 10, "OUTLINE", 0.32, 0.32, 0.32, 1)
 PP.Point(qEmptyLbl, "TOPLEFT", queuePane, "TOPLEFT", 4, -23)
@@ -889,7 +889,7 @@ local queueEntries = {}
 local Q_ROW_H = 20
 local Q_ROW_STEP = Q_ROW_H + PP.mult  -- row height + 1 physical pixel gap
 for i = 1, 16 do
-    local ef = CreateFrame("Frame", nil, queuePane)
+    local ef = EllesmereUI.SafeCreateFrame("Frame", nil, queuePane)
     PP.Size(ef, QUEUE_W, Q_ROW_H)
     PP.Point(ef, "TOPLEFT", queuePane, "TOPLEFT", 0, -(23 + (i - 1) * Q_ROW_STEP))
     ef:Hide()
@@ -907,14 +907,14 @@ for i = 1, 16 do
     queueEntries[i] = ef
 end
 
-local qTotalSep = CreateFrame("Frame", nil, queuePane)
+local qTotalSep = EllesmereUI.SafeCreateFrame("Frame", nil, queuePane)
 qTotalSep:SetPoint("TOPLEFT",  queuePane, "TOPLEFT",  0, -42)
 qTotalSep:SetPoint("TOPRIGHT", queuePane, "TOPRIGHT", 0, -42)
 qTotalSep:SetHeight(math.max(PP.mult, 1))
 qTotalSep:SetFrameLevel(queuePane:GetFrameLevel() + 5)
 local qTotalSepTex = qTotalSep:CreateTexture(nil, "OVERLAY")
 qTotalSepTex:SetAllPoints()
-qTotalSepTex:SetColorTexture(1, 1, 1, 0.15)
+qTotalSepTex:SetTexture(1, 1, 1, 0.15)
 qTotalSep:Hide()
 
 local qTotalLbl = MFont(queuePane, 10, "OUTLINE", G.r, G.g, G.b, 1)
@@ -1049,7 +1049,7 @@ end)
 
 -- ── Crest section — parented to a repositionable container frame ──────────────
 -- crestSection is moved each PopulateGear so the window height stays tight.
-local crestSection = CreateFrame("Frame", nil, cc)
+local crestSection = EllesmereUI.SafeCreateFrame("Frame", nil, cc)
 PP.Point(crestSection, "TOPLEFT",  cc, "TOPLEFT",  0, -430)  -- initial; overwritten each refresh
 PP.Point(crestSection, "TOPRIGHT", cc, "TOPRIGHT", 0, -430)
 PP.Height(crestSection, 200)  -- large enough; content determines visible area
@@ -1091,7 +1091,7 @@ local CC_BTN_W             = 40
 local CC_MINUS_X           = TILE_ROW_W - CC_BTN_W * 2 - 5
 local CC_PLUS_X            = TILE_ROW_W - CC_BTN_W
 
-local crestTblHdr = CreateFrame("Frame", nil, crestSection)
+local crestTblHdr = EllesmereUI.SafeCreateFrame("Frame", nil, crestSection)
 PP.Size(crestTblHdr, TILE_ROW_W, CROW_H)
 local cHdrBg = SolidTex(crestTblHdr, "BACKGROUND", 0, 0, 0, 0.35)
 cHdrBg:SetAllPoints()
@@ -1114,7 +1114,7 @@ local crestTableRows = {}
 for ri, trackName in ipairs(Data.trackOrder) do
     local td       = Data.tracks[trackName]
     local crestKey = td and td.crestName or (trackName .. " Crest")
-    local row      = CreateFrame("Frame", nil, crestSection)
+    local row      = EllesmereUI.SafeCreateFrame("Frame", nil, crestSection)
     PP.Size(row, TILE_ROW_W, CROW_H)
     if ri % 2 == 0 then
         local altBg = SolidTex(row, "BACKGROUND", 0, 0, 0, 0.15)
@@ -1420,18 +1420,18 @@ PopulateGear = function()
 
             -- Tile background colour by upgrade gap
             if entry.isAtMax then
-                btn.bg:SetColorTexture(0.1, 0.4, 0.1, 0.2)
+                btn.bg:SetTexture(0.1, 0.4, 0.1, 0.2)
             elseif type(entry.max) == "number" and (entry.max - entry.ilvl) >= 10 then
-                btn.bg:SetColorTexture(0.5, 0.1, 0.1, 0.2)
+                btn.bg:SetTexture(0.5, 0.1, 0.1, 0.2)
             else
-                btn.bg:SetColorTexture(0.5, 0.35, 0.05, 0.2)
+                btn.bg:SetTexture(0.5, 0.35, 0.05, 0.2)
             end
 
             -- Left accent bar: track colour
             local rgb = (entry.trackKey and TRACK_RGB[entry.trackKey])
                    or TRACK_RGB[entry.trackName]
                    or {0.4, 0.4, 0.4}
-            btn.accentBar:SetColorTexture(rgb[1], rgb[2], rgb[3], 1)
+            btn.accentBar:SetTexture(rgb[1], rgb[2], rgb[3], 1)
 
             -- Text labels
             btn.sLbl:SetText(EUI.L(entry.slotName))
@@ -1492,8 +1492,8 @@ PopulateGear = function()
     crestsLbl:SetText(EUI.L("Total Crests Needed") .. accuracyTag .. ": " .. EUI.L(crestStr))
 
     -- Crest breakdown table: populate rows, apply filter and optional columns
-    cHdrEarn:SetShown(showEarnedCap or false)
-    cHdrRem:SetShown(showWeeklyRemaining or false)
+    if showEarnedCap or false then cHdrEarn:Show() else cHdrEarn:Hide() end
+    if showWeeklyRemaining or false then cHdrRem:Show() else cHdrRem:Hide() end
 
     local visRowCount = 0
     for _, rowData in ipairs(crestTableRows) do
@@ -1615,7 +1615,7 @@ end)
 -- instead, making OnHide unable to cancel a pending debounce timer).
 local _equipDebounce = nil
 
-local equipListener = CreateFrame("Frame")
+local equipListener = EllesmereUI.SafeCreateFrame("Frame")
 equipListener:SetScript("OnEvent", function(_, event, slotID)
     if event == "PLAYER_REGEN_DISABLED" then
         -- Combat started: close the frame silently
@@ -1693,7 +1693,7 @@ end
 -- wipes EllesmereUIQoLDB and our saved data is lost every session.
 -- The first-run filter runs once (guarded by opts.firstRunDone) to auto-hide
 -- crest tracks that have no upgradeable items on the player's current gear.
-local _firstRunEvt = CreateFrame("Frame")
+local _firstRunEvt = EllesmereUI.SafeCreateFrame("Frame")
 _firstRunEvt:RegisterEvent("PLAYER_LOGIN")
 _firstRunEvt:SetScript("OnEvent", function(self)
     self:UnregisterAllEvents()
@@ -1780,7 +1780,7 @@ do
     local UPGRADE_INTERACTION = Enum and Enum.PlayerInteractionType and Enum.PlayerInteractionType.ItemUpgrade or 10
     local _upgraderOpen = false
 
-    local evtFrame = CreateFrame("Frame")
+    local evtFrame = EllesmereUI.SafeCreateFrame("Frame")
     evtFrame:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_SHOW")
     evtFrame:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
     evtFrame:RegisterEvent("ITEM_UPGRADE_MASTER_UPDATE")

@@ -9,7 +9,7 @@
 local _, ns = ...
 local EQT = ns.EQT
 
-local initFrame = CreateFrame("Frame")
+local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
@@ -27,7 +27,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function Set(k, v) DB()[k] = v     end
 
     local function MakeCogBtn(rgn, showFn)
-        local cogBtn = CreateFrame("Button", nil, rgn)
+        local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
         cogBtn:SetSize(26, 26)
         cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = cogBtn
@@ -64,7 +64,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- and auto-hides it during search.
         do
             local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath() or STANDARD_TEXT_FONT
-            local infoFrame = CreateFrame("Frame", nil, parent)
+            local infoFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
             infoFrame:SetSize(parent:GetWidth() or 400, 20)
             infoFrame:SetPoint("TOP", parent, "TOP", 0, y - 20)
             infoFrame._isSpacer = true
@@ -83,7 +83,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- so it persists through reload/logout. Edit Mode is opened so the
             -- user can reposition the frame after toggling.
             local EG = EllesmereUI.ELLESMERE_GREEN
-            local fosBtn = CreateFrame("Button", nil, parent)
+            local fosBtn = EllesmereUI.SafeCreateFrame("Button", nil, parent)
             local fosFS = fosBtn:CreateFontString(nil, "OVERLAY")
             fosFS:SetFont(fontPath, 15, "")
             fosFS:SetTextColor(EG.r, EG.g, EG.b, 0.75)
@@ -422,7 +422,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(label, "LEFT", rgn, "LEFT", SIDE_PAD, 0)
             label:SetText(EllesmereUI.L("Quest Item Hotkey"))
 
-            local kbBtn = CreateFrame("Button", nil, rgn)
+            local kbBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
             PP.Size(kbBtn, KB_W, KB_H)
             PP.Point(kbBtn, "RIGHT", rgn, "RIGHT", -SIDE_PAD, 0)
             kbBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
@@ -484,7 +484,7 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshLabel()
             end)
             kbBtn:SetScript("OnEnter", function(self)
-                kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+                kbBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
                 if kbBtn._border and kbBtn._border.SetColor then
                     kbBtn._border:SetColor(1, 1, 1, 0.3)
                 end
@@ -492,7 +492,7 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             kbBtn:SetScript("OnLeave", function()
                 if listening then return end
-                kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+                kbBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
                 if kbBtn._border and kbBtn._border.SetColor then
                     kbBtn._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
                 end

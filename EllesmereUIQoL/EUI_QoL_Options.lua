@@ -50,7 +50,7 @@ local function ShowTransformsPopup()
         local POPUP_H = CONTENT_TOP + HDR_H + 4 + maxRows * ROW_H + 24 + 39 + 38
         local ppScale = EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale() or 1
 
-        local dimmer = CreateFrame("Frame", nil, UIParent)
+        local dimmer = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
         dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
         dimmer:SetAllPoints(UIParent)
         dimmer:EnableMouse(true)
@@ -60,9 +60,9 @@ local function ShowTransformsPopup()
         dimmer:SetScale(ppScale)
         local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
         dimTex:SetAllPoints()
-        dimTex:SetColorTexture(0, 0, 0, 0.25)
+        dimTex:SetTexture(0, 0, 0, 0.25)
 
-        local popup = CreateFrame("Frame", nil, dimmer)
+        local popup = EllesmereUI.SafeCreateFrame("Frame", nil, dimmer)
         popup:SetScale(ppScale)
         popup:SetFrameStrata("FULLSCREEN_DIALOG")
         popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
@@ -74,7 +74,7 @@ local function ShowTransformsPopup()
 
         local bg = popup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
-        bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+        bg:SetTexture(0.06, 0.08, 0.10, 1)
         EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, PP)
 
         local title = popup:CreateFontString(nil, "OVERLAY")
@@ -108,7 +108,7 @@ local function ShowTransformsPopup()
             for _, item in ipairs(data.items) do transformsStaged[item.key] = v end
             RefreshRows()
         end
-        local checkAllBtn = CreateFrame("Button", nil, popup)
+        local checkAllBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
         checkAllBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
         local checkAllLbl = checkAllBtn:CreateFontString(nil, "OVERLAY")
         checkAllLbl:SetFont(FONT, 14, "")
@@ -122,13 +122,13 @@ local function ShowTransformsPopup()
         checkAllBtn:SetScript("OnClick", function() SetAll(true) end)
 
         local linkDivider = popup:CreateTexture(nil, "OVERLAY", nil, 7)
-        linkDivider:SetColorTexture(1, 1, 1, 0.18)
+        linkDivider:SetTexture(1, 1, 1, 0.18)
         if linkDivider.SetSnapToPixelGrid then linkDivider:SetSnapToPixelGrid(false); linkDivider:SetTexelSnappingBias(0) end
         linkDivider:SetPoint("LEFT", checkAllBtn, "RIGHT", 10, 0)
         linkDivider:SetWidth(1)
         linkDivider:SetHeight(12)
 
-        local uncheckAllBtn = CreateFrame("Button", nil, popup)
+        local uncheckAllBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
         uncheckAllBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
         local uncheckAllLbl = uncheckAllBtn:CreateFontString(nil, "OVERLAY")
         uncheckAllLbl:SetFont(FONT, 14, "")
@@ -152,23 +152,23 @@ local function ShowTransformsPopup()
 
             local items = catItems[cat] or {}
             for i, item in ipairs(items) do
-                local row = CreateFrame("Button", nil, popup)
+                local row = EllesmereUI.SafeCreateFrame("Button", nil, popup)
                 row:SetSize(COL_W, ROW_H)
                 row:SetPoint("TOPLEFT", popup, "TOPLEFT", colX, -(CONTENT_TOP + HDR_H + 4 + (i - 1) * ROW_H))
                 row._key = item.key
 
-                local box = CreateFrame("Frame", nil, row)
+                local box = EllesmereUI.SafeCreateFrame("Frame", nil, row)
                 box:SetSize(18, 18)
                 box:SetPoint("LEFT", row, "LEFT", 4, 0)
                 box:SetFrameLevel(row:GetFrameLevel() + 1)
                 local boxBg = box:CreateTexture(nil, "BACKGROUND")
                 boxBg:SetAllPoints()
-                boxBg:SetColorTexture(0.12, 0.12, 0.14, 1)
+                boxBg:SetTexture(0.12, 0.12, 0.14, 1)
                 row._boxBorder = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
                 local check = box:CreateTexture(nil, "ARTWORK")
                 check:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
                 check:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
-                check:SetColorTexture(EG.r, EG.g, EG.b, 1)
+                check:SetTexture(EG.r, EG.g, EG.b, 1)
                 row._check = check
 
                 local lbl = row:CreateFontString(nil, "OVERLAY")
@@ -191,13 +191,13 @@ local function ShowTransformsPopup()
         end
 
         -- Apply button (green, spec-popup style)
-        local applyBtn = CreateFrame("Button", nil, popup)
+        local applyBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
         applyBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
         applyBtn:SetSize(200, 39)
         applyBtn:SetPoint("BOTTOM", popup, "BOTTOM", 0, 38)
         local applyBg = applyBtn:CreateTexture(nil, "BACKGROUND")
         applyBg:SetAllPoints()
-        applyBg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
+        applyBg:SetTexture(0.06, 0.08, 0.10, 0.92)
         local applyBrd = EllesmereUI.MakeBorder(applyBtn, EG.r, EG.g, EG.b, 0.9, PP)
         local applyLbl = applyBtn:CreateFontString(nil, "OVERLAY")
         applyLbl:SetFont(FONT, 16, "")
@@ -253,7 +253,7 @@ local function ShowTransformsPopup()
     transformsPopup._dimmer:Show()
 end
 
-local initFrame = CreateFrame("Frame")
+local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
@@ -340,7 +340,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
 
-            local cinCogBtn = CreateFrame("Button", nil, rightRgn)
+            local cinCogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rightRgn)
             cinCogBtn:SetSize(26, 26)
             cinCogBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
             rightRgn._lastInline = cinCogBtn
@@ -353,7 +353,7 @@ initFrame:SetScript("OnEvent", function(self)
             cinCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(cinematicsOff() and 0.15 or 0.4) end)
             cinCogBtn:SetScript("OnClick", function(self) cinCogShow(self) end)
 
-            local cinCogBlock = CreateFrame("Frame", nil, cinCogBtn)
+            local cinCogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, cinCogBtn)
             cinCogBlock:SetAllPoints()
             cinCogBlock:SetFrameLevel(cinCogBtn:GetFrameLevel() + 10)
             cinCogBlock:EnableMouse(true)
@@ -451,7 +451,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
 
-            local repCogBtn = CreateFrame("Button", nil, leftRgn)
+            local repCogBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             repCogBtn:SetSize(26, 26)
             repCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
             leftRgn._lastInline = repCogBtn
@@ -464,7 +464,7 @@ initFrame:SetScript("OnEvent", function(self)
             repCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(repairOff() and 0.15 or 0.4) end)
             repCogBtn:SetScript("OnClick", function(self) repCogShow(self) end)
 
-            local repCogBlock = CreateFrame("Frame", nil, repCogBtn)
+            local repCogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, repCogBtn)
             repCogBlock:SetAllPoints()
             repCogBlock:SetFrameLevel(repCogBtn:GetFrameLevel() + 10)
             repCogBlock:EnableMouse(true)
@@ -552,7 +552,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local coordCogBtn = CreateFrame("Button", nil, leftRgn)
+            local coordCogBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             coordCogBtn:SetSize(26, 26)
             coordCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
             leftRgn._lastInline = coordCogBtn
@@ -565,7 +565,7 @@ initFrame:SetScript("OnEvent", function(self)
             coordCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(coordsOff() and 0.15 or 0.4) end)
             coordCogBtn:SetScript("OnClick", function(self) coordCogShow(self) end)
 
-            local coordCogBlock = CreateFrame("Frame", nil, coordCogBtn)
+            local coordCogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, coordCogBtn)
             coordCogBlock:SetAllPoints()
             coordCogBlock:SetFrameLevel(coordCogBtn:GetFrameLevel() + 10)
             coordCogBlock:EnableMouse(true)
@@ -701,7 +701,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local deathCogBtn = CreateFrame("Button", nil, leftRgn)
+            local deathCogBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             deathCogBtn:SetSize(26, 26)
             deathCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
             leftRgn._lastInline = deathCogBtn
@@ -715,7 +715,7 @@ initFrame:SetScript("OnEvent", function(self)
             deathCogBtn:SetScript("OnClick", function(self) deathCogShow(self) end)
 
             -- Blocking overlay for cog when the feature is off
-            local deathCogBlock = CreateFrame("Frame", nil, deathCogBtn)
+            local deathCogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, deathCogBtn)
             deathCogBlock:SetAllPoints()
             deathCogBlock:SetFrameLevel(deathCogBtn:GetFrameLevel() + 10)
             deathCogBlock:EnableMouse(true)
@@ -854,7 +854,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
                 footer = { unlockKey = "EUI_CombatAlert" },
             })
-            local caCogBtn = CreateFrame("Button", nil, leftRgn)
+            local caCogBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             caCogBtn:SetSize(26, 26)
             caCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
             leftRgn._lastInline = caCogBtn
@@ -868,7 +868,7 @@ initFrame:SetScript("OnEvent", function(self)
             caCogBtn:SetScript("OnClick", function(self) combatAlertCogShow(self) end)
 
             -- Blocking overlay for cog when the feature is off
-            local caCogBlock = CreateFrame("Frame", nil, caCogBtn)
+            local caCogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, caCogBtn)
             caCogBlock:SetAllPoints()
             caCogBlock:SetFrameLevel(caCogBtn:GetFrameLevel() + 10)
             caCogBlock:EnableMouse(true)
@@ -899,7 +899,7 @@ initFrame:SetScript("OnEvent", function(self)
             local function hitOff()
                 return not (EllesmereUIDB and EllesmereUIDB.hideTransforms)
             end
-            local cogBtn = CreateFrame("Button", nil, rgn)
+            local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
             cogBtn:SetSize(26, 26)
             cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
             rgn._lastInline = cogBtn
@@ -969,7 +969,7 @@ initFrame:SetScript("OnEvent", function(self)
             leftRgn._lastInline = fpsSwatch
 
             -- Disabled overlay for swatch when FPS is off
-            local fpsSwBlock = CreateFrame("Frame", nil, fpsSwatch)
+            local fpsSwBlock = EllesmereUI.SafeCreateFrame("Frame", nil, fpsSwatch)
             fpsSwBlock:SetAllPoints()
             fpsSwBlock:SetFrameLevel(fpsSwatch:GetFrameLevel() + 10)
             fpsSwBlock:EnableMouse(true)
@@ -1041,7 +1041,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local fpsCogBtn = CreateFrame("Button", nil, leftRgn)
+            local fpsCogBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             fpsCogBtn:SetSize(26, 26)
             fpsCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
             leftRgn._lastInline = fpsCogBtn
@@ -1055,7 +1055,7 @@ initFrame:SetScript("OnEvent", function(self)
             fpsCogBtn:SetScript("OnClick", function(self) fpsCogShow(self) end)
 
             -- Blocking overlay for cog when FPS is off
-            local fpsCogBlock = CreateFrame("Frame", nil, fpsCogBtn)
+            local fpsCogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, fpsCogBtn)
             fpsCogBlock:SetAllPoints()
             fpsCogBlock:SetFrameLevel(fpsCogBtn:GetFrameLevel() + 10)
             fpsCogBlock:EnableMouse(true)
@@ -1085,7 +1085,7 @@ initFrame:SetScript("OnEvent", function(self)
             local SIDE_PAD = 20
 
             local KB_W, KB_H = 140, 30
-            local kbBtn = CreateFrame("Button", nil, rightRgn)
+            local kbBtn = EllesmereUI.SafeCreateFrame("Button", nil, rightRgn)
             PP.Size(kbBtn, KB_W, KB_H)
             PP.Point(kbBtn, "RIGHT", rightRgn, "RIGHT", -SIDE_PAD, 0)
             kbBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 2)
@@ -1179,7 +1179,7 @@ initFrame:SetScript("OnEvent", function(self)
             end)
 
             kbBtn:SetScript("OnEnter", function(self)
-                kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+                kbBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
                 if kbBtn._border and kbBtn._border.SetColor then
                     kbBtn._border:SetColor(1, 1, 1, 0.3)
                 end
@@ -1187,7 +1187,7 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             kbBtn:SetScript("OnLeave", function()
                 if listening then return end
-                kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+                kbBg:SetTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
                 if kbBtn._border and kbBtn._border.SetColor then
                     kbBtn._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
                 end
@@ -1286,7 +1286,7 @@ initFrame:SetScript("OnEvent", function(self)
             leftRgn._lastInline = durSwatch
 
             -- Disabled overlay for swatch when durability warning is off
-            local durSwBlock = CreateFrame("Frame", nil, durSwatch)
+            local durSwBlock = EllesmereUI.SafeCreateFrame("Frame", nil, durSwatch)
             durSwBlock:SetAllPoints()
             durSwBlock:SetFrameLevel(durSwatch:GetFrameLevel() + 10)
             durSwBlock:EnableMouse(true)
@@ -1346,7 +1346,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local durCogBtn = CreateFrame("Button", nil, leftRgn)
+            local durCogBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             durCogBtn:SetSize(26, 26)
             durCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
             leftRgn._lastInline = durCogBtn
@@ -1360,7 +1360,7 @@ initFrame:SetScript("OnEvent", function(self)
             durCogBtn:SetScript("OnClick", function(self) durCogShow(self) end)
 
             -- Blocking overlay for cog when durability warning is off
-            local durCogBlock = CreateFrame("Frame", nil, durCogBtn)
+            local durCogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, durCogBtn)
             durCogBlock:SetAllPoints()
             durCogBlock:SetFrameLevel(durCogBtn:GetFrameLevel() + 10)
             durCogBlock:EnableMouse(true)
@@ -1387,7 +1387,7 @@ initFrame:SetScript("OnEvent", function(self)
             local EYE_VISIBLE   = EllesmereUI.MEDIA_PATH .. "icons\\eui-visible.png"
             local EYE_INVISIBLE = EllesmereUI.MEDIA_PATH .. "icons\\eui-invisible.png"
             local durPreviewShown = false
-            local eyeBtn = CreateFrame("Button", nil, leftRgn)
+            local eyeBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
             leftRgn._lastInline = eyeBtn
@@ -1427,7 +1427,7 @@ initFrame:SetScript("OnEvent", function(self)
             end)
 
             -- Blocking overlay for eye when durability warning is off
-            local eyeBlock = CreateFrame("Frame", nil, eyeBtn)
+            local eyeBlock = EllesmereUI.SafeCreateFrame("Frame", nil, eyeBtn)
             eyeBlock:SetAllPoints()
             eyeBlock:SetFrameLevel(eyeBtn:GetFrameLevel() + 10)
             eyeBlock:EnableMouse(true)
@@ -1503,7 +1503,7 @@ initFrame:SetScript("OnEvent", function(self)
             leftRgn._lastInline = ssSwatch
 
             -- Blocking overlay for swatch when Secondary Stat Display is off
-            local ssSwBlock = CreateFrame("Frame", nil, ssSwatch)
+            local ssSwBlock = EllesmereUI.SafeCreateFrame("Frame", nil, ssSwatch)
             ssSwBlock:SetAllPoints()
             ssSwBlock:SetFrameLevel(ssSwatch:GetFrameLevel() + 10)
             ssSwBlock:EnableMouse(true)
@@ -1558,7 +1558,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local ssCogBtn = CreateFrame("Button", nil, leftRgn)
+            local ssCogBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             ssCogBtn:SetSize(26, 26)
             ssCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
             leftRgn._lastInline = ssCogBtn
@@ -1572,7 +1572,7 @@ initFrame:SetScript("OnEvent", function(self)
             ssCogBtn:SetScript("OnClick", function(self) ssCogShow(self) end)
 
             -- Blocking overlay for cog when Secondary Stat Display is off
-            local ssCogBlock = CreateFrame("Frame", nil, ssCogBtn)
+            local ssCogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, ssCogBtn)
             ssCogBlock:SetAllPoints()
             ssCogBlock:SetFrameLevel(ssCogBtn:GetFrameLevel() + 10)
             ssCogBlock:EnableMouse(true)
@@ -1670,7 +1670,7 @@ initFrame:SetScript("OnEvent", function(self)
             local function restOff()
                 return not EllesmereUIDB or EllesmereUIDB.showRestedIndicator ~= true
             end
-            local restCogBtn = CreateFrame("Button", nil, leftRgn)
+            local restCogBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             restCogBtn:SetSize(26, 26)
             restCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
             leftRgn._lastInline = restCogBtn
@@ -1684,7 +1684,7 @@ initFrame:SetScript("OnEvent", function(self)
             restCogBtn:SetScript("OnClick", function(self) restCogShow(self) end)
 
             -- Blocking overlay when Rested Indicator is off
-            local restCogBlock = CreateFrame("Frame", nil, restCogBtn)
+            local restCogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, restCogBtn)
             restCogBlock:SetAllPoints()
             restCogBlock:SetFrameLevel(restCogBtn:GetFrameLevel() + 10)
             restCogBlock:EnableMouse(true)
@@ -1762,7 +1762,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
                 footer = { unlockKey = "EUI_TargetDistance" },
             })
-            local tdCogBtn = CreateFrame("Button", nil, rgn)
+            local tdCogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
             tdCogBtn:SetSize(26, 26)
             tdCogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
             rgn._lastInline = tdCogBtn
@@ -1775,7 +1775,7 @@ initFrame:SetScript("OnEvent", function(self)
             tdCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
             tdCogBtn:SetScript("OnClick", function(self) targetDistCogShow(self) end)
 
-            local tdCogBlock = CreateFrame("Frame", nil, tdCogBtn)
+            local tdCogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, tdCogBtn)
             tdCogBlock:SetAllPoints()
             tdCogBlock:SetFrameLevel(tdCogBtn:GetFrameLevel() + 10)
             tdCogBlock:EnableMouse(true)
@@ -1945,7 +1945,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Disabled overlay: grey + block when the crosshair is off, matching
             -- the placeholder's disabled state.
-            local visBlock = CreateFrame("Frame", nil, visCB)
+            local visBlock = EllesmereUI.SafeCreateFrame("Frame", nil, visCB)
             visBlock:SetAllPoints()
             visBlock:SetFrameLevel(visCB:GetFrameLevel() + 20)
             visBlock:EnableMouse(true)
@@ -1982,7 +1982,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(chSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = chSwatch
 
-            local chSwBlock = CreateFrame("Frame", nil, chSwatch)
+            local chSwBlock = EllesmereUI.SafeCreateFrame("Frame", nil, chSwatch)
             chSwBlock:SetAllPoints()
             chSwBlock:SetFrameLevel(chSwatch:GetFrameLevel() + 10)
             chSwBlock:EnableMouse(true)
@@ -2082,7 +2082,7 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = chCogRows,
             })
 
-            local chCogBtn = CreateFrame("Button", nil, leftRgn)
+            local chCogBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             chCogBtn:SetSize(26, 26)
             chCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
             leftRgn._lastInline = chCogBtn
@@ -2096,7 +2096,7 @@ initFrame:SetScript("OnEvent", function(self)
             chCogBtn:SetScript("OnClick", function(self) chCogShow(self) end)
 
             -- Blocking overlay when the crosshair is off (None)
-            local chCogBlock = CreateFrame("Frame", nil, chCogBtn)
+            local chCogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, chCogBtn)
             chCogBlock:SetAllPoints()
             chCogBlock:SetFrameLevel(chCogBtn:GetFrameLevel() + 10)
             chCogBlock:EnableMouse(true)
@@ -2154,7 +2154,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(mcSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = mcSwatch
 
-            local mcBlock = CreateFrame("Frame", nil, mcSwatch)
+            local mcBlock = EllesmereUI.SafeCreateFrame("Frame", nil, mcSwatch)
             mcBlock:SetAllPoints()
             mcBlock:SetFrameLevel(mcSwatch:GetFrameLevel() + 10)
             mcBlock:EnableMouse(true)
@@ -2321,7 +2321,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
 
-            local autoOpenContainerCogBtn = CreateFrame("Button", nil, rightRgn)
+            local autoOpenContainerCogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rightRgn)
             autoOpenContainerCogBtn:SetSize(26, 26)
             autoOpenContainerCogBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
             rightRgn._lastInline = autoOpenContainerCogBtn
@@ -2334,7 +2334,7 @@ initFrame:SetScript("OnEvent", function(self)
             autoOpenContainerCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(autoOpenContainerOff() and 0.15 or 0.4) end)
             autoOpenContainerCogBtn:SetScript("OnClick", function(self) autoOpenContainerCogShow(self) end)
 
-            local autoOpenContainerCogBlock = CreateFrame("Frame", nil, autoOpenContainerCogBtn)
+            local autoOpenContainerCogBlock = EllesmereUI.SafeCreateFrame("Frame", nil, autoOpenContainerCogBtn)
             autoOpenContainerCogBlock:SetAllPoints()
             autoOpenContainerCogBlock:SetFrameLevel(autoOpenContainerCogBtn:GetFrameLevel() + 10)
             autoOpenContainerCogBlock:EnableMouse(true)

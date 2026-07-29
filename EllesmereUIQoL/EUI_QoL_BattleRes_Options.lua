@@ -194,7 +194,7 @@ local function BuildBattleResPage(pageName, parent, yOffset)
                       set=function(v) Set(yKey, v); Refresh() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
+            local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
             cogBtn:SetSize(26, 26)
             PP.Point(cogBtn, "RIGHT", rgn._control or rgn, "LEFT", -6, 0)
             cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
@@ -301,7 +301,7 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
                       set=function(v) Set(yKey, v); Refresh() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
+            local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
             cogBtn:SetSize(26, 26)
             PP.Point(cogBtn, "RIGHT", rgn._control or rgn, "LEFT", -6, 0)
             cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
@@ -500,7 +500,7 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
                       set=function(v) BL_Set(yKey, v); BL_Refresh() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
+            local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
             cogBtn:SetSize(26, 26)
             PP.Point(cogBtn, "RIGHT", rgn._control or rgn, "LEFT", -6, 0)
             cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)

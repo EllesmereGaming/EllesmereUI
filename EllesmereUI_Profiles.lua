@@ -1540,7 +1540,7 @@ end
 local function EnsureProfileBindBtn(profileName)
     if _profileBindBtns[profileName] then return _profileBindBtns[profileName] end
     local safeName = profileName:gsub("[^%w]", "")
-    local btn = CreateFrame("Button", "EllesmereUIProfileBind_" .. safeName, UIParent)
+    local btn = EllesmereUI.SafeCreateFrame("Button", "EllesmereUIProfileBind_" .. safeName, UIParent)
     btn:Hide()
     btn:SetScript("OnClick", function()
         local active = EllesmereUI.GetActiveProfileName()
@@ -2661,7 +2661,7 @@ do
         end
 
         if not driver then
-            driver = CreateFrame("Frame")
+            driver = EllesmereUI.SafeCreateFrame("Frame")
             driver:Hide()
         end
         driver:SetScript("OnUpdate", Step)
@@ -3795,7 +3795,7 @@ end
 --  during combat via pendingSpecSwitch / PLAYER_REGEN_ENABLED.
 -------------------------------------------------------------------------------
 do
-    local specFrame = CreateFrame("Frame")
+    local specFrame = EllesmereUI.SafeCreateFrame("Frame")
     local lastKnownSpecID = nil
     local lastKnownCharKey = nil
     local pendingSpecSwitch = false   -- true when a switch was deferred by combat
@@ -4431,7 +4431,7 @@ do
         end
     end)
 
-    local initFrame = CreateFrame("Frame")
+    local initFrame = EllesmereUI.SafeCreateFrame("Frame")
     initFrame:RegisterEvent("PLAYER_LOGIN")
     initFrame:SetScript("OnEvent", function(self)
         self:UnregisterEvent("PLAYER_LOGIN")
@@ -4580,7 +4580,7 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
     local FONT = EllesmereUI.EXPRESSWAY
 
     -- Dimmer
-    local dimmer = CreateFrame("Frame", nil, UIParent)
+    local dimmer = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
     dimmer:SetAllPoints(UIParent)
     dimmer:EnableMouse(true)
@@ -4588,10 +4588,10 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
     dimmer:SetScript("OnMouseWheel", function() end)
     local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
     dimTex:SetAllPoints()
-    dimTex:SetColorTexture(0, 0, 0, 0.25)
+    dimTex:SetTexture(0, 0, 0, 0.25)
 
     -- Popup
-    local popup = CreateFrame("Frame", nil, dimmer)
+    local popup = EllesmereUI.SafeCreateFrame("Frame", nil, dimmer)
     popup:SetSize(POPUP_W, POPUP_H)
     popup:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
     popup:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -4599,7 +4599,7 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
     popup:EnableMouse(true)
     local bg = popup:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.06, 0.08, 0.10, 1)
+    bg:SetTexture(0.06, 0.08, 0.10, 1)
     EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
 
     -- Title
@@ -4614,18 +4614,18 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
     subFS:SetText(subtitle)
 
     -- ScrollFrame containing the EditBox
-    local sf = CreateFrame("ScrollFrame", nil, popup)
+    local sf = EllesmereUI.SafeCreateFrame("ScrollFrame", nil, popup)
     sf:SetPoint("TOPLEFT",     popup, "TOPLEFT",     20, -58)
     sf:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -20, 52)
     sf:SetFrameLevel(popup:GetFrameLevel() + 1)
     sf:EnableMouseWheel(true)
 
-    local sc = CreateFrame("Frame", nil, sf)
+    local sc = EllesmereUI.SafeCreateFrame("Frame", nil, sf)
     sc:SetWidth(sf:GetWidth() or (POPUP_W - 40))
     sc:SetHeight(1)
     sf:SetScrollChild(sc)
 
-    local editBox = CreateFrame("EditBox", nil, sc)
+    local editBox = EllesmereUI.SafeCreateFrame("EditBox", nil, sc)
     editBox:SetMultiLine(true)
     editBox:SetAutoFocus(false)
     editBox:SetFont(FONT, 11, "")
@@ -4635,7 +4635,7 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
     editBox:SetHeight(1)  -- grows with content
 
     -- Scrollbar track
-    local scrollTrack = CreateFrame("Frame", nil, sf)
+    local scrollTrack = EllesmereUI.SafeCreateFrame("Frame", nil, sf)
     scrollTrack:SetWidth(4)
     scrollTrack:SetPoint("TOPRIGHT",    sf, "TOPRIGHT",    -2, -4)
     scrollTrack:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", -2,  4)
@@ -4643,9 +4643,9 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
     scrollTrack:Hide()
     local trackBg = scrollTrack:CreateTexture(nil, "BACKGROUND")
     trackBg:SetAllPoints()
-    trackBg:SetColorTexture(1, 1, 1, 0.02)
+    trackBg:SetTexture(1, 1, 1, 0.02)
 
-    local scrollThumb = CreateFrame("Button", nil, scrollTrack)
+    local scrollThumb = EllesmereUI.SafeCreateFrame("Button", nil, scrollTrack)
     scrollThumb:SetWidth(4)
     scrollThumb:SetHeight(60)
     scrollThumb:SetPoint("TOP", scrollTrack, "TOP", 0, 0)
@@ -4656,11 +4656,11 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
     scrollThumb:SetScript("OnDragStop",  function() end)
     local thumbTex = scrollThumb:CreateTexture(nil, "ARTWORK")
     thumbTex:SetAllPoints()
-    thumbTex:SetColorTexture(1, 1, 1, 0.27)
+    thumbTex:SetTexture(1, 1, 1, 0.27)
 
     local scrollTarget = 0
     local isSmoothing  = false
-    local smoothFrame  = CreateFrame("Frame")
+    local smoothFrame  = EllesmereUI.SafeCreateFrame("Frame")
     smoothFrame:Hide()
 
     local function UpdateThumb()
@@ -4807,7 +4807,7 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
 
     -- Buttons
     if onConfirm then
-        local confirmBtn = CreateFrame("Button", nil, popup)
+        local confirmBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
         confirmBtn:SetSize(120, 26)
         confirmBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOM", -4, 14)
         confirmBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
@@ -4820,14 +4820,14 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
                 end
             end)
 
-        local cancelBtn = CreateFrame("Button", nil, popup)
+        local cancelBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
         cancelBtn:SetSize(120, 26)
         cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 14)
         cancelBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
         EllesmereUI.MakeStyledButton(cancelBtn, "Cancel", 11,
             EllesmereUI.RB_COLOURS, function() dimmer:Hide() end)
     else
-        local closeBtn = CreateFrame("Button", nil, popup)
+        local closeBtn = EllesmereUI.SafeCreateFrame("Button", nil, popup)
         closeBtn:SetSize(120, 26)
         closeBtn:SetPoint("BOTTOM", popup, "BOTTOM", 0, 14)
         closeBtn:SetFrameLevel(popup:GetFrameLevel() + 2)

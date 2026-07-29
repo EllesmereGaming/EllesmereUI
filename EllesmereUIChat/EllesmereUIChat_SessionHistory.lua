@@ -34,8 +34,8 @@ local restoredFrames = {}
 local sessionEpochTime = nil
 local captureSeq = 0
 
-local eventFrame = CreateFrame("Frame")
-local deferFrame = CreateFrame("Frame")
+local eventFrame = EllesmereUI.SafeCreateFrame("Frame")
+local deferFrame = EllesmereUI.SafeCreateFrame("Frame")
 local UnarmDeferredRestore
 
 -- Capture in open world only (CaptureAllowed); instance chat still not storable.

@@ -285,7 +285,7 @@ local function PaintFilledIcon(btn, gemLink)
     local icon = btn.icon
     -- Clear atlas / color-texture mode before applying a fileID.
     if icon.SetAtlas then icon:SetAtlas(nil) end
-    icon:SetColorTexture(0, 0, 0, 0)
+    icon:SetTexture(0, 0, 0, 0)
     icon:SetTexture(nil)
     if icon.SetVertexColor then icon:SetVertexColor(1, 1, 1, 1) end
 
@@ -313,7 +313,7 @@ end
 local function PaintEmptyIcon(btn)
     local icon = btn.icon
     if icon.SetAtlas then icon:SetAtlas(nil) end
-    icon:SetColorTexture(0, 0, 0, 0)
+    icon:SetTexture(0, 0, 0, 0)
     icon:SetTexture(nil)
     if icon.SetVertexColor then icon:SetVertexColor(1, 1, 1, 1) end
     icon:SetTexture(EMPTY_SOCKET_TEX)
@@ -368,7 +368,7 @@ local function StartSlotGlow(slotID)
     local slotBtn = SlotButtonFor(slotID)
     if not slotBtn then return end
     if not slotGlow then
-        slotGlow = CreateFrame("Frame", nil, CharacterFrame)
+        slotGlow = EllesmereUI.SafeCreateFrame("Frame", nil, CharacterFrame)
     end
     slotGlow:ClearAllPoints()
     slotGlow:SetAllPoints(slotBtn)
@@ -386,7 +386,7 @@ local function AcquireIcon(i)
     local btn = iconPool[i]
     if btn then return btn end
 
-    btn = CreateFrame("Button", nil, panel)
+    btn = EllesmereUI.SafeCreateFrame("Button", nil, panel)
     btn:SetSize(SIZE, SIZE)
 
     local icon = btn:CreateTexture(nil, "ARTWORK")
@@ -402,7 +402,7 @@ local function AcquireIcon(i)
     -- Hover wash
     local hov = btn:CreateTexture(nil, "HIGHLIGHT")
     hov:SetAllPoints(btn)
-    hov:SetColorTexture(1, 1, 1, 0.1)
+    hov:SetTexture(1, 1, 1, 0.1)
 
     btn:SetScript("OnEnter", function(self)
         local rec = self.euiSock
@@ -604,7 +604,7 @@ local function AcquireGemRow(i)
     local row = gemRows[i]
     if row then return row end
 
-    row = CreateFrame("Button", nil, flyout)
+    row = EllesmereUI.SafeCreateFrame("Button", nil, flyout)
     row:SetHeight(ROW_H)
 
     local icon = row:CreateTexture(nil, "ARTWORK")
@@ -628,7 +628,7 @@ local function AcquireGemRow(i)
 
     local hov = row:CreateTexture(nil, "HIGHLIGHT")
     hov:SetAllPoints(row)
-    hov:SetColorTexture(1, 1, 1, 0.1)
+    hov:SetTexture(1, 1, 1, 0.1)
 
     row:SetScript("OnEnter", function(self)
         if not self.gemLink then return end
@@ -668,7 +668,7 @@ local function PopulateFlyout()
         -- Single greyed "no gems" row.
         local row = AcquireGemRow(1)
         row.icon:SetTexture(nil)
-        row.icon:SetColorTexture(0, 0, 0, 0)
+        row.icon:SetTexture(0, 0, 0, 0)
         row.label:SetText("No gems in bags.")
         row.label:SetTextColor(0.5, 0.5, 0.5)
         row.count:SetText("")
@@ -691,7 +691,7 @@ local function PopulateFlyout()
             local g = gemCache[flyoutScroll + vis]
             local row = AcquireGemRow(vis)
             row.icon:SetTexture(g.tex)
-            row.icon:SetColorTexture(0, 0, 0, 0)
+            row.icon:SetTexture(0, 0, 0, 0)
             row.icon:SetTexture(g.tex)
             row.label:SetTextColor(1, 1, 1)
             row.label:SetText(g.link and GetGemStatText(g.link) or "Loading...")
@@ -714,7 +714,7 @@ local function BuildFlyout()
     if flyout then return end
 
     -- Full-screen click-catcher (our frame), just below the flyout strata.
-    catcher = CreateFrame("Button", nil, UIParent)
+    catcher = EllesmereUI.SafeCreateFrame("Button", nil, UIParent)
     catcher:SetAllPoints(UIParent)
     catcher:SetFrameStrata("FULLSCREEN")
     catcher:EnableMouse(true)
@@ -722,7 +722,7 @@ local function BuildFlyout()
     catcher:Hide()
     catcher:SetScript("OnClick", function() CloseFlyout() end)
 
-    flyout = CreateFrame("Frame", "EUI_CharSheet_SocketFlyout", UIParent)
+    flyout = EllesmereUI.SafeCreateFrame("Frame", "EUI_CharSheet_SocketFlyout", UIParent)
     flyout:SetWidth(FLYOUT_W)
     flyout:SetHeight(ROW_H + 8)
     flyout:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -730,7 +730,7 @@ local function BuildFlyout()
 
     local bg = flyout:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints(flyout)
-    bg:SetColorTexture(0.06, 0.06, 0.06, 0.95)
+    bg:SetTexture(0.06, 0.06, 0.06, 0.95)
     if PP and PP.CreateBorder then
         PP.CreateBorder(flyout, 0.2, 0.2, 0.2, 1, 1, "OVERLAY", 1)
     end
@@ -919,14 +919,14 @@ local function BuildPanel()
     -- right-aligned. No header, no backdrop -- just the gems. Anchoring to
     -- CharacterFrame directly (not a skin frame) means the panel builds fine
     -- on the very first open after login, before the skin's lazy layout runs.
-    panel = CreateFrame("Frame", "EUI_CharSheet_SocketPanel", CharacterFrame)
+    panel = EllesmereUI.SafeCreateFrame("Frame", "EUI_CharSheet_SocketPanel", CharacterFrame)
     panel:ClearAllPoints()
     panel:SetPoint("BOTTOMRIGHT", CharacterFrame, "BOTTOMRIGHT", -10, 6)
     panel:SetSize(SIZE, SIZE)
     panel:SetFrameLevel(55)
 
     if not evtFrame then
-        evtFrame = CreateFrame("Frame")
+        evtFrame = EllesmereUI.SafeCreateFrame("Frame")
         evtFrame:SetScript("OnEvent", OnEvent)
     end
 
@@ -980,7 +980,7 @@ end
 --  Bootstrap
 --------------------------------------------------------------------------------
 
-local boot = CreateFrame("Frame")
+local boot = EllesmereUI.SafeCreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")
 boot:SetScript("OnEvent", function()
     if EllesmereUI then

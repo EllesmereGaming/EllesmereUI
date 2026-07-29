@@ -20,7 +20,7 @@ _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
     do
         local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath())
             or "Fonts\\FRIZQT__.TTF"
-        local infoFrame = CreateFrame("Frame", nil, parent)
+        local infoFrame = EllesmereUI.SafeCreateFrame("Frame", nil, parent)
         infoFrame:SetSize(parent:GetWidth(), 34)
         infoFrame:SetPoint("TOP", parent, "TOP", 0, y - 10)
         infoFrame._isSpacer = true

@@ -276,7 +276,7 @@ local NPC_TITLE_FONT_SIZE = 10
 local function AcquireOverlay()
     local overlay = table.remove(npcOverlayPool)
     if overlay then return overlay end
-    overlay = CreateFrame("Frame", nil, UIParent)
+    overlay = EllesmereUI.SafeCreateFrame("Frame", nil, UIParent)
     overlay:SetSize(1, 1)
     overlay.name = overlay:CreateFontString(nil, "OVERLAY")
     SetFSFont(overlay.name, 9, "")
@@ -403,7 +403,7 @@ ns.RefreshAllNPCOverlays = RefreshAllNPCOverlays
 --  Hidden frame — Blizzard sub-frames reparented here become invisible
 --  and stop receiving layout updates.  This suppresses the default frames.
 -------------------------------------------------------------------------------
-local hiddenFrame = CreateFrame("Frame")
+local hiddenFrame = EllesmereUI.SafeCreateFrame("Frame")
 hiddenFrame:Hide()
 
 -------------------------------------------------------------------------------
@@ -571,7 +571,7 @@ end)
 local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(plate)
     plate:SetFlattensRenderLayers(true)
 
-    plate.health = CreateFrame("StatusBar", nil, plate)
+    plate.health = EllesmereUI.SafeCreateFrame("StatusBar", nil, plate)
     plate.health:SetFrameLevel(10)
     plate.health:SetPoint("CENTER", 0, FRIENDLY_PLATE_Y_OFFSET)
     plate.health:SetSize(GetFriendlyHealthBarWidth(), GetFriendlyHealthBarHeight())
@@ -579,7 +579,7 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
 
     plate.healthBG = plate.health:CreateTexture(nil, "BACKGROUND")
     plate.healthBG:SetAllPoints()
-    plate.healthBG:SetColorTexture(0.12, 0.12, 0.12, 1.0)
+    plate.healthBG:SetTexture(0.12, 0.12, 0.12, 1.0)
 
     -- Border: pixel-perfect PP.CreateBorder mirroring the enemy nameplate
     -- border exactly. Reads the same enemy border settings (showBorder,
@@ -626,7 +626,7 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
     local GLOW_MARGIN = 0.48
     local GLOW_CORNER = 12
     local GLOW_EXTEND = 6
-    plate.glowFrame = CreateFrame("Frame", nil, plate)
+    plate.glowFrame = EllesmereUI.SafeCreateFrame("Frame", nil, plate)
     plate.glowFrame:SetFrameStrata("BACKGROUND")
     plate.glowFrame:SetFrameLevel(1)
     plate.glowFrame:SetPoint("TOPLEFT", plate.health, "TOPLEFT", -GLOW_EXTEND, GLOW_EXTEND)
@@ -688,7 +688,7 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
     plate.highlight:SetAllPoints()
     local _hc = (FP() and FP().hoverColor) or ns.defaults.hoverColor
     local _ha = (FP() and FP().hoverAlpha) or ns.defaults.hoverAlpha
-    plate.highlight:SetColorTexture(_hc.r, _hc.g, _hc.b, _ha)
+    plate.highlight:SetTexture(_hc.r, _hc.g, _hc.b, _ha)
     plate.highlight:Hide()
 
     plate.name = plate:CreateFontString(nil, "OVERLAY")
@@ -716,7 +716,7 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
     plate.rightArrow:SetPoint("BOTTOM", plate.name, "RIGHT", 2 + _aSt.w / 2, -8)
     plate.rightArrow:Hide()
 
-    plate.raidFrame = CreateFrame("Frame", nil, plate)
+    plate.raidFrame = EllesmereUI.SafeCreateFrame("Frame", nil, plate)
     plate.raidFrame:SetSize(24, 24)
     plate.raidFrame:SetPoint("BOTTOMRIGHT", plate.health, "TOPRIGHT", 2, 2)
     plate.raidFrame:Hide()
@@ -879,7 +879,7 @@ end
 function FriendlyFrame:ApplyTarget()
     if not self.unit then return end
     local isTarget = UnitIsUnit(self.unit, "target")
-    self.glow:SetShown(isTarget)
+    if isTarget then self.glow:Show() else self.glow:Hide() end
     local fp = FP()
     local showArrows = isTarget and fp and fp.showTargetArrows
     if showArrows then
@@ -892,8 +892,8 @@ function FriendlyFrame:ApplyTarget()
         self.leftArrow:SetSize(st.w, 16)
         self.rightArrow:SetSize(st.w, 16)
     end
-    self.leftArrow:SetShown(showArrows or false)
-    self.rightArrow:SetShown(showArrows or false)
+    if showArrows or false then self.leftArrow:Show() else self.leftArrow:Hide() end
+    if showArrows or false then self.rightArrow:Show() else self.rightArrow:Hide() end
 end
 
 function FriendlyFrame:UNIT_HEALTH()  self:UpdateHealth() end
@@ -903,7 +903,7 @@ function FriendlyFrame:UNIT_NAME_UPDATE()  self:UpdateName() end
 --  Friendly event manager (target, mouseover, raid icons)
 --  Only registered when friendly plates are active -- zero CPU when disabled.
 -------------------------------------------------------------------------------
-local friendlyManager = CreateFrame("Frame")
+local friendlyManager = EllesmereUI.SafeCreateFrame("Frame")
 local friendlyManagerRegistered = false
 
 local RegisterFriendlyManager   -- forward declaration
@@ -1099,7 +1099,7 @@ end
 -------------------------------------------------------------------------------
 local CLICK_THROUGH_INSET = 10000
 local clickThroughApplied = false
-local clickThroughRetry = CreateFrame("Frame")
+local clickThroughRetry = EllesmereUI.SafeCreateFrame("Frame")
 
 local function ApplyFriendlyClickThrough()
     if not (C_NamePlateManager and C_NamePlateManager.SetNamePlateHitTestInsets
@@ -1344,7 +1344,7 @@ if NamePlateDriverFrame and NamePlateDriverFrame.UpdateNamePlateOptions then
 end
 
 -------------------------------------------------------------------------------
-local initFrame = CreateFrame("Frame")
+local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 initFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")

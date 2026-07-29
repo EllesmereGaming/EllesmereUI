@@ -5,7 +5,7 @@ local ADDON_NAME, ns = ...
 
 local PAGE_DISPLAY = "Mythic+ Timer"
 
-local initFrame = CreateFrame("Frame")
+local initFrame = EllesmereUI.SafeCreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
@@ -187,7 +187,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) Set("frameWidth", v); Refresh() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, leftRgn)
+            local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, leftRgn)
             cogBtn:SetSize(26, 26)
             PP.Point(cogBtn, "RIGHT", leftRgn._control or leftRgn, "LEFT", -6, 0)
             cogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
@@ -270,7 +270,7 @@ initFrame:SetScript("OnEvent", function(self)
         local function _AttachPopupButton(rgn, icon, popupTitle, rows, isDisabled)
             local PP = EllesmereUI.PP
             local _, popupShow = EllesmereUI.BuildCogPopup({ title = popupTitle, rows = rows })
-            local btn = CreateFrame("Button", nil, rgn)
+            local btn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
             btn:SetSize(26, 26)
             -- Chain off any inline widget already on this region (swatch / earlier cog)
             -- so multiple inline controls sit side by side instead of overlapping.
@@ -314,7 +314,7 @@ initFrame:SetScript("OnEvent", function(self)
                 false, 18)
             PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control or rgn, "LEFT", -8, 0)
             rgn._lastInline = swatch
-            local block = CreateFrame("Frame", nil, swatch)
+            local block = EllesmereUI.SafeCreateFrame("Frame", nil, swatch)
             block:SetAllPoints()
             block:SetFrameLevel(swatch:GetFrameLevel() + 10)
             block:EnableMouse(true)
@@ -386,7 +386,7 @@ initFrame:SetScript("OnEvent", function(self)
             local function AddBlock(sw, enterTip)
                 sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, enterTip) end)
                 sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local block = CreateFrame("Frame", nil, sw)
+                local block = EllesmereUI.SafeCreateFrame("Frame", nil, sw)
                 block:SetAllPoints(); block:SetFrameLevel(sw:GetFrameLevel() + 10); block:EnableMouse(true)
                 block:SetScript("OnEnter", function()
                     EllesmereUI.ShowWidgetTooltip(sw, EllesmereUI.DisabledTooltip(disabledTip or "the module"))
@@ -685,7 +685,7 @@ initFrame:SetScript("OnEvent", function(self)
                             set = function(v) Set("borderTextureShiftY", v == 0 and nil or v); ApplyBorder() end },
                         },
                     })
-                    local cogBtn = CreateFrame("Button", nil, rgn)
+                    local cogBtn = EllesmereUI.SafeCreateFrame("Button", nil, rgn)
                     cogBtn:SetSize(26, 26)
                     local ctrl = rgn._control
                     if ctrl then

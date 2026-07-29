@@ -212,7 +212,7 @@ local function SetupOverlays()
                     local key = assignKey .. "_" .. i
                     local overlay = overlayFrames[key]
                     if not overlay then
-                        overlay = CreateFrame("Frame", "ECME_Glow_" .. key, btn)
+                        overlay = EllesmereUI.SafeCreateFrame("Frame", "ECME_Glow_" .. key, btn)
                         overlayFrames[key] = overlay
                     end
                     if overlay:GetParent() ~= btn then

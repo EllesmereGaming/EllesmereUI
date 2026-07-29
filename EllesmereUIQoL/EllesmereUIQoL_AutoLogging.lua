@@ -148,7 +148,7 @@ local events = {
 -- feature costs nothing on zone changes. The options toggle calls
 -- _EUI_AutoLogging_Check, which re-syncs registration AND applies the logging
 -- state immediately (disabling mid-instance still stops an active log).
-local logFrame = CreateFrame("Frame")
+local logFrame = EllesmereUI.SafeCreateFrame("Frame")
 local _eventsRegistered = false
 local function SyncEventRegistration()
     local want = Cfg().enabled and true or false
